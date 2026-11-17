@@ -46,8 +46,10 @@ import {
 } from "@/lib/commcare/validator/errors";
 import { formLogicFinding } from "@/lib/commcare/validator/formLogicFindings";
 import {
+	type CommitVerdict,
 	evaluateBoundary,
 	evaluateCommit,
+	evaluateCommitAndBoundarySteps,
 	evaluateScopedCommit,
 } from "@/lib/commcare/validator/gate";
 import { validateLookupReferences } from "@/lib/commcare/validator/lookupReferences";
@@ -91,7 +93,7 @@ import {
 } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
-import type { MutationResult } from "@/lib/doc/types";
+import type { Mutation, MutationResult } from "@/lib/doc/types";
 import { offeredChoiceRefusal } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
@@ -473,6 +475,12 @@ export type MutationCommitVerdict =
 	  }
 	| { ok: false; nextDoc: BlueprintDoc; findings: ValidationError[] };
 
+/** A verdict that refuses its candidate. */
+export type RefusedCommitVerdict = Extract<
+	MutationCommitVerdict,
+	{ readonly ok: false }
+>;
+
 /**
  * Candidate prepared exactly once for one commit attempt. Evaluation consumes
  * the candidate doc and reducer results; it has no mutation batch to re-apply
@@ -490,6 +498,17 @@ export interface PreparedMutationCandidate {
 }
 
 /**
+ * The mutation kinds that write one of the app's own scalars and nothing
+ * else: no entity, identity, sequence or target. Identity, sequence and
+ * target admission each pass them over, so a batch of these alone admits.
+ * `__tests__/appScalarAdmission.property.test.ts` holds the three
+ * admissions to that over the oracle corpora.
+ */
+export const APP_SCALAR_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set(
+	["setAppName", "setAppLogo", "setAppSettings", "setConnectType"],
+);
+
+/**
  * Apply one mutation batch once and retain every value the later verdict and
  * accepting writer need. An authoritative retry prepares again only after it
  * opens a new transaction attempt and reloads that attempt's fresh base doc.
@@ -498,6 +517,24 @@ export function prepareMutationCandidate(
 	prevDoc: BlueprintDoc,
 	mutations: AdmittedMutationBatch,
 ): PreparedMutationCandidate {
+	const steps = prepareMutationCandidateSteps(prevDoc, mutations);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `prepareMutationCandidate` a part at a time: it stops after each of the
+ * three whole-document admissions, before the batch is applied, until it is
+ * resumed, so a caller on a request can let the event loop turn while a
+ * construction batch at the bring-in byte cap is prepared. The candidate is
+ * `prepareMutationCandidate`'s, which drives this.
+ */
+export function* prepareMutationCandidateSteps(
+	prevDoc: BlueprintDoc,
+	mutations: AdmittedMutationBatch,
+): Generator<void, PreparedMutationCandidate, void> {
 	/* Scalar field patches neither claim identities nor alter sequence
 	 * membership. Avoid materializing both whole-document admission indexes for
 	 * the Builder's most frequent edit path. Inline option replacement remains
@@ -506,9 +543,17 @@ export function prepareMutationCandidate(
 		mutations.length === 1 &&
 		mutations[0]?.kind === "updateField" &&
 		!("optionsSource" in mutations[0].patch);
-	const identityIssue = scalarFieldUpdate
-		? undefined
-		: mutationIdentityAdmissionIssue(prevDoc, mutations);
+	/* An app-level scalar (the app's name, logo, settings or Connect type)
+	 * names no entity, claims no identity and moves no sequence, and each
+	 * admission passes it over (`APP_SCALAR_MUTATION_KINDS`), so a batch of
+	 * them alone skips the three whole-document admission indexes too. */
+	const appScalarsOnly =
+		mutations.length > 0 &&
+		mutations.every((mutation) => APP_SCALAR_MUTATION_KINDS.has(mutation.kind));
+	const identityIssue =
+		scalarFieldUpdate || appScalarsOnly
+			? undefined
+			: mutationIdentityAdmissionIssue(prevDoc, mutations);
 	if (identityIssue !== undefined) {
 		return {
 			mutations,
@@ -517,9 +562,11 @@ export function prepareMutationCandidate(
 			identityAdmissionIssue: identityIssue,
 		};
 	}
-	const sequenceIssue = scalarFieldUpdate
-		? undefined
-		: mutationSequenceAdmissionIssue(prevDoc, mutations);
+	yield;
+	const sequenceIssue =
+		scalarFieldUpdate || appScalarsOnly
+			? undefined
+			: mutationSequenceAdmissionIssue(prevDoc, mutations);
 	if (sequenceIssue !== undefined) {
 		return {
 			mutations,
@@ -528,7 +575,8 @@ export function prepareMutationCandidate(
 			sequenceAdmissionIssue: sequenceIssue,
 		};
 	}
-	if (mutationTargetsInvalid(prevDoc, mutations)) {
+	yield;
+	if (!appScalarsOnly && mutationTargetsInvalid(prevDoc, mutations)) {
 		return {
 			mutations,
 			nextDoc: prevDoc,
@@ -558,6 +606,7 @@ export function prepareMutationCandidate(
 			results: [],
 		};
 	}
+	yield;
 
 	let results: MutationResult[] = [];
 	const nextDoc = produce(prevDoc, (draft) => {
@@ -601,6 +650,27 @@ export function evaluatePreparedMutationCandidate(
 	lookupContext: LookupValidationContext,
 	options?: { readonly validationScope?: ValidationScope },
 ): MutationCommitVerdict {
+	const admission = admissionIssueVerdict(prepared);
+	if (admission !== undefined) return admission;
+	const verdict =
+		options?.validationScope === undefined
+			? evaluateCommit({
+					nextDoc: prepared.nextDoc,
+					lookupContext,
+				})
+			: evaluateScopedCommit({
+					nextDoc: prepared.nextDoc,
+					lookupContext,
+					scope: options.validationScope,
+				});
+	return candidateVerdict(prepared, verdict);
+}
+
+/** The verdict of a candidate whose preparation stopped at an admission issue
+ *  (`preparedCandidateHasAdmissionIssue`): that issue's finding alone. */
+function admissionIssueVerdict(
+	prepared: PreparedMutationCandidate,
+): RefusedCommitVerdict | undefined {
 	if (prepared.identityAdmissionIssue !== undefined) {
 		const issue = prepared.identityAdmissionIssue;
 		return {
@@ -682,17 +752,14 @@ export function evaluatePreparedMutationCandidate(
 		};
 	}
 
-	const verdict =
-		options?.validationScope === undefined
-			? evaluateCommit({
-					nextDoc: prepared.nextDoc,
-					lookupContext,
-				})
-			: evaluateScopedCommit({
-					nextDoc: prepared.nextDoc,
-					lookupContext,
-					scope: options.validationScope,
-				});
+	return undefined;
+}
+
+/** A candidate's verdict from the gate's verdict over its document. */
+function candidateVerdict(
+	prepared: PreparedMutationCandidate,
+	verdict: CommitVerdict,
+): MutationCommitVerdict {
 	return verdict.ok
 		? {
 				ok: true,
@@ -718,17 +785,74 @@ export function mutationCommitVerdict(
 	mutations: unknown,
 	lookupContext: LookupValidationContext,
 ): MutationCommitVerdict {
+	const steps = mutationCommitVerdictSteps(prevDoc, mutations, lookupContext);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value.verdict;
+	}
+}
+
+/** `mutationCommitVerdictSteps`' answer: the verdict and, where it admits the
+ *  candidate, the candidate's export readiness. */
+export type SteppedCommitVerdict =
+	| {
+			readonly verdict: Extract<MutationCommitVerdict, { readonly ok: true }>;
+			readonly readiness: (
+				mediaAssets: Parameters<typeof evaluateBoundary>[1],
+			) => ValidationError[];
+	  }
+	| { readonly verdict: RefusedCommitVerdict };
+
+/**
+ * `mutationCommitVerdict` a part at a time: it stops after admission, after
+ * the candidate is applied and between the parts of its validation
+ * (`runner.ts::structuralValidationSteps`), until it is resumed, so a caller on a
+ * request can let the event loop turn between the parts of a large batch's
+ * verdict (an app brought in from CommCare HQ is born through one). The
+ * parts and the verdict are `mutationCommitVerdict`'s, which drives this.
+ *
+ * Where the verdict admits the candidate, `readiness` is
+ * `exportReadinessFindings` of its document, read from the validator run the
+ * verdict made rather than a second one.
+ */
+export function* mutationCommitVerdictSteps(
+	prevDoc: BlueprintDoc,
+	mutations: unknown,
+	lookupContext: LookupValidationContext,
+): Generator<void, SteppedCommitVerdict, void> {
 	let admitted: AdmittedMutationBatch;
 	try {
 		admitted = admitMutationBatch(mutations);
 	} catch (error) {
 		if (!(error instanceof MutationWireCanonicalityError)) throw error;
-		return mutationWireCanonicalityRejection(prevDoc, error);
+		return { verdict: mutationWireCanonicalityRejection(prevDoc, error) };
 	}
-	return evaluatePreparedMutationCandidate(
-		prepareMutationCandidate(prevDoc, admitted),
+	yield;
+	const prepared = yield* prepareMutationCandidateSteps(prevDoc, admitted);
+	yield;
+	return yield* evaluatePreparedMutationCandidateSteps(prepared, lookupContext);
+}
+
+/**
+ * `mutationCommitVerdictSteps` from a candidate already prepared: the
+ * admission issue preparation stopped at, else the absolute gate over the
+ * candidate's document, a part at a time, with the candidate's export
+ * readiness where the gate admits it.
+ */
+export function* evaluatePreparedMutationCandidateSteps(
+	prepared: PreparedMutationCandidate,
+	lookupContext: LookupValidationContext,
+): Generator<void, SteppedCommitVerdict, void> {
+	const admission = admissionIssueVerdict(prepared);
+	if (admission !== undefined) return { verdict: admission };
+	const { verdict, boundary } = yield* evaluateCommitAndBoundarySteps({
+		nextDoc: prepared.nextDoc,
 		lookupContext,
-	);
+	});
+	const candidate = candidateVerdict(prepared, verdict);
+	return candidate.ok
+		? { verdict: candidate, readiness: boundary }
+		: { verdict: candidate };
 }
 
 /**
@@ -826,7 +950,7 @@ export function preparedCommitVerdictWithPrevalidation(
 export function mutationWireCanonicalityRejection(
 	prevDoc: BlueprintDoc,
 	error: MutationWireCanonicalityError,
-): MutationCommitVerdict {
+): RefusedCommitVerdict {
 	return {
 		ok: false,
 		nextDoc: prevDoc,

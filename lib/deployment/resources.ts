@@ -103,6 +103,12 @@ export interface DeploymentEnding {
 	readonly byName: string;
 	readonly reason: DeploymentEndReason;
 	readonly hqAppId: string;
+	/**
+	 * Another Nova app publishes to that HQ app now (the mapping's
+	 * `heldByAnotherApp`): someone brought it in, or a restore took it back.
+	 * Its card then names no way to that HQ app, since it is another app's.
+	 */
+	readonly heldByAnotherApp: boolean;
 }
 
 /**
@@ -143,6 +149,7 @@ export function deploymentEnding(
 		byName: mapping.endedByName ?? "Someone",
 		reason: mapping.endedReason,
 		hqAppId: mapping.remoteId,
+		heldByAnotherApp: mapping.heldByAnotherApp,
 	};
 }
 

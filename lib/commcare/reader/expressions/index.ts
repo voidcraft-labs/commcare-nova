@@ -10,6 +10,7 @@
  * typing fact is cached per document, and documents are replaced, never
  * changed in place. Pure; it never throws for an app's content.
  */
+import { freeze, produce } from "immer";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -48,6 +49,7 @@ import {
 	FORM_REFERENCE_SLOTS,
 	MODULE_REFERENCE_SLOTS,
 } from "@/lib/domain/referenceSlots";
+import { isDeeplySettled } from "@/lib/domain/settled";
 import {
 	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
@@ -218,14 +220,30 @@ export const EXPRESSION_ROUND_LIMIT = 64;
 
 // ── Documents ────────────────────────────────────────────────────────
 
-/** A whole new document with `change` applied, never the one given. */
-function cloned(
+/** A whole new document with `change` applied, never the one given; deeply
+ *  frozen, so the lookups a whole-document pass makes once per form or field
+ *  (which menu lists a form) answer from one derivation per document rather
+ *  than a scan per call.
+ *
+ *  A document the reading made is frozen all the way down, and a change
+ *  writes slots and the case catalog, never a record's membership, so the new
+ *  document is the old one with the change applied and every part it leaves
+ *  alone shared: the same values a copy and a fresh hydration give, its
+ *  field parents unchanged, and the work only what the change touches.
+ *  Anything else is copied and hydrated whole. Exported for its test. */
+export function cloned(
 	doc: BlueprintDoc,
 	change: (draft: BlueprintDoc) => void,
 ): BlueprintDoc {
+	if (doc.refIndex === undefined && isDeeplySettled(doc)) {
+		const next = produce(doc, (draft) => {
+			change(draft as BlueprintDoc);
+		});
+		return freeze(next === doc ? { ...doc } : next, true);
+	}
 	const draft = hydratePersistedBlueprint(toPersistableDoc(doc));
 	change(draft);
-	return hydratePersistedBlueprint(toPersistableDoc(draft));
+	return freeze(hydratePersistedBlueprint(toPersistableDoc(draft)), true);
 }
 
 type Holder = Record<string, unknown>;
@@ -1363,14 +1381,21 @@ function declarationClaims(
 	held: ReadonlyMap<number, Expression>,
 ): ExpressionClaim[] {
 	const claims: ExpressionClaim[] = [];
+	/* The instances each form's held slots read, gathered once for every
+	 * form rather than found again per form. */
+	const readByForm = new Map<string, Set<string>>();
+	pending.forEach((registration, index) => {
+		if (!held.has(index)) return;
+		const form = slotForm(doc, registration.ref);
+		if (form === undefined) return;
+		const read = readByForm.get(form) ?? new Set<string>();
+		readByForm.set(form, read);
+		for (const id of instanceIdsRead(registration.text)) read.add(id);
+	});
 	for (const [form, sources] of env.instanceSources) {
 		const place = env.formPlaces.get(form);
 		if (place === undefined) continue;
-		const read = new Set<string>();
-		pending.forEach((registration, index) => {
-			if (slotForm(doc, registration.ref) !== form || !held.has(index)) return;
-			for (const id of instanceIdsRead(registration.text)) read.add(id);
-		});
+		const read = readByForm.get(form) ?? new Set<string>();
 		for (const [id, src] of sources) {
 			if (read.has(id)) continue;
 			const use = unreadDeclarationUse(src);

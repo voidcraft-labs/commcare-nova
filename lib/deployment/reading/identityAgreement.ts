@@ -125,6 +125,16 @@ export function servedEmission(
 	return JSON.parse(JSON.stringify(emission)) as Record<string, unknown>;
 }
 
+/** Each `xmlns`'s first entry of `entries`. */
+function firstByXmlns<T extends { readonly xmlns: string }>(
+	entries: readonly T[],
+): ReadonlyMap<string, T> {
+	const first = new Map<string, T>();
+	for (const entry of entries)
+		if (!first.has(entry.xmlns)) first.set(entry.xmlns, entry);
+	return first;
+}
+
 /** Two JSON values as one: key order never matters. */
 function same(a: unknown, b: unknown): boolean {
 	return canonicalJsonText(a ?? null) === canonicalJsonText(b ?? null);
@@ -346,13 +356,35 @@ function siblingOwners(
 export function identityDifferences(
 	input: IdentityAgreementInput,
 ): IdentityAgreement {
+	const steps = identityDifferencesSteps(input);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `identityDifferences` a part at a time: it stops after the emission is
+ * served and after each of the four reads of the two applications' forms,
+ * until it is resumed, so a caller on a request can let the event loop turn
+ * while an app at the bring-in byte cap is compared. The agreement is
+ * `identityDifferences`', which drives this.
+ */
+export function* identityDifferencesSteps(
+	input: IdentityAgreementInput,
+): Generator<void, IdentityAgreement, void> {
 	const places = sourcePlaces(input.source);
 	const sourceApp = sourceApplication(input.source);
 	const emitted = servedEmission(input.emission);
+	yield;
 	const A = sourceIdentity(sourceApp);
+	yield;
 	const E = sourceIdentity(emitted);
+	yield;
 	const blocksA = publishedCaseBlocks(sourceApp);
+	yield;
 	const blocksE = publishedCaseBlocks(emitted);
+	yield;
 	const differences: AcceptanceDifference[] = [];
 	const differ = (
 		segments: readonly string[],
@@ -427,6 +459,9 @@ export function identityDifferences(
 
 	// 4 to 8. Each form.
 	const doc = input.draft.doc;
+	/* The first of each `xmlns` in the draft's lists, as a search of each finds it. */
+	const factsOf = firstByXmlns(input.draft.facts.forms);
+	const identityOf = firstByXmlns(input.draft.identities.forms);
 	for (const [xmlns, a] of A.forms) {
 		const formPlace = places.formOf(xmlns);
 		const e = E.forms.get(xmlns);
@@ -449,10 +484,8 @@ export function identityDifferences(
 					`form ${xmlns} holds its data under ${side.dataNamespace}`,
 				);
 
-		const facts = input.draft.facts.forms.find((one) => one.xmlns === xmlns);
-		const formUuid = input.draft.identities.forms.find(
-			(one) => one.xmlns === xmlns,
-		)?.uuid;
+		const facts = factsOf.get(xmlns);
+		const formUuid = identityOf.get(xmlns)?.uuid;
 		const sideA: FormSide = {
 			identity: a,
 			generated: new Map(

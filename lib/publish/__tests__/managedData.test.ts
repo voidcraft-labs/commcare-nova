@@ -648,8 +648,17 @@ const READINGS: Record<
 	MEDIA_CHECKED_LATER: { kind: "sentence", texts: [copy.MEDIA_CHECKED_LATER] },
 };
 
-/** Exports that are lines of a file, held by their own test below. */
-const LINES = new Set(["managedLookupGuideLines"]);
+/**
+ * Exports that assemble lines out of the exports read here: the HQ app file's
+ * guide, held by its own test below, and what is said after a table action
+ * or a refresh of places, held by the banners' models' tests
+ * (`projectDataModel.test.ts`, `organizationUi.test.ts`).
+ */
+const LINES = new Set([
+	"managedLookupGuideLines",
+	"managedTableOutcomeLines",
+	"managedPlacesOutcomeLines",
+]);
 
 describe("every export keeps Nova's voice", () => {
 	it("is read here, so no export goes unchecked", () => {

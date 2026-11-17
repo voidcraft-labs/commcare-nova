@@ -584,7 +584,10 @@ describe("new-app Project handoff", () => {
 			},
 		};
 
-		expect(parseAppMaterializationReceipt(receipt)).toEqual(receipt);
+		expect(parseAppMaterializationReceipt(receipt)).toEqual({
+			...receipt,
+			adoption: null,
+		});
 		expect(
 			parseAppMaterializationReceipt({ ...receipt, role: undefined }),
 		).toBeNull();

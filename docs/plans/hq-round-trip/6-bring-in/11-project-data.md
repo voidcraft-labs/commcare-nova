@@ -732,8 +732,9 @@ export function mediaFindings(input: {
 	 *  the rest of the app can run on. Not `plan.runsOn`, which is the one proposed choice's. */
 	readonly runsOn: readonly Platform[];
 }): { readonly findings: readonly Finding[];
-      /** Platforms every held file plays on, of `runsOn`
-       *  (`lib/domain/multimedia.ts::mediaFormatPlaysOn`). */
+      /** Every platform each held file plays on, of `PLATFORMS`, whether or not `runsOn` offers
+       *  it (`lib/domain/multimedia.ts::mediaFormatPlaysOn`), so a caller tells "a held file does
+       *  not play there" from "no choice runs there". */
       readonly playsOn: readonly Platform[];
       /** True when every file of the plan has a verdict. */
       readonly complete: boolean;
@@ -760,7 +761,7 @@ missing files and their claims beside its findings, and `readingMediaFindings` p
 | `refused`, no entry | `unrecognized` | not-yet | name the path; logged at error with the reason and the sniffed type |
 | `wrong-kind` | `unrecognized` | not-yet | name the path; logged at error |
 | `missing` | section 3, "no file", for each of the file's references, over `plan.references`, `plan.runsOn` and `plan.contentValid` | | |
-| `held`, where `playsOn` is empty and the file's `mediaFormat` does not play on every platform of `runsOn` | `media-not-played-where-app-runs` (13.2) | fix-in-hq | name the path |
+| `held`, where `playsOn` holds no platform of `runsOn` and the file's `mediaFormat` does not play on every platform of `runsOn` | `media-not-played-where-app-runs` (13.2) | fix-in-hq | name the path |
 
 The `over-limit` row's sentence is part 01's `media-files` one for `not-yet` (its section 9.2), "A
 media file here is larger than Nova takes, or this app has more media than Nova takes.", which is
@@ -792,9 +793,10 @@ verdict, because 2.1 finds it from the source.
 
 A held file that plays on only some platforms narrows the declarations the review offers:
 `narrowDeclarationsByMedia` (14.2) drops each choice that declares a platform outside `playsOn`.
-`media-not-played-where-app-runs` is raised exactly where `playsOn` is empty, so that no choice
-would be left: on each held file that does not play on every platform of `runsOn`, since each such
-file is part of why. Where `playsOn` holds a platform, no held file raises it.
+`media-not-played-where-app-runs` is raised exactly where `playsOn` holds no platform of `runsOn`,
+so that no choice would be left: on each held file that does not play on every platform of
+`runsOn`, since each such file is part of why. Where `playsOn` holds a platform of `runsOn`, no
+held file raises it.
 
 ---
 
@@ -1994,7 +1996,9 @@ export function writeBroughtInLookupTablesInTransaction(
 		/** The app the tail inserted: `readSiblingLookupMappings` reads every other app's. */
 		readonly appId: string },
 	write: { readonly origin: { readonly server: string; readonly domain: string };
-		readonly tables: readonly BroughtInTableWrite[]; readonly at: Date },
+		readonly tables: readonly BroughtInTableWrite[];
+		/** When the reading's read of CommCare HQ's tables began (`ReadingProjectDataWrite.tablesReadAt`). */
+		readonly readAt: Date },
 ): Promise<void>;
 ```
 
@@ -2035,6 +2039,15 @@ in that order (an autosave's `FOR KEY SHARE`, a form submission's `FOR SHARE`, a
 updates), so tag order would deadlock with them; nothing for `same-equal` and `use-project`. A `choice` with
 no answer is an invariant failure here: part 12 refuses that create before the transaction opens
 (7.2).
+
+**The date it writes.** `readAt` is when the reading's read of CommCare HQ's tables began, dated
+before CommCare HQ is asked, as every refresh dates its read (10.3). A table the birth would refresh
+or adopt whose stored `hq_refreshed_at` is later than `readAt` was refreshed since from a newer read
+of CommCare HQ, and a refresh that found CommCare HQ's table as it was moves no revision, so the
+revision check cannot see it: the writer throws `BroughtInTableChangedError` there too, rather than
+write the reading's older rows over newer ones. Every table it creates, refreshes or adopts is
+stamped `readAt` (`hq_refreshed_at`, and the create's `hq_brought_in_at`), so a refresh whose read
+began before the reading's writes nothing over it.
 
 ```ts
 /** A table the birth was about to write is no longer the table the review showed. */
@@ -2584,7 +2597,9 @@ trips (`lib/deployment/CLAUDE.md`). So:
   O26). So a slow refresh never writes an older read of CommCare HQ over a newer one and stamps it
   the latest, the rule `store.ts::recordRefreshedAppBaseline` keeps for an app's baseline. A
   birth's writer passes `olderReadYields: false`: the app it births binds the column ids the
-  reading gave, so it writes what the reading read.
+  reading gave, so it writes what the reading read. It passes its reading's own read date as `at`
+  and, under the table lock, refuses a table whose stored `hq_refreshed_at` is later
+  (`BroughtInTableChangedError`, 7.4), so it never writes an older read over a newer one either.
 - A publish reads the managed fact again in one statement before its workbook goes (8.2). What stays
   open is one request wide: a table handed back to CommCare HQ after that statement and before the
   upload is written once more. `lib/deployment/CLAUDE.md`'s "What the check cannot close" gains the
@@ -3518,6 +3533,8 @@ export interface ReadingProjectData {
 		readonly origin: { readonly server: string; readonly domain: string };
 		/** The two ids every lookup id of this reading derives from (5.5). */
 		readonly appId: string; readonly readingId: string;
+		/** When step 1 began, before CommCare HQ was asked: the date the birth writes (7.4). */
+		readonly tablesReadAt: Date;
 		readonly tables: readonly { readonly read: HqLookupTableRead;
 			/** 5.3's findings for this table, raised only if the reader reads it. */
 			readonly findings: readonly Finding[];
@@ -3603,8 +3620,8 @@ so the lane runs this function and no copy of its steps.
 
 In order:
 
-1. `readHqLookupTablesForReading` (5.1, steps 1 to 3). A returned error is `failed`, classified as
-   5.1 says. A table's `rows-unreadable` and its `over-row-limit` are no failure: each is that
+1. `readHqLookupTablesForReading` (5.1, steps 1 to 3), dated `tablesReadAt` before it asks. A
+   returned error is `failed`, classified as 5.1 says. A table's `rows-unreadable` and its `over-row-limit` are no failure: each is that
    table's finding.
 2. The ids of every candidate table and field (5.5). They are derived, so nothing is minted and
    nothing is read.
@@ -3694,6 +3711,7 @@ export function projectDataReview(
 
 export interface ReadingProjectDataWrite {
 	readonly origin: { readonly server: string; readonly domain: string };
+	readonly tablesReadAt: Date;                     // gathered.tablesReadAt, 7.4
 	readonly tables: readonly BroughtInTableWrite[]; // 7.4
 	readonly places: ManagedPlacePlan | null;        // 11.4
 }
@@ -3855,7 +3873,7 @@ input, a choice that declares a platform outside `playsOn` leaves; the proposal 
 choice remains and otherwise moves to the first choice left in the same order; where a choice is
 left the result is `kind: "choices"`, with `proposed` the index of that choice among those left and
 `narrowedByHq` and `keepsWebApps` as they were. Where none is left the result is `{ kind: "none",
-blocking: [] }`, which no caller meets: `playsOn` is then empty, `readingMediaFindings` has raised
+blocking: [] }`, which no caller meets: `playsOn` then holds no platform of `runsOn`, `readingMediaFindings` has raised
 `media-not-played-where-app-runs` (2.4), the read is an account, and acceptance, which takes the
 `choices` arm alone (part 09, section 2.2), is not called. This is why a review is never answered
 before every file is judged: where the app can run depends on where its files play.
@@ -4259,7 +4277,7 @@ sections 5.1 and 7.5).
 | `lib/deployment/__tests__/managedReRead.postgres.test.ts` | `reReadManagedTablesForPublish` over real Postgres (the copy's stored canonical value decides what changed, its caps are Postgres's own measure, and "nothing refreshed" is about the rows it holds) and CommCare HQ answering through `MockAgent`: each row of 8.1's table, the character row among them; two stopping tables are both returned and nothing is refreshed, a third that only changed rows included; a table of another project space the publisher cannot read, or whose server is not the publisher's connection's, is `stale`, asks nothing and never stops; one it can read is refreshed; a refused rows read is classified `permission` with the table named (its P3 is `managedTables.postgres.test.ts`'s) | a publish that sends content reading a column that is gone; a refresh half applied before a stop |
 | `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`, two cases | the tool over `managedTables.postgres.test.ts`'s fixtures | `error_type` `hq_managed_data_changed` with each item's sentence in `message`, and `managed_table_handed_back` with Copy P18. Catches either refusal falling to `hq_upload_failed` |
 | `lib/deployment/__tests__/managedPlaces.postgres.test.ts` | a publish to the managing project space sends no place batch, refreshes the copy from its read, and gives the `organization` plan feature no push reason (the app's own reads of places still ask it); a publish to another plans the copy; `provisionWorkers` for a persona standing in a managed place is not refused by `workerProvisionProblems` and sends that place's `hq_location_id`; one standing in a managed place a refresh marked `hq_gone_at` is refused with `place-gone-from-hq` and asks CommCare HQ nothing | places patched in the space that manages them; a worker made standing nowhere, or refused |
-| `lib/deployment/reading/projectData/__tests__/readingProjectData.postgres.test.ts` | section 14.1 through `readReadingProjectData` over `postgresProjectSide`, CommCare HQ answering through `MockAgent`: two calls with one `appId` and `readingId` give the same table and column ids, and nothing is written by either (every table's row count is as it was); a `choice` tag binds the Project table's id; a failed list read is `failed` with part 05's kind; `places: "always"` reads places for a source the test says reads none; a place list past the limit sets `placesPastLimit` and reads no further page; a place list naming a level code the level list lacks reads both lists once more and then answers `failed` with `hq-unavailable`; a tag that meets a Project table carries that table's id and two revisions in `gathered.tables`, and `projectDataReview` copies them. The same function over a hand-made `ReadingProjectSide` that holds nothing answers every table `new`, which is the proof lane's binding. `readingProjectDataFindingsFor`: a table Nova cannot hold raises its finding only where the reader read it; a tag in `unreadTables` that CommCare HQ's list lacks raises part 08's entry. `writeBroughtInLookupTablesInTransaction` and `writeBroughtInPlacesInTransaction`, in the order and at the point the seam calls them: the case inserts an app row on its own transaction, calls the two writers, then `lookupContextForAuthoritativeWrite` and `applyOrganizationCommitIntegrity`. The lookup context finds the tables, the integrity step passes, a table created under the derived ids holds them, and a Project table whose standing or either revision moved after the read throws `BroughtInTableChangedError` and leaves no row. Over a met, unmoved Project table: `use-commcare-hq` takes CommCare HQ's rows under the Project's column ids with every column text and the origin set; `use-project`, and `same-equal` over a sibling's live mapping, write nothing; `same-managed` gives a field the table lacks the binding's derived id; a member demoted from admin between the review and the birth, and a sibling mapping superseded, each throw with both revisions unmoved. `readKeptLookupColumnIds` names the columns a refresh then keeps. Two `same-managed` tables whose tag order is the reverse of their id order are refreshed while another transaction holds the lower id `FOR KEY SHARE` and then asks for the higher, and neither meets a deadlock. The seam itself, `writePreparedGenesisInTransaction`'s `afterAppInsert`, is part 12's, and its `birth.postgres.test.ts` holds the two writers running through it | the read and the create disagreeing on an id; a read that leaves a row; a table found after the gate looked for it; an app born on a Project table that changed after its offer was judged |
+| `lib/deployment/reading/projectData/__tests__/readingProjectData.postgres.test.ts` | section 14.1 through `readReadingProjectData` over `postgresProjectSide`, CommCare HQ answering through `MockAgent`: two calls with one `appId` and `readingId` give the same table and column ids, and nothing is written by either (every table's row count is as it was); a `choice` tag binds the Project table's id; a failed list read is `failed` with part 05's kind; `places: "always"` reads places for a source the test says reads none; a place list past the limit sets `placesPastLimit` and reads no further page; a place list naming a level code the level list lacks reads both lists once more and then answers `failed` with `hq-unavailable`; a tag that meets a Project table carries that table's id and two revisions in `gathered.tables`, and `projectDataReview` copies them. The same function over a hand-made `ReadingProjectSide` that holds nothing answers every table `new`, which is the proof lane's binding. `readingProjectDataFindingsFor`: a table Nova cannot hold raises its finding only where the reader read it; a tag in `unreadTables` that CommCare HQ's list lacks raises part 08's entry. `writeBroughtInLookupTablesInTransaction` and `writeBroughtInPlacesInTransaction`, in the order and at the point the seam calls them: the case inserts an app row on its own transaction, calls the two writers, then `lookupContextForAuthoritativeWrite` and `applyOrganizationCommitIntegrity`. The lookup context finds the tables, the integrity step passes, a table created under the derived ids holds them, and a Project table whose standing or either revision moved after the read throws `BroughtInTableChangedError` and leaves no row. Over a met, unmoved Project table: `use-commcare-hq` takes CommCare HQ's rows under the Project's column ids with every column text and the origin set; `use-project`, and `same-equal` over a sibling's live mapping, write nothing; `same-managed` gives a field the table lacks the binding's derived id; a member demoted from admin between the review and the birth, and a sibling mapping superseded, each throw with both revisions unmoved. `readKeptLookupColumnIds` names the columns a refresh then keeps. Two `same-managed` tables whose tag order is the reverse of their id order are refreshed while another transaction holds the lower id `FOR KEY SHARE` and then asks for the higher, and neither meets a deadlock. A Project table of 250 columns whose own 248 columns an app begins to read between the read and the birth, under CommCare HQ's three fields, throws `BroughtInTableChangedError` for the `use-commcare-hq` answer given before it with no revision moved, and a read after it offers no `use-commcare-hq` (`too-many-columns`, `251`, which `projectDataReview` copies). A `same-managed` table a Refresh stamped after the reading's read, finding CommCare HQ's table as it was and moving no revision, throws `BroughtInTableChangedError` and is left as the Refresh left it; a table a birth writes holds the reading's read date as its last refresh. The seam itself, `writePreparedGenesisInTransaction`'s `afterAppInsert`, is part 12's, and its `birth.postgres.test.ts` holds the two writers running through it | the read and the create disagreeing on an id; a read that leaves a row; a table found after the gate looked for it; an app born on a Project table that changed after its offer was judged; a choice offered that every retry refuses; an older read of CommCare HQ written over a newer one |
 | `lib/deployment/reading/projectData/__tests__/mediaStore.postgres.test.ts` (`@/lib/storage/media` replaced with `vi.mock`, as `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` replaces it: the package has no fake bucket) | `publishKeptReadingMedia`: each held file is uploaded once and inserted as one ready row with the judged facts and the name of 2.3, never more than two at once, and the answered plan holds every held file in `published` and no bytes; a file with another verdict is not published; two files of the same bytes become one asset under two keys; bytes the Project already holds return the existing asset's id and upload nothing; a second run over a fresh plan of the same bytes uploads nothing and inserts no row; the caller losing `edit` before publication throws `MediaPublishPermissionError` and inserts nothing; a storage failure rejects the call, and the files published before it are found by hash on the next run | a file in Files twice; a duplicate row on a retry; bytes held past their use; a file added for a person who may no longer add one |
 | `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` (existing, unchanged assertions) | the extraction changed no behavior of MCP's upload, its two permission errors among them | a regression in the path it was lifted from |
 | `lib/case-store/migrations/__tests__/hqBringInProjectData.postgres.test.ts` | `up` on a database holding plain tables, places and state rows leaves every row valid; `up` run a second time over its own result, with the ledger row erased, raises nothing; an insert and an update that name none of the new columns (the previous revision's statements) pass on a plain row, and the same update passes on a row whose `hq_*` columns are set; each origin CHECK refuses an origin with any one of its columns null, a blank or unknown value, a canonical value with no `digest`, and a takeover with no person or no origin, and `hq_location_id` refuses a blank id; `hq_gone_at` is among the twenty columns; `down` restores the columns' absence; `lock_timeout` is 0 after `up`; with a second connection holding `ACCESS SHARE` on `app_locations` in an open transaction, `up`, run in one transaction as the migrator runs it, is refused with SQLSTATE `55P03` after five seconds and before ten, the rolled-back transaction leaves no column added, a write to `lookup_tables` and `app_organization_state` passes while it waits, and once the second connection's transaction ends `up` succeeds (the second connection is released in a `finally`); with the batch's transaction holding `lookup_tables` and the serving revision's `nova_create_app_test_namespace` holding `app_locations` and waiting for it, `up` is refused with `55P03`, never `40P01`, and the App Test start then succeeds | a migration that fails over existing rows or on a replay; a CHECK the revision still serving can break; a CHECK whose second arm answers NULL and so admits half an origin; a lock request that waits with no bound behind a reader of the serving revision; a wait for one table while the batch holds another, which deadlocks with the App Test start |

@@ -4,7 +4,9 @@ description: What happens when you publish an app, how to turn it into something
 ---
 
 Publishing sends your app to a CommCare HQ project space. Nova remembers where
-it went, so you can come back at any time and see how far along it is.
+it went, so you can come back at any time and see how far along it is. An app
+you [brought in from CommCare HQ](./bringing-in-from-commcare-hq.mdx) publishes
+back to the app it came from.
 
 Question types carry through to the published form. For example, a Decimal
 question remains a Decimal question when you open it on CommCare HQ.
@@ -216,6 +218,13 @@ archive or delete a place.
 
 Your app is now on the project space. It is not something workers can open yet.
 
+For an app you brought in, this card is there from the start, and its first
+publish updates the app it came from.
+
+The first time you publish an app you brought in, Nova lists what will differ
+in CommCare HQ: what workers will notice, and what changes only in how CommCare
+HQ stores the app. The same list is shown before you bring the app in.
+
 Publishing again **updates this same app in place**, name included, so the
 project space keeps one app that tracks what you build in Nova. There are two
 exceptions. If the app was deleted on CommCare HQ, Nova tells you so when you
@@ -226,7 +235,9 @@ space, the next publish makes a new app beside the one that stays.
 
 Each publish keeps every menu's and every form's ID in CommCare HQ. So anything
 there that opens a form by its ID, such as an SMS keyword or a scheduled
-message, keeps opening it.
+message, keeps opening it. An app you brought in keeps the IDs CommCare HQ gave
+it, in the project space it came from. In any other project space Nova makes a
+new app with its own.
 
 CommCare HQ shows each submission under its form's name, in your app's default
 language. Saving a form in CommCare HQ's form builder makes the next version
@@ -349,6 +360,13 @@ the destination clears the ticks.
 this app stops publishing to it, and it can be brought in to Nova again as a
 new app. If you publish to that project space later, Nova makes a new app
 there. A Project's admins and owners can do this.
+
+Once publishing stops, the project space's card in **App setup → Publishing**
+says who stopped it and when, and links to the app it left in CommCare HQ. If
+someone has since brought that app in to Nova, or another Nova app publishes to
+it, the card says so and leaves the link out, since that app is the way to it
+now. Any worker passwords Nova showed on the card stay there until you leave the
+page, and Nova makes no more workers on that project space.
 
 **A save in CommCare HQ can show up here even when it changed no value.**
 CommCare HQ's settings pages and its form builder write things Nova doesn't, so

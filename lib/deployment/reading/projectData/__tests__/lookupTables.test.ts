@@ -945,7 +945,7 @@ describe("resolveLookupBindings", () => {
 
 	it("refuses a read with no standing", () => {
 		expect(() => resolveLookupBindings([plain()], {}, null, IDS)).toThrow(
-			/no standing/,
+			new Error("A lookup table was bound with no standing (read 1 of 1)."),
 		);
 	});
 });
@@ -1011,16 +1011,21 @@ describe("readerLookupCatalog", () => {
 		expect(catalog.definitions.size).toBe(2);
 	});
 
-	it("refuses a binding with no column for one of its fields", () => {
+	it("refuses a binding with no column for one of its fields, naming the field by its place", () => {
+		const id = tableId();
 		expect(() =>
 			readerLookupCatalog([
 				{
-					binding: { tag: "plain", tableId: tableId(), columns: {} },
+					binding: { tag: "plain", tableId: id, columns: {} },
 					name: "plain",
 					fields: ["code"],
 				},
 			]),
-		).toThrow(/no column for its field code/);
+		).toThrow(
+			new Error(
+				`The lookup table bound to ${id} has no column for its field 1.`,
+			),
+		);
 	});
 });
 
@@ -1148,6 +1153,7 @@ function gather(
 	return assembleReadingProjectData({
 		origin: ORIGIN,
 		...IDS,
+		tablesReadAt: new Date("2026-11-10T09:00:00.000Z"),
 		tables: reads,
 		hqTags: reads.map((read) => read.table.tag),
 		project: {
@@ -1524,7 +1530,6 @@ describe("projectDataReadsOf", () => {
 			kind: "read",
 			draft: {
 				doc: selectDoc(binding),
-				batch: [],
 				identities: { modules: [], forms: [], keyedCreates: [], entries: [] },
 				declaration: { kind: "none", blocking: [] },
 				facts: {
@@ -1589,7 +1594,7 @@ describe("underTableChoices", () => {
 		expect(under.placesRead).toBe(data.placesRead);
 		expect(data.gathered.tables[0].choice).toBeNull();
 		expect(() => underTableChoices(data, { fresh: "use-project" })).toThrow(
-			/asks no choice/,
+			new Error("Answers were given for 1 lookup table(s) that ask no choice."),
 		);
 	});
 });

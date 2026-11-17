@@ -6,7 +6,6 @@
 // author sees (a size, a capacity phrase, a conflict verdict) lives here, and
 // the components only render it.
 
-import type { ManagedTableOutcome } from "@/lib/deployment/managedData";
 import type {
 	LookupColumnId,
 	LookupRowId,
@@ -33,13 +32,6 @@ import type {
 	LookupTableSnapshot,
 	UpdateLookupRowInput,
 } from "@/lib/lookup/types";
-import {
-	MANAGED_TABLE_ALREADY_MATCHES,
-	MANAGED_TABLE_REFRESHED_COLUMNS,
-	MANAGED_TABLE_REFRESHED_ROWS,
-	MANAGED_TABLE_REFRESHED_SINCE,
-	managedColumnKept,
-} from "@/lib/publish/managedData";
 import { parseClockTime } from "@/lib/ui/clockTime";
 
 /* Sizes and counts come from `lib/lookup/format`, the same module the
@@ -1005,40 +997,5 @@ export function managedTableBannerModel(
 	return {
 		kind: "managed-in-nova",
 		handBack: !canDelete ? "needs-admin" : connected ? "offered" : "connect",
-	};
-}
-
-/**
- * What the banner says after one of its actions answered. A refresh that
- * landed says what changed, and then each column it kept because an app
- * still reads it; Manage in Nova says nothing, since the banner itself turns
- * into the one for a table Nova manages. A refusal says its own sentence,
- * and the copy is as it was.
- */
-export function managedTableOutcomeLines(
-	outcome: ManagedTableOutcome,
-	domain: string,
-): { readonly tone: "status" | "alert"; readonly lines: readonly string[] } {
-	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
-	const receipt = outcome.receipt;
-	if (receipt === null) return { tone: "status", lines: [] };
-	const changed = {
-		nothing: MANAGED_TABLE_ALREADY_MATCHES,
-		rows: MANAGED_TABLE_REFRESHED_ROWS,
-		definition: MANAGED_TABLE_REFRESHED_COLUMNS,
-		superseded: MANAGED_TABLE_REFRESHED_SINCE,
-	}[receipt.changed];
-	return {
-		tone: "status",
-		lines: [
-			changed,
-			/* A column an accepted design names stays with no app reading it,
-			 * and the sentence about a kept column is about the apps that do. */
-			...receipt.keptGoneColumns
-				.filter((column) => column.apps.length > 0)
-				.map((column) =>
-					managedColumnKept(column.wireName, column.apps, domain),
-				),
-		],
 	};
 }

@@ -53,6 +53,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { BringInSeed } from "@/components/bring-in/useBringIn";
 import { AppTreeRail } from "@/components/builder/appTree/AppTreeRail";
 import { BreadcrumbStrip } from "@/components/builder/BreadcrumbStrip";
 import {
@@ -193,6 +194,9 @@ interface BuilderContentAreaProps {
 	/** A resumed pre-app design, passed straight through to the conversation
 	 *  that owns its progress region. */
 	initialDesignSession?: DesignSessionSeed | null;
+	/** On a fresh `/build/new`: what the bring-in flow needs from the server,
+	 *  passed straight through to the conversation whose card it takes. */
+	bringInSeed?: BringInSeed;
 }
 
 export function BuilderContentArea({
@@ -203,6 +207,7 @@ export function BuilderContentArea({
 	appGenerating,
 	currentUserId,
 	initialDesignSession,
+	bringInSeed,
 }: BuilderContentAreaProps) {
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
@@ -779,6 +784,7 @@ export function BuilderContentArea({
 										appGenerating={appGenerating}
 										currentUserId={currentUserId}
 										initialDesignSession={initialDesignSession}
+										bringInSeed={bringInSeed}
 									/>
 								</ErrorBoundary>
 							</DrawerContent>

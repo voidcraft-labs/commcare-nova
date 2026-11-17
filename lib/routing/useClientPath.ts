@@ -583,6 +583,18 @@ export function useBuilderSearch(): string {
 	);
 }
 
+/** The builder's query string, with the server's own rendering of it for the
+ * first paint. The server snapshot is `initialSearch`, the query the page
+ * already validated and handed down, so a screen the query names draws on the
+ * server and at hydration alike rather than swapping in after it. */
+export function useBuilderSearchFrom(initialSearch: string): string {
+	return useSyncExternalStore(
+		subscribe,
+		() => window.location.search,
+		() => initialSearch,
+	);
+}
+
 /**
  * Extract path segments after `/build/{appId}/` from the browser URL.
  *

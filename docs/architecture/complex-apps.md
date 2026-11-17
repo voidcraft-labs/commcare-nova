@@ -2630,6 +2630,60 @@ matches, as a failing check, without exposing those implementation details to
 an author or agent. `content/docs/publishing.mdx` and
 `content/docs/project-space-compatibility.mdx` are the user-facing guides.
 
+### Bringing an app in from CommCare HQ
+
+An app that lives in CommCare HQ comes in as an ordinary Nova app exactly when
+a document and ledger rows exist such that the document passes the absolute
+gate and export readiness; publishing it back changes nothing a runtime,
+CommCare HQ's servers or existing data read, apart from the first-publish
+changes Nova declares; reading Nova's own emission of it gives the same
+document; and every item of the HQ app's source has one standing in the
+surface manifest. There is no partial bring-in: an app Nova cannot hold whole
+is answered with every finding it met, and nothing is created.
+`lib/commcare/CLAUDE.md` ("The reader") and `lib/deployment/CLAUDE.md`
+("Readings", "Accepting a reading", "One HQ app, one Nova app", "Ending a
+deployment") own the detail. The binding facts:
+
+- **Nothing is kept until the app exists.** A read answers a stop, an account
+  or a review and stores nothing. A create reads the app again and creates it,
+  in one transaction, only where the digest of what it read is the one the
+  person reviewed (`lib/deployment/reading`).
+- **The source and the resource are read as one bracket.** The stored source
+  and the application resource share no revision
+  (`corehq/apps/app_manager/models/applications.py`: `ApplicationBase._meta_fields`
+  holds `version`, and `Application.export_json` deletes every key of it from
+  the source it serves), so a reading brackets them with the app's save counter
+  read before and after, and reads again where it moved
+  (`lib/commcare/hq/appReading.ts::readHqAppForReading`).
+- **A form's own id needs API access.** The source read serves a freshly
+  minted id for each form (`models/applications.py::Application.scrub_source`,
+  through `corehq/apps/app_manager/util.py::update_form_unique_ids` with an
+  empty map, which gives every form a new random id), and the application
+  resource serves the stored one
+  (`corehq/apps/api/resources/v0_4.py::ApplicationResource.dehydrate_module`).
+  So bringing an app in needs API access on the project space, checked when
+  the space is chosen (`lib/commcare/hq/apps.ts::probeHqApiAccess`) and again
+  at the read, whose first request is the application resource
+  (`lib/commcare/hq/appReading.ts::readHqAppForReading`).
+- **CommCare HQ's ids stay on the project space they came from.** A brought-in
+  app's menu ids, form ids and `xmlns` are rows of `app_deployment_identities`,
+  and its media paths rows of `app_deployment_media_paths`, for that project
+  space alone. Every other project space, and the HQ app file, take Nova's
+  derivation (`lib/commcare/wireIdentity.ts::targetWireIdentity`).
+- **Spelling is free; behavior is declared.** Nova writes every form in its own
+  spelling. What a first publish changes beyond spelling is the closed register
+  `lib/deployment/reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES`, drawn
+  from `lib/commcare/emissionRewrites.ts::EMISSION_REWRITES`, and the proof
+  lane holds the predicted set equal to the observed one on every app made in
+  CommCare HQ (`proof/first-publish-changes.json`).
+- **One HQ app, one Nova app.** A unique index over live app mappings holds it
+  across Projects (`lib/db/hqAppClaims.ts`).
+- **Project data comes in as copies CommCare HQ manages.** The lookup tables
+  and places an app reads are read for Preview and validation, refreshed
+  before a publish, and never written in the project space that manages them
+  (`lib/lookup/CLAUDE.md`, "Tables from CommCare HQ";
+  `lib/organization/CLAUDE.md`).
+
 ### Projects, moves, and multiplayer
 
 Projects are the tenancy and sharing unit: every app carries a `project_id`, every

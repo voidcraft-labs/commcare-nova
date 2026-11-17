@@ -47,7 +47,9 @@ import type { ToolContext } from "@/lib/mcp/types";
  * with a built `.ccz`), a guarded commit against a large blueprint, or
  * an LLM-driven `create_module`: without leaving abandoned
  * requests to accumulate. External MCP clients drive the loop one
- * tool per request, so this ceiling is per-tool, not bundled.
+ * tool per request, so this figure is per-tool, not bundled. It is
+ * advisory: nothing at run time reads it or `route.ts`'s `maxDuration`,
+ * and the service's request timeout is the real ceiling.
  */
 export const MCP_MAX_DURATION_SECONDS = 300;
 

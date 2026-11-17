@@ -607,6 +607,30 @@ export function admitMutationBatch(value: unknown): AdmittedMutationBatch {
 	return admitMutationBatchInternal(value, false);
 }
 
+/**
+ * `admitMutationBatch([...first, ...second])` of two admitted batches. Every
+ * mutation of each is already admitted, canonical and frozen, and admission
+ * of a whole batch adds one rule of its own, that a case-property rename
+ * stands alone; so the concatenation of the two is admitted as it stands,
+ * without detaching, reparsing or freezing its mutations again, wherever no
+ * rename stands beside another mutation. Where one does, the whole batch is
+ * admitted from the start and is refused in that admission's own words.
+ */
+export function concatAdmittedMutationBatches(
+	first: AdmittedMutationBatch,
+	second: AdmittedMutationBatch,
+): AdmittedMutationBatch {
+	if (second.length === 0) return first;
+	if (first.length === 0) return second;
+	const joined: Mutation[] = [...first, ...second];
+	if (joined.some((mutation) => mutation.kind === "renameCaseProperties"))
+		return admitMutationBatchInternal(joined, true);
+	defineToJsonProtector(joined);
+	Object.freeze(joined);
+	admittedMutationBatches.add(joined);
+	return joined as unknown as AdmittedMutationBatch;
+}
+
 export function isAdmittedMutationBatch(
 	value: unknown,
 ): value is AdmittedMutationBatch {

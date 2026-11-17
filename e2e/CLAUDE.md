@@ -111,7 +111,19 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   date. The managed-data profile writes its copies through the bring-in's own
   writers and gives the owner a CommCare HQ connection row whose key nothing
   can use, because its journey never presses an action that sends one; its
-  second member is an editor with no connection. A journey may switch its
+  second member is an editor with no connection. The bring-in profile
+  (`e2e/lib/bringInSeed.ts`) gives its owner Projects A, B and an empty C
+  and a CommCare HQ connection, brings one app in to A and one to B
+  through the production read and birth, each as a CommCare HQ app no
+  other attempt reads (one HQ app is published to by one Nova app, in
+  every Project), and adds an editor of A and a third person who views A
+  and edits B. The seed has no Cloud KMS, so for the length of each birth
+  the KMS client's `decrypt` answers the stored key itself.
+  No test reaches a CommCare HQ: a bring-in journey answers the routes that would from `page.route`, and seeds its brought-in apps through the production birth.
+  The `bring-in` peer (`e2e/lib/bring-in-client.tsx`) mounts the flow in
+  the production connection context with a landing that records its
+  calls; a stream a journey writes line by line, or holds open, is a local
+  server the route continues to. A journey may switch its
   active Project or change a member's role without affecting another scenario. Viewer contexts use that attempt's
   separate viewer cookie.
 - **Browser component tests own local peers and contexts.** `e2e/tests/browser/`

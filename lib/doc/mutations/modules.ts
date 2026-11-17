@@ -71,17 +71,28 @@ function placedModuleOrder(
 		if (moving.length > 1) return undefined;
 	}
 
-	const destinationSiblings = moduleSiblings(draft, destinationParent, uuid);
+	/* `after` must be one of the destination's siblings: a module the order
+	 * holds, other than the one placed, under the destination parent. Asked of
+	 * the anchor alone, since a scan of every module's parent opens a draft of
+	 * each and a whole-app batch adds every module. */
 	if (
 		after !== undefined &&
 		after !== null &&
-		!destinationSiblings.includes(after)
+		(after === uuid ||
+			!draft.moduleOrder.includes(after) ||
+			moduleParentOf(draft, after) !== destinationParent)
 	) {
 		return undefined;
 	}
 
 	const movingSet = new Set(moving);
-	const without = draft.moduleOrder.filter((entry) => !movingSet.has(entry));
+	/* The order itself where it holds none of `moving`, as a birth's does:
+	 * read, never written, so a batch of births copies the order once each
+	 * rather than twice. */
+	const order = draft.moduleOrder;
+	const without = moving.some((uuid) => order.includes(uuid))
+		? order.filter((entry) => !movingSet.has(entry))
+		: order;
 	let insertionIndex: number;
 	if (destinationParent === null) {
 		if (after === undefined) insertionIndex = without.length;
@@ -123,11 +134,9 @@ function placedModuleOrder(
 			}
 		}
 	}
-	return [
-		...without.slice(0, insertionIndex),
-		...moving,
-		...without.slice(insertionIndex),
-	];
+	const placed = without.slice();
+	placed.splice(insertionIndex, 0, ...moving);
+	return placed;
 }
 
 /**
@@ -685,9 +694,51 @@ export interface FirstMenuCaseWatch {
 	readonly before: ReadonlyMap<Uuid, PostSubmitDestination | undefined>;
 }
 
+/**
+ * The menus of one batch's draft that list their forms in the menu above,
+ * kept across the batch so a write of a menu or a form, where no menu does,
+ * learns that no form reads the first menu's case without a walk of every
+ * menu. Derived from the draft on first use; `addModule`, `updateModule`
+ * and `removeModule` are the writes that set or drop the flag, and `after`
+ * re-reads it for the menu each names.
+ */
+export class MenusAbove {
+	private menus: Set<string> | undefined;
+
+	/** Whether no menu of `draft` lists its forms in the menu above. */
+	none(draft: Draft<BlueprintDoc>): boolean {
+		if (this.menus === undefined) {
+			this.menus = new Set();
+			for (const [uuid, mod] of Object.entries(draft.modules))
+				if (mod.formsInMenuAbove === true) this.menus.add(uuid);
+		}
+		return this.menus.size === 0;
+	}
+
+	/** Called with the draft after `mut`'s reducer ran. */
+	after(draft: Draft<BlueprintDoc>, mut: Mutation): void {
+		if (this.menus === undefined) return;
+		const uuid =
+			mut.kind === "addModule"
+				? mut.module.uuid
+				: mut.kind === "updateModule" || mut.kind === "removeModule"
+					? mut.uuid
+					: undefined;
+		if (uuid === undefined) return;
+		if (
+			Object.hasOwn(draft.modules, uuid) &&
+			draft.modules[uuid]?.formsInMenuAbove === true
+		)
+			this.menus.add(uuid);
+		else this.menus.delete(uuid);
+	}
+}
+
 export function watchFirstMenuCase(
 	draft: Draft<BlueprintDoc>,
+	above?: MenusAbove,
 ): FirstMenuCaseWatch | undefined {
+	if (above?.none(draft) === true) return undefined;
 	const forms = formsReadingFirstMenuCase(draft);
 	if (forms.length === 0) return undefined;
 	const read = firstMenuCaseRead(draft);

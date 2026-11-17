@@ -635,6 +635,33 @@ publish reaches the case it reached before. An operation whose type changed,
 every operation made in Nova, and every other project space take the
 derivation.
 
+## Readings
+
+A reading (`lib/deployment/reading`) is one request that reads one CommCare HQ
+app for one person into one Project and stores nothing.
+`gather.ts::gatherReading` is the one function that decides whether an app can
+come in: it reads the app under the save counter's bracket, reads the Project
+data through `reading/projectData` (the one surface for tables, places and
+media), runs the reader, judges every referenced file, and runs acceptance over
+every document a choice can make. `read.ts` answers a stop, an account or a
+review with its digest. `create.ts` runs the same function again and goes on
+only where the digest is the one the person reviewed and their answers are ones
+the review offers; only then does it publish each file to the Project's
+library, run the check once more over exactly what will be born, and create the
+app. No answer the review offers changes the digested document. Every id is
+derived from the reading's id, so both requests name the same app.
+`birth.ts::adoptHqAppInTransaction` is the one transaction (the claim, the
+genesis tail with the tables and places in its seam,
+`recordAdoptedDeploymentInTransaction`). Before a create answers anything but
+the app, it looks for the app once more, so a repeated create answers the same
+app in every overlap. Both routes are under `/api/commcare/bring-in` and answer
+a stream of NDJSON lines; the MCP tools call the same two functions
+(`read.ts::readHqAppForReview`, `create.ts::createFromReview`). An app whose
+source is over `HQ_BRING_IN_APP_MAX_BYTES` is refused. Client code imports the
+reading's types from `lib/deployment`, and the client-safe values of
+`reading/types.ts`, `reading/stream.ts` and `reading/answers.ts` from those
+files, never from `lib/deployment/reading`, whose index is server-only.
+
 ### Accepting a reading
 
 `reading/acceptance.ts::acceptReading` is the one judge of a reading:
@@ -643,7 +670,11 @@ under every declaration the review will offer, the exact fixed point over
 Nova's own emission of the document and of the split document a declaration
 can make, identity agreement between CommCare HQ's source and that emission,
 and agreement with CommCare HQ's own question summary. It is pure and runs on
-the request. A failure after a clean read is `read-back-differs`, Nova's own.
+the request, in pieces: `acceptReadingSteps` and the reader's
+`readHqAppSteps` stop between checks and stages, and `gather.ts::Pieces` lets
+the event loop turn between them, so an app at the byte cap holds the instance
+for no piece longer than a few seconds. A failure after a clean read is
+`read-back-differs`, Nova's own.
 It reads no expression's meaning: the reader's re-emission comparisons and
 the proof lane hold that. `reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES`
 is the closed list of what a first publish over an adopted app may change;
@@ -1063,7 +1094,12 @@ still stop, and the HQ app stays exactly as it is. A deployment whose live
 mapping is a first publish's empty app can be stopped too. The Server Action
 `actions.ts::stopPublishingAction` goes through `service.ts::stopPublishing`,
 the one lifecycle a stop has, which also answers the setup artifact as a
-refresh does.
+refresh does. A stop whose ending committed answers as stopped whatever
+faults after it: the artifact is then null, the action's record null and its
+Preview answer null, each logged, and the surface reads its records again.
+MCP's `stop_publishing` answers the ended deployment with what it could read:
+`setup_artifact` null, the resource names null (only superseded apps listed
+as left behind) and the kept list `unread`, each logged by class and code.
 
 **The transaction** (`lib/db/hqAppClaims.ts::endDeploymentInTransaction`),
 under the app row and the deployment row: it supersedes the live `app` mapping
@@ -1252,7 +1288,9 @@ the strength of Nova having nothing to say.
 
 Builder (the App setup Publishing section and the publish dialog) and MCP
 (`check_project_space_compatibility`, `get_deployment`, `refresh_deployment`,
-`withdraw_deployment_confirmation`, `provision_workers`).
+`withdraw_deployment_confirmation`, `provision_workers`, `stop_publishing`),
+and the three that bring an app in (`list_hq_apps`, `read_hq_app`,
+`bring_in_hq_app`); none is given to the Solutions Architect.
 **Deliberately not the Solutions Architect** — the same standing decision
 that keeps project-space compatibility checks off that surface. A deployment is
 durable state about somebody else's server, not authored vocabulary an
@@ -1263,8 +1301,12 @@ table's Refresh, Manage in Nova (the Project's `delete`, reading nothing of
 CommCare HQ) and Let CommCare HQ manage it again, the places' Refresh, and
 the two views the table page and Organization banner read;
 `managedDataActions.ts` holds their Server Actions, each taking plain JSON and
-resolving the Project freshly from the id it was given. Every refusal of a
-refresh or a hand-back leaves the copy as it was.
+resolving the Project freshly from the id it was given, and MCP's
+`refresh_managed_data` and `set_lookup_table_management` call the same
+services. Every refusal of a refresh or a hand-back leaves the copy as it was,
+and the builder and MCP say each outcome in one text
+(`lib/publish/managedData.ts::managedTableOutcomeLines` and
+`managedPlacesOutcomeLines`).
 
 **The Builder splits the work: the dialog publishes, the section manages.**
 App setup's Publishing section (`components/builder/app-setup/

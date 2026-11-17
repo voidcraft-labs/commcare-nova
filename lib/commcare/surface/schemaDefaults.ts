@@ -45,13 +45,32 @@ const UNKNOWN: SchemaPropertyDefault = {
  * with `declared: false`; neither is a stored key, so both read as unknown.
  */
 export const schemaPropertyDefault: SchemaDefaultReader = (docType, key) => {
+	const known = ANSWERS.get(docType)?.get(key);
+	if (known !== undefined) return known;
+	const answer = answerOf(docType, key);
+	if (!answer.known) return answer;
+	let byKey = ANSWERS.get(docType);
+	if (byKey === undefined) {
+		byKey = new Map();
+		ANSWERS.set(docType, byKey);
+	}
+	byKey.set(key, answer);
+	return answer;
+};
+
+/** Each known key's answer by document type, read once: the manifest is a
+ *  module constant, so an answer never changes, and only the manifest's own
+ *  keys are held, so what an app's JSON holds adds nothing here. */
+const ANSWERS = new Map<string, Map<string, SchemaPropertyDefault>>();
+
+function answerOf(docType: string, key: string): SchemaPropertyDefault {
 	const id = `schema:${docType}.${key}`;
 	if (!Object.hasOwn(ITEMS, id)) return UNKNOWN;
 	const item = ITEMS[id] as SchemaItem;
 	if (item.declared !== true) return UNKNOWN;
-	return {
+	return Object.freeze({
 		known: true,
 		default: item.default,
 		isMap: item.type === "DictProperty",
-	};
-};
+	});
+}

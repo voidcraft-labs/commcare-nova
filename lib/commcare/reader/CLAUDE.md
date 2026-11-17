@@ -1,9 +1,28 @@
 # lib/commcare/reader
 
 `readHqApp` (`index.ts`) reads a CommCare HQ app into a Nova document, or into an account of why
-it cannot be held. `lib/commcare/CLAUDE.md` ("The reader", "Reading expressions", "Reading case
-management back") states the accounting, the stage order and the expression contract; this file
-is the method a change here keeps, the canonical rows, and what the reader is told.
+it cannot be held; `readHqAppSteps` is the same reading stopping after each stage, and inside a stage long at the
+byte cap between its parts (`index.ts::STAGE_PARTS`: the forms, the entry facts, the binding, the
+menus' settle and the assembly), which a request drives a piece at a time so the event loop turns
+between them, and a stage therefore keeps nothing outside the reading's own context across a
+stop. `STAGES` stays each stage whole, for a test that runs stages one by one. A grammar read
+(`syntaxRead.ts::readFormSyntax`) is answered from the tree an earlier read of the same text gave
+(`heldByText.ts`), copied, so each read still has its own nodes. A form's XForm text is parsed once
+(`xmlParse.ts::heldXmlParse`, a frozen document shared with `hq/publishedCaseBlocks.ts` and
+`hq/sourceIdentity.ts`); the ledger tells forms apart by their document, so a second form of the
+same text in one reading reads a copy. The emissions a reading compares with (the entry facts'
+and the menus' settle) go through `projectionInputs.ts::readExpansionSteps`, which answers from
+`ReaderOptions.heldExpansions` (`heldExpansions.ts`) where another reading of the same request
+emitted the same settled document under the same projection inputs, compared in full; a bring-in's
+first reading and its fixed point's re-read share one. `lib/commcare/CLAUDE.md` ("The reader",
+"Reading expressions", "Reading case management back") states the accounting, the stage order
+and the expression contract; this file is the method a change here keeps, the canonical rows,
+and what the reader is told.
+
+<!-- Added by the bring-in layer (layer 7); keep through the rebase onto layer 4. -->
+`ReaderOptions.onStage` is told each stage's index in `STAGES` before it runs, then `close`; a
+caller that catches a throw names where it came from by the last one it was told, never by the
+thrown message, which can quote the app.
 
 ## The method: propose, print back, compare trees
 

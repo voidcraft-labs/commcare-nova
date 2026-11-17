@@ -20,10 +20,13 @@
  * declares each move (`media-paths-joined`, `media-files-renamed`).
  */
 
+import type { HqApplication } from "@/lib/commcare";
+import type { BlueprintDoc } from "@/lib/domain";
 import { mimeTypeForExtension } from "@/lib/domain/multimedia";
 import { LOOKUP_DATA_TYPES } from "@/lib/lookup/constants";
 import type { LookupDataType } from "@/lib/lookup/types";
 import { syntheticModuleUuid } from "../emissionPlan";
+import { expandDocSteps } from "../expander";
 import {
 	type LookupNamingDefinition,
 	type LookupWireNaming,
@@ -40,6 +43,7 @@ import {
 } from "../wireIdentity";
 import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
 import type { ReadContext } from "./context";
+import type { ProjectionFacts } from "./heldExpansions";
 import type { ReadMediaReference } from "./types";
 
 export interface ReadProjectionInputs {
@@ -57,6 +61,9 @@ const JR_FILE = "jr://file/";
 
 interface Built {
 	readonly inputs: ReadProjectionInputs;
+	/** Everything `inputs` is built from, as plain data
+	 *  (`heldExpansions.ts::ProjectionFacts`). */
+	readonly facts: ProjectionFacts;
 	/** Each asset's kept path, as the source spells it, by asset id. */
 	readonly kept: ReadonlyMap<string, string>;
 	/** How many media references the reading held when these were built. */
@@ -126,6 +133,24 @@ export function readProjectionInputs(ctx: ReadContext): ReadProjectionInputs {
 	return built(ctx).inputs;
 }
 
+/**
+ * Nova's emission of `doc` under the reading's projection inputs
+ * (`expandDocSteps(doc, readProjectionInputs(ctx))`), a part at a time, or
+ * the one another reading of the request made of the same document under the
+ * same inputs (`ReaderOptions.heldExpansions`).
+ */
+export function* readExpansionSteps(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+): Generator<void, HqApplication, void> {
+	const { inputs, facts } = built(ctx);
+	if (ctx.heldExpansions === undefined)
+		return yield* expandDocSteps(doc, inputs);
+	return yield* ctx.heldExpansions.expansionSteps(doc, facts, () =>
+		expandDocSteps(doc, inputs),
+	);
+}
+
 /** The source's path of each asset the reading resolved: the first, in code-unit order of the
  *  wire path, of the paths its references spell. */
 function keptPaths(ctx: ReadContext): Map<string, ReadMediaReference> {
@@ -180,17 +205,25 @@ function built(ctx: ReadContext): Built {
 			assetId,
 			sourceAsset(assetId, reference.path, reference.mediaKind),
 		);
+	const attachmentTarget = {
+		origin: ctx.input.target.origin,
+		domain: ctx.input.target.domain,
+	};
+	const naming = namingDefinitions(ctx);
 	const inputs: ReadProjectionInputs = {
 		identity: targetWireIdentity(overrides),
-		attachmentTarget: {
-			origin: ctx.input.target.origin,
-			domain: ctx.input.target.domain,
-		},
-		lookupNaming: lookupWireNaming(namingDefinitions(ctx)),
+		attachmentTarget,
+		lookupNaming: lookupWireNaming(naming),
 		assets: assets as AssetManifest,
 	};
 	const result: Built = {
 		inputs,
+		facts: {
+			overrides: overrides.map((one) => ({ ...one })),
+			attachmentTarget: { ...attachmentTarget },
+			naming: structuredClone(naming),
+			assets: [...assets].map(([assetId, asset]) => [assetId, { ...asset }]),
+		},
 		kept: new Map(
 			[...kept].map(([assetId, reference]) => [assetId, reference.path]),
 		),

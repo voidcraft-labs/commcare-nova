@@ -20,6 +20,7 @@ import type {
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import type { InventoryIndex } from "../surface/inventory";
 import { Accounting, type Admitted } from "./accounting";
+import type { HeldExpansions } from "./heldExpansions";
 import type { IdentityResolver } from "./identity";
 import type { JsonCursor } from "./jsonCursor";
 import {
@@ -127,6 +128,8 @@ export interface ReadContext {
 	readonly draftRevision: number;
 	/** The one way a stage changes a draft: runs `write`, then counts a draft revision. */
 	writeDraft(write: () => void): void;
+	/** `ReaderOptions.heldExpansions`. */
+	readonly heldExpansions: HeldExpansions | undefined;
 	/** Closes the accounting once; every later call answers the same close. */
 	close(): ClosedAccounting;
 }
@@ -187,6 +190,7 @@ export function createReadContext(
 			write();
 			revision += 1;
 		},
+		heldExpansions: options.heldExpansions,
 		close() {
 			closed ??= accounting.close();
 			return closed;

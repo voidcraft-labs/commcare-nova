@@ -22,11 +22,17 @@
  *     here. Reporting them is the contract, and Nova never deletes
  *     a remote resource; a client that omits it lets an author accumulate
  *     abandoned apps, tables, and places without ever being told.
+ *
+ * And two that say where the app stands with that project space:
+ * `brought_in`, where the app came from CommCare HQ there, and `ending`,
+ * where Nova stopped publishing there. Both are read from the mappings,
+ * never from the state, by the rules the Publishing card reads.
  */
 
 import { confirmationLabel } from "@/lib/deployment/confirmations";
 import {
 	activeRemoteApp,
+	deploymentEnding,
 	leftBehindResources,
 	remoteAppHoldsContent,
 	remoteAppReportedGone,
@@ -40,7 +46,10 @@ import type {
 	DeploymentWithResources,
 } from "@/lib/deployment/types";
 import { DEPLOYMENT_PHASES } from "@/lib/deployment/types";
+import { driftDate } from "@/lib/publish/driftReference";
+import type { FirstPublishLines } from "@/lib/publish/firstPublishCopy";
 import { KEPT_LABELS } from "@/lib/publish/keptValues";
+import { endedLine } from "@/lib/publish/stopPublishing";
 
 /** One remote resource an earlier publish left on the project space. */
 export interface LeftBehindResource {
@@ -105,6 +114,31 @@ export interface DeploymentProjection {
 		readonly labels: readonly string[];
 		readonly observed_at: string;
 	} | null;
+	/**
+	 * The app came from CommCare HQ on this project space: when it was
+	 * brought in, and the member's display name. Null for an app Nova made
+	 * there, and where the deployment has no live app mapping.
+	 */
+	readonly brought_in: {
+		readonly at: string;
+		readonly by: string;
+	} | null;
+	/**
+	 * Nova stopped publishing this app here: when, who (a display name), why,
+	 * the HQ app that stays there, and the sentence the Publishing card shows,
+	 * with the day in UTC. Null while the deployment stands at no ending.
+	 * Where another Nova app publishes to that HQ app now,
+	 * `held_by_another_app` is true and `hq_app_id` is left out: that app is
+	 * no longer this one's to offer a way back to, and the card offers none.
+	 */
+	readonly ending: {
+		readonly at: string;
+		readonly by: string;
+		readonly reason: "stopped" | "claimed-elsewhere";
+		readonly held_by_another_app: boolean;
+		readonly hq_app_id?: string;
+		readonly message: string;
+	} | null;
 }
 
 /** One confirmation in force on a deployment. */
@@ -157,6 +191,8 @@ export function describeDeployment(
 		}),
 	) as DeploymentProjection["phases"];
 
+	const ending = deploymentEnding(view);
+
 	return {
 		server: record.server,
 		domain: record.domain,
@@ -188,6 +224,25 @@ export function describeDeployment(
 			confirmed_by: confirmation.confirmedByName,
 			confirmed_at: confirmation.confirmedAt,
 		})),
+		/* An app mapping is `adopted` by one route only: the app was brought in
+		 * from CommCare HQ, and its birth records who and when. */
+		brought_in:
+			remote !== null &&
+			remote.ownership === "adopted" &&
+			remote.adoptedAt !== null
+				? { at: remote.adoptedAt, by: remote.adoptedByName ?? "Someone" }
+				: null,
+		ending:
+			ending === null
+				? null
+				: {
+						at: ending.at,
+						by: ending.byName,
+						reason: ending.reason,
+						held_by_another_app: ending.heldByAnotherApp,
+						...(!ending.heldByAnotherApp && { hq_app_id: ending.hqAppId }),
+						message: endedLine(ending, driftDate(ending.at)),
+					},
 		...(kept !== "unread" && {
 			kept:
 				kept === null
@@ -197,5 +252,51 @@ export function describeDeployment(
 							observed_at: kept.observedAt,
 						},
 		}),
+	};
+}
+
+/** `firstPublishLines`' answer as MCP serves it: the same lines, with its keys in snake case. */
+export interface FirstPublishProjection {
+	readonly heading: string;
+	readonly lead: string;
+	readonly workers: {
+		readonly label: string;
+		readonly lines: readonly {
+			readonly id: string;
+			readonly sentence: string;
+		}[];
+	};
+	readonly hq_only: {
+		readonly label: string;
+		readonly lines: readonly {
+			readonly id: string;
+			readonly sentence: string;
+		}[];
+	};
+	readonly reassurance: string | null;
+	readonly note: string;
+}
+
+/**
+ * Project the lines a surface shows of a first-publish (or next-publish)
+ * list. Every MCP answer that carries one goes through this, so each
+ * serves the words the builder shows, in the same order.
+ */
+export function describeFirstPublish(
+	lines: FirstPublishLines,
+): FirstPublishProjection {
+	return {
+		heading: lines.heading,
+		lead: lines.lead,
+		workers: {
+			label: lines.workers.label,
+			lines: lines.workers.lines.map(({ id, sentence }) => ({ id, sentence })),
+		},
+		hq_only: {
+			label: lines.hqOnly.label,
+			lines: lines.hqOnly.lines.map(({ id, sentence }) => ({ id, sentence })),
+		},
+		reassurance: lines.reassurance,
+		note: lines.note,
 	};
 }

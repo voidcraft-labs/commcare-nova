@@ -45,6 +45,7 @@ it.each([
 	["refresh_deployment", "nova.hq.write"],
 	["get_entry_point_link", "nova.hq.write"],
 	["provision_workers", "nova.hq.write"],
+	["withdraw_deployment_confirmation", "nova.hq.write"],
 	["create_project", "nova.projects.write"],
 	["invite_member", "nova.projects.write"],
 	["update_member_role", "nova.projects.write"],

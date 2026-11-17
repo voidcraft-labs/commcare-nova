@@ -151,7 +151,12 @@ exactly the doc it did before they existed.
 arrays round-trip via the stored `ordinal`), `diffBlueprints` (the minimal
 row-set a commit changed — diffed per entity by content, NOT by mutation
 targets, because reducer side effects like a rename's prose cascade touch
-entities the batch never named). `apps.app_name` stores the blueprint name,
+entities the batch never named). Every writer of these rows (the genesis
+tail, a commit's diff, the test seed) writes and deletes them in statements of
+`ENTITY_ROWS_PER_STATEMENT` inside its one transaction
+(`entityRowStatements`): one statement binds at most 65,535 parameters, six
+per row, and an app brought in from CommCare HQ can hold far more rows than
+that allows. `apps.app_name` stores the blueprint name,
 which the schema keeps non-blank, so projections read it directly.
 `apps.localization` stores the optional app-level translation overlay as one
 root scalar. `NULL` is the canonical legacy English-only spelling; no migration
@@ -375,7 +380,7 @@ edges; missing/foreign targets share one opaque error.
 
 `apps.ts` is the authoritative protocol for existing-app writes, and
 `appGenesis.ts` is the ONE closed birth owner (`explicit-blank |
-design-slice`): `prepareGenesisCandidate` reduces the construction batch from
+design-slice | hq-adoption`): `prepareGenesisCandidate` reduces the construction batch from
 the canonical empty Blueprint (`lib/doc/scaffolds.ts::emptyBlueprintDoc`, the
 one spelling both genesis and change-set base loading share) exactly once
 outside the retryable transaction, and `writePreparedGenesisInTransaction`
@@ -388,7 +393,13 @@ case schemas (every type in `buildCaseTypeMap`, including the built-in worker
 case for survey-only apps; `applySchemaChangeInTransaction` at synced seq 1), and inserts entity rows,
 the sequence-one `fold-baseline` change, and immutable baseline atomically.
 `createExplicitBlankApp` (the Builder blank-app action) births the canonical
-survey starter `complete`. Agent authoring, including MCP `begin_work`, stays
+survey starter `complete`. `lib/deployment/reading/birth.ts::adoptHqAppInTransaction`
+births an app brought in from CommCare HQ `complete`: it runs the same tail
+between the HQ app's claim and the adopted deployment's writers, and writes the
+app's lookup tables and places through the tail's `afterAppInsert` seam, after
+the app row is inserted and before the lookup context is read, so the gate and
+export readiness read the tables, and organization integrity reads the places,
+on the same transaction. Agent authoring, including MCP `begin_work`, stays
 private until its first valid `saveWork` checkpoint. The design-slice arm is
 `lib/agent/change-set/materializeGenesis.ts`, which replays the genesis change
 set and creates its app atomically. Reviewed builds also transfer their design
@@ -491,7 +502,10 @@ Membership `INSERT`/`UPDATE`/`DELETE` take the matching exclusive transaction
 lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
 `55000` once its `BEFORE TRUNCATE` trigger fires, without ever waiting on the
 advisory gate (ordinary table locks still apply). Existing-app protocols lock
-the app first, while creation is the only shared-gate-first exception. This serializes
+the app first, while creation is the only shared-gate-first exception. A
+bring-in's birth is creation too: before the gate it locks, through the claim,
+at most one other app's row, and no row of the app it creates. It takes Project
+state only after the gate and after its app row is inserted. This serializes
 missing rows and zero-row DML without a tuple/advisory deadlock. While runtime
 and migrations use separate database roles, the migration role owns the
 database, `public`, and every fixed/auth/control object. Runtime receives
@@ -1141,7 +1155,7 @@ and the batch's candidate before the gate: a publish or a migration may change
 any hold; an editor's batch may move a hold the same batch makes inexpressible,
 or restore exactly the hold the target's latest recording wrote (the latest
 `publish-placement` or `blueprint-migration` row that names it, else the
-greatest fold baseline's snapshot, read by `placementRecords.ts::readRecordedPlacementHolds` under the
+greatest fold baseline's snapshot (a cutover's holds, or the holds a brought-in app was born with), read by `placementRecords.ts::readRecordedPlacementHolds` under the
 app lock for only the keys `placementChangesToJustify` names); everything else
 is refused with `PLACEMENT_CHANGE_REFUSAL`. The per-change decision is
 `lib/doc/placementHolds.ts`'s, the same one the builder's history step reads.

@@ -1,6 +1,7 @@
 /**
  * Refetches the app list once, when the user arrives on a list that was
- * rendered before an app they have since created.
+ * rendered before an app they have since created. The empty state mounts it
+ * too, since the first app a Project holds is created from there.
  *
  * Creation installs its app in place rather than navigating, so the history
  * entry behind the builder is the list as it stood beforehand — and Next serves

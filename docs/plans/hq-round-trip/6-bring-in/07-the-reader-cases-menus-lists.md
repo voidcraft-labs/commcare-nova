@@ -503,9 +503,9 @@ repeat's `placement` are written by one mutation, `holdPlacements`, which no edi
 This part reads the first three; a query repeat's placement is a fact of the form's own source and is
 part 06's. A birth skips the kernel's placement authority check, and the genesis snapshot becomes
 the recorded holds (`lib/db/appGenesis.ts`, `lib/db/placementAuthority.ts`), so the holds a reading
-carries at birth are what a later editor may restore. Part 06's assembly builds the reader's
-construction batch from the assembled document (`lib/doc/diffDocsToMutations.ts::diffDocsToMutations`
-from `emptyBlueprintDoc(appId)`, its section 16.1: `ReadDraft.batch`), and that batch ends with one
+carries at birth are what a later editor may restore. Acceptance builds the construction batch from
+the assembled document (`lib/doc/diffDocsToMutations.ts::diffDocsToMutations` from
+`emptyBlueprintDoc(appId)`, part 09's section 4: `AcceptedReading.batch`), and that batch ends with one
 trailing `holdPlacements` carrying every `placement`, `Form.ownClosePlacement` and `Module.heldKind`
 this part read. The birth applies that batch and diffs nothing of its own, and its genesis snapshot
 records the holds (part 12, 12-the-reading-and-the-birth.md, section 1, "A birth carries holds",

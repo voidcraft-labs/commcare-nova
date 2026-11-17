@@ -44,6 +44,7 @@ import {
 	deploymentTargetSchema,
 } from "@/lib/deployment/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { driftDate } from "@/lib/publish/driftReference";
 import {
 	keptChanged,
 	keptListUnreadSentence,
@@ -74,7 +75,7 @@ export function registerGetDeployment(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. `deployment.confirmations` lists what a person confirmed about each project space for this app (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off); `withdraw_deployment_confirmation` takes one back, and the next upload there asks again. Reads only; call `refresh_deployment` to ask CommCare HQ again. `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them.",
+				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, `incomplete` or `ended`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. `deployment.confirmations` lists what a person confirmed about each project space for this app (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off); `withdraw_deployment_confirmation` takes one back, and the next upload there asks again. Reads only; call `refresh_deployment` to ask CommCare HQ again. `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. `brought_in` says the app came from CommCare HQ on that project space, when and by whom. `ending` says Nova stopped publishing there: the app in CommCare HQ stays, and the next upload makes a new app beside it; where `ending.held_by_another_app` is true, another Nova app publishes to that CommCare HQ app now, so `ending.hq_app_id` is left out and there is no way back to it to offer.",
 			inputSchema: z.object({
 				/* The same wire schema the browser boundary validates, so the
 				 * two surfaces cannot drift into accepting different things. */
@@ -228,8 +229,9 @@ export function registerRefreshDeployment(
 
 /**
  * `refresh_deployment` with `kept_values`: read the kept settings again and
- * answer with the sentence the Publishing card shows, dated with the ISO date
- * of the read the list stood on, and with the deployment where the outcome
+ * answer with the sentence the Publishing card shows, dated with the UTC day
+ * of the read the list stood on (`driftDate`, as every MCP sentence writes a
+ * date), and with the deployment where the outcome
  * carries one. A `DeploymentError` (no key, a key that cannot reach the
  * project space, a key on another server) reaches the client as the tool's
  * error, as Check status's does.
@@ -242,7 +244,7 @@ async function refreshKeptValuesResult(
 	const before = await readTargetFacts(scope, target);
 	const outcome = await refreshKeptValues(scope, target);
 	const context = {
-		date: before === null ? "the last read" : before.observedAt.slice(0, 10),
+		date: before === null ? "the last read" : driftDate(before.observedAt),
 		space: target.domain,
 	};
 	if (outcome.kind !== "refreshed" && outcome.kind !== "superseded") {

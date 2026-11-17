@@ -59,9 +59,10 @@ export { joinDetailColumns } from "./details";
 
 const SELECT_KINDS = new Set(["single_select", "multi_select"]);
 
-/** The properties of `caseType` a select question of the app's forms writes, by the forms' drafts. */
-function selectProperties(app: DraftApp, caseType: string): Set<string> {
-	const out = new Set<string>();
+/** Each case type's properties a select question of the app's forms writes, by the forms'
+ *  drafts: one walk of every form, so a stage asking for each menu's type asks once. */
+function selectPropertiesByType(app: DraftApp): Map<string, Set<string>> {
+	const out = new Map<string, Set<string>>();
 	for (const module of app.modules)
 		for (const form of module.forms) {
 			const selects = selectFieldsOf(form);
@@ -72,15 +73,21 @@ function selectProperties(app: DraftApp, caseType: string): Set<string> {
 					operation.action === "own"
 						? module.module.caseType
 						: operation.caseType;
-				if (type !== caseType || !("writes" in operation)) continue;
+				if (typeof type !== "string" || !("writes" in operation)) continue;
 				for (const write of operation.writes ?? []) {
 					const value = write.value;
 					if (
 						value.kind === "term" &&
 						value.term.kind === "field" &&
 						selects.has(value.term.uuid)
-					)
-						out.add(write.property);
+					) {
+						let properties = out.get(type);
+						if (properties === undefined) {
+							properties = new Set();
+							out.set(type, properties);
+						}
+						properties.add(write.property);
+					}
 				}
 			}
 		}
@@ -102,12 +109,18 @@ function selectFieldsOf(form: DraftForm): Set<Uuid> {
 	return out;
 }
 
-/** The properties of `caseType` a column of any menu of that type shows by its choices' labels,
- *  read from the stored details (`columns.ts::labelShownProperty`). */
-function labelShownProperties(app: DraftApp, caseType: string): Set<string> {
-	const out = new Set<string>();
+/** Each case type's properties a column of any menu of that type shows by its choices' labels,
+ *  read from the stored details (`columns.ts::labelShownProperty`): one walk of every menu. */
+function labelShownPropertiesByType(app: DraftApp): Map<string, Set<string>> {
+	const byType = new Map<string, Set<string>>();
 	for (const module of app.modules) {
-		if (module.module.caseType !== caseType) continue;
+		const caseType = module.module.caseType;
+		if (caseType === undefined) continue;
+		let out = byType.get(caseType);
+		if (out === undefined) {
+			out = new Set();
+			byType.set(caseType, out);
+		}
 		const pair = module.json.peek("case_details");
 		for (const screen of ["short", "long"] as const) {
 			const detail = isJsonObject(pair) ? pair[screen] : undefined;
@@ -118,22 +131,23 @@ function labelShownProperties(app: DraftApp, caseType: string): Set<string> {
 			}
 		}
 	}
-	return out;
+	return byType;
 }
 
 /** Step 6, pass 1: every menu's case list, read from its two details, and the type each numeric
  *  sort declares written into the draft's catalog before any expression binds. */
 export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
+	/* Each read from the drafts before any detail is read, which writes neither a form's case
+	 * changes, a menu's case type nor its stored details. */
+	const selectsByType = selectPropertiesByType(app);
+	const shownByType = labelShownPropertiesByType(app);
+	const none: ReadonlySet<string> = new Set();
 	for (const module of app.modules) {
 		const caseType = module.module.caseType;
 		const selects =
-			caseType === undefined
-				? new Set<string>()
-				: selectProperties(app, caseType);
+			caseType === undefined ? none : (selectsByType.get(caseType) ?? none);
 		const shown =
-			caseType === undefined
-				? new Set<string>()
-				: labelShownProperties(app, caseType);
+			caseType === undefined ? none : (shownByType.get(caseType) ?? none);
 		readCaseDetails(ctx, module, {
 			selectProperty: (property) =>
 				selects.has(property) && shown.has(property),

@@ -531,7 +531,11 @@ async function birth(
 		await writeBroughtInLookupTablesInTransaction(
 			tx,
 			{ projectId: PROJECT, actorUserId: ACTOR, appId },
-			{ origin: write.origin, tables: write.tables, at: AT },
+			{
+				origin: write.origin,
+				tables: write.tables,
+				readAt: write.tablesReadAt,
+			},
 		);
 		await writeBroughtInPlacesInTransaction(
 			tx,
@@ -1163,6 +1167,146 @@ describe("the birth's two writers, in a birth's order", () => {
 	});
 });
 
+describe("a birth that would write over what the Project holds now", () => {
+	/** The Project's own `plain`: CommCare HQ's two fields and 248 columns of its own, 250 in all. */
+	async function seedWidePlain(): Promise<LookupTableSnapshot> {
+		const created = await createLookupTable(SCOPE, {
+			name: "Clinics",
+			tag: "plain",
+			columns: [
+				{ wireName: "code", label: "Code", dataType: "text" },
+				{ wireName: "name", label: "Name", dataType: "text" },
+				...Array.from({ length: 248 }, (_, index) => ({
+					wireName: `extra_${index}`,
+					label: `Extra ${index}`,
+					dataType: "text" as const,
+				})),
+			],
+		});
+		return getLookupTable(SCOPE, created.id);
+	}
+
+	/** Another app of the Project that reads each of `plain`'s own columns. */
+	async function readOwnColumns(table: LookupTableSnapshot): Promise<void> {
+		await h.seedApp({ id: SIBLING_APP, owner: ACTOR, project_id: PROJECT });
+		await withAppTx((tx) =>
+			replaceLookupReferenceEdges(tx, {
+				appId: SIBLING_APP,
+				projectId: PROJECT,
+				targets: {
+					tableIds: [table.id],
+					columnTargets: table.columns
+						.filter((column) => column.wireName.startsWith("extra_"))
+						.map((column) => ({ tableId: table.id, columnId: column.id })),
+				},
+			}),
+		);
+	}
+
+	it("offers no use-commcare-hq where CommCare HQ's fields and the columns apps still read pass 250, and refuses one answered before an app began to read them", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const project = await seedWidePlain();
+		const source = await namingSource();
+		const data = await withHttpPeer(async (peer) => {
+			serveWithRegion(peer);
+			return readData(source);
+		});
+		const standing = data.gathered.tables[0].standing;
+		if (standing?.kind !== "choice") throw new Error("plain asks no choice");
+		expect(standing.options["use-commcare-hq"].offered).toBe(true);
+
+		/* An app begins to read the Project's own columns after the read: no table revision
+		 * moves, and CommCare HQ's three fields with them would be 251 columns. */
+		await readOwnColumns(project);
+		const answered = underTableChoices(data, { plain: "use-commcare-hq" });
+		const before = await rowCounts();
+		await expect(
+			birth(answered, PLAIN_READS, bornDoc(bindingOf(answered, "plain"))),
+		).rejects.toBeInstanceOf(BroughtInTableChangedError);
+		expect(await rowCounts()).toEqual(before);
+		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
+
+		const again = await withHttpPeer(async (peer) => {
+			serveWithRegion(peer);
+			return readData(source);
+		});
+		const now = again.gathered.tables[0].standing;
+		if (now?.kind !== "choice") throw new Error("plain asks no choice");
+		expect(now.options["use-commcare-hq"]).toEqual({
+			offered: false,
+			why: "too-many-columns",
+			name: "251",
+		});
+		const review = projectDataReview(
+			again,
+			PLAIN_READS,
+			bornDoc(bindingOf(again, "plain")),
+			mintingResolver(APP_ID),
+		);
+		expect(review.tables[0].choice?.options["use-commcare-hq"]).toEqual({
+			offered: false,
+			why: "too-many-columns",
+			name: "251",
+		});
+	});
+
+	it("refuses a table a refresh stamped after the reading's read though no revision moved, and stamps each table it writes with that read's date", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const source = await namingSource();
+		const first = await withHttpPeer(async (peer) => {
+			serveTables(peer);
+			return readData(source);
+		});
+		await birth(first, PLAIN_READS, bornDoc(bindingOf(first, "plain")));
+		const managed = bindingOf(first, "plain");
+		const born = await getLookupTable(SCOPE, managed.tableId);
+		expect(born.hq?.refreshedAt).toBe(
+			first.gathered.tablesReadAt.toISOString(),
+		);
+
+		const second = await withHttpPeer(async (peer) => {
+			serveTables(peer);
+			return readData(source, "when-source-reads", undefined, SECOND);
+		});
+		expect(second.gathered.tables[0].standing?.kind).toBe("same-managed");
+		const read = second.gathered.tables[0].read;
+		if (read.kind !== "read") throw new Error("plain was not read");
+		/* A Refresh whose read began after the reading's finds CommCare HQ's table as it was:
+		 * it stamps its date and moves no revision. */
+		const receipt = await withAppTx((tx) =>
+			refreshManagedLookupTableInTransaction(tx, SCOPE, {
+				tableId: managed.tableId,
+				content: managedLookupContentOf(read.table, read.rows),
+				origin: {
+					server: SERVER,
+					domain: DOMAIN,
+					remoteId: PLAIN_ID,
+					canonical: { ...read.canonical },
+				},
+				at: new Date(second.gathered.tablesReadAt.getTime() + 1_000),
+				mode: "refresh",
+				olderReadYields: true,
+			}),
+		);
+		expect(receipt.changed).toBe("nothing");
+		const stamped = await getLookupTable(SCOPE, managed.tableId);
+		expect(stamped.definitionRevision).toBe(born.definitionRevision);
+		expect(stamped.rowsRevision).toBe(born.rowsRevision);
+		expect(stamped.hq?.refreshedAt).not.toBe(born.hq?.refreshedAt);
+
+		const before = await rowCounts();
+		await expect(
+			birth(
+				second,
+				PLAIN_READS,
+				bornDoc(bindingOf(second, "plain"), [], SECOND.appId),
+			),
+		).rejects.toBeInstanceOf(BroughtInTableChangedError);
+		expect(await rowCounts()).toEqual(before);
+		expect(await getLookupTable(SCOPE, managed.tableId)).toEqual(stamped);
+	});
+});
+
 describe("the columns CommCare HQ's content keeps, and the order the birth locks tables in", () => {
 	it("names the columns an app reads, which the refresh keeps where CommCare HQ's fields lack them", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
@@ -1203,7 +1347,8 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 					remoteId: PLAIN_ID,
 					canonical: { ...read.canonical, digest: "f".repeat(64) },
 				},
-				at: AT,
+				/* Read after the birth, whose write is dated by its own read. */
+				at: new Date(),
 				mode: "refresh",
 				olderReadYields: true,
 			}),
@@ -1269,7 +1414,8 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 						remoteId: PLAIN_ID,
 						canonical: { ...read.canonical, digest },
 					},
-					at: AT,
+					/* Read after the birth, whose write is dated by its own read. */
+					at: new Date(),
 					mode: "refresh",
 					olderReadYields: true,
 				}),
@@ -1424,7 +1570,11 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 				await writeBroughtInLookupTablesInTransaction(
 					tx,
 					{ projectId: PROJECT, actorUserId: ACTOR, appId: SECOND.appId },
-					{ origin: write.origin, tables: write.tables, at: AT },
+					{
+						origin: write.origin,
+						tables: write.tables,
+						readAt: write.tablesReadAt,
+					},
 				);
 			});
 		const [saved, birthed] = await Promise.allSettled([autosave, born]);

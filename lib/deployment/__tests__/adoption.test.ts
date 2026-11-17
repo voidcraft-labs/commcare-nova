@@ -448,7 +448,7 @@ describe("assignMediaPaths", () => {
 		}
 	});
 
-	it("throws on a path outside jr://file/", () => {
+	it("throws on a path outside jr://file/, naming the asset and never the path", () => {
 		expect(() =>
 			assignMediaPaths([
 				{
@@ -459,7 +459,9 @@ describe("assignMediaPaths", () => {
 				},
 			]),
 		).toThrow(
-			"Nova was given the media path “jr://images/logo.png” to keep, and it doesn't start with jr://file/. CommCare HQ can't build an app with such a path, so the reader should have reported this file before the app was created.",
+			new Error(
+				`Nova was given a media path to keep for the asset ${ASSET_A}, and it doesn't start with jr://file/. CommCare HQ can't build an app with such a path, so the reader should have reported this file before the app was created.`,
+			),
 		);
 	});
 

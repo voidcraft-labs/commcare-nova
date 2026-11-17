@@ -34,6 +34,7 @@
  */
 
 import type { Element } from "domhandler";
+import { FORM_TEXTS_HELD_CHARACTERS, HeldByText } from "../heldByText";
 import {
 	elementChildren,
 	isElement,
@@ -44,7 +45,7 @@ import {
 	XFORMS_NS,
 	XHTML_NS,
 } from "../xmlNamespaces";
-import { tryParseXml } from "../xmlParse";
+import { heldXmlParse } from "../xmlParse";
 
 /** A condition as Case Management states it, the question's path relative to the data root. */
 export type PublishedCondition =
@@ -692,7 +693,7 @@ function advancedBlocks(
 /** The data root of the XForm's primary instance: `h:html/h:head/model`'s
  *  first `instance` without an `id`, its one element child. */
 function dataRoot(xml: string): { element: Element; scope: NamespaceScope } {
-	const parsed = tryParseXml(xml);
+	const parsed = heldXmlParse(xml);
 	if ("issue" in parsed) unread("xform-unparsed");
 	const [html] = elementChildren(parsed.doc.children, new Map());
 	if (
@@ -779,6 +780,35 @@ function saveToCaseContent(
  * model-iteration repeat is an element whose Vellum `role` is `Repeat`,
  * holding the `ids`, `count` and `current_index` attributes and an `item` row.
  */
+interface SourceBlocks {
+	readonly root: string;
+	readonly blocks: readonly PublishedCaseBlock[];
+	readonly rows: readonly string[];
+}
+
+/** Each form text's `sourceBlocks`, or the reason it is unread (`heldByText.ts`). */
+const heldBlocks = new HeldByText<SourceBlocks | UnreadFormReason>(
+	FORM_TEXTS_HELD_CHARACTERS,
+);
+
+function heldSourceBlocks(xml: string): SourceBlocks {
+	const held = heldBlocks.of(xml, (text) => {
+		try {
+			const read = sourceBlocks(text);
+			return Object.freeze({
+				root: read.root,
+				blocks: Object.freeze(read.blocks),
+				rows: Object.freeze(read.rows),
+			});
+		} catch (error) {
+			if (error instanceof Unread) return error.reason;
+			throw error;
+		}
+	});
+	if (typeof held === "string") unread(held);
+	return held;
+}
+
 function sourceBlocks(xml: string): {
 	root: string;
 	blocks: PublishedCaseBlock[];
@@ -907,7 +937,7 @@ function readForm(
 			: undefined;
 	if (typeof xml !== "string") return { reason: "no-xform" };
 	try {
-		const source = sourceBlocks(xml);
+		const source = heldSourceBlocks(xml);
 		return {
 			blocks: [...builds(form, module, source.root), ...source.blocks],
 			modelIterationRows: source.rows,

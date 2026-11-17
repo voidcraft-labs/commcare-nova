@@ -468,15 +468,18 @@ export function readerLookupCatalog(
 	const definitions = new Map<LookupTableId, IndexedLookupDefinition>();
 	for (const { binding, name, fields, asItStands } of bound) {
 		if (byTag.has(binding.tag)) {
+			/* These name a table by its id, never its tag or a field's name: the message
+			 * reaches the route's failed line and Sentry (layer 7's small
+			 * edits, kept for the rebase). */
 			throw new Error(
-				`The lookup catalog was handed two bindings of the tag ${binding.tag}.`,
+				`The lookup catalog was handed two bindings of one tag, the second bound to ${binding.tableId}.`,
 			);
 		}
 		byTag.set(binding.tag, binding);
 		if (asItStands !== undefined) {
 			if (asItStands.id !== binding.tableId) {
 				throw new Error(
-					`The lookup table ${binding.tag} is bound to ${binding.tableId}, not to the Project table it stands as.`,
+					`A lookup table is bound to ${binding.tableId}, not to the Project table it stands as, ${asItStands.id}.`,
 				);
 			}
 			definitions.set(binding.tableId, {
@@ -496,10 +499,10 @@ export function readerLookupCatalog(
 			id: binding.tableId,
 			name,
 			tag: binding.tag,
-			columns: fields.map((field) => {
+			columns: fields.map((field, index) => {
 				if (!Object.hasOwn(binding.columns, field)) {
 					throw new Error(
-						`The lookup table ${binding.tag} is bound with no column for its field ${field}.`,
+						`The lookup table bound to ${binding.tableId} has no column for its field ${index + 1}.`,
 					);
 				}
 				return {
@@ -887,10 +890,14 @@ export function resolveLookupBindings(
 	/** The two ids every lookup id of the reading derives from. */
 	ids: { readonly appId: string; readonly readingId: string },
 ): readonly LookupTableBinding[] {
-	return reads.map((read) => {
+	return reads.map((read, index) => {
 		const tag = read.table.tag;
 		if (!Object.hasOwn(standings, tag)) {
-			throw new Error(`The lookup table ${tag} was bound with no standing.`);
+			/* Named by its place among the reads, never its tag: this reaches the route's
+			 * failed line and Sentry (layer 7's small edit, kept for the rebase). */
+			throw new Error(
+				`A lookup table was bound with no standing (read ${index + 1} of ${reads.length}).`,
+			);
 		}
 		const standing = standings[tag];
 		if (standing.kind === "new") {
@@ -1005,7 +1012,8 @@ export function readingLookupSnapshot(
 	);
 	const definitions: LookupTableDefinition[] = [];
 	const rowsByTable = new Map<LookupTableId, readonly LookupFixtureRow[]>();
-	for (const tag of Object.keys(reads.lookupFields).sort(compareCodeUnits)) {
+	const tags = Object.keys(reads.lookupFields).sort(compareCodeUnits);
+	for (const [index, tag] of tags.entries()) {
 		const gathered = byTag.get(tag);
 		if (
 			gathered === undefined ||
@@ -1013,8 +1021,10 @@ export function readingLookupSnapshot(
 			gathered.standing === null ||
 			gathered.binding === null
 		) {
+			/* By its place, never its tag (layer 7's small edit, kept for the
+			 * rebase). */
 			throw new Error(
-				`The document reads the lookup table ${tag}, which the reading bound to nothing.`,
+				`The document reads a lookup table the reading bound to nothing (table ${index + 1} of the ${tags.length} it reads).`,
 			);
 		}
 		const { read, standing, binding } = gathered;
@@ -1022,7 +1032,7 @@ export function readingLookupSnapshot(
 			const rows = data.gathered.project.rowsByTable[standing.table.id];
 			if (rows === undefined) {
 				throw new Error(
-					`The reading holds no rows of the Project's lookup table ${tag}.`,
+					`The reading holds no rows of the Project's lookup table ${standing.table.id}.`,
 				);
 			}
 			definitions.push(standing.table);
@@ -1032,7 +1042,7 @@ export function readingLookupSnapshot(
 		const definition = data.lookups.definitions.get(binding.tableId);
 		if (definition === undefined) {
 			throw new Error(
-				`The reader's catalog holds no definition of the lookup table ${tag}.`,
+				`The reader's catalog holds no definition of the lookup table ${binding.tableId}.`,
 			);
 		}
 		definitions.push({

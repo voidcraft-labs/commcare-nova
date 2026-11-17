@@ -359,8 +359,8 @@ it("serves refresh_deployment's kept_values and tells a client what the kept lis
 	expect(refresh.description).toMatch(
 		/ Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ \(the `kept` list of `get_deployment`\) without asking about builds\. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise\.$/,
 	);
-	expect(served("get_deployment").description).toMatch(
-		/ `deployment\.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them\.$/,
+	expect(served("get_deployment").description).toContain(
+		" `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them.",
 	);
 });
 
@@ -371,4 +371,202 @@ it("tells a client which lookup tables and places are copies of CommCare HQ's, a
 	expect(served("get_organization").description).toContain(
 		"When `places_managed_in_commcare_hq` is present, the places are a copy of CommCare HQ's. Levels and place information can still be changed; places cannot.",
 	);
+});
+
+/** A served tool's input schema's property names, sorted, and whether it is closed. */
+function inputShape(name: string) {
+	const schema = served(name).inputSchema as Json;
+	const properties = object(schema.properties)
+		? Object.keys(schema.properties).sort()
+		: [];
+	const required = Array.isArray(schema.required)
+		? [...schema.required].sort()
+		: [];
+	return {
+		properties,
+		required,
+		additionalProperties: schema.additionalProperties,
+	};
+}
+
+/** The served schemas' every position, for a keyword no position may hold. */
+function everyPosition(name: string): Json[] {
+	const positions: Json[] = [];
+	visitSchemas(served(name).inputSchema as Json, "", (schema) =>
+		positions.push(schema),
+	);
+	return positions;
+}
+
+/** A served tool's one property, compiled on its own in the schema's dialect. */
+function validatorOf(name: string, property: string) {
+	const properties = (served(name).inputSchema as Json).properties;
+	if (!object(properties) || !object(properties[property]))
+		throw new Error(`${name} serves no ${property}`);
+	return new Ajv2020({ strict: false, validateFormats: false }).compile(
+		properties[property],
+	);
+}
+
+it("serves bring_in_hq_app with every answer required and no default", () => {
+	const all = [
+		"app_name",
+		"domain",
+		"hq_app_id",
+		"project_id",
+		"reading_id",
+		"review_digest",
+		"runs_only_on",
+		"split_datetime",
+		"table_choices",
+	];
+	expect(inputShape("bring_in_hq_app")).toEqual({
+		properties: all,
+		required: all,
+		additionalProperties: false,
+	});
+	const runsOnlyOn = validatorOf("bring_in_hq_app", "runs_only_on");
+	expect(runsOnlyOn(null)).toBe(true);
+	expect(runsOnlyOn("web-apps")).toBe(true);
+	expect(runsOnlyOn("android")).toBe(true);
+	expect(runsOnlyOn("both")).toBe(false);
+	expect(runsOnlyOn(undefined)).toBe(false);
+	const digest = validatorOf("bring_in_hq_app", "review_digest");
+	expect(digest("ab".repeat(32))).toBe(true);
+	expect(digest("AB".repeat(32))).toBe(false);
+	const readingId = validatorOf("bring_in_hq_app", "reading_id");
+	expect(readingId("0192f5a0-0000-7000-8000-000000000001")).toBe(true);
+	expect(readingId("0192f5a0-0000-4000-8000-000000000001")).toBe(false);
+	expect(
+		everyPosition("bring_in_hq_app").filter((schema) => "default" in schema),
+	).toEqual([]);
+});
+
+it("serves read_hq_app as one closed object", () => {
+	expect(inputShape("read_hq_app")).toEqual({
+		properties: ["domain", "hq_app_id", "page", "project_id"],
+		required: ["domain", "hq_app_id", "project_id"],
+		additionalProperties: false,
+	});
+	const page = validatorOf("read_hq_app", "page");
+	expect(page(`120:${"ab".repeat(32)}`)).toBe(true);
+	expect(page("120")).toBe(false);
+	expect(page(`120:${"AB".repeat(32)}`)).toBe(false);
+});
+
+it("serves the four other bring-in tools as closed objects", () => {
+	expect(inputShape("list_hq_apps")).toEqual({
+		properties: ["domain"],
+		required: ["domain"],
+		additionalProperties: false,
+	});
+	expect(inputShape("stop_publishing")).toEqual({
+		properties: ["app_id", "domain", "server"],
+		required: ["app_id", "domain", "server"],
+		additionalProperties: false,
+	});
+	expect(inputShape("refresh_managed_data")).toEqual({
+		properties: ["app_id", "project_id", "table_id"],
+		required: ["project_id"],
+		additionalProperties: false,
+	});
+	expect(inputShape("set_lookup_table_management")).toEqual({
+		properties: ["confirmed", "managed_by", "project_id", "table_id"],
+		required: ["confirmed", "managed_by", "project_id", "table_id"],
+		additionalProperties: false,
+	});
+	const managedBy = (served("set_lookup_table_management").inputSchema as Json)
+		.properties;
+	if (!object(managedBy) || !object(managedBy.managed_by))
+		throw new Error("set_lookup_table_management serves no managed_by");
+	expect(managedBy.managed_by.enum).toEqual(["nova", "commcare-hq"]);
+	expect(
+		takes("stop_publishing", {
+			app_id: "app",
+			server: "production",
+			domain: "clinic",
+			reason: "the user asked",
+		}),
+	).not.toBe(true);
+});
+
+it("tells a client an agent never chooses for the user", () => {
+	expect(served("bring_in_hq_app").description).toContain(
+		"never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them",
+	);
+	expect(served("read_hq_app").description).toContain(
+		"never choose it for them",
+	);
+	expect(served("set_lookup_table_management").description).toContain(
+		"Never decide this for the user.",
+	);
+});
+
+it("names each key where a client reads it", () => {
+	const relayInOrder =
+		"Relay each `sentence` of `workers.lines`, then of `hq_only.lines`, then `reassurance` where it is not null, then `note`";
+	const compatibility = served("check_project_space_compatibility").description;
+	expect(compatibility).toContain("`first_publish`");
+	expect(compatibility).toContain(relayInOrder);
+	const deployment = served("get_deployment").description;
+	expect(deployment).toContain("`brought_in`");
+	expect(deployment).toContain("`ending`");
+	/* An ended deployment whose HQ app another Nova app holds now names no
+	 * HQ app, and the client is told why, so it offers no way back. */
+	expect(deployment).toContain(
+		"where `ending.held_by_another_app` is true, another Nova app publishes to that CommCare HQ app now, so `ending.hq_app_id` is left out and there is no way back to it to offer",
+	);
+	expect(deployment).toContain(
+		"`state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, `incomplete` or `ended`",
+	);
+	expect(served("upload_app_to_hq").description).toContain(
+		"`publishing_stopped`",
+	);
+	expect(served("upload_app_to_hq").description).toContain("`since`");
+	expect(served("get_hq_connection").description).toContain("`list_hq_apps`");
+	expect(served("stop_publishing").description).toContain(
+		"`setup_artifact` is then null, and `get_deployment` reads it again",
+	);
+	/* CommCare HQ can hold no name for an app, so the client is told the review's
+	 * name can be empty and asks the user for one there. */
+	const bringInInput = (served("bring_in_hq_app").inputSchema as Json)
+		.properties;
+	if (!object(bringInInput) || !object(bringInInput.app_name))
+		throw new Error("bring_in_hq_app serves no app_name");
+	expect(bringInInput.app_name.description).toContain(
+		"empty where CommCare HQ holds none",
+	);
+
+	const read = served("read_hq_app").description ?? "";
+	for (const key of [
+		"`first_publish`",
+		"`check_again`",
+		"`next_page`",
+		"`restarted`",
+	])
+		expect(read).toContain(key);
+	expect(served("bring_in_hq_app").description).toContain("`first_publish`");
+	/* Each tool that names `first_publish` names its four parts in the order
+	 * a client relays them. */
+	for (const name of [
+		"read_hq_app",
+		"bring_in_hq_app",
+		"check_project_space_compatibility",
+	]) {
+		const description = served(name).description ?? "";
+		const at = [
+			"`workers.lines`",
+			"`hq_only.lines`",
+			"`reassurance` where it is not null",
+			"`note`",
+		].map((part) => description.indexOf(part));
+		expect(
+			at.every((index) => index >= 0),
+			name,
+		).toBe(true);
+		expect(
+			[...at].sort((a, b) => a - b),
+			name,
+		).toEqual(at);
+	}
 });

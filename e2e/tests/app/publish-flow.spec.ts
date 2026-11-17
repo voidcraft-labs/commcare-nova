@@ -1,3 +1,4 @@
+import type { Request } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder } from "../../lib/pageLoads";
 import { removableRoutes } from "../../lib/routes";
@@ -180,6 +181,62 @@ test("Publish checks and downloads the saved document after a pending edit", {
 	} finally {
 		release.resolve();
 		await routes.removeAll();
+	}
+});
+
+/* An app made in this tab has an address the History API wrote, which the
+ * Next router does not know. A router refresh would put Next's own address
+ * back and rebuild the builder, so Check connection reads the connection
+ * route alone. The browser peer mounts the dialog without `PublishPanel`, so
+ * only this journey reaches the panel's wiring of the button. */
+test("Check connection in Publish keeps the address of an app made in this tab", {
+	tag: "@seed:auth",
+}, async ({ scenario, page }) => {
+	seedFor(scenario, "auth");
+	await openBuilder(page, "/build/new");
+	await page
+		.getByRole("button", { name: "Start with a blank app", exact: true })
+		.click();
+	await page.waitForURL(/\/build\/(?!new)[\w-]+$/, { timeout: 30_000 });
+	const address = new URL(page.url()).pathname;
+	await page.getByRole("button", { name: "Publish", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Publish app", exact: true });
+	const notConnected = dialog.getByRole("heading", {
+		name: "Connect CommCare HQ to upload",
+		exact: true,
+	});
+	await expect(notConnected).toBeVisible();
+	const navigations: string[] = [];
+	/* The aside's Settings link prefetches its page, which loads nothing; a
+	 * router refresh or a navigation is a document or an RSC request that is
+	 * no prefetch. */
+	const onRequest = (request: Request) => {
+		if (request.headers()["next-router-prefetch"] !== undefined) return;
+		if (
+			request.resourceType() === "document" ||
+			request.headers().rsc !== undefined ||
+			new URL(request.url()).searchParams.has("_rsc")
+		)
+			navigations.push(request.url());
+	};
+	page.on("request", onRequest);
+	try {
+		const check = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/commcare/connection",
+		);
+		await dialog
+			.getByRole("button", { name: "Check connection", exact: true })
+			.click();
+		expect((await check).status()).toBe(200);
+		await expect(
+			dialog.getByRole("button", { name: "Check connection", exact: true }),
+		).toBeEnabled();
+		expect(new URL(page.url()).pathname).toBe(address);
+		await expect(notConnected).toBeVisible();
+		expect(navigations).toEqual([]);
+	} finally {
+		page.off("request", onRequest);
 	}
 });
 

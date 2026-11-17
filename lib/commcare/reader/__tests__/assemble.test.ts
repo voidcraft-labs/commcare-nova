@@ -2,8 +2,9 @@
  * The last stage of a reading and the reader's canonical choices.
  *
  * Contract: over drafts the stages built from an export, where no finding
- * stands, the draft's document parses whole and its batch, applied to the
- * empty document, rebuilds it, with every held placement in one trailing
+ * stands, the draft's document parses whole and the construction batch a
+ * birth reduces (`diffDocsToMutations` from the empty document), applied to
+ * the empty document, rebuilds it, with every held placement in one trailing
  * `holdPlacements`, and its identities and form facts name the document's own
  * menus and forms; a document the schema refuses gives no draft and the defect
  * `assembly`; content no platform runs whole is `no-platform-runs-everything`
@@ -29,6 +30,7 @@ import {
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -207,15 +209,19 @@ describe("the assembly", () => {
 		const draft = ctx.assembled;
 		if (draft === undefined)
 			throw new Error(JSON.stringify(ctx.close().findings));
+		const batch = diffDocsToMutations(
+			emptyBlueprintDoc(ctx.input.appId),
+			draft.doc,
+		);
 		const rebuilt = produce(emptyBlueprintDoc(ctx.input.appId), (empty) => {
-			applyMutations(empty, draft.batch);
+			applyMutations(empty, batch);
 		});
 		expect(toPersistableDoc(rebuilt)).toEqual(toPersistableDoc(draft.doc));
-		const holds = draft.batch.filter(
+		const holds = batch.filter(
 			(mutation) => mutation.kind === "holdPlacements",
 		);
 		expect(holds).toHaveLength(1);
-		expect(draft.batch.at(-1)?.kind).toBe("holdPlacements");
+		expect(batch.at(-1)?.kind).toBe("holdPlacements");
 		expect(placementsToHold(draft.doc)).toEqual([]);
 		expect(draft.declaration.kind).toBe("choices");
 		// The identities name the document's own menus and forms, by the drafts that read them.

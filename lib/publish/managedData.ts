@@ -208,6 +208,60 @@ export function managedColumnKept(
 	return `CommCare HQ no longer has the column ${column}, and ${appsInWords(apps)} still ${one ? "reads" : "read"} it. Nova kept the column, with no values, so ${one ? "that app keeps" : "those apps keep"} opening. ${one ? "Its" : "Their"} next publish to ${domain} stops until the column is back in CommCare HQ or ${one ? "it stops" : "they stop"} reading it.`;
 }
 
+/**
+ * What a table action answered, as `lib/deployment/managedData.ts`'s
+ * `ManagedTableOutcome` holds it, taken structurally so this file imports
+ * nothing of `lib/deployment`.
+ */
+export type ManagedTableAnswer =
+	| {
+			readonly ok: true;
+			readonly receipt: {
+				readonly changed: "nothing" | "rows" | "definition" | "superseded";
+				readonly keptGoneColumns: readonly {
+					readonly wireName: string;
+					readonly apps: readonly NamedApp[];
+				}[];
+			} | null;
+	  }
+	| { readonly ok: false; readonly message: string };
+
+/**
+ * What is said after a table action answered, on the table's banner and in
+ * MCP's answer. A refresh that landed says what changed (T13 to T15), then
+ * each column it kept because an app still reads it (T16); Manage in Nova
+ * and a hand-back that met the table as it stands say nothing, since the
+ * table's banner itself turns over. A refusal says its own sentence, and
+ * the copy is as it was.
+ */
+export function managedTableOutcomeLines(
+	outcome: ManagedTableAnswer,
+	domain: string,
+): { readonly tone: "status" | "alert"; readonly lines: readonly string[] } {
+	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
+	const receipt = outcome.receipt;
+	if (receipt === null) return { tone: "status", lines: [] };
+	const changed = {
+		nothing: MANAGED_TABLE_ALREADY_MATCHES,
+		rows: MANAGED_TABLE_REFRESHED_ROWS,
+		definition: MANAGED_TABLE_REFRESHED_COLUMNS,
+		superseded: MANAGED_TABLE_REFRESHED_SINCE,
+	}[receipt.changed];
+	return {
+		tone: "status",
+		lines: [
+			changed,
+			/* A column an accepted design names stays with no app reading it,
+			 * and the sentence about a kept column is about the apps that do. */
+			...receipt.keptGoneColumns
+				.filter((column) => column.apps.length > 0)
+				.map((column) =>
+					managedColumnKept(column.wireName, column.apps, domain),
+				),
+		],
+	};
+}
+
 /** T17: a refresh CommCare HQ refused to answer the account. */
 export function cannotReadManagedTables(domain: string): string {
 	return `Nova couldn't read lookup tables in ${domain} with your CommCare HQ account. It needs API access on that project space, and the Edit Apps and Access APIs permissions on your account.`;
@@ -322,6 +376,59 @@ export const MANAGED_PLACES_ALREADY_MATCH =
 /** O26: a places refresh whose read a newer refresh overtook, so it wrote nothing. */
 export const MANAGED_PLACES_REFRESHED_SINCE =
 	"Nova's copy was refreshed again while this one was reading CommCare HQ, so it already holds the newer read.";
+
+/**
+ * What a refresh of places answered, as `lib/deployment/managedData.ts`'s
+ * `ManagedPlacesOutcome` holds it, taken structurally.
+ */
+export type ManagedPlacesAnswer =
+	| {
+			readonly ok: true;
+			readonly refresh: {
+				readonly added: number;
+				readonly changed: number;
+				readonly archived: number;
+				readonly keptInUse: readonly string[];
+				readonly keptLeftOut: readonly string[];
+				/** True where a later refresh had already landed, so this one changed nothing. */
+				readonly superseded?: boolean;
+			};
+	  }
+	| { readonly ok: false; readonly message: string };
+
+/**
+ * What is said after a refresh of places answered, on the Organization
+ * banner and in MCP's answer: what changed (O9, O10), then the places gone
+ * from CommCare HQ that Nova kept because a persona or an owner rule still
+ * uses them (O6), then the places CommCare HQ now holds at a level the app
+ * lacks that Nova kept as they stood (O27). The places left out for a level the app lacks are the
+ * copy's standing fact (O8), which the banner shows from the organization's
+ * own read, not from this answer. A refusal says its own sentence, and the
+ * copy is as it was.
+ */
+export function managedPlacesOutcomeLines(outcome: ManagedPlacesAnswer): {
+	readonly tone: "status" | "alert";
+	readonly lines: readonly string[];
+} {
+	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
+	const { added, changed, archived, keptInUse, keptLeftOut, superseded } =
+		outcome.refresh;
+	if (superseded) {
+		return { tone: "status", lines: [MANAGED_PLACES_REFRESHED_SINCE] };
+	}
+	return {
+		tone: "status",
+		lines: [
+			added === 0 && changed === 0 && archived === 0
+				? MANAGED_PLACES_ALREADY_MATCH
+				: managedPlacesRefreshed(added, changed, archived),
+			...(keptInUse.length === 0 ? [] : [managedPlacesKeptInUse(keptInUse)]),
+			...(keptLeftOut.length === 0
+				? []
+				: [managedPlacesKeptLeftOut(keptLeftOut)]),
+		],
+	};
+}
 
 /**
  * O11: a refresh that finds more places than Nova holds for an app. `total`

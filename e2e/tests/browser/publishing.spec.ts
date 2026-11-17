@@ -11,6 +11,7 @@ import type {
 	DeploymentView,
 	KeptRefreshView,
 } from "@/lib/deployment/actions";
+import { hqPlaceUrl } from "@/lib/deployment/hqPlaceUrl";
 import {
 	APP_PREVIEW_NOTE,
 	BASELINE_UNKNOWN_SENTENCE,
@@ -21,8 +22,22 @@ import { WEB_APPS_ONLY_HAS_NO_CCZ } from "@/lib/deployment/runtimeTarget";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
 import {
 	type DeploymentConfirmationNeeded,
+	type DeploymentResource,
 	NO_DEPLOYMENT_PHASE_OUTCOMES,
 } from "@/lib/deployment/types";
+import {
+	ANOTHER_SPACE_NEW_APP_LINE,
+	broughtInFromLine,
+	CONNECTION_CHECK_FAILED,
+	DRIFT_STOP_EDITOR_LINE,
+	DRIFT_STOP_LEAVE_HEADING,
+	notPublishedYetLine,
+	STOP_PUBLISHING_FAILED,
+	STOP_PUBLISHING_UNANSWERED,
+	stoppedPublishingLine,
+} from "@/lib/publish/bringInCopy";
+import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
+import { firstPublishLines } from "@/lib/publish/firstPublishCopy";
 import {
 	KEPT_LABELS,
 	keptLead,
@@ -57,6 +72,16 @@ import {
 	PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
 	PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
 } from "@/lib/publish/projectSpaceCompatibility";
+import {
+	ENDED_HQ_APP_LINK,
+	ENDED_WORKERS_LINE,
+	endedLine,
+	PUBLISH_PLAN_CREATES_BESIDE,
+	STOP_PUBLISHING_ACTION,
+	STOP_PUBLISHING_CONFIRM,
+	STOP_PUBLISHING_HELPER,
+	stopPublishingConfirmTitle,
+} from "@/lib/publish/stopPublishing";
 import {
 	WEB_APPS_CHANGE_HEADING,
 	webAppsChangeMessage,
@@ -2234,4 +2259,705 @@ test("a fresh review exposes compatibility failures while preserving refusal cho
 		page.getByRole("button", { name: "Upload", exact: true }),
 	).toBeEnabled();
 	await expect(consent).toBeChecked();
+});
+
+// ── After an app is brought in ───────────────────────────────────────────
+
+const BROUGHT_IN_AT = "2026-10-03T09:30:00Z";
+const STOPPED_AT = "2026-10-20T15:00:00Z";
+const FIRST_PUBLISH: FirstPublishView = {
+	ids: ["forms-and-settings-rewritten", "case-names-checked"],
+	touchesWorkers: true,
+	of: "first-publish",
+};
+
+/** The live app mapping a bring-in records: `adopted`, with who and when. */
+function broughtInMapping(): DeploymentResource {
+	return {
+		deploymentId: "deployment",
+		kind: "app",
+		novaResourceId: "native-publishing",
+		remoteId: "hq-app",
+		ownership: "adopted",
+		pushedIdentity: null,
+		adoptedAt: BROUGHT_IN_AT,
+		adoptedBy: "native-user",
+		pushedRevision: 1,
+		pushedAt: BROUGHT_IN_AT,
+		pushToken: "01992000-0000-7000-8000-000000000001",
+		remoteRevision: null,
+		remoteObservedAt: null,
+		supersededAt: null,
+		remoteMissingAt: null,
+		adoptedByName: "Ada Lovelace",
+		releasedAt: null,
+		endedReason: null,
+		endedByName: null,
+		heldByAnotherApp: false,
+	};
+}
+
+/** A deployment of the app brought in from `alpha`, not yet published to. */
+function broughtInView(): DeploymentView {
+	const landed = landedView([]);
+	return {
+		...landed,
+		deployment: {
+			...landed.deployment,
+			active: [broughtInMapping()],
+		},
+		firstPublish: FIRST_PUBLISH,
+	};
+}
+
+/** The same deployment once publishing there stopped. */
+function stoppedView(): DeploymentView {
+	const landed = landedView([]);
+	return {
+		...landed,
+		deployment: {
+			...landed.deployment,
+			deployment: {
+				...landed.deployment.deployment,
+				state: "ended",
+				endings: 1,
+			},
+			active: [],
+			superseded: [
+				{
+					...broughtInMapping(),
+					supersededAt: STOPPED_AT,
+					endedReason: "stopped",
+					endedByName: "Ada Lovelace",
+				},
+			],
+		},
+		firstPublish: null,
+	};
+}
+
+/** A day as the card writes it, in the browser's own locale. */
+function cardDate(page: Page, iso: string): Promise<string> {
+	return page.evaluate(
+		(at) =>
+			new Date(at).toLocaleDateString(undefined, {
+				day: "numeric",
+				month: "long",
+				year: "numeric",
+			}),
+		iso,
+	);
+}
+
+/** The App setup Publishing section, its records answered from `read`. */
+async function openSection(
+	page: Page,
+	role: "admin" | "editor",
+	read: () => DeploymentView[],
+	query = "",
+) {
+	await page.route("**/api/apps/native-publishing/stream?*", (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: "text/event-stream",
+			body: "retry: 3600000\n\n",
+		}),
+	);
+	await page.route("**/api/apps/native-publishing/presence", (route) =>
+		route.fulfill({ json: [] }),
+	);
+	await page.route("**/publishing/lookup", (route) =>
+		route.fulfill({
+			json: {
+				success: true,
+				data: { projectId: "native-project", revision: "0", tables: [] },
+			},
+		}),
+	);
+	await page.route("**/publishing/read", (route) =>
+		route.fulfill({ json: { success: true, data: read() } }),
+	);
+	await page.goto(`${peer.origin}/?section=true&role=${role}&${query}`);
+}
+
+test("a brought-in record says where it came from and that Nova hasn't published to it, and Stop publishing here ends it into the ended card", async ({
+	page,
+}) => {
+	const stops: unknown[] = [];
+	await page.route("**/publishing/stop", (route) => {
+		stops.push(route.request().postDataJSON());
+		return route.fulfill({
+			json: {
+				success: true,
+				data: { view: stoppedView(), preview: null },
+			},
+		});
+	});
+	await openSection(page, "admin", () =>
+		stops.length === 0 ? [broughtInView()] : [stoppedView()],
+	);
+	const broughtIn = await cardDate(page, BROUGHT_IN_AT);
+	await expect(
+		page.getByText(broughtInFromLine("alpha", broughtIn, "Ada Lovelace"), {
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(
+		page.getByText(notPublishedYetLine(broughtIn), { exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByText(STOP_PUBLISHING_HELPER, { exact: true }),
+	).toBeVisible();
+
+	await page
+		.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true })
+		.click();
+	const confirm = page.getByRole("alertdialog");
+	await expect(
+		confirm.getByRole("heading", {
+			name: stopPublishingConfirmTitle("alpha"),
+			exact: true,
+		}),
+	).toBeVisible();
+	await confirm
+		.getByRole("button", { name: STOP_PUBLISHING_CONFIRM, exact: true })
+		.click();
+	await expect(page.getByRole("alertdialog")).toHaveCount(0);
+
+	const stopped = await cardDate(page, STOPPED_AT);
+	await expect(
+		page.getByText(
+			endedLine(
+				{
+					byName: "Ada Lovelace",
+					reason: "stopped",
+					heldByAnotherApp: false,
+				},
+				stopped,
+			),
+			{ exact: true },
+		),
+	).toBeVisible();
+	await expect(
+		page.getByRole("link", { name: new RegExp(`^${ENDED_HQ_APP_LINK}`) }),
+	).toHaveAttribute(
+		"href",
+		hqPlaceUrl(
+			{ server: "production", domain: "alpha", remoteAppId: "hq-app" },
+			{ kind: "app" },
+		) ?? "",
+	);
+	/* The ended card draws no ladder, no Check status and no stop. */
+	await expect(page.getByText("On CommCare HQ", { exact: true })).toHaveCount(
+		0,
+	);
+	await expect(
+		page.getByRole("button", { name: "Check status", exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true }),
+	).toHaveCount(0);
+	expect(stops).toEqual([
+		{ appId: "native-publishing", server: "production", domain: "alpha" },
+	]);
+});
+
+/* After a stop, a teammate brought that HQ app in as another Nova app: the
+ * ended card says so and offers no way to an app that is another's now. */
+test("an ended card whose HQ app another Nova app publishes to now names no way back to it", async ({
+	page,
+}) => {
+	const ended = stoppedView();
+	const held: DeploymentView = {
+		...ended,
+		deployment: {
+			...ended.deployment,
+			superseded: ended.deployment.superseded.map((mapping) => ({
+				...mapping,
+				heldByAnotherApp: true,
+			})),
+		},
+	};
+	await openSection(page, "admin", () => [held]);
+	const stopped = await cardDate(page, STOPPED_AT);
+	await expect(
+		page.getByText(
+			endedLine(
+				{ byName: "Ada Lovelace", reason: "stopped", heldByAnotherApp: true },
+				stopped,
+			),
+			{ exact: true },
+		),
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			endedLine(
+				{ byName: "Ada Lovelace", reason: "stopped", heldByAnotherApp: false },
+				stopped,
+			),
+			{ exact: true },
+		),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("link", { name: new RegExp(`^${ENDED_HQ_APP_LINK}`) }),
+	).toHaveCount(0);
+});
+
+/* A restore found another Nova app publishing to the HQ app, and ended this
+ * deployment. While that app still publishes there the card names no way
+ * back to it; once it has stopped there or been deleted, the card says what
+ * happened on that day and links to the HQ app again. */
+for (const heldByAnotherApp of [true, false]) {
+	test(`an ended card taken over by another Nova app ${heldByAnotherApp ? "that still publishes there names no way back to it" : "that no longer publishes there links to the HQ app again"}`, async ({
+		page,
+	}) => {
+		const ended = stoppedView();
+		const taken: DeploymentView = {
+			...ended,
+			deployment: {
+				...ended.deployment,
+				superseded: ended.deployment.superseded.map((mapping) => ({
+					...mapping,
+					endedReason: "claimed-elsewhere",
+					heldByAnotherApp,
+				})),
+			},
+		};
+		await openSection(page, "admin", () => [taken]);
+		const stopped = await cardDate(page, STOPPED_AT);
+		const line = (held: boolean) =>
+			endedLine(
+				{
+					byName: "Ada Lovelace",
+					reason: "claimed-elsewhere",
+					heldByAnotherApp: held,
+				},
+				stopped,
+			);
+		await expect(
+			page.getByText(line(heldByAnotherApp), { exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByText(line(!heldByAnotherApp), { exact: true }),
+		).toHaveCount(0);
+		const link = page.getByRole("link", {
+			name: new RegExp(`^${ENDED_HQ_APP_LINK}`),
+		});
+		if (heldByAnotherApp) {
+			await expect(link).toHaveCount(0);
+		} else {
+			await expect(link).toHaveAttribute(
+				"href",
+				hqPlaceUrl(
+					{ server: "production", domain: "alpha", remoteAppId: "hq-app" },
+					{ kind: "app" },
+				) ?? "",
+			);
+		}
+		/* An ending a restore made offers no stop either. */
+		await expect(
+			page.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true }),
+		).toHaveCount(0);
+	});
+}
+
+/* The answer to a stop can be lost after the stop landed. The confirmation
+ * then cannot say nothing changed, and the section reads where the app stands
+ * again, so a stop that landed shows as the ended card without a reload. */
+test("a stop whose answer is lost says Nova is checking, and the section reads the records again", async ({
+	page,
+}) => {
+	let landed = false;
+	await page.route("**/publishing/stop", (route) => route.abort("failed"));
+	let reads = 0;
+	await openSection(page, "admin", () => {
+		reads++;
+		return [landed ? stoppedView() : broughtInView()];
+	});
+	const broughtIn = await cardDate(page, BROUGHT_IN_AT);
+	await expect(
+		page.getByText(broughtInFromLine("alpha", broughtIn, "Ada Lovelace"), {
+			exact: true,
+		}),
+	).toBeVisible();
+	const confirm = page.getByRole("alertdialog");
+
+	/* The stop did not land: the dialog says Nova is checking, and the
+	 * record read again is still live. */
+	const before = reads;
+	await page
+		.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true })
+		.click();
+	await confirm
+		.getByRole("button", { name: STOP_PUBLISHING_CONFIRM, exact: true })
+		.click();
+	await expect(confirm.getByRole("alert")).toHaveText(
+		STOP_PUBLISHING_UNANSWERED,
+	);
+	await expect.poll(() => reads).toBeGreaterThan(before);
+	await expect(
+		confirm.getByText(STOP_PUBLISHING_FAILED, { exact: true }),
+	).toHaveCount(0);
+
+	/* The stop landed and its answer was lost: the records read again show
+	 * the ended card. */
+	landed = true;
+	await confirm
+		.getByRole("button", { name: STOP_PUBLISHING_CONFIRM, exact: true })
+		.click();
+	const stopped = await cardDate(page, STOPPED_AT);
+	await expect(
+		page.getByText(
+			endedLine(
+				{ byName: "Ada Lovelace", reason: "stopped", heldByAnotherApp: false },
+				stopped,
+			),
+			{ exact: true },
+		),
+	).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true }),
+	).toHaveCount(0);
+});
+
+/* A password is shown once, and the docs promise it stays until the person
+ * leaves the page. Stopping publishing there keeps that promise: the ended
+ * card shows the passwords this page holds, and makes no more workers. */
+test("the passwords this page holds stay on the card after publishing there stops", async ({
+	page,
+}) => {
+	let stopped = false;
+	await page.route("**/publishing/provision", (route) =>
+		route.fulfill({
+			json: {
+				success: true,
+				data: {
+					refusal: null,
+					workers: [
+						{
+							personaUuid: "0199a000-0000-7000-8000-00000000a001",
+							personaName: "Nurse",
+							username: "nurse@alpha.commcarehq.org",
+							userId: "hq-user-1",
+							created: true,
+							adopted: false,
+							password: "pw-kept-after-stop",
+						},
+					],
+					unconfirmed: [],
+					view: null,
+				},
+			},
+		}),
+	);
+	await page.route("**/publishing/stop", (route) => {
+		stopped = true;
+		return route.fulfill({
+			json: { success: true, data: { view: stoppedView(), preview: null } },
+		});
+	});
+	await openSection(
+		page,
+		"admin",
+		() => [stopped ? stoppedView() : broughtInView()],
+		"persona=true",
+	);
+	await page.getByRole("checkbox", { name: "Nurse", exact: true }).check();
+	await page
+		.getByRole("button", { name: "Make 1 worker", exact: true })
+		.click();
+	const password = page.getByText(/pw-kept-after-stop/);
+	await expect(password).toBeVisible();
+
+	await page
+		.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true })
+		.click();
+	await page
+		.getByRole("alertdialog")
+		.getByRole("button", { name: STOP_PUBLISHING_CONFIRM, exact: true })
+		.click();
+	const stoppedOn = await cardDate(page, STOPPED_AT);
+	await expect(
+		page.getByText(
+			endedLine(
+				{ byName: "Ada Lovelace", reason: "stopped", heldByAnotherApp: false },
+				stoppedOn,
+			),
+			{ exact: true },
+		),
+	).toBeVisible();
+	/* The card's setup notes keep their own "Make a version" step, so the
+	 * panel's controls are looked for within the panel. */
+	const workers = page.getByRole("region", { name: "Workers", exact: true });
+	await expect(workers.getByText(/pw-kept-after-stop/)).toBeVisible();
+	await expect(
+		workers.getByText(ENDED_WORKERS_LINE, { exact: true }),
+	).toBeVisible();
+	await expect(workers.getByRole("checkbox")).toHaveCount(0);
+	await expect(workers.getByRole("button", { name: /^Make/ })).toHaveCount(0);
+});
+
+test("Stop publishing here is offered to an admin and not to an editor", async ({
+	page,
+}) => {
+	await openSection(page, "editor", () => [broughtInView()]);
+	const broughtIn = await cardDate(page, BROUGHT_IN_AT);
+	await expect(
+		page.getByText(broughtInFromLine("alpha", broughtIn, "Ada Lovelace"), {
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByText(STOP_PUBLISHING_HELPER, { exact: true }),
+	).toHaveCount(0);
+});
+
+test("the review step says what the first publish over a brought-in app changes, workers' lines first, and nothing for an app Nova made", async ({
+	page,
+}) => {
+	await open(page, "role=admin", false);
+	await page.route("**/publishing/read", (route) =>
+		route.fulfill({ json: { success: true, data: [broughtInView()] } }),
+	);
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await reviewDestination(page);
+	const lines = firstPublishLines(FIRST_PUBLISH, "publish");
+	const section = page.getByRole("region", { name: lines.heading });
+	await expect(section).toBeVisible();
+	await expect(section.getByText(lines.lead, { exact: true })).toBeVisible();
+	await expect(section.getByRole("heading", { level: 3 })).toHaveText([
+		lines.workers.label,
+		lines.hqOnly.label,
+	]);
+	await expect(section.getByRole("listitem")).toHaveText([
+		...lines.workers.lines.map((line) => line.sentence),
+		...lines.hqOnly.lines.map((line) => line.sentence),
+	]);
+	await expect(section.getByText(lines.note, { exact: true })).toBeVisible();
+
+	await page.route("**/publishing/read", (route) =>
+		route.fulfill({ json: { success: true, data: [landedView([])] } }),
+	);
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await reviewDestination(page);
+	await expect(
+		page.getByRole("heading", { name: lines.heading, exact: true }),
+	).toHaveCount(0);
+});
+
+/** A refusal over a change made in CommCare HQ to the app itself, which cannot be brought in. */
+const appChanged = {
+	success: false,
+	refusal: {
+		phase: "preflight",
+		failure: {
+			code: "hq_changed",
+			message: HQ_CHANGED_MESSAGE,
+			details: ["Clinic visits"],
+		},
+		resourceConflicts: [],
+		remoteChanges: [
+			{
+				kind: "app",
+				novaResourceId: "native-publishing",
+				name: "Clinic visits",
+				identity: "hq-app",
+				parts: ["The app's name"],
+				note: null,
+				observedDigest: "digest-app",
+				baselineKnown: true,
+				since: { kind: "published" },
+				canBringIn: false,
+			},
+		],
+		confirmationsNeeded: [],
+		webAppsChange: null,
+		placementMoves: null,
+	},
+	preview_project_space: null,
+} satisfies PublishResponseBody;
+
+test("a change made in CommCare HQ to the app offers an admin Stop publishing here, which drops the refusal and plans a new app beside it", async ({
+	page,
+}) => {
+	const stops: unknown[] = [];
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({ json: appChanged }),
+	);
+	await page.route("**/publishing/stop", (route) => {
+		stops.push(route.request().postDataJSON());
+		return route.fulfill({
+			json: {
+				success: true,
+				data: { view: stoppedView(), preview: null },
+			},
+		});
+	});
+	await open(page, "role=admin", false);
+	await page.route("**/publishing/read", (route) =>
+		route.fulfill({ json: { success: true, data: [broughtInView()] } }),
+	);
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await reviewDestination(page);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(
+		page.getByRole("heading", { name: DRIFT_STOP_LEAVE_HEADING, exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("checkbox", { name: "Publish over this Clinic visits" }),
+	).not.toBeChecked();
+	await expect(
+		page.getByText(DRIFT_STOP_EDITOR_LINE, { exact: true }),
+	).toHaveCount(0);
+
+	await page
+		.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true })
+		.click();
+	/* The stopped space is no longer one a CCZ can be made for, so the
+	 * dialog reads the CCZ's project spaces again and offers none. */
+	let targetReads = 0;
+	await page.route("**/publishing/download-targets", (route) => {
+		targetReads++;
+		return route.fulfill({
+			json: {
+				success: true,
+				data: { targets: [], heldFromHq: [], webAppsOnly: false },
+			},
+		});
+	});
+	await page
+		.getByRole("alertdialog")
+		.getByRole("button", { name: STOP_PUBLISHING_CONFIRM, exact: true })
+		.click();
+	await expect(
+		page.getByRole("heading", { name: "Choose a destination", exact: true }),
+	).toBeVisible();
+	await expect.poll(() => targetReads).toBe(1);
+	await expect(
+		page
+			.getByRole("status")
+			.filter({ hasText: stoppedPublishingLine("alpha") }),
+	).toHaveText(stoppedPublishingLine("alpha"));
+	await expect(
+		page.getByText(PUBLISH_PLAN_CREATES_BESIDE, { exact: true }).first(),
+	).toBeVisible();
+	await expect(
+		page.getByRole("checkbox", { name: "Publish over this Clinic visits" }),
+	).toHaveCount(0);
+	expect(stops).toEqual([
+		{ appId: "native-publishing", server: "production", domain: "alpha" },
+	]);
+});
+
+test("a change made in CommCare HQ to the app tells an editor who can stop publishing here", async ({
+	page,
+}) => {
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({ json: appChanged }),
+	);
+	await open(page, "role=editor");
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect(
+		page.getByText(DRIFT_STOP_EDITOR_LINE, { exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("heading", { name: DRIFT_STOP_LEAVE_HEADING, exact: true }),
+	).toHaveCount(0);
+});
+
+test("publishing a brought-in app to a second project space says it makes a new app there", async ({
+	page,
+}) => {
+	await open(page, "multi=true", false);
+	await page.route("**/publishing/read", (route) =>
+		route.fulfill({ json: { success: true, data: [broughtInView()] } }),
+	);
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await page
+		.getByRole("combobox", { name: "Project space", exact: true })
+		.click();
+	await page.getByRole("option", { name: "Beta", exact: true }).click();
+	await expect(
+		page.getByText(ANOTHER_SPACE_NEW_APP_LINE, { exact: true }),
+	).toBeVisible();
+	await page
+		.getByRole("combobox", { name: "Project space", exact: true })
+		.click();
+	await page.getByRole("option", { name: "Alpha", exact: true }).click();
+	await expect(
+		page.getByText("This updates the app already in this project space.", {
+			exact: true,
+		}),
+	).toBeVisible();
+});
+
+test("Check connection reads the connection route alone, says so when it can't, and shows the upload form once it answers a connection", async ({
+	page,
+}) => {
+	let answers = 0;
+	await page.route("**/api/commcare/connection", (route) => {
+		answers++;
+		/* The first check never arrives: the connection dropped. */
+		return answers === 1
+			? route.abort("failed")
+			: route.fulfill({
+					json: {
+						connection: {
+							configured: true,
+							username: "native-user@dimagi.com",
+							server: "production",
+							availableDomains: [{ name: "alpha", displayName: "Alpha" }],
+						},
+					},
+				});
+	});
+	await open(page, "disconnected=true", false);
+	await expect(
+		page.getByRole("heading", {
+			name: "Connect CommCare HQ to upload",
+			exact: true,
+		}),
+	).toBeVisible();
+	/* The peer mounts the dialog with the context's `refresh` itself, and no
+	 * Next router: this holds the dialog and the context. That `PublishPanel`
+	 * hands the button the context's `refresh` and not a router refresh is
+	 * held by the app journey in `e2e/tests/app/publish-flow.spec.ts`. */
+	const navigations: string[] = [];
+	page.on("request", (request) => {
+		if (
+			request.resourceType() === "document" ||
+			request.headers().rsc !== undefined ||
+			new URL(request.url()).searchParams.has("_rsc")
+		)
+			navigations.push(request.url());
+	});
+	const check = page.getByRole("button", {
+		name: "Check connection",
+		exact: true,
+	});
+	await check.click();
+	await expect(page.getByRole("alert")).toHaveText(CONNECTION_CHECK_FAILED);
+	await expect(check).toBeEnabled();
+	await check.click();
+	await expect(
+		page.getByRole("textbox", { name: "App name", exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("heading", {
+			name: "Connect CommCare HQ to upload",
+			exact: true,
+		}),
+	).toHaveCount(0);
+	expect(answers).toBe(2);
+	expect(navigations).toEqual([]);
 });

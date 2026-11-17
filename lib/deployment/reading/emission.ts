@@ -13,7 +13,11 @@
  */
 
 import type { HqApplication } from "@/lib/commcare";
-import { type ExpandOptions, expandDoc } from "@/lib/commcare/expander";
+import {
+	type ExpandOptions,
+	expandDoc,
+	expandDocSteps,
+} from "@/lib/commcare/expander";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type {
 	HqAppSource,
@@ -116,6 +120,13 @@ export interface ReadingEmissionInput {
 /** Nova's emission of a read document under the source's own ids, names and paths. */
 export function readingEmission(input: ReadingEmissionInput): HqApplication {
 	return expandDoc(input.doc, readingEmissionOptions(input));
+}
+
+/** `readingEmission` a part at a time (`expander.ts::expandDocSteps`). */
+export function* readingEmissionSteps(
+	input: ReadingEmissionInput,
+): Generator<void, HqApplication, void> {
+	return yield* expandDocSteps(input.doc, readingEmissionOptions(input));
 }
 
 /**
@@ -225,7 +236,31 @@ export function sourceFromEmission(
 	emission: HqApplication,
 	source: HqAppSource,
 ): HqAppSource {
+	return sourceFromServed(served(emission), source);
+}
+
+/**
+ * `sourceFromEmission` and `alignedFromEmission` of one emission, served
+ * once: each reads the served JSON and writes none of it.
+ */
+export function readerSourceOfEmission(
+	emission: HqApplication,
+	source: HqAppSource,
+): {
+	readonly source: HqAppSource;
+	readonly modules: readonly HqAlignedModule[];
+} {
 	const body = served(emission);
+	return {
+		source: sourceFromServed(body, source),
+		modules: alignedFromServed(body),
+	};
+}
+
+function sourceFromServed(
+	body: Record<string, unknown>,
+	source: HqAppSource,
+): HqAppSource {
 	const raw: Record<string, unknown> = { ...body };
 	for (const key of ["build_spec", "multimedia_map", "logo_refs"] as const) {
 		const value = source.raw[key];
@@ -267,7 +302,13 @@ export function sourceFromEmission(
 export function alignedFromEmission(
 	emission: HqApplication,
 ): readonly HqAlignedModule[] {
-	return servedModules(served(emission)).map((module) => ({
+	return alignedFromServed(served(emission));
+}
+
+function alignedFromServed(
+	body: Readonly<Record<string, unknown>>,
+): readonly HqAlignedModule[] {
+	return servedModules(body).map((module) => ({
 		kind: "aligned",
 		uniqueId: module.uniqueId,
 		docType: module.docType,

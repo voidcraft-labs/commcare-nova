@@ -33,6 +33,7 @@ import {
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
 } from "./modules";
+import { isSettled } from "./settled";
 import type { Uuid } from "./uuid";
 
 /** The one source every reader of this file takes. */
@@ -110,15 +111,93 @@ export function menuTileScreenOf(
 	return { kind: "menu", moduleUuid: parentUuid };
 }
 
+/** Every screen's contributors and entries, keyed by `menuScreenKey`. */
+interface Screens {
+	readonly contributors: ReadonlyMap<string, readonly Uuid[]>;
+	readonly entries: ReadonlyMap<string, readonly MenuScreenEntry[]>;
+}
+
+/** Every screen of `doc` in one walk of the module preorder. */
+function screensOf(doc: MenuScreenSource): Screens {
+	const contributors = new Map<string, Uuid[]>();
+	const entries = new Map<string, MenuScreenEntry[]>();
+	const push = <T>(into: Map<string, T[]>, key: string, value: T) => {
+		const list = into.get(key);
+		if (list === undefined) into.set(key, [value]);
+		else list.push(value);
+	};
+	for (const moduleUuid of projectedModulePreorder(doc)) {
+		const own = menuScreenKey(menuScreenOf(doc, moduleUuid));
+		push(contributors, own, moduleUuid);
+		const mod = doc.modules[moduleUuid];
+		if (mod === undefined) continue;
+		for (const formUuid of menuFormUuidsOf(doc, moduleUuid))
+			push(entries, own, { kind: "form", moduleUuid, formUuid });
+		if (moduleHasCaseListMenuItem(mod))
+			push(entries, own, { kind: "case-list", moduleUuid });
+		const tile = menuTileScreenOf(doc, moduleUuid);
+		if (tile !== undefined && menuScreenKey(tile) !== own)
+			push(entries, menuScreenKey(tile), { kind: "menu", moduleUuid });
+	}
+	return { contributors, entries };
+}
+
+/** A value no write can reach any more (`settled.ts`). */
+function settled(value: unknown): boolean {
+	return typeof value !== "object" || value === null || isSettled(value);
+}
+
+/** Whether every part of `doc` a screen reads is settled. */
+function screenPartsSettled(doc: MenuScreenSource): boolean {
+	if (
+		!settled(doc.modules) ||
+		!settled(doc.moduleOrder) ||
+		!settled(doc.forms) ||
+		!settled(doc.formOrder)
+	)
+		return false;
+	for (const mod of Object.values(doc.modules))
+		if (!settled(mod) || !settled(mod?.caseListRegistrationForm)) return false;
+	for (const order of Object.values(doc.formOrder))
+		if (!settled(order)) return false;
+	return true;
+}
+
+/**
+ * The screens of a document whose screen parts are settled, remembered by the
+ * identity of those four parts; a draft or a part still open to a write gets
+ * a walk of its own on every call, because a remembered answer for an object
+ * that changed under it would be a wrong verdict.
+ */
+const screensByParts = new WeakMap<
+	object,
+	WeakMap<object, WeakMap<object, WeakMap<object, Screens>>>
+>();
+
+function knownScreens(doc: MenuScreenSource): Screens {
+	const byOrder = screensByParts.get(doc.modules);
+	const byForms = byOrder?.get(doc.moduleOrder);
+	const byFormOrder = byForms?.get(doc.forms);
+	const known = byFormOrder?.get(doc.formOrder);
+	if (known !== undefined) return known;
+	const screens = screensOf(doc);
+	if (!screenPartsSettled(doc)) return screens;
+	const order = byOrder ?? new WeakMap();
+	if (byOrder === undefined) screensByParts.set(doc.modules, order);
+	const forms = byForms ?? new WeakMap();
+	if (byForms === undefined) order.set(doc.moduleOrder, forms);
+	const formOrder = byFormOrder ?? new WeakMap();
+	if (byFormOrder === undefined) forms.set(doc.forms, formOrder);
+	formOrder.set(doc.formOrder, screens);
+	return screens;
+}
+
 /** The modules whose forms list on the screen, in module order. */
 export function menuScreenContributors(
 	doc: MenuScreenSource,
 	screen: MenuScreen,
 ): Uuid[] {
-	const key = menuScreenKey(screen);
-	return projectedModulePreorder(doc).filter(
-		(moduleUuid) => menuScreenKey(menuScreenOf(doc, moduleUuid)) === key,
-	);
+	return [...(knownScreens(doc).contributors.get(menuScreenKey(screen)) ?? [])];
 }
 
 /** Everything the screen lists, in the order a worker meets it. */
@@ -126,23 +205,7 @@ export function menuScreenEntries(
 	doc: MenuScreenSource,
 	screen: MenuScreen,
 ): MenuScreenEntry[] {
-	const key = menuScreenKey(screen);
-	const entries: MenuScreenEntry[] = [];
-	for (const moduleUuid of projectedModulePreorder(doc)) {
-		const mod = doc.modules[moduleUuid];
-		if (mod === undefined) continue;
-		if (menuScreenKey(menuScreenOf(doc, moduleUuid)) === key) {
-			for (const formUuid of menuFormUuidsOf(doc, moduleUuid))
-				entries.push({ kind: "form", moduleUuid, formUuid });
-			if (moduleHasCaseListMenuItem(mod))
-				entries.push({ kind: "case-list", moduleUuid });
-			continue;
-		}
-		const tile = menuTileScreenOf(doc, moduleUuid);
-		if (tile !== undefined && menuScreenKey(tile) === key)
-			entries.push({ kind: "menu", moduleUuid });
-	}
-	return entries;
+	return [...(knownScreens(doc).entries.get(menuScreenKey(screen)) ?? [])];
 }
 
 /** The modules whose display condition and `hiddenFromMenu` gate a

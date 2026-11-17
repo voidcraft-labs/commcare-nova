@@ -19,10 +19,14 @@
  * only render to a human use the whole message.
  */
 
+import type { ReadingEvent, ReadingStage } from "@/lib/deployment";
+import { READING_STAGE_LABELS } from "@/lib/publish/hqReadingCopy";
+
 /**
  * Stage vocabulary for MCP progress notifications. Mirrors the chapter
- * tags emitted on `MutationEvent.stage`. Additive — new stages are added
- * here alongside any new stage tag.
+ * tags emitted on `MutationEvent.stage`, and beyond them the publish's
+ * three and a bring-in's seven, one per `ReadingStage`. Additive — new
+ * stages are added here alongside any new stage tag.
  */
 export type ProgressStage =
 	| "app_created"
@@ -35,7 +39,92 @@ export type ProgressStage =
 	| "validation_passed"
 	| "upload_started"
 	| "resources_pushed"
-	| "upload_complete";
+	| "upload_complete"
+	| ReadingProgressStage;
+
+/** A bring-in's stage as a progress tag: `hq_` and the stage, hyphens as underscores. */
+type ReadingProgressStage = `hq_${Underscored<ReadingStage>}`;
+type Underscored<S extends string> = S extends `${infer Head}-${infer Tail}`
+	? `${Head}_${Underscored<Tail>}`
+	: S;
+
+/** Each `ReadingStage`'s tag, spelled out so the seven are a closed table. */
+const READING_PROGRESS_TAGS: Readonly<
+	Record<ReadingStage, ReadingProgressStage>
+> = {
+	connecting: "hq_connecting",
+	"reading-app": "hq_reading_app",
+	"reading-project-data": "hq_reading_project_data",
+	checking: "hq_checking",
+	"checking-media": "hq_checking_media",
+	"bringing-in-media": "hq_bringing_in_media",
+	creating: "hq_creating",
+};
+
+/** The fewest milliseconds between two file counts a sink sends. */
+const FILE_COUNT_INTERVAL_MS = 1000;
+
+/** A stage's label with no count: what a progress message says of it. */
+function readingStageLabel(stage: ReadingStage): string {
+	switch (stage) {
+		case "checking-media":
+		case "bringing-in-media":
+			return READING_STAGE_LABELS[stage](null);
+		default:
+			return READING_STAGE_LABELS[stage];
+	}
+}
+
+/**
+ * The `onEvent` an MCP tool hands a bring-in. A `stage` event sends one
+ * notification, tagged `hq_` and the stage with its hyphens as underscores,
+ * its message the stage's label. A `files` event sends one under the tag of
+ * the stage last named, with `done` and `total` as `extra`, at most one a
+ * second, and always the one whose `done` is `total`. `done` and `failed`
+ * events send nothing: the tool's result says them.
+ *
+ * `now` is the clock the interval is measured on, in milliseconds.
+ */
+export function readingProgressSink(
+	emitter: ProgressEmitter,
+	now: () => number = () => performance.now(),
+): (event: ReadingEvent) => void {
+	let stage: ReadingStage | null = null;
+	let lastCountAt: number | null = null;
+	return (event) => {
+		switch (event.type) {
+			case "stage":
+				stage = event.stage;
+				emitter.notify(
+					READING_PROGRESS_TAGS[event.stage],
+					readingStageLabel(event.stage),
+				);
+				return;
+			case "files": {
+				/* A count rides the stage that planned its files; one before any
+				 * stage has no tag to go under. */
+				if (stage === null) return;
+				const at = now();
+				const last = event.done === event.total;
+				if (
+					!last &&
+					lastCountAt !== null &&
+					at - lastCountAt < FILE_COUNT_INTERVAL_MS
+				)
+					return;
+				lastCountAt = at;
+				emitter.notify(READING_PROGRESS_TAGS[stage], readingStageLabel(stage), {
+					done: event.done,
+					total: event.total,
+				});
+				return;
+			}
+			case "done":
+			case "failed":
+				return;
+		}
+	};
+}
 
 export interface ProgressEmitter {
 	notify(

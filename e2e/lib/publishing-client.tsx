@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DeploymentEntryPointLinks } from "@/components/builder/app-setup/DeploymentEntryPointLinks";
+import { PublishingSection } from "@/components/builder/app-setup/PublishingSection";
+import {
+	CommCareConnectionProvider,
+	useCommCareConnection,
+} from "@/components/builder/CommCareConnectionContext";
 import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
 import {
 	PublishDialog,
@@ -17,6 +22,7 @@ import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
+import { asUuid } from "@/lib/domain/uuid";
 import {
 	decodeManualImportGuide,
 	MANUAL_IMPORT_GUIDE_HEADER,
@@ -27,9 +33,26 @@ import {
 } from "@/lib/session/provider";
 
 const appId = "native-publishing";
-const doc = endpointWireFixture("multiple");
 const params = new URLSearchParams(location.search);
+/* One persona, so the Publishing section's Workers panel has someone to make
+ * an account for. */
+const PERSONA_UUID = asUuid("0199a000-0000-7000-8000-00000000a001");
+const fixture = endpointWireFixture("multiple");
+const doc =
+	params.get("persona") === "true"
+		? {
+				...fixture,
+				personas: {
+					[PERSONA_UUID]: { uuid: PERSONA_UUID, name: "Nurse" },
+				},
+				personaOrder: [PERSONA_UUID],
+			}
+		: fixture;
 const viewer = params.get("viewer") === "true";
+/* The member's Project role: `admin` may stop publishing, `editor` may not. */
+const role = params.get("role") ?? undefined;
+/* The App setup Publishing section in place of the dialog. */
+const section = params.get("section") === "true";
 const domains =
 	params.get("disconnected") === "true"
 		? []
@@ -123,16 +146,23 @@ function Content() {
 	const [open, setOpen] = useState(false);
 	const [mounted, setMounted] = useState(true);
 	const [destination, setDestination] = useState("alpha");
-	const [connection, setConnection] = useState<{
+	/* The production context, as PublishPanel reads it, with a test's own
+	 * connection taking its place once one is sent. */
+	const context = useCommCareConnection();
+	const [sent, setSent] = useState<{
 		server: CommCareServer;
 		domains: typeof domains;
-	}>({ server: "production", domains });
+	} | null>(null);
 	useEffect(() => {
 		const receive = (event: Event) =>
-			setConnection((event as CustomEvent<typeof connection>).detail);
+			setSent((event as CustomEvent<NonNullable<typeof sent>>).detail);
 		window.addEventListener("publishing-connection", receive);
 		return () => window.removeEventListener("publishing-connection", receive);
 	}, []);
+	const connection = sent ?? {
+		server: context.server,
+		domains: context.availableDomains,
+	};
 	const session = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const close = useCallback(() => setOpen(false), []);
@@ -165,7 +195,9 @@ function Content() {
 				Change deployment target
 			</Button>
 			{mounted &&
-				(params.get("links") === "true" ? (
+				(section ? (
+					<PublishingSection />
+				) : params.get("links") === "true" ? (
 					<DeploymentEntryPointLinks
 						appId={appId}
 						view={{
@@ -188,10 +220,11 @@ function Content() {
 						connectionServer={
 							connection.domains.length ? connection.server : null
 						}
-						canUploadToHq={!viewer && domains.length > 0}
+						canUploadToHq={!viewer}
 						onOpenPublishing={() => setOpen(false)}
-						isRefreshingHqConnection={false}
-						onRefreshHqConnection={() => {}}
+						isRefreshingHqConnection={context.isRefreshing}
+						hqConnectionRefreshFailed={context.refreshFailed}
+						onRefreshHqConnection={() => void context.refresh()}
 						onLoadProjectSpaceCompatibility={loadCompatibility}
 						onDownloadJson={downloadImportFile}
 						onDownloadCcz={downloadCcz}
@@ -209,14 +242,27 @@ createRoot(root).render(
 		canEdit={!viewer}
 	>
 		<BuilderSessionProvider
-			init={{ appId, projectId: "native-project", canEdit: !viewer }}
+			init={{ appId, projectId: "native-project", role, canEdit: !viewer }}
 		>
 			<ReconcilerProvider appId={appId} baseSeq={0} userId="native-user">
 				<DeploymentTargetProvider
 					initialProjectSpace={null}
 					initialTargetFacts={null}
 				>
-					<Content />
+					<CommCareConnectionProvider
+						settings={
+							domains.length > 0
+								? {
+										configured: true,
+										username: "native-user@dimagi.com",
+										server: "production",
+										availableDomains: domains,
+									}
+								: { configured: false }
+						}
+					>
+						<Content />
+					</CommCareConnectionProvider>
 				</DeploymentTargetProvider>
 			</ReconcilerProvider>
 		</BuilderSessionProvider>

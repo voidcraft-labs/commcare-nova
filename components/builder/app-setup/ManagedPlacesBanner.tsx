@@ -30,16 +30,14 @@ import {
 	MANAGED_PLACES_NO_EXTERNAL_IDS,
 	managedPlacesBanner,
 	managedPlacesLeftOut,
+	managedPlacesOutcomeLines,
 	OPEN_IN_HQ,
 	REFRESH_FROM_HQ,
 	REFRESH_NEEDS_EDITOR,
 } from "@/lib/publish/managedData";
 import { useProjectCanEdit } from "@/lib/session/hooks";
 import { KEPT_REFRESH_BUTTON_PENDING, keptDateText } from "../keptListModel";
-import {
-	managedPlacesOutcomeLines,
-	managedPlacesRefreshControl,
-} from "./organizationUi";
+import { managedPlacesRefreshControl } from "./organizationUi";
 
 type PlacesView = NonNullable<
 	Awaited<ReturnType<typeof readManagedPlacesViewAction>>

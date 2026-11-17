@@ -29,6 +29,9 @@ so a change to a platform note or remedy changes the guide and moves
 `MODEL_CONTEXT_VERSION`. The overview's `platforms` and `notOffered` come from
 the same table.
 
+The guide says one thing about an app brought in from CommCare HQ: it is an
+ordinary app. It gives no instruction to bring one in.
+
 Workflow guidance distinguishes record persistence, standalone report collection,
 and retrieval at the configured CommCare destination. Preview submission receipts
 do not establish an answer-document archive or reporting permissions. Retained

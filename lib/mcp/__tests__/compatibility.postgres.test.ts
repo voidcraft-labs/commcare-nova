@@ -1,7 +1,10 @@
 /** Actual app/credential admission and HTTP decoding for the semantic compatibility tool. */
+
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import type { Client } from "@modelcontextprotocol/client";
 import type { MockAgent } from "undici";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -13,9 +16,33 @@ import {
 	heldPlacementApp,
 	holdOperation,
 } from "@/lib/db/__tests__/heldPlacementApp";
+import {
+	birthAdoptedApp,
+	OWNERSHIP,
+} from "@/lib/deployment/__tests__/adoptedBirth";
 import { narrowingTo } from "@/lib/deployment/platformNarrowing";
-import { foldDeploymentAttempt } from "@/lib/deployment/store";
+import {
+	createInputFor,
+	fixtureKey,
+	reviewOf,
+	seedFixtureConnection,
+	serveFixtureApp,
+} from "@/lib/deployment/reading/__tests__/adoptionFixture";
+import { createFromReview } from "@/lib/deployment/reading/create";
+import {
+	authorizeBringIn,
+	readHqAppForReview,
+} from "@/lib/deployment/reading/read";
+import {
+	foldDeploymentAttempt,
+	recordRemoteResource,
+} from "@/lib/deployment/store";
 import { plainColumn } from "@/lib/domain";
+import {
+	FIRST_PUBLISH_TOUCHES_WORKERS,
+	type FirstPublishChangeId,
+} from "@/lib/publish/firstPublishChangeIds";
+import { firstPublishLines } from "@/lib/publish/firstPublishCopy";
 import {
 	COMMTRACK_OFF,
 	CONNECT_FORWARDER,
@@ -236,6 +263,8 @@ it("checks the selected deployment over HTTP and returns semantic compatibility"
 				app_name: "Clinic intake",
 				project_space_compatibility: report("available"),
 				...webAppsToConfirm(),
+				/* The app has not reached the project space. */
+				first_publish: null,
 			});
 		});
 		expect(calls(peer)).toEqual(
@@ -299,6 +328,7 @@ it.each([
 					app_name: "Clinic intake",
 					project_space_compatibility: report(state),
 					...webAppsToConfirm(),
+					first_publish: null,
 				}),
 			);
 			expect(calls(peer)).toHaveLength(2);
@@ -734,6 +764,214 @@ it("serves the Save to Case move offer in the words upload_app_to_hq accepts, wh
 							"In Visit, the change that makes a new kid case moves from a Save to Case block to Case Management.",
 					},
 				],
+			});
+		});
+	});
+});
+
+describe("first_publish", () => {
+	const TARGET = { server: "india" as const, domain: "clinic" };
+	const HQ_APP = "e".repeat(32);
+	const BRINGER = "bringer";
+
+	/** The lines the publish dialog shows for these ids, with their keys in snake case. */
+	function expectedLines(ids: readonly FirstPublishChangeId[]) {
+		const lines = firstPublishLines(
+			{
+				ids,
+				touchesWorkers: ids.some((id) => FIRST_PUBLISH_TOUCHES_WORKERS[id]),
+				of: "first-publish",
+			},
+			"publish",
+		);
+		return {
+			heading: lines.heading,
+			lead: lines.lead,
+			workers: { label: lines.workers.label, lines: lines.workers.lines },
+			hq_only: { label: lines.hqOnly.label, lines: lines.hqOnly.lines },
+			reassurance: lines.reassurance,
+			note: lines.note,
+		};
+	}
+
+	/** Set where the saved app runs, as its settings row holds it. */
+	async function runsOnlyOn(appId: string, platform: "android" | null) {
+		const row = await h
+			.db()
+			.selectFrom("apps")
+			.select("app_settings")
+			.where("id", "=", appId)
+			.executeTakeFirstOrThrow();
+		const settings = { ...(row.app_settings as Record<string, unknown>) };
+		if (platform === null) delete settings.runsOnlyOn;
+		else settings.runsOnlyOn = platform;
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ app_settings: JSON.stringify(settings) })
+			.where("id", "=", appId)
+			.execute();
+	}
+
+	async function broughtIn() {
+		await h.seedProjectMember(BRINGER, PROJECT, "owner");
+		await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+		await settings();
+		const birth = await birthAdoptedApp(h, {
+			appId: APP,
+			projectId: PROJECT,
+			actorUserId: BRINGER,
+			target: TARGET,
+			remoteAppId: HQ_APP,
+		});
+		/* The birth keeps `forms-and-settings-rewritten` over an HQ app whose
+		 * Web Apps setting was on, and the app was created to run on Android
+		 * only. */
+		await runsOnlyOn(APP, "android");
+		return birth;
+	}
+
+	it("tells the list a brought-in app's next upload makes, for the declaration it was created with, with its Web Apps lines from the document", async () => {
+		await broughtIn();
+		await withHttpPeer(async () => {
+			await asUser(async (client) => {
+				expect((await payload(client)).first_publish).toEqual(
+					expectedLines([
+						"forms-and-settings-rewritten",
+						"web-apps-turned-off",
+					]),
+				);
+				await runsOnlyOn(APP, null);
+				expect((await payload(client)).first_publish).toEqual(
+					expectedLines(["forms-and-settings-rewritten"]),
+				);
+			});
+		});
+	});
+
+	it("tells the list of the declaration the person chose, not the one the review proposed", async () => {
+		await h.seedProjectMember(BRINGER, PROJECT, "owner");
+		await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+		await settings();
+		await seedFixtureConnection(BRINGER);
+		const actor = await authorizeBringIn(BRINGER, PROJECT);
+		if (actor === null) throw new Error("The owner holds no edit.");
+		const key = fixtureKey(PROJECT);
+		const { appId, chosen, proposed } = await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { app: "navigation", times: 2 });
+			const review = reviewOf(
+				await readHqAppForReview(actor, key, { onEvent: () => {} }),
+			);
+			const proposed = review.review.runsOn.find((one) => one.preselected);
+			const chosen = review.review.runsOn.find((one) => !one.preselected);
+			if (proposed === undefined || chosen === undefined)
+				throw new Error("The review offers one declaration only.");
+			const answer = await createFromReview(
+				actor,
+				createInputFor(key, review, {
+					runsOnlyOn: chosen.runsOnlyOn,
+					splitDatetime: chosen.splitDatetime,
+				}),
+				{ onEvent: () => {} },
+			);
+			if (answer.kind !== "created") throw new Error(JSON.stringify(answer));
+			return { appId: answer.receipt.appId, chosen, proposed };
+		});
+		/* The review told each row's list; they differ, so relaying the proposed
+		 * row's would tell the person something their choice does not do. */
+		expect(chosen.firstPublish.ids).not.toEqual(proposed.firstPublish.ids);
+		await withHttpPeer(async () => {
+			await asUser(async (client) => {
+				expect(
+					(await payload(client, CURRENT, { app_id: appId, domain: "clinic" }))
+						.first_publish,
+				).toEqual(expectedLines(chosen.firstPublish.ids));
+			});
+		});
+	});
+
+	it("is null once the brought-in app's first upload replaced the list", async () => {
+		const birth = await broughtIn();
+		const text = JSON.stringify({ name: "Clinic visits", modules: [] });
+		await recordRemoteResource(birth.scope, TARGET, {
+			expectedEndings: 0,
+			kind: "app",
+			novaResourceId: APP,
+			remoteId: HQ_APP,
+			ownership: "adopted",
+			adoptedBy: BRINGER,
+			pushedRevision: 2,
+			remoteRevision: 42,
+			uploadedAt: "2026-11-11T09:00:00.000Z",
+			baseline: {
+				origin: "push",
+				remoteAppId: HQ_APP,
+				sourceGzip: gzipSync(Buffer.from(text, "utf8")),
+				sourceBytes: Buffer.byteLength(text, "utf8"),
+				sourceDigest: createHash("sha256").update(text).digest("hex"),
+				ownership: OWNERSHIP,
+				observedAt: "2026-11-11T09:00:00.000Z",
+				discard: null,
+				novaRevision: 2,
+				mediaFiles: { kind: "keep" },
+				firstPublish: { kind: "set", list: null },
+			},
+		});
+		await withHttpPeer(async () => {
+			await asUser(async (client) => {
+				expect((await payload(client)).first_publish).toBeNull();
+			});
+		});
+	});
+
+	it("is null for an app Nova made, published there or not", async () => {
+		await seed("plain");
+		await settings();
+		await withHttpPeer(async () => {
+			await asUser(async (client) => {
+				expect((await payload(client)).first_publish).toBeNull();
+			});
+		});
+		await h.seedProjectMember("publisher", PROJECT, "editor");
+		const publisher = {
+			appId: APP,
+			projectId: PROJECT,
+			role: "editor",
+			actorUserId: "publisher",
+		};
+		await foldDeploymentAttempt(
+			publisher,
+			TARGET,
+			"preflight",
+			{ status: "succeeded", at: "2026-10-16T00:00:00.000Z" },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		await recordRemoteResource(publisher, TARGET, {
+			expectedEndings: 0,
+			kind: "app",
+			novaResourceId: APP,
+			remoteId: HQ_APP,
+			ownership: "nova-created",
+			pushedRevision: 0,
+			remoteRevision: 1,
+			uploadedAt: "2026-10-16T00:00:00.000Z",
+			baseline: {
+				origin: "unread",
+				remoteAppId: HQ_APP,
+				sourceGzip: null,
+				sourceBytes: null,
+				sourceDigest: null,
+				ownership: null,
+				observedAt: "2026-10-16T00:00:00.000Z",
+				discard: null,
+				novaRevision: null,
+				mediaFiles: { kind: "set", files: null },
+				firstPublish: { kind: "set", list: null },
+			},
+		});
+		await withHttpPeer(async () => {
+			await asUser(async (client) => {
+				expect((await payload(client)).first_publish).toBeNull();
 			});
 		});
 	});

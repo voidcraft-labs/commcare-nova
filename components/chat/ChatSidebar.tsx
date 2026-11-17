@@ -73,6 +73,11 @@ interface ChatSidebarProps {
 	 *  hatch on a new build. Sharing the centered column is the point: it holds
 	 *  the chat above true center until it collapses away. */
 	startFromScratch?: ReactNode;
+	/** In centred mode, what takes the chat card's place: the bring-in flow.
+	 *  The card keeps its class, so the flow has the composer's width, radius
+	 *  and bounded height; its header, conversation and composer give way, and
+	 *  `startFromScratch` is not rendered. */
+	takeover?: ReactNode;
 	/** Locks the composer while a non-chat action owns the screen (creating a
 	 *  starter, then navigating). Distinct from `readOnly`, which hides it. */
 	composerBusy?: boolean;
@@ -146,6 +151,7 @@ interface ChatSidebarProps {
 export function ChatSidebar({
 	centered,
 	startFromScratch,
+	takeover,
 	composerBusy,
 	interactionBlocked = false,
 	interactionBlockedRecovery,
@@ -417,6 +423,9 @@ export function ChatSidebar({
 	 * opens each arriving card at its top, and an escaped reader is left
 	 * where they are (the status line says an answer is waited on). The count
 	 * still feeds the composer-disabled derivation below. */
+	/* The bring-in flow takes the card in centred mode alone. */
+	const takenOver = centered && takeover !== undefined;
+
 	let activeQuestionCount = 0;
 	for (const msg of messages) {
 		for (const part of msg.parts) {
@@ -604,7 +613,11 @@ export function ChatSidebar({
 				 *    is the fix: its basis is the CONTENT height (welcome intro sizes
 				 *    naturally), and `min-h-0` lets it shrink + scroll once content exceeds
 				 *    `max-h`, keeping the composer on-screen. */}
-				{!docked && !listVisible && !shortChatFallback && (
+				{/* The bring-in flow, in the card's place: its frame owns the card's
+				 *  whole height, its scrolling middle and its footer. */}
+				{takenOver && takeover}
+
+				{!takenOver && !docked && !listVisible && !shortChatFallback && (
 					<Conversation
 						key={activeThreadId}
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
@@ -659,8 +672,8 @@ export function ChatSidebar({
 
 				{/* Resting chat has no status chrome. Work in progress uses one compact,
 				 * plain-language row that yields entirely in a short inspector dock. */}
-				{!shortChatFallback && pendingWorkRecovery}
-				{interactionBlockedRecovery && !shortChatFallback && (
+				{!takenOver && !shortChatFallback && pendingWorkRecovery}
+				{!takenOver && interactionBlockedRecovery && !shortChatFallback && (
 					<div
 						role="alert"
 						className="mx-3 mb-3 flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.06] p-3"
@@ -698,7 +711,8 @@ export function ChatSidebar({
 				{/* A view-only member sees why they can't send, where the composer
 				 *  would be: only when a notice is supplied for the
 				 *  read-only-access case. */}
-				{!shortInspectorDock &&
+				{!takenOver &&
+					!shortInspectorDock &&
 					!shortChatFallback &&
 					readOnly &&
 					readOnlyNotice && (
@@ -714,7 +728,8 @@ export function ChatSidebar({
 				{/* The one live status is the final line before the input. A temporary
 				 * root-model activity supersedes the ordinary owner, then removing it
 				 * reveals the previous derived status unchanged. */}
-				{!shortInspectorDock &&
+				{!takenOver &&
+					!shortInspectorDock &&
 					!shortChatFallback &&
 					(activityOverride ? (
 						<ChatActivityStatus
@@ -729,9 +744,11 @@ export function ChatSidebar({
 
 				{/* Input: absent only in read-only mode. Short layouts keep its
 				 * subtree mounted so opening an inspector cannot erase a draft or
-				 * staged attachment. */}
+				 * staged attachment, and so does the bring-in flow, so Back to the
+				 * composer finds the words typed before it. */}
 				<PersistentChatComposer
 					hidden={
+						takenOver ||
 						shortInspectorDock ||
 						shortChatFallback ||
 						(readOnly === true && accessPhase === "authorized")
@@ -766,7 +783,7 @@ export function ChatSidebar({
 			{/* Under the card, inside the same centered column: sharing it is the
 			 *  point: this holds the chat above true center, and the chat settles
 			 *  back to center as this collapses away. */}
-			{centered && startFromScratch}
+			{centered && !takenOver && startFromScratch}
 		</motion.div>
 	);
 }

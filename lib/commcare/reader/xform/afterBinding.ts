@@ -250,15 +250,25 @@ function checkLoadOrder(
 		ctx.accounting.finding(X.loadOrder, reader.pending?.place ?? formPlace);
 }
 
+/** `caseStageEntryIds` as last derived, with the registry's size then: names
+ *  are only ever added to the registry, so an unchanged size is an unchanged
+ *  registry. */
+let caseStageEntries:
+	| { readonly size: number; readonly entries: ReadonlySet<string> }
+	| undefined;
+
 /** The entries the case management stage raises a finding under. */
 function caseStageEntryIds(): ReadonlySet<string> {
+	const registry = claimRegistry();
+	if (caseStageEntries?.size === registry.size) return caseStageEntries.entries;
 	const entries = new Set<string>();
-	for (const [name, claim] of claimRegistry())
+	for (const [name, claim] of registry)
 		if (
 			name.startsWith("caseManagement.") &&
 			(claim.use === "refuse" || claim.use === "account")
 		)
 			entries.add(claim.entry);
+	caseStageEntries = { size: registry.size, entries };
 	return entries;
 }
 

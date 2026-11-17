@@ -185,6 +185,8 @@ changing language changes only that parameter and preserves the typed location.
 popstate. Do not put language into `Location` or drop it while navigating: a
 shared field link and back/forward history must reopen in the same locale.
 
+`/build/new` carries two query states, each seeded by the server for the first paint: `design`, and `hq` with the key of the app being brought in (`bringInLocation.ts`). `useBuilderSearchFrom(initialSearch)` reads the query with the server's validated text as its server snapshot, so the first render agrees with the server.
+
 ## Breadcrumbs — `useBreadcrumbs` (edit) and `previewBreadcrumbs.ts` (preview)
 
 `useBreadcrumbs` derives the edit-mode trail from the URL + doc names. In preview the trail follows the RUNNING APP instead (a Results URL is a case-loading form's selection step, so its crumb names that FORM, not "Results"), and that rewrite lives in the pure `previewBreadcrumbs.ts` — kept pure + unit-tested precisely because the breadcrumb and the preview engine both read the same ephemeral `previewCaseTarget` and once drifted.

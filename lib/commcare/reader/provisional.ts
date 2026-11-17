@@ -20,7 +20,7 @@ import { NEW_APP_SETTINGS } from "@/lib/domain/blueprint";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { isContainerKindName } from "@/lib/domain/fields";
-import { uniqueSlug } from "@/lib/domain/idSlug";
+import { SlugsTaken } from "@/lib/domain/idSlug";
 import {
 	effectiveAppLocalization,
 	makeTranslationUnitId,
@@ -133,12 +133,10 @@ function mintedId(
 	given: unknown,
 	name: string,
 	fallback: string,
-	taken: Set<string>,
+	taken: SlugsTaken,
 ): string {
 	if (typeof given === "string") return given;
-	const id = uniqueSlug(name, fallback, taken);
-	taken.add(id);
-	return id;
+	return taken.take(name, fallback);
 }
 
 /**
@@ -150,8 +148,8 @@ function mintedId(
 export function menuAndFormIdsAsRead(doc: BlueprintDoc): BlueprintDoc {
 	const { languageOrder } = effectiveAppLocalization(doc.localization);
 	const source = doc.localization?.sourceLanguage;
-	const menuIds = new Set<string>();
-	const formIds = new Set<string>();
+	const menuIds = new SlugsTaken();
+	const formIds = new SlugsTaken();
 	const menus = new Map<Uuid, string>();
 	const forms = new Map<Uuid, string>();
 	for (const moduleUuid of projectedModulePreorder(doc)) {
@@ -169,14 +167,12 @@ export function menuAndFormIdsAsRead(doc: BlueprintDoc): BlueprintDoc {
 							return typeof value === "string" ? value : "";
 						})
 						.find((text) => text !== "") ?? "");
-		const id = uniqueSlug(name, "menu", menuIds);
-		menuIds.add(id);
+		const id = menuIds.take(name, "menu");
 		if (id !== module.id) menus.set(moduleUuid, id);
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
-			const formId = uniqueSlug(form.name, "form", formIds);
-			formIds.add(formId);
+			const formId = formIds.take(form.name, "form");
 			if (formId !== form.id) forms.set(formUuid, formId);
 		}
 	}
@@ -201,8 +197,8 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 	const fields: Record<Uuid, Field> = {};
 	const formOrder: Record<Uuid, Uuid[]> = {};
 	const fieldOrder: Record<Uuid, Uuid[]> = {};
-	const moduleIds = new Set<string>();
-	const formIds = new Set<string>();
+	const moduleIds = new SlugsTaken();
+	const formIds = new SlugsTaken();
 	for (const module of draft.modules) {
 		if (typeof module.module.id === "string") moduleIds.add(module.module.id);
 		for (const form of module.forms)
@@ -443,23 +439,45 @@ function declarationSites(
 function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 	const pending = ctx.pending.list();
 	const index = inventoryIndex();
-	const unread = reading.claims.filter((claim) => claim.source < 0);
-	const used = new Set<ExpressionClaim>();
+	/* Each unread declaration's claims by key and place, in reading order:
+	 * a declaration takes the first one not yet taken. */
+	const unreadAt = new Map<string, ExpressionClaim[]>();
+	for (const claim of reading.claims) {
+		if (claim.source >= 0) continue;
+		const at = JSON.stringify([claim.key, whereText(claim.place)]);
+		const claims = unreadAt.get(at);
+		if (claims === undefined) unreadAt.set(at, [claim]);
+		else claims.push(claim);
+	}
+	/* Each form's held registrations and the positions of their claims,
+	 * grouped once for every form rather than found again per form. */
+	const heldByForm = new Map<string, number[]>();
+	pending.forEach((registration, at) => {
+		if (reading.bound[at] === undefined) return;
+		const owner = slotForm(reading.doc, registration.ref);
+		if (owner === undefined) return;
+		const held = heldByForm.get(owner);
+		if (held === undefined) heldByForm.set(owner, [at]);
+		else held.push(at);
+	});
+	const claimsBySource = new Map<number, number[]>();
+	reading.claims.forEach((claim, position) => {
+		const positions = claimsBySource.get(claim.source);
+		if (positions === undefined) claimsBySource.set(claim.source, [position]);
+		else positions.push(position);
+	});
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
 			const xform = form.xform;
 			if (xform === null) continue;
 			const ids = new Set<string>();
-			const readClaims: ExpressionClaim[] = [];
-			const held = new Set<number>();
-			pending.forEach((registration, at) => {
-				if (reading.bound[at] === undefined) return;
-				if (slotForm(reading.doc, registration.ref) !== form.uuid) return;
-				held.add(at);
-				for (const id of instanceIdsRead(registration.text)) ids.add(id);
-			});
-			for (const claim of reading.claims)
-				if (held.has(claim.source)) readClaims.push(claim);
+			const held = heldByForm.get(form.uuid) ?? [];
+			for (const at of held)
+				for (const id of instanceIdsRead(pending[at]?.text ?? "")) ids.add(id);
+			const readClaims = held
+				.flatMap((at) => claimsBySource.get(at) ?? [])
+				.sort((a, b) => a - b)
+				.map((position) => reading.claims[position] as ExpressionClaim);
 			const where = whereText(form.place);
 			for (const [id, src] of xform.instanceSources) {
 				const declaration = xform.parsed.instances.find(
@@ -468,14 +486,8 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				if (declaration === undefined) continue;
 				const key = unreadDeclarationUse(src).key;
 				if (!ids.has(id)) {
-					const claim = unread.find(
-						(one) =>
-							!used.has(one) &&
-							one.key === key &&
-							whereText(one.place) === where,
-					);
+					const claim = unreadAt.get(JSON.stringify([key, where]))?.shift();
 					if (claim === undefined) continue;
-					used.add(claim);
 					for (const site of declarationSites(declaration.element))
 						ctx.accounting.claimEntry(
 							site,
@@ -705,9 +717,20 @@ export function applyExpressionReading(
  * document that holds them, is the reading, and the one applied.
  */
 export function bindExpressions(ctx: ReadContext): void {
+	const steps = bindExpressionsSteps(ctx);
+	while (!steps.next().done);
+}
+
+/** `bindExpressions`, stopping after each reading of the expressions until it
+ *  is resumed. */
+export function* bindExpressionsSteps(
+	ctx: ReadContext,
+): Generator<void, void, void> {
 	const env = expressionEnvOf(ctx);
 	const pending = ctx.pending.list();
-	const first = readExpressions(provisionalDocument(ctx), pending, env);
+	const firstDoc = provisionalDocument(ctx);
+	const first = readExpressions(firstDoc, pending, env);
+	yield;
 	const rows = searchRowUserFields(ctx);
 	const world = worldEntitiesFromReads(
 		{
@@ -726,8 +749,11 @@ export function bindExpressions(ctx: ReadContext): void {
 			ctx.draft.userProperties = world.userProperties;
 			ctx.draft.locationProperties = world.locationProperties;
 		});
-	applyExpressionReading(
-		ctx,
-		readExpressions(provisionalDocument(ctx), pending, env),
-	);
+	/* `readExpressions` is a function of its arguments: where the world's
+	 * entities wrote nothing, the drafts give the same document, and its
+	 * reading is the first. */
+	const doc = provisionalDocument(ctx);
+	const reading = doc === firstDoc ? first : readExpressions(doc, pending, env);
+	yield;
+	applyExpressionReading(ctx, reading);
 }

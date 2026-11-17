@@ -320,7 +320,8 @@ HAVING count(*) > 1;
 ```
 
 It prints two numbers and nothing else: groups whose `live_apps` is 2 or more, and groups whose
-`live_apps` is 1 or 0. Nothing of its output is committed.
+`live_apps` is 1 or 0. Nothing of its output is committed. It exits 0 where no group has two live
+apps, 1 where one does, and 2 where it could not run, so a failed read is never taken for an answer.
 
 - **No group has two live apps.** The session goes on to the merge and removes the script in the
   last commit before it. The migration's statement 7 releases each deleted member of a group that
@@ -1942,10 +1943,16 @@ export async function endDeployment(
 export async function stopPublishing(
 	scope: DeploymentScope, target: DeploymentTargetKey, doc: BlueprintDoc,
 	locations?: readonly StoredLocation[],
-): Promise<{ readonly deployment: DeploymentWithResources; readonly artifact: SetupArtifact }>;
-/** `lib/deployment/actions.ts`. Input: `deploymentTargetSchema`. */
+): Promise<{ readonly deployment: DeploymentWithResources; readonly artifact: SetupArtifact | null }>;
+/** `lib/deployment/actions.ts`. Input: `deploymentTargetSchema`. A failure only for a stop that did
+ * not land; once the ending commits, every read after it answers null where it faults. */
+export interface StoppedPublishingView {
+	readonly view: DeploymentView | null;
+	/** What Preview names and plays now, project space and settings together (`previewDeploymentAnswerFor`). */
+	readonly preview: PreviewDeploymentAnswer | null;
+}
 export async function stopPublishingAction(input: unknown):
-	Promise<DeploymentActionResult<DeploymentView & { readonly previewProjectSpace: string | null }>>;
+	Promise<DeploymentActionResult<StoppedPublishingView>>;
 ```
 
 - **Who.** An admin or an owner of the app's Project: the members who hold `delete` on its apps
@@ -2063,7 +2070,7 @@ which is a valid app. Nova keeps no record of it, and says so.
 | deep links (`getEntryPointLink`) | no manifest and no published app: "Publish this app again before creating a link." | none |
 | Check status (`refreshDeployment`) | where `deploymentEnding` is not null, says the publishing stopped, in place of "hasn't reached". Where the live `app` mapping is released (5.3), asks CommCare HQ nothing and writes nothing, and says another Nova app publishes there now; the card (`DeploymentStatus.tsx`) offers no Check status on such a mapping, since every press could only refuse | two sentences (Copy) |
 | provisioning workers (`provisionWorkers`) | where `deploymentEnding` is not null, refuses, saying the publishing stopped | sentence (Copy) |
-| the Publishing card and the dialog's row (`deploymentEnding`, `nextPublishAction`) | while `deploymentEnding` is not null: no Check status, no Workers panel, the ending's line and a link to the HQ app, and `nextPublishAction` answers the new arm `creates-beside`. At state `ended` there is no ladder; after a publish that stopped before its create, the card draws that attempt's refusal as it does for any deployment, under the ending's line | part 13 (`13-the-experience.md`, section 11.1) draws it from this part's data and Copy |
+| the Publishing card and the dialog's row (`deploymentEnding`, `nextPublishAction`) | while `deploymentEnding` is not null: no Check status, a Workers panel only for passwords the page still holds there, the ending's line and a link to the HQ app unless another Nova app now holds it (`heldByAnotherApp`), and `nextPublishAction` answers the new arm `creates-beside`. At state `ended` there is no ladder; after a publish that stopped before its create, the card draws that attempt's refusal as it does for any deployment, under the ending's line | part 13 (`13-the-experience.md`, section 11.1) draws it from this part's data and Copy |
 | the left-behind report (`leftBehindResources`) | a superseded `app` mapping is not left behind while the ending `deploymentEnding` answers names its HQ app, since the card's line names it, nor with reason `claimed-elsewhere`, since another Nova app publishes to it. Once a publish records a new app, or a later ending names another app, a `stopped` mapping is left behind like any superseded `app` mapping: the project space holds it beside the new one (8.7) and nothing else names it. No superseded `app` mapping whose HQ app another Nova app now holds (a live, unreleased `app` mapping of another deployment, the claim index's predicate) is left behind, whatever its reason: that app publishes to it, as after a stop when a teammate brings the HQ app in and this app publishes again. The ledger read marks each such mapping (`DeploymentResource.heldByAnotherApp`, `store.ts::loadResources`) | the filter's tests; `store.ts::loadResources` |
 | `earlierHqApps` (the `.ccz` version) | counts the ended mapping like any superseded `app` mapping, so a `.ccz` made after a fresh publish is newer | none |
 | the setup artifact (`setupArtifactFor`) | no HQ app id, so no link into an app's pages | none |
@@ -2611,7 +2618,8 @@ Every string below is in Nova's voice, sentence case, with no em dash and no ell
 | `stopPublishingConfirmBody(domain)` | "Nova stops publishing this app to “{domain}”. The app in CommCare HQ stays exactly as it is, and you or a teammate can bring it in to Nova again as a new app. If you publish to “{domain}” later, Nova makes a new app there." |
 | `STOP_PUBLISHING_CONFIRM` / `STOP_PUBLISHING_CANCEL` | "Stop publishing" / "Cancel" |
 | `endedLine(ending, date)`, reason `stopped` | "{name} stopped publishing here on {date}. The app in CommCare HQ stays as it was, and publishing here again makes a new app beside it." |
-| `endedLine(ending, date)`, reason `claimed-elsewhere` | "Nova stopped publishing here on {date}, because another Nova app publishes to that CommCare HQ app now. Publishing here again makes a new app beside it." |
+| `endedLine(ending, date)`, reason `claimed-elsewhere`, while another Nova app holds the HQ app (`heldByAnotherApp`) | "Nova stopped publishing here on {date}, because another Nova app publishes to that CommCare HQ app now. Publishing here again makes a new app beside it." |
+| `endedLine(ending, date)`, reason `claimed-elsewhere`, once no Nova app holds it (part 13's D15) | "Nova stopped publishing here on {date}, because another Nova app had taken over that CommCare HQ app. Publishing here again makes a new app beside it." |
 | `ENDED_HQ_APP_LINK` | "Open the app in CommCare HQ" |
 | `PUBLISH_PLAN_CREATES_BESIDE` (the dialog's plan line for `creates-beside`) | "Nova stopped publishing to the app that's already in this project space, so this makes a new app beside it." |
 | `GONE_APP_NEXT_PUBLISH` | "Publishing again creates a new app on CommCare HQ, because the one that was there is gone." |
@@ -2628,7 +2636,11 @@ export function stopPublishingConfirmBody(domain: string): string;
 /** `ending` is `deploymentEnding`'s answer, taken structurally so this file imports nothing of
  *  `lib/deployment`. `date` is the day the caller formatted. */
 export function endedLine(
-	ending: { readonly byName: string; readonly reason: "stopped" | "claimed-elsewhere" },
+	ending: {
+		readonly byName: string;
+		readonly reason: "stopped" | "claimed-elsewhere";
+		readonly heldByAnotherApp: boolean;
+	},
 	date: string,
 ): string;
 /** Each entry is one project space as the caller words it, quotation marks included: “{domain}”,

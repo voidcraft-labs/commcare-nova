@@ -160,6 +160,7 @@ import {
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
 	moduleParent,
+	moduleSiblingGroups,
 	moduleSiblingUuids,
 	ownRecordValue,
 	parseLanguageTag,
@@ -537,6 +538,24 @@ export function diffDocsToMutations(
 	next: BlueprintDoc,
 	provenance?: DiffSemanticProvenance,
 ): Mutation[] {
+	const steps = diffDocsToMutationsSteps(prev, next, provenance);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `diffDocsToMutations`, stopping before each replay of the batch until it is
+ * resumed, so a caller on a request can let the event loop turn while a whole
+ * app's construction batch is diffed (an app brought in from CommCare HQ is
+ * born through one). The batch is `diffDocsToMutations`'s, which drives this.
+ */
+export function* diffDocsToMutationsSteps(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+	provenance?: DiffSemanticProvenance,
+): Generator<void, Mutation[], void> {
 	const renameShapedDelta = isCasePropertyRenameShapedEndpointDelta(prev, next);
 	if (provenance !== undefined) {
 		if (isRecordedNonRenameProvenance(provenance)) {
@@ -666,39 +685,63 @@ export function diffDocsToMutations(
 	// adding — handled by the form/field add passes below, keyed off the
 	// set deltas.
 	const addedModuleSet = new Set(moduleDelta.added);
-	const availableRoots = new Set(moduleSiblingUuids(prev, null));
+	const prevSiblings = moduleSiblingGroups(prev);
+	const nextSiblings = moduleSiblingGroups(next);
+	const availableRoots = new Set(prevSiblings(null));
 	const availableChildren = new Map<Uuid, Set<Uuid>>(
-		moduleSiblingUuids(next, null).map((rootUuid) => [
+		nextSiblings(null).map((rootUuid) => [
 			rootUuid,
 			new Set(
-				moduleSiblingUuids(prev, rootUuid).filter(
+				prevSiblings(rootUuid).filter(
 					(uuid) => moduleParent(next, uuid) === rootUuid,
 				),
 			),
 		]),
 	);
+	/* Each module's first place among its siblings in `next`, which is
+	 * where `indexOf` finds it in its sibling group. */
+	const siblingIndex = new Map<Uuid, number>();
+	const groupSize = new Map<Uuid | null, number>();
+	for (const uuid of next.moduleOrder) {
+		const parent = moduleParent(next, uuid);
+		if (parent === undefined) continue;
+		const at = groupSize.get(parent) ?? 0;
+		groupSize.set(parent, at + 1);
+		if (!siblingIndex.has(uuid)) siblingIndex.set(uuid, at);
+	}
+	/* The nearest of `siblings.slice(0, at)` from its end that `available`
+	 * holds, read in place. */
+	const nearestAvailable = (
+		siblings: readonly Uuid[],
+		at: number,
+		available: ReadonlySet<Uuid>,
+	): Uuid | undefined => {
+		const end =
+			at < 0
+				? Math.max(siblings.length + at, 0)
+				: Math.min(at, siblings.length);
+		for (let index = end - 1; index >= 0; index--) {
+			const candidate = siblings[index] as Uuid;
+			if (available.has(candidate)) return candidate;
+		}
+		return undefined;
+	};
 
 	for (const uuid of next.moduleOrder) {
 		if (!addedModuleSet.has(uuid)) continue;
 		const module = ownRecordValue(next.modules, uuid) as Module;
 		const parent = module.parentModuleUuid ?? null;
-		const siblings = moduleSiblingUuids(next, parent);
-		const at = siblings.indexOf(uuid);
+		const siblings = nextSiblings(parent);
+		const at = siblingIndex.get(uuid) ?? -1;
 		if (parent === null) {
-			const after = siblings
-				.slice(0, at)
-				.toReversed()
-				.find((candidate) => availableRoots.has(candidate));
+			const after = nearestAvailable(siblings, at, availableRoots);
 			rootModuleAdds.push(
 				addModuleMutation(unheldModule(module), after ?? null),
 			);
 			availableRoots.add(uuid);
 		} else {
 			const available = availableChildren.get(parent) ?? new Set<Uuid>();
-			const after = siblings
-				.slice(0, at)
-				.toReversed()
-				.find((candidate) => available.has(candidate));
+			const after = nearestAvailable(siblings, at, available);
 			childModuleAdds.push(
 				addModuleMutation(unheldModule(module), after ?? null),
 			);
@@ -968,21 +1011,44 @@ export function diffDocsToMutations(
 		fieldStructure.length > 0 ||
 		converts.length > 0 ||
 		updates.some((m) => m.kind === "updateField");
-	const fromCatalog = fieldCatalogTouched
-		? produce(prev, (draft) => {
-				applyMutations(draft, admitMutationBatch(structural));
-			}).caseTypes
-		: prev.caseTypes;
-	structural.push(...diffCatalog(fromCatalog, next.caseTypes));
+	if (fieldCatalogTouched) yield;
+	const admittedStructural = fieldCatalogTouched
+		? admitMutationBatch(structural)
+		: undefined;
+	const structuralReplay =
+		admittedStructural === undefined
+			? undefined
+			: produce(prev, (draft) => {
+					applyMutations(draft, admittedStructural);
+				});
+	const fromCatalog =
+		structuralReplay === undefined
+			? prev.caseTypes
+			: structuralReplay.caseTypes;
+	const catalogDelta = diffCatalog(fromCatalog, next.caseTypes);
+	structural.push(...catalogDelta);
+	yield;
 	/* One replay serves both the after-submit residual and the localization
 	 * diff: the residual is a tail of `updateForm` patches, so the
-	 * localization base is that replay with the tail applied on top. */
+	 * localization base is that replay with the tail applied on top. Where
+	 * the catalog adds nothing, the batch is the one just replayed, and so is
+	 * its replay; where it adds a tail, the tail is applied on top of that
+	 * replay as the residual is, since a catalog mutation writes no form, menu,
+	 * field or language and no batch-level step of the reducer reads it
+	 * (`__tests__/diffReplay.property.test.ts`). */
 	const replayed =
 		structural.length === 0
 			? prev
-			: produce(prev, (draft) => {
-					applyMutations(draft, admitMutationBatch(structural));
-				});
+			: structuralReplay !== undefined && catalogDelta.length === 0
+				? structuralReplay
+				: structuralReplay !== undefined
+					? produce(structuralReplay, (draft) => {
+							applyMutations(draft, admitMutationBatch(catalogDelta));
+						})
+					: produce(prev, (draft) => {
+							applyMutations(draft, admitMutationBatch(structural));
+						});
+	yield;
 	const residual = postSubmitResidual(replayed, next);
 	structural.push(...residual);
 	const localizationBase =
@@ -1627,13 +1693,15 @@ function reconcileModuleOrders(
 	const relocated = new Set<Uuid>();
 	const nextPosition = new Map(next.moduleOrder.map((uuid, at) => [uuid, at]));
 	const relocations: ModuleRelocation[] = [];
+	const nextSiblings = moduleSiblingGroups(next);
+	const prevSiblings = moduleSiblingGroups(prev);
 
 	for (const uuid of moduleDelta.common) {
 		const from = moduleParent(prev, uuid);
 		const to = moduleParent(next, uuid);
 		if (from === undefined || to === undefined || from === to) continue;
 		relocated.add(uuid);
-		const siblings = moduleSiblingUuids(next, to);
+		const siblings = nextSiblings(to);
 		const at = siblings.indexOf(uuid);
 		relocations.push({
 			uuid,
@@ -1658,12 +1726,10 @@ function reconcileModuleOrders(
 	// births where their adds land them. A birth anchors on a neighbour that
 	// is there when it lands, and the reorders after it can separate the two,
 	// so a born module is moved like a retained one.
-	const groups: Array<Uuid | null> = [null, ...moduleSiblingUuids(next, null)];
+	const groups: Array<Uuid | null> = [null, ...nextSiblings(null)];
 	for (const parent of groups) {
-		const nextOrder = moduleSiblingUuids(next, parent);
-		const before = moduleSiblingUuids(prev, parent).filter(
-			(uuid) => !relocated.has(uuid),
-		);
+		const nextOrder = nextSiblings(parent);
+		const before = prevSiblings(parent).filter((uuid) => !relocated.has(uuid));
 		for (const move of sequenceMovesTo(
 			arrivalsProjected(before, nextOrder),
 			nextOrder,
@@ -1704,13 +1770,23 @@ function reconcileFormOrders(
 	for (const uuid of next.moduleOrder) {
 		if (!projected.has(uuid)) projected.set(uuid, []);
 	}
+	/* The modules whose projected order holds each form: placing a form takes
+	 * it out of those alone, rather than out of every module's. */
+	const holders = new Map<Uuid, Set<Uuid>>();
+	for (const [owner, order] of projected)
+		for (const member of order) {
+			const held = holders.get(member);
+			if (held === undefined) holders.set(member, new Set([owner]));
+			else held.add(owner);
+		}
 	const place = (uuid: Uuid, moduleUuid: Uuid, after: Uuid | null): void => {
-		for (const [owner, order] of projected) {
+		for (const owner of holders.get(uuid) ?? []) {
 			projected.set(
 				owner,
-				order.filter((member) => member !== uuid),
+				(projected.get(owner) ?? []).filter((member) => member !== uuid),
 			);
 		}
+		holders.set(uuid, new Set([moduleUuid]));
 		const order = projected.get(moduleUuid) ?? [];
 		const index = after === null ? 0 : order.indexOf(after) + 1;
 		order.splice(index, 0, uuid);

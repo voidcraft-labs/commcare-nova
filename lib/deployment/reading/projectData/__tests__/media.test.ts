@@ -818,7 +818,7 @@ describe("mediaFindings", () => {
 		]);
 	});
 
-	it("narrows where the app runs to where every held file plays, and refuses a file only where nothing is left", () => {
+	it("answers where every held file plays, and refuses a file only where nothing the app runs on is left", () => {
 		const both = files(["web-apps", "android"]);
 		const png = mediaFindings({
 			plan: both,
@@ -842,7 +842,17 @@ describe("mediaFindings", () => {
 			},
 			runsOn: ["web-apps"],
 		});
-		expect(webOnly.playsOn).toEqual([]);
+		/* Where every held file plays is answered of every platform, an app that does not run
+		 * there included, so a caller tells a file that does not play there from a platform
+		 * nothing offered. */
+		expect(webOnly.playsOn).toEqual(["android"]);
+		const pngWebOnly = mediaFindings({
+			plan: files(["web-apps"]),
+			verdicts: { "CommCareImage/a": { kind: "held", file: judged("png") } },
+			runsOn: ["web-apps"],
+		});
+		expect(pngWebOnly.playsOn).toEqual(["web-apps", "android"]);
+		expect(pngWebOnly.findings).toEqual([]);
 		expect(webOnly.findings).toEqual([
 			{
 				code: "media-not-played-where-app-runs",

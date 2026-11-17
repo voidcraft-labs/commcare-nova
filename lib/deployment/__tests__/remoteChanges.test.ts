@@ -524,11 +524,19 @@ const SAMPLED_FUNCTIONS: Readonly<Record<string, () => readonly string[]>> = {
 	],
 	endedLine: () => [
 		stopPublishingModule.endedLine(
-			{ byName: "Ada", reason: "stopped" },
+			{ byName: "Ada", reason: "stopped", heldByAnotherApp: false },
 			"10 November 2026",
 		),
 		stopPublishingModule.endedLine(
-			{ byName: "Ada", reason: "claimed-elsewhere" },
+			{ byName: "Ada", reason: "stopped", heldByAnotherApp: true },
+			"10 November 2026",
+		),
+		stopPublishingModule.endedLine(
+			{ byName: "Ada", reason: "claimed-elsewhere", heldByAnotherApp: true },
+			"10 November 2026",
+		),
+		stopPublishingModule.endedLine(
+			{ byName: "Ada", reason: "claimed-elsewhere", heldByAnotherApp: false },
 			"10 November 2026",
 		),
 	],

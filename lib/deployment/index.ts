@@ -3,8 +3,12 @@
 // The public face of deployments. Client surfaces import types and pure
 // helpers from here; only server modules reach the store, the preflight,
 // the service and what an adoption records (`adoption.ts`, whose functions
-// build the app's import body and compress its source).
+// build the app's import body and compress its source). A bring-in's
+// server surface is `reading/index.ts`; its client-safe values (the
+// schemas, the stages, the stream's reader) are imported from
+// `reading/types.ts` and `reading/stream.ts` themselves.
 
+export type { AdoptedAppReceipt } from "@/lib/db/appGenesis";
 export type {
 	AdoptedIdentityRows,
 	AdoptedKeyedCaseId,
@@ -13,7 +17,24 @@ export type {
 	MediaPathRederivedReason,
 } from "./adoption";
 export { DeploymentError, type DeploymentErrorCode } from "./errors";
+export { hqPlaceUrl } from "./hqPlaceUrl";
 export type { PreflightCheck, PreflightCheckStatus } from "./preflight";
+export { type AccountAnswer, accountOfOne } from "./reading/answers";
+export type { HqAppPicker, HqAppPickerRow } from "./reading/pickerTypes";
+export type { LookupTableChoice } from "./reading/projectData/reviewTypes";
+export type {
+	BringInInput,
+	CreateAnswer,
+	ReadingAnswer,
+	ReadingDeclarationChoice,
+	ReadingEvent,
+	ReadingKey,
+	ReadingRefusal,
+	ReadingReview,
+	ReadingStage,
+	ReviewPlaces,
+	ReviewTable,
+} from "./reading/types";
 export {
 	APP_PREVIEW_NOTE,
 	BASELINE_UNKNOWN_SENTENCE,

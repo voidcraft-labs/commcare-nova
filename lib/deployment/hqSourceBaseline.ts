@@ -17,8 +17,8 @@ import { translationKeyOwner } from "@/lib/commcare/appStringKeys";
 import type { SchemaDefaultReader } from "@/lib/commcare/surface/schemaDefaults";
 import { ownedProfilePart } from "@/lib/commcare/targetOverlay";
 import {
-	canonicalJsonDigest,
 	canonicalJsonText,
+	canonicalTextDigest,
 } from "@/lib/utils/canonicalJson";
 import type { AppOwnership } from "./types";
 
@@ -77,6 +77,22 @@ export function normalizeHqAppSource(source: unknown):
 			readonly bytes: number;
 	  }
 	| { readonly malformed: string } {
+	const read = normalizedHqAppSource(source);
+	if ("malformed" in read) return read;
+	const text = canonicalJsonText(read.normalized);
+	return {
+		normalized: read.normalized,
+		text,
+		digest: canonicalTextDigest(text),
+		bytes: Buffer.byteLength(text, "utf8"),
+	};
+}
+
+/** `normalizeHqAppSource`'s normalized source alone, with no text or digest
+ *  made of it, for a caller that reads the source and stores nothing. */
+export function normalizedHqAppSource(
+	source: unknown,
+): { readonly normalized: unknown } | { readonly malformed: string } {
 	if (!isObject(source) || source.doc_type !== "Application") {
 		return { malformed: "doc_type" };
 	}
@@ -127,14 +143,7 @@ export function normalizeHqAppSource(source: unknown):
 	normalized._attachments = attachments;
 	delete normalized.admin_password;
 	delete normalized.admin_password_charset;
-
-	const text = canonicalJsonText(normalized);
-	return {
-		normalized,
-		text,
-		digest: canonicalJsonDigest(normalized),
-		bytes: Buffer.byteLength(text, "utf8"),
-	};
+	return { normalized };
 }
 
 /** The keys of `value` that `keys` names, as HQ holds them; absent keys stay absent. */

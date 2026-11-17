@@ -702,9 +702,13 @@ Why 16 MiB. A bring-in reads and checks the app on the request, in the serving p
 number is set by how long one app may hold that process, not by the largest app Nova would like to
 hold. Nova's own parsers take 16 ms over the largest of HQ's starter apps and 31 to 38 ms per MiB
 over the three ("Executed during planning"). The reader and acceptance do more than parse, so ten
-times that is allowed: about 0.35 seconds per MiB. An app at 16 MiB, thirty-two times HQ's largest
-starter app, is then under six seconds of processing, in pieces with awaits between them (the
-reader's runs and acceptance's). Part 12 (`12-the-reading-and-the-birth.md`, "Tests") holds the one
+times that is allowed: about 0.35 seconds per MiB. Measured, an app at the cap, a source of 16.7 MB
+(thirty-two times HQ's largest starter app), is about 49 to 54 seconds of processing on a laptop's
+efficiency cores, in 222 pieces with the event loop turning between them: the reader runs a stage,
+or a long stage's part, per piece (`readHqAppSteps`) and acceptance a check, or a long check's
+part, per piece (`acceptReadingSteps`), so the bound that
+matters is each piece's length, never the request's (part 12, section 3.6). Part 12
+(`12-the-reading-and-the-birth.md`, "Tests") holds the one
 test at the cap, in ordinary CI, which holds each synchronous piece under five seconds; a failure
 there is a defect in the reader or in acceptance and is fixed there, never a reason to lower the
 cap. The 64 MiB on `main` (`HQ_APP_SOURCE_MAX_BYTES`, and `HQ_APPLICATION_MAX_BYTES` beside it)

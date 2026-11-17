@@ -23,15 +23,15 @@ import { log } from "@/lib/logger";
  * `data-app-materialized` frame the chat route emits when a design build's
  * first meaningful workflow commits.
  *
- * Nova has exactly two ways an app is born — `explicit-blank` (this action)
- * and `design-slice` (materialization) — and both hand the client the same
- * thing: identity, the Project capability the SERVER resolved (never one the
- * client asserted), the exact sequence-1 blueprint with its canonical
- * digest, and the cursor multiplayer must start from. Keeping one shape is
- * what lets one client-side installer serve both, so a new app can never
- * land two different ways. `ChatContainer.parseAppMaterializationReceipt`
- * is the strict boundary that admits it, and it accepts this key set
- * exactly. The blank path has no design lineage or change set, so those
+ * This action is one of the ways an app is born, and every one hands the
+ * client the same thing: identity, the Project capability the SERVER
+ * resolved (never one the client asserted), the exact sequence-1 blueprint
+ * with its canonical digest, and the cursor multiplayer must start from.
+ * Keeping one shape is what lets one client-side installer serve them all,
+ * so a new app can never land two different ways.
+ * `ChatContainer.parseAppMaterializationReceipt` is the strict boundary that
+ * admits it, and it accepts this key set exactly, and for an app brought in
+ * from CommCare HQ the same set with `adoption`. The blank path has no design lineage or change set, so those
  * slots are explicit nulls, and `starter` names the canonical
  * Survey/Form/Question identities only this path guarantees.
  */

@@ -12,7 +12,6 @@ export interface MutationSequenceAdmissionIssue {
 }
 
 interface SequenceState {
-	moduleOrder: string[];
 	moduleParent: Map<string, string | null>;
 	moduleSiblingOrder: Map<string, string[]>;
 	formOrder: Map<string, string[]>;
@@ -164,7 +163,6 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 	}
 
 	return {
-		moduleOrder: [...doc.moduleOrder],
 		moduleParent,
 		moduleSiblingOrder,
 		formOrder,
@@ -194,15 +192,6 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 
 const moduleGroupKey = (parent: string | null): string => parent ?? "";
 
-function rebuildModuleOrder(state: SequenceState): void {
-	state.moduleOrder = (
-		state.moduleSiblingOrder.get(moduleGroupKey(null)) ?? []
-	).flatMap((root) => [
-		root,
-		...(state.moduleSiblingOrder.get(moduleGroupKey(root)) ?? []),
-	]);
-}
-
 function placeModule(
 	state: SequenceState,
 	member: string,
@@ -212,11 +201,15 @@ function placeModule(
 ): boolean {
 	const currentParent = state.moduleParent.get(member);
 	if (requireExisting && currentParent === undefined) return false;
-	const destinationKey = moduleGroupKey(destinationParent);
-	const destination = [
-		...(state.moduleSiblingOrder.get(destinationKey) ?? []),
-	].filter((uuid) => uuid !== member);
 	if (after === member) return false;
+	const destinationKey = moduleGroupKey(destinationParent);
+	/* The destination group without `member`: the group itself where it does
+	 * not hold `member`, which the state alone holds, so a birth places in
+	 * place rather than copying its whole sibling group. */
+	const group = state.moduleSiblingOrder.get(destinationKey) ?? [];
+	const destination = group.includes(member)
+		? group.filter((uuid) => uuid !== member)
+		: group;
 	let at: number;
 	if (after === undefined) at = destination.length;
 	else if (after === null) at = 0;
@@ -237,7 +230,6 @@ function placeModule(
 	destination.splice(at, 0, member);
 	state.moduleSiblingOrder.set(destinationKey, destination);
 	state.moduleParent.set(member, destinationParent);
-	rebuildModuleOrder(state);
 	return true;
 }
 
@@ -331,7 +323,6 @@ function removeModuleTree(state: SequenceState, moduleUuid: string): void {
 	for (const formUuid of [...(state.formOrder.get(moduleUuid) ?? [])]) {
 		removeFormTree(state, formUuid);
 	}
-	removeMember(state.moduleOrder, moduleUuid);
 	const parent = state.moduleParent.get(moduleUuid);
 	if (parent !== undefined) {
 		const key = moduleGroupKey(parent);
@@ -344,7 +335,6 @@ function removeModuleTree(state: SequenceState, moduleUuid: string): void {
 	}
 	state.moduleParent.delete(moduleUuid);
 	state.moduleSiblingOrder.delete(moduleGroupKey(moduleUuid));
-	rebuildModuleOrder(state);
 	state.formOrder.delete(moduleUuid);
 	state.columnListOrder.delete(moduleUuid);
 	state.columnDetailOrder.delete(moduleUuid);

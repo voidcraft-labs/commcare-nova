@@ -28,7 +28,7 @@ import {
 	type MediaKind,
 	mediaFormatPlaysOn,
 } from "@/lib/domain/multimedia";
-import type { Platform } from "@/lib/domain/platforms";
+import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
 import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import type {
@@ -616,7 +616,9 @@ const KIND_NOUN: Readonly<Record<MediaKind, string>> = {
 /** What the verdicts of a plan's files found. */
 export interface MediaVerdictFindings {
 	readonly findings: readonly Finding[];
-	/** Platforms every held file plays on, of `runsOn`. */
+	/** Every platform each held file plays on, whether or not `runsOn` offers it, so a caller
+	 *  tells "a held file does not play there" from "the app does not run there". (Answered over
+	 *  every platform by the bring-in layer, which reads it for the platforms it leaves out.) */
 	readonly playsOn: readonly Platform[];
 	/** True when every file of the plan has a verdict. */
 	readonly complete: boolean;
@@ -645,7 +647,7 @@ export function mediaFindings(input: {
 		const verdict = verdictOf(verdicts, file.key);
 		return verdict?.kind === "held" ? [verdict.file] : [];
 	});
-	const playsOn = runsOn.filter((platform) =>
+	const playsOn = PLATFORMS.filter((platform) =>
 		held.every((file) =>
 			mediaFormatPlaysOn(file.mediaFormat).includes(platform),
 		),
@@ -720,7 +722,7 @@ export function mediaFindings(input: {
 				break;
 			case "held":
 				if (
-					playsOn.length === 0 &&
+					!runsOn.some((platform) => playsOn.includes(platform)) &&
 					!runsOn.every((platform) =>
 						mediaFormatPlaysOn(verdict.file.mediaFormat).includes(platform),
 					)

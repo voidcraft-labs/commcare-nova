@@ -16,10 +16,10 @@ import {
 	makeTranslationUnitId,
 	menuScreenOf,
 	projectedModulePreorder,
+	SlugsTaken,
 	screenChoosesCaseFirst,
 	type TranslationUnitId,
 	type Uuid,
-	uniqueSlug,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
@@ -1199,7 +1199,7 @@ function writeMenuIds(
 	const langs = appLanguageCodes(ctx);
 	const sourceCode = applicationReading(ctx)?.languages.source ?? langs[0];
 	const stored = rawModules(ctx);
-	const taken = new Set<string>();
+	const taken = new SlugsTaken();
 	for (const module of app.modules) {
 		if (folded.has(module)) continue;
 		const names = isJsonObject(stored[module.index]?.name)
@@ -1212,8 +1212,7 @@ function writeMenuIds(
 				: (langs
 						.map((lang) => textOf(names[lang]))
 						.find((text) => text !== "") ?? "");
-		const id = uniqueSlug(name, "menu", taken);
-		taken.add(id);
+		const id = taken.take(name, "menu");
 		ctx.writeDraft(() => {
 			Object.assign(module.module, { id });
 		});

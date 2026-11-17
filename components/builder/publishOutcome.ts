@@ -28,6 +28,7 @@ import {
 } from "@/components/builder/app-setup/publishingSectionModel";
 import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import type { DeploymentView } from "@/lib/deployment/actions";
+import type { NextPublishAction } from "@/lib/deployment/resources";
 import type {
 	DeploymentAttemptRefusal,
 	DeploymentConfirmationKey,
@@ -41,6 +42,7 @@ import type {
 	PreviewDeploymentAnswer,
 	PublishPlacements,
 } from "@/lib/deployment/types";
+import { ANOTHER_SPACE_NEW_APP_LINE } from "@/lib/publish/bringInCopy";
 import type { DriftReference } from "@/lib/publish/driftReference";
 import {
 	type AcceptPlacementMoves,
@@ -51,7 +53,38 @@ import {
 	saveToCaseOfferBody,
 } from "@/lib/publish/placementMoves";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 import type { WebAppsChange } from "@/lib/publish/webApps";
+
+/** What publishing to the selected project space will do, or "unknown" before Nova can say. */
+export type PublishPlan = NextPublishAction | "unknown";
+
+/**
+ * The dialog's line for what publishing to the selected project space will
+ * do. `context.broughtInElsewhere` (`publishingSectionModel.ts::
+ * broughtInElsewhere`) says the app was brought in from another project
+ * space, so a new app here is a second copy beside the one the team keeps
+ * there; every plan but `creates` ignores it.
+ */
+export function publishPlanCopy(
+	plan: PublishPlan,
+	context: { readonly broughtInElsewhere: boolean },
+): string {
+	switch (plan) {
+		case "updates":
+			return "This updates the app already in this project space.";
+		case "creates":
+			return context.broughtInElsewhere
+				? ANOTHER_SPACE_NEW_APP_LINE
+				: "This creates a new app in this project space.";
+		case "creates-beside":
+			return PUBLISH_PLAN_CREATES_BESIDE;
+		case "fills-shell":
+			return "Nova made an empty app here on an earlier try. Uploading fills it in.";
+		case "unknown":
+			return "Nova checks this project space before sending the app.";
+	}
+}
 
 /** The logo a landed publish offers for a person to add in CommCare HQ. */
 export interface PublishLogoStepBody {

@@ -7,7 +7,7 @@
  */
 
 import type { Element } from "domhandler";
-import { isTag } from "domhandler";
+import { cloneNode, isTag } from "domhandler";
 import type { FieldKind, Uuid } from "@/lib/domain";
 import type { FormStructureConnect } from "@/lib/domain/expression/formStructure";
 import type {
@@ -22,7 +22,7 @@ import {
 	generatedBaseName,
 } from "../../xform/generatedNodes";
 import { splitName } from "../../xmlNamespaces";
-import { tryParseXml } from "../../xmlParse";
+import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
 import { applicationReading } from "../appShell";
 import type { Claim } from "../claims";
@@ -320,7 +320,7 @@ function readForm(
 		accounting.finding(X.blankSource, formPlace);
 		return null;
 	}
-	const parsedXml = tryParseXml(source);
+	const parsedXml = heldXmlParse(source);
 	if ("issue" in parsedXml) {
 		if (parsedXml.kind === "doctype") accounting.finding(X.doctype, formPlace);
 		else
@@ -331,7 +331,12 @@ function readForm(
 			);
 		return null;
 	}
-	const document = parsedXml.doc;
+	/* The parse is shared and never written (`xmlParse.ts::heldXmlParse`);
+	 * the ledger tells forms apart by their document, so a second form of the
+	 * same text reads a copy. */
+	const document = accounting.readsXml(parsedXml.doc)
+		? cloneNode(parsedXml.doc, true)
+		: parsedXml.doc;
 	const cursor = accounting.xml(document, form.menu, form.index, formPlace);
 	const root = document.children.find(isTag);
 	const parsed = parseXFormSource({
@@ -716,9 +721,22 @@ function fieldsInOrder(
 
 /** Stage 3: each form's source, read into its draft. */
 export function readForms(ctx: ReadContext): void {
+	const steps = readFormsSteps(ctx);
+	while (!steps.next().done);
+}
+
+/** How many forms `readFormsSteps` reads between two stops. */
+const FORMS_PER_STEP = 200;
+
+/** `readForms`, stopping after every `FORMS_PER_STEP` forms until it is
+ *  resumed, so a reading of an app at the byte cap is no one long piece. */
+export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 	const attachments = applicationReading(ctx)?.attachments?.value;
+	let read = 0;
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
+			if (read > 0 && read % FORMS_PER_STEP === 0) yield;
+			read += 1;
 			const readId =
 				ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
 			const value =

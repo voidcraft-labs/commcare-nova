@@ -65,6 +65,43 @@ export function suffixUntilFree(
 }
 
 /**
+ * Slugs handed out one at a time beside names already taken, each taken as
+ * it is handed out: `take(name, fallback)` is `uniqueSlug(name, fallback,
+ * taken)` at the moment it is asked. The set only grows, so every suffix a
+ * base was handed, or found taken, before stays taken, and a base asked
+ * again starts its search past the last suffix it was handed: n names of one
+ * base cost n checks rather than n²/2, which a reading of an app with
+ * hundreds of copies of one menu meets.
+ */
+export class SlugsTaken {
+	readonly #taken: Set<string>;
+	/** Each base's first suffix not yet known to be taken. */
+	readonly #nextSuffix = new Map<string, number>();
+
+	constructor(taken: Iterable<string> = []) {
+		this.#taken = new Set(taken);
+	}
+
+	/** Marks `id` taken, as an id the caller holds already. */
+	add(id: string): void {
+		this.#taken.add(id);
+	}
+
+	take(name: string, fallback: string): string {
+		const base = slugifyId(name, fallback);
+		let id = base;
+		if (this.#taken.has(base)) {
+			let suffix = this.#nextSuffix.get(base) ?? 2;
+			while (this.#taken.has(`${base}_${suffix}`)) suffix++;
+			id = `${base}_${suffix}`;
+			this.#nextSuffix.set(base, suffix + 1);
+		}
+		this.#taken.add(id);
+		return id;
+	}
+}
+
+/**
  * How a refusal offers its replacement name. `free-here`: the name was
  * checked against everything beside the refused one, so taking it meets no
  * second refusal. `suggested`: nothing beside it was known when it was

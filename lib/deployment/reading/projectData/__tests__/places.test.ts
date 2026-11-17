@@ -180,6 +180,7 @@ describe("unreadPlacesFailure", () => {
 			origin: { server: "india", domain: "clinic" },
 			appId: "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d",
 			readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
+			tablesReadAt: new Date("2026-11-10T09:00:00.000Z"),
 			tables: [],
 			hqTags: [],
 			project: {
@@ -226,7 +227,6 @@ describe("unreadPlacesFailure", () => {
 		kind: "read",
 		draft: {
 			doc,
-			batch: [],
 			identities: { modules: [], forms: [], keyedCreates: [], entries: [] },
 			declaration: { kind: "none", blocking: [] },
 			facts: {
@@ -595,6 +595,7 @@ describe("readingProjectDataFindingsFor, places past Nova's limit", () => {
 				origin: { server: "india", domain: "clinic" },
 				appId: APP_ID,
 				readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
+				tablesReadAt: new Date("2026-11-10T09:00:00.000Z"),
 				tables: [],
 				hqTags: [],
 				project: {

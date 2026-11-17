@@ -188,6 +188,13 @@ export class BroughtInTableChangedError extends Error {
  * takes them in; nothing for a table used as it stands. A `choice` with no
  * answer never reaches here.
  *
+ * `readAt` is when the reading's read of CommCare HQ's tables began. A table
+ * the birth would refresh or adopt whose stored `hq_refreshed_at` is later
+ * was refreshed from a newer read of CommCare HQ since, which need move no
+ * revision, so it throws `BroughtInTableChangedError` too rather than write
+ * the older read over it. Every table the birth writes is stamped `readAt`,
+ * so a refresh whose read began before the birth's never replaces it.
+ *
  * The standing is derived again with no apps and no fields read: its kind
  * depends on neither, and the one offer that reads the fields, `use-project`'s
  * missing column, reads the table's definition, whose revision is held.
@@ -203,7 +210,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 	write: {
 		readonly origin: { readonly server: string; readonly domain: string };
 		readonly tables: readonly BroughtInTableWrite[];
-		readonly at: Date;
+		readonly readAt: Date;
 	},
 ): Promise<void> {
 	if (write.tables.length === 0) return;
@@ -242,6 +249,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 					.cast<string>("definition_revision", "text")
 					.as("definition_revision"),
 			(eb) => eb.cast<string>("rows_revision", "text").as("rows_revision"),
+			"hq_refreshed_at",
 		])
 		.where("project_id", "=", scope.projectId)
 		.where("tag", "in", tags)
@@ -352,8 +360,11 @@ export async function writeBroughtInLookupTablesInTransaction(
 				break;
 			case "choice": {
 				if (table.choice === null) {
+					/* Named by its place in the write, never its tag: this reaches the route's
+					 * failed line and Sentry (layer 7's small edit, kept for the
+					 * rebase). */
 					throw new Error(
-						`The lookup table ${tag} reached the birth with no answer to its choice.`,
+						`A lookup table reached the birth with no answer to its choice (table ${write.tables.indexOf(table) + 1} of the ${write.tables.length} the birth writes).`,
 					);
 				}
 				if (!standing.options[table.choice].offered) {
@@ -364,6 +375,13 @@ export async function writeBroughtInLookupTablesInTransaction(
 			}
 		}
 		if (mode === null || definition === undefined) continue;
+		if (
+			row !== undefined &&
+			row.hq_refreshed_at !== null &&
+			row.hq_refreshed_at > write.readAt
+		) {
+			throw new BroughtInTableChangedError(tag);
+		}
 		// The fields the Project table has no column for take the ids the
 		// binding gave them, so the document's reads name the columns made.
 		const wireNames = new Set(
@@ -387,7 +405,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 			tx,
 			lookupScope,
 			created,
-			write.at,
+			write.readAt,
 		);
 	}
 	refreshes.sort((left, right) =>
@@ -398,7 +416,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 			tableId: lookupTableIdSchema.parse(refresh.tableId),
 			content: refresh.content,
 			origin: refresh.origin,
-			at: write.at,
+			at: write.readAt,
 			mode: refresh.mode,
 			newColumnIds: refresh.newColumnIds,
 			/* The app's columns bind the ids the reading gave them, so the

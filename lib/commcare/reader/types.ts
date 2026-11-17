@@ -5,7 +5,6 @@
  */
 
 import type { DeclarationChoices } from "@/lib/doc/platformDeclaration";
-import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -26,6 +25,7 @@ import type { GeneratedNodePurpose } from "../xform/generatedNodes";
 import type { ClaimLog } from "./accounting";
 import type { ReaderDefectWhy } from "./defects";
 import type { ExpressionReading, RecordDialectJudge } from "./expressions";
+import type { HeldExpansions } from "./heldExpansions";
 import type { IdentityMapEntry, IdentityResolver } from "./identity";
 
 export interface ReaderInput {
@@ -95,6 +95,20 @@ export interface KnownIndexTarget {
 export interface ReaderOptions {
 	/** `counts`, the default, keeps claim counts by entry. `full` also keeps every claim. */
 	readonly claims?: "counts" | "full";
+	/**
+	 * Told which part of the reading runs next: a stage's index in `STAGES`,
+	 * then `close`. A caller that catches a throw names where it came from with
+	 * the last one it was told, never with the thrown message, which can quote
+	 * the app. (Added by the bring-in layer for its reader-fault log line.)
+	 */
+	readonly onStage?: (at: number | "close") => void;
+	/**
+	 * Nova's emissions the readings of one request share
+	 * (`heldExpansions.ts`): a reading that emits a document another reading
+	 * of the request emitted under the same inputs is answered with that
+	 * emission. Absent, every emission is made afresh.
+	 */
+	readonly heldExpansions?: HeldExpansions;
 }
 
 /** The tables of the source project space the app may read, with the ids project data gives them. */
@@ -189,8 +203,6 @@ export interface ReadMenuAndFormIdentities {
 export interface ReadDraft {
 	/** The document, before the gate. Acceptance runs the gate and export readiness over it. */
 	readonly doc: BlueprintDoc;
-	/** `diffDocsToMutations(emptyBlueprintDoc(appId), doc)`: the birth's construction batch. */
-	readonly batch: readonly Mutation[];
 	readonly identities: ReadMenuAndFormIdentities & {
 		readonly entries: readonly IdentityMapEntry[];
 	};

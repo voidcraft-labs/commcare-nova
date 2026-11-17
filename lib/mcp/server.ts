@@ -7,6 +7,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { registerSharedTool } from "./adapters/sharedToolAdapter";
+import { registerBringInHqApp } from "./tools/bringInHqApp";
 import { registerCheckProjectSpaceCompatibility } from "./tools/checkProjectSpaceCompatibility";
 import { registerCompileApp } from "./tools/compileApp";
 import { registerCreateProject } from "./tools/createProject";
@@ -22,11 +23,18 @@ import { registerGetEntryPointLink } from "./tools/getEntryPointLink";
 import { registerGetHqConnection } from "./tools/getHqConnection";
 import { registerInviteMember } from "./tools/inviteMember";
 import { registerListApps } from "./tools/listApps";
+import { registerListHqApps } from "./tools/listHqApps";
 import { registerListMembers } from "./tools/listMembers";
 import { registerListProjects } from "./tools/listProjects";
+import {
+	registerRefreshManagedData,
+	registerSetLookupTableManagement,
+} from "./tools/managedData";
 import { registerMoveApp } from "./tools/moveApp";
 import { registerProvisionWorkers } from "./tools/provisionWorkers";
+import { registerReadHqApp } from "./tools/readHqApp";
 import { registerSearchApps } from "./tools/searchApps";
+import { registerStopPublishing } from "./tools/stopPublishing";
 import { registerUpdateMemberRole } from "./tools/updateMemberRole";
 import { registerUploadAppToHq } from "./tools/uploadAppToHq";
 import { registerUploadMediaAsset } from "./tools/uploadMediaAsset";
@@ -46,6 +54,12 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerDeleteApp(server, ctx);
 	registerCompileApp(server, ctx);
 	registerGetHqConnection(server, ctx);
+	registerListHqApps(server, ctx);
+	registerReadHqApp(server, ctx);
+	registerBringInHqApp(server, ctx);
+	registerStopPublishing(server, ctx);
+	registerRefreshManagedData(server, ctx);
+	registerSetLookupTableManagement(server, ctx);
 	registerUploadAppToHq(server, ctx);
 	registerGetDeployment(server, ctx);
 	registerRefreshDeployment(server, ctx);

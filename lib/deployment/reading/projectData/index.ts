@@ -116,6 +116,10 @@ export interface ReadingProjectData {
 		/** The two ids every lookup id of this reading derives from. */
 		readonly appId: string;
 		readonly readingId: string;
+		/** When the read of CommCare HQ's lookup tables began: the date a birth's write
+		 *  stamps on each table it takes CommCare HQ's content into, and the date no
+		 *  refresh since may pass. */
+		readonly tablesReadAt: Date;
 		readonly tables: readonly ReadingLookupTable[];
 		/** The Project's answers, kept whole: the snapshot and the review read them. */
 		readonly project: {
@@ -212,8 +216,10 @@ export function rowsToMeasure(
 /** The Project table's two revisions, as the read saw them. */
 function metProjectTable(table: LookupTableDefinition): MetProjectTable {
 	if (table.rowsRevision === undefined) {
+		/* Named by its id, never its tag, which is a word of the Project's (layer 7's small
+		 * edit, kept for the rebase). */
 		throw new Error(
-			`The Project's lookup table ${table.tag} was read without its rows revision.`,
+			`The Project's lookup table ${table.id} was read without its rows revision.`,
 		);
 	}
 	return {
@@ -257,6 +263,8 @@ export function assembleReadingProjectData(input: {
 	readonly origin: { readonly server: string; readonly domain: string };
 	readonly appId: string;
 	readonly readingId: string;
+	/** When the read of CommCare HQ's lookup tables began. */
+	readonly tablesReadAt: Date;
 	readonly tables: readonly HqLookupTableRead[];
 	readonly hqTags: readonly string[];
 	readonly project: ReadingProjectAnswers;
@@ -355,6 +363,7 @@ export function assembleReadingProjectData(input: {
 			origin,
 			appId: input.appId,
 			readingId: input.readingId,
+			tablesReadAt: input.tablesReadAt,
 			tables,
 			project: {
 				projectId: project.projectId,
@@ -387,7 +396,7 @@ function rowsOf(
 ): readonly LookupFixtureRow[] {
 	if (!Object.hasOwn(rowsByTable, table.id)) {
 		throw new Error(
-			`The Project's lookup table ${table.tag} was read without its rows.`,
+			`The Project's lookup table ${table.id} was read without its rows.`,
 		);
 	}
 	return rowsByTable[table.id];
@@ -417,12 +426,12 @@ export function underTableChoices(
 			.filter((table) => table.standing?.kind === "choice")
 			.map((table) => table.read.table.tag),
 	);
-	for (const tag of Object.keys(choices)) {
-		if (!asks.has(tag)) {
-			throw new Error(
-				`An answer was given for the lookup table ${tag}, which asks no choice.`,
-			);
-		}
+	const unasked = Object.keys(choices).filter((tag) => !asks.has(tag));
+	if (unasked.length > 0) {
+		/* A count, never a tag (layer 7's small edit, kept for the rebase). */
+		throw new Error(
+			`Answers were given for ${unasked.length} lookup table(s) that ask no choice.`,
+		);
 	}
 	const tables = data.gathered.tables.map((table): ReadingLookupTable => {
 		const tag = table.read.table.tag;
@@ -509,7 +518,7 @@ export function projectDataReadsOf(
 		)?.[0];
 		if (field === undefined) {
 			throw new Error(
-				`A reading's document reads a column of the lookup table ${binding.tag} that its binding does not name.`,
+				`A reading's document reads a column of the lookup table ${target.tableId} that its binding does not name.`,
 			);
 		}
 		const set = fields.get(binding.tag) ?? new Set<string>();
@@ -701,7 +710,7 @@ function tableChoicesUnusable(
 		const column = table.columns.find((candidate) => candidate.id === columnId);
 		if (column === undefined) {
 			throw new Error(
-				`A choices finding of the lookup table ${table.tag} named no column it holds.`,
+				`A choices finding of the lookup table ${table.id} named no column it holds.`,
 			);
 		}
 		findings.push(
@@ -721,6 +730,8 @@ function tableChoicesUnusable(
 
 export interface ReadingProjectDataWrite {
 	readonly origin: { readonly server: string; readonly domain: string };
+	/** When the read of CommCare HQ's lookup tables began (`gathered.tablesReadAt`). */
+	readonly tablesReadAt: Date;
 	readonly tables: readonly BroughtInTableWrite[];
 	readonly places: ManagedPlacePlan | null;
 }
@@ -742,35 +753,39 @@ export function readingProjectDataWrite(
 	const byTag = new Map(
 		data.gathered.tables.map((table) => [table.read.table.tag, table]),
 	);
-	const tables = Object.keys(reads.lookupFields)
-		.sort(compareCodeUnits)
-		.map((tag): BroughtInTableWrite => {
-			const table = byTag.get(tag);
-			if (
-				table === undefined ||
-				table.read.kind !== "read" ||
-				table.standing === null ||
-				table.binding === null
-			) {
-				throw new Error(
-					`The document reads the lookup table ${tag}, which cannot come in.`,
-				);
-			}
-			if (table.standing.kind === "choice" && table.choice === null) {
-				throw new Error(
-					`The lookup table ${tag} reached the write with no answer to its choice.`,
-				);
-			}
-			return {
-				read: table.read,
-				standing: table.standing,
-				choice: table.choice,
-				binding: table.binding,
-				projectTable: table.projectTable,
-			};
-		});
+	const tags = Object.keys(reads.lookupFields).sort(compareCodeUnits);
+	const tables = tags.map((tag, index): BroughtInTableWrite => {
+		/* A table is named by its place among the tags the document reads, never by its
+		 * tag: this message reaches the route's failed line and Sentry, which hold no
+		 * word of an app (layer 7's small edit, kept for the rebase). */
+		const which = `${index + 1} of the ${tags.length} the document reads`;
+		const table = byTag.get(tag);
+		if (
+			table === undefined ||
+			table.read.kind !== "read" ||
+			table.standing === null ||
+			table.binding === null
+		) {
+			throw new Error(
+				`The document reads a lookup table that cannot come in (table ${which}, in code-unit order of their tags).`,
+			);
+		}
+		if (table.standing.kind === "choice" && table.choice === null) {
+			throw new Error(
+				`A lookup table reached the write with no answer to its choice (table ${which}, in code-unit order of their tags).`,
+			);
+		}
+		return {
+			read: table.read,
+			standing: table.standing,
+			choice: table.choice,
+			binding: table.binding,
+			projectTable: table.projectTable,
+		};
+	});
 	return {
 		origin: data.gathered.origin,
+		tablesReadAt: data.gathered.tablesReadAt,
 		tables,
 		places: reads.readsPlaces ? bornPlaces(data, doc, resolver) : null,
 	};

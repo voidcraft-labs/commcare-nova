@@ -259,7 +259,10 @@ hand-back passes `olderReadYields`: under the table lock, one whose `at` is
 earlier than the stored `hq_refreshed_at` writes nothing and answers
 `superseded`, and a hand-back whose `at` is earlier than a takeover recorded
 since is `conflict`. A birth passes false, since its app binds the column ids
-its reading gave. The CSV replacement route refuses a table CommCare HQ
+its reading gave; it passes its reading's own read date as `at`, and its
+writer refuses a table whose stored `hq_refreshed_at` is later
+(`lib/deployment/reading/projectData/lookupTableStore.ts`), so it never writes
+an older read over a newer one either. The CSV replacement route refuses a table CommCare HQ
 manages with `managed_in_hq` before it compares the revision or reads the CSV,
 as the lock does for every other writer. A change of who manages a table
 stamps `definition_revision`, because every client reads editability from it.
