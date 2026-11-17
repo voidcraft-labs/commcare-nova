@@ -2340,6 +2340,9 @@ function inferNode(
 			read(expression.cond, ["if", "cond"], "condition");
 			const then = read(expression.then, ["if", "then"], position);
 			const otherwise = read(expression.else, ["if", "else"], position);
+			checkCoercedDayBranches([expression.then, expression.else], ctx, errors, [
+				"if",
+			]);
 			return branchResult(
 				[then, otherwise],
 				ctx,
@@ -2358,6 +2361,7 @@ function inferNode(
 					["values", index],
 					"coalesce values must agree on type",
 				);
+			checkCoercedDayBranches(expression.values, ctx, errors, []);
 			return agreed ?? scalar(ANY_TYPE);
 		}
 		case "switch": {
@@ -2416,6 +2420,12 @@ function inferNode(
 					"switch case 'then' type must agree with the established branch type",
 				);
 			}
+			checkCoercedDayBranches(
+				[...expression.cases.map((branch) => branch.then), expression.fallback],
+				ctx,
+				errors,
+				["switch"],
+			);
 			return (
 				branchResult(
 					[agreed, read(expression.fallback, ["switch", "fallback"], position)],
@@ -3961,15 +3971,60 @@ function otherKindLeaves(operand: InstantOperand): readonly InstantLeaf[] {
  *  date and time. */
 function coercedBranchesMixDays(operand: InstantOperand): boolean {
 	if (operand.kind === "leaf") return false;
-	const days = new Set(
-		instantLeaves(operand).map(
-			(leaf) =>
-				leaf.class === "not-instant" ||
-				leaf.class === "clock-lost" ||
-				(leaf.class === "day-only" && leaf.held === "date"),
-		),
-	);
+	const days = new Set(instantLeaves(operand).map(coercesToDay));
 	return days.size > 1;
+}
+
+/** Whether a device prints the coercion of `leaf` as `date()` of it, a day
+ *  (`instant.ts::datetimeCoerceValue`). */
+function coercesToDay(leaf: InstantLeaf): boolean {
+	return (
+		leaf.class === "not-instant" ||
+		leaf.class === "clock-lost" ||
+		(leaf.class === "day-only" && leaf.held === "date")
+	);
+}
+
+/**
+ * On a device, the branches of a value-giving node where some give a day
+ * through a `datetime-coerce` a device prints as `date()` and another gives a
+ * date and time: the node then gives values of two types, as
+ * `coalesce(now(), date(x))`, which it prints, does. A branch gives a day
+ * where every value it can end with is such a coercion.
+ */
+function checkCoercedDayBranches(
+	branches: readonly Expression[],
+	ctx: TypingContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const device = ctx.ruleSet === "record" ? onDeviceContext(ctx) : undefined;
+	if (device === undefined) return;
+	const day = (branch: Expression): boolean => {
+		let every = true;
+		visitAssignmentOutputs(branch, [], (output) => {
+			const operand =
+				output.kind === "datetime-coerce"
+					? instantOperand(output, device)
+					: undefined;
+			if (operand?.kind !== "leaf" || !coercesToDay(operand)) every = false;
+		});
+		return every;
+	};
+	const days = branches.map(day);
+	if (!days.some(Boolean)) return;
+	const moment = branches.some(
+		(branch, index) =>
+			!days[index] &&
+			scalarDataType(typeOf(branch, device)?.data) === "datetime",
+	);
+	if (moment)
+		errors.push({
+			path,
+			code: "branch-values",
+			message:
+				"On a device this gives a date in one branch and a date and time in another, because CommCare keeps only the day of some of these values. You can give every branch a date and time, or turn every branch into a date.",
+		});
 }
 function onDeviceContext(ctx: TypingContext): ExpressionContext | undefined {
 	return "profile" in ctx &&

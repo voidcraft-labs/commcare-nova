@@ -3749,9 +3749,25 @@ describe("comparisons a device runs between two moments", () => {
 				),
 			),
 		).toEqual(["branch-values"]);
+		// A branch node of such a coercion beside a moment prints so too.
+		expect(
+			codes(filterErrors(isBlank(coalesce(now(), datetimeCoerce(changed))))),
+		).toEqual(["branch-values"]);
+		expect(
+			codes(
+				filterErrors(isBlank(ifExpr(choose, datetimeCoerce(opened), now()))),
+			),
+		).toEqual(["branch-values"]);
 		// Two days, or two moments, agree.
 		expect(
 			filterErrors(isBlank(datetimeCoerce(ifExpr(choose, changed, opened)))),
+		).toEqual([]);
+		expect(
+			filterErrors(
+				isBlank(
+					ifExpr(choose, datetimeCoerce(changed), datetimeCoerce(opened)),
+				),
+			),
 		).toEqual([]);
 		expect(
 			filterErrors(isBlank(datetimeCoerce(ifExpr(choose, seen, now())))),
