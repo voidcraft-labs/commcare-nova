@@ -262,53 +262,49 @@ export function readFormSyntax(source: string): FormSyntaxResult {
 	return { ok: true, node: read(tree.topNode) };
 }
 
-/** Grouping may affect an and/or chain's stored shape, so keys retain it. */
+/** Grouping may affect an and/or chain's stored shape, so keys retain it.
+ *  The key is one serialization of the whole tree (`keyTree`), so its length
+ *  grows with the tree's size and never with its depth. */
 export function formSyntaxKey(node: FormSyntax): string {
+	return JSON.stringify(keyTree(node));
+}
+
+/** A JSON value for one syntax tree: two trees give the same value exactly
+ *  where they have the same structure. */
+type KeyTree = string | number | boolean | null | readonly KeyTree[];
+function keyTree(node: FormSyntax): KeyTree {
 	switch (node.kind) {
 		case "string":
 		case "number":
-			return JSON.stringify([node.kind, node.value]);
+			return [node.kind, node.value];
 		case "name":
-			return JSON.stringify([node.kind, node.name, node.wildcard]);
+			return [node.kind, node.name, node.wildcard];
 		case "hashtag":
-			return JSON.stringify([node.kind, node.namespace, node.segments]);
+			return [node.kind, node.namespace, node.segments];
 		case "self":
 		case "parent":
 		case "root":
 			return node.kind;
 		case "variable":
-			return JSON.stringify([node.kind, node.name]);
+			return [node.kind, node.name];
 		case "group":
 		case "negative":
-			return JSON.stringify([node.kind, formSyntaxKey(node.value)]);
+			return [node.kind, keyTree(node.value)];
 		case "axis":
-			return JSON.stringify([node.kind, node.axis, formSyntaxKey(node.value)]);
+			return [node.kind, node.axis, keyTree(node.value)];
 		case "child":
-			return JSON.stringify([
+			return [
 				node.kind,
-				node.left === undefined ? null : formSyntaxKey(node.left),
-				formSyntaxKey(node.step),
+				node.left === undefined ? null : keyTree(node.left),
+				keyTree(node.step),
 				node.descendant,
-			]);
+			];
 		case "filter":
-			return JSON.stringify([
-				node.kind,
-				formSyntaxKey(node.base),
-				formSyntaxKey(node.where),
-			]);
+			return [node.kind, keyTree(node.base), keyTree(node.where)];
 		case "binary":
-			return JSON.stringify([
-				node.kind,
-				node.op,
-				formSyntaxKey(node.left),
-				formSyntaxKey(node.right),
-			]);
+			return [node.kind, node.op, keyTree(node.left), keyTree(node.right)];
 		case "call":
-			return JSON.stringify([
-				node.kind,
-				node.name,
-				node.args.map(formSyntaxKey),
-			]);
+			return [node.kind, node.name, node.args.map(keyTree)];
 	}
 }
 

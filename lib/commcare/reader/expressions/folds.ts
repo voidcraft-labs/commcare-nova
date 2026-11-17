@@ -1838,16 +1838,9 @@ const datetimeValue: Fold = {
 				context,
 			);
 			if (!calendarRead(other)) return undefined;
-			const valueNode = day.args[0] as FormSyntax;
-			const text = stringValue(valueNode);
-			const shape = text === undefined ? undefined : literalShape(text);
-			const value =
-				text !== undefined && shape?.type === "date"
-					? api.term(
-							{ kind: "literal", value: text, data_type: "date" },
-							valueNode,
-						)
-					: api.bind(valueNode, context);
+			// The coercion reads text, so a literal it holds is read as the
+			// text it is (`temporalLiterals.ts`).
+			const value = api.bind(day.args[0] as FormSyntax, context);
 			const coerced = api.remember({ kind: "datetime-coerce", value }, day);
 			const kind = COMPARISONS[test.op] as ComparisonKind;
 			return api.remember(

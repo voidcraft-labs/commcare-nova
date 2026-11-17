@@ -779,6 +779,66 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			// `date()` reads text, so its value requires no type and prints its
+			// text either way.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "date-coerce",
+				value: term({
+					kind: "literal",
+					value: "2026-01-01",
+					data_type: "date",
+				}),
+			}),
+			canonical: { kind: "date-coerce", value: lit("2026-01-01") },
+		},
+		{
+			// Two moments compared print as the two counts of microseconds
+			// they fold to, which two number literals print as.
+			id: "instant-literal-pair",
+			slot: calculated,
+			other: () => ({
+				kind: "eq",
+				left: term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00Z",
+					data_type: "datetime",
+				}),
+				right: term({
+					kind: "literal",
+					value: "2026-02-01T10:00:00+01:00",
+					data_type: "datetime",
+				}),
+			}),
+			canonical: {
+				kind: "eq",
+				left: lit(1_767_225_600_000_000),
+				right: lit(1_769_936_400_000_000),
+			},
+		},
+		{
+			// `format-date` reads its date through the device's own date and
+			// time, which the coercion of a date and the literal of the text
+			// it prints both print through alike.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "format-date",
+				date: { kind: "datetime-coerce", value: lit("2026-01-01") },
+				pattern: "%Y",
+			}),
+			canonical: {
+				kind: "format-date",
+				date: term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00.000Z",
+					data_type: "datetime",
+				}),
+				pattern: "%Y",
+			},
+		},
+		{
 			// A comparison of moments folds both to one count of microseconds,
 			// and the reader gives the moment's canonical text.
 			id: "coerced-instant-literal",

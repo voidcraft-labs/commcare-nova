@@ -84,6 +84,7 @@ import {
 import { shapedLiteral } from "./folds";
 import type { ExpressionReadEnv } from "./index";
 import { bindSlot } from "./readExpression";
+import { typedWhereRequired } from "./temporalLiterals";
 
 export type SearchRowReading =
 	| {
@@ -2094,8 +2095,12 @@ export function readSearchFilterRow(
 				break;
 			}
 			// A relation typed as the catalog resolves it, the canonical member of
-			// the paths that print one row.
-			const bound = typedRelations(raw, rowContext);
+			// the paths that print one row, and a literal spelled as a date or a
+			// date and time typed where its position requires the type.
+			const bound = typedWhereRequired(
+				typedRelations(raw, rowContext),
+				rowContext,
+			);
 			const refusal = refusalOf(bound, rowContext, env);
 			if (refusal !== undefined) {
 				firstRefusal ??= refusal;

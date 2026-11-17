@@ -142,13 +142,34 @@ known type, through each branch of an `if`, `coalesce`, `switch` or `cond` the p
 (`coalesce(seen, now()) > now()` compares `seen` with `now()`), and the known type of a branch
 beside it, since record branches agree on one type. A simple date range Search field over such a
 property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
-print is HQ's prompt alone, and a record slot's comparison overrides that guess. A literal branch
-spelled as a date or a date and time beside a branch of that type, or in a branch node beside one,
-or in a branch node compared with a value of that type, is read typed
-(`folds.ts::typedBranchLiterals`, `typedBranchesCompared`), as the typed literal prints the same
-bytes. Where nothing beside it gives its type (a calculated column whose branches are all such
-literals or `datetime-coerce`s of them, a part of a `concat`), the reading gives the untyped
-literal of the text it prints, and the canonical row `untyped-value-literal` returns the same.
+print is HQ's prompt alone, and a record slot's comparison overrides that guess (an ordering against
+a branch node whose values are all literals spelled as one of the two types orders that type).
+
+**Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
+literal prints the text the untyped literal of that text prints, so which one a record slot holds
+is decided by the position it stands in, never by the print, one rule for the reader and the
+canonical form alike: it is typed by its shape exactly where its position requires that type, and
+untyped everywhere else (`expressions/temporalLiterals.ts::typedWhereRequired`, which every bound
+record slot passes through, a search's CSQL rows included). A position requires a date or a date
+and time where the checker refuses the text there: the date a function's signature takes
+(`format-date`'s and `date-add`'s), an operand compared with a value of that type or ordered
+against a value of no known type (a `between`'s bounds against its subject, and a literal or a
+branch node of literals ordered against another, among them), the whole value of a slot that
+expects one (a date Search field's starting value), and each branch of an `if`, `coalesce`,
+`switch` or `cond` standing in such a position or beside a branch that gives one. Every other
+position takes the text as it is: a part of a `concat`, the value of `date()`, the value of a
+`datetime()` that stays one (in a comparison by day), the whole value of a slot that expects no
+type (a calculated column), and a branch node in one of those with no branch beside it that gives
+a type; there the reading gives the untyped literal and the canonical row
+`untyped-value-literal` returns it. `in`'s values and a `switch`'s cases are typed against their
+subject by `folds.ts` and the canonical row `literal-type`. Two print collisions of the class are
+rows of their own: a `datetime-coerce` of a literal prints the literal's own instant text, and is
+that typed literal wherever a device folds it, `format-date`'s date among those places
+(`coerced-instant-literal`); and two moments compared with each other print as the two counts of
+microseconds they fold to, which the reader reads as those numbers (`instant-literal-pair`). A
+search's condition prints as CSQL, which keeps a `date()` or `datetime()` of a literal as written,
+so there the literal inside one is typed by its shape (`coerced-literal-type`). Form logic holds no
+typed literal: the checker refuses one (`literal-not-spellable`).
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
