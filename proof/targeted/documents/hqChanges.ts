@@ -334,6 +334,7 @@ export function hqChangesLabel(): CorpusDocument {
 			edit: "builder-model",
 		},
 		republish: "brings-in",
+		publishChanges: [],
 		bringsIn: broughtInDocument(
 			document,
 			labelDoc("Visit note", "needs-review"),
@@ -393,6 +394,7 @@ export function hqChangesQuestions(): CorpusDocument {
 	return withSaves(document, {
 		questions: { module: 0, form: 0, xform: formXml(after, uuid("visit")) },
 		republish: "brings-in",
+		publishChanges: [],
 		bringsIn: broughtInDocument(document, after),
 	});
 }
@@ -415,6 +417,7 @@ export function hqChangesFormSetting(): CorpusDocument {
 			attributes: { post_form_workflow: "module" },
 		},
 		republish: "brings-in",
+		publishChanges: [],
 		bringsIn: broughtInDocument(
 			document,
 			surveyDoc(FORM_SETTING, { visitPostSubmit: "module" }),
@@ -497,6 +500,7 @@ export function hqChangesForms(): CorpusDocument {
 			added: { name: "Survey", xform: formXml(after, added, identity) },
 		},
 		republish: "brings-in",
+		publishChanges: [],
 		bringsIn: broughtInDocument(document, after),
 	});
 }
@@ -520,6 +524,7 @@ export function hqChangesOrder(): CorpusDocument {
 			forms: { module: 1, from: 1, to: 0 },
 		},
 		republish: "brings-in",
+		publishChanges: [],
 		bringsIn: broughtInDocument(
 			document,
 			surveyDoc(ORDER, { reports: true, order: "moved" }),
@@ -684,6 +689,7 @@ export function hqChangesMenu(): CorpusDocument {
 			column: column as unknown as Readonly<Record<string, unknown>>,
 		},
 		republish: "brings-in",
+		publishChanges: [],
 		bringsIn: broughtInDocument(document, after),
 	});
 }
@@ -700,6 +706,7 @@ export function hqChangesCaseManagement(): CorpusDocument {
 	return withSaves(document, {
 		formActions: { module: 0, form: 1, update: { weight: "/data/weight" } },
 		republish: "brings-in",
+		publishChanges: [],
 		bringsIn: broughtInDocument(
 			document,
 			patientsDoc(CASE_MANAGEMENT, { weightSaved: true }),
@@ -772,6 +779,9 @@ export function hqChangesMedia(): CorpusDocument {
 			base64: Buffer.from(theirs.bytes as Buffer).toString("base64"),
 		},
 		republish: "brings-in",
+		/* The replaced picture takes the path of its own bytes, which the next
+		 * publish moves its reference to. */
+		publishChanges: ["media-files-renamed"],
 		bringsIn: broughtInDocument(document, pictureDoc(mediaIds.option)),
 		alsoPublishesOver: true,
 	});

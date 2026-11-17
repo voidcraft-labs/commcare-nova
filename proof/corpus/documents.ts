@@ -194,8 +194,12 @@ export interface TargetedEdit {
  * review finds nothing to bring in for the reason `recorded` states and
  * lists the changes its next publish makes, the record moves the pair, and
  * the publish that follows goes through), or `"brings-in"` (Nova stops it,
- * its review lists the change, the bring-in takes it, and the publish that
- * follows sends `bringsIn`, the document the bring-in must give).
+ * its review lists the change and, by their ids, the changes its next
+ * publish makes in HQ (`publishChanges`), the bring-in takes it, and the
+ * publish that follows sends `bringsIn`, the document the bring-in must
+ * give). On a document that brings its saves in, those listed changes are
+ * the one thing besides the registers a check of the next publish accepts
+ * (`proof/checks/changes.py`).
  */
 export type HqSideSaves = HqSideSaveKinds &
 	(
@@ -204,6 +208,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly stopCode?: never;
 				readonly recorded?: never;
 				readonly bringsIn?: never;
+				readonly publishChanges?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -211,6 +216,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly stopCode: string;
 				readonly recorded?: never;
 				readonly bringsIn?: never;
+				readonly publishChanges?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -218,6 +224,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly stopCode?: never;
 				readonly recorded: HqSideRecorded;
 				readonly bringsIn?: never;
+				readonly publishChanges?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -226,6 +233,13 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly recorded?: never;
 				/** The document Nova's bring-in of the saves must give, as stored. */
 				readonly bringsIn: PersistableDoc;
+				/**
+				 * The changes Nova's next publish makes in HQ that its review of
+				 * the saves lists, by their ids in the register's order
+				 * (`lib/publish/firstPublishChangeIds.ts`), each shown by its
+				 * sentence (`lib/deployment/hqChanges/review.ts::publishChangeSentences`).
+				 */
+				readonly publishChanges: readonly FirstPublishChangeId[];
 				/**
 				 * Present, and `true`, where the capture also runs the person's
 				 * other choice over the same saves, publishing over the change:

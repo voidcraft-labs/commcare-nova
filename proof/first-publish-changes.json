@@ -661,6 +661,60 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/logo_refs/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "form:0.0",
+				"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[@form=image]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "media_suite.xml",
+				"path": "/suite/media[*]/resource[@id=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "media_suite.xml",
+				"path": "/suite/media[*]/resource[@id=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/events/*/image",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/events/*/image",
+				"kind": "changed"
 			}
 		]
 	},

@@ -753,9 +753,9 @@ SAVES = (
 # The saves HQ's form builder makes, which need the unit's editor driver.
 FORM_BUILDER_SAVES = ("formLabel", "formResave")
 # What ``hq-side.json`` states beside the saves: what Nova's next publish over them does, where its review finds
-# nothing to bring in, what the review answers, and, where it brings them in, the document the bring-in gives and
-# whether the capture also publishes over the same saves.
-STATEMENTS = ("republish", "stopCode", "recorded", "bringsIn", "alsoPublishesOver")
+# nothing to bring in, what the review answers, and, where it brings them in, the document the bring-in gives, the
+# changes of the next publish the review lists, and whether the capture also publishes over the same saves.
+STATEMENTS = ("republish", "stopCode", "recorded", "bringsIn", "publishChanges", "alsoPublishesOver")
 
 
 def save(unit, ops, app_id, saves, *, driver=None):

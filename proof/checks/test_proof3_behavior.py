@@ -10,7 +10,9 @@ rules; the profile is compared on its required version and the properties a
 runtime running both builds reads; and HQ's case processing reads the same
 case blocks from both sides' submissions. Sessions run only on an HQ build a
 runtime can install. Every difference must fall in a class of
-``proof/known-defects.json``.
+``proof/known-defects.json``, or, on a document whose saves in CommCare HQ
+Nova brings in, be named by a change Nova's review lists for the next publish
+(``proof.checks.changes``).
 
 The plausible failures each test here catches:
 
@@ -87,7 +89,7 @@ from pathlib import Path
 import pytest
 from lxml import etree
 
-from proof.checks import casedata, cases, corpus, observations, proof2, proof3
+from proof.checks import casedata, cases, changes, corpus, observations, proof2, proof3
 from proof.checks.corpus import Document
 from proof.checks.differences import Difference
 from proof.core.client import CoreRunnerError
@@ -110,7 +112,13 @@ def test_the_same_sessions_behave_the_same_on_each_build(document, hq, core_runn
     found = proof3.document_behavior(
         document, observations.records_for(document, core_runner, editor_driver=editor_driver)
     )
-    cases.hold("proof3", document, found, cases.load_register(), configurations=sorted(document.exports))
+    cases.hold(
+        "proof3",
+        document,
+        changes.undeclared(document, "proof3", found),
+        cases.load_register(),
+        configurations=sorted(document.exports),
+    )
 
 
 def _observed_without_hooks(document, core_runner, names):

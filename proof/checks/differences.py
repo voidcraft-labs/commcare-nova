@@ -52,7 +52,20 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 
-CHECKS = frozenset({"bar", "intent", "manifest", "sensitivity", "proof1", "proof2", "proof3", "proof4", "proof5"})
+CHECKS = frozenset(
+    {
+        "bar",
+        "intent",
+        "manifest",
+        "sensitivity",
+        "proof1",
+        "proof2",
+        "proof3",
+        "proof4",
+        "proof5",
+        "changes",
+    }
+)
 KINDS = frozenset({"changed", "added", "removed", "error", "refused"})
 
 # What a served state's readers made of it (``proof.observe.served``) is reported under an artifact whose first

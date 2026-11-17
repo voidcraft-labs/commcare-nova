@@ -804,19 +804,28 @@ def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
     """Contract: each document whose ``hq-side.json`` states that Nova's republish over a person's saves goes through
     (``proceeds``), goes through after recording a review that found nothing (``records``) or brings the saves in
     (``brings-in``) holds a republish whose sidecar says the same (``Document.republished_as_stated``), and the
-    corpus holds each of the three. Catches a ``proceeds`` document whose publish stopped and was answered by a
-    review, a ``records`` document sent with no review or with another reason, and a ``brings-in`` document sent
-    after another bring-in or none, which the per-document checks would read as an ordinary republish."""
-    held = set()
+    corpus holds each of the three, and a ``brings-in`` document whose review lists a change of the next publish
+    (``Document.next_publish``, which the checks of the next publish accept, ``proof.checks.changes``). Catches a
+    ``proceeds`` document whose publish stopped and was answered by a review, a ``records`` document sent with no
+    review or with another reason, a ``brings-in`` document sent after another bring-in or none, or after a review
+    that listed other changes of the next publish than it states, which the per-document checks would read as an
+    ordinary republish, and a corpus where no document holds the judge of those changes to a change it shows."""
+    held, listed = set(), set()
     for document in cases.load_corpus().emitted:
         statement = (document.hq_side or {}).get("republish")
         if statement in ("proceeds", "records", "brings-in"):
             document.republished_as_stated()
             held.add(statement)
+            listed.update(document.next_publish)
     assert held == {"proceeds", "records", "brings-in"}, (
         f"The corpus states a republish that {sorted(held)} over a person's saves, and not one of each of proceeds,"
         " records and brings-in. Keep a targeted document of each (proof/targeted/documents/hqSideState.ts,"
         " hqChanges.ts)."
+    )
+    assert "media-files-renamed" in listed, (
+        "No document that brings its saves in states that Nova's review lists media-files-renamed for the next"
+        " publish, so the rows proof/first-publish-changes.json holds for it hold nothing. Keep"
+        " targeted-hq-changes-media (proof/targeted/documents/hqChanges.ts) stating it."
     )
 
 

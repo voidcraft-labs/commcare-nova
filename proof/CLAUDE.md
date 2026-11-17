@@ -258,7 +258,9 @@ harness keeps, each with its reason.
   them and serves each file Nova reads, and models HQ's question summary of
   the forms it holds (`hqSummary.ts`), and what the review read is recorded
   beside the republish (`broughtIn`) for the HQ side to hold to HQ's own
-  answers after the same saves. A document stating `proceeds` goes through
+  answers after the same saves; a `brings-in` statement names the changes
+  of the next publish the review lists (`publishChanges`), and a review that
+  lists others fails the capture. A document stating `proceeds` goes through
   with no stop: a stop over it fails the capture, never a review. A
   document stating `brings-in` is written as the document its republish
   sends (`entryWriter.ts::republishedDocument`: its `document.json`, local
@@ -288,7 +290,14 @@ harness keeps, each with its reason.
   difference a check reports is held by an entry of `known-defects.json` or
   erased by a spelling rule, and every entry must hold some difference no
   other entry holds on its document and still show on its control (step 1's
-  decision 12, `proof/README.md`). A fix moves its entries to
+  decision 12, `proof/README.md`). On a document whose saves in CommCare HQ
+  Nova brings in, a difference a row of a change its review lists for the
+  next publish names (`first-publish-changes.json`, the statement's
+  `publishChanges`, `proof/checks/changes.py`) is the one other thing proofs
+  1 to 3 may accept; the `changes` check holds that list strict both ways
+  over the three proofs, reads it on no other document and takes no
+  known-defect entry. Its rows are written from the document's evidence
+  (`python3 -m proof.checks.changes rows`), never typed. A fix moves its entries to
   `fixed-defects.json` in the same pull request, where each must still show
   on its control and is held on no document. From step 5 the known register
   is empty; an entry added later names a defect `OPEN_DEFECTS` gives to a

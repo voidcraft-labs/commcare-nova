@@ -117,8 +117,13 @@ HELD_CHECKS = frozenset(
         "proof4",
         "proof5",
         "sensitivity",
+        "changes",
     }
 )
+# The checks no register entry may name: a difference of the judge of the changes Nova's review lists
+# (``proof.checks.changes``) means the review's list or the register's rows are wrong, and is fixed where it is
+# found.
+UNREGISTERED_CHECKS = frozenset({"changes"})
 
 # Each defect the known-defect register may hold, mapped to the later step that owns its fix: steps 2 to 5 fixed
 # every numbered defect and finding they registered, so an entry of any of them is a regression or a fix left listed
@@ -328,6 +333,12 @@ def _field_problems(raw, where, keys, *, controls):
         problems.append(
             f"{where}: check {raw['check']!r} has no test holding its differences to the register yet (the"
             f" held checks are {sorted(HELD_CHECKS)}), so nothing could ever show the entry's symptom."
+        )
+    if raw.get("check") in UNREGISTERED_CHECKS:
+        problems.append(
+            f"The register entry {raw.get('id')} names the check {raw['check']}. A difference of the judge of the"
+            " changes Nova's review lists is never a known defect: it means the review's list or the rows of"
+            " proof/first-publish-changes.json are wrong, and it is fixed where it is found."
         )
     if isinstance(raw.get("path"), str) and not raw["path"].startswith("/"):
         problems.append(f"{where}: path {raw['path']!r} is a structural path from the artifact's root (/…).")

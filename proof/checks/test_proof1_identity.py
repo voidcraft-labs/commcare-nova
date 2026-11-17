@@ -11,15 +11,17 @@ strands a device's incomplete forms.
 
 Differences are accepted only where ``proof/identity-moves.json`` names
 them, on the migration witnesses each move names (a witness's A is the
-retained export of the app from before its migration); every other one must
-fall in a class of ``proof/known-defects.json``.
+retained export of the app from before its migration), or, on a document
+whose saves in CommCare HQ Nova brings in, where a change Nova's review lists
+for the next publish names them (``proof.checks.changes``); every other one
+must fall in a class of ``proof/known-defects.json``.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from proof.checks import cases, observations, proof1, registers
+from proof.checks import cases, changes, observations, proof1, registers
 
 
 @pytest.mark.parametrize("document", cases.document_params("proof1") + cases.control_params("proof1"))
@@ -29,10 +31,15 @@ def test_identity_survives_the_next_publish(document, hq, core_runner, editor_dr
     )
     witnesses = {emitted.id for emitted in cases.load_corpus().emitted if emitted.migration_witness}
     accepted, found = registers.accepted_moves(found, registers.load_identity_moves(witnesses=witnesses), document.id)
+    # On a document whose saves in CommCare HQ are brought in, a difference a change the review lists for the next
+    # publish declares (proof.checks.changes).
+    declared, _ = changes.declared(document, "proof1", found)
+    found = changes.undeclared(document, "proof1", found)
     cases.hold(
         "proof1",
         document,
         found,
         cases.load_register(),
         accepted=[difference.as_json() for difference in accepted],
+        declared=[difference.as_json() for difference in declared],
     )
