@@ -33,6 +33,8 @@ import {
 import { prepareGenesisCandidate } from "@/lib/db/appGenesis";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { getHqCredentials } from "@/lib/db/settings";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import { log } from "@/lib/logger";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
@@ -484,7 +486,10 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 		const head = prepareGenesisCandidate({
 			appId: APP_ID,
 			projectId: PROJECT,
-			mutations: [...outcome.draft.batch, ...(choice?.mutations ?? [])],
+			mutations: [
+				...diffDocsToMutations(emptyBlueprintDoc(APP_ID), outcome.draft.doc),
+				...(choice?.mutations ?? []),
+			],
 		}).prepared.nextDoc;
 		const rows = adoptedIdentityRows(outcome.draft.identities, read.modules);
 		if (!rows.ok) throw new Error(rows.at);
