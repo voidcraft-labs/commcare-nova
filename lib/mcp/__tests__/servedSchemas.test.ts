@@ -549,6 +549,15 @@ it("names each key where a client reads it", () => {
 	const compatibility = served("check_project_space_compatibility").description;
 	expect(compatibility).toContain("`first_publish`");
 	expect(compatibility).toContain(relayInOrder);
+	/* An upload where publishing was stopped makes a new app beside the one
+	 * that stays: the check says so before the upload, and the upload names
+	 * where. */
+	expect(compatibility).toContain(
+		"`new_app_beside`, where it is not null, says Nova stopped publishing this app to the project space, so an upload there makes a new app beside the one that stays: relay it before the upload, and upload only if the user wants a new app there.",
+	);
+	expect(served("upload_app_to_hq").description).toContain(
+		"Where Nova stopped publishing the app to that project space, an upload makes a new app beside the one that stays there, which `check_project_space_compatibility` says in `new_app_beside` before the upload.",
+	);
 	const deployment = served("get_deployment").description;
 	expect(deployment).toContain("`brought_in`");
 	expect(deployment).toContain("`ending`");

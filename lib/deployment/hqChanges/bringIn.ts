@@ -63,7 +63,7 @@ import {
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "../hqMedia";
-import { hqImportApplication } from "../importApplication";
+import { hqImportApplicationSteps } from "../importApplication";
 import { movedBindingCount } from "../reading/create";
 import { Pieces } from "../reading/gather";
 import { resolveTableChoices, underTableChoices } from "../reading/projectData";
@@ -599,7 +599,7 @@ async function bringChangesIn(
 // What the record is made of
 // ---------------------------------------------------------------------------
 
-/** A defect of Nova's own between the review and the take: logged, and answered as U6. */
+/** A defect of Nova's own between the review and the take: logged, and answered as `nova-defect`. */
 function defect(
 	scope: DeploymentScope,
 	check: string,
@@ -742,8 +742,8 @@ async function takenFor(
 			outcome: hqChangesGateRefusal(boundary.violations),
 		};
 	const seeds = basis.live.ownership === "adopted" ? "target" : "nova";
-	const { ownership } = await pieces.run(() =>
-		hqImportApplication({
+	const { ownership } = await pieces.steps(
+		hqImportApplicationSteps({
 			prepared: boundary.prepared,
 			target,
 			compatibility: { advisories: [] },

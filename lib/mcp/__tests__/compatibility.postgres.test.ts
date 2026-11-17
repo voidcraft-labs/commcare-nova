@@ -34,6 +34,7 @@ import {
 	readHqAppForReview,
 } from "@/lib/deployment/reading/read";
 import {
+	endDeployment,
 	foldDeploymentAttempt,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
@@ -50,6 +51,7 @@ import {
 	PLAN_FEATURES,
 	webAppsWhereMissing,
 } from "@/lib/publish/planFeatures";
+import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 import { loadAppBlueprint } from "../loadApp";
 import { registerCheckProjectSpaceCompatibility } from "../tools/checkProjectSpaceCompatibility";
 import { withMcpClient } from "./client";
@@ -265,6 +267,7 @@ it("checks the selected deployment over HTTP and returns semantic compatibility"
 				...webAppsToConfirm(),
 				/* The app has not reached the project space. */
 				first_publish: null,
+				new_app_beside: null,
 			});
 		});
 		expect(calls(peer)).toEqual(
@@ -329,6 +332,7 @@ it.each([
 					project_space_compatibility: report(state),
 					...webAppsToConfirm(),
 					first_publish: null,
+					new_app_beside: null,
 				}),
 			);
 			expect(calls(peer)).toHaveLength(2);
@@ -972,6 +976,58 @@ describe("first_publish", () => {
 		await withHttpPeer(async () => {
 			await asUser(async (client) => {
 				expect((await payload(client)).first_publish).toBeNull();
+			});
+		});
+	});
+
+	it("says an upload where publishing stopped makes a new app beside the one that stays, in the publish dialog's words", async () => {
+		await seed("plain");
+		await settings();
+		await h.seedProjectMember("publisher", PROJECT, "owner");
+		const publisher = {
+			appId: APP,
+			projectId: PROJECT,
+			role: "owner",
+			actorUserId: "publisher",
+		};
+		await foldDeploymentAttempt(
+			publisher,
+			TARGET,
+			"preflight",
+			{ status: "succeeded", at: "2026-10-16T00:00:00.000Z" },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		await recordRemoteResource(publisher, TARGET, {
+			expectedEndings: 0,
+			kind: "app",
+			novaResourceId: APP,
+			remoteId: HQ_APP,
+			ownership: "nova-created",
+			pushedRevision: 0,
+			remoteRevision: 1,
+			uploadedAt: "2026-10-16T00:00:00.000Z",
+			baseline: {
+				origin: "unread",
+				remoteAppId: HQ_APP,
+				sourceGzip: null,
+				sourceBytes: null,
+				sourceDigest: null,
+				ownership: null,
+				observedAt: "2026-10-16T00:00:00.000Z",
+				discard: null,
+				novaRevision: null,
+				mediaFiles: { kind: "set", files: null },
+				firstPublish: { kind: "set", list: null },
+			},
+		});
+		await withHttpPeer(async () => {
+			await asUser(async (client) => {
+				/* Publishing there goes on: the next upload updates that app. */
+				expect((await payload(client)).new_app_beside).toBeNull();
+				await endDeployment(publisher, TARGET);
+				const stopped = await payload(client);
+				expect(stopped.new_app_beside).toBe(PUBLISH_PLAN_CREATES_BESIDE);
+				expect(stopped.first_publish).toBeNull();
 			});
 		});
 	});

@@ -890,7 +890,11 @@ another member's press meets its head test.
 Both requests run their synchronous work as a read does, in pieces with the
 event loop turning between them (`gather.ts::Pieces`): each reader pass by its
 stages (`readings.ts::makeHqChangeReadingsSteps`), acceptance by its checks,
-and the plan by its steps (`plan.ts::planHqChangesSteps`). The readings made
+and the plan by its steps (`plan.ts::planHqChangesSteps`, whose diffs and
+preparations stop between their parts), and the next publish's body by its
+emission's parts. Both reader passes and acceptance's re-read share the
+request's held emissions (`Pieces.expansions`), so the fixed point's re-read
+of the reading now is answered with that reading's emissions. The readings made
 to learn which files the sources name are the readings the check takes where
 no judged file changes what the media index answers (none missing, none
 published), so a review reads each source once. The files settling a
@@ -1363,7 +1367,7 @@ mapping and a new generation, so neither writes.
 | deep links (`getEntryPointLink`) | no manifest and no published app, so it asks for a publish first |
 | Check status (`refreshDeployment`) and the kept values' refresh (`refreshKeptValues`) | say that publishing there stopped and read nothing of CommCare HQ |
 | provisioning workers (`provisionWorkers`) | refuses, saying publishing there stopped |
-| the Publishing card and the dialog's row (`nextPublishAction`) | `creates-beside` while `deploymentEnding` is not null |
+| the Publishing card, the dialog's row and MCP's `check_project_space_compatibility` (`nextPublishAction`) | `creates-beside` while `deploymentEnding` is not null; the check answers it as `new_app_beside`, the dialog's sentence |
 | the left-behind report (`leftBehindResources`) | the `app` mapping a standing ending names is not left behind, since the ending's line names it, nor one ended `claimed-elsewhere`, since another Nova app publishes to it; once a publish records a new app, or a later ending names another, a `stopped` one is left behind, unless another Nova app now holds its HQ app: no superseded `app` mapping a live, unreleased mapping of another deployment holds is ever left behind (`heldByAnotherApp`, marked by `store.ts::loadResources`), since that app publishes to it |
 | `earlierHqApps` (the `.ccz` version) | counts the ended mapping like any superseded `app` mapping |
 | the setup artifact | no HQ app id, so no link into the app's pages |

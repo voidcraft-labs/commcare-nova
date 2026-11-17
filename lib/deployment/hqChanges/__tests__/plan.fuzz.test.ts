@@ -19,7 +19,7 @@
  *   `D` only where `M` changed it or inside a menu or form that took the
  *   reader's spelling, is `apply(D, M)` in the reader's image, and reads
  *   back as `T`;
- * - P0: with notes, a persona, a review mark and a worker property's label
+ * - no change in Nova: with notes, a persona, a review mark and a worker property's label
  *   edited in Nova, the plan is still applied to the head, Nova's list is
  *   empty, and the edits are in the target;
  * - the discard: with a second generated edit made in Nova, the plan is
@@ -696,7 +696,8 @@ async function holdsRoundTrip({
 	const changed = documentDifferences(D, underMapOf(DM, D));
 	const respelled = new Set<string>(plan.respelled);
 	const reworded = (path: readonly string[]) => {
-		// A translation whose source `M` changed: P3, cases 1 and 2.
+		// A translation whose source `M` changed, which the list counts under
+		// translations to review.
 		if (path[0] !== "localization" || path[1] !== "translations") return false;
 		const unit = path[3] as TranslationUnitId | undefined;
 		if (unit === undefined) return false;

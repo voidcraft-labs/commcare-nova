@@ -6,7 +6,9 @@
  * both share every input but the source, its menus and the media index; an
  * app CommCare HQ serves again unchanged reads as one document on both sides,
  * whatever order its maps hold their keys in; each side's media index answers
- * a path by section 7.6's table; and a base reading that is an account is
+ * a path by its standing (Nova's own file where the reference publishes it and
+ * CommCare HQ still holds it, CommCare HQ's file where it replaced it, and the
+ * file each source's own map names elsewhere); and a base reading that is an account is
  * `base-needs-project-data` where it reads a table, a column or a level the
  * Project's data no longer has, or the Project's data it reads has a finding of
  * its own, and `base-unreadable` otherwise.
@@ -453,7 +455,7 @@ describe("each reading's media index", () => {
 		{ path: PATHS.none, base: { kind: "no-entry" }, now: { kind: "no-entry" } },
 	];
 	for (const row of rows)
-		it(`answers ${row.path} by section 7.6's table`, () => {
+		it(`answers ${row.path} by its standing`, () => {
 			expect(inputs.base.media.resolve(JR(row.path))).toEqual(row.base);
 			expect(inputs.now.media.resolve(JR(row.path))).toEqual(row.now);
 		});

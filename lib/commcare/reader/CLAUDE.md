@@ -19,7 +19,6 @@ first reading and its fixed point's re-read share one. `lib/commcare/CLAUDE.md` 
 and the expression contract; this file is the method a change here keeps, the canonical rows,
 and what the reader is told.
 
-<!-- Added by the bring-in layer (layer 7); keep through the rebase onto layer 4. -->
 `ReaderOptions.onStage` is told each stage's index in `STAGES` before it runs, then `close`; a
 caller that catches a throw names where it came from by the last one it was told, never by the
 thrown message, which can quote the app.
@@ -136,6 +135,16 @@ of a property it keeps); and `knownLanguageCodes`
 `languageIdentityForHqCode` because a stored code is never re-minted while the minter's spelling
 for an identity can change. A first reading is told neither. A test builds the input through
 `__tests__/readerInput.ts` and `__tests__/novaExport.ts`, never by hand.
+
+A first reading is told no property's type, so a property no writer types takes the type the
+record slots that compare it give (`expressions/comparedTypes.ts`): a comparison with a value of a
+known type, through each branch of an `if`, `coalesce`, `switch` or `cond` the property stands in
+(`coalesce(seen, now()) > now()` compares `seen` with `now()`), and the known type of a branch
+beside it, since record branches agree on one type. A simple date range Search field over such a
+property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
+print is HQ's prompt alone, and a record slot's comparison overrides that guess. A literal branch
+spelled as a date or a date and time beside a branch of that type is read typed
+(`folds.ts::typedBranchLiterals`), as the typed literal prints the same bytes.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted

@@ -3,17 +3,23 @@
  * fuzz document's export gives the document's canonical form, exactly.
  *
  * Contract: for each document of the compiler's fuzz corpora (the field-tree
- * corpus and the workflow corpus), its export, served on CommCare HQ's own
- * shell, read by the production reader as a read back of a document Nova
- * holds is made (the document's own UUIDs through `matchingResolver` over its
- * identities, and the rest of the reader's input the document's own), reads
- * with no finding and no reader defect, and `readBackDifferences` of
- * `canonDocument(D)` against the reading's document, beside the declarations
- * the reading offers, is empty.
+ * corpus, the workflow corpus, and the temporal-branch corpus, the workflow
+ * corpus with a value-giving branch around a date or a date and time in the
+ * record slots that read the menu's case), its export, served on CommCare
+ * HQ's own shell, read by the production reader as a read back of a document
+ * Nova holds is made (the document's own UUIDs through `matchingResolver`
+ * over its identities, and the rest of the reader's input the document's
+ * own), reads with no finding and no reader defect, and `readBackDifferences`
+ * of `canonDocument(D)` against the reading's document, beside the
+ * declarations the reading offers, is empty. A first reading of each
+ * temporal-branch export, told no UUID, no property's type and no language's
+ * code, as a bring-in is, reads with no finding and no reader defect.
  *
  * Plausible failure: a pair of documents that print one export which the
  * canonical list lacks, a slot the reader reads back as something else, or
- * content the reader adds or drops. The rule for a failure is fixed: a sample
+ * content the reader adds or drops; a property a first reading leaves
+ * untyped, or types by a guess, where it stands only in a branch a record
+ * slot compares. The rule for a failure is fixed: a sample
  * that reads back to another document whose emission is byte-equal is a pair
  * that joins the canonical list; one whose emission differs, or that reads to
  * an account, is a reader defect corrected in the reader module that owns the
@@ -23,12 +29,16 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { suiteDocArbitrary } from "@/lib/commcare/__tests__/suiteDocArbitrary";
+import { temporalBranchDocArbitrary } from "@/lib/commcare/__tests__/temporalBranchArbitrary";
 import { blueprintDocArbitrary } from "@/lib/commcare/__tests__/xformDocArbitrary";
 import { readHqApp } from "@/lib/commcare/reader";
 import { canonDocument } from "@/lib/commcare/reader/canon";
+import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { whereText } from "@/lib/commcare/reader/place";
 import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression";
+import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import { readBackDifferences } from "../readBack";
 import { readBackInput, servedExport } from "./novaReading";
 
@@ -75,15 +85,17 @@ function at(doc: BlueprintDoc, path: readonly string[]): string {
 }
 
 describe("a read back of a fuzz document's export", () => {
-	for (const [name, arbitrary] of [
-		["field-tree", blueprintDocArbitrary],
-		["workflow", suiteDocArbitrary],
+	// Each run is one expansion, one served source, one whole reading and one
+	// canonical form. A temporal-branch run also asks the gate of each
+	// placement it draws, so that corpus takes half the runs for about the
+	// time of the workflow corpus's hundred (some twenty seconds each, beside
+	// another suite). The bound leaves a shared CI runner under load room.
+	for (const [name, arbitrary, numRuns] of [
+		["field-tree", blueprintDocArbitrary, 100],
+		["workflow", suiteDocArbitrary, 100],
+		["temporal-branch", temporalBranchDocArbitrary, 50],
 	] as const)
 		it(`gives the document's canonical form, over the ${name} corpus`, {
-			// Each run is one expansion, one served source, one whole reading and
-			// one canonical form; a hundred runs of a corpus took under five
-			// seconds locally, and three hundred under fifteen. The bound leaves a
-			// shared CI runner under load room.
 			timeout: 120_000,
 		}, async () => {
 			await fc.assert(
@@ -91,7 +103,84 @@ describe("a read back of a fuzz document's export", () => {
 					const failure = await readBackFailure(doc);
 					expect(failure).toBeNull();
 				}),
-				{ seed: 20261115, numRuns: 100 },
+				{ seed: 20261115, numRuns },
 			);
 		});
+});
+
+/** Whether a record slot of `doc` that reads the menu's case (a list's
+ *  filter, a form's display condition, a calculated column) holds a
+ *  value-giving branch with a case property among its values. */
+function holdsTemporalBranch(doc: BlueprintDoc): boolean {
+	const trees: Expression[] = [];
+	for (const module of Object.values(doc.modules)) {
+		const config = module.caseListConfig;
+		if (config?.filter !== undefined) trees.push(config.filter);
+		for (const column of config?.columns ?? [])
+			if (column.kind === "calculated") trees.push(column.expression);
+	}
+	for (const form of Object.values(doc.forms))
+		if (form.displayCondition !== undefined) trees.push(form.displayCondition);
+	return trees.some((tree) => {
+		let found = false;
+		walkExpressionNodes(tree, (node) => {
+			const values =
+				node.kind === "coalesce"
+					? node.values
+					: node.kind === "if"
+						? [node.then, node.else]
+						: node.kind === "switch"
+							? [...node.cases.map((one) => one.then), node.fallback]
+							: [];
+			if (
+				values.some(
+					(value) => value.kind === "term" && value.term.kind === "prop",
+				)
+			)
+				found = true;
+		});
+		return found;
+	});
+}
+
+/** Why a first reading of `doc`'s export, told nothing a read back is told
+ *  (no UUIDs, no property's type, no language's code), is no reading, or
+ *  null where it reads. */
+async function firstReadingFailure(doc: BlueprintDoc): Promise<string | null> {
+	rebuildFieldParent(doc);
+	const served = servedExport(doc);
+	const {
+		knownCaseTypes: _types,
+		knownLanguageCodes: _codes,
+		...told
+	} = await readBackInput(doc, served);
+	const outcome = readHqApp({ ...told, resolver: mintingResolver(doc.appId) });
+	if (outcome.defects.length > 0)
+		return `reader defect: ${JSON.stringify(outcome.defects[0])}`;
+	return outcome.kind === "read"
+		? null
+		: `read to an account: ${outcome.findings
+				.map(
+					(finding) =>
+						`${finding.code} at ${whereText(finding.place)} (${finding.detail.reason ?? ""})`,
+				)
+				.join("; ")}`;
+}
+
+describe("a first reading of a fuzz document's export", () => {
+	it("reads, over the temporal-branch corpus, where no export carries a property's type", {
+		timeout: 120_000,
+	}, async () => {
+		let drawn = 0;
+		await fc.assert(
+			fc.asyncProperty(temporalBranchDocArbitrary, async (doc) => {
+				if (holdsTemporalBranch(doc)) drawn += 1;
+				const failure = await firstReadingFailure(doc);
+				if (failure !== null) throw new Error(failure);
+			}),
+			{ seed: 20261115, numRuns: 50 },
+		);
+		// The corpus draws the class it exists for.
+		expect(drawn).toBeGreaterThan(25);
+	});
 });

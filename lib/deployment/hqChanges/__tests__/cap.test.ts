@@ -3,7 +3,8 @@
  * of what it lists, over `computeHqChanges` and `bringInHqChanges` with
  * CommCare HQ answering on a loopback socket and the deployment's store, the
  * Project's side, the member's key and the commit controlled at their
- * boundaries. The export boundary runs whole over the Project's data given.
+ * boundaries. The export boundary runs whole over the Project's data given,
+ * and the commit runs the kernel's own preparation and gate over the head.
  *
  * A review runs pieces no bring-in's read runs: the baseline read as a
  * source, the second reader pass, the two diffs, the take check and the
@@ -17,6 +18,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { monitorEventLoopDelay } from "node:perf_hooks";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import {
@@ -33,6 +35,10 @@ import {
 import { prepareGenesisCandidate } from "@/lib/db/appGenesis";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { getHqCredentials } from "@/lib/db/settings";
+import {
+	evaluatePreparedMutationCandidate,
+	prepareMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import { log } from "@/lib/logger";
@@ -106,19 +112,9 @@ vi.mock("../../service", () => ({
 	deploymentKept: vi.fn(async () => null),
 	setupArtifactFor: vi.fn(async () => null),
 }));
-/* The commit lands at the next sequence and runs the record in its transaction. */
+/* A test that commits gives the commit its own work over its own head. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(
-		async (args: {
-			readonly inTransaction?: (context: {
-				readonly tx: unknown;
-				readonly seq: number;
-			}) => Promise<void>;
-		}) => {
-			await args.inTransaction?.({ tx: {}, seq: 2 });
-			return { seq: 2 };
-		},
-	),
+	applyBlueprintChange: vi.fn(),
 }));
 /* The whole boundary, over a Project with no table and no file. */
 vi.mock("@/lib/export/boundaryValidation", async (importOriginal) => {
@@ -491,6 +487,24 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 				...(choice?.mutations ?? []),
 			],
 		}).prepared.nextDoc;
+		/* The commit's own synchronous work over the head at the cap: the kernel
+		 * prepares the batch and evaluates the gate over the candidate, then runs
+		 * the record in its transaction at the next sequence and answers the
+		 * document it committed. */
+		const commitAtCap: typeof applyBlueprintChange = async (args) => {
+			const prepared = prepareMutationCandidate(head, args.guard.mutations);
+			await nextTurn();
+			const verdict = evaluatePreparedMutationCandidate(prepared, {
+				kind: "available",
+				projectId: PROJECT,
+				projectRevision: "0" as LookupRevision,
+				definitions: [],
+			});
+			expect(verdict.ok).toBe(true);
+			await args.inTransaction?.({ tx: {} as never, seq: 2 });
+			return { seq: 2, committedDoc: prepared.nextDoc };
+		};
+		vi.mocked(applyBlueprintChange).mockImplementationOnce(commitAtCap);
 		const rows = adoptedIdentityRows(outcome.draft.identities, read.modules);
 		if (!rows.ok) throw new Error(rows.at);
 		vi.mocked(readDeploymentIdentityOverrides).mockResolvedValue(rows.rows);
@@ -559,5 +573,8 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 				expect(brought.heldMs).toBeLessThan(5_000);
 			},
 		);
-	}, 60_000);
+		/* Seven whole readings of a source at the cap (the app as brought in, then
+		 * each request's base, now and fixed-point readings), two acceptances and
+		 * two plans: the bound this test holds is each piece's, not the whole. */
+	}, 300_000);
 });

@@ -207,7 +207,7 @@ describe("the review", () => {
 	});
 });
 
-describe("S1: changes, and nothing in Nova would be removed", () => {
+describe("changes, and nothing in Nova would be removed", () => {
 	it("lists what changed with Bring in these changes, and in the publish dialog the way to publish over them", () => {
 		const view = panelView(answered(changes()), PUBLISH);
 		expect(view.drawsItem).toBe(false);
@@ -269,7 +269,7 @@ describe("S1: changes, and nothing in Nova would be removed", () => {
 		).toBe(sent);
 	});
 
-	it("refuses Use CommCare HQ's version, which S1 does not offer", () => {
+	it("refuses Use CommCare HQ's version, which this list does not offer", () => {
 		const state = answered(changes());
 		expect(
 			reduceHqChangesPanel(state, {
@@ -281,7 +281,7 @@ describe("S1: changes, and nothing in Nova would be removed", () => {
 	});
 });
 
-describe("S2: changes, and changes in Nova that would be removed", () => {
+describe("changes, and changes in Nova that would be removed", () => {
 	const s2 = changes({
 		novaChanges: ["Visit: the question weight was added"],
 		madeBy: ["Ada"],
@@ -354,7 +354,7 @@ describe("S2: changes, and changes in Nova that would be removed", () => {
 		expect(publishOverDiscard(running, "app-1")).toBeNull();
 	});
 
-	it("puts R1 in place of Use CommCare HQ's version where a case property was renamed in Nova, and refuses the press", () => {
+	it("puts the renamed properties' line in place of Use CommCare HQ's version where a case property was renamed in Nova, and refuses the press", () => {
 		const renames = [{ caseType: "patient", from: "age", to: "years" }];
 		const state = answered({ ...s2, renamedInNova: renames });
 		expect(panelView(state, PUBLISH).body).toMatchObject({
@@ -517,7 +517,7 @@ describe("after the bring-in", () => {
 		}
 	});
 
-	it("gives G1 with each finding's sentence, the buttons back and no item", () => {
+	it("gives the gate's refusal with each finding's sentence, the buttons back and no item", () => {
 		const state = reduceHqChangesPanel(pressed(changes()), {
 			type: "bring-in-answered",
 			outcome: {
@@ -543,7 +543,7 @@ describe("after the bring-in", () => {
 		expect(state.settled).toBeNull();
 	});
 
-	it("draws on the card the publish over G1 names, with the review's digest, and no other notice draws it there", () => {
+	it("draws on the card the publish over the gate's refusal names, with the review's digest, and no other notice draws it there", () => {
 		const gated = reduceHqChangesPanel(pressed(changes()), {
 			type: "bring-in-answered",
 			outcome: {
@@ -607,7 +607,7 @@ describe("after the bring-in", () => {
 		}
 	});
 
-	it("says R2 and shows the review as it stands now where the app or CommCare HQ moved, naming who edited", () => {
+	it("says the review moved and shows it as it stands now where the app or CommCare HQ moved, naming who edited", () => {
 		const now = changes({
 			hqChanges: ["Visit: renamed"],
 			reviewDigest: "e".repeat(64),
@@ -634,7 +634,7 @@ describe("after the bring-in", () => {
 	});
 });
 
-describe("S3: nothing to bring in", () => {
+describe("nothing to bring in", () => {
 	it("sends the bring-in that records the read at once, once, and says the reason", () => {
 		const state = answered(nothing("reads-the-same"));
 		expect(nextRequest(state)).toEqual({
@@ -786,7 +786,7 @@ describe("S3: nothing to bring in", () => {
 	});
 });
 
-describe("S4 and the stops", () => {
+describe("something Nova can't hold, and the stops", () => {
 	const finding = (code: string): CircumstanceFinding =>
 		({
 			code,
@@ -1105,7 +1105,7 @@ describe("Check again beside a notice", () => {
 		}
 	});
 
-	it("is left to R1 where R1 already offers it", () => {
+	it("is left to the renamed properties' line where that already offers it", () => {
 		const review = changes({
 			novaChanges: ["Nova line"],
 			renamedInNova: [{ caseType: "patient", from: "phone", to: "mobile" }],
@@ -1125,7 +1125,7 @@ describe("Check again beside a notice", () => {
 	});
 });
 
-describe("R2 over what the bring-in found", () => {
+describe("the moved line over what the bring-in found", () => {
 	const pressedThen = (now: HqChangesReview) =>
 		run(
 			[
@@ -1160,7 +1160,7 @@ describe("R2 over what the bring-in found", () => {
 		}
 	});
 
-	it("says R2 over a list or a standing with nothing to bring in", () => {
+	it("says the review moved over a list or a standing with nothing to bring in", () => {
 		expect(
 			panelView(pressedThen(changes({ reviewDigest: "e".repeat(64) })), PUBLISH)
 				.moved,
@@ -1172,7 +1172,7 @@ describe("R2 over what the bring-in found", () => {
 });
 
 describe("the ways on the card's sentences name", () => {
-	it("are drawn on the card under S4, U4, U6, H1 and H2, and nowhere else", () => {
+	it("are drawn on the card under an account, a held change, base-too-large and nova-defect, and nowhere else", () => {
 		const named: readonly HqChangesReview[] = [
 			{
 				kind: "account",
