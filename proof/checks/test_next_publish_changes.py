@@ -28,10 +28,12 @@ from proof.lane import readers
 
 
 def _brought_in(params):
+    """The documents among ``params`` whose ``hq-side.json`` states that the republish brings the saves in: chosen by
+    what each document states, never by its source."""
     return [param for param in params if (param.values[0].hq_side or {}).get("republish") == "brings-in"]
 
 
-BROUGHT_IN = _brought_in(cases.document_params("changes"))
+BROUGHT_IN = _brought_in(cases.document_params())
 
 
 if BROUGHT_IN:
