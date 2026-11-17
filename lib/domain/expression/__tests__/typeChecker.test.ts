@@ -1188,6 +1188,16 @@ describe("conditionVerdict — match property-shape requirement", () => {
 		}
 	});
 
+	it("classifies a null match value, which prints as the empty one, as the same finding", () => {
+		const p = match(prop("patient", "case_name"), literal(null), "starts-with");
+		const result = conditionVerdict(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.errors.map((error) => error.code)).toEqual([
+				"match-value-empty",
+			]);
+	});
+
 	it.each(["case_name", "status", "tags"] as const)(
 		"accepts fuzzy-date match on a text-shaped property (%s)",
 		(propName) => {

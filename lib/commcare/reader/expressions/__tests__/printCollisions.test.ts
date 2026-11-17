@@ -2727,6 +2727,27 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 			canonical: { kind: "gt", left: visit("seen"), right: { kind: "now" } },
 		},
 		{
+			// A branch of a lowered operand prints as the operand does.
+			id: "coerced-moment-operand",
+			slot: formDisplay,
+			other: {
+				kind: "gt",
+				left: {
+					kind: "coalesce",
+					values: [
+						visit("seen"),
+						{ kind: "datetime-coerce", value: { kind: "now" } },
+					],
+				},
+				right: { kind: "now" },
+			},
+			canonical: {
+				kind: "gt",
+				left: { kind: "coalesce", values: [visit("seen"), { kind: "now" }] },
+				right: { kind: "now" },
+			},
+		},
+		{
 			id: "typed-row-standard-property",
 			slot: calculated,
 			other: term({ kind: "prop", property: "case_name" }),

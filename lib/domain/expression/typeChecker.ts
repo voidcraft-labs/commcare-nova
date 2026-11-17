@@ -4514,15 +4514,16 @@ function checkMatch(
 			message: `match mode='${p.mode}' requires a property of type ${allowed}; got '${describe(propType)}'.`,
 		});
 	}
+	// A `null` prints as the empty string does in every target.
 	if (
 		p.value.kind === "term" &&
 		p.value.term.kind === "literal" &&
-		p.value.term.value === ""
+		(p.value.term.value === "" || p.value.term.value === null)
 	) {
 		errors.push({
 			path: [...path, "value"],
 			code: "match-value-empty",
-			message: `match value cannot be the empty string. Every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-blank(prop) for absent-or-empty.`,
+			message: `match value cannot be the empty string or null. Every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-blank(prop) for absent-or-empty.`,
 		});
 	}
 	const valueType = inferScalar(p.value, ctx, errors, [...path, "value"]);

@@ -113,6 +113,7 @@ function routedDoc(filter: Expression, display?: Expression) {
 						label: proseText("Last seen"),
 						data_type: "datetime",
 					},
+					{ name: "size", label: proseText("Size"), data_type: "int" },
 				],
 			},
 			{
@@ -120,6 +121,11 @@ function routedDoc(filter: Expression, display?: Expression) {
 				parent_type: "household",
 				properties: [
 					{ name: "seen", label: proseText("Seen"), data_type: "date" },
+					{
+						name: "weight",
+						label: proseText("Weight"),
+						data_type: "decimal",
+					},
 				],
 			},
 		],
@@ -221,6 +227,16 @@ const CASES: readonly {
 					}),
 				),
 				chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "last_seen"),
+			),
+		),
+	},
+	{
+		name: "an ordering of an untyped property against one of the case a menu above chose",
+		doc: routedDoc(
+			{ kind: "match-all" },
+			gte(
+				term(prop("visit", "weight")),
+				chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "size"),
 			),
 		),
 	},

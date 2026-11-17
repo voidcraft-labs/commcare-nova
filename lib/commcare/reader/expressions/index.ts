@@ -17,6 +17,7 @@ import {
 } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { slotContext } from "@/lib/domain/expression/context";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
@@ -1450,14 +1451,21 @@ function untypedPairs(
 	orderingOnly = false,
 ): { caseType: string; property: string }[] {
 	const out: { caseType: string; property: string }[] = [];
-	const property = (side: Expression) =>
-		side.kind === "term" &&
-		side.term.kind === "prop" &&
-		side.term.caseType !== undefined &&
-		(side.term.via === undefined || side.term.via.kind === "self") &&
-		untyped(side.term.caseType, side.term.property)
-			? { caseType: side.term.caseType, property: side.term.property }
+	// A property of the row, or of the case a menu above chose.
+	const property = (side: Expression) => {
+		const term =
+			side.kind === "term"
+				? side.term
+				: side.kind === "project" && readChosenCaseProperty(side) !== undefined
+					? side.value
+					: undefined;
+		return term?.kind === "prop" &&
+			term.caseType !== undefined &&
+			(term.via === undefined || term.via.kind === "self") &&
+			untyped(term.caseType, term.property)
+			? { caseType: term.caseType, property: term.property }
 			: undefined;
+	};
 	const visit = (node: Expression): void => {
 		if (
 			(!orderingOnly && (node.kind === "eq" || node.kind === "neq")) ||
