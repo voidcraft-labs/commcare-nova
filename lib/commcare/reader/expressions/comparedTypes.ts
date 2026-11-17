@@ -9,9 +9,10 @@
  * literals of one type, orders that type; a distance measured from a property
  * makes it a location, and a test of the choices it holds a list of choices.
  * A property read where a function's signature takes a date (`format-date`'s
- * and `date-add`'s) or a number (a sum's, a product's, a negation's) takes
- * the first type that position admits under which the slot prints the
- * source's text (`requiredTypes`, which the reading tries).
+ * and `date-add`'s) or a number (a sum's, a product's, a negation's), or
+ * that `datetime-coerce` reads, takes the first type that position admits
+ * under which the slot prints the source's text (`requiredTypes`, which the
+ * reading tries).
  *
  * A property a value-giving branch ends with (an `if`'s two branches, each
  * `coalesce` value, each `switch` result, each value a `cond` gives) is
@@ -248,12 +249,21 @@ export interface RequiredType {
  *  decimal holds every whole number, so it is tried first. */
 const DATE_POSITION: readonly CasePropertyDataType[] = ["date", "datetime"];
 const NUMBER_POSITION: readonly CasePropertyDataType[] = ["decimal", "int"];
-/** `quotient`'s operands, which the record dialect reads only as whole
- *  numbers (`queryExpressions.ts`). */
+/** `quotient`'s operands, which the checker and the record dialect
+ *  (`queryExpressions.ts`) admit only as whole numbers. */
 const INTEGER_POSITION: readonly CasePropertyDataType[] = ["int"];
 /** A value `date()` reads as a moment where it prints the device's reading of
  *  one (`fromExpression.ts::deviceTemporalValue`), and as text elsewhere. */
 const MOMENT_POSITION: readonly CasePropertyDataType[] = ["datetime"];
+/** A value `datetime-coerce` reads, which a device prints by what it holds
+ *  (`instantOperand.ts`: text as itself, a date at its UTC midnight, a date
+ *  and time as its instant), so text is tried first and a date or a date and
+ *  time only where text does not print the source. */
+const COERCED_POSITION: readonly CasePropertyDataType[] = [
+	"text",
+	"date",
+	"datetime",
+];
 
 /** Each property `tree` reads, as a value that ends a position's operand, at
  *  a position whose signature takes a date or a number, which a property the
@@ -307,6 +317,9 @@ export function requiredTypes(
 				// On a device `date()` reads a date and time in the device's own
 				// date, which it reads no text in.
 				need(node.value, MOMENT_POSITION);
+				return;
+			case "datetime-coerce":
+				need(node.value, COERCED_POSITION);
 				return;
 			case "within-distance":
 				if (typeof node.distance !== "number")

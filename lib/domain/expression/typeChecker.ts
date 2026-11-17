@@ -2112,9 +2112,9 @@ function inferNode(
 			const rightNumber = integerCodedSelect(expression.right, ctx)
 				? "int"
 				: right;
-			for (const [value, type, side] of [
-				[expression.left, left, "left"],
-				[expression.right, right, "right"],
+			for (const [value, type, number, side] of [
+				[expression.left, left, leftNumber, "left"],
+				[expression.right, right, rightNumber, "right"],
 			] as const) {
 				if (ctx.ruleSet === "form") numericLiteral(value, [side], errors);
 				else if (type !== undefined && type !== ANY_TYPE && !isNumeric(type))
@@ -2122,6 +2122,20 @@ function inferNode(
 						path: [side],
 						code: "number-value",
 						message: `arith requires numeric operands; ${side} got '${describe(type)}'.`,
+					});
+				// `quotient` divides whole numbers, as the record dialect reads
+				// it (`queryExpressions.ts`); `div` divides decimals.
+				else if (
+					expression.op === "quotient" &&
+					type !== undefined &&
+					type !== ANY_TYPE &&
+					number !== "int"
+				)
+					errors.push({
+						path: [side],
+						code: "number-value",
+						reason: "whole-number-quotient",
+						message: `Whole-number division needs whole numbers, and its ${side} side is ${describe(type)}. You can use div to divide decimals.`,
 					});
 			}
 			return left === undefined || right === undefined
@@ -2192,6 +2206,15 @@ function inferNode(
 					errors.push(
 						unreadableDatetimeError(unreadable.literal.value, ["value"]),
 					);
+				// A blank names no moment either, and a device prints its
+				// coercion as `date('')`, which compares as a day.
+				const blank =
+					expression.value.kind === "term" &&
+					expression.value.term.kind === "literal" &&
+					(expression.value.term.value === null ||
+						expression.value.term.value === "");
+				if (device !== undefined && unreadable === undefined && blank)
+					errors.push(unreadableDatetimeError("", ["value"]));
 			}
 			// A number is days since 1 January 1970 (HQ's
 			// `value_functions.py::value_to_date`, Core's
@@ -4501,7 +4524,10 @@ function checkMultiSelectContains(
  * space-separated list of choices, so text or a choice. HQ matches
  * each of its words; a device tests the whole value as one choice
  * (`XPathSelectedFunc.java::multiSelected`), so where a device evaluates it,
- * it must be one choice.
+ * it must be one choice. A value of no known type (a `null`, or branches
+ * that are all `null`) prints as the blank, which a device reads as a test
+ * of a blank list and HQ as no choice, as it reads `''`, so a device refuses
+ * it too.
  */
 function runtimeSelectedValue(
 	type: ScalarType,
@@ -4509,7 +4535,16 @@ function runtimeSelectedValue(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	if (!isKnown(type)) return;
+	if (!isKnown(type)) {
+		if (onDeviceContext(ctx) !== undefined)
+			errors.push({
+				path,
+				code: "runtime-selected-value-on-device",
+				message:
+					"This value names no choice, and the device reads a blank here differently from the server. Choose a single-choice value here, or use it in a search field's condition.",
+			});
+		return;
+	}
 	if (type !== "text" && type !== "single_select" && type !== "multi_select") {
 		errors.push({
 			path,

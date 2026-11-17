@@ -141,6 +141,7 @@ import { escapeRegex } from "../../xml";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { casePropertyPath, normalizeSpace } from "../wire";
 import { keyAsVariable } from "./keyVariable";
+import { columnReadsCaseAttribute } from "./orderPlanOptions";
 import {
 	buildSortBlock,
 	calculatedPropertyText,
@@ -1235,6 +1236,17 @@ export function buildColumnField(args: {
 	if (column.kind === "calculated") {
 		return buildCalculatedField({ column, position, ctx, hidden });
 	}
+	// A plain column over one of the case's attributes is HQ's expression
+	// column over `@<name>` (`hqJson/caseList.ts`, `columnReadsCaseAttribute`),
+	// which HQ's build writes as a calculated column's field.
+	if (column.kind === "plain" && columnReadsCaseAttribute(column))
+		return buildExpressionField({
+			column,
+			position,
+			ctx,
+			hidden,
+			xpath: w.context([w.attr(column.field)]),
+		});
 
 	if (hidden) {
 		const raw = casePropertyPath(column.field);
@@ -1342,6 +1354,29 @@ function buildCalculatedField(args: {
 		}),
 		bindings: lookupTermContext(ctx),
 	});
+	return buildExpressionField({
+		column,
+		position,
+		ctx,
+		hidden,
+		xpath: calcXpath,
+	});
+}
+
+/**
+ * Build one `<field>` Element for a column HQ's build writes as an
+ * expression column (`useXpathExpression`): a calculated column, and a
+ * plain column over one of the case's attributes. `xpath` is the column's
+ * expression.
+ */
+function buildExpressionField(args: {
+	readonly column: Column;
+	readonly position: number;
+	readonly ctx: CaseListEmitContext;
+	readonly hidden: boolean;
+	readonly xpath: WireExpr;
+}): CaseListFieldEmission {
+	const { column, position, ctx, hidden, xpath: calcXpath } = args;
 	const sortEl = resolveSortElement(column, ctx, () => ({
 		xpath: calcXpath,
 		variables: [],

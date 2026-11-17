@@ -747,7 +747,9 @@ function instantOperand(text: Expression, record: boolean): Expression {
  *  literal of the text it prints, where `folds` holds: at the slot's root,
  *  as an operand of a comparison a device does not make by day, as the date
  *  `format-date` reads, and as a branch of an `if`, `coalesce`, `switch` or
- *  `cond` that stands in one of those places. */
+ *  `cond` that stands in one of those places; in a search's CSQL only where
+ *  the device works the value out (`printsOnDevice`), since CSQL keeps a
+ *  `datetime()` HQ reads as written. */
 function foldedCoercions(
 	node: Expression,
 	path: CheckPath,
@@ -755,7 +757,11 @@ function foldedCoercions(
 	context: ExpressionContext,
 	folds: boolean,
 ): Expression {
-	if (folds && node.kind === "datetime-coerce") {
+	if (
+		folds &&
+		node.kind === "datetime-coerce" &&
+		printsOnDevice(context, { path, tree: root })
+	) {
 		const term = termOf(node.value);
 		const literal =
 			term?.kind === "literal" && typeof term.value === "string"
@@ -1760,11 +1766,11 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// comparison's operand that text's microseconds, which is what the
 		// date-and-time literal of that text prints in both places. A device
 		// comparison by day prints the coercion as `date()`, and CSQL as
-		// `datetime()`, so neither is touched. The reader returns the literal.
+		// `datetime()` outside what the device works out, so neither is
+		// touched. The reader returns the literal.
 		id: "coerced-instant-literal",
 		rewrite(node, context, at) {
-			if (!at.root || context.ruleSet !== "record" || printsCsql(context))
-				return undefined;
+			if (!at.root || context.ruleSet !== "record") return undefined;
 			const folded = foldedCoercions(node, [], node, context, true);
 			return folded === node ? undefined : folded;
 		},
@@ -2206,12 +2212,17 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// presence on a device and in CSQL alike (`fromExpression.ts`,
 		// `csql/emitter.ts`, `missing`), which reads back as the absence.
 		id: "negated-presence",
-		rewrite(node, context) {
+		rewrite(node, context, at) {
 			if (
 				context.ruleSet !== "record" ||
 				node.kind !== "not" ||
 				node.clause.kind !== "exists"
 			)
+				return undefined;
+			// A slot whose print simplifies its tree prints the negation of a
+			// negated presence as the presence (`simplify.ts`), which
+			// `filter-identities` returns.
+			if (simplifiedSlot(context) && parentOf(at.tree, at.path)?.kind === "not")
 				return undefined;
 			return { ...node.clause, kind: "missing" };
 		},
@@ -2235,16 +2246,28 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	{
 		// On a device a membership of one value prints as its one equality
 		// (`fromExpression.ts`, `in`), which reads back as that equality; a
-		// list filter its search restates is read in the list's spelling.
+		// list filter its search restates is read in the list's spelling. A
+		// search's condition prints it as that equality too
+		// (`csql/emitter.ts::membership`), but a date's or a date and time's,
+		// which it prints as the range of the value's day or moment.
 		id: "one-value-membership",
 		rewrite(node, context) {
 			if (
 				node.kind !== "in" ||
 				node.values.length !== 1 ||
-				context.ruleSet !== "record" ||
-				context.slot.slot === "search_input_predicate"
+				context.ruleSet !== "record"
 			)
 				return undefined;
+			if (context.slot.slot === "search_input_predicate") {
+				let type: string | undefined;
+				try {
+					type = scalarDataType(typeOf(node.left, context)?.data);
+				} catch {
+					return undefined;
+				}
+				if (type === undefined || type === "date" || type === "datetime")
+					return undefined;
+			}
 			const [only] = node.values;
 			return {
 				kind: "eq",
@@ -2344,7 +2367,9 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// On a device a `datetime-coerce` inside another node (an operand, a
 		// date a function reads) of a value that names no moment as text (a
 		// date the case database holds as a day, a value of no type a device
-		// holds as neither text nor a date) prints `date()` of the value (`instant.ts::datetimeCoerceValue`), which is what the date
+		// holds as neither text nor a date), and one of a date the case
+		// database holds as a day at a slot's root, prints `date()` of the
+		// value (`instant.ts::datetimeCoerceValue`), which is what the date
 		// coercion of it prints, and reads back as that.
 		id: "coerced-day",
 		rewrite(node, context, at) {
@@ -2352,12 +2377,15 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			if (
 				node.kind !== "datetime-coerce" ||
 				context.ruleSet !== "record" ||
-				!printsOnDevice(context, at) ||
-				parent === undefined
+				!printsOnDevice(context, at)
 			)
 				return undefined;
 			const operand = domainInstantOperand(node, context);
 			if (operand.kind !== "leaf") return undefined;
+			// At a slot's root a coercion prints a value of another class as
+			// its text, and a date the case database holds as a day as `date()`.
+			if (parent === undefined && operand.class !== "day-only")
+				return undefined;
 			const printsDate =
 				operand.class === "day-only" ||
 				operand.class === "not-instant" ||
@@ -2410,11 +2438,12 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// A record slot a menu, a list or a search evaluates reads a standard
 		// property of its row's case by the property's name alone, whatever
 		// case type the read names, and a reading binds it to the row's type.
-		// A form's source prints a typed read from the case database.
+		// A case operation's slot prints both as the read of the case the menu
+		// chose from the case database (`caseOps.ts::formCasePropertyResolver`),
+		// and inside a relation's filter both as the row's own name.
 		id: "typed-row-standard-property",
 		rewrite(node, context) {
-			if (context.ruleSet !== "record" || context.profile.targets.has("XF"))
-				return undefined;
+			if (context.ruleSet !== "record") return undefined;
 			const term = termOf(node);
 			if (
 				term?.kind !== "prop" ||

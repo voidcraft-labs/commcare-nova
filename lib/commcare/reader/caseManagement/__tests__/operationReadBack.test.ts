@@ -210,6 +210,11 @@ const OWN_ARMS: Record<string, () => BlueprintDoc> = {
 		ownArm("registration", { name: answer("name"), writes: [conditionalNote] }),
 	"a registration's, for a computed write": () =>
 		ownArm("registration", { name: answer("name"), writes: [computedScore] }),
+	"a registration's, for a fixed write": () =>
+		ownArm("registration", {
+			name: answer("name"),
+			writes: [{ property: "note", value: term(literal("x")) }],
+		}),
 	"a registration's, for an open condition comparing two answers": () =>
 		ownArm(
 			"registration",

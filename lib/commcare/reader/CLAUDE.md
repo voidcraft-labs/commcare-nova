@@ -145,11 +145,14 @@ property declares it `date` before any expression binds (`search/dateRangeGuesse
 print is HQ's prompt alone, and a record slot's comparison overrides that guess (an ordering against
 a branch node whose values are all literals spelled as one of the two types orders that type).
 A property a function's signature fixes the kind of (`format-date`'s and `date-add`'s date, a
-number a sum, a product, a negation or a distance reads, `quotient`'s whole numbers) takes the
-first type that position admits under which every slot reading it binds, passes its checker and
-prints the source (`comparedTypes.ts::requiredTypes`, `expressions/index.ts::withRequiredTypes`);
-two untyped properties ordered against each other take one type in the same try, since the
-checker admits neither alone.
+number a sum, a product, a negation or a distance reads, `quotient`'s whole numbers, and the value
+`datetime-coerce` reads, which tries text before a date and a date and time) takes the first type
+that position admits under which every slot reading it binds, passes its checker and prints the
+source (`comparedTypes.ts::requiredTypes`, `expressions/index.ts::withRequiredTypes`); two
+untyped properties ordered against each other take one type in the same try, since the checker
+admits neither alone, and where no type holds while the slots' other untyped properties stay
+text (a `date-add` of two of them), the try is made again with each of those at the first type
+its own position admits, typing only the property tried.
 
 **Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
 literal prints the text the untyped literal of that text prints, so which one a record slot holds

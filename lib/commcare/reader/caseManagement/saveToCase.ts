@@ -2305,6 +2305,28 @@ export function readSaveToCaseBlocks(
 		ownGuardsPrinted(xform, firstBlock)
 			? firstBlock
 			: undefined;
+	// The emitter writes the trimmed sibling of the question a registration's
+	// own arm names its case from wherever the own arm is, its block too
+	// (`placement.ts::placedBasic`), though the block trims the answer itself:
+	// that sibling is Nova's.
+	const ownNameField = registrationCandidate?.name?.readsField;
+	if (ownNameField !== undefined)
+		for (const node of [...xform.candidates]) {
+			const role = xform.roles.get(node);
+			if (
+				role?.kind !== "generated-candidate" ||
+				role.purpose !== "trimmed" ||
+				role.owner === null
+			)
+				continue;
+			const owner = xform.roles.get(role.owner);
+			if (owner?.kind === "field" && owner.field === ownNameField)
+				settleSibling(ctx, xform, {
+					node,
+					purpose: "trimmed",
+					field: ownNameField,
+				});
+		}
 	// Any other block whose owner row carries a condition is that entry.
 	for (const one of [...proposed]) {
 		const { read } = one;

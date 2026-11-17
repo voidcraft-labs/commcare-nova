@@ -1426,6 +1426,23 @@ describe("relation-hops and relation-where-match-all: a device's presence test, 
 			},
 		},
 		{
+			name: "the negation of a negated presence, which the list filter prints as the presence (filter-identities, before negated-presence)",
+			other: {
+				kind: "not",
+				clause: {
+					kind: "not",
+					clause: {
+						kind: "exists",
+						via: { kind: "ancestor", via: [household] },
+					},
+				},
+			},
+			canonical: {
+				kind: "exists",
+				via: { kind: "ancestor", via: [household] },
+			},
+		},
+		{
 			name: "a missing walk of two hops nests its presence",
 			other: {
 				kind: "missing",
@@ -2038,6 +2055,39 @@ describe("stored-instant-literal: a case write of a date and time", () => {
 		expect(canonicalExpression(canonical, context)).toEqual(canonical);
 	});
 
+	it("typed-row-standard-property prints a write of the chosen case's name, read naming no type, as the read naming its type", () => {
+		const NAMED = testUuid("collision-stamp-named");
+		const write = (value: Expression): CaseOperation =>
+			({
+				uuid: NAMED,
+				id: "named",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: value,
+			}) as CaseOperation;
+		const other = term({ kind: "prop", property: "case_name" });
+		const canonicalName = term({
+			kind: "prop",
+			caseType: "patient",
+			property: "case_name",
+		});
+		const app = stamps([write(other)]);
+		const slot: SlotContextRef = {
+			entity: "form",
+			uuid: FORM,
+			slot: "case_operation_name",
+			member: { operationUuid: NAMED },
+		};
+		const readEnvironment = env();
+		expect(printSlot(app, slot, other, readEnvironment)).toBe(
+			printSlot(app, slot, canonicalName, readEnvironment),
+		);
+		const context = contextOf(app, slot);
+		expect(canonicalExpression(other, context)).toEqual(canonicalName);
+		expect(canonicalExpression(canonicalName, context)).toEqual(canonicalName);
+	});
+
 	for (const beside of [false, true])
 		it(`reads Nova's export of the literal back to its canonical moment${beside ? ", beside a question's answer saved to the same property" : ""}`, async () => {
 			const operations = [create("lit", authored)];
@@ -2593,6 +2643,16 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 			canonical: pIs("a"),
 		},
 		{
+			id: "one-value-membership",
+			slot: predicate,
+			other: {
+				kind: "in",
+				left: visit("p"),
+				values: [{ kind: "literal", value: "a" }],
+			},
+			canonical: pIs("a"),
+		},
+		{
 			id: "csql-anchor-left",
 			slot: predicate,
 			other: { kind: "eq", left: lit("a"), right: visit("p") },
@@ -2756,6 +2816,53 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 					else: lit("2026-01-01"),
 				},
 				right: lit("2026-01-01"),
+			},
+		},
+		{
+			id: "coerced-day",
+			slot: calculated,
+			other: {
+				kind: "concat",
+				parts: [{ kind: "datetime-coerce", value: visit("date_opened") }],
+			},
+			canonical: {
+				kind: "concat",
+				parts: [{ kind: "date-coerce", value: visit("date_opened") }],
+			},
+		},
+		{
+			id: "coerced-day",
+			slot: calculated,
+			other: { kind: "datetime-coerce", value: visit("last_modified") },
+			canonical: { kind: "date-coerce", value: visit("last_modified") },
+		},
+		{
+			id: "coerced-day",
+			slot: formDisplay,
+			other: {
+				kind: "is-blank",
+				left: { kind: "datetime-coerce", value: visit("date_opened") },
+			},
+			canonical: {
+				kind: "is-blank",
+				left: { kind: "date-coerce", value: visit("date_opened") },
+			},
+		},
+		{
+			id: "coerced-instant-literal",
+			slot: predicate,
+			other: {
+				kind: "eq",
+				left: {
+					kind: "datetime-coerce",
+					value: typed("2026-01-01", "date"),
+				},
+				right: typed("2026-01-01T00:00:00Z", "datetime"),
+			},
+			canonical: {
+				kind: "eq",
+				left: lit(1767225600000000),
+				right: lit(1767225600000000),
 			},
 		},
 		{

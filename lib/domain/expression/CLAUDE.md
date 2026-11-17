@@ -45,7 +45,10 @@ predicate selects a position and must not be coerced to boolean.
 Computed operand slots retain one literal spelling. A direct property remains
 direct in match and multi-select subjects; a direct literal or choice remains
 direct in multi-select values. Primitive pattern/distance/unit branches reject
-only duplicate untyped literal wrappers. Literal annotations are never discarded.
+only duplicate untyped literal wrappers, and a distance also the negation of a
+number literal no less than zero: a fixed distance no more than zero, which the
+direct spelling refuses and the record dialect reads as that number. Literal
+annotations are never discarded.
 A wrapped untyped `short`, `long`, or `iso` in a date pattern means those exact
 bytes; the bare string retains its existing preset meaning.
 
@@ -251,7 +254,11 @@ never stored raw-XPath validation codes. There is no printed-source checker.
 - `in.values` and `switch` cases hold literals or `choice` leaves.
   `multi-select-contains` values admit computed values where the slot's profile
   admits them; where a device evaluates one, it must be a single choice, since a
-  device tests the whole value as one choice.
+  device tests the whole value as one choice, and a value of no type (a `null`)
+  is refused there too, since it prints as the blank text does.
+- `quotient` divides whole numbers: the record checker refuses a decimal
+  operand (`number-value` reason `whole-number-quotient`), as the record
+  dialect does; `div` divides decimals.
 - `switch` is the simple-CASE form (`on`, then `cases`), so the discriminator
   evaluates once per row at the Postgres target.
 - `table-lookup` resolves one result column from the first authored-order row

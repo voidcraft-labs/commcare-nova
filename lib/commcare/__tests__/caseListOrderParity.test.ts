@@ -426,15 +426,32 @@ describe("the order plan's two emitters", () => {
 			["@owner_id", true],
 			["@status", true],
 		]);
-		const paths = xmlChildren(shortDetail(suite, index), "field").map(
+		// HQ's build writes an expression column as a calculated one: its
+		// template reads `$calculated_property`, a variable over the field
+		// (`detail_screen.py::FormattedDetailColumn.template`), and the local
+		// suite writes what HQ's build of the same columns gives.
+		const xpaths = xmlChildren(shortDetail(suite, index), "field").map(
 			(field) =>
 				xmlChildren(
 					xmlChildren(xmlChildren(field, "template")[0], "text")[0],
 					"xpath",
-				)[0]?.attributes.function,
+				)[0],
 		);
-		expect(paths).toEqual([
+		expect(xpaths.map((xpath) => xpath?.attributes.function)).toEqual([
 			"case_name",
+			"$calculated_property",
+			"$calculated_property",
+			"$calculated_property",
+			"$calculated_property",
+		]);
+		const variableFunction = (xpath: (typeof xpaths)[number]) => {
+			const variable =
+				xpath === undefined ? undefined : xmlChildren(xpath, "variable")[0];
+			return variable === undefined
+				? undefined
+				: xmlChildren(variable, "xpath")[0]?.attributes.function;
+		};
+		expect(xpaths.slice(1).map(variableFunction)).toEqual([
 			"@owner_id",
 			"@status",
 			"@owner_id",
