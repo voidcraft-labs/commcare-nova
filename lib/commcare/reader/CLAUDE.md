@@ -143,7 +143,10 @@ known type, through each branch of an `if`, `coalesce`, `switch` or `cond` the p
 beside it, since record branches agree on one type. A type one comparison gives a property
 reaches every node that reads it: `if(c, age, 3) = weight` types `age` by the `3`, then
 `weight` by the branch node `age` and `3` then type (`comparedTypes.ts::comparedTypes` scans
-again over what it found until it finds nothing new). A simple date range Search field over such a
+again over what it found until it finds nothing new). A property of the case a menu above chose
+(`chosen-case-property`) is typed as a property of the row is, and a form's own slot (its display
+condition, its case changes) declares it on that case's type, by the datum the form's entry
+holds for it (`scanReads.ts::chosenCaseType`). A simple date range Search field over such a
 property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
 print is HQ's prompt alone, and a record slot's comparison overrides that guess (an ordering against
 a branch node whose values are all literals spelled as one of the two types orders that type).

@@ -2421,7 +2421,8 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	{
 		// A comparison a device lowers to microseconds reads a typed date and
 		// time the same whether it is coerced or not
-		// (`instant.ts::instantMicros`), and reads back without the coercion.
+		// (`instant.ts::instantMicros`), an operand's own or a branch's of it,
+		// and reads back without the coercion.
 		id: "coerced-moment-operand",
 		rewrite(node, context, at) {
 			if (node.kind === "between")
@@ -2439,8 +2440,22 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				comparisonPlan(node.kind, operands.left, operands.right) !== "lowered"
 			)
 				return undefined;
+			// A branch of an operand prints its value as the operand does
+			// (`instant.ts::instantMicros` over each branch), so a coercion
+			// there reads back without it too.
 			const bare = (side: Expression): Expression => {
-				if (side.kind !== "datetime-coerce") return side;
+				if (side.kind !== "datetime-coerce") {
+					const branching = valueBranches(side, []);
+					if (branching === undefined) return side;
+					const branches = branching.branches.map((branch) =>
+						bare(branch.value),
+					);
+					return branches.every(
+						(branch, index) => branch === branching.branches[index]?.value,
+					)
+						? side
+						: branching.rebuild(branches);
+				}
 				const own = domainInstantOperand(side.value, context);
 				return own.kind === "leaf" && own.class === "typed" ? side.value : side;
 			};
