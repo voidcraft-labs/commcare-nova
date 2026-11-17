@@ -6,7 +6,9 @@
  * corpus, the workflow corpus, and the temporal-branch corpus, the workflow
  * corpus with a value-giving branch that gives a date or a date and time, from
  * a case property or from literals alone, in the record slots that read the
- * menu's case), its export, served on CommCare
+ * menu's case, and the typed-literal corpus, the workflow corpus with a typed
+ * date or date-and-time literal at each position of a record slot a device
+ * reads), its export, served on CommCare
  * HQ's own shell, read by the production reader as a read back of a document
  * Nova holds is made (the document's own UUIDs through `matchingResolver`
  * over its identities, and the rest of the reader's input the document's
@@ -14,7 +16,8 @@
  * of `canonDocument(D)` against the reading's document, beside the
  * declarations the reading offers, is empty. A first reading of each
  * temporal-branch export, told no UUID, no property's type and no language's
- * code, as a bring-in is, reads with no finding and no reader defect.
+ * code, as a bring-in is, reads with no finding and no reader defect, and so
+ * does a first reading of each typed-literal export.
  *
  * Plausible failure: a pair of documents that print one export which the
  * canonical list lacks, a slot the reader reads back as something else, or
@@ -22,7 +25,10 @@
  * untyped, or types by a guess, where it stands only in a branch a record
  * slot compares; a date or date-and-time literal a branch gives, typed in the
  * document and read untyped where nothing beside it gives its type, or read
- * untyped where something does. The rule for a failure is fixed: a sample
+ * untyped where something does; a typed literal at a position that requires
+ * its type (`format-date`'s date, `date-add`'s, a date Search field's
+ * starting value) read as text, or one at a position that does not left
+ * typed by the canonical form. The rule for a failure is fixed: a sample
  * that reads back to another document whose emission is byte-equal is a pair
  * that joins the canonical list; one whose emission differs, or that reads to
  * an account, is a reader defect corrected in the reader module that owns the
@@ -33,6 +39,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { suiteDocArbitrary } from "@/lib/commcare/__tests__/suiteDocArbitrary";
 import { temporalBranchDocArbitrary } from "@/lib/commcare/__tests__/temporalBranchArbitrary";
+import { typedLiteralDocArbitrary } from "@/lib/commcare/__tests__/typedLiteralArbitrary";
 import { blueprintDocArbitrary } from "@/lib/commcare/__tests__/xformDocArbitrary";
 import { readHqApp } from "@/lib/commcare/reader";
 import { canonDocument } from "@/lib/commcare/reader/canon";
@@ -89,14 +96,16 @@ function at(doc: BlueprintDoc, path: readonly string[]): string {
 
 describe("a read back of a fuzz document's export", () => {
 	// Each run is one expansion, one served source, one whole reading and one
-	// canonical form. A temporal-branch run also asks the gate of each
-	// placement it draws, so that corpus takes half the runs for about the
-	// time of the workflow corpus's hundred (some twenty seconds each, beside
-	// another suite). The bound leaves a shared CI runner under load room.
+	// canonical form. A temporal-branch or typed-literal run also asks the
+	// gate of each placement it draws, so each of those corpora takes half
+	// the runs for about the time of the workflow corpus's hundred (some
+	// twenty to thirty seconds each, beside another suite). The bound leaves a
+	// shared CI runner under load room.
 	for (const [name, arbitrary, numRuns] of [
 		["field-tree", blueprintDocArbitrary, 100],
 		["workflow", suiteDocArbitrary, 100],
 		["temporal-branch", temporalBranchDocArbitrary, 50],
+		["typed-literal", typedLiteralDocArbitrary, 50],
 	] as const)
 		it(`gives the document's canonical form, over the ${name} corpus`, {
 			timeout: 120_000,
@@ -176,20 +185,59 @@ async function firstReadingFailure(doc: BlueprintDoc): Promise<string | null> {
 				.join("; ")}`;
 }
 
-describe("a first reading of a fuzz document's export", () => {
-	it("reads, over the temporal-branch corpus, where no export carries a property's type", {
-		timeout: 120_000,
-	}, async () => {
-		let drawn = 0;
-		await fc.assert(
-			fc.asyncProperty(temporalBranchDocArbitrary, async (doc) => {
-				if (holdsTemporalBranch(doc)) drawn += 1;
-				const failure = await firstReadingFailure(doc);
-				if (failure !== null) throw new Error(failure);
-			}),
-			{ seed: 20261115, numRuns: 50 },
-		);
-		// The corpus draws the class it exists for.
-		expect(drawn).toBeGreaterThan(25);
+/** Whether a record slot of `doc` a typed-literal draw places in (a list's
+ *  filter, a calculated column, a form's or a menu's display condition, a
+ *  Search field's starting value) holds a typed date or date-and-time
+ *  literal, or a `datetime-coerce` of a literal, at any depth. */
+function holdsTypedLiteral(doc: BlueprintDoc): boolean {
+	const trees: Expression[] = [];
+	for (const module of Object.values(doc.modules)) {
+		const config = module.caseListConfig;
+		if (config?.filter !== undefined) trees.push(config.filter);
+		for (const column of config?.columns ?? [])
+			if (column.kind === "calculated") trees.push(column.expression);
+		for (const input of config?.searchInputs ?? [])
+			if ("default" in input && input.default !== undefined)
+				trees.push(input.default);
+		if (module.displayCondition !== undefined)
+			trees.push(module.displayCondition);
+	}
+	for (const form of Object.values(doc.forms))
+		if (form.displayCondition !== undefined) trees.push(form.displayCondition);
+	return trees.some((tree) => {
+		let found = false;
+		walkExpressionNodes(tree, (node) => {
+			if (
+				node.kind === "datetime-coerce" ||
+				(node.kind === "term" &&
+					node.term.kind === "literal" &&
+					(node.term.data_type === "date" ||
+						node.term.data_type === "datetime"))
+			)
+				found = true;
+		});
+		return found;
 	});
+}
+
+describe("a first reading of a fuzz document's export", () => {
+	for (const [name, arbitrary, holds] of [
+		["temporal-branch", temporalBranchDocArbitrary, holdsTemporalBranch],
+		["typed-literal", typedLiteralDocArbitrary, holdsTypedLiteral],
+	] as const)
+		it(`reads, over the ${name} corpus, where no export carries a property's type`, {
+			timeout: 120_000,
+		}, async () => {
+			let drawn = 0;
+			await fc.assert(
+				fc.asyncProperty(arbitrary, async (doc) => {
+					if (holds(doc)) drawn += 1;
+					const failure = await firstReadingFailure(doc);
+					if (failure !== null) throw new Error(failure);
+				}),
+				{ seed: 20261115, numRuns: 50 },
+			);
+			// The corpus draws the class it exists for.
+			expect(drawn).toBeGreaterThan(25);
+		});
 });

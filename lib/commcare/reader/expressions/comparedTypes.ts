@@ -5,7 +5,8 @@
  * `age = '18'` for text, so a property the catalog holds untyped, compared
  * in a record slot with a value of a known type, is a property of that type.
  * Text is not ordered, so an ordering against a literal spelled as a date
- * or a date and time orders that type; a distance measured from a property
+ * or a date and time, or against a branch node whose values are all such
+ * literals of one type, orders that type; a distance measured from a property
  * makes it a location, and a test of the choices it holds a list of choices.
  *
  * A property a value-giving branch ends with (an `if`'s two branches, each
@@ -51,6 +52,28 @@ function outputsOf(expression: Expression): Expression[] {
 		out.push(output);
 	});
 	return out;
+}
+
+/** The one type `expression` names by spelling where every value it can end
+ *  with is an untyped literal spelled as a date, or every one as a date and
+ *  time; undefined otherwise. */
+function literalShapeGiven(
+	expression: Expression,
+): "date" | "datetime" | undefined {
+	const shapes = new Set<string | undefined>(
+		outputsOf(expression).map((output) =>
+			output.kind === "term" &&
+			output.term.kind === "literal" &&
+			output.term.data_type === undefined &&
+			typeof output.term.value === "string"
+				? literalShape(output.term.value)?.type
+				: undefined,
+		),
+	);
+	const [only] = shapes;
+	return shapes.size === 1 && (only === "date" || only === "datetime")
+		? only
+		: undefined;
 }
 
 /** A custom property read of the row a comparison stands in. */
@@ -108,17 +131,10 @@ export function comparedTypes(
 			return;
 		}
 		// Text is not ordered, so an ordering against a literal spelled as a
-		// date or a date and time orders that type.
-		const text =
-			other.kind === "term" &&
-			other.term.kind === "literal" &&
-			other.term.data_type === undefined &&
-			typeof other.term.value === "string"
-				? other.term.value
-				: undefined;
-		const shape =
-			ordering && text !== undefined ? literalShape(text) : undefined;
-		if (shape?.type === "date" || shape?.type === "datetime") type = shape.type;
+		// date or a date and time, or against branches that each give one
+		// spelled as that one type, orders that type.
+		const shape = ordering ? literalShapeGiven(other) : undefined;
+		if (shape !== undefined) type = shape;
 		if (type === undefined || !COMPARED_TYPES.has(type)) return;
 		found.push({
 			caseType: term.caseType,

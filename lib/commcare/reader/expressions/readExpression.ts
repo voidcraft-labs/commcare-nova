@@ -128,6 +128,10 @@ import {
 	recordOnlyArm,
 } from "./folds";
 import type { ExpressionReadEnv } from "./index";
+import {
+	holdsUntypedTemporalLiteral,
+	typedWhereRequired,
+} from "./temporalLiterals";
 
 // ── The mode a slot prints in ────────────────────────────────────────
 
@@ -1480,6 +1484,15 @@ export function bindSlot(
 		return { kind: "refused", cause: { kind: "parse", issues: parsed.issues } };
 	if (parsed.expression === undefined)
 		return { kind: "refused", cause: { kind: "syntax" } };
+	// A literal spelled as a date or a date and time is typed where its
+	// position requires the type, as the typed one prints the same text.
+	const context = holdsUntypedTemporalLiteral(parsed.expression)
+		? slotContext(doc, pending.ref, lookupTypes(env))
+		: undefined;
+	const candidate =
+		context === undefined
+			? parsed.expression
+			: typedWhereRequired(parsed.expression, context);
 	const foldSites = [...sites.used].sort((a, b) => {
 		const left = sites.spans.get(a);
 		const right = sites.spans.get(b);
@@ -1489,7 +1502,7 @@ export function bindSlot(
 	return {
 		kind: "bound",
 		bound: {
-			candidate: parsed.expression,
+			candidate,
 			source: prepared.syntax,
 			foldSites,
 			spans: sites.spans,

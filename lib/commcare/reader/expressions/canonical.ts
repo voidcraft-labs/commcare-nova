@@ -715,9 +715,9 @@ function instantOperand(text: Expression, record: boolean): Expression {
 /** `node` with each `datetime-coerce` of a literal a device folds
  *  (`instantOperand.ts`, class `literal-instant`) as the date-and-time
  *  literal of the text it prints, where `folds` holds: at the slot's root,
- *  as an operand of a comparison a device does not make by day, and as a
- *  branch of an `if`, `coalesce`, `switch` or `cond` that stands in one of
- *  those places. */
+ *  as an operand of a comparison a device does not make by day, as the date
+ *  `format-date` reads, and as a branch of an `if`, `coalesce`, `switch` or
+ *  `cond` that stands in one of those places. */
 function foldedCoercions(
 	node: Expression,
 	path: CheckPath,
@@ -765,6 +765,10 @@ function foldedCoercions(
 		const day =
 			comparisonPlan(node.kind, operands.left, operands.right) === "day";
 		childFolds = () => !day;
+	} else if (node.kind === "format-date") {
+		// `format-date` reads its date as a date and time, which the coercion
+		// of a literal and the literal of the text it prints both print as.
+		childFolds = (childPath) => childPath.at(-1) === "date";
 	} else if (
 		node.kind === "if" ||
 		node.kind === "coalesce" ||
@@ -803,7 +807,7 @@ function foldedCoercions(
 /** The branches of an `if`, `coalesce`, `switch` or `cond`, each with its
  *  path and a way to put another in its place; undefined for any other
  *  node. */
-function valueBranches(
+export function valueBranches(
 	node: Expression,
 	path: CheckPath,
 ):
@@ -910,7 +914,7 @@ function dateShapedLiteral(
 /** The types of a date or a date and time `node` gives where a reading of its
  *  print reads it beside a literal: none for a literal spelled as one, the
  *  types its branches give for a branch node, and its own type otherwise. */
-function readTypesGiven(
+export function readTypesGiven(
 	node: Expression,
 	path: CheckPath,
 	root: Expression,
@@ -1107,6 +1111,44 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// A device compares two date-and-time literals as the integers each
+		// folds to (`instantOperand.ts::literalInstantMicros`), which are what
+		// two number literals of those integers print as; neither position
+		// requires a date and time, since neither side gives a type, so the
+		// reader reads the numbers and this row returns them. A search's
+		// condition, and a list filter its search restates, print the
+		// literals into CSQL as written.
+		id: "instant-literal-pair",
+		rewrite(node, context) {
+			if (
+				!isComparison(node) ||
+				context.ruleSet !== "record" ||
+				printsCsql(context)
+			)
+				return undefined;
+			const operands = comparisonOperands(node, context);
+			if (
+				operands.left.kind !== "leaf" ||
+				operands.right.kind !== "leaf" ||
+				comparisonPlan(node.kind, operands.left, operands.right) !== "lowered"
+			)
+				return undefined;
+			const folded = (side: Expression): Expression | undefined => {
+				const text = stringLiteral(side);
+				const micros =
+					text === undefined ? undefined : literalInstantMicros(text);
+				return micros !== undefined && Number.isSafeInteger(micros)
+					? { kind: "term", term: { kind: "literal", value: micros } }
+					: undefined;
+			};
+			const left = folded(node.left);
+			const right = folded(node.right);
+			return left === undefined || right === undefined
+				? undefined
+				: { ...node, left, right };
+		},
+	},
+	{
 		// A device compares a date-and-time literal as the integer it folds
 		// to, so every spelling of one moment prints alike there. A search's
 		// condition, and a list filter its search restates, print the literal
@@ -1176,17 +1218,28 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	},
 	{
 		// A date or a date-and-time literal, or a `datetime-coerce` of one, that
-		// a record slot's whole value or a part of a `concat` gives, as itself
-		// or through the branches of an `if`, `coalesce`, `switch` or `cond`,
-		// prints as its text whether it is typed or not. The reader types that
-		// text only where a branch beside it, or beside a branch node around
-		// it, gives its type (`folds.ts::typedBranchLiterals`), or where it is
-		// the whole value of a slot that expects it (`folds.ts::slotLiteral`),
-		// which this row leaves as it is; everywhere else it returns the
-		// untyped literal.
+		// a record slot's whole value, a part of a `concat` or the value of a
+		// `date()` or a `datetime()` gives, as itself or through the branches
+		// of an `if`, `coalesce`, `switch` or `cond`, prints as its text whether
+		// it is typed or not, and none of those positions requires the type. The
+		// reader types such text only where its position requires the type
+		// (`temporalLiterals.ts::typedWhereRequired`): beside a branch that
+		// gives it, or as the whole value of a slot that expects it, which
+		// this row leaves as it is; everywhere else it returns the untyped
+		// literal.
 		id: "untyped-value-literal",
 		rewrite(node, context, at) {
 			if (context.ruleSet !== "record" || printsCsql(context)) return undefined;
+			if (node.kind === "date-coerce" || node.kind === "datetime-coerce") {
+				const value = untypedValueLiterals(
+					node.value,
+					["value"],
+					node,
+					context,
+					new Set(),
+				);
+				return value === node.value ? undefined : { ...node, value };
+			}
 			if (node.kind === "concat") {
 				const parts = node.parts.map((part, index) =>
 					untypedValueLiterals(
