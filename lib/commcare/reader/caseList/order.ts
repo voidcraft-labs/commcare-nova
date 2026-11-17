@@ -164,6 +164,9 @@ export interface SortReading {
 	readonly textual: ReadonlySet<number>;
 	/** The index of each kept element whose stored `type` is `date`. */
 	readonly dates: ReadonlySet<number>;
+	/** The stored `type` of each kept `int` or `double` element, by the index in the join of the
+	 *  column it lands on. */
+	readonly numericColumns: ReadonlyMap<number, "int" | "double">;
 	/** Whether the source held no element and an `invisible` first column took HQ's default. */
 	readonly defaulted: boolean;
 }
@@ -272,6 +275,7 @@ export function readSortElements(
 	const stored = short.peek("sort_elements");
 	const elements = Array.isArray(stored) ? stored : [];
 	const numeric = new Map<number, string>();
+	const numericColumns = new Map<number, "int" | "double">();
 	const textual = new Set<number>();
 	const dates = new Set<number>();
 	const codes = appCodes(ctx);
@@ -292,9 +296,25 @@ export function readSortElements(
 				`${short.pointer}/sort_elements`,
 				"list-settings-respelled",
 			);
-			return { ok: true, kept: [], numeric, textual, dates, defaulted: true };
+			return {
+				ok: true,
+				kept: [],
+				numeric,
+				textual,
+				dates,
+				numericColumns,
+				defaulted: true,
+			};
 		}
-		return { ok: true, kept: [], numeric, textual, dates, defaulted: false };
+		return {
+			ok: true,
+			kept: [],
+			numeric,
+			textual,
+			dates,
+			numericColumns,
+			defaulted: false,
+		};
 	}
 	const cursors = short.list("sort_elements", "SortElement", O.elements);
 	// A later element with one `field` replaces an earlier one.
@@ -501,8 +521,10 @@ export function readSortElements(
 			ok = false;
 		} else if (type === "int" || type === "double") {
 			cursor.derived("type", O.typeDerived);
-			if (!ownSort) numeric.set(index, type);
-			else
+			if (!ownSort) {
+				numeric.set(index, type);
+				if (target !== undefined) numericColumns.set(target, type);
+			} else
 				sameState(
 					ctx,
 					O.typeDerived.entry,
@@ -577,7 +599,15 @@ export function readSortElements(
 			}
 		}
 	});
-	return { ok, kept, numeric, textual, dates, defaulted: false };
+	return {
+		ok,
+		kept,
+		numeric,
+		textual,
+		dates,
+		numericColumns,
+		defaulted: false,
+	};
 }
 
 /** The property types whose raw value Nova's sort element names a `date` comparison

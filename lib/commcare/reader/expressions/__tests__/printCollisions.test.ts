@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
 import { chosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { slotContext } from "@/lib/domain/expression/context";
 import type {
@@ -2437,4 +2438,375 @@ describe("untyped-row-standard-property: a standard property of a case database 
 		]);
 		expect(canonicalExpression(declared, context)).toEqual(declared);
 	});
+});
+
+describe("the rows a record slot's device and CSQL prints share: literals, coercions, ranges, junctions and distances", () => {
+	const visitInput = testUuid("collision-visit-input");
+	const visitDoc = (condition: Expression): BlueprintDoc =>
+		buildDoc({
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "dob", label: "Date of birth", data_type: "date" },
+						{ name: "p", label: "P" },
+						{ name: "seen", label: "Seen", data_type: "datetime" },
+						{ name: "home", label: "Home", data_type: "geopoint" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: {
+						columns: [
+							calculatedColumn(COLUMN, "Calc", {
+								kind: "term",
+								term: { kind: "literal", value: "" },
+							}),
+						],
+						searchInputs: [
+							advancedSearchInputDef(
+								visitInput,
+								"region",
+								"Region",
+								"text",
+								condition,
+							),
+						],
+					},
+					caseSearchConfig: {},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+						},
+					],
+				},
+			],
+		});
+	const app = visitDoc({ kind: "match-all" });
+	const moduleUuid = app.moduleOrder[0] as Uuid;
+	const formUuid = app.formOrder[moduleUuid]?.[0] as Uuid;
+	const calculated: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_column_expression",
+		member: { columnUuid: COLUMN },
+	};
+	const searchButton: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "search_button_display_condition",
+	};
+	const formDisplay: SlotContextRef = {
+		entity: "form",
+		uuid: formUuid,
+		slot: "form_display_condition",
+	};
+	const predicate: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "search_input_predicate",
+		member: { searchInputUuid: visitInput },
+	};
+	const visit = (property: string): Expression =>
+		term({ kind: "prop", caseType: "visit", property });
+	const typed = (value: string, data_type: "date" | "datetime"): Expression =>
+		term({ kind: "literal", value, data_type });
+	const pIs = (value: string): Expression => ({
+		kind: "eq",
+		left: visit("p"),
+		right: lit(value),
+	});
+	const ageOver = (value: number): Expression => ({
+		kind: "gt",
+		left: visit("age"),
+		right: lit(value),
+	});
+	const rows: readonly {
+		readonly id: string;
+		readonly slot: SlotContextRef;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			id: "negated-number-literal",
+			slot: calculated,
+			other: { kind: "negate", value: lit(3) },
+			canonical: lit(-3),
+		},
+		{
+			id: "simplified-blank-literal",
+			slot: searchButton,
+			other: { kind: "is-blank", left: { kind: "negate", value: lit(3) } },
+			canonical: { kind: "match-none" },
+		},
+		{
+			id: "format-date-preset",
+			slot: calculated,
+			other: { kind: "format-date", date: visit("dob"), pattern: "long" },
+			canonical: {
+				kind: "format-date",
+				date: visit("dob"),
+				pattern: resolveCommCareDatePattern("long"),
+			},
+		},
+		{
+			id: "one-sided-range",
+			slot: formDisplay,
+			other: {
+				kind: "between",
+				left: visit("age"),
+				lower: lit(3),
+				lowerInclusive: true,
+				upperInclusive: false,
+			},
+			canonical: { kind: "gte", left: visit("age"), right: lit(3) },
+		},
+		{
+			id: "boolean-literal",
+			slot: calculated,
+			other: term({ kind: "literal", value: true }),
+			canonical: lit("true"),
+		},
+		{
+			id: "coerced-coercion",
+			slot: calculated,
+			other: {
+				kind: "datetime-coerce",
+				value: { kind: "datetime-coerce", value: visit("age") },
+			},
+			canonical: { kind: "datetime-coerce", value: visit("age") },
+		},
+		{
+			id: "one-value-membership",
+			slot: formDisplay,
+			other: {
+				kind: "in",
+				left: visit("p"),
+				values: [{ kind: "literal", value: "a" }],
+			},
+			canonical: pIs("a"),
+		},
+		{
+			id: "csql-anchor-left",
+			slot: predicate,
+			other: { kind: "eq", left: lit("a"), right: visit("p") },
+			canonical: pIs("a"),
+		},
+		{
+			id: "moment-text-coercion",
+			slot: calculated,
+			other: { kind: "datetime-coerce", value: visit("seen") },
+			canonical: visit("seen"),
+		},
+		{
+			id: "coerced-branches",
+			slot: calculated,
+			other: {
+				kind: "datetime-coerce",
+				value: {
+					kind: "if",
+					cond: pIs("a"),
+					// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+					then: visit("seen"),
+					else: visit("age"),
+				},
+			},
+			canonical: {
+				kind: "if",
+				cond: pIs("a"),
+				// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+				then: visit("seen"),
+				else: { kind: "datetime-coerce", value: visit("age") },
+			},
+		},
+		{
+			id: "coerced-moment-operand",
+			slot: formDisplay,
+			other: {
+				kind: "gt",
+				left: { kind: "datetime-coerce", value: visit("seen") },
+				right: { kind: "now" },
+			},
+			canonical: { kind: "gt", left: visit("seen"), right: { kind: "now" } },
+		},
+		{
+			id: "typed-row-standard-property",
+			slot: calculated,
+			other: term({ kind: "prop", property: "case_name" }),
+			canonical: term({
+				kind: "prop",
+				caseType: "visit",
+				property: "case_name",
+			}),
+		},
+		{
+			id: "device-nested-junction",
+			slot: formDisplay,
+			other: {
+				kind: "or",
+				clauses: [pIs("a"), { kind: "or", clauses: [ageOver(3), ageOver(9)] }],
+			},
+			canonical: { kind: "or", clauses: [pIs("a"), ageOver(3), ageOver(9)] },
+		},
+		{
+			id: "device-range-in-conjunction",
+			slot: formDisplay,
+			other: {
+				kind: "and",
+				clauses: [
+					pIs("a"),
+					{
+						kind: "between",
+						left: visit("age"),
+						lower: lit(1),
+						upper: lit(5),
+						lowerInclusive: true,
+						upperInclusive: false,
+					},
+				],
+			},
+			canonical: {
+				kind: "and",
+				clauses: [
+					pIs("a"),
+					{ kind: "gte", left: visit("age"), right: lit(1) },
+					{ kind: "lt", left: visit("age"), right: lit(5) },
+				],
+			},
+		},
+		{
+			id: "within-distance-in-meters",
+			slot: formDisplay,
+			other: {
+				kind: "within-distance",
+				property: { kind: "prop", caseType: "visit", property: "home" },
+				center: lit("1.5 2.5"),
+				distance: 2,
+				unit: "kilometers",
+			},
+			canonical: {
+				kind: "within-distance",
+				property: { kind: "prop", caseType: "visit", property: "home" },
+				center: lit("1.5 2.5"),
+				distance: 2000,
+				unit: "meters",
+			},
+		},
+		{
+			id: "null-literal",
+			slot: formDisplay,
+			other: {
+				kind: "eq",
+				left: {
+					kind: "switch",
+					on: visit("p"),
+					cases: [
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: null }, then: lit("x") },
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: "b" }, then: lit("y") },
+					],
+					fallback: lit("z"),
+				},
+				right: lit("x"),
+			},
+			canonical: {
+				kind: "eq",
+				left: {
+					kind: "switch",
+					on: visit("p"),
+					cases: [
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: "" }, then: lit("x") },
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: "b" }, then: lit("y") },
+					],
+					fallback: lit("z"),
+				},
+				right: lit("x"),
+			},
+		},
+		{
+			id: "untyped-unrequired-literal",
+			slot: formDisplay,
+			other: {
+				kind: "eq",
+				left: {
+					kind: "if",
+					cond: pIs("a"),
+					// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+					then: typed("2024-02-29", "date"),
+					else: typed("2026-01-01", "date"),
+				},
+				right: typed("2026-01-01", "date"),
+			},
+			canonical: {
+				kind: "eq",
+				left: {
+					kind: "if",
+					cond: pIs("a"),
+					// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+					then: lit("2024-02-29"),
+					else: lit("2026-01-01"),
+				},
+				right: lit("2026-01-01"),
+			},
+		},
+		{
+			id: "instant-literal",
+			slot: predicate,
+			other: {
+				kind: "between",
+				left: typed("2025-12-31T23:59:59.5Z", "datetime"),
+				lower: typed("2026-01-01T00:00:00Z", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: false,
+				upperInclusive: false,
+			},
+			canonical: {
+				kind: "between",
+				left: typed("2025-12-31T23:59:59.500Z", "datetime"),
+				lower: typed("2026-01-01T00:00:00.000Z", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: false,
+				upperInclusive: false,
+			},
+		},
+	];
+	/** A Search field's condition prints as the search's rows, each slot
+	 *  else as its own print. */
+	const printOf = (slot: SlotContextRef, tree: Expression) => {
+		if (slot.slot !== "search_input_predicate")
+			return [printSlot(app, slot, tree, env())];
+		const searchDoc = visitDoc(tree);
+		const menu = searchDoc.moduleOrder[0] as Uuid;
+		const config = searchDoc.modules[menu]?.caseListConfig;
+		if (config === undefined) throw new Error("The menu has no case list.");
+		return xpathQueryRequestValues(
+			config,
+			composeModuleXPathQueryEmission(searchDoc, menu, {
+				searchInputInstanceId: "search-input:results",
+			}),
+		).map(
+			(value) =>
+				serializeWire(value, { target: "hq-json", interpolation: "none" }).text,
+		);
+	};
+	for (const row of rows)
+		it(`${row.id} in ${row.slot.slot}`, () => {
+			expect(printOf(row.slot, row.other)).toEqual(
+				printOf(row.slot, row.canonical),
+			);
+			const context = contextOf(app, row.slot);
+			expect(canonicalExpression(row.other, context)).toEqual(row.canonical);
+			expect(canonicalExpression(row.canonical, context)).toEqual(
+				row.canonical,
+			);
+		});
 });

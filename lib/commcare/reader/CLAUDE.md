@@ -144,6 +144,12 @@ beside it, since record branches agree on one type. A simple date range Search f
 property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
 print is HQ's prompt alone, and a record slot's comparison overrides that guess (an ordering against
 a branch node whose values are all literals spelled as one of the two types orders that type).
+A property a function's signature fixes the kind of (`format-date`'s and `date-add`'s date, a
+number a sum, a product, a negation or a distance reads, `quotient`'s whole numbers) takes the
+first type that position admits under which every slot reading it binds, passes its checker and
+prints the source (`comparedTypes.ts::requiredTypes`, `expressions/index.ts::withRequiredTypes`);
+two untyped properties ordered against each other take one type in the same try, since the
+checker admits neither alone.
 
 **Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
 literal prints the text the untyped literal of that text prints, so which one a record slot holds
@@ -162,7 +168,9 @@ position takes the text as it is: a part of a `concat`, the value of `date()`, t
 type (a calculated column), and a branch node in one of those with no branch beside it that gives
 a type; there the reading gives the untyped literal and the canonical row
 `untyped-value-literal` returns it. `in`'s values and a `switch`'s cases are typed against their
-subject by `folds.ts` and the canonical row `literal-type`. Two print collisions of the class are
+subject by `folds.ts` and the canonical row `literal-type`, and again once the subject is typed
+(`typedWhereRequired`), since a subject whose own literals a later pass types is text when the
+fold reads the values. Two print collisions of the class are
 rows of their own: a `datetime-coerce` of a literal prints the literal's own instant text, and is
 that typed literal wherever a device folds it, `format-date`'s date among those places
 (`coerced-instant-literal`); and two moments compared with each other print as the two counts of

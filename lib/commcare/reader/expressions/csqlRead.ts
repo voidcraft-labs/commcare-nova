@@ -15,6 +15,7 @@ import {
 	activeRowScope,
 	type ExpressionContext,
 	type LookupDefinitionIndex,
+	pushRowScope,
 } from "@/lib/domain/expression/context";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
 import {
@@ -23,17 +24,18 @@ import {
 	scalarDataType,
 	typeOf,
 } from "@/lib/domain/expression/typeChecker";
-import type {
-	ComparisonKind,
-	DateAddInterval,
-	Expression,
-	Literal,
-	PropertyRef,
-	RelationStep,
-	SearchInputRef,
-	Term,
+import {
+	type ComparisonKind,
+	DATE_ADD_INTERVALS,
+	type DateAddInterval,
+	type Expression,
+	isConditionArm,
+	type Literal,
+	type PropertyRef,
+	type RelationStep,
+	type SearchInputRef,
+	type Term,
 } from "@/lib/domain/expression/types";
-import { DATE_ADD_INTERVALS } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
@@ -660,7 +662,22 @@ function bindDevice(node: FormSyntax, state: BindState): Expression {
 		}
 		unrecognizedRow();
 	}
-	const value = bound.bound.candidate;
+	// A row prints a number it holds as server text; one the device works out
+	// is the negation of a number only, the value Nova splices in for it.
+	const negated = bare(node);
+	const value: Expression =
+		negated.kind === "negative" && bare(negated.value).kind === "number"
+			? {
+					kind: "negate",
+					value: {
+						kind: "term",
+						term: {
+							kind: "literal",
+							value: (bare(negated.value) as { value: number }).value,
+						},
+					},
+				}
+			: bound.bound.candidate;
 	const query = deviceQuery(value);
 	if (query !== undefined) refuseWith(DEVICE_QUERY, query);
 	return value;
@@ -733,6 +750,8 @@ class CsqlBinder {
 		}
 		switch (at.kind) {
 			case "binary": {
+				const choice = this.rowChoice(at, rowType);
+				if (choice !== undefined) return choice;
 				if (at.op === "and" || at.op === "or") {
 					const range = this.proposedEquality(at, rowType);
 					if (range !== undefined) return range;
@@ -831,8 +850,15 @@ class CsqlBinder {
 		let left: Expression | undefined;
 		for (const clause of clauses) {
 			const at = bare(clause);
-			if (at.kind !== "binary" || at.op !== "=") return undefined;
-			const equality = this.query(clause, rowType);
+			// A date-and-time property's equality prints as the range from the
+			// value to itself (`csql/emitter.ts::instantEquality`).
+			const equality =
+				at.kind === "binary" && at.op === "="
+					? this.query(clause, rowType)
+					: at.kind === "binary"
+						? this.proposedEquality(at, rowType)
+						: undefined;
+			if (equality === undefined) return undefined;
 			if (equality.kind !== "eq") return undefined;
 			const value =
 				equality.right.kind === "term" ? equality.right.term : undefined;
@@ -848,6 +874,48 @@ class CsqlBinder {
 		return left === undefined || first === undefined
 			? undefined
 			: { kind: "in", left, values: [first, ...rest] };
+	}
+
+	/** HQ's own choice between clauses on a condition that reads the case,
+	 *  `((c) and (A)) or (not(c) and (B))` (`csql/emitter.ts::conditionChoice`),
+	 *  as the `if` it prints. */
+	rowChoice(
+		node: Extract<FormSyntax, { kind: "binary" }>,
+		rowType: string | undefined,
+	): Expression | undefined {
+		if (!this.state.proposals || node.op !== "or") return undefined;
+		const whenTrue = node.left.kind === "group" ? bare(node.left) : undefined;
+		const whenFalse =
+			node.right.kind === "group" ? bare(node.right) : undefined;
+		if (
+			whenTrue?.kind !== "binary" ||
+			whenTrue.op !== "and" ||
+			whenFalse?.kind !== "binary" ||
+			whenFalse.op !== "and" ||
+			whenTrue.left.kind !== "group" ||
+			whenTrue.right.kind !== "group" ||
+			whenFalse.right.kind !== "group"
+		)
+			return undefined;
+		const negated = callOf(whenFalse.left, "not", 1);
+		const condition = whenTrue.left.value;
+		if (negated === undefined) return undefined;
+		// A device value the condition holds stands at a marker of its own
+		// in each copy, so two copies that differ in their markers alone are
+		// one condition where they bind alike.
+		const cond = this.query(condition, rowType);
+		if (
+			!sameNode(negated.args[0] as FormSyntax, condition) &&
+			!sameJson(this.query(negated.args[0] as FormSyntax, rowType), cond)
+		)
+			return undefined;
+		return {
+			kind: "if",
+			cond,
+			// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+			then: this.query(whenTrue.right.value, rowType),
+			else: this.query(whenFalse.right.value, rowType),
+		};
 	}
 
 	/** `a and b and c` as the three clauses Nova's printer joins it from. */
@@ -877,9 +945,20 @@ class CsqlBinder {
 					clause: thenQuery,
 				};
 		}
+		const condition = bindDevice(part.condition, this.state);
+		// A clause that reads no case is the device's whole choice of all cases
+		// or none (`csql/emitter.ts::runtimeClause`): that condition itself.
+		if (
+			thenQuery.kind === "match-all" &&
+			otherwise.kind === "match-none" &&
+			(isConditionArm(condition) ||
+				condition.kind === "if" ||
+				condition.kind === "switch")
+		)
+			return condition;
 		return {
 			kind: "if",
-			cond: bindDevice(part.condition, this.state),
+			cond: condition,
 			// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
 			then: thenQuery,
 			else: otherwise,
@@ -1182,7 +1261,12 @@ class CsqlBinder {
 			return term({ kind: "case-type", caseType: value });
 		if (pieces.length === 1 && pieces[0]?.kind === "text")
 			return term(
-				shapedLiteral(value, opposite, this.state.context, ordering) as Literal,
+				shapedLiteral(
+					value,
+					opposite,
+					this.oppositeContext(opposite),
+					ordering,
+				) as Literal,
 			);
 		if (pieces.length === 1 && pieces[0]?.kind === "hole")
 			return bindDevice(pieces[0].node, this.state);
@@ -1192,6 +1276,21 @@ class CsqlBinder {
 				: bindDevice(piece.node, this.state),
 		);
 		return { kind: "concat", parts: parts as [Expression, ...Expression[]] };
+	}
+
+	/** The context `opposite` is typed in: a property of a related case's
+	 *  filter is read on that case's row. */
+	oppositeContext(opposite: Expression | undefined): ExpressionContext {
+		return opposite?.kind === "term" &&
+			opposite.term.kind === "prop" &&
+			opposite.term.caseType !== undefined &&
+			opposite.term.via === undefined
+			? pushRowScope(this.state.context, {
+					kind: "case",
+					root: "casedb",
+					caseType: opposite.term.caseType,
+				})
+			: this.state.context;
 	}
 
 	/** A string's text cut at each marker it holds. */
@@ -2238,26 +2337,67 @@ export function searchRowLevel(
 	}
 }
 
+/** One run of a row's CSQL: its parsed text and each marker's device node. */
+interface CsqlRun {
+	readonly csql: FormSyntax;
+	readonly holes: ReadonlyMap<string, FormSyntax>;
+}
+
 /** A row's CSQL as HQ's search reads it, with the holes in it: the parsed
- *  text the surface uses read, and each marker's device node. Undefined
+ *  text the surface uses read, and each marker's device node, and each run
+ *  of a choice the device makes in it, at any depth (`branches`): the device
+ *  sends one of a choice's runs, and each reads the searched case. Undefined
  *  where the text is no CSQL the grammar reads. */
 export function searchRowCsql(wrapper: FormSyntax):
-	| {
-			readonly csql: FormSyntax;
-			readonly holes: ReadonlyMap<string, FormSyntax>;
+	| (CsqlRun & {
 			readonly presence: boolean;
-	  }
+			readonly branches: readonly CsqlRun[];
+	  })
 	| undefined {
 	let { parts } = rowSkeleton(wrapper);
-	const [only] = parts;
-	const presence = parts.length === 1 && only?.kind === "presence";
-	if (presence && only?.kind === "presence") parts = only.body;
+	let presence = false;
+	// A presence test inside another's body tests a second field: the CSQL is
+	// the innermost body.
+	for (;;) {
+		const [only] = parts;
+		if (parts.length !== 1 || only?.kind !== "presence") break;
+		presence = true;
+		parts = only.body;
+	}
+	const run = csqlRun(parts);
+	if (run === undefined) return undefined;
+	const branches: CsqlRun[] = [];
+	const choices = [...run.choices];
+	for (
+		let choice = choices.shift();
+		choice !== undefined;
+		choice = choices.shift()
+	)
+		for (const branch of [choice.then, choice.otherwise]) {
+			const inner = csqlRun(branch);
+			if (inner === undefined) continue;
+			branches.push({ csql: inner.csql, holes: inner.holes });
+			choices.push(...inner.choices);
+		}
+	return { csql: run.csql, holes: run.holes, presence, branches };
+}
+
+/** `parts` as one CSQL text, parsed, with its holes and the choices among
+ *  them. */
+function csqlRun(parts: readonly SkeletonPart[]):
+	| (CsqlRun & {
+			readonly choices: readonly Extract<SkeletonPart, { kind: "choice" }>[];
+	  })
+	| undefined {
 	const prefix = markerPrefix(constantTexts(parts));
 	const assembled = assemble(parts, prefix);
 	const csql = readFormSyntax(assembled.text);
 	if (!csql.ok || csql.node === undefined) return undefined;
 	const holes = new Map<string, FormSyntax>();
-	for (const { marker, part } of assembled.markers)
+	const choices: Extract<SkeletonPart, { kind: "choice" }>[] = [];
+	for (const { marker, part } of assembled.markers) {
 		holes.set(marker, part.node);
-	return { csql: csql.node, holes, presence };
+		if (part.kind === "choice") choices.push(part);
+	}
+	return { csql: csql.node, holes, choices };
 }

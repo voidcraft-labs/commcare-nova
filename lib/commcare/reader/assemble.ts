@@ -47,6 +47,7 @@ import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
+import { calculatedAttributeColumnsArePlain } from "./caseList/columns";
 import {
 	columnsInListOrder,
 	columnsJoinedAsRead,
@@ -94,7 +95,11 @@ import { appPlace, placeOrder } from "./place";
 import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
 import { joinedGuardsSplitAsRead } from "./search/guardSplit";
 import { exactSearchModeIsAbsent } from "./search/prompts";
-import { derivedConditionsAreSimpleFields } from "./search/rows";
+import {
+	derivedConditionsAreSimpleFields,
+	filterConditionsOfAFieldAreItsOwn,
+	searchesThatFindNothingAsRead,
+} from "./search/rows";
 import {
 	defaultSearchTitleIsAbsent,
 	emptySearchSettingsBesideFieldsAreAbsent,
@@ -596,6 +601,24 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: derivedConditionsAreSimpleFields,
 	},
 	{
+		/** A search one of whose sources is never true, which sends HQ the one row `match-none()`,
+		 *  and the same search whose excluded fields are advanced fields with no condition, the first
+		 *  holding `match-none` where a field's condition sent it: both print one search, and the
+		 *  reader returns the second (`search/rows.ts::searchesThatFindNothingAsRead`). */
+		id: "searches-that-find-nothing-as-read",
+		kind: "one-wire",
+		apply: searchesThatFindNothingAsRead,
+	},
+	{
+		/** A searched list filter's conjunct that reads Search fields under their presence tests,
+		 *  and the same conjunct as the condition of the first field it reads where that field is
+		 *  an advanced one: both print one row and no clause of the list's own filter, and the
+		 *  reader returns the field's (`search/rows.ts::filterConditionsOfAFieldAreItsOwn`). */
+		id: "search-filter-conditions-of-a-field-are-its-own",
+		kind: "one-wire",
+		apply: filterConditionsOfAFieldAreItsOwn,
+	},
+	{
 		/** A tile cell no wire writes (on a list with no tile, or on a column hidden from Results
 		 *  in a tile list, `modules.ts::tileCellFor`) prints nothing; the reader returns the
 		 *  document without it. */
@@ -703,6 +726,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "columns-off-a-screen-last-in-its-order",
 		kind: "one-wire",
 		apply: columnsOffAScreenLast,
+	},
+	{
+		/** A calculated column that reads one of its case's attributes, and the plain column over
+		 *  that attribute: both print `@<name>` with the `plain` format, and the reader returns the
+		 *  plain one (`caseList/columns.ts::calculatedAttributeColumnsArePlain`). It runs before
+		 *  `columns-joined-as-read`, which gives the column the identity a re-read gives it. */
+		id: "calculated-attribute-columns-are-plain",
+		kind: "one-wire",
+		apply: calculatedAttributeColumnsArePlain,
 	},
 	{
 		/** A list whose short detail's fields join other columns of the long detail than their own,

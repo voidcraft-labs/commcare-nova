@@ -548,12 +548,19 @@ export function parseFormExpression(
 			case "hashtag":
 				return hashtag(node, ctx);
 			case "negative": {
-				const value = bind(node.value, ctx);
-				return value.kind === "term" &&
-					value.term.kind === "literal" &&
-					typeof value.term.value === "number"
-					? literal(-value.term.value, node)
-					: remember({ kind: "negate", value }, node);
+				// A minus sign written before a number is that negative number,
+				// which prints back as the same text. Before another minus sign it
+				// negates the number that sign gives, and before zero it stays a
+				// negation, since no stored number is negative zero.
+				let written: FormSyntax = node.value;
+				while (written.kind === "group") written = written.value;
+				if (
+					written.kind === "number" &&
+					Number.isFinite(written.value) &&
+					written.value !== 0
+				)
+					return literal(-written.value, node);
+				return remember({ kind: "negate", value: bind(node.value, ctx) }, node);
 			}
 			case "variable":
 				return refuse(

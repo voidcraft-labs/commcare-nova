@@ -992,6 +992,62 @@ const PAIRS: readonly Pair[] = [
 			}),
 	},
 	{
+		id: "searches-that-find-nothing-as-read",
+		name: "a search whose second Search field's condition is never true",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(8),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(8)),
+							eq(prop("patient", "phone"), input(uuid(8))),
+						),
+					},
+					{
+						uuid: uuid(9),
+						name: "never",
+						label: "Never",
+						kind: "advanced",
+						type: "text",
+						predicate: { kind: "match-none" },
+					},
+				],
+				search: {},
+			}),
+	},
+	{
+		id: "search-filter-conditions-of-a-field-are-its-own",
+		name: "a searched list filter's clause that waits for an advanced field",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(9),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(9)),
+							eq(prop("patient", "notes"), input(uuid(9))),
+						),
+					},
+				],
+				search: {},
+				list: {
+					filter: whenInput(
+						input(uuid(9)),
+						eq(prop("patient", "phone"), input(uuid(9))),
+					),
+				},
+			}),
+	},
+	{
 		id: "dormant-tile-cells",
 		name: "tile cells on a list that is no tile",
 		other: () => tileCells(false),
@@ -1689,6 +1745,8 @@ const NAMED_ELSEWHERE: Readonly<Record<string, string>> = {
 		"lib/commcare/__tests__/heldPlacementEmission.test.ts",
 	"expression-print-collisions":
 		"lib/commcare/reader/expressions/__tests__/printCollisions.test.ts",
+	"calculated-attribute-columns-are-plain":
+		"lib/commcare/reader/caseList/__tests__/attributeColumns.test.ts",
 };
 
 describe("each canonicalization's pair", () => {

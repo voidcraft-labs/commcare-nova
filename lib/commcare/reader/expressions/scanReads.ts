@@ -128,6 +128,18 @@ export function searchRowProperties(text: string): string[] {
 	const row = searchRowCsql(read.node);
 	if (row === undefined) return [];
 	const found: string[] = [];
+	for (const run of [row, ...row.branches])
+		visitRunProperties(run.csql, run.holes, found);
+	return found;
+}
+
+/** Each property a run of a row's CSQL reads of the searched case, into
+ *  `found`. */
+function visitRunProperties(
+	csql: FormSyntax,
+	holes: ReadonlyMap<string, FormSyntax>,
+	found: string[],
+): void {
 	const visit = (node: FormSyntax): void => {
 		const at = core(node);
 		if (at.kind === "call") {
@@ -148,10 +160,9 @@ export function searchRowProperties(text: string): string[] {
 		if (path === undefined || path.root !== undefined) return;
 		if (path.steps.length !== 1) return;
 		const name = elementProperty(path.steps[0]);
-		if (name !== undefined && !row.holes.has(name)) found.push(name);
+		if (name !== undefined && !holes.has(name)) found.push(name);
 	};
-	visit(row.csql);
-	return found;
+	visit(csql);
 }
 
 /** What a search filter row's relation functions name, from `rowType`, the
@@ -183,6 +194,8 @@ export function searchRowRelations(
 	if (!read.ok || read.node === undefined) return { links, properties };
 	const row = searchRowCsql(read.node);
 	if (row === undefined) return { links, properties };
+	// The holes of the run `visit` reads.
+	let holes = row.holes;
 	const visit = (node: FormSyntax, origin: string, related: boolean): void => {
 		const at = core(node);
 		if (at.kind === "call") {
@@ -235,10 +248,13 @@ export function searchRowRelations(
 		if (path === undefined || path.root !== undefined) return;
 		if (path.steps.length !== 1) return;
 		const name = elementProperty(path.steps[0]);
-		if (name !== undefined && !row.holes.has(name))
+		if (name !== undefined && !holes.has(name))
 			properties.push({ caseType: origin, property: name });
 	};
-	visit(row.csql, rowType, false);
+	for (const run of [row, ...row.branches]) {
+		holes = run.holes;
+		visit(run.csql, rowType, false);
+	}
 	return { links, properties };
 }
 
@@ -457,7 +473,10 @@ export function scanReads(
 		for (const node of nodes) {
 			const at = core(node);
 			const inner = innerStep.has(at);
-			if (at.kind === "filter") inPredicate.add(core(at.where));
+			// A predicate's reads are of the rows it filters, never the slot's
+			// own row.
+			if (at.kind === "filter")
+				for (const inside of nodesOf(at.where)) inPredicate.add(core(inside));
 			if (at.kind === "call" && at.name === "instance") {
 				const id = at.args[0];
 				if (id?.kind === "string" && id.value.startsWith(TABLE_ID))
@@ -495,16 +514,11 @@ export function scanReads(
 			const rowStep = read?.row ?? (results ? path.steps[1] : undefined);
 			const rest = read?.rest ?? (results ? path.steps.slice(2) : []);
 			if (rowStep === undefined) continue;
+			// The type test among a predicate's clauses, the first of them where
+			// the clauses after it lean left on it.
 			const typed = rowStep.where
-				.map((where) => {
-					const both = core(where);
-					return (
-						caseTypeTest(where) ??
-						(both.kind === "binary" && both.op === "and"
-							? (caseTypeTest(both.left) ?? caseTypeTest(both.right))
-							: undefined)
-					);
-				})
+				.flatMap((where) => clauses(where, "and"))
+				.map((clause) => caseTypeTest(clause))
 				.find((type) => type !== undefined);
 			const ownWalk =
 				rowStep.where.length === 1
@@ -573,16 +587,19 @@ export function scanReads(
 		}
 		if (rowType !== undefined && context?.ruleSet === "record")
 			for (const node of nodes) {
-				if (inPredicate.has(core(node)) || innerStep.has(core(node))) continue;
 				const at = core(node);
+				if (innerStep.has(at)) continue;
 				const path = flat(at);
 				if (path === undefined) continue;
-				const own =
-					path.root === undefined ||
-					(path.root.kind === "call" &&
-						path.root.name === "current" &&
-						path.root.args.length === 0);
-				if (own) note(rowType, elementProperty(path.steps[0]));
+				// A read from `current()` is of the slot's own row inside a
+				// predicate too.
+				const fromCurrent =
+					path.root?.kind === "call" &&
+					path.root.name === "current" &&
+					path.root.args.length === 0;
+				if (inPredicate.has(at) && !fromCurrent) continue;
+				if (path.root === undefined || fromCurrent)
+					note(rowType, elementProperty(path.steps[0]));
 			}
 	}
 	// Each property an untyped query reads that no case type declares, and

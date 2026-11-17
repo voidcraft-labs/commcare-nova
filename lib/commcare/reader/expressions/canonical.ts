@@ -7,15 +7,27 @@
  * between two trees that print the same bytes, which a test prints in a real
  * slot. Nothing here parses or prints.
  */
+import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
+import { expressionChildren } from "@/lib/domain/expression/children";
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import {
 	activeRowScope,
 	type ExpressionContext,
 } from "@/lib/domain/expression/context";
+import {
+	type CsqlPositionMap,
+	csqlPositionAt,
+	csqlPositions,
+	isCsqlQueryAnchor,
+	isRuntimeSubtreeRoot,
+	readsSearchRow,
+} from "@/lib/domain/expression/csqlPositions";
+import { distanceToMeters } from "@/lib/domain/expression/distance";
 import { formNodeGraph } from "@/lib/domain/expression/formNodes";
 import {
 	comparisonOperands,
 	comparisonPlan,
+	instantOperand as domainInstantOperand,
 	type InstantOperand,
 	instantTextOfMicros,
 	literalInstantMicros,
@@ -54,6 +66,7 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { userPropertySlugVerdict } from "../../validator/userPropertySlug";
 import type { FormNodeProjection } from "../../xpath/formNodeProjection";
 import { crossesSourceRepeatInRowPredicate } from "../../xpath/wire/formReads";
+import { mayHoldInstantText } from "../../xpath/wire/instant";
 import { literalArguments } from "../../xpath/wire/serialize";
 import type { WireMode } from "../../xpath/wire/tree";
 import { sameJson } from "../jsonCursor";
@@ -77,11 +90,27 @@ export interface PrintCollision {
 	rewrite(
 		node: Expression,
 		context: ExpressionContext,
-		at: { readonly root: boolean; readonly print: SlotPrint },
+		at: {
+			readonly root: boolean;
+			readonly print: SlotPrint;
+			/** The node's path in the slot's tree, and that tree as given. */
+			readonly path: CheckPath;
+			readonly tree: Expression;
+		},
 	): Expression | undefined;
 }
 
 const COMPARISON_KINDS = new Set(["eq", "neq", "gt", "gte", "lt", "lte"]);
+const ORDERING_KINDS = new Set(["gt", "gte", "lt", "lte"]);
+/** Each comparison with its two sides swapped. */
+const MIRRORED_COMPARISONS = {
+	eq: "eq",
+	neq: "neq",
+	gt: "lt",
+	gte: "lte",
+	lt: "gt",
+	lte: "gte",
+} as const;
 type Comparison = Extract<
 	Expression,
 	{ kind: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" }
@@ -227,6 +256,7 @@ function joinedMembership(node: Expression): Expression | undefined {
 	if (node.kind !== "or" || node.clauses.length < 2) return undefined;
 	const first = node.clauses[0];
 	if (first?.kind !== "eq") return undefined;
+
 	const values: Literal[] = [];
 	for (const clause of node.clauses) {
 		if (clause.kind !== "eq" || !sameJson(clause.left, first.left))
@@ -769,6 +799,11 @@ function foldedCoercions(
 		// `format-date` reads its date as a date and time, which the coercion
 		// of a literal and the literal of the text it prints both print as.
 		childFolds = (childPath) => childPath.at(-1) === "date";
+	} else if (node.kind === "date-coerce") {
+		// `date()` reads a date and time in the device's own date, which the
+		// coercion of a literal and the literal of the text it prints both
+		// print through alike (`fromExpression.ts::deviceTemporalValue`).
+		childFolds = (childPath) => childPath.at(-1) === "value";
 	} else if (
 		node.kind === "if" ||
 		node.kind === "coalesce" ||
@@ -977,6 +1012,377 @@ function untypedValueLiterals(
 		: branching.rebuild(branches);
 }
 
+/** Whether `node` gives a typed date-and-time literal, as itself or through
+ *  the branches of an `if`, `coalesce`, `switch` or `cond`. */
+function givesMoment(node: Expression, path: CheckPath): boolean {
+	const literal = termOf(node);
+	if (literal?.kind === "literal") return literal.data_type === "datetime";
+	return (
+		valueBranches(node, path)?.branches.some((branch) =>
+			givesMoment(branch.value, branch.path),
+		) === true
+	);
+}
+
+/** `node`, the value of a `date()`, with each literal spelled as a date it
+ *  gives (as itself or through the branches of an `if`, `coalesce`, `switch`
+ *  or `cond`) typed only where a branch beside it gives a date, as a reading
+ *  types it (`folds.ts`, `typed-branch-literal`); a date and time literal
+ *  stays as it is, since `date()` reads a typed one in the device's own date
+ *  and prints the text of an untyped one bare. */
+function dayLiteralsAsRead(
+	node: Expression,
+	path: CheckPath,
+	root: Expression,
+	context: ExpressionContext,
+	given: ReadonlySet<string>,
+	moment: boolean,
+): Expression {
+	const literal = termOf(node);
+	// Where a branch gives a typed date and time, `date()` reads the whole
+	// value in the device's own date, and a reading types every literal
+	// spelled as a date and time it gives (`folds.ts`, `device-instant-text`).
+	if (
+		moment &&
+		literal?.kind === "literal" &&
+		literal.data_type === undefined &&
+		typeof literal.value === "string" &&
+		literalShape(literal.value)?.type === "datetime"
+	)
+		return { kind: "term", term: { ...literal, data_type: "datetime" } };
+	if (
+		literal?.kind === "literal" &&
+		typeof literal.value === "string" &&
+		literalShape(literal.value)?.type === "date" &&
+		(literal.data_type === undefined || literal.data_type === "date")
+	) {
+		const { data_type: _type, ...rest } = literal;
+		const read: Expression = {
+			kind: "term",
+			term: given.has("date") ? { ...rest, data_type: "date" } : rest,
+		};
+		return sameJson(read, node) ? node : read;
+	}
+	const branching = valueBranches(node, path);
+	if (branching === undefined) return node;
+	const inside = new Set(given);
+	for (const type of readTypesGiven(node, path, root, context))
+		inside.add(type);
+	const branches = branching.branches.map((branch) =>
+		dayLiteralsAsRead(branch.value, branch.path, root, context, inside, moment),
+	);
+	return branches.every(
+		(branch, index) => branch === branching.branches[index]?.value,
+	)
+		? node
+		: branching.rebuild(branches);
+}
+
+/** Whether `node` is a branch of `parent`, an `if` or a `coalesce`, beside a
+ *  branch of a known type text does not agree with. */
+function besideUntextualBranch(
+	parent: Expression,
+	node: Expression,
+	context: ExpressionContext,
+): boolean {
+	const branches =
+		parent.kind === "if"
+			? [parent.then, parent.else]
+			: parent.kind === "coalesce"
+				? parent.values
+				: [];
+	if (!branches.includes(node)) return false;
+	return branches.some((branch) => {
+		if (branch === node) return false;
+		const literal = termOf(branch);
+		if (literal?.kind === "literal" && literal.value === null) return false;
+		let type: string | undefined;
+		try {
+			type = scalarDataType(typeOf(branch, context)?.data);
+		} catch {
+			return false;
+		}
+		return (
+			type !== undefined &&
+			type !== "_any" &&
+			type !== "text" &&
+			type !== "single_select" &&
+			type !== "multi_select"
+		);
+	});
+}
+
+/** The node of `tree` whose child stands at `path`; undefined at the root. */
+function parentOf(tree: Expression, path: CheckPath): Expression | undefined {
+	const prefix = (child: CheckPath) =>
+		child.length <= path.length &&
+		child.every((segment, index) => path[index] === segment);
+	let at: Expression = tree;
+	let atPath: CheckPath = [];
+	for (;;) {
+		const next = expressionChildren(at, atPath).find(
+			(child) => child.kind === "expression" && prefix(child.path),
+		);
+		if (next === undefined || next.kind !== "expression") return undefined;
+		if (next.path.length === path.length) return at;
+		at = next.value;
+		atPath = next.path;
+	}
+}
+
+/** Whether the node at `at` prints as a device prints it: anywhere outside a
+ *  search's CSQL, and in it where the device works the value out. */
+function printsOnDevice(
+	context: ExpressionContext,
+	at: { readonly path: CheckPath; readonly tree: Expression },
+): boolean {
+	return (
+		!printsCsql(context) ||
+		csqlPositionAt(positionsOf(at.tree), at.path) === "runtime"
+	);
+}
+
+/** The CSQL positions of a slot's tree, each worked out once. */
+const positionMemo = new WeakMap<Expression, CsqlPositionMap>();
+function positionsOf(tree: Expression): CsqlPositionMap {
+	let positions = positionMemo.get(tree);
+	if (positions === undefined) {
+		positions = csqlPositions(tree);
+		positionMemo.set(tree, positions);
+	}
+	return positions;
+}
+
+/** The untyped literal of `node`, a literal typed as the date, the date
+ *  and time or the time its own text spells; undefined for anything else. */
+function untypedShaped(node: Expression): Literal | undefined {
+	const literal = termOf(node);
+	if (
+		literal?.kind !== "literal" ||
+		literal.data_type === undefined ||
+		typeof literal.value !== "string" ||
+		literalShape(literal.value)?.type !== literal.data_type
+	)
+		return undefined;
+	const { data_type: _type, ...rest } = literal;
+	return rest;
+}
+
+/** Whether `node` gives a value through branches: an `if`, a `coalesce` or
+ *  a `switch`. */
+function isBranchNode(node: Expression): boolean {
+	return (
+		node.kind === "if" || node.kind === "coalesce" || node.kind === "switch"
+	);
+}
+
+/** `node` with every literal it gives untyped, where every value it can end
+ *  with, through each branch, is a literal (a typed one spelled as its type);
+ *  undefined otherwise. */
+function untypedBranches(node: Expression): Expression | undefined {
+	if (node.kind === "term") {
+		if (node.term.kind !== "literal") return undefined;
+		if (node.term.data_type === undefined) return node;
+		const untyped = untypedShaped(node);
+		return untyped === undefined ? undefined : { kind: "term", term: untyped };
+	}
+	if (node.kind === "if") {
+		const then = untypedBranches(node.then);
+		const otherwise = untypedBranches(node.else);
+		return then === undefined || otherwise === undefined
+			? undefined
+			: { ...node, then, else: otherwise };
+	}
+	if (node.kind === "coalesce") {
+		const values = node.values.map(untypedBranches);
+		return values.every((value) => value !== undefined)
+			? { ...node, values: values as typeof node.values }
+			: undefined;
+	}
+	if (node.kind === "switch") {
+		const fallback = untypedBranches(node.fallback);
+		const cases = node.cases.map((entry) => {
+			const then = untypedBranches(entry.then);
+			return then === undefined ? undefined : { ...entry, then };
+		});
+		return fallback === undefined ||
+			!cases.every((entry) => entry !== undefined)
+			? undefined
+			: { ...node, cases: cases as typeof node.cases, fallback };
+	}
+	return undefined;
+}
+
+/** `node`, a membership or a switch over a moment, with each value or case
+ *  a date-and-time literal the device compares with it as a moment
+ *  (`instant-literal`, one lowered equality per value) as the moment's
+ *  canonical text, the text its microseconds read back as. */
+function instantCaseLiterals(
+	node: Extract<Expression, { kind: "in" | "switch" }>,
+	context: ExpressionContext,
+): Expression | undefined {
+	if (context.ruleSet !== "record") return undefined;
+	const subject = node.kind === "in" ? node.left : node.on;
+	if (printsCsql(context) && readsSearchRow(subject)) return undefined;
+	const relit = (value: Literal): Literal => {
+		if (typeof value.value !== "string") return value;
+		const equality: Comparison = {
+			kind: "eq",
+			left: subject,
+			right: { kind: "term", term: value },
+		};
+		const operands = comparisonOperands(equality, context);
+		if (comparisonPlan("eq", operands.left, operands.right) !== "lowered")
+			return value;
+		const micros = literalInstantMicros(value.value);
+		const text = micros === undefined ? undefined : instantTextOfMicros(micros);
+		return text === undefined || text === value.value
+			? value
+			: { ...value, value: text };
+	};
+	if (node.kind === "in") {
+		const values = node.values.map((value) =>
+			value.kind === "literal" ? relit(value) : value,
+		);
+		return values.some((value, index) => value !== node.values[index])
+			? { ...node, values: values as typeof node.values }
+			: undefined;
+	}
+	const cases = node.cases.map((entry) => {
+		if (entry.when.kind !== "literal") return entry;
+		const when = relit(entry.when);
+		return when === entry.when ? entry : { ...entry, when };
+	});
+	return cases.some((entry, index) => entry !== node.cases[index])
+		? { ...node, cases: cases as typeof node.cases }
+		: undefined;
+}
+
+/** `node`, a membership of a date-and-time literal in date-and-time
+ *  literals, as the numbers a device folds each to where it compares them
+ *  as moments (`instant-literal-pair`, one equality per value). */
+function membershipLiteralPair(
+	node: Extract<Expression, { kind: "in" }>,
+	context: ExpressionContext,
+): Expression | undefined {
+	if (
+		context.ruleSet !== "record" ||
+		(printsCsql(context) && readsSearchRow(node))
+	)
+		return undefined;
+	const micros = (literal: Term | undefined): number | undefined => {
+		if (literal?.kind !== "literal" || typeof literal.value !== "string")
+			return undefined;
+		const value = literalInstantMicros(literal.value);
+		return value !== undefined && Number.isSafeInteger(value)
+			? value
+			: undefined;
+	};
+	const left = micros(termOf(node.left));
+	if (left === undefined) return undefined;
+	const values: Literal[] = [];
+	for (const value of node.values) {
+		const equality: Comparison = {
+			kind: "eq",
+			left: node.left,
+			right: { kind: "term", term: value },
+		};
+		const operands = comparisonOperands(equality, context);
+		const folded = micros(value);
+		if (
+			folded === undefined ||
+			operands.left.kind !== "leaf" ||
+			operands.right.kind !== "leaf" ||
+			comparisonPlan("eq", operands.left, operands.right) !== "lowered"
+		)
+			return undefined;
+		values.push({ kind: "literal", value: folded });
+	}
+	const [first, ...rest] = values;
+	return first === undefined
+		? undefined
+		: {
+				kind: "in",
+				left: { kind: "term", term: { kind: "literal", value: left } },
+				values: [first, ...rest],
+			};
+}
+
+/** Whether a range's two comparisons, joined, print as the range does where
+ *  `at` stands: everywhere but a row of a search's condition (the slot's
+ *  whole tree or a clause of its top-level `and`), where each clause of a
+ *  top-level `and` is a row of its own
+ *  (`suite/case-search/xpathQuery.ts::composeXPathQueryClauses`) and the
+ *  range is one. */
+function joinPrintsAsRange(
+	context: ExpressionContext,
+	at: { readonly path: CheckPath; readonly tree: Expression },
+): boolean {
+	if (!printsCsql(context)) return true;
+	if (at.path.length === 0) return false;
+	return !(
+		at.path.length === 2 &&
+		at.path[0] === "and" &&
+		at.tree.kind === "and"
+	);
+}
+
+/** `node`, a range, with each bound rewritten as `rewrite` rewrites its own
+ *  comparison with the range's operand (a device prints each bound so,
+ *  `fromExpression.ts`, `between`): a range where the rewrites keep one
+ *  operand, and the two comparisons joined where they do not and the join
+ *  prints as the range (`joinPrintsAsRange`); undefined where nothing
+ *  changes or the join would not print so. */
+function rangeAsComparisons(
+	node: Extract<Expression, { kind: "between" }>,
+	context: ExpressionContext,
+	at: { readonly path: CheckPath; readonly tree: Expression },
+	rewrite: (comparison: Comparison) => Expression | undefined,
+): Expression | undefined {
+	const side = (
+		bound: Expression | undefined,
+		kind: Comparison["kind"],
+	): Comparison | undefined => {
+		if (bound === undefined) return undefined;
+		const comparison: Comparison = { kind, left: node.left, right: bound };
+		const next = rewrite(comparison) ?? comparison;
+		return isComparison(next) && next.kind === kind ? next : undefined;
+	};
+	const lower = side(node.lower, node.lowerInclusive ? "gte" : "gt");
+	const upper = side(node.upper, node.upperInclusive ? "lte" : "lt");
+	if (
+		(node.lower !== undefined && lower === undefined) ||
+		(node.upper !== undefined && upper === undefined)
+	)
+		return undefined;
+	// Bounds whose comparisons no longer share an operand read back as those
+	// two comparisons, joined.
+	if (
+		lower !== undefined &&
+		upper !== undefined &&
+		!sameJson(lower.left, upper.left)
+	)
+		return joinPrintsAsRange(context, at)
+			? { kind: "and", clauses: [lower, upper] }
+			: undefined;
+	const left = (lower ?? upper)?.left ?? node.left;
+	const next: Expression = {
+		...node,
+		left,
+		...(lower === undefined ? {} : { lower: lower.right }),
+		...(upper === undefined ? {} : { upper: upper.right }),
+	};
+	return sameJson(next, node) ? undefined : next;
+}
+
+/** The row of `id` in the table. */
+function rowNamed(id: string): PrintCollision {
+	const row = PRINT_COLLISIONS.find((one) => one.id === id);
+	if (row === undefined)
+		throw new Error(`No print collision row is named ${id}.`);
+	return row;
+}
+
 /** Every row, in the order of the table. */
 export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	{
@@ -1082,6 +1488,130 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// A literal typed as the date, the date and time or the time its text
+		// spells, compared where the device's print does not lower it to a
+		// moment, prints that text whether it is typed or not; a reading types
+		// it only where its position requires the type (`literal-type`,
+		// `temporalLiterals.ts::typedWhereRequired`), so elsewhere it returns
+		// the untyped literal. A membership's subject is no such position.
+		id: "untyped-unrequired-literal",
+		rewrite(node, context, at) {
+			if (context.ruleSet !== "record" || !printsOnDevice(context, at))
+				return undefined;
+			if (isComparison(node)) {
+				const operands = comparisonOperands(node, context);
+				if (
+					comparisonPlan(node.kind, operands.left, operands.right) === "lowered"
+				)
+					return undefined;
+				const ordering = node.kind !== "eq" && node.kind !== "neq";
+				const side = (value: Expression, other: Expression): Expression => {
+					const untyped = untypedShaped(value);
+					if (untyped === undefined) return value;
+					// Ordered against a literal spelled as a date or a date and
+					// time, a reading types it (`temporalLiterals.ts`).
+					const otherText = stringLiteral(other);
+					const otherShape =
+						otherText === undefined ? undefined : literalShape(otherText)?.type;
+					if (ordering && (otherShape === "date" || otherShape === "datetime"))
+						return value;
+					// A literal on the other side gives the type its reading gives.
+					const opposite = untypedShaped(other);
+					const read = shapedLiteral(
+						untyped,
+						opposite === undefined ? other : { kind: "term", term: opposite },
+						context,
+						ordering,
+					);
+					return read.data_type === undefined
+						? { kind: "term", term: untyped }
+						: value;
+				};
+				// An equality of literals and branch nodes of literals alone, a
+				// branch node among them, reads every literal untyped.
+				if (!ordering) {
+					const left = untypedBranches(node.left);
+					const right = untypedBranches(node.right);
+					if (
+						left !== undefined &&
+						right !== undefined &&
+						(isBranchNode(node.left) || isBranchNode(node.right))
+					)
+						return sameJson(left, node.left) && sameJson(right, node.right)
+							? undefined
+							: { ...node, left, right };
+				}
+				const left = side(node.left, node.right);
+				const right = side(node.right, node.left);
+				return left === node.left && right === node.right
+					? undefined
+					: { ...node, left, right };
+			}
+			if (node.kind === "in") {
+				// A branch node of literals alone tested against literals alone
+				// reads every literal untyped.
+				const branches = isBranchNode(node.left)
+					? untypedBranches(node.left)
+					: undefined;
+				if (
+					branches !== undefined &&
+					node.values.every((value) => value.kind === "literal")
+				) {
+					const lowered = node.values.some((value) => {
+						const equality: Comparison = {
+							kind: "eq",
+							left: node.left,
+							right: { kind: "term", term: value },
+						};
+						const operands = comparisonOperands(equality, context);
+						return (
+							comparisonPlan("eq", operands.left, operands.right) === "lowered"
+						);
+					});
+					if (lowered) return undefined;
+					const values = node.values.map(
+						(value) =>
+							(value.kind === "literal"
+								? untypedShaped({ kind: "term", term: value })
+								: undefined) ?? value,
+					);
+					const next = {
+						...node,
+						left: branches,
+						values: values as typeof node.values,
+					};
+					return sameJson(next, node) ? undefined : next;
+				}
+				const untyped = untypedShaped(node.left);
+				if (untyped === undefined) return undefined;
+				const lowered = node.values.some((value) => {
+					const equality: Comparison = {
+						kind: "eq",
+						left: node.left,
+						right: { kind: "term", term: value },
+					};
+					const operands = comparisonOperands(equality, context);
+					return (
+						comparisonPlan("eq", operands.left, operands.right) === "lowered"
+					);
+				});
+				if (lowered) return undefined;
+				const left: Expression = { kind: "term", term: untyped };
+				const values = node.values.map((value) => {
+					if (value.kind !== "literal") return value;
+					const bare = untypedShaped({ kind: "term", term: value });
+					if (bare === undefined) return value;
+					return shapedLiteral(bare, left, context, false).data_type ===
+						undefined
+						? bare
+						: value;
+				});
+				return { ...node, left, values: values as typeof node.values };
+			}
+			return undefined;
+		},
+	},
+	{
 		// A case write of a date and time writes a date-and-time literal as
 		// the text CommCare HQ stores for its moment (`xform/caseOps.ts`,
 		// through `datetimeCaseValue`), so every spelling of one moment
@@ -1116,14 +1646,35 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// two number literals of those integers print as; neither position
 		// requires a date and time, since neither side gives a type, so the
 		// reader reads the numbers and this row returns them. A search's
-		// condition, and a list filter its search restates, print the
-		// literals into CSQL as written.
+		// condition, and a list filter its search restates, print a
+		// comparison that reads the case into CSQL as written, and one that
+		// reads no case as the device's choice of all cases or none.
 		id: "instant-literal-pair",
-		rewrite(node, context) {
+		rewrite(node, context, at) {
+			if (node.kind === "in") return membershipLiteralPair(node, context);
+			if (node.kind === "between") {
+				const split = rangeAsComparisons(node, context, at, (comparison) =>
+					rowNamed("instant-literal-pair").rewrite(comparison, context, at),
+				);
+				// A range of a moment literal one of whose bounds is a moment
+				// literal and the other not prints that bound as two counts and
+				// the other as the literal's count, which reads back as the
+				// range (`folds.ts::momentPair`).
+				return split?.kind === "and" &&
+					split.clauses.some(
+						(clause) =>
+							isComparison(clause) &&
+							clause.left.kind === "term" &&
+							clause.left.term.kind === "literal" &&
+							clause.left.term.data_type === "datetime",
+					)
+					? undefined
+					: split;
+			}
 			if (
 				!isComparison(node) ||
 				context.ruleSet !== "record" ||
-				printsCsql(context)
+				(printsCsql(context) && readsSearchRow(node))
 			)
 				return undefined;
 			const operands = comparisonOperands(node, context);
@@ -1152,15 +1703,17 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// A device compares a date-and-time literal as the integer it folds
 		// to, so every spelling of one moment prints alike there. A search's
 		// condition, and a list filter its search restates, print the literal
-		// as written into CSQL, which tells the spellings apart.
+		// of a comparison that reads the case as written into CSQL, which
+		// tells the spellings apart.
 		id: "instant-literal",
-		rewrite(node, context) {
-			if (
-				!isComparison(node) ||
-				context.slot.slot === "search_input_predicate" ||
-				(context.slot.slot === "case_list_filter" &&
-					context.profile.targets.has("CS"))
-			)
+		rewrite(node, context, at) {
+			if (node.kind === "in" || node.kind === "switch")
+				return instantCaseLiterals(node, context);
+			if (node.kind === "between")
+				return rangeAsComparisons(node, context, at, (comparison) =>
+					rowNamed("instant-literal").rewrite(comparison, context, at),
+				);
+			if (!isComparison(node) || (printsCsql(context) && readsSearchRow(node)))
 				return undefined;
 			const operands = comparisonOperands(node, context);
 			if (
@@ -1218,8 +1771,9 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	},
 	{
 		// A date or a date-and-time literal, or a `datetime-coerce` of one, that
-		// a record slot's whole value, a part of a `concat` or the value of a
-		// `date()` or a `datetime()` gives, as itself or through the branches
+		// a record slot's whole value, a part of a `concat`, the value of a
+		// `date()`, a `datetime()` or a `double()`, the value a blank test, a
+		// pattern or a match tests gives, as itself or through the branches
 		// of an `if`, `coalesce`, `switch` or `cond`, prints as its text whether
 		// it is typed or not, and none of those positions requires the type. The
 		// reader types such text only where its position requires the type
@@ -1230,7 +1784,41 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		id: "untyped-value-literal",
 		rewrite(node, context, at) {
 			if (context.ruleSet !== "record" || printsCsql(context)) return undefined;
-			if (node.kind === "date-coerce" || node.kind === "datetime-coerce") {
+			// A typed date and time inside `date()` prints read in the device's
+			// own date (`fromExpression.ts::deviceTemporalValue`), which the
+			// untyped text does not; a typed date prints as its text.
+			if (node.kind === "date-coerce") {
+				const value = dayLiteralsAsRead(
+					node.value,
+					["value"],
+					node,
+					context,
+					new Set(),
+					givesMoment(node.value, ["value"]),
+				);
+				return value === node.value ? undefined : { ...node, value };
+			}
+			if (node.kind === "datetime-coerce" || node.kind === "double") {
+				const value = untypedValueLiterals(
+					node.value,
+					["value"],
+					node,
+					context,
+					new Set(),
+				);
+				return value === node.value ? undefined : { ...node, value };
+			}
+			if (node.kind === "is-blank" || node.kind === "matches-pattern") {
+				const left = untypedValueLiterals(
+					node.left,
+					["left"],
+					node,
+					context,
+					new Set(),
+				);
+				return left === node.left ? undefined : { ...node, left };
+			}
+			if (node.kind === "match") {
 				const value = untypedValueLiterals(
 					node.value,
 					["value"],
@@ -1326,6 +1914,24 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// A device joins a junction's clauses as one list, a clause of the same
+		// junction's own clauses among them (`wire/builders.ts::logical`), so
+		// `or(a, or(b, c))` prints `a or b or c` there.
+		id: "device-nested-junction",
+		rewrite(node, context, at) {
+			if (
+				(node.kind !== "and" && node.kind !== "or") ||
+				!printsOnDevice(context, at) ||
+				!node.clauses.some((clause) => clause.kind === node.kind)
+			)
+				return undefined;
+			const clauses = node.clauses.flatMap((clause): Expression[] =>
+				clause.kind === node.kind ? [...clause.clauses] : [clause],
+			);
+			return { kind: node.kind, clauses: clauses as typeof node.clauses };
+		},
+	},
+	{
 		// A device prints `in` as the `or` of its equalities, which joins an
 		// `or` around it as that many clauses (`wire/builders.ts::w.or`), so an
 		// `in` in an `or` prints its equalities there. CSQL parenthesizes it.
@@ -1348,6 +1954,45 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 					: [clause],
 			);
 			return { kind: "or", clauses: clauses as typeof node.clauses };
+		},
+	},
+	{
+		// A device prints a range with both bounds as the `and` of its two
+		// comparisons (`fromExpression.ts`, `between`), which joins an `and`
+		// around it as two clauses (`wire/builders.ts::logical`), so a range in
+		// an `and` prints its comparisons there.
+		id: "device-range-in-conjunction",
+		rewrite(node, context, at) {
+			if (
+				node.kind !== "and" ||
+				!printsOnDevice(context, at) ||
+				!node.clauses.some(
+					(clause) =>
+						clause.kind === "between" &&
+						clause.lower !== undefined &&
+						clause.upper !== undefined,
+				)
+			)
+				return undefined;
+			const clauses = node.clauses.flatMap((clause): Expression[] =>
+				clause.kind === "between" &&
+				clause.lower !== undefined &&
+				clause.upper !== undefined
+					? [
+							{
+								kind: clause.lowerInclusive ? "gte" : "gt",
+								left: clause.left,
+								right: clause.lower,
+							},
+							{
+								kind: clause.upperInclusive ? "lte" : "lt",
+								left: clause.left,
+								right: clause.upper,
+							},
+						]
+					: [clause],
+			);
+			return { kind: "and", clauses: clauses as typeof node.clauses };
 		},
 	},
 	{
@@ -1384,13 +2029,403 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	},
 	{
 		// A `null` literal prints as the empty text in every target
-		// (`fromExpression.ts::wireLiteral`, `csql/emitter.ts::termValue`).
+		// (`fromExpression.ts::wireLiteral`, `csql/emitter.ts::termValue`), a
+		// switch's case among them.
 		id: "null-literal",
-		rewrite(node) {
+		rewrite(node, context, at) {
+			const blank = (literal: Literal): Literal => {
+				if (literal.value !== null) return literal;
+				const { data_type: _type, ...rest } = literal;
+				return { ...rest, value: "" };
+			};
+			if (node.kind === "in" || node.kind === "multi-select-contains") {
+				const values = node.values.map((value) =>
+					value.kind === "literal" ? blank(value) : value,
+				);
+				return values.some((value, index) => value !== node.values[index])
+					? ({ ...node, values } as Expression)
+					: undefined;
+			}
+			if (node.kind === "switch") {
+				const cases = node.cases.map(
+					(entry): SwitchCase =>
+						entry.when.kind === "literal"
+							? { ...entry, when: blank(entry.when) }
+							: entry,
+				);
+				return cases.some(
+					(entry, index) => entry.when !== node.cases[index]?.when,
+				)
+					? { ...node, cases: cases as typeof node.cases }
+					: undefined;
+			}
 			const term = termOf(node);
 			if (term?.kind !== "literal" || term.value !== null) return undefined;
-			const { data_type: _type, ...rest } = term;
-			return { kind: "term", term: { ...rest, value: "" } };
+			// A record ordering takes no text, nor does a branch beside a branch
+			// of a type text does not agree with, so a blank there reads as
+			// `null` (`folds.ts`, `blank-branch`).
+			const parent = parentOf(at.tree, at.path);
+			if (
+				context.ruleSet === "record" &&
+				parent !== undefined &&
+				(ORDERING_KINDS.has(parent.kind) ||
+					parent.kind === "between" ||
+					besideUntextualBranch(parent, node, context))
+			)
+				return undefined;
+			return { kind: "term", term: blank(term) };
+		},
+	},
+	{
+		// A slot whose print drops boolean identities prints a blank test of a
+		// fixed value as the answer it always gives
+		// (`simplify.ts::simplifyForEmission`), which reads back as that answer.
+		id: "simplified-blank-literal",
+		rewrite(node, context) {
+			if (!simplifiedSlot(context) || node.kind !== "is-blank")
+				return undefined;
+			const simplified = simplifyForEmission(node);
+			return simplified.kind === "match-all" || simplified.kind === "match-none"
+				? simplified
+				: undefined;
+		},
+	},
+	{
+		// A minus sign before a positive number prints that negative number's
+		// text, which the form parser binds as the negative literal
+		// (`expressionAst.ts`, `negative`). Before zero or a negative number it
+		// stays a negation: no stored number is negative zero, and two minus
+		// signs bind as the negation of the negative number. CSQL prints a
+		// number as its text and a negation it holds whole as a value the
+		// device works out, which reads back as that negation; inside a
+		// value the device works out it prints as a device does.
+		id: "negated-number-literal",
+		rewrite(node, context, at) {
+			if (
+				node.kind !== "negate" ||
+				(printsCsql(context) &&
+					isRuntimeSubtreeRoot(positionsOf(at.tree), at.path))
+			)
+				return undefined;
+			const literal = termOf(node.value);
+			if (
+				literal?.kind !== "literal" ||
+				typeof literal.value !== "number" ||
+				!(literal.value > 0)
+			)
+				return undefined;
+			return {
+				kind: "term",
+				term: { ...literal, value: -literal.value },
+			};
+		},
+	},
+	{
+		// A `format-date` preset prints as the pattern it names in every target
+		// (`fromExpression.ts`, `dateFormats.ts::resolveCommCareDatePattern`),
+		// which the reading binds as that pattern's text.
+		id: "format-date-preset",
+		rewrite(node) {
+			if (node.kind !== "format-date" || typeof node.pattern !== "string")
+				return undefined;
+			const pattern = resolveCommCareDatePattern(node.pattern);
+			return pattern === node.pattern ? undefined : { ...node, pattern };
+		},
+	},
+	{
+		// A range with one bound prints as its one comparison, on a device
+		// (`fromExpression.ts`, `between`) and in CSQL alike, which reads back
+		// as that comparison.
+		id: "one-sided-range",
+		rewrite(node) {
+			if (node.kind !== "between") return undefined;
+			if ((node.lower === undefined) === (node.upper === undefined))
+				return undefined;
+			return node.lower !== undefined
+				? {
+						kind: node.lowerInclusive ? "gte" : "gt",
+						left: node.left,
+						right: node.lower,
+					}
+				: {
+						kind: node.upperInclusive ? "lte" : "lt",
+						left: node.left,
+						right: node.upper as Expression,
+					};
+		},
+	},
+	{
+		// A yes or no literal prints as the text `true` or `false` in every
+		// target (`fromExpression.ts::wireLiteral`, `csql/emitter.ts`), which
+		// reads back as that text.
+		id: "boolean-literal",
+		rewrite(node, _context, at) {
+			const text = (literal: Literal): Literal =>
+				typeof literal.value === "boolean"
+					? { kind: "literal", value: String(literal.value) }
+					: literal;
+			if (node.kind === "in") {
+				const values = node.values.map((value) =>
+					value.kind === "literal" ? text(value) : value,
+				);
+				return values.some((value, index) => value !== node.values[index])
+					? { ...node, values: values as typeof node.values }
+					: undefined;
+			}
+			if (node.kind === "multi-select-contains") {
+				const values = node.values.map((value) =>
+					value.kind === "literal" ? text(value) : value,
+				);
+				return values.some((value, index) => value !== node.values[index])
+					? { ...node, values: values as typeof node.values }
+					: undefined;
+			}
+			if (node.kind === "switch") {
+				const cases = node.cases.map((entry) =>
+					entry.when.kind === "literal" && text(entry.when) !== entry.when
+						? { ...entry, when: text(entry.when) }
+						: entry,
+				);
+				return cases.some((entry, index) => entry !== node.cases[index])
+					? { ...node, cases: cases as typeof node.cases }
+					: undefined;
+			}
+			const literal = termOf(node);
+			if (literal?.kind !== "literal" || typeof literal.value !== "boolean")
+				return undefined;
+			// A `datetime-coerce` reads a yes or no as no text
+			// (`instantOperand.ts`, class `not-instant`), which prints
+			// otherwise than the text `true`; `coerced-day` takes it first.
+			if (parentOf(at.tree, at.path)?.kind === "datetime-coerce")
+				return undefined;
+			return { kind: "term", term: text(literal) };
+		},
+	},
+	{
+		// The absence of a related case prints as the negation of its
+		// presence on a device and in CSQL alike (`fromExpression.ts`,
+		// `csql/emitter.ts`, `missing`), which reads back as the absence.
+		id: "negated-presence",
+		rewrite(node, context) {
+			if (
+				context.ruleSet !== "record" ||
+				node.kind !== "not" ||
+				node.clause.kind !== "exists"
+			)
+				return undefined;
+			return { ...node.clause, kind: "missing" };
+		},
+	},
+	{
+		// On a device a `datetime-coerce` of a `datetime-coerce` prints as the
+		// inner one (`instantOperand.ts`, a coercion's own value is coerced
+		// once), which reads back as that one.
+		id: "coerced-coercion",
+		rewrite(node, context, at) {
+			if (
+				node.kind !== "datetime-coerce" ||
+				node.value.kind !== "datetime-coerce" ||
+				context.ruleSet !== "record" ||
+				!printsOnDevice(context, at)
+			)
+				return undefined;
+			return node.value;
+		},
+	},
+	{
+		// On a device a membership of one value prints as its one equality
+		// (`fromExpression.ts`, `in`), which reads back as that equality; a
+		// list filter its search restates is read in the list's spelling.
+		id: "one-value-membership",
+		rewrite(node, context) {
+			if (
+				node.kind !== "in" ||
+				node.values.length !== 1 ||
+				context.ruleSet !== "record" ||
+				context.slot.slot === "search_input_predicate"
+			)
+				return undefined;
+			const [only] = node.values;
+			return {
+				kind: "eq",
+				left: node.left,
+				right: { kind: "term", term: only },
+			};
+		},
+	},
+	{
+		// A Search field's condition prints as CSQL, which puts a case
+		// property compared on the right onto the left with the comparison
+		// mirrored (`csql/representability.ts::normalizeCsqlPredicate`), and
+		// the row reads back so.
+		id: "csql-anchor-left",
+		rewrite(node, context) {
+			if (
+				context.slot.slot !== "search_input_predicate" ||
+				!isComparison(node) ||
+				isCsqlQueryAnchor(node.left) ||
+				!isCsqlQueryAnchor(node.right)
+			)
+				return undefined;
+			return {
+				kind: MIRRORED_COMPARISONS[node.kind],
+				left: node.right,
+				right: node.left,
+			};
+		},
+	},
+	{
+		// On a device a distance test with a fixed distance in a fixed unit
+		// prints its radius as one number of meters
+		// (`fromExpression.ts::metersBound`), which reads as that many meters;
+		// CSQL keeps the unit as written.
+		id: "within-distance-in-meters",
+		rewrite(node, context) {
+			if (
+				node.kind !== "within-distance" ||
+				printsCsql(context) ||
+				typeof node.distance !== "number" ||
+				typeof node.unit !== "string" ||
+				node.unit === "meters"
+			)
+				return undefined;
+			return {
+				...node,
+				distance: distanceToMeters(node.distance, node.unit),
+				unit: "meters",
+			};
+		},
+	},
+	{
+		// On a device a `datetime-coerce` of date-and-time text prints that
+		// text as it is (`instant.ts::datetimeCoerceValue`, class `text`),
+		// which reads back as the value alone; CSQL keeps `datetime()` as
+		// written.
+		id: "moment-text-coercion",
+		rewrite(node, context, at) {
+			if (
+				node.kind !== "datetime-coerce" ||
+				context.ruleSet !== "record" ||
+				!printsOnDevice(context, at)
+			)
+				return undefined;
+			const operand = domainInstantOperand(node, context);
+			return operand.kind === "leaf" && operand.class === "text"
+				? operand.value
+				: undefined;
+		},
+	},
+	{
+		// On a device a `datetime-coerce` of a branch node prints the
+		// coercion of each branch inside the node
+		// (`instant.ts::datetimeCoerceValue`), which reads back as the node of
+		// coerced branches; CSQL keeps `datetime()` as written.
+		id: "coerced-branches",
+		rewrite(node, context, at) {
+			if (
+				node.kind !== "datetime-coerce" ||
+				context.ruleSet !== "record" ||
+				!printsOnDevice(context, at)
+			)
+				return undefined;
+			const branching = valueBranches(node.value, []);
+			if (branching === undefined) return undefined;
+			return branching.rebuild(
+				branching.branches.map(
+					(branch): Expression => ({
+						kind: "datetime-coerce",
+						value: branch.value,
+					}),
+				),
+			);
+		},
+	},
+	{
+		// On a device a `datetime-coerce` inside another node (an operand, a
+		// date a function reads) of a value that names no moment as text (a
+		// date the case database holds as a day, a value of no type a device
+		// holds as neither text nor a date) prints `date()` of the value (`instant.ts::datetimeCoerceValue`), which is what the date
+		// coercion of it prints, and reads back as that.
+		id: "coerced-day",
+		rewrite(node, context, at) {
+			const parent = parentOf(at.tree, at.path);
+			if (
+				node.kind !== "datetime-coerce" ||
+				context.ruleSet !== "record" ||
+				!printsOnDevice(context, at) ||
+				parent === undefined
+			)
+				return undefined;
+			const operand = domainInstantOperand(node, context);
+			if (operand.kind !== "leaf") return undefined;
+			const printsDate =
+				operand.class === "day-only" ||
+				operand.class === "not-instant" ||
+				operand.class === "clock-lost" ||
+				(operand.class === "unknown" &&
+					operand.held !== "date" &&
+					operand.held !== "string");
+			if (
+				!printsDate ||
+				mayHoldInstantText(domainInstantOperand(operand.value, context))
+			)
+				return undefined;
+			return { kind: "date-coerce", value: operand.value };
+		},
+	},
+	{
+		// A comparison a device lowers to microseconds reads a typed date and
+		// time the same whether it is coerced or not
+		// (`instant.ts::instantMicros`), and reads back without the coercion.
+		id: "coerced-moment-operand",
+		rewrite(node, context, at) {
+			if (node.kind === "between")
+				return rangeAsComparisons(node, context, at, (comparison) =>
+					rowNamed("coerced-moment-operand").rewrite(comparison, context, at),
+				);
+			if (
+				!isComparison(node) ||
+				context.ruleSet !== "record" ||
+				!printsOnDevice(context, at)
+			)
+				return undefined;
+			const operands = comparisonOperands(node, context);
+			if (
+				comparisonPlan(node.kind, operands.left, operands.right) !== "lowered"
+			)
+				return undefined;
+			const bare = (side: Expression): Expression => {
+				if (side.kind !== "datetime-coerce") return side;
+				const own = domainInstantOperand(side.value, context);
+				return own.kind === "leaf" && own.class === "typed" ? side.value : side;
+			};
+			const left = bare(node.left);
+			const right = bare(node.right);
+			return left === node.left && right === node.right
+				? undefined
+				: { ...node, left, right };
+		},
+	},
+	{
+		// A record slot a menu, a list or a search evaluates reads a standard
+		// property of its row's case by the property's name alone, whatever
+		// case type the read names, and a reading binds it to the row's type.
+		// A form's source prints a typed read from the case database.
+		id: "typed-row-standard-property",
+		rewrite(node, context) {
+			if (context.ruleSet !== "record" || context.profile.targets.has("XF"))
+				return undefined;
+			const term = termOf(node);
+			if (
+				term?.kind !== "prop" ||
+				term.caseType !== undefined ||
+				term.via !== undefined ||
+				!isStandardCaseListProperty(term.property)
+			)
+				return undefined;
+			const row = activeRowScope(context);
+			if (row?.kind !== "case" || row.caseType === undefined) return undefined;
+			return { kind: "term", term: { ...term, caseType: row.caseType } };
 		},
 	},
 	{
@@ -1856,16 +2891,24 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
-		// A device writes a presence test's candidates `[<type test> and
-		// true()]` with no condition and with `match-all`, which prints
-		// `true()`; a Search field's condition prints as CSQL, which tells
-		// the two apart.
+		// A device writes a presence test's candidates, and an ancestor
+		// count's, `[<type test> and true()]` with no condition and with
+		// `match-all`, which prints `true()`; a Search field's condition prints
+		// as CSQL, which tells the two apart. A count of child cases keeps the
+		// condition's own print.
 		id: "relation-where-match-all",
 		rewrite(node, context) {
 			if (
 				context.ruleSet !== "record" ||
 				context.slot.slot === "search_input_predicate" ||
-				(node.kind !== "exists" && node.kind !== "missing") ||
+				(node.kind !== "exists" &&
+					node.kind !== "missing" &&
+					!(
+						node.kind === "count" &&
+						typeof node.via === "object" &&
+						"kind" in node.via &&
+						node.via.kind === "ancestor"
+					)) ||
 				node.where?.kind !== "match-all"
 			)
 				return undefined;
@@ -1996,7 +3039,16 @@ export function canonicalExpression(
 	context: ExpressionContext,
 	print: SlotPrint = {},
 ): Expression {
-	return settledBy(PRINT_COLLISIONS, expression, context, print);
+	// A row that rewrites a node can give children another row rewrites,
+	// which one bottom-up pass has already passed, so the passes repeat until
+	// one changes nothing.
+	let current = expression;
+	for (let pass = 0; pass < 8; pass++) {
+		const next = settledBy(PRINT_COLLISIONS, current, context, print);
+		if (sameJson(next, current)) return next;
+		current = next;
+	}
+	return current;
 }
 
 /** The `relation-type` row alone, bottom-up: each relation path typed as the
@@ -2028,13 +3080,19 @@ function settledBy(
 	const settle = (
 		node: Expression,
 		at: ExpressionContext,
-		root: boolean,
+		path: CheckPath,
 	): Expression => {
+		const root = path.length === 0;
 		let current = node;
 		for (let turn = 0; turn < rows.length * 4; turn++) {
 			let next: Expression | undefined;
 			for (const row of rows) {
-				next = row.rewrite(current, at, { root, print });
+				next = row.rewrite(current, at, {
+					root,
+					print,
+					path,
+					tree: expression,
+				});
 				if (next !== undefined && next !== current) break;
 				next = undefined;
 			}
@@ -2060,6 +3118,6 @@ function settledBy(
 			path,
 		);
 	const visit = (node: Expression, path: CheckPath): Expression =>
-		settle(visitChildren(node, path), contextAt(path), path.length === 0);
+		settle(visitChildren(node, path), contextAt(path), path);
 	return visit(expression, []);
 }

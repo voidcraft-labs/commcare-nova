@@ -25,6 +25,7 @@ import { splitName } from "../../xmlNamespaces";
 import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
 import { applicationReading } from "../appShell";
+import { numericSortColumns } from "../caseList/details";
 import type { Claim } from "../claims";
 import type { DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
@@ -1008,6 +1009,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		recordDialect: ctx.input.recordDialect,
 		entryFactsRefused: new Set(ctx.facts.entryFactsRefused),
 		dateRangeGuesses: dateRangeGuesses(ctx),
+		numericSortColumns: numericSortColumns(ctx),
 		formPlaces,
 		computedDatums,
 		...(ctx.input.knownCaseTypes !== undefined && {

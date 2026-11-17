@@ -558,6 +558,20 @@ function caseListPlace(
 	return { kind, menu: module.index, name };
 }
 
+/** The number type each calculated column's stored order element compares it by, by the column's
+ *  uuid, over every list the reading's first pass read whole. */
+export function numericSortColumns(
+	ctx: ReadContext,
+): ReadonlyMap<Uuid, "int" | "double"> {
+	const out = new Map<Uuid, "int" | "double">();
+	for (const reading of caseListReadings(ctx).values())
+		for (const [target, type] of reading.sort.numericColumns) {
+			const uuid = reading.uuids[target];
+			if (uuid !== undefined) out.set(uuid, type);
+		}
+	return out;
+}
+
 /** Records a same-state rewrite a comparison allows: the entry, the JSON Pointer, the register row. */
 export function sameState(
 	ctx: ReadContext,

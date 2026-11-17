@@ -3,7 +3,9 @@
  * fuzz document's export gives the document's canonical form, exactly.
  *
  * Contract: for each document of the compiler's fuzz corpora (the field-tree
- * corpus, the workflow corpus, and the temporal-branch corpus, the workflow
+ * corpus, the workflow corpus, the record-expression corpus, every record
+ * slot a menu, a list, a search or a form's entry evaluates holding a tree
+ * drawn from the whole record rule set, and the temporal-branch corpus, the workflow
  * corpus with a value-giving branch that gives a date or a date and time, from
  * a case property or from literals alone, in the record slots that read the
  * menu's case, and the typed-literal corpus, the workflow corpus with a typed
@@ -17,7 +19,9 @@
  * declarations the reading offers, is empty. A first reading of each
  * temporal-branch export, told no UUID, no property's type and no language's
  * code, as a bring-in is, reads with no finding and no reader defect, and so
- * does a first reading of each typed-literal export.
+ * does a first reading of each typed-literal and record-expression export.
+ * The temporal-branch and typed-literal corpora draw their classes in nearly
+ * every document, which the record-expression corpus draws in few.
  *
  * Plausible failure: a pair of documents that print one export which the
  * canonical list lacks, a slot the reader reads back as something else, or
@@ -37,6 +41,10 @@
 
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import {
+	recordExpressionDocArbitrary,
+	recordSlotsOf,
+} from "@/lib/commcare/__tests__/recordExpressionArbitrary";
 import { suiteDocArbitrary } from "@/lib/commcare/__tests__/suiteDocArbitrary";
 import { temporalBranchDocArbitrary } from "@/lib/commcare/__tests__/temporalBranchArbitrary";
 import { typedLiteralDocArbitrary } from "@/lib/commcare/__tests__/typedLiteralArbitrary";
@@ -94,6 +102,11 @@ function at(doc: BlueprintDoc, path: readonly string[]): string {
 	return (JSON.stringify(node) ?? "nothing").slice(0, 160);
 }
 
+/** The record-expression corpus's budget per property, over three times
+ *  what its sixty runs take alone (a draw asks the gate of every placement
+ *  it tries, so the corpus costs more a run than the others). */
+const RECORD_BUDGET = 60_000;
+
 describe("a read back of a fuzz document's export", () => {
 	// Each run is one expansion, one served source, one whole reading and one
 	// canonical form. A temporal-branch or typed-literal run also asks the
@@ -101,14 +114,15 @@ describe("a read back of a fuzz document's export", () => {
 	// the runs for about the time of the workflow corpus's hundred (some
 	// twenty to thirty seconds each, beside another suite). The bound leaves a
 	// shared CI runner under load room.
-	for (const [name, arbitrary, numRuns] of [
-		["field-tree", blueprintDocArbitrary, 100],
-		["workflow", suiteDocArbitrary, 100],
-		["temporal-branch", temporalBranchDocArbitrary, 50],
-		["typed-literal", typedLiteralDocArbitrary, 50],
+	for (const [name, arbitrary, numRuns, timeout] of [
+		["field-tree", blueprintDocArbitrary, 100, 120_000],
+		["workflow", suiteDocArbitrary, 100, 120_000],
+		["temporal-branch", temporalBranchDocArbitrary, 50, 120_000],
+		["typed-literal", typedLiteralDocArbitrary, 50, 120_000],
+		["record-expression", recordExpressionDocArbitrary, 60, RECORD_BUDGET],
 	] as const)
 		it(`gives the document's canonical form, over the ${name} corpus`, {
-			timeout: 120_000,
+			timeout,
 		}, async () => {
 			await fc.assert(
 				fc.asyncProperty(arbitrary, async (doc) => {
@@ -220,13 +234,32 @@ function holdsTypedLiteral(doc: BlueprintDoc): boolean {
 	});
 }
 
+/** Whether a record slot of `doc` a menu, a list, a search or a form's entry
+ *  evaluates holds an expression. */
+function holdsRecordExpression(doc: BlueprintDoc): boolean {
+	return recordSlotsOf(doc).length > 0;
+}
+
 describe("a first reading of a fuzz document's export", () => {
-	for (const [name, arbitrary, holds] of [
-		["temporal-branch", temporalBranchDocArbitrary, holdsTemporalBranch],
-		["typed-literal", typedLiteralDocArbitrary, holdsTypedLiteral],
+	for (const [name, arbitrary, holds, numRuns, timeout] of [
+		[
+			"temporal-branch",
+			temporalBranchDocArbitrary,
+			holdsTemporalBranch,
+			50,
+			120_000,
+		],
+		["typed-literal", typedLiteralDocArbitrary, holdsTypedLiteral, 50, 120_000],
+		[
+			"record-expression",
+			recordExpressionDocArbitrary,
+			holdsRecordExpression,
+			60,
+			RECORD_BUDGET,
+		],
 	] as const)
 		it(`reads, over the ${name} corpus, where no export carries a property's type`, {
-			timeout: 120_000,
+			timeout,
 		}, async () => {
 			let drawn = 0;
 			await fc.assert(
@@ -235,9 +268,9 @@ describe("a first reading of a fuzz document's export", () => {
 					const failure = await firstReadingFailure(doc);
 					if (failure !== null) throw new Error(failure);
 				}),
-				{ seed: 20261115, numRuns: 50 },
+				{ seed: 20261115, numRuns },
 			);
 			// The corpus draws the class it exists for.
-			expect(drawn).toBeGreaterThan(25);
+			expect(drawn).toBeGreaterThan(numRuns / 2);
 		});
 });
