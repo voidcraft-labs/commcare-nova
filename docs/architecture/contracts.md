@@ -105,11 +105,13 @@ deeply immutable admitted batch and persist, stream, and return that same value,
 not a caller-owned object or a re-diffed candidate document. Mutation-bearing
 durable readers reassert the same final schema contract before replay.
 `app_changes` has its own exact envelope admission: the closed kind set is
-`autosave | mcp | chat | publish-placement | blueprint-migration | fold-baseline | project-move`.
-The first five carry a nonempty admitted mutation batch and null Project-move
+`autosave | mcp | chat | publish-placement | blueprint-migration | hq-changes | fold-baseline | project-move`.
+The first six carry a nonempty admitted mutation batch and null Project-move
 columns; `publish-placement` is written only by a publish, at the head it
 emitted and before anything reaches CommCare HQ, and holds only placement
-holds; `fold-baseline` carries exactly `[]`, null Project-move columns, and
+holds; `hq-changes` is written only by a bring-in of changes made in CommCare
+HQ, at the head it was reviewed at, by the member who chose it, and carries no
+run; `fold-baseline` carries exactly `[]`, null Project-move columns, and
 one matching immutable baseline; `project-move` carries `[]` or the nonempty
 media-remap batch and requires nonblank distinct source/destination Project
 identities. This is mutation and app-change admission, not a second historical
@@ -118,7 +120,7 @@ parser or a post-write normalizer.
 The browser collaboration frame is intentionally narrower: it accepts only
 `autosave | mcp | chat | publish-placement`, which open tabs fold without a
 reload, keeping their undo history. If a suffix contains `blueprint-migration`,
-`fold-baseline`, or `project-move`, the server first validates that complete
+`hq-changes`, `fold-baseline`, or `project-move`, the server first validates that complete
 durable suffix, then the client reauthorizes and reloads the current app
 snapshot before it may consume any earlier ordinary frames from that suffix.
 Canonical folding starts from the greatest immutable baseline and its stored
@@ -357,11 +359,13 @@ These decisions are closed unless the project owner explicitly reopens them.
   it. Manage in Nova is the one way a person hands such a table to Nova, and it
   is recorded on the table with who and when.
 - Nova never writes over a change made in CommCare HQ since its last publish
-  there, or since it brought the app in, without a person's word. Every such
+  there, since it brought the app in or since it last brought changes in from
+  there, without a person's word. Every such
   decision a person can answer is made in preflight, before any write, by
   comparing HQ's current read of the app, each mapped lookup table and each
-  mapped place with HQ's own read after Nova's last push, or the read the app
-  was brought in from. One `hq_changed` refusal lists every change of every kind
+  mapped place with HQ's own read after Nova's last push, the read the app
+  was brought in from, or the read its last bring-in of changes recorded, and
+  the file at each path the app publishes with the one Nova recorded there. One `hq_changed` refusal lists every change of every kind
   but the app's Web App setting, and a person publishes over a change only by
   naming it back with the digest of the state they were shown, so a state HQ
   has since left is asked about again. The Web App setting has one question of
@@ -371,6 +375,13 @@ These decisions are closed unless the project owner explicitly reopens them.
   Project data is pushed: it stops that publish at `upload`, before the app's
   content is sent, and the next publish's preflight asks about it. A change of
   the Web App setting during the push stops that publish the same way.
+- A bring-in of changes never rebuilds Nova's document from CommCare HQ's app:
+  it applies the difference of two readings of CommCare HQ's own answers.
+  Where Nova holds nothing unpublished the change comes in with nothing Nova
+  holds lost; otherwise nothing is merged, and the person reads exactly what
+  taking CommCare HQ's version removes before choosing one side whole.
+- No publish writes a file over one a person replaced in CommCare HQ without
+  that person's choice.
 - The first publish over an app brought in from CommCare HQ changes only what
   `FIRST_PUBLISH_CHANGES` declares, each entry shown to the person at the
   review and again before that publish. The proof lane holds the declared set
@@ -379,8 +390,9 @@ These decisions are closed unless the project owner explicitly reopens them.
   action and its tag, or a Save to Case block path), a query repeat's placement
   and a menu's advanced kind are held from the publish that first carries them,
   or from the birth that brought the app in, because they are where CommCare HQ keeps published answers. Only a publish, a
-  migration or bringing the app in records a hold, and only a publish or a
-  migration replaces one that can still express what it holds;
+  migration, bringing the app in or bringing in changes made in CommCare HQ
+  records a hold, and only a publish, a migration or a bring-in of changes
+  replaces one that can still express what it holds;
   an edit the hold cannot express moves it, as an identity edit every editor
   states before it saves, and undoing that edit puts it back where it was last
   recorded. A menu CommCare HQ holds as advanced stays advanced while it can

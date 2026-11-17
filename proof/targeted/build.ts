@@ -67,6 +67,11 @@ import {
 	type ProjectSettings,
 	storedDocument,
 } from "../corpus/documents";
+import {
+	firstPublishRecord,
+	hydrateAdmittedDocument,
+	recordedDocument,
+} from "../corpus/editBatches";
 import type { UploadedMedia } from "../corpus/publish";
 import type { Expected } from "./expected";
 
@@ -332,6 +337,40 @@ function plannedEdit(
 		);
 	}
 	return { mutations: [...verdict.mutations], committed };
+}
+
+/**
+ * The document Nova's bring-in of a person's saves in HQ must give a
+ * targeted document whose `hq-side.json` states its republish brings them in
+ * (`HqSideSaves.bringsIn`), as stored: `to`, made from D as its first publish
+ * stores it (the placements that publish records laid on,
+ * `../corpus/editBatches.ts::recordedDocument`) by Nova's planner and
+ * admitted by Nova's commit gate, every hold of D's kept where D holds it.
+ * Throws, as an edit does, where the gate refuses it or commits anything but
+ * `to`.
+ */
+export function broughtInDocument(
+	document: CorpusDocument,
+	to: BlueprintDoc,
+): PersistableDoc {
+	const lookup = document.lookup;
+	const hydrated = hydrateAdmittedDocument({
+		id: document.id,
+		doc: document.doc,
+		...(lookup !== undefined && { lookup }),
+	});
+	const from = recordedDocument(
+		document.id,
+		hydrated,
+		firstPublishRecord(hydrated),
+		lookup,
+	);
+	return plannedEdit(
+		`the document the bring-in of ${document.id} gives`,
+		from,
+		withPlacements(to, heldPlacements(from)),
+		lookup,
+	).committed;
 }
 
 /**

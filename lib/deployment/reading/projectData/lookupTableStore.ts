@@ -47,7 +47,9 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Whether a failed row read is sent once more: an answered status of 500 or more that the
- *  edge did not give, or no answer at all. */
+ *  edge did not give, or no answer at all. A read no answer began for has gone out twice
+ *  by then, since `readHqJson` sends it once more itself; a read whose body the network
+ *  cut off has gone out once, since `readHqJson` sends that one no more. */
 function worthResending(error: CommCareApiError): boolean {
 	return (
 		error.cause === "network" ||
@@ -76,7 +78,10 @@ function failsEveryTime(error: CommCareApiError): boolean {
  * first page names more rows than Nova holds.
  *
  * A row read that fails with an answered status of 500 or more, or with no
- * answer, is sent once more. Where both answers are a status of 500 or more
+ * answer, is sent once more. `readHqJson` already sends a read no answer began
+ * for a second time, so a row read that never gets an answer goes out four
+ * times in all, and one whose answer the network cuts off while its body
+ * streams twice. Where both answers are a status of 500 or more
  * from CommCare HQ itself other than 502, 503 and 504, the table's rows are
  * unreadable: CommCare HQ fails that read every time for a row holding a field
  * with no value (`fixtures/models.py::LookupTableRow.fields_without_attributes`

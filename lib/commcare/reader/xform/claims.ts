@@ -151,7 +151,7 @@ const INPUT = {
 } as const;
 
 export const X = {
-	// ── The frame of a form's source (8.2) ──────────────────────────────
+	// ── The frame of a form's source ──────────────────────────────
 	frame: under(
 		"derived",
 		"application-and-settings/attachments-form-unique-id-xml",
@@ -288,7 +288,7 @@ export const X = {
 		"xform:model/instance@id",
 	),
 
-	// ── The data tree, binds and secondary instances (8.3) ──────────────
+	// ── The data tree, binds and secondary instances ──────────────
 	siblingsOfOneName: one(
 		"refuse",
 		Q("two-sibling-data-nodes-with-one-name"),
@@ -359,7 +359,7 @@ export const X = {
 		preloadParams: "xform:model/bind@jr:preloadParams",
 	}),
 
-	// ── The body (8.4) and the join (8.5) ────────────────────────────────
+	// ── The body and the join ────────────────────────────────
 	unknownControl: one(
 		"refuse",
 		Q("unknown-body-control-vellum-readonly-e-g-range"),
@@ -432,7 +432,7 @@ export const X = {
 		"xform:group@ref",
 	),
 
-	// ── Field kinds (9.1) ────────────────────────────────────────────────
+	// ── Field kinds ────────────────────────────────────────────────
 	kind: {
 		text: kind("text-input-xsd-string", { node: "mug:Text", ...INPUT }),
 		phone: kind("phone-number-xsd-string-appearance-numeric", {
@@ -548,7 +548,7 @@ export const X = {
 			value: "xform:select/item/value",
 		}),
 	},
-	/** The refusing rows of 9.1, each one claim over every site of the question. */
+	/** The refusing rows of the field kind table, each one claim over every site of the question. */
 	refusedKind: {
 		untypedTextNumeric: one(
 			"refuse",
@@ -624,7 +624,7 @@ export const X = {
 		"jr-extension:UploadQuestionExtensionParser",
 	),
 
-	// ── Choices (10.1) ───────────────────────────────────────────────────
+	// ── Choices ───────────────────────────────────────────────────
 	choicesBothOrNeither: under(
 		"refuse",
 		Q("select-with-both-items-and-an-itemset-or-no-choices"),
@@ -718,7 +718,7 @@ export const X = {
 		"xform:select1/itemset",
 	),
 
-	// ── Groups, Question Lists and sections (10.2) ───────────────────────
+	// ── Groups, Question Lists and sections ───────────────────────
 	group: under("take", Q("group-group-ref-label-no-appearance"), {
 		node: "mug:Group",
 		control: "xform:group",
@@ -770,7 +770,7 @@ export const X = {
 		"xform:repeat",
 	),
 
-	// ── Repeats (10.3, 10.4) ─────────────────────────────────────────────
+	// ── Repeats ─────────────────────────────────────────────
 	repeatWrapper: under(
 		"derived",
 		Q("group-ref-x-wrapping-the-repeat-raw-attribute"),
@@ -1003,7 +1003,7 @@ export const X = {
 		"xform:setvalue",
 	),
 
-	// ── Itext, by reference (12.1) ───────────────────────────────────────
+	// ── Itext, by reference ───────────────────────────────────────
 	translationElement: one(
 		"derived",
 		"application-and-settings/attachments-form-unique-id-xml",
@@ -1124,7 +1124,7 @@ export const X = {
 		ref: "xform:label@ref",
 	}),
 
-	// ── Forms of a text (12.2) ───────────────────────────────────────────
+	// ── Forms of a text ───────────────────────────────────────────
 	labelPlain: one(
 		"take",
 		Q("label-with-no-markdown-form"),
@@ -1209,7 +1209,7 @@ export const X = {
 		"xform:model/itext/translation/text/value",
 	),
 
-	// ── Prose (12.3) ─────────────────────────────────────────────────────
+	// ── Prose ─────────────────────────────────────────────────────
 	xhtmlChild: one(
 		"refuse",
 		Q("xhtml-namespace-child-elements-inside-a-value"),
@@ -1236,7 +1236,7 @@ export const X = {
 		"xform:model/itext/translation/text/value/output@ref",
 	),
 
-	// ── Media (12.4) ─────────────────────────────────────────────────────
+	// ── Media ─────────────────────────────────────────────────────
 	labelMedia: mediaClaims(
 		"take",
 		Q("label-image-audio-video-same-asset-every-language"),
@@ -1270,7 +1270,7 @@ export const X = {
 		Q("group-repeat-label-media-other-than-a-missing-file-the-media"),
 	),
 
-	// ── Translations (12.5) ──────────────────────────────────────────────
+	// ── Translations ──────────────────────────────────────────────
 	outputsDiffer: one(
 		"refuse",
 		Q("a-text-whose-languages-show-different-values"),

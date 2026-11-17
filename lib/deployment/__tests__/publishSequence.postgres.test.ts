@@ -1106,12 +1106,13 @@ describe("a failure after the shell is mapped", () => {
 					remoteMissingAt: null,
 				});
 
+				const first = requests(peer).length;
 				emptyTables(peer);
 				serve(peer, SOURCE, answer);
 				expect(refusal(await publish(doc))).toMatchObject({
 					failure: { code: "remote_app_missing" },
 				});
-				expect(requests(peer).slice(7)).toEqual([
+				expect(requests(peer).slice(first)).toEqual([
 					`GET ${TABLES}`,
 					`GET ${SOURCE}`,
 				]);
@@ -2483,7 +2484,7 @@ async function baselineRow() {
 }
 
 describe("a publish over an app Nova brought in", () => {
-	it("updates the app it came from under the ids HQ holds, keeps the mapping adopted and the held files, and says so", async () => {
+	it("updates the app it came from under the ids HQ holds, keeps the mapping adopted, records the files it publishes, and says so", async () => {
 		const doc = await seed();
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
 		const read = await withHttpPeer(async (peer) => {
@@ -2534,13 +2535,37 @@ describe("a publish over an app Nova brought in", () => {
 		const baseline = await baselineRow();
 		expect(baseline).toMatchObject({
 			origin: "push",
-			media_files: HELD_MEDIA_FILES,
+			/* The app publishes no file, so the record its upload earns holds
+			 * none of the paths the bring-in recorded. */
+			media_files: {},
 			first_publish_changes: null,
 		});
 		expect(Number(baseline.nova_revision)).toBe(mapping.pushedRevision);
 		/* An app with no Search: the body the publish sent owns what the
 		 * bring-in's descriptor owns. */
 		expect(baseline.ownership).toEqual(read.ownership);
+	});
+
+	it("says App Preview may keep refusing the app after a publish over changes brought in from CommCare HQ", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			await bringIn(peer, doc);
+			/* The baseline a bring-in of changes made in CommCare HQ leaves: the
+			 * forms CommCare HQ's builder saved there are its own. */
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({ origin: "changes" })
+				.execute();
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect(await publish(doc)).toMatchObject({
+				landed: true,
+				appPreviewNote: APP_PREVIEW_NOTE,
+			});
+		});
 	});
 
 	it("sends each media file at the path CommCare HQ keeps it under, and a kept keyed create under the prefix the project space's cases stand under", async () => {

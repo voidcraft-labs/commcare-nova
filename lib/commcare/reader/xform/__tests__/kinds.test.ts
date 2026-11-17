@@ -1,5 +1,5 @@
 /**
- * The field kind table (9.1), held at two boundaries. Every row is reached by
+ * The field kind table, held at two boundaries. Every row is reached by
  * a source written for it and is the first row its facts match, so a row an
  * earlier one shadows fails here; the source is read through the reader's own
  * stages and gives the row's kind, or its refusal at the question. Every
@@ -626,12 +626,19 @@ describe("a select's choices", () => {
 				expect(outcome.kind).toBe("account");
 				expect(
 					(outcome.kind === "account" ? outcome.findings : []).map(
-						(finding) => [finding.code, finding.place.kind],
+						(finding) => [
+							finding.code,
+							finding.place.kind,
+							finding.detail.reason,
+						],
 					),
 				).toEqual([
 					[
 						"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 						"question",
+						// The form parser's reason for a column a table lacks, which tells a read of the
+						// Project's data that is not there from Nova's own refusal.
+						"parse:unknown-column",
 					],
 				]);
 				expect(outcome.defects).toEqual([]);

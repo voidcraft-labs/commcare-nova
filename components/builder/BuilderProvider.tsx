@@ -15,6 +15,7 @@
  *   BuilderFormEngineProvider  : stateful running-form controller
  *   SyncBridge                  wires doc store ref into session store
  *   LocationRecoveryEffect      repairs stale URL selection mid-session
+ *   HqChangesCheck              asks CommCare HQ once whether the app changed there
  *   PreviewCaseDatabaseProvider : Project-scoped case snapshot
  *   PreviewLookupDataProvider   : Project-scoped lookup snapshot
  *   AppNoticesProvider          this member's undismissed migration notices
@@ -34,6 +35,7 @@ import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
+import { HqChangesCheck } from "@/components/builder/HqChangesCheck";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BuilderLookupCatalogProvider } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
@@ -209,6 +211,10 @@ function BuilderProviderInner({
 								<BuilderFormEngineProvider>
 									<SyncBridge />
 									<LocationRecoveryEffect />
+									{/* Asks CommCare HQ once, after the builder is drawn,
+									 *  whether the app changed there. Renders nothing and
+									 *  nothing waits on it. */}
+									<HqChangesCheck />
 									<PreviewCaseDatabaseProvider>
 										<PreviewLookupDataProvider>
 											{/* Works out each pressed search's device values on

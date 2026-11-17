@@ -127,6 +127,9 @@ export function classifyHqFailure(
 		return of("browser-only");
 	if (error.cause === "malformed") return of("answer-unreadable");
 	if (status === 401) {
+		/* `hqmedia/views.py::ViewMultimediaFile` asks no key, plan or
+		 * permission, so a 401 on a media file says nothing of the caller's. */
+		if (request === "media-file") return of("refused");
 		const sentence = apiRefusalSentence(error);
 		/* `HqBaseResource.dispatch` checks the plan before it asks who is
 		 * calling, and a project space that does not exist has the default

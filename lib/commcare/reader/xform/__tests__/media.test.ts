@@ -1,5 +1,5 @@
 /**
- * Media on a text (12.4), read through the reader's own stages over an index
+ * Media on a text, read through the reader's own stages over an index
  * that answers `asset`, `no-entry` and `unreadable`. A held slot (a label, a
  * choice) takes the asset where every language holds the one file (one path,
  * or paths the index answers one asset for, each listed), and a path

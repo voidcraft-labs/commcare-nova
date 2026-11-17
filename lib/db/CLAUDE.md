@@ -40,7 +40,12 @@ class** (`privilegeConvergence.ts`, DDL in
 `app_deployment_identities` (the module and form ids a target holds that are
 not Nova's derivation) and `app_deployment_media_paths` (the path CommCare HQ
 keeps a media file under) are runtime insert-and-delete: rows are written when
-an app is brought in and deleted when its deployment is ended
+an app is brought in and when changes made in CommCare HQ are brought in
+(`lib/deployment/store.ts::recordHqChangesTaken`, which deletes a replaced
+file's media-path row before inserting its successor's, and an identity row
+the reading contradicts before inserting the reading's: a row of the same
+entity under other ids, or of another entity under an id or `xmlns` the
+reading's row takes), and deleted when its deployment is ended
 (`hqAppClaims.ts::endDeploymentInTransaction`), never changed and never
 row-locked. A Project move deletes an app's media-path rows and inserts them
 under the destination Project's asset ids
@@ -206,12 +211,16 @@ with a restart instruction rather than an operational failure.
 
 **`app_changes` is permanent history.** It is the durable edit log and realtime
 catch-up source; there is no TTL or prune. Its closed kind set is `autosave`,
-`mcp`, `chat`, `publish-placement`, `blueprint-migration`, `fold-baseline`, and
-`project-move`. The first five carry a nonempty exactly admitted mutation batch
-and null Project-move columns. `publish-placement` is written only by
-`lib/deployment/placements.ts::recordPublishPlacements`, through the canonical
-kernel at an expected head, and holds only `holdPlacements` and no run;
-`nova_admit_app_change_insert` admits the kind set and that shape. `fold-baseline` carries exactly `[]`, null move columns,
+`mcp`, `chat`, `publish-placement`, `blueprint-migration`, `hq-changes`,
+`fold-baseline`, and `project-move`. The first six carry a nonempty exactly
+admitted mutation batch and null Project-move columns. `publish-placement` is
+written only by `lib/deployment/placements.ts::recordPublishPlacements`, through
+the canonical kernel at an expected head, and holds only `holdPlacements` and no
+run. `hq-changes` is a bring-in of changes made in CommCare HQ, written only
+through `applyBlueprintChange` at the head the member reviewed, with that
+member as actor and no run; it is replayable history like any mutation-bearing
+row and reloads every open tab. `nova_admit_app_change_insert` admits the kind
+set and those shapes. `fold-baseline` carries exactly `[]`, null move columns,
 and one matching immutable `app_change_fold_baselines` row whose snapshot,
 digest, Project, sequence, root, and entity freshness are proved in the same
 transaction. `project-move` carries `[]` or the nonempty media-remap batch and
@@ -293,6 +302,17 @@ leaves every earlier row parseable, so it wrote no fold baseline. Each app it
 changed carries one ordinary `blueprint-migration` row, batch
 `hq-round-trip-platforms:<app_id>` by `system:hq-round-trip-platforms`,
 written through `appendSyntheticBatchInTransaction` like any synthetic batch.
+
+A deployment's reference document
+(`lib/deployment/hqChanges/reference.ts::loadReferenceDocument`, what a
+review of changes made in CommCare HQ measures changes in Nova against) is a
+fold at the revision the deployment's baseline describes, so a fold horizon
+above that revision hides it: `usablePair` answers false and the review is
+unavailable until the deployment's next publish writes a revision at or after
+the horizon. A `blueprint-migration` batch is granular mutations, not a
+snapshot, so the reference applies one written after that revision to the
+earlier document of the same app, whole, and stops with `nova-updated` where
+it does not apply rather than apply part of it.
 
 The `hq-round-trip-case-writes` horizon takes the `hq-round-trip-expressions`
 horizon's route: a field's case write (with a capture's attachment mode), a
@@ -429,6 +449,14 @@ deterministic mutations.
 Its post-commit schema sweep precedes worker-row synchronization, so a batch
 that adds worker information and persona values stores them against the updated
 schema. Worker-only edits still synchronize even when no schema changed.
+`applyBlueprintChange` also commits a bring-in of changes made in CommCare HQ
+(kind `hq-changes`), at an expected head: the kernel's head test answers
+`AppHeadMovedError` for it as for a publish's placements, writing nothing,
+while a batch id already committed answers that commit. The caller's
+`inTransaction` (the deployment's record) runs at the end of its `beforeWrite`
+hook, in the commit's transaction with the sequence it takes, so it commits
+and rolls back with the batch. An editor's kind handed an expected head or
+transaction work, and `hq-changes` with no head, are refused before any write.
 
 Worker rows use `(app, commcare-user, hq_user_id)` as their semantic identity.
 `syncUsercaseRow` preserves a matching existing row's case id, including the
@@ -1152,9 +1180,11 @@ apps → kernel.
 **The kernel decides who may change a held placement.**
 `placementAuthority.ts::placementChangeRefusal` runs over the locked document
 and the batch's candidate before the gate: a publish or a migration may change
-any hold; an editor's batch may move a hold the same batch makes inexpressible,
+any hold, and so may a bring-in of changes made in CommCare HQ (`hq-changes`),
+whose reading holds each placement where CommCare HQ keeps it; an editor's batch
+may move a hold the same batch makes inexpressible,
 or restore exactly the hold the target's latest recording wrote (the latest
-`publish-placement` or `blueprint-migration` row that names it, else the
+`publish-placement`, `blueprint-migration` or `hq-changes` row that names it, else the
 greatest fold baseline's snapshot (a cutover's holds, or the holds a brought-in app was born with), read by `placementRecords.ts::readRecordedPlacementHolds` under the
 app lock for only the keys `placementChangesToJustify` names); everything else
 is refused with `PLACEMENT_CHANGE_REFUSAL`. The per-change decision is

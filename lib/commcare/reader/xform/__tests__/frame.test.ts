@@ -1,6 +1,6 @@
 /**
- * What a form's model holds beside its instances, binds, setvalues and itext
- * (8.2), read through the form's stages. A `send` and the submission it names
+ * What a form's model holds beside its instances, binds, setvalues and itext,
+ * read through the form's stages. A `send` and the submission it names
  * are refused together, and a `send` that names no submission of the model is
  * a model child no reader knows; only the OpenRosa `pollsensor` is the
  * authored one; text directly in the model is refused, never left

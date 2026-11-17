@@ -133,13 +133,18 @@ import {
 } from "@/lib/commcare/usercaseWire";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
-import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
+import {
+	readSuiteForOracle,
+	validateSuiteStrings,
+	validateSuiteStructure,
+} from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addAdvancedCaseBlocks } from "@/lib/commcare/xform/advancedCaseBlocks";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
-import { stripVellumAttributes } from "@/lib/commcare/xform/deviceForm";
-import { setFormVersion } from "@/lib/commcare/xform/formVersion";
-import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
+import { stripVellumAttributesFrom } from "@/lib/commcare/xform/deviceForm";
+import { parseXForm, serializeXForm } from "@/lib/commcare/xform/domSplice";
+import { setFormVersionOn } from "@/lib/commcare/xform/formVersion";
+import { addMetaBlockTo } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	alwaysOfferedRegistrationOf,
@@ -893,21 +898,20 @@ export function compileCczParts(
 								ownCaseDatum?.maxSelectValue === undefined,
 							);
 			}
+			// The three steps after the case blocks change one parse of the form.
 			if (xform) {
-				xform = setFormVersion(
-					stripVellumAttributes(
-						addMetaBlock(xform, {
-							/* HQ's build captures location on every form where the
-							 * app's `auto_gps_capture` is on: a Connect app's, which
-							 * Nova sets, or another app's where the project space
-							 * holds it (`xform.py::XForm._add_meta_2`). */
-							captureLocation:
-								authoredDoc.connectType !== null ||
-								facts?.autoGpsCapture === true,
-						}),
-					),
-					sequence,
-				);
+				const form = parseXForm(xform);
+				addMetaBlockTo(form, {
+					/* HQ's build captures location on every form where the
+					 * app's `auto_gps_capture` is on: a Connect app's, which
+					 * Nova sets, or another app's where the project space
+					 * holds it (`xform.py::XForm._add_meta_2`). */
+					captureLocation:
+						authoredDoc.connectType !== null || facts?.autoGpsCapture === true,
+				});
+				stripVellumAttributesFrom(form);
+				setFormVersionOn(form, sequence);
+				xform = serializeXForm(form);
 			}
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
@@ -1350,14 +1354,16 @@ export function compileCczParts(
 	// fuzz already exercises: a divergence between the suite emitter's jr://
 	// references and what the bundler wrote into the CCZ surfaces at compile
 	// time rather than as a broken-icon on device.
-	const suiteErrors = validateSuite(
-		suiteXml,
-		new Set(Object.keys(appStrings)),
-		{
+	// The suite is read once; its structure is checked once, and each
+	// app-string table below is held to it.
+	const oracleSuite = readSuiteForOracle(suiteXml);
+	const suiteErrors = [
+		...validateSuiteStructure(oracleSuite),
+		...validateSuiteStrings(oracleSuite, new Set(Object.keys(appStrings)), {
 			appStringValues: new Map(Object.entries(appStrings)),
 			manifest: bundledWirePaths,
-		},
-	);
+		}),
+	];
 	if (suiteErrors.length > 0) {
 		throw new Error(
 			`Generated suite.xml failed the suite oracle:\n${suiteErrors
@@ -1430,8 +1436,8 @@ export function compileCczParts(
 		))
 			table.set(key, value);
 		table.set("lang.current", language);
-		const localizedSuiteErrors = validateSuite(
-			suiteXml,
+		const localizedSuiteErrors = validateSuiteStrings(
+			oracleSuite,
 			new Set(table.keys()),
 			{
 				appStringValues: table,

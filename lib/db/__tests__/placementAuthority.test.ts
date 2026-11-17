@@ -104,7 +104,11 @@ function judge(
 	const next = prepareMutationCandidate(prev, admitted).nextDoc;
 	const refusal = placementChangeRefusal(prev, next, kind, recorded);
 	const toJustify = placementChangesToJustify(prev, next, kind);
-	if (kind !== "blueprint-migration" && kind !== "publish-placement") {
+	if (
+		kind !== "blueprint-migration" &&
+		kind !== "publish-placement" &&
+		kind !== "hq-changes"
+	) {
 		const kept = admittedHoldChanges(prev, admitted, recorded);
 		const keptNext = prepareMutationCandidate(prev, kept).nextDoc;
 		expect(placementChangeRefusal(prev, keptNext, kind, recorded)).toBeNull();
@@ -173,6 +177,27 @@ describe("placementChangeRefusal", () => {
 			refusal: null,
 			toJustify: [],
 		});
+	});
+
+	it("admits any change under hq-changes, which records where CommCare HQ keeps each one", () => {
+		const { doc, formUuid } = holdFixture((d, form) =>
+			holdOn(d, form, UPDATE, RECORDED),
+		);
+		// Gained, replaced and cleared, each over a hold that can still
+		// express its target and with no recording to restore.
+		for (const batch of [
+			[hold(queryRepeatHold(VISITS, "model-iteration"))],
+			[hold(operationHold(formUuid, UPDATE, EDITOR_MOVED))],
+			[hold(operationHold(formUuid, UPDATE, null))],
+		]) {
+			expect(judge(doc, batch, NO_RECORDED_HOLDS, "hq-changes")).toEqual({
+				refusal: null,
+				toJustify: [],
+			});
+			expect(judge(doc, batch, NO_RECORDED_HOLDS, "autosave").refusal).toBe(
+				PLACEMENT_CHANGE_REFUSAL,
+			);
+		}
 	});
 
 	it("skips a target removed with its owner", () => {
@@ -429,8 +454,12 @@ describe("placementChangeRefusal on a menu's held kind", () => {
 		patch: { selection: { kind: "multiple", maximum: 10 } },
 	});
 
-	it("admits a publish or a migration setting and clearing it", () => {
-		for (const kind of ["publish-placement", "blueprint-migration"] as const) {
+	it("admits a publish, a migration or a bring-in of changes setting and clearing it", () => {
+		for (const kind of [
+			"publish-placement",
+			"blueprint-migration",
+			"hq-changes",
+		] as const) {
 			const unheld = menuFixture(false);
 			expect(
 				judge(

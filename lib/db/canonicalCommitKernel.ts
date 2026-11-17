@@ -785,9 +785,11 @@ interface CanonicalCommitBase {
 }
 
 /**
- * Arguments for {@link commitCanonicalBatch}: an editor's own batch, or the
+ * Arguments for {@link commitCanonicalBatch}: an editor's own batch; the
  * placements a publish records, which commit only while the app's head is
- * still the `expectedHeadSeq` the publish emitted from.
+ * still the `expectedHeadSeq` the publish emitted from; or the changes made
+ * in CommCare HQ a member chose to bring in, which commit only at the head
+ * their plan was computed at.
  */
 export type CanonicalCommitRequest =
 	| (CanonicalCommitBase & {
@@ -796,6 +798,11 @@ export type CanonicalCommitRequest =
 	  })
 	| (CanonicalCommitBase & {
 			readonly kind: "publish-placement";
+			readonly expectedHeadSeq: number;
+	  })
+	| (CanonicalCommitBase & {
+			readonly kind: "hq-changes";
+			/** The head the plan was computed at. */
 			readonly expectedHeadSeq: number;
 	  });
 
@@ -869,8 +876,9 @@ export function isUniqueViolation(err: unknown): boolean {
  * cross-Project move use the parallel locked protocols in `apps.ts`.
  *
  * One transaction: lock the app row (the per-app serialization point); a
- * `publish-placement` batch whose expected head is not the locked row's
- * throws {@link AppHeadMovedError}, writing nothing; a
+ * `publish-placement` or `hq-changes` batch not yet committed whose expected
+ * head is not the locked row's throws {@link AppHeadMovedError}, writing
+ * nothing; a
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
  * committed doc, writing nothing; lock + reauthorize the actor's exact Project
  * membership against the fresh row (a concurrent MOVE rejects retryably);
@@ -902,6 +910,12 @@ export async function commitCanonicalBatch(
 	) {
 		throw new Error(
 			"[commitGuardedBatch] chat writes require matching chat holder authority; non-chat writes cannot supply it",
+		);
+	}
+	// A person chose the bring-in; no run made it, and the log refuses one.
+	if (kind === "hq-changes" && runId !== undefined) {
+		throw new Error(
+			"[commitCanonicalBatch] an hq-changes batch is a member's choice and carries no run",
 		);
 	}
 
@@ -955,9 +969,14 @@ export async function commitCanonicalBatch(
 						);
 			if (!matches) throw new MutationBatchIdCollisionError();
 		}
-		// A publish records the placements it emitted from one head; at any
-		// other head they may no longer be the ones its emission derives.
-		if (args.kind === "publish-placement") {
+		// A publish records the placements it emitted from one head, and a
+		// bring-in commits the plan computed at one head; at any other head
+		// neither is what was derived or reviewed. A latch hit is that same
+		// batch already committed at the head it expected, and answers it.
+		if (
+			(args.kind === "publish-placement" || args.kind === "hq-changes") &&
+			latch === undefined
+		) {
 			const headSeq = safePersistedSequence(
 				fresh.mutation_seq,
 				`apps.mutation_seq for app ${appId}`,
@@ -1110,7 +1129,10 @@ export async function commitCanonicalBatch(
 		if (!verdict.ok) {
 			throw new BlueprintCommitRejectedError(
 				describeCommitFindings(verdict.findings),
-				{ findingCodes: verdict.findings.map((finding) => finding.code) },
+				{
+					findingCodes: verdict.findings.map((finding) => finding.code),
+					findings: verdict.findings,
+				},
 			);
 		}
 		const seq = nextPersistedSequence(

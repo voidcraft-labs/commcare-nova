@@ -265,6 +265,11 @@ visible. Plans, affected forms and further guidance expand under Details;
 published destinations have their own disclosure. Back preserves the destination
 draft, and step navigation hands focus to the new heading as it appears. Nothing is uploaded by Continue.
 
+A change made in CommCare HQ is shown as one list by place. Where bringing it in
+removes nothing, one button brings it in with no warning. Where it would remove
+work, a second list names exactly what, and three choices stand side by side with
+none chosen. The list is the warning: no second question follows it.
+
 ## Bringing in
 
 Bringing an app in from CommCare HQ is a state of the new-app page, not a

@@ -282,9 +282,10 @@ export function unrecognizedLogKey(name: string): string {
 
 /**
  * Times each synchronous piece of a request, and lets the event loop turn
- * before each one, so no two pieces run in one turn.
+ * before each one, so no two pieces run in one turn. A review of changes
+ * made in CommCare HQ times its own pieces with it.
  */
-class Pieces {
+export class Pieces {
 	total = 0;
 	longest = 0;
 	/** The emissions this request's readings share (`heldExpansions.ts`). */
@@ -426,7 +427,7 @@ function failedRead(failure: HqFailure): GatherResult {
  * any other is the catalog's definition at the Project table's revision, or
  * the first, as the birth will hold it.
  */
-function readerLookupContext(
+export function readerLookupContext(
 	data: ReadingProjectData,
 ): LookupValidationContext {
 	const definitions: LookupTableDefinition[] = [];

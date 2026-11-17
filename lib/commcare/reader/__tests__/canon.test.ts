@@ -100,6 +100,7 @@ import { declaredPlatforms } from "@/lib/domain/platforms";
 import { EMPTY_PROSE_TEMPLATE } from "@/lib/domain/prose";
 import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 import type { CorpusDocument } from "@/proof/corpus/documents";
+import { producerDocuments } from "@/proof/corpus/producers";
 import { compileCcz } from "../../compiler";
 import { DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION } from "../../connectDefaults";
 import { expandDoc } from "../../expander";
@@ -115,6 +116,20 @@ import { readHqApp } from "../index";
 import { sameJson } from "../jsonCursor";
 import { hydrated, publishedCorpus } from "./publishedDocuments";
 import { readerInput, sourceFromBody } from "./readerInput";
+
+/**
+ * One producer document of the lane's corpus, by its id. The producers' documents are built
+ * once for the file (about half a second) and never the whole corpus, whose targeted documents
+ * take seconds more to build and which only the case that reads every document needs.
+ */
+function producerDocument(id: string): CorpusDocument {
+	producers ??= producerDocuments();
+	const document = producers.find((one) => one.id === id);
+	if (document === undefined)
+		throw new Error(`The corpus holds no producer document ${id}.`);
+	return document;
+}
+let producers: readonly CorpusDocument[] | undefined;
 
 // ── The two exports of a document ────────────────────────────────────────
 
@@ -529,11 +544,7 @@ function searched(
  *  forms read the search, the link carrying nothing and holding the guards of the values
  *  automatic matching carries as its condition. */
 function searchLinkGuarded(): BlueprintDoc {
-	const document = publishedCorpus().find(
-		(one) => one.id === "search-hidden-link",
-	);
-	if (document === undefined)
-		throw new Error("The corpus holds the document search-hidden-link.");
+	const document = producerDocument("search-hidden-link");
 	const doc = hydrated(document);
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
 		const [link] = form.formLinks ?? [];
@@ -1927,8 +1938,7 @@ describe("a read back of Nova's export", () => {
 	// filter's print binds to its path from `current()` whatever the read's spelling.
 	for (const id of ["lookup-app", "lookup-reversed"])
 		it(`gives the canonical form of the lane's ${id}, a table filter inside a repeat, which is the reading's own`, async () => {
-			const document = publishedCorpus().find((one) => one.id === id);
-			if (document === undefined) throw new Error(`No corpus document ${id}.`);
+			const document = producerDocument(id);
 			const doc = hydrated(document);
 			const draft = await readBack(doc, document.lookup);
 			expect(

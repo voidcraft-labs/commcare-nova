@@ -9,6 +9,7 @@ import {
 	withSocketHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { log } from "@/lib/logger";
 import { uploadAppMediaBundle } from "../client";
 import type { AssetManifest } from "../multimedia/assetWirePath";
 import { buildMediaBulkUploadZip } from "../multimedia/bulkUploadZip";
@@ -50,6 +51,7 @@ const attached = {
 	matched: 1,
 	unmatched: 0,
 	unmatchedFiles: [],
+	matchedFiles: null,
 	errors: [],
 	timedOut: false,
 };
@@ -57,6 +59,7 @@ const timedOut = {
 	matched: 0,
 	unmatched: 0,
 	unmatchedFiles: [],
+	matchedFiles: null,
 	errors: [],
 	timedOut: true,
 };
@@ -140,6 +143,7 @@ it("preserves the complete unmatched-file and processing-error report", async ()
 			matched: 0,
 			unmatched: 1,
 			unmatchedFiles: unmatched,
+			matchedFiles: null,
 			errors: ["Image could not be decoded"],
 			timedOut: false,
 		});
@@ -258,17 +262,78 @@ it.each(["upload", "status"])(
 					path: phase === "upload" ? POST : STATUS,
 					method: phase === "upload" ? "POST" : "GET",
 				});
+				/* A status read no answer began for is sent once more; the upload,
+				 * a write, never is. */
 				if (broken === "connection")
-					target.replyWithError(new Error("Peer disconnected"));
+					target
+						.replyWithError(new Error("Peer disconnected"))
+						.times(phase === "status" ? 2 : 1);
 				else target.reply(200, "<html>Gateway</html>");
 				expect(await upload()).toEqual({
 					success: false,
 					status: broken === "connection" ? 503 : 502,
 				});
 			}
+			const sent = (peer.getCallHistory()?.calls() ?? []).map(
+				(call) => `${call.method} ${call.fullUrl.slice(HOST.length)}`,
+			);
+			expect(sent).toEqual(
+				phase === "upload"
+					? [`POST ${POST}`, `POST ${POST}`]
+					: [
+							`POST ${POST}`,
+							`GET ${STATUS}`,
+							`GET ${STATUS}`,
+							`POST ${POST}`,
+							`GET ${STATUS}`,
+						],
+			);
 		});
 	},
 );
+
+it("sends a status read once more where its connection closed before any answer began", async () => {
+	/* The peer closes the connection the first status read goes out on,
+	 * unanswered, as CommCare HQ closes a kept-alive connection that a read
+	 * meets as it expires. */
+	let closedOne = false;
+	const seen: string[] = [];
+	await withSocketHttpPeer(
+		"india.commcarehq.org",
+		(request, response) => {
+			if (request.method === "GET" && !closedOne) {
+				closedOne = true;
+				seen.push(`closed ${request.method}`);
+				request.socket.destroy();
+				return;
+			}
+			seen.push(`answered ${request.method}`);
+			request.resume();
+			request.once("end", () => {
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(
+					JSON.stringify(
+						request.method === "POST"
+							? { success: true, processing_id: "proc-1" }
+							: complete,
+					),
+				);
+			});
+		},
+		async () => {
+			expect(await upload()).toEqual(attached);
+		},
+	);
+	expect(seen).toEqual(["answered POST", "closed GET", "answered GET"]);
+	expect(log.warn).toHaveBeenCalledWith(
+		"[commcare] media bundle status not answered, sending again",
+		{
+			domain: "clinic",
+			request: "media bundle status",
+			error: expect.anything(),
+		},
+	);
+});
 
 it.each([
 	{ phase: "upload", milliseconds: 60_000 },

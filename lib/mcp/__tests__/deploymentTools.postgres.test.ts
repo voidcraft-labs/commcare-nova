@@ -21,12 +21,14 @@ import {
 import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import {
 	currentResourceIdentities,
+	setupArtifactFor,
 	stopPublishing,
 } from "@/lib/deployment/service";
 import {
 	applyDeploymentObservation,
 	foldDeploymentAttempt,
 	readDeployment,
+	readDeploymentNovaRevisions,
 	readTargetFacts,
 	recordCreatedRemoteApp,
 	recordRemoteResource,
@@ -35,6 +37,7 @@ import { keptListFor } from "@/lib/deployment/targetFacts";
 import type { AppOwnership } from "@/lib/deployment/types";
 import { log } from "@/lib/logger";
 import { driftDate } from "@/lib/publish/driftReference";
+import { keptChangedInHqLine } from "@/lib/publish/hqChangesCopy";
 import { KEPT_LABELS, keptListUnreadSentence } from "@/lib/publish/keptValues";
 import { endedLine } from "@/lib/publish/stopPublishing";
 import {
@@ -49,7 +52,11 @@ import { resultText } from "./resultText";
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/deployment/store", async (original) => {
 	const store = await original<typeof import("@/lib/deployment/store")>();
-	return { ...store, readTargetFacts: vi.fn(store.readTargetFacts) };
+	return {
+		...store,
+		readTargetFacts: vi.fn(store.readTargetFacts),
+		readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
+	};
 });
 /* The stop tool's own calls pass through, so a test can make one fault after
  * the ending has committed. */
@@ -58,6 +65,7 @@ vi.mock("@/lib/deployment/service", async (original) => {
 	return {
 		...service,
 		currentResourceIdentities: vi.fn(service.currentResourceIdentities),
+		setupArtifactFor: vi.fn(service.setupArtifactFor),
 		stopPublishing: vi.fn(service.stopPublishing),
 	};
 });
@@ -271,6 +279,9 @@ it("reports every stored target to a viewer with its current resource identity a
 					hq_app_empty: false,
 					ownership: "nova-created",
 					pushed_revision: 0,
+					/* The read-back failed: Nova holds no read of the app it can say
+					 * a revision matches. */
+					nova_revision: null,
 					remote_revision: 1,
 					last_checked_at: null,
 					phases: {
@@ -925,6 +936,71 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 	).toEqual(["connect-forwarder"]);
 });
 
+it("answers a withdrawal whose reads after it fault as withdrawn, leaving out what it could not read", async () => {
+	await seed();
+	await foldDeploymentAttempt(
+		SCOPE,
+		TARGET,
+		"preflight",
+		{ status: "succeeded", at: "2026-09-02T00:00:00.000Z" },
+		{
+			confirmations: [
+				{ kind: "connect-forwarder" },
+				{ kind: "form-entry-sync-off" },
+			],
+			expectedEndings: 0,
+		},
+	);
+	const words = "Mother's Visit Checklist";
+	const fault = () =>
+		Object.assign(new Error(`could not read “${words}”`), { code: "57P01" });
+	vi.mocked(currentResourceIdentities).mockRejectedValueOnce(fault());
+	vi.mocked(readTargetFacts).mockRejectedValueOnce(fault());
+	vi.mocked(readDeploymentNovaRevisions).mockRejectedValueOnce(fault());
+	vi.mocked(setupArtifactFor).mockRejectedValueOnce(fault());
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const result = await call(client, WITHDRAW, {
+				app_id: APP,
+				domain: "clinic",
+				kind: "connect-forwarder",
+			});
+			expect(result.isError, JSON.stringify(result)).not.toBe(true);
+			const withdrawn = JSON.parse(resultText(result));
+			expect(withdrawn).toMatchObject({
+				app_id: APP,
+				domain: "clinic",
+				setup_artifact: null,
+			});
+			expect(
+				withdrawn.confirmations.map((item: { kind: string }) => item.kind),
+			).toEqual(["form-entry-sync-off"]);
+			expect(withdrawn).not.toHaveProperty("kept");
+			expect(withdrawn).not.toHaveProperty("nova_revision");
+		});
+		expect(urls(peer)).toEqual([]);
+	});
+	expect(
+		(await readDeployment(SCOPE, TARGET))?.confirmations.map(
+			(item) => item.kind,
+		),
+	).toEqual(["form-entry-sync-off"]);
+	for (const line of [
+		"[deployment] resource names unavailable after a write landed",
+		"[deployment] kept list unavailable after a write landed",
+		"[deployment] matched revisions unavailable after a write landed",
+		"[deployment] setup artifact unavailable after a write landed",
+	])
+		expect(log.error).toHaveBeenCalledWith(line, undefined, {
+			appId: APP,
+			domain: "clinic",
+			after: "withdraw",
+			errorName: "Error",
+			errorCode: "57P01",
+		});
+	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(words);
+});
+
 it("refuses a withdrawal without the HQ write scope before any read", async () => {
 	await seed();
 	await asUser(
@@ -1136,6 +1212,24 @@ it("answers a read that could not be used with its sentence dated by the UTC day
 	expect(await baselines()).toEqual(before);
 });
 
+it("answers a change made in CommCare HQ with the card's sentence, points at read_hq_changes, and writes nothing", async () => {
+	await seed(false);
+	await publishedWithRead(liveSource());
+	const before = await baselines();
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			serveSource(peer, { ...liveSource(), name: "Renamed in CommCare HQ" });
+			expect(await refresh(client, KEPT_ARGS)).toEqual({
+				app_id: APP,
+				kept_refresh: "changed-in-hq",
+				message: `${keptChangedInHqLine("1 November 2026")} \`read_hq_changes\` lists what changed.`,
+			});
+		});
+		expect(urls(peer)).toHaveLength(1);
+	});
+	expect(await baselines()).toEqual(before);
+});
+
 it("answers superseded with the deployment as the publish that landed during the read left it", async () => {
 	await seed(false);
 	await publishedWithRead(liveSource());
@@ -1226,6 +1320,62 @@ it("answers a kept refresh whose write landed as landed when its list cannot be 
 		},
 	);
 	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(words);
+});
+
+/* A check and a kept refresh write before the answer reads the revisions
+ * CommCare HQ's copy matches. A fault reading them then answers the write
+ * that landed, with `nova_revision` left out rather than read as none. */
+it("answers a check and a kept refresh whose write landed as landed when the revisions read after it faults, leaving nova_revision out", async () => {
+	await seed(false);
+	await publishedWithRead(liveSource());
+	const fault = () =>
+		Object.assign(new Error("could not read “Visits”"), { code: "57P01" });
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			ready(peer);
+			vi.mocked(readDeploymentNovaRevisions).mockRejectedValueOnce(fault());
+			const checked = await refresh(client);
+			expect(checked).toMatchObject({
+				app_id: APP,
+				state: "runnable",
+				hq_app_id: "working-app",
+			});
+			expect(checked).not.toHaveProperty("nova_revision");
+
+			serveSource(peer, fuzzyOnSource());
+			vi.mocked(readDeploymentNovaRevisions).mockRejectedValueOnce(fault());
+			const kept = await refresh(client, KEPT_ARGS);
+			expect(kept).toMatchObject({
+				kept_refresh: "refreshed",
+				message: "Updated. This is what CommCare HQ holds now.",
+				kept: {
+					labels: expect.arrayContaining(["Fuzzy search in case lists"]),
+				},
+			});
+			expect(kept).not.toHaveProperty("nova_revision");
+
+			/* The deployment reads back whole. */
+			const [after] = JSON.parse(
+				resultText(await call(client, GET, { app_id: APP })),
+			).deployments;
+			expect(after).toMatchObject({ state: "runnable", nova_revision: null });
+		});
+	});
+	for (const after of ["check-status", "kept-refresh"])
+		expect(log.error).toHaveBeenCalledWith(
+			"[deployment] matched revisions unavailable after a write landed",
+			undefined,
+			{
+				appId: APP,
+				domain: "clinic",
+				after,
+				errorName: "Error",
+				errorCode: "57P01",
+			},
+		);
+	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
+		"Visits",
+	);
 });
 
 it("says where an app came from and where Nova stopped publishing, and lets only an admin or owner stop", async () => {
@@ -1390,11 +1540,12 @@ it("answers a stop whose reads after the ending fault as stopped, with a null se
 			setup_artifact: null,
 		});
 		expect(log.error).toHaveBeenCalledWith(
-			"[deployment] resource names unavailable after a stop landed",
+			"[deployment] resource names unavailable after a write landed",
 			undefined,
 			{
 				appId: BROUGHT_IN_APP,
 				domain: "clinic",
+				after: "stop",
 				errorName: "Error",
 				errorCode: "57P01",
 			},

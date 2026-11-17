@@ -124,28 +124,15 @@ export function hqChangedMessage(
 export const HQ_CHANGED_DURING_PUSH_MESSAGE =
 	"CommCare HQ's copy of this app changed while Nova was publishing its lookup tables and places, so Nova stopped before sending the app's content. Publishing again checks what is there now and lists anything that changed.";
 
-/** Shown in place of the parts of a change whose baseline Nova could not read. */
-export const BASELINE_UNKNOWN_SENTENCE =
-	"Nova couldn't confirm what its last publish left here, so it can't tell whether anything changed.";
-
-/** `BASELINE_UNKNOWN_SENTENCE`, said against what the change is measured against. */
-export function baselineUnknownSentence(
-	since: DriftReference,
-	options?: DriftDateOptions,
-): string {
-	switch (since.kind) {
-		case "published":
-			return BASELINE_UNKNOWN_SENTENCE;
-		case "brought-in":
-			return `Nova couldn't confirm what CommCare HQ held when it brought this app in on ${driftDate(since.at, options)}, so it can't tell whether anything changed.`;
-		case "changes-brought-in":
-			return "Nova couldn't confirm what CommCare HQ held when it last brought in changes from it, so it can't tell whether anything changed.";
-		default: {
-			const unplaced: never = since;
-			return unplaced;
-		}
-	}
-}
+/**
+ * Shown in place of the parts of a change whose baseline Nova could not
+ * read. The sentences live with the copy of changes made in CommCare HQ,
+ * which says them too and imports nothing of this package.
+ */
+export {
+	BASELINE_UNKNOWN_SENTENCE,
+	baselineUnknownSentence,
+} from "@/lib/publish/hqChangesCopy";
 
 /**
  * The note on a lookup table change whose discard replaces a table HQ still
@@ -286,6 +273,10 @@ export function describeAppChange(part: AppChangePart): string {
 			return "A setting this app writes";
 		case "text":
 			return "Text this app writes";
+		case "media":
+			return part.count === 1
+				? "A picture or sound this app publishes"
+				: `${part.count} pictures or sounds this app publishes`;
 	}
 }
 

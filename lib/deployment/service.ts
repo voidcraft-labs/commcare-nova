@@ -7,6 +7,7 @@ import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	importApp,
+	type MediaBundleUploadResult,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
 import {
@@ -83,6 +84,16 @@ import {
 	deploymentNotFound,
 } from "./errors";
 import {
+	type HqMediaPath,
+	type HqMediaRecord,
+	isHoldableWirePath,
+	mediaMovedBetween,
+	movedRecordedPaths,
+	nextHqMediaRecord,
+	publishedMediaFiles,
+} from "./hqMedia";
+import { settleHqMedia } from "./hqMediaSettle";
+import {
 	canonicalLookupTable,
 	canonicalPlace,
 	lookupDefinitionChange,
@@ -103,6 +114,7 @@ import {
 	buildProfileLanguageFailure,
 	CREATED_APP_IS_EMPTY,
 	hqAppSourceReadFailure,
+	hqMediaReadFailure,
 	type PreflightCheck,
 	type PreflightResult,
 	planLacksWebAppsFailure,
@@ -155,6 +167,7 @@ import {
 	readResourceBaselines,
 	readTargetFacts,
 	recordCreatedRemoteApp,
+	recordDeploymentMediaFiles,
 	recordPushedResources,
 	recordRefreshedAppBaseline,
 	recordRemoteResource,
@@ -1005,6 +1018,12 @@ export async function publishAppToHq(
 			targetEmptyCaseListText,
 		} = ready;
 		const identity = targetWireIdentity(overrides);
+		/* The logo is never in the bulk upload: HQ maps no app-level media
+		 * from it (`hqmedia/models.py::ApplicationMediaMixin.all_media`). An
+		 * image the logo shares with another carrier still goes, for that
+		 * carrier. */
+		const bulkAssets = bulkUploadAssets(prepared.doc, prepared.assets);
+		const published = publishedMediaFiles(bulkAssets);
 		const contentGeneration = await beginDeploymentContentWrite(
 			input.scope,
 			target,
@@ -1322,6 +1341,10 @@ export async function publishAppToHq(
 			phase = "upload";
 			let builtOverSecondRead: HqImportApplicationResult<HqApplication> | null =
 				null;
+			/* The published files whose id moved between the two reads, settled,
+			 * and the ids among them found to hold this app's bytes. */
+			let settledBetween: readonly HqMediaPath[] = [];
+			let learnedBetween: HqMediaRecord = {};
 			if (lookupPush !== null || locationPush !== null) {
 				input.onResourcesPushed?.({
 					tables: lookupPush?.pushes.length ?? 0,
@@ -1383,15 +1406,49 @@ export async function publishAppToHq(
 				 * own question, so its move is read here: the person decided over
 				 * the earlier value, and the next publish's preflight asks afresh.
 				 * A shell is exempt, as it is from the question. */
+				const changedDuringPush: DeploymentFailure = {
+					code: "hq_changed",
+					message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+					details: [],
+				};
 				if (
 					moved.length > 0 ||
 					(!shell && webAppsMovedDuringPush(source, read.source))
 				) {
-					return refused("upload", {
-						code: "hq_changed",
-						message: HQ_CHANGED_DURING_PUSH_MESSAGE,
-						details: [],
-					});
+					return refused("upload", changedDuringPush);
+				}
+				/* A file at a path this publish sends, which no comparison of the
+				 * source reads: the upload below would write over it. A file
+				 * whose id moved is settled by its content, as preflight settles
+				 * one it holds no record for, since Nova's own earlier upload may
+				 * have mapped it while the data went; only a file that is not
+				 * this app's stops the publish. */
+				const secondMap = read.source.multimediaMap;
+				if (secondMap === null && published.length > 0) {
+					return refused(
+						"upload",
+						hqAppSourceReadFailure(MALFORMED_SOURCE, domain, createdApp),
+					);
+				}
+				const between = mediaMovedBetween(
+					source.multimediaMap ?? [],
+					secondMap ?? [],
+					published,
+				);
+				settledBetween = between;
+				if (
+					!between.some((path) => path.standing === "replaced") &&
+					between.some((path) => path.standing === "unrecorded")
+				) {
+					const settled = await settleHqMedia(creds, between, {});
+					if (settled.kind === "failed") {
+						return refused("upload", hqMediaReadFailure(domain));
+					}
+					settledBetween = settled.paths;
+					learnedBetween = settled.learned;
+				}
+				if (settledBetween.some((path) => path.standing === "replaced")) {
+					return refused("upload", changedDuringPush);
 				}
 				/* A build profile saved in HQ while the tables and places went is
 				 * held to the same rule preflight holds the first read to: no API
@@ -1541,22 +1598,35 @@ export async function publishAppToHq(
 				});
 				warnings.push(APP_READ_BACK_FAILED_WARNING);
 			}
-			/* The logo is never in the bulk upload: HQ maps no app-level media
-			 * from it (`hqmedia/models.py::ApplicationMediaMixin.all_media`). An
-			 * image the logo shares with another carrier still goes, for that
-			 * carrier. */
-			const bulkAssets = bulkUploadAssets(prepared.doc, prepared.assets);
-			if (bulkAssets.size > 0) {
-				warnings.push(
-					...(await uploadMediaBytes(
-						creds,
-						domain,
-						result.appId,
-						{ assets: bulkAssets, doc: prepared.doc },
-						input.scope.appId,
-					)),
-				);
-			}
+			const upload =
+				bulkAssets.size > 0
+					? await uploadMediaBytes(
+							creds,
+							domain,
+							result.appId,
+							{ assets: bulkAssets, doc: prepared.doc },
+							input.scope.appId,
+						)
+					: { warnings: [], reported: {} };
+			warnings.push(...upload.warnings);
+
+			/* The record of which file stands at each path this publish sent:
+			 * the id CommCare HQ reported for it, else one found by content
+			 * before the upload, else what the baseline knew. Against the
+			 * baseline this publish wrote, so a later publish's is left to that
+			 * publish. */
+			await recordDeploymentMediaFiles(input.scope, target, {
+				...fence,
+				remoteAppId: result.appId,
+				sourceDigest: pushBaseline.write.sourceDigest,
+				files: nextHqMediaRecord({
+					published,
+					previous: appBaseline?.mediaFiles ?? null,
+					learned: { ...ready.media?.learned, ...learnedBetween },
+					reported: upload.reported,
+					settled: [...(ready.media?.paths ?? []), ...settledBetween],
+				}),
+			});
 
 			return {
 				landed: true,
@@ -1573,12 +1643,14 @@ export async function publishAppToHq(
 							},
 				/* Only a write over the app can replace a form HQ may have checked,
 				 * so a discard of a table or place alone carries no statement. The
-				 * first publish over an app Nova brought in replaces every form HQ
-				 * checked there. */
+				 * first publish over an app Nova brought in, or over changes made in
+				 * CommCare HQ that Nova brought in, replaces every form HQ checked
+				 * there. */
 				appPreviewNote:
 					appDiscard !== undefined ||
 					appBaseline?.origin === "cutover" ||
-					appBaseline?.origin === "read"
+					appBaseline?.origin === "read" ||
+					appBaseline?.origin === "changes"
 						? APP_PREVIEW_NOTE
 						: null,
 				checks: preflight.checks,
@@ -2634,7 +2706,9 @@ async function pushLocations(
  *
  * A media failure never fails the publish: the app is already there, so
  * the honest report is a warning about the pictures rather than a claim
- * that nothing happened.
+ * that nothing happened. `reported` is the id CommCare HQ's report names
+ * for each path it matched, and holds nothing where the upload failed,
+ * timed out or reported errors, or where the report names no ids.
  */
 async function uploadMediaBytes(
 	creds: CommCareCredentials,
@@ -2645,7 +2719,10 @@ async function uploadMediaBytes(
 		readonly doc: BlueprintDoc;
 	},
 	appId: string,
-): Promise<string[]> {
+): Promise<{
+	readonly warnings: readonly string[];
+	readonly reported: HqMediaRecord;
+}> {
 	let mediaResult: Awaited<ReturnType<typeof uploadAppMediaBundle>>;
 	try {
 		mediaResult = await uploadAppMediaBundle(
@@ -2663,9 +2740,12 @@ async function uploadMediaBytes(
 			hqAppId,
 			appId,
 		});
-		return [
-			"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
-		];
+		return {
+			warnings: [
+				"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
+			],
+			reported: {},
+		};
 	}
 	if ("success" in mediaResult) {
 		log.error("[deployment] media bundle upload failed", undefined, {
@@ -2674,23 +2754,52 @@ async function uploadMediaBytes(
 			appId,
 			status: mediaResult.status,
 		});
-		return [
-			"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
-		];
+		return {
+			warnings: [
+				"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
+			],
+			reported: {},
+		};
 	}
 	if (mediaResult.timedOut) {
-		return [
-			"The app was published and CommCare HQ accepted its media. Nova could not confirm whether processing finished. Check the app’s media in CommCare HQ, or publish again to retry.",
-		];
+		return {
+			warnings: [
+				"The app was published and CommCare HQ accepted its media. Nova could not confirm whether processing finished. Check the app’s media in CommCare HQ, or publish again to retry.",
+			],
+			reported: {},
+		};
 	}
-	return reportMediaAttach({
-		result: mediaResult,
-		assetWirePath: assetWirePaths(prepared.assets),
-		doc: prepared.doc,
-		logPrefix: "[deployment]",
-		logContext: { domain, hqAppId, appId },
-	});
+	return {
+		warnings: reportMediaAttach({
+			result: mediaResult,
+			assetWirePath: assetWirePaths(prepared.assets),
+			doc: prepared.doc,
+			logPrefix: "[deployment]",
+			logContext: { domain, hqAppId, appId },
+		}),
+		reported: reportedMediaFiles(mediaResult),
+	};
 }
+
+/**
+ * The id CommCare HQ's upload report names for each path it matched, by
+ * wire path. A report with errors names none: HQ saves the app once after
+ * its matching, and a save that fails marks the report with an error
+ * (`hqmedia/tasks.py::process_bulk_upload_zip`), so no id it lists is then
+ * known to stand in the app's map.
+ */
+function reportedMediaFiles(result: MediaBundleUploadResult): HqMediaRecord {
+	if (result.errors.length > 0 || result.matchedFiles === null) return {};
+	const reported: Record<string, string> = {};
+	for (const file of result.matchedFiles) {
+		if (!file.path.startsWith(JR_FILE)) continue;
+		const wirePath = file.path.slice(JR_FILE.length);
+		if (isHoldableWirePath(wirePath)) reported[wirePath] = file.multimediaId;
+	}
+	return reported;
+}
+
+const JR_FILE = "jr://file/";
 
 /**
  * The sentence for an import CommCare HQ or its edge refused, chosen by the
@@ -2955,11 +3064,13 @@ export type KeptReadAfter =
 	| "publish"
 	| "check-status"
 	| "kept-refresh"
-	| "stop";
+	| "stop"
+	| "withdraw";
 
 /**
  * `deploymentKept` for the answer to an action whose write has landed: a
- * publish, Check status, a refresh of the kept values, or MCP's stop. A
+ * publish, Check status, a refresh of the kept values, or MCP's stop or
+ * withdrawal of a confirmation. A
  * fault reading the list is logged and answers `unread`, which the answer
  * leaves out (a
  * card keeps the list it shows), so a store fault after the write never
@@ -3185,7 +3296,9 @@ export async function refreshKeptValues(
 
 	// 6. The publish's own comparison. Any part is a change made in HQ. On
 	//    an app Nova brought in, the live mapping's ownership leaves the
-	//    language names out of it, as it does for a publish.
+	//    language names out of it, as it does for a publish. A file whose id
+	//    moved at a path the baseline's record holds is a part too; with no
+	//    document and no fetch, a path with no record says nothing.
 	const parts = diffHqAppSource({
 		baseline: baseline.source,
 		current: normalized.normalized,
@@ -3193,6 +3306,10 @@ export async function refreshKeptValues(
 		shell: false,
 		schemaDefault: schemaPropertyDefault,
 		languageNames: remote.ownership === "adopted" ? "target" : "nova",
+		mediaChanged: movedRecordedPaths(
+			baseline.mediaFiles,
+			read.source.multimediaMap ?? [],
+		),
 	});
 	if (parts.length > 0) return { kind: "changed-in-hq" };
 
@@ -3220,4 +3337,72 @@ export async function refreshKeptValues(
 	return written.outcome === "current"
 		? { kind: "refreshed", deployment: written.deployment }
 		: { kind: "superseded", deployment: written.deployment };
+}
+
+/**
+ * Whether the app this deployment publishes changed in CommCare HQ since its
+ * baseline: `refreshKeptValues`' steps 1 to 6, with no write. `unknown` is
+ * every answer but those two: no edit role, an ended deployment, no live
+ * mapping or one another Nova app took, no baseline Nova compares as a
+ * publish's, no key or a key on another server or one that does not reach
+ * the project space, a read that failed or cannot be read, an app gone. A
+ * file whose id moved at a path the baseline's record holds is a change; a
+ * path with no record says nothing, since nothing is fetched.
+ *
+ * It holds no row lock and no pooled connection while CommCare HQ answers:
+ * the deployment and its baseline are short reads of their own.
+ */
+export async function peekHqAppChanged(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	options: { readonly cancel?: AbortSignal },
+): Promise<"changed" | "unchanged" | "unknown"> {
+	if (!roleAllowsApp(scope.role, "edit")) return "unknown";
+	const existing = await readDeployment(scope, target);
+	if (existing === null || deploymentEnding(existing) !== null)
+		return "unknown";
+	const remote = activeRemoteApp(existing);
+	if (remote === null || remote.releasedAt !== null) return "unknown";
+	const baseline = await readAppBaseline(scope, target);
+	if (
+		baseline === null ||
+		baseline.origin === "unread" ||
+		baseline.origin === "create" ||
+		baseline.remoteAppId !== remote.remoteId
+	)
+		return "unknown";
+	const credentials = await getHqCredentials(scope.actorUserId, target.domain);
+	if (!credentials.ok || credentials.creds.server !== target.server)
+		return "unknown";
+	const read = await readHqAppSource(
+		credentials.creds,
+		credentials.domain.name,
+		remote.remoteId,
+		{ ...(options.cancel !== undefined && { cancel: options.cancel }) },
+	);
+	if ("success" in read || read.kind !== "source") {
+		/* A read that failed or that Nova cannot read is a failure; an app
+		 * gone is an answer. Neither is a change Nova could bring in. */
+		if ("success" in read || read.kind === "unsupported")
+			log.warn("[hq-changes] check read failed", { appId: scope.appId });
+		return "unknown";
+	}
+	const normalized = normalizeHqAppSource(read.source.raw);
+	if ("malformed" in normalized) {
+		log.warn("[hq-changes] check read failed", { appId: scope.appId });
+		return "unknown";
+	}
+	const parts = diffHqAppSource({
+		baseline: baseline.source,
+		current: normalized.normalized,
+		ownership: baseline.ownership,
+		shell: false,
+		schemaDefault: schemaPropertyDefault,
+		languageNames: remote.ownership === "adopted" ? "target" : "nova",
+		mediaChanged: movedRecordedPaths(
+			baseline.mediaFiles,
+			read.source.multimediaMap ?? [],
+		),
+	});
+	return parts.length > 0 ? "changed" : "unchanged";
 }

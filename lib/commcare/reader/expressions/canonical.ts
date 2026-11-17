@@ -31,7 +31,10 @@ import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
 } from "@/lib/domain/expression/simplify";
-import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
+import {
+	expressionContextAtPath,
+	expressionRowScope,
+} from "@/lib/domain/expression/typeChecker";
 import {
 	type CheckPath,
 	type Expression,
@@ -43,6 +46,7 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain/forms";
+import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
 import { userPropertySlugVerdict } from "../../validator/userPropertySlug";
 import type { FormNodeProjection } from "../../xpath/formNodeProjection";
@@ -1532,7 +1536,53 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			return undefined;
 		},
 	},
+	{
+		// In form logic a standard property of a case database row that no
+		// type test or id types prints as its own name, whatever case type the
+		// read names, and the form parser binds it naming none
+		// (`formPathBinding.ts`, which types such a row by the checker's
+		// `expressionRowScope` as this row does). A query's projected value is a
+		// term of the query, so the query itself carries it.
+		id: "untyped-row-standard-property",
+		rewrite(node, context) {
+			if (context.ruleSet !== "form") return undefined;
+			if (node.kind === "project") {
+				const value = untypedStandardRead(
+					node.value,
+					expressionRowScope(node.of, context),
+				);
+				return value === undefined ? undefined : { ...node, value };
+			}
+			const term = termOf(node);
+			const read =
+				term === undefined
+					? undefined
+					: untypedStandardRead(term, activeRowScope(context));
+			return read === undefined ? undefined : { kind: "term", term: read };
+		},
+	},
 ];
+
+/** `term` naming no case type, where it is a standard property read of a case
+ *  database row `row` that no type test or id types; undefined otherwise. */
+function untypedStandardRead(
+	term: Term,
+	row: ReturnType<typeof activeRowScope>,
+): Term | undefined {
+	if (
+		row?.kind !== "case" ||
+		!("root" in row) ||
+		row.root !== "casedb" ||
+		row.caseType !== undefined ||
+		term.kind !== "prop" ||
+		term.via !== undefined ||
+		term.caseType === undefined ||
+		!isStandardCaseListProperty(term.property)
+	)
+		return undefined;
+	const { caseType: _named, ...rest } = term;
+	return rest;
+}
 
 /** Every collision applied bottom-up until none applies. It never parses and
  *  never prints. */

@@ -597,11 +597,71 @@ describe("adoptedAppBaselineWrite", () => {
 			observedAt: "2026-11-10T09:00:00.000Z",
 			discard: null,
 			novaRevision: 7,
-			mediaFiles: { kind: "set", files: { "media/logo.png": "media-doc-1" } },
 		});
 		expect(
 			gunzipSync(write.sourceGzip ?? Buffer.alloc(0)).toString("utf8"),
 		).toBe(normalized.text);
+	});
+
+	it("records the file at each held path a publish sends, and not the logo's, which no publish sends", () => {
+		const picture = testMediaAssetId("adoption-picture");
+		const logo = testMediaAssetId("adoption-logo");
+		const doc = buildDoc({
+			appName: "Visits",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [{ id: "name", kind: "text", label: "Name" }],
+						},
+					],
+				},
+			],
+		});
+		const field = Object.values(doc.fields)[0] as { label_media?: unknown };
+		field.label_media = { image: picture };
+		const withLogo = { ...doc, logo };
+		const asset = (assetId: MediaAssetId, wirePath: string) =>
+			[
+				assetId,
+				{
+					assetId,
+					wirePath,
+					kind: "image",
+					mimeType: "image/png",
+					contentHash: "a".repeat(64),
+					extension: ".png",
+				},
+			] as const;
+		const write = adoptedAppBaselineWrite({
+			remoteAppId: "hq-app",
+			source: source(),
+			prepared: {
+				doc: withLogo,
+				assets: new Map([
+					asset(picture, "commcare/image/visit.png"),
+					asset(logo, "commcare/logo/data/hq_logo_web_apps.png"),
+				]),
+				attachmentTarget: null,
+			},
+			target: TARGET,
+			identity: DERIVED_WIRE_IDENTITY,
+			novaRevision: 7,
+			mediaFiles: {
+				"commcare/image/visit.png": "doc-visit",
+				"commcare/logo/data/hq_logo_web_apps.png": "doc-logo",
+			},
+			observedAt: "2026-11-10T09:00:00.000Z",
+			firstPublish: FIRST_PUBLISH,
+		});
+		expect(write.mediaFiles).toEqual({
+			kind: "set",
+			files: { "commcare/image/visit.png": "doc-visit" },
+		});
+		expect(baselineFor(PLAIN).mediaFiles).toEqual({ kind: "set", files: {} });
 	});
 
 	it("stores the list less the two Web Apps lines, beside HQ's setting, and reads back the same list", () => {

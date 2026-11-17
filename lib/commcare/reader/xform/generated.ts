@@ -213,7 +213,7 @@ export const G = {
 	),
 } as const;
 
-/** The entry a question's date-and-time sibling is read under (13.2, `datetime`). */
+/** The entry a question's date-and-time sibling is read under (`datetime`). */
 export const DATETIME_SIBLING_ENTRY =
 	"forms-and-case-writes/update-from-a-date-and-time-question-through-a-hidden-sibling";
 

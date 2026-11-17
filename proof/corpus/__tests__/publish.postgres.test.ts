@@ -95,6 +95,10 @@ import { decrypt } from "@/lib/commcare/encryption";
 import { profileUniqueId } from "@/lib/commcare/runtimeTarget";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import {
+	prepareGenesisCandidate,
+	writePreparedGenesisInTransaction,
+} from "@/lib/db/appGenesis";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import {
 	makeManagedCopy,
@@ -112,6 +116,7 @@ import type {
 	DeploymentConfirmationKey,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -119,6 +124,7 @@ import {
 	heldLanguageWireCodes,
 } from "@/lib/doc/languageMutations";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, sessionContext } from "@/lib/domain/expression";
@@ -190,6 +196,39 @@ async function seed(doc: BlueprintDoc): Promise<void> {
 		projectId: PROJECT,
 	});
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	await connect();
+}
+
+/**
+ * `doc` born as Nova births an app (`lib/db/appGenesis.ts`), with its
+ * sequence-one fold baseline: the baseline a deployment's revision pairs
+ * with, so a publish's stop offers to bring changes made in CommCare HQ in
+ * (`hqChanges/reference.ts::usablePair`), as it does for the capture's app.
+ * A document whose Project data the genesis gate reads is seeded by `seed`.
+ */
+async function seedBorn(doc: BlueprintDoc): Promise<void> {
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const candidate = prepareGenesisCandidate({
+		appId: APP,
+		projectId: PROJECT,
+		mutations: diffDocsToMutations(emptyBlueprintDoc(APP), {
+			...doc,
+			appId: APP,
+		}),
+	});
+	await h.withTransaction((tx) =>
+		writePreparedGenesisInTransaction(tx, {
+			candidate,
+			actorUserId: ACTOR,
+			runId: crypto.randomUUID(),
+			status: "complete",
+		}),
+	);
+	await connect();
+}
+
+/** The actor's CommCare HQ connection to the project space. */
+async function connect(): Promise<void> {
 	await h
 		.db()
 		.insertInto("user_settings")
@@ -1255,7 +1294,7 @@ it("captures a republish after an edit in each key, over a person's saves of the
 });
 
 it("captures the stop Nova makes over a person's save of a value Nova owns, and a resend that holds Nova's value beside the target's", async () => {
-	await seed(clinicVisitsDocument());
+	await seedBorn(clinicVisitsDocument());
 	const original = await storedDocument();
 	const saves: HqSideSaves = {
 		republish: "discards",

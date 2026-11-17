@@ -298,7 +298,9 @@ function appNameOf(answer: ReadingAnswer): string | null {
 const STANDINGS: readonly Standing[] = ["not-yet", "never", "fix-in-hq"];
 
 /** `canonicalJsonDigest` of an account's whole listed content: its `findings` and its `more`. */
-export function accountDigest(answer: AccountAnswer): string {
+export function accountDigest(
+	answer: Pick<AccountAnswer, "findings" | "more">,
+): string {
 	return canonicalJsonDigest({
 		findings: answer.findings,
 		more: answer.more,
@@ -433,6 +435,47 @@ function accountProjection(
 	};
 }
 
+/** An account's findings, counts and paging, as `account` holds them, with no word of its files. */
+export type ListedAccountProjection = Omit<
+	AccountProjection,
+	"media_checked" | "note"
+>;
+
+/**
+ * The page of an account that starts at `from`, cut as `read_hq_app` cuts
+ * one, for an account that says nothing of whether its files were checked:
+ * a review of the changes made in CommCare HQ answers one of those. `measure`
+ * is the JSON length of the whole answer that holds the page.
+ */
+export function listedAccountProjection(
+	account: Pick<AccountAnswer, "findings" | "more" | "counts">,
+	key: ReadingKey,
+	context: CircumstanceContext,
+	from: number,
+	measure: (account: ListedAccountProjection) => number,
+): ListedAccountProjection {
+	const listed = (page: AccountProjection): ListedAccountProjection => ({
+		counts: page.counts,
+		labels: page.labels,
+		findings: page.findings,
+		total: page.total,
+		next_page: page.next_page,
+		check_again: page.check_again,
+		more: page.more,
+	});
+	/* The files' two keys are cut from every page, the one measured included,
+	 * so what they would hold never reaches a client or the page's size. */
+	return listed(
+		accountProjection(
+			{ kind: "account", appName: null, mediaChecked: true, ...account },
+			key,
+			context,
+			from,
+			(page) => measure(listed(page)),
+		),
+	);
+}
+
 // ---------------------------------------------------------------------------
 // The review
 // ---------------------------------------------------------------------------
@@ -457,7 +500,8 @@ function firstUploadAsks(
 	return null;
 }
 
-function tableProjection(
+/** One table of a review, as `review.tables` holds it: its standing, its sentence, or its choice. */
+export function tableProjection(
 	table: ReviewTable,
 	project: string,
 	domain: string,

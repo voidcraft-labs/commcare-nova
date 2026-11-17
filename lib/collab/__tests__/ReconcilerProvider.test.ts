@@ -29,7 +29,9 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, blueprintDocSchema } from "@/lib/domain";
 import type { LookupManifest } from "@/lib/lookup/types";
+import { hqChangesBroughtInToast } from "@/lib/publish/hqChangesCopy";
 import { createBuilderSessionStore } from "@/lib/session/store";
+import { toastStore } from "@/lib/ui/toastStore";
 
 const reportClientError = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/clientErrorReporter", () => ({ reportClientError }));
@@ -1016,6 +1018,93 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		expect(runtime.reconciler.getSnapshot().revoked).toBe(true);
 		expect(FakeEventSource.instances).toHaveLength(1);
 		runtime.suspend();
+	});
+});
+
+describe("a bring-in's reload → who brought the changes in", () => {
+	it("names the member once the reload lands, falls back where the roster lacks them, and says nothing for its own batch or another reload", async () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					projectId: "project-source",
+					role: "editor",
+					canEdit: true,
+					blueprint: persistedDoc,
+					baseSeq: 4,
+					recordedHolds: [],
+				}),
+			),
+		);
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 3, userId: "self" },
+			() => {},
+		);
+		const titles = () =>
+			toastStore.toasts.map((toast) => [toast.severity, toast.title]);
+		/** Emit `frame` as a reload on the open stream, and wait for the
+		 *  replacement stream the landed reload opens. */
+		async function reloadWith(frame: unknown): Promise<void> {
+			const open = FakeEventSource.instances.length;
+			FakeEventSource.instances[open - 1].emit("reload", JSON.stringify(frame));
+			expect(titles()).toEqual([]);
+			await vi.waitFor(() =>
+				expect(FakeEventSource.instances).toHaveLength(open + 1),
+			);
+		}
+
+		toastStore.clear();
+		try {
+			runtime.start();
+			FakeEventSource.instances[0].emit(
+				"presence",
+				JSON.stringify(SOURCE_PRESENCE),
+			);
+			await reloadWith({
+				reason: "hq-changes",
+				batchId: "peer-batch",
+				actorId: "source-user",
+			});
+			expect(titles()).toEqual([
+				["info", hqChangesBroughtInToast("Source collaborator")],
+			]);
+
+			toastStore.clear();
+			await reloadWith({
+				reason: "hq-changes",
+				batchId: "absent-batch",
+				actorId: "absent-user",
+			});
+			expect(titles()).toEqual([["info", hqChangesBroughtInToast(null)]]);
+
+			toastStore.clear();
+			runtime.registerOwnHqChangesBatch("own-batch");
+			await reloadWith({
+				reason: "hq-changes",
+				batchId: "own-batch",
+				actorId: "self",
+			});
+			expect(titles()).toEqual([]);
+
+			await reloadWith({ reason: "app-changed" });
+			expect(titles()).toEqual([]);
+		} finally {
+			runtime.suspend();
+			toastStore.clear();
+		}
 	});
 });
 

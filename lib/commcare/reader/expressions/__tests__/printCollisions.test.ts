@@ -2069,3 +2069,129 @@ describe("a worker field read by name beside a worker property of its slug", () 
 				expect(canonicalExpression(unheld, context)).toEqual(unheld);
 			});
 });
+
+describe("untyped-row-standard-property: a standard property of a case database row no type test types", () => {
+	// A follow-up form of patients holding a repeat over the case database, and
+	// a question whose display condition counts case database rows.
+	const app = buildDoc({
+		caseTypes: [
+			{ name: "patient", properties: [{ name: "village", label: "Village" }] },
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: { columns: [], searchInputs: [] },
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({ kind: "text", id: "q1", label: "Q1" }),
+							f({
+								kind: "repeat",
+								id: "visits",
+								label: "Visits",
+								repeat_mode: "query_bound",
+								data_source: {
+									ids_query: {
+										kind: "project",
+										of: { kind: "cases", source: "casedb", where: [] },
+										value: { kind: "prop", property: "case_id" },
+									},
+								},
+								children: [f({ kind: "text", id: "note", label: "Note" })],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const idsQuery = {
+		entity: "field",
+		uuid: fieldNamed(app, "visits"),
+		slot: "ids_query",
+	} as SlotContextRef;
+	const relevant = {
+		entity: "field",
+		uuid: fieldNamed(app, "q1"),
+		slot: "relevant",
+	} as SlotContextRef;
+	const read = (property: string, caseType?: string): Term => ({
+		kind: "prop",
+		property,
+		...(caseType === undefined ? {} : { caseType }),
+	});
+	const named = (caseType?: string): Expression => ({
+		kind: "eq",
+		left: term(read("case_name", caseType)),
+		right: lit("open"),
+	});
+	const isPatient: Expression = {
+		kind: "eq",
+		left: term({ kind: "case-row-type" }),
+		right: term({ kind: "case-type", caseType: "patient" }),
+	};
+	const project = (
+		where: readonly Expression[],
+		caseType?: string,
+	): Expression => ({
+		kind: "project",
+		of: { kind: "cases", source: "casedb", where: [...where] },
+		value: read("case_id", caseType),
+	});
+	const counted = (where: readonly Expression[]): Expression => ({
+		kind: "gt",
+		left: {
+			kind: "count",
+			via: { kind: "cases", source: "casedb", where: [...where] },
+		} as Expression,
+		right: lit(0),
+	});
+	const cases: readonly {
+		readonly name: string;
+		readonly slot: SlotContextRef;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			name: "a query repeat's rows and value, read naming the type",
+			slot: idsQuery,
+			other: project([named("patient")], "patient"),
+			canonical: project([named()]),
+		},
+		{
+			name: "a count of rows whose condition reads the name naming the type",
+			slot: relevant,
+			other: counted([named("patient")]),
+			canonical: counted([named()]),
+		},
+	];
+	for (const one of cases)
+		it(one.name, () => {
+			const readEnvironment = env();
+			expect(printSlot(app, one.slot, one.other, readEnvironment)).toBe(
+				printSlot(app, one.slot, one.canonical, readEnvironment),
+			);
+			const context = contextOf(app, one.slot);
+			expect(canonicalExpression(one.other, context)).toEqual(one.canonical);
+			expect(canonicalExpression(one.canonical, context)).toEqual(
+				one.canonical,
+			);
+		});
+
+	it("leaves a read of a row a type test types, and a property the case types declare", () => {
+		const context = contextOf(app, idsQuery);
+		const typed = project([isPatient, named("patient")], "patient");
+		expect(canonicalExpression(typed, context)).toEqual(typed);
+		const declared: Expression = project([
+			{
+				kind: "eq",
+				left: term(read("village", "patient")),
+				right: lit("north"),
+			},
+		]);
+		expect(canonicalExpression(declared, context)).toEqual(declared);
+	});
+});

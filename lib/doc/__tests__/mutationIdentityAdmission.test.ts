@@ -209,6 +209,181 @@ describe("mutation identity admission", () => {
 		]);
 	});
 
+	it("lets a field removed by name come back once into its own form, as another kind, with the choices it owned", () => {
+		const fx = fixture();
+		const field = fx.doc.fields[fx.fieldUuid];
+		if (!("optionsSource" in field)) throw new Error("select fixture missing");
+		for (const reAdded of [
+			{
+				uuid: fx.fieldUuid,
+				kind: "text",
+				id: "status",
+				label: proseText("Status"),
+			},
+			{ ...field, kind: "multi_select" },
+		] as const) {
+			const batch: Mutation[] = [
+				{ kind: "removeField", uuid: fx.fieldUuid },
+				{ kind: "addField", parentUuid: fx.formUuid, field: reAdded as never },
+			];
+			expect(mutationIdentityAdmissionIssue(fx.doc, batch)).toBeUndefined();
+			expect(mutationTargetsInvalid(fx.doc, batch)).toBe(false);
+			const verdict = mutationCommitVerdict(
+				fx.doc,
+				batch,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok).toBe(true);
+			expect(verdict.nextDoc.fields[fx.fieldUuid].kind).toBe(reAdded.kind);
+		}
+	});
+
+	it("keeps a field removed by name reserved for another form, a second add and another field's choices", () => {
+		const fx = fixture();
+		const field = fx.doc.fields[fx.fieldUuid];
+		if (!("optionsSource" in field)) throw new Error("select fixture missing");
+		const otherForm = testUuid("reborn-other-form");
+		const text = {
+			uuid: fx.fieldUuid,
+			kind: "text",
+			id: "status",
+			label: proseText("Status"),
+		} as const;
+		expectRejected(fx.doc, [
+			{ kind: "removeField", uuid: fx.fieldUuid },
+			{
+				kind: "addForm",
+				moduleUuid: fx.moduleUuid,
+				form: {
+					uuid: otherForm,
+					id: "other",
+					name: "Other",
+					type: "survey",
+				},
+			},
+			{ kind: "addField", parentUuid: otherForm, field: text },
+		]);
+		expectRejected(fx.doc, [
+			{ kind: "removeField", uuid: fx.fieldUuid },
+			{ kind: "addField", parentUuid: fx.formUuid, field: text },
+			{
+				kind: "addField",
+				parentUuid: fx.formUuid,
+				field: { ...text, id: "again" },
+			},
+		]);
+		expectRejected(fx.doc, [
+			{ kind: "removeField", uuid: fx.fieldUuid },
+			{
+				kind: "addField",
+				parentUuid: fx.formUuid,
+				field: {
+					...field,
+					uuid: testUuid("reborn-thief"),
+					id: "thief",
+				} as never,
+			},
+		]);
+	});
+
+	it("keeps a choice a re-added field leaves out reserved, and the choices it carries its own", () => {
+		const fx = fixture();
+		const field = fx.doc.fields[fx.fieldUuid];
+		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline") {
+			throw new Error("select fixture missing");
+		}
+		const [kept, left] = field.optionsSource.options;
+		const reAdd = (options: typeof field.optionsSource.options): Mutation => ({
+			kind: "addField",
+			parentUuid: fx.formUuid,
+			field: { ...field, optionsSource: { kind: "inline", options } },
+		});
+		const replaceWith = (
+			options: typeof field.optionsSource.options,
+		): Mutation => ({
+			kind: "updateField",
+			uuid: fx.fieldUuid,
+			targetKind: "single_select",
+			patch: { optionsSource: { kind: "inline", options } },
+		});
+		const removed: Mutation = { kind: "removeField", uuid: fx.fieldUuid };
+		// The choice left out comes back neither through a source replacement
+		// nor through an option add, as after a removeOption.
+		for (const back of [
+			replaceWith([kept, left]),
+			{
+				kind: "addOption",
+				fieldUuid: fx.fieldUuid,
+				option: left,
+				after: kept.uuid,
+			} as Mutation,
+		]) {
+			const batch = [removed, reAdd([kept]), back];
+			expectRejected(fx.doc, batch);
+			expect(mutationIdentityAdmissionIssue(fx.doc, batch)).toMatchObject({
+				mutationIndex: 2,
+				uuid: left.uuid,
+			});
+		}
+		// What the re-add carries stays its own through a later replacement.
+		for (const batch of [
+			[removed, reAdd([kept, left]), replaceWith([left, kept])],
+			[removed, reAdd([kept]), replaceWith([kept])],
+		]) {
+			expect(mutationIdentityAdmissionIssue(fx.doc, batch)).toBeUndefined();
+			expect(
+				mutationCommitVerdict(fx.doc, batch, LOOKUP_CONTEXT_UNAVAILABLE).ok,
+			).toBe(true);
+		}
+	});
+
+	it("keeps a field its ancestor's removal took reserved", () => {
+		const GROUP = testUuid("reborn-group");
+		const CHILD = testUuid("reborn-child");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: [
+								f({
+									uuid: GROUP,
+									kind: "group",
+									id: "group",
+									children: [
+										f({
+											uuid: CHILD,
+											kind: "text",
+											id: "child",
+											label: proseText("Child"),
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		expectRejected(doc, [
+			{ kind: "removeField", uuid: GROUP },
+			{
+				kind: "addField",
+				parentUuid: formUuid,
+				field: {
+					uuid: CHILD,
+					kind: "text",
+					id: "child",
+					label: proseText("Child"),
+				},
+			},
+		]);
+	});
+
 	it("accepts distinct predeclared identities", () => {
 		const fx = fixture();
 		const moduleUuid = testUuid("distinct-module");

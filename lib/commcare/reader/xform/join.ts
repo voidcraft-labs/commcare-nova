@@ -1,5 +1,5 @@
 /**
- * The join of a form's model and body (8.5), as HQ's form builder makes it
+ * The join of a form's model and body, as HQ's form builder makes it
  * (Vellum `parser.js`): every data node takes one `NodeRole`, in this order,
  * so a node another reader owns never becomes a field:
  *
@@ -304,7 +304,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		return field;
 	};
 
-	/** The question id rule (8.3), raised at the question: the field stands in. */
+	/** The question id rule, raised at the question: the field stands in. */
 	const idFinding = (node: DataNode): boolean => {
 		const problem = questionIdProblem(node.name);
 		if (problem === undefined) return false;
@@ -321,7 +321,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		return true;
 	};
 
-	/** Claims what stands on a field's data node whatever its kind (8.3). */
+	/** Claims what stands on a field's data node whatever its kind. */
 	const claimNode = (node: DataNode) => {
 		if (ownNamespace(node, parsed))
 			cursor.refuse(
@@ -344,7 +344,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				one.target.every((step, i) => step === node.path[i]),
 		);
 
-	/** A question's kind row and its claims (9.1, 9.2). */
+	/** A question's kind row and its claims. */
 	const readQuestion = (
 		node: DataNode,
 		control: ControlNode | undefined,
@@ -390,7 +390,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (row === undefined) return make(node, parent, control, "hidden", true);
 		if (row.kind === undefined || row.sites === undefined) {
 			const claim = row.claim as typeof X.refusedKind.long;
-			// A bind type Vellum does not write is named by the type as written (9.1).
+			// A bind type Vellum does not write is named by the type as written.
 			const detail =
 				claim === X.refusedKind.inputOtherType && bind?.type !== undefined
 					? { name: bind.type }
@@ -470,7 +470,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		return field;
 	};
 
-	/** `jr:imageDimensionScaledMax` on an upload (9.1). */
+	/** `jr:imageDimensionScaledMax` on an upload. */
 	const readImageDimension = (
 		control: ControlNode,
 		row: FieldKindRow,
@@ -579,7 +579,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		return true;
 	};
 
-	/** A count-placement query repeat's wrapper, row and generated nodes (13.2). */
+	/** A count-placement query repeat's wrapper, row and generated nodes. */
 	const readCountPlacement = (
 		field: DraftField,
 		wrapper: DataNode,
@@ -752,7 +752,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				readCountPlacement(field, at, read.node, placement);
 			made = field;
 		} else if (node.children.length > 0) {
-			// A question's control on a node with element children (8.5): refused whole at the
+			// A question's control on a node with element children: refused whole at the
 			// question, and the node stands in as a group, so each node under it reads as a
 			// field under that group, at the data path it has.
 			const place = placeOf(node);
@@ -764,7 +764,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (made !== undefined) placed.push(made);
 	}
 
-	// A control's place and its node's place must agree (8.5), once every field a control makes
+	// A control's place and its node's place must agree, once every field a control makes
 	// is made: a data parent whose control stands later in the body is a field by now.
 	for (const made of placed) {
 		const expected = dataParent(made.node);
@@ -776,7 +776,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		);
 	}
 
-	// The head's `odkx:intent`s an input's `intent:<id>` names (8.2): a callout question's own
+	// The head's `odkx:intent`s an input's `intent:<id>` names: a callout question's own
 	// is refused with the callout, at its question, and one no callout writes with the
 	// appearance that names it.
 	const named = intentIdsOf(parsed.html);

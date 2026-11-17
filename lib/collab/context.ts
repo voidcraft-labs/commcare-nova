@@ -81,6 +81,13 @@ export interface ReconcilerContextValue {
 	registerPlacementConflictHandler?: (
 		handler: (replay: PlacementConflictReplay) => void,
 	) => () => void;
+	/** Record the batch id of a bring-in of changes made in CommCare HQ this
+	 *  tab is about to send. The `reload` that bring-in forces says nothing
+	 *  in this tab, which shows the answer to its own request; every other
+	 *  open tab shows who brought the changes in once its reload lands.
+	 *  `ReconcilerProvider` always supplies it; a context built outside it
+	 *  may leave it out. */
+	registerOwnHqChangesBatch?: (batchId: string) => void;
 }
 
 export const ReconcilerContext = createContext<ReconcilerContextValue | null>(

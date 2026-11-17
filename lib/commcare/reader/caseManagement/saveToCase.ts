@@ -741,7 +741,7 @@ function setvaluesUnder(
 
 interface BlockRead {
 	readonly ok: boolean;
-	/** The entry a failing block is, where the manifest names its class; else 5.1's. */
+	/** The entry a failing block is, where the manifest names its class; else the block-shape entry. */
 	readonly claim?: Claim<"refuse">;
 	readonly detail?: FindingDetail;
 	readonly proposal?: Omit<ProposedBlock, "uuid" | "id" | "action"> & {
@@ -3829,7 +3829,7 @@ function withOwner(
  * (test 2) and the emitter's block equal to the stored one (test 4), with
  * the reader's second candidate for an owner the stored block gives as the
  * acting user's id; then the own close read from a block of its own, over the
- * document those settled on. A block that fails is the one finding of 5.1,
+ * document those settled on. A block that fails is one finding at the block,
  * and an own close that fails the finding its reading names.
  */
 export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {

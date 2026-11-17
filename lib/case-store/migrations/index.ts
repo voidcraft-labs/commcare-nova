@@ -38,6 +38,7 @@ import * as incrementalTranscripts from "./20261112000000_incremental_transcript
 import * as retainedConversationSources from "./20261112010000_retained_conversation_sources";
 import * as hqRoundTripLookupNames from "./20261113000000_hq_round_trip_lookup_names";
 import * as hqBringInLedger from "./20261201000000_hq_bring_in_ledger";
+import * as hqChangesAppChangeKind from "./20261201010000_hq_changes_app_change_kind";
 import * as hqBringInProjectData from "./20261202000000_hq_bring_in_project_data";
 // Case-store migration set + provider.
 //
@@ -248,6 +249,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261112010000_retained_conversation_sources": retainedConversationSources,
 	"20261113000000_hq_round_trip_lookup_names": hqRoundTripLookupNames,
 	"20261201000000_hq_bring_in_ledger": hqBringInLedger,
+	"20261201010000_hq_changes_app_change_kind": hqChangesAppChangeKind,
 	"20261202000000_hq_bring_in_project_data": hqBringInProjectData,
 };
 

@@ -1,5 +1,5 @@
 /**
- * Groups, Question Lists and sections (10.2). A `group` control that wraps no
+ * Groups, Question Lists and sections. A `group` control that wraps no
  * repeat is a `group` field over its data node; `field-list` in any letter
  * case is a Question List, which the runtimes read so (Core's
  * `FormEntryController.isHostWithAppearance` compares ignoring case). A form
@@ -146,7 +146,7 @@ export interface ReadContainersInput {
 }
 
 /**
- * Claims every group by its row of 10.2, turning each root Question List into a section where
+ * Claims every group by the kind of group it is, turning each root Question List into a section where
  * `sectioned`, and refuses a repeat whose rows the worker adds anywhere under a Question List.
  */
 export function readContainers(input: ReadContainersInput): void {

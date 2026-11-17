@@ -67,14 +67,18 @@ it("treats only a missing profile as a build verdict and does not follow redirec
 				reason: status === 404 ? "not-installable" : "unavailable",
 			});
 		}
-		intercept(peer).replyWithError(new Error("connection reset"));
+		/* A read no answer began for is sent once more, and a second loss is the answer. */
+		intercept(peer).replyWithError(new Error("connection reset")).times(2);
 		expect(await probe()).toEqual({ ok: false, reason: "unavailable" });
+		intercept(peer).replyWithError(new Error("connection reset"));
+		intercept(peer).reply(200, PROFILE);
+		expect(await probe()).toEqual({ ok: true });
 		expect(
 			peer
 				.getCallHistory()
 				?.calls()
 				.map((call) => call.fullUrl),
-		).toEqual(Array(statuses.length + 1).fill(HOST + PATH));
+		).toEqual(Array(statuses.length + 4).fill(HOST + PATH));
 	});
 });
 

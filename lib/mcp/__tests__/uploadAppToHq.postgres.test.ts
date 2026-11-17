@@ -49,13 +49,17 @@ import {
 import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
-import { readDeployment } from "@/lib/deployment/store";
+import {
+	readDeployment,
+	readDeploymentNovaRevisions,
+} from "@/lib/deployment/store";
 import {
 	asUuid,
 	type BlueprintDoc,
 	type OrganizationLevel,
 	type Uuid,
 } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import {
 	createLocation,
@@ -88,6 +92,14 @@ import { resultText } from "./resultText";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+/* Passed through, so a test can make the read after a landed app fault. */
+vi.mock("@/lib/deployment/store", async (original) => {
+	const store = await original<typeof import("@/lib/deployment/store")>();
+	return {
+		...store,
+		readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
+	};
+});
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
@@ -112,7 +124,12 @@ const SOURCE = sourcePath();
  * `USH_EMPTY_CASE_LIST_TEXT`, starting from the project spaces the key can
  * see. A peer that leaves the read unanswered gives no answer, which changes
  * no verdict. */
-const PROJECT_SPACES = `GET ${HOST}/api/user_domains/v1/?limit=100`;
+/**
+ * The publish's read of the account's project spaces, which these tests leave
+ * unanswered: a read no answer began for goes out twice (`hq/readJson.ts`).
+ */
+const PROJECT_SPACES_READ = `GET ${HOST}/api/user_domains/v1/?limit=100`;
+const PROJECT_SPACES = [PROJECT_SPACES_READ, PROJECT_SPACES_READ];
 function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
@@ -339,12 +356,12 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 			});
 		});
 		expect(requests(peer)).toEqual([
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
@@ -452,14 +469,14 @@ it("refuses an unreadable update source without replacing the last published app
 			});
 		});
 		expect(requests(peer)).toEqual([
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
@@ -506,15 +523,15 @@ it.each(["source-missing", "source-deleted", "update-missing"] as const)(
 				]);
 			});
 			expect(requests(peer)).toEqual([
-				PROJECT_SPACES,
+				...PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
-				PROJECT_SPACES,
+				...PROJECT_SPACES,
 				`GET ${HOST}${SOURCE}`,
 				...(answer === "update-missing" ? [`POST ${HOST}${IMPORT}`] : []),
-				PROJECT_SPACES,
+				...PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${sourcePath("replacement-app")}`,
 				`POST ${HOST}${IMPORT}`,
@@ -547,9 +564,9 @@ it("retains a refused shell create as resumable, then records the retry as one u
 			expect((await state())?.active).toHaveLength(1);
 		});
 		expect(requests(peer)).toEqual([
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
@@ -783,7 +800,7 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 		expect(requests(peer)).toEqual([
 			`GET ${HOST}${TABLES}`,
 			`GET ${HOST}${TABLES}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
@@ -893,7 +910,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 			]);
 			expect(requests(peer)).toEqual([
 				`GET ${HOST}${TABLES}`,
-				PROJECT_SPACES,
+				...PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${WORKBOOK}`,
@@ -908,7 +925,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 		});
 		expect(requests(peer)).toEqual([
 			`GET ${HOST}${TABLES}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
@@ -916,7 +933,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 			`GET ${HOST}${rowsPath()}`,
 			`GET ${HOST}${TABLES}`,
 			`GET ${HOST}${rowsPath()}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${WORKBOOK}`,
 			`GET ${HOST}${TABLES}`,
@@ -1051,8 +1068,11 @@ it.each([
 						data: JSON.stringify({ success: true, processing_id: "media-job" }),
 					};
 				});
+				/* A status read no answer began for is sent once more. */
 				if (outcome === "status-disconnect")
-					request(peer, status).replyWithError(new Error("socket closed"));
+					request(peer, status)
+						.replyWithError(new Error("socket closed"))
+						.times(2);
 				else
 					request(peer, status).reply(200, {
 						success: true,
@@ -1079,13 +1099,17 @@ it.each([
 				expect((await state())?.active).toHaveLength(1);
 			});
 			expect(requests(peer)).toEqual([
-				PROJECT_SPACES,
+				...PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${media}`,
-				...(outcome === "upload-disconnect" ? [] : [`GET ${HOST}${status}`]),
+				...(outcome === "upload-disconnect"
+					? []
+					: outcome === "status-disconnect"
+						? [`GET ${HOST}${status}`, `GET ${HOST}${status}`]
+						: [`GET ${HOST}${status}`]),
 			]);
 		});
 	},
@@ -1135,7 +1159,7 @@ it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in 
 			});
 		});
 		expect(requests(peer)).toEqual([
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
@@ -1374,6 +1398,46 @@ it("answers hq_web_apps_change structurally and lands with confirm_web_apps", as
 	});
 });
 
+/* The app lands before the answer reads the revision CommCare HQ's copy
+ * matches. A fault reading it then must answer the publish that landed: an
+ * agent told it failed would upload again. */
+it("answers an upload whose app landed as landed when the revision read after it faults, leaving nova_revision out", async () => {
+	await seed();
+	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
+		imported(peer);
+		await asUser(async (client) => {
+			vi.mocked(readDeploymentNovaRevisions).mockRejectedValueOnce(
+				Object.assign(new Error("could not read “Clinic visits”"), {
+					code: "57P01",
+				}),
+			);
+			const landed = body(await call(client));
+			expect(landed).toMatchObject({
+				stage: "upload_complete",
+				hq_app_action: "created",
+				deployment: { domain: "clinic", state: "uploaded" },
+			});
+			expect(landed.deployment).not.toHaveProperty("nova_revision");
+		});
+	});
+	expect(log.error).toHaveBeenCalledWith(
+		"[deployment] matched revisions unavailable after a write landed",
+		undefined,
+		{
+			appId: APP,
+			domain: "clinic",
+			after: "publish",
+			errorName: "Error",
+			errorCode: "57P01",
+		},
+	);
+	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
+		"Clinic visits",
+	);
+	expect((await state())?.deployment.state).toBe("uploaded");
+});
+
 it("answers hq_plan_lacks_web_apps with its message and keeps the empty app", async () => {
 	await seed();
 	await withHttpPeer(async (peer) => {
@@ -1396,7 +1460,7 @@ it("answers hq_plan_lacks_web_apps with its message and keeps the empty app", as
 			});
 		});
 		expect(requests(peer)).toEqual([
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 		]);
@@ -1604,6 +1668,8 @@ it.each([
 			});
 			expect(requests(peer)).toEqual([
 				...paths.map((path) => `GET ${HOST}${path}`),
+				/* Unanswered here, so sent twice (`hq/readJson.ts`). */
+				`GET ${HOST}/api/user_domains/v1/?limit=100&feature_flag=empty_case_list_text`,
 				`GET ${HOST}/api/user_domains/v1/?limit=100&feature_flag=empty_case_list_text`,
 				...(ready
 					? [
@@ -2273,7 +2339,8 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			);
 		});
 		expect(await snapshot()).toEqual(before);
-		expect(requests(peer)).toHaveLength(8);
+		/* The first publish's unanswered project-space read goes out twice. */
+		expect(requests(peer)).toHaveLength(9);
 	});
 });
 
@@ -2326,6 +2393,8 @@ it("asks before recreating a table deleted in CommCare HQ, then records it as No
 						baseline_known: true,
 						/* Nova made this deployment, so a change is measured against its last publish. */
 						since: { kind: "published" },
+						/* A table's change is never brought in: it is published over or adopted. */
+						can_bring_in: false,
 					},
 				],
 				...NOTHING_RECORDED,
@@ -2470,16 +2539,16 @@ it("lists a change to the app in CommCare HQ, refuses a discard of a state it ha
 			]);
 		});
 		expect(requests(peer)).toEqual([
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
-			PROJECT_SPACES,
+			...PROJECT_SPACES,
 			`GET ${HOST}${SOURCE}`,
 			`POST ${HOST}${IMPORT}`,
 			`GET ${HOST}${SOURCE}`,
@@ -2614,7 +2683,7 @@ describe("the placements an upload records", () => {
 				expect(Object.hasOwn(landed, "placement_moves")).toBe(false);
 			});
 			expect(requests(peer)).toEqual([
-				PROJECT_SPACES,
+				...PROJECT_SPACES,
 				`POST ${HOST}${IMPORT}`,
 				`GET ${HOST}${SOURCE}`,
 				`POST ${HOST}${IMPORT}`,
@@ -2660,10 +2729,11 @@ describe("the placements an upload records", () => {
 					...NOTHING_RECORDED,
 				});
 			});
+			/* Each read is answered here, so each goes out once. */
 			expect(requests(peer)).toEqual([
-				PROJECT_SPACES,
-				PROJECT_SPACES,
-				PROJECT_SPACES,
+				PROJECT_SPACES_READ,
+				PROJECT_SPACES_READ,
+				PROJECT_SPACES_READ,
 			]);
 		});
 		expect(await changeKinds()).toEqual(["autosave", "autosave", "autosave"]);

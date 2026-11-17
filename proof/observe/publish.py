@@ -140,6 +140,39 @@ class MediaNotProcessed(AssertionError):
     """HQ accepted a media upload and its processing did not finish inside the operation that sent it."""
 
 
+class MediaReportNotMapped(AssertionError):
+    """HQ's report of a media upload names, for a path it matched, a file the app's map does not hold there.
+
+    Nova records which file stands at each path it publishes from that report (``matched_files``, each entry's
+    ``path`` and ``m_id``; ``lib/deployment/store.ts::recordDeploymentMediaFiles``), so the report must be a witness
+    of the map: after HQ processed the upload, the app's ``multimedia_map`` holds at every matched path the document
+    the report names (``hqmedia/tasks.py::process_bulk_upload_zip``, ``app.create_mapping`` then
+    ``get_media_info``)."""
+
+
+def hold_report_maps(unit, app_id, processing):
+    """Holds HQ's report of a processed media upload to the app's map (``MediaReportNotMapped``): for every entry
+    of ``matched_files``, ``multimedia_map[path].multimedia_id`` is the entry's ``m_id``. Returns how many entries
+    it held."""
+    from proof.hq import operations
+
+    app = operations.held_app(unit, app_id)
+    held = 0
+    for media_class, infos in sorted(processing["matched_files"].items()):
+        for info in infos:
+            item = app.multimedia_map.get(info["path"])
+            mapped = None if item is None else item.multimedia_id
+            if mapped != info.get("m_id"):
+                raise MediaReportNotMapped(
+                    f"HQ's report of the media upload for {app_id} names {info.get('m_id')!r} ({media_class}) at"
+                    f" {info['path']}, and the app's multimedia_map holds {mapped!r} there after the processing. Nova"
+                    " records the file at each path from that report, so the record would name a file the path does"
+                    " not hold; read the report from the app's source after the upload instead."
+                )
+            held += 1
+    return held
+
+
 def _logo_refs(app, path):
     """The logos of ``app`` (its ``logo_refs`` slugs) at the form path HQ's bulk upload reads the ZIP entry
     ``path`` as (``CommCareMultimedia.get_form_path``, compared lowercased as the upload matches)."""
@@ -216,7 +249,9 @@ def _unmatched(unit, app_id, upload, unmatched_files):
 def upload_media(unit, app_id, captured):
     """Nova's media upload after an import HQ accepted, applied to the app HQ holds (``operations.apply_media_upload``).
 
-    Returns HQ's refusal of the upload, or what its processing reported as
+    Every path the processing reports it matched is held to the app's map first
+    (``hold_report_maps``), the report being what Nova records the file at each
+    path from. Returns HQ's refusal of the upload, or what its processing reported as
     Nova's status poll reads it: each file it matched to a reference of the
     app (by the reference it mapped and the media class it stored), each it
     did not match (with HQ's reason, its cause, ``_unmatched_cause``, and the
@@ -235,6 +270,7 @@ def upload_media(unit, app_id, captured):
             f" operation ended ({json.dumps(_json(processing), sort_keys=True)}). HQ's Celery runs the processing"
             " inline in the harness (CELERY_TASK_ALWAYS_EAGER), so an unfinished one never reached the task."
         )
+    hold_report_maps(unit, app_id, processing)
     return _json(
         {
             "refused": None,

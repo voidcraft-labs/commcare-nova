@@ -15,6 +15,7 @@ import {
 	type TargetFacts,
 	targetFactsFromSource,
 } from "@/lib/commcare/targetFacts";
+import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import {
 	endDeploymentInTransaction,
 	HqAppAlreadyClaimedError,
@@ -36,11 +37,17 @@ import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
+	type FirstPublishChangeId,
+	type FirstPublishView,
 	type StoredFirstPublish,
 	storedFirstPublishSchema,
 } from "@/lib/publish/firstPublishChangeIds";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
-import type { AdoptedKeyedCaseId } from "./adoption";
+import {
+	type AdoptedKeyedCaseId,
+	type AdoptedMediaFile,
+	assignMediaPaths,
+} from "./adoption";
 import {
 	DeploymentEndedError,
 	DeploymentError,
@@ -436,6 +443,36 @@ async function confirmerNames(
 	return new Map(rows.rows.map((row) => [row.id, row.name]));
 }
 
+/**
+ * The name of each member a deployment's surface names by user id, as
+ * `adoptedByName` resolves one: `auth_user.name` where the user still
+ * exists, and no entry where not. A review of changes made in CommCare HQ
+ * names who changed the app since the publish, and who moved its head.
+ */
+export async function readMemberNames(
+	userIds: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+	return confirmerNames(await getAppDb(), userIds);
+}
+
+/**
+ * The name of the Project a scope stands in, which a review of changes made
+ * in CommCare HQ names where a table it newly reads asks its choice. A
+ * scope is resolved from a membership of that Project, and no Project is
+ * deleted, so the row is there.
+ */
+export async function readProjectName(scope: DeploymentScope): Promise<string> {
+	const rows = await sql<{ name: string }>`
+		SELECT name FROM auth_organization WHERE id = ${scope.projectId}
+	`.execute(await getAppDb());
+	const name = rows.rows[0]?.name;
+	if (name === undefined)
+		throw new Error(
+			`Nova looked for the name of Project ${scope.projectId} to word a review of changes made in CommCare HQ, and found no such Project. A deployment scope comes from a membership of its Project, so check how this scope was built.`,
+		);
+	return name;
+}
+
 /** The one row query both list readers share, so they cannot drift. */
 async function readDeploymentRowsForApp(
 	scope: DeploymentScope,
@@ -561,6 +598,49 @@ export async function readDeployment(
 		deployment: toDeploymentRecord(row),
 		...(resources.get(row.id) ?? NO_DEPLOYMENT_LEDGER),
 	};
+}
+
+/**
+ * The revision of this app that CommCare HQ's copy was last known to match,
+ * for each of the app's deployments, by deployment id: the `nova_revision`
+ * of a baseline Nova read of the HQ app the live app mapping names. A
+ * deployment whose baseline is unread, describes no revision or is of
+ * another HQ app has no entry. After changes made in CommCare HQ are
+ * brought in, it is the revision that holds them, which `pushed_revision`
+ * is not, so a surface that compares the app's head with it does not read a
+ * brought-in change as one waiting to be published.
+ *
+ * Kept out of `DeploymentWithResources` on purpose, as the identities are:
+ * the deployment surfaces that project it read it beside the record, and
+ * no fold or publish needs it. It reads no source.
+ */
+export async function readDeploymentNovaRevisions(
+	scope: DeploymentScope,
+): Promise<ReadonlyMap<string, number>> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("app_deployment_baselines as b")
+		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
+		.innerJoin("app_deployment_resources as r", (join) =>
+			join
+				.onRef("r.deployment_id", "=", "b.deployment_id")
+				.onRef("r.remote_id", "=", "b.remote_app_id"),
+		)
+		.select(["b.deployment_id", "b.nova_revision"])
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
+		.where("r.kind", "=", "app")
+		.where("r.superseded_at", "is", null)
+		.where("b.origin", "<>", "unread")
+		.where("b.nova_revision", "is not", null)
+		.execute();
+	const revisions = new Map<string, number>();
+	for (const row of rows) {
+		const revision = numberOrNull(row.nova_revision);
+		if (revision !== null) revisions.set(row.deployment_id, revision);
+	}
+	return revisions;
 }
 
 /**
@@ -1636,7 +1716,9 @@ export async function recordCreatedRemoteApp(
  * app came to be there, what Nova's upload owned in it and which revision of
  * the app it describes, which a read without a publish does not change. A
  * stored discard record is kept too, and so are the media record and the
- * first-publish list unless the input carries one.
+ * first-publish list unless the input carries what the next publish changes:
+ * that keeps a stored list of that kind by `hqChangesFirstPublishList`, and
+ * never touches the list of an app brought in and not yet published.
  */
 export async function recordRefreshedAppBaseline(
 	scope: DeploymentScope,
@@ -1650,8 +1732,12 @@ export async function recordRefreshedAppBaseline(
 			AppBaselineWrite,
 			"sourceGzip" | "sourceBytes" | "sourceDigest" | "observedAt"
 		>;
-		/** The list the next publish shows. Absent: the stored one stays. */
-		readonly firstPublish?: StoredFirstPublish;
+		/**
+		 * What a review that read the same app gives for the next publish's
+		 * list, kept by `hqChangesFirstPublishList`. Absent: the stored one
+		 * stays.
+		 */
+		readonly nextPublish?: HqChangesFirstPublish;
 		/** The media record with an id a review learned. Absent: it stays. */
 		readonly mediaFiles?: HqMediaRecord;
 	},
@@ -1673,6 +1759,7 @@ export async function recordRefreshedAppBaseline(
 					"ownership",
 					"nova_revision",
 					"observed_at",
+					"first_publish_changes",
 				])
 				.where("deployment_id", "=", row.id)
 				.executeTakeFirst();
@@ -1706,6 +1793,10 @@ export async function recordRefreshedAppBaseline(
 				return superseded();
 			}
 			const readAt = Date.parse(input.read.observedAt);
+			const storedList = storedFirstPublish(
+				row.id,
+				stored.first_publish_changes,
+			);
 			/* The stored baseline already holds what this read saw: another
 			 * refresh that read the same landed first, or a publish whose
 			 * read-back is byte for byte this read. The row is current either
@@ -1737,10 +1828,16 @@ export async function recordRefreshedAppBaseline(
 					input.mediaFiles === undefined
 						? { kind: "keep" }
 						: { kind: "set", files: input.mediaFiles },
+				/* An app brought in and not yet published keeps its own list: the
+				 * first publish still makes every change of it, and a read that
+				 * compared equal reads the same app it was given for. */
 				firstPublish:
-					input.firstPublish === undefined
+					input.nextPublish === undefined || storedList?.of === "first-publish"
 						? { kind: "keep" }
-						: { kind: "set", list: input.firstPublish },
+						: {
+								kind: "set",
+								list: hqChangesFirstPublishList(storedList, input.nextPublish),
+							},
 			});
 			await notifyAppDeployments(tx, scope.appId);
 			return {
@@ -1749,6 +1846,494 @@ export async function recordRefreshedAppBaseline(
 			};
 		},
 	);
+}
+
+/**
+ * Writes the media record a publish's upload earned: which CommCare HQ file
+ * stands at each path the publish sent. `edit`.
+ *
+ * It writes only where the baseline row still names that HQ app and the
+ * digest of the baseline this publish wrote, so a later publish's baseline,
+ * which that publish records its own files beside, is left alone. A publish
+ * whose read-back failed wrote an `unread` baseline, whose digest is null,
+ * and passes null. On a deployment someone stopped since the publish began
+ * it writes nothing and throws nothing: the app had already landed, which
+ * the publish reports, as `finishDeploymentContentWrite` holds it.
+ */
+export async function recordDeploymentMediaFiles(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: DeploymentFence & {
+		readonly remoteAppId: string;
+		/** The digest of the baseline this publish wrote; null for an `unread` one. */
+		readonly sourceDigest: string | null;
+		readonly files: HqMediaRecord;
+	},
+): Promise<void> {
+	await withDeploymentRow(scope, target, { ensure: false }, async (tx, row) => {
+		if (row.endings !== input.expectedEndings) return;
+		await tx
+			.updateTable("app_deployment_baselines")
+			.set({ media_files: JSON.stringify(input.files) })
+			.where("deployment_id", "=", row.id)
+			.where("remote_app_id", "=", input.remoteAppId)
+			.where((eb) =>
+				input.sourceDigest === null
+					? eb("source_digest", "is", null)
+					: eb("source_digest", "=", input.sourceDigest),
+			)
+			.execute();
+	});
+}
+
+/** Which of the baseline's facts a bring-in of changes found moved under its lock. */
+export type HqChangesBaselineFence =
+	| "source-digest"
+	| "nova-revision"
+	| "remote-app"
+	| "observed-at";
+
+/**
+ * Thrown by `recordHqChangesTaken` where the baseline, its revision or the
+ * live app mapping is not the one the plan read, or a newer read of the app
+ * is stored. Nothing was recorded, and the transaction it ran in rolls back.
+ */
+export class HqChangesBaselineMovedError extends Error {
+	readonly fence: HqChangesBaselineFence;
+	readonly expected: string;
+	readonly found: string | null;
+
+	constructor(
+		fence: HqChangesBaselineFence,
+		expected: string,
+		found: string | null,
+	) {
+		const what = {
+			"source-digest": "source digest",
+			"nova-revision": "Nova revision",
+			"remote-app": "CommCare HQ app",
+			"observed-at": "read no later than",
+		}[fence];
+		super(
+			`The deployment's baseline is not the one this plan read (expected ${what} ${expected}, found ${found ?? "none"}), so nothing was recorded. A publish landed in between; the caller answers the review as it now stands.`,
+		);
+		this.name = "HqChangesBaselineMovedError";
+		this.fence = fence;
+		this.expected = expected;
+		this.found = found;
+	}
+}
+
+/** The two Web App lines a list never stores: each is worked out again from where the app runs. */
+const WEB_APPS_LINES: ReadonlySet<FirstPublishChangeId> = new Set([
+	"web-apps-turned-off",
+	"web-apps-turned-on",
+]);
+
+/** What the list a bring-in of changes leaves on the baseline is made from. */
+export interface HqChangesFirstPublish {
+	/** The list acceptance gave this request's reading for the app's declaration. */
+	readonly accepted: FirstPublishView;
+	/** The ids of what the next publish changes in CommCare HQ, from the plan. */
+	readonly publishChanges: readonly FirstPublishChangeId[];
+	/** The Web App setting the source CommCare HQ served holds (`HqAppSource.cloudcareEnabled`). */
+	readonly webAppsOnInHq: boolean;
+}
+
+/** `ids` in registry order, once each, less the two Web App lines. */
+function storedIds(
+	ids: readonly FirstPublishChangeId[],
+): readonly FirstPublishChangeId[] {
+	const present = new Set(ids);
+	return FIRST_PUBLISH_CHANGE_IDS.filter(
+		(id) => present.has(id) && !WEB_APPS_LINES.has(id),
+	);
+}
+
+/**
+ * The list the baseline holds after a bring-in of changes. Where it held a
+ * list of an app brought in and not yet published, the first publish still
+ * makes every change of this reading's own list over the app as it now is.
+ * Otherwise the next publish's changes: each change of a stored list of the
+ * next publish that this reading still gives (an earlier bring-in's change
+ * the next publish still makes, since only a push ends it), and the plan's
+ * own; else none.
+ */
+function hqChangesFirstPublishList(
+	stored: StoredFirstPublish | null,
+	input: HqChangesFirstPublish,
+): StoredFirstPublish | null {
+	if (stored?.of === "first-publish") {
+		return {
+			ids: storedIds(input.accepted.ids),
+			webAppsOnInHq: input.webAppsOnInHq,
+			of: "first-publish",
+		};
+	}
+	const given = new Set(input.accepted.ids);
+	const carried =
+		stored?.of === "next-publish"
+			? stored.ids.filter((id) => given.has(id))
+			: [];
+	const ids = storedIds([...carried, ...input.publishChanges]);
+	if (ids.length === 0) return null;
+	return {
+		ids,
+		webAppsOnInHq: input.webAppsOnInHq,
+		of: "next-publish",
+	};
+}
+
+/**
+ * Each row with every id equal to its derivation left out, and a row that
+ * then holds none dropped: a target holds only the ids that differ.
+ */
+function identityOverridesOnly(
+	rows: readonly DeploymentIdentityOverride[],
+): readonly DeploymentIdentityOverride[] {
+	const overrides: DeploymentIdentityOverride[] = [];
+	for (const row of rows) {
+		const uuid = asUuid(row.novaEntityUuid);
+		const uniqueId =
+			row.uniqueId === derivedUniqueId(uuid) ? null : row.uniqueId;
+		const xmlns =
+			row.entityKind === "form" && row.xmlns === derivedFormXmlns(uuid)
+				? null
+				: row.xmlns;
+		if (uniqueId === null && xmlns === null) continue;
+		overrides.push({ ...row, uniqueId, xmlns });
+	}
+	return overrides;
+}
+
+/** What a bring-in of changes made in CommCare HQ records beside its commit. */
+export interface HqChangesTaken extends DeploymentFence {
+	readonly scope: DeploymentScope;
+	readonly target: DeploymentTargetKey;
+	/** The CommCare HQ app the review read: the live app mapping must still name it. */
+	readonly remoteAppId: string;
+	/** The stored baseline the plan read. */
+	readonly read: {
+		readonly sourceDigest: string;
+		readonly novaRevision: number;
+	};
+	/** CommCare HQ's source as this request read it, normalized, compressed and digested. */
+	readonly source: {
+		readonly sourceGzip: Buffer;
+		readonly sourceBytes: number;
+		readonly sourceDigest: string;
+		/** Taken before CommCare HQ was asked. */
+		readonly observedAt: string;
+	};
+	/** The ownership the next publish's body gives over that source and the document taken. */
+	readonly ownership: AppOwnership;
+	/** Which CommCare HQ file stands at each path the app publishes. */
+	readonly mediaFiles: HqMediaRecord;
+	/** The menus and forms of the reading now, with the ids CommCare HQ holds for them. */
+	readonly identities: readonly DeploymentIdentityOverride[];
+	/** Each file CommCare HQ added or replaced that the app now holds, at the path HQ holds it under. */
+	readonly mediaPaths: readonly AdoptedMediaFile[];
+	readonly firstPublish: HqChangesFirstPublish;
+}
+
+/**
+ * Where `recordHqChangesTaken` runs: in a commit's own transaction, with the
+ * sequence that commit takes, or in a short transaction of its own, for a
+ * take whose batch is empty, at the head the plan read.
+ */
+export type HqChangesRecordAt =
+	| {
+			readonly kind: "commit";
+			readonly tx: Transaction<AppDatabase>;
+			readonly seq: number;
+	  }
+	| { readonly kind: "own"; readonly headSeq: number };
+
+/**
+ * Records a bring-in of changes made in CommCare HQ: moves the pair of the
+ * deployment's baseline and the Nova revision it describes to CommCare HQ's
+ * source as this request read it and the revision that holds it. `edit`.
+ *
+ * It takes the deployment row `FOR UPDATE` after the app's row, as every
+ * deployment write does (in a commit's transaction the kernel already holds
+ * the app's), carries `expectedEndings`, and then:
+ *
+ * 1. fences: the baseline is still the one the plan read, by its digest and
+ *    its revision, no newer read of the app is stored, and the live app
+ *    mapping still names the HQ app that was read, else it throws
+ *    `HqChangesBaselineMovedError`;
+ * 2. writes the baseline of origin `changes` at the revision, with the
+ *    ownership and the media record the caller computed;
+ * 3. inserts an identity row for each menu and form whose CommCare HQ id is
+ *    not its derivation and that holds none yet, and a media path row for
+ *    each file CommCare HQ added or replaced whose path is kept, deleting
+ *    first the row of another file at that path: a row is never updated;
+ * 4. keeps the next publish's list by `hqChangesFirstPublishList`.
+ *
+ * The mapping's pushed revision, the deployment's state and its phase
+ * outcomes do not change: nothing was sent to CommCare HQ.
+ */
+export async function recordHqChangesTaken(
+	at: HqChangesRecordAt,
+	input: HqChangesTaken,
+): Promise<DeploymentWithResources> {
+	if (at.kind === "own") {
+		return withDeploymentRow(
+			input.scope,
+			input.target,
+			{ ensure: false, expectedEndings: input.expectedEndings },
+			(tx, row) => recordHqChangesInTransaction(tx, row.id, at.headSeq, input),
+		);
+	}
+	const { tx } = at;
+	await lockAppForDeploymentWrite(tx, input.scope, "edit");
+	const row = await tx
+		.selectFrom("app_deployments")
+		.select(["id", "endings"])
+		.where("app_id", "=", input.scope.appId)
+		.where("project_id", "=", input.scope.projectId)
+		.where("server", "=", input.target.server)
+		.where("domain", "=", input.target.domain)
+		.forUpdate()
+		.executeTakeFirst();
+	if (row === undefined) throw deploymentNotFound();
+	if (row.endings !== input.expectedEndings) {
+		throw new DeploymentEndedError(row.id, input.expectedEndings, row.endings);
+	}
+	return recordHqChangesInTransaction(tx, row.id, at.seq, input);
+}
+
+async function recordHqChangesInTransaction(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	novaRevision: number,
+	input: HqChangesTaken,
+): Promise<DeploymentWithResources> {
+	const { scope } = input;
+	// 1. The fences.
+	const stored = await tx
+		.selectFrom("app_deployment_baselines")
+		.select([
+			"origin",
+			"source_digest",
+			"nova_revision",
+			"observed_at",
+			"first_publish_changes",
+		])
+		.where("deployment_id", "=", deploymentId)
+		.executeTakeFirst();
+	const liveMapping = await tx
+		.selectFrom("app_deployment_resources")
+		.select("remote_id")
+		.where("deployment_id", "=", deploymentId)
+		.where("kind", "=", "app")
+		.where("nova_resource_id", "=", scope.appId)
+		.where("superseded_at", "is", null)
+		.where("released_at", "is", null)
+		.executeTakeFirst();
+	if (liveMapping?.remote_id !== input.remoteAppId) {
+		throw new HqChangesBaselineMovedError(
+			"remote-app",
+			input.remoteAppId,
+			liveMapping?.remote_id ?? null,
+		);
+	}
+	const holdsAPair =
+		stored !== undefined &&
+		(stored.origin === "push" ||
+			stored.origin === "read" ||
+			stored.origin === "changes");
+	if (!holdsAPair || stored.source_digest !== input.read.sourceDigest) {
+		throw new HqChangesBaselineMovedError(
+			"source-digest",
+			input.read.sourceDigest,
+			holdsAPair ? stored.source_digest : null,
+		);
+	}
+	const storedRevision = numberOrNull(stored.nova_revision);
+	if (storedRevision !== input.read.novaRevision) {
+		throw new HqChangesBaselineMovedError(
+			"nova-revision",
+			String(input.read.novaRevision),
+			storedRevision === null ? null : String(storedRevision),
+		);
+	}
+	if (stored.observed_at.getTime() > Date.parse(input.source.observedAt)) {
+		throw new HqChangesBaselineMovedError(
+			"observed-at",
+			input.source.observedAt,
+			stored.observed_at.toISOString(),
+		);
+	}
+
+	// 2. The pair, and 4. the next publish's list.
+	await writeAppBaseline(tx, deploymentId, scope.actorUserId, {
+		origin: "changes",
+		remoteAppId: input.remoteAppId,
+		sourceGzip: input.source.sourceGzip,
+		sourceBytes: input.source.sourceBytes,
+		sourceDigest: input.source.sourceDigest,
+		ownership: input.ownership,
+		observedAt: input.source.observedAt,
+		discard: null,
+		novaRevision,
+		mediaFiles: { kind: "set", files: input.mediaFiles },
+		firstPublish: {
+			kind: "set",
+			list: hqChangesFirstPublishList(
+				storedFirstPublish(deploymentId, stored.first_publish_changes),
+				input.firstPublish,
+			),
+		},
+	});
+
+	// 3. What CommCare HQ added: its ids, and the paths of its files.
+	await insertTakenIdentities(tx, deploymentId, input.identities);
+	await insertTakenMediaPaths(tx, deploymentId, input.mediaPaths);
+
+	await notifyAppDeployments(tx, scope.appId);
+	return loadWithinTransaction(tx, deploymentId);
+}
+
+/**
+ * An identity row for each override no row holds yet. The reading is what
+ * CommCare HQ holds now, so a stored row it contradicts is deleted first: a
+ * row of the same entity that holds other ids (a menu or form removed and
+ * made again in CommCare HQ, whose key mints the same UUID), and a row of
+ * another entity that holds an id or an `xmlns` an override takes (a form
+ * CommCare HQ now keeps under another `xmlns` reads as a new form, and its
+ * old entity no longer holds that id). A row the reading agrees with is left
+ * as it is, and a row it does not name is kept: an undo that brings its
+ * entity back sends it under the ids CommCare HQ knew it by.
+ */
+async function insertTakenIdentities(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	identities: readonly DeploymentIdentityOverride[],
+): Promise<void> {
+	const overrides = identityOverridesOnly(identities);
+	if (overrides.length === 0) return;
+	const existing = await tx
+		.selectFrom("app_deployment_identities")
+		.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
+		.where("deployment_id", "=", deploymentId)
+		.execute();
+	const keyOf = (kind: string, uuid: string) => `${kind}:${uuid}`;
+	const held = new Map(
+		existing.map((row) => [keyOf(row.entity_kind, row.nova_entity_uuid), row]),
+	);
+	const fresh = overrides.filter((override) => {
+		const row = held.get(keyOf(override.entityKind, override.novaEntityUuid));
+		return !(
+			row !== undefined &&
+			row.unique_id === override.uniqueId &&
+			row.xmlns === override.xmlns
+		);
+	});
+	if (fresh.length === 0) return;
+	const freshKeys = new Set(
+		fresh.map((override) =>
+			keyOf(override.entityKind, override.novaEntityUuid),
+		),
+	);
+	const takenIds = new Set(
+		fresh.flatMap((override) =>
+			override.uniqueId === null
+				? []
+				: [keyOf(override.entityKind, override.uniqueId)],
+		),
+	);
+	const takenXmlns = new Set(
+		fresh.flatMap((override) =>
+			override.xmlns === null ? [] : [override.xmlns],
+		),
+	);
+	const contradicted = existing.filter(
+		(row) =>
+			freshKeys.has(keyOf(row.entity_kind, row.nova_entity_uuid)) ||
+			(row.unique_id !== null &&
+				takenIds.has(keyOf(row.entity_kind, row.unique_id))) ||
+			(row.xmlns !== null && takenXmlns.has(row.xmlns)),
+	);
+	for (const row of contradicted) {
+		await tx
+			.deleteFrom("app_deployment_identities")
+			.where("deployment_id", "=", deploymentId)
+			.where("entity_kind", "=", row.entity_kind)
+			.where("nova_entity_uuid", "=", row.nova_entity_uuid)
+			.execute();
+	}
+	await tx
+		.insertInto("app_deployment_identities")
+		.values(
+			fresh.map((override) => ({
+				deployment_id: deploymentId,
+				entity_kind: override.entityKind,
+				nova_entity_uuid: override.novaEntityUuid,
+				unique_id: override.uniqueId,
+				xmlns: override.xmlns,
+			})),
+		)
+		.execute();
+}
+
+/**
+ * A media path row for each file CommCare HQ added or replaced, at the path
+ * `assignMediaPaths` keeps for it. Another file's row at that path, which
+ * is the replaced file's own, is deleted first, matched as CommCare HQ's
+ * upload matches a path, without letter case. A file that already holds a
+ * path on this deployment keeps it and touches no other file's row, as the
+ * held paths the bring-in's export boundary reads do, and a path the
+ * assignment does not keep leaves its file at its derived path.
+ */
+async function insertTakenMediaPaths(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	files: readonly AdoptedMediaFile[],
+): Promise<void> {
+	const assigned = assignMediaPaths(files).rows;
+	if (assigned.length === 0) return;
+	const holding = new Set(
+		(
+			await tx
+				.selectFrom("app_deployment_media_paths")
+				.select("media_asset_id")
+				.where("deployment_id", "=", deploymentId)
+				.where(
+					"media_asset_id",
+					"in",
+					assigned.map((row) => row.assetId),
+				)
+				.execute()
+		).map((row) => row.media_asset_id),
+	);
+	const rows = assigned.filter((row) => !holding.has(row.assetId));
+	for (const row of rows) {
+		await tx
+			.deleteFrom("app_deployment_media_paths")
+			.where("deployment_id", "=", deploymentId)
+			.where("media_asset_id", "<>", row.assetId)
+			.where(
+				sql<string>`lower(wire_path COLLATE "C")`,
+				"=",
+				sql<string>`lower(${row.wirePath}::text COLLATE "C")`,
+			)
+			.execute();
+	}
+	if (rows.length === 0) return;
+	await tx
+		.insertInto("app_deployment_media_paths")
+		.values(
+			rows.map((row) => ({
+				deployment_id: deploymentId,
+				media_asset_id: row.assetId,
+				wire_path: row.wirePath,
+			})),
+		)
+		.onConflict((conflict) =>
+			conflict.columns(["deployment_id", "media_asset_id"]).doNothing(),
+		)
+		.execute();
 }
 
 /**
@@ -2181,15 +2766,16 @@ const REGISTERED_FIRST_PUBLISH_IDS: ReadonlySet<string> = new Set(
 );
 
 /**
- * A stored first-publish list as the registry reads it now, or null. Nova
- * wrote the value, so one that is no list of ids beside a Web App setting
- * and a kind is logged at error; an id the registry has since lost is
- * dropped with a warning and the rest kept.
+ * A stored first-publish list as the registry reads it now, or null. A null
+ * column is no list. Nova wrote every other value, so one that is no list of
+ * ids beside a Web App setting and a kind is logged at error; an id the
+ * registry has since lost is dropped with a warning and the rest kept.
  */
 function storedFirstPublish(
 	deploymentId: string,
 	value: unknown,
 ): StoredFirstPublish | null {
+	if (value === null) return null;
 	const unreadable = (issue: string): null => {
 		log.error(
 			`The deployment ${deploymentId} holds first-publish changes Nova can't read (${issue}). They are written when an app is brought in, by lib/deployment/adoption.ts::adoptedAppBaselineWrite, and when changes made in CommCare HQ are brought in or recorded, by lib/deployment/store.ts::recordHqChangesTaken and ::recordRefreshedAppBaseline. Nova is showing this deployment with no list.`,

@@ -67,6 +67,8 @@ import {
 	withSearchInputsGiven,
 } from "./previewSearchState";
 import type {
+	HqChangedTarget,
+	HqChangesBroughtIn,
 	PreviewAfterSubmitStack,
 	PreviewCaseListRegistrationEntry,
 	PreviewCaseTarget,
@@ -76,6 +78,7 @@ import type {
 	PreviewSearchState,
 	PreviewSelectedCase,
 	PreviewTaskContinuation,
+	PublishDialogRequest,
 	StagedUpload,
 } from "./types";
 
@@ -468,12 +471,43 @@ export interface BuilderSessionState {
 	 *  so the request rides the session store rather than a prop chain.
 	 *  Consumed once — the panel clears it as it opens — so a later manual
 	 *  open never inherits a stale target. */
-	publishDialogRequest: { readonly domain: string } | null;
+	publishDialogRequest: PublishDialogRequest | null;
 
 	/** Ask PublishPanel to open the Publish dialog preseeded to `domain`.
 	 *  A second request before the first is consumed replaces it — the
 	 *  latest click names the target the person means. */
-	requestPublishDialog: (request: { readonly domain: string }) => void;
+	requestPublishDialog: (request: PublishDialogRequest) => void;
+
+	/** The project spaces the check when the builder opens found changed in
+	 *  CommCare HQ, which the header's See what changed in CommCare HQ
+	 *  offers. Empty until the check answers, and it has no value for
+	 *  "checking", so nothing can wait on it. Per tab, gone with the session. */
+	hqChangedTargets: readonly HqChangedTarget[];
+
+	/** The check's answer. */
+	setHqChangedTargets: (targets: readonly HqChangedTarget[]) => void;
+
+	/** One project space is settled: the panel answered for it, a publish
+	 *  landed there, or publishing there stopped. */
+	clearHqChangedTarget: (target: HqChangedTarget) => void;
+
+	/** Someone brought changes in: every target is settled. */
+	clearHqChangedTargets: () => void;
+
+	/** This tab's own bring-in of changes made in CommCare HQ, held until the
+	 *  surface that asked shows it (`HqChangesBroughtIn`): the Publish dialog
+	 *  takes it when it opens on it, and the card's dialog is drawn from it
+	 *  until the person closes it. A same-Project reload keeps it; a
+	 *  confirmed Project change and `reset()` drop it. */
+	hqChangesBroughtIn: HqChangesBroughtIn | null;
+
+	/** Hold a landed bring-in for its surface, where it was sent in the
+	 *  Project this session holds now. */
+	holdHqChangesBroughtIn: (result: HqChangesBroughtIn) => void;
+
+	/** The surface took the held bring-in, the person closed the dialog it
+	 *  opened, or it no longer applies. */
+	clearHqChangesBroughtIn: () => void;
 
 	/** Consume (or abandon) the pending open request. */
 	clearPublishDialogRequest: () => void;
@@ -1024,9 +1058,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				stagedUploads: {} as Record<string, StagedUpload>,
 				provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 				assetMeta: {} as Record<string, AssetMetaRow>,
-				publishDialogRequest: null as { readonly domain: string } | null,
+				publishDialogRequest: null as PublishDialogRequest | null,
 				pendingIdentityMove: null as PendingIdentityMove | null,
 				deploymentRecordsRevision: 0,
+				hqChangedTargets: [] as readonly HqChangedTarget[],
+				hqChangesBroughtIn: null as HqChangesBroughtIn | null,
 
 				/* UI hints */
 				focusHint: undefined as string | undefined,
@@ -1194,6 +1230,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							 * tenant. */
 							...(confirmedProjectChanged
 								? {
+										/* A bring-in held for its surface names the
+										 * source Project's record. */
+										hqChangesBroughtIn: null,
 										previewCaseTarget: undefined,
 										previewCaseListRegistrationEntry: undefined,
 										previewTaskContinuation: undefined,
@@ -1885,8 +1924,37 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					}));
 				},
 
-				requestPublishDialog(request: { readonly domain: string }) {
+				requestPublishDialog(request: PublishDialogRequest) {
 					set({ publishDialogRequest: request });
+				},
+
+				setHqChangedTargets(targets: readonly HqChangedTarget[]) {
+					set({ hqChangedTargets: targets });
+				},
+
+				clearHqChangedTarget(target: HqChangedTarget) {
+					const held = get().hqChangedTargets;
+					const rest = held.filter(
+						(entry) =>
+							entry.server !== target.server || entry.domain !== target.domain,
+					);
+					if (rest.length === held.length) return;
+					set({ hqChangedTargets: rest });
+				},
+
+				clearHqChangedTargets() {
+					if (get().hqChangedTargets.length === 0) return;
+					set({ hqChangedTargets: [] });
+				},
+
+				holdHqChangesBroughtIn(result: HqChangesBroughtIn) {
+					if (get().projectId !== result.projectId) return;
+					set({ hqChangesBroughtIn: result });
+				},
+
+				clearHqChangesBroughtIn() {
+					if (get().hqChangesBroughtIn === null) return;
+					set({ hqChangesBroughtIn: null });
 				},
 
 				clearPublishDialogRequest() {
@@ -2120,9 +2188,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						stagedUploads: {} as Record<string, StagedUpload>,
 						provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 						assetMeta: {} as Record<string, AssetMetaRow>,
-						publishDialogRequest: null as { readonly domain: string } | null,
+						publishDialogRequest: null as PublishDialogRequest | null,
 						pendingIdentityMove: null,
 						deploymentRecordsRevision: 0,
+						hqChangedTargets: [] as readonly HqChangedTarget[],
+						hqChangesBroughtIn: null as HqChangesBroughtIn | null,
 
 						/* UI hints */
 						focusHint: undefined as string | undefined,

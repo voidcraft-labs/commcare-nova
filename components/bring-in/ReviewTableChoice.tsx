@@ -41,7 +41,12 @@ export function ReviewTableChoice({
 	 * brings the group into view and moves focus to it again.
 	 */
 	readonly needsChoice: { readonly nonce: number } | null;
-	readonly onChooseAnotherProject: () => void;
+	/**
+	 * The way out to another Project, where the app is being brought in and
+	 * not yet made. A table met by changes brought in to an app that exists
+	 * has none: the app's Project is decided.
+	 */
+	readonly onChooseAnotherProject?: () => void;
 }): ReactElement {
 	const view = tableChoiceView(table, project, domain, needsChoice !== null);
 	const legendId = useId();
@@ -116,16 +121,18 @@ export function ReviewTableChoice({
 					{view.alert}
 				</p>
 			) : null}
-			<div className="flex flex-col items-start gap-1">
-				{view.otherProject !== null ? (
-					<p className="text-[13px] text-nova-text-secondary">
-						{view.otherProject}
-					</p>
-				) : null}
-				<Button variant="ghost" onClick={onChooseAnotherProject}>
-					{BRING_IN_ACTIONS.chooseAnotherProject}
-				</Button>
-			</div>
+			{onChooseAnotherProject !== undefined ? (
+				<div className="flex flex-col items-start gap-1">
+					{view.otherProject !== null ? (
+						<p className="text-[13px] text-nova-text-secondary">
+							{view.otherProject}
+						</p>
+					) : null}
+					<Button variant="ghost" onClick={onChooseAnotherProject}>
+						{BRING_IN_ACTIONS.chooseAnotherProject}
+					</Button>
+				</div>
+			) : null}
 		</FieldSet>
 	);
 }

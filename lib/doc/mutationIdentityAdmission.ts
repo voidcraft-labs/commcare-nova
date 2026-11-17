@@ -508,10 +508,16 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
  * Reject any attempted authored-identity reuse against the current document,
  * an earlier creator in the same batch, or another nested entity in the same
  * payload. Removed identities remain reserved for the batch: delete/recreate
- * is not an identity-preserving edit. The one exception is a form's link
- * changing role: a destination the batch removed may come back as the
- * form's otherwise, and an otherwise the batch removed may come back as
- * either (`reclaimsRemovedLink`).
+ * is not an identity-preserving edit. Two exceptions keep an identity
+ * through a change no other mutation makes. A form's link changing role: a
+ * destination the batch removed may come back as the form's otherwise, and
+ * an otherwise the batch removed may come back as either
+ * (`reclaimsRemovedLink`). And a field changing to a kind no `convertField`
+ * converts to: a field the batch removed by name may come back once, by an
+ * `addField` into the same form, with the inline choices it owned, so every
+ * read of it still names it (`diffDocsToMutations.ts::rebornFields`). A
+ * field its ancestor's removal took is not removed by name and stays
+ * reserved.
  */
 export function mutationIdentityAdmissionIssue(
 	doc: BlueprintDoc,
@@ -523,6 +529,10 @@ export function mutationIdentityAdmissionIssue(
 	}
 	const live = new Map(seen);
 	const removedInBatch = new Set<Uuid>();
+	// Each field the batch removed by name and has not added again, with the
+	// form it stood in.
+	const removedFieldForms = new Map<Uuid, string | undefined>();
+	const forms = fieldFormResolver(doc);
 	// Each form's otherwise link, as the batch has left it so far, and the
 	// role and form of every link the batch removed.
 	const otherwiseLinkOf = new Map<Uuid, Uuid>();
@@ -600,8 +610,44 @@ export function mutationIdentityAdmissionIssue(
 			}
 			if (next !== undefined) otherwiseLinkOf.set(mutation.formUuid, next);
 		}
+		if (
+			mutation.kind === "removeField" &&
+			seen.get(mutation.uuid)?.kind === "field"
+		)
+			removedFieldForms.set(mutation.uuid, forms.formOf(mutation.uuid));
+		// The field this `addField` brings back, once its claim is admitted.
+		let reclaimedField: Uuid | undefined;
 		for (const claim of identitiesClaimedBy(mutation)) {
 			const { identity } = claim;
+			if (
+				mutation.kind === "addField" &&
+				!claimedInMutation.has(identity.uuid)
+			) {
+				const existing = seen.get(identity.uuid);
+				const reclaimsField =
+					identity.kind === "field" &&
+					existing?.kind === "field" &&
+					removedFieldForms.has(identity.uuid) &&
+					removedFieldForms.get(identity.uuid) !== undefined &&
+					removedFieldForms.get(identity.uuid) ===
+						forms.formOf(mutation.parentUuid);
+				const reclaimsOption =
+					identity.kind === "selectOption" &&
+					reclaimedField !== undefined &&
+					identity.ownerUuid === reclaimedField &&
+					existing?.kind === "selectOption" &&
+					existing.ownerUuid === reclaimedField &&
+					!removedInBatch.has(identity.uuid);
+				if (reclaimsField || reclaimsOption) {
+					if (reclaimsField) {
+						removedFieldForms.delete(identity.uuid);
+						reclaimedField = identity.uuid;
+					}
+					claimedInMutation.add(identity.uuid);
+					live.set(identity.uuid, identity);
+					continue;
+				}
+			}
 			const removedLink = removedLinks.get(identity.uuid);
 			const reclaimsRemovedLink =
 				claim.reclaimsRemovedLink !== undefined &&
@@ -643,6 +689,63 @@ export function mutationIdentityAdmissionIssue(
 			seen.set(identity.uuid, identity);
 			live.set(identity.uuid, identity);
 		}
+		// A choice the field owned that its re-add leaves out was removed with
+		// it, and stays reserved for the rest of the batch.
+		if (reclaimedField !== undefined) {
+			for (const identity of [...live.values()]) {
+				if (
+					identity.kind === "selectOption" &&
+					identity.ownerUuid === reclaimedField &&
+					!claimedInMutation.has(identity.uuid)
+				) {
+					live.delete(identity.uuid);
+					removedInBatch.add(identity.uuid);
+				}
+			}
+		}
+		if (mutation.kind === "addField")
+			forms.placed(mutation.field.uuid, mutation.parentUuid);
 	}
 	return undefined;
+}
+
+/**
+ * The form a field stands in, as a batch leaves it: the document's parents,
+ * read once and only when a field is removed, with each field the batch has
+ * added placed under the parent it named. A move never changes a field's
+ * form, so moves need no tracking.
+ */
+function fieldFormResolver(doc: BlueprintDoc): {
+	formOf(uuid: string): string | undefined;
+	placed(uuid: string, parentUuid: string): void;
+} {
+	const added = new Map<string, string>();
+	let parents: Map<string, string> | undefined;
+	const parentOf = (uuid: string): string | undefined => {
+		const placed = added.get(uuid);
+		if (placed !== undefined) return placed;
+		if (parents === undefined) {
+			parents = new Map();
+			for (const [parent, children] of Object.entries(doc.fieldOrder))
+				for (const child of children) parents.set(child, parent);
+		}
+		return parents.get(uuid);
+	};
+	return {
+		formOf(uuid) {
+			const visited = new Set<string>();
+			for (
+				let at: string | undefined = uuid;
+				at !== undefined && !visited.has(at);
+				at = parentOf(at)
+			) {
+				if (Object.hasOwn(doc.forms, at)) return at;
+				visited.add(at);
+			}
+			return undefined;
+		},
+		placed(uuid, parentUuid) {
+			added.set(uuid, parentUuid);
+		},
+	};
 }

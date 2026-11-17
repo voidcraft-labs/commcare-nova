@@ -14,6 +14,7 @@ import { gzipSync } from "node:zlib";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
+import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { requiredPlanFeatures } from "@/lib/commcare/planPrivileges";
 import type { ReadMenuAndFormIdentities } from "@/lib/commcare/reader";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
@@ -27,7 +28,12 @@ import type {
 	StoredFirstPublish,
 } from "@/lib/publish/firstPublishChangeIds";
 import { attachmentUrlTarget } from "./attachmentTarget";
-import { type HqMediaRecord, isHoldableWirePath } from "./hqMedia";
+import {
+	type HqMediaRecord,
+	isHoldableWirePath,
+	nextHqMediaRecord,
+	publishedMediaFiles,
+} from "./hqMedia";
 import {
 	normalizedHqAppSource,
 	normalizeHqAppSource,
@@ -420,8 +426,14 @@ export function* adoptedBaselineOwnershipSteps(
  * The baseline an adopted deployment is born with: CommCare HQ's source as
  * the create accepted it, under the ownership the first publish's body over
  * that source gives on an adopted mapping, with the birth's revision, the
- * HQ file at each held path, and the reviewed list of what the first
- * publish changes, less the two lines that follow where the app runs.
+ * HQ file at each held path a publish sends, and the reviewed list of what
+ * the first publish changes, less the two lines that follow where the app
+ * runs.
+ *
+ * The media record holds only the paths the bulk upload carries: a held path
+ * only the logo uses is no path a publish sends, so no review settles it, and
+ * a logo replaced in CommCare HQ would read as a moved file on every Refresh
+ * while the review found nothing changed.
  */
 export function adoptedAppBaselineWrite(input: {
 	readonly remoteAppId: string;
@@ -436,7 +448,7 @@ export function adoptedAppBaselineWrite(input: {
 	readonly identity: WireIdentity;
 	/** The birth's sequence. */
 	readonly novaRevision: number;
-	/** CommCare HQ's file at each held media path. */
+	/** CommCare HQ's file at each held media path, the logo's included. */
 	readonly mediaFiles: HqMediaRecord;
 	readonly observedAt: string;
 	/** The chosen declaration's list, from the create's own acceptance. */
@@ -459,7 +471,17 @@ export function adoptedAppBaselineWrite(input: {
 		observedAt: input.observedAt,
 		discard: null,
 		novaRevision: input.novaRevision,
-		mediaFiles: { kind: "set", files: input.mediaFiles },
+		mediaFiles: {
+			kind: "set",
+			files: nextHqMediaRecord({
+				published: publishedMediaFiles(
+					bulkUploadAssets(input.prepared.doc, input.prepared.assets),
+				),
+				previous: null,
+				learned: input.mediaFiles,
+				reported: {},
+			}),
+		},
 		firstPublish: { kind: "set", list },
 	};
 }

@@ -1,7 +1,7 @@
 /**
- * A form's text, read by the slot that references it (12.2, 12.3), and, once
- * the expression stage bound the source language's outputs, its translations
- * (12.5). A `value` element's children become prose parts in order: a text
+ * A form's text, read by the slot that references it, and, once
+ * the expression stage bound the source language's outputs, its translations.
+ * A `value` element's children become prose parts in order: a text
  * node as written, an `<output>` that is the emitter's spelling of literal
  * text (a whitespace run, or the bracket of text CommCare HQ's build would read
  * as an instance) as that text, and any other output as a value part the
@@ -394,7 +394,7 @@ export interface SlotText {
 	readonly refused: boolean;
 }
 
-/** A validation message Nova composes in its question's bind (13.2): the question, the text its
+/** A validation message Nova composes in its question's bind: the question, the text its
  *  carrier owns, and the bind attribute that holds the composed expression, which stage 10
  *  compares once the text's outputs are bound. */
 export interface ProtectedMessage {
@@ -727,7 +727,7 @@ function idsReadByExpressions(input: ReadTextInput): Set<string> {
 	return read;
 }
 
-/** Whether a `jr:constraintMsg` is a protected message (13.2): it reads an itext form whose
+/** Whether a `jr:constraintMsg` is a protected message: it reads an itext form whose
  *  name Nova's protected message gives. That reader claims it. */
 function isProtectedMessage(text: string): boolean {
 	const ids = new Set<string>();
@@ -1254,7 +1254,7 @@ function readSlotText(
 					blank ? [] : [{ kind: "text", text: ref.inline }],
 				),
 			);
-		// An inline label holds no markdown copy in any language: shown as typed (12.2).
+		// An inline label holds no markdown copy in any language: shown as typed.
 		if (!blank && !input.plainText) setPlain(owner);
 		// A choice whose inline label is blank holds no media either: it shows nothing, the
 		// item CommCare HQ's form builder cannot keep.
@@ -1410,7 +1410,7 @@ function readSlotText(
 }
 
 /**
- * The markdown copy of a text, by the table of 12.2.
+ * The markdown copy of a text, held or refused by what each language shows of it.
  *
  * Core shows a language the default language's copy where the language's own text holds none
  * (`Localizer.getLocaleData` lays the language's keys over the default locale's, and
@@ -1488,7 +1488,7 @@ function claimMarkdown(
 	for (const value of markdown.values()) cursor.takeSubtree(value, claim).value;
 }
 
-/** A value of a form other than the default, markdown and media: by the table of 12.2. */
+/** A value of a form other than the default, markdown and media, claimed by the form it names. */
 function claimOtherForm(
 	input: ReadTextInput,
 	owner: ItextOwner,
@@ -1710,7 +1710,7 @@ export function finishText(ctx: ReadContext): void {
 					if (targets === undefined) continue;
 					// A language the text holds no value in shows the form's default language's
 					// text, and a value left blank there beside the source's text is the form
-					// builder's to fill from it (12.2); either reads as the default's text, a value
+					// builder's to fill from it; either reads as the default's text, a value
 					// the default language's own pass claims, so this pass claims nothing of it.
 					let value = slot.values.get(language);
 					const borrowed =

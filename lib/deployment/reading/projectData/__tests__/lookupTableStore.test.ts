@@ -160,12 +160,15 @@ describe("readHqLookupTablesForReading", () => {
 			if ("success" in answer) throw new Error("the read failed");
 			expect(answer.tables.map((table) => table.kind)).toEqual(["read"]);
 		});
+		/* `readHqJson` sends a read no answer began for once more itself, so
+		 * the store's own second send is the third request. */
 		await withHttpPeer(async (peer) => {
 			serve(peer, LIST, retained("lookups/lookup-tables.json"));
 			peer
 				.get(HOST)
 				.intercept({ path: rowsPath(PLAIN_ID), method: "GET" })
-				.replyWithError(new Error("connection reset"));
+				.replyWithError(new Error("connection reset"))
+				.times(2);
 			serve(
 				peer,
 				rowsPath(PLAIN_ID),
@@ -174,6 +177,34 @@ describe("readHqLookupTablesForReading", () => {
 			const answer = await readHqLookupTablesForReading(plainOnly);
 			if ("success" in answer) throw new Error("the read failed");
 			expect(answer.tables.map((table) => table.kind)).toEqual(["read"]);
+			expect(calls(peer)).toEqual([
+				LIST,
+				rowsPath(PLAIN_ID),
+				rowsPath(PLAIN_ID),
+				rowsPath(PLAIN_ID),
+			]);
+		});
+	});
+
+	it("answers a row read that never gets an answer as CommCare HQ unavailable, after four sends", async () => {
+		await withHttpPeer(async (peer) => {
+			serve(peer, LIST, retained("lookups/lookup-tables.json"));
+			peer
+				.get(HOST)
+				.intercept({ path: rowsPath(PLAIN_ID), method: "GET" })
+				.replyWithError(new Error("connection reset"))
+				.times(4);
+			const answer = await readHqLookupTablesForReading(plainOnly);
+			if (!("success" in answer)) throw new Error("the read did not fail");
+			expect(answer).toMatchObject({
+				status: 503,
+				cause: "network",
+				request: "lookup-rows",
+			});
+			expect(classifyHqFailure(answer, "lookup-rows").kind).toBe(
+				"hq-unavailable",
+			);
+			expect(calls(peer)).toEqual([LIST, ...Array(4).fill(rowsPath(PLAIN_ID))]);
 		});
 	});
 

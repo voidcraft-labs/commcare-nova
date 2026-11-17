@@ -1,6 +1,6 @@
 /**
- * Where a form's structure is decided by the data tree and the body together
- * (8.3 and 8.5): a control's place agrees with its node's place whatever
+ * Where a form's structure is decided by the data tree and the body together:
+ * a control's place agrees with its node's place whatever
  * order the body writes them in; a question bound to a node with children is
  * refused at the question and what it holds stays in the document under it;
  * and a bind on the data root, which Core applies to the whole form, is

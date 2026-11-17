@@ -66,7 +66,8 @@ moves `lib/db/appTests.ts::RUNTIME_VERSION` is decided there.
    first one's place, and the reader's frame reports it as `unrecognized` where no reader module named
    it first.
 5. **An adopted deployment's identity rows are dense: one row per menu and per form the reading holds,
-   written once, in the birth's transaction** (3). Rows are immutable; `app_deployment_identities`
+   written once, in the birth's transaction** (3). Rows are never changed: part 15's bring-in of
+   changes deletes a row its reading contradicts and inserts the reading's; `app_deployment_identities`
    and the new `app_deployment_media_paths` are runtime insert-and-delete. No DDL changes the
    identities table.
 6. **A media file's HQ path is a row of `app_deployment_media_paths`**, one path per asset per
@@ -3052,7 +3053,8 @@ Each sentence below is written with the behavior that makes it true, in the same
   `app_deployment_keyed_case_ids` (the id prefix a create keyed by an answer writes on the project
   space an app was brought in from) is inserted and deleted with the identity rows." Until part 15
   lands, the sentence names only what this part builds: rows written when an app is brought in, and
-  the Project move; part 15 adds "or a change made in CommCare HQ" and the replaced file's row.
+  the Project move; part 15 adds "or a change made in CommCare HQ", the replaced file's row, and
+  the identity row a bring-in's reading contradicts, which it deletes before inserting its own.
 - The sentence on `app_deployment_baselines` also gains `first_publish_changes`, in the words of
   part 09's "Contracts".
 - Old: "The three runtime-written tables are insert/update, never deleted or row-locked. The first

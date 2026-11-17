@@ -194,7 +194,8 @@ export function addKid(app: HeldPlacementApp): Mutation {
 /**
  * One `app_changes` row of `kind` holding `mutations`, at the app's next
  * sequence, with the head advanced to it, written as a raw row: a recording a
- * publish or a migration wrote, or an editor's row, read by `readRecordedPlacementHolds` alone.
+ * publish, a migration or a bring-in of changes made in CommCare HQ wrote, or
+ * an editor's row, read by `readRecordedPlacementHolds` alone.
  * Returns its sequence.
  */
 export async function appendChangeRow(
@@ -203,6 +204,7 @@ export async function appendChangeRow(
 	kind:
 		| "publish-placement"
 		| "blueprint-migration"
+		| "hq-changes"
 		| "autosave"
 		| "mcp"
 		| "chat",

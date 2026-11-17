@@ -813,34 +813,26 @@ describe("the corpus emitter", () => {
 	});
 
 	it("writes the same bytes on every run for a seed, sends the first publish's ids on the republish, and writes a document's two local exports as one archive", {
-		// Two more emissions of the whole corpus, each capturing every publish
-		// and writing every archive: 18 to 28 seconds on a CI runner sharing
-		// its cores with the rest of a shard.
+		// One more emission of the whole corpus, capturing every publish and
+		// writing every archive, as long again as the suite's own.
 		timeout: 60_000,
 	}, async () => {
-		const runs: Map<string, Buffer>[] = [];
-		// The runs happen at different times: whatever reads the clock must not reach the files.
+		// The run happens at another time than the suite's own, which reads the
+		// real clock: whatever reads the clock must not reach the files.
 		vi.useFakeTimers({ toFake: ["Date"] });
 		try {
-			for (const [run, at] of [
-				["first", "2026-03-01T00:00:00Z"],
-				["second", "2027-06-15T12:34:56Z"],
-			] as const) {
-				vi.setSystemTime(new Date(at));
-				await emit(join(root, run), fixed, sampled);
-				runs.push(await files(join(root, run)));
-			}
+			vi.setSystemTime(new Date("2027-06-15T12:34:56Z"));
+			await emit(join(root, "again"), fixed, sampled);
 		} finally {
 			vi.useRealTimers();
 		}
+		const run = await files(join(root, "again"));
 		const nova = await files(join(root, "nova"));
-		for (const run of runs) {
-			expect([...run.keys()]).toEqual([...nova.keys()]);
-			for (const [path, bytes] of nova) {
-				// What each part took is the one file that varies.
-				if (path === "timings.json") continue;
-				expect(run.get(path)?.equals(bytes), path).toBe(true);
-			}
+		expect([...run.keys()]).toEqual([...nova.keys()]);
+		for (const [path, bytes] of nova) {
+			// What each part took is the one file that varies.
+			if (path === "timings.json") continue;
+			expect(run.get(path)?.equals(bytes), path).toBe(true);
 		}
 		expect(nova.has("inputs.json")).toBe(true);
 
@@ -911,10 +903,13 @@ describe("the corpus emitter", () => {
 		// writing (about 3 s on a laptop); CI runners are slower.
 		timeout: 60_000,
 	}, async () => {
-		// Enough documents that the emitter starts three workers, spanning
-		// the producer families.
-		const spread = producers.filter((_, index) => index % 6 === 0).slice(0, 24);
-		expect(spread).toHaveLength(24);
+		// The fewest documents for which the emitter starts three workers (it
+		// gives each at most eight), spanning the producer families.
+		const step = Math.floor(producers.length / 17);
+		const spread = producers
+			.filter((_, index) => index % step === 0)
+			.slice(0, 17);
+		expect(spread).toHaveLength(17);
 		const here = await emit(join(root, "spread-here"), spread, []);
 		const workers = await emit(join(root, "spread-workers"), spread, [], {
 			jobs: 3,
@@ -934,7 +929,7 @@ describe("the corpus emitter", () => {
 
 		// A selection writes its documents exactly as the whole corpus does,
 		// though their neighbours in each process are others.
-		const chosen = [spread[5]?.id, spread[17]?.id].filter(
+		const chosen = [spread[5]?.id, spread[13]?.id].filter(
 			(id): id is string => id !== undefined,
 		);
 		const selected = await emit(join(root, "spread-selected"), spread, [], {

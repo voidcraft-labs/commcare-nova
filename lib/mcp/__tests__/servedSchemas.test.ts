@@ -357,7 +357,10 @@ it("serves refresh_deployment's kept_values and tells a client what the kept lis
 		false,
 	);
 	expect(refresh.description).toMatch(
-		/ Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ \(the `kept` list of `get_deployment`\) without asking about builds\. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise\.$/,
+		/ Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ \(the `kept` list of `get_deployment`\) without asking about builds\. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise\. /,
+	);
+	expect(refresh.description).toMatch(
+		/ Where Nova couldn't read back `kept` or `nova_revision` after its write landed, that field is left out and the refresh still landed: `get_deployment` reads them again\.$/,
 	);
 	expect(served("get_deployment").description).toContain(
 		" `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them.",
@@ -490,6 +493,44 @@ it("serves the four other bring-in tools as closed objects", () => {
 	).not.toBe(true);
 });
 
+it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-in with every answer required", () => {
+	expect(inputShape("read_hq_changes")).toEqual({
+		properties: ["app_id", "domain", "page"],
+		required: ["app_id"],
+		additionalProperties: false,
+	});
+	const page = validatorOf("read_hq_changes", "page");
+	expect(page(`120:${"ab".repeat(32)}`)).toBe(true);
+	expect(page("120")).toBe(false);
+
+	const answers = [
+		"app_id",
+		"discard_nova_changes",
+		"reading_id",
+		"review_digest",
+		"table_choices",
+	];
+	expect(inputShape("bring_in_hq_changes")).toEqual({
+		properties: [...answers, "domain"].sort(),
+		required: answers,
+		additionalProperties: false,
+	});
+	const discard = validatorOf("bring_in_hq_changes", "discard_nova_changes");
+	expect(discard(true)).toBe(true);
+	expect(discard("yes")).toBe(false);
+	const choices = validatorOf("bring_in_hq_changes", "table_choices");
+	expect(choices({ district: "use-project" })).toBe(true);
+	expect(choices({ district: "both" })).toBe(false);
+	expect(
+		everyPosition("bring_in_hq_changes").filter(
+			(schema) => "default" in schema,
+		),
+	).toEqual([]);
+	expect(
+		takes("read_hq_changes", { app_id: "app", domain: "clinic", server: "eu" }),
+	).not.toBe(true);
+});
+
 it("tells a client an agent never chooses for the user", () => {
 	expect(served("bring_in_hq_app").description).toContain(
 		"never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them",
@@ -536,6 +577,15 @@ it("names each key where a client reads it", () => {
 	expect(bringInInput.app_name.description).toContain(
 		"empty where CommCare HQ holds none",
 	);
+	/* Where a change can be brought in, and the revision CommCare HQ's copy
+	 * matches, are each named where a client meets them. */
+	expect(served("upload_app_to_hq").description).toContain(
+		" When the app's change has `can_bring_in` true, you can read what changed with `read_hq_changes` and bring it in with `bring_in_hq_changes`, or publish over it by naming it in `discard_hq_changes`. Ask the user which.",
+	);
+	expect(deployment).toContain("`nova_revision`");
+	expect(served("read_hq_changes").description).toContain("`can_bring_in`");
+	for (const key of ["`reading_id`", "`review_digest`", "`nova_changes`"])
+		expect(served("bring_in_hq_changes").description).toContain(key);
 
 	const read = served("read_hq_app").description ?? "";
 	for (const key of [

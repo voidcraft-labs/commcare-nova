@@ -1498,7 +1498,7 @@ export function bindSlot(
 }
 
 /** Print a bound candidate in its slot of `doc` and compare the print with
- *  the source: the judgment of 2.1's steps 4 and 5. */
+ *  the source's parsed tree: the judgment that holds or refuses the slot. */
 export function judgeSlot(
 	doc: BlueprintDoc,
 	pending: PendingExpression,

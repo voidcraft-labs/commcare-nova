@@ -41,7 +41,10 @@ import type {
  *   5. Field structural REST — field adds (parent-before-child), cross-parent
  *      moves, and same-parent reorders, plus cross-module form moves +
  *      same-module reorders. A move preserves the field's id.
- *   6. Module + form renames, then field converts (`convertField`).
+ *   6. Module + form renames, then field converts (`convertField`). A field
+ *      whose kind changes between two kinds no conversion makes is instead
+ *      removed by name in (4) and added again under its own uuid in (5),
+ *      with every surviving field of its subtree (`rebornFields`).
  *   7. Updates — `updateModule` / `updateForm` / `updateField` patches of
  *      ONLY the changed keys (excluding `order`, `caseListConfig`,
  *      `caseSearchConfig`, `caseListMenuItem`, `options`, and media, each
@@ -159,6 +162,7 @@ import {
 	hasOwnRecordKey,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
+	isRepresentableConversion,
 	moduleParent,
 	moduleSiblingGroups,
 	moduleSiblingUuids,
@@ -202,16 +206,44 @@ export class CasePropertySemanticProvenanceRequiredError extends Error {
 export interface CasePropertyRenameProvenance {
 	readonly casePropertyRename: AdmittedMutationBatch;
 	readonly recordedNonRenameForward?: never;
+	readonly movesNoSavedRows?: never;
 }
 
 export interface RecordedNonRenameProvenance {
 	readonly recordedNonRenameForward: AdmittedMutationBatch;
 	readonly casePropertyRename?: never;
+	readonly movesNoSavedRows?: never;
 }
+
+/**
+ * The delta is known to move no saved case rows: it is emitted as a removed and an added property.
+ *
+ * Two readings of CommCare HQ's app differ by what CommCare HQ's editors
+ * changed, and CommCare HQ moves no case data when a question starts saving
+ * to another property, so a rename-shaped difference of the two is a
+ * property that stopped being written and one that started.
+ */
+export interface NoSavedRowsMoveProvenance {
+	readonly movesNoSavedRows: "hq-reading";
+	readonly casePropertyRename?: never;
+	readonly recordedNonRenameForward?: never;
+}
+
+/** The provenance of a delta between two readings of CommCare HQ's app. */
+export const HQ_READING_DELTA = {
+	movesNoSavedRows: "hq-reading",
+} as const satisfies NoSavedRowsMoveProvenance;
 
 export type DiffSemanticProvenance =
 	| CasePropertyRenameProvenance
-	| RecordedNonRenameProvenance;
+	| RecordedNonRenameProvenance
+	| NoSavedRowsMoveProvenance;
+
+function isNoSavedRowsMoveProvenance(
+	provenance: DiffSemanticProvenance,
+): provenance is NoSavedRowsMoveProvenance {
+	return provenance.movesNoSavedRows === "hq-reading";
+}
 
 function isRecordedNonRenameProvenance(
 	provenance: DiffSemanticProvenance,
@@ -556,6 +588,9 @@ export function* diffDocsToMutationsSteps(
 	next: BlueprintDoc,
 	provenance?: DiffSemanticProvenance,
 ): Generator<void, Mutation[], void> {
+	if (provenance !== undefined && isNoSavedRowsMoveProvenance(provenance)) {
+		return yield* diffGranularSteps(prev, next);
+	}
 	const renameShapedDelta = isCasePropertyRenameShapedEndpointDelta(prev, next);
 	if (provenance !== undefined) {
 		if (isRecordedNonRenameProvenance(provenance)) {
@@ -567,7 +602,18 @@ export function* diffDocsToMutationsSteps(
 	if (provenance === undefined && renameShapedDelta) {
 		throw new CasePropertySemanticProvenanceRequiredError();
 	}
+	return yield* diffGranularSteps(prev, next);
+}
 
+/**
+ * The granular diff, once the provenance has settled that no case property
+ * rename is to be emitted: a renamed property is a removed and an added one.
+ * It stops before each replay of the batch, as `diffDocsToMutationsSteps` does.
+ */
+function* diffGranularSteps(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+): Generator<void, Mutation[], void> {
 	const appLevel: Mutation[] = [];
 	const removes: Mutation[] = [];
 	const adds: Mutation[] = [];
@@ -612,7 +658,7 @@ export function* diffDocsToMutationsSteps(
 		Object.keys(next.modules),
 	);
 	const formDelta = setDelta(Object.keys(prev.forms), Object.keys(next.forms));
-	const fieldDelta = setDelta(
+	const fieldSets = setDelta(
 		Object.keys(prev.fields),
 		Object.keys(next.fields),
 	);
@@ -631,6 +677,20 @@ export function* diffDocsToMutationsSteps(
 	const prevParentMap = buildParentMap(prev);
 	const nextParentMap = buildParentMap(next);
 
+	// A field whose kind changes between two kinds no `convertField` converts
+	// between leaves by name and comes back under its own uuid, with every
+	// surviving field of its subtree on either side (`rebornFields`): for the
+	// rest of the diff each is both removed and added.
+	const reborn = rebornFields(prev, next, fieldSets.common);
+	const fieldDelta: SetDelta =
+		reborn.size === 0
+			? fieldSets
+			: {
+					removed: [...fieldSets.removed, ...reborn],
+					added: [...fieldSets.added, ...reborn],
+					common: fieldSets.common.filter((uuid) => !reborn.has(uuid)),
+				};
+
 	// Field structural reconciliation (adds + moves) is computed up front and
 	// emitted later in the phase order.
 	const fieldTree = reconcileFieldTree(
@@ -639,6 +699,7 @@ export function* diffDocsToMutationsSteps(
 		fieldDelta,
 		prevParentMap,
 		nextParentMap,
+		reborn,
 	);
 
 	// (2) Removes — top survivors only.
@@ -672,8 +733,19 @@ export function* diffDocsToMutationsSteps(
 		}
 		removes.push({ kind: "removeForm", uuid });
 	}
+	// A reborn field is removed by name, deepest first, ahead of every other
+	// field removal: the removal that names it is what lets its re-add keep
+	// its uuid (`mutationIdentityAdmission.ts`), so no ancestor's removal may
+	// cascade it away first.
+	for (const uuid of [...reborn]
+		.map((field) => ({ field, depth: fieldDepth(prevParentMap, field) }))
+		.sort((left, right) => right.depth - left.depth)
+		.map(({ field }) => field)) {
+		removes.push({ kind: "removeField", uuid });
+	}
 	for (const uuid of fieldDelta.removed) {
-		if (fieldRemovedByAncestor(uuid, next, prevParentMap)) continue;
+		if (reborn.has(uuid)) continue;
+		if (fieldRemovedByAncestor(uuid, next, prevParentMap, reborn)) continue;
 		removes.push({ kind: "removeField", uuid });
 	}
 
@@ -1032,16 +1104,21 @@ export function* diffDocsToMutationsSteps(
 	 * diff: the residual is a tail of `updateForm` patches, so the
 	 * localization base is that replay with the tail applied on top. Where
 	 * the catalog adds nothing, the batch is the one just replayed, and so is
-	 * its replay; where it adds a tail, the tail is applied on top of that
-	 * replay as the residual is, since a catalog mutation writes no form, menu,
-	 * field or language and no batch-level step of the reducer reads it
-	 * (`__tests__/diffReplay.property.test.ts`). */
+	 * its replay. Where it adds a tail and `prev` holds no translation, the
+	 * tail is applied on top of that replay as the residual is, since a
+	 * catalog mutation writes no form, menu, field or language and no other
+	 * batch-level step of the reducer reads it
+	 * (`__tests__/diffReplay.property.test.ts`). Where `prev` holds a
+	 * translation, the whole batch is replayed as one: a batch prunes
+	 * translations once, at its end, and the structural part alone can leave
+	 * a case property's option with no unit that the catalog tail gives back,
+	 * so its own prune would drop a translation the one batch keeps. */
 	const replayed =
 		structural.length === 0
 			? prev
 			: structuralReplay !== undefined && catalogDelta.length === 0
 				? structuralReplay
-				: structuralReplay !== undefined
+				: structuralReplay !== undefined && !holdsTranslation(prev)
 					? produce(structuralReplay, (draft) => {
 							applyMutations(draft, admitMutationBatch(catalogDelta));
 						})
@@ -1557,14 +1634,94 @@ function fieldRemovedByAncestor(
 	fieldUuid: Uuid,
 	next: BlueprintDoc,
 	prevParentMap: ReadonlyMap<Uuid, Uuid>,
+	reborn: ReadonlySet<Uuid>,
 ): boolean {
 	const parent = prevParentMap.get(fieldUuid);
 	if (parent === undefined) return false;
 	// Cascaded iff the parent does NOT survive — a removed form/container
-	// parent owns the cascade; a surviving parent does not.
+	// parent owns the cascade; a surviving parent does not. A reborn parent
+	// is removed by name, so its removal cascades too.
 	return (
-		ownRecordValue(next.forms, parent) === undefined &&
-		ownRecordValue(next.fields, parent) === undefined
+		reborn.has(parent) ||
+		(ownRecordValue(next.forms, parent) === undefined &&
+			ownRecordValue(next.fields, parent) === undefined)
+	);
+}
+
+/** How many containers stand above a field in `prev`. */
+function fieldDepth(
+	prevParentMap: ReadonlyMap<Uuid, Uuid>,
+	field: Uuid,
+): number {
+	let depth = 0;
+	for (
+		let at = prevParentMap.get(field);
+		at !== undefined;
+		at = prevParentMap.get(at)
+	)
+		depth++;
+	return depth;
+}
+
+/**
+ * The fields the diff removes and adds again under their own uuids. Each
+ * field whose kind changes between two kinds no `convertField` converts
+ * between (`isRepresentableConversion`: a section and a group, a text
+ * question and a number) is one, since no mutation reshapes it in place.
+ * So, closed over, is every surviving field anywhere in the subtree of one
+ * of them on either side: a reborn container is gone between its removal
+ * and its re-add, so nothing moves into or out of it, and everything it
+ * holds on both sides leaves and comes back with it. Each comes back with
+ * its content as `next` holds it, under the uuid every reader already
+ * names, so a read of it is never rewritten.
+ */
+function rebornFields(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+	common: readonly Uuid[],
+): Set<Uuid> {
+	const reborn = new Set<Uuid>();
+	for (const uuid of common) {
+		const before = ownRecordValue(prev.fields, uuid) as Field;
+		const after = ownRecordValue(next.fields, uuid) as Field;
+		if (
+			before.kind !== after.kind &&
+			!isRepresentableConversion(before.kind, after.kind)
+		)
+			reborn.add(uuid);
+	}
+	if (reborn.size === 0) return reborn;
+	const survives = new Set<Uuid>(common);
+	const pending = [...reborn];
+	const walked = [new Set<Uuid>(), new Set<Uuid>()];
+	const docs = [prev, next];
+	while (pending.length > 0) {
+		const root = pending.pop() as Uuid;
+		for (const [side, doc] of docs.entries()) {
+			const stack = [root];
+			while (stack.length > 0) {
+				const at = stack.pop() as Uuid;
+				if (walked[side].has(at)) continue;
+				walked[side].add(at);
+				for (const child of doc.fieldOrder[at] ?? []) {
+					if (survives.has(child) && !reborn.has(child)) {
+						reborn.add(child);
+						pending.push(child);
+					}
+					stack.push(child);
+				}
+			}
+		}
+	}
+	return reborn;
+}
+
+/** Whether some language of the document holds a translation. */
+function holdsTranslation(doc: BlueprintDoc): boolean {
+	const translations = doc.localization?.translations;
+	if (translations === undefined) return false;
+	return Object.values(translations).some(
+		(entries) => entries !== undefined && Object.keys(entries).length > 0,
 	);
 }
 
@@ -1876,9 +2033,11 @@ function buildFormModuleMap(doc: BlueprintDoc): Map<Uuid, Uuid> {
  * Membership (adds / cross-parent moves) is detected by parent-set comparison;
  * a REORDER is a changed position in a common parent's membership array, which
  * IS the sequence. Adds are emitted parent-before-child (top-down parents, in
- * sequence order) so a container lands before the fields it holds; each names
- * the sibling it follows. A cross-parent move names its anchor in the
- * destination and preserves the field's id.
+ * sequence order) so a container lands before the fields it holds, each
+ * appended. A cross-parent move names an anchor already in the destination
+ * when it applies and preserves the field's id; a final reorder pass puts
+ * every parent's sequence in `next`'s order, whatever order the `fields`
+ * record lists its keys in.
  *
  * Cross-parent moves out of a DOOMED parent (one removed this batch) are
  * EVACUATIONS — emitted before the removes so the cascade can't delete the
@@ -1893,6 +2052,7 @@ function reconcileFieldTree(
 	fieldDelta: SetDelta,
 	prevParentMap: ReadonlyMap<Uuid, Uuid>,
 	nextParentMap: ReadonlyMap<Uuid, Uuid>,
+	reborn: ReadonlySet<Uuid>,
 ): {
 	evacuations: Mutation[];
 	rest: Mutation[];
@@ -1906,8 +2066,9 @@ function reconcileFieldTree(
 	// removed form or container field (covers parents under a removed module).
 	const isDoomed = (parentUuid: Uuid | undefined): boolean =>
 		parentUuid !== undefined &&
-		ownRecordValue(next.forms, parentUuid) === undefined &&
-		ownRecordValue(next.fields, parentUuid) === undefined;
+		(reborn.has(parentUuid) ||
+			(ownRecordValue(next.forms, parentUuid) === undefined &&
+				ownRecordValue(next.fields, parentUuid) === undefined));
 
 	// Adds — parent-before-child (top-down parents, in sequence order). Each
 	// append is deliberately anchor-free. A predecessor in `next` may itself
@@ -1931,75 +2092,20 @@ function reconcileFieldTree(
 		}
 	}
 
-	// Cross-parent moves first: a field that changed parent carries its
-	// placement in the DESTINATION, and evacuates ahead of the removes when the
-	// parent it is leaving is itself doomed.
-	for (const uuid of fieldDelta.common) {
-		const nextParent = nextParentMap.get(uuid);
-		if (nextParent === undefined) continue; // unreachable in next (shouldn't happen)
-		const prevParent = prevParentMap.get(uuid);
-		if (prevParent === nextParent) continue;
-		const destination = next.fieldOrder[nextParent] ?? [];
-		const at = destination.indexOf(uuid);
-		const move: Mutation = {
-			kind: "moveField",
-			uuid,
-			toParentUuid: nextParent,
-			after: at > 0 ? (destination[at - 1] ?? null) : null,
-		};
-		if (isDoomed(prevParent)) evacuations.push(move);
-		else moves.push(move);
-	}
-
-	// Same-parent reorders are whatever moves are still needed once everything
-	// emitted ABOVE has landed — so they diff against the PROJECTED sequence,
-	// not `prev`. An add and an arrival each carry an anchor read off `next`,
-	// but they apply against a document whose surrounding entities have not
-	// moved yet, so they can land somewhere `next` doesn't have them. Folding
-	// them through the same `spliceAfter` the reducer runs is what lets this
-	// pass finish the job instead of computing a move from a state that never
-	// exists.
-	const projected = new Map<string, Uuid[]>();
-	for (const [parentUuid, nextOrder] of Object.entries(next.fieldOrder)) {
-		const survives = new Set(nextOrder);
-		projected.set(
-			parentUuid,
-			(prev.fieldOrder[parentUuid] ?? []).filter((uuid) => survives.has(uuid)),
-		);
-	}
-	for (const mutation of [...evacuations, ...adds, ...moves]) {
-		if (mutation.kind === "addField") {
-			const parentUuid = mutation.parentUuid;
-			projected.set(
-				parentUuid,
-				spliceAfter(
-					projected.get(parentUuid) ?? [],
-					mutation.field.uuid,
-					mutation.after,
-				),
-			);
-		} else if (mutation.kind === "moveField") {
-			const parentUuid = mutation.toParentUuid;
-			projected.set(
-				parentUuid,
-				spliceAfter(
-					projected.get(parentUuid) ?? [],
-					mutation.uuid,
-					mutation.after,
-				),
-			);
-		}
-	}
-	for (const [parentUuid, nextOrder] of Object.entries(next.fieldOrder)) {
-		for (const move of sequenceMovesTo(
-			projected.get(parentUuid) ?? [],
-			nextOrder,
-		)) {
-			moves.push({
-				kind: "moveField",
-				uuid: move.uuid,
-				toParentUuid: asUuid(parentUuid),
-				after: move.after,
+	// Cross-parent arrivals, in the destination's order (top-down parents, in
+	// sequence order). An arrival evacuates ahead of the removes when the
+	// parent it is leaving is itself doomed; the rest follow the adds.
+	const arrivals: { uuid: Uuid; toParentUuid: Uuid; evacuates: boolean }[] = [];
+	const common = new Set(fieldDelta.common);
+	for (const parentUuid of nextParentsTopDown(next)) {
+		for (const uuid of orderedFieldUuids(next, parentUuid)) {
+			if (!common.has(uuid)) continue;
+			const prevParent = prevParentMap.get(uuid);
+			if (prevParent === parentUuid) continue;
+			arrivals.push({
+				uuid,
+				toParentUuid: parentUuid,
+				evacuates: isDoomed(prevParent),
 			});
 		}
 	}
@@ -2014,30 +2120,98 @@ function reconcileFieldTree(
 	// destination's ADDED-ancestor chain ahead of the evacuations (keeping the
 	// adds' parent-before-child order) so every referenced container exists by
 	// the time its evacuation applies.
-	if (evacuations.length > 0) {
-		const hoistedUuids = new Set<Uuid>();
-		for (const ev of evacuations) {
-			if (ev.kind !== "moveField") continue;
-			let cursor: Uuid | undefined = ev.toParentUuid;
-			while (cursor !== undefined && addedFieldSet.has(cursor)) {
-				hoistedUuids.add(cursor);
-				cursor = nextParentMap.get(cursor);
-			}
+	const hoistedUuids = new Set<Uuid>();
+	for (const arrival of arrivals) {
+		if (!arrival.evacuates) continue;
+		let cursor: Uuid | undefined = arrival.toParentUuid;
+		while (cursor !== undefined && addedFieldSet.has(cursor)) {
+			hoistedUuids.add(cursor);
+			cursor = nextParentMap.get(cursor);
 		}
-		if (hoistedUuids.size > 0) {
-			const hoisted: Mutation[] = [];
-			for (let i = adds.length - 1; i >= 0; i--) {
-				const m = adds[i];
-				if (m.kind === "addField" && hoistedUuids.has(m.field.uuid)) {
-					hoisted.unshift(m);
-					adds.splice(i, 1);
-				}
-			}
-			evacuations.unshift(...hoisted);
+	}
+	const hoisted = adds.filter(
+		(add) => add.kind === "addField" && hoistedUuids.has(add.field.uuid),
+	);
+	const laterAdds = adds.filter((add) => !hoisted.includes(add));
+
+	// Every placement is folded, in the order the batch applies it, into the
+	// PROJECTED sequence of each parent: what the parent holds of `next` at
+	// that point of the replay. The removes are folded in from the start (a
+	// field leaving, removed, or reborn is not in its parent's projection,
+	// and a reborn container starts empty again), which keeps the relative
+	// order of everything projected exact: a removal only takes entries out.
+	const projected = new Map<string, Uuid[]>();
+	for (const [parentUuid, nextOrder] of Object.entries(next.fieldOrder)) {
+		const survives = new Set(nextOrder);
+		projected.set(
+			parentUuid,
+			reborn.has(asUuid(parentUuid))
+				? []
+				: (prev.fieldOrder[parentUuid] ?? []).filter(
+						(uuid) => survives.has(uuid) && !reborn.has(uuid),
+					),
+		);
+	}
+	const fold = (parentUuid: Uuid, uuid: Uuid, after: Uuid | null | undefined) =>
+		projected.set(
+			parentUuid,
+			spliceAfter(projected.get(parentUuid) ?? [], uuid, after),
+		);
+	const foldAdd = (mutation: Mutation) => {
+		if (mutation.kind === "addField")
+			fold(mutation.parentUuid, mutation.field.uuid, mutation.after);
+	};
+	// An arrival is anchored on the nearest field before it in `next` that is
+	// already in its destination's projection, and first when none is. A
+	// predecessor that has not arrived yet, that is removed and re-added, or
+	// that is added later is never an anchor: the first is refused by sequence
+	// admission, and the other two would put the arrival somewhere the
+	// projection does not, so the reorder pass below would miss a move it owes.
+	const arrive = (arrival: (typeof arrivals)[number]): Mutation => {
+		const order = next.fieldOrder[arrival.toParentUuid] ?? [];
+		const present = new Set(projected.get(arrival.toParentUuid) ?? []);
+		const after =
+			order
+				.slice(0, order.indexOf(arrival.uuid))
+				.toReversed()
+				.find((candidate) => present.has(candidate)) ?? null;
+		fold(arrival.toParentUuid, arrival.uuid, after);
+		return {
+			kind: "moveField",
+			uuid: arrival.uuid,
+			toParentUuid: arrival.toParentUuid,
+			after,
+		};
+	};
+	for (const add of hoisted) {
+		foldAdd(add);
+		evacuations.push(add);
+	}
+	for (const arrival of arrivals) {
+		if (arrival.evacuates) evacuations.push(arrive(arrival));
+	}
+	for (const add of laterAdds) foldAdd(add);
+	for (const arrival of arrivals) {
+		if (!arrival.evacuates) moves.push(arrive(arrival));
+	}
+
+	// Same-parent reorders are whatever moves are still needed once everything
+	// above has landed, so they diff against the projection, not `prev`.
+	for (const [parentUuid, nextOrder] of Object.entries(next.fieldOrder)) {
+		for (const move of sequenceMovesTo(
+			projected.get(parentUuid) ?? [],
+			nextOrder,
+		)) {
+			moves.push({
+				kind: "moveField",
+				uuid: move.uuid,
+				toParentUuid: asUuid(parentUuid),
+				after: move.after,
+			});
 		}
 	}
 
-	return { evacuations, rest: [...adds, ...moves] };
+	return { evacuations, rest: [...laterAdds, ...moves] };
 }
 
 /**

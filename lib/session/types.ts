@@ -11,6 +11,9 @@
  *   - Generation lifecycle — stages, errors, partial scaffold
  */
 
+import type { CommCareServer } from "@/lib/deployment";
+import type { DeploymentView } from "@/lib/deployment/actions";
+import type { RemoteChangeDiscard } from "@/lib/deployment/types";
 import type { Uuid } from "@/lib/doc/types";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { PreviewAfterSubmitFrame } from "@/lib/preview/afterSubmitRouting";
@@ -19,6 +22,45 @@ import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
 import type { SearchCsqlRuntimeWire } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import type { Location } from "@/lib/routing/types";
+
+// ── Publishing ───────────────────────────────────────────────────────────
+
+/** A project space the check when the builder opens found changed in CommCare HQ. */
+export interface HqChangedTarget {
+	readonly server: CommCareServer;
+	readonly domain: string;
+}
+
+/**
+ * A request to open the Publish dialog on a project space. `discard` is the
+ * app's change in CommCare HQ the person chose to publish over from the
+ * Publishing card's panel, under the digest of the source that panel read:
+ * the dialog sends it with the publish, so it opens with that choice made.
+ */
+export interface PublishDialogRequest {
+	readonly domain: string;
+	readonly discard?: RemoteChangeDiscard;
+}
+
+/**
+ * A bring-in of changes made in CommCare HQ this tab sent that landed, held
+ * for the surface that asked to show once it can. The bring-in's own commit
+ * reloads the app in this tab too, and that reload closes every dialog, so
+ * the answer is held here, which outlives the reload, until the surface
+ * opens again on it.
+ */
+export interface HqChangesBroughtIn {
+	/** Where the panel that asked was drawn: the Publish dialog, or a Publishing card's dialog. */
+	readonly home: "publish" | "card";
+	readonly server: CommCareServer;
+	readonly domain: string;
+	/** The Project the bring-in was sent in: a result is never shown in another. */
+	readonly projectId: string;
+	/** The record the bring-in answered, null where Nova could not read it after the bring-in landed. */
+	readonly deployment: DeploymentView | null;
+	/** The changes made in Nova that were listed were removed. */
+	readonly discarded: boolean;
+}
 
 // ── Interaction primitives ───────────────────────────────────────────────
 

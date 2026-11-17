@@ -1240,7 +1240,7 @@ function classifyOne(
 	return { kind: "unclaimed" };
 }
 
-/** Classifies a control's appearance by the first rule that applies (9.2). `form` gives the
+/** Classifies a control's appearance by the first rule that applies. `form` gives the
  *  intents an `intent:<id>` value is read against; absent, the form holds none. */
 export function classifyAppearance(
 	control: ControlNode,
@@ -1261,7 +1261,7 @@ const TRIGGER_LABEL_ENTRIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Whether a trigger whose appearance is not exactly `minimal` stays a label (9.1): its verdict is
+ * Whether a trigger whose appearance is not exactly `minimal` stays a label: its verdict is
  * the `selectable` row or a floating row, or a per-row refusal of a string starting `floating-`,
  * which the per-row rows take from the floating row. Any other string is an acknowledge on
  * Android, which draws a checkbox for every appearance but exactly `minimal` or `selectable`

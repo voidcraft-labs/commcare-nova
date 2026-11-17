@@ -11,8 +11,9 @@
  *   the app declares.
  *
  * For each field of the first kind the repair declares a worker property, as
- * part 11 section 11.5 of the bring-in plan gives one to a field an app read
- * from CommCare HQ: `{ uuid, slug, label: slug }`, not required, no choices.
+ * a reading of an app from CommCare HQ gives one to a field the app reads
+ * (`lib/commcare/reader/worldEntities.ts::worldEntitiesFromReads`):
+ * `{ uuid, slug, label: slug }`, not required, no choices.
  * The uuid is derived from the app and the slug, so a dry run and its
  * execution, or a second run, name the same property. Every read by name of a
  * declared slug, declared before or by the repair, from either source, is then

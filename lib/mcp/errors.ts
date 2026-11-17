@@ -340,8 +340,9 @@ export interface McpErrorPayload {
  * An expected refusal of a bring-in tool, already worded: a stop of the
  * app list, a read or create the person may not make, a create Nova turned
  * back, or a handler's own check. The handlers of `list_hq_apps`,
- * `read_hq_app` and `bring_in_hq_app` throw it, and `toMcpErrorResult`
- * spreads its fields onto the payload.
+ * `read_hq_app`, `bring_in_hq_app`, `read_hq_changes` and
+ * `bring_in_hq_changes` throw it, and `toMcpErrorResult` spreads its fields
+ * onto the payload.
  */
 export class BringInToolError extends Error {
 	readonly errorType:
@@ -349,7 +350,8 @@ export class BringInToolError extends Error {
 		| "permission_denied"
 		| "invalid_input"
 		| "hq_not_configured"
-		| "domain_not_authorized";
+		| "domain_not_authorized"
+		| "domain_ambiguous";
 	readonly fields: {
 		readonly circumstance?: string;
 		readonly title?: string;

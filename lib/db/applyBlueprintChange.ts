@@ -13,6 +13,7 @@
  * no inferred rename or second runtime path.
  */
 
+import type { Transaction } from "kysely";
 import type {
 	CasePropertyRenameReport,
 	MigrationReport,
@@ -31,8 +32,10 @@ import { log } from "@/lib/logger";
 import type { OrganizationRevision } from "@/lib/organization/types";
 import {
 	type ChatRunHolderCapability,
+	type CommitGuardedBatchArgs,
 	type CommitGuardedBatchTransactionHooks,
 	commitGuardedBatch,
+	type GuardedBatchBeforeWriteContext,
 } from "./apps";
 import type { CanonicalCommitSidecar } from "./canonicalCommitSidecars";
 import {
@@ -41,6 +44,7 @@ import {
 } from "./classifyCaseTypeChanges";
 import { BlueprintCommitRejectedError } from "./commitGuard";
 import type { MigrationOutcome } from "./migrationOutcome";
+import type { AppDatabase } from "./pg";
 import { isTransientDbError } from "./schemaSyncRetry";
 import {
 	findUsercaseRow,
@@ -82,8 +86,26 @@ export interface ApplyBlueprintChangeArgs {
 	 * `app_changes (app_id, batch_id)` unique latch owned by
 	 * {@link commitGuardedBatch}'s app-locked, freshly-authorized transaction. */
 	readonly batchId: string;
-	/** Which write path is committing — stamped on the durable stream entry. */
-	readonly kind: EditorAppChangeKind;
+	/** Which write path is committing — stamped on the durable stream entry.
+	 * `hq-changes` is a bring-in of changes made in CommCare HQ, which a
+	 * member chose and a server computed. */
+	readonly kind: EditorAppChangeKind | "hq-changes";
+	/** Required with `hq-changes`, refused with any other kind: the head the
+	 * bring-in's plan was computed at. The commit is refused with
+	 * `AppHeadMovedError`, writing nothing, at any other head. */
+	readonly expectedHeadSeq?: number;
+	/**
+	 * Server-owned callers only, and only with `hq-changes`. Runs at the end of
+	 * this function's own `beforeWrite` hook, in the commit's transaction, with
+	 * the sequence the commit takes, so what it writes commits or rolls back
+	 * with the batch. It must be deterministic and free of network effects, as
+	 * that hook requires: a retried transaction runs it again. A batch already
+	 * committed under its id runs nothing.
+	 */
+	readonly inTransaction?: (context: {
+		readonly tx: Transaction<AppDatabase>;
+		readonly seq: number;
+	}) => Promise<void>;
 	/**
 	 * Guarded MUTATION commit: the blueprint write is a transactional
 	 * read-evaluate-write — re-apply `mutations` onto the FRESH stored
@@ -152,6 +174,15 @@ export async function applyBlueprintChange(
 	) {
 		throw new Error(
 			"[applyBlueprintChange] chat writes require matching chat holder authority; non-chat writes cannot supply it",
+		);
+	}
+	if (
+		args.kind === "hq-changes"
+			? args.expectedHeadSeq === undefined
+			: args.expectedHeadSeq !== undefined || args.inTransaction !== undefined
+	) {
+		throw new Error(
+			`Only a bring-in of changes made in CommCare HQ commits at an expected head with its own transaction work. This call asked for that under the kind ${args.kind}; an editor's batch takes neither.`,
 		);
 	}
 	const durableWorkspace =
@@ -412,28 +443,51 @@ async function persistBlueprint(
 		throw new Error("[applyBlueprintChange] a persist requires a `guard`");
 	}
 	const { mutations } = args.guard;
-	const commit = await commitGuardedBatch(
-		{
-			appId: args.appId,
-			batchId: args.batchId,
-			...(args.runId !== undefined && { runId: args.runId }),
-			...(args.chatRunHolder !== undefined && {
-				chatRunHolder: args.chatRunHolder,
-			}),
-			mutations,
-			actorUserId: args.userId,
-			kind: args.kind,
-			expectedProjectId: args.expectedProjectId,
-			...(args.expectedOrganizationRevision !== undefined && {
-				expectedOrganizationRevision: args.expectedOrganizationRevision,
-			}),
-		},
-		{
-			...hooks,
-			...(args.sidecars !== undefined && { sidecars: args.sidecars }),
-			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
-		},
-	);
+	const base = {
+		appId: args.appId,
+		batchId: args.batchId,
+		...(args.runId !== undefined && { runId: args.runId }),
+		...(args.chatRunHolder !== undefined && {
+			chatRunHolder: args.chatRunHolder,
+		}),
+		mutations,
+		actorUserId: args.userId,
+		expectedProjectId: args.expectedProjectId,
+		...(args.expectedOrganizationRevision !== undefined && {
+			expectedOrganizationRevision: args.expectedOrganizationRevision,
+		}),
+	};
+	let request: CommitGuardedBatchArgs;
+	if (args.kind === "hq-changes") {
+		if (args.expectedHeadSeq === undefined) {
+			throw new Error(
+				"[applyBlueprintChange] an hq-changes batch reached the commit without its expected head",
+			);
+		}
+		request = {
+			...base,
+			kind: "hq-changes",
+			expectedHeadSeq: args.expectedHeadSeq,
+		};
+	} else {
+		request = { ...base, kind: args.kind };
+	}
+	const { inTransaction } = args;
+	const beforeWrite = hooks.beforeWrite;
+	const commit = await commitGuardedBatch(request, {
+		...hooks,
+		...(inTransaction !== undefined && {
+			beforeWrite: async (
+				context: GuardedBatchBeforeWriteContext,
+			): Promise<MigrationOutcome | undefined> => {
+				const outcome = await beforeWrite?.(context);
+				await inTransaction({ tx: context.tx, seq: context.seq });
+				return outcome || undefined;
+			},
+		}),
+		...(args.sidecars !== undefined && { sidecars: args.sidecars }),
+		...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+	});
 	return {
 		result: {
 			seq: commit.seq,

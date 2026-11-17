@@ -249,7 +249,17 @@ harness keeps, each with its reason.
 - **The capture moves with publish.** A change to what `publishAppToHq` reads
   or sends changes `proof/corpus/publish.ts` in the same pull request, the
   peer answers a read only with what the HQ side then holds to HQ's own view,
-  and retained controls replay the layout they were captured in.
+  and retained controls replay the layout they were captured in. So does a
+  change to the review or the bring-in of changes made in CommCare HQ
+  (`lib/deployment/hqChanges`): the capture runs them over the peer where a
+  document states `brings-in` or `records` (`bringInOverPeer`), the peer
+  stores each content save as HQ's view does (`targetPeer.ts::sourceAfterContentSaves`),
+  keeps each upload's files and the app's media map as HQ's uploads leave
+  them and serves each file Nova reads, and models HQ's question summary of
+  the forms it holds (`hqSummary.ts`), and what the review read is recorded
+  beside the republish (`broughtIn`) for the HQ side to hold to HQ's own
+  answers after the same saves. A document stating `proceeds` goes through
+  with no stop: a stop over it fails the capture, never a review.
 - **A republish after a migration is observed on its witness.** A migration
   that changes the wire or an identity has a targeted witness whose A is the
   retained export from before it (`proof/migrations/<id>/`) and whose B is
