@@ -111,7 +111,10 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 				return "Choose values that use compatible kinds of information";
 		}
 	},
-	"ordered-values": () => "Use numbers or dates for this comparison",
+	"ordered-values": (_path, reason) =>
+		reason === "blank"
+			? "A blank is never before or after anything. You can check whether the value is blank instead"
+			: "Use numbers or dates for this comparison",
 	"time-ordering": () =>
 		"A time of day can't be compared with before or after. A date can be compared this way.",
 	"location-value": (path) =>

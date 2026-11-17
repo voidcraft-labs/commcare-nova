@@ -140,7 +140,10 @@ A first reading is told no property's type, so a property no writer types takes 
 record slots that compare it give (`expressions/comparedTypes.ts`): a comparison with a value of a
 known type, through each branch of an `if`, `coalesce`, `switch` or `cond` the property stands in
 (`coalesce(seen, now()) > now()` compares `seen` with `now()`), and the known type of a branch
-beside it, since record branches agree on one type. A simple date range Search field over such a
+beside it, since record branches agree on one type. A type one comparison gives a property
+reaches every node that reads it: `if(c, age, 3) = weight` types `age` by the `3`, then
+`weight` by the branch node `age` and `3` then type (`comparedTypes.ts::comparedTypes` scans
+again over what it found until it finds nothing new). A simple date range Search field over such a
 property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
 print is HQ's prompt alone, and a record slot's comparison overrides that guess (an ordering against
 a branch node whose values are all literals spelled as one of the two types orders that type).

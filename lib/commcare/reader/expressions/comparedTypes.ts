@@ -96,13 +96,72 @@ function comparedProperty(
 }
 
 /** Each property `tree` compares, in `context`, with a value of a type a
- *  property may take, where `untyped` says the catalog holds it untyped. */
+ *  property may take, where `untyped` says the catalog holds it untyped. A
+ *  type one comparison gives a property reaches every node that reads it:
+ *  `if(c, age, 3) = weight` types `age` by the `3` beside it, then `weight`
+ *  by the branch node `age` and `3` now type, so the scan is made again over
+ *  a catalog holding what it found until it finds nothing new. */
 export function comparedTypes(
 	tree: Expression,
 	context: ExpressionContext,
 	untyped: (caseType: string, property: string) => boolean,
 ): ComparedType[] {
 	if (context.ruleSet !== "record") return [];
+	const found: ComparedType[] = [];
+	const typed = new Set<string>();
+	const keyOf = (one: { caseType: string; property: string }) =>
+		JSON.stringify([one.caseType, one.property]);
+	let at = context;
+	for (;;) {
+		const round = scanComparedTypes(
+			tree,
+			at,
+			(caseType, property) =>
+				untyped(caseType, property) &&
+				!typed.has(keyOf({ caseType, property })),
+		);
+		found.push(...round);
+		const agreed = agreedComparedTypes(round).filter(
+			(one) => !typed.has(keyOf(one)),
+		);
+		if (agreed.length === 0) return found;
+		for (const one of agreed) typed.add(keyOf(one));
+		at = withPropertyTypes(at, agreed);
+	}
+}
+
+/** `context` over a catalog that holds each of `types`. */
+export function withPropertyTypes(
+	context: ExpressionContext,
+	types: readonly ComparedType[],
+): ExpressionContext {
+	if (types.length === 0) return context;
+	return {
+		...context,
+		facts: {
+			...context.facts,
+			caseTypes: context.facts.caseTypes.map((type) => ({
+				...type,
+				properties: type.properties.map((property) => {
+					const typed = types.find(
+						(one) =>
+							one.caseType === type.name && one.property === property.name,
+					);
+					return typed === undefined
+						? property
+						: { ...property, data_type: typed.dataType };
+				}),
+			})),
+		},
+	};
+}
+
+/** One scan of `comparedTypes`, in `context` as it stands. */
+function scanComparedTypes(
+	tree: Expression,
+	context: ExpressionContext,
+	untyped: (caseType: string, property: string) => boolean,
+): ComparedType[] {
 	const found: ComparedType[] = [];
 	const note = (
 		side: Expression | undefined,

@@ -210,9 +210,14 @@ offset behind UTC where the UTC year is past 9999, and the reader of CommCare
 HQ's apps writes a folded literal back with it), and a literal or a
 branch of another known kind, or a branch of unknown type holding neither
 text nor a typed date (`datetime-ordering`, or `datetime-equality` under `=` /
-`!=`); a blank literal names no moment and is admitted. A `datetime-coerce` of
+`!=`); a blank literal names no moment and is admitted (but a record ordering
+refuses a direct `null` operand, below). A `datetime-coerce` of
 a literal that names no moment is `unreadable-datetime` in the same places,
-since a device prints the moment as a value (`instant.ts::datetimeCoerceValue`).
+since a device prints the moment as a value (`instant.ts::datetimeCoerceValue`),
+and one of a branch node some of whose branches a device coerces to a day
+(`date()` of a `casedb` system date, of a value whose clock is lost or of a
+value that names no moment) beside a branch it coerces to a moment is
+`branch-values`, as `if(c, date(x), now())`, which it prints, is.
 `dayOnlyRefusalCopy` and `systemDateWhen` are the day-only sentences every
 surface assembles, whose next step (`date()` on both sides) the checker
 admits. An unknown operand against a moment takes the row of what it holds,
@@ -379,7 +384,10 @@ Python or Postgres.
   (reasons `condition-expected` and `value-expected`). Form logic takes Core's
   coercions instead.
 - Strings are excluded from `ORDERED_TYPES`: locale-dependent string ordering is
-  rarely meaningful for a case-list filter, so `gt`/`lt` refuse text.
+  rarely meaningful for a case-list filter, so `gt`/`lt` refuse text. A `null`
+  operand of an ordering is `ordered-values` reason `blank`: a device reads it
+  as no number and answers no for every case, and CommCare HQ's search refuses
+  to order by it (a blank branch of an `if` stays admitted).
 - A time of day is excluded too, and `time-ordering` is one rule for both rule
   sets, ahead of the ordered-types test; a date and a date and time keep their
   order.

@@ -26,9 +26,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	and,
+	datetimeLiteral,
 	eq,
 	input,
 	literal,
+	neq,
 	or,
 	prop,
 	term,
@@ -534,6 +536,23 @@ describe("a selection and a membership read back from Nova's own Search field", 
 			),
 			reads: visits(
 				or(selects([a], "any", "visit"), selects([b], "any", "visit")),
+			),
+		},
+		{
+			// HQ's comparison of a date and time is the range from the value to
+			// itself, so Nova prints the inequality as the not of that range.
+			name: "a related case's inequality of a date and time with its last change",
+			condition: visits(
+				neq(
+					term(datetimeLiteral("2025-12-31T23:59:59.5Z")),
+					term(prop("visit", "last_modified")),
+				),
+			),
+			reads: visits(
+				neq(
+					term(prop("visit", "last_modified")),
+					term(datetimeLiteral("2025-12-31T23:59:59.5Z")),
+				),
 			),
 		},
 		{

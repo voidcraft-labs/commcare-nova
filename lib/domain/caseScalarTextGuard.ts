@@ -3,11 +3,11 @@
 // The questions a form's case names and external ids come from. CommCare
 // stores both in fixed-width text columns (`caseScalarText.ts`): Core and HQ
 // trim them and refuse one past 255 code units, and a case name may not be
-// blank. Each such question gets one trimmed sibling in the form's source,
-// which every write of the value names, and a visible question carries the
-// check itself, so a worker meets the refusal at the question rather than at
-// the submission. The emitter and Preview's form engine both read this one
-// derivation.
+// blank. A visible question carries the check itself, so a worker meets the
+// refusal at the question rather than at the submission, and each such
+// question an action reads gets one trimmed sibling in the form's source,
+// which the action names. The emitter and Preview's form engine both read
+// this one derivation.
 
 import type { BlueprintDoc } from "./blueprint";
 import { formCaseWriteViews } from "./caseWriteViews";
@@ -41,10 +41,12 @@ export function caseScalarTextGuardIsChecked(kind: FieldKind): boolean {
 	return fieldKindCarriesValidation(kind);
 }
 
-/** One form's guarded questions and its create-name questions. */
+/** One form's guarded questions, its create-name questions and the
+ *  questions whose trimmed sibling its source holds. */
 interface FormCaseScalarText {
 	readonly guards: ReadonlyMap<Uuid, CaseScalarTextGuard>;
 	readonly createNames: ReadonlySet<Uuid>;
+	readonly siblings: ReadonlySet<Uuid>;
 }
 
 const derived = new WeakMap<GuardDoc, Map<Uuid, FormCaseScalarText>>();
@@ -57,6 +59,13 @@ const derived = new WeakMap<GuardDoc, Map<Uuid, FormCaseScalarText>>();
  */
 export interface CaseScalarTextOptions {
 	readonly placedBasic?: (operationUuid: Uuid) => boolean;
+	/**
+	 * Which of those read the value from the question's trimmed sibling
+	 * (`lib/commcare/placement.ts::readsTrimmedSibling`): all of them where it
+	 * is absent. A Save to Case block of the own case trims and checks its own
+	 * values, while the question keeps its check.
+	 */
+	readonly readsSibling?: (operationUuid: Uuid) => boolean;
 }
 
 /**
@@ -94,14 +103,32 @@ export function caseCreateNameFields(
 	return formCaseScalarText(doc, formUuid, options).createNames;
 }
 
-/** Both sets, derived in one pass; the candidates once per document object. */
+/**
+ * The questions of `formUuid` whose trimmed sibling the form's source holds:
+ * those a change `options.readsSibling` names reads a case name or an
+ * external id from.
+ */
+export function caseScalarTextSiblings(
+	doc: GuardDoc,
+	formUuid: Uuid,
+	options: CaseScalarTextOptions = {},
+): ReadonlySet<Uuid> {
+	return formCaseScalarText(doc, formUuid, options).siblings;
+}
+
+/** The three sets, derived in one pass; the candidates once per document object. */
 function formCaseScalarText(
 	doc: GuardDoc,
 	formUuid: Uuid,
 	options: CaseScalarTextOptions,
 ): FormCaseScalarText {
-	if (options.placedBasic !== undefined)
-		return deriveFormCaseScalarText(doc, formUuid, options.placedBasic);
+	if (options.placedBasic !== undefined || options.readsSibling !== undefined)
+		return deriveFormCaseScalarText(
+			doc,
+			formUuid,
+			options.placedBasic,
+			options.readsSibling,
+		);
 	let forms = derived.get(doc);
 	if (forms === undefined) {
 		forms = new Map();
@@ -119,11 +146,13 @@ function deriveFormCaseScalarText(
 	doc: GuardDoc,
 	formUuid: Uuid,
 	placedBasic?: (operationUuid: Uuid) => boolean,
+	readsSibling?: (operationUuid: Uuid) => boolean,
 ): FormCaseScalarText {
 	const guards = new Map<Uuid, CaseScalarTextGuard>();
 	const createNames = new Set<Uuid>();
+	const siblings = new Set<Uuid>();
 	const form = doc.forms[formUuid];
-	if (form === undefined) return { guards, createNames };
+	if (form === undefined) return { guards, createNames, siblings };
 	const creates = new Set(
 		(form.caseOperations ?? [])
 			.filter(
@@ -149,6 +178,7 @@ function deriveFormCaseScalarText(
 				continue;
 			if (view.link) continue;
 			if (!isCaseScalarTextProperty(view.property)) continue;
+			if (readsSibling?.(view.operationUuid) ?? true) siblings.add(fieldUuid);
 			if (view.property === "case_name") {
 				guards.set(fieldUuid, "reject");
 				if (creates.has(view.operationUuid)) createNames.add(fieldUuid);
@@ -157,5 +187,5 @@ function deriveFormCaseScalarText(
 			}
 		}
 	}
-	return { guards, createNames };
+	return { guards, createNames, siblings };
 }

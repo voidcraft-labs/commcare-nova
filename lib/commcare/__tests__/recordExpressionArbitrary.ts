@@ -13,8 +13,10 @@
  * Search button's condition, the excluded owners, each Search field's
  * starting value, condition, requirement and validation, a hidden Search
  * value, and each value, condition, name, owner and target of a form's case
- * changes. A draw adds the slots a
- * workflow document leaves out (a calculated column, both display
+ * changes. A draw lists each menu of a child case type after the case of a
+ * menu of its parent type where the gate admits that route
+ * (`withParentSelections`), so a slot may read the case chosen above, adds
+ * the slots a workflow document leaves out (a calculated column, both display
  * conditions, the Search button's condition, a starting value on each
  * simple Search field) and declares a list of choices, a location and a time
  * of day beside the corpus's property pool, then puts in each slot the first
@@ -903,8 +905,6 @@ export const RECORD_KIND_COVERAGE: Partial<Record<Expression["kind"], string>> =
 			"Only a case change's owner reads it, and no workflow document's change states an owner.",
 		unowned:
 			"Only a case change's owner reads it, and no workflow document's change states an owner.",
-		project:
-			"It reads the case a menu above chose, and no workflow document holds a menu that lists cases chosen after another menu's case of the parent type.",
 		"table-lookup": "The corpus holds no lookup table.",
 		"table-rows": "The corpus holds no lookup table.",
 		locations: "No record slot reads places.",
@@ -1317,9 +1317,49 @@ export function withPool(
 	return placed(added, kept);
 }
 
+/**
+ * `doc` with each menu that lists cases of a child type chosen after the case
+ * of another menu that lists its parent type (`parentCaseModuleUuid`), each
+ * route kept where the gate admits it: the route a read of the case a menu
+ * above chose (`project`) needs, which a case list's filter, a Search field's
+ * condition and a form's display condition then hold.
+ */
+export function withParentSelections(doc: BlueprintDoc): BlueprintDoc {
+	const { refIndex: _derived, ...persisted } = doc;
+	let current = persisted as BlueprintDoc;
+	for (const moduleUuid of current.moduleOrder) {
+		const module = current.modules[moduleUuid];
+		if (
+			module?.caseType === undefined ||
+			module.parentCaseModuleUuid !== undefined
+		)
+			continue;
+		const parentType = (current.caseTypes ?? []).find(
+			(type) => type.name === module.caseType,
+		)?.parent_type;
+		if (parentType === undefined) continue;
+		for (const chooser of current.moduleOrder) {
+			if (
+				chooser === moduleUuid ||
+				current.modules[chooser]?.caseType !== parentType
+			)
+				continue;
+			const next = structuredClone(current);
+			const routed = next.modules[moduleUuid];
+			if (routed === undefined) continue;
+			routed.parentCaseModuleUuid = chooser;
+			if (admitted(next)) {
+				current = next;
+				break;
+			}
+		}
+	}
+	return current;
+}
+
 export const recordExpressionDocArbitrary: fc.Arbitrary<BlueprintDoc> = fc
 	.tuple(suiteDocArbitrary, expressionPoolArbitrary)
-	.map(([doc, pool]) => withPool(doc, pool));
+	.map(([doc, pool]) => withPool(withParentSelections(doc), pool));
 
 // ── Coverage ──────────────────────────────────────────────────────
 

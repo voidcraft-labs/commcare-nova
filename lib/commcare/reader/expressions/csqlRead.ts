@@ -76,6 +76,7 @@ import {
 	agreedComparedTypes,
 	type ComparedType,
 	comparedTypes,
+	withPropertyTypes,
 } from "./comparedTypes";
 import {
 	checkErrorEntry,
@@ -1109,7 +1110,11 @@ class CsqlBinder {
 		)
 			return undefined;
 		const anchor = this.anchor(bare(left.left), rowType);
-		if (scalarDataType(typeOf(anchor, this.state.context)?.data) !== "datetime")
+		// A property of a related case's filter is typed on that case's row.
+		if (
+			scalarDataType(typeOf(anchor, this.oppositeContext(anchor))?.data) !==
+			"datetime"
+		)
 			return undefined;
 		// The value is printed twice, each a hole of its own where it holds a
 		// device value, so the two are compared bound.
@@ -1466,7 +1471,21 @@ class CsqlBinder {
 				return { kind: at.name };
 			case "not": {
 				if (args.length !== 1) unrecognizedRow();
-				const inner = this.query(args[0] as FormSyntax, rowType);
+				// A date-and-time property's inequality prints as the not of the
+				// range from the value to itself, unparenthesized
+				// (`csql/emitter.ts::compare`), where the not of its equality
+				// keeps the equality's parentheses.
+				const argument = args[0] as FormSyntax;
+				if (argument.kind === "binary") {
+					const equality = this.proposedEquality(argument, rowType);
+					if (equality?.kind === "eq")
+						return {
+							kind: "neq",
+							left: equality.left,
+							right: equality.right,
+						};
+				}
+				const inner = this.query(argument, rowType);
 				if (this.state.proposals && inner.kind === "exists")
 					return {
 						kind: "missing",
@@ -2179,7 +2198,7 @@ export function readSearchFilterRow(
 		const { parts } = row;
 		const prefix = markerPrefix(constantTexts(parts));
 		const typing = comparedRowTypes(parts, context, env, text);
-		const rowContext = withComparedTypes(context, typing);
+		const rowContext = withPropertyTypes(context, typing);
 		const emission = emissionContext(rowContext, env);
 		for (const proposals of [true, false]) {
 			const { bound: raw, today } = bindCsql(parts, rowContext, env, {
@@ -2284,32 +2303,6 @@ function comparedRowTypes(
 		if ("kind" in bound) found.push(...comparedTypes(bound, context, untyped));
 	}
 	return agreedComparedTypes(found);
-}
-
-/** `context` over a catalog that holds each of `types`. */
-function withComparedTypes(
-	context: ExpressionContext,
-	types: readonly ComparedType[],
-): ExpressionContext {
-	if (types.length === 0) return context;
-	return {
-		...context,
-		facts: {
-			...context.facts,
-			caseTypes: context.facts.caseTypes.map((type) => ({
-				...type,
-				properties: type.properties.map((property) => {
-					const typed = types.find(
-						(one) =>
-							one.caseType === type.name && one.property === property.name,
-					);
-					return typed === undefined
-						? property
-						: { ...property, data_type: typed.dataType };
-				}),
-			})),
-		},
-	};
 }
 
 /** The level at which Nova's emission of `predicate` in `context` writes the
