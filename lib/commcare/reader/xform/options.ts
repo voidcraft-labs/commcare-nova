@@ -1,5 +1,5 @@
 /**
- * A select's choices (10.1): its inline `item`s, or one `itemset` over a lookup table or over
+ * A select's choices: its inline `item`s, or one `itemset` over a lookup table or over
  * the worker's cases in the shape Nova writes for a question's case choices. An itemset's
  * nodeset is read with the XPath grammar, and its filter is registered for the expression
  * stage, never read here.
@@ -284,9 +284,13 @@ function readItemset(
 		const labelColumn = table.column(labelName);
 		const valueColumn = table.column(valueName);
 		// A ref to a column the table lacks reads blank for every choice on a device: one finding,
-		// which the whole itemset stands behind.
+		// which the whole itemset stands behind. Its reason is the form parser's for a read of a
+		// column the table lacks, so a reader of the account can tell a read of the Project's data
+		// that is not there from any other.
 		if (labelColumn === undefined || valueColumn === undefined) {
-			cursor.refuseSubtree(itemset, X.itemsetColumn, place);
+			cursor.refuseSubtree(itemset, X.itemsetColumn, place, {
+				reason: "parse:unknown-column",
+			});
 			return undefined;
 		}
 		const sites = X.lookupItemset;

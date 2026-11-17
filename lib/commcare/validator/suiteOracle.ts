@@ -2141,19 +2141,86 @@ export function validateSuite(
 	appStringKeys: ReadonlySet<string>,
 	mediaContext?: SuiteMediaContext,
 ): ValidationError[] {
+	const suite = readSuiteForOracle(suiteXml);
+	return [
+		...validateSuiteStructure(suite),
+		...validateSuiteStrings(suite, appStringKeys, mediaContext),
+	];
+}
+
+/** A `suite.xml` read once by the oracle: its structural model, or the
+ *  findings that stop it being read. */
+export type OracleSuite =
+	| { readonly kind: "read"; readonly model: SuiteModel }
+	| { readonly kind: "unread"; readonly errors: readonly ValidationError[] };
+
+/** Every check of `validateSuite` that reads no app-string table: run once
+ *  for a suite whatever tables it is held to. */
+export function validateSuiteStructure(suite: OracleSuite): ValidationError[] {
+	if (suite.kind === "unread") return [...suite.errors];
+	const { model } = suite;
+	const loc: ValidationLocation = {};
+	return [
+		// Category 1 — fatal at parse.
+		...checkSuiteVersion(model, loc),
+		...checkDatums(model, loc),
+		...checkDetails(model, loc),
+		...checkEntries(model, loc),
+		...checkPrompts(model, loc),
+		...checkStacks(model, loc),
+		...checkEndpoints(model, loc),
+		...checkXPathSurfaces(model, loc),
+		...checkQueryData(model, loc),
+		// Category 2 — parse-clean, runtime-fatal.
+		...checkIdUniqueness(model, loc),
+		...checkMenuCommands(model, loc),
+		...checkMenuRoots(model, loc),
+		...checkDetailReferences(model, loc),
+		...checkInstanceResolution(model, loc),
+		...checkUnreadInstances(model, loc),
+		...checkFixtures(model, loc),
+		// Sort — silently tolerated.
+		...checkSort(model, loc),
+	];
+}
+
+/** The checks of `validateSuite` that read one app-string table: every
+ *  `<locale id>` resolves in `appStringKeys`, and, with `mediaContext`, every
+ *  media reference resolves to a bundled file. Nothing for a suite that does
+ *  not read, whose findings `validateSuiteStructure` gives. */
+export function validateSuiteStrings(
+	suite: OracleSuite,
+	appStringKeys: ReadonlySet<string>,
+	mediaContext?: SuiteMediaContext,
+): ValidationError[] {
+	if (suite.kind === "unread") return [];
+	const loc: ValidationLocation = {};
+	return [
+		...checkLocaleResolution(suite.model, appStringKeys, loc),
+		// Media wire-path resolution — fires only when the caller supplied a
+		// media context (the app_strings values + the bundled-media manifest).
+		...checkMediaResolution(suite.model, mediaContext, loc),
+	];
+}
+
+/** Parse `suiteXml` and build the oracle's structural model of it once. */
+export function readSuiteForOracle(suiteXml: string): OracleSuite {
 	const loc: ValidationLocation = {};
 
 	// Syntax and decoded values come from one namespace-aware XML parse.
 	const parsed = tryParseXml(suiteXml);
 	if ("issue" in parsed) {
-		return [
-			validationError(
-				"SUITE_PARSE_ERROR",
-				"app",
-				`The generator produced malformed suite.xml that CommCare will reject: ${parsed.issue}. This is a bug in the suite generator.`,
-				loc,
-			),
-		];
+		return {
+			kind: "unread",
+			errors: [
+				validationError(
+					"SUITE_PARSE_ERROR",
+					"app",
+					`The generator produced malformed suite.xml that CommCare will reject: ${parsed.issue}. This is a bug in the suite generator.`,
+					loc,
+				),
+			],
+		};
 	}
 
 	const { doc } = parsed;
@@ -2162,14 +2229,17 @@ export function validateSuite(
 		(child): child is Element => isTag(child) && child.name === "suite",
 	);
 	if (suiteEl === undefined) {
-		return [
-			validationError(
-				"SUITE_NO_SUITE_ELEMENT",
-				"app",
-				`The generated suite.xml has no <suite> root element. This is a bug in the suite generator.`,
-				loc,
-			),
-		];
+		return {
+			kind: "unread",
+			errors: [
+				validationError(
+					"SUITE_NO_SUITE_ELEMENT",
+					"app",
+					`The generated suite.xml has no <suite> root element. This is a bug in the suite generator.`,
+					loc,
+				),
+			],
+		};
 	}
 
 	// Build the shared structural model once.
@@ -2268,43 +2338,19 @@ export function validateSuite(
 		}
 	}
 
-	const model: SuiteModel = {
-		doc,
-		suite: suiteEl,
-		detailIds,
-		commandIds,
-		entryScopes,
-		menuScopes,
-		directCommandInstanceScopes,
-		detailReferrers,
+	// Every invariant runs against this one shared model. Order is cosmetic:
+	// errors accumulate into one flat array the caller renders.
+	return {
+		kind: "read",
+		model: {
+			doc,
+			suite: suiteEl,
+			detailIds,
+			commandIds,
+			entryScopes,
+			menuScopes,
+			directCommandInstanceScopes,
+			detailReferrers,
+		},
 	};
-
-	// Run every invariant against the shared model. Order is cosmetic — errors
-	// accumulate into one flat array the caller renders.
-	return [
-		// Category 1 — fatal at parse.
-		...checkSuiteVersion(model, loc),
-		...checkDatums(model, loc),
-		...checkDetails(model, loc),
-		...checkEntries(model, loc),
-		...checkPrompts(model, loc),
-		...checkStacks(model, loc),
-		...checkEndpoints(model, loc),
-		...checkXPathSurfaces(model, loc),
-		...checkQueryData(model, loc),
-		// Category 2 — parse-clean, runtime-fatal.
-		...checkIdUniqueness(model, loc),
-		...checkMenuCommands(model, loc),
-		...checkMenuRoots(model, loc),
-		...checkDetailReferences(model, loc),
-		...checkInstanceResolution(model, loc),
-		...checkUnreadInstances(model, loc),
-		...checkFixtures(model, loc),
-		...checkLocaleResolution(model, appStringKeys, loc),
-		// Sort — silently tolerated.
-		...checkSort(model, loc),
-		// Media wire-path resolution — fires only when the caller supplied a
-		// media context (the app_strings values + the bundled-media manifest).
-		...checkMediaResolution(model, mediaContext, loc),
-	];
 }

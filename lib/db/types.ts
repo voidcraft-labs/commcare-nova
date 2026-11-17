@@ -252,6 +252,7 @@ export const APP_CHANGE_KINDS = [
 	"chat",
 	"publish-placement",
 	"blueprint-migration",
+	"hq-changes",
 	"fold-baseline",
 	"project-move",
 ] as const;
@@ -279,9 +280,16 @@ export function isCollaborationFrameKind(
 	return COLLABORATION_FRAME_KIND_SET.has(kind);
 }
 
+/**
+ * The kinds whose row carries a nonempty admitted batch and no Project move:
+ * the frame kinds, a stored-shape migration, and `hq-changes`, the changes
+ * made in CommCare HQ a member chose to bring in, committed at the head that
+ * member reviewed. The last two are server-written and reload every tab.
+ */
 export type BlueprintMutationAppChangeKind =
 	| CollaborationFrameKind
-	| "blueprint-migration";
+	| "blueprint-migration"
+	| "hq-changes";
 
 interface AppChangeDocBase {
 	seq: number;

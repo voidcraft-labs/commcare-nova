@@ -160,7 +160,7 @@ export function alignHqForms(
  * steps as the app has forms. Null where there is none, the parent is not
  * among the read's forms, or the steps run out.
  */
-function expectedXmlnsOf(
+export function expectedXmlnsOf(
 	source: HqAppSource,
 ): (form: HqAppSourceForm) => string | null {
 	const forms = source.modules.flatMap((menu) => menu.forms);

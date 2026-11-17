@@ -160,6 +160,64 @@ it.each([
 	},
 );
 
+it.each([
+	{ lost: 1, state: "available" },
+	{ lost: 2, state: "unverified" },
+])(
+	"sends the Search runtime probe once more where its connection closed before any answer ($lost lost)",
+	async ({ lost, state }) => {
+		/* The peer closes the connection the Search probe goes out on,
+		 * unanswered, as CommCare HQ closes a kept-alive connection that a
+		 * request meets as it expires. */
+		let closed = 0;
+		const searches: ("closed" | "answered")[] = [];
+		await withSocketHttpPeer(
+			"india.commcarehq.org",
+			(request, response) => {
+				request.resume();
+				if (request.url === SEARCH) {
+					if (closed < lost) {
+						closed += 1;
+						searches.push("closed");
+						request.socket.destroy();
+						return;
+					}
+					searches.push("answered");
+					response.writeHead(200, {
+						"content-type": "text/xml; charset=utf-8",
+					});
+					response.end("<fixture/>");
+				} else if (request.url === DOMAINS || request.url === FLAG) {
+					response.writeHead(200, { "content-type": "application/json" });
+					response.end(visible);
+				} else {
+					response.writeHead(500);
+					response.end("Unexpected path");
+				}
+			},
+			async () => {
+				const result = await probeHqProjectSpaceCompatibility(
+					CREDS,
+					"clinic",
+					plan,
+				);
+				expect(result.capabilities.map((item) => item.state)).toEqual([state]);
+			},
+		);
+		expect(searches).toEqual(
+			lost === 1 ? ["closed", "answered"] : ["closed", "closed"],
+		);
+		expect(log.warn).toHaveBeenCalledWith(
+			"[commcare] Case search runtime probe not answered, sending again",
+			{
+				domain: "clinic",
+				request: "Case search runtime probe",
+				error: expect.anything(),
+			},
+		);
+	},
+);
+
 /*
  * The empty-list text flag a publish reads beside the plan, over controlled
  * HQ answers: the project space's own `empty_case_list_text`, read through

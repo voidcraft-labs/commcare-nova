@@ -47,7 +47,10 @@ export type ReadHqJsonOptions = {
  * `too-large`, `browser-page`, `malformed`) or the status CommCare HQ or its
  * edge gave. A 429 is sent again by `throttle.ts::readRetryWaitMs`, at most
  * `HQ_READ_SENDS` times, and no wait is begun that would outlast the
- * deadline. A read the deadline or the network cut off, before its headers
+ * deadline. A read no answer began for, its connection closed or never
+ * opened, is sent once more at once: fetch sends nothing again by itself, and
+ * a kept-alive connection the server closes as a read goes out on it is
+ * otherwise a failed read. A read the deadline or the network cut off, before its headers
  * or while its body streamed, a refused answer's body included, logs
  * `[commcare] <label> unavailable`. A read its caller's `cancel` ended
  * answers `{ status: 503, cause: "network" }` and logs nothing.
@@ -82,7 +85,8 @@ async function readWithin(
 	within: HqReadDeadline,
 ): Promise<{ readonly data: unknown } | CommCareApiError> {
 	const { signal, deadline } = within;
-	for (let sent = 1; ; sent++) {
+	let resentUnanswered = false;
+	for (let sent = 1; ; ) {
 		let response: Response;
 		try {
 			response = await fetch(url, {
@@ -95,7 +99,20 @@ async function readWithin(
 				signal,
 			});
 		} catch (error) {
-			return unansweredRead(label, signal, error);
+			/* No answer began: the connection closed or never opened. A kept-alive
+			 * connection CommCare HQ closed as this read went out on it is the
+			 * common case, and fetch sends nothing again by itself, so a read is
+			 * sent once more on a fresh connection. A read is a GET, which may be
+			 * sent again. */
+			if (signal.aborted || resentUnanswered)
+				return unansweredRead(label, signal, error);
+			resentUnanswered = true;
+			log.warn(`[commcare] ${label} not answered, sending again`, {
+				domain: domainOf(url),
+				request: label,
+				error,
+			});
+			continue;
 		}
 		if (response.ok) return readAnswer(response, label, options, signal);
 		const wait =
@@ -120,6 +137,7 @@ async function readWithin(
 		});
 		await delay(wait, signal);
 		if (signal.aborted) return unansweredRead(label, signal);
+		sent += 1;
 	}
 }
 

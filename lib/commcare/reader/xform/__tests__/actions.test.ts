@@ -1,5 +1,5 @@
 /**
- * Actions the forms stage refuses where they stand (11.2): a `setvalue`,
+ * Actions the forms stage refuses where they stand: a `setvalue`,
  * `send` or `pollsensor` nested in a group or a repeat, as in any other
  * control, and a model `setvalue` on a node no reader holds, which stands
  * under the refusal of that node where the data tree refused it. Each is one

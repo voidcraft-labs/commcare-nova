@@ -68,14 +68,19 @@
  *   (`app_import_api.py::_handle_upload_multimedia`): recorded, and answered
  *   as HQ answers a ZIP it accepted for the app a create made (200, with a
  *   `processing_id`); 404 before any create, 400 without the
- *   `bulk_upload_file` field.
+ *   `bulk_upload_file` field. The peer processes it as HQ's task does
+ *   (`processMediaUpload`): each file found or made as a media document of
+ *   its content and mapped in the app's `multimedia_map` at its path.
  * - `GET /a/<domain>/apps/api/<app id>/multimedia/status/<processing id>/`
  *   (`app_import_api.py::_handle_multimedia_status`, which serves
- *   `hqmedia/cache.py::BulkMultimediaStatusCache.get_response`), with the
- *   fields Nova's poll reads: processing complete, every file of the ZIP
- *   matched and no errors. The peer runs no HQ matching; this answer decides
- *   only which warnings Nova composes after the upload, never another
- *   request.
+ *   `hqmedia/cache.py::BulkMultimediaStatusCache.get_response`): processing
+ *   complete, no errors, and every file of the ZIP matched, each under its
+ *   class with the path it was mapped at and the id of the document there
+ *   (`matched_files`), which Nova records as the file standing at the path.
+ * - `GET /hq/multimedia/file/<class>/<id>/` (`hqmedia/views.py::ViewMultimediaFile`):
+ *   the bytes of the media document the peer holds under that class and
+ *   id, 404 for any other, as Nova reads a file to settle a path by its
+ *   content (`lib/commcare/hq/media.ts::readHqMediaFile`).
  *
  * What a person saves in HQ over the first publish (`HqSideSaves`, a
  * document's `hq-side.json`) the peer applies to what it holds as HQ's views
@@ -91,6 +96,7 @@
  * than decoding a refusal as an ordinary result.
  */
 
+import { createHash } from "node:crypto";
 import {
 	createServer,
 	type IncomingMessage,
@@ -98,14 +104,19 @@ import {
 } from "node:http";
 import { createConnection } from "node:net";
 import AdmZip from "adm-zip";
+import { type Document, type Element, isTag, Text } from "domhandler";
 import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import * as XLSX from "xlsx";
 import type { CommCareCredentials } from "@/lib/commcare/client";
 import { APP_SHELL_KEYS } from "@/lib/commcare/expander";
 import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "@/lib/commcare/projectSpaceCompatibility";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
-import type { HqSideSaves } from "./documents";
+import { parseXml } from "@/lib/commcare/xmlParse";
+import type { AssetKind } from "@/lib/domain";
+import { ACCEPTED_FORMATS } from "@/lib/domain/multimedia";
+import type { HqFormPlace, HqSideContentSaves, HqSideSaves } from "./documents";
 
 /** `ota/views.py::CASE_SEARCH_DISABLED_MSG`. */
 const CASE_SEARCH_DISABLED_MSG = "Case search is not enabled for this project";
@@ -151,8 +162,12 @@ export interface TargetState {
 interface Answer {
 	readonly status: number;
 	readonly contentType: string;
-	readonly body: string;
+	/** Text, or a media file's bytes. */
+	readonly body: string | Uint8Array;
 }
+
+/** The prefix of every path an app names a media file by. */
+const JR_FILE = "jr://file/";
 
 /**
  * The symbol of each flag Nova's publish reads, by the slug its gate entry
@@ -279,14 +294,115 @@ export interface PeerTable {
 	readonly rows: readonly PeerRow[];
 }
 
+/** The classes of media HQ stores (`hqmedia/models.py::CommCareMultimedia.get_doc_types`). */
+export type HqMediaClass = "CommCareImage" | "CommCareAudio" | "CommCareVideo";
+
+const HQ_MEDIA_CLASS_OF_KIND: Readonly<
+	Partial<Record<AssetKind, HqMediaClass>>
+> = {
+	image: "CommCareImage",
+	audio: "CommCareAudio",
+	video: "CommCareVideo",
+};
+
+/** `get_nice_name` of each class, the `media_type` a matched entry names. */
+const HQ_MEDIA_NICE_NAME: Readonly<Record<HqMediaClass, string>> = {
+	CommCareImage: "Image",
+	CommCareAudio: "Audio",
+	CommCareVideo: "Video",
+};
+
+/**
+ * One media document HQ holds (`hqmedia/models.py::CommCareMultimedia`):
+ * its class, the MD5 of its bytes, by which `get_by_data` finds it before it
+ * makes another (`get_by_hash`), and its bytes with their type, which
+ * `views.py::ViewMultimediaFile` serves. The peer mints its ids; HQ's are
+ * Couch's, and no read the HQ side holds compares one.
+ */
+export interface PeerMediaFile {
+	readonly id: string;
+	readonly mediaClass: HqMediaClass;
+	readonly md5: string;
+	readonly contentType: string;
+	readonly bytes: Uint8Array;
+}
+
+/** One matched entry of a media upload's report, the keys of `get_media_info` the peer can give. */
+interface MatchedMedia {
+	readonly path: string;
+	readonly uid: string;
+	readonly m_id: string;
+	readonly url: string;
+	readonly updated: boolean;
+	readonly original_path: string;
+	readonly media_type: string;
+}
+
+/** `BulkMultimediaStatusCache.matched_files`: every class, each with what the processing matched. */
+type MediaReport = Readonly<Record<HqMediaClass, readonly MatchedMedia[]>>;
+
+function md5(bytes: Uint8Array): string {
+	return createHash("md5").update(bytes).digest("hex");
+}
+
+/**
+ * The entry `Application.create_mapping` writes at `path` for `file`, every
+ * key in the order HQ serializes an `HQMediaMapItem`
+ * (`proof/hq-reads/case-list-inline/app-source-after-media.json`), its
+ * `unique_id` as `HQMediaMapItem.gen_unique_id` gives it.
+ */
+export function mediaMapItem(
+	path: string,
+	file: Pick<PeerMediaFile, "id" | "mediaClass">,
+): Record<string, unknown> {
+	return {
+		multimedia_id: file.id,
+		media_type: file.mediaClass,
+		version: null,
+		unique_id: createHash("md5").update(`${path}: ${file.id}`).digest("hex"),
+		upstream_media_id: null,
+		doc_type: "HQMediaMapItem",
+	};
+}
+
+/**
+ * The format of a ZIP entry Nova's bulk upload writes, by its extension.
+ * HQ types each entry by its bytes (`get_class_by_data`); Nova names each
+ * entry with the extension its own upload gave the bytes it validated
+ * (`lib/domain/multimedia.ts::ACCEPTED_FORMATS`), so the two agree for every
+ * entry Nova writes, and an extension no format declares is refused.
+ */
+function entryFormat(name: string): {
+	readonly mediaClass: HqMediaClass;
+	readonly contentType: string;
+} {
+	const dot = name.lastIndexOf(".");
+	const extension = dot === -1 ? "" : name.slice(dot).toLowerCase();
+	const format = ACCEPTED_FORMATS.find(
+		(candidate) =>
+			candidate.extension === extension ||
+			(candidate.declaredExtensions as readonly string[]).includes(extension),
+	);
+	const mediaClass =
+		format === undefined ? undefined : HQ_MEDIA_CLASS_OF_KIND[format.kind];
+	if (format === undefined || mediaClass === undefined) {
+		throw new Error(
+			`Nova's media upload holds ${name}, whose extension names no picture, sound or video Nova accepts, and the capture peer types an entry by it.`,
+		);
+	}
+	return { mediaClass, contentType: format.mime };
+}
+
 /** Everything the peer holds of the project space that an import or a push changes. */
 export interface PeerHolding {
 	/** The source HQ serves for the app, once a create has made it. */
 	readonly source: Readonly<Record<string, unknown>> | undefined;
 	/** The app's version: the number of imports HQ has saved it under. */
 	readonly version: number;
-	/** How many files the last media upload's ZIP held, which its status reports matched. */
-	readonly mediaFiles: number | undefined;
+	/** The media documents HQ holds, one per content (`PeerMediaFile`). */
+	readonly media: readonly PeerMediaFile[];
+	/** What the last media upload's processing matched, by class, as its status reports it. */
+	readonly mediaReport: MediaReport | undefined;
 	/** The lookup tables, in the order HQ lists them. */
 	readonly tables: readonly PeerTable[];
 	/** How many tables and rows HQ has made, for the next ids it mints. */
@@ -443,10 +559,387 @@ function workbookTables(bytes: Uint8Array): WorkbookTable[] {
 	});
 }
 
+// ── A person's saves to the app's content ────────────────────────────
+
+type Json = Record<string, unknown>;
+
+function contentRefused(what: string): Error {
+	return new Error(
+		`hq-side.json saves ${what}, which the capture peer does not hold. Look at the save's place against the document's menus and forms.`,
+	);
+}
+
+function modulesOf(source: Json): Json[] {
+	const modules = source.modules;
+	if (!Array.isArray(modules))
+		throw contentRefused("into an app with no menus");
+	return modules as Json[];
+}
+
+function formsOf(module: Json, where: number): Json[] {
+	const forms = module.forms;
+	if (!Array.isArray(forms))
+		throw contentRefused(`into menu ${where}, which holds no forms`);
+	return forms as Json[];
+}
+
+function moduleAt(source: Json, index: number): Json {
+	const module = modulesOf(source)[index];
+	if (module === undefined) throw contentRefused(`into menu ${index}`);
+	return module;
+}
+
+function formAt(source: Json, place: HqFormPlace): Json {
+	const form = formsOf(moduleAt(source, place.module), place.module)[
+		place.form
+	];
+	if (form === undefined)
+		throw contentRefused(`into form ${place.form} of menu ${place.module}`);
+	return form;
+}
+
+function attachmentsOf(source: Json): Record<string, string> {
+	const attachments = source._attachments;
+	if (attachments === null || typeof attachments !== "object")
+		throw contentRefused("into an app with no form sources");
+	return attachments as Record<string, string>;
+}
+
+function attachmentName(form: Json): string {
+	return `${String(form.unique_id)}.xml`;
+}
+
+/** The app's first language: the one HQ's form builder and its pages edit by default. */
+function firstLanguage(source: Json): string {
+	const langs = source.langs;
+	if (!Array.isArray(langs) || typeof langs[0] !== "string")
+		throw contentRefused("into an app with no language");
+	return langs[0];
+}
+
+function elements(node: { readonly children: readonly unknown[] }): Element[] {
+	return node.children.filter((child): child is Element =>
+		isTag(child as Element),
+	);
+}
+
+function local(element: Element): string {
+	const at = element.name.indexOf(":");
+	return at === -1 ? element.name : element.name.slice(at + 1);
+}
+
+function descendants(root: { readonly children: readonly unknown[] }) {
+	const found: Element[] = [];
+	const walk = (node: { readonly children: readonly unknown[] }) => {
+		for (const child of elements(node)) {
+			found.push(child);
+			walk(child);
+		}
+	};
+	walk(root);
+	return found;
+}
+
+/**
+ * The declaration HQ's form builder begins every form it saves with: its
+ * writer opens the document with `XMLWriter.writeStartDocument` under
+ * `new XMLWriter('UTF-8', '1.0')` (`Vellum/src/writer.js::createXForm`), and
+ * the forms HQ's own tests keep from the builder begin with it
+ * (`corehq/apps/app_manager/tests/data/save_to_case_in_groups.xml`). Nova's
+ * own emission begins `<?xml version="1.0"?>`, so every save of the builder
+ * changes the form's bytes, which a publish's comparison reads.
+ */
+const FORM_BUILDER_DECLARATION = '<?xml version="1.0" encoding="UTF-8" ?>';
+
+/**
+ * A form's source as the peer stores one HQ's form builder saved
+ * (`views/forms.py::patch_xform` stores the bytes the builder posts): the
+ * builder's declaration, then the form as the peer's serializer writes it.
+ * The rest of the builder's own spelling is not modeled; the HQ side holds
+ * the reading of what the peer serves to the reading of what HQ serves after
+ * the builder's own save.
+ */
+function builderWritten(root: Document): string {
+	return `${FORM_BUILDER_DECLARATION}\n${serializeXml(root)}`;
+}
+
+/**
+ * The XForm `xml` with the label of the question at `question` reading
+ * `label` in `lang`, the form's default language, as HQ's form builder leaves
+ * it after the label is set through the question's own object
+ * (`javaRosa/itext.js::ItextItem.set` with no language named, which
+ * `proof/editors/driver/steps/vellum/edit.js` calls): that language's text
+ * for the label's itext id, and every other language's whose text is empty
+ * or equal to the default's before it, written as the builder's save stores
+ * it (`builderWritten`). A label written with a markdown form
+ * is refused, since the builder writes that form again from its own switch,
+ * which the peer does not model.
+ */
+function relabeled(
+	xml: string,
+	question: string,
+	lang: string,
+	label: string,
+): string {
+	const root = parseXml(xml);
+	const all = descendants(root);
+	const control = all.find(
+		(element) =>
+			local(element) !== "bind" &&
+			(element.attribs.ref === question ||
+				element.attribs.nodeset === question) &&
+			elements(element).some((child) => local(child) === "label"),
+	);
+	const ref = control?.children
+		.filter((child): child is Element => isTag(child as Element))
+		.find((child) => local(child) === "label")?.attribs.ref;
+	const prefix = "jr:itext('";
+	if (ref === undefined || !ref.startsWith(prefix) || !ref.endsWith("')"))
+		throw contentRefused(`a label of ${question}, which holds no itext label`);
+	const id = ref.slice(prefix.length, -2);
+	const plainOf = (translation: Element): Element | undefined => {
+		const text = elements(translation).find(
+			(element) => element.attribs.id === id,
+		);
+		const values = text === undefined ? [] : elements(text);
+		if (values.some((value) => value.attribs.form === "markdown"))
+			throw contentRefused(
+				`a label of ${question} written with a markdown form, which the builder writes again from its own switch`,
+			);
+		return values.find((value) => value.attribs.form === undefined);
+	};
+	const textOf = (value: Element | undefined): string =>
+		(value?.children ?? [])
+			.map((child) => (child.type === "text" ? (child as Text).data : "\u0000"))
+			.join("");
+	const translations = all.filter(
+		(element) => local(element) === "translation",
+	);
+	const own = translations.find((element) => element.attribs.lang === lang);
+	const plain = own === undefined ? undefined : plainOf(own);
+	if (plain === undefined)
+		throw contentRefused(`a label of ${question} with no text in ${lang}`);
+	const before = textOf(plain);
+	const set = (value: Element) => {
+		const replacement = new Text(label);
+		replacement.parent = value;
+		value.children = [replacement];
+	};
+	set(plain);
+	for (const translation of translations) {
+		if (translation === own) continue;
+		const other = plainOf(translation);
+		if (other === undefined) continue;
+		const held = textOf(other);
+		if (held === "" || held === before) set(other);
+	}
+	return builderWritten(root);
+}
+
+/** The `xmlns` of an XForm's main instance's root. */
+function dataXmlns(xml: string): string {
+	const instance = descendants(parseXml(xml)).find(
+		(element) =>
+			local(element) === "instance" && element.attribs.id === undefined,
+	);
+	const root = instance === undefined ? undefined : elements(instance)[0];
+	const xmlns = root?.attribs.xmlns;
+	if (xmlns === undefined)
+		throw contentRefused("a form whose XForm names no xmlns on its data");
+	return xmlns;
+}
+
+/** The form's id HQ stores for a form the peer adds: 32 hexadecimal digits drawn from its `xmlns`. */
+function addedFormId(xmlns: string): string {
+	return createHash("sha256").update(xmlns).digest("hex").slice(0, 32);
+}
+
+/** Move the item at `from` to `to`, as `list.insert(to, list.pop(from))` does. */
+function moved<T>(items: readonly T[], from: number, to: number): T[] {
+	const next = [...items];
+	const [item] = next.splice(from, 1);
+	if (item === undefined) throw contentRefused(`a move from place ${from}`);
+	next.splice(to, 0, item);
+	return next;
+}
+
+/**
+ * `source` after a person's saves to the app's content (`HqSideContentSaves`),
+ * each as the view it reaches stores it:
+ *
+ * - `formLabel`: the form's XForm with the label set (`relabeled`); the
+ *   form builder writes the whole form back through `patch_xform`, and its
+ *   own spelling of everything else is not modeled beyond its declaration
+ *   (`builderWritten`): the reading of what the peer holds is what the HQ
+ *   side holds to HQ's own;
+ * - `formResave`: the form's XForm written back as the builder's save
+ *   stores it (`builderWritten`), every value as it was. The builder also
+ *   posts the form's name and comment, which it reads from HQ's own page
+ *   (`views/formdesigner.py::_get_vellum_core_context`), so HQ stores them
+ *   as it held them (`_apply_form_name_and_comment_updates`), and the case
+ *   references it works out from the form's expressions
+ *   (`Vellum/src/core.js::send`), which the peer leaves as HQ held them and
+ *   the HQ side holds through the reading;
+ * - `questions`: the form's source replaced by the XForm the save leaves
+ *   (`util.py::save_xform` stores the bytes as posted where the form's
+ *   `xmlns` is its own);
+ * - `formAttribute`: each attribute set on the form
+ *   (`_edit_form_attr`'s `should_edit` branches for the attributes it
+ *   stores as posted: `post_form_workflow`, `form_filter`,
+ *   `post_form_workflow_fallback`);
+ * - `formActions`: each case property's mapping added to the form's
+ *   `update_case.update` (`form_action_diff.py::merge_case_mappings`, a
+ *   property not yet mapped);
+ * - `moduleAttribute`: the menu's name in the app's first language
+ *   (`edit_module_attr`, `name`, under the `lang` cookie HQ's pages set);
+ * - `moduleDetail`: the column appended to the menu's short details
+ *   (`_update_short_details`, `DetailColumn.from_json` of a column that
+ *   names every key HQ stores of one);
+ * - `formsAddedAndRemoved`: the form removed from its menu, its source kept
+ *   among the app's attachments (`Application.delete_form` keeps the blob
+ *   for `DeleteFormRecord.undo`), then a form added at the menu's end with
+ *   the posted XForm, named in the first language, its `xmlns` the one the
+ *   XForm's data names (`FormSource.__set__`), its other keys those of the
+ *   menu's first form, and an id the peer draws from its `xmlns`
+ *   (`addedFormId`);
+ * - `order`: the menu moved with the menus under it after it
+ *   (`Application.rearrange_modules`), and the form moved within its menu
+ *   (`rearrange_forms`, one menu);
+ * - `mediaReplaced`: left to `TargetPeer.applyHqSide`, which holds the
+ *   files a media upload maps (`TargetPeer.replaceMedia`).
+ */
+export function sourceAfterContentSaves(
+	source: Json,
+	saves: HqSideContentSaves,
+): Json {
+	const next = structuredClone(source) as Json;
+	const lang = (): string => firstLanguage(next);
+	if (saves.formLabel !== undefined) {
+		const { question, label } = saves.formLabel;
+		const form = formAt(next, saves.formLabel);
+		const attachments = attachmentsOf(next);
+		const name = attachmentName(form);
+		const xml = attachments[name];
+		if (xml === undefined) throw contentRefused(`a label in ${name}`);
+		attachments[name] = relabeled(xml, question, lang(), label);
+	}
+	if (saves.formResave !== undefined) {
+		const form = formAt(next, saves.formResave);
+		const attachments = attachmentsOf(next);
+		const name = attachmentName(form);
+		const xml = attachments[name];
+		if (xml === undefined) throw contentRefused(`a save of ${name}`);
+		attachments[name] = builderWritten(parseXml(xml));
+	}
+	if (saves.questions !== undefined) {
+		const form = formAt(next, saves.questions);
+		const xmlns = dataXmlns(saves.questions.xform);
+		if (xmlns !== form.xmlns)
+			throw contentRefused(
+				`questions under the xmlns ${xmlns} into a form whose xmlns is ${String(form.xmlns)}`,
+			);
+		attachmentsOf(next)[attachmentName(form)] = saves.questions.xform;
+	}
+	if (saves.formAttribute !== undefined) {
+		const form = formAt(next, saves.formAttribute);
+		for (const [attribute, value] of Object.entries(
+			saves.formAttribute.attributes,
+		)) {
+			if (
+				attribute !== "post_form_workflow" &&
+				attribute !== "form_filter" &&
+				attribute !== "post_form_workflow_fallback"
+			)
+				throw contentRefused(`the form attribute ${attribute}`);
+			form[attribute] = value;
+		}
+	}
+	if (saves.formActions !== undefined) {
+		const form = formAt(next, saves.formActions);
+		const actions = (form.actions ?? {}) as Json;
+		const update = (actions.update_case ?? {}) as Json;
+		const mapped = { ...((update.update ?? {}) as Json) };
+		for (const [property, path] of Object.entries(saves.formActions.update)) {
+			if (Object.hasOwn(mapped, property))
+				throw contentRefused(
+					`the case property ${property}, which the form already maps`,
+				);
+			mapped[property] = { question_path: path, update_mode: "always" };
+		}
+		form.actions = { ...actions, update_case: { ...update, update: mapped } };
+	}
+	if (saves.moduleAttribute !== undefined) {
+		const module = moduleAt(next, saves.moduleAttribute.module);
+		module.name = {
+			...((module.name ?? {}) as Json),
+			[lang()]: saves.moduleAttribute.name,
+		};
+	}
+	if (saves.moduleDetail !== undefined) {
+		const module = moduleAt(next, saves.moduleDetail.module);
+		const details = (module.case_details ?? {}) as Json;
+		const short = (details.short ?? {}) as Json;
+		const columns = Array.isArray(short.columns) ? short.columns : [];
+		module.case_details = {
+			...details,
+			short: {
+				...short,
+				columns: [...columns, structuredClone(saves.moduleDetail.column)],
+			},
+		};
+	}
+	if (saves.formsAddedAndRemoved !== undefined) {
+		const { module: at, removed, added } = saves.formsAddedAndRemoved;
+		const module = moduleAt(next, at);
+		const forms = formsOf(module, at);
+		if (forms[removed] === undefined)
+			throw contentRefused(`a removal of form ${removed} of menu ${at}`);
+		const kept = forms.filter((_form, index) => index !== removed);
+		const template = kept[0];
+		if (template === undefined)
+			throw contentRefused(`a form added to menu ${at}, which keeps no form`);
+		const xmlns = dataXmlns(added.xform);
+		const form: Json = {
+			...structuredClone(template),
+			unique_id: addedFormId(xmlns),
+			xmlns,
+			name: { [lang()]: added.name },
+		};
+		module.forms = [...kept, form];
+		attachmentsOf(next)[attachmentName(form)] = added.xform;
+	}
+	if (saves.order?.modules !== undefined) {
+		const { from, to } = saves.order.modules;
+		const modules = modulesOf(next);
+		const moving = modules[from];
+		if (moving === undefined) throw contentRefused(`a move of menu ${from}`);
+		const rest = modules.filter((_module, index) => index !== from);
+		const under = rest.filter(
+			(module) => module.root_module_id === moving.unique_id,
+		);
+		const others = rest.filter(
+			(module) => module.root_module_id !== moving.unique_id,
+		);
+		next.modules = [
+			...others.slice(0, to),
+			moving,
+			...under,
+			...others.slice(to),
+		];
+	}
+	if (saves.order?.forms !== undefined) {
+		const { module: at, from, to } = saves.order.forms;
+		const module = moduleAt(next, at);
+		module.forms = moved(formsOf(module, at), from, to);
+	}
+	return next;
+}
+
 const EMPTY_HOLDING: PeerHolding = {
 	source: undefined,
 	version: 0,
-	mediaFiles: undefined,
+	media: [],
+	mediaReport: undefined,
 	tables: [],
 	minted: 0,
 };
@@ -499,7 +992,7 @@ export class TargetPeer {
 		return this.requests.slice(mark);
 	}
 
-	private mint(kind: "table" | "row"): string {
+	private mint(kind: "table" | "row" | "media"): string {
 		const minted = this.holding.minted + 1;
 		this.holding = { ...this.holding, minted };
 		return `nova-proof-${kind}-${minted}`;
@@ -521,6 +1014,141 @@ export class TargetPeer {
 				...profile,
 				custom_properties: pageSavedCustomProperties(profile),
 			},
+		};
+	}
+
+	/**
+	 * The media document HQ holds for `bytes` of `mediaClass`, found by its
+	 * content or made (`CommCareMultimedia.get_by_data`, then `attach_data`,
+	 * which saves a document it made).
+	 */
+	private mediaFor(
+		bytes: Uint8Array,
+		mediaClass: HqMediaClass,
+		contentType: string,
+	): PeerMediaFile {
+		const hash = md5(bytes);
+		const held = this.holding.media.find(
+			(file) => file.md5 === hash && file.mediaClass === mediaClass,
+		);
+		if (held !== undefined) return held;
+		const made: PeerMediaFile = {
+			id: this.mint("media"),
+			mediaClass,
+			md5: hash,
+			contentType,
+			bytes: new Uint8Array(bytes),
+		};
+		this.holding = { ...this.holding, media: [...this.holding.media, made] };
+		return made;
+	}
+
+	/** `source` with `path` mapped to `file` (`Application.create_mapping`, which strips the path). */
+	private mapped(
+		source: Readonly<Record<string, unknown>>,
+		path: string,
+		file: PeerMediaFile,
+	): Record<string, unknown> {
+		const key = path.trim();
+		const map = (source.multimedia_map ?? {}) as Record<string, unknown>;
+		return {
+			...source,
+			multimedia_map: { ...map, [key]: mediaMapItem(key, file) },
+		};
+	}
+
+	/** The media document the app's map names at `path`, or undefined where it names none. */
+	mappedAt(path: string): PeerMediaFile | undefined {
+		const map = (this.holding.source?.multimedia_map ?? {}) as Record<
+			string,
+			{ readonly multimedia_id?: unknown }
+		>;
+		const id = map[path]?.multimedia_id;
+		return this.holding.media.find((file) => file.id === id);
+	}
+
+	/**
+	 * Nova's bulk upload processed as `hqmedia/tasks.py::process_bulk_upload_zip`
+	 * processes it: each entry, in the ZIP's order, typed (`entryFormat`),
+	 * found or made as a document of its content, and mapped at
+	 * `jr://file/<entry>` (`get_form_path`), every entry matching a path the
+	 * app references, since Nova's upload carries only those files; the app
+	 * saved once after. The report lists each matched entry under its class
+	 * (`add_matched_path`, `get_media_info`).
+	 */
+	private processMediaUpload(zip: Buffer): void {
+		const source = this.holding.source;
+		if (source === undefined) {
+			throw new Error(
+				"The capture peer was asked to process a media upload before the app was there.",
+			);
+		}
+		let next: Record<string, unknown> = structuredClone(source) as Record<
+			string,
+			unknown
+		>;
+		const report: Record<HqMediaClass, MatchedMedia[]> = {
+			CommCareImage: [],
+			CommCareAudio: [],
+			CommCareVideo: [],
+		};
+		for (const entry of new AdmZip(zip).getEntries()) {
+			if (entry.isDirectory) continue;
+			const name = entry.entryName;
+			const format = entryFormat(name);
+			const file = this.mediaFor(
+				entry.getData(),
+				format.mediaClass,
+				format.contentType,
+			);
+			const path = `${JR_FILE}${name.trim().replace(/^\//, "")}`;
+			next = this.mapped(next, path, file);
+			report[format.mediaClass].push({
+				path,
+				uid: file.md5,
+				m_id: file.id,
+				url: `/hq/multimedia/file/${file.mediaClass}/${file.id}/`,
+				updated: true,
+				original_path: name,
+				media_type: HQ_MEDIA_NICE_NAME[file.mediaClass],
+			});
+		}
+		this.holding = { ...this.holding, source: next, mediaReport: report };
+	}
+
+	/**
+	 * A person's replacement of the file at `path`, as HQ's media page uploads
+	 * a picture there (`hqmedia/views.py::ProcessImageFileUploadView`,
+	 * `BaseProcessFileUploadView.process_upload`): the document of the posted
+	 * bytes found or made, and the path mapped to it
+	 * (`Application.create_mapping`). The document the path named before is
+	 * kept: HQ deletes no media document.
+	 */
+	replaceMedia(
+		replaced: NonNullable<HqSideContentSaves["mediaReplaced"]>,
+	): void {
+		const source = this.holding.source;
+		if (source === undefined) {
+			throw new Error(
+				"The capture applied a person's media upload before the app was there.",
+			);
+		}
+		const format = ACCEPTED_FORMATS.find(
+			(candidate) => candidate.mime === replaced.mimeType,
+		);
+		if (format === undefined || format.kind !== "image") {
+			throw new Error(
+				`hq-side.json replaces the picture at ${replaced.path} with a file of type ${replaced.mimeType}, which HQ's image upload refuses (ProcessImageFileUploadView.valid_base_types).`,
+			);
+		}
+		const file = this.mediaFor(
+			Buffer.from(replaced.base64, "base64"),
+			"CommCareImage",
+			format.mime,
+		);
+		this.holding = {
+			...this.holding,
+			source: this.mapped(source, replaced.path, file),
 		};
 	}
 
@@ -552,7 +1180,10 @@ export class TargetPeer {
 	 *   on one field and an attribute on every row, which
 	 *   `run_upload.py::_run_upload` reads as another table and makes under a
 	 *   new id with new rows, then described in HQ's table editor. The owners
-	 *   live on no read the peer answers.
+	 *   live on no read the peer answers;
+	 * - the saves to the app's content (`HqSideContentSaves`), each as the
+	 *   view it reaches stores it (`sourceAfterContentSaves`; a replaced
+	 *   picture, `replaceMedia`).
 	 */
 	applyHqSide(saves: HqSideSaves): void {
 		const { source } = this.holding;
@@ -622,7 +1253,10 @@ export class TargetPeer {
 			};
 			next = this.pageSaved(next);
 		}
+		next = sourceAfterContentSaves(next, saves);
 		this.holding = { ...this.holding, source: next };
+		if (saves.mediaReplaced !== undefined)
+			this.replaceMedia(saves.mediaReplaced);
 		const kept = saves.lookupTable;
 		if (kept === undefined) return;
 		const table = this.holding.tables.find((held) => held.tag === kept.tag);
@@ -899,27 +1533,51 @@ export class TargetPeer {
 					error: "bulk_upload_file is required",
 				});
 			}
-			this.holding = {
-				...this.holding,
-				mediaFiles: new AdmZip(Buffer.from(await file.arrayBuffer()))
-					.getEntries()
-					.filter((entry) => !entry.isDirectory).length,
-			};
+			this.processMediaUpload(Buffer.from(await file.arrayBuffer()));
 			return json(200, { success: true, processing_id: MEDIA_PROCESSING_ID });
 		}
+		const report = this.holding.mediaReport;
 		if (
 			route === `GET ${media}status/${MEDIA_PROCESSING_ID}/` &&
-			this.holding.mediaFiles !== undefined
+			report !== undefined
 		) {
+			const matched = Object.values(report).flat().length;
 			return json(200, {
-				success: true,
-				processing_id: MEDIA_PROCESSING_ID,
+				type: "zip",
+				in_celery: true,
+				is_ready: true,
 				complete: true,
-				matched_count: this.holding.mediaFiles,
-				unmatched_count: 0,
-				unmatched_files: [],
+				progress: { percent: 100, current: matched, total: matched },
 				errors: [],
+				processing_id: MEDIA_PROCESSING_ID,
+				unmatched_files: [],
+				unmatched_count: 0,
+				matched_files: report,
+				matched_count: matched,
+				total_files: matched,
+				processed_files: matched,
+				skipped_files: [],
+				image_count: report.CommCareImage.length,
+				audio_count: report.CommCareAudio.length,
+				video_count: report.CommCareVideo.length,
+				success: true,
 			});
+		}
+		const served = /^GET \/hq\/multimedia\/file\/([^/]+)\/([^/]+)\/$/.exec(
+			route,
+		);
+		if (served !== null) {
+			const file = this.holding.media.find(
+				(held) => held.mediaClass === served[1] && held.id === served[2],
+			);
+			if (file === undefined) {
+				return { status: 404, contentType: "text/html", body: "Not Found" };
+			}
+			return {
+				status: 200,
+				contentType: file.contentType,
+				body: Buffer.from(file.bytes),
+			};
 		}
 		this.unexpected.push(request);
 		return json(404, { error: `The capture peer does not model ${route}.` });

@@ -1,5 +1,5 @@
 /**
- * Repeats (10.3) and where model iteration is held (10.4). Each row of the
+ * Repeats and where model iteration is held. Each row of the
  * repeat table is read from a source written for it; a model-iteration
  * repeat Nova's own emitter writes is read back as one, and one missing a
  * setvalue is not held. Over documents, the verdict holds model iteration

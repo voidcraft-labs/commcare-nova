@@ -551,8 +551,9 @@ admission, reducer and writer entrypoint.
 ### The permanent app-change log
 
 `app_changes` is the durable, append-only edit history and the multiplayer
-stream. It has exactly six kinds — `autosave`, `mcp`, `chat`,
-`blueprint-migration`, `fold-baseline`, and `project-move`
+stream. It has exactly eight kinds — `autosave`, `mcp`, `chat`,
+`publish-placement`, `blueprint-migration`, `hq-changes` (a bring-in of
+changes made in CommCare HQ), `fold-baseline`, and `project-move`
 (`lib/db/types.ts::APP_CHANGE_KINDS`) — and their shape is enforced in
 Postgres by admission trigger and CHECK constraint, not only in TypeScript;
 runtime holds `SELECT, INSERT` and nothing more.
@@ -2478,7 +2479,38 @@ renames through the `name` exclusion), and `save_attachments` persists with
 exactly one version bump. Publishing again therefore updates the mapped app; a
 mapping is superseded only by the recreate after an HQ-side deletion, and the
 superseded row is retained rather than deleted so an app left behind stays
-nameable.
+nameable. `name` is one of the excluded fields, so an update writes the app's
+name only from `app_name`, which `views/app_import_api.py::_handle_import_app`
+passes as the extra property `name` and Nova sends on every publish: a rename
+in Nova is an ordinary unpublished change the next publish sends.
+
+**An update writes no entry of the app's media map, and only an upload moves
+what a path points to.** `multimedia_map` is excluded from the merge too, and
+the update only prunes paths nothing references
+(`models/applications.py::_update_valid_domains_for_media`, through
+`hqmedia/models.py::ApplicationMediaMixin.get_media_objects(remove_unused=True)`).
+The map is keyed by "the paths to each file in the final application media
+zip" (`ApplicationMediaMixin.multimedia_map`), and each entry's
+`multimedia_id` names one `CommCareMultimedia` document, which every upload
+finds by its content (`CommCareMultimedia.get_by_data`: `get_by_hash` over
+`generate_hash`, an MD5 of the bytes, answering the first document of that
+hash or a new one). So one id is one file's bytes for good; the converse has
+one exception, since two documents can hold one hash. A person's replace under
+an existing path (`hqmedia/views.py::BaseProcessFileUploadView.process_upload`)
+gives the path a fresh entry naming the new file's document
+(`ApplicationMediaMixin.create_mapping`), under the same key; uploading the
+bytes already there finds the same document, so the id stays. Nova's own bulk
+upload (`hqmedia/tasks.py::process_bulk_upload_zip`) maps every matched path
+the same way, reports each one through `get_media_info`, whose `m_id` is that
+document's id, under `matched_files`
+(`hqmedia/cache.py::BulkMultimediaStatusCache.get_response`), and saves the app
+once after the loop, so in a report with no error each `m_id` is the id the
+map holds at that path. Nova records those ids on the deployment's baseline,
+compares the id at each path it publishes before a publish and settles a path
+it holds no record for by the file's content, so no publish writes a file over
+one a person replaced in CommCare HQ without that person's choice
+(`lib/deployment/CLAUDE.md`, "Baselines" and "Bringing in what changed in
+CommCare HQ").
 
 The emitted app document carries the fields Nova authors, and in three keys
 the target's own part beside them. App content Nova does not author yet

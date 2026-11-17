@@ -38,32 +38,32 @@ async function git(cwd: string, ...args: string[]) {
 	return stdout.trim();
 }
 
-async function commitTo(work: string, branch: string, file: string) {
-	await writeFile(join(work, file), `${Math.random()}\n`);
-	await git(work, "add", file);
-	await git(work, "commit", "--quiet", "-m", file);
-	await git(work, "push", "--quiet", "origin", branch);
-	return git(work, "rev-parse", "HEAD");
+/** A commit of `file` on the repository's checked-out branch, made in place. */
+async function commitIn(repository: string, file: string) {
+	await writeFile(join(repository, file), `${Math.random()}\n`);
+	await git(repository, "add", file);
+	await git(repository, "commit", "--quiet", "-m", file);
+	return git(repository, "rev-parse", "HEAD");
 }
 
 /**
  * Nova's origin with main pinning one upstream at its first commit, the
  * upstream moved one commit past it, and a `gh` on PATH that answers what
  * report asks; returns a checkout of main and the origin.
+ *
+ * Both repositories are made in place, each commit on its own checked-out
+ * branch, rather than pushed from a clone: a fetch, a clone and a push to
+ * another branch read one as they read a bare repository, and the pushes
+ * are no part of the claim.
  */
 async function pinLane() {
-	const upstream = join(root, "hq.git");
-	await git(root, "init", "--quiet", "--bare", "-b", "master", upstream);
-	const upstreamWork = join(root, "hq-work");
-	await git(root, "clone", "--quiet", upstream, upstreamWork);
-	await git(upstreamWork, "checkout", "--quiet", "-b", "master");
-	const pinned = await commitTo(upstreamWork, "master", "a.txt");
+	const upstream = join(root, "hq");
+	await git(root, "init", "--quiet", "-b", "master", upstream);
+	const pinned = await commitIn(upstream, "a.txt");
 
-	const origin = join(root, "nova.git");
-	await git(root, "init", "--quiet", "--bare", "-b", "main", origin);
-	const seed = join(root, "nova-seed");
-	await git(root, "clone", "--quiet", origin, seed);
-	await git(seed, "checkout", "--quiet", "-b", "main");
+	const origin = join(root, "nova");
+	await git(root, "init", "--quiet", "-b", "main", origin);
+	const seed = origin;
 	await mkdir(join(seed, "proof"), { recursive: true });
 	await mkdir(join(seed, "lib/commcare/surface/entries"), { recursive: true });
 	await writeFile(
@@ -93,17 +93,19 @@ async function pinLane() {
 	);
 	await git(seed, "add", ".");
 	await git(seed, "commit", "--quiet", "-m", "main");
-	await git(seed, "push", "--quiet", "origin", "main");
-	const head = await commitTo(upstreamWork, "master", "b.txt");
+	const head = await commitIn(upstream, "b.txt");
 
+	/* A shell script, not a Node one: it answers each call without starting
+	 * a runtime, and how fast `gh` answers is no part of the claim. */
 	const bin = join(root, "bin");
 	await mkdir(bin);
 	await writeFile(
 		join(bin, "gh"),
-		`#!/usr/bin/env node
-const args = process.argv.slice(2);
-if (args[0] === "pr" && args[1] === "list") process.stdout.write("[]");
-if (args[0] === "pr" && args[1] === "create") process.stdout.write("https://github.com/o/r/pull/7\\n");
+		`#!/bin/sh
+case "$1 $2" in
+"pr list") printf '[]' ;;
+"pr create") printf 'https://github.com/o/r/pull/7\\n' ;;
+esac
 `,
 	);
 	await chmod(join(bin, "gh"), 0o755);
@@ -155,7 +157,13 @@ afterEach(async () => {
 	await rm(root, { recursive: true, force: true });
 });
 
-it("writes the lock the pin pull request commits for the candidate, so the prewarm's keys are the pull request's", async () => {
+/* About 3 s through the laptop's budget: most of it is pins.mjs's own plan and
+ * report over real repositories (about 2 s), which are the claim, and the
+ * git and Node processes each starts. Three times that, so a slow runner does
+ * not fail it. */
+it("writes the lock the pin pull request commits for the candidate, so the prewarm's keys are the pull request's", {
+	timeout: 9_000,
+}, async () => {
 	const { origin, checkout, head } = await pinLane();
 	await exec(process.execPath, [PINS_SCRIPT, "plan"], { cwd: checkout, env });
 
@@ -212,10 +220,9 @@ it("writes the lock the pin pull request commits for the candidate, so the prewa
 		origin,
 		pulled,
 	);
-	expect(await cacheNames(join(prewarm, "proof/image.lock"))).toBe(
-		await cacheNames(join(pulled, "proof/image.lock")),
-	);
-	expect(await cacheNames(join(prewarm, "proof/image.lock"))).toContain(
+	const prewarmNames = await cacheNames(join(prewarm, "proof/image.lock"));
+	expect(prewarmNames).toBe(await cacheNames(join(pulled, "proof/image.lock")));
+	expect(prewarmNames).toContain(
 		"main=proof-store-arm64-cccccccccccccccc-main-",
 	);
 	// And the repository's own lock check accepts it.

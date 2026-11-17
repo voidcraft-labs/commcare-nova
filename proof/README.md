@@ -80,11 +80,38 @@ before it writes anything, and stops when a person changed it (`hq_changed`,
 `lib/deployment/remoteChanges.ts`) or when a table under Nova's tag is one it
 cannot account for (`hq_resource_conflict`). A document whose
 `hq-side.json` a person saved states what Nova's next publish over those
-saves does (`republish`): it `proceeds`, because Nova owns none of the values
-the saves change and its overlays carry them back; it `discards`, going
-through only after the confirmation a person who saw the stop would give; or
+saves does (`republish`): it `proceeds`, going through with no stop, because
+Nova owns none of the values the saves change and its overlays carry them
+back; it `discards`, going
+through only after the confirmation a person who saw the stop would give;
 it `stops`, refused by Nova with the failure code the document names
-(`stopCode`), and leaves no B. A stop is written to the export's
+(`stopCode`), and leaves no B; it `records`: Nova stops it over a change of
+the app it can bring in, its review finds nothing to bring in for the reason
+and with the changes of the next publish the statement names (`recorded`),
+the record moves the pair, and B is the publish that follows; or it
+`brings-in`: Nova stops it over a change of the app's content it can bring
+in, its review lists the change, the bring-in takes exactly the document the
+statement names (`bringsIn`), a second review finds the app unchanged, and B
+is the publish of that document that follows. The capture runs the review,
+the record and the bring-in through Nova's own functions over the peer that
+holds the saves (`proof/corpus/publish.ts::bringInOverPeer`,
+`lib/deployment/hqChanges/review.ts::checkHqChanges`, each file the review
+names read from the peer and judged by `judgeReadingMedia`) and records them
+beside the republish (its sidecar's `broughtIn`: the review, what was taken,
+the ids CommCare HQ holds for each menu and form, the second review, the
+summary of the app the review read, `proof/corpus/hqSummary.ts`, and the
+document taken; `proof/checks/corpus.py::BroughtIn`). The second review holds
+the capture's own ledger, which the publish that follows compares against,
+its files' record among it, to name the app as the peer then holds it; the
+production record's writes are held by
+`lib/deployment/__tests__/hqChanges.postgres.test.ts`. A document that
+brings the saves in may also state `alsoPublishesOver`: the capture then
+runs the person's other choice over the same saves, a publish that stops,
+is sent again with the discard, and leaves HQ's map naming the document of
+Nova's own bytes at every path it sent (its sidecar's `publishedOver`,
+`proof/corpus/publish.ts::publishOver`).
+`proof/checks/corpus.py::Document.republished_as_stated` holds each export's
+republish to its statement. A stop is written to the export's
 `outcome.json` and no republish request is captured, so the document's `b`
 inputs are that file, the unit records the stop in place of B
 (`proof/observe/unit.py`), and proofs 1 and 2 and the manifest check read no
@@ -1521,6 +1548,39 @@ proceeds with no discard, since Nova owns none of what they change; the
 second a lookup table and its `lookupTable` save, over which Nova's
 republish stops before it sends anything (`hq_table_content_unsupported`,
 defect 5), so no B exists and HQ's table stays as the person left it.
+Ten documents (`proof/targeted/documents/hqChanges.ts`) carry saves a
+person makes to an app's content, each through the view a person's save
+reaches (`proof/observe/hqside.py`): `targeted-hq-changes-label` a label
+reworded in the app's first language in HQ's form builder, in an app with a
+second language whose text is kept and marked for review; `-resave` a form
+the form builder opens and saves with no change, whose bytes its save writes
+again; `-questions` a question
+added and one removed (`patch_xform`); `-form-setting` where a form goes
+after it (`edit_form_attr`); `-case-management` one more answer saved to the
+case (`edit_form_actions`); `-menu` a menu renamed and a column added to its
+case list (`edit_module_attr`, `edit_module_detail_screens`); `-forms` a form
+deleted and a survey added with its questions (`delete_form`, `new_form`,
+`patch_xform`); `-order` a menu and a form moved (`rearrange`);
+`-location-list` the location list setting set to both lists (`appAttributes`);
+and `-media` the picture a question shows replaced under its path on HQ's
+media page (`hqmedia/views.py::ProcessImageFileUploadView`), the person's
+picture among the Project's files, so the bring-in's publication of it
+finds it by its bytes. The resave and the location list state `records`,
+each a review that reads the saves as the same app (the location list's
+listing the setting Nova's next publish sets back), the other eight
+`brings-in`, each with the document the bring-in gives, made from D by Nova's
+planner and admitted by Nova's gate (`proof/targeted/build.ts::broughtInDocument`),
+and the media document also publishes over the same save
+(`alsoPublishesOver`). The capture's peer keeps the files of each upload and
+the app's `multimedia_map` as HQ's bulk upload and image upload leave them,
+and serves each file Nova reads to settle a path by its content
+(`proof/corpus/targetPeer.ts`, held by `proof/corpus/__tests__/peerMedia.test.ts`
+to a map entry HQ wrote); `proof/corpus/__tests__/bringsIn.test.ts` holds the
+capture of each document to its statement in ordinary CI. The form builder's saves run in the unit's editor
+driver: `proof/editors/vellum.py::open_and_save` makes the run's one edit
+between the open and the save (`steps/vellum/edit.js`, the way
+`hq-side.json`'s `edit` names), between the unit's scopes, as proof 4 runs
+the builder, so the in-band audit can rerun it in a fork of the unit.
 `targeted-attribute-display-condition` holds defect 2's fix where a session
 reaches it: one case-first menu with two follow-up forms, shown when the
 selected case's `status` is `open` and when its `owner_id` is `handover`,
@@ -3809,7 +3869,7 @@ reused is only what a key names whole, and the reuse is audited:
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
   ids, wrapping at the end, so every document is compared within the
-  corpus's size over 24 weeks, rounded up (twenty for 465), and the three
+  corpus's size over 24 weeks, rounded up (twenty for 475), and the three
   runs of a week check the same sample. The
   seed and the sample's documents are in each sampled lane's job summary,
   its verdict and a failed week's issue, and a dispatch that names the seed

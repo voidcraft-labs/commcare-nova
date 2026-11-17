@@ -22,8 +22,8 @@ import {
 // Finite seeded corpus, with shrinking enabled. These checks complement the
 // independent wire examples; they do not prove acceptance by a native runtime.
 it("compiles 500 field-tree samples with valid schema, bindings, and archived resources", {
-	// The complete synchronous corpus took 34s on a shared CI runner before
-	// native media-byte comparison. Keep all 500 samples and scheduling margin.
+	// 500 samples, each drawn, gated, expanded, compiled and held to every
+	// oracle, take most of the bound on a runner sharing its cores.
 	timeout: 60_000,
 }, () => {
 	const census = { total: 0, formItextMedia: 0, sectioned: 0 };

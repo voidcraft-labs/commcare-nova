@@ -74,6 +74,18 @@ import { gpsQuestion } from "./documents/gpsQuestion";
 import { heldPlacement } from "./documents/heldPlacement";
 import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
 import { hiddenFromMenu } from "./documents/hiddenFromMenu";
+import {
+	hqChangesCaseManagement,
+	hqChangesFormSetting,
+	hqChangesForms,
+	hqChangesLabel,
+	hqChangesLocationList,
+	hqChangesMedia,
+	hqChangesMenu,
+	hqChangesOrder,
+	hqChangesQuestions,
+	hqChangesResave,
+} from "./documents/hqChanges";
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideState } from "./documents/hqSideState";
 import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
@@ -274,6 +286,16 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	keptValues,
 	severalCaseClose,
 	ancestorIndexNames,
+	hqChangesLabel,
+	hqChangesResave,
+	hqChangesQuestions,
+	hqChangesFormSetting,
+	hqChangesCaseManagement,
+	hqChangesMenu,
+	hqChangesForms,
+	hqChangesOrder,
+	hqChangesLocationList,
+	hqChangesMedia,
 ];
 
 /** Every targeted document, in a fixed order. */

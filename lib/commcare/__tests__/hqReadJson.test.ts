@@ -376,6 +376,85 @@ describe("a 429", () => {
 	});
 });
 
+describe("a read no answer began for", () => {
+	it("is sent once more on a fresh connection where the server closed the kept-alive one as the read went out", async () => {
+		/* The peer answers the first request on each connection and closes the
+		 * connection, unanswered, when another request arrives on it: an idle
+		 * close crossing the next request, which a server's keep-alive timeout
+		 * makes whenever a client reuses the connection as it expires. */
+		const served = new WeakSet<object>();
+		const seen: ("answered" | "closed")[] = [];
+		await withSocketHttpPeer(
+			"india.commcarehq.org",
+			(request, response) => {
+				if (served.has(request.socket)) {
+					seen.push("closed");
+					request.socket.destroy();
+					return;
+				}
+				served.add(request.socket);
+				seen.push("answered");
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(JSON.stringify({ id: "working-app" }));
+			},
+			async () => {
+				expect(await readHqJson(CREDS, URL, "application")).toEqual({
+					data: { id: "working-app" },
+				});
+				/* Until the first connection is idle in the pool, so the next read
+				 * goes out on it. */
+				for (let turn = 0; turn < 5; turn++)
+					await new Promise<void>((resolve) => setImmediate(resolve));
+				expect(await readHqJson(CREDS, URL, "application")).toEqual({
+					data: { id: "working-app" },
+				});
+			},
+		);
+		expect(seen).toEqual(["answered", "closed", "answered"]);
+		expect(log.warn).toHaveBeenCalledWith(
+			"[commcare] application not answered, sending again",
+			{ domain: "clinic", request: "application", error: expect.anything() },
+		);
+	});
+
+	it("is no answer, logged, where the second send gets none either", async () => {
+		await withHttpPeer(async (peer) => {
+			intercept(peer).replyWithError(new Error("connection lost"));
+			intercept(peer).replyWithError(new Error("connection lost"));
+			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+				success: false,
+				status: 503,
+				cause: "network",
+			});
+			expect(calls(peer)).toHaveLength(2);
+			expect(log.warn).toHaveBeenCalledWith(
+				"[commcare] application unavailable",
+				{ error: expect.anything() },
+			);
+		});
+	});
+
+	it("is sent once more besides the resends a 429 earns", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		await withHttpPeer(async (peer) => {
+			intercept(peer).replyWithError(new Error("connection lost"));
+			for (let i = 0; i < HQ_READ_SENDS; i++)
+				replyRetained(intercept(peer), retainedReadingRead("application-429"));
+			const pending = readHqJson(CREDS, URL, "application");
+			for (let resend = 1; resend < HQ_READ_SENDS; resend++) {
+				await untilWaitScheduled();
+				await vi.advanceTimersByTimeAsync(1_000);
+			}
+			expect(await pending).toEqual({
+				success: false,
+				status: 429,
+				edgeRefusal: false,
+			});
+			expect(calls(peer)).toHaveLength(HQ_READ_SENDS + 1);
+		});
+	});
+});
+
 describe("deadlineMs and cancel", () => {
 	/** A peer that holds its answer until the test releases it. */
 	function held(peer: MockAgent, path = APP) {

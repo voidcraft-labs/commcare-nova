@@ -12,9 +12,17 @@ import type { KyselyPlugin } from "kysely";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { writeHqRoundTripHorizon } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
-import { placementTargetKey } from "@/lib/doc/placementHolds";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import {
+	placementTargetKey,
+	readPlacementHolds,
+} from "@/lib/doc/placementHolds";
+import type { Mutation } from "@/lib/doc/types";
 import type { CasePlacement } from "@/lib/domain";
+import { BlueprintCommitRejectedError } from "../commitGuard";
+import { PLACEMENT_CHANGE_REFUSAL } from "../placementAuthority";
 import { readRecordedPlacementHolds } from "../placementRecords";
+import { commitGuardedBatchProposal } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import {
 	appendChangeRow,
@@ -37,6 +45,24 @@ const EDITOR_PLACE: CasePlacement = {
 
 async function seed(app: HeldPlacementApp): Promise<string> {
 	return h.seedAppWithBlueprint(app.doc, { owner: OWNER, projectId: PROJECT });
+}
+
+async function loaded(appId: string) {
+	const { loadApp } = await import("../apps");
+	const app = await loadApp(appId);
+	if (app === null) throw new Error(`The app ${appId} loads.`);
+	return app;
+}
+
+function autosave(appId: string, mutations: readonly Mutation[]) {
+	return commitGuardedBatchProposal({
+		appId,
+		expectedProjectId: PROJECT,
+		batchId: crypto.randomUUID(),
+		mutations,
+		actorUserId: OWNER,
+		kind: "autosave",
+	});
 }
 
 const keyOf = (app: HeldPlacementApp, operationUuid: string) =>
@@ -225,6 +251,66 @@ describe("readRecordedPlacementHolds", () => {
 				],
 			]),
 		);
+	});
+
+	it("an hq-changes row counts as a recording, and an editor's restore after one is held to it", async () => {
+		const app = heldPlacementApp((a) =>
+			holdOperation(a, a.own.uuid, a.ownBasic),
+		);
+		const appId = await seed(app);
+		await writeHqRoundTripHorizon(h.db(), appId, "Held placements");
+		// A publish recorded the Save to Case block; a bring-in of changes made
+		// in CommCare HQ later recorded the basic slot, where the document holds it.
+		await appendChangeRow(h.db(), appId, "publish-placement", [
+			holdPlacements(operationHold(app, app.own.uuid, app.ownSaveToCase)),
+		]);
+		await appendChangeRow(h.db(), appId, "hq-changes", [
+			holdPlacements(
+				operationHold(app, app.own.uuid, app.ownBasic),
+				operationHold(app, app.kid.uuid, app.kidSaveToCase),
+			),
+		]);
+
+		expect(
+			await readRecordedPlacementHolds(h.db(), appId, [
+				keyOf(app, app.own.uuid),
+				keyOf(app, app.kid.uuid),
+			]),
+		).toEqual(
+			new Map([
+				[
+					keyOf(app, app.own.uuid),
+					operationHold(app, app.own.uuid, app.ownBasic),
+				],
+				[
+					keyOf(app, app.kid.uuid),
+					operationHold(app, app.kid.uuid, app.kidSaveToCase),
+				],
+			]),
+		);
+
+		// The earlier publish's place is no longer the latest recording, so an
+		// editor's restore to it is refused, and nothing is written.
+		const head = (await loaded(appId)).mutation_seq;
+		const restore = autosave(appId, [
+			holdPlacements(operationHold(app, app.own.uuid, app.ownSaveToCase)),
+		]);
+		await expect(restore).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		await expect(restore).rejects.toThrow(PLACEMENT_CHANGE_REFUSAL);
+		expect((await loaded(appId)).mutation_seq).toBe(head);
+
+		// The kid the document does not hold is restored to what the bring-in
+		// recorded, which no other row names.
+		const restored = await autosave(appId, [
+			holdPlacements(operationHold(app, app.kid.uuid, app.kidSaveToCase)),
+		]);
+		const after = await loaded(appId);
+		expect(after.mutation_seq).toBe(restored.seq);
+		expect(
+			readPlacementHolds(hydratePersistedBlueprint(after.blueprint)).get(
+				keyOf(app, app.kid.uuid),
+			),
+		).toEqual(operationHold(app, app.kid.uuid, app.kidSaveToCase));
 	});
 
 	it("issues no query for an empty key list", async () => {

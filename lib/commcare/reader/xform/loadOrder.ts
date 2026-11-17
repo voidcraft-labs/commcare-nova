@@ -1,5 +1,5 @@
 /**
- * The order a form's load-time values run in (11.3). Core runs one event's
+ * The order a form's load-time values run in. Core runs one event's
  * actions in the order the model holds them
  * (`ActionController.java::triggerActionsFromEvent`), and Nova writes
  * setvalues in data-tree order (`builder.ts::inDataTreeOrder`), so a form whose

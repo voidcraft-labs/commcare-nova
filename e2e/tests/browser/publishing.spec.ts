@@ -39,6 +39,17 @@ import {
 import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import { firstPublishLines } from "@/lib/publish/firstPublishCopy";
 import {
+	BRING_IN_CHANGES_ACTION,
+	CHECK_AGAIN_ACTION,
+	HQ_CHANGES_DIALOG_TITLE,
+	HQ_CHANGES_HEADING,
+	HQ_CHANGES_NO_EDIT_ACCESS_LINE,
+	HQ_CHANGES_STAGE_LABELS,
+	hqChangedFoundLine,
+	SEE_WHAT_CHANGED_ACTION,
+	sincePhrase,
+} from "@/lib/publish/hqChangesCopy";
+import {
 	KEPT_LABELS,
 	keptLead,
 	keptRefreshSentence,
@@ -2297,6 +2308,69 @@ function broughtInMapping(): DeploymentResource {
 	};
 }
 
+test("a card whose project space the check when the builder opened found changed says so and offers See what changed without a Refresh", async ({
+	page,
+}) => {
+	await page.route("**/api/auth/get-session", (route) =>
+		route.fulfill({ json: null }),
+	);
+	const reviews: unknown[] = [];
+	await page.route("**/api/commcare/changes/review", async (route) => {
+		reviews.push(route.request().postDataJSON());
+		await route.fulfill({ status: 404, json: { error: "App not found" } });
+	});
+	await openSection(
+		page,
+		"editor",
+		() => [landedView([])],
+		"changed=production:alpha",
+	);
+	const found = page.getByText(
+		hqChangedFoundLine(sincePhrase({ kind: "published" }, "alpha")),
+		{ exact: true },
+	);
+	await expect(found).toBeVisible();
+	await page
+		.getByRole("button", { name: SEE_WHAT_CHANGED_ACTION, exact: true })
+		.click();
+	const dialog = page.getByRole("dialog", { name: HQ_CHANGES_DIALOG_TITLE });
+	await expect(dialog).toBeVisible();
+	/* A route that refuses the member says why, with nothing to check again. */
+	await expect(
+		dialog.getByText(HQ_CHANGES_NO_EDIT_ACCESS_LINE, { exact: true }),
+	).toBeVisible();
+	await expect(
+		dialog.getByRole("button", { name: CHECK_AGAIN_ACTION, exact: true }),
+	).toHaveCount(0);
+	expect(reviews).toEqual([
+		{ appId: "native-publishing", server: "production", domain: "alpha" },
+	]);
+});
+
+test("a card whose project space the check did not name says nothing of it", async ({
+	page,
+}) => {
+	await openSection(
+		page,
+		"editor",
+		() => [landedView([])],
+		"changed=production:beta",
+	);
+	/* The card is drawn, and says nothing of a change the check didn't find. */
+	await expect(
+		page.getByText("On CommCare HQ", { exact: true }).first(),
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			hqChangedFoundLine(sincePhrase({ kind: "published" }, "alpha")),
+			{ exact: true },
+		),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: SEE_WHAT_CHANGED_ACTION, exact: true }),
+	).toHaveCount(0);
+});
+
 /** A deployment of the app brought in from `alpha`, not yet published to. */
 function broughtInView(): DeploymentView {
 	const landed = landedView([]);
@@ -2872,6 +2946,98 @@ test("a change made in CommCare HQ to the app tells an editor who can stop publi
 	await expect(
 		page.getByRole("heading", { name: DRIFT_STOP_LEAVE_HEADING, exact: true }),
 	).toHaveCount(0);
+});
+
+test("a change made in CommCare HQ to the app that Nova can bring in shows the changes panel in place of the item, with no tick while it reads or after", async ({
+	page,
+}) => {
+	const canBringIn = {
+		...appChanged,
+		refusal: {
+			...appChanged.refusal,
+			remoteChanges: appChanged.refusal.remoteChanges.map((change) => ({
+				...change,
+				canBringIn: true,
+			})),
+		},
+	} satisfies PublishResponseBody;
+	const reviews: unknown[] = [];
+	const answer = Promise.withResolvers<void>();
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({ json: canBringIn }),
+	);
+	/* The panel names who sends a bring-in from the member's session. */
+	await page.route("**/api/auth/get-session", (route) =>
+		route.fulfill({ json: null }),
+	);
+	await page.route("**/api/commcare/changes/review", async (route) => {
+		reviews.push(route.request().postDataJSON());
+		await answer.promise;
+		await route.fulfill({
+			status: 200,
+			contentType: "application/x-ndjson",
+			body: [
+				{ type: "stage", stage: "reading-app" },
+				{
+					type: "done",
+					answer: {
+						kind: "changes",
+						since: { kind: "published" },
+						hqChanges: ["The question Weight in the form Visit"],
+						novaChanges: [],
+						madeBy: [],
+						caseData: [],
+						publishChanges: [],
+						observedDigest: "digest-app",
+						renamedInNova: [],
+						tables: [],
+						readingId: "01928c3e-5b7a-7cde-8f01-23456789abcd",
+						reviewDigest: "review-digest",
+					},
+				},
+			]
+				.map((line) => `${JSON.stringify(line)}\n`)
+				.join(""),
+		});
+	});
+	try {
+		await open(page, "role=admin");
+		await page.getByRole("button", { name: "Upload", exact: true }).click();
+		const stage = page.locator("[data-hq-changes-stage]");
+		await expect(stage).toBeVisible();
+		await expect(stage).toContainText(HQ_CHANGES_STAGE_LABELS["reading-app"]);
+		/* While it reads, the panel is the item's controls: no parts, no
+		 * tick and no stop block. */
+		await expect(page.getByText("The app's name", { exact: true })).toHaveCount(
+			0,
+		);
+		await expect(page.getByRole("checkbox")).toHaveCount(0);
+		await expect(
+			page.getByRole("heading", {
+				name: DRIFT_STOP_LEAVE_HEADING,
+				exact: true,
+			}),
+		).toHaveCount(0);
+		answer.resolve();
+		await expect(
+			page.getByRole("heading", { name: HQ_CHANGES_HEADING, exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: BRING_IN_CHANGES_ACTION, exact: true }),
+		).toBeVisible();
+		await expect(page.getByRole("checkbox")).toHaveCount(0);
+		await expect(
+			page.getByRole("heading", {
+				name: DRIFT_STOP_LEAVE_HEADING,
+				exact: true,
+			}),
+		).toHaveCount(0);
+		expect(reviews).toEqual([
+			{ appId: "native-publishing", server: "production", domain: "alpha" },
+		]);
+	} finally {
+		answer.resolve();
+	}
 });
 
 test("publishing a brought-in app to a second project space says it makes a new app there", async ({

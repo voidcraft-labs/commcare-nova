@@ -81,11 +81,16 @@ function holdsTheProjectionContract(doc: BlueprintDoc): void {
 }
 
 describe("externalIdentityMap over admitted documents", () => {
-	it("maps every entity of an external kind once, and nothing else", () => {
+	// Drawing an admitted document, which runs the commit gate over it, is
+	// each case's cost; the projection itself takes a few milliseconds.
+	it("maps every entity of an external kind once, and nothing else, over the expression corpus", () => {
 		fc.assert(fc.property(expressionDocArbitrary, holdsTheProjectionContract), {
 			seed: 20261113,
 			numRuns: 25,
 		});
+	});
+
+	it("maps every entity of an external kind once, and nothing else, over the advanced corpus", () => {
 		fc.assert(fc.property(advancedDocArbitrary, holdsTheProjectionContract), {
 			seed: 20261114,
 			numRuns: 25,

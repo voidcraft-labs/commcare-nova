@@ -51,7 +51,12 @@ import {
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
+import {
+	HqChangesPanel,
+	type HqChangesPanelProps,
+} from "@/components/builder/HqChangesPanel";
 import { HqNotConnected } from "@/components/builder/HqNotConnected";
+import type { HqChangesSettled } from "@/components/builder/hqChangesPanelModel";
 import type { ShownRefreshedView } from "@/components/builder/keptListModel";
 import {
 	acceptsOffer,
@@ -109,7 +114,7 @@ import {
 	type StoppedPublishingView,
 } from "@/lib/deployment/actions";
 import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
-import { nextPublishAction } from "@/lib/deployment/resources";
+import { activeRemoteApp, nextPublishAction } from "@/lib/deployment/resources";
 import {
 	NEEDS_PUBLISHED_PROJECT_SPACE,
 	projectSpaceLabel,
@@ -133,6 +138,13 @@ import {
 } from "@/lib/publish/bringInCopy";
 import { viewerDriftDate } from "@/lib/publish/driftReference";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
+import {
+	broughtInLine,
+	hqChangesUnavailableLine,
+	nextPublishChangesLine,
+	nothingNewToPublishLine,
+	PUBLISH_OVER_CHOSEN_LINE,
+} from "@/lib/publish/hqChangesCopy";
 import {
 	type ManualImportStep,
 	manualImportStepKey,
@@ -158,13 +170,16 @@ import {
 	webAppsChangeConfirmLabel,
 } from "@/lib/publish/webApps";
 import {
+	type HqChangesBroughtIn,
 	useAccessPhase,
 	useCanDelete,
 	useCanEdit,
+	useClearHqChangedTarget,
 	useNoteDeploymentRecordsChanged,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { describeApiFailure } from "@/lib/ui/apiFailure";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
 type Domain = { name: string; displayName: string };
 type PublishTarget = "hq" | "web" | "mobile";
@@ -224,6 +239,16 @@ export interface PublishDialogProps {
 	 *  "Publish again" names its target this way. Undefined for an
 	 *  ordinary open, which keeps the single-space/placeholder defaults. */
 	requestedDomain?: string;
+	/** The change in CommCare HQ the person chose to publish over from the
+	 *  Publishing card's panel, under the digest that panel read. The dialog
+	 *  opens with it in the discards it sends, so the same choice is not
+	 *  asked twice. Undefined for every other open. */
+	requestedDiscard?: RemoteChangeDiscard;
+	/** This tab's bring-in of changes made in CommCare HQ, sent from this
+	 *  dialog, that landed: the reload its commit forced closed the dialog,
+	 *  which opens again on its destination step saying the changes are in.
+	 *  Undefined for every other open. */
+	requestedBroughtIn?: HqChangesBroughtIn;
 	/** Navigate to App setup's Publishing section, the durable home of the
 	 *  records this dialog summarizes. Owned by PublishPanel (a plain
 	 *  History-API push) so this dialog carries no location subscription. */
@@ -364,6 +389,8 @@ export function PublishDialogBody({
 	connectionServer,
 	canUploadToHq,
 	requestedDomain,
+	requestedDiscard,
+	requestedBroughtIn,
 	onOpenPublishing,
 	isRefreshingHqConnection,
 	hqConnectionRefreshFailed,
@@ -476,6 +503,23 @@ export function PublishDialogBody({
 	 * the destination step shows until the person picks anything else.
 	 */
 	const [stoppedDomain, setStoppedDomain] = useState<string | null>(null);
+	/**
+	 * The project space whose changes made in CommCare HQ this dialog just
+	 * brought in, the record that answered and whether that removed changes
+	 * made in Nova: the destination step says so until the person picks
+	 * anything else.
+	 */
+	const [broughtIn, setBroughtIn] = useState<{
+		readonly server: CommCareServer;
+		readonly domain: string;
+		readonly deployment: DeploymentView | null;
+		readonly discarded: boolean;
+	} | null>(null);
+	const broughtInRef = useRef(broughtIn);
+	broughtInRef.current = broughtIn;
+	const clearHqChangedTarget = useClearHqChangedTarget();
+	const uploadButtonRef = useRef<HTMLButtonElement>(null);
+	const focusLater = useDeferredFocus();
 	const [compatibilityState, setCompatibilityState] =
 		useState<ProjectSpaceCompatibilityState>({
 			type: "loading",
@@ -497,6 +541,7 @@ export function PublishDialogBody({
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
 		setStoppedDomain(null);
+		setBroughtIn(null);
 	}, [connectionServer]);
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
@@ -512,13 +557,29 @@ export function PublishDialogBody({
 		onOpenPublishing();
 	}, [handleClose, onOpenPublishing]);
 
+	/* A reload closes the dialog. Where it shows that the changes made in
+	 * CommCare HQ are in (the reload that bring-in's own commit forced, most
+	 * often), the session holds that, and `PublishPanel` opens the dialog on
+	 * it again once the reload lands. */
 	useEffect(
 		() =>
 			reconciler?.subscribeProjectScopeReset(() => {
+				const shown = broughtInRef.current;
+				const { projectId } = session.getState();
+				if (shown !== null && projectId !== undefined) {
+					session.getState().holdHqChangesBroughtIn({
+						home: "publish",
+						server: shown.server,
+						domain: shown.domain,
+						projectId,
+						deployment: shown.deployment,
+						discarded: shown.discarded,
+					});
+				}
 				setStatus({ type: "idle" });
 				handleClose();
 			}),
-		[handleClose, reconciler],
+		[handleClose, reconciler, session],
 	);
 	useLayoutEffect(() => {
 		if (open) return;
@@ -560,17 +621,46 @@ export function PublishDialogBody({
 	const targetOption = PUBLISH_TARGET_OPTIONS[target];
 
 	const wasOpenRef = useRef(false);
+	const seenDiscardRef = useRef<RemoteChangeDiscard | undefined>(undefined);
+	const seenBroughtInRef = useRef<HqChangesBroughtIn | undefined>(undefined);
 	useLayoutEffect(() => {
-		const justOpened = open && !wasOpenRef.current;
+		/* A publish over chosen on the Publishing card while this is already
+		 * open (its card's dialog stands over it), or a bring-in of this tab's
+		 * that landed while it is open, opens it afresh, as a closed dialog
+		 * would open. */
+		const newDiscard =
+			requestedDiscard !== undefined &&
+			requestedDiscard !== seenDiscardRef.current;
+		seenDiscardRef.current = requestedDiscard;
+		const newBroughtIn =
+			requestedBroughtIn !== undefined &&
+			requestedBroughtIn !== seenBroughtInRef.current;
+		seenBroughtInRef.current = requestedBroughtIn;
+		const justOpened =
+			open && (!wasOpenRef.current || newDiscard || newBroughtIn);
 		wasOpenRef.current = open;
 		if (!justOpened) return;
 		setReviewing(false);
 		setAdoptResourceIds([]);
-		setDiscardRemoteChanges([]);
+		/* A publish over a change chosen on the Publishing card is made here,
+		 * under the digest of the source its panel read. */
+		setDiscardRemoteChanges(
+			requestedDiscard !== undefined ? [requestedDiscard] : [],
+		);
 		setConfirmations([]);
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
 		setStoppedDomain(null);
+		setBroughtIn(
+			requestedBroughtIn !== undefined
+				? {
+						server: requestedBroughtIn.server,
+						domain: requestedBroughtIn.domain,
+						deployment: requestedBroughtIn.deployment,
+						discarded: requestedBroughtIn.discarded,
+					}
+				: null,
+		);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setDownloadTargets({ type: "loading" });
@@ -581,7 +671,15 @@ export function PublishDialogBody({
 		setSelectedDomain(
 			preseededDomainSelection(requestedDomain, availableDomains),
 		);
-	}, [open, storeAppName, availableDomains, canUploadToHq, requestedDomain]);
+	}, [
+		open,
+		storeAppName,
+		availableDomains,
+		canUploadToHq,
+		requestedDomain,
+		requestedDiscard,
+		requestedBroughtIn,
+	]);
 
 	/* Where the app already stands, loaded whenever this opens. The record
 	 * outlives the publish that created it: somebody who published, made
@@ -717,20 +815,27 @@ export function PublishDialogBody({
 	 * refusal another way: the refusal and every tick go, the dialog returns
 	 * to its destination step saying so, the plan line there reads off the
 	 * ended record (`creates-beside`), and the CCZ's project spaces are read
-	 * again, since the stopped one is no longer among them. */
-	const settleStopped = useCallback((domain: string) => {
-		operationGenerationRef.current += 1;
-		setStatus({ type: "idle" });
-		setAdoptResourceIds([]);
-		setDiscardRemoteChanges([]);
-		setConfirmations([]);
-		setConfirmWebApps(null);
-		setAcceptMoves(null);
-		setStoppedDomain(domain);
-		setTargetChanges((count) => count + 1);
-		pendingStepFocus.current = true;
-		setReviewing(false);
-	}, []);
+	 * again, since the stopped one is no longer among them. A project space
+	 * Nova no longer publishes to has nothing changed in CommCare HQ to
+	 * offer, so the header's offer for it goes. */
+	const settleStopped = useCallback(
+		(target: { readonly server: CommCareServer; readonly domain: string }) => {
+			operationGenerationRef.current += 1;
+			setStatus({ type: "idle" });
+			setAdoptResourceIds([]);
+			setDiscardRemoteChanges([]);
+			setConfirmations([]);
+			setConfirmWebApps(null);
+			setAcceptMoves(null);
+			setStoppedDomain(target.domain);
+			setBroughtIn(null);
+			setTargetChanges((count) => count + 1);
+			clearHqChangedTarget(target);
+			pendingStepFocus.current = true;
+			setReviewing(false);
+		},
+		[clearHqChangedTarget],
+	);
 	/* Where the app stands, read again after a stop that answered no record,
 	 * or no stop at all: an answer lost on the way may follow a stop that
 	 * landed. A record that now shows the deployment ended settles the stop
@@ -757,7 +862,7 @@ export function PublishDialogBody({
 						view !== undefined &&
 						cardKind(view) === "ended"
 					) {
-						settleStopped(target.domain);
+						settleStopped(target);
 					}
 				})
 				/* The records on screen stay; the next opening reads them. */
@@ -775,7 +880,7 @@ export function PublishDialogBody({
 		) => {
 			if (next.view !== null) upsertView(next.view);
 			applyPreviewAnswer(next.preview);
-			settleStopped(target.domain);
+			settleStopped(target);
 			if (next.view === null) readRecordsAfterStop(target, false);
 		},
 		[upsertView, applyPreviewAnswer, settleStopped, readRecordsAfterStop],
@@ -785,6 +890,19 @@ export function PublishDialogBody({
 			readRecordsAfterStop(target, true),
 		[readRecordsAfterStop],
 	);
+	/* The same two answers from the changes made in CommCare HQ panel's own
+	 * Stop publishing here, on the project space the refusal names. */
+	const handlePanelStopped = useCallback(
+		(next: StoppedPublishingView) => {
+			if (connectionServer === null) return;
+			handleStopped(next, { server: connectionServer, domain: selectedDomain });
+		},
+		[connectionServer, selectedDomain, handleStopped],
+	);
+	const handlePanelStopUnanswered = useCallback(() => {
+		if (connectionServer === null) return;
+		handleStopUnanswered({ server: connectionServer, domain: selectedDomain });
+	}, [connectionServer, selectedDomain, handleStopUnanswered]);
 
 	/* What publishing to the selected project space will do. The SAME
 	 * predicate the publish lifecycle applies server-side
@@ -893,6 +1011,7 @@ export function PublishDialogBody({
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(null);
+			setBroughtIn(null);
 			setTarget(next);
 			setReviewing(false);
 			setStatus({ type: "idle" });
@@ -918,6 +1037,7 @@ export function PublishDialogBody({
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(null);
+			setBroughtIn(null);
 		},
 		[compatibilityDomain, invalidateCompatibilityReport],
 	);
@@ -930,8 +1050,25 @@ export function PublishDialogBody({
 		)
 			return;
 		const next = availableDomains.length === 1 ? availableDomains[0].name : "";
-		if (next !== selectedDomain) handleSelectedDomainChange(next);
-	}, [open, availableDomains, selectedDomain, handleSelectedDomainChange]);
+		if (next === selectedDomain) return;
+		if (selectedDomain === "") {
+			/* Nothing was chosen, so no choice of another project space is
+			 * left to retire: this only takes the one space there is. It runs
+			 * in the commit that opens the dialog too, whose seed (a publish
+			 * over chosen on a card, a bring-in that landed) it must keep. */
+			if (next !== compatibilityDomain) invalidateCompatibilityReport();
+			setSelectedDomain(next);
+			return;
+		}
+		handleSelectedDomainChange(next);
+	}, [
+		open,
+		availableDomains,
+		selectedDomain,
+		handleSelectedDomainChange,
+		compatibilityDomain,
+		invalidateCompatibilityReport,
+	]);
 
 	const handleAdoptChange = useCallback(
 		(novaResourceId: string, adopt: boolean) => {
@@ -1027,8 +1164,10 @@ export function PublishDialogBody({
 		/* The space this request publishes to, whatever is selected by the
 		 * time it answers. */
 		const publishedDomain = selectedDomain;
+		const publishedServer = connectionServer;
 		setStatus({ type: "uploading" });
 		setStoppedDomain(null);
+		setBroughtIn(null);
 
 		try {
 			const saved = await reconciler?.reconciler.waitForHumanSaveBarrier();
@@ -1126,6 +1265,14 @@ export function PublishDialogBody({
 			if (outcome.kind === "landed") {
 				if (outcome.deployment !== null)
 					upsertPublishedView(outcome.deployment);
+				/* The publish landed there, so the header's offer for it goes,
+				 * whether or not the record could be read back. */
+				if (publishedServer !== null) {
+					clearHqChangedTarget({
+						server: publishedServer,
+						domain: publishedDomain,
+					});
+				}
 				/* The check's rows were read before this publish stored what
 				 * was ticked; read them as the deployment holds them now, so
 				 * publishing again from here asks only what is unanswered. */
@@ -1253,8 +1400,70 @@ export function PublishDialogBody({
 		session,
 		applyPreviewAnswer,
 		upsertPublishedView,
+		clearHqChangedTarget,
 		reconciler,
+		connectionServer,
 	]);
+
+	/* The panel's answers reach the latest publish, whatever render made them. */
+	const handleUploadRef = useRef(handleUpload);
+	handleUploadRef.current = handleUpload;
+
+	/* What the changes made in CommCare HQ panel settling means here. */
+	const handleHqChangesSettled = useCallback(
+		(settled: HqChangesSettled) => {
+			/* The refusal clears and the destination step says the changes are
+			 * in. The bring-in's commit reloads the app in this tab too, which
+			 * closes the dialog; it opens again on this once the reload lands. */
+			if (connectionServer !== null) {
+				clearHqChangedTarget({
+					server: connectionServer,
+					domain: selectedDomain,
+				});
+			}
+			if (settled.kind === "brought-in") {
+				if (settled.deployment !== null) upsertView(settled.deployment);
+				operationGenerationRef.current += 1;
+				setStatus({ type: "idle" });
+				setDiscardRemoteChanges([]);
+				if (connectionServer !== null) {
+					setBroughtIn({
+						server: connectionServer,
+						domain: selectedDomain,
+						deployment: settled.deployment,
+						discarded: settled.discarded,
+					});
+				}
+				pendingStepFocus.current = true;
+				setReviewing(false);
+				return;
+			}
+			if (settled.deployment !== null) upsertView(settled.deployment);
+			if (settled.publishChanges.length === 0) {
+				/* Nothing to bring in and nothing the next publish changes: the
+				 * publish goes ahead by itself, with no tick and no discard. */
+				void handleUploadRef.current();
+				return;
+			}
+			/* The review step shows what this publish changes; the person
+			 * presses Publish. */
+			operationGenerationRef.current += 1;
+			setStatus({ type: "idle" });
+		},
+		[connectionServer, selectedDomain, clearHqChangedTarget, upsertView],
+	);
+	/* The panel's Publish over CommCare HQ's changes: the item's tick, and
+	 * focus on the footer button that publishes over them. */
+	const handleHqChangesPublishOver = useCallback(
+		(discard: RemoteChangeDiscard) => {
+			setDiscardRemoteChanges((current) => [
+				...current.filter((entry) => !sameRemoteResource(entry, discard)),
+				discard,
+			]);
+			focusLater(() => uploadButtonRef.current?.focus());
+		},
+		[focusLater],
+	);
 
 	const handleDownload = useCallback(
 		async (downloadTarget: "web" | "mobile") => {
@@ -1292,8 +1501,15 @@ export function PublishDialogBody({
 	 * them can work: one left unconfirmed stops the whole publish again. */
 	const remoteChangesToConfirm =
 		status.type === "refused" ? status.remoteChanges : [];
+	/* Opened from the Publishing card with its publish over still held. */
+	const publishOverChosen =
+		requestedDiscard !== undefined &&
+		status.type !== "refused" &&
+		discardRemoteChanges.some((entry) =>
+			sameRemoteChange(entry, requestedDiscard),
+		);
 	const allRemoteChangesConfirmed = remoteChangesToConfirm.every((change) =>
-		discardRemoteChanges.some((entry) => sameRemoteChange(entry, change)),
+		discardRemoteChanges.some((entry) => confirmsRemoteChange(entry, change)),
 	);
 	/* What the person has to confirm about the selected project space: the
 	 * rows the check listed before the first press, and any a refusal named
@@ -1540,6 +1756,32 @@ export function PublishDialogBody({
 											publishPlanContext,
 										)}
 									/>
+									{publishOverChosen ? (
+										<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+											{PUBLISH_OVER_CHOSEN_LINE}
+										</p>
+									) : null}
+									{broughtIn !== null &&
+									broughtIn.server === connectionServer &&
+									broughtIn.domain === selectedDomain ? (
+										<div
+											role="status"
+											className="rounded-lg border border-nova-border bg-nova-well px-3 py-2.5 text-[13px] leading-relaxed text-nova-text"
+										>
+											<p>{broughtInLine(broughtIn.discarded)}</p>
+											{/* Where the next publish there still changes
+											 *  something Nova writes its own way, the review
+											 *  step lists it, so this says so instead. A
+											 *  record Nova could not read says neither. */}
+											{broughtIn.deployment === null ? null : (
+												<p className="mt-1 text-nova-text-secondary">
+													{broughtIn.deployment.firstPublish === null
+														? nothingNewToPublishLine(broughtIn.domain)
+														: nextPublishChangesLine(broughtIn.domain)}
+												</p>
+											)}
+										</div>
+									) : null}
 									{existing.type === "ready" && existing.views.length > 0 ? (
 										<Collapsible>
 											<CollapsibleTrigger
@@ -1585,9 +1827,16 @@ export function PublishDialogBody({
 											: "Import into CommCare HQ"}
 								</p>
 								{target === "hq" ? (
-									<p className="mt-2 text-sm text-nova-text-secondary">
-										{publishPlanCopy(publishPlan, publishPlanContext)}
-									</p>
+									<>
+										<p className="mt-2 text-sm text-nova-text-secondary">
+											{publishPlanCopy(publishPlan, publishPlanContext)}
+										</p>
+										{publishOverChosen ? (
+											<p className="mt-1 text-sm text-nova-text-secondary">
+												{PUBLISH_OVER_CHOSEN_LINE}
+											</p>
+										) : null}
+									</>
 								) : null}
 							</div>
 						) : null}
@@ -1672,6 +1921,31 @@ export function PublishDialogBody({
 												changes={status.remoteChanges}
 												discarded={discardRemoteChanges}
 												onDiscardChange={handleDiscardChange}
+												domain={selectedDomain}
+												panel={
+													connectionServer === null
+														? null
+														: {
+																target: {
+																	appId: getAppId(),
+																	server: connectionServer,
+																	domain: selectedDomain,
+																},
+																deploymentId:
+																	selectedView?.deployment.deployment.id ??
+																	null,
+																remoteAppId:
+																	selectedView === null
+																		? null
+																		: (activeRemoteApp(selectedView.deployment)
+																				?.remoteId ?? null),
+																canStop,
+																onSettled: handleHqChangesSettled,
+																onPublishOver: handleHqChangesPublishOver,
+																onStopped: handlePanelStopped,
+																onRecordsStale: handlePanelStopUnanswered,
+															}
+												}
 												stop={
 													connectionServer === null
 														? null
@@ -1876,6 +2150,7 @@ export function PublishDialogBody({
 								Back
 							</Button>
 							<Button
+								ref={uploadButtonRef}
 								type="button"
 								onClick={handleUpload}
 								disabled={!canUpload}
@@ -1888,7 +2163,7 @@ export function PublishDialogBody({
 										/>
 										Uploading
 									</>
-								) : remoteChangesToConfirm.length > 0 ? (
+								) : remoteChangesToConfirm.length > 0 || publishOverChosen ? (
 									"Publish over these changes"
 								) : (
 									"Upload"
@@ -2784,6 +3059,35 @@ function WebAppsChangeChoice({
 	);
 }
 
+/** Whether two discards name one resource, whatever state each was shown in. */
+function sameRemoteResource(
+	a: RemoteChangeDiscard,
+	b: RemoteChangeDiscard,
+): boolean {
+	return a.kind === b.kind && a.novaResourceId === b.novaResourceId;
+}
+
+/**
+ * Whether a discard answers a change the refusal listed. A tick names the
+ * change in the state the refusal showed. The changes made in CommCare HQ
+ * panel's publish over names the app under the digest its own review read,
+ * which is newer than the refusal's where CommCare HQ was saved again in
+ * between: it answers the app's change too, since the person chose it over
+ * what the panel showed, and the publish stops again if CommCare HQ moved
+ * past that.
+ */
+function confirmsRemoteChange(
+	discard: RemoteChangeDiscard,
+	change: DeploymentRemoteChange,
+): boolean {
+	if (sameRemoteChange(discard, change)) return true;
+	return (
+		change.kind === "app" &&
+		change.canBringIn &&
+		sameRemoteResource(discard, change)
+	);
+}
+
 /** Whether a discard names this change in the state it was shown in. */
 function sameRemoteChange(
 	discard: RemoteChangeDiscard,
@@ -2806,16 +3110,28 @@ function sameRemoteChange(
  * publishing over one replaces what a person made in CommCare HQ with this
  * app's version, so nobody does it by default. A tick is bound to the state
  * the refusal showed, which is what the resend names back.
+ *
+ * Where the app's change can be brought in, the changes made in CommCare HQ
+ * panel takes the item's place: its choices are the item's controls, so the
+ * item's parts, its tick and the stop block are drawn only where the panel
+ * offers no choice of its own. Where it cannot, the item says why under its
+ * parts.
  */
 function RemoteChangeChoice({
 	changes,
 	discarded,
 	onDiscardChange,
+	domain,
+	panel,
 	stop,
 }: {
 	changes: readonly DeploymentRemoteChange[];
 	discarded: readonly RemoteChangeDiscard[];
 	onDiscardChange: (change: DeploymentRemoteChange, discard: boolean) => void;
+	/** The project space the publish was refused on. */
+	domain: string;
+	/** What the panel reads and answers into; null with no connection to name the target. */
+	panel: Omit<HqChangesPanelProps, "home" | "item" | "since"> | null;
 	/** The way to leave CommCare HQ's version as it is; null with no connection to name the target. */
 	stop: {
 		readonly canStop: boolean;
@@ -2838,18 +3154,8 @@ function RemoteChangeChoice({
 		<ul className="mt-3 flex flex-col gap-2">
 			{changes.map((change) => {
 				const id = `discard-${change.kind}-${change.novaResourceId}`;
-				return (
-					<li
-						key={`${change.kind}:${change.novaResourceId}`}
-						className="rounded-lg border border-nova-border bg-nova-elevated px-3 py-3"
-					>
-						<p className="text-[13px] text-nova-text">
-							{change.name}
-							<span className="text-nova-text-secondary">
-								{" "}
-								({change.identity})
-							</span>
-						</p>
+				const item = (
+					<>
 						{change.baselineKnown ? (
 							<ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-nova-text-secondary">
 								{change.parts.map((part, index) => (
@@ -2862,6 +3168,15 @@ function RemoteChangeChoice({
 								{baselineUnknownSentence(change.since, viewerDriftDate())}
 							</p>
 						)}
+						{change.kind === "app" && !change.canBringIn ? (
+							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
+								{hqChangesUnavailableLine("no-reference", {
+									domain,
+									since: change.since,
+									options: viewerDriftDate(),
+								})}
+							</p>
+						) : null}
 						{change.note !== null ? (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{change.note}
@@ -2893,6 +3208,32 @@ function RemoteChangeChoice({
 								onRecordsStale={stop.onRecordsStale}
 							/>
 						) : null}
+					</>
+				);
+				return (
+					<li
+						key={`${change.kind}:${change.novaResourceId}`}
+						className="rounded-lg border border-nova-border bg-nova-elevated px-3 py-3"
+					>
+						<p className="text-[13px] text-nova-text">
+							{change.name}
+							<span className="text-nova-text-secondary">
+								{" "}
+								({change.identity})
+							</span>
+						</p>
+						{change.kind === "app" && change.canBringIn && panel !== null ? (
+							/* A new refusal is a new review: keyed by the state it read. */
+							<HqChangesPanel
+								key={change.observedDigest}
+								{...panel}
+								home="publish"
+								since={change.since}
+								item={item}
+							/>
+						) : (
+							item
+						)}
 					</li>
 				);
 			})}

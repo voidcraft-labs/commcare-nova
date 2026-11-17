@@ -16,19 +16,11 @@
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import {
-	currentResourceIdentities,
-	faultCode,
-	landedDeploymentKept,
-	stopPublishing,
-} from "@/lib/deployment/service";
-import type { DeploymentScope } from "@/lib/deployment/store";
+import { landedDeploymentKept, stopPublishing } from "@/lib/deployment/service";
 import {
 	deploymentServerSchema,
 	deploymentTargetSchema,
 } from "@/lib/deployment/types";
-import type { BlueprintDoc } from "@/lib/domain";
-import { log } from "@/lib/logger";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -38,6 +30,7 @@ import { loadAppBlueprint } from "../loadApp";
 import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
+import { landedNovaRevisions, landedResourceIdentities } from "./landedReads";
 
 export function registerStopPublishing(
 	server: McpServer,
@@ -87,9 +80,10 @@ export function registerStopPublishing(
 				 * answer shows answers less, never an error, since an agent told
 				 * the stop failed would stop again and be told there is nothing
 				 * to stop. */
-				const [identities, kept] = await Promise.all([
-					landedIdentities(scope, doc, args.domain),
+				const [identities, kept, novaRevisions] = await Promise.all([
+					landedResourceIdentities(scope, doc, args.domain, "stop"),
 					landedDeploymentKept(scope, stopped.deployment, "stop"),
+					landedNovaRevisions(scope, args.domain, "stop"),
 				]);
 				return {
 					content: [
@@ -97,7 +91,12 @@ export function registerStopPublishing(
 							type: "text",
 							text: JSON.stringify({
 								app_id: args.app_id,
-								...describeDeployment(stopped.deployment, identities, kept),
+								...describeDeployment(
+									stopped.deployment,
+									identities,
+									kept,
+									novaRevisions,
+								),
 								setup_artifact: stopped.artifact,
 							}),
 						},
@@ -111,32 +110,4 @@ export function registerStopPublishing(
 			}
 		},
 	);
-}
-
-/**
- * The app's resource names for the left-behind list of a stop that landed,
- * or null where they could not be read, which reports only superseded apps
- * (`deploymentProjection.ts::describeDeployment`). Logged by the fault's
- * class and code alone, as `service.ts::landedDeploymentKept` logs one.
- */
-async function landedIdentities(
-	scope: DeploymentScope,
-	doc: BlueprintDoc,
-	domain: string,
-): Promise<ReadonlyMap<string, string> | null> {
-	try {
-		return await currentResourceIdentities(scope, doc);
-	} catch (error) {
-		log.error(
-			"[deployment] resource names unavailable after a stop landed",
-			undefined,
-			{
-				appId: scope.appId,
-				domain,
-				errorName: error instanceof Error ? error.name : typeof error,
-				errorCode: faultCode(error),
-			},
-		);
-		return null;
-	}
 }

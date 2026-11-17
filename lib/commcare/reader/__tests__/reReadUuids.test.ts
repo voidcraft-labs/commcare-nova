@@ -8,7 +8,8 @@
  *
  * The failure it catches: a row that mints the key directly gives the canonical document a UUID
  * the reading does not hold (or one another entity of the document already holds), so a read-back
- * reports a difference that is not there, and part 15's two readings disagree with the row.
+ * reports a difference that is not there, and the two readings a bring-in of changes made in
+ * CommCare HQ compares disagree with the row.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";

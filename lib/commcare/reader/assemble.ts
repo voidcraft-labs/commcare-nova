@@ -1242,7 +1242,7 @@ function mediaKeyReading(
 }
 
 /**
- * Decides every generated translation key in the reading that meets it (16.5): each stands under
+ * Decides every generated translation key in the reading that meets it: each stands under
  * a finding where what it names did not read whole, and every other is classified against the
  * strings Nova's build makes of `doc`, a media key against what CommCare HQ's build of the
  * stored app shows (`mediaKeyReading`), and claimed by its verdict. A fold writes the value as its

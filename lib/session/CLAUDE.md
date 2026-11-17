@@ -371,6 +371,27 @@ chat status line instead of falling back to `understanding`.
 
 `pendingIdentityMove` holds the one batch `IdentityMoveDialog` states, until the person makes the change or cancels; it is never stored. The doc package reaches it only through `pendingIdentityMoveSlot` (the `PendingIdentityMoveSlot` of `lib/doc/pendingIdentityMove.ts`), so its commands and history step stay free of this store's shape, and a confirmed Project change clears it, since the batch names the source Project's document.
 
+## Project spaces changed in CommCare HQ
+
+`hqChangedTargets` holds the project spaces the check when the builder opens
+(`components/builder/HqChangesCheck.tsx`) found changed in CommCare HQ, which
+the header's See what changed in CommCare HQ offers. It starts empty and has no
+"checking" value, so nothing can wait on the check. `clearHqChangedTarget`
+settles one (its panel answered, a publish landed there, publishing there
+stopped) and `clearHqChangedTargets` empties it on a reload whose reason is
+`hq-changes`. `publishDialogRequest` may carry the `discard` the Publishing
+card's panel chose, which the Publish dialog opens with.
+
+`hqChangesBroughtIn` holds this tab's own bring-in of changes made in CommCare
+HQ that landed, for the surface that asked (the Publish dialog or the card's
+dialog) to open on once the reload its commit forced has landed: that reload
+closes every dialog, and this store outlives it. It is held only under the
+Project the session holds now, kept by `resetProjectScope` and a same-Project
+snapshot, dropped by a confirmed Project change and `reset()`. The Publish
+dialog clears it as it opens on it; the card's dialog is drawn from it and
+clears it when the person closes it, so a close the reload's access gate
+makes keeps it for the dialog to open again.
+
 ## Active page of a sectioned form
 
 `activeSectionByForm` (`setActiveSection` / `useActiveSection` /

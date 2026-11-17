@@ -918,6 +918,10 @@ interface FormCandidate {
  */
 export function readStructure(ctx: ReadContext): void {
 	const { input } = ctx;
+	// The levels are in scope as expressions bind. A level Nova cannot hold is
+	// a finding only of an app that reads places, which the reading's project
+	// data raises once, beside the places
+	// (`lib/deployment/reading/projectData::readingProjectDataFindingsFor`).
 	ctx.writeDraft(() => {
 		ctx.draft.levels = levelsFromHq(
 			input.organization.levels,

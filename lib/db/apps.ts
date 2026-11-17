@@ -451,7 +451,9 @@ async function writeProjectMoveChange(
  * canonical commit kernel (`lib/db/canonicalCommitKernel.ts`), which owns the
  * whole read-evaluate-write transaction every interactive mutation path
  * (chat, MCP, auto-save) shares, and the one a publish records its placements
- * through at an expected head (`publish-placement`). Synthetic repairs and the atomic
+ * through at an expected head (`publish-placement`), as a bring-in of changes
+ * made in CommCare HQ commits through `applyBlueprintChange` at the head its
+ * member reviewed (`hq-changes`). Synthetic repairs and the atomic
  * cross-Project move use the parallel locked protocols below. Ordinary
  * callers use this wrapper; only server-owned commit hosts compose kernel
  * hooks directly.
@@ -678,7 +680,10 @@ async function commitPreparedSyntheticBatch(
 	if (!verdict.ok) {
 		throw new BlueprintCommitRejectedError(
 			describeCommitFindings(verdict.findings),
-			{ findingCodes: verdict.findings.map((finding) => finding.code) },
+			{
+				findingCodes: verdict.findings.map((finding) => finding.code),
+				findings: verdict.findings,
+			},
 		);
 	}
 	const persistable = toPersistableDoc(verdict.nextDoc);

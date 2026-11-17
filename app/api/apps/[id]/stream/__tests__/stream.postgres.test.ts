@@ -193,8 +193,14 @@ async function writeEntry(
 	appId: string,
 	seq: number,
 	opts: {
-		kind?: "autosave" | "chat" | "blueprint-migration" | "publish-placement";
+		kind?:
+			| "autosave"
+			| "chat"
+			| "blueprint-migration"
+			| "publish-placement"
+			| "hq-changes";
 		runId?: string;
+		batchId?: string;
 		mutations?: readonly Mutation[];
 	} = {},
 ): Promise<void> {
@@ -206,7 +212,7 @@ async function writeEntry(
 			.values({
 				app_id: appId,
 				seq: durableSeq,
-				batch_id: crypto.randomUUID(),
+				batch_id: opts.batchId ?? crypto.randomUUID(),
 				run_id: opts.runId ?? null,
 				actor_id: USER,
 				kind,
@@ -1564,6 +1570,35 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(reauthorizations).toBe(1);
 		expect(frames.some((f) => f.event === "reload")).toBe(true);
 		expect(frames.some((f) => f.event === "mutation")).toBe(false);
+	});
+
+	it("reloads for a bring-in of changes made in CommCare HQ with its reason, batch id and actor, and no frame before it", async () => {
+		const appId = await seedApp(3);
+		const batchId = crypto.randomUUID();
+		await writeEntry(appId, 1, { kind: "hq-changes" });
+		await writeEntry(appId, 2, { kind: "hq-changes", batchId });
+		await writeEntry(appId, 3);
+		let reauthorizations = 0;
+		__setStreamReadTestHooksForTests({
+			beforeAppChangeReauthorization() {
+				reauthorizations += 1;
+			},
+		});
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) => current.some((frame) => frame.event === "reload"),
+		});
+
+		expect(reauthorizations).toBe(1);
+		const reload = frames.find((frame) => frame.event === "reload");
+		expect(reload?.data).toEqual({
+			reason: "hq-changes",
+			batchId,
+			actorId: USER,
+		});
+		expect(reload?.id).toBeUndefined();
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
 	});
 
 	it("reauthorizes and reloads for an exact fold baseline", async () => {

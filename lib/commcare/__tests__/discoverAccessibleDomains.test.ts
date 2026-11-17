@@ -253,7 +253,9 @@ it("returns transport, JSON and permission failures rather than incomplete membe
 		peer
 			.get(HOST)
 			.intercept({ path: LIST, method: "GET" })
-			.replyWithError(new Error("reset"));
+			.replyWithError(new Error("reset"))
+			/* A read no answer began for is sent once more. */
+			.times(2);
 		expect(await discoverAccessibleDomains(CREDS)).toEqual({
 			success: false,
 			status: 503,
@@ -264,7 +266,7 @@ it("returns transport, JSON and permission failures rather than incomplete membe
 				.getCallHistory()
 				?.calls()
 				.map((call) => call.fullUrl),
-		).toEqual(Array(5).fill(HOST + LIST));
+		).toEqual(Array(6).fill(HOST + LIST));
 	});
 });
 
@@ -457,7 +459,9 @@ it("finishes in-flight probes but starts no next window after a transport failur
 		peer
 			.get(HOST)
 			.intercept({ path: accessPath(names[0]), method: "GET" })
-			.replyWithError(new Error("reset"));
+			.replyWithError(new Error("reset"))
+			/* A read no answer began for is sent once more. */
+			.times(2);
 		for (const name of names.slice(1, 8))
 			peer
 				.get(HOST)
@@ -498,7 +502,7 @@ it("finishes in-flight probes but starts no next window after a transport failur
 			release.resolve();
 			await pending;
 		}
-		expect(peer.getCallHistory()?.calls()).toHaveLength(9);
+		expect(peer.getCallHistory()?.calls()).toHaveLength(10);
 	});
 });
 

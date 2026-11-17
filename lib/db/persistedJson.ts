@@ -367,9 +367,9 @@ function isAppChangeKind(value: unknown): value is AppChangeKind {
  *
  * This is deliberately separate from the browser mutation-frame grammar:
  * browser reconciliation folds only autosave/MCP/chat/publish-placement, while
- * this parser admits all seven durable kinds and enforces their exact
- * empty-batch, placement-holds-only and Project-scope arms before a stream
- * cursor or canonical fold may advance.
+ * this parser admits all eight durable kinds and enforces their exact
+ * empty-batch, placement-holds-only, run-free and Project-scope arms before a
+ * stream cursor or canonical fold may advance.
  */
 export function parsePersistedAppChangeEnvelope(
 	value: unknown,
@@ -465,6 +465,11 @@ export function parsePersistedAppChangeEnvelope(
 	) {
 		throw new Error(
 			`${context} of kind publish-placement holds something other than placement holds`,
+		);
+	}
+	if (row.kind === "hq-changes" && row.runId !== null) {
+		throw new Error(
+			`${context} of kind hq-changes carries a run, and a bring-in of changes made in CommCare HQ carries none`,
 		);
 	}
 	return {

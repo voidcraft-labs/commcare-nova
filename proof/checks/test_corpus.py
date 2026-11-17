@@ -800,14 +800,34 @@ def test_the_corpus_holds_each_search_workflow_and_each_placement():
     )
 
 
+def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
+    """Contract: each document whose ``hq-side.json`` states that Nova's republish over a person's saves goes through
+    (``proceeds``), goes through after recording a review that found nothing (``records``) or brings the saves in
+    (``brings-in``) holds a republish whose sidecar says the same (``Document.republished_as_stated``), and the
+    corpus holds each of the three. Catches a ``proceeds`` document whose publish stopped and was answered by a
+    review, a ``records`` document sent with no review or with another reason, and a ``brings-in`` document sent
+    after another bring-in or none, which the per-document checks would read as an ordinary republish."""
+    held = set()
+    for document in cases.load_corpus().emitted:
+        statement = (document.hq_side or {}).get("republish")
+        if statement in ("proceeds", "records", "brings-in"):
+            document.republished_as_stated()
+            held.add(statement)
+    assert held == {"proceeds", "records", "brings-in"}, (
+        f"The corpus states a republish that {sorted(held)} over a person's saves, and not one of each of proceeds,"
+        " records and brings-in. Keep a targeted document of each (proof/targeted/documents/hqSideState.ts,"
+        " hqChanges.ts)."
+    )
+
+
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits. Every pull request that adds or removes a document writes the count its sources then give.
-FIXED_DOCUMENTS = 425
+FIXED_DOCUMENTS = 435
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (465 with the default sample of 40). Catches a source that silently stops
+    the floor plus the sample's size (475 with the default sample of 40). Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)

@@ -15,8 +15,21 @@ displayed === fold(confirmedDoc, [...sentPending, ...humanUncommitted()])
 reload can drop it). The client frame admits exactly
 `autosave | mcp | chat | publish-placement`; a `publish-placement` frame is
 always remote, so it folds like a peer's change, keeps undo, and sets its holds
-into the recorded holds; `blueprint-migration`, `fold-baseline`, and `project-move` are durable
+into the recorded holds; `blueprint-migration`, `hq-changes`, `fold-baseline`, and `project-move` are durable
 server-side change kinds that force reauthorization and a whole-app reload.
+The `reload` frame (`reloadFrame.ts`) carries its `reason`; where the suffix
+that forced it holds an `hq-changes` row (a bring-in of changes made in
+CommCare HQ), it also carries that row's `batchId` and `actorId`. The provider
+names the member from the presence roster it holds when the frame arrives
+(the reload's Project reset clears it) and, once the reload lands, shows
+`hqChangesBroughtInToast`'s notice in that scope, which falls back to
+"Someone in this Project"; the tab whose own
+request sent the batch registered its id first
+(`registerOwnHqChangesBatch`) and shows no toast. Its reload closes that
+tab's dialogs like any other, so the panel holds its answer in the session
+(`hqChangesBroughtIn`), and the surface that asked opens on it again once
+the reload lands (`components/builder/CLAUDE.md`, Publishing). A frame that
+does not parse still reloads and says nothing.
 The stream route reads an app's greatest fold baseline above a subscriber's
 cursor before it parses any suffix row, and answers `reload` without parsing a
 row behind it, so a cursor below a horizon never meets a row of an earlier

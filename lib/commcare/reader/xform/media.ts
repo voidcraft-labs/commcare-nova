@@ -1,5 +1,5 @@
 /**
- * Media on a text (12.4): the `image`, `audio` and `video` values of a text on
+ * Media on a text: the `image`, `audio` and `video` values of a text on
  * the slots Nova holds media for (a question's label, its help, an inline
  * choice), and the same rule for a map of paths by language, which the menu
  * and list readers call. A file must be one in every app language, read as

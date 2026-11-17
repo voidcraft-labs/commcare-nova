@@ -1,5 +1,5 @@
 /**
- * A field's logic slots and load-time values (11.1, 11.2). No attribute is read
+ * A field's logic slots and load-time values. No attribute is read
  * here for its meaning: each that holds an expression is pushed as the field's
  * draft expression, which stage 5b registers under the field's UUID and the
  * expression stage binds and claims. What is claimed here is what a kind does

@@ -386,7 +386,16 @@ a body over the bound, a page for a browser, an answer Nova cannot read). A 429
 is sent again by one rule (`hq/throttle.ts`): three sends at most, a
 `Retry-After` of at most two seconds waited, one second where HQ names none,
 inside the read's deadline; a `Retry-After` that is no count of seconds is the
-answer. A read the deadline or the network cuts off, before its headers or
+answer. A read no answer began for (its connection closed or never opened) is
+sent once more at once, beside those: native fetch sends nothing again by
+itself, so a kept-alive connection HQ closes as a read goes out on it would
+otherwise fail the read, and every read is a GET. The client's other GETs, the
+build resource reader, the media upload's status poll and the Case search
+runtime probe, send a request no answer began for once more the same way
+(`client.ts::getResendingUnanswered`). A caller that sends a failed read again
+by its own rule counts these: a lookup table's row read in a bring-in goes out
+four times where it never gets an answer
+(`lib/deployment/reading/projectData/lookupTableStore.ts`). A read the deadline or the network cuts off, before its headers or
 while its body streams, a refused answer's body included, logs
 `[commcare] <label> unavailable` (`hq/http.ts::unansweredRead`, which the
 media reader shares). A refused body is read at most 64 KiB far whatever the
@@ -641,6 +650,9 @@ changed.
 `hq/media.ts::readHqMediaFile` reads one file from the address HQ gives its media map item
 (`hqmedia/models.py::HQMediaMapItem.url`), bounded by the caller's limit, under a deadline of its
 own, with one resend. It returns bytes and the declared type; `lib/media` says what a file is.
+Its view (`hqmedia/views.py::ViewMultimediaFile`) asks no key, plan or permission, so
+`classifyHqFailure` reads a 401 or a 403 on a media file as `refused`, never as the caller's key
+or plan.
 `HQ_MEDIA_READ_CONCURRENCY` and `HQ_MEDIA_IN_FLIGHT_MAX_BYTES` bound how many files, and how
 many bytes of them at their limits, are in flight at once.
 
@@ -902,9 +914,10 @@ language: the builder then writes that language's name into both, as it does to
 a form made in HQ. The first save of a Nova form in the form builder gives it a
 new version at the next build, with nothing in it changed, so devices fetch it
 again. The source and Preview keep `version` `1`; a local archive's forms take
-the app's sequence at compile time (`xform/formVersion.ts::setFormVersion`,
-called by `compileCcz` beside `addCaseBlocks` and `addMetaBlock`), as HQ's
-build overwrites the source's `1` with its own.
+the app's sequence at compile time (`xform/formVersion.ts::setFormVersionOn`,
+which `compileCcz` applies after `addCaseBlocks`, with `addMetaBlockTo` and
+`stripVellumAttributesFrom`, to one parse of the form), as HQ's build
+overwrites the source's `1` with its own.
 
 ### `post_submit` defaults
 

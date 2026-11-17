@@ -8,7 +8,7 @@ import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import {
@@ -17,9 +17,11 @@ import {
 } from "@/lib/doc/fieldParent";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
+import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -27,9 +29,10 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/expression/builders";
+import { formField, isBlank, not } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
+import { type Endpoint, endpoint, endpointArb } from "./diffEndpoints";
 
 function emptyDoc(): BlueprintDoc {
 	return buildDoc({ appName: "Empty" });
@@ -194,6 +197,16 @@ function assertRoundTrip(prevRaw: BlueprintDoc, nextRaw: BlueprintDoc): void {
 	);
 	expect(toPersistableDoc(verdict.nextDoc)).toEqual(toPersistableDoc(next));
 }
+/** The reference index the replay maintains is the one a rebuild gives. */
+function assertIndexKept(prev: BlueprintDoc, diff: readonly Mutation[]): void {
+	const replayed = produce(
+		hydratePersistedBlueprint(blueprintDocSchema.parse(toPersistableDoc(prev))),
+		(draft) => {
+			applyMutations(draft, admitMutationBatch(diff));
+		},
+	);
+	expect(replayed.refIndex).toEqual(buildReferenceIndex(replayed));
+}
 function reverseDisplayOrder(doc: BlueprintDoc, formUuid: Uuid): void {
 	doc.fieldOrder[formUuid] = [...orderedFieldUuids(doc, formUuid)].reverse();
 }
@@ -238,170 +251,6 @@ function completeModule(
 	];
 }
 
-const endpointArb = fc.record({
-	modules: fc.integer({ min: 1, max: 7 }),
-	forms: fc.integer({ min: 0, max: 7 }),
-	owners: fc.tuple(fc.nat({ max: 2 }), fc.nat({ max: 2 }), fc.nat({ max: 2 })),
-	reverse: fc.boolean(),
-	nested: fc.boolean(),
-	group: fc.boolean(),
-	grouped: fc.boolean(),
-	optional: fc.boolean(),
-	secret: fc.boolean(),
-	decimal: fc.boolean(),
-	media: fc.boolean(),
-	extraOption: fc.boolean(),
-	text: fc.nat({ max: 2 }),
-	// Each form's query repeat: absent, present and unheld, or holding one of
-	// the two placements a query over no answer can express.
-	queryRepeat: fc.constantFrom("absent", "unheld", "model-iteration", "count"),
-});
-
-/** Open patients: a query that reads no answer of the form, so either
- *  placement expresses the repeat. */
-const OPEN_PATIENTS = {
-	kind: "project",
-	of: {
-		kind: "cases",
-		source: "casedb",
-		where: [eq(prop("patient", "case_name"), literal("open"))],
-	},
-	value: prop("patient", "case_id"),
-} as const;
-type Endpoint = typeof endpointArb extends fc.Arbitrary<infer T> ? T : never;
-function endpoint(spec: Endpoint): BlueprintDoc {
-	const indices = [0, 1, 2].filter(
-		(index) => (spec.modules & (1 << index)) !== 0,
-	);
-	if (spec.reverse) indices.reverse();
-	const formIndices = [0, 1, 2].filter(
-		(index) => (spec.forms & (1 << index)) !== 0,
-	);
-	if (spec.reverse) formIndices.reverse();
-	const doc = buildDoc({
-		appId: "independent-diff",
-		appName: `App ${spec.text}`,
-		caseTypes: [{ name: "patient", properties: [] }],
-		modules: indices.map((index, position) => {
-			const forms = formIndices
-				.filter(
-					(formIndex) =>
-						indices[spec.owners[formIndex] % indices.length] === index,
-				)
-				.map((formIndex) => {
-					const key = `independent-form-${formIndex}`;
-					const optional = f({
-						uuid: testUuid(`${key}-optional`),
-						kind: spec.secret ? "secret" : "text",
-						id: "optional",
-						label: proseText(`Optional ${spec.text}`),
-					});
-					const group = f({
-						uuid: testUuid(`${key}-group`),
-						kind: "group",
-						id: "group",
-						children: spec.optional && spec.grouped ? [optional] : [],
-					});
-					const fields = [
-						f({
-							uuid: testUuid(`${key}-base`),
-							kind: "text",
-							id: "base",
-							label: proseText(`Base ${spec.text}`),
-							...(spec.media
-								? {
-										label_media: {
-											image: testMediaAssetId("independent-label"),
-										},
-									}
-								: {}),
-						}),
-						f({
-							uuid: testUuid(`${key}-number`),
-							kind: spec.decimal ? "decimal" : "int",
-							id: "number",
-							label: proseText("Number"),
-						}),
-						f({
-							uuid: testUuid(`${key}-select`),
-							kind: "single_select",
-							id: "select",
-							optionsSource: {
-								kind: "inline",
-								options: [0, 1, ...(spec.extraOption ? [2] : [])].map(
-									(option) => ({
-										uuid: testUuid(`${key}-option-${option}`),
-										value: `value_${option}`,
-										label: proseText(`Option ${option} ${spec.text}`),
-									}),
-								),
-							},
-						}),
-						...(spec.group ? [group] : []),
-						...(spec.optional && (!spec.group || !spec.grouped)
-							? [optional]
-							: []),
-						...(spec.queryRepeat === "absent"
-							? []
-							: [
-									f({
-										uuid: testUuid(`${key}-visits`),
-										kind: "repeat",
-										id: "visits",
-										label: proseText("Visits"),
-										repeat_mode: "query_bound",
-										data_source: { ids_query: OPEN_PATIENTS },
-										...(spec.queryRepeat === "unheld"
-											? {}
-											: { placement: spec.queryRepeat }),
-										children: [
-											f({
-												uuid: testUuid(`${key}-visit-note`),
-												kind: "text",
-												id: "visit_note",
-												label: proseText("Visit note"),
-											}),
-										],
-									}),
-								]),
-					];
-					if (spec.reverse) fields.reverse();
-					return {
-						uuid: testUuid(key),
-						id: `form_${formIndex}`,
-						name: `Form ${formIndex} ${spec.text}`,
-						type: "followup" as const,
-						...(spec.optional ? { purpose: "Notes" } : {}),
-						fields,
-					};
-				});
-			return {
-				uuid: testUuid(`independent-module-${index}`),
-				id: `module_${index}`,
-				name: `Module ${index} ${spec.text}`,
-				caseType: "patient",
-				...(forms.length === 0 ? { caseListMenuItem: {} } : {}),
-				...(spec.nested && position === indices.length - 1 && position > 0
-					? { parentModuleUuid: testUuid(`independent-module-${indices[0]}`) }
-					: {}),
-				caseListConfig: {
-					columns: [
-						plainColumn(
-							testUuid(`independent-column-${index}`),
-							"case_name",
-							"Name",
-						),
-					],
-					searchInputs: [],
-				},
-				forms,
-			};
-		}),
-	});
-	if (spec.media) doc.logo = testMediaAssetId("independent-logo");
-	return doc;
-}
-
 describe("diff of independent admitted stored endpoints", () => {
 	it("orders new forms after a retained form evacuated into a newly born module", () => {
 		const common: Endpoint = {
@@ -415,6 +264,10 @@ describe("diff of independent admitted stored endpoints", () => {
 			optional: false,
 			secret: false,
 			decimal: false,
+			textNumber: false,
+			groupLabel: false,
+			tail: "absent",
+			keysReversed: false,
 			media: false,
 			extraOption: false,
 			text: 0,
@@ -438,6 +291,10 @@ describe("diff of independent admitted stored endpoints", () => {
 			optional: false,
 			secret: false,
 			decimal: false,
+			textNumber: false,
+			groupLabel: false,
+			tail: "absent",
+			keysReversed: false,
 			media: false,
 			extraOption: false,
 			text: 0,
@@ -660,6 +517,224 @@ describe("diffDocsToMutations — explicit cases", () => {
 		expect(diff.some((m) => m.kind === "convertField")).toBe(true);
 		assertRoundTrip(prev, next);
 	});
+
+	it("writes a change between two kinds no conversion makes as a removal and a re-add of the subtree, under the same uuids", () => {
+		const FORM = testUuid("reborn-form");
+		const FIRST = testUuid("reborn-first");
+		const SECOND = testUuid("reborn-second");
+		const A = testUuid("reborn-a");
+		const B = testUuid("reborn-b");
+		const AGE = testUuid("reborn-age");
+		const COLOR = testUuid("reborn-color");
+		const fieldsOf = (asGroups: boolean) => {
+			const page = (uuid: Uuid, id: string, children: FieldSpec[]) =>
+				f(
+					asGroups
+						? {
+								uuid,
+								kind: "group",
+								id,
+								label: proseText(id),
+								fieldList: true,
+								...(uuid === FIRST
+									? { relevant: not(isBlank(formField(B))) }
+									: {}),
+								children,
+							}
+						: {
+								uuid,
+								kind: "section",
+								id,
+								label: proseText(id),
+								children,
+							},
+				);
+			return [
+				page(FIRST, "first", [
+					f({ uuid: A, kind: "text", id: "a", label: proseText("A") }),
+					f({
+						uuid: AGE,
+						kind: asGroups ? "int" : "text",
+						id: "age",
+						label: proseText("Age"),
+					}),
+				]),
+				page(SECOND, "second", [
+					f({ uuid: B, kind: "text", id: "b", label: proseText("B") }),
+					f({
+						uuid: COLOR,
+						kind: "single_select",
+						id: "color",
+						label: proseText("Color"),
+						relevant: not(isBlank(formField(AGE))),
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: testUuid("reborn-red"),
+									value: "red",
+									label: proseText("Red"),
+								},
+							],
+						},
+					}),
+				]),
+			];
+		};
+		const docWith = (asGroups: boolean) =>
+			buildDoc({
+				modules: [
+					{
+						name: "M",
+						forms: [
+							{
+								uuid: FORM,
+								name: "F",
+								type: "survey",
+								fields: fieldsOf(asGroups),
+							},
+						],
+					},
+				],
+			});
+		const sections = docWith(false);
+		const groups = docWith(true);
+		for (const [prev, next] of [
+			[sections, groups],
+			[groups, sections],
+		] as const) {
+			const diff = diffDocsToMutations(prev, next);
+			expect(diff.some((m) => m.kind === "convertField")).toBe(false);
+			// Each page leaves by name, its questions before it, and comes back
+			// under its own uuid with what it holds.
+			const removed = diff.flatMap((m) =>
+				m.kind === "removeField" ? [m.uuid] : [],
+			);
+			expect(new Set(removed)).toEqual(
+				new Set([FIRST, SECOND, A, AGE, B, COLOR]),
+			);
+			expect(removed.indexOf(A)).toBeLessThan(removed.indexOf(FIRST));
+			expect(removed.indexOf(COLOR)).toBeLessThan(removed.indexOf(SECOND));
+			expect(
+				diff.flatMap((m) => (m.kind === "addField" ? [m.field.uuid] : [])),
+			).toEqual([FIRST, SECOND, A, AGE, B, COLOR]);
+			assertRoundTrip(prev, next);
+			assertIndexKept(prev, diff);
+		}
+	});
+
+	it("re-adds a question whose kind changes past any conversion, keeping every read of it and the fields around it in place", () => {
+		const prev = produce(singleModuleDoc(), (draft) => {
+			const [first, second] = Object.values(draft.fields);
+			(first as Record<string, unknown>).relevant = not(
+				isBlank(formField(second.uuid)),
+			);
+		});
+		const number = Object.values(prev.fields).find(
+			(field) => field.kind === "int",
+		);
+		if (number === undefined) throw new Error("the fixture holds a number");
+		const next = produce(prev, (draft) => {
+			const field = draft.fields[number.uuid] as Record<string, unknown>;
+			field.kind = "text";
+		});
+		const diff = diffDocsToMutations(prev, next);
+		expect(diff.filter((m) => m.kind === "removeField")).toEqual([
+			{ kind: "removeField", uuid: number.uuid },
+		]);
+		expect(
+			diff.filter((m) => m.kind === "addField").map((m) => m.field.uuid),
+		).toEqual([number.uuid]);
+		assertRoundTrip(prev, next);
+		assertRoundTrip(next, prev);
+		assertIndexKept(prev, diff);
+	});
+
+	/** One survey form holding `fields`, its `fields` record keyed in reverse
+	 *  of the order they are built in when `keysReversed`. */
+	function oneFormDoc(fields: FieldSpec[], keysReversed = false): BlueprintDoc {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{ uuid: testUuid("order-form"), name: "F", type: "survey", fields },
+					],
+				},
+			],
+		});
+		if (keysReversed) {
+			const entries = Object.entries(doc.fields).reverse();
+			for (const [uuid] of entries) delete doc.fields[uuid as Uuid];
+			for (const [uuid, field] of entries) doc.fields[uuid as Uuid] = field;
+		}
+		return doc;
+	}
+	const question = (name: string, kind: "text" | "int" = "text") =>
+		f({
+			uuid: testUuid(`order-${name}`),
+			kind,
+			id: name,
+			label: proseText(name),
+		});
+	const container = (name: string, children: FieldSpec[]) =>
+		f({ uuid: testUuid(`order-${name}`), kind: "group", id: name, children });
+
+	it("puts a question that leaves a removed group back after a sibling removed and added again", () => {
+		const prev = oneFormDoc([
+			question("b"),
+			question("a"),
+			container("h", [question("x")]),
+		]);
+		const next = oneFormDoc([
+			question("b"),
+			question("a", "int"),
+			question("x"),
+		]);
+		const diff = diffDocsToMutations(prev, next);
+		expect(
+			diff.some(
+				(m) => m.kind === "removeField" && m.uuid === testUuid("order-a"),
+			),
+		).toBe(true);
+		assertRoundTrip(prev, next);
+		assertRoundTrip(next, prev);
+		assertIndexKept(prev, diff);
+	});
+
+	it.each([false, true])(
+		"moves questions out of a removed group, into an existing one and next to a new one whatever order the fields record lists them in (keys reversed: %s)",
+		(keysReversed) => {
+			const pairs: [FieldSpec[], FieldSpec[]][] = [
+				// Out of a removed group.
+				[
+					[question("a"), container("wrap", [question("c"), question("d")])],
+					[question("a"), question("c"), question("d")],
+				],
+				// Into an existing group.
+				[
+					[question("a"), question("b"), container("z", [])],
+					[container("z", [question("a"), question("b")])],
+				],
+				// Out of a removed group, after a question added in the same diff.
+				[
+					[question("a"), container("h", [question("x")])],
+					[question("a"), question("n"), question("x")],
+				],
+			];
+			for (const [before, after] of pairs) {
+				const prev = oneFormDoc(before, keysReversed);
+				const next = oneFormDoc(after, keysReversed);
+				for (const [from, to] of [
+					[prev, next],
+					[next, prev],
+				] as const) {
+					assertRoundTrip(from, to);
+					assertIndexKept(from, diffDocsToMutations(from, to));
+				}
+			}
+		},
+	);
 
 	it("field media set then a separate clear", () => {
 		const prev = singleModuleDoc();

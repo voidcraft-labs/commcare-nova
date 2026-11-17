@@ -349,12 +349,51 @@ published it, Nova stops before sending anything and lists what changed, such
 as a form in a menu, the app's name, a table's columns or rows, or a place's
 name or site code.
 
-**You decide what happens to each change.** Tick **Publish over this** beside
+**When the app itself changed, you can bring the change in.** Nova lists what
+changed by menu and form. If nothing in this app has changed in Nova since
+then, choose **Bring in these changes**: they come in to this app, and
+everything else in it stays as it is, including what CommCare HQ never holds,
+such as notes, personas and review marks on translations. The app reloads with
+the changes in, and the dialog opens again to say so. Your next publish then
+goes ahead as usual; if CommCare HQ's version holds a few things Nova writes
+its own way, the Publish dialog lists what that publish changes first.
+
+**When the app changed in both places, you choose one.** Nova shows a second
+list, **What changed in Nova since then**, and doesn't combine the two. **Use
+CommCare HQ's version** takes CommCare HQ's changes and removes the ones listed
+under Nova, and Nova can't put those back, so **Copy both lists** is there if
+you'd like a record first. If you renamed a case property in Nova since then,
+Nova asks you to rename it back before it offers CommCare HQ's version, so
+saved cases keep their values. **Publish over CommCare HQ's changes** sends
+this app's version and replaces what changed there. An admin or owner of the
+Project can also choose **Stop publishing here**, which leaves the app in
+CommCare HQ as it is; a later publish there makes a new app. You can also close
+the dialog and decide later.
+
+**A picture or sound replaced in CommCare HQ is a change like any other.**
+It's listed with the rest. Bringing the changes in takes CommCare HQ's file,
+and Nova sends its own file back only when you choose to publish over the
+change.
+
+**Nova also looks when you open an app.** Once the builder is up, if you can
+edit the app, Nova checks in the background whether it changed in CommCare HQ,
+using your own CommCare HQ connection. Nothing waits on it. If something
+changed, **See what changed in CommCare HQ** appears in the builder's header.
+Where more than one project space changed, it opens **App setup → Publishing**,
+where each card that changed says so and offers **See what changed**. If Nova
+can't reach CommCare HQ, it says nothing, and your next publish checks again.
+
+**When Nova can't bring a change in**, it says why and what you can do about
+it. Where the change is still there, you can publish over it or stop
+publishing there.
+
+**You can also publish over a change.** Tick **Publish over this** beside
 each one you're happy to replace with this app's version, then choose
 **Publish over these changes**. Leave one unticked and nothing is sent. Each
 tick is for the state Nova showed you, so if something changes again in
 CommCare HQ before you publish, Nova asks again. Closing the dialog or changing
-the destination clears the ticks.
+the destination clears the ticks. A change to a lookup table or a place is
+decided this way.
 
 **You can also stop publishing here.** The app in CommCare HQ stays as it is,
 this app stops publishing to it, and it can be brought in to Nova again as a
@@ -368,9 +407,12 @@ it, the card says so and leaves the link out, since that app is the way to it
 now. Any worker passwords Nova showed on the card stay there until you leave the
 page, and Nova makes no more workers on that project space.
 
-**A save in CommCare HQ can show up here even when it changed no value.**
-CommCare HQ's settings pages and its form builder write things Nova doesn't, so
-opening a form or a menu's settings there and saving it is enough to be listed.
+**A save in CommCare HQ that changed nothing doesn't hold you up.** CommCare
+HQ's settings pages and its form builder write things Nova doesn't, so opening
+a form there and saving it can look like a change. Nova reads the app again,
+sees that it's the same app, and lets your publish go ahead. Where Nova can't
+bring changes in from that project space, such a save is listed like any other
+change.
 
 Some changes read a little differently:
 

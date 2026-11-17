@@ -34,6 +34,7 @@ import {
 import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
+	readDeploymentNovaRevisions,
 	readDeploymentsForApp,
 	readTargetFacts,
 } from "@/lib/deployment/store";
@@ -60,6 +61,10 @@ import { loadAppBlueprint } from "../loadApp";
 import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
+import { landedNovaRevisions, landedResourceIdentities } from "./landedReads";
+
+/** After the kept list's sentence for `changed-in-hq`: where a client reads what changed. */
+const READ_HQ_CHANGES_POINTER = " `read_hq_changes` lists what changed.";
 
 function jsonResult(payload: unknown): McpToolSuccessResult {
 	return { content: [{ type: "text", text: JSON.stringify(payload) }] };
@@ -75,7 +80,7 @@ export function registerGetDeployment(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, `incomplete` or `ended`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. `deployment.confirmations` lists what a person confirmed about each project space for this app (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off); `withdraw_deployment_confirmation` takes one back, and the next upload there asks again. Reads only; call `refresh_deployment` to ask CommCare HQ again. `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. `brought_in` says the app came from CommCare HQ on that project space, when and by whom. `ending` says Nova stopped publishing there: the app in CommCare HQ stays, and the next upload makes a new app beside it; where `ending.held_by_another_app` is true, another Nova app publishes to that CommCare HQ app now, so `ending.hq_app_id` is left out and there is no way back to it to offer.",
+				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, `incomplete` or `ended`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. `deployment.confirmations` lists what a person confirmed about each project space for this app (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off); `withdraw_deployment_confirmation` takes one back, and the next upload there asks again. Reads only; call `refresh_deployment` to ask CommCare HQ again. `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. `brought_in` says the app came from CommCare HQ on that project space, when and by whom. `ending` says Nova stopped publishing there: the app in CommCare HQ stays, and the next upload makes a new app beside it; where `ending.held_by_another_app` is true, another Nova app publishes to that CommCare HQ app now, so `ending.hq_app_id` is left out and there is no way back to it to offer. `nova_revision` is the revision of this app that CommCare HQ's copy was last known to match, beside `pushed_revision`, the one Nova last sent: after changes made in CommCare HQ are brought in, the two differ, and only a revision after `nova_revision` holds something waiting to be published.",
 			inputSchema: z.object({
 				/* The same wire schema the browser boundary validates, so the
 				 * two surfaces cannot drift into accepting different things. */
@@ -109,12 +114,17 @@ export function registerGetDeployment(
 					deployments.length === 0
 						? new Map<string, string>()
 						: await currentResourceIdentities(scope, doc);
+				const novaRevisions =
+					deployments.length === 0
+						? new Map<string, number>()
+						: await readDeploymentNovaRevisions(scope);
 				const views = await Promise.all(
 					deployments.map(async (deployment) => ({
 						...describeDeployment(
 							deployment,
 							identities,
 							await deploymentKept(scope, deployment),
+							novaRevisions,
 						),
 						setup_artifact: await setupArtifactFor(
 							scope,
@@ -145,7 +155,7 @@ export function registerRefreshDeployment(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes Nova's own record, so it needs the HQ write scope and edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Its result carries the same `deployment.confirmations` as `get_deployment`. Use this after telling a user to make a version and release it on CommCare HQ. Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ (the `kept` list of `get_deployment`) without asking about builds. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise.",
+				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes Nova's own record, so it needs the HQ write scope and edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Its result carries the same `deployment.confirmations` as `get_deployment`. Use this after telling a user to make a version and release it on CommCare HQ. Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ (the `kept` list of `get_deployment`) without asking about builds. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise. Where Nova couldn't read back `kept` or `nova_revision` after its write landed, that field is left out and the refresh still landed: `get_deployment` reads them again.",
 			inputSchema: z.object({
 				/* The exact shapes `deploymentTargetSchema` validates on the
 				 * browser boundary, field by field, so the two surfaces cannot
@@ -202,18 +212,20 @@ export function registerRefreshDeployment(
 						`This app has no deployment to “${args.domain}” on the ${COMMCARE_SERVERS[args.server].label} CommCare server. Publish it there first, or call get_deployment to see where it has been published.`,
 					);
 				}
+				/* The check's write has landed, so what Nova could not read just
+				 * now is left out of the answer rather than failing it. */
+				const [identities, kept, novaRevisions] = await Promise.all([
+					landedResourceIdentities(scope, doc, args.domain, "check-status"),
+					landedDeploymentKept(scope, refreshed.deployment, "check-status"),
+					landedNovaRevisions(scope, args.domain, "check-status"),
+				]);
 				return jsonResult({
 					app_id: args.app_id,
 					...describeDeployment(
 						refreshed.deployment,
-						await currentResourceIdentities(scope, doc),
-						/* The check's write has landed, so a list Nova could not
-						 * read just now leaves `kept` out rather than failing it. */
-						await landedDeploymentKept(
-							scope,
-							refreshed.deployment,
-							"check-status",
-						),
+						identities,
+						kept,
+						novaRevisions,
 					),
 					setup_artifact: refreshed.artifact,
 				});
@@ -248,17 +260,24 @@ async function refreshKeptValuesResult(
 		space: target.domain,
 	};
 	if (outcome.kind !== "refreshed" && outcome.kind !== "superseded") {
+		const sentence = keptRefreshSentence(
+			{ kind: outcome.kind, changed: false },
+			context,
+		);
 		return {
 			app_id: scope.appId,
 			kept_refresh: outcome.kind,
-			message: keptRefreshSentence(
-				{ kind: outcome.kind, changed: false },
-				context,
-			),
+			/* Where CommCare HQ saved the app, the card offers what changed;
+			 * a client is pointed at the tool that lists it. */
+			message:
+				outcome.kind === "changed-in-hq"
+					? `${sentence}${READ_HQ_CHANGES_POINTER}`
+					: sentence,
 		};
 	}
 	/* The refresh's write has landed, so a list Nova could not read just now
-	 * leaves `kept` out and says so, rather than failing the answer. */
+	 * leaves `kept` out and says so, rather than failing the answer; the
+	 * other reads after it answer less the same way. */
 	const kept = await landedDeploymentKept(
 		scope,
 		outcome.deployment,
@@ -285,8 +304,9 @@ async function refreshKeptValuesResult(
 		message,
 		...describeDeployment(
 			outcome.deployment,
-			await currentResourceIdentities(scope, doc),
+			await landedResourceIdentities(scope, doc, target.domain, "kept-refresh"),
 			kept,
+			await landedNovaRevisions(scope, target.domain, "kept-refresh"),
 		),
 		setup_artifact: await setupArtifactFor(
 			scope,

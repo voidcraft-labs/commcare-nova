@@ -155,7 +155,7 @@ export interface DraftExpression {
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
 export interface DraftField {
 	readonly node: DataNode;
-	/** A root Question List becomes a section once the form's root is known (10.2). */
+	/** A root Question List becomes a section once the form's root is known. */
 	kind: FieldKind;
 	readonly id: string;
 	readonly parent: DraftField | null;

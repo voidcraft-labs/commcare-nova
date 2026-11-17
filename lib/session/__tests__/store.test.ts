@@ -41,6 +41,7 @@ import {
 import { toastStore } from "@/lib/ui/toastStore";
 import { searchInputsGivenIn } from "../previewSearchState";
 import { type ConnectSwitchRequest, createBuilderSessionStore } from "../store";
+import type { HqChangesBroughtIn } from "../types";
 
 /** The fixture docs carry no lookup reference, so an unavailable context is
  *  the honest gate for them — what the hook binds when nothing is loaded. */
@@ -2028,6 +2029,119 @@ describe("BuilderSession publish dialog request", () => {
 		viaScope.getState().requestPublishDialog({ domain: "alpha" });
 		viaScope.getState().resetProjectScope();
 		expect(viaScope.getState().publishDialogRequest).toBeNull();
+	});
+
+	it("carries the publish over chosen on the Publishing card", () => {
+		const store = createBuilderSessionStore();
+		const discard = {
+			kind: "app",
+			novaResourceId: "app-1",
+			observedDigest: "o".repeat(64),
+		} as const;
+		store.getState().requestPublishDialog({ domain: "alpha", discard });
+		expect(store.getState().publishDialogRequest).toEqual({
+			domain: "alpha",
+			discard,
+		});
+	});
+});
+
+// ── Project spaces changed in CommCare HQ ─────────────────────────────────
+
+describe("BuilderSession changed project spaces", () => {
+	const alpha = { server: "production", domain: "alpha" } as const;
+	const beta = { server: "india", domain: "beta" } as const;
+
+	it("starts empty, with no value for checking, and holds the check's answer", () => {
+		const store = createBuilderSessionStore();
+		expect(store.getState().hqChangedTargets).toEqual([]);
+		store.getState().setHqChangedTargets([alpha, beta]);
+		expect(store.getState().hqChangedTargets).toEqual([alpha, beta]);
+	});
+
+	it("settles one project space by server and domain, and writes nothing for one it does not hold", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setHqChangedTargets([alpha, beta]);
+		store.getState().clearHqChangedTarget({ server: "eu", domain: "alpha" });
+		expect(store.getState().hqChangedTargets).toEqual([alpha, beta]);
+		const prev = store.getState();
+		store.getState().clearHqChangedTarget({ server: "eu", domain: "alpha" });
+		expect(store.getState()).toBe(prev);
+		store.getState().clearHqChangedTarget(alpha);
+		expect(store.getState().hqChangedTargets).toEqual([beta]);
+	});
+
+	it("is cleared whole when someone brings changes in, and by reset", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setHqChangedTargets([alpha, beta]);
+		store.getState().clearHqChangedTargets();
+		expect(store.getState().hqChangedTargets).toEqual([]);
+		const prev = store.getState();
+		store.getState().clearHqChangedTargets();
+		expect(store.getState()).toBe(prev);
+
+		store.getState().setHqChangedTargets([alpha]);
+		store.getState().reset();
+		expect(store.getState().hqChangedTargets).toEqual([]);
+	});
+});
+
+describe("BuilderSession held bring-in of changes made in CommCare HQ", () => {
+	const held = (projectId: string) =>
+		({
+			home: "publish",
+			server: "production",
+			domain: "alpha",
+			projectId,
+			deployment: { marker: "record" },
+			discarded: false,
+		}) as unknown as HqChangesBroughtIn;
+
+	it("holds a bring-in sent in the Project the session holds, through the reload its commit forces", () => {
+		const store = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "p-1",
+			role: "editor",
+			canEdit: true,
+		});
+		store.getState().holdHqChangesBroughtIn(held("p-1"));
+		expect(store.getState().hqChangesBroughtIn).toEqual(held("p-1"));
+		/* The reload: editing pauses and Project-scoped state clears, and a
+		 * snapshot of the same Project lands. */
+		store.getState().beginAccessRefresh();
+		store.getState().resetProjectScope();
+		store.getState().applyAccessSnapshot({
+			projectId: "p-1",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().hqChangesBroughtIn).toEqual(held("p-1"));
+		store.getState().clearHqChangesBroughtIn();
+		expect(store.getState().hqChangesBroughtIn).toBeNull();
+	});
+
+	it("never holds one sent in another Project, and drops one when the Project changes or the session resets", () => {
+		const store = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "p-1",
+			role: "editor",
+			canEdit: true,
+		});
+		store.getState().holdHqChangesBroughtIn(held("p-2"));
+		expect(store.getState().hqChangesBroughtIn).toBeNull();
+
+		store.getState().holdHqChangesBroughtIn(held("p-1"));
+		store.getState().applyAccessSnapshot({
+			projectId: "p-2",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().hqChangesBroughtIn).toBeNull();
+
+		store.getState().holdHqChangesBroughtIn(held("p-2"));
+		expect(store.getState().hqChangesBroughtIn).not.toBeNull();
+		store.getState().reset();
+		expect(store.getState().hqChangesBroughtIn).toBeNull();
 	});
 });
 

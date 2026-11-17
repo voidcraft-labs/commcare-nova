@@ -1,5 +1,5 @@
 /**
- * A form's load-time order (11.3): the steps are the source's setvalues in
+ * A form's load-time order: the steps are the source's setvalues in
  * document order, each default with the expression it was registered as, and a
  * pair of one event whose relative order differs between the source and Nova's
  * emission is a conflict exactly where one step reads the node the other sets.

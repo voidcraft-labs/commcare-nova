@@ -385,9 +385,10 @@ def _designer_options(state, app_id, form_unique_id, options, lang) -> tuple[Des
     return computed, time.perf_counter() - started
 
 
-def vellum_spec(options: DesignerOptions, *, load_delay, seeded=True) -> dict:
-    """Everything the browser is given for one Vellum run: the run spec its transcript is keyed by."""
-    return {
+def vellum_spec(options: DesignerOptions, *, load_delay, seeded=True, edit=None) -> dict:
+    """Everything the browser is given for one Vellum run: the run spec its transcript is keyed by, the run's
+    one edit among it where it makes one (``open_and_save``'s ``edit``)."""
+    spec = {
         "kind": "vellum",
         "host": HOST_PAGE,
         "options": options.json,
@@ -395,6 +396,31 @@ def vellum_spec(options: DesignerOptions, *, load_delay, seeded=True) -> dict:
         "cookies": [["lang", options.lang]],
         "epoch": seeding.epoch_ms() if seeded else None,
     }
+    if edit is not None:
+        spec["edit"] = dict(edit)
+    return spec
+
+
+# The ways a run's edit is made (``driver/steps/vellum/edit.js``): through the form builder's own object for the
+# question, where the page cannot be worked as a person works it.
+EDIT_WAYS = ("builder-model",)
+
+
+class VellumEditRefused(AssertionError):
+    """The run's one edit between the open and the save did not take."""
+
+
+def _check_edit(edit, outcome, form_unique_id):
+    """Holds the run's edit to what the page answered (``driver/steps/vellum/edit.js``)."""
+    if edit is None:
+        return
+    if edit.get("way") not in EDIT_WAYS:
+        raise ValueError(f"A Vellum run's edit names the way {edit.get('way')!r}; the driver makes it {EDIT_WAYS}.")
+    if not isinstance(outcome, dict) or not outcome.get("edited") or outcome.get("value") != edit["label"]:
+        raise VellumEditRefused(
+            f"The edit of the question {edit['path']} of form {form_unique_id} in Vellum did not take ({outcome!r}),"
+            " so the driver did not save it as the run names it. Look at what Vellum's object for the question holds."
+        )
 
 
 def _seed(spec):
@@ -412,6 +438,7 @@ def open_and_save(
     deadline=120.0,
     seeded=True,
     read_stored=True,
+    edit=None,
 ) -> VellumRun:
     """Opens the form HQ holds in Vellum on the driver's warm host and saves it through HQ's view.
 
@@ -423,6 +450,13 @@ def open_and_save(
     (``HQRefusedPageRequest``), and when the driver could not finish the run
     (``EditorRunFailed``). ``read_stored`` is ``_vellum_run``'s.
 
+    ``edit`` is the one edit the run makes between the open and the save, as a
+    person makes one: ``{path, label, way}``, the label of the question at
+    ``path`` set to ``label`` in the form's default language, ``way`` one of
+    ``EDIT_WAYS`` (``driver/steps/vellum/edit.js``). The run's spec names it, so
+    a transcript of a run with no edit never stands for one with it; an edit
+    that did not take fails the run before the save (``VellumEditRefused``).
+
     When the in-band audit chooses the form (``PROOF_EDITOR_AUDIT``), it is
     first run on a fresh page at HQ's own load delay in a fork of the unit,
     and the two runs must end the same way: the same run
@@ -433,6 +467,8 @@ def open_and_save(
     answers = _answers(answers)
     state = answers.state
     options, options_seconds = _designer_options(state, app_id, form_unique_id, options, lang)
+    if edit is not None and edit.get("way") not in EDIT_WAYS:
+        raise ValueError(f"A Vellum run's edit names the way {edit.get('way')!r}; the driver makes it {EDIT_WAYS}.")
     audited = None
     if audit_selection(1):
         if answers.unit is None:
@@ -447,6 +483,7 @@ def open_and_save(
                     options,
                     deadline=deadline,
                     seeded=seeded,
+                    edit=edit,
                 )
             )
     warm = _outcome(
@@ -460,6 +497,7 @@ def open_and_save(
             deadline=deadline,
             seeded=seeded,
             read_stored=read_stored,
+            edit=edit,
         )
     )
     if audited is not None:
@@ -476,12 +514,12 @@ def open_and_save(
 
 
 def _warm_open_and_save(
-    driver, answers, app_id, form_unique_id, options, options_seconds, *, deadline, seeded, read_stored=True
+    driver, answers, app_id, form_unique_id, options, options_seconds, *, deadline, seeded, read_stored=True, edit=None
 ) -> VellumRun:
     """One run of the form on the driver's warm host (``open_and_save`` without the audit)."""
     state = answers.state
     source = options.source if options.source is not None else _source(state, app_id, form_unique_id)
-    spec = vellum_spec(options, load_delay=WARM_LOAD_DELAY, seeded=seeded)
+    spec = vellum_spec(options, load_delay=WARM_LOAD_DELAY, seeded=seeded, edit=edit)
     message = {
         "op": "vellum",
         "options": options.json,
@@ -490,6 +528,8 @@ def _warm_open_and_save(
         "seed": _seed(spec),
         "deadlineMs": int(deadline * 1000),
     }
+    if edit is not None:
+        message["edit"] = dict(edit)
     first = len(answers.exchanges)
     started = time.perf_counter()
     try:
@@ -498,8 +538,11 @@ def _warm_open_and_save(
         raise EditorRunFailed(f"Vellum's open and save of form {form_unique_id}", error, answers) from error
     seconds = time.perf_counter() - started
     answers.check()
+    _check_edit(edit, result.get("edit"), form_unique_id)
     exchanges = answers.exchanges[first:]
     outputs = _outputs(result.get("record"), result.get("save"), result.get("after"), result)
+    if edit is not None:
+        outputs["edit"] = result.get("edit")
     page = result.get("started") or {}
     reset, ended = result.get("reset"), result.get("ended")
     timed_events = list((result.get("after") or {}).get("events") or [])
@@ -658,16 +701,17 @@ def replay(
     lang=None,
     seeded=True,
     read_stored=True,
+    edit=None,
 ) -> VellumRun | None:
     """The Vellum run a transcript stands for, when HQ answers every recorded request as it did; else None.
 
-    ``read_stored`` is ``_vellum_run``'s.
+    ``read_stored`` is ``_vellum_run``'s, ``edit`` ``open_and_save``'s.
     """
     answers = _answers(answers)
     state = answers.state
     options, _ = _designer_options(state, app_id, form_unique_id, options, lang)
     source = options.source if options.source is not None else _source(state, app_id, form_unique_id)
-    if transcript.spec != vellum_spec(options, load_delay=WARM_LOAD_DELAY, seeded=seeded):
+    if transcript.spec != vellum_spec(options, load_delay=WARM_LOAD_DELAY, seeded=seeded, edit=edit):
         return None
     first = len(answers.exchanges)
     started = time.perf_counter()
@@ -693,7 +737,8 @@ def replay(
 
 
 # The fresh page's steps: the host page loaded, Vellum started at HQ's own load
-# delay, then the same steps the warm run takes.
+# delay, then the same steps the warm run takes, the run's edit, where it makes
+# one, between the record and the save.
 _FRESH_STEPS = (
     {"goto": HOST_PAGE},
     {"until": "vellum/host_ready"},
@@ -701,6 +746,7 @@ _FRESH_STEPS = (
     {"until": "vellum/loaded"},
     {"until": "vellum/settled"},
     {"call": "vellum/record"},
+    "edit",  # the run's edit, left out where it makes none
     {"call": "vellum/save"},
     {"until": "vellum/saved"},
     {"call": "vellum/after_save"},
@@ -717,19 +763,26 @@ def fresh_open_and_save(
     lang=None,
     deadline=120.0,
     seeded=True,
+    edit=None,
 ) -> VellumRun:
-    """Opens and saves the form in a fresh browser context, at HQ's own load delay (no transcript)."""
+    """Opens and saves the form in a fresh browser context, at HQ's own load delay (no transcript); ``edit`` is
+    ``open_and_save``'s."""
     answers = _answers(answers)
     state = answers.state
     options, options_seconds = _designer_options(state, app_id, form_unique_id, options, lang)
     source = options.source if options.source is not None else _source(state, app_id, form_unique_id)
-    spec = vellum_spec(options, load_delay=None, seeded=seeded)
+    spec = vellum_spec(options, load_delay=None, seeded=seeded, edit=edit)
     seed = _seed(spec)
     start = {
         "call": "vellum/start",
         "arg": {"options": options.json, "loadDelay": None, "seed": None if seed is None else seed["seed"]},
     }
-    steps = [step if step is not None else start for step in _FRESH_STEPS]
+    steps = [
+        start if step is None else {"call": "vellum/edit", "arg": dict(edit)} if step == "edit" else step
+        for step in _FRESH_STEPS
+        if step != "edit" or edit is not None
+    ]
+    at = {name: index for index, name in enumerate(_step_names(steps))}
     first = len(answers.exchanges)
     try:
         run = driver.run(steps, answer=answers, deadline=deadline, cookies={"lang": options.lang}, seed=seed)
@@ -737,9 +790,18 @@ def fresh_open_and_save(
         raise EditorRunFailed(f"Vellum's open and save of form {form_unique_id}", error, answers) from error
     answers.check()
     outcomes = run["outcomes"]
-    outputs = _outputs(outcomes[5]["value"], outcomes[6]["value"], outcomes[8]["value"], run)
-    page = outcomes[2]["value"] or {}
-    timed_events = list((outcomes[8]["value"] or {}).get("events") or [])
+    if edit is not None:
+        _check_edit(edit, outcomes[at["vellum/edit"]]["value"], form_unique_id)
+    outputs = _outputs(
+        outcomes[at["vellum/record"]]["value"],
+        outcomes[at["vellum/save"]]["value"],
+        outcomes[at["vellum/after_save"]]["value"],
+        run,
+    )
+    if edit is not None:
+        outputs["edit"] = outcomes[at["vellum/edit"]]["value"]
+    page = outcomes[at["vellum/start"]]["value"] or {}
+    timed_events = list((outcomes[at["vellum/after_save"]]["value"] or {}).get("events") or [])
     return _vellum_run(
         state,
         app_id,
@@ -754,11 +816,16 @@ def fresh_open_and_save(
         timed_events=timed_events,
         seconds={
             "options": round(options_seconds, 3),
-            "open": round(sum(outcomes[i]["seconds"] for i in range(0, 5)), 3),
-            "save": round(sum(outcomes[i]["seconds"] for i in range(6, 8)), 3),
+            "open": round(sum(outcomes[i]["seconds"] for i in range(0, at["vellum/record"])), 3),
+            "save": round(sum(outcomes[i]["seconds"] for i in range(at["vellum/save"], at["vellum/after_save"])), 3),
             "run": run["seconds"],
         },
     )
+
+
+def _step_names(steps):
+    """Each fresh step's name: the step file it calls or waits on, or ``goto`` for the page load."""
+    return [step.get("call") or step.get("until") or "goto" for step in steps]
 
 
 def round_trips(driver: EditorDriver, state, app_id, form_unique_id, *, count=2, lang=None) -> list[VellumRun]:

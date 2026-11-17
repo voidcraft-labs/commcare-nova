@@ -1672,7 +1672,7 @@ function bindCsqlParts(
 	}
 }
 
-/** Section 7.3: assembles each run of text and holes, parses it with
+/** Assembles each run of text and holes, parses it with
  *  `readFormSyntax` and binds it under `context`; a `presence` or `choice`
  *  part binds its bodies by the same call. */
 function bindCsql(

@@ -1,5 +1,5 @@
 /**
- * A control's appearance, classified by the first rule of 9.2 that applies.
+ * A control's appearance, classified by the first appearance rule that applies.
  * Over the examples each manifest entry's item gives, it would catch an inert
  * claim for a string a runtime reads; one of the five refused classes with no
  * lane reader misread, which nothing in Python would catch; and a held token

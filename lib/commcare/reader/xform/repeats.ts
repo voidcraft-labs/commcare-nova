@@ -1,5 +1,5 @@
 /**
- * Repeats (10.3) and where model iteration is held (10.4). A `group` that is
+ * Repeats and where model iteration is held. A `group` that is
  * no Question List and holds exactly one `repeat` child is a repeat
  * (`parser.js::buildControlNodeAdaptorMap`). Its mode is read from the
  * repeat's `jr:count` and `jr:noAddRemove` and from the node its `nodeset`
@@ -421,9 +421,9 @@ export interface SettleCountInput {
 	readonly field: DraftField;
 	/** The field the count names, or undefined where it names a node that is no field. */
 	readonly target: DraftField | undefined;
-	/** Whether the count names the query count node Nova generates for this repeat (13.2). */
+	/** Whether the count names the query count node Nova generates for this repeat. */
 	readonly queryCount: boolean;
-	/** The bind of the count node Nova generates for this repeat (`nova_count_<r>`, 13.2), where
+	/** The bind of the count node Nova generates for this repeat (`nova_count_<r>`), where
 	 *  the count names it: the repeat's count is that node's calculate. */
 	readonly generatedCount?: BindFacts;
 	readonly parsed: ParsedXForm;
@@ -432,7 +432,7 @@ export interface SettleCountInput {
 }
 
 /**
- * Claims a counted repeat by what its count names (10.3): an integer question, a Hidden Value or
+ * Claims a counted repeat by what its count names: an integer question, a Hidden Value or
  * a single select is held, the count registered as the repeat's `repeat_count`; a decimal or any
  * other question is refused; the generated query count is the count placement.
  */
@@ -532,7 +532,7 @@ export function settleRepeatCount(input: SettleCountInput): boolean {
 	return true;
 }
 
-// ── Where model iteration is held (10.4) ─────────────────────────────────
+// ── Where model iteration is held ─────────────────────────────────
 
 export type ModelIterationVerdict =
 	| { readonly kind: "held" }
@@ -553,7 +553,7 @@ function fieldsRead(expression: Expression | undefined): Uuid[] {
  * (`queryRepeatPlacementNeeds` empty), refused under one of the three manifest refusals where the
  * blank answer is certain, or refused as outside that rule. `setAfterIds` says whether a node's
  * only load-time value stands after the wrapper's `@ids` setvalue in the form's effective load
- * order (11.3).
+ * order.
  */
 export function modelIterationVerdict(
 	doc: BlueprintDoc,

@@ -66,10 +66,17 @@ import type {
 import { createBuilderSessionStore } from "./store";
 
 export type { AccessPhase } from "./store";
+export type {
+	HqChangedTarget,
+	HqChangesBroughtIn,
+	PublishDialogRequest,
+} from "./types";
 
 import type {
 	GenerationError,
 	GenerationStage,
+	HqChangedTarget,
+	HqChangesBroughtIn,
 	PreviewCaseListRegistrationEntry,
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
@@ -78,6 +85,7 @@ import type {
 	PreviewSearchDeviceValues,
 	PreviewSearchState,
 	PreviewSelectedCase,
+	PublishDialogRequest,
 	StagedUpload,
 } from "./types";
 
@@ -952,20 +960,60 @@ export function useNoteDeploymentRecordsChanged(): () => void {
 /** The pending request to open the Publish dialog on a target, or null.
  *  Written by the Publishing section's "Publish again"; consumed by
  *  PublishPanel, which owns the dialog. */
-export function usePublishDialogRequest(): { readonly domain: string } | null {
+export function usePublishDialogRequest(): PublishDialogRequest | null {
 	return useBuilderSession((s) => s.publishDialogRequest);
 }
 
-/** Ask PublishPanel to open the Publish dialog preseeded to a domain. */
-export function useRequestPublishDialog(): (request: {
-	readonly domain: string;
-}) => void {
+/** Ask PublishPanel to open the Publish dialog preseeded to a domain, and
+ *  with a discard where the person chose to publish over a change. */
+export function useRequestPublishDialog(): (
+	request: PublishDialogRequest,
+) => void {
 	return useBuilderSession((s) => s.requestPublishDialog);
 }
 
 /** Consume (or abandon) the pending Publish dialog open request. */
 export function useClearPublishDialogRequest(): () => void {
 	return useBuilderSession((s) => s.clearPublishDialogRequest);
+}
+
+// ── Changes made in CommCare HQ ───────────────────────────────────────────
+
+/** The project spaces the check when the builder opens found changed;
+ *  empty until it answers, and there is no "checking" value to wait on. */
+export function useHqChangedTargets(): readonly HqChangedTarget[] {
+	return useBuilderSession((s) => s.hqChangedTargets);
+}
+
+/** Write the check's answer. Action-only. */
+export function useSetHqChangedTargets(): (
+	targets: readonly HqChangedTarget[],
+) => void {
+	return useBuilderSession((s) => s.setHqChangedTargets);
+}
+
+/** Settle one project space: its panel answered, a publish landed there,
+ *  or publishing there stopped. Action-only. */
+export function useClearHqChangedTarget(): (target: HqChangedTarget) => void {
+	return useBuilderSession((s) => s.clearHqChangedTarget);
+}
+
+/** This tab's own landed bring-in, held until the surface that asked shows
+ *  it after the reload its commit forces; null where none is held. */
+export function useHqChangesBroughtIn(): HqChangesBroughtIn | null {
+	return useBuilderSession((s) => s.hqChangesBroughtIn);
+}
+
+/** Hold a landed bring-in for its surface. Action-only. */
+export function useHoldHqChangesBroughtIn(): (
+	result: HqChangesBroughtIn,
+) => void {
+	return useBuilderSession((s) => s.holdHqChangesBroughtIn);
+}
+
+/** The surface took the held bring-in, or the person closed its dialog. Action-only. */
+export function useClearHqChangesBroughtIn(): () => void {
+	return useBuilderSession((s) => s.clearHqChangesBroughtIn);
 }
 
 // ── Identity-move dialog ──────────────────────────────────────────────────

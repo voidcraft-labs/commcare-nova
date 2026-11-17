@@ -185,7 +185,9 @@ it("classifies a disconnected or non-JSON inventory as unavailable", async () =>
 		peer
 			.get(HOST)
 			.intercept({ path: LIST, method: "GET" })
-			.replyWithError(new Error("connection lost"));
+			.replyWithError(new Error("connection lost"))
+			/* A read no answer began for is sent once more. */
+			.times(2);
 		peer
 			.get(HOST)
 			.intercept({ path: LIST, method: "GET" })

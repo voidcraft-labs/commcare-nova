@@ -54,8 +54,12 @@
  *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
- *                                client GETs the current blueprint.
- *                                Seq-less, no `id:` line.
+ *                                client GETs the current blueprint. Its
+ *                                `reason` (`lib/collab/reloadFrame.ts`) is
+ *                                `hq-changes`, with the row's `batchId` and
+ *                                `actorId`, where the suffix that forced it
+ *                                holds a bring-in of changes made in CommCare
+ *                                HQ. Seq-less, no `id:` line.
  *   event: protocol-failure      the complete post-cursor suffix failed the
  *                                canonical frame grammar. No mutation frame
  *                                was emitted and the client reloads from its
@@ -75,6 +79,7 @@ import {
 	type MutationFrame,
 } from "@/lib/collab/mutationFrame";
 import type { PreviewTargetFactsFrame } from "@/lib/collab/previewTargetFactsFrame";
+import type { ReloadFrame } from "@/lib/collab/reloadFrame";
 import type { RevocationReason } from "@/lib/collab/revocationFrame";
 import { isUserActive } from "@/lib/db/api-keys";
 import {
@@ -341,8 +346,10 @@ function openStream(args: {
 				 * deltas it has: tell it to GET the fresh blueprint. `reload` is
 				 * terminal for this connection's replay; the client reconnects at the
 				 * fresh seq. */
-				function reloadAndClose(reason = "replay-unavailable"): void {
-					send("reload", { reason });
+				function reloadAndClose(
+					frame: ReloadFrame = { reason: "replay-unavailable" },
+				): void {
+					send("reload", frame);
 					teardown();
 				}
 
@@ -368,12 +375,16 @@ function openStream(args: {
 					send("app-status", { status } satisfies AppStatusFrame);
 				}
 
-				/* Blueprint migrations, fold baselines, and Project moves require
-				 * fresh scope. Reauthorize before advancing any cursor or emitting
-				 * any earlier ordinary row, then reload. A transient failure leaves
-				 * `deliveredThrough` unchanged and the pump retries the whole
-				 * suffix; a confirmed loss revokes. */
-				async function reloadAfterDisruptiveChange(): Promise<void> {
+				/* Blueprint migrations, bring-ins of changes made in CommCare HQ,
+				 * fold baselines, and Project moves require fresh scope. Reauthorize
+				 * before advancing any cursor or emitting any earlier ordinary row,
+				 * then reload. A transient failure leaves `deliveredThrough`
+				 * unchanged and the pump retries the whole suffix; a confirmed loss
+				 * revokes. A suffix that holds a bring-in names its latest one, so
+				 * every tab but the one that asked for it can say who. */
+				async function reloadAfterDisruptiveChange(
+					frame: ReloadFrame = { reason: "app-changed" },
+				): Promise<void> {
 					try {
 						runBeforeAppChangeReauthorizationTestHook();
 						await reauthorizeStreamScope(appId, userId);
@@ -385,7 +396,7 @@ function openStream(args: {
 						throw err;
 					}
 					if (closed) return;
-					reloadAndClose("app-changed");
+					reloadAndClose(frame);
 				}
 
 				/* SELECT every committed batch past the delivered cursor and emit it. The
@@ -418,6 +429,7 @@ function openStream(args: {
 					let previousSeq = deliveredThrough;
 					const parsedFrames: MutationFrame[] = [];
 					let containsDisruptiveChange = false;
+					let broughtIn: ReloadFrame | undefined;
 					for (const row of rows) {
 						try {
 							const expectedSeq = nextPersistedSequence(
@@ -476,6 +488,13 @@ function openStream(args: {
 								parsedFrames.push(frame);
 							} else {
 								containsDisruptiveChange = true;
+								if (change.kind === "hq-changes") {
+									broughtIn = {
+										reason: "hq-changes",
+										batchId: change.batchId,
+										actorId: change.actorId,
+									};
+								}
 							}
 						} catch (error) {
 							log.error("[stream] malformed durable app-change suffix", error, {
@@ -487,7 +506,7 @@ function openStream(args: {
 					}
 
 					if (containsDisruptiveChange) {
-						await reloadAfterDisruptiveChange();
+						await reloadAfterDisruptiveChange(broughtIn);
 						return;
 					}
 
@@ -779,7 +798,7 @@ function openStream(args: {
 									fresh.role !== scope.role ||
 									fresh.canEdit !== scope.canEdit
 								) {
-									reloadAndClose("authorization-changed");
+									reloadAndClose({ reason: "authorization-changed" });
 								}
 								/* Same tick, no extra read: announce a run-lifecycle change
 								 * (build finished, build failed, re-drive started) to tabs

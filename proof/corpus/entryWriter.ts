@@ -93,6 +93,7 @@ import {
 	writeDocumentInputs,
 } from "./inputs";
 import {
+	type BringInRecord,
 	type CapturedRequest,
 	type CompatibilityOutcome,
 	capturedTargetFacts,
@@ -107,6 +108,7 @@ import {
 	type PublishCapture,
 	type PublishConfiguration,
 	type PublishDocument,
+	type PublishedOverRecord,
 	type RepublishCapture,
 	type SentImport,
 	type StopConfirmation,
@@ -352,11 +354,20 @@ async function writeStep(
 
 /**
  * What an update's sidecar names beside its request: the fields of HQ's
- * source and the resources it was built over, and where Nova's preflight
- * stopped it, the stop and what the resend confirmed.
+ * source and the resources it was built over, where Nova's preflight
+ * stopped it, the stop and what the resend confirmed, and where it was sent
+ * after a review of changes made in CommCare HQ, the review and what the
+ * bring-in or the record took (`broughtIn`, `./publish.ts::BringInRecord`),
+ * with, where the capture also published over the same saves, that branch's
+ * stop and what CommCare HQ's map named after it (`publishedOver`,
+ * `./publish.ts::PublishedOverRecord`).
  */
 function updateSidecar(
-	step: SentImport & { readonly confirmed?: StopConfirmation },
+	step: SentImport & {
+		readonly confirmed?: StopConfirmation;
+		readonly broughtIn?: BringInRecord;
+		readonly publishedOver?: PublishedOverRecord;
+	},
 ) {
 	return {
 		layout: TWO_IMPORT_LAYOUT,
@@ -366,6 +377,10 @@ function updateSidecar(
 			assumedResources: step.assumedResources,
 		}),
 		...(step.confirmed !== undefined && { confirmed: step.confirmed }),
+		...(step.broughtIn !== undefined && { broughtIn: step.broughtIn }),
+		...(step.publishedOver !== undefined && {
+			publishedOver: step.publishedOver,
+		}),
 	};
 }
 

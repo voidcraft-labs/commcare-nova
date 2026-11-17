@@ -328,6 +328,68 @@ and the answer clears after every response. `publishOutcome` carries
 without the button (`canRefresh`), because checking writes what it observed;
 the button is also withheld when the record is one checking cannot answer.
 
+**Changes made in CommCare HQ are one panel with two homes.**
+`HqChangesPanel` reads a review of what changed in CommCare HQ since Nova's
+last publish, bring-in or bring-in of changes, and offers the ways on: bring
+the changes in, use CommCare HQ's version (removing what changed in Nova, which
+its second list names), publish over them, or stop publishing here. It is
+drawn in the publish dialog, where `RemoteChangeChoice` gives it the app's item
+when the app's change has `canBringIn`, and in the Publishing card's
+`HqChangesDialog`, opened by the card's See what changed after Refresh from
+CommCare HQ answers `changed-in-hq` and by the header's See what changed in
+CommCare HQ. Every state, choice and word is the pure
+`hqChangesPanelModel.ts`'s, from `lib/publish/hqChangesCopy.ts`; the
+component sends the request `nextRequest` names (`hqChangesClient.ts`, the
+`/api/commcare/changes` routes' stage streams) and draws `panelView`. While the
+review loads, and in its own choices, the panel is the item's controls, so the
+item's parts, its Publish over this and the stop block are drawn only under an
+account or a stop (`drawsItem`); a review with nothing to bring in but a read to
+record sends that bring-in at once, once, and then the dialog publishes by
+itself or returns to its review step where the next publish changes something.
+The card's publish over closes its dialog and opens the Publish dialog through
+`requestPublishDialog`'s `discard`, which the dialog sends and states under
+the plan line with **Publish over these changes** as its button. Under the
+states whose sentence names publishing over and stopping (S4, U4, U6, H1,
+H2) the card has no item to stand in for them, so the panel draws the two
+itself (`panelView`'s `waysOn`): Publish over CommCare HQ's changes opens the
+Publish dialog on the project space, where the publish stops on the change
+with its own Publish over this, and Stop publishing here (or the editor's
+line). Before it sends a bring-in the panel registers the batch id
+(`lib/deployment/hqChanges/batchId.ts`) with the reconciler, so the reload its
+own commit forces shows no notice in this tab. That reload still closes every
+dialog of the tab (the access gate masks the builder, quarantines floating
+layers and the header's controls unmount), so the answer is held in the
+session (`hqChangesBroughtIn`): the panel holds it when its bring-in answers
+after it is gone (`hqChangesRequester.ts`'s `answeredAfterStop`) or when it
+leaves during the reload showing the changes are in, and the Publish dialog
+when the reload closes it on its destination step. Once access is resolved
+again, `PublishPanel` opens the Publish dialog on that step and
+`HqChangesDialog.tsx::HqChangesBroughtInHost` (mounted with the header's
+controls) draws the card's dialog on its status line from the held answer
+until the person closes it; a close while access is not resolved is the
+reload's and keeps it. On the card, S1 draws Publish over CommCare HQ's
+changes only under G1, whose sentence names it. The panel's requests go
+through `hqChangesRequester.ts`, a start/stop pair built once per panel, so a
+replayed mount (Strict Mode) sends its aborted review again; a bring-in is
+never stopped. A route that refuses before its stream (no edit access, an
+ended session, a body it can't read) is said as what it is
+(`hqChangesClient.ts`), never as a lost connection. A card whose project
+space the check when the builder opens found changed says so and offers See
+what changed without a Refresh first, so the header's button lands on a card
+that answers it.
+
+**The check when the builder opens never holds the builder.** `HqChangesCheck`
+(mounted in `BuilderProvider` beside `LocationRecoveryEffect`) renders nothing
+and is a Route Handler's `fetch` to `/api/commcare/changes/check`, never a
+Server Action, since a tab's Server Actions run one at a time and the builder's
+deployment reads are Server Actions. Its one effect starts once the builder is
+`Ready` or `Completed` for a member who can edit, so the builder is drawn
+first, and aborts on cleanup. Its one output is the session's
+`hqChangedTargets`, which has no "checking" value, so no component can wait on
+it, and every failure is dropped without a word. The field loses a project
+space when its panel answers, a publish lands there or publishing there stops,
+and empties on a reload whose reason is `hq-changes`.
+
 `DeploymentWorkers` sits inside each record's card in the Publishing section
 and is the ONE place a worker's password is ever shown. Every call's answer —
 the accounts made, their once-shown passwords, the latest refusal — is held in

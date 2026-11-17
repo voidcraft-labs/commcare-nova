@@ -1,5 +1,5 @@
 /**
- * Prose (12.3): the literal-output reader is the inverse of the emitter's
+ * Prose: the literal-output reader is the inverse of the emitter's
  * whitespace and bracket outputs. Text of every character class (whitespace
  * runs, NBSP and other Unicode space, text CommCare HQ's build would read as
  * an instance, markup and entity look-alikes, quotes) is emitted through a

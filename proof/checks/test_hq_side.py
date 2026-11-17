@@ -38,6 +38,7 @@ from proof.hq.check import hq_check
 STATE = "targeted-hq-side-state"
 LOOKUP = "targeted-hq-side-lookup"
 KEPT = "targeted-kept-values"
+RESAVE = "targeted-hq-changes-resave"
 
 
 def _document(name):
@@ -210,3 +211,25 @@ def test_a_save_hq_refuses_stops_the_observation(hq, core_runner):
         app_id = _created(unit, export)
         with pytest.raises(hqside.HqSideSaveRefused, match="build profiles"):
             hqside.build_profiles(unit, app_id, document.hq_side["buildProfiles"])
+
+
+def test_a_form_builder_save_runs_where_the_in_band_audit_can_rerun_it_in_a_fork(
+    hq, core_runner, editor_driver, monkeypatch
+):
+    """Contract: a save made in HQ's form builder (``hqside.FORM_BUILDER_SAVES``) is made between the unit's scopes,
+    as proof 4 makes one, so the in-band audit (``PROOF_EDITOR_AUDIT``, which the weekly verified lane sets to 1)
+    can rerun it on a fresh page in a fork of the unit first. Catches a save opened inside its own operation: the
+    unit takes a mark only between scopes (``proof/hq/branch.py::Unit._require_branchable``), so every audited run
+    of the document would fail before A existed. The save still lands as the form builder's own save."""
+    from proof.editors.pages import AUDIT_ENVIRONMENT
+    from proof.observe import hqside
+
+    document = _document(RESAVE)
+    export = document.exports["minimum"]
+    saves = document.hq_side
+    monkeypatch.setenv(AUDIT_ENVIRONMENT, "1")
+    with hq_check(export.configuration.hq()) as (unit, _):
+        app_id = _created(unit, export)
+        held = hqside.save(unit, _ops(unit), app_id, saves, driver=editor_driver)
+        assert sorted(held) == ["formResave"], held
+        assert held["formResave"][0]["view"] == "patch_xform", held

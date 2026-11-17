@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/shadcn/button";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import { endpointWireFixture } from "@/lib/commcare/__tests__/endpointWireFixture";
-import type { CommCareServer } from "@/lib/deployment";
+import { type CommCareServer, isDeploymentServer } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
@@ -53,6 +53,9 @@ const viewer = params.get("viewer") === "true";
 const role = params.get("role") ?? undefined;
 /* The App setup Publishing section in place of the dialog. */
 const section = params.get("section") === "true";
+/* `server:domain` of a project space the check when the builder opens found
+ * changed in CommCare HQ, as `HqChangesCheck` writes it to the session. */
+const changed = params.get("changed");
 const domains =
 	params.get("disconnected") === "true"
 		? []
@@ -164,6 +167,12 @@ function Content() {
 		domains: context.availableDomains,
 	};
 	const session = useBuilderSessionApi();
+	useEffect(() => {
+		if (changed === null) return;
+		const [server, domain] = changed.split(":");
+		if (!isDeploymentServer(server) || domain === undefined) return;
+		session.getState().setHqChangedTargets([{ server, domain }]);
+	}, [session]);
 	const mutations = useBlueprintMutations();
 	const close = useCallback(() => setOpen(false), []);
 	return (

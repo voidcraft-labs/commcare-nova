@@ -272,7 +272,9 @@ it.each([
 			peer
 				.get(HOST)
 				.intercept({ path, method: "GET" })
-				.replyWithError(new Error("connection lost"));
+				.replyWithError(new Error("connection lost"))
+				/* A read no answer began for is sent once more. */
+				.times(2);
 			for (const status of [403, 503, 302])
 				expect(await read(CREDS, DOMAIN)).toEqual({
 					success: false,
@@ -293,7 +295,7 @@ it.each([
 					.getCallHistory()
 					?.calls()
 					.map((call) => call.fullUrl),
-			).toEqual(Array(5).fill(HOST + path));
+			).toEqual(Array(6).fill(HOST + path));
 		});
 	},
 );

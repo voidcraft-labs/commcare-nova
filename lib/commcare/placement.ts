@@ -392,7 +392,7 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		);
 	}
 
-	// The own close (§12.6): its own held block first; else the own arm's
+	// The own close: its own held block first; else the own arm's
 	// place where that place can carry it; else a close-only block.
 	if (f.closesOwn && f.own !== undefined) {
 		const ownCloseSubject: PlacementSubject = { kind: "own-close" };

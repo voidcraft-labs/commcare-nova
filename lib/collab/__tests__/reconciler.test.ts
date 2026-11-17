@@ -13,7 +13,7 @@
  * exercised purely as a state machine, which is exactly what this file does.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
@@ -1878,6 +1878,54 @@ describe("reconciler", () => {
 			const displayed = h.docStore.getState();
 			expect(fieldLabel(displayed, F_A)).toBe("A6");
 			expect(fieldLabel(displayed, F_B)).toBe("B8");
+		});
+
+		it("a server-written change's reload re-folds an unacknowledged edit onto the new head and clears history", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 3,
+				baseDoc: base,
+				userId: "u1",
+			});
+			// Sent and unacknowledged, and still queued: neither is in the head.
+			applyLocal(h, [
+				{
+					kind: "updateField",
+					uuid: F_A,
+					targetKind: "text",
+					patch: { label: proseText("Sent label") },
+				},
+			]);
+			h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: false, kind: "network" });
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
+			expect(h.docStore.getState().canUndo).toBe(true);
+
+			// Another member brought changes in from CommCare HQ at seq 4.
+			const broughtIn = fold(base, [[{ kind: "setAppName", name: "From HQ" }]]);
+			h.reloadQueue.push({ blueprint: broughtIn, seq: 4 });
+			h.reconciler.onReloadEvent();
+			await vi.waitFor(() =>
+				expect(h.reconciler.getSnapshot().baseSeq).toBe(4),
+			);
+
+			const displayed = h.docStore.getState();
+			expect(displayed.appName).toBe("From HQ");
+			expect(fieldLabel(displayed, F_A)).toBe("Sent label");
+			expect(displayed.forms[FORM].purpose).toBe("Local purpose");
+			expect(displayed.canUndo).toBe(false);
+			// Both stay unacknowledged; an editor's landed reload sends the
+			// queued one at once.
+			expect(
+				h.reconciler
+					.getSnapshot()
+					.sentPending.map((batch) => batch.ackedSeq ?? null),
+			).toEqual([null, null]);
+			expect(displayed.peekCommandBatches()).toEqual([]);
+			expect(h.resubscribeCursors).toEqual([4]);
 		});
 
 		it("defers a reload until no PUT is in flight", async () => {

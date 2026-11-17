@@ -708,7 +708,7 @@ class _Unit:
         if saves is not None:
             from proof.observe import hqside
 
-            record["hqSide"] = hqside.save(self.unit, ops, self.app_id, saves)
+            record["hqSide"] = hqside.save(self.unit, ops, self.app_id, saves, driver=self.editor_driver)
         self.a_built, flags, settings = _build(
             self.unit,
             ops,

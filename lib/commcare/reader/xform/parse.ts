@@ -252,7 +252,7 @@ function readIgnore(
 	return tokens;
 }
 
-/** The data root's own attributes and its namespace (8.2). */
+/** The data root's own attributes and its namespace. */
 function claimDataRoot(
 	dataRoot: Element,
 	scope: NamespaceScope,
@@ -308,7 +308,7 @@ function claimDataRoot(
 }
 
 /** The head's children beside its title and model, and the model's beside its instances,
- *  binds, setvalues and itext (8.2). */
+ *  binds, setvalues and itext. */
 function claimHead(
 	head: Element,
 	model: Element,

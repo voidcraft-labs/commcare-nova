@@ -37,9 +37,14 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BuilderAccessStatus } from "@/components/builder/AccessStatus";
+import {
+	HqChangesBroughtInHost,
+	HqChangesDialog,
+} from "@/components/builder/HqChangesDialog";
+import { headerChangesAction } from "@/components/builder/hqChangesPanelModel";
 import { LanguageSelector } from "@/components/builder/localization/LanguageSelector";
 import { AppNoticeChip } from "@/components/builder/notices/AppNoticeChip";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
@@ -64,15 +69,21 @@ import { useHeaderSlots } from "@/components/ui/headerSlots";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { shortcutLabel } from "@/lib/platform";
+import { SEE_WHAT_CHANGED_IN_HQ_ACTION } from "@/lib/publish/hqChangesCopy";
 import { useUndoRedo } from "@/lib/routing/builderActions";
+import { buildUrl } from "@/lib/routing/location";
+import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
+	type HqChangedTarget,
 	useAccessPhase,
 	useAppId,
 	useBuilderIsReady,
 	useBuilderPhase,
 	useCanEdit,
+	useHqChangedTargets,
 } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import type { SetPreviewing } from "./usePreviewModeTransition";
 
@@ -165,6 +176,13 @@ export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {
 			 *  it waits for resolved access like the other popup controls,
 			 *  and renders nothing once each notice is dismissed. */}
 			{showToolbar ? <AppNoticeChip /> : null}
+			{/* What the check when the builder opens found changed in
+			 *  CommCare HQ, for a member who can edit, since bringing it in is
+			 *  an edit. Renders nothing until the check says so. */}
+			{showToolbar && canEdit ? <HqChangesHeaderButton /> : null}
+			{/* This tab's own bring-in, said again once the reload its commit
+			 *  forced has landed and closed the dialog that sent it. */}
+			{showToolbar ? <HqChangesBroughtInHost /> : null}
 			{/* Keep the autosave owner mounted through reversible access
 			 * transitions; only its visual output is conditional internally. */}
 			<SaveIndicator compact={compactHeader} />
@@ -280,6 +298,57 @@ export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {
 			{slots?.account && !beforeAnyApp && accessPhase === "authorized"
 				? createPortal(<AccountMenu appId={appId} />, slots.account)
 				: null}
+		</>
+	);
+}
+
+/**
+ * See what changed in CommCare HQ: where the check when the builder opens
+ * found the app changed in one project space, it opens the Publishing card's
+ * dialog on it; where more than one changed, it opens the Publishing section,
+ * which holds a card for each. The dialog keeps its project space while it is
+ * open, so its answer stays on screen after it settles the target.
+ */
+function HqChangesHeaderButton() {
+	const targets = useHqChangedTargets();
+	const session = useBuilderSessionApi();
+	const [dialogTarget, setDialogTarget] = useState<HqChangedTarget | null>(
+		null,
+	);
+	const action = headerChangesAction(targets);
+	const handleClick = useCallback(() => {
+		if (action.kind === "dialog") {
+			setDialogTarget(action.target);
+			return;
+		}
+		if (action.kind !== "publishing") return;
+		/* App setup renders only in edit mode. The base path is read at call
+		 * time, as the Publish button's own Open Publishing does. */
+		session.getState().setPreviewing(false);
+		const parts = window.location.pathname.split("/").filter(Boolean);
+		pushBuilderHistory(
+			buildUrl(`/${parts.slice(0, 2).join("/")}`, {
+				kind: "app-setup",
+				section: "publishing",
+			}),
+		);
+	}, [action, session]);
+	return (
+		<>
+			{action.kind !== "none" ? (
+				<Button type="button" variant="ghost" onClick={handleClick}>
+					{SEE_WHAT_CHANGED_IN_HQ_ACTION}
+				</Button>
+			) : null}
+			{dialogTarget !== null ? (
+				<HqChangesDialog
+					open
+					onOpenChange={(open) => {
+						if (!open) setDialogTarget(null);
+					}}
+					target={dialogTarget}
+				/>
+			) : null}
 		</>
 	);
 }

@@ -290,6 +290,12 @@ export async function readReadingProjectData(input: {
 	readonly appId: string;
 	readonly readingId: string;
 	readonly source: HqAppSource;
+	/**
+	 * Another source whose text names tables and places for this read too:
+	 * a review of changes made in CommCare HQ reads one set of Project data
+	 * for the baseline's source and the app now, which both readings share.
+	 */
+	readonly alsoSource?: HqAppSource;
 	readonly project: ReadingProjectSide;
 	/** `always` reads places whatever the source's text says. */
 	readonly places: "when-source-reads" | "always";
@@ -301,7 +307,10 @@ export async function readReadingProjectData(input: {
 > {
 	const { creds, domain, cancel, project } = input;
 	const ids = { appId: input.appId, readingId: input.readingId };
-	const sourceText = readingSourceText(input.source);
+	const sourceText =
+		input.alsoSource === undefined
+			? readingSourceText(input.source)
+			: `${readingSourceText(input.source)}\n${readingSourceText(input.alsoSource)}`;
 
 	/* Dated before CommCare HQ is asked, as every refresh dates its read. */
 	const tablesReadAt = new Date();

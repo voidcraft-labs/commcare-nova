@@ -1,5 +1,6 @@
 import "server-only";
 
+import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/commcare/hq/lookupTables";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
+import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
@@ -42,6 +44,7 @@ import {
 	COMMCARE_VERSION_FLOOR,
 	compareToVersionFloor,
 } from "@/lib/commcare/versionFloor";
+import { getAppDb } from "@/lib/db/pg";
 import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -94,6 +97,14 @@ import {
 	settleConfirmations,
 } from "./confirmations";
 import { DeploymentError } from "./errors";
+import { usablePair } from "./hqChanges/reference";
+import {
+	type HqMediaPath,
+	type HqMediaRecord,
+	hqMediaStandings,
+	publishedMediaFiles,
+} from "./hqMedia";
+import { settleHqMedia } from "./hqMediaSettle";
 import {
 	ABSENT_RESOURCE_DIGEST,
 	canonicalLookupTable,
@@ -308,6 +319,17 @@ export type PreflightResult =
 				readonly appBaseline: AppBaseline | null;
 				/** The HQ-side changes a person named back to publish over. */
 				readonly confirmedChanges: readonly DeploymentRemoteChange[];
+				/**
+				 * The standing of each file this publish sends against the
+				 * `target-app` read, settled by content where its id alone could
+				 * not say, and the ids found to hold this app's own bytes. Null
+				 * where that edge did not run or the app it read holds no
+				 * content of Nova's yet.
+				 */
+				readonly media: {
+					readonly paths: readonly HqMediaPath[];
+					readonly learned: HqMediaRecord;
+				} | null;
 				/**
 				 * Whether the project space holds `USH_EMPTY_CASE_LIST_TEXT`, read
 				 * by every publish whatever the app holds; `null` where the read
@@ -1408,6 +1430,10 @@ export async function runDeploymentPreflight(
 		readonly normalized: unknown;
 	} | null = null;
 	let appBaseline: AppBaseline | null = null;
+	let media: {
+		readonly paths: readonly HqMediaPath[];
+		readonly learned: HqMediaRecord;
+	} | null = null;
 	if (input.inPlaceUpdate !== null) {
 		const appId = input.inPlaceUpdate.remoteId;
 		const read = await readHqAppSource(creds, domain, appId);
@@ -1496,6 +1522,75 @@ export async function runDeploymentPreflight(
 		 * about this one, so it reads as no baseline at all. */
 		const stored = await readAppBaseline(input.access, target);
 		appBaseline = stored?.remoteAppId === appId ? stored : null;
+
+		/* The file at each path this publish sends, against the one Nova
+		 * recorded there, by id; a path the id alone cannot vouch for is
+		 * settled by the file's content. Only over an app that holds Nova's
+		 * content: a shell holds no file. The upload is the one write that
+		 * can put Nova's file over a person's, so every file a person
+		 * replaced stops the publish here, before anything is sent. */
+		if (appBaseline?.origin !== "create") {
+			const published = publishedMediaFiles(
+				bulkUploadAssets(boundary.prepared.doc, boundary.prepared.assets),
+			);
+			const map = read.source.multimediaMap;
+			/* CommCare HQ serializes the map on every app, so a read without
+			 * one is an answer Nova cannot read, and no file is sent over it. */
+			if (map === null && published.length > 0) {
+				const failure = hqAppSourceReadFailure(
+					{ success: false, status: 502, cause: "malformed" },
+					domain,
+					false,
+				);
+				checks.push({
+					id: "target-app",
+					title: "App on CommCare HQ",
+					status: "blocked",
+					detail: failure.message,
+					items: [],
+				});
+				return {
+					checks,
+					outcome: blockedOutcome(input.now, failure.code, failure.message),
+					ready: null,
+					projectSpaceCompatibility,
+					conflicts: [],
+				};
+			}
+			const standings = hqMediaStandings({
+				published,
+				record: appBaseline?.mediaFiles ?? null,
+				now: map ?? [],
+			});
+			if (
+				standings.some(
+					(path) => path.standing === "moved" || path.standing === "unrecorded",
+				)
+			) {
+				const settled = await settleHqMedia(creds, standings, {});
+				if (settled.kind === "failed") {
+					const failure = hqMediaReadFailure(domain);
+					checks.push({
+						id: "target-app",
+						title: "App on CommCare HQ",
+						status: "blocked",
+						detail: failure.message,
+						items: [],
+					});
+					return {
+						checks,
+						outcome: blockedOutcome(input.now, failure.code, failure.message),
+						ready: null,
+						projectSpaceCompatibility,
+						conflicts: [],
+					};
+				}
+				media = { paths: settled.paths, learned: settled.learned };
+			} else {
+				media = { paths: standings, learned: {} };
+			}
+		}
+
 		compared = true;
 		const change = appRemoteChange({
 			appName: input.doc.appName,
@@ -1505,6 +1600,13 @@ export async function runDeploymentPreflight(
 			baseline: appBaseline,
 			since: driftReferenceOf(appBaseline, input.inPlaceUpdate),
 			languageNames: input.languageNames,
+			mediaChanged:
+				media?.paths.filter((path) => path.standing === "replaced").length ?? 0,
+			canBringIn: usablePair(
+				appBaseline,
+				input.inPlaceUpdate,
+				await greatestFoldBaselineSeq(await getAppDb(), input.access.appId),
+			),
 		});
 		if (change !== null) observed.push(change);
 		checks.push({
@@ -1716,6 +1818,7 @@ export async function runDeploymentPreflight(
 			targetApp,
 			appBaseline,
 			confirmedChanges: verdict.confirmed,
+			media,
 			targetEmptyCaseListText: compatibilityProbes.emptyCaseListText,
 			confirmations: settled.accepted,
 		},
@@ -1888,6 +1991,10 @@ function appRemoteChange(input: {
 	/** What the baseline is: a publish's read, or the read Nova brought the app in from. */
 	readonly since: DriftReference;
 	readonly languageNames: "nova" | "target";
+	/** How many files this publish sends CommCare HQ holds another file in place of. */
+	readonly mediaChanged: number;
+	/** Whether the deployment has a usable pair (`hqChanges/reference.ts::usablePair`). */
+	readonly canBringIn: boolean;
 }): DeploymentRemoteChange | null {
 	const change = (
 		parts: readonly string[],
@@ -1902,7 +2009,7 @@ function appRemoteChange(input: {
 		observedDigest: input.current.digest,
 		baselineKnown,
 		since: input.since,
-		canBringIn: false,
+		canBringIn: baselineKnown && input.canBringIn,
 	});
 	const { baseline } = input;
 	if (baseline === null || baseline.origin === "unread") {
@@ -1915,6 +2022,7 @@ function appRemoteChange(input: {
 		shell: baseline.origin === "create",
 		schemaDefault: schemaPropertyDefault,
 		languageNames: input.languageNames,
+		mediaChanged: input.mediaChanged,
 	});
 	return parts.length === 0
 		? null
@@ -2172,6 +2280,26 @@ export function hqAppSourceReadFailure(
 		message: permissions
 			? `Nova couldn't read the current app on “${domain}”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
 			: `Nova couldn't safely read the current app on “${domain}”, so it left that app unchanged. Check that the app still opens in CommCare HQ, then publish again.`,
+		details: [],
+	};
+}
+
+/**
+ * The refusal for a file this app publishes that Nova could not read from
+ * CommCare HQ while it checked whether the file there is still this app's.
+ * Nothing of the app was sent. One sentence for every failure: the address
+ * names no project space, and CommCare HQ's view behind it
+ * (`hqmedia/views.py::ViewMultimediaFile`) asks for no login and no
+ * permission, so no refusal of it is the connected account's to fix.
+ */
+export function hqMediaReadFailure(domain: string): {
+	readonly code: "hq_app_state_unknown";
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	return {
+		code: "hq_app_state_unknown",
+		message: `Nova couldn't read a picture or sound this app publishes on “${domain}”, so it left that app unchanged. Nova checks each one before it sends this app's own over it. You can publish again in a moment.`,
 		details: [],
 	};
 }
