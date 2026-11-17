@@ -301,12 +301,28 @@ function stored(doc: BlueprintDoc): unknown {
 
 /** Every row applied in list order, repeated until none changes the document. */
 export function canonDocument(doc: BlueprintDoc): BlueprintDoc {
+	const steps = canonDocumentSteps(doc);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `canonDocument` a row at a time: it stops after each row until it is
+ * resumed, so a caller on a request can let the event loop turn while a
+ * document at the bring-in byte cap is put in its canonical form.
+ */
+export function* canonDocumentSteps(
+	doc: BlueprintDoc,
+): Generator<void, BlueprintDoc, void> {
 	let current = doc;
 	for (let pass = 0; pass < CANONICALIZATIONS.length; pass++) {
-		const next = CANONICALIZATIONS.reduce(
-			(one, row) => row.apply(one),
-			current,
-		);
+		let next = current;
+		for (const row of CANONICALIZATIONS) {
+			next = row.apply(next);
+			yield;
+		}
 		if (sameJson(stored(next), stored(current))) return current;
 		current = next;
 	}

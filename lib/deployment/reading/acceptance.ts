@@ -404,6 +404,7 @@ export function* acceptReadingSteps(
 		return failed("accounting", accounting.differences, accounting.findings);
 
 	// 2. The gate and the export readiness of a first publish, per choice.
+	yield;
 	const lookupContext: LookupValidationContext = {
 		kind: "available",
 		projectId: input.lookup.projectId,

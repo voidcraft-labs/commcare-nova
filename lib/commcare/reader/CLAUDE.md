@@ -2,7 +2,8 @@
 
 `readHqApp` (`index.ts`) reads a CommCare HQ app into a Nova document, or into an account of why
 it cannot be held; `readHqAppSteps` is the same reading stopping after each stage, and inside a stage long at the
-byte cap between its parts (`index.ts::STAGE_PARTS`: the forms, the entry facts, the binding, the
+byte cap between its parts (`index.ts::STAGE_PARTS`: the forms, the case lists, the entry facts,
+the binding and every pass of the expression stage inside it, the case management settle, the
 menus' settle and the assembly), which a request drives a piece at a time so the event loop turns
 between them, and a stage therefore keeps nothing outside the reading's own context across a
 stop. `STAGES` stays each stage whole, for a test that runs stages one by one. A grammar read

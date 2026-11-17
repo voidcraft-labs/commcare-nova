@@ -578,8 +578,8 @@ export function diffDocsToMutations(
 }
 
 /**
- * `diffDocsToMutations`, stopping before each replay of the batch until it is
- * resumed, so a caller on a request can let the event loop turn while a whole
+ * `diffDocsToMutations`, stopping between its sections and before each replay
+ * of the batch until it is resumed, so a caller on a request can let the event loop turn while a whole
  * app's construction batch is diffed (an app brought in from CommCare HQ is
  * born through one). The batch is `diffDocsToMutations`'s, which drives this.
  */
@@ -608,7 +608,8 @@ export function* diffDocsToMutationsSteps(
 /**
  * The granular diff, once the provenance has settled that no case property
  * rename is to be emitted: a renamed property is a removed and an added one.
- * It stops before each replay of the batch, as `diffDocsToMutationsSteps` does.
+ * It stops between its sections and before each replay of the batch, as
+ * `diffDocsToMutationsSteps` does.
  */
 function* diffGranularSteps(
 	prev: BlueprintDoc,
@@ -702,6 +703,7 @@ function* diffGranularSteps(
 		reborn,
 	);
 
+	yield;
 	// (2) Removes — top survivors only.
 	//
 	// A removed module cascades its forms + their fields; a removed form
@@ -826,6 +828,7 @@ function* diffGranularSteps(
 	// `reconcileFieldTree` above (its mutations are emitted later in the
 	// phase order).
 
+	yield;
 	// ── Common entities: renames, converts, updates, media ────────────
 
 	// Modules.
@@ -884,13 +887,18 @@ function* diffGranularSteps(
 		);
 	}
 
-	// Forms.
+	yield;
+	// Forms. Each form's module is the first, in `formOrder`'s key order, whose
+	// sequence holds it, found in one pass over every sequence.
+	const firstModuleOf = new Map<string, string>();
+	if (formDelta.common.length > 0)
+		for (const key of Object.keys(next.formOrder))
+			for (const formUuid of next.formOrder[asUuid(key)] ?? [])
+				if (!firstModuleOf.has(formUuid)) firstModuleOf.set(formUuid, key);
 	for (const uuid of formDelta.common) {
 		const prevForm = ownRecordValue(prev.forms, uuid) as Form;
 		const nextForm = ownRecordValue(next.forms, uuid) as Form;
-		const moduleUuid = Object.keys(next.formOrder).find((key) =>
-			next.formOrder[asUuid(key)]?.includes(uuid),
-		);
+		const moduleUuid = firstModuleOf.get(uuid);
 		if (moduleUuid)
 			updates.push(
 				...diffEntryPoint(prevForm.entryPoint, nextForm.entryPoint, {
@@ -933,6 +941,7 @@ function* diffGranularSteps(
 		}
 	}
 
+	yield;
 	// Fields.
 	//
 	// Field ids ride their per-kind UUID-local `updateField` patches. An app-wide property rename was proved and returned
@@ -1018,6 +1027,7 @@ function* diffGranularSteps(
 
 	const moduleStructure = reconcileModuleOrders(prev, next, moduleDelta);
 
+	yield;
 	// Form structural — cross-module moves (including forms evacuated out of
 	// removed modules) plus same-module sequence changes.
 	const formStructure = reconcileFormOrders(prev, next, formDelta);

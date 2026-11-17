@@ -871,12 +871,31 @@ function storedXmlns(form: unknown): string | null {
 }
 
 /**
+ * The answer for each source object already read. A source is a parsed
+ * answer of CommCare HQ's or Nova's own emission, which nothing writes to
+ * once read, and a request asks about one source several times (its edit
+ * mode test, its entry facts, acceptance's checks), so each is read once.
+ */
+const readSources = new WeakMap<object, PublishedCaseBlocks>();
+
+/**
  * Every case block HQ's build of each form writes, keyed by the form's
- * `xmlns`, and every form left out, with why.
+ * `xmlns`, and every form left out, with why. The answer is shared by
+ * every caller that asks about the same source object, so no caller
+ * writes to it.
  */
 export function publishedCaseBlocks(
 	normalizedSource: unknown,
 ): PublishedCaseBlocks {
+	if (!isObject(normalizedSource)) return readBlocks(normalizedSource);
+	const known = readSources.get(normalizedSource);
+	if (known !== undefined) return known;
+	const read = readBlocks(normalizedSource);
+	readSources.set(normalizedSource, read);
+	return read;
+}
+
+function readBlocks(normalizedSource: unknown): PublishedCaseBlocks {
 	const forms = new Map<string, PublishedForm>();
 	const unreadForms: UnreadPublishedForm[] = [];
 	if (

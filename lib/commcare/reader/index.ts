@@ -10,12 +10,13 @@ import "server-only";
 import { inventoryIndex } from "../surface/inventory";
 import { readApplication } from "./appShell";
 import { assembleDocument, assembleDocumentSteps } from "./assemble";
-import { readCaseLists, settleCaseLists } from "./caseList";
+import { readCaseLists, readCaseListsSteps, settleCaseLists } from "./caseList";
 import {
 	compareEntryFacts,
 	compareEntryFactsSteps,
 	readCaseManagement,
 	settleCaseManagement,
+	settleCaseManagementSteps,
 	writeCaseOperations,
 } from "./caseManagement";
 import { createReadContext, type ReadContext } from "./context";
@@ -63,7 +64,10 @@ const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 	[(ctx) => readCaseManagement(ctx, ctx.draft)],
 	[mintFields],
 	[(ctx) => writeCaseOperations(ctx, ctx.draft)],
-	[(ctx) => readCaseLists(ctx, ctx.draft)],
+	[
+		(ctx) => readCaseLists(ctx, ctx.draft),
+		(ctx) => readCaseListsSteps(ctx, ctx.draft),
+	],
 	[(ctx) => readSearches(ctx, ctx.draft)],
 	[(ctx) => readRootSelectionsTaken(ctx, ctx.draft)],
 	[
@@ -72,7 +76,10 @@ const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 	],
 	[(ctx) => registerLinkExpressions(ctx, ctx.draft)],
 	[bindExpressions, bindExpressionsSteps],
-	[(ctx) => settleCaseManagement(ctx, ctx.draft)],
+	[
+		(ctx) => settleCaseManagement(ctx, ctx.draft),
+		(ctx) => settleCaseManagementSteps(ctx, ctx.draft),
+	],
 	[(ctx) => settleCaseLists(ctx, ctx.draft)],
 	[(ctx) => settleSearches(ctx, ctx.draft)],
 	[

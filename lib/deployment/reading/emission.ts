@@ -192,10 +192,23 @@ function text(value: unknown): string | null {
 	return typeof value === "string" ? value : null;
 }
 
-/** The emission as the JSON CommCare HQ's source view serves. */
-function served(emission: HqApplication): Record<string, unknown> {
-	return JSON.parse(JSON.stringify(emission)) as Record<string, unknown>;
+/** Each emission served once: the fixed point's re-read and identity agreement both read the
+ *  served JSON of one emission, and neither writes to it. */
+const servedEmissions = new WeakMap<HqApplication, Record<string, unknown>>();
+
+/** The emission as the JSON CommCare HQ's source view serves. One object per emission, which
+ *  no caller writes to. */
+export function servedEmission(
+	emission: HqApplication,
+): Record<string, unknown> {
+	const known = servedEmissions.get(emission);
+	if (known !== undefined) return known;
+	const body = JSON.parse(JSON.stringify(emission)) as Record<string, unknown>;
+	servedEmissions.set(emission, body);
+	return body;
 }
+
+const served = servedEmission;
 
 /** Each menu of a served emission, with its forms as a source read gives them. */
 function servedModules(

@@ -55,7 +55,19 @@ export function stepsBelowRoot(path: string): readonly string[] {
 		.slice(1);
 }
 
+/** Each source's places, made once: acceptance names places in several checks, and nothing
+ *  writes to a source. */
+const placesOfSources = new WeakMap<HqAppSource, SourcePlaces>();
+
 export function sourcePlaces(source: HqAppSource): SourcePlaces {
+	const known = placesOfSources.get(source);
+	if (known !== undefined) return known;
+	const made = placesOf(source);
+	placesOfSources.set(source, made);
+	return made;
+}
+
+function placesOf(source: HqAppSource): SourcePlaces {
 	const first = source.langs[0];
 	const rawMenus = Array.isArray(source.raw.modules)
 		? (source.raw.modules as unknown[])
@@ -85,12 +97,18 @@ export function sourcePlaces(source: HqAppSource): SourcePlaces {
 			formName(menuIndex, form),
 		);
 	};
+	/* The first form holding each `xmlns`, in menu order and then form order. */
+	let firstHolders: Map<string, readonly [number, number]> | undefined;
 	const formOf = (xmlns: string): HqPlace => {
-		for (const [menuIndex, held] of source.modules.entries()) {
-			const form = held.forms.findIndex((one) => one.xmlns === xmlns);
-			if (form >= 0) return formAt(menuIndex, form);
+		if (firstHolders === undefined) {
+			firstHolders = new Map();
+			for (const [menuIndex, held] of source.modules.entries())
+				for (const [formIndex, one] of held.forms.entries())
+					if (one.xmlns !== null && !firstHolders.has(one.xmlns))
+						firstHolders.set(one.xmlns, [menuIndex, formIndex]);
 		}
-		return appPlace();
+		const holder = firstHolders.get(xmlns);
+		return holder === undefined ? appPlace() : formAt(holder[0], holder[1]);
 	};
 	const questionAt = (xmlns: string, steps: readonly string[]): HqPlace => {
 		const form = formOf(xmlns);
