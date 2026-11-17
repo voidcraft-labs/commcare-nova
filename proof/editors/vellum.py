@@ -753,6 +753,15 @@ _FRESH_STEPS = (
 )
 
 
+def fresh_steps(start, edit=None) -> list:
+    """A fresh page's steps of one run: ``start`` in the start's place, and the run's edit where it makes one."""
+    return [
+        start if step is None else {"call": "vellum/edit", "arg": dict(edit)} if step == "edit" else step
+        for step in _FRESH_STEPS
+        if step != "edit" or edit is not None
+    ]
+
+
 def fresh_open_and_save(
     driver: EditorDriver,
     answers,
@@ -777,11 +786,7 @@ def fresh_open_and_save(
         "call": "vellum/start",
         "arg": {"options": options.json, "loadDelay": None, "seed": None if seed is None else seed["seed"]},
     }
-    steps = [
-        start if step is None else {"call": "vellum/edit", "arg": dict(edit)} if step == "edit" else step
-        for step in _FRESH_STEPS
-        if step != "edit" or edit is not None
-    ]
+    steps = fresh_steps(start, edit)
     at = {name: index for index, name in enumerate(_step_names(steps))}
     first = len(answers.exchanges)
     try:
