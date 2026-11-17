@@ -90,9 +90,10 @@ the app it can bring in, its review finds nothing to bring in for the reason
 and with the changes of the next publish the statement names (`recorded`),
 the record moves the pair, and B is the publish that follows; or it
 `brings-in`: Nova stops it over a change of the app's content it can bring
-in, its review lists the change, the bring-in takes exactly the document the
-statement names (`bringsIn`), a second review finds the app unchanged, and B
-is the publish of that document that follows. The capture runs the review,
+in, its review lists the change and exactly the changes of the next publish
+the statement names (`publishChanges`), the bring-in takes exactly the
+document the statement names (`bringsIn`), a second review finds the app
+unchanged, and B is the publish of that document that follows. The capture runs the review,
 the record and the bring-in through Nova's own functions over the peer that
 holds the saves (`proof/corpus/publish.ts::bringInOverPeer`,
 `lib/deployment/hqChanges/review.ts::checkHqChanges`, each file the review
@@ -400,7 +401,9 @@ and holds each to the effects as written.
    paths, language codes, and menu and form order. On the local path, two
    `.ccz` exports of one document carry the same form `xmlns` and profile
    `uniqueid`, and a version no lower than the first. Only a difference
-   `proof/identity-moves.json` names is accepted.
+   `proof/identity-moves.json` names is accepted, or, on a document whose
+   saves in HQ are brought in, one a change its review lists for the next
+   publish names ("Changes a review lists for the next publish").
 2. **Build equivalence** (`proof/checks/proof2.py`). `build(A)` against the
    build of B after B's module and form ids and `xmlns` are mapped to A's by
    position, so identity is judged once, by proof 1: both `validate_app()`
@@ -3523,6 +3526,55 @@ The forkserver tests retain their complete nested process logs under
 earlier traceback behind the assertion's log tail. Nested Elasticsearch
 failure directories are retained there too, under each run's name and
 original block path; its temporary evidence store and index data are not copied.
+
+### Changes a review lists for the next publish
+
+Nova tells a person what its next publish changes in CommCare HQ before that
+publish. Over a person's saves Nova brings in, its review lists them
+(`lib/deployment/hqChanges/review.ts`'s `publishChanges`), each an entry of the
+register of what a publish over an app Nova reads from HQ may change on
+purpose (`lib/deployment/reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES`).
+A replaced picture whose path spells the old file's hash takes the path of its
+own bytes, and the next publish moves its reference there
+(`media-files-renamed`). Such a change is meant, and the lane accepts it only
+where the review said it.
+
+`proof/first-publish-changes.json` is the lane's copy of that register: one
+object a change, in the register's order, each with the rows of the
+differences the change allows. A `source` row is one of the entry's stored-app
+pointers (`proof/ci/__tests__/firstPublishChanges.test.ts` holds them to the
+register); a `proof1`, `proof2` or `proof3` row names a class as a known-defect
+entry does (check, artifact, exact structural path and kind), is written from
+a document's evidence, never typed, and stands only under an entry that
+touches workers where it is a `proof3` row.
+
+A document whose saves are brought in states, in its `hq-side.json`, the
+changes its review lists for the next publish (`publishChanges`), which the
+capture holds to the review's own list (`proof/corpus/publish.ts::bringInOverPeer`)
+and `proof/checks/corpus.py::Document.next_publish` reads. On that document
+alone, proofs 1, 2 and 3 accept exactly the differences a row of a listed
+change names (`proof/checks/changes.py::undeclared`, called before the
+register), and the check `changes` (`proof/checks/test_next_publish_changes.py`)
+holds the list strict both ways over the three proofs together: a difference
+only a row of a change the review did not list matches is `/<id>/unsaid`, and a
+listed change that matches no difference is `/<id>/unseen` (left to the run
+that observes a served reader where every row of the change names one, and to
+a judge handed the stored-app comparison where every row names `source`). No
+register entry may name `changes`. A run whose documents hold none that brings
+its saves in collects no item of that check. Its planted evidence,
+`targeted-hq-changes-media`'s own move among it, is in
+`proof/checks/test_next_publish_changes_controls.py`.
+
+To write the rows of a change a document shows, run the lane over the
+document, then
+
+```sh
+python3 -m proof.checks.changes rows <output> <document>
+```
+
+which prints, for each difference of the document's evidence no row of a
+change its review lists holds, the row that names it; write each under the
+change whose sentence describes it.
 
 ### Walk stops
 

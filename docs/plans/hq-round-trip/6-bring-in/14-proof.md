@@ -1876,6 +1876,23 @@ Nova's own publish. What this part holds of them:
   republish, and part 15's fourth and fifth checks take that read. Proof 6 makes its claim of the
   second read alone, against `bringsIn` with `canon`: the first is a person's save and not Nova's
   export.
+- A `brings-in` statement also names, by their ids, the changes of the next publish its review lists
+  (`HqSideSaves.publishChanges`, `hqside.py::STATEMENTS`), which the capture holds to the review's own list
+  (`bringInOverPeer`) and `proof/checks/corpus.py::Document.next_publish` reads. The replaced picture's
+  review lists `media-files-renamed`: its path spells the old file's hash, so the next publish moves the
+  reference to the path of the person's bytes (part 15, section 7.6), and proofs 1, 2 and 3 each show that
+  move. On such a document alone, proofs 1 to 3 accept exactly the differences a row of a listed change
+  names in `proof/first-publish-changes.json` (`proof/checks/changes.py::undeclared`, before the register),
+  and the check `changes` (`proof/checks/test_next_publish_changes.py`) holds the list strict both ways
+  over the three proofs together (`/<id>/unsaid`, `/<id>/unseen`), with no known-defect entry. It is the
+  file, row shape, loader and judge of section 9; the one thing this source adds is where an entry applies
+  (`changes.py::_applying`: a document whose saves are brought in, by its listed changes). The rows of
+  `media-files-renamed` are the media document's evidence: proof 1 `app.json` `/multimedia_map/*` and
+  `/modules/*/forms/*/media/*`, each `removed` and `added`; proof 2 `form:0.0`'s itext image value
+  (`changed`) and `media_suite.xml` `/suite/media[*]/resource[@id=*]` (`removed`, `added`); proof 3
+  `trace@B` `/runs/*/trace/*/events/*/image` (`changed`), and the same on `trace@local.ccz`, which holds the
+  brought-in document. With the served readers, Formplayer's, the client's and a device's reading of the
+  same picture show the move too, and their rows are written from the first run that observes them.
 - `proof/observe/publish.py::upload_media` gains part 15's hold W4: for every entry of
   `matched_files`, the app's map holds that `m_id` at that path. Every unit whose publish sends a
   file runs it.

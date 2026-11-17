@@ -23,9 +23,11 @@
  * change again; the production record's own writes are held by
  * `lib/deployment/__tests__/hqChanges.postgres.test.ts`), a publish that
  * follows the bring-in under ids HQ does not hold (a form HQ added is sent
- * under Nova's derived `xmlns`), and a stop over a `proceeds` document
- * passed off as a review that found nothing. The observation is each
- * capture's republish and its record.
+ * under Nova's derived `xmlns`), a stop over a `proceeds` document
+ * passed off as a review that found nothing, and a review that lists other
+ * changes of the next publish than a `brings-in` statement names
+ * (`publishChanges`, which the lane's checks of that publish accept). The
+ * observation is each capture's republish and its record.
  */
 
 import { createHash } from "node:crypto";
@@ -196,6 +198,16 @@ describe("a publish over a person's saves to an app's content in CommCare HQ", (
 		const sent = JSON.stringify(step.application);
 		expect(sent).toContain(`jr://file/commcare/${theirs}.png`);
 		expect(sent).not.toContain(replaced.path);
+	}, 60_000);
+
+	it("refuses a statement that names other changes of the next publish than the review lists", async () => {
+		const document = hqChangesMedia();
+		const hqSide = document.hqSide;
+		if (hqSide?.republish !== "brings-in")
+			throw new Error("The picture's statement does not bring the saves in.");
+		await expect(
+			republished({ ...document, hqSide: { ...hqSide, publishChanges: [] } }),
+		).rejects.toThrow(/lists \[\] for the next publish, and it listed \["/);
 	}, 60_000);
 
 	it("publishes over a replaced picture only after it stops, and leaves HQ's map naming the document of Nova's own bytes", async () => {

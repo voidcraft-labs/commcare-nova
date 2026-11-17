@@ -2918,6 +2918,13 @@ the reading of what HQ serves after the saves (part 14, section 6.6, `_Unit.api_
    document of the person's bytes);
 5. proof 6 over the new document, as over any (the fixed point).
 
+Proofs 1 to 3 over A after the saves and B hold what any republish holds, with one addition: a
+`brings-in` statement names the changes of the next publish its review lists (`publishChanges`), and on
+that document the differences a row of a listed change names are that change, held strict both ways by
+the check `changes` (part 14, section 6.6). The replaced picture's review lists `media-files-renamed`,
+whose move of the reference from the old file's derived path to the path of the person's bytes is what
+items 1 and 4 mean by the file CommCare HQ holds, by content.
+
 The form saved with no change states `records`: the publish stops, since the builder's save
 writes the form's bytes again, and the review answers `nothing`, with the reason
 `reads-the-same` and no `publishChanges`. The location list setting states `records` too, with

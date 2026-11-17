@@ -859,12 +859,26 @@ class Document:
         self.republished_as_stated()
         return saves["bringsIn"]
 
+    @cached_property
+    def next_publish(self):
+        """The changes Nova's next publish makes in HQ that its review of a person's saves lists, by their ids
+        (``hq-side.json``'s ``publishChanges``), where the statement is that the republish brings the saves in, else
+        none, and none on a control. The capture held the list to the review's own
+        (``proof/corpus/publish.ts::bringInOverPeer``), and every export's republish was sent after a review that
+        listed as many (``republished_as_stated``)."""
+        saves = self.hq_side
+        if self.kind == "control" or saves is None or saves.get("republish") != "brings-in":
+            return ()
+        self.republished_as_stated()
+        return tuple(saves["publishChanges"])
+
     def republished_as_stated(self):
         """Holds every export's republish to what ``hq-side.json`` states of it, as its sidecar records it
         (``Export.brought_in``, the capture's ``broughtIn``): ``proceeds`` was sent with no review of the saves;
         ``records`` was sent after a review that found nothing to bring in, for the stated ``reason`` and with
         as many changes of the next publish as the statement names, which recorded what HQ holds; ``brings-in`` was
-        sent after a bring-in that took exactly the ``bringsIn`` document. The capture refuses any other outcome, so a
+        sent after a bring-in that took exactly the ``bringsIn`` document, whose review listed as many changes of
+        the next publish as ``publishChanges`` names. The capture refuses any other outcome, so a
         layout that says otherwise is refused here by name (``CorpusLayoutError``); a document with no saves, or one
         whose republish discards or stops, has nothing to hold."""
         saves = self.hq_side
@@ -904,6 +918,17 @@ class Document:
             stated = saves.get("bringsIn")
             if not isinstance(stated, dict):
                 raise CorpusLayoutError(f"{where} states that the republish brings in, and names no bringsIn document.")
+            listed = saves.get("publishChanges")
+            if not isinstance(listed, list) or not all(isinstance(change, str) and change for change in listed):
+                raise CorpusLayoutError(
+                    f"{where} states that the republish brings in, and names the changes its review lists for the"
+                    f" next publish as {listed!r}, where it is a list of change ids (publishChanges)."
+                )
+            if record is not None and len(record.publish_changes) != len(listed):
+                raise CorpusLayoutError(
+                    f"{export.directory} holds a republish of {self.id} sent after a review that listed"
+                    f" {record.publish_changes!r} for the next publish, and {where} states {listed!r} ({name})."
+                )
             if record is None or record.taken != "brought-in" or record.document != stated:
                 raise CorpusLayoutError(
                     f"{export.directory} holds a republish of {self.id} that was not sent after a bring-in of the"

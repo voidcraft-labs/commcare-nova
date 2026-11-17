@@ -287,6 +287,7 @@ import {
 	resolveBuiltinManifestEntries,
 } from "@/lib/media/builtinIconAssets";
 import { classifyStoredMediaBytes } from "@/lib/media/validate";
+import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { CORPUS_COMMCARE_VERSION } from "./configurations";
@@ -2919,6 +2920,8 @@ async function bringInOverPeer(input: {
 	readonly statement: "brings-in" | "records";
 	readonly bringsIn: PersistableDoc | undefined;
 	readonly recorded: HqSideRecorded | undefined;
+	/** The changes of the next publish a `brings-in` statement says its review lists. */
+	readonly publishChanges: readonly FirstPublishChangeId[] | undefined;
 	readonly attachmentTarget: AttachmentUrlTarget;
 	readonly lookupTarget: LookupTarget;
 }): Promise<{
@@ -2963,6 +2966,17 @@ async function bringInOverPeer(input: {
 		) {
 			throw new Error(
 				`hq-side.json states that Nova's review of ${id} finds nothing to bring in for the reason ${JSON.stringify(stated?.reason)} and lists ${JSON.stringify(listed)} for the next publish, and it answered the reason ${JSON.stringify(review.reason)} and listed ${JSON.stringify(review.publishChanges)}. Look at what the review reads of the saves, or at the statement.`,
+			);
+		}
+	}
+	if (review.kind === "changes") {
+		const listed =
+			input.publishChanges === undefined
+				? undefined
+				: publishChangeSentences(input.publishChanges);
+		if (!isDeepStrictEqual(review.publishChanges, listed)) {
+			throw new Error(
+				`hq-side.json states that Nova's review of ${id} lists ${JSON.stringify(listed)} for the next publish, and it listed ${JSON.stringify(review.publishChanges)}. Look at what the review reads of the saves, or at the statement.`,
 			);
 		}
 	}
@@ -3651,6 +3665,7 @@ export async function capturePublish(
 								statement,
 								bringsIn: input.hqSide?.bringsIn,
 								recorded: input.hqSide?.recorded,
+								publishChanges: input.hqSide?.publishChanges,
 								attachmentTarget,
 								lookupTarget,
 							});
