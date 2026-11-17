@@ -26,7 +26,13 @@
  * D before planning D′ (`./emitCorpus.ts`), and a capture that records
  * anything else stops the emission. So `document.json` is D as stored after
  * its first publish, the republish of D sends that document, and
- * `edit/document.json` is it with the batch.
+ * `edit/document.json` is it with the batch. Where a person's saves in HQ
+ * over A are brought in before the republish (`hq-side.json` states
+ * `brings-in`), the republish sends the document the bring-in gave, under
+ * the ids the bring-in read of the app, and A after the saves and B both
+ * hold it: `document.json`, the local archives and the import file are of
+ * that document (`republishedDocument`), and D is what the first publish's
+ * captured requests send.
  *
  * A migration witness whose A is retained (`./inputs.ts::retainedMigrationA`)
  * is captured without a first publish: each configuration's retained files
@@ -36,11 +42,12 @@
  * document's verdict would refuse one of those configurations stops the
  * emission.
  *
- * D's local archive is compiled once for each configuration the document
- * runs under, with what that project space holds (`./publish.ts::localCcz`):
- * `local.ccz` for a configuration without `USH_EMPTY_CASE_LIST_TEXT`, and
- * `local-empty-list-text.ccz` (`./inputs.ts::EMPTY_LIST_TEXT_ARCHIVE`), the
- * same export of D for a project space that holds the flag, where any
+ * The republished document's local archive is compiled once for each
+ * configuration the document runs under, with what that project space holds
+ * (`./publish.ts::localCcz`): `local.ccz` for a configuration without
+ * `USH_EMPTY_CASE_LIST_TEXT`, and `local-empty-list-text.ccz`
+ * (`./inputs.ts::EMPTY_LIST_TEXT_ARCHIVE`), the same export for a project
+ * space that holds the flag, where any
  * configuration holds it. `local-again.ccz`, the second export proof 1
  * compares with `local.ccz`, and `edit/local.ccz` are compiled as
  * `local.ccz` is.
@@ -56,6 +63,11 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
+import {
+	DERIVED_WIRE_IDENTITY,
+	targetWireIdentity,
+	type WireIdentity,
+} from "@/lib/commcare/wireIdentity";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -432,6 +444,54 @@ function archiveTargetFacts(
 }
 
 /**
+ * The document the republish sent over A and the ids it sent it under,
+ * which A after a person's saves and B both hold: where every
+ * configuration's republish was sent after a bring-in of those saves
+ * (`SentImport`'s `sent`, `broughtIn.identities`), the document the
+ * bring-in gave, with the placements its emission records, under the ids
+ * the bring-in read of the app; otherwise D under the derived ids.
+ * Configurations that disagree stop the emission rather than choose one.
+ */
+function republishedDocument(
+	documentId: string,
+	captures: ReadonlyMap<string, PublishCapture | RepublishCapture>,
+	publish: PublishDocument,
+): { readonly publish: PublishDocument; readonly identity: WireIdentity } {
+	const sent = [...captures].map(([name, capture]) => {
+		const step =
+			capture.status === "refused" ? undefined : capture.updates.republish;
+		return {
+			name,
+			taken:
+				step?.status === "sent" &&
+				step.broughtIn?.taken === "brought-in" &&
+				step.sent !== undefined
+					? { document: step.sent, overrides: step.broughtIn.identities }
+					: undefined,
+		};
+	});
+	const brought = sent.filter((each) => each.taken !== undefined);
+	if (brought.length === 0) return { publish, identity: DERIVED_WIRE_IDENTITY };
+	const [first] = brought;
+	const key = (taken: (typeof sent)[number]["taken"]) =>
+		JSON.stringify({
+			doc: taken?.document.doc,
+			compiledAtSeq: taken?.document.compiledAtSeq,
+			overrides: taken?.overrides,
+		});
+	const other = sent.find((each) => key(each.taken) !== key(first?.taken));
+	if (first?.taken === undefined || other !== undefined) {
+		throw new Error(
+			`${documentId}'s republish sent the document a bring-in gave under ${first?.name} and ${other?.taken === undefined ? "D" : "another document or other ids"} under ${other?.name}. A document has one local archive, made for the document the republish sends; look at what the capture peer holds under each configuration.`,
+		);
+	}
+	return {
+		publish: first.taken.document,
+		identity: targetWireIdentity(first.taken.overrides),
+	};
+}
+
+/**
  * A second local archive of a document whose first one was made: the same
  * declaration, so the download rule makes this one too.
  */
@@ -606,10 +666,6 @@ export async function writeEntry(
 		document.source.kind === "targeted" &&
 		document.source.migrationWitness === true;
 	const retained = witness ? await retainedMigrationA(document.id) : undefined;
-	await writeJson(
-		join(root, "document.json"),
-		documentJson(document.id, document.source, publish, entry.doc),
-	);
 	await writeJson(join(root, "verdict.json"), verdictJson(verdict));
 	if (document.expected !== undefined) {
 		await writeJson(join(root, "expected.json"), document.expected);
@@ -800,27 +856,50 @@ export async function writeEntry(
 		});
 	}
 
+	/* `document.json`, the local archives and the import file are of the
+	 * document the republish sent: D, or, where a person's saves in HQ were
+	 * brought in before it, the document the bring-in gave, which A after the
+	 * saves and B both hold (`republishedDocument`). */
+	const republished = republishedDocument(document.id, captures, publish);
+	await writeJson(
+		join(root, "document.json"),
+		documentJson(
+			document.id,
+			document.source,
+			republished.publish,
+			republished.publish === publish
+				? entry.doc
+				: hydrate(
+						republished.publish.doc,
+						`the document ${document.id}'s bring-in gave`,
+					),
+		),
+	);
 	/* A `.ccz` installs an app on Android and nothing else, so Nova's own
 	 * download refuses one for a document that does not declare it
 	 * (`not-declared-for-android`), and the corpus writes no local archive
 	 * of it: a Web Apps worker meets HQ's build. */
 	/* Each archive is made for the project space as the publish before it
-	 * left it: D's for the republish, D′'s for its update, each with what the
-	 * project space keeps (`SentImport.targetFacts`). */
+	 * left it: the republished document's for the republish, under the ids it
+	 * was sent under, and D′'s for its update, each with what the project
+	 * space keeps (`SentImport.targetFacts`). */
 	const targetFacts = archiveTargetFacts(document.id, captures, "republish");
+	const { identity } = republished;
 	const localArchive = await localCcz(
-		publish,
+		republished.publish,
 		PROOF_DOMAIN,
 		local(OPERATION_ORDINALS.local),
-		{ targetFacts },
+		{ targetFacts, identity },
 	);
 	if (localArchive !== null) {
 		await writeFile(join(root, "local.ccz"), localArchive);
 		await writeFile(
 			join(root, "local-again.ccz"),
-			await requiredLocalCcz(publish, local(OPERATION_ORDINALS.localAgain), {
-				targetFacts,
-			}),
+			await requiredLocalCcz(
+				republished.publish,
+				local(OPERATION_ORDINALS.localAgain),
+				{ targetFacts, identity },
+			),
 		);
 		if (
 			named.some(([, configuration]) =>
@@ -829,16 +908,17 @@ export async function writeEntry(
 		) {
 			await writeFile(
 				join(root, EMPTY_LIST_TEXT_ARCHIVE),
-				await requiredLocalCcz(publish, local(OPERATION_ORDINALS.local), {
-					emptyCaseListText: true,
-					targetFacts,
-				}),
+				await requiredLocalCcz(
+					republished.publish,
+					local(OPERATION_ORDINALS.local),
+					{ emptyCaseListText: true, targetFacts, identity },
+				),
 			);
 		}
 	}
 	await writeFile(
 		join(root, "import-file.zip"),
-		await importFile(publish, PROOF_DOMAIN),
+		await importFile(republished.publish, PROOF_DOMAIN),
 	);
 
 	if (edit !== undefined && editVerdict !== undefined) {

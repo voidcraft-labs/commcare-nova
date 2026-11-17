@@ -125,7 +125,7 @@ def _answer(unit, method, view, args, body: bytes, content_type: str, what, *, r
     return {"view": view, "status": response.status_code, "body": content.decode("utf-8", "replace")[:400]}
 
 
-def _form(pairs):
+def _form_body(pairs):
     from urllib.parse import urlencode
 
     return urlencode(pairs).encode(), "application/x-www-form-urlencoded; charset=UTF-8"
@@ -142,7 +142,7 @@ def ui_translations(unit, app_id, translations):
     found = []
     for lang, texts in sorted(translations.items()):
         held = dict(operations.held_app(unit, app_id).translations.get(lang) or {})
-        body, content_type = _form(
+        body, content_type = _form_body(
             [
                 ("doc_id", json.dumps(app_id)),
                 ("lang", json.dumps(lang)),
@@ -349,7 +349,7 @@ def add_ons(unit, app_id, switches):
             f" {sorted(_ADD_ONS)} (app_manager/js/add_ons.js, EditAddOns). State each at the value the section"
             " shows, with the person's switches changed."
         )
-    body, content_type = _form([(slug, "on" if on else "") for slug, on in sorted(switches.items())])
+    body, content_type = _form_body([(slug, "on" if on else "") for slug, on in sorted(switches.items())])
     return [_answer(unit, "POST", "edit_add_ons", [unit.domain, app_id], body, content_type, "add-ons")]
 
 
@@ -406,7 +406,7 @@ def _patched(unit, app_id, form_unique_id, xform, what):
     its own."""
     app = _operations().held_app(unit, app_id)
     source = app.get_form(form_unique_id).source
-    body, content_type = _form([("patch", xform_patch(source, xform)), ("sha1", _sha1(source))])
+    body, content_type = _form_body([("patch", xform_patch(source, xform)), ("sha1", _sha1(source))])
     found = _answer(unit, "POST", "patch_xform", [unit.domain, app_id, form_unique_id], body, content_type, what)
     stored = _operations().held_app(unit, app_id).get_form(form_unique_id).source
     if stored != xform:
@@ -433,7 +433,7 @@ def _form_builder_save(unit, ops, app_id, kind, value, driver, *, edit=None):
     if driver is None:
         raise ValueError(f"hq-side.json's {kind} is saved in HQ's form builder, and the unit has no editor driver.")
     with ops(f"hq-side:{kind}", _digest(value)):
-        _module_id, form_id, _form = _places(unit, app_id, value)
+        _module_id, form_id, _held = _places(unit, app_id, value)
         lang = _operations().held_app(unit, app_id).langs[0]
         options = vellum.vellum_options(unit, app_id, form_id, lang=lang)
     run = vellum.open_and_save(driver, unit, app_id, form_id, options, edit=edit)
@@ -470,7 +470,7 @@ def form_resave(unit, ops, app_id, value, driver):
 
 def questions(unit, app_id, value):
     """A form's questions changed: its source saved to ``value["xform"]`` as the form builder saves it."""
-    _module_id, form_id, _form = _places(unit, app_id, value)
+    _module_id, form_id, _held = _places(unit, app_id, value)
     return [_patched(unit, app_id, form_id, value["xform"], f"the questions of form {form_id}")]
 
 
@@ -481,7 +481,7 @@ FORM_ATTRIBUTES = ("post_form_workflow", "form_filter", "post_form_workflow_fall
 def form_attribute(unit, app_id, value):
     """A form's own settings, posted by name to ``views/forms.py::edit_form_attr`` as the form settings page posts
     them (``ajax``, which the view reads as true where the post names none)."""
-    _module_id, form_id, _form = _places(unit, app_id, value)
+    _module_id, form_id, _held = _places(unit, app_id, value)
     attributes = value["attributes"]
     unknown = sorted(set(attributes) - set(FORM_ATTRIBUTES))
     if unknown:
@@ -489,7 +489,7 @@ def form_attribute(unit, app_id, value):
             f"hq-side.json's formAttribute names {unknown}; the harness saves {list(FORM_ATTRIBUTES)}, each stored by"
             " _edit_form_attr as posted."
         )
-    body, content_type = _form(sorted(attributes.items()))
+    body, content_type = _form_body(sorted(attributes.items()))
     return [
         _answer(
             unit,
@@ -518,7 +518,7 @@ def form_actions(unit, app_id, value):
             }
         }
     }
-    body, content_type = _form(
+    body, content_type = _form_body(
         [("actions", json.dumps(make_multi(form.actions.to_json()))), ("case_mapping_diff", json.dumps(diff))]
     )
     return [
@@ -539,7 +539,7 @@ def module_attribute(unit, app_id, value):
     (``views/modules.py::edit_module_attr``, ``name``)."""
     app = _operations().held_app(unit, app_id)
     module_id = app.get_module(value["module"]).unique_id
-    body, content_type = _form([("name", value["name"])])
+    body, content_type = _form_body([("name", value["name"])])
     return [
         _answer(
             unit,
@@ -562,7 +562,7 @@ def module_detail(unit, app_id, value):
     module = app.get_module(value["module"])
     short = module.case_details.short
     columns = [column.to_json() for column in short.columns] + [value["column"]]
-    body, content_type = _form(
+    body, content_type = _form_body(
         [
             ("type", json.dumps("case")),
             ("short", json.dumps(columns)),
@@ -603,7 +603,7 @@ def forms_added_and_removed(unit, app_id, value):
             redirects=True,
         )
     ]
-    body, content_type = _form([("form_type", "form"), ("case_action", "none")])
+    body, content_type = _form_body([("form_type", "form"), ("case_action", "none")])
     found.append(
         _answer(
             unit,
@@ -632,7 +632,7 @@ def order(unit, app_id, value):
     found = []
     moved = value.get("modules")
     if moved is not None:
-        body, content_type = _form([("from", str(moved["from"])), ("to", str(moved["to"]))])
+        body, content_type = _form_body([("from", str(moved["from"])), ("to", str(moved["to"]))])
         found.append(
             _answer(
                 unit,
@@ -648,7 +648,7 @@ def order(unit, app_id, value):
     moved = value.get("forms")
     if moved is not None:
         module_id = _operations().held_app(unit, app_id).get_module(moved["module"]).unique_id
-        body, content_type = _form(
+        body, content_type = _form_body(
             [
                 ("from", str(moved["from"])),
                 ("to", str(moved["to"])),

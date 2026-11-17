@@ -30,6 +30,7 @@
 
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { publishChangeSentences } from "@/lib/deployment/hqChanges/review";
 import {
 	hqChangesCaseManagement,
 	hqChangesFormSetting,
@@ -182,6 +183,11 @@ describe("a publish over a person's saves to an app's content in CommCare HQ", (
 			review?.kind === "changes" &&
 				review.hqChanges.some((line) => /picture or sound/.test(line)),
 		).toBe(true);
+		/* The move of the picture's path is the next publish's to make, and the
+		 * review says so before it. */
+		expect(review?.kind === "changes" && review.publishChanges).toEqual(
+			publishChangeSentences(["media-files-renamed"]),
+		);
 		const replaced = document.hqSide?.mediaReplaced;
 		if (replaced === undefined) throw new Error("No picture is replaced.");
 		const theirs = createHash("sha256")

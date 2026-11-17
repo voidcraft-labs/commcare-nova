@@ -21,6 +21,12 @@ every lookup table the publish read before it decided (its sidecar's
 ``hq-side.json`` a person saved in HQ, Nova's preflight stopped the
 republish and the capture sent it again with what that person confirms
 (the sidecar's ``confirmed``), so B lands only through that confirmation.
+Where the republish followed a bring-in of those saves (the sidecar's
+``broughtIn``), it names each menu and form by the id the bring-in read of
+the app, and the capture read its peer's: a form HQ's ``new_form`` added
+holds an id HQ minted, so that id is written in place of the peer's
+(``held_ids``, ``operations.with_held_ids``), as A's id is in place of the
+peer's app id.
 ``upload_media`` applies the media upload Nova's publish sends once a
 content import landed (``lib/deployment/service.ts::uploadMediaBytes``), when
 the captured import names one; the unit runs it as an operation of its own,
@@ -132,8 +138,49 @@ def update(unit, app_id, captured, name, *, plan_without_web_apps: bool = False)
     operations.hold_assumed_source(unit, app_id, assumed, f"captured {name}")
     operations.hold_assumed_resources(unit, captured.meta.get("assumedResources"), f"captured {name}")
     lookups = upload_lookups(unit, captured.lookups)
-    result = operations.apply_upload(unit, operations.with_app_id(captured.upload(), app_id))
+    upload = operations.with_app_id(captured.upload(), app_id)
+    upload = operations.with_held_ids(upload, held_ids(unit, app_id, captured.brought_in))
+    result = operations.apply_upload(unit, upload)
     return _refusal(result), lookups
+
+
+def held_ids(unit, app_id, brought_in):
+    """``{id the capture's peer held: id HQ holds}`` for each menu and form a bring-in's record names
+    (``BroughtIn.identities``, each ``{entityKind, novaEntityUuid, uniqueId, xmlns}``) under another id than the app
+    HQ holds gives it; empty where the update followed no bring-in.
+
+    A form is the one HQ holds under the row's ``xmlns``, which the person's form keeps
+    (``models/forms.py::FormSource.__set__`` stores the ``xmlns`` the posted XForm names); a menu is held under the
+    row's own id, since no save the harness makes adds one. A row HQ's app has no place for refuses
+    (``operations.CapturedIdsNotHeld``): the capture recorded a reading of an app HQ does not hold."""
+    from proof.hq import operations
+
+    if brought_in is None:
+        return {}
+    app = operations.held_app(unit, app_id)
+    modules = {module.unique_id for module in app.get_modules()}
+    forms = {form.xmlns: form.unique_id for form in app.get_forms()}
+    ids = {}
+    for row in brought_in.identities:
+        captured = row.get("uniqueId")
+        if captured is None:
+            continue
+        if row.get("entityKind") == "module":
+            if captured not in modules:
+                raise operations.CapturedIdsNotHeld(
+                    f"The bring-in's record names the menu {captured}, which the app HQ holds ({app_id}) does not"
+                    " hold. The harness adds no menu in a person's place, so the capture read another app."
+                )
+            continue
+        held = forms.get(row.get("xmlns"))
+        if held is None:
+            raise operations.CapturedIdsNotHeld(
+                f"The bring-in's record names the form {captured} under {row.get('xmlns')}, and the app HQ holds"
+                f" ({app_id}) holds no form under that xmlns, so the capture read another app."
+            )
+        if held != captured:
+            ids[captured] = held
+    return ids
 
 
 class MediaNotProcessed(AssertionError):

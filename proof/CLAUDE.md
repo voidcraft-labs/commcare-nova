@@ -259,7 +259,14 @@ harness keeps, each with its reason.
   the forms it holds (`hqSummary.ts`), and what the review read is recorded
   beside the republish (`broughtIn`) for the HQ side to hold to HQ's own
   answers after the same saves. A document stating `proceeds` goes through
-  with no stop: a stop over it fails the capture, never a review.
+  with no stop: a stop over it fails the capture, never a review. A
+  document stating `brings-in` is written as the document its republish
+  sends (`entryWriter.ts::republishedDocument`: its `document.json`, local
+  archives and import file), which A after the saves and B both hold, so
+  every check holds HQ's states and Nova's archive to one document; and
+  where that republish names an id the capture's peer drew in HQ's place,
+  the HQ side writes HQ's own in its stead (`observe/publish.py::held_ids`),
+  never the reverse.
 - **A republish after a migration is observed on its witness.** A migration
   that changes the wire or an identity has a targeted witness whose A is the
   retained export from before it (`proof/migrations/<id>/`) and whose B is
