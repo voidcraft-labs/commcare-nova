@@ -211,15 +211,23 @@ HQ's apps writes a folded literal back with it), and a literal or a
 branch of another known kind, or a branch of unknown type holding neither
 text nor a typed date (`datetime-ordering`, or `datetime-equality` under `=` /
 `!=`); a blank literal names no moment and is admitted (but a record ordering
-refuses a direct `null` operand, below). A `datetime-coerce` of
-a literal that names no moment is `unreadable-datetime` in the same places,
-since a device prints the moment as a value (`instant.ts::datetimeCoerceValue`),
-and one of a branch node some of whose branches a device coerces to a day
-(`date()` of a `casedb` system date, of a value whose clock is lost or of a
-value that names no moment) beside a branch it coerces to a moment is
-`branch-values`, and so is a branch node one of whose branches gives only such
-coercions beside a branch that gives a date and time, as
-`if(c, date(x), now())`, which both print, is.
+refuses a direct `null` operand, below). Which leaves have no instant text is
+`instantLeafSpelling`'s answer, the one function that also says what the
+emitter prints for each leaf of a lowered side at its place (the whole side, a
+branch, a value of a `coalesce`) and, through `instantSpellingMember`,
+`instantOperandMember` and `loweredComparisonMembers`, the one tree the reader
+of CommCare HQ's apps and its canonical form take for that print. A
+`datetime-coerce` of a literal that names no moment, a blank or a yes or no
+included, is `unreadable-datetime` in the same places, since a device prints
+the moment as a value (`instant.ts::datetimeCoerceValue`), and one of a branch
+node some of whose branches a device coerces to a day (`coercesToDay`:
+`date()` of a system date, of a value whose clock is lost or of a value that
+names no moment) beside a branch it coerces to a moment is `branch-values`
+(`coercedValueRefusal`), and so is a branch node one of whose branches gives
+only such coercions beside a branch that gives a date and time, as
+`if(c, date(x), now())`, which both print, is (`branchesMixCoercedDays`). The
+emitter throws by the same two functions, so a device prints exactly what the
+checker admits.
 `dayOnlyRefusalCopy` and `systemDateWhen` are the day-only sentences every
 surface assembles, whose next step (`date()` on both sides) the checker
 admits. An unknown operand against a moment takes the row of what it holds,

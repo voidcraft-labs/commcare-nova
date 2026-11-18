@@ -801,10 +801,55 @@ class CsqlBinder {
 		if (at.kind !== "binary" || (at.op !== "or" && at.op !== "and"))
 			return undefined;
 		const clauses = this.flatten(at, at.op);
+		if (at.op === "or")
+			return (
+				this.selectionJoin(clauses, at.op, rowType) ??
+				this.membershipJoin(clauses, rowType)
+			);
+		// A date and time's equality prints as the range from its value to
+		// itself, which is read as the equality.
 		return (
 			this.selectionJoin(clauses, at.op, rowType) ??
-			(at.op === "or" ? this.membershipJoin(clauses, rowType) : undefined)
+			this.proposedEquality(at, rowType) ??
+			this.rangeJoin(clauses, rowType)
 		);
+	}
+
+	/** A parenthesized `and` of a lower bound's comparison then an upper
+	 *  bound's of one operand, which a range prints (`csql/emitter.ts`,
+	 *  `between`), proposed as that range. */
+	rangeJoin(
+		clauses: readonly FormSyntax[],
+		rowType: string | undefined,
+	): Expression | undefined {
+		const [first, second, ...more] = clauses;
+		if (first === undefined || second === undefined || more.length > 0)
+			return undefined;
+		const lowerAt = bare(first);
+		const upperAt = bare(second);
+		if (
+			lowerAt.kind !== "binary" ||
+			upperAt.kind !== "binary" ||
+			(lowerAt.op !== ">=" && lowerAt.op !== ">") ||
+			(upperAt.op !== "<=" && upperAt.op !== "<")
+		)
+			return undefined;
+		const lower = this.query(first, rowType);
+		const upper = this.query(second, rowType);
+		if (
+			(lower.kind !== "gte" && lower.kind !== "gt") ||
+			(upper.kind !== "lte" && upper.kind !== "lt") ||
+			!sameJson(lower.left, upper.left)
+		)
+			return undefined;
+		return {
+			kind: "between",
+			left: lower.left,
+			lower: lower.right,
+			upper: upper.right,
+			lowerInclusive: lower.kind === "gte",
+			upperInclusive: upper.kind === "lte",
+		};
 	}
 
 	selectionJoin(

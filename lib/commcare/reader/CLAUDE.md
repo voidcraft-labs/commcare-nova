@@ -157,9 +157,11 @@ number a sum, a product, a negation or a distance reads, `quotient`'s whole numb
 that position admits under which every slot reading it binds, passes its checker and prints the
 source (`comparedTypes.ts::requiredTypes`, `expressions/index.ts::withRequiredTypes`); two
 untyped properties ordered against each other take one type in the same try, since the checker
-admits neither alone, and where no type holds while the slots' other untyped properties stay
-text (a `date-add` of two of them), the try is made again with each of those at the first type
-its own position admits, typing only the property tried.
+admits neither alone, and so do the properties of an ordering whose two sides, a branch node among
+them, give only untyped properties (`comparedTypes.ts::orderedProperties`, a date tried before a
+number, `seen >= coalesce(seen)` among them), and where no type holds while the slots' other
+untyped properties stay text (a `date-add` of two of them), the try is made again with each of
+those at the first type its own position admits, typing only the property tried.
 
 **Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
 literal prints the text the untyped literal of that text prints, so which one a record slot holds
@@ -180,14 +182,51 @@ a type; there the reading gives the untyped literal and the canonical row
 `untyped-value-literal` returns it. `in`'s values and a `switch`'s cases are typed against their
 subject by `folds.ts` and the canonical row `literal-type`, and again once the subject is typed
 (`typedWhereRequired`), since a subject whose own literals a later pass types is text when the
-fold reads the values. Two print collisions of the class are
-rows of their own: a `datetime-coerce` of a literal prints the literal's own instant text, and is
-that typed literal wherever a device folds it, `format-date`'s date among those places
-(`coerced-instant-literal`); and two moments compared with each other print as the two counts of
-microseconds they fold to, which the reader reads as those numbers (`instant-literal-pair`). A
-search's condition prints as CSQL, which keeps a `date()` or `datetime()` of a literal as written,
-so there the literal inside one is typed by its shape (`coerced-literal-type`). Form logic holds no
-typed literal: the checker refuses one (`literal-not-spellable`).
+fold reads the values. A time literal is typed the same way beside a branch that gives a time, or
+compared with one. A `datetime-coerce` of a literal printed as a value prints the literal's own
+instant text, and is that typed literal wherever a device folds it, `format-date`'s date among
+those places (`coerced-instant-literal`). A search's condition prints as CSQL, which keeps a
+`date()` or `datetime()` of a literal as written, so there the literal inside one is typed by its
+shape (`coerced-literal-type`). Form logic holds no typed literal: the checker refuses one
+(`literal-not-spellable`).
+
+**What a lowered comparison reads back as.** A comparison a device lowers to microseconds prints
+each leaf of each side, through any nesting of `if`, `coalesce`, `switch` and `datetime-coerce`, by
+one function, `lib/domain/expression/instantOperand.ts::instantLeafSpelling`: the emitter prints the
+spelling (`xpath/wire/instant.ts::instantOperandWire`), the checker refuses a comparison with a
+leaf spelled `refused` (`unlowerableLeaves`), and the reading of each spelling and the canonical
+form both take the member `instantSpellingMember` gives it (`folds.ts::instantOperandProposal`,
+the canonical row `instant-operand` over `instantOperandMember` and `loweredComparisonMembers`): a
+folded literal the canonical text of its moment, a literal branch its own text, a typed date and
+time or text the value with no coercion, a midnight or a text that may be a date the value's
+`datetime-coerce`, and two sides neither of which is parsed (two folded literals, a day number) the
+numbers they print. The row holds for every container whose tests a device lowers: a comparison,
+each bound of a range (a range one bound of which prints two numbers and the other a parse reads
+as the range of the members of a parsed side, `folds.ts::momentPair`), each equality of a
+membership and each case test of a switch. The coercion of a value as a value is refused by the
+emitter and the checker alike through `coercedValueRefusal` (a literal that names no moment, a
+blank or a yes or no, a branch node coerced to a day in some branches and a moment in others), and
+a value-giving node whose branches give a day beside a moment through `branchesMixCoercedDays`. A
+coercion an enclosing `datetime-coerce` reads through value branches is printed by that one, leaf
+by leaf, and never as a value of its own, so the rows that read a coercion as a value
+(`coerced-day`, `moment-text-coercion`) leave it to the enclosing one (`readByEnclosingCoercion`);
+`coerced-day` reads a coercion as `date()` exactly where `coercesToDay`, the emitter's own test,
+does.
+
+**A range in a list filter its search restates.** A device prints a range and the `and` of its two
+comparisons alike, and so does a search's CSQL inside a parenthesized join; but each top-level
+conjunct of the filter is a row of the search of its own, so there the range prints one row,
+parenthesized, and the two comparisons two. The reading of the list's own filter keeps two
+top-level comparisons of the searched case apart in such a slot (`folds.ts::conjunctsPrintAsRows`),
+but a date and time's range from a value to itself, which is the row its equality prints; a row
+reads a parenthesized lower and upper bound's comparisons of one operand as the range
+(`csqlRead.ts::CsqlBinder.rangeJoin`, after a date and time's equality, which prints as the range
+from its value to itself), and `search/rows.ts` then takes the run of the list's clauses one row
+restates. The canonical row `range` folds the two comparisons only where the join prints as the
+range (`joinPrintsAsRange`).
+In the same slot the canonical row `csql-anchor-left` touches only a comparison inside a Search
+field's presence test, the one part of the filter a device leaves out
+(`walk.ts::substituteUnansweredSearchInputs`), which the reader reads from the search's row.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted

@@ -356,6 +356,42 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			// Inside an `or` the search prints the range and its two
+			// comparisons alike, parenthesized.
+			id: "range",
+			slot: filter,
+			other: () => ({
+				kind: "or",
+				clauses: [
+					{
+						kind: "and",
+						clauses: [
+							{ kind: "gte", left: prop("age"), right: lit(1) },
+							{ kind: "lt", left: prop("age"), right: lit(5) },
+						],
+					},
+					usernameIsA,
+				],
+			}),
+			canonical: {
+				kind: "or",
+				clauses: [
+					{
+						kind: "between",
+						left: prop("age"),
+						lower: lit(1),
+						upper: lit(5),
+						lowerInclusive: true,
+						upperInclusive: false,
+					},
+					usernameIsA,
+				],
+			},
+		},
+		{
+			// A searched list's filter whose top-level conjuncts are the two
+			// comparisons prints two rows of its search, and the range one, so
+			// the two stay apart.
 			id: "range",
 			slot: filter,
 			other: () => ({
@@ -366,12 +402,11 @@ describe("every print collision prints one text and canonicalizes to its row's t
 				],
 			}),
 			canonical: {
-				kind: "between",
-				left: prop("age"),
-				lower: lit(1),
-				upper: lit(5),
-				lowerInclusive: true,
-				upperInclusive: false,
+				kind: "and",
+				clauses: [
+					{ kind: "gte", left: prop("age"), right: lit(1) },
+					{ kind: "lt", left: prop("age"), right: lit(5) },
+				],
 			},
 		},
 		{
@@ -619,7 +654,7 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			// A list's filter is restated in its search's CSQL, which prints
 			// the literal as written; a calculated column runs on the device
 			// alone.
-			id: "instant-literal",
+			id: "instant-operand",
 			slot: calculated,
 			other: () => ({
 				kind: "gt",
@@ -643,7 +678,7 @@ describe("every print collision prints one text and canonicalizes to its row's t
 		{
 			// A switch's literal result, in a comparison of moments, prints as
 			// the literal's own date, clock and offset.
-			id: "instant-literal",
+			id: "instant-operand",
 			slot: calculated,
 			other: () => ({
 				kind: "gt",
@@ -821,7 +856,7 @@ describe("every print collision prints one text and canonicalizes to its row's t
 		{
 			// Two moments compared print as the two counts of microseconds
 			// they fold to, which two number literals print as.
-			id: "instant-literal-pair",
+			id: "instant-operand",
 			slot: calculated,
 			other: () => ({
 				kind: "eq",
@@ -2581,6 +2616,11 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 		uuid: formUuid,
 		slot: "form_display_condition",
 	};
+	const filter: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_filter",
+	};
 	const predicate: SlotContextRef = {
 		entity: "module",
 		uuid: moduleUuid,
@@ -2675,7 +2715,7 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 		{
 			// A switch over a moment literal compares each case's moment as
 			// the pair of integers they fold to, as a membership does.
-			id: "instant-literal-pair",
+			id: "instant-operand",
 			slot: calculated,
 			other: {
 				kind: "switch",
@@ -2756,6 +2796,22 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 			canonical: pIs("a"),
 		},
 		{
+			// A membership that reads no case is worked out on the device, which
+			// prints a date's one value as its equality too.
+			id: "one-value-membership",
+			slot: predicate,
+			other: {
+				kind: "in",
+				left: { kind: "today" },
+				values: [{ kind: "literal", value: "2024-02-29", data_type: "date" }],
+			},
+			canonical: {
+				kind: "eq",
+				left: { kind: "today" },
+				right: typed("2024-02-29", "date"),
+			},
+		},
+		{
 			id: "csql-anchor-left",
 			slot: predicate,
 			other: { kind: "eq", left: lit("a"), right: visit("p") },
@@ -2789,7 +2845,7 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 			},
 		},
 		{
-			id: "coerced-moment-operand",
+			id: "instant-operand",
 			slot: formDisplay,
 			other: {
 				kind: "gt",
@@ -2800,7 +2856,7 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 		},
 		{
 			// A branch of a lowered operand prints as the operand does.
-			id: "coerced-moment-operand",
+			id: "instant-operand",
 			slot: formDisplay,
 			other: {
 				kind: "gt",
@@ -2990,7 +3046,7 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 			},
 		},
 		{
-			id: "instant-literal",
+			id: "instant-operand",
 			slot: predicate,
 			other: {
 				kind: "between",
@@ -3007,6 +3063,127 @@ describe("the rows a record slot's device and CSQL prints share: literals, coerc
 				upper: { kind: "now" },
 				lowerInclusive: false,
 				upperInclusive: false,
+			},
+		},
+		{
+			// A switch over a date literal tests each case as a device prints
+			// an equality of dates, as written, which requires no type of the
+			// subject or the cases.
+			id: "untyped-unrequired-literal",
+			slot: calculated,
+			other: {
+				kind: "switch",
+				on: typed("2026-01-01", "date"),
+				cases: [
+					{
+						when: { kind: "literal", value: "2024-02-29", data_type: "date" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: { kind: "literal", value: "2026-01-01", data_type: "date" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
+			},
+			canonical: {
+				kind: "switch",
+				on: lit("2026-01-01"),
+				cases: [
+					{
+						when: { kind: "literal", value: "2024-02-29" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: { kind: "literal", value: "2026-01-01" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
+			},
+		},
+		{
+			// A range of a moment literal whose lower bound is a moment literal
+			// and whose upper bound is not prints the lower test as two counts
+			// and the upper through a parse; the range is read with each
+			// literal as its moment's canonical text.
+			id: "instant-operand",
+			slot: formDisplay,
+			other: {
+				kind: "between",
+				left: typed("2026-02-01T10:00:00+01:00", "datetime"),
+				lower: typed("2026-02-01T10:00:00+01:00", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: true,
+				upperInclusive: true,
+			},
+			canonical: {
+				kind: "between",
+				left: typed("2026-02-01T09:00:00.000Z", "datetime"),
+				lower: typed("2026-02-01T09:00:00.000Z", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: true,
+				upperInclusive: true,
+			},
+		},
+		{
+			// A `null` compared with a date prints as the blank text, which the
+			// checker compares with no date, so the row keeps the `null`.
+			id: "null-literal",
+			slot: formDisplay,
+			other: {
+				kind: "eq",
+				left: visit("dob"),
+				right: term({ kind: "literal", value: null }),
+			},
+			canonical: {
+				kind: "eq",
+				left: visit("dob"),
+				right: term({ kind: "literal", value: null }),
+			},
+		},
+		{
+			// A coercion of a branch node holding a coercion of a date the
+			// case database holds as a day prints `date()` of the day inside
+			// the node, the inner coercion read through by the outer one.
+			id: "coerced-day",
+			slot: calculated,
+			other: {
+				kind: "datetime-coerce",
+				value: {
+					kind: "coalesce",
+					values: [
+						{
+							kind: "datetime-coerce",
+							value: term({ kind: "prop", property: "date_opened" }),
+						},
+					],
+				},
+			},
+			canonical: {
+				kind: "coalesce",
+				values: [{ kind: "date-coerce", value: visit("date_opened") }],
+			},
+		},
+		{
+			// A searched list's filter prints a clause outside a Search field's
+			// presence test on the device, as written, and the reader reads it
+			// in that spelling, the case property on the right.
+			id: "csql-anchor-left",
+			slot: filter,
+			other: {
+				kind: "lt",
+				left: typed("2024-02-29", "date"),
+				right: visit("dob"),
+			},
+			canonical: {
+				kind: "lt",
+				left: typed("2024-02-29", "date"),
+				right: visit("dob"),
 			},
 		},
 	];

@@ -37,7 +37,7 @@ import type {
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { readTypesGiven, valueBranches } from "./canonical";
 
-type Temporal = "date" | "datetime";
+type Temporal = "date" | "datetime" | "time";
 const NONE: ReadonlySet<Temporal> = new Set();
 const BOTH: ReadonlySet<Temporal> = new Set(["date", "datetime"]);
 const ORDERINGS: ReadonlySet<Expression["kind"]> = new Set([
@@ -52,7 +52,8 @@ const COMPARISONS: ReadonlySet<Expression["kind"]> = new Set([
 	"neq",
 ]);
 
-/** The date or the date and time an untyped literal names by its spelling. */
+/** The date, the date and time or the time an untyped literal names by its
+ *  spelling. */
 function untypedTemporal(node: Expression): Temporal | undefined {
 	if (node.kind !== "term") return undefined;
 	const term = node.term;
@@ -63,11 +64,13 @@ function untypedTemporal(node: Expression): Temporal | undefined {
 	)
 		return undefined;
 	const shape = literalShape(term.value)?.type;
-	return shape === "date" || shape === "datetime" ? shape : undefined;
+	return shape === "date" || shape === "datetime" || shape === "time"
+		? shape
+		: undefined;
 }
 
-/** Whether `expression` holds an untyped literal spelled as a date or a date
- *  and time anywhere: only such a tree has a literal to type. */
+/** Whether `expression` holds an untyped literal spelled as a date, a date
+ *  and time or a time anywhere: only such a tree has a literal to type. */
 export function holdsUntypedTemporalLiteral(expression: Expression): boolean {
 	let found = false;
 	walkExpressionTerms(expression, (term) => {
@@ -78,7 +81,7 @@ export function holdsUntypedTemporalLiteral(expression: Expression): boolean {
 			typeof term.value === "string"
 		) {
 			const shape = literalShape(term.value)?.type;
-			found = shape === "date" || shape === "datetime";
+			found = shape === "date" || shape === "datetime" || shape === "time";
 		}
 	});
 	return found;
@@ -126,7 +129,8 @@ function comparedRequires(
 	} catch {
 		return NONE;
 	}
-	if (type === "date" || type === "datetime") return new Set([type]);
+	if (type === "date" || type === "datetime" || type === "time")
+		return new Set([type]);
 	return ordering && (type === undefined || type === "_any") ? BOTH : NONE;
 }
 
@@ -293,7 +297,8 @@ export function typedWhereRequired(
 				)
 					return value;
 				const shape = literalShape(value.value)?.type;
-				return (shape === "date" || shape === "datetime") && given.has(shape)
+				return (shape === "date" || shape === "datetime" || shape === "time") &&
+					given.has(shape)
 					? { ...value, data_type: shape }
 					: value;
 			});

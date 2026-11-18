@@ -48,6 +48,8 @@ import {
 } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
 import {
+	branchesMixCoercedDays,
+	coercedValueRefusal,
 	comparisonOperands,
 	comparisonPlan,
 	type InstantComparisonKind,
@@ -57,7 +59,6 @@ import {
 	instantOperand,
 	literalInstantMicros,
 	unlowerableLeaves,
-	unreadableInstantLiterals,
 } from "./instantOperand";
 import { numericAnswerText } from "./numberLiteral";
 import { serverOnlySearchSlot } from "./profiles";
@@ -2196,38 +2197,29 @@ function inferNode(
 			if (expression.kind === "datetime-coerce") {
 				datetimeLiteralPrecision(expression.value, ["value"], errors, true);
 				// A device prints the moment a literal names, which one naming
-				// none has not (`instant.ts::datetimeCoerceValue`).
+				// none has not, a blank's coercion as `date('')`, and the
+				// coercion of a branch node as the coercion of each branch, a
+				// case's day, a value whose clock is lost or a value that names
+				// no moment as `date()` of it (`instant.ts::datetimeCoerceValue`,
+				// which refuses by the same test).
 				const device = onDeviceContext(ctx);
-				const operand =
-					device === undefined ? undefined : instantOperand(expression, device);
-				const [unreadable] =
-					operand === undefined ? [] : unreadableInstantLiterals(operand);
-				// A device prints the coercion of a branch node as the coercion of
-				// each branch, and the coercion of a case's day, a value whose
-				// clock is lost or a value that names no moment as `date()` of it
-				// (`instant.ts::datetimeCoerceValue`): beside a branch it prints as
-				// a date and time, the node then gives values of two types, as
-				// `if(c, date(x), now())` does.
-				if (operand !== undefined && coercedBranchesMixDays(operand))
+				const refusal =
+					device === undefined
+						? undefined
+						: coercedValueRefusal(instantOperand(expression, device));
+				if (refusal?.kind === "mixed-days")
 					errors.push({
 						path: ["value"],
 						code: "branch-values",
 						message:
 							"On a device this gives a date in one branch and a date and time in another, because CommCare keeps only the day of some of these values. You can give every branch a date and time, or turn every branch into a date.",
 					});
-				if (unreadable !== undefined)
+				if (refusal?.kind === "unreadable")
 					errors.push(
-						unreadableDatetimeError(unreadable.literal.value, ["value"]),
+						unreadableDatetimeError(refusal.leaf.literal.value, ["value"]),
 					);
-				// A blank names no moment either, and a device prints its
-				// coercion as `date('')`, which compares as a day.
-				const blank =
-					expression.value.kind === "term" &&
-					expression.value.term.kind === "literal" &&
-					(expression.value.term.value === null ||
-						expression.value.term.value === "");
-				if (device !== undefined && unreadable === undefined && blank)
-					errors.push(unreadableDatetimeError("", ["value"]));
+				if (refusal?.kind === "blank")
+					errors.push(unreadableDatetimeError(refusal.value, ["value"]));
 			}
 			// A number is days since 1 January 1970 (HQ's
 			// `value_functions.py::value_to_date`, Core's
@@ -3965,26 +3957,6 @@ function otherKindLeaves(operand: InstantOperand): readonly InstantLeaf[] {
  * moments are lowered: every expression of a slot a form or the suite
  * evaluates, and a value of a server search condition a device works out
  * first (`ExpressionContext.runsOnDevice`). */
-/** Whether the coercion `operand` holds is a branch node some of whose
- *  branches a device coerces to a day (`date()` of a case's day, of a value
- *  whose clock is lost, or of a value that names no moment) and others to a
- *  date and time. */
-function coercedBranchesMixDays(operand: InstantOperand): boolean {
-	if (operand.kind === "leaf") return false;
-	const days = new Set(instantLeaves(operand).map(coercesToDay));
-	return days.size > 1;
-}
-
-/** Whether a device prints the coercion of `leaf` as `date()` of it, a day
- *  (`instant.ts::datetimeCoerceValue`). */
-function coercesToDay(leaf: InstantLeaf): boolean {
-	return (
-		leaf.class === "not-instant" ||
-		leaf.class === "clock-lost" ||
-		(leaf.class === "day-only" && leaf.held === "date")
-	);
-}
-
 /**
  * On a device, the branches of a value-giving node where some give a day
  * through a `datetime-coerce` a device prints as `date()` and another gives a
@@ -3998,27 +3970,8 @@ function checkCoercedDayBranches(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	const device = ctx.ruleSet === "record" ? onDeviceContext(ctx) : undefined;
-	if (device === undefined) return;
-	const day = (branch: Expression): boolean => {
-		let every = true;
-		visitAssignmentOutputs(branch, [], (output) => {
-			const operand =
-				output.kind === "datetime-coerce"
-					? instantOperand(output, device)
-					: undefined;
-			if (operand?.kind !== "leaf" || !coercesToDay(operand)) every = false;
-		});
-		return every;
-	};
-	const days = branches.map(day);
-	if (!days.some(Boolean)) return;
-	const moment = branches.some(
-		(branch, index) =>
-			!days[index] &&
-			scalarDataType(typeOf(branch, device)?.data) === "datetime",
-	);
-	if (moment)
+	const device = onDeviceContext(ctx);
+	if (device !== undefined && branchesMixCoercedDays(branches, device))
 		errors.push({
 			path,
 			code: "branch-values",

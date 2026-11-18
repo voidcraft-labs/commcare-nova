@@ -26,6 +26,7 @@ import {
 	type ScalarType,
 	scalarDataType,
 	typeOf,
+	visitAssignmentOutputs,
 } from "./typeChecker";
 import type { Expression, Literal } from "./types";
 
@@ -850,25 +851,377 @@ function otherKindLiteral(leaf: InstantLeaf): boolean {
 	);
 }
 
-/** The leaves a lowered comparison cannot print as an instant: a system
- * date held as a day, a clock-lost value, a date, a date-and-time literal
- * that names no moment, a literal of another kind, and a value of
- * unknown type whose node holds neither text nor a typed date. Empty when
- * every leaf has an instant text. */
+/** Where a leaf stands in one side of a comparison a device lowers: the whole
+ * side (`operand`), a branch of an `if` or a `switch` (`branch`), or a value
+ * of a `coalesce` or a branch inside one (`coalesced`), where a blank must
+ * stay blank so the next value is chosen. */
+export type InstantPlace = "operand" | "branch" | "coalesced";
+
+/**
+ * What a device prints for one leaf of a lowered comparison's side, the one
+ * decision three readers share: the emitter prints it
+ * (`lib/commcare/xpath/wire/instant.ts::instantOperandWire`), the checker
+ * refuses a comparison with a `refused` leaf (`unlowerableLeaves`), and the
+ * reader of CommCare HQ's apps and the canonical form of a document both
+ * take the member `instantSpellingMember` gives for it, so two trees whose
+ * leaves spell alike print alike and read back as one.
+ *
+ * - `count`: an integer, a folded literal or a day number's microseconds;
+ * - `scaled-days`: a day number times the microseconds of a day;
+ * - `as-written`: a value that names no moment, as itself;
+ * - the rest are instant text the device parses: `literal-text`, a literal's
+ *   own date, clock and offset; `own-text`, the value's own text; `typed-text`,
+ *   a typed date and time formatted with its offset; `midnight`, a date's or
+ *   a day number's UTC midnight (`guarded` inside a `coalesce`, where a blank
+ *   stays blank); `text-or-midnight`, text that starts at its UTC midnight
+ *   where it is a date.
+ */
+export type InstantSpelling =
+	| { readonly kind: "refused"; readonly leaf: InstantLeaf }
+	| { readonly kind: "count"; readonly micros: number }
+	| { readonly kind: "scaled-days"; readonly value: Expression }
+	| { readonly kind: "as-written"; readonly value: Expression }
+	| { readonly kind: "literal-text"; readonly text: string }
+	| { readonly kind: "own-text"; readonly value: Expression }
+	| { readonly kind: "typed-text"; readonly value: Expression }
+	| {
+			readonly kind: "midnight";
+			readonly of: "typed-date" | "date-text" | "day-number";
+			readonly value: Expression;
+			readonly guarded: boolean;
+	  }
+	| { readonly kind: "text-or-midnight"; readonly value: Expression };
+
+const MICROS_PER_DAY = 86_400_000_000;
+
+/** A leaf a lowered comparison cannot print as an instant: a system date
+ * held as a day, a clock-lost value, a date, a date-and-time literal that
+ * names no moment, a literal of another kind, and a value of unknown type
+ * whose node holds neither text nor a typed date. */
+function unlowerable(leaf: InstantLeaf): boolean {
+	return (
+		leaf.class === "day-only" ||
+		(leaf.class === "literal-instant" &&
+			literalInstantMicros(leaf.literal.value) === undefined) ||
+		leaf.class === "clock-lost" ||
+		(leaf.class === "not-instant" && leaf.data === "date") ||
+		otherKindLiteral(leaf) ||
+		(leaf.class === "unknown" && leaf.held !== "string" && leaf.held !== "date")
+	);
+}
+
+/** The spelling a device prints for `leaf` standing at `place` of a lowered
+ * comparison's side. */
+export function instantLeafSpelling(
+	leaf: InstantLeaf,
+	place: InstantPlace,
+): InstantSpelling {
+	if (unlowerable(leaf)) return { kind: "refused", leaf };
+	const guarded = place === "coalesced";
+	switch (leaf.class) {
+		case "literal-instant": {
+			if (place === "operand") {
+				const micros = literalInstantMicros(leaf.literal.value);
+				if (micros !== undefined) return { kind: "count", micros };
+			}
+			const text = literalInstantText(leaf.literal.value);
+			return text === undefined
+				? { kind: "refused", leaf }
+				: { kind: "literal-text", text };
+		}
+		case "epoch-days": {
+			if (place !== "operand")
+				return {
+					kind: "midnight",
+					of: "day-number",
+					value: leaf.value,
+					guarded,
+				};
+			const days = directLiteral(leaf.value)?.value;
+			return typeof days === "number"
+				? { kind: "count", micros: days * MICROS_PER_DAY }
+				: { kind: "scaled-days", value: leaf.value };
+		}
+		case "not-instant":
+			return place === "operand"
+				? { kind: "as-written", value: leaf.value }
+				: { kind: "own-text", value: leaf.value };
+		case "text":
+			return { kind: "own-text", value: leaf.value };
+		case "typed":
+			return { kind: "typed-text", value: leaf.value };
+		case "unknown":
+			return leaf.held === "date"
+				? { kind: "typed-text", value: leaf.value }
+				: { kind: "own-text", value: leaf.value };
+		case "coerced-date-typed":
+			return { kind: "midnight", of: "typed-date", value: leaf.value, guarded };
+		case "coerced-date-text":
+			return { kind: "midnight", of: "date-text", value: leaf.value, guarded };
+		case "coerced-text":
+			return { kind: "text-or-midnight", value: leaf.value };
+		case "day-only":
+		case "clock-lost":
+			return { kind: "refused", leaf };
+	}
+}
+
+/** Whether a side spelled `spelling` is read through the device's parse of
+ * instant text, rather than printed as a number or as itself. */
+export function spellsInstantText(spelling: InstantSpelling): boolean {
+	return (
+		spelling.kind !== "refused" &&
+		spelling.kind !== "count" &&
+		spelling.kind !== "scaled-days" &&
+		spelling.kind !== "as-written"
+	);
+}
+
+/**
+ * The one expression a reading gives for a leaf spelled `spelling`, which
+ * the canonical form gives too: every tree whose leaf spells so prints the
+ * same text there. A count is the canonical text of its moment
+ * (`instantTextOfMicros`), a literal's text that literal, a value's own text
+ * or a typed date and time's formatted text the value itself, a midnight or
+ * a text that may be a date the value's `datetime-coerce`. `bare`: neither
+ * side of the comparison is parsed, so a device compares the printed numbers
+ * as they stand and a reading reads them as numbers. A record literal is
+ * typed as a date and time; form logic types no literal and has no
+ * `datetime-coerce`. Undefined where no tree spells so (a refused leaf, a
+ * count with no canonical text or, for `bare`, past 2^53).
+ */
+export function instantSpellingMember(
+	spelling: InstantSpelling,
+	record: boolean,
+	bare = false,
+): Expression | undefined {
+	const moment = (value: string): Expression => ({
+		kind: "term",
+		term: record
+			? { kind: "literal", value, data_type: "datetime" }
+			: { kind: "literal", value },
+	});
+	switch (spelling.kind) {
+		case "refused":
+			return undefined;
+		case "count": {
+			if (bare)
+				return Number.isSafeInteger(spelling.micros)
+					? { kind: "term", term: { kind: "literal", value: spelling.micros } }
+					: undefined;
+			const text = instantTextOfMicros(spelling.micros);
+			return text === undefined ? undefined : moment(text);
+		}
+		case "scaled-days":
+			if (bare)
+				return {
+					kind: "arith",
+					op: "*",
+					left: spelling.value,
+					right: {
+						kind: "term",
+						term: { kind: "literal", value: MICROS_PER_DAY },
+					},
+				};
+			return record
+				? { kind: "datetime-coerce", value: spelling.value }
+				: undefined;
+		case "as-written":
+		case "own-text":
+		case "typed-text":
+			return spelling.value;
+		case "literal-text":
+			return moment(spelling.text);
+		case "midnight":
+		case "text-or-midnight":
+			return record
+				? { kind: "datetime-coerce", value: spelling.value }
+				: undefined;
+	}
+}
+
+/**
+ * The tree a lowered comparison's side reads back as: each leaf the member
+ * its spelling gives at its place (`instantSpellingMember`), inside the
+ * branch nodes the side holds, a `datetime-coerce` of a branch node moved
+ * onto its branches as a device distributes it. `bare` as for one leaf.
+ * Undefined where a leaf has no member.
+ */
+export function instantOperandMember(
+	operand: InstantOperand,
+	record: boolean,
+	bare = false,
+	place: InstantPlace = "operand",
+): Expression | undefined {
+	const inner: InstantPlace = place === "operand" ? "branch" : place;
+	switch (operand.kind) {
+		case "leaf":
+			return instantSpellingMember(
+				instantLeafSpelling(operand, place),
+				record,
+				bare,
+			);
+		case "if": {
+			const then = instantOperandMember(operand.whenTrue, record, false, inner);
+			const otherwise = instantOperandMember(
+				operand.whenFalse,
+				record,
+				false,
+				inner,
+			);
+			return then === undefined || otherwise === undefined
+				? undefined
+				: { ...operand.source, then, else: otherwise };
+		}
+		case "coalesce": {
+			const values = operand.values.map((value) =>
+				instantOperandMember(value, record, false, "coalesced"),
+			);
+			const [first, ...rest] = values;
+			return first === undefined || rest.some((value) => value === undefined)
+				? undefined
+				: { ...operand.source, values: [first, ...(rest as Expression[])] };
+		}
+		case "switch": {
+			const cases = operand.cases.map((branch) =>
+				instantOperandMember(branch, record, false, inner),
+			);
+			const fallback = instantOperandMember(
+				operand.fallback,
+				record,
+				false,
+				inner,
+			);
+			if (fallback === undefined || cases.some((then) => then === undefined))
+				return undefined;
+			return {
+				...operand.source,
+				cases: operand.source.cases.map((entry, index) => ({
+					...entry,
+					// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+					then: cases[index] as Expression,
+				})) as unknown as typeof operand.source.cases,
+				fallback,
+			};
+		}
+	}
+}
+
+/**
+ * The two sides of a comparison a device lowers as the trees they read back
+ * as: each side's member (`instantOperandMember`), and where neither side is
+ * parsed as instant text (two folded literals, a day number), the numbers a
+ * device compares. Undefined where a side has no member.
+ */
+export function loweredComparisonMembers(
+	left: InstantOperand,
+	right: InstantOperand,
+	record: boolean,
+): { readonly left: Expression; readonly right: Expression } | undefined {
+	const bare =
+		record &&
+		left.kind === "leaf" &&
+		right.kind === "leaf" &&
+		!spellsInstantText(instantLeafSpelling(left, "operand")) &&
+		!spellsInstantText(instantLeafSpelling(right, "operand"));
+	const leftMember = instantOperandMember(left, record, bare);
+	const rightMember = instantOperandMember(right, record, bare);
+	return leftMember === undefined || rightMember === undefined
+		? undefined
+		: { left: leftMember, right: rightMember };
+}
+
+/** The leaves a lowered comparison cannot print as an instant
+ * (`instantLeafSpelling`'s `refused`). Empty when every leaf has an instant
+ * text. */
 export function unlowerableLeaves(
 	operand: InstantOperand,
 ): readonly InstantLeaf[] {
-	return instantLeaves(operand).filter(
-		(leaf) =>
-			leaf.class === "day-only" ||
-			(leaf.class === "literal-instant" &&
-				literalInstantMicros(leaf.literal.value) === undefined) ||
-			leaf.class === "clock-lost" ||
-			(leaf.class === "not-instant" && leaf.data === "date") ||
-			otherKindLiteral(leaf) ||
-			(leaf.class === "unknown" &&
-				leaf.held !== "string" &&
-				leaf.held !== "date"),
+	return instantLeaves(operand).filter(unlowerable);
+}
+
+/** Whether a device prints the `datetime-coerce` of `leaf`, as a value,
+ * as Core's `date()` of it, a day (`instant.ts::datetimeCoerceValue`): a
+ * value that names no moment as text or a typed date, a system date, and a
+ * value whose clock is lost. */
+export function coercesToDay(leaf: InstantLeaf): boolean {
+	return (
+		leaf.class === "not-instant" ||
+		leaf.class === "day-only" ||
+		leaf.class === "clock-lost" ||
+		(leaf.class === "unknown" && leaf.held !== "date" && leaf.held !== "string")
+	);
+}
+
+/**
+ * Why a device prints no one value for a `datetime-coerce` of `operand`
+ * printed as a value, the one test the checker refuses by and the emitter
+ * throws by (`instant.ts::datetimeCoerceValue`): a literal that names no
+ * moment (`unreadable`); a blank or a yes or no, whose coercion prints as
+ * Core's `date()` of a value that names no day (`blank`, `value` its text);
+ * and a branch node whose coercion gives a
+ * day in some branches and a moment in others (`mixed-days`), which then
+ * gives values of two types.
+ */
+export function coercedValueRefusal(operand: InstantOperand):
+	| {
+			readonly kind: "unreadable";
+			readonly leaf: Extract<InstantLeaf, { class: "literal-instant" }>;
+	  }
+	| { readonly kind: "blank"; readonly value: string }
+	| { readonly kind: "mixed-days" }
+	| undefined {
+	const [unreadable] = unreadableInstantLiterals(operand);
+	if (unreadable !== undefined) return { kind: "unreadable", leaf: unreadable };
+	if (operand.kind === "leaf") {
+		const literal = directLiteral(operand.value);
+		return literal !== undefined &&
+			(literal.value === null ||
+				literal.value === "" ||
+				typeof literal.value === "boolean")
+			? {
+					kind: "blank",
+					value: literal.value === null ? "" : String(literal.value),
+				}
+			: undefined;
+	}
+	const days = new Set(instantLeaves(operand).map(coercesToDay));
+	return days.size > 1 ? { kind: "mixed-days" } : undefined;
+}
+
+/**
+ * Whether the branches of an `if`, `coalesce` or `switch` give a day in
+ * some and a date and time in another on a device: a branch gives a day
+ * where every value it can end with is a `datetime-coerce` a device prints
+ * as `date()` (`coercesToDay`), and a date and time where it is no such
+ * branch and is typed one. The node then gives values of two types, as
+ * `coalesce(now(), date(x))` does. The checker refuses it (`branch-values`)
+ * and the emitter throws on it; record rules only, since form logic holds no
+ * `datetime-coerce`.
+ */
+export function branchesMixCoercedDays(
+	branches: readonly Expression[],
+	ctx: ExpressionContext,
+): boolean {
+	if (ctx.ruleSet !== "record") return false;
+	const day = (branch: Expression): boolean => {
+		let every = true;
+		let any = false;
+		visitAssignmentOutputs(branch, [], (output) => {
+			any = true;
+			const operand =
+				output.kind === "datetime-coerce"
+					? instantOperand(output, ctx)
+					: undefined;
+			if (operand?.kind !== "leaf" || !coercesToDay(operand)) every = false;
+		});
+		return any && every;
+	};
+	const days = branches.map(day);
+	if (!days.some(Boolean)) return false;
+	return branches.some(
+		(branch, index) =>
+			!days[index] && scalarDataType(typeOf(branch, ctx)?.data) === "datetime",
 	);
 }
 

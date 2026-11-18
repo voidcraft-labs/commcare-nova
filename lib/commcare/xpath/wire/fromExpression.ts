@@ -18,6 +18,8 @@ import {
 } from "@/lib/domain/expression/distance";
 import { GEOPOINT_PROPERTY_PATTERN } from "@/lib/domain/expression/geopoint";
 import {
+	branchesMixCoercedDays,
+	coercedValueRefusal,
 	comparisonOperands,
 	comparisonPlan,
 	type InstantComparisonKind,
@@ -790,6 +792,30 @@ function compareSides(
 	};
 	return w.cmp(comparison[kind], wire(left), wire(right));
 }
+/** A `datetime-coerce` printed as a value (`instant.ts::datetimeCoerceValue`),
+ * where `instantOperand.ts::coercedValueRefusal`, the checker's own test,
+ * finds one value a device prints for it. */
+function coercedValue(operand: InstantOperand, ctx: Context): WireExpr {
+	const refusal = coercedValueRefusal(operand);
+	if (refusal !== undefined)
+		throw new Error(
+			refusal.kind === "mixed-days"
+				? "A date and time coerced from branches some of which a device keeps as a day reached the emitter. The checker should refuse it (branch-values) before emission."
+				: "A date and time coerced from a value that names no moment reached the emitter. The checker should refuse it (unreadable-datetime) before emission.",
+		);
+	return datetimeCoerceValue(operand, instantEmission(ctx));
+}
+
+/** Throws where a value-giving node's branches give a day in some and a date
+ * and time in another on a device (`instantOperand.ts::branchesMixCoercedDays`,
+ * the checker's own test). */
+function refuseMixedDays(branches: readonly Expression[], ctx: Context): void {
+	if (branchesMixCoercedDays(branches, ctx.types))
+		throw new Error(
+			"A value whose branches give a day in some and a date and time in another reached the emitter. The checker should refuse it (branch-values) before emission.",
+		);
+}
+
 /** Each case's test of a `switch`, its subject emitted once. */
 function switchTests(
 	expr: Extract<Expression, { kind: "switch" }>,
@@ -1099,12 +1125,12 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 		case "date-coerce":
 			return w.call("date", [deviceTemporalValue(expr.value, ctx)]);
 		case "datetime-coerce":
-			return ctx.dayComparison === true
-				? w.call("date", [emitExpression(expr.value, plain)])
-				: datetimeCoerceValue(
-						instantOperand(expr, ctx.types, { memo: instantMemo(ctx) }),
-						instantEmission(ctx),
-					);
+			if (ctx.dayComparison === true)
+				return w.call("date", [emitExpression(expr.value, plain)]);
+			return coercedValue(
+				instantOperand(expr, ctx.types, { memo: instantMemo(ctx) }),
+				ctx,
+			);
 		case "double":
 			return w.call("double", [emit(expr.value)]);
 		case "arith": {
@@ -1121,6 +1147,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 		case "concat":
 			return w.call("concat", expr.parts.map(emit));
 		case "coalesce":
+			refuseMixedDays(expr.values, ctx);
 			// Core unpacks every value but the last, which it returns as it evaluates.
 			return w.call(
 				"coalesce",
@@ -1133,6 +1160,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				),
 			);
 		case "if":
+			refuseMixedDays([expr.then, expr.else], ctx);
 			return w.call("if", [
 				emitExpression(
 					normalizeRelationEvaluationScopes(expr.cond, relationScope(plain)),
@@ -1142,6 +1170,10 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				emitExpression(expr.else, ctx, use),
 			]);
 		case "switch": {
+			refuseMixedDays(
+				[...expr.cases.map((entry) => entry.then), expr.fallback],
+				ctx,
+			);
 			const tests = switchTests(expr, plain);
 			let result = emitExpression(expr.fallback, ctx, use);
 			for (let index = expr.cases.length - 1; index >= 0; index--) {
