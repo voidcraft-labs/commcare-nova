@@ -456,10 +456,10 @@ describe("each operand takes the instant text of how its device holds it", () =>
 		);
 	});
 
-	it("keeps date() for a coerced value that names no moment", () => {
-		for (const value of [literal(""), literal(true)])
-			expect(fx.lowerRecord(datetimeCoerce(term(value)))).toEqual(
-				w.call("date", [fx.lowerRecord(term(value))]),
+	it("refuses the coercion of a literal that names no moment, which the checker refuses", () => {
+		for (const blank of [literal(""), literal(null), literal(true)])
+			expect(() => fx.lowerRecord(datetimeCoerce(term(blank)))).toThrow(
+				/unreadable-datetime/,
 			);
 	});
 

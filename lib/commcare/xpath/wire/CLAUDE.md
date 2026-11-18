@@ -223,7 +223,12 @@ A comparison goes through `fromExpression.ts::compareSides`, which asks
 `lib/domain/expression/instantOperand.ts::comparisonPlan` whether a device runs
 it between two moments, by day, or as written, and builds each side once per
 spelling so `in`, `between` and `switch` share it. A lowered side is
-`instant.ts::instantOperandWire`; `lib/commcare/xpath/CLAUDE.md`, "The instant
+`instant.ts::instantOperandWire`, which prints each leaf as
+`instantOperand.ts::instantLeafSpelling` spells it at its place, the function
+the checker refuses by and the reader's canonical form reads back by; a
+`datetime-coerce` printed as a value, and an `if`, `coalesce` or `switch`,
+throw where `coercedValueRefusal` or `branchesMixCoercedDays`, the checker's
+own tests, refuse them. `lib/commcare/xpath/CLAUDE.md`, "The instant
 lowering", owns the parse.
 
 Every authored form slot, including prose outputs and generated mixed

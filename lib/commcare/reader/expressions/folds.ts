@@ -12,6 +12,7 @@ import {
 	type ExpressionContext,
 	pushRowScope,
 } from "@/lib/domain/expression/context";
+import { readsSearchRow } from "@/lib/domain/expression/csqlPositions";
 import {
 	DISTANCE_UNITS,
 	type DistanceUnit,
@@ -22,6 +23,8 @@ import {
 	GEOPOINT_RAW_CENTER_PATTERN,
 } from "@/lib/domain/expression/geopoint";
 import {
+	type InstantSpelling,
+	instantSpellingMember,
 	instantTextOfMicros,
 	literalInstantMicros,
 	literalStoredInstantText,
@@ -386,15 +389,17 @@ export function shapedLiteral(
 	context: ExpressionContext,
 	ordering: boolean,
 ): Literal {
-	// A blank ordered against a value is no text, which no ordering takes:
-	// it is the blank `null` prints as.
-	if (value === "" && ordering) return { kind: "literal", value: null };
-	const shape = literalShape(value);
-	if (shape === undefined) return { kind: "literal", value };
 	const other =
 		opposite === undefined
 			? undefined
 			: scalarDataType(typeOf(opposite, context)?.data);
+	// A blank ordered against a value, or compared with a value of a known
+	// type no text agrees with, is no text, which neither takes: it is the
+	// blank `null` prints as.
+	if (value === "" && (ordering || untextualType(other)))
+		return { kind: "literal", value: null };
+	const shape = literalShape(value);
+	if (shape === undefined) return { kind: "literal", value };
 	const known = other !== undefined && other !== "_any";
 	if (shape.type === "time")
 		return other === "time"
@@ -589,8 +594,7 @@ const typedLiteral: Fold = {
 		const literalSide = leftText !== undefined ? "left" : "right";
 		const text = (leftText ?? rightText) as string;
 		const ordering = ORDERINGS.has(test.op);
-		if (literalShape(text) === undefined && !(text === "" && ordering))
-			return undefined;
+		if (literalShape(text) === undefined && text !== "") return undefined;
 		const other = api.bind(
 			literalSide === "left" ? test.right : test.left,
 			context,
@@ -835,8 +839,9 @@ const typedBranchLiteral: Fold = {
 	},
 };
 
-/** Whether `type` is a known type no text agrees with as a branch. */
-function untextualType(type: string | undefined): boolean {
+/** Whether `type` is a known type no text agrees with, as a branch or as
+ *  the other side of a comparison. */
+export function untextualType(type: string | undefined): boolean {
 	return (
 		type !== undefined &&
 		type !== "_any" &&
@@ -1615,8 +1620,12 @@ function epochDayMicros(node: FormSyntax): FormSyntax | undefined {
 
 const INSTANT_TEXT_PATTERN = "%Y-%m-%dT%H:%M:%S.%3%Z";
 
-/** One operand text of an instant parse, unwrapped by the spellings
- *  `instant.ts::leafText` and `::operandText` write. */
+/** One operand text of an instant parse, read by the spelling
+ *  `instant.ts::spellingText` prints it as (`instantOperand.ts`,
+ *  `InstantSpelling`): each spelling as the member `instantSpellingMember`
+ *  gives it, which the canonical form gives too (`canonical.ts`,
+ *  `instant-operand`). Form logic has no `datetime-coerce`, so there a
+ *  midnight is read as the text it is. */
 function instantOperandProposal(
 	text: FormSyntax,
 	context: ExpressionContext,
@@ -1624,21 +1633,30 @@ function instantOperandProposal(
 	opposite: () => Expression | undefined,
 ): Expression {
 	const record = context.ruleSet === "record";
-	const coerce = (value: FormSyntax): Expression =>
-		record
-			? api.remember(
-					{ kind: "datetime-coerce", value: api.bind(value, context) },
-					text,
-				)
-			: api.bind(text, context);
+	const member = (spelling: InstantSpelling): Expression => {
+		const read = instantSpellingMember(spelling, record);
+		if (read === undefined) return api.bind(text, context);
+		return read.kind === "term"
+			? api.term(read.term, text)
+			: read === (spelling as { value?: Expression }).value
+				? read
+				: api.remember(read, text);
+	};
+	const coerce = (
+		of: "typed-date" | "date-text" | "day-number" | undefined,
+		value: FormSyntax,
+	): Expression => {
+		if (!record) return api.bind(text, context);
+		const bound = api.bind(value, context);
+		return member(
+			of === undefined
+				? { kind: "text-or-midnight", value: bound }
+				: { kind: "midnight", of, value: bound, guarded: false },
+		);
+	};
 	const literal = stringValue(text);
 	if (literal !== undefined)
-		return api.term(
-			record
-				? { kind: "literal", value: literal, data_type: "datetime" }
-				: { kind: "literal", value: literal },
-			text,
-		);
+		return member({ kind: "literal-text", text: literal });
 	const typed = call(text, "format-date", 2);
 	if (
 		typed !== undefined &&
@@ -1646,7 +1664,10 @@ function instantOperandProposal(
 	) {
 		const inner = call(typed.args[0], "coalesce", 2);
 		if (inner !== undefined && stringValue(inner.args[1]) === "")
-			return api.bind(inner.args[0] as FormSyntax, context);
+			return member({
+				kind: "typed-text",
+				value: api.bind(inner.args[0] as FormSyntax, context),
+			});
 	}
 	const midnight = call(text, "concat", 2);
 	if (
@@ -1655,10 +1676,12 @@ function instantOperandProposal(
 	) {
 		const day = call(midnight.args[0], "format-date", 2);
 		const typedDay = call(day?.args[0], "coalesce", 2);
-		if (typedDay !== undefined) return coerce(typedDay.args[0] as FormSyntax);
+		if (typedDay !== undefined)
+			return coerce("typed-date", typedDay.args[0] as FormSyntax);
 		const dayNumber = call(day?.args[0], "date", 1);
-		if (dayNumber !== undefined) return coerce(dayNumber.args[0] as FormSyntax);
-		return coerce(midnight.args[0] as FormSyntax);
+		if (dayNumber !== undefined)
+			return coerce("day-number", dayNumber.args[0] as FormSyntax);
+		return coerce("date-text", midnight.args[0] as FormSyntax);
 	}
 	const branch = call(text, "if", 3);
 	if (branch !== undefined) {
@@ -1669,7 +1692,7 @@ function instantOperandProposal(
 			numberValue(tenChars?.right) === 10 &&
 			same(length.args[0], branch.args[2])
 		)
-			return coerce(length.args[0] as FormSyntax);
+			return coerce(undefined, length.args[0] as FormSyntax);
 		const blank = binary(branch.args[0], "=");
 		if (
 			blank !== undefined &&
@@ -1760,25 +1783,23 @@ const instantComparison: Fold = {
 		): Expression | undefined => {
 			if (text !== undefined)
 				return instantOperandProposal(text, context, api, () => undefined);
+			// A side printed as a number beside a parsed one: a count or a day
+			// number's microseconds, each read as its spelling's member.
 			const micros = numberValue(whole);
-			if (micros !== undefined && Number.isInteger(micros)) {
-				const literal = instantTextOfMicros(micros);
-				if (literal === undefined || literalInstantMicros(literal) !== micros)
-					return undefined;
-				return api.term(
-					record
-						? { kind: "literal", value: literal, data_type: "datetime" }
-						: { kind: "literal", value: literal },
-					whole,
-				);
-			}
 			const days = epochDayMicros(whole);
-			if (days !== undefined && record)
-				return api.remember(
-					{ kind: "datetime-coerce", value: api.bind(days, context) },
-					whole,
-				);
-			return undefined;
+			const read =
+				micros !== undefined && Number.isInteger(micros)
+					? instantSpellingMember({ kind: "count", micros }, record)
+					: days !== undefined && record
+						? instantSpellingMember(
+								{ kind: "scaled-days", value: api.bind(days, context) },
+								record,
+							)
+						: undefined;
+			if (read === undefined) return undefined;
+			return read.kind === "term"
+				? api.term(read.term, whole)
+				: api.remember(read, whole);
 		};
 		const left = side(test.left, leftText);
 		const right = side(test.right, rightText);
@@ -2142,69 +2163,122 @@ const inFold: Fold = {
 	},
 };
 
+/** Whether `range`, read from `node`, an `and`, is two top-level conjuncts
+ *  of a list filter its search restates that read the searched case, which
+ *  the search prints as a row each (`suite/case-search/xpathQuery.ts`): there
+ *  a range prints one row and its two comparisons two, so the reading takes
+ *  the comparisons and the search's rows say which the source holds
+ *  (`search/rows.ts::classifySearchRows`). A clause that reads no case is
+ *  worked out on the device whole, one row either way, and a date and time's
+ *  range from a value to itself is the row its equality prints, which a row
+ *  reads as the equality (`csqlRead.ts::CsqlBinder.proposedEquality`), so
+ *  the range is read there. Clauses are told by their place in the slot's
+ *  source. */
+function conjunctsPrintAsRows(
+	node: FormSyntax,
+	range: Extract<Expression, { kind: "between" }>,
+	context: ExpressionContext,
+	env: FoldEnv,
+): boolean {
+	if (
+		context.slot.slot !== "case_list_filter" ||
+		!context.profile.targets.has("CS") ||
+		env.root === undefined ||
+		!readsSearchRow(range)
+	)
+		return false;
+	if (
+		range.lowerInclusive &&
+		range.upperInclusive &&
+		sameJson(range.lower, range.upper)
+	) {
+		let type: string | undefined;
+		try {
+			type = scalarDataType(typeOf(range.left, context)?.data);
+		} catch {
+			type = undefined;
+		}
+		if (type === "datetime") return false;
+	}
+	const top = new Set(
+		clauses(env.root, "and").map((clause) => `${clause.from}:${clause.to}`),
+	);
+	return clauses(node, "and").every((part) =>
+		top.has(`${part.from}:${part.to}`),
+	);
+}
+
 const between: Fold = {
 	id: "between",
 	ruleSets: ["record"],
-	propose(node, context, api) {
-		const parts = clauses(node, "and");
-		if (parts.length !== 2) return undefined;
-		const lowerTest = binary(parts[0], [">=", ">"]);
-		const upperTest = binary(parts[1], ["<=", "<"]);
-		if (
-			lowerTest === undefined ||
-			upperTest === undefined ||
-			!same(lowerTest.left, upperTest.left)
-		)
-			return undefined;
-		// A range over moments prints each bound's comparison lowered to
-		// microseconds, which binds as that comparison, clause by clause.
-		if (
-			[lowerTest.left, lowerTest.right, upperTest.right].some(
-				(side) => instantParseOperand(side) !== undefined,
-			)
-		) {
-			const lowerRead = api.bind(parts[0] as FormSyntax, context);
-			const upperRead = api.bind(parts[1] as FormSyntax, context);
-			const lower = momentPair(lowerRead, upperRead);
-			const upper = momentPair(upperRead, lower);
-			if (
-				(lower.kind !== "gte" && lower.kind !== "gt") ||
-				(upper.kind !== "lte" && upper.kind !== "lt") ||
-				!sameJson(lower.left, upper.left)
-			)
-				return undefined;
-			return api.remember(
-				{
-					kind: "between",
-					left: lower.left,
-					lower: lower.right,
-					upper: upper.right,
-					lowerInclusive: lower.kind === "gte",
-					upperInclusive: upper.kind === "lte",
-				},
-				node,
-			);
-		}
-		const left = api.bind(lowerTest.left, context);
-		const bound = (side: FormSyntax): Expression => {
-			const text = stringValue(side);
-			return text === undefined
-				? api.bind(side, context)
-				: api.term(shapedLiteral(text, left, context, true), side);
-		};
-		return api.remember(
-			{
-				kind: "between",
-				left,
-				lower: bound(lowerTest.right),
-				upper: bound(upperTest.right),
-				lowerInclusive: lowerTest.op === ">=",
-				upperInclusive: upperTest.op === "<=",
-			},
-			node,
-		);
+	propose(node, context, api, env) {
+		const range = betweenOf(node, context, api);
+		return range === undefined ||
+			conjunctsPrintAsRows(node, range, context, env)
+			? undefined
+			: api.remember(range, node);
 	},
 };
+
+/** `node`, a lower bound's comparison and an upper bound's of one operand, as
+ *  that range. */
+function betweenOf(
+	node: FormSyntax,
+	context: ExpressionContext,
+	api: FoldApi,
+): Extract<Expression, { kind: "between" }> | undefined {
+	const parts = clauses(node, "and");
+	if (parts.length !== 2) return undefined;
+	const lowerTest = binary(parts[0], [">=", ">"]);
+	const upperTest = binary(parts[1], ["<=", "<"]);
+	if (
+		lowerTest === undefined ||
+		upperTest === undefined ||
+		!same(lowerTest.left, upperTest.left)
+	)
+		return undefined;
+	// A range over moments prints each bound's comparison lowered to
+	// microseconds, which binds as that comparison, clause by clause.
+	if (
+		[lowerTest.left, lowerTest.right, upperTest.right].some(
+			(side) => instantParseOperand(side) !== undefined,
+		)
+	) {
+		const lowerRead = api.bind(parts[0] as FormSyntax, context);
+		const upperRead = api.bind(parts[1] as FormSyntax, context);
+		const lower = momentPair(lowerRead, upperRead);
+		const upper = momentPair(upperRead, lower);
+		if (
+			(lower.kind !== "gte" && lower.kind !== "gt") ||
+			(upper.kind !== "lte" && upper.kind !== "lt") ||
+			!sameJson(lower.left, upper.left)
+		)
+			return undefined;
+		return {
+			kind: "between",
+			left: lower.left,
+			lower: lower.right,
+			upper: upper.right,
+			lowerInclusive: lower.kind === "gte",
+			upperInclusive: upper.kind === "lte",
+		};
+	}
+	const left = api.bind(lowerTest.left, context);
+	const bound = (side: FormSyntax): Expression => {
+		const text = stringValue(side);
+		return text === undefined
+			? api.bind(side, context)
+			: api.term(shapedLiteral(text, left, context, true), side);
+	};
+	return {
+		kind: "between",
+		left,
+		lower: bound(lowerTest.right),
+		upper: bound(upperTest.right),
+		lowerInclusive: lowerTest.op === ">=",
+		upperInclusive: upperTest.op === "<=",
+	};
+}
 
 /** `bound`, a range's comparison of two moment literals, which a device
  *  compares as the two counts of microseconds they fold to and which binds as

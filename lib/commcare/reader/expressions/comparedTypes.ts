@@ -276,9 +276,11 @@ function scanComparedTypes(
 					note(node.left, { kind: "term", term: one }, false);
 				return;
 			case "within-distance":
-				// A distance is measured from a location, so the property it
-				// measures is one.
+				// A distance is measured between two locations, so the property
+				// it measures is one, and so is every value its center ends with.
 				noteKind({ kind: "term", term: node.property }, "geopoint");
+				for (const output of outputsOf(node.center))
+					noteKind(output, "geopoint");
 				return;
 			case "multi-select-contains":
 				// Only a list of choices holds several of them.
@@ -332,6 +334,10 @@ const COERCED_POSITION: readonly CasePropertyDataType[] = [
 	"date",
 	"datetime",
 ];
+/** The sides of an ordering every value of which is a property the catalog
+ *  holds untyped, which order as dates and as numbers alike and print bare
+ *  either way, so a date is tried before a number. */
+const ORDERED_POSITION: readonly CasePropertyDataType[] = ["date", "decimal"];
 
 /** Each property `tree` reads, as a value that ends a position's operand, at
  *  a position whose signature takes a date or a number, which a property the
@@ -393,11 +399,56 @@ export function requiredTypes(
 				if (typeof node.distance !== "number")
 					need(node.distance, NUMBER_POSITION);
 				return;
+			case "gt":
+			case "gte":
+			case "lt":
+			case "lte":
+				found.push(...orderedProperties(node.left, node.right, untyped));
+				return;
 			default:
 				return;
 		}
 	});
 	return found;
+}
+
+/** The properties of an ordering whose two sides, one of them a branch node
+ *  at least, give only properties the catalog holds untyped: each at
+ *  `ORDERED_POSITION`, with every other as its partner, since the checker
+ *  orders none of them as text and each takes the type the others take. Two
+ *  direct properties are the expression stage's own pair
+ *  (`index.ts::untypedPairs`). */
+function orderedProperties(
+	left: Expression,
+	right: Expression,
+	untyped: (caseType: string, property: string) => boolean,
+): RequiredType[] {
+	const lefts = outputsOf(left);
+	const rights = outputsOf(right);
+	const direct = (side: Expression, outputs: readonly Expression[]) =>
+		outputs.length === 1 && outputs[0] === side;
+	if (direct(left, lefts) && direct(right, rights)) return [];
+	const properties = new Map<string, { caseType: string; property: string }>();
+	for (const output of [...lefts, ...rights]) {
+		const term = comparedProperty(output);
+		if (
+			term?.kind !== "prop" ||
+			term.caseType === undefined ||
+			!untyped(term.caseType, term.property)
+		)
+			return [];
+		properties.set(JSON.stringify([term.caseType, term.property]), {
+			caseType: term.caseType,
+			property: term.property,
+		});
+	}
+	return [...properties].map(([key, one]) => ({
+		...one,
+		candidates: ORDERED_POSITION,
+		partners: [...properties]
+			.filter(([other]) => other !== key)
+			.map(([, partner]) => partner),
+	}));
 }
 
 /** Each property the catalog holds untyped that `tree` gives as its value,
