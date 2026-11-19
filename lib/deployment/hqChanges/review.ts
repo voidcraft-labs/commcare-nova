@@ -44,7 +44,6 @@ import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
@@ -780,7 +779,6 @@ export async function computeHqChanges(
 				current: normalized.normalized,
 				ownership: baseline.ownership,
 				shell: false,
-				schemaDefault: schemaPropertyDefault,
 				languageNames,
 				mediaChanged: movedRecordedPaths(
 					baseline.mediaFiles,
@@ -833,7 +831,6 @@ export async function computeHqChanges(
 			current: normalized.normalized,
 			ownership: baseline.ownership,
 			shell: false,
-			schemaDefault: schemaPropertyDefault,
 			languageNames,
 			mediaChanged: published.filter((path) => path.standing === "replaced")
 				.length,

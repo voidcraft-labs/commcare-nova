@@ -483,48 +483,56 @@ describe("the order plan's two emitters", () => {
 		).toEqual([]);
 	});
 
-	it("writes owner_id and status columns, shown and hidden, as attribute expressions", () => {
+	it("writes owner_id and status columns, shown and hidden, as HQ's property fields read as attributes", () => {
 		const index = Object.keys(LISTS).indexOf("Attributes");
 		const short = hq.modules[index].case_details.short;
+		// HQ's Case List page stores `status` and `owner_id` as property
+		// fields, and HQ's build reads each through `CASE_PROPERTY_MAP` as the
+		// case's attribute (`detail_screen.py::PropertyXpathGenerator.xpath`),
+		// so an app made in HQ keeps its columns' fields and their app string
+		// ids (`id_strings.py::detail_column_header_locale`).
 		expect(
 			short.columns.map((column) => [column.field, column.useXpathExpression]),
 		).toEqual([
 			["name", false],
-			["@owner_id", true],
-			["@status", true],
-			["@owner_id", true],
-			["@status", true],
+			["owner_id", false],
+			["status", false],
+			["owner_id", false],
+			["status", false],
 		]);
-		// HQ's build writes an expression column as a calculated one: its
-		// template reads `$calculated_property`, a variable over the field
-		// (`detail_screen.py::FormattedDetailColumn.template`), and the local
-		// suite writes what HQ's build of the same columns gives.
-		const xpaths = xmlChildren(shortDetail(suite, index), "field").map(
+		expect(short.sort_elements.map((element) => element.field)).toEqual([
+			"owner_id",
+			"status",
+		]);
+		// The local suite writes what HQ's build of the same columns gives:
+		// each template reads the attribute itself, under the field's own
+		// header id where the column is shown.
+		const detail = shortDetail(suite, index);
+		const xpaths = xmlChildren(detail, "field").map(
 			(field) =>
 				xmlChildren(
 					xmlChildren(xmlChildren(field, "template")[0], "text")[0],
 					"xpath",
-				)[0],
+				)[0]?.attributes.function,
 		);
-		expect(xpaths.map((xpath) => xpath?.attributes.function)).toEqual([
+		expect(xpaths).toEqual([
 			"case_name",
-			"$calculated_property",
-			"$calculated_property",
-			"$calculated_property",
-			"$calculated_property",
+			"@owner_id",
+			"@status",
+			"@owner_id",
+			"@status",
 		]);
-		const variableFunction = (xpath: (typeof xpaths)[number]) => {
-			const variable =
-				xpath === undefined ? undefined : xmlChildren(xpath, "variable")[0];
-			return variable === undefined
-				? undefined
-				: xmlChildren(variable, "xpath")[0]?.attributes.function;
-		};
-		expect(xpaths.slice(1).map(variableFunction)).toEqual([
-			"@owner_id",
-			"@status",
-			"@owner_id",
-			"@status",
+		const headers = xmlChildren(detail, "field").map(
+			(field) =>
+				xmlChildren(
+					xmlChildren(xmlChildren(field, "header")[0], "text")[0],
+					"locale",
+				)[0]?.attributes.id,
+		);
+		expect(headers.slice(0, 3)).toEqual([
+			`m${index}.case_short.case_name_1.header`,
+			`m${index}.case_short.case_owner_id_2.header`,
+			`m${index}.case_short.case_status_3.header`,
 		]);
 	});
 

@@ -404,7 +404,7 @@ describe("a generated key in the assembly", () => {
 			throw new Error(
 				JSON.stringify(outcome.findings.map((one) => one.detail.name)),
 			);
-		expect(outcome.draft.facts.foldedTranslationKeys).toBe(1);
+		expect(outcome.draft.facts.foldedTranslationKeys).toHaveLength(1);
 		const menu = outcome.draft.doc.moduleOrder[0] as Uuid;
 		expect(outcome.draft.doc.modules[menu]?.name).toBe("Patients");
 	});
@@ -462,7 +462,7 @@ describe("a generated key in the assembly", () => {
 			"application-and-settings/translations-generated-key-over-one-text",
 			"application-and-settings/translations-generated-key-over-one-text",
 		]);
-		expect(outcome.draft.facts.foldedTranslationKeys).toBe(2);
+		expect(outcome.draft.facts.foldedTranslationKeys).toHaveLength(2);
 		const read = outcome.draft.doc;
 		const menu = read.moduleOrder[0] as Uuid;
 		expect(read.modules[menu]?.name).toBe("Clients");

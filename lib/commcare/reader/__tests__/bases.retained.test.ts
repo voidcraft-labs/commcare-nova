@@ -10,7 +10,8 @@
  * Contract: the tree holds every base the lane's registry names
  * (`proof/matrix/bases.json`); each base comes in; its reading's
  * declaration, the entries its claim log names and its first-publish ids
- * are the ones the lane recorded in its `expected.json`; each record of a
+ * are the ones the lane recorded in its `expected.json`, each with a place
+ * of its own but the one change that stands everywhere; each record of a
  * key of one of HQ's classes stands at that key's own pointer; every record's
  * key is one its entry names, or none; every retained
  * answer is one the reading asked for; the reading holds every placement
@@ -252,6 +253,35 @@ function unheldPlacements(base: RetainedHqApp, reading: LaneReading): string[] {
 	);
 }
 
+/**
+ * Each first-publish change of the reading that stands nowhere: the emission writes each with the
+ * places it stands at (`first-publish.json`), and the proof lane's judge holds a difference to a
+ * change only at its places (`proof/checks/changes.py`), so a change but the one that stands
+ * everywhere with no place could never be seen. `firstPublishChangePlaces` throws for one; this
+ * names a list that parts from the ids the reading predicts.
+ */
+function unplacedChanges(base: RetainedHqApp, reading: LaneReading): string[] {
+	if (reading.kind !== "read") return [];
+	const placed = reading.firstPublishPlaces.map(({ id }) => id);
+	return [
+		...(placed.join("\n") === reading.firstPublish.join("\n")
+			? []
+			: [
+					`The base ${base.id}'s first-publish places name ${placed.join(", ")}, and its reading predicts ${reading.firstPublish.join(", ")}. Look at lib/deployment/reading/firstPublishChanges.ts::firstPublishChangePlaces.`,
+				]),
+		...reading.firstPublishPlaces
+			.filter(
+				({ id, places }) =>
+					places.length === 0 ||
+					(id !== "forms-and-settings-rewritten" && places.includes("")),
+			)
+			.map(
+				({ id }) =>
+					`The base ${base.id}'s reading predicts ${id} and gives it no place of its own. Look at its entry's at in lib/deployment/reading/firstPublishChanges.ts.`,
+			),
+	];
+}
+
 async function readBase(base: RetainedHqApp): Promise<LaneReading> {
 	return readForLane(laneInputOf(base));
 }
@@ -273,6 +303,7 @@ describe("the apps CommCare HQ made that the proof lane retained", () => {
 				expect([
 					...discrepancies(base, reading),
 					...unheldPlacements(base, reading),
+					...unplacedChanges(base, reading),
 					...misplacedRecords(base, reading),
 					...(reading.kind === "read" ? unnamedKeys(base, reading.claims) : []),
 				]).toEqual([]);

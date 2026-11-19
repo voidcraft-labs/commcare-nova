@@ -344,6 +344,7 @@ describe("readApplication's logos", () => {
 				assetId: ASSET,
 				mediaKind: "image",
 				place: { kind: "app-settings" },
+				pointer: "/logo_refs/hq_logo_web_apps",
 				slot: "app_logo",
 			},
 		]);
@@ -622,7 +623,7 @@ describe("readApplication's app name and the source language it tells", () => {
 				byLanguage: new Map([["eng", "Clinic"]]),
 			},
 		]);
-		expect(ctx.facts.foldedTranslationKeys).toBe(0);
+		expect(ctx.facts.foldedTranslationKeys).toHaveLength(0);
 	});
 
 	it("reads a first-language app.display.name HQ's build shows over name as the app's name where every language stores one", async () => {
@@ -652,7 +653,7 @@ describe("readApplication's app name and the source language it tells", () => {
 				byLanguage: new Map([["fra", "Clinique"]]),
 			},
 		]);
-		expect(ctx.facts.foldedTranslationKeys).toBe(1);
+		expect(ctx.facts.foldedTranslationKeys).toHaveLength(1);
 	});
 
 	it.each([
@@ -674,7 +675,7 @@ describe("readApplication's app name and the source language it tells", () => {
 			]);
 			expect(ctx.draft.appName?.value).toBe(name);
 			expect(ctx.translations.units()).toEqual([]);
-			expect(ctx.facts.foldedTranslationKeys).toBe(0);
+			expect(ctx.facts.foldedTranslationKeys).toHaveLength(0);
 		},
 	);
 });

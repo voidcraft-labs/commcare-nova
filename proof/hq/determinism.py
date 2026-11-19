@@ -79,6 +79,13 @@ thread; opening one on another thread while one is open is refused
 Outside every operation, entropy is the system's and the clock is real, which
 the harness relies on (a fresh reference database's name, for instance).
 
+``clock_at(instant)`` sets one other instant for a block: every operation
+opened inside it reads ``instant`` + its depth in place of ``EPOCH`` (with
+determinism off, the block's clock is ``instant``, frozen). It is for asking
+HQ the same thing at the runtimes' instant, to hold an answer to being the
+same at both of the lane's clocks (``proof.observe.sessions.HqSearches``),
+and changes no entropy.
+
 ``EPOCH`` is the commit time of the HQ pin, so HQ's date-gated behavior
 follows the pins: read from ``/opt/hq-pin-time`` (``PROOF_HQ_PIN_TIME``),
 which the image records at build time; else from ``git log`` in HQ's checkout
@@ -179,6 +186,8 @@ def _resolve_epoch() -> tuple[dt.datetime, str]:
 
 
 EPOCH, EPOCH_SOURCE = _resolve_epoch()
+# The instant operations read in place of ``EPOCH`` inside ``clock_at``, else None.
+_CLOCK_AT: dt.datetime | None = None
 
 
 class HmacDrbg:
@@ -324,7 +333,8 @@ def operation(key: bytes, depth: int):
             names._rng = random.Random(scope.drbg.generate(32))
             names._rng_pid = os.getpid()
             tempfile._name_sequence = names
-            with time_machine.travel(EPOCH + dt.timedelta(seconds=depth), tick=False):
+            start = EPOCH if _CLOCK_AT is None else _CLOCK_AT
+            with time_machine.travel(start + dt.timedelta(seconds=depth), tick=False):
                 yield
     finally:
         with _LOCK:
@@ -335,3 +345,25 @@ def operation(key: bytes, depth: int):
                 random.setstate(outside[0])
                 uuid._last_timestamp = outside[1]
                 tempfile._name_sequence = outside[2]
+
+
+@contextmanager
+def clock_at(instant: dt.datetime):
+    """Every operation opened inside the block reads ``instant`` + its depth as its clock, in place of ``EPOCH``; with
+    determinism off, the block's clock is ``instant``, frozen (the module's docstring). Blocks do not nest."""
+    global _CLOCK_AT
+    if instant.tzinfo is None:
+        raise ValueError(f"An instant HQ's clock reads names its offset; {instant!r} names none.")
+    if _CLOCK_AT is not None:
+        raise RuntimeError("HQ's clock was set to one instant inside a block that set it to another.")
+    if not ENABLED:
+        import time_machine
+
+        with time_machine.travel(instant, tick=False):
+            yield
+        return
+    _CLOCK_AT = instant
+    try:
+        yield
+    finally:
+        _CLOCK_AT = None

@@ -237,6 +237,8 @@ function columnRelationSentence(e: ValidationError): string {
 			return `An item in ${module} reads ${item} through a parent link that names a case type. The parent's case type comes from this case type, so you can leave it off.`;
 		case "worker":
 			return `An item in ${module} reads ${item} through a link called user, which CommCare reads as the worker's own information. You can choose another link.`;
+		case "index-name":
+			return `An item in ${module} reads ${item} through a link whose name doesn't start with a letter, which CommCare HQ can't keep in a case list. You can rename the link so it starts with a letter.`;
 		case "search":
 			return `An item in ${module} shows ${item} from the case above, and this case list offers Search, where such an item shows only as a calculated value. You can add a calculated value that reads the case above instead.`;
 		default:

@@ -157,7 +157,6 @@ import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 import { gateEntriesFileSchema } from "@/lib/commcare/surface/schema";
-import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import {
 	buildProfileLanguageGaps,
 	publishedLanguageCodes,
@@ -1922,7 +1921,6 @@ function appEdge(
 		current: current.normalized,
 		ownership: ledger.app.ownership,
 		shell: ledger.app.origin === "create",
-		schemaDefault: schemaPropertyDefault,
 		languageNames,
 		mediaChanged:
 			media?.paths.filter((path) => path.standing === "replaced").length ?? 0,
@@ -2013,7 +2011,6 @@ async function sendContent(
 			current: normalizedRead(prepared, source).normalized,
 			ownership: held.ownership,
 			shell: held.origin === "create",
-			schemaDefault: schemaPropertyDefault,
 			languageNames,
 		});
 		if (moved.length > 0) {
@@ -2452,19 +2449,13 @@ export interface BringInRecord {
 	 * The review's reading of the app as the peer held it after the saves:
 	 * the reading's document and one identity row a menu and a form, under
 	 * the ids the peer's summary names. The HQ side holds HQ's own answer
-	 * after the same saves to it. Absent where the review read no document
-	 * (it found the app unchanged, or the files alone said it reads the
-	 * same).
+	 * after the same saves to it, naming each file by the bytes HQ serves at
+	 * its path (`proof/checks/proof6.py::saved_requests`). Absent where the
+	 * review read no document (it found the app unchanged, or the files alone
+	 * said it reads the same).
 	 */
 	readonly reading?: {
 		readonly doc: PersistableDoc;
-		/**
-		 * Each asset the review found HQ holding under a path its content does
-		 * not derive, at that path (`jr://file/...`): the file a person replaced
-		 * under a path is named there by the asset the review resolved its bytes
-		 * to. Absent where every file HQ holds is at its content's path.
-		 */
-		readonly mediaPaths?: Readonly<Record<string, string>>;
 		readonly identity: readonly WireIdentityOverride[];
 	};
 }
@@ -2711,7 +2702,6 @@ async function reviewOverPeer(input: {
 		current: normalized.normalized,
 		ownership: baseline.ownership,
 		shell: false,
-		schemaDefault: schemaPropertyDefault,
 		languageNames: "nova",
 		mediaChanged: published.filter((path) => path.standing === "replaced")
 			.length,
@@ -3330,23 +3320,8 @@ async function bringInOverPeer(input: {
 				`Nova's review of ${id} read a menu or form the peer's summary does not hold (${read.at}), which acceptance refuses before a review answers.`,
 			);
 		}
-		/* Each file the review found HQ holding under a path its content does not
-		 * derive (a picture a person replaced under Nova's path), by the asset the
-		 * review resolved it to: what a read of HQ's answer after the same saves
-		 * names there. */
-		const heldElsewhere = new Map<string, string>();
-		for (const file of [...adoptedMediaFiles(checked.media.now)].sort((a, b) =>
-			a.hqPath < b.hqPath ? -1 : a.hqPath > b.hqPath ? 1 : 0,
-		)) {
-			const derived = `${JR_FILE}${wirePathFor(file.contentHash, file.extension)}`;
-			if (file.hqPath !== derived && !heldElsewhere.has(file.assetId))
-				heldElsewhere.set(file.assetId, file.hqPath);
-		}
 		reading = {
 			doc: storedDocument(checked.draft.doc),
-			...(heldElsewhere.size > 0 && {
-				mediaPaths: Object.fromEntries(heldElsewhere),
-			}),
 			identity: read.rows.map(
 				({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
 					entityKind,

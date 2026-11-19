@@ -35,7 +35,6 @@ import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive"
 import { placementsToHold } from "@/lib/commcare/placementHolds";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import {
 	buildProfileLanguageGaps,
 	publishedLanguageCodes,
@@ -1399,7 +1398,6 @@ export async function publishAppToHq(
 					current: second.normalized,
 					ownership: comparedOwnership,
 					shell,
-					schemaDefault: schemaPropertyDefault,
 					languageNames,
 				});
 				/* The Web App setting is left out of the drift comparison, to its
@@ -3304,7 +3302,6 @@ export async function refreshKeptValues(
 		current: normalized.normalized,
 		ownership: baseline.ownership,
 		shell: false,
-		schemaDefault: schemaPropertyDefault,
 		languageNames: remote.ownership === "adopted" ? "target" : "nova",
 		mediaChanged: movedRecordedPaths(
 			baseline.mediaFiles,
@@ -3397,7 +3394,6 @@ export async function peekHqAppChanged(
 		current: normalized.normalized,
 		ownership: baseline.ownership,
 		shell: false,
-		schemaDefault: schemaPropertyDefault,
 		languageNames: remote.ownership === "adopted" ? "target" : "nova",
 		mediaChanged: movedRecordedPaths(
 			baseline.mediaFiles,

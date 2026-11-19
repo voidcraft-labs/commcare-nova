@@ -156,3 +156,84 @@ def document_build_equivalence(document, records):
             if a is not None and b is not None:
                 found += offered_add_ons(document.id, saved, a, b)
     return judged(document, found) + observations.soft_assertion_differences(records, "proof2")
+
+
+# Where the build elements a difference names only by position stand ---------------------------------------------
+
+
+def build_sites(files):
+    """What one build's files say of where its elements stand that a difference's pointer names only by position
+    (``changes.Sites``): each suite's ``entry``, ``remote-request`` and ``xform`` by the menu or form it is of
+    (an entry's and a request's command, ``id_strings.form_command`` and ``search_command``; an XForm resource's
+    local path, ``./modules-<m>/forms-<f>.xml``, ``sections/resources.py::FormResourceContributor``), and each
+    media resource by the media path it installs (``generator.py::media_resources``: its ``media`` element's path
+    under ``jr://file/`` and the file's name, the last step of its remote location)."""
+    from urllib.parse import unquote, urlsplit
+
+    from proof.checks import changes
+    from proof.checks.compare.build_files import artifact_for
+    from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml, qname
+
+    built, media = {}, {}
+
+    def children(element, name):
+        return [child for child in element if isinstance(child.tag, str) and qname(child.tag)[1] == name]
+
+    for path, content in sorted((files or {}).items()):
+        if not isinstance(content, bytes | str):
+            continue
+        name = path.rpartition("/")[2]
+        if name not in ("suite.xml", "media_suite.xml"):
+            continue
+        try:
+            root = parse_xml(content)
+        except XmlNotWellFormed:
+            continue
+        if name == "media_suite.xml":
+            for element in children(root, "media"):
+                install = (element.get("path") or "").removeprefix("../../")
+                for resource in children(element, "resource"):
+                    remote = [
+                        location.text or ""
+                        for location in children(resource, "location")
+                        if location.get("authority") == "remote"
+                    ]
+                    file_name = unquote(urlsplit(remote[0]).path.rpartition("/")[2]) if remote else ""
+                    if resource.get("id") and file_name:
+                        media[resource.get("id")] = "jr://file/" + "/".join(
+                            part for part in (install, file_name) if part
+                        )
+            continue
+        artifact = artifact_for(path).rpartition("/")[2]
+        for element_name in ("entry", "remote-request"):
+            for position, element in enumerate(children(root, element_name), start=1):
+                commands = children(element, "command")
+                place = changes.command_place(commands[0].get("id") if commands else None)
+                built[(artifact, f"{element_name}[{position}]")] = place or None
+        for position, element in enumerate(children(root, "xform"), start=1):
+            place = None
+            for resource in children(element, "resource"):
+                for location in children(resource, "location"):
+                    held = (location.text or "").removeprefix("./")
+                    module, slash, form = held.removesuffix(".xml").partition("/")
+                    if slash and module.startswith("modules-") and form.startswith("forms-"):
+                        menu, form = module.removeprefix("modules-"), form.removeprefix("forms-")
+                        if menu.isdigit() and form.isdigit():
+                            place = ("form", f"{menu}.{form}")
+            built[(artifact, f"xform[{position}]")] = place
+    return changes.Sites(builds=built, media=media)
+
+
+def document_sites(document, records):
+    """``build_sites`` of each build proof 2 compares on one document, A's and B's aligned to A under each
+    configuration, as one (``changes.merged_sites``: an element two builds place apart is no place)."""
+    from proof.checks import changes, observations
+
+    found = []
+    for name in sorted(document.exports):
+        observed = observations.republish_view(records, name)
+        if observed.a is not None and observed.a.build is not None:
+            found.append(build_sites(observed.a.build.files))
+        if observed.b_aligned is not None:
+            found.append(build_sites(observed.b_aligned.files))
+    return changes.merged_sites(*found)

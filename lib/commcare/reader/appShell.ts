@@ -673,6 +673,7 @@ function readLogos(ctx: ReadContext): void {
 				assetId: resolution.assetId,
 				mediaKind: "image",
 				place,
+				pointer: `/logo_refs/${pointerToken(WEB_APPS_LOGO)}`,
 				slot: "app_logo",
 			});
 			ctx.writeDraft(() => {
@@ -685,6 +686,7 @@ function readLogos(ctx: ReadContext): void {
 				mediaKind: "image",
 				resolution: resolution.kind,
 				place,
+				pointer: `/logo_refs/${pointerToken(WEB_APPS_LOGO)}`,
 				slot: "app_logo",
 			});
 		}
@@ -928,6 +930,7 @@ function readTranslations(
 	const appNames = new Map<string, string>();
 	const appName = name?.value;
 	let firstLanguageName: Admitted<string> | undefined;
+	let firstLanguageNamePointer = "";
 	const byLanguage = ctx.app.map(
 		"translations",
 		"Application.translations",
@@ -985,7 +988,10 @@ function readTranslations(
 					 * build writes from `name`. */
 					if (!appliedDisplayName(text)) continue;
 					if (language !== languages.source) appNames.set(language, text);
-					else if (text !== appName) firstLanguageName = read;
+					else if (text !== appName) {
+						firstLanguageName = read;
+						firstLanguageNamePointer = `${strings.pointer}/${pointerToken(key)}`;
+					}
 					continue;
 				}
 				case "homescreen-title":
@@ -1008,7 +1014,7 @@ function readTranslations(
 		ctx.writeDraft(() => {
 			ctx.draft.appName = override;
 		});
-		ctx.facts.foldedTranslationKeys += 1;
+		ctx.facts.foldedTranslationKeys.push(firstLanguageNamePointer);
 	}
 	const translated = new Map(
 		[

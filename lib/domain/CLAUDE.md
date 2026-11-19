@@ -274,8 +274,10 @@ index, renames, the emitters, the order plan and Preview all read a related
 column's property on that type; `modules.ts::columnFieldText` is its field as
 CommCare HQ stores it, the indices and the property joined by `/`. The gate
 refuses a walk that reaches no single type, a `parent` step that names a type,
-a first step `user` and a related column in a list that offers Search
-(`CASE_LIST_COLUMN_RELATION_INVALID`).
+a first step `user`, a step whose name does not start with a letter (HQ's
+field grammar, `lib/commcare/suite/wire.ts::isHqDetailField`, which its build
+holds a sort element to and its Case List page a column to) and a related
+column in a list that offers Search (`CASE_LIST_COLUMN_RELATION_INVALID`).
 
 A sort rule may hold `label`, its name in the list's Sort by menu, on a
 column hidden from Results (`modules.ts::columnSortLabelShows`); a shown column

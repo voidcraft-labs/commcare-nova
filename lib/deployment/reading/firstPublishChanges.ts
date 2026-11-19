@@ -6,9 +6,11 @@
  *
  * Nova writes every form and every setting in its own spelling. Spelling is
  * free and behavior is not, so each entry says whether a worker meets the
- * change (`touchesWorkers`), and the JSON Pointers under which CommCare HQ's
- * stored app may differ because of it (`paths`). The ids, their sentences and
- * the stored list's shape are client-safe data in `lib/publish`; this module
+ * change (`touchesWorkers`), the JSON Pointers under which CommCare HQ's
+ * stored app may differ because of it (`paths`), and where on one reading the
+ * change stands (`at`: the places `firstPublishPlaces.ts` names, which the
+ * proof lane holds each difference to). The ids, their sentences and the
+ * stored list's shape are client-safe data in `lib/publish`; this module
  * holds what reads a reading.
  *
  * Pure: it reads only its arguments, so a read and the create that follows
@@ -16,7 +18,12 @@
  */
 
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
-import type { ReadFacts, ReadGeneratedNode } from "@/lib/commcare/reader/types";
+import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
+import type {
+	ReadFacts,
+	ReadFormFacts,
+	ReadGeneratedNode,
+} from "@/lib/commcare/reader/types";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import {
@@ -24,6 +31,10 @@ import {
 	generatedNodePaths,
 } from "@/lib/commcare/xform/generatedNodes";
 import { type BlueprintDoc, declaresWebApps, type Uuid } from "@/lib/domain";
+import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { operationCaseType } from "@/lib/domain/forms";
+import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import type { Platform } from "@/lib/domain/platforms";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
@@ -36,6 +47,25 @@ import {
 	assignMediaPaths,
 	type MediaPathAssignment,
 } from "../adoption";
+import {
+	FIRST_PUBLISH_PLACE_KINDS,
+	type FirstPublishPlaceKind,
+	FOLDED_TEXT_PATHS,
+	type FormPosition,
+	type FormPositions,
+	firstPublishPlaceKind,
+	formPositionsOf,
+	mapPath,
+	nodePlace,
+	partPlace,
+	placeOf,
+	placeOfStoredPointer,
+	placeSteps,
+	placesOfGeneratedKey,
+	placesOfMediaReference,
+	placesOfSlot,
+	sortedPlaces,
+} from "./firstPublishPlaces";
 import { reviewMediaId } from "./mediaIds";
 import type { MediaLeftOut } from "./projectData/media";
 
@@ -199,6 +229,17 @@ export interface FirstPublishFacts {
 	readonly facts: ReadFacts;
 	/** The reading's folded nodes against what Nova writes for `doc`. */
 	readonly generated: GeneratedDifference;
+	/** `generated` form by form, in the order of `facts.forms`, each with the form's position in
+	 *  `source` (null where `source` holds no form of its `xmlns`). */
+	readonly generatedByForm: readonly {
+		readonly position: FormPosition | null;
+		readonly form: ReadFormFacts;
+		readonly difference: GeneratedDifference;
+	}[];
+	/** Each form's position in `source`. */
+	readonly positions: FormPositions;
+	/** The position of each form of `doc` the reading holds, by its UUID. */
+	readonly formPositions: ReadonlyMap<Uuid, FormPosition>;
 	/** `assignMediaPaths` over the held files, keyed by content. */
 	readonly media: MediaPathAssignment;
 	/** Media references that point at no file and are left out, by what a worker met before. */
@@ -234,7 +275,23 @@ export interface FirstPublishChange {
 	 * entry. A pointer covers everything under it.
 	 */
 	readonly paths: readonly string[];
+	/** Where the change stands on a reading it applies on. */
+	readonly at: FirstPublishChangeAt;
 }
+
+/**
+ * Where a change stands: `places` gives, of a reading the entry applies on,
+ * every place the change makes a difference at, each of one of `kinds`
+ * (`firstPublishPlaces.ts`); or the change stands everywhere, `appWide` saying
+ * why, and keeps what no other change's place holds. One entry alone may be
+ * app-wide (`firstPublishRegisterRefusals`).
+ */
+export type FirstPublishChangeAt =
+	| {
+			readonly kinds: readonly Exclude<FirstPublishPlaceKind, "app-wide">[];
+			places(facts: FirstPublishFacts): Iterable<string>;
+	  }
+	| { readonly appWide: string };
 
 /** The pointers a media reference lives under in CommCare HQ's stored app. */
 export const MEDIA_REFERENCE_PATHS: readonly string[] = [
@@ -373,7 +430,7 @@ function inactiveAutoLaunchRespelled(facts: FirstPublishFacts): boolean {
  */
 function androidOnlyRecorded(
 	id: FirstPublishChangeId,
-	entry: Pick<FirstPublishChange, "touchesWorkers" | "paths">,
+	entry: Pick<FirstPublishChange, "touchesWorkers" | "paths" | "at">,
 ): FirstPublishChange {
 	const recorded = recordedIn(id);
 	return {
@@ -396,6 +453,453 @@ function logoPaths(source: HqAppSource): Set<string> {
 		)
 			paths.add((entry as { path: string }).path);
 	return paths;
+}
+
+// ── Where each change stands ────────────────────────────────────────────
+
+/**
+ * The data nodes of the generated difference whose purpose `of` takes, each
+ * at its form's position: every node added, dropped or renamed (both names),
+ * and where `owners`, the question that owns it (an operation's node is
+ * owned by no question, `scope#operation`, and names none).
+ */
+function generatedPlaces(
+	facts: FirstPublishFacts,
+	of: (purpose: ReadGeneratedNode["purpose"]) => boolean,
+	owners: boolean,
+): string[] {
+	const places: string[] = [];
+	for (const { position, difference } of facts.generatedByForm) {
+		if (position === null) continue;
+		const nodes = [
+			...difference.added,
+			...difference.dropped,
+			...difference.renamed.flatMap((pair) => [pair.from, pair.to]),
+		];
+		for (const node of nodes) {
+			if (!of(node.purpose)) continue;
+			places.push(nodePlace(position, node.path));
+			if (owners && node.owner.startsWith("/") && !node.owner.includes("#"))
+				places.push(nodePlace(position, node.owner));
+		}
+	}
+	return places;
+}
+
+/** The forms whose generated difference adds a node `GENERATED_NODE_CHANGE` files under `id`. */
+function formsAdding(
+	facts: FirstPublishFacts,
+	id: FirstPublishChangeId,
+): FormPosition[] {
+	return facts.generatedByForm.flatMap(({ position, difference }) =>
+		position !== null &&
+		difference.added.some((node) => GENERATED_NODE_CHANGE[node.purpose] === id)
+			? [position]
+			: [],
+	);
+}
+
+/** The places of the stored values the reading records under `register` (`ReadFacts.sameStateRewrites`). */
+function recordedPlaces(
+	facts: FirstPublishFacts,
+	register: FirstPublishChangeId,
+): string[] {
+	return facts.facts.sameStateRewrites.flatMap((record) => {
+		if (record.register !== register) return [];
+		const place = placeOfStoredPointer(facts.positions, record.path);
+		return place === null ? [] : [place];
+	});
+}
+
+/** The positions of the forms a record under `register` names, by their attachment or their key. */
+function recordedForms(
+	facts: FirstPublishFacts,
+	register: FirstPublishChangeId,
+): FormPosition[] {
+	return recordedPlaces(facts, register).flatMap((place) => {
+		const steps = place.split("/");
+		return steps[1] === "form" && steps[2] !== undefined ? [steps[2]] : [];
+	});
+}
+
+/** The places of the slots the expression stage held up to the rewrite `id` (`ReadFacts.rewrites`). */
+function rewritePlaces(
+	facts: FirstPublishFacts,
+	id: FirstPublishChangeId,
+): string[] {
+	return facts.facts.rewrites.flatMap((rewrite) =>
+		rewrite.id === id ? placesOfSlot(facts.positions, rewrite) : [],
+	);
+}
+
+/** A JSON object's value at `key`, or undefined. */
+function at(value: unknown, key: string): unknown {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)[key]
+		: undefined;
+}
+
+/** The case types the form at `position` writes in `source`: its menu's, and each its stored
+ *  actions open or load (`subcases`, `open_cases`, `load_update_cases`). */
+function caseTypesOf(
+	source: HqAppSource,
+	position: FormPosition,
+): readonly string[] {
+	const [m, f] = position.split(".").map(Number) as [number, number];
+	const types = new Set<string>();
+	const own = source.modules[m]?.caseType;
+	if (typeof own === "string" && own !== "") types.add(own);
+	const modules = source.raw.modules;
+	const form = Array.isArray(modules)
+		? (at(modules[m], "forms") as unknown[] | undefined)?.[f]
+		: undefined;
+	const actions = at(form, "actions");
+	for (const key of ["subcases", "open_cases", "load_update_cases"]) {
+		const list = at(actions, key);
+		if (!Array.isArray(list)) continue;
+		for (const action of list) {
+			const type = at(action, "case_type");
+			if (typeof type === "string" && type !== "") types.add(type);
+		}
+	}
+	return [...types];
+}
+
+/** The text a case block of the form at `position` writes `property` under, `<case>`'s
+ *  `create` or `update` child (`caseBlocks.ts`), in any block of the form. */
+function blockWritePlace(
+	position: FormPosition,
+	action: "create" | "update",
+	property: string,
+): string {
+	return `${placeOf("form", position, "xform")}/**${placeOf("case", action, property)}`;
+}
+
+/**
+ * The places of a case's name and external id as the form at `position`
+ * writes them: its stored case actions, each case block's name and external
+ * id, and each case type it writes, at those properties as a case holds them
+ * (`name` in HQ's case, `case_name` in Core's case database).
+ */
+function caseNamePlaces(
+	facts: FirstPublishFacts,
+	position: FormPosition,
+): string[] {
+	return [
+		placeOf("form", position, "actions"),
+		blockWritePlace(position, "create", "case_name"),
+		blockWritePlace(position, "update", "case_name"),
+		blockWritePlace(position, "update", "external_id"),
+		...caseTypesOf(facts.source, position).flatMap((type) => [
+			placeOf("case", type, "name"),
+			placeOf("case", type, "case_name"),
+			placeOf("case", type, "external_id"),
+		]),
+	];
+}
+
+/** The form of `doc` at `position`, by its UUID (`FirstPublishFacts.formPositions`). */
+function formAt(facts: FirstPublishFacts, position: FormPosition): Uuid | null {
+	for (const [uuid, at] of facts.formPositions)
+		if (at === position) return uuid;
+	return null;
+}
+
+/**
+ * Where the form at `position` saves a date and time to a case: each case
+ * block's row of each property whose effective type is a date and time that
+ * one of the form's case changes writes, and that property as the case holds
+ * it (`xform/datetimeCaseValue.ts::datetimeCaseValue` writes the value there).
+ */
+function datetimeWritePlaces(
+	facts: FirstPublishFacts,
+	position: FormPosition,
+): string[] {
+	const uuid = formAt(facts, position);
+	const form = uuid === null ? undefined : facts.doc.forms[uuid];
+	if (uuid === null || form === undefined) return [];
+	const types = new Map(
+		effectiveCaseTypes(facts.doc).map((type) => [type.name, type.properties]),
+	);
+	const places: string[] = [];
+	for (const operation of form.caseOperations ?? []) {
+		const type = operationCaseType(facts.doc, uuid, operation);
+		if (type === undefined) continue;
+		const properties = types.get(type) ?? [];
+		for (const write of operation.writes ?? []) {
+			const declared = properties.find((one) => one.name === write.property);
+			if (declared?.data_type !== "datetime") continue;
+			places.push(
+				blockWritePlace(position, "update", write.property),
+				placeOf("case", type, write.property),
+			);
+		}
+	}
+	return places;
+}
+
+/**
+ * The places of a form's case setting the first publish writes in Nova's
+ * spelling (`case-settings-respelled`): each stored setting the reading
+ * records, and what each writes elsewhere: a preload's questions, whose
+ * starting value Nova writes in the form; an external id, the case property
+ * it writes, the form's update of it, and the same property as each case
+ * type indexed to that case reads it (`<relation>/external_id`).
+ */
+function caseSettingPlaces(facts: FirstPublishFacts): string[] {
+	const places: string[] = [];
+	for (const record of facts.facts.sameStateRewrites) {
+		if (record.register !== "case-settings-respelled") continue;
+		const place = placeOfStoredPointer(facts.positions, record.path);
+		if (place === null) continue;
+		places.push(place);
+		const steps = placeSteps(place);
+		const position = steps[0] === "form" ? steps[1] : undefined;
+		if (position === undefined) continue;
+		const last = steps.at(-1);
+		if (last === "preload" || steps.includes("case_preload")) {
+			for (const question of Object.keys(
+				asRecord(storedAt(facts.source.raw, record.path)),
+			))
+				if (question.startsWith("/"))
+					places.push(nodePlace(position, question));
+			continue;
+		}
+		if (last === "external_id") {
+			const type =
+				facts.source.modules[Number(position.split(".")[0])]?.caseType;
+			if (typeof type !== "string" || type === "") continue;
+			places.push(
+				placeOf("case", type, "external_id"),
+				placeOf("form", position, "case_updates", type, "external_id"),
+				...childRelations(facts.source, type).map(({ child, identifier }) =>
+					placeOf("case", child, identifier, "external_id"),
+				),
+			);
+		}
+	}
+	return places;
+}
+
+/** A JSON object's entries as a record, or none. */
+function asRecord(value: unknown): Readonly<Record<string, unknown>> {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
+}
+
+/** The value of the stored app at `pointer`, or undefined. */
+function storedAt(root: unknown, pointer: string): unknown {
+	let value = root;
+	for (const step of placeSteps(pointer)) {
+		if (Array.isArray(value)) value = value[Number(step)];
+		else value = asRecord(value)[step];
+		if (value === undefined) return undefined;
+	}
+	return value;
+}
+
+/**
+ * Each case type a form of the source indexes to a case of `parent`, by the
+ * index's name: a basic menu's child cases (`actions.subcases`, its
+ * `reference_id` or HQ's `parent`), and an advanced form's open actions'
+ * indices to a load of that type (`open_cases[].case_indices`).
+ */
+function childRelations(
+	source: HqAppSource,
+	parent: string,
+): readonly { readonly child: string; readonly identifier: string }[] {
+	const found: { child: string; identifier: string }[] = [];
+	const modules = source.raw.modules;
+	(Array.isArray(modules) ? modules : []).forEach((module, m) => {
+		const own = source.modules[m]?.caseType;
+		const forms = at(module, "forms");
+		for (const form of Array.isArray(forms) ? forms : []) {
+			const actions = at(form, "actions");
+			for (const subcase of asList(at(actions, "subcases"))) {
+				const child = at(subcase, "case_type");
+				const identifier = at(subcase, "reference_id");
+				if (own === parent && typeof child === "string" && child !== "")
+					found.push({
+						child,
+						identifier:
+							typeof identifier === "string" && identifier !== ""
+								? identifier
+								: "parent",
+					});
+			}
+			const loads = new Map<string, unknown>();
+			for (const load of asList(at(actions, "load_update_cases")))
+				loads.set(String(at(load, "case_tag")), at(load, "case_type"));
+			for (const open of asList(at(actions, "open_cases"))) {
+				const child = at(open, "case_type");
+				for (const index of asList(at(open, "case_indices"))) {
+					const identifier = at(index, "reference_id");
+					if (
+						loads.get(String(at(index, "tag"))) === parent &&
+						typeof child === "string" &&
+						child !== ""
+					)
+						found.push({
+							child,
+							identifier:
+								typeof identifier === "string" && identifier !== ""
+									? identifier
+									: "parent",
+						});
+				}
+			}
+		}
+	});
+	return found;
+}
+
+/** A JSON list, or none. */
+function asList(value: unknown): readonly unknown[] {
+	return Array.isArray(value) ? value : [];
+}
+
+/**
+ * Where the first publish adds the hidden column each sort rule the reading
+ * kept as one lands on (`sort-rule-kept-as-hidden-column`): in each menu a
+ * record names, the short detail columns Nova's projection
+ * (`hqJson/caseList.ts::projectCaseListForHq`) writes over a property no
+ * stored short column of the source shows, by their index in what Nova
+ * stores there.
+ */
+function sortColumnPlaces(facts: FirstPublishFacts): string[] {
+	const menus = new Set<number>();
+	for (const place of recordedPlaces(
+		facts,
+		"sort-rule-kept-as-hidden-column",
+	)) {
+		const [root, menu] = placeSteps(place);
+		if (root === "menu" && menu !== undefined) menus.add(Number(menu));
+	}
+	const order = projectedModulePreorder(facts.doc);
+	const places: string[] = [];
+	for (const m of menus) {
+		const uuid = order[m];
+		const module = uuid === undefined ? undefined : facts.doc.modules[uuid];
+		if (module === undefined) continue;
+		const stored = new Map<string, number>();
+		for (const column of asList(
+			at(
+				at(at(asList(facts.source.raw.modules)[m], "case_details"), "short"),
+				"columns",
+			),
+		)) {
+			const field = at(column, "field");
+			if (typeof field === "string")
+				stored.set(field, (stored.get(field) ?? 0) + 1);
+		}
+		projectCaseListForHq(module, facts.doc).caseDetails.short.columns.forEach(
+			(column, index) => {
+				if (column.useXpathExpression) return;
+				const left = stored.get(column.field) ?? 0;
+				if (left > 0) stored.set(column.field, left - 1);
+				else
+					places.push(
+						placeOf("menu", m, "case_details", "short", "columns", index),
+					);
+			},
+		);
+	}
+	return places;
+}
+
+/** The places of the media references to each of `paths`: their media map items, and each
+ *  slot that names one, held or handed off. */
+function mediaReferencePlaces(
+	facts: FirstPublishFacts,
+	paths: Iterable<string>,
+): string[] {
+	const wanted = new Set([...paths].map(mapPath));
+	const places = [...wanted].map((path) =>
+		placeOf("app", "multimedia_map", path),
+	);
+	for (const reference of [
+		...facts.facts.mediaReferences,
+		...facts.facts.pendingMedia,
+	])
+		if (wanted.has(mapPath(reference.path)))
+			places.push(...placesOfMediaReference(facts.positions, reference));
+	return places;
+}
+
+/** The places of every media reference the reading handed off with no file
+ *  (`ReadFacts.pendingMedia`), the ones a first publish leaves out. */
+function leftOutMediaPlaces(facts: FirstPublishFacts): string[] {
+	return facts.facts.pendingMedia.flatMap((reference) =>
+		placesOfMediaReference(facts.positions, reference),
+	);
+}
+
+/** The menus whose search the shell's `auto_launch` respells (`inactiveAutoLaunchRespelled`). */
+function inactiveAutoLaunchMenus(facts: FirstPublishFacts): number[] {
+	const modules = facts.source.raw.modules;
+	const written = declaresWebApps(facts.doc);
+	const menus: number[] = [];
+	(Array.isArray(modules) ? modules : []).forEach((module, m) => {
+		const search = at(module, "search_config");
+		if (typeof search !== "object" || search === null) return;
+		const holds = (rows: unknown) => Array.isArray(rows) && rows.length > 0;
+		if (
+			holds(at(search, "properties")) ||
+			holds(at(search, "default_properties"))
+		)
+			return;
+		if ((at(search, "auto_launch") === true) !== written) menus.push(m);
+	});
+	return menus;
+}
+
+/**
+ * The places of each date and time question the split holds (`lib/doc/datetimeSplit.ts`):
+ * the question, now the Hidden Value joining the two, and the date and the time questions
+ * it inserted, whose identities the split derives (`datetimeSplitFieldUuid`), and the form's
+ * case writes, which keep reading the question.
+ */
+function splitPlaces(facts: FirstPublishFacts): string[] {
+	const places: string[] = [];
+	for (const [formUuid, position] of facts.formPositions) {
+		const locations = collectFieldLocations(facts.doc, formUuid);
+		for (const [uuid, location] of locations) {
+			const date = locations.get(
+				datetimeSplitFieldUuid(facts.doc.appId, uuid, "date"),
+			);
+			const time = locations.get(
+				datetimeSplitFieldUuid(facts.doc.appId, uuid, "time"),
+			);
+			if (date === undefined || time === undefined) continue;
+			places.push(
+				nodePlace(position, location.path.toXPath()),
+				nodePlace(position, date.path.toXPath()),
+				nodePlace(position, time.path.toXPath()),
+				placeOf("form", position, "actions"),
+			);
+		}
+	}
+	return places;
+}
+
+/** The `nova_datetime_` nodes the reading folded in the form at `position`, with their questions. */
+function datetimeNodePlaces(
+	facts: FirstPublishFacts,
+	position: FormPosition,
+): string[] {
+	return facts.generatedByForm.flatMap((one) =>
+		one.position !== position
+			? []
+			: one.form.generated
+					.filter((node) => node.purpose === "datetime")
+					.flatMap((node) => [
+						nodePlace(position, node.path),
+						...(node.owner.startsWith("/") && !node.owner.includes("#")
+							? [nodePlace(position, node.owner)]
+							: []),
+					]),
+	);
 }
 
 /**
@@ -441,6 +945,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: () => true,
+		at: {
+			appWide:
+				"Nova writes every form and every setting again in its own spelling, so the change stands wherever a first publish writes anything; it keeps each difference no other change's place holds.",
+		},
 		paths: [
 			"/_attachments/*",
 			"/modules/*/forms/*/case_references_data/load",
@@ -466,6 +974,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			facts.generated.added.length > 0 ||
 			facts.generated.renamed.length > 0 ||
 			facts.generated.dropped.length > 0,
+		at: {
+			kinds: ["form-node"],
+			places: (facts) => generatedPlaces(facts, () => true, false),
+		},
 		paths: ["/_attachments/*"],
 	},
 	/**
@@ -478,6 +990,19 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: generatedAdds("case-names-checked"),
+		at: {
+			kinds: ["form-node", "form-part", "form", "case"],
+			places: (facts) => [
+				...generatedPlaces(
+					facts,
+					(purpose) => GENERATED_NODE_CHANGE[purpose] === "case-names-checked",
+					true,
+				),
+				...formsAdding(facts, "case-names-checked").flatMap((position) =>
+					caseNamePlaces(facts, position),
+				),
+			],
+		},
 		paths: ["/_attachments/*", "/modules/*/forms/*/actions"],
 	},
 	/** A count lifted out of a validation (`xform/constraintCollections.ts::planConstraintCollections`). */
@@ -485,6 +1010,16 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: generatedAdds("validation-counts-moved"),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				generatedPlaces(
+					facts,
+					(purpose) =>
+						GENERATED_NODE_CHANGE[purpose] === "validation-counts-moved",
+					true,
+				),
+		},
 		paths: ["/_attachments/*"],
 	},
 	/** A validation message composed over its answer (`xform/constraintMessage.ts::protectConstraintMessage`). */
@@ -492,6 +1027,16 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: generatedAdds("validation-messages-composed"),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				generatedPlaces(
+					facts,
+					(purpose) =>
+						GENERATED_NODE_CHANGE[purpose] === "validation-messages-composed",
+					true,
+				),
+		},
 		paths: ["/_attachments/*"],
 	},
 	/** The rewrite `instant-comparison` (`xpath/wire/fromExpression.ts::compareSides`). */
@@ -499,6 +1044,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: rewriteReported("instant-comparison"),
+		at: {
+			kinds: ["form-node", "form", "form-part", "menu", "app"],
+			places: (facts) => rewritePlaces(facts, "instant-comparison"),
+		},
 		paths: EXPRESSION_PATHS,
 	},
 	/** The rewrite `empty-rows-guard` (`xpath/wire/emptyRows.ts`). */
@@ -506,6 +1055,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: rewriteReported("empty-rows-guard"),
+		at: {
+			kinds: ["form-node", "form", "form-part", "menu", "app"],
+			places: (facts) => rewritePlaces(facts, "empty-rows-guard"),
+		},
 		paths: EXPRESSION_PATHS,
 	},
 	/** The rewrite `absent-session-value-guard` (`xpath/wire/fromExpression.ts::term`). */
@@ -513,6 +1066,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: rewriteReported("absent-session-value-guard"),
+		at: {
+			kinds: ["form-node", "form", "form-part", "menu", "app"],
+			places: (facts) => rewritePlaces(facts, "absent-session-value-guard"),
+		},
 		paths: EXPRESSION_PATHS,
 	},
 	/** The rewrite `row-predicate-current` (`xpath/wire/formReads.ts::formReadToWire`). */
@@ -520,6 +1077,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: rewriteReported("row-predicate-current"),
+		at: {
+			kinds: ["form-node", "form", "form-part", "menu", "app"],
+			places: (facts) => rewritePlaces(facts, "row-predicate-current"),
+		},
 		paths: ["/_attachments/*"],
 	},
 	/** The rewrite `search-value-guards` (`csql/print.ts`). */
@@ -527,6 +1088,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: rewriteReported("search-value-guards"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => rewritePlaces(facts, "search-value-guards"),
+		},
 		paths: ["/modules/*/search_config/*"],
 	},
 	/** The rewrite `search-today-device-day` (`csql/emitter.ts::runtimeHole`). */
@@ -534,6 +1099,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: rewriteReported("search-today-device-day"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => rewritePlaces(facts, "search-today-device-day"),
+		},
 		paths: ["/modules/*/search_config/*"],
 	},
 	/**
@@ -546,6 +1115,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("case-settings-respelled"),
+		at: {
+			kinds: ["form", "form-node", "case"],
+			places: caseSettingPlaces,
+		},
 		paths: ["/modules/*/forms/*/actions", "/_attachments/*"],
 	},
 	/** A search's filter rows cut another way (`hqJson/caseList.ts::projectCaseListForHq`), recorded by `search/rows.ts`. */
@@ -553,6 +1126,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("search-filter-rows-recut"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => recordedPlaces(facts, "search-filter-rows-recut"),
+		},
 		paths: ["/modules/*/search_config/default_properties"],
 	},
 	/**
@@ -565,6 +1142,13 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("sort-rule-kept-as-hidden-column"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => [
+				...recordedPlaces(facts, "sort-rule-kept-as-hidden-column"),
+				...sortColumnPlaces(facts),
+			],
+		},
 		paths: [
 			"/modules/*/case_details/short/columns",
 			"/modules/*/case_details/short/sort_elements/*/field",
@@ -588,6 +1172,15 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		applies: (facts) =>
 			sameStateRecorded("list-settings-respelled")(facts) ||
 			inactiveAutoLaunchRespelled(facts),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => [
+				...recordedPlaces(facts, "list-settings-respelled"),
+				...inactiveAutoLaunchMenus(facts).map((m) =>
+					placeOf("menu", m, "search_config", "auto_launch"),
+				),
+			],
+		},
 		paths: [
 			"/modules/*/case_details/short/max_select_value",
 			"/modules/*/case_details/short/sort_elements",
@@ -615,6 +1208,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("search-filter-joined-to-list"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => recordedPlaces(facts, "search-filter-joined-to-list"),
+		},
 		paths: ["/modules/*/case_details/short/filter"],
 	},
 	/** A case list's filter sent with its search (`hqJson/caseList.ts::projectCaseListForHq`), recorded by `search/rows.ts`. */
@@ -622,6 +1219,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: sameStateRecorded("search-restates-list-filter"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => recordedPlaces(facts, "search-restates-list-filter"),
+		},
 		paths: ["/modules/*/search_config/default_properties"],
 	},
 	/** A held-case guard on a link that carries a case (`formLinkProjection.ts::formLinkCarriedCaseGuards`), recorded by `menus/afterSubmit.ts`. */
@@ -629,6 +1230,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: sameStateRecorded("link-held-case-guards-added"),
+		at: {
+			kinds: ["form"],
+			places: (facts) => recordedPlaces(facts, "link-held-case-guards-added"),
+		},
 		paths: ["/modules/*/forms/*/form_links/*/xpath"],
 	},
 	/** A Register button's label with no text read as the words HQ's build writes, recorded by `menus/registration.ts::readLabel`. */
@@ -636,6 +1241,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: sameStateRecorded("registration-label-fixed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) => recordedPlaces(facts, "registration-label-fixed"),
+		},
 		paths: ["/modules/*/case_list_form/label/*"],
 	},
 	/**
@@ -647,6 +1256,16 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: sameStateRecorded("date-and-time-saved-as-hq-stores-it"),
+		at: {
+			kinds: ["form-node", "form-part", "case"],
+			places: (facts) =>
+				recordedForms(facts, "date-and-time-saved-as-hq-stores-it").flatMap(
+					(position) => [
+						...datetimeNodePlaces(facts, position),
+						...datetimeWritePlaces(facts, position),
+					],
+				),
+		},
 		paths: ["/_attachments/*"],
 	},
 	/**
@@ -660,21 +1279,38 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		applies: (facts) =>
 			facts.doc.connectType !== null &&
 			facts.source.raw.auto_gps_capture !== true,
+		at: {
+			kinds: ["app", "form-node"],
+			places: (facts) => [
+				placeOf("app", "auto_gps_capture"),
+				...facts.positions.all.map((position) =>
+					nodePlace(position, "/data/meta/location"),
+				),
+			],
+		},
 		paths: ["/auto_gps_capture"],
 	},
-	/** A generated translation key folded into the name it sets (`reader/assemble.ts::decideGeneratedKeys`). */
+	/**
+	 * A generated translation key folded into the text it names
+	 * (`reader/assemble.ts::decideGeneratedKeys`): the key leaves `translations`, and the text
+	 * takes its value at each slot `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS` names for its kind.
+	 */
 	"translation-overrides-folded": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => facts.facts.foldedTranslationKeys > 0,
-		paths: [
-			"/translations/*/*",
-			"/name",
-			"/modules/*/name/*",
-			"/modules/*/forms/*/name/*",
-			"/modules/*/case_list/label/*",
-			"/modules/*/case_list_form/label/*",
-		],
+		applies: (facts) => facts.facts.foldedTranslationKeys.length > 0,
+		at: {
+			kinds: ["app", "menu", "form", "form-part", "form-node"],
+			places: (facts) =>
+				facts.facts.foldedTranslationKeys.flatMap((pointer) => {
+					const stored = placeOfStoredPointer(facts.positions, pointer);
+					return [
+						...(stored === null ? [] : [stored]),
+						...placesOfGeneratedKey(placeSteps(pointer).at(-1) ?? ""),
+					];
+				}),
+		},
+		paths: ["/translations/*/*", ...FOLDED_TEXT_PATHS],
 	},
 	/** Every app writes `location_fixture_restore: project_default` (`hqShells.ts::applicationShell`). */
 	"location-list-setting-reset": {
@@ -683,6 +1319,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		applies: (facts) =>
 			facts.source.raw.location_fixture_restore === "both_fixtures" ||
 			facts.source.raw.location_fixture_restore === "only_flat_fixture",
+		at: {
+			kinds: ["app"],
+			places: () => [placeOf("app", "location_fixture_restore")],
+		},
 		paths: ["/location_fixture_restore"],
 	},
 	/** `cloudcare_enabled` written from where the app runs (`hqShells.ts::applicationShell`). */
@@ -691,6 +1331,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		scope: "declaration",
 		applies: (facts) =>
 			facts.source.cloudcareEnabled && facts.choice.runsOnlyOn === "android",
+		at: {
+			kinds: ["app"],
+			places: () => [placeOf("app", "cloudcare_enabled")],
+		},
 		paths: ["/cloudcare_enabled"],
 	},
 	/** `cloudcare_enabled` written from where the app runs (`hqShells.ts::applicationShell`). */
@@ -699,6 +1343,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		scope: "declaration",
 		applies: (facts) =>
 			!facts.source.cloudcareEnabled && facts.choice.runsOnlyOn !== "android",
+		at: {
+			kinds: ["app"],
+			places: () => [placeOf("app", "cloudcare_enabled")],
+		},
 		paths: ["/cloudcare_enabled"],
 	},
 	/** The split a person chose at the review (`lib/doc/datetimeSplit.ts`). */
@@ -706,6 +1354,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: (facts) => facts.choice.split,
+		at: { kinds: ["form-node", "form"], places: splitPlaces },
 		paths: ["/_attachments/*", "/modules/*/forms/*/actions"],
 	},
 	/** A translation left blank, filled from the first language (`lib/domain/translationFill.ts::filledProse`). */
@@ -714,6 +1363,15 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		scope: "reading",
 		applies: (facts) =>
 			facts.facts.forms.some((form) => form.blankTranslations > 0),
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				facts.generatedByForm.flatMap(({ position, form }) =>
+					position !== null && form.blankTranslations > 0
+						? [partPlace(position, ":itext")]
+						: [],
+				),
+		},
 		paths: ["/_attachments/*"],
 	},
 	/** One file HQ holds under several paths, kept at one (`adoption.ts::assignMediaPaths`). */
@@ -721,6 +1379,14 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: (facts) => facts.media.collapsed.length > 0,
+		at: {
+			kinds: ["app", "menu", "form", "form-node"],
+			places: (facts) =>
+				mediaReferencePlaces(
+					facts,
+					facts.media.collapsed.flatMap((one) => [one.kept, ...one.dropped]),
+				),
+		},
 		paths: ["/multimedia_map/*", ...MEDIA_REFERENCE_PATHS],
 	},
 	/** A path Nova cannot hold, the file taking its derivation (`adoption.ts::assignMediaPaths`). */
@@ -728,6 +1394,21 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: (facts) => facts.media.rederived.length > 0,
+		at: {
+			kinds: ["app", "menu", "form", "form-node"],
+			places: (facts) => {
+				const derived = new Map(
+					facts.media.rows.map((row) => [row.assetId, row.wirePath]),
+				);
+				return mediaReferencePlaces(
+					facts,
+					facts.media.rederived.flatMap((one) => {
+						const to = derived.get(one.assetId);
+						return to === undefined ? [one.from] : [one.from, to];
+					}),
+				);
+			},
+		},
 		paths: ["/multimedia_map/*", ...MEDIA_REFERENCE_PATHS],
 	},
 	/** A reference to no file that no runtime draws, left out of the document. */
@@ -735,6 +1416,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: (facts) => facts.mediaLeftOut.undrawn > 0,
+		at: {
+			kinds: ["app", "menu", "form", "form-node"],
+			places: leftOutMediaPlaces,
+		},
 		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
 	},
 	/**
@@ -746,6 +1431,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: (facts) => facts.mediaLeftOut.brokenPictures > 0,
+		at: {
+			kinds: ["app", "menu", "form", "form-node"],
+			places: leftOutMediaPlaces,
+		},
 		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
 	},
 	/**
@@ -766,6 +1455,22 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 				(item) => !named.has(item.path),
 			);
 		},
+		at: {
+			kinds: ["app"],
+			places: (facts) => {
+				const named = new Set(
+					facts.facts.mediaReferences.map((reference) =>
+						mapPath(reference.path),
+					),
+				);
+				for (const path of logoPaths(facts.source)) named.add(mapPath(path));
+				return (facts.source.multimediaMap ?? []).flatMap((item) =>
+					named.has(mapPath(item.path))
+						? []
+						: [placeOf("app", "multimedia_map", mapPath(item.path))],
+				);
+			},
+		},
 		paths: ["/multimedia_map/*"],
 	},
 	/**
@@ -777,6 +1482,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("names-respelled"),
+		at: {
+			kinds: ["app", "menu", "form"],
+			places: (facts) => recordedPlaces(facts, "names-respelled"),
+		},
 		paths: [
 			"/modules/*/name",
 			"/modules/*/forms/*/name",
@@ -794,6 +1503,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("media-maps-respelled"),
+		at: {
+			kinds: ["menu", "form"],
+			places: (facts) => recordedPlaces(facts, "media-maps-respelled"),
+		},
 		paths: NAV_MEDIA_PATHS,
 	},
 	/**
@@ -805,6 +1518,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: true,
 		scope: "reading",
 		applies: sameStateRecorded("text-spaces-dropped"),
+		at: {
+			kinds: ["app", "menu", "form"],
+			places: (facts) => recordedPlaces(facts, "text-spaces-dropped"),
+		},
 		paths: [
 			"/modules/*/name",
 			"/modules/*/forms/*/name",
@@ -833,6 +1550,16 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("form-text-characters-written-as-outputs"),
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				recordedForms(facts, "form-text-characters-written-as-outputs").flatMap(
+					(position) => [
+						partPlace(position, ":itext"),
+						partPlace(position, ":control"),
+					],
+				),
+		},
 		paths: ["/_attachments/*"],
 	},
 	/**
@@ -847,6 +1574,16 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		touchesWorkers: false,
 		scope: "reading",
 		applies: sameStateRecorded("hidden-value-defaults-dropped"),
+		at: {
+			kinds: ["form-part", "form"],
+			places: (facts) =>
+				recordedForms(facts, "hidden-value-defaults-dropped").flatMap(
+					(position) => [
+						partPlace(position, ":setvalue"),
+						placeOf("form", position, "case_references_data", "load"),
+					],
+				),
+		},
 		paths: ["/_attachments/*", "/modules/*/forms/*/case_references_data/load"],
 	},
 	/**
@@ -865,6 +1602,11 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		"sort-by-entry-with-a-blank-name-dropped",
 		{
 			touchesWorkers: true,
+			at: {
+				kinds: ["menu"],
+				places: (facts) =>
+					recordedPlaces(facts, "sort-by-entry-with-a-blank-name-dropped"),
+			},
 			paths: ["/modules/*/case_details/short/sort_elements/*/display"],
 		},
 	),
@@ -882,6 +1624,13 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 */
 	"form-titles-written": androidOnlyRecorded("form-titles-written", {
 		touchesWorkers: true,
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				recordedForms(facts, "form-titles-written").map((position) =>
+					placeOf("form", position, "xform", "title"),
+				),
+		},
 		paths: ["/_attachments/*"],
 	}),
 };
@@ -923,14 +1672,35 @@ export function firstPublishFactsOf(input: {
 		readonly split: boolean;
 	};
 }): FirstPublishFacts {
+	const before = input.facts.forms.map((form) => form.generated);
+	const after = emittedGeneratedNodes(
+		input.doc,
+		input.forms,
+		input.attachmentTarget,
+	);
+	const positions = formPositionsOf(input.source);
+	const formPositions = new Map<Uuid, FormPosition>();
+	input.forms.forEach(({ uuid }, index) => {
+		const xmlns = input.facts.forms[index]?.xmlns;
+		const position =
+			xmlns === undefined ? undefined : positions.byXmlns.get(xmlns);
+		if (position !== undefined) formPositions.set(uuid, position);
+	});
 	return {
 		source: input.source,
 		doc: input.doc,
 		facts: input.facts,
-		generated: generatedDifference(
-			input.facts.forms.map((form) => form.generated),
-			emittedGeneratedNodes(input.doc, input.forms, input.attachmentTarget),
-		),
+		generated: generatedDifference(before, after),
+		generatedByForm: input.facts.forms.map((form, index) => ({
+			position: positions.byXmlns.get(form.xmlns) ?? null,
+			form,
+			difference: generatedDifference(
+				[before[index] ?? []],
+				[after[index] ?? []],
+			),
+		})),
+		positions,
+		formPositions,
 		// Keyed by content: a reading names each of HQ's media documents by a
 		// provisional id and a create by its published one, so two documents of
 		// one content are one asset only under an id their bytes give.
@@ -988,4 +1758,99 @@ export function firstPublishChangesFor(
 		touchesWorkers: ids.some((id) => FIRST_PUBLISH_CHANGES[id].touchesWorkers),
 		of: "first-publish",
 	};
+}
+
+// ── The places of a reading's changes ───────────────────────────────────
+
+/** One applying change and where it stands on one reading. */
+export interface FirstPublishChangePlaces {
+	readonly id: FirstPublishChangeId;
+	/** Code-unit order; `[""]`, the whole app, for the change declared app-wide. */
+	readonly places: readonly string[];
+}
+
+/**
+ * Where each of `ids`, the changes that apply on `facts`, stands: the places
+ * its entry gives (`FirstPublishChange.at`), in registry order. Throws where
+ * an entry that is not app-wide gives no place, or a place of a kind it does
+ * not declare: a change the proof lane's judge could meet nowhere, or could
+ * not tell apart from the change that stands everywhere.
+ */
+export function firstPublishChangePlaces(
+	facts: FirstPublishFacts,
+	ids: readonly FirstPublishChangeId[],
+): readonly FirstPublishChangePlaces[] {
+	const listed = new Set(ids);
+	return FIRST_PUBLISH_CHANGE_IDS.filter((id) => listed.has(id)).map((id) => {
+		const entry = FIRST_PUBLISH_CHANGES[id].at;
+		if ("appWide" in entry) return { id, places: [""] };
+		const places = sortedPlaces(entry.places(facts));
+		if (places.length === 0)
+			throw new Error(
+				`The first-publish change ${id} applies on this reading and its entry names no place it stands at. An entry says where its change stands wherever it applies, from what the reading records of it; look at its at.places in lib/deployment/reading/firstPublishChanges.ts and at what the reading records under the id.`,
+			);
+		for (const place of places) {
+			const kind = firstPublishPlaceKind(place);
+			if (kind === null || kind === "app-wide" || !entry.kinds.includes(kind))
+				throw new Error(
+					`The first-publish change ${id} names the place ${JSON.stringify(place)}, which is ${kind === null ? "no place lib/deployment/reading/firstPublishPlaces.ts holds" : `of the kind ${kind}, one its entry does not declare (${entry.kinds.join(", ")})`}. Declare the kind in its at.kinds where the change stands there, or name the place it does stand at.`,
+				);
+		}
+		return { id, places };
+	});
+}
+
+/**
+ * What makes `register` one the proof lane's judge cannot hold each change
+ * of apart, each a sentence: an entry that is app-wide beside another, an
+ * entry that declares no kind of place or the whole app's, and a kind the
+ * vocabulary does not hold. None for the register itself, which the module
+ * holds at load.
+ */
+export function firstPublishRegisterRefusals(
+	register: Readonly<Record<string, Pick<FirstPublishChange, "at">>>,
+): readonly string[] {
+	const refusals: string[] = [];
+	const appWide = Object.entries(register).filter(
+		([, entry]) => "appWide" in entry.at,
+	);
+	if (appWide.length > 1)
+		refusals.push(
+			`The first-publish register declares ${appWide.map(([id]) => id).join(", ")} app-wide. One change alone may stand everywhere, keeping what no other change's place holds; two such changes stand at every place alike, so no difference could show one apart from the other.`,
+		);
+	for (const [id, entry] of Object.entries(register)) {
+		if ("appWide" in entry.at) {
+			if (entry.at.appWide.trim() === "")
+				refusals.push(
+					`The first-publish change ${id} is declared app-wide with no reason. Say why the change stands everywhere.`,
+				);
+			continue;
+		}
+		if (entry.at.kinds.length === 0)
+			refusals.push(
+				`The first-publish change ${id} declares no kind of place, so it stands only where the change declared app-wide stands and no difference could show it apart. Name the kinds of place its change makes a difference at.`,
+			);
+		// A register built elsewhere than this module (a test's) can hold any text here.
+		for (const kind of entry.at.kinds as readonly string[])
+			if (
+				!(FIRST_PUBLISH_PLACE_KINDS as readonly string[]).includes(kind) ||
+				kind === "app-wide"
+			)
+				refusals.push(
+					`The first-publish change ${id} declares the kind of place ${JSON.stringify(kind)}, which ${kind === "app-wide" ? "is the whole app's, the one app-wide change's alone" : "lib/deployment/reading/firstPublishPlaces.ts does not hold"}.`,
+				);
+	}
+	return refusals;
+}
+
+const REGISTER_REFUSALS = firstPublishRegisterRefusals(FIRST_PUBLISH_CHANGES);
+if (REGISTER_REFUSALS.length > 0) throw new Error(REGISTER_REFUSALS.join("\n"));
+
+/** The kinds of place each entry declares, as the proof lane's copy of the register states them
+ *  (`proof/first-publish-changes.json`'s `placeKinds`): `["app-wide"]` for the app-wide entry. */
+export function firstPublishPlaceKindsOf(
+	id: FirstPublishChangeId,
+): readonly FirstPublishPlaceKind[] {
+	const entry = FIRST_PUBLISH_CHANGES[id].at;
+	return "appWide" in entry ? ["app-wide"] : entry.kinds;
 }

@@ -58,6 +58,10 @@ import {
 } from "@/lib/deployment/adoption";
 import type { AcceptedDeclaration } from "@/lib/deployment/reading/acceptance";
 import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
+import {
+	type FirstPublishChangePlaces,
+	firstPublishChangePlaces,
+} from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -108,8 +112,8 @@ export interface LaneReadInput {
 	 *  which for an `hq-authored` document is the base's id, as a targeted document's is its own. */
 	readonly appId: string;
 	/** The corpus document's `document.json`, whole: `doc`, its lookup snapshot, its media, and
-	 *  the ids HQ holds for its menus and forms and the paths of its held files, under
-	 *  `hqAuthored` or at its top level (`storedDocument`). Absent for a base's first reading,
+	 *  the ids HQ holds for its menus and forms, under `hqAuthored` or at its top level, with the
+	 *  paths of a base's held files under `hqAuthored` (`storedDocument`). Absent for a base's first reading,
 	 *  which has no document yet. */
 	readonly document?: unknown;
 	/** HQ's answers, as the unit recorded them or `proof/hq-apps/` retains them. */
@@ -138,6 +142,15 @@ export interface LaneReadInput {
 			readonly base64?: string;
 		}[];
 	};
+	/**
+	 * A read back's: HQ's answer to the read of each file its media map names at
+	 * this state, as the unit records it (`proof/observe/unit.py::_Unit.api_reads`,
+	 * `reads:media`). Where given, a path names the asset of the document whose
+	 * bytes HQ served there (`servedFiles`), never one the document's paths
+	 * name; absent, the path Nova's publish sent each file at
+	 * (`publishedFiles`).
+	 */
+	readonly servedMedia?: readonly ServedFile[];
 	/** A first reading's declaration: the base's own, or absent for the reading's preselected one. */
 	readonly declaration?: LaneDeclaration;
 	/** `mint`: a base's first reading. `match`: a read back, which must give D's own UUIDs. */
@@ -217,6 +230,9 @@ export type LaneReading =
 			/** Every declaration the reading offers, for a read back's declaration check. */
 			readonly offered: readonly LaneDeclaration[];
 			readonly firstPublish: readonly string[];
+			/** Where each change of `firstPublish` stands on a first reading
+			 *  (`firstPublishChanges.ts::firstPublishChangePlaces`); none on a read back. */
+			readonly firstPublishPlaces: readonly FirstPublishChangePlaces[];
 			/** Each create keyed by an answer the document keeps, with the prefix its cases stand
 			 *  under in CommCare HQ's app: the rows a bring-in records
 			 *  (`adoption.ts::adoptedKeyedCaseIdRows`), which every later publish to that project
@@ -230,6 +246,10 @@ export type LaneReading =
 			 *  each under, as the birth records them. Absent on a read back, whose files are the
 			 *  corpus document's own. */
 			readonly media?: LaneMedia;
+			/** A read back's: each asset of the document's media that names the file another asset
+			 *  names, to that asset, as the read back names it (`publishedFiles`, `servedFiles`).
+			 *  Absent on a first reading. */
+			readonly sameFile?: ReadonlyMap<string, string>;
 			/** The retained answers the reader asked for, by name: a test holds each one asked. */
 			readonly asked: readonly string[];
 			/** Under `full`, the claim log as `serializeClaimLog` writes it; under `counts`, the JSON
@@ -531,6 +551,10 @@ async function firstReading(
 		declaration: laneDeclarationOf(chosen.runsOnlyOn, chosen.splitDatetime),
 		offered,
 		firstPublish: [...chosen.firstPublish.ids],
+		firstPublishPlaces: firstPublishChangePlaces(
+			chosen.firstPublishFacts,
+			chosen.firstPublish.ids,
+		),
 		keyedCaseIds: adoptedKeyedCaseIdRows(draft.identities),
 		lookup: bornLookup(result.gathered),
 		media: laneMediaOf(result.gathered),
@@ -548,12 +572,12 @@ interface StoredDocument {
 	readonly doc: BlueprintDoc;
 	readonly lookupDefinitions: readonly LookupTableDefinition[];
 	readonly lookup: LookupValidationContext;
-	/** Each file by the path its publish sent it at: an uploaded asset, or a built-in icon the
+	/** Each file by the path Nova's publish sent it at: an uploaded asset, or a built-in icon the
 	 *  document shows. */
-	readonly media: ReadonlyMap<
-		string,
-		{ readonly assetId: string; readonly kind: MediaKind }
-	>;
+	readonly published: PublishedFiles;
+	/** Each uploaded asset of the document's media, in its order, then each built-in icon the
+	 *  document shows, with the SHA-256 of its bytes. */
+	readonly assets: readonly DocumentAsset[];
 	readonly identity: readonly WireIdentityOverride[];
 }
 
@@ -561,6 +585,23 @@ interface StoredMedia {
 	readonly kind: MediaKind;
 	readonly extension: string;
 	readonly base64: string;
+}
+
+/** An asset a corpus document can name a file by, with the SHA-256 of its bytes, hex. */
+export interface DocumentAsset {
+	readonly assetId: string;
+	readonly kind: MediaKind;
+	readonly contentHash: string;
+}
+
+/** HQ's answer to the read of one file its media map names (`proof/observe/unit.py::_Unit.api_reads`, `reads:media`). */
+export interface ServedFile {
+	/** The map's path, `jr://file/...`. */
+	readonly path: string;
+	/** The status HQ answered the file's read with. */
+	readonly status: number;
+	/** The SHA-256 of the bytes HQ sent, hex. */
+	readonly sha256?: string;
 }
 
 /** The uploaded files Nova's publish of a corpus document sent, by path. */
@@ -581,34 +622,51 @@ export interface PublishedFiles {
 	readonly sameFile: ReadonlyMap<string, string>;
 }
 
-/**
- * The uploaded files of a corpus document's `document.json`, by the path its
- * publish sent each at: the path HQ keeps a held file under (`mediaPaths`, at
- * the top level or under `hqAuthored`), else the path its content derives
- * (`assetWirePath.ts::wirePathFor`), as production's manifest gives it
- * (`lib/media/manifest.ts::resolveMediaManifest`). A held path takes its
- * held asset before any asset whose content derives the same path: HQ holds
- * the held file there (a picture a person replaced under Nova's path, which
- * proof 6's `saved` request names by the review's `broughtIn.reading`), so the
- * other is the same file (`sameFile`).
- */
-export function publishedFiles(document: unknown): PublishedFiles {
+/** The SHA-256 of a stored asset's bytes, hex. */
+function storedContentHash(asset: StoredMedia): string {
+	return createHash("sha256")
+		.update(Buffer.from(asset.base64, "base64"))
+		.digest("hex");
+}
+
+/** `document.json`'s uploaded assets, in its media's order. */
+function storedMediaOf(document: unknown): readonly [string, StoredMedia][] {
 	if (typeof document !== "object" || document === null || !("doc" in document))
 		throw new Error(NOT_A_DOCUMENT);
-	const stored = document as {
-		readonly media?: Readonly<Record<string, StoredMedia>>;
-		readonly mediaPaths?: Readonly<Record<string, string>>;
-		readonly hqAuthored?: {
-			readonly mediaPaths?: Readonly<Record<string, string>>;
-		};
-	};
-	const heldPaths = stored.mediaPaths ?? stored.hqAuthored?.mediaPaths ?? {};
+	const media = (
+		document as { readonly media?: Readonly<Record<string, StoredMedia>> }
+	).media;
+	return Object.entries(media ?? {});
+}
+
+/**
+ * The uploaded files of a corpus document's `document.json`, by the path its
+ * publish sent each at: the one path HQ keeps a held file under on the
+ * project space the app came from (`hqAuthored.mediaPaths`, as the birth
+ * records it), else the path its content derives
+ * (`assetWirePath.ts::wirePathFor`), as production's manifest gives each
+ * asset one path (`lib/media/manifest.ts::resolveMediaManifest`'s
+ * `heldPaths`). A held path takes its held asset before any asset whose
+ * content derives the same path: HQ holds the held file there, so the other
+ * is the same file (`sameFile`). What HQ holds at a path a person saved over
+ * is no file Nova's publish sent: a read back of such a state is told what HQ
+ * served there (`servedFiles`).
+ */
+export function publishedFiles(document: unknown): PublishedFiles {
+	const entries = storedMediaOf(document);
+	const heldPaths =
+		(
+			document as {
+				readonly hqAuthored?: {
+					readonly mediaPaths?: Readonly<Record<string, string>>;
+				};
+			}
+		).hqAuthored?.mediaPaths ?? {};
 	const byPath = new Map<
 		string,
 		{ readonly assetId: string; readonly kind: MediaKind }
 	>();
 	const sameFile = new Map<string, string>();
-	const entries = Object.entries(stored.media ?? {});
 	const heldAt = (assetId: string) =>
 		Object.hasOwn(heldPaths, assetId) ? heldPaths[assetId] : undefined;
 	// A held path first: HQ keeps the held file there, so an asset whose content derives the same
@@ -619,12 +677,7 @@ export function publishedFiles(document: unknown): PublishedFiles {
 			if ((at !== undefined) !== held) continue;
 			const path =
 				at ??
-				`jr://file/${wirePathFor(
-					createHash("sha256")
-						.update(Buffer.from(asset.base64, "base64"))
-						.digest("hex"),
-					asset.extension,
-				)}`;
+				`jr://file/${wirePathFor(storedContentHash(asset), asset.extension)}`;
 			const earlier = byPath.get(path);
 			if (earlier === undefined)
 				byPath.set(path, { assetId, kind: asset.kind });
@@ -633,16 +686,62 @@ export function publishedFiles(document: unknown): PublishedFiles {
 	return { byPath, sameFile };
 }
 
+/** A read back's media index, and the assets it names by another of the same file. */
+export interface LaneMediaIndex {
+	readonly resolve: (path: string) => ReaderMediaResolution;
+	readonly sameFile: ReadonlyMap<string, string>;
+}
+
+/**
+ * The index a read back of a state HQ holds answers each path with, from what
+ * HQ served at that state (`served`, one row a path its media map names):
+ * the asset of `assets` whose bytes are the ones HQ sent there, as
+ * production's review answers a path from the bytes it fetched
+ * (`lib/deployment/hqChanges/readings.ts::nowIndex`). Where two assets hold
+ * the same bytes, the first of them in `assets`' order names the file, and
+ * the other is that file (`sameFile`), as one Project keeps one asset a
+ * content. A path HQ's map does not name is `no-entry`; one HQ served no file
+ * at, or bytes no asset holds, `unreadable`, so a reading that named any asset
+ * there differs. No path the document records takes part.
+ */
+export function servedFiles(
+	assets: readonly DocumentAsset[],
+	served: readonly ServedFile[],
+): LaneMediaIndex {
+	const byHash = new Map<string, DocumentAsset>();
+	const sameFile = new Map<string, string>();
+	for (const asset of assets) {
+		const earlier = byHash.get(asset.contentHash);
+		if (earlier === undefined) byHash.set(asset.contentHash, asset);
+		else if (earlier.assetId !== asset.assetId)
+			sameFile.set(asset.assetId, earlier.assetId);
+	}
+	const rows = new Map(served.map((row) => [row.path, row]));
+	return {
+		resolve: (path) => {
+			const row = rows.get(path);
+			if (row === undefined) return { kind: "no-entry" };
+			const asset =
+				row.status === 200 && row.sha256 !== undefined
+					? byHash.get(row.sha256)
+					: undefined;
+			return asset === undefined
+				? { kind: "unreadable" }
+				: { kind: "asset", assetId: asset.assetId, mediaKind: asset.kind };
+		},
+		sameFile,
+	};
+}
+
 /**
  * What a read back reads of `document.json`. The ids CommCare HQ holds for
- * each menu and form, and the path HQ keeps each held file under, stand
- * either under `hqAuthored`, for an app made in CommCare HQ, or at the
- * document's top level (`identity`, `mediaPaths`), which proof 6 gives the
- * document a bring-in of a person's saves left (`proof/checks/proof6.py`,
- * `BroughtIn.identities`); the top level's stand where both are given. Every
- * read back is told the document's own case types and language codes
- * (`knownCaseTypesOf`, `knownLanguageCodesOf`), as production's re-read of an
- * app Nova holds is, a brought-in one too
+ * each menu and form stand either under `hqAuthored`, for an app made in
+ * CommCare HQ, or at the document's top level (`identity`), which proof 6
+ * gives the document a bring-in of a person's saves left
+ * (`proof/checks/proof6.py`, `BroughtIn.identities`); the top level's stand
+ * where both are given. Every read back is told the document's own case
+ * types and language codes (`knownCaseTypesOf`, `knownLanguageCodesOf`), as
+ * production's re-read of an app Nova holds is, a brought-in one too
  * (`lib/deployment/hqChanges/readings.ts`, and acceptance's own re-read of a
  * reading), so a type Nova's edit of an app made in CommCare HQ declares
  * reads back declared.
@@ -652,11 +751,12 @@ export function publishedFiles(document: unknown): PublishedFiles {
  * the document shows at the content path production's manifest gives it
  * (`lib/media/builtinIconAssets.ts::resolveBuiltinManifestEntries`), as the
  * index a read of changes made in CommCare HQ answers a published path with
- * (`lib/deployment/hqChanges/readings.ts::withOwnFiles`).
+ * (`lib/deployment/hqChanges/readings.ts::withOwnFiles`); and every one of
+ * those assets with the hash of its bytes, which a read of what HQ served
+ * names a path by (`servedFiles`).
  */
 async function storedDocument(document: unknown): Promise<StoredDocument> {
-	if (typeof document !== "object" || document === null || !("doc" in document))
-		throw new Error(NOT_A_DOCUMENT);
+	const uploaded = storedMediaOf(document);
 	const stored = document as {
 		readonly doc: unknown;
 		readonly lookup?: {
@@ -672,14 +772,21 @@ async function storedDocument(document: unknown): Promise<StoredDocument> {
 	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(stored.doc));
 	ensureReferenceIndex(doc);
 	const definitions = stored.lookup?.definitions ?? [];
-	const media = new Map(publishedFiles(document).byPath);
+	const files = publishedFiles(document);
+	const byPath = new Map(files.byPath);
+	const assets: DocumentAsset[] = uploaded.map(([assetId, asset]) => ({
+		assetId,
+		kind: asset.kind,
+		contentHash: storedContentHash(asset),
+	}));
 	const { builtinSlugs } = partitionAssetRefs([...collectAssetRefs(doc)]);
 	for (const [assetId, asset] of await resolveBuiltinManifestEntries(
 		builtinSlugs,
 		false,
 	)) {
 		const path = `jr://file/${asset.wirePath}`;
-		if (!media.has(path)) media.set(path, { assetId, kind: asset.kind });
+		if (!byPath.has(path)) byPath.set(path, { assetId, kind: asset.kind });
+		assets.push({ assetId, kind: asset.kind, contentHash: asset.contentHash });
 	}
 	return {
 		doc,
@@ -690,8 +797,28 @@ async function storedDocument(document: unknown): Promise<StoredDocument> {
 			projectRevision: stored.lookup?.projectRevision ?? "0",
 			definitions,
 		} as LookupValidationContext,
-		media,
+		published: { byPath, sameFile: files.sameFile },
+		assets,
 		identity: stored.identity ?? stored.hqAuthored?.identity ?? [],
+	};
+}
+
+/** The index a read back answers each path with: what HQ served where `served` is given, else
+ *  the path Nova's publish sent each file at. */
+function mediaIndexOf(
+	stored: StoredDocument,
+	served: readonly ServedFile[] | undefined,
+): LaneMediaIndex {
+	if (served !== undefined) return servedFiles(stored.assets, served);
+	const { byPath, sameFile } = stored.published;
+	return {
+		resolve: (path) => {
+			const asset = byPath.get(path);
+			return asset === undefined
+				? { kind: "no-entry" }
+				: { kind: "asset", assetId: asset.assetId, mediaKind: asset.kind };
+		},
+		sameFile,
 	};
 }
 
@@ -748,6 +875,7 @@ async function readBack(
 	}
 
 	const { doc } = stored;
+	const files = mediaIndexOf(stored, input.servedMedia);
 	const levels = levelsAsPublished(doc);
 	const readerInput: ReaderInput = {
 		appId: input.appId,
@@ -763,14 +891,7 @@ async function readBack(
 		),
 		lookup: lookupCatalogOf(stored.lookupDefinitions),
 		organization: { levelCodes: levels.map((level) => level.code), levels },
-		media: {
-			resolve: (path): ReaderMediaResolution => {
-				const asset = stored.media.get(path);
-				return asset === undefined
-					? { kind: "no-entry" }
-					: { kind: "asset", assetId: asset.assetId, mediaKind: asset.kind };
-			},
-		},
+		media: { resolve: files.resolve },
 		appStrings: readingAppStrings(stored.lookup),
 		recordDialect: recordDialectRoundTrip,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
@@ -820,7 +941,9 @@ async function readBack(
 			laneDeclarationOf(choice.runsOnlyOn, choice.split),
 		),
 		firstPublish: [],
+		firstPublishPlaces: [],
 		keyedCaseIds: adoptedKeyedCaseIdRows(draft.identities),
+		sameFile: files.sameFile,
 		asked: asked(),
 		claims,
 	};

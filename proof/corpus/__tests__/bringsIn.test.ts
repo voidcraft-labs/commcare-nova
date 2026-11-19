@@ -218,18 +218,23 @@ describe("a publish over a person's saves to an app's content in CommCare HQ", (
 		expect(sent).toContain(`jr://file/commcare/${theirs}.png`);
 		expect(sent).not.toContain(replaced.path);
 		/* HQ holds the person's picture under Nova's path until that publish, so
-		 * the record names the path by the asset the review read there, which a
-		 * read of HQ's answer after the same saves names it by. */
+		 * the review's reading names the slot by the asset of the person's bytes,
+		 * which a read of HQ's answer after the same saves names that path by
+		 * (proof 6's `saved` read). */
 		const reading = step.broughtIn?.reading;
 		const shown = Object.values(reading?.doc.fields ?? {}).flatMap((field) =>
 			"label_media" in field && field.label_media?.image !== undefined
 				? [field.label_media.image]
 				: [],
 		);
-		expect(shown).toHaveLength(1);
-		expect(reading?.mediaPaths).toEqual({
-			[shown[0] as string]: replaced.path,
-		});
+		const ofTheirBytes = [...(document.media ?? [])].flatMap(([id, asset]) =>
+			Buffer.from(asset.bytes).toString("base64") === replaced.base64
+				? [id]
+				: [],
+		);
+		expect(ofTheirBytes).toHaveLength(1);
+		expect(shown).toEqual(ofTheirBytes);
+		expect(Object.keys(reading ?? {}).sort()).toEqual(["doc", "identity"]);
 	}, 60_000);
 
 	it("refuses a statement that names other changes of the next publish than the review lists", async () => {

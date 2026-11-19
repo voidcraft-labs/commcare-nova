@@ -1342,6 +1342,127 @@ def document_behavior(document, records):
     return found + observations.soft_assertion_differences(records, CHECK)
 
 
+# Where each run, step and case of proof 3's sessions stands ------------------------------------------------------
+
+# The screens that take a choice of the script, each by the key its choice holds (``SessionOp.java``).
+SCRIPT_CHOICES = {
+    "menu": ("command",),
+    "case-list": ("select",),
+    "multi-select-list": ("selectMany",),
+    "search": ("search",),
+}
+
+
+def trace_sites(trace, processed=None):
+    """What one trace, and HQ's processing of its runs, say of where each run, step and case stands
+    (``changes.Sites``), for the first-publish judge to meet a difference of proof 3 with a change's places.
+
+    A run is walked as the runner took it: a menu step takes the script's next command, which names the menu or
+    the form the run is in from then on (``changes.command_place``); a case list step stands at the detail it
+    shows (``changes.detail_place``), a search step at the search of the menu it is in, a form step at its form,
+    any other step where the run is; a menu step's choices each at the menu or form it opens. A run stands at the
+    form it opens, else the menu it ends in. A case's type is what Core's case database after a step holds
+    (``case_type``) and what HQ's processing made of it (``type``)."""
+    from proof.checks import changes
+    from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
+
+    runs, steps, choices, cases = {}, {}, {}, {}
+
+    def case_type(case_id, kind):
+        if case_id is None or not kind:
+            return
+        held = (kind,)
+        cases[case_id] = held if cases.get(case_id, held) == held else None
+
+    for index, run in enumerate((trace or {}).get("runs") or ()):
+        if not isinstance(run, dict):
+            continue
+        script = [entry for entry in run.get("script") or () if isinstance(entry, dict)]
+        cursor, current, ends = 0, None, changes.NOWHERE
+        for number, step in enumerate(run.get("trace") or ()):
+            if not isinstance(step, dict):
+                continue
+            screen = step.get("screen")
+            taken = SCRIPT_CHOICES.get(screen)
+            if taken is not None and cursor < len(script) and any(key in script[cursor] for key in taken):
+                if screen == "menu":
+                    current = script[cursor].get("command")
+                cursor += 1
+            where = changes.command_place(current)
+            if screen == "menu":
+                for position, choice in enumerate(step.get("choices") or ()):
+                    if isinstance(choice, dict):
+                        choices[(index, number, position)] = changes.command_place(choice.get("command")) or None
+                root = step.get("root")
+                place = changes.command_place(root if root != "root" else None)
+            elif screen in ("case-list", "multi-select-list"):
+                place = changes.detail_place(step.get("detail"))
+            elif screen == "search":
+                place = ("menu", where[1].split(".")[0], "search_config") if where else changes.NOWHERE
+            else:
+                place = where
+            if where:
+                ends = where if where[0] == "form" or ends[:1] != ("form",) else ends
+            steps[(index, number)] = place or None
+            database = step.get("caseDb")
+            if isinstance(database, str):
+                try:
+                    root = parse_xml(database)
+                except XmlNotWellFormed:
+                    root = None
+                for case in [] if root is None else root:
+                    if isinstance(case.tag, str):
+                        case_type(case.get("case_id"), case.get("case_type"))
+        runs[index] = ends or None
+    for run in (processed or {}).get("runs") or ():
+        for case_id, case in ((run or {}).get("cases") or {}).items():
+            if isinstance(case, dict):
+                case_type(case_id, case.get("type"))
+    return changes.Sites(runs=runs, steps=steps, choices=choices, cases=cases)
+
+
+def document_sites(document, records):
+    """``trace_sites`` of every session proof 3 compares on one document, under each configuration: the baseline
+    on A, and each other build's runs with their generated ids named as the comparison names them
+    (``compare.trace.generated_labels``), as one (``changes.merged_sites``: a run, a step or a case two of them
+    place apart is no place)."""
+    from proof.checks import changes, observations
+    from proof.checks.compare.trace import relabelled
+
+    found = []
+    for name in sorted(document.exports):
+        sessions = observations.sessions_record(records, name)
+        if not sessions or "baseline" not in sessions:
+            continue
+        baseline = _run(sessions["baseline"], "A", records.blobs)
+        if baseline.trace is None:
+            continue
+        processed = _processed(sessions["baseline"], records.blobs)
+        found.append(trace_sites(baseline.trace, processed))
+        for key, side in (("local", "local.ccz"), ("b", "B")):
+            held = sessions.get(key)
+            if not held or held.get("trace") is None:
+                continue
+            other = _run(held, side, records.blobs)
+            labels = generated_labels(baseline.trace, other.trace)
+            before, after = relabelled(baseline.trace, other.trace, labels)
+            other_processed = _processed(held, records.blobs)
+            found.append(trace_sites(before, _relabelled_processing(processed, labels, 0)))
+            found.append(trace_sites(after, _relabelled_processing(other_processed, labels, 1)))
+    return changes.merged_sites(*found)
+
+
+def _relabelled_processing(processed, labels, side):
+    """HQ's processing of a trace's runs with each run's generated ids named by ``labels``' ``side``."""
+    runs = (processed or {}).get("runs") or []
+    return {
+        "runs": [
+            relabel_generated(run, labels[index][side]) if index < len(labels) else run
+            for index, run in enumerate(runs)
+        ]
+    }
+
+
 def _archive_files(path) -> dict:
     """Each entry of a local archive, by its path in it."""
     import zipfile

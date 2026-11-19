@@ -77,6 +77,16 @@ export interface PendingOutcome {
 }
 
 /**
+ * Whether the expression stage handed the registration's slot to project data (a read of a table
+ * the catalog lacks): the slot holds no tree of the source's, so its own print is project data's
+ * one finding at the table, never a difference of what prints it.
+ */
+export function handedOff(outcome: PendingOutcome): boolean {
+	const claim = outcome.claim;
+	return (claim?.handOff ?? claim?.refusal?.handOff) !== undefined;
+}
+
+/**
  * Every expression a structure stage registered, with what the record does not
  * hold: the node it was read from, a default's event, and what the expression
  * stage answered for it. Stages read a registration's result through it and no
@@ -91,6 +101,13 @@ export interface PendingRegistry {
 	): number;
 	/** Every registration, in registration order: what `readExpressions` takes. */
 	list(): readonly PendingExpression[];
+	/**
+	 * The index of each registration of one entity's slots (`ref.entity` and `ref.uuid`), in
+	 * registration order: what a settle of one menu, form or field reads of its own slots.
+	 */
+	of(entity: SlotContextRef["entity"], uuid: string): readonly number[];
+	/** The index of the first registration read from `attribute` of `element`, where one was. */
+	firstAt(element: object, attribute: string): number | undefined;
 	/** The node the registration at `index` was read from, and its event where it is a default. */
 	site(index: number): {
 		readonly at: ClaimSite;
@@ -128,6 +145,9 @@ export function pendingRegistry(): AnsweredPendingRegistry {
 	const expressions: PendingExpression[] = [];
 	const sites: { readonly at: ClaimSite; readonly event?: DefaultEvent }[] = [];
 	let outcomes: readonly PendingOutcome[] = [];
+	const byEntity = new Map<string, number[]>();
+	const entityKey = (entity: string, uuid: string) => `${entity}/${uuid}`;
+	const byAttribute = new WeakMap<object, Map<string, number>>();
 	const inRange = (index: number) => {
 		if (!Number.isInteger(index) || index < 0 || index >= expressions.length)
 			throw new RangeError(
@@ -140,9 +160,22 @@ export function pendingRegistry(): AnsweredPendingRegistry {
 			sites.push(
 				options?.event === undefined ? { at } : { at, event: options.event },
 			);
-			return expressions.length - 1;
+			const index = expressions.length - 1;
+			const key = entityKey(expression.ref.entity, expression.ref.uuid);
+			const indices = byEntity.get(key);
+			if (indices === undefined) byEntity.set(key, [index]);
+			else indices.push(index);
+			if ("element" in at && at.attribute !== undefined) {
+				const attributes =
+					byAttribute.get(at.element) ?? new Map<string, number>();
+				if (!attributes.has(at.attribute)) attributes.set(at.attribute, index);
+				byAttribute.set(at.element, attributes);
+			}
+			return index;
 		},
 		list: () => expressions,
+		of: (entity, uuid) => byEntity.get(entityKey(entity, uuid)) ?? [],
+		firstAt: (element, attribute) => byAttribute.get(element)?.get(attribute),
 		site(index) {
 			inRange(index);
 			return sites[index] as (typeof sites)[number];

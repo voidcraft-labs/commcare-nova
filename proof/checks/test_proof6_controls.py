@@ -21,8 +21,9 @@ gives nothing, and one with a menu's name changed gives one
 ``document@saved`` difference at that name and one at the menu's id; a review that read HQ's app and
 found changes and recorded no reading is refused by name, and a review that
 found nothing to bring in with no reading of the app (unchanged, or the same
-files), or a republish sent with no review, asks nothing. The ids the
-capture's peer minted for a form a person adds are HQ's at that position
+files), or a republish sent with no review, asks nothing; the read is told
+what HQ served at each path of its media map. The ids the capture's peer
+minted for a form a person adds are HQ's at that position
 (``aligned_identity``). The plausible failure: a peer that models a save
 otherwise than HQ stores it, which the review's verdict then rests on, passing
 unseen.
@@ -372,17 +373,34 @@ def test_a_document_difference_keeps_the_values_both_documents_hold_there():
     ]
 
 
-def test_the_saved_read_holds_each_file_at_the_path_the_review_found_it_under():
-    """A picture a person replaced under Nova's path is named there by the asset the review resolved it to
-    (``broughtIn.reading.mediaPaths``), over the path the document's own record keeps for it, and beside every other
-    held path the document keeps. The plausible failure: a ``saved`` read whose media index names Nova's original
-    picture at the path, which reports the person's picture as changed."""
-    stored = {"doc": {}, "hqAuthored": {"mediaPaths": {"logo": "jr://file/commcare/logo.png"}}}
-    reading = {"doc": {}, "identity": [], "mediaPaths": {"theirs": "jr://file/commcare/image/own.png"}}
-    assert proof6.held_media_paths(stored, reading) == {
-        "logo": "jr://file/commcare/logo.png",
-        "theirs": "jr://file/commcare/image/own.png",
-    }
-    moved = {"doc": {}, "mediaPaths": {"theirs": "jr://file/commcare/image/old.png"}}
-    assert proof6.held_media_paths(moved, reading) == {"theirs": "jr://file/commcare/image/own.png"}
-    assert proof6.held_media_paths({"doc": {}}, {"doc": {}, "identity": []}) == {}
+def test_the_saved_read_is_told_what_hq_served_at_each_path_and_is_refused_without_it():
+    """The ``saved`` read names each file of HQ's app after the saves by the bytes HQ served at its path (the read's
+    ``media``, handed to the reader as ``servedMedia``), and the document it is matched against carries no path the
+    review recorded; a ``saved`` read that holds no media reads is refused by name. The plausible failure: a ``saved``
+    read whose media index comes from the review it holds HQ to, which cannot differ on which file HQ serves at a
+    path a person saved a picture over (``proof/reader/__tests__/laneReading.test.ts`` holds the index itself)."""
+    served = [{"path": "jr://file/commcare/image/own.png", "status": 200, "sha256": "0" * 64}]
+
+    def planted(media):
+        reading = {"doc": {"moduleOrder": [], "formOrder": {}}, "identity": []}
+        brought = SimpleNamespace(review={"kind": "changes", "readingId": "planted"}, reading=reading)
+        document = SimpleNamespace(
+            id="planted",
+            document={"doc": {"appId": "planted-app"}, "media": {}},
+            hq_side={"republish": "brings-in"},
+            exports={"minimum": SimpleNamespace(brought_in=brought)},
+        )
+        reads = {key: value for key, value in _navigation_reads().items() if key != "media"}
+        if media is not None:
+            reads["media"] = media
+        return document, _records("planted", {"a": _with_reads("saved", reads)})
+
+    document, records = planted(served)
+    [(request, state, stated)], before = proof6.saved_requests(document, records)
+    assert (state, stated, before) == ("saved", None, [])
+    assert request["input"]["servedMedia"] == served
+    assert "mediaPaths" not in request["input"]["document"]
+    assert request["expected"] == {"moduleOrder": [], "formOrder": {}}
+    document, records = planted(None)
+    with pytest.raises(proof6.ReadsMissing, match="holds no media reads"):
+        proof6.saved_requests(document, records)

@@ -496,9 +496,10 @@ describe("the join to the first field with the element's text", () => {
 			]),
 			plainColumn(id("status"), "status", "Status", { sort: asc() }),
 		]);
-		// Both read status as an attribute, so both are `@status` expressions.
+		// Both are HQ's property field `status`, which its build reads as the
+		// case's attribute, so the rule joins the first.
 		expect(result.fields[0]).toMatchObject({
-			joinText: "@status",
+			joinText: "status",
 			key: { kind: "mapping-position", column: id("map") },
 			rule: { order: 1 },
 		});

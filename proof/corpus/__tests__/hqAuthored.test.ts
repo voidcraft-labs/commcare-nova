@@ -3,16 +3,20 @@
  * also wrote by hand (`proof/matrix/hand/hq-plain/document.ts`), from what
  * its builder authors and the reader's rules, never from a reading.
  *
- * Contract: Nova's reading of the retained base is the hand-written
- * document, compared by external key (a read back under a resolver over the
- * hand-written document's identities, `externalIdentityMap`, so each thing
- * the reading holds takes the hand-written UUID of the thing HQ keys alike),
- * and the hand-written document names exactly one identity row for each
- * menu and form of HQ's app. The plausible failures: a reader that
- * misreads a shape the base holds the same way every time, which neither
+ * Contract: the emission's first reading of the retained base, the D the
+ * corpus emits, is the hand-written document, compared by external key (each
+ * thing the reading holds takes the hand-written UUID of the thing HQ keys
+ * alike, `externalIdentityMap` over each document's identity rows), and the
+ * hand-written document names exactly one identity row for each menu and
+ * form of HQ's app. The reading is told nothing of the hand-written
+ * document: no case type, no language code. The plausible failures: a reader
+ * that misreads a shape the base holds the same way every time, which neither
  * acceptance nor proof 6 can see since such a misreading reads back to
- * itself; and a hand-written document whose identity rows leave a menu or
- * form of HQ's app out, so the read back keys it to nothing.
+ * itself; a comparison told the hand-written document's own case property
+ * types and language codes, which then cannot differ on them (a hand-written
+ * document stating another type of `village` is held to differ); and a
+ * hand-written document whose identity rows leave a menu or form of HQ's app
+ * out, so the reading keys it to nothing.
  *
  * The base is written by a lane run (`proof/matrix/test_retained.py`) and
  * adopted into `proof/hq-apps/hq-plain/`; a tree without it fails here by
@@ -37,7 +41,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { retainedBodyText } from "@/__tests__/helpers/retainedHqReads";
-import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import { externalKeyText } from "@/lib/commcare/reader/identity";
+import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
+import {
+	targetWireIdentity,
+	type WireIdentityOverride,
+} from "@/lib/commcare/wireIdentity";
 import {
 	counterOf,
 	FIXTURE_TABLE_ID,
@@ -45,7 +54,10 @@ import {
 } from "@/lib/deployment/reading/__tests__/adoptionFixture";
 import { readBackDifferences } from "@/lib/deployment/reading/readBack";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
+import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { LANE_BROUGHT_IN_AT, readForLane } from "@/proof/reader/laneReading";
 import { LANE_TARGET } from "@/proof/reader/retainedPeer";
 import {
@@ -75,6 +87,54 @@ interface StoredApp {
 		readonly unique_id?: string;
 		readonly forms?: readonly { readonly unique_id?: string }[];
 	}[];
+}
+
+/**
+ * `reading`'s document with each UUID of an entity `hand` keys alike
+ * (`externalIdentityMap` over each document's own identity rows) taken from
+ * `hand`, so the two compare entity by entity: every other value is the
+ * reading's own.
+ */
+function byHandKeys(
+	reading: {
+		readonly doc: BlueprintDoc;
+		readonly identity: readonly WireIdentityOverride[];
+	},
+	hand: {
+		readonly doc: BlueprintDoc;
+		readonly identity: readonly WireIdentityOverride[];
+	},
+): BlueprintDoc {
+	const keyed = (doc: BlueprintDoc, rows: readonly WireIdentityOverride[]) =>
+		externalIdentityMap(doc, targetWireIdentity(rows)).map(
+			(entry) =>
+				[
+					externalKeyText({ kind: entry.kind, parts: entry.parts }),
+					entry.uuid,
+				] as const,
+		);
+	const handUuid = new Map(keyed(hand.doc, hand.identity));
+	const taken = new Map<string, string>();
+	for (const [key, uuid] of keyed(reading.doc, reading.identity)) {
+		const to = handUuid.get(key);
+		if (to !== undefined) taken.set(uuid, to);
+	}
+	const rekeyed = (value: unknown): unknown => {
+		if (typeof value === "string") return taken.get(value) ?? value;
+		if (Array.isArray(value)) return value.map(rekeyed);
+		if (typeof value !== "object" || value === null) return value;
+		return Object.fromEntries(
+			Object.entries(value).map(([key, inner]) => [
+				taken.get(key) ?? key,
+				rekeyed(inner),
+			]),
+		);
+	};
+	const doc = hydratePersistedBlueprint(
+		blueprintDocSchema.parse(rekeyed(storedDocument(reading.doc))),
+	);
+	ensureReferenceIndex(doc);
+	return doc;
 }
 
 /**
@@ -117,38 +177,44 @@ it(
 		const uncovered = identityRowsMissing(BASE, stored, hand.identity);
 		if (uncovered !== null) throw new Error(uncovered);
 
-		const reading = await readForLane({
-			appId: BASE,
-			document: {
-				doc: storedDocument(hand.doc),
-				hqAuthored: { identity: hand.identity },
-			},
-			source: app.source,
-			application: app.application,
-			currentVersion: app.currentVersion,
-			...(app.projectSpaces !== undefined && {
-				projectSpaces: app.projectSpaces,
-			}),
-			identity: "match",
-			claims: "counts",
-		});
-		if (reading.kind !== "read")
-			throw new Error(
-				`Nova's reading of ${BASE} is no document: ${JSON.stringify(reading)}`,
-			);
-		expect(
-			readBackDifferences(hand.doc, { doc: reading.doc, choices: null }),
-		).toEqual([]);
-
-		// The emission's own first reading ties the same menus and forms to HQ's ids.
+		// The emission's own first reading, told nothing of the hand-written document, ties the same
+		// menus and forms to HQ's ids, and is the document a person wrote.
 		const first = await readForLane(laneInputFor(app));
 		if (first.kind !== "read")
-			throw new Error(`The first reading of ${BASE} is no document.`);
+			throw new Error(
+				`The first reading of ${BASE} is no document: ${JSON.stringify(first)}`,
+			);
 		const ids = (rows: readonly WireIdentityOverride[]) =>
 			rows
 				.map((row) => `${row.entityKind} ${row.uniqueId} ${row.xmlns}`)
 				.sort();
 		expect(ids(first.identity)).toEqual(ids(hand.identity));
+		const read = byHandKeys(first, hand);
+		expect(readBackDifferences(hand.doc, { doc: read, choices: null })).toEqual(
+			[],
+		);
+
+		// A hand-written document that states another type of the property the reader types is
+		// held to differ there: the reading derived the type, and was told none.
+		const wrong = document();
+		const village = wrong.doc.caseTypes
+			?.flatMap((caseType) => caseType.properties)
+			.find((property) => property.name === "village");
+		if (village === undefined)
+			throw new Error(`The hand-written ${BASE} declares no village.`);
+		(village as { data_type?: string }).data_type = "text";
+		const differences = readBackDifferences(wrong.doc, {
+			doc: read,
+			choices: null,
+		});
+		expect(differences.length).toBeGreaterThan(0);
+		expect(
+			differences.every(
+				(difference) =>
+					difference.path[0] === "caseTypes" &&
+					difference.path.includes("data_type"),
+			),
+		).toBe(true);
 	},
 	BUDGET_MS,
 );

@@ -1234,11 +1234,11 @@ const PAIRS: readonly Pair[] = [
 	},
 	{
 		id: "calculated-attribute-columns-are-plain",
-		name: "a calculated column that reads the case's owner alone",
+		name: "a calculated column that reads the case's id alone",
 		other: () =>
 			patients([
 				plainColumn(uuid(1), "case_name", "Name"),
-				calculatedColumn(uuid(2), "Owner", term(prop("patient", "owner_id"))),
+				calculatedColumn(uuid(2), "ID", term(prop("patient", "case_id"))),
 			]),
 	},
 	{

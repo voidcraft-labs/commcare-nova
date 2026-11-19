@@ -10,9 +10,12 @@ and of B aligned to A differ, on that build. HQ's builds read the restore
 HQ writes over the unit's state (``proof.observe.casedata.restore``, with the
 lookup tables Nova's push uploaded: A's restore is made over A, B's over B);
 the local archive reads a restore with no tables, since it carries its own.
-An app made in CommCare HQ uploads no workbook: its restores serve the tables
-its A was made with (``AuthoredTables``), and B's sessions run whether or not
-the raw builds differ (``proof.observe.unit._Unit.observe_b_aligned``).
+An app made in CommCare HQ has no first publish: A's restore serves the tables
+its A was made with (``AuthoredTables``), and B's serves every table the unit
+holds at B, A's and whatever its republish's workbook uploaded over them, as a
+Nova-born document's does, so a workbook a republish should not have pushed
+shows on B's sessions. B's sessions run whether or not the raw builds differ
+(``proof.observe.unit._Unit.observe_b_aligned``).
 
 Every case search a session sends is answered by HQ's own search view
 (``ota/views.py::app_aware_search``, reached through HQ's URLconf and
@@ -145,7 +148,7 @@ HQ_CLOCK_FUNCTIONS = frozenset({"today", "now"})
 
 
 class ClocksApart(RuntimeError):
-    """A document's cases hold a date between the runtimes' day and HQ's, where a search has HQ read its clock."""
+    """HQ answers a search that reads its clock otherwise at the runtimes' instant than at its own."""
 
 
 def reads_hq_clock(query):
@@ -167,59 +170,47 @@ def reads_hq_clock(query):
     return False
 
 
-def clock_days():
-    """The days a date read against a clock can be read apart by the lane's two clocks, as ``(first, last)``.
-
-    The runtimes' clock (Core's, Formplayer's and Android's) is one fixed instant,
-    ``proof.core.client.DEFAULT_CLOCK``; HQ's is the commit instant of its pin (``proof.hq.determinism.EPOCH``),
-    so HQ's date-gated code runs as it did at the pin. In production both read one day. A case date at or between
-    those two days compares with ``today()`` one way on the device and the other in HQ's search, which no worker
-    meets; one day more at each end holds HQ's ``today()`` in a project space's own zone."""
+def runtime_instant():
+    """The runtimes' one instant (Core's, Formplayer's and Android's, ``proof.core.client.DEFAULT_CLOCK``)."""
     import datetime as dt
 
     from proof.core.client import DEFAULT_CLOCK
-    from proof.hq.determinism import EPOCH
 
-    runtime = dt.date.fromisoformat(DEFAULT_CLOCK[:10])
-    hq = EPOCH.astimezone(dt.UTC).date()
-    first, last = sorted((runtime, hq))
-    return first - dt.timedelta(days=1), last + dt.timedelta(days=1)
+    return dt.datetime.fromisoformat(DEFAULT_CLOCK.replace("Z", "+00:00"))
 
 
-def dates_between(database, first, last):
-    """Each ``(case id, field, value)`` of ``database`` whose value is a date, or a date and time, on a day from
-    ``first`` to ``last``: a case's own opened and modified stamps and each property."""
-    import datetime as dt
+def answered_cases(body):
+    """The id of each case a search answer lists, in its order, or None where the answer is no XML."""
+    from lxml import etree
 
-    found = []
-    for case in database.cases:
-        fields = (("date_opened", case.opened_on), ("last_modified", case.modified_on), *case.properties)
-        for name, value in fields:
-            if not isinstance(value, str) or len(value) < 10:
-                continue
-            try:
-                day = dt.date.fromisoformat(value[:10])
-            except ValueError:
-                continue
-            if first <= day <= last:
-                found.append((case.case_id, name, value))
-    return found
+    try:
+        root = etree.fromstring(body)
+    except (etree.XMLSyntaxError, ValueError):
+        return None
+    return [element.get("case_id") for element in root.iter() if etree.QName(element).localname == "case"]
 
 
-def refuse_dates_between_the_clocks(database, label):
-    """Refuse a case database that holds a date ``clock_days`` names, once a search of ``label``'s sessions has HQ
-    read its clock (``ClocksApart``)."""
-    first, last = clock_days()
-    found = dates_between(database, first, last)
-    if found:
-        listed = ", ".join(f"{case_id} {name} {value}" for case_id, name, value in found[:5])
-        raise ClocksApart(
-            f"A search of the {label} sessions asks CommCare HQ for today() or now(), and this document's cases"
-            f" hold dates from {first} to {last} ({listed}). Between those days the device's clock"
-            " (proof.core.client.DEFAULT_CLOCK) and HQ's (proof.hq.determinism.EPOCH) read such a date apart, so"
-            " HQ's answer would differ from what one day gives in production. Give the case a date outside those"
-            " days: the literal the document compares, or the base's seed."
-        )
+def clocks_apart_message(label, query, at_pin, at_runtime):
+    """Why HQ's answer to a search of ``label``'s sessions is refused: it reads its clock in ``query`` and lists
+    ``at_pin`` at its own instant and ``at_runtime`` at the runtimes' (case ids, or None for an answer no XML)."""
+    if at_pin is None or at_runtime is None:
+        found = "answers it otherwise"
+    else:
+        only_pin = sorted(set(at_pin) - set(at_runtime))
+        only_runtime = sorted(set(at_runtime) - set(at_pin))
+        parts = []
+        if only_pin:
+            parts.append(f"finds {', '.join(only_pin[:5])} only at its own")
+        if only_runtime:
+            parts.append(f"finds {', '.join(only_runtime[:5])} only at the runtimes'")
+        found = " and ".join(parts) or "lists the same cases in another order"
+    return (
+        f"A search of the {label} sessions has CommCare HQ read its clock ({query}), and HQ {found}"
+        " (its clock is its pin's instant, proof.hq.determinism.EPOCH; the runtimes' is"
+        " proof.core.client.DEFAULT_CLOCK). In production both read one instant, so this answer is one no worker"
+        " meets. Give the cases the search compares with the clock dates both instants read alike: the literal the"
+        " document compares, or the base's seed."
+    )
 
 
 @dataclass
@@ -252,7 +243,6 @@ class HqSearches:
     stack: ExitStack = field(default_factory=ExitStack)
     _views: object = None
     _credentials: str = ""
-    _clocks_held: bool = False
 
     def __call__(self, url, params):
         from proof.formplayer.client import HqRequest
@@ -261,25 +251,44 @@ class HqSearches:
             self._open()
         parts = urlsplit(url or "")
         body = urlencode([(key, value) for key in sorted(params) for value in params[key]]).encode("utf-8")
-        answer = self._views(
-            HqRequest(
-                "POST",
-                parts.path,
-                parts.query,
-                (
-                    ("Content-Type", "application/x-www-form-urlencoded"),
-                    ("Authorization", f"Basic {self._credentials}"),
-                ),
-                body,
-            )
+        request = HqRequest(
+            "POST",
+            parts.path,
+            parts.query,
+            (
+                ("Content-Type", "application/x-www-form-urlencoded"),
+                ("Authorization", f"Basic {self._credentials}"),
+            ),
+            body,
         )
+        answer = self._views(request)
         # Read only once HQ has answered the query (its own parse of each value succeeded), so this second parse
         # of it changes nothing of HQ's parser's state for the next.
-        if answer.status == 200 and not self._clocks_held:
-            if any(reads_hq_clock(query) for query in params.get(XPATH_QUERY_KEY) or ()):
-                self._clocks_held = True
-                refuse_dates_between_the_clocks(self.database, self.label)
+        if answer.status == 200:
+            clocked = [query for query in params.get(XPATH_QUERY_KEY) or () if reads_hq_clock(query)]
+            if clocked:
+                self._hold_to_the_runtimes_clock(request, answer, clocked[0])
         return answer.status, answer.body
+
+    def _hold_to_the_runtimes_clock(self, request, answer, query):
+        """HQ's ``answer`` to a search that reads its clock held to HQ's answer to the same request at the runtimes'
+        instant (``runtime_instant``): asked in a fork of the unit, with what the views keep of it forgotten and the
+        next request's number kept, so it changes no record; the two must list the same cases, or ``ClocksApart``.
+        HQ's own search reads every clock read and every shift of it (``date-add`` of ``today()``, by a literal or
+        by a value a Search field gave), so the harness computes no date."""
+        from proof.hq import determinism
+
+        views = self._views
+        ordinal = views._ordinal
+        try:
+            with self.unit.fork(), views.forgetting(), determinism.clock_at(runtime_instant()):
+                again = views(request)
+        finally:
+            views._ordinal = ordinal
+        at_pin = answered_cases(answer.body)
+        at_runtime = answered_cases(again.body) if again.status == 200 else None
+        if at_pin is None or at_pin != at_runtime:
+            raise ClocksApart(clocks_apart_message(self.label, query, at_pin, at_runtime))
 
     def _open(self):
         from proof.formplayer import hq as formplayer_hq
@@ -819,9 +828,11 @@ def observe(
             )
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
             return recorded
+        # B's sessions read the tables the unit holds at B, whoever made A: where the republish pushed a workbook
+        # (which publish.update uploaded before B's import, over whatever A held), it is uploaded again in a fork at
+        # B, which already holds it, and every table HQ then holds is served; where it pushed none, B holds A's tables.
         restore_b = restore_hq
-        # An app made in CommCare HQ is served the tables its A holds at B too: Nova uploads none over them.
-        if not document.hq_authored and export.republish is not None and export.republish.lookups is not None:
+        if export.republish is not None and export.republish.lookups is not None:
             recorded["lookupsB"], restore_b = hq_restore(
                 unit, database, export.republish.lookups, "restore-b", operation
             )

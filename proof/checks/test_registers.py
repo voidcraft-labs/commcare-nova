@@ -792,11 +792,14 @@ def test_the_first_publish_register_loads_and_refuses_what_the_judge_cannot_hold
     assert all(row.check in changes.ROW_CHECKS for change in held for row in change.rows)
     row = {"check": "source", "artifact": "app.json", "path": "/name"}
     for refused, says in (
-        ([{"change": "a", "rows": []}, {"change": "a", "rows": []}], "two objects of the change a"),
-        ([{"change": "a", "rows": [row, row]}], "twice"),
-        ([{"change": "a", "rows": [{**row, "check": "intent"}]}], "names the check 'intent'"),
-        ([{"change": "a", "rows": [{**row, "kind": "moved"}]}], "left out for every kind"),
+        (
+            [{"change": "a", "placeKinds": ["app"], "rows": []}, {"change": "a", "placeKinds": ["app"], "rows": []}],
+            "two objects of the change a",
+        ),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [row, row]}], "twice"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "check": "intent"}]}], "names the check 'intent'"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "kind": "moved"}]}], "left out for every kind"),
     ):
         with pytest.raises(changes.ChangesError, match=says):
             changes.parse(refused)
-    assert changes.parse([{"change": "a", "rows": [row]}])[0].rows[0].path == "/name"
+    assert changes.parse([{"change": "a", "placeKinds": ["app"], "rows": [row]}])[0].rows[0].path == "/name"

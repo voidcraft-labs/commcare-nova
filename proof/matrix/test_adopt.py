@@ -23,6 +23,7 @@ changed. Standard library only: it runs with no image.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -60,7 +61,7 @@ def _run(scratch: Path):
             "blocks/a/hq-apps/hq-plain/media/0.png": b"\x89PNG",
             "blocks/a/hq-apps/hq-plain/expected.json": b'{"reads": true}\n',
             # test_retained.py's comparison of hq-plain found stale.json committed and did not make it.
-            "blocks/a/retained-held/hq-apps/hq-plain.json": b'{"extra": ["stale.json"]}\n',
+            "blocks/a/retained-held/hq-apps/hq-plain/test_retained.json": b'{"extra": ["stale.json"]}\n',
             "blocks/b/hq-apps/hq-plain/app-source.json": b'{"status": 200}\n',
             "blocks/b/hq-reads/reading/application.json": b'{"status": 404}\n',
         },
@@ -216,14 +217,14 @@ def _shards(scratch: Path):
         hq,
         {
             "blocks/h/hq-reads/navigation-base/app-source.json": b"new\n",
-            "blocks/h/retained-held/hq-reads/navigation-base.json": b'{"extra": ["app-source-gone.json"]}\n',
+            "blocks/h/retained-held/hq-reads/navigation-base/hq.json": b'{"extra": ["app-source-gone.json"]}\n',
         },
     )
     _write(
         editors,
         {
             "blocks/e/hq-reads/navigation-base/app-source-after-menu-save.json": b"new save\n",
-            "blocks/e/retained-held/hq-reads/navigation-base.json": (
+            "blocks/e/retained-held/hq-reads/navigation-base/editors.json": (
                 b'{"extra": ["app-source-after-gone-save.json"]}\n'
             ),
         },
@@ -263,9 +264,9 @@ def test_a_test_that_did_not_reach_its_comparison_removes_nothing_and_a_file_ano
     with tempfile.TemporaryDirectory() as scratch:
         proof, hq, editors = _shards(Path(scratch))
         # The editors' test stopped before its comparison: it wrote one save and recorded nothing.
-        (editors / "blocks/e/retained-held/hq-reads/navigation-base.json").unlink()
+        (editors / "blocks/e/retained-held/hq-reads/navigation-base/editors.json").unlink()
         # A block of the HQ test's records a file as not made that another block of the run wrote.
-        _write(hq, {"blocks/i/retained-held/hq-reads/navigation-base.json": b'{"extra": ["app-source.json"]}\n'})
+        _write(hq, {"blocks/i/retained-held/hq-reads/navigation-base/hq.json": b'{"extra": ["app-source.json"]}\n'})
         adopt.adopt([hq, editors], proof=proof)
         assert _tree(proof) == {
             "hq-reads/navigation-base/app-source.json": b"new\n",
@@ -333,3 +334,187 @@ def test_what_a_comparison_records_is_what_adopting_removes(tmp_path, monkeypatc
         "hq-reads/shell/app-source.json",
     ]
     assert not (proof / "hq-apps" / "hq-plain" / "media").exists()
+
+
+def test_two_tests_comparing_one_directory_each_write_their_own_record_and_read_no_other(tmp_path, monkeypatch):
+    """``proof/hq/test_retained_reads.py`` and ``proof/editors/test_retained_reads.py`` both compare ``shell/``, on two
+    workers of one block in a run with no queue: each writes its own record and reads no other, so neither's extra
+    files are lost to the other's write, and adopting removes both."""
+    from proof.matrix import retained
+
+    proof = tmp_path / "proof"
+    _write(
+        proof,
+        {
+            "hq-reads/shell/app-source.json": b"old\n",
+            "hq-reads/shell/gone-read.json": b"gone\n",
+            "hq-reads/shell/app-source-after-gone-save.json": b"gone save\n",
+        },
+    )
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path / "out" / "blocks" / "a"))
+    reads = original = Path.read_text
+
+    def compare(test, keep, others):
+        monkeypatch.setenv("PYTEST_CURRENT_TEST", f"{test} (call)")
+        shell = retained.Retained("shell")
+        for name in keep:
+            shell.keep(name, {"status": 200})
+        own = shell.held_record()
+
+        def read_own_only(path, *args, **kwargs):
+            if retained.HELD in path.parts and path != own:
+                raise AssertionError(f"{test} read another test's held record, {path}")
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", read_own_only)
+        try:
+            shell.hold(proof / "hq-reads" / "shell", others=others)
+        except AssertionError as failed:
+            assert "is not what HQ answers" in str(failed), failed
+        finally:
+            monkeypatch.setattr(Path, "read_text", reads)
+        return own
+
+    hq = compare(
+        "proof/hq/test_retained_reads.py::test_the_drift_reads", ["app-source"], lambda name: name.endswith("-save")
+    )
+    editors = compare(
+        "proof/editors/test_retained_reads.py::test_saves",
+        ["app-source-after-menu-save"],
+        lambda name: not name.endswith("-save"),
+    )
+    assert hq != editors and hq.parent == editors.parent
+    assert json.loads(hq.read_text(encoding="utf-8")) == {"extra": ["gone-read.json"]}
+    assert json.loads(editors.read_text(encoding="utf-8")) == {"extra": ["app-source-after-gone-save.json"]}
+    adopt.adopt(tmp_path / "out", proof=proof)
+    assert sorted(_tree(proof)) == ["hq-reads/shell/app-source-after-menu-save.json", "hq-reads/shell/app-source.json"]
+
+
+def test_a_comparison_that_finds_nothing_extra_leaves_another_test_s_extra_to_remove(tmp_path, monkeypatch):
+    from proof.matrix import retained
+
+    proof = tmp_path / "proof"
+    _write(proof, {"hq-reads/shell/app-source.json": b"old\n", "hq-reads/shell/gone-read.json": b"gone\n"})
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path / "out" / "blocks" / "a"))
+    for test, extra in (("proof/hq/test_a.py::test_a", ["gone-read.json"]), ("proof/editors/test_b.py::test_b", [])):
+        monkeypatch.setenv("PYTEST_CURRENT_TEST", f"{test} (call)")
+        retained.Retained("shell").record_held(extra)
+    _write(tmp_path / "out", {"blocks/a/hq-reads/shell/app-source.json": b"new\n"})
+    adopt.adopt(tmp_path / "out", proof=proof)
+    assert _tree(proof) == {"hq-reads/shell/app-source.json": b"new\n"}
+
+
+def test_a_record_takes_its_name_only_once_it_is_whole(tmp_path, monkeypatch):
+    """A run stopped while a record is written leaves the record it had, or none, never part of one: the write that
+    is cut off before its rename names nothing, and adopting reads no file left beside it."""
+    from proof.matrix import retained
+
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path / "out" / "blocks" / "a"))
+    shell = retained.Retained("shell")
+    shell.record_held(["kept.json"])
+    record = shell.held_record()
+
+    def stopped(*args):
+        raise KeyboardInterrupt("the run stopped before the rename")
+
+    monkeypatch.setattr(retained.os, "replace", stopped)
+    try:
+        shell.record_held(["kept.json", "more.json"])
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("the record was written with its rename stopped")
+    monkeypatch.undo()
+    assert json.loads(record.read_text(encoding="utf-8")) == {"extra": ["kept.json"]}
+    assert sorted(path.name for path in record.parent.iterdir()) == [record.name]
+    # A file left beside a record by a kill is no record, and no file of the tree.
+    _write(tmp_path / "out", {f"blocks/a/retained-held/hq-reads/shell/.{record.name}.7.partial": b"{"})
+    _write(tmp_path / "out", {"blocks/a/hq-reads/shell/.app-source.json.7.partial": b"{"})
+    assert adopt.unmade([tmp_path / "out"], "hq-reads") == {"shell": {"kept.json"}}
+    assert adopt.written([tmp_path / "out"], "hq-reads") == {}
+
+
+def _settled_base(monkeypatch, out):
+    from proof.matrix import retained
+
+    monkeypatch.setenv("PROOF_OUT", str(out / "blocks" / "a"))
+    base = retained.Retained("hq-plain", tree="hq-apps", held=True)
+    base.keep("app", {"new": True})
+    base.keep("base", {"id": "hq-plain"})
+    base.keep_bytes("media/0.png", b"\x89PNG")
+    base.keep("expected", {"reads": True})
+    base.keep("seed", {"cases": []})
+    base.keep("tables", [])
+    return base
+
+
+def test_a_base_settled_is_adopted_whole_or_not_at_all_wherever_its_writes_stop(tmp_path, monkeypatch):
+    """``Retained.settle`` names a base's directory under ``hq-apps/`` only once every file is whole: a write that
+    raises (a full disk) or a rename that does not happen at any point leaves no directory there, so adopting and
+    the gate (which read ``expected.json`` as the reading having come in) never take a base with its old seed,
+    media or tables beside a new app. The base settled with nothing stopping it is adopted whole."""
+    whole = _settled_base(monkeypatch, tmp_path / "whole")
+    whole.settle()
+    expected = whole.all_made()
+    assert adopt.written([tmp_path / "whole"], "hq-apps") == {"hq-plain": expected}
+    assert adopt.unread_bases(adopt.written([tmp_path / "whole"], "hq-apps")) == []
+    writes = len(expected)
+    for stop in range(writes + 1):
+        out = tmp_path / f"stopped-{stop}"
+        base = _settled_base(monkeypatch, out)
+        written = Path.write_bytes
+        count = {"writes": 0}
+
+        def full(path, data, count=count, stop=stop, written=written):
+            if count["writes"] == stop:
+                raise OSError(28, "No space left on device")
+            count["writes"] += 1
+            return written(path, data)
+
+        def no_rename(*args):
+            raise OSError(28, "No space left on device")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "write_bytes", full)
+            if stop == writes:
+                patch.setattr("proof.matrix.retained.os.replace", no_rename)
+            try:
+                base.settle()
+            except OSError:
+                pass
+            else:
+                raise AssertionError(f"settle finished with its write {stop} stopped")
+        found = adopt.written([out], "hq-apps")
+        assert found == {}, f"a settle stopped at write {stop} left {sorted(found.get('hq-plain', {}))}"
+        assert not (out / "blocks" / "a" / "hq-apps" / "hq-plain").exists()
+        assert base.held, "a base whose settle stopped writes nothing more as it is made"
+
+
+def test_a_file_at_the_top_of_a_block_s_tree_is_refused_and_one_a_directory_down_is_adopted(tmp_path):
+    for tree in ("hq-reads", "hq-apps"):
+        proof, output = _run(tmp_path / tree)
+        before = _tree(proof)
+        _write(output, {f"blocks/b/{tree}/stray.json": b"{}\n"})
+        try:
+            adopt.adopt(output, proof=proof)
+        except adopt.AdoptRefused as refusal:
+            assert f"stray.json is a file at the top of {tree}/" in str(refusal), refusal
+            assert "Left out" not in str(refusal)
+        else:
+            raise AssertionError(f"adopt took a file at the top of {tree}/")
+        assert _tree(proof) == before
+    proof, output = _run(tmp_path / "down")
+    _write(output, {"blocks/b/hq-reads/reading/stray.json": b"{}\n"})
+    adopt.adopt(output, proof=proof)
+    assert (proof / "hq-reads" / "reading" / "stray.json").read_bytes() == b"{}\n"
+
+
+def test_a_file_under_the_held_records_that_is_no_record_is_refused(tmp_path):
+    proof, output = _run(tmp_path)
+    _write(output, {"blocks/b/retained-held/hq-reads/reading.json": b'{"extra": []}\n'})
+    try:
+        adopt.adopt(output, proof=proof)
+    except adopt.AdoptRefused as refusal:
+        assert "is no held record" in str(refusal)
+    else:
+        raise AssertionError("adopt read a held record outside a directory's own records")

@@ -472,7 +472,8 @@ def keep_answers(retained, answers, project_answers, media, asked=None):
 
 def retain(authoring, base, app_id, credential, core_runner) -> Retained:
     """Write ``proof/hq-apps/<base>/`` to the run's output (the module's docstring), once the reader bundle's first
-    reading of it comes in. Where it does not, or anything before it raises, nothing is written under ``hq-apps/``:
+    reading of it comes in. Where it does not, or anything raises before the directory is whole under ``hq-apps/``
+    (``Retained.settle`` names it only then), nothing is written under ``hq-apps/``:
     what was made, every answer HQ gave and the reading are written under ``UNREAD_TREE`` and the error stands.
     Returns the ``Retained``, whose ``answers`` and ``project_answers`` hold every answer made, kept or not, for the
     variants, which read their media files themselves."""
@@ -535,9 +536,15 @@ def retain(authoring, base, app_id, credential, core_runner) -> Retained:
         if answer is not None:
             unread.keep("reading", answer)
         raise
-    keep_answers(retained, answers, project_answers, media, set(answer.get("asked") or ()))
-    retained.keep("expected", expected)
-    retained.settle()
+    try:
+        keep_answers(retained, answers, project_answers, media, set(answer.get("asked") or ()))
+        retained.keep("expected", expected)
+        retained.settle()
+    except BaseException:
+        # Every answer is kept by now, or keeping one raised: what was made is written under UNREAD_TREE as it
+        # stands, and the reading beside it.
+        retained.moved(UNREAD_TREE).keep("reading", answer)
+        raise
     retained.answers = answers
     retained.project_answers = project_answers
     retained.reading = answer

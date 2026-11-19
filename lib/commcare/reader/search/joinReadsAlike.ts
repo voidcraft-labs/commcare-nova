@@ -6,47 +6,67 @@
  * After the join the search still sends the conjunct (a list filter clause is a row of the search
  * on such a menu), and the device's list filter, which runs over the cases the search answered
  * (`suite_xml/sections/entries.py::EntriesHelper.get_datum_meta_module` appends the list's filter
- * to the inline search's results instance in the datum's nodeset), runs it too. So the list a worker sees is the one it was exactly where every case HQ's
- * search returns for the conjunct is a case the device keeps for it: HQ true implies the device
- * true. Each shape below was read at the pins in HQ's case search (`corehq/apps/case_search`,
- * `corehq/apps/es/case_search.py`, the case search index's mapping
- * `corehq/apps/es/mappings/case_search_mapping.py`) and in Core's XPath over the results instance:
+ * to the inline search's results instance in the datum's nodeset), runs it too. So the list a
+ * worker sees is the one it was exactly where every case HQ's search returns for the conjunct is a
+ * case the device keeps for it: HQ true implies the device true. Each shape below was read at the
+ * pins in HQ's case search (`corehq/apps/case_search`, `corehq/apps/es/case_search.py`, the case
+ * search index's mapping `corehq/apps/es/mappings/case_search_mapping.py`) and in Core's XPath
+ * over the results instance.
  *
- * - **A custom property of the searched case compared with a string literal by `=`.** HQ's
- *   `_xpath_query` `=` is never fuzzy (`case_search/utils.py::CaseSearchQueryBuilder._build_filter_from_xpath`
- *   is called with `fuzzy=False` for it) and is an exact term on `case_properties.value.exact`, letter
- *   case included (`xpath_functions/comparison.py::_create_query`, `es/case_search.py::case_property_query`,
- *   `exact_case_property_text_query`); the case HQ answers holds that text
- *   (`casexml/apps/case/fixtures.py::CaseDBFixture`), and Core compares two strings as strings
- *   (`XPathEqExpr.testEquality`). Admitted. The blank literal is HQ's `case_property_missing` (the
- *   property unset or `''`), which Core reads alike, since a missing element unpacks to `''`.
- * - **The same by `!=`.** HQ's is the negation of the exact term (`comparison.py::_create_query`),
- *   true also where the value is longer than the exact field indexes (`ignore_above` 8191), which
- *   can equal only a literal that long. Admitted for a literal of at most 8191 characters.
- * - **`is-blank` of such a property.** HQ's `case_property_missing`, read alike. Admitted.
- * - **`starts-with` of such a property and a string literal.** HQ's prefix on the exact field
+ * The two read different text. HQ stores and indexes a property's text as submitted, spaces at its
+ * ends included (`xml2json`'s leaf text, `update_strategy.py::_apply_update_action`,
+ * `pillows/case_search.py::_format_property`, a `value.exact` keyword with no normalizer), and
+ * its results write that text (`casexml/apps/case/fixtures.py::CaseDBFixture`). Core trims every
+ * value of the results it parses, Java `String.trim()`, the code units up to U+0020 at both ends
+ * (`TreeElementParser.parse`, and `CaseXmlParser` and `BulkProcessingCaseXmlParser` on Web Apps'
+ * indexed path). So a case HQ holds as `' '` is `''` on the device, and one HQ holds as
+ * `'closed '` is `'closed'`; a test is admitted only where it holds of every stored text once
+ * trimmed:
+ *
+ * - **A custom property of the searched case compared with a string literal by `=`**, the literal
+ *   with no code unit up to U+0020 at either end. HQ's `_xpath_query` `=` is never fuzzy
+ *   (`case_search/utils.py::CaseSearchQueryBuilder._build_filter_from_xpath` is called with
+ *   `fuzzy=False` for it) and is an exact term on `case_properties.value.exact`, letter case
+ *   included (`xpath_functions/comparison.py::_create_query`, `es/case_search.py::case_property_query`,
+ *   `exact_case_property_text_query`), so the stored text is the literal, which the trim leaves as
+ *   it is, and Core compares two strings as strings (`XPathEqExpr.testEquality`). A literal with
+ *   a space at an end matches a stored text the device reads trimmed, and is not admitted. The
+ *   blank literal is HQ's `case_property_missing` (the property unset or exactly `''`), which the
+ *   device reads as `''`, since a missing element unpacks to `''`. Admitted.
+ * - **The same by `!=`, or under `not`.** HQ's is the negation of the exact term
+ *   (`comparison.py::_create_query`), true of a stored text the literal followed by a space, which
+ *   the device trims to the literal. Not admitted, whatever the literal.
+ * - **`is-blank` of such a property.** HQ's `case_property_missing`, unset or exactly `''`, both
+ *   blank on the device. Admitted. Under `not`, HQ keeps a stored `' '`, which the device reads as
+ *   blank. Not admitted.
+ * - **`starts-with` of such a property and a string literal**, the literal with no code unit up to
+ *   U+0020 at either end. HQ's prefix on the exact field
  *   (`xpath_functions/query_functions.py::starts_with`, `es/case_search.py::case_property_starts_with`),
- *   case-sensitive; Core's `XPathStartsWithFunc` compares the two strings. Admitted.
- * - **Such a property compared by `=` with the worker's own information** (the worker's data, or
- *   the session's `username` and `userid`, which `SessionInstanceBuilder.addMetadata` writes from
- *   the signed-in worker). The device writes the value into the search's text and reads the same
- *   value in the list (none of these moves between the search and its list), so it is the literal
- *   case. Admitted.
+ *   case-sensitive; Core's `XPathStartsWithFunc` compares the two strings. A stored text that
+ *   starts with such a literal keeps it once trimmed. Admitted. A literal with a space at an end
+ *   is not, and neither is a negation: a value longer than the exact field indexes matches no
+ *   prefix in HQ and may start with it on the device.
+ * - **Such a property compared by `=` with the worker's own information that Core holds trimmed**:
+ *   the worker's record (`source: "worker-record"`, a case of the device's case database, whose
+ *   values `CaseXmlParser` trims), and the session's `username` and `userid`
+ *   (`SessionInstanceBuilder.addMetadata`), which hold no space. The device writes the value into
+ *   the search's text and reads the same value in the list (none of these moves between the search
+ *   and its list), so it is the literal case. Admitted. The session's user data is the restore's
+ *   text as written (`UserXmlParser` trims none of it), so a value of it may end in a space. Not
+ *   admitted.
  * - **`and`, `or`, `match-all` and `match-none` of admitted conjuncts.** HQ true of a conjunction
  *   is HQ true of each part, of a disjunction of some part. Admitted.
  * - **`not` of a conjunct.** HQ's `not` is the negation of its argument's filter
  *   (`query_functions.py::not_`, `filters.NOT`), and its `!=` is the same negation of `=`
  *   (`comparison.py::_create_query`), so a negation is read as its argument with each comparison
- *   turned over, and admitted where that reading is: `not` of `=` is `!=` (for a literal the exact
- *   field indexes), `not` of `!=` is `=`, `not` of `and` and `or` is `or` and `and` of the
- *   negations, `not` of a blank test is a value HQ indexes as not blank (`case_property_missing`
- *   is the property unset or exactly `''`, both of which a device reads as blank), and `not` of
- *   `starts-with` is not admitted: a value longer than the exact field indexes matches no prefix in
- *   HQ and may start with it on the device.
+ *   turned over, and admitted where that reading is: `not` of `!=` is `=`, `not` of `and` and `or`
+ *   is `or` and `and` of the negations, and `not` of `=`, of a blank test and of `starts-with` of
+ *   a custom property is not admitted (above).
  * - **The case's type compared by `=` or `!=` with a case type or a string literal.** HQ reads the
  *   exact term of the type it indexes (`comparison.py::_create_system_query` over
  *   `INDEXED_METADATA_BY_KEY['@case_type']`, `type.exact`), and the device the `@case_type` of the
- *   case HQ answered, which is that type. Admitted, either way round and under `not`.
+ *   case HQ answered, an attribute Core's parse does not trim, which is that type. Admitted,
+ *   either way round and under `not`.
  * - **Any other standard property** (a case's name, owner, status, dates): HQ reads its own indexed
  *   metadata (`comparison.py::property_comparison_query`, `INDEXED_METADATA_BY_KEY`), dates by the
  *   project space's time zone (`_create_system_datetime_query`), where the device reads the
@@ -85,12 +105,10 @@
  */
 
 import type { BlueprintDoc } from "@/lib/domain";
+import { normalizeCaseScalarTextValue } from "@/lib/domain/caseScalarText";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression, PropertyRef, Term } from "@/lib/domain/expression";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
-
-/** The longest value the case search index's exact field holds (`case_search_mapping.py`, `ignore_above`). */
-const EXACT_INDEXED_LENGTH = 8191;
 
 /** The property types whose comparison with text a device makes as text. */
 const TEXT_TYPES: ReadonlySet<string | undefined> = new Set([
@@ -126,14 +144,15 @@ export function joinReadsAlike(
 		);
 		return TEXT_TYPES.has(declared?.data_type);
 	};
-	const text = (operand: Expression, longest = Number.POSITIVE_INFINITY) =>
+	/** A string literal Core's trim leaves as it is: no code unit up to U+0020 at either end. */
+	const trimmedText = (operand: Expression) =>
 		operand.kind === "term" &&
 		operand.term.kind === "literal" &&
 		operand.term.data_type === undefined &&
 		typeof operand.term.value === "string" &&
-		operand.term.value.length <= longest;
+		normalizeCaseScalarTextValue(operand.term.value) === operand.term.value;
 	const worker = (operand: Expression) =>
-		operand.kind === "term" && isWorkerValue(operand.term);
+		operand.kind === "term" && isTrimmedWorkerValue(operand.term);
 	const typeValue = (operand: Expression) =>
 		operand.kind === "term" &&
 		(operand.term.kind === "case-type" ||
@@ -145,13 +164,12 @@ export function joinReadsAlike(
 	const typeTest = (left: Expression, right: Expression) =>
 		(rowType(left) && typeValue(right)) || (rowType(right) && typeValue(left));
 	const equal = (left: Expression, right: Expression) =>
-		(ownText(left) && (text(right) || worker(right))) ||
-		(ownText(right) && (text(left) || worker(left))) ||
+		(ownText(left) && (trimmedText(right) || worker(right))) ||
+		(ownText(right) && (trimmedText(left) || worker(left))) ||
 		typeTest(left, right);
-	const unequal = (left: Expression, right: Expression) =>
-		(ownText(left) && text(right, EXACT_INDEXED_LENGTH)) ||
-		(ownText(right) && text(left, EXACT_INDEXED_LENGTH)) ||
-		typeTest(left, right);
+	// A custom property unequal to a value is true in HQ of the value followed by a space, which the
+	// device trims to the value, so only the case's type is admitted unequal.
+	const unequal = typeTest;
 	/** Whether `node` reads alike, or, where `negated`, whether its negation does. */
 	const alike = (node: Expression, negated: boolean): boolean => {
 		switch (node.kind) {
@@ -172,13 +190,13 @@ export function joinReadsAlike(
 					? equal(node.left, node.right)
 					: unequal(node.left, node.right);
 			case "is-blank":
-				return ownText(node.left);
+				return !negated && ownText(node.left);
 			case "match":
 				return (
 					!negated &&
 					node.mode === "starts-with" &&
 					ownText(node.property) &&
-					text(node.value)
+					trimmedText(node.value)
 				);
 			case "if":
 				return (
@@ -199,6 +217,20 @@ const WORKER_CONTEXT_FIELDS: ReadonlySet<string> = new Set([
 	"userid",
 ]);
 
+/** Whether `term` is the worker's own information as Core holds it trimmed: a value of the worker's
+ *  record, which the device's case database holds as `CaseXmlParser` trimmed it, or the session's
+ *  user name or id, which hold no space. The session's user data is the restore's text as written
+ *  (`UserXmlParser`). */
+function isTrimmedWorkerValue(term: Term): boolean {
+	return (
+		((term.kind === "session-user" || term.kind === "session-user-property") &&
+			term.source === "worker-record") ||
+		(term.kind === "session-context" && WORKER_CONTEXT_FIELDS.has(term.field))
+	);
+}
+
+/** Whether `term` is the worker's own information, which does not move between the search and its
+ *  list. */
 function isWorkerValue(term: Term): boolean {
 	return (
 		term.kind === "session-user" ||

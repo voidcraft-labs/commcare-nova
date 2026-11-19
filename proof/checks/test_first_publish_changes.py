@@ -3,7 +3,9 @@
 Contract (``proof.checks.changes``, ``proof.checks.source``): on each
 ``hq-authored`` document, A's stored app against B's as HQ's source read
 serves each (``source``) changes only where an entry the reading says applies
-declares it, or where the claim log holds the place as inert; and over the
+declares it, or where the claim log holds the place as inert and no claim of
+another standing on its branch (``changes.inert_holds``), and never at a place
+Nova keeps (``changes.held``); and over the
 differences of ``source``, proof 1, proof 2 and proof 3 together the register
 is closed: nothing changed that Nova's review would not have said (hold 1,
 ``/<id>/unsaid``), and nothing it would say failed to show (hold 2,
@@ -43,10 +45,10 @@ if SOURCE:
     @pytest.mark.parametrize("document", SOURCE)
     def test_a_base_s_stored_app_changes_only_where_the_register_says(document, hq, core_runner, editor_driver):
         records = _records(document, core_runner, editor_driver)
-        inert = parity.inert_of(document, records)
+        places = parity.claim_places_of(document, records)
         found = source.differences(document, records)
-        held, ids = changes.declared(document, "source", found, inert=inert)
-        kept = changes.undeclared(document, "source", found, inert=inert)
+        held, ids = changes.declared(document, "source", found, places=places)
+        kept = changes.undeclared(document, "source", found, places=places)
         cases.hold(
             "source",
             document,
@@ -68,11 +70,23 @@ if CHANGES:
             "proof2": proof2.document_build_equivalence(document, records),
             "proof3": proof3.document_behavior(document, records),
         }
+        sites = changes.merged_sites(proof2.document_sites(document, records), proof3.document_sites(document, records))
         found = changes.differences(
-            document, checked, inert=parity.inert_of(document, records), readers=readers.named()
+            document,
+            checked,
+            places=parity.claim_places_of(document, records),
+            sites=sites,
+            readers=readers.named(),
         )
         try:
-            cases.hold("changes", document, found, cases.load_register(), applying=sorted(document.first_publish))
+            cases.hold(
+                "changes",
+                document,
+                found,
+                cases.load_register(),
+                applying=sorted(document.first_publish),
+                sites=sites.as_json(),
+            )
         except AssertionError as error:
             lines = [
                 changes.unsaid_message(document.id, difference)

@@ -89,6 +89,7 @@ import {
 	readingEmissionSteps,
 } from "./emission";
 import {
+	type FirstPublishFacts,
 	firstPublishChangesFor,
 	firstPublishFactsOf,
 } from "./firstPublishChanges";
@@ -183,6 +184,9 @@ export interface AcceptedDeclaration {
 	readonly mutations: readonly Mutation[];
 	/** What a first publish changes where this choice is made. */
 	readonly firstPublish: FirstPublishView;
+	/** What `firstPublish` was worked out from, which says where each change stands
+	 *  (`firstPublishChanges.ts::firstPublishChangePlaces`). */
+	readonly firstPublishFacts: FirstPublishFacts;
 	/**
 	 * The choice's document: the candidate the gate admitted, the reduction of
 	 * the construction batch and the choice's mutations from the empty
@@ -581,19 +585,20 @@ export function* acceptReadingSteps(
 		yield;
 		try {
 			const runsOnlyOn = choice.runsOnlyOn ?? null;
+			const firstPublishFacts = calling("firstPublishFactsOf", () =>
+				firstPublishFactsOf({
+					source,
+					doc,
+					facts: draft.facts,
+					forms,
+					attachmentTarget: input.reader.target,
+					mediaFiles: input.media.files,
+					mediaLeftOut: input.mediaLeftOut,
+					choice: { runsOnlyOn, split: choice.split },
+				}),
+			);
 			const firstPublish = calling("firstPublishChangesFor", () =>
-				firstPublishChangesFor(
-					firstPublishFactsOf({
-						source,
-						doc,
-						facts: draft.facts,
-						forms,
-						attachmentTarget: input.reader.target,
-						mediaFiles: input.media.files,
-						mediaLeftOut: input.mediaLeftOut,
-						choice: { runsOnlyOn, split: choice.split },
-					}),
-				),
+				firstPublishChangesFor(firstPublishFacts),
 			);
 			declarations.push({
 				runsOnlyOn,
@@ -601,6 +606,7 @@ export function* acceptReadingSteps(
 				preselected: index === input.choices.proposed,
 				mutations: choice.mutations,
 				firstPublish,
+				firstPublishFacts,
 				doc,
 			});
 		} catch (error) {

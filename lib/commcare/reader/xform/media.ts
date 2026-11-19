@@ -22,6 +22,7 @@ import { applicationReading } from "../appShell";
 import type { Claim } from "../claims";
 import type { ReadContext } from "../context";
 import { shownText } from "../hqText";
+import { pointerToken } from "../jsonCursor";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
@@ -261,6 +262,10 @@ export function readMediaMap(
 	// A language that shows no file beside one that shows a file differs, as two files do.
 	if (shown.includes("")) return { kind: "differs" };
 	const paths = [...new Set(shown)];
+	const pointer =
+		"json" in at.site
+			? `${at.site.json.pointer}/${pointerToken(at.site.key)}`
+			: undefined;
 	const hold = (asset: {
 		readonly assetId: string;
 		readonly mediaKind: MediaKind;
@@ -271,6 +276,7 @@ export function readMediaMap(
 				assetId: asset.assetId,
 				mediaKind: at.mediaKind,
 				place: at.place,
+				...(pointer !== undefined && { pointer }),
 				slot: at.slot,
 			});
 		return { kind: "asset", assetId: asset.assetId } as const;
@@ -289,6 +295,7 @@ export function readMediaMap(
 		mediaKind: at.mediaKind,
 		resolution: resolution.kind,
 		place: at.place,
+		...(pointer !== undefined && { pointer }),
 		slot: at.slot,
 	});
 	return { kind: "handed-off" };

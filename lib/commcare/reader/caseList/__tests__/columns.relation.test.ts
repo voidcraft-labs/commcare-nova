@@ -16,6 +16,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { moduleCaseListOrderPlan } from "@/lib/commcare/suite/case-list/orderPlanOptions";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
+import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -138,6 +139,31 @@ function membersOf(doc: BlueprintDoc) {
 	return { mod, index: 1 };
 }
 
+/** The document with the Members list holding exactly `columns`, in that order. */
+function withMembersColumns(
+	doc: BlueprintDoc,
+	columns: Column[],
+): BlueprintDoc {
+	const { mod } = membersOf(doc);
+	const config = mod.caseListConfig;
+	if (config === undefined) throw new Error("The Members menu has no list.");
+	return {
+		...doc,
+		modules: {
+			...doc.modules,
+			[mod.uuid]: {
+				...mod,
+				caseListConfig: {
+					...config,
+					columns,
+					listColumnOrder: columns.map((column) => column.uuid),
+					detailColumnOrder: columns.map((column) => column.uuid),
+				},
+			},
+		},
+	};
+}
+
 function relationFindings(doc: BlueprintDoc) {
 	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
 		.filter((error) => error.code.startsWith("CASE_LIST_COLUMN"))
@@ -178,6 +204,51 @@ describe("the gate over a column read through a relation", () => {
 			["CASE_LIST_COLUMN_RELATION_INVALID", "worker"],
 			["CASE_LIST_COLUMN_RELATION_INVALID", "unresolved"],
 		]);
+	});
+
+	it("refuses a link whose name doesn't start with a letter, which HQ's field grammar and its build refuse", () => {
+		const underscored: ColumnVia = [
+			{ identifier: "_hh", throughCaseType: "household" },
+		];
+		const lettered: ColumnVia = [
+			{ identifier: "hh", throughCaseType: "household" },
+		];
+		const shapes = (via: ColumnVia) => [
+			// A sorted column: HQ's build validates its sort element's field.
+			app([
+				plainColumn(uuid(1), "address", "Address", {
+					via,
+					sort: columnSort("asc", 0),
+				}),
+			]),
+			// A column hidden from Results ahead of every shown one, in an
+			// unsorted list: HQ JSON writes it as an invisible column of its
+			// field text, beside the implicit rule's sort element.
+			withMembersColumns(app([]), [
+				plainColumn(uuid(1), "address", "Address", {
+					via,
+					visibleInList: false,
+				}),
+				plainColumn(uuid(100), "case_name", "Name"),
+			]),
+		];
+		for (const doc of shapes(underscored)) {
+			expect(relationFindings(doc)).toEqual([
+				["CASE_LIST_COLUMN_RELATION_INVALID", "index-name"],
+			]);
+			// The emission the gate keeps out is the one HQ refuses.
+			expect(
+				validateHqJson(expandDoc(doc)).map((error) => error.code),
+			).toContain("HQJSON_BAD_DETAIL_FIELD");
+		}
+		for (const doc of shapes(lettered)) {
+			expect(relationFindings(doc)).toEqual([]);
+			const short = expandDoc(doc).modules[1]?.case_details.short;
+			expect(short?.columns.map((column) => column.field)).toContain(
+				"hh/address",
+			);
+			expect(validateHqJson(expandDoc(doc))).toEqual([]);
+		}
 	});
 
 	it("refuses a related column in a menu that offers Search", () => {

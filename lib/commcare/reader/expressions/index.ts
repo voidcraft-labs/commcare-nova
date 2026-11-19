@@ -230,6 +230,8 @@ export interface ExpressionReading {
 		readonly id: EmissionRewriteId;
 		readonly place: HqPlace;
 		readonly key: string;
+		/** The registration the rewrite applies at (`PendingRegistry.site`). */
+		readonly source: number;
 	}[];
 	/** By registration, the level each tree held other than exact was held at
 	 *  (`printLevel.ts`), which a stage that prints the slot again prints it at. */
@@ -1037,6 +1039,7 @@ export function* readExpressionsSteps(
 							id,
 							place: registration.place,
 							key: registration.key,
+							source: index,
 						});
 				continue;
 			}

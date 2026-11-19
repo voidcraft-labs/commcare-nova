@@ -107,7 +107,7 @@ import {
 	type ColumnRewrites,
 	caseListOrderOptions,
 	columnProperty,
-	columnReadsCaseAttribute,
+	columnStoredAsExpression,
 	hqEnumPlaceholder,
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
@@ -181,10 +181,11 @@ interface ColumnProjectionContext {
  *     List page writes a calculated column. Effective Search writes a
  *     whole-expression parent property as a context-relative calculated
  *     XPath that CCHQ copies into its Search detail.
- *   - A column over `case_id`, `owner_id` or `status` is an expression
- *     column of its kind's format, `field: "@<name>"` (finding 57): HQ reads
- *     a property column's `field` as a child element, and its
- *     `CASE_PROPERTY_MAP` has no entry for `case_id`.
+ *   - A column over `case_id` is an expression column of its kind's
+ *     format, `field: "@case_id"`: HQ reads a property column's `field`
+ *     through its `CASE_PROPERTY_MAP`, which has no entry for `case_id`. A
+ *     column over `status` or `owner_id` is the property column HQ's Case
+ *     List page stores, which the map reads as the case's attribute.
  *   - `plain` over a select with options: `translatable-enum`, the label
  *     expression with one enum variable per option.
  *   - `id-mapping`: CCHQ's `enum` over the property, one entry per mapping
@@ -224,11 +225,11 @@ function projectColumnToDetail(
 		return detailColumn(expressionField(), headerRecord);
 	}
 
-	// A column over a case attribute is the expression reading it, through the
+	// A column over `case_id` is the expression reading it, through the
 	// column's walk where it has one; any other property column is the field
 	// HQ's page stores, the walk's indices and the property joined by `/`, the
 	// property in HQ's word (`hqColumnFieldText`).
-	const attribute = columnReadsCaseAttribute(column);
+	const attribute = columnStoredAsExpression(column);
 	const base = attribute
 		? detailColumn(hqXPath(columnPropertyPath(column)), headerRecord)
 		: detailColumn(hqColumnFieldText(columnFieldText(column)), headerRecord);
@@ -342,8 +343,8 @@ function projectColumnToDetail(
  * One field of the short detail, from the order plan. A shown field is its
  * kind's projection on Results. A hidden field is HQ's `invisible` column,
  * built from the `detailColumn` shell and never from the shown projection:
- * the raw property for a column that is not calculated, `@<name>` for an
- * attribute-backed one, the expression for a calculated one. Every other
+ * the raw property for a column that is not calculated, `@case_id` for one
+ * over the case's id, the expression for a calculated one. Every other
  * slot is the shell's own, `date_format` among them, which no reader of an
  * `invisible` column reads.
  *
@@ -370,7 +371,7 @@ function projectColumnForShortDetail(
 	const projected: WireDetailColumn<HqXPath> = field.hidden
 		? {
 				...detailColumn(
-					column.kind === "calculated" || columnReadsCaseAttribute(column)
+					column.kind === "calculated" || columnStoredAsExpression(column)
 						? hqXPath(
 								hqExpressionField(
 									column,
@@ -416,7 +417,7 @@ function projectColumnForShortDetail(
  *  (`hqColumnFieldText`), any other as the order plan prints it. */
 function hqJoinText(field: CaseListShortField): string {
 	const { column } = field;
-	return column.kind === "calculated" || columnReadsCaseAttribute(column)
+	return column.kind === "calculated" || columnStoredAsExpression(column)
 		? field.joinText
 		: hqColumnFieldText(field.joinText);
 }

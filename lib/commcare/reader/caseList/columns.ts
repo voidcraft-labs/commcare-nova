@@ -37,7 +37,7 @@ import {
 	plainSelectDisplayXpath,
 } from "../../suite/case-list/columns";
 import { hqEnumPlaceholder } from "../../suite/case-list/orderPlanOptions";
-import { columnPropertyPath } from "../../suite/wire";
+import { columnPropertyPath, isHqDetailField } from "../../suite/wire";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import type { WireExpr } from "../../xpath/wire/tree";
@@ -463,8 +463,8 @@ export function imageMapFieldText(field: string): string {
 
 /** The three case attributes a Nova column reads as `@<name>`. */
 /**
- * A calculated column whose value is the read of one of its case's
- * attributes (`case_id`, `owner_id`, `status`), and the plain column over that
+ * A calculated column whose value is the read of its case's id
+ * (`attributeColumns.ts::ATTRIBUTE_PROPERTIES`), and the plain column over that
  * attribute: Nova writes both as the expression `@<name>` with the `plain`
  * format, so both print one column, and the reader returns the plain one
  * (`readDetailColumn`, an attribute field), under the identity a re-read gives
@@ -909,12 +909,6 @@ export type FieldClass =
 	| { readonly kind: "property"; readonly name: string }
 	| { readonly kind: "finding"; readonly claim: Claim<"refuse"> };
 
-/** HQ's `details/utils.js::isValidPropertyName`, one word or a path of words. */
-const HQ_WORD = "[a-zA-Z][\\w_-]*";
-const HQ_PROPERTY_NAME = new RegExp(
-	`^(${HQ_WORD}:)*(${HQ_WORD}\\/)*#?${HQ_WORD}$`,
-);
-
 /** The column field a property-backed column reads, classified by the rows of the field: also
  *  the field of the hidden column HQ's build appends for a sort element no column joins
  *  (`util.py::create_temp_sort_column`). */
@@ -949,7 +943,7 @@ export function classifyField(field: string): FieldClass {
 			claim: field.split("/").length > 2 ? C.userSteps : C.userProp,
 		};
 	if (field.includes("/")) return { kind: "finding", claim: C.relationPath };
-	if (!HQ_PROPERTY_NAME.test(field))
+	if (!isHqDetailField(field))
 		return { kind: "finding", claim: C.fieldInvalid };
 	// HQ's page accepts a `#` before the last word and a name of any length;
 	// Nova's property grammar takes neither.
@@ -1298,7 +1292,7 @@ export function readRelationField(
 	| { readonly kind: "finding"; readonly claim: Claim<"refuse"> }
 	| undefined {
 	if (!isRelationPath(field) || field.startsWith("user/")) return undefined;
-	if (!HQ_PROPERTY_NAME.test(field))
+	if (!isHqDetailField(field))
 		return { kind: "finding", claim: C.fieldInvalid };
 	const finding = { kind: "finding", claim: C.relationPath } as const;
 	if (options.offersSearch || options.relationVia === undefined) return finding;
@@ -1548,8 +1542,8 @@ function readColumn(
 		return undefined;
 	}
 
-	// A column of any other format over one case attribute: Nova writes a column over `case_id`,
-	// `owner_id` or `status` as the expression `@<name>` with its kind's format.
+	// A column of any other format over the case's id: Nova writes a column over `case_id` as the
+	// expression `@case_id` with its kind's format (`attributeColumns.ts::ATTRIBUTE_PROPERTIES`).
 	const attribute = field.xpath ? oneAttribute(parse(field.text)) : undefined;
 	// A field of indices and a property reads that property of the case the indices reach.
 	const relation = field.xpath

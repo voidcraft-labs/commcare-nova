@@ -373,7 +373,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 		expect(validateHqJson(app)).toEqual([]);
 	});
 
-	it("writes attribute-backed columns as expressions, joins their sorts by position and stores fully hidden definitions", () => {
+	it("writes a status column as HQ's property field, joins its sort by that field and stores fully hidden definitions", () => {
 		const status = plainColumn(
 			testUuid("00000000-0000-4000-8000-000000000095"),
 			"status",
@@ -412,11 +412,11 @@ describe("HQ-JSON oracle — clean baseline", () => {
 				column.useXpathExpression,
 			]),
 		).toEqual([
-			["@status", "plain", true],
+			["status", "plain", false],
 			["external_id", "invisible", false],
 		]);
 		expect(short.sort_elements.map((element) => element.field)).toEqual([
-			"_cc_calculated_0",
+			"status",
 		]);
 		expect(validateHqJson(app)).toEqual([]);
 	});
@@ -812,6 +812,26 @@ describe("HQ-JSON oracle — sort elements and property-name fields", () => {
 		const app = baselineApp();
 		moduleOf(app).case_details.short.columns[0].field = "@status";
 		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_DETAIL_FIELD"]);
+	});
+
+	it("flags a sort element and a property column whose index name starts with _, and takes one that starts with a letter", () => {
+		const sorted = sortedApp((element) => {
+			element.field = "_hh/village";
+		});
+		expect(codes(validateHqJson(sorted))).toEqual(["HQJSON_BAD_DETAIL_FIELD"]);
+		const column = baselineApp();
+		moduleOf(column).case_details.short.columns[0].field = "_hh/village";
+		expect(codes(validateHqJson(column))).toEqual(["HQJSON_BAD_DETAIL_FIELD"]);
+		const lettered = baselineApp();
+		moduleOf(lettered).case_details.short.columns[0].field = "hh/village";
+		expect(validateHqJson(lettered)).toEqual([]);
+	});
+
+	it("takes a sort element that names a calculated column by its position", () => {
+		const app = sortedApp((element) => {
+			element.field = "_cc_calculated_0";
+		});
+		expect(codes(validateHqJson(app))).not.toContain("HQJSON_BAD_DETAIL_FIELD");
 	});
 });
 

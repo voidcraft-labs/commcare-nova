@@ -10,7 +10,11 @@ alone does, ``added`` where B alone does. Its path writes every list position
 and every key that is the app's own as ``*`` (a form's attachment, a language
 code, a media path, a build profile's id; ``OWN_PATHS``, and a map whose every
 key is one of the app's languages), kept in ``at``. A form's source is compared
-as text and reported once, at ``/_attachments/*``.
+by its parts, each at the data node it is about (``proof.checks.xform_parts``):
+``/_attachments/*/data/*/:bind/@calculate`` at
+``/_attachments/form:0.1.xml/data/visit/when/:bind/@calculate``, so a change Nova's
+review lists meets a difference at the node it stands at; a form only one side
+holds is one difference at ``/_attachments/*``.
 
 Two things are compared another way, each for its reason at source:
 
@@ -28,8 +32,10 @@ Two things are compared another way, each for its reason at source:
 A media path the document holds (``hqAuthored.mediaPaths``) is compared apart:
 its map item's ``multimedia_id`` and ``unique_id``, and the version of its
 resource in A's and B's built media suites, each a difference at
-``/multimedia_map/*/held``, which no first-publish entry names, so a change to a
-path Nova holds is never a declared change.
+``/multimedia_map/*/held``, which the first-publish judge never holds
+(``changes.held``: no row matches it, however wide, and the register refuses
+a row that names it), so a change to a path Nova holds is never a declared
+change.
 
 A case list column's ``field`` holds the property the column shows, or, where
 ``useXpathExpression`` is true, the expression it calculates
@@ -39,9 +45,9 @@ calculated on both sides, is reported at its own pointer
 (``/modules/*/case_details/<detail>/columns/*/field``), which
 ``forms-and-settings-rewritten`` names: Nova writes every expression it holds
 in its own spelling. Any other ``field`` that differs is reported at
-``/modules/*/case_details/<detail>/columns/*/held``, which no first-publish
-entry names, so a first publish that changes which property a column shows is
-never a declared change.
+``/modules/*/case_details/<detail>/columns/*/held``, which the first-publish
+judge never holds either, so a first publish that changes which property a
+column shows is never a declared change.
 
 No spelling rule (``proof.rules``) is applied. A rule is proven where builds
 are compared: on HQ's build, Core's run and the readers a rule names, never on
@@ -62,12 +68,12 @@ import hashlib
 import json
 import xml.etree.ElementTree as ElementTree
 
-from proof.checks import observations
+from proof.checks import observations, xform_parts
+from proof.checks.changes import HELD
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "source"
 ARTIFACT = "app.json"
-HELD = "held"
 # What every save of an app sets from the clock (``models/applications.py::ApplicationBase.save``).
 CLOCKED = frozenset({"last_modified"})
 # The maps keyed by the app's own names beside the attachments and the media map, each compared apart: a language's
@@ -204,8 +210,12 @@ class _Walk:
             before, after = a.get(name), b.get(name)
             if before == after:
                 continue
-            kind = "removed" if after is None else "added" if before is None else "changed"
-            self.add("/_attachments/*", at, kind, _digest(before), _digest(after))
+            if before is None or after is None or not isinstance(before, str) or not isinstance(after, str):
+                kind = "removed" if after is None else "added" if before is None else "changed"
+                self.add("/_attachments/*", at, kind, _digest(before), _digest(after))
+                continue
+            for kind, part_at, part_path, was, now in xform_parts.compare(before, after):
+                self.add(f"/_attachments/*{part_path}", f"{at}{part_at}", kind, was, now)
 
     def media_map(self, a: dict, b: dict):
         for name in sorted(set(a) | set(b)):

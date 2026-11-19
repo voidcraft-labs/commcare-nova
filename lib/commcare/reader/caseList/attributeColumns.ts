@@ -1,15 +1,17 @@
 /**
- * A case's attributes a column reads as `@<name>`, and the column a reading
- * gives a calculated column that reads one alone.
+ * The case attribute a column reads as `@<name>`, and the column a reading
+ * gives a calculated column that reads it alone.
  */
-import type { Column } from "@/lib/domain";
+import { type Column, EXPRESSION_ONLY_COLUMN_PROPERTIES } from "@/lib/domain";
 
-/** The case attributes Nova's columns write as `@<name>`. */
-export const ATTRIBUTE_PROPERTIES: ReadonlySet<string> = new Set([
-	"case_id",
-	"owner_id",
-	"status",
-]);
+/**
+ * The case attributes Nova's property columns write as `@<name>`: the case's
+ * id alone (`EXPRESSION_ONLY_COLUMN_PROPERTIES`). A column over `status` or
+ * `owner_id` is the property field HQ's Case List page stores, so a stored
+ * `@status` or `@owner_id` is a calculated column Nova prints as it stands.
+ */
+export const ATTRIBUTE_PROPERTIES: ReadonlySet<string> =
+	EXPRESSION_ONLY_COLUMN_PROPERTIES;
 
 /**
  * The attribute a calculated column of a menu of `caseType` reads alone, or

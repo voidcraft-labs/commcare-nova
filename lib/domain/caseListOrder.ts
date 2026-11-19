@@ -125,7 +125,7 @@ import {
 	sameColumnVia,
 	sortBlanks,
 } from "./modules";
-import { ATTRIBUTE_BACKED_COLUMN_PROPERTIES } from "./standardCaseProperties";
+import { EXPRESSION_ONLY_COLUMN_PROPERTIES } from "./standardCaseProperties";
 import type { Uuid } from "./uuid";
 
 /** One property of a case type's catalog, as the plan reads it. */
@@ -309,13 +309,11 @@ function propertyKey<K extends "property" | "option-label">(
 	} as Extract<CaseListSortKey, { kind: K }>;
 }
 
-/** Whether the column reads an attribute-backed property (finding 57). */
-function readsAttribute(column: Column): boolean {
+/** Whether the column reads a property no HQ property column can show (`EXPRESSION_ONLY_COLUMN_PROPERTIES`). */
+function readsExpressionOnlyProperty(column: Column): boolean {
 	return (
 		column.kind !== "calculated" &&
-		(ATTRIBUTE_BACKED_COLUMN_PROPERTIES as ReadonlySet<string>).has(
-			column.field,
-		)
+		(EXPRESSION_ONLY_COLUMN_PROPERTIES as ReadonlySet<string>).has(column.field)
 	);
 }
 
@@ -400,7 +398,7 @@ export function caseListOrderPlan(
 			...restingKeyOf(column, hidden),
 		});
 		if (column.kind === "calculated") return expression();
-		if (readsAttribute(column)) return expression();
+		if (readsExpressionOnlyProperty(column)) return expression();
 		if (hidden) return property();
 		switch (column.kind) {
 			case "plain":

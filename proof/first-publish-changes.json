@@ -1,12 +1,8 @@
 [
 	{
 		"change": "forms-and-settings-rewritten",
+		"placeKinds": ["app-wide"],
 		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/_attachments/*"
-			},
 			{
 				"check": "source",
 				"artifact": "app.json",
@@ -100,6 +96,7 @@
 	},
 	{
 		"change": "hidden-values-added",
+		"placeKinds": ["form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -116,6 +113,7 @@
 	},
 	{
 		"change": "case-names-checked",
+		"placeKinds": ["form-node", "form-part", "form", "case"],
 		"rows": [
 			{
 				"check": "source",
@@ -281,6 +279,7 @@
 	},
 	{
 		"change": "validation-counts-moved",
+		"placeKinds": ["form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -309,6 +308,7 @@
 	},
 	{
 		"change": "validation-messages-composed",
+		"placeKinds": ["form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -325,6 +325,7 @@
 	},
 	{
 		"change": "instant-comparison",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -366,6 +367,7 @@
 	},
 	{
 		"change": "empty-rows-guard",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -401,6 +403,7 @@
 	},
 	{
 		"change": "absent-session-value-guard",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -436,6 +439,7 @@
 	},
 	{
 		"change": "row-predicate-current",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -446,6 +450,7 @@
 	},
 	{
 		"change": "search-value-guards",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -480,6 +485,7 @@
 	},
 	{
 		"change": "search-today-device-day",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -526,6 +532,7 @@
 	},
 	{
 		"change": "case-settings-respelled",
+		"placeKinds": ["form", "form-node", "case"],
 		"rows": [
 			{
 				"check": "source",
@@ -553,6 +560,7 @@
 	},
 	{
 		"change": "search-filter-rows-recut",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -575,6 +583,7 @@
 	},
 	{
 		"change": "sort-rule-kept-as-hidden-column",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -613,6 +622,7 @@
 	},
 	{
 		"change": "list-settings-respelled",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -759,6 +769,7 @@
 	},
 	{
 		"change": "search-filter-joined-to-list",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -775,6 +786,7 @@
 	},
 	{
 		"change": "search-restates-list-filter",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -809,6 +821,7 @@
 	},
 	{
 		"change": "link-held-case-guards-added",
+		"placeKinds": ["form"],
 		"rows": [
 			{
 				"check": "source",
@@ -825,6 +838,7 @@
 	},
 	{
 		"change": "registration-label-fixed",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -835,6 +849,7 @@
 	},
 	{
 		"change": "date-and-time-saved-as-hq-stores-it",
+		"placeKinds": ["form-node", "form-part", "case"],
 		"rows": [
 			{
 				"check": "source",
@@ -881,6 +896,7 @@
 	},
 	{
 		"change": "connect-app-captures-location",
+		"placeKinds": ["app", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -903,6 +919,7 @@
 	},
 	{
 		"change": "translation-overrides-folded",
+		"placeKinds": ["app", "menu", "form", "form-part", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -927,17 +944,68 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_list/label/*"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/case_list_form/label/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/header/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/sort_elements/*/display/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/hint/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/required/text/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/validations/*/text/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/label/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/title_label/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/description/*"
 			}
 		]
 	},
 	{
 		"change": "location-list-setting-reset",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -948,6 +1016,7 @@
 	},
 	{
 		"change": "web-apps-turned-off",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -958,6 +1027,7 @@
 	},
 	{
 		"change": "web-apps-turned-on",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -968,6 +1038,7 @@
 	},
 	{
 		"change": "date-and-time-questions-split",
+		"placeKinds": ["form-node", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -1043,6 +1114,7 @@
 	},
 	{
 		"change": "blank-translations-filled",
+		"placeKinds": ["form-part"],
 		"rows": [
 			{
 				"check": "source",
@@ -1053,6 +1125,7 @@
 	},
 	{
 		"change": "media-paths-joined",
+		"placeKinds": ["app", "menu", "form", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -1130,6 +1203,7 @@
 	},
 	{
 		"change": "media-files-renamed",
+		"placeKinds": ["app", "menu", "form", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -1249,6 +1323,7 @@
 	},
 	{
 		"change": "media-references-with-no-file-removed",
+		"placeKinds": ["app", "menu", "form", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -1344,6 +1419,7 @@
 	},
 	{
 		"change": "broken-pictures-removed",
+		"placeKinds": ["app", "menu", "form", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -1463,6 +1539,7 @@
 	},
 	{
 		"change": "unused-media-entries-removed",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -1473,6 +1550,7 @@
 	},
 	{
 		"change": "names-respelled",
+		"placeKinds": ["app", "menu", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -1498,6 +1576,7 @@
 	},
 	{
 		"change": "media-maps-respelled",
+		"placeKinds": ["menu", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -1583,6 +1662,7 @@
 	},
 	{
 		"change": "text-spaces-dropped",
+		"placeKinds": ["app", "menu", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -1682,6 +1762,7 @@
 	},
 	{
 		"change": "form-text-characters-written-as-outputs",
+		"placeKinds": ["form-part"],
 		"rows": [
 			{
 				"check": "source",
@@ -1692,6 +1773,7 @@
 	},
 	{
 		"change": "hidden-value-defaults-dropped",
+		"placeKinds": ["form-part", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -1707,6 +1789,7 @@
 	},
 	{
 		"change": "sort-by-entry-with-a-blank-name-dropped",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -1735,6 +1818,7 @@
 	},
 	{
 		"change": "form-titles-written",
+		"placeKinds": ["form-part"],
 		"rows": [
 			{
 				"check": "source",
