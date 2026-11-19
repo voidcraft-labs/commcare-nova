@@ -4,7 +4,8 @@
 		"flags": [],
 		"namedPrivileges": [
 			"CLOUDCARE",
-			"COMMCARE_LOGO_UPLOADER"
+			"COMMCARE_LOGO_UPLOADER",
+			"PRACTICE_MOBILE_WORKERS"
 		],
 		"commcareVersion": "2.57.0",
 		"commtrack": false,

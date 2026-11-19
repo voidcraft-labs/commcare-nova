@@ -145,9 +145,9 @@
 						"doc_type": "FormActions"
 					},
 					"doc_type": "Form",
-					"unique_id": "2e49337a129e4c7dbca3aa35df4f3135",
+					"unique_id": "42d174aa64b24214833c23da5701abfa",
 					"show_count": false,
-					"xmlns": "http://openrosa.org/formdesigner/62d958bc-706e-4245-afd5-6829a7ab4b17",
+					"xmlns": "http://openrosa.org/formdesigner/bc67f252-46b8-4b8a-bd85-92a6ff43c75f",
 					"version": null,
 					"post_form_workflow": "default",
 					"post_form_workflow_fallback": null,
@@ -422,7 +422,7 @@
 			"lazy_load_case_list_fields": false,
 			"show_case_list_optimization_options": false,
 			"doc_type": "Module",
-			"unique_id": "1590143e235f4e6fb2e81004db030598",
+			"unique_id": "7207b8e7acac413fa40f48784a57fe56",
 			"case_list_form": {
 				"form_id": null,
 				"label": {},
@@ -562,9 +562,9 @@
 	"case_sharing": false,
 	"vellum_case_management": true,
 	"application_version": "2.0",
-	"last_modified": "2026-10-05T10:02:26.000000Z",
+	"last_modified": "2026-10-05T10:02:27.000000Z",
 	"build_profiles": {},
-	"practice_mobile_worker_id": "5e77ab1e5e77ab1e5e77ab1e5e77ab1e",
+	"practice_mobile_worker_id": "58f106f5b53b4338857839d5a32470a7",
 	"target_commcare_flavor": "none",
 	"has_submissions": false,
 	"mobile_ucr_restore_version": "1.5",
@@ -575,18 +575,18 @@
 	"comment": "",
 	"multimedia_map": {
 		"jr://file/commcare/logo/data/hq_logo_android_home.png": {
-			"multimedia_id": "dcb13800-c0a3-11f1-a385-41d018941945",
+			"multimedia_id": "dd49ce80-c0a3-11f1-acce-371974ce51cc",
 			"media_type": "CommCareImage",
 			"version": null,
-			"unique_id": "4bd442d013fac6e1d0f3db19e424a130",
+			"unique_id": "f36e4b665d220562ed24df8d6771dda6",
 			"upstream_media_id": null,
 			"doc_type": "HQMediaMapItem"
 		},
 		"jr://file/commcare/logo/data/hq_logo_android_login.png": {
-			"multimedia_id": "dd49ce80-c0a3-11f1-ac87-4f23b3aa70c3",
+			"multimedia_id": "dde26500-c0a3-11f1-919d-45e535cf350b",
 			"media_type": "CommCareImage",
 			"version": null,
-			"unique_id": "db99673516b3587f68715a72ae112181",
+			"unique_id": "21f7451eb54881787f9423e7ac176914",
 			"upstream_media_id": null,
 			"doc_type": "HQMediaMapItem"
 		}
@@ -595,8 +595,8 @@
 		"hq_logo_android_home": {
 			"path": "jr://file/commcare/logo/data/hq_logo_android_home.png",
 			"uid": "d2081e1ad608a818aae2fa11527c799d",
-			"m_id": "dcb13800-c0a3-11f1-a385-41d018941945",
-			"url": "/hq/multimedia/file/CommCareImage/dcb13800-c0a3-11f1-a385-41d018941945/",
+			"m_id": "dd49ce80-c0a3-11f1-acce-371974ce51cc",
+			"url": "/hq/multimedia/file/CommCareImage/dd49ce80-c0a3-11f1-acce-371974ce51cc/",
 			"updated": false,
 			"original_path": null,
 			"icon_class": "fa-regular fa-image",
@@ -607,8 +607,8 @@
 		"hq_logo_android_login": {
 			"path": "jr://file/commcare/logo/data/hq_logo_android_login.png",
 			"uid": "31126f927f8892ec7153973437c4b809",
-			"m_id": "dd49ce80-c0a3-11f1-ac87-4f23b3aa70c3",
-			"url": "/hq/multimedia/file/CommCareImage/dd49ce80-c0a3-11f1-ac87-4f23b3aa70c3/",
+			"m_id": "dde26500-c0a3-11f1-919d-45e535cf350b",
+			"url": "/hq/multimedia/file/CommCareImage/dde26500-c0a3-11f1-919d-45e535cf350b/",
 			"updated": false,
 			"original_path": null,
 			"icon_class": "fa-regular fa-image",
@@ -618,9 +618,9 @@
 		}
 	},
 	"archived_media": {},
-	"_id": "d753ed80-c0a3-11f1-b776-9fe36585697f",
-	"_rev": "16-dde26500-c0a3-11f1-9d2f-9baed1f27f1a",
+	"_id": "d753ed80-c0a3-11f1-8635-bb8bec2e6676",
+	"_rev": "16-de7afb80-c0a3-11f1-82bf-d71bbf024248",
 	"_attachments": {
-		"2e49337a129e4c7dbca3aa35df4f3135.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Survey</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/62d958bc-706e-4245-afd5-6829a7ab4b17\" uiVersion=\"1\" version=\"3\" name=\"Survey\"><note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"note-label\"><value>Note</value></text></translation><translation lang=\"fra\"><text id=\"note-label\"><value>Remarque de la tournée</value></text></translation></itext><bind nodeset=\"/data/note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/note\"><label ref=\"jr:itext('note-label')\"/></input></h:body></h:html>"
+		"42d174aa64b24214833c23da5701abfa.xml": "<?xml version='1.0' encoding='utf-8'?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\"><h:head><h:title>Survey</h:title><model><instance><data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/bc67f252-46b8-4b8a-bd85-92a6ff43c75f\" uiVersion=\"1\" version=\"3\" name=\"Survey\"><note/></data></instance><itext><translation lang=\"en\" default=\"\"><text id=\"note-label\"><value>Note</value></text></translation><translation lang=\"fra\"><text id=\"note-label\"><value>Remarque de la tournée</value></text></translation></itext><bind nodeset=\"/data/note\" type=\"xsd:string\"/></model></h:head><h:body><input ref=\"/data/note\"><label ref=\"jr:itext('note-label')\"/></input></h:body></h:html>"
 	}
 }
