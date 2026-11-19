@@ -1048,6 +1048,41 @@ const PAIRS: readonly Pair[] = [
 			}),
 	},
 	{
+		id: "search-field-conditions-of-another-field-are-its-own",
+		name: "an advanced field's condition that waits for an earlier advanced field",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(8),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(8)),
+							eq(prop("patient", "notes"), input(uuid(8))),
+						),
+					},
+					{
+						uuid: uuid(9),
+						name: "phone",
+						label: "Phone",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(9)),
+							whenInput(
+								input(uuid(8)),
+								eq(prop("patient", "phone"), input(uuid(8))),
+							),
+						),
+					},
+				],
+				search: {},
+			}),
+	},
+	{
 		id: "search-field-conditions-over-other-fields-are-the-filter-s",
 		name: "an advanced field's condition that waits for a simple field",
 		other: () =>

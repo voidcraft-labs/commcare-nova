@@ -97,6 +97,7 @@ import { joinedGuardsSplitAsRead } from "./search/guardSplit";
 import { exactSearchModeIsAbsent } from "./search/prompts";
 import {
 	derivedConditionsAreSimpleFields,
+	fieldConditionsOfAnotherFieldAreItsOwn,
 	fieldConditionsOverOtherFieldsAreTheFilters,
 	fieldConditionsReadingNoFieldAreTheFilters,
 	filterConditionsOfAFieldAreItsOwn,
@@ -620,6 +621,16 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "search-filter-conditions-of-a-field-are-its-own",
 		kind: "one-wire",
 		apply: filterConditionsOfAFieldAreItsOwn,
+	},
+	{
+		/** A conjunct of an advanced Search field's condition that reads Search fields under their
+		 *  presence tests, the first of them another advanced field, and the same conjunct as that
+		 *  field's condition's last, where the search's rows come out the same: both print one
+		 *  export, and the reader returns the first field's
+		 *  (`search/rows.ts::fieldConditionsOfAnotherFieldAreItsOwn`). */
+		id: "search-field-conditions-of-another-field-are-its-own",
+		kind: "one-wire",
+		apply: fieldConditionsOfAnotherFieldAreItsOwn,
 	},
 	{
 		/** A conjunct of an advanced Search field's condition that reads Search fields under their
