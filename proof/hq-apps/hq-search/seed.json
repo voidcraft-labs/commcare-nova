@@ -46,6 +46,9 @@
 		"client/standing": [
 			"active",
 			"open"
+		],
+		"client/village": [
+			"north"
 		]
 	},
 	"userData": [],
