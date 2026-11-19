@@ -6,7 +6,8 @@
  * fields unanswered. One it prints nothing for is carried by the search's row alone, wherever it
  * stands; one it prints (a field's presence test under a negation, which a device reads as never
  * there) is a clause of the list. A field's conjunct whose first field read is another advanced
- * field is that field's, where the search's rows come out the same.
+ * field is that field's, where the search's rows come out the same. A field that holds no
+ * condition (a hidden one) takes none.
  *
  * Contract: for each admitted document below, the canonical form prints the export the document
  * prints, byte for byte, and a read back of that export gives the canonical form.
@@ -17,7 +18,8 @@
  * holds no such clause; the canonical form taking the list filter's clause into a field whose
  * condition holds the same clause, where the reader reads the list's own clause back; and the
  * reader placing a conjunct on the first field it reads where the canonical form keeps it on the
- * field that holds it.
+ * field that holds it; and a row placed on a hidden field, which holds no condition, so the
+ * reading writes one row fewer than the source.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -35,6 +37,7 @@ import {
 	input,
 	literal,
 	prop,
+	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -45,6 +48,11 @@ import { readHqApp } from "../../index";
 
 const ADVANCED = testUuid("condition-places-advanced");
 const OTHER = testUuid("condition-places-other");
+const HIDDEN = testUuid("condition-places-hidden");
+const hiddenBlank: Expression = {
+	kind: "is-blank",
+	left: term(input(HIDDEN)),
+};
 
 /** Never true while `field` is answered with `notes` of `a`; a device, which reads no answer in
  *  the list's own filter, prints it as never true. */
@@ -167,6 +175,34 @@ const CASES: readonly { readonly name: string; readonly doc: BlueprintDoc }[] =
 					},
 				],
 				undefined,
+			),
+		},
+		{
+			// The device works out a hidden field's value, so the read needs no
+			// presence test, and reads it blank in the list's own filter.
+			name: "a list clause over a hidden field the device prints nothing for, beside the same clause as an advanced field's condition",
+			doc: searchDoc(
+				[
+					{
+						uuid: HIDDEN,
+						name: "hidden",
+						label: "Hidden",
+						kind: "hidden",
+						value: {
+							kind: "negate",
+							value: term(literal(3)),
+						},
+					},
+					{
+						uuid: ADVANCED,
+						name: "adv",
+						label: "Adv",
+						kind: "advanced",
+						type: "text",
+						predicate: hiddenBlank,
+					},
+				],
+				hiddenBlank,
 			),
 		},
 	];

@@ -613,8 +613,8 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: searchesThatFindNothingAsRead,
 	},
 	{
-		/** A searched list filter's conjunct that reads Search fields under their presence tests
-		 *  and prints nothing in the list's own filter, and the same conjunct as the condition of
+		/** A searched list filter's conjunct that reads Search fields and prints nothing in the
+		 *  list's own filter, and the same conjunct as the condition of
 		 *  the first field it reads where that field is an advanced one: both print one row and no
 		 *  clause of the list's own filter, and the reader returns the field's
 		 *  (`search/rows.ts::filterConditionsOfAFieldAreItsOwn`). */
@@ -623,8 +623,8 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: filterConditionsOfAFieldAreItsOwn,
 	},
 	{
-		/** A conjunct of an advanced Search field's condition that reads Search fields under their
-		 *  presence tests, the first of them another advanced field, and the same conjunct as that
+		/** A conjunct of an advanced Search field's condition that reads Search fields, the first
+		 *  of them another advanced field, and the same conjunct as that
 		 *  field's condition's last, where the search's rows come out the same: both print one
 		 *  export, and the reader returns the first field's
 		 *  (`search/rows.ts::fieldConditionsOfAnotherFieldAreItsOwn`). */
@@ -633,8 +633,8 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: fieldConditionsOfAnotherFieldAreItsOwn,
 	},
 	{
-		/** A conjunct of an advanced Search field's condition that reads Search fields under their
-		 *  presence tests, the first of them no advanced field, that prints nothing in the list's
+		/** A conjunct of an advanced Search field's condition that reads Search fields, the first
+		 *  of them no advanced field, that prints nothing in the list's
 		 *  own filter, and the same conjunct as the searched list filter's last clause, where the
 		 *  search's rows come out the same: both print one row and no clause of the list's own
 		 *  filter, and the reader returns the list filter's

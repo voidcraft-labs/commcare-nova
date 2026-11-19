@@ -238,12 +238,14 @@ join prints as the range (`joinPrintsAsRange`).
 In the same slot the canonical row `csql-anchor-left` touches only a comparison inside a Search
 field's presence test, the one part of the filter a device leaves out
 (`walk.ts::substituteUnansweredSearchInputs`), which the reader reads from the search's row.
-A clause that reads Search fields under their presence tests stands in the list filter or in an
-advanced field's condition by one test, `search/rows.ts::waitsForFields`, whether a device prints
-nothing for it in the list's own filter: the reader places a row on the list filter as such a
-clause only where it holds, and the canonical rows `search-filter-conditions-of-a-field-are-its-own`
-and `search-field-conditions-over-other-fields-are-the-filter-s` move only a clause it holds for,
-each where the search's rows come out the same.
+A clause that reads Search fields stands in the list filter or in an advanced field's condition by
+one test, `search/rows.ts::waitsForFields`, whether a device prints nothing for it in the list's
+own filter, whether a presence test or the device covers each read (a hidden field's read the
+device works out among them): the reader places a row on the list filter as such a clause only
+where it holds, and offers no field that holds no condition (a simple or a hidden one), and the
+canonical rows `search-filter-conditions-of-a-field-are-its-own` and
+`search-field-conditions-over-other-fields-are-the-filter-s` move only a clause it holds for, each
+where the search's rows come out the same.
 A clause a device prints (a presence test under a negation, which a device reads as never there)
 is a clause of the list the case list stage reads, which a row restates. A field's conjunct whose
 first field read, in the fields' order, is another advanced field is that field's

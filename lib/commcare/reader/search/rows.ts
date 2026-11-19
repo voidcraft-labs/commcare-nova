@@ -409,8 +409,8 @@ export function searchesThatFindNothingAsRead(doc: BlueprintDoc): BlueprintDoc {
 
 /**
  * The reader's canonical choice `search-filter-conditions-of-a-field-are-its-own`: a top-level
- * conjunct of a searched case list's filter that reads Search fields, each under its own presence
- * test, and prints no clause of the list's own filter (a device reads no answer there,
+ * conjunct of a searched case list's filter that reads Search fields and prints no clause of the
+ * list's own filter (a device reads no answer there,
  * `caseList.ts::projectCaseListFilter`; `waitsForFields`), prints the row the same conjunct prints
  * as the condition of the first field it reads, where that field is an advanced one and the
  * search's rows come out the same; the reader places such a row on that field
@@ -443,7 +443,6 @@ export function filterConditionsOfAFieldAreItsOwn(
 			);
 			if (
 				reads.length === 0 ||
-				!reads.every((read) => read.guarded) ||
 				first?.kind !== "advanced" ||
 				!waitsForFields(clause)
 			)
@@ -492,8 +491,8 @@ export function filterConditionsOfAFieldAreItsOwn(
 
 /**
  * The reader's canonical choice `search-field-conditions-of-another-field-are-its-own`: a conjunct
- * of an advanced Search field's condition that reads Search fields, each under its own presence
- * test, the first of which (in the fields' order) is another advanced field, and the same conjunct
+ * of an advanced Search field's condition that reads Search fields, the first of which (in the
+ * fields' order) is another advanced field, and the same conjunct
  * as that field's condition's last conjunct, where the search's rows come out the same: Nova writes
  * one row per top-level conjunct of each field's condition, field after field, so both print one
  * export, and the reader returns the first field's (`classifySearchRows`, kind D, whose first
@@ -525,7 +524,6 @@ export function fieldConditionsOfAnotherFieldAreItsOwn(
 				);
 				if (
 					reads.length === 0 ||
-					!reads.every((read) => read.guarded) ||
 					first?.kind !== "advanced" ||
 					first.uuid === field.uuid
 				)
@@ -562,8 +560,8 @@ export function fieldConditionsOfAnotherFieldAreItsOwn(
 
 /**
  * The reader's canonical choice `search-field-conditions-over-other-fields-are-the-filter-s`: a
- * conjunct of an advanced Search field's condition that reads Search fields, each under its own
- * presence test, the first of which (in the fields' order) is no advanced field, and the same
+ * conjunct of an advanced Search field's condition that reads Search fields, the first of which (in
+ * the fields' order) is no advanced field, and the same
  * conjunct as the searched case list filter's last clause, where the search's rows come out the
  * same and the conjunct prints nothing in the list's own filter, where a device reads no answer
  * (`caseList.ts::projectCaseListFilter`; `waitsForFields`): both print one export, and the
@@ -594,7 +592,6 @@ export function fieldConditionsOverOtherFieldsAreTheFilters(
 				);
 				if (
 					reads.length === 0 ||
-					!reads.every((read) => read.guarded) ||
 					first === undefined ||
 					first.kind === "advanced" ||
 					!waitsForFields(clause)
@@ -1765,7 +1762,12 @@ export function classifySearchRows(
 				/** The derivation the candidate reads as its field's condition again. */
 				undoes?: (typeof derivations)[number];
 			}[] = [];
+			// A field that holds no condition (a simple or a hidden one) takes no conjunct: a
+			// candidate that changes nothing is no placement.
 			const fieldCandidate = (field: PromptReading) =>
+				doc.modules[module.uuid]?.caseListConfig?.searchInputs.find(
+					(one) => one.uuid === field.uuid,
+				)?.kind === "advanced" &&
 				candidates.push({
 					from: "field",
 					input: field.uuid,
@@ -1858,11 +1860,13 @@ export function classifySearchRows(
 					reads.some((read_) => !read_.guarded);
 				if (own !== undefined && !ownDerived) fieldCandidate(own);
 				const guarded = reads.every((one) => one.guarded);
-				if (guarded && waitsForFields(conjunct)) filterCandidate();
-				// A conjunct that reads a field outside its guard, on the device, or that a device
-				// prints in the list's own filter, is no clause of the list filter that waits for its
-				// fields.
-				else
+				const waits = waitsForFields(conjunct);
+				// A conjunct a device prints nothing for in the list's own filter is a clause of the list
+				// filter that waits for its fields, whether a presence test or the device covers its reads.
+				if (waits) filterCandidate();
+				// One that reads a field outside its guard, on the device, or that a device prints in the
+				// list's own filter, may be another excluded field's condition.
+				if (!guarded || !waits)
 					for (const field of holders())
 						if (field.uuid !== own?.uuid && !derivable.has(field.uuid))
 							fieldCandidate(field);
