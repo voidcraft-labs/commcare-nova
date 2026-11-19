@@ -48,6 +48,12 @@ import {
 	stopPublishingOffered,
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
+import { HqChangesDialog } from "@/components/builder/HqChangesDialog";
+import {
+	cardDriftReference,
+	keptRefreshOffersReview,
+	sameHqChangedTarget,
+} from "@/components/builder/hqChangesPanelModel";
 import {
 	KEPT_REFRESH_BUTTON,
 	KEPT_REFRESH_BUTTON_PENDING,
@@ -89,6 +95,12 @@ import {
 	broughtInFromLine,
 	notPublishedYetLine,
 } from "@/lib/publish/bringInCopy";
+import { viewerDriftDate } from "@/lib/publish/driftReference";
+import {
+	hqChangedFoundLine,
+	SEE_WHAT_CHANGED_ACTION,
+	sincePhrase,
+} from "@/lib/publish/hqChangesCopy";
 import {
 	KEPT_FOLLOWS_LINE,
 	KEPT_LABELS,
@@ -101,7 +113,11 @@ import {
 	STOP_PUBLISHING_ACTION,
 	STOP_PUBLISHING_HELPER,
 } from "@/lib/publish/stopPublishing";
-import { useNoteDeploymentRecordsChanged } from "@/lib/session/hooks";
+import {
+	useClearHqChangedTarget,
+	useHqChangedTargets,
+	useNoteDeploymentRecordsChanged,
+} from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -199,6 +215,16 @@ export function DeploymentStatus({
 	 * superseded answer can take away with a record that holds no list. */
 	const [keptPending, startKeptTransition] = useTransition();
 	const [keptNotice, setKeptNotice] = useState<KeptRefreshNotice | null>(null);
+	/* Whether the notice is Refresh's sentence that found the app changed in
+	 * CommCare HQ (`keptChangedInHqLine`), which offers See what changed
+	 * beside it. */
+	const [keptOffersReview, setKeptOffersReview] = useState(false);
+	const [changesOpen, setChangesOpen] = useState(false);
+	/* The check when the builder opened found this project space changed:
+	 * the card says so and offers See what changed without a Refresh, so
+	 * the header's See what changed in CommCare HQ lands on a card that
+	 * answers it. */
+	const hqChangedTargets = useHqChangedTargets();
 	const headingId = useId();
 	const stopHelperId = useId();
 
@@ -253,6 +279,7 @@ export function DeploymentStatus({
 		 * rather than trusting the prop this rendered with. */
 		if (!sessionApi.getState().canEdit || shownKept === null) return;
 		setKeptNotice(null);
+		setKeptOffersReview(false);
 		startKeptTransition(async () => {
 			/* A rejected async transition is re-thrown during render, which
 			 * would take the whole builder page down over one failed read. */
@@ -269,6 +296,7 @@ export function DeploymentStatus({
 				});
 				if (next.view !== null) onUpdated(next.view);
 				setKeptNotice(next);
+				setKeptOffersReview(keptRefreshOffersReview(result));
 			} catch {
 				setKeptNotice(keptRefreshNotReached(shownKept));
 			}
@@ -295,19 +323,30 @@ export function DeploymentStatus({
 	const readNotPublished = readNotPublishedSince(view);
 	const [stopOpen, setStopOpen] = useState(false);
 	const noteDeploymentRecordsChanged = useNoteDeploymentRecordsChanged();
+	const clearHqChangedTarget = useClearHqChangedTarget();
 	const applyPreviewAnswer = useApplyPreviewDeploymentAnswer();
 	/* The stop answers with the ended record and what Preview names and plays
 	 * now, both read on the server after the ending landed, so whichever of
 	 * this answer and the stream's frames arrives last, Preview ends on the
 	 * same values. The record goes to the surface as a Check status's does;
-	 * one Nova could not read back is read again with the rest. */
+	 * one Nova could not read back is read again with the rest. A project
+	 * space Nova no longer publishes to has nothing changed in CommCare HQ to
+	 * offer, so the header's offer for it goes. */
 	const handleStopped = useCallback(
 		(next: StoppedPublishingView) => {
 			if (next.view !== null) onUpdated({ ...next.view, preview: null });
 			applyPreviewAnswer(next.preview);
 			noteDeploymentRecordsChanged();
+			clearHqChangedTarget({ server: record.server, domain: record.domain });
 		},
-		[onUpdated, applyPreviewAnswer, noteDeploymentRecordsChanged],
+		[
+			onUpdated,
+			applyPreviewAnswer,
+			noteDeploymentRecordsChanged,
+			clearHqChangedTarget,
+			record.server,
+			record.domain,
+		],
 	);
 
 	const refused = record.state === "incomplete";
@@ -395,6 +434,11 @@ export function DeploymentStatus({
 					pending={keptPending}
 					onRefresh={handleKeptRefresh}
 					notice={shownKeptNotice}
+					onSeeWhatChanged={
+						canRefresh && keptOffersReview
+							? () => setChangesOpen(true)
+							: undefined
+					}
 				/>
 			) : ended === null && shownKeptNotice !== null ? (
 				/* A refresh whose answer left a record with no list, such as
@@ -402,6 +446,31 @@ export function DeploymentStatus({
 				 * app back, still says what happened. */
 				<div className="mt-4 text-[13px] leading-relaxed">
 					<KeptNotice notice={shownKeptNotice} />
+				</div>
+			) : null}
+
+			{ended === null &&
+			canRefresh &&
+			!keptOffersReview &&
+			hqChangedTargets.some((target) =>
+				sameHqChangedTarget(target, {
+					server: record.server,
+					domain: record.domain,
+				}),
+			) ? (
+				<div className="mt-4 flex flex-col items-start gap-1 text-[13px] leading-relaxed">
+					<p className="text-nova-text">
+						{hqChangedFoundLine(
+							sincePhrase(
+								cardDriftReference(view),
+								record.domain,
+								viewerDriftDate(),
+							),
+						)}
+					</p>
+					<Button variant="ghost" onClick={() => setChangesOpen(true)}>
+						{SEE_WHAT_CHANGED_ACTION}
+					</Button>
 				</div>
 			) : null}
 
@@ -463,6 +532,16 @@ export function DeploymentStatus({
 			{workers}
 
 			<SetupNotes sections={view.artifact.sections} />
+
+			{/* Mounted only while open: it reads the records the Publishing
+			 *  section holds and asks CommCare HQ afresh each time. */}
+			{changesOpen ? (
+				<HqChangesDialog
+					open
+					onOpenChange={setChangesOpen}
+					target={{ server: record.server, domain: record.domain }}
+				/>
+			) : null}
 
 			{stopPublishingOffered(view, canStop) ? (
 				<div className="mt-4 border-t border-nova-border pt-2">
@@ -597,12 +676,15 @@ function KeptValues({
 	pending,
 	onRefresh,
 	notice,
+	onSeeWhatChanged,
 }: {
 	kept: DeploymentKept;
 	canRefresh: boolean;
 	pending: boolean;
 	onRefresh: () => void;
 	notice: KeptRefreshNotice | null;
+	/** See what changed beside the notice, where Refresh found the app changed in CommCare HQ. */
+	onSeeWhatChanged?: () => void;
 }) {
 	const leadId = useId();
 	const date = keptDateText(kept.observedAt, new Date());
@@ -642,6 +724,11 @@ function KeptValues({
 				</Button>
 			) : null}
 			{notice !== null ? <KeptNotice notice={notice} /> : null}
+			{notice !== null && onSeeWhatChanged !== undefined ? (
+				<Button variant="ghost" className="mt-1" onClick={onSeeWhatChanged}>
+					{SEE_WHAT_CHANGED_ACTION}
+				</Button>
+			) : null}
 		</div>
 	);
 }

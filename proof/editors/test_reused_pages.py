@@ -192,7 +192,7 @@ def _animations_left_on_a_fresh_page(driver, unit, app_id, form_id):
     options = vellum.vellum_options(unit.state, app_id, form_id)
     seed = vellum._seed(vellum.vellum_spec(options, load_delay=None))
     start = {"call": "vellum/start", "arg": {"options": options.json, "loadDelay": None, "seed": seed["seed"]}}
-    steps = [step if step is not None else start for step in vellum._FRESH_STEPS]
+    steps = vellum.fresh_steps(start)
     steps.append({"eval": "() => window.proofVellumHost.jQuery.timers.length"})
     run = driver.run(steps, answer=HQAnswers(unit.state, unit), cookies={"lang": options.lang}, seed=seed)
     return run["outcomes"][-1]["value"]

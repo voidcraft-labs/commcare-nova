@@ -7,6 +7,7 @@ import {
 	not,
 	or,
 } from "./builders";
+import { literalInstantText } from "./instantOperand";
 import { mapExpressionAst } from "./mapAst";
 import type { Expression } from "./types";
 /** Record emission's boolean simplifier. Authored trees remain untouched. */
@@ -20,12 +21,34 @@ export function simplifyForEmission(expression: Expression): Expression {
 					return simplifyLogical(node.clauses, "or");
 				case "not":
 					return not(simplifyForEmission(node.clause));
-				case "is-blank":
+				case "is-blank": {
 					if (node.left.kind === "term" && node.left.term.kind === "literal")
 						return node.left.term.value === null || node.left.term.value === ""
 							? matchAll()
 							: matchNone();
+					// A negated number is a number, never blank.
+					let negated: Expression = node.left;
+					while (negated.kind === "negate") negated = negated.value;
+					if (
+						negated !== node.left &&
+						negated.kind === "term" &&
+						negated.term.kind === "literal" &&
+						typeof negated.term.value === "number"
+					)
+						return matchNone();
+					// A date and time made of a literal that names a moment is that
+					// moment's text (`instantOperand.ts::literalInstantText`).
+					const coerced =
+						node.left.kind === "datetime-coerce" ? node.left.value : undefined;
+					if (
+						coerced?.kind === "term" &&
+						coerced.term.kind === "literal" &&
+						typeof coerced.term.value === "string" &&
+						literalInstantText(coerced.term.value) !== undefined
+					)
+						return matchNone();
 					return undefined;
+				}
 				default:
 					return undefined;
 			}

@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
 import { chosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { slotContext } from "@/lib/domain/expression/context";
 import type {
@@ -355,6 +356,42 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			// Inside an `or` the search prints the range and its two
+			// comparisons alike, parenthesized.
+			id: "range",
+			slot: filter,
+			other: () => ({
+				kind: "or",
+				clauses: [
+					{
+						kind: "and",
+						clauses: [
+							{ kind: "gte", left: prop("age"), right: lit(1) },
+							{ kind: "lt", left: prop("age"), right: lit(5) },
+						],
+					},
+					usernameIsA,
+				],
+			}),
+			canonical: {
+				kind: "or",
+				clauses: [
+					{
+						kind: "between",
+						left: prop("age"),
+						lower: lit(1),
+						upper: lit(5),
+						lowerInclusive: true,
+						upperInclusive: false,
+					},
+					usernameIsA,
+				],
+			},
+		},
+		{
+			// A searched list's filter whose top-level conjuncts are the two
+			// comparisons prints two rows of its search, and the range one, so
+			// the two stay apart.
 			id: "range",
 			slot: filter,
 			other: () => ({
@@ -365,12 +402,11 @@ describe("every print collision prints one text and canonicalizes to its row's t
 				],
 			}),
 			canonical: {
-				kind: "between",
-				left: prop("age"),
-				lower: lit(1),
-				upper: lit(5),
-				lowerInclusive: true,
-				upperInclusive: false,
+				kind: "and",
+				clauses: [
+					{ kind: "gte", left: prop("age"), right: lit(1) },
+					{ kind: "lt", left: prop("age"), right: lit(5) },
+				],
 			},
 		},
 		{
@@ -540,6 +576,30 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			},
 		},
 		{
+			// A list filter its search restates prints a clause that reads no
+			// case as what the device works out, where a date's literal inside
+			// `date()` prints its text, typed or not.
+			id: "untyped-value-literal",
+			slot: filter,
+			other: () => ({
+				kind: "lte",
+				left: {
+					kind: "date-coerce",
+					value: term({
+						kind: "literal",
+						value: "2024-02-29",
+						data_type: "date",
+					}),
+				},
+				right: { kind: "today" },
+			}),
+			canonical: {
+				kind: "lte",
+				left: { kind: "date-coerce", value: lit("2024-02-29") },
+				right: { kind: "today" },
+			},
+		},
+		{
 			id: "junction-first-clause",
 			slot: relevant,
 			other: () => ({
@@ -594,7 +654,7 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			// A list's filter is restated in its search's CSQL, which prints
 			// the literal as written; a calculated column runs on the device
 			// alone.
-			id: "instant-literal",
+			id: "instant-operand",
 			slot: calculated,
 			other: () => ({
 				kind: "gt",
@@ -611,6 +671,249 @@ describe("every print collision prints one text and canonicalizes to its row's t
 				right: term({
 					kind: "literal",
 					value: "2026-01-02T09:00:00.000Z",
+					data_type: "datetime",
+				}),
+			},
+		},
+		{
+			// A switch's literal result, in a comparison of moments, prints as
+			// the literal's own date, clock and offset.
+			id: "instant-operand",
+			slot: calculated,
+			other: () => ({
+				kind: "gt",
+				left: {
+					kind: "switch",
+					on: prop("p"),
+					cases: [
+						{
+							when: { kind: "literal", value: "a" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: term({
+								kind: "literal",
+								value: "2026-01-02T10:00:00+01:00",
+								data_type: "datetime",
+							}),
+						},
+						{
+							when: { kind: "literal", value: "b" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: prop("seen"),
+						},
+					],
+					fallback: prop("seen"),
+				},
+				right: prop("seen"),
+			}),
+			canonical: {
+				kind: "gt",
+				left: {
+					kind: "switch",
+					on: prop("p"),
+					cases: [
+						{
+							when: { kind: "literal", value: "a" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: term({
+								kind: "literal",
+								value: "2026-01-02T10:00:00.000+01:00",
+								data_type: "datetime",
+							}),
+						},
+						{
+							when: { kind: "literal", value: "b" },
+							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+							then: prop("seen"),
+						},
+					],
+					fallback: prop("seen"),
+				},
+				right: prop("seen"),
+			},
+		},
+		{
+			// A branch beside a date and time takes the literal typed.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					{ kind: "datetime-coerce", value: lit("2026-01-01") },
+				],
+			}),
+			canonical: {
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					term({
+						kind: "literal",
+						value: "2026-01-01T00:00:00.000Z",
+						data_type: "datetime",
+					}),
+				],
+			},
+		},
+		{
+			// A column's whole value is read as text.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({ kind: "datetime-coerce", value: lit("2026-01-01") }),
+			canonical: lit("2026-01-01T00:00:00.000Z"),
+		},
+		{
+			// A typed literal as a column's whole value prints its text.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () =>
+				term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00Z",
+					data_type: "datetime",
+				}),
+			canonical: lit("2026-01-01T00:00:00Z"),
+		},
+		{
+			// Branches that are all literals have no branch beside them that
+			// gives their type.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "coalesce",
+				values: [
+					term({
+						kind: "literal",
+						value: "2026-01-01T00:00:00Z",
+						data_type: "datetime",
+					}),
+					{ kind: "datetime-coerce", value: lit("2026-02-01") },
+				],
+			}),
+			canonical: {
+				kind: "coalesce",
+				values: [lit("2026-01-01T00:00:00Z"), lit("2026-02-01T00:00:00.000Z")],
+			},
+		},
+		{
+			// A branch node inside one whose other branch is a date and time
+			// keeps its literals typed.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					{
+						kind: "coalesce",
+						values: [
+							term({
+								kind: "literal",
+								value: "2026-01-01T00:00:00Z",
+								data_type: "datetime",
+							}),
+							{ kind: "datetime-coerce", value: lit("2026-02-01") },
+						],
+					},
+				],
+			}),
+			canonical: {
+				kind: "coalesce",
+				values: [
+					prop("seen"),
+					{
+						kind: "coalesce",
+						values: [
+							term({
+								kind: "literal",
+								value: "2026-01-01T00:00:00Z",
+								data_type: "datetime",
+							}),
+							term({
+								kind: "literal",
+								value: "2026-02-01T00:00:00.000Z",
+								data_type: "datetime",
+							}),
+						],
+					},
+				],
+			},
+		},
+		{
+			// `date()` reads text, so its value requires no type and prints its
+			// text either way.
+			id: "untyped-value-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "date-coerce",
+				value: term({
+					kind: "literal",
+					value: "2026-01-01",
+					data_type: "date",
+				}),
+			}),
+			canonical: { kind: "date-coerce", value: lit("2026-01-01") },
+		},
+		{
+			// Two moments compared print as the two counts of microseconds
+			// they fold to, which two number literals print as.
+			id: "instant-operand",
+			slot: calculated,
+			other: () => ({
+				kind: "eq",
+				left: term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00Z",
+					data_type: "datetime",
+				}),
+				right: term({
+					kind: "literal",
+					value: "2026-02-01T10:00:00+01:00",
+					data_type: "datetime",
+				}),
+			}),
+			canonical: {
+				kind: "eq",
+				left: lit(1_767_225_600_000_000),
+				right: lit(1_769_936_400_000_000),
+			},
+		},
+		{
+			// `format-date` reads its date through the device's own date and
+			// time, which the coercion of a date and the literal of the text
+			// it prints both print through alike.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "format-date",
+				date: { kind: "datetime-coerce", value: lit("2026-01-01") },
+				pattern: "%Y",
+			}),
+			canonical: {
+				kind: "format-date",
+				date: term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00.000Z",
+					data_type: "datetime",
+				}),
+				pattern: "%Y",
+			},
+		},
+		{
+			// A comparison of moments folds both to one count of microseconds,
+			// and the reader gives the moment's canonical text.
+			id: "coerced-instant-literal",
+			slot: calculated,
+			other: () => ({
+				kind: "gt",
+				left: prop("seen"),
+				right: { kind: "datetime-coerce", value: lit("2026-01-01") },
+			}),
+			canonical: {
+				kind: "gt",
+				left: prop("seen"),
+				right: term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00.000Z",
 					data_type: "datetime",
 				}),
 			},
@@ -1179,6 +1482,23 @@ describe("relation-hops and relation-where-match-all: a device's presence test, 
 					via: { kind: "ancestor", via: [village] },
 					where: inZone,
 				},
+			},
+		},
+		{
+			name: "the negation of a negated presence, which the list filter prints as the presence (filter-identities, before negated-presence)",
+			other: {
+				kind: "not",
+				clause: {
+					kind: "not",
+					clause: {
+						kind: "exists",
+						via: { kind: "ancestor", via: [household] },
+					},
+				},
+			},
+			canonical: {
+				kind: "exists",
+				via: { kind: "ancestor", via: [household] },
 			},
 		},
 		{
@@ -1794,6 +2114,39 @@ describe("stored-instant-literal: a case write of a date and time", () => {
 		expect(canonicalExpression(canonical, context)).toEqual(canonical);
 	});
 
+	it("typed-row-standard-property prints a write of the chosen case's name, read naming no type, as the read naming its type", () => {
+		const NAMED = testUuid("collision-stamp-named");
+		const write = (value: Expression): CaseOperation =>
+			({
+				uuid: NAMED,
+				id: "named",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: value,
+			}) as CaseOperation;
+		const other = term({ kind: "prop", property: "case_name" });
+		const canonicalName = term({
+			kind: "prop",
+			caseType: "patient",
+			property: "case_name",
+		});
+		const app = stamps([write(other)]);
+		const slot: SlotContextRef = {
+			entity: "form",
+			uuid: FORM,
+			slot: "case_operation_name",
+			member: { operationUuid: NAMED },
+		};
+		const readEnvironment = env();
+		expect(printSlot(app, slot, other, readEnvironment)).toBe(
+			printSlot(app, slot, canonicalName, readEnvironment),
+		);
+		const context = contextOf(app, slot);
+		expect(canonicalExpression(other, context)).toEqual(canonicalName);
+		expect(canonicalExpression(canonicalName, context)).toEqual(canonicalName);
+	});
+
 	for (const beside of [false, true])
 		it(`reads Nova's export of the literal back to its canonical moment${beside ? ", beside a question's answer saved to the same property" : ""}`, async () => {
 			const operations = [create("lit", authored)];
@@ -2068,4 +2421,800 @@ describe("a worker field read by name beside a worker property of its slug", () 
 				const unheld = read({ kind: "session-user", field: "district" });
 				expect(canonicalExpression(unheld, context)).toEqual(unheld);
 			});
+});
+
+describe("untyped-row-standard-property: a standard property of a case database row no type test types", () => {
+	// A follow-up form of patients holding a repeat over the case database, and
+	// a question whose display condition counts case database rows.
+	const app = buildDoc({
+		caseTypes: [
+			{ name: "patient", properties: [{ name: "village", label: "Village" }] },
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: { columns: [], searchInputs: [] },
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({ kind: "text", id: "q1", label: "Q1" }),
+							f({
+								kind: "repeat",
+								id: "visits",
+								label: "Visits",
+								repeat_mode: "query_bound",
+								data_source: {
+									ids_query: {
+										kind: "project",
+										of: { kind: "cases", source: "casedb", where: [] },
+										value: { kind: "prop", property: "case_id" },
+									},
+								},
+								children: [f({ kind: "text", id: "note", label: "Note" })],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const idsQuery = {
+		entity: "field",
+		uuid: fieldNamed(app, "visits"),
+		slot: "ids_query",
+	} as SlotContextRef;
+	const relevant = {
+		entity: "field",
+		uuid: fieldNamed(app, "q1"),
+		slot: "relevant",
+	} as SlotContextRef;
+	const read = (property: string, caseType?: string): Term => ({
+		kind: "prop",
+		property,
+		...(caseType === undefined ? {} : { caseType }),
+	});
+	const named = (caseType?: string): Expression => ({
+		kind: "eq",
+		left: term(read("case_name", caseType)),
+		right: lit("open"),
+	});
+	const isPatient: Expression = {
+		kind: "eq",
+		left: term({ kind: "case-row-type" }),
+		right: term({ kind: "case-type", caseType: "patient" }),
+	};
+	const project = (
+		where: readonly Expression[],
+		caseType?: string,
+	): Expression => ({
+		kind: "project",
+		of: { kind: "cases", source: "casedb", where: [...where] },
+		value: read("case_id", caseType),
+	});
+	const counted = (where: readonly Expression[]): Expression => ({
+		kind: "gt",
+		left: {
+			kind: "count",
+			via: { kind: "cases", source: "casedb", where: [...where] },
+		} as Expression,
+		right: lit(0),
+	});
+	const cases: readonly {
+		readonly name: string;
+		readonly slot: SlotContextRef;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			name: "a query repeat's rows and value, read naming the type",
+			slot: idsQuery,
+			other: project([named("patient")], "patient"),
+			canonical: project([named()]),
+		},
+		{
+			name: "a count of rows whose condition reads the name naming the type",
+			slot: relevant,
+			other: counted([named("patient")]),
+			canonical: counted([named()]),
+		},
+	];
+	for (const one of cases)
+		it(one.name, () => {
+			const readEnvironment = env();
+			expect(printSlot(app, one.slot, one.other, readEnvironment)).toBe(
+				printSlot(app, one.slot, one.canonical, readEnvironment),
+			);
+			const context = contextOf(app, one.slot);
+			expect(canonicalExpression(one.other, context)).toEqual(one.canonical);
+			expect(canonicalExpression(one.canonical, context)).toEqual(
+				one.canonical,
+			);
+		});
+
+	it("leaves a read of a row a type test types, and a property the case types declare", () => {
+		const context = contextOf(app, idsQuery);
+		const typed = project([isPatient, named("patient")], "patient");
+		expect(canonicalExpression(typed, context)).toEqual(typed);
+		const declared: Expression = project([
+			{
+				kind: "eq",
+				left: term(read("village", "patient")),
+				right: lit("north"),
+			},
+		]);
+		expect(canonicalExpression(declared, context)).toEqual(declared);
+	});
+});
+
+describe("the rows a record slot's device and CSQL prints share: literals, coercions, ranges, junctions and distances", () => {
+	const visitInput = testUuid("collision-visit-input");
+	const visitDoc = (condition: Expression): BlueprintDoc =>
+		buildDoc({
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [
+						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "dob", label: "Date of birth", data_type: "date" },
+						{ name: "p", label: "P" },
+						{ name: "seen", label: "Seen", data_type: "datetime" },
+						{ name: "home", label: "Home", data_type: "geopoint" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: {
+						columns: [
+							calculatedColumn(COLUMN, "Calc", {
+								kind: "term",
+								term: { kind: "literal", value: "" },
+							}),
+						],
+						searchInputs: [
+							advancedSearchInputDef(
+								visitInput,
+								"region",
+								"Region",
+								"text",
+								condition,
+							),
+						],
+					},
+					caseSearchConfig: {},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+						},
+					],
+				},
+			],
+		});
+	const app = visitDoc({ kind: "match-all" });
+	const moduleUuid = app.moduleOrder[0] as Uuid;
+	const formUuid = app.formOrder[moduleUuid]?.[0] as Uuid;
+	const calculated: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_column_expression",
+		member: { columnUuid: COLUMN },
+	};
+	const searchButton: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "search_button_display_condition",
+	};
+	const formDisplay: SlotContextRef = {
+		entity: "form",
+		uuid: formUuid,
+		slot: "form_display_condition",
+	};
+	const filter: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_filter",
+	};
+	const predicate: SlotContextRef = {
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "search_input_predicate",
+		member: { searchInputUuid: visitInput },
+	};
+	const visit = (property: string): Expression =>
+		term({ kind: "prop", caseType: "visit", property });
+	const typed = (value: string, data_type: "date" | "datetime"): Expression =>
+		term({ kind: "literal", value, data_type });
+	const pIs = (value: string): Expression => ({
+		kind: "eq",
+		left: visit("p"),
+		right: lit(value),
+	});
+	const ageOver = (value: number): Expression => ({
+		kind: "gt",
+		left: visit("age"),
+		right: lit(value),
+	});
+	const rows: readonly {
+		readonly id: string;
+		readonly slot: SlotContextRef;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			id: "negated-number-literal",
+			slot: calculated,
+			other: { kind: "negate", value: lit(3) },
+			canonical: lit(-3),
+		},
+		{
+			id: "simplified-blank-literal",
+			slot: searchButton,
+			other: { kind: "is-blank", left: { kind: "negate", value: lit(3) } },
+			canonical: { kind: "match-none" },
+		},
+		{
+			id: "format-date-preset",
+			slot: calculated,
+			other: { kind: "format-date", date: visit("dob"), pattern: "long" },
+			canonical: {
+				kind: "format-date",
+				date: visit("dob"),
+				pattern: resolveCommCareDatePattern("long"),
+			},
+		},
+		{
+			id: "one-sided-range",
+			slot: formDisplay,
+			other: {
+				kind: "between",
+				left: visit("age"),
+				lower: lit(3),
+				lowerInclusive: true,
+				upperInclusive: false,
+			},
+			canonical: { kind: "gte", left: visit("age"), right: lit(3) },
+		},
+		{
+			// A membership's subject prints as its equalities do: the coercion
+			// of a literal folds to the moment's count of microseconds, which
+			// beside literal moments every member prints as too.
+			id: "coerced-instant-literal",
+			slot: formDisplay,
+			other: {
+				kind: "in",
+				left: { kind: "datetime-coerce", value: typed("2024-02-29", "date") },
+				values: [
+					{
+						kind: "literal",
+						value: "2025-12-31T23:59:59.5Z",
+						data_type: "datetime",
+					},
+					{
+						kind: "literal",
+						value: "2026-02-01T10:00:00+01:00",
+						data_type: "datetime",
+					},
+				],
+			},
+			canonical: {
+				kind: "in",
+				left: lit(1709164800000000),
+				values: [
+					{ kind: "literal", value: 1767225599500000 },
+					{ kind: "literal", value: 1769936400000000 },
+				],
+			},
+		},
+		{
+			// A switch over a moment literal compares each case's moment as
+			// the pair of integers they fold to, as a membership does.
+			id: "instant-operand",
+			slot: calculated,
+			other: {
+				kind: "switch",
+				on: typed("2025-12-31T23:59:59.5Z", "datetime"),
+				cases: [
+					{
+						when: {
+							kind: "literal",
+							value: "2025-12-31T23:59:59.5Z",
+							data_type: "datetime",
+						},
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: {
+							kind: "literal",
+							value: "2026-01-01T00:00:00Z",
+							data_type: "datetime",
+						},
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
+			},
+			canonical: {
+				kind: "switch",
+				on: lit(1767225599500000),
+				cases: [
+					{
+						when: { kind: "literal", value: 1767225599500000 },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: { kind: "literal", value: 1767225600000000 },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
+			},
+		},
+		{
+			id: "boolean-literal",
+			slot: calculated,
+			other: term({ kind: "literal", value: true }),
+			canonical: lit("true"),
+		},
+		{
+			id: "coerced-coercion",
+			slot: calculated,
+			other: {
+				kind: "datetime-coerce",
+				value: { kind: "datetime-coerce", value: visit("age") },
+			},
+			canonical: { kind: "datetime-coerce", value: visit("age") },
+		},
+		{
+			id: "one-value-membership",
+			slot: formDisplay,
+			other: {
+				kind: "in",
+				left: visit("p"),
+				values: [{ kind: "literal", value: "a" }],
+			},
+			canonical: pIs("a"),
+		},
+		{
+			id: "one-value-membership",
+			slot: predicate,
+			other: {
+				kind: "in",
+				left: visit("p"),
+				values: [{ kind: "literal", value: "a" }],
+			},
+			canonical: pIs("a"),
+		},
+		{
+			// A membership that reads no case is worked out on the device, which
+			// prints a date's one value as its equality too.
+			id: "one-value-membership",
+			slot: predicate,
+			other: {
+				kind: "in",
+				left: { kind: "today" },
+				values: [{ kind: "literal", value: "2024-02-29", data_type: "date" }],
+			},
+			canonical: {
+				kind: "eq",
+				left: { kind: "today" },
+				right: typed("2024-02-29", "date"),
+			},
+		},
+		{
+			id: "csql-anchor-left",
+			slot: predicate,
+			other: { kind: "eq", left: lit("a"), right: visit("p") },
+			canonical: pIs("a"),
+		},
+		{
+			id: "moment-text-coercion",
+			slot: calculated,
+			other: { kind: "datetime-coerce", value: visit("seen") },
+			canonical: visit("seen"),
+		},
+		{
+			id: "coerced-branches",
+			slot: calculated,
+			other: {
+				kind: "datetime-coerce",
+				value: {
+					kind: "if",
+					cond: pIs("a"),
+					// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+					then: visit("seen"),
+					else: visit("age"),
+				},
+			},
+			canonical: {
+				kind: "if",
+				cond: pIs("a"),
+				// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+				then: visit("seen"),
+				else: { kind: "datetime-coerce", value: visit("age") },
+			},
+		},
+		{
+			id: "instant-operand",
+			slot: formDisplay,
+			other: {
+				kind: "gt",
+				left: { kind: "datetime-coerce", value: visit("seen") },
+				right: { kind: "now" },
+			},
+			canonical: { kind: "gt", left: visit("seen"), right: { kind: "now" } },
+		},
+		{
+			// A branch of a lowered operand prints as the operand does.
+			id: "instant-operand",
+			slot: formDisplay,
+			other: {
+				kind: "gt",
+				left: {
+					kind: "coalesce",
+					values: [
+						visit("seen"),
+						{ kind: "datetime-coerce", value: { kind: "now" } },
+					],
+				},
+				right: { kind: "now" },
+			},
+			canonical: {
+				kind: "gt",
+				left: { kind: "coalesce", values: [visit("seen"), { kind: "now" }] },
+				right: { kind: "now" },
+			},
+		},
+		{
+			id: "typed-row-standard-property",
+			slot: calculated,
+			other: term({ kind: "prop", property: "case_name" }),
+			canonical: term({
+				kind: "prop",
+				caseType: "visit",
+				property: "case_name",
+			}),
+		},
+		{
+			id: "device-nested-junction",
+			slot: formDisplay,
+			other: {
+				kind: "or",
+				clauses: [pIs("a"), { kind: "or", clauses: [ageOver(3), ageOver(9)] }],
+			},
+			canonical: { kind: "or", clauses: [pIs("a"), ageOver(3), ageOver(9)] },
+		},
+		{
+			id: "device-range-in-conjunction",
+			slot: formDisplay,
+			other: {
+				kind: "and",
+				clauses: [
+					pIs("a"),
+					{
+						kind: "between",
+						left: visit("age"),
+						lower: lit(1),
+						upper: lit(5),
+						lowerInclusive: true,
+						upperInclusive: false,
+					},
+				],
+			},
+			canonical: {
+				kind: "and",
+				clauses: [
+					pIs("a"),
+					{ kind: "gte", left: visit("age"), right: lit(1) },
+					{ kind: "lt", left: visit("age"), right: lit(5) },
+				],
+			},
+		},
+		{
+			id: "within-distance-in-meters",
+			slot: formDisplay,
+			other: {
+				kind: "within-distance",
+				property: { kind: "prop", caseType: "visit", property: "home" },
+				center: lit("1.5 2.5"),
+				distance: 2,
+				unit: "kilometers",
+			},
+			canonical: {
+				kind: "within-distance",
+				property: { kind: "prop", caseType: "visit", property: "home" },
+				center: lit("1.5 2.5"),
+				distance: 2000,
+				unit: "meters",
+			},
+		},
+		{
+			id: "null-literal",
+			slot: formDisplay,
+			other: {
+				kind: "eq",
+				left: {
+					kind: "switch",
+					on: visit("p"),
+					cases: [
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: null }, then: lit("x") },
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: "b" }, then: lit("y") },
+					],
+					fallback: lit("z"),
+				},
+				right: lit("x"),
+			},
+			canonical: {
+				kind: "eq",
+				left: {
+					kind: "switch",
+					on: visit("p"),
+					cases: [
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: "" }, then: lit("x") },
+						// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+						{ when: { kind: "literal", value: "b" }, then: lit("y") },
+					],
+					fallback: lit("z"),
+				},
+				right: lit("x"),
+			},
+		},
+		{
+			id: "untyped-unrequired-literal",
+			slot: formDisplay,
+			other: {
+				kind: "eq",
+				left: {
+					kind: "if",
+					cond: pIs("a"),
+					// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+					then: typed("2024-02-29", "date"),
+					else: typed("2026-01-01", "date"),
+				},
+				right: typed("2026-01-01", "date"),
+			},
+			canonical: {
+				kind: "eq",
+				left: {
+					kind: "if",
+					cond: pIs("a"),
+					// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+					then: lit("2024-02-29"),
+					else: lit("2026-01-01"),
+				},
+				right: lit("2026-01-01"),
+			},
+		},
+		{
+			id: "coerced-day",
+			slot: calculated,
+			other: {
+				kind: "concat",
+				parts: [{ kind: "datetime-coerce", value: visit("date_opened") }],
+			},
+			canonical: {
+				kind: "concat",
+				parts: [{ kind: "date-coerce", value: visit("date_opened") }],
+			},
+		},
+		{
+			id: "coerced-day",
+			slot: calculated,
+			other: { kind: "datetime-coerce", value: visit("last_modified") },
+			canonical: { kind: "date-coerce", value: visit("last_modified") },
+		},
+		{
+			id: "coerced-day",
+			slot: formDisplay,
+			other: {
+				kind: "is-blank",
+				left: { kind: "datetime-coerce", value: visit("date_opened") },
+			},
+			canonical: {
+				kind: "is-blank",
+				left: { kind: "date-coerce", value: visit("date_opened") },
+			},
+		},
+		{
+			id: "coerced-instant-literal",
+			slot: predicate,
+			other: {
+				kind: "eq",
+				left: {
+					kind: "datetime-coerce",
+					value: typed("2026-01-01", "date"),
+				},
+				right: typed("2026-01-01T00:00:00Z", "datetime"),
+			},
+			canonical: {
+				kind: "eq",
+				left: lit(1767225600000000),
+				right: lit(1767225600000000),
+			},
+		},
+		{
+			id: "instant-operand",
+			slot: predicate,
+			other: {
+				kind: "between",
+				left: typed("2025-12-31T23:59:59.5Z", "datetime"),
+				lower: typed("2026-01-01T00:00:00Z", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: false,
+				upperInclusive: false,
+			},
+			canonical: {
+				kind: "between",
+				left: typed("2025-12-31T23:59:59.500Z", "datetime"),
+				lower: typed("2026-01-01T00:00:00.000Z", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: false,
+				upperInclusive: false,
+			},
+		},
+		{
+			// A switch over a date literal tests each case as a device prints
+			// an equality of dates, as written, which requires no type of the
+			// subject or the cases.
+			id: "untyped-unrequired-literal",
+			slot: calculated,
+			other: {
+				kind: "switch",
+				on: typed("2026-01-01", "date"),
+				cases: [
+					{
+						when: { kind: "literal", value: "2024-02-29", data_type: "date" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: { kind: "literal", value: "2026-01-01", data_type: "date" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
+			},
+			canonical: {
+				kind: "switch",
+				on: lit("2026-01-01"),
+				cases: [
+					{
+						when: { kind: "literal", value: "2024-02-29" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("a"),
+					},
+					{
+						when: { kind: "literal", value: "2026-01-01" },
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: lit("b"),
+					},
+				],
+				fallback: lit("c"),
+			},
+		},
+		{
+			// A range of a moment literal whose lower bound is a moment literal
+			// and whose upper bound is not prints the lower test as two counts
+			// and the upper through a parse; the range is read with each
+			// literal as its moment's canonical text.
+			id: "instant-operand",
+			slot: formDisplay,
+			other: {
+				kind: "between",
+				left: typed("2026-02-01T10:00:00+01:00", "datetime"),
+				lower: typed("2026-02-01T10:00:00+01:00", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: true,
+				upperInclusive: true,
+			},
+			canonical: {
+				kind: "between",
+				left: typed("2026-02-01T09:00:00.000Z", "datetime"),
+				lower: typed("2026-02-01T09:00:00.000Z", "datetime"),
+				upper: { kind: "now" },
+				lowerInclusive: true,
+				upperInclusive: true,
+			},
+		},
+		{
+			// A `null` compared with a date prints as the blank text, which the
+			// checker compares with no date, so the row keeps the `null`.
+			id: "null-literal",
+			slot: formDisplay,
+			other: {
+				kind: "eq",
+				left: visit("dob"),
+				right: term({ kind: "literal", value: null }),
+			},
+			canonical: {
+				kind: "eq",
+				left: visit("dob"),
+				right: term({ kind: "literal", value: null }),
+			},
+		},
+		{
+			// A coercion of a branch node holding a coercion of a date the
+			// case database holds as a day prints `date()` of the day inside
+			// the node, the inner coercion read through by the outer one.
+			id: "coerced-day",
+			slot: calculated,
+			other: {
+				kind: "datetime-coerce",
+				value: {
+					kind: "coalesce",
+					values: [
+						{
+							kind: "datetime-coerce",
+							value: term({ kind: "prop", property: "date_opened" }),
+						},
+					],
+				},
+			},
+			canonical: {
+				kind: "coalesce",
+				values: [{ kind: "date-coerce", value: visit("date_opened") }],
+			},
+		},
+		{
+			// A searched list's filter prints a clause outside a Search field's
+			// presence test on the device, as written, and the reader reads it
+			// in that spelling, the case property on the right.
+			id: "csql-anchor-left",
+			slot: filter,
+			other: {
+				kind: "lt",
+				left: typed("2024-02-29", "date"),
+				right: visit("dob"),
+			},
+			canonical: {
+				kind: "lt",
+				left: typed("2024-02-29", "date"),
+				right: visit("dob"),
+			},
+		},
+	];
+	/** A Search field's condition prints as the search's rows, each slot
+	 *  else as its own print. */
+	const printOf = (slot: SlotContextRef, tree: Expression) => {
+		if (slot.slot !== "search_input_predicate")
+			return [printSlot(app, slot, tree, env())];
+		const searchDoc = visitDoc(tree);
+		const menu = searchDoc.moduleOrder[0] as Uuid;
+		const config = searchDoc.modules[menu]?.caseListConfig;
+		if (config === undefined) throw new Error("The menu has no case list.");
+		return xpathQueryRequestValues(
+			config,
+			composeModuleXPathQueryEmission(searchDoc, menu, {
+				searchInputInstanceId: "search-input:results",
+			}),
+		).map(
+			(value) =>
+				serializeWire(value, { target: "hq-json", interpolation: "none" }).text,
+		);
+	};
+	for (const row of rows)
+		it(`${row.id} in ${row.slot.slot}`, () => {
+			expect(printOf(row.slot, row.other)).toEqual(
+				printOf(row.slot, row.canonical),
+			);
+			const context = contextOf(app, row.slot);
+			expect(canonicalExpression(row.other, context)).toEqual(row.canonical);
+			expect(canonicalExpression(row.canonical, context)).toEqual(
+				row.canonical,
+			);
+		});
 });

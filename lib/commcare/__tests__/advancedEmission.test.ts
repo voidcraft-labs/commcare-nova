@@ -77,7 +77,7 @@ const NOT_WRITTEN = {
 	],
 } as const;
 
-/** The keys of §7.1, in the order Nova writes them. */
+/** The keys of an advanced menu, in the order Nova writes them. */
 const ADVANCED_MODULE_KEYS = [
 	"doc_type",
 	"module_type",
@@ -101,7 +101,7 @@ const ADVANCED_MODULE_KEYS = [
 	"comment",
 ];
 
-/** The keys of §7.2, in the order Nova writes them. */
+/** The keys of an advanced form, in the order Nova writes them. */
 const ADVANCED_FORM_KEYS = [
 	"doc_type",
 	"form_type",
@@ -162,7 +162,7 @@ function serialized(module = advancedModule()): HqAdvancedModule {
 }
 
 describe("advancedModuleShell", () => {
-	it("writes §7.1's keys in order, each a property of HQ's AdvancedModule", () => {
+	it("writes an advanced menu's keys in order, each a property of HQ's AdvancedModule", () => {
 		const module = serialized();
 		expect(Object.keys(module)).toEqual(ADVANCED_MODULE_KEYS);
 		const { undeclared, unwritten } = heldToSchema("AdvancedModule", module);
@@ -273,7 +273,7 @@ describe("advancedModuleShell", () => {
 });
 
 describe("advancedFormShell", () => {
-	it("writes §7.2's keys in order, each a property of HQ's AdvancedForm, with no requires and no schedule", () => {
+	it("writes an advanced form's keys in order, each a property of HQ's AdvancedForm, with no requires and no schedule", () => {
 		const form = serialized().forms[0];
 		if (form === undefined) throw new Error("The menu holds its form.");
 		expect(Object.keys(form)).toEqual(ADVANCED_FORM_KEYS);

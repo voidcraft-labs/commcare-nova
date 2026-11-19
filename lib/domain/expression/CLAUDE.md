@@ -45,7 +45,10 @@ predicate selects a position and must not be coerced to boolean.
 Computed operand slots retain one literal spelling. A direct property remains
 direct in match and multi-select subjects; a direct literal or choice remains
 direct in multi-select values. Primitive pattern/distance/unit branches reject
-only duplicate untyped literal wrappers. Literal annotations are never discarded.
+only duplicate untyped literal wrappers, and a distance also the negation of a
+number literal no less than zero: a fixed distance no more than zero, which the
+direct spelling refuses and the record dialect reads as that number. Literal
+annotations are never discarded.
 A wrapped untyped `short`, `long`, or `iso` in a date pattern means those exact
 bytes; the bare string retains its existing preset meaning.
 
@@ -207,9 +210,24 @@ offset behind UTC where the UTC year is past 9999, and the reader of CommCare
 HQ's apps writes a folded literal back with it), and a literal or a
 branch of another known kind, or a branch of unknown type holding neither
 text nor a typed date (`datetime-ordering`, or `datetime-equality` under `=` /
-`!=`); a blank literal names no moment and is admitted. A `datetime-coerce` of
-a literal that names no moment is `unreadable-datetime` in the same places,
-since a device prints the moment as a value (`instant.ts::datetimeCoerceValue`).
+`!=`); a blank literal names no moment and is admitted (but a record ordering
+refuses a direct `null` operand, below). Which leaves have no instant text is
+`instantLeafSpelling`'s answer, the one function that also says what the
+emitter prints for each leaf of a lowered side at its place (the whole side, a
+branch, a value of a `coalesce`) and, through `instantSpellingMember`,
+`instantOperandMember` and `loweredComparisonMembers`, the one tree the reader
+of CommCare HQ's apps and its canonical form take for that print. A
+`datetime-coerce` of a literal that names no moment, a blank or a yes or no
+included, is `unreadable-datetime` in the same places, since a device prints
+the moment as a value (`instant.ts::datetimeCoerceValue`), and one of a branch
+node some of whose branches a device coerces to a day (`coercesToDay`:
+`date()` of a system date, of a value whose clock is lost or of a value that
+names no moment) beside a branch it coerces to a moment is `branch-values`
+(`coercedValueRefusal`), and so is a branch node one of whose branches gives
+only such coercions beside a branch that gives a date and time, as
+`if(c, date(x), now())`, which both print, is (`branchesMixCoercedDays`). The
+emitter throws by the same two functions, so a device prints exactly what the
+checker admits.
 `dayOnlyRefusalCopy` and `systemDateWhen` are the day-only sentences every
 surface assembles, whose next step (`date()` on both sides) the checker
 admits. An unknown operand against a moment takes the row of what it holds,
@@ -251,7 +269,11 @@ never stored raw-XPath validation codes. There is no printed-source checker.
 - `in.values` and `switch` cases hold literals or `choice` leaves.
   `multi-select-contains` values admit computed values where the slot's profile
   admits them; where a device evaluates one, it must be a single choice, since a
-  device tests the whole value as one choice.
+  device tests the whole value as one choice, and a value of no type (a `null`)
+  is refused there too, since it prints as the blank text does.
+- `quotient` divides whole numbers: the record checker refuses a decimal
+  operand (`number-value` reason `whole-number-quotient`), as the record
+  dialect does; `div` divides decimals.
 - `switch` is the simple-CASE form (`on`, then `cases`), so the discriminator
   evaluates once per row at the Postgres target.
 - `table-lookup` resolves one result column from the first authored-order row
@@ -372,7 +394,11 @@ Python or Postgres.
   (reasons `condition-expected` and `value-expected`). Form logic takes Core's
   coercions instead.
 - Strings are excluded from `ORDERED_TYPES`: locale-dependent string ordering is
-  rarely meaningful for a case-list filter, so `gt`/`lt` refuse text.
+  rarely meaningful for a case-list filter, so `gt`/`lt` refuse text. An
+  operand of an ordering every value of which is `null` (the literal, or a
+  `coalesce` of it) is `ordered-values` reason `blank`: a device reads it
+  as no number and answers no for every case, and CommCare HQ's search refuses
+  to order by it (a blank branch of an `if` stays admitted).
 - A time of day is excluded too, and `time-ordering` is one rule for both rule
   sets, ahead of the ordered-types test; a date and a date and time keep their
   order.

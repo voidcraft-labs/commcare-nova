@@ -100,6 +100,7 @@ import { declaredPlatforms } from "@/lib/domain/platforms";
 import { EMPTY_PROSE_TEMPLATE } from "@/lib/domain/prose";
 import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 import type { CorpusDocument } from "@/proof/corpus/documents";
+import { producerDocuments } from "@/proof/corpus/producers";
 import { compileCcz } from "../../compiler";
 import { DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION } from "../../connectDefaults";
 import { expandDoc } from "../../expander";
@@ -115,6 +116,20 @@ import { readHqApp } from "../index";
 import { sameJson } from "../jsonCursor";
 import { hydrated, publishedCorpus } from "./publishedDocuments";
 import { readerInput, sourceFromBody } from "./readerInput";
+
+/**
+ * One producer document of the lane's corpus, by its id. The producers' documents are built
+ * once for the file (about half a second) and never the whole corpus, whose targeted documents
+ * take seconds more to build and which only the case that reads every document needs.
+ */
+function producerDocument(id: string): CorpusDocument {
+	producers ??= producerDocuments();
+	const document = producers.find((one) => one.id === id);
+	if (document === undefined)
+		throw new Error(`The corpus holds no producer document ${id}.`);
+	return document;
+}
+let producers: readonly CorpusDocument[] | undefined;
 
 // ── The two exports of a document ────────────────────────────────────────
 
@@ -529,11 +544,7 @@ function searched(
  *  forms read the search, the link carrying nothing and holding the guards of the values
  *  automatic matching carries as its condition. */
 function searchLinkGuarded(): BlueprintDoc {
-	const document = publishedCorpus().find(
-		(one) => one.id === "search-hidden-link",
-	);
-	if (document === undefined)
-		throw new Error("The corpus holds the document search-hidden-link.");
+	const document = producerDocument("search-hidden-link");
 	const doc = hydrated(document);
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
 		const [link] = form.formLinks ?? [];
@@ -979,6 +990,172 @@ const PAIRS: readonly Pair[] = [
 				],
 				search: {},
 			}),
+	},
+	{
+		id: "searches-that-find-nothing-as-read",
+		name: "a search whose second Search field's condition is never true",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(8),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(8)),
+							eq(prop("patient", "phone"), input(uuid(8))),
+						),
+					},
+					{
+						uuid: uuid(9),
+						name: "never",
+						label: "Never",
+						kind: "advanced",
+						type: "text",
+						predicate: { kind: "match-none" },
+					},
+				],
+				search: {},
+			}),
+	},
+	{
+		id: "search-filter-conditions-of-a-field-are-its-own",
+		name: "a searched list filter's clause that waits for an advanced field",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(9),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(9)),
+							eq(prop("patient", "notes"), input(uuid(9))),
+						),
+					},
+				],
+				search: {},
+				list: {
+					filter: whenInput(
+						input(uuid(9)),
+						eq(prop("patient", "phone"), input(uuid(9))),
+					),
+				},
+			}),
+	},
+	{
+		id: "search-field-conditions-of-another-field-are-its-own",
+		name: "an advanced field's condition that waits for an earlier advanced field",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(8),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(8)),
+							eq(prop("patient", "notes"), input(uuid(8))),
+						),
+					},
+					{
+						uuid: uuid(9),
+						name: "phone",
+						label: "Phone",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(9)),
+							whenInput(
+								input(uuid(8)),
+								eq(prop("patient", "phone"), input(uuid(8))),
+							),
+						),
+					},
+				],
+				search: {},
+			}),
+	},
+	{
+		id: "search-field-conditions-over-other-fields-are-the-filter-s",
+		name: "an advanced field's condition that waits for a simple field",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(9),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: whenInput(
+							input(uuid(8)),
+							eq(prop("patient", "notes"), term(literal("x"))),
+						),
+					},
+					simpleSearchInputDef(uuid(8), "phone", "Phone", "text", "phone"),
+				],
+				search: {},
+			}),
+	},
+	{
+		id: "search-field-conditions-reading-no-field-are-the-filter-s",
+		name: "an advanced field's condition reading no field, on a menu whose forms read the search and whose list a device reads as nothing",
+		other: () =>
+			buildDoc({
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							filter: { kind: "is-blank", left: term(literal("x")) },
+							searchInputs: [
+								{
+									uuid: uuid(9),
+									name: "number",
+									label: "Number",
+									kind: "advanced",
+									type: "text",
+									predicate: eq(
+										term({ kind: "session-context", field: "deviceid" }),
+										term(literal("x")),
+									),
+								},
+							],
+						},
+						caseSearchConfig: { formsReadSearch: true },
+						forms: [
+							{
+								name: "Visit",
+								type: "followup" as const,
+								fields: [
+									f({
+										kind: "text",
+										id: "notes",
+										caseWrite: { caseType: "patient", property: "notes" },
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+	},
+	{
+		id: "calculated-attribute-columns-are-plain",
+		name: "a calculated column that reads the case's owner alone",
+		other: () =>
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				calculatedColumn(uuid(2), "Owner", term(prop("patient", "owner_id"))),
+			]),
 	},
 	{
 		id: "dormant-tile-cells",
@@ -1927,8 +2104,7 @@ describe("a read back of Nova's export", () => {
 	// filter's print binds to its path from `current()` whatever the read's spelling.
 	for (const id of ["lookup-app", "lookup-reversed"])
 		it(`gives the canonical form of the lane's ${id}, a table filter inside a repeat, which is the reading's own`, async () => {
-			const document = publishedCorpus().find((one) => one.id === id);
-			if (document === undefined) throw new Error(`No corpus document ${id}.`);
+			const document = producerDocument(id);
 			const doc = hydrated(document);
 			const draft = await readBack(doc, document.lookup);
 			expect(

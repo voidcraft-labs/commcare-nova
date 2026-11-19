@@ -2,7 +2,8 @@
  * What the expressions of an app read, from their syntax before any is
  * bound. The failures this holds: a case property declared twice or out of
  * code-unit order; one whose case type the syntax does not fix declared on
- * a guess; a `location_data` slug missing from the reads; a tag the catalog
+ * a guess; a property of the case a menu above chose, read in a form's own
+ * slot, left undeclared; a `location_data` slug missing from the reads; a tag the catalog
  * lacks missing; a step of a path taken for a property of its own. And of
  * the reading built on the scan: a declared property no held slot reads left
  * in the document; one a held slot reads dropped from it; a tag the catalog
@@ -132,6 +133,57 @@ describe("the scan of an app's expressions", () => {
 		expect(scanned.caseProperties).toEqual([
 			{ caseType: "patient", property: "score" },
 			{ caseType: "patient", property: "tag" },
+		]);
+	});
+
+	it("declares a property of the case a menu above chose on its type, read in a form's display condition", () => {
+		const app = buildDoc({
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{ name: "patient", parent_type: "household", properties: [] },
+			],
+			modules: [
+				{
+					uuid: "scan-households",
+					name: "Households",
+					caseType: "household",
+					caseListConfig: { columns: [], searchInputs: [] },
+					forms: [{ name: "Check", type: "followup", fields: [] }],
+				},
+				{
+					name: "Patients",
+					caseType: "patient",
+					parentCaseModuleUuid: "scan-households",
+					caseListConfig: { columns: [], searchInputs: [] },
+					forms: [
+						{
+							uuid: "scan-visit",
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+						},
+					],
+				},
+			],
+		});
+		const display: SlotContextRef = {
+			entity: "form",
+			uuid: testUuid("scan-visit"),
+			slot: "form_display_condition",
+		};
+		const scanned = scanReads(
+			[
+				registration(
+					app,
+					display,
+					"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/parent_id]/village = 'x'",
+				),
+			],
+			app,
+			readEnv(),
+		);
+		expect(scanned.caseProperties).toEqual([
+			{ caseType: "household", property: "village" },
 		]);
 	});
 

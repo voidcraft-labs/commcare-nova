@@ -27,6 +27,7 @@ import {
 	read,
 	U,
 } from "../../../__tests__/advancedPlacementFixture";
+import { expandDoc } from "../../../expander";
 import { planPlacements } from "../../../placement";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
@@ -41,6 +42,18 @@ import {
 	readPaths,
 } from "./caseReading";
 import { readHqApp } from "./heldReading";
+
+/** How many documents of `advancedDocArbitrary` the round trip reads. */
+const ADVANCED_FUZZ_RUNS = 8;
+let advancedFuzzDrawn: readonly BlueprintDoc[] | undefined;
+/** The advanced fuzz documents, drawn once for the file at a fixed seed. */
+function advancedFuzzDocs(): readonly BlueprintDoc[] {
+	advancedFuzzDrawn ??= fc.sample(advancedDocArbitrary, {
+		seed: 20261116,
+		numRuns: ADVANCED_FUZZ_RUNS,
+	});
+	return advancedFuzzDrawn;
+}
 
 /** D's operations of a form, each with the placement the plan gives it. */
 function written(doc: BlueprintDoc, formUuid: Uuid): unknown {
@@ -264,48 +277,58 @@ describe("an advanced form read back from Nova's own emission", () => {
 		expect(requiredOf(outcome.draft.doc)).toEqual(requiredOf(want));
 	});
 
-	it("reads every form of every advanced fuzz document back into its operations, each tag held", async () => {
-		let advancedForms = 0;
-		await fc.assert(
-			fc.asyncProperty(advancedDocArbitrary, async (doc) => {
-				const reading = await readCases(doc);
+	// Each document is its own case: a reading of one, whole and by stage, is
+	// half a second or more, and the draws are made once for the file.
+	it.each(Array.from({ length: ADVANCED_FUZZ_RUNS }, (_, index) => index))(
+		"reads every form of advanced fuzz document %i back into its operations, each tag held",
+		async (index) => {
+			const doc = advancedFuzzDocs()[index];
+			if (doc === undefined)
+				throw new Error(`No advanced fuzz document ${index}.`);
+			const reading = await readCases(doc);
+			expect(
+				reading.findings.filter((one) =>
+					one.code.startsWith("forms-and-case-writes/"),
+				),
+			).toEqual([]);
+			const modules = new Map<string, string>();
+			for (const [uuid, module] of Object.entries(doc.modules))
+				modules.set(uuid, `menu:${module.name}`);
+			for (const module of reading.ctx.draft.modules)
+				modules.set(module.uuid, `menu:${module.module.name ?? ""}`);
+			const docForms = projectedModulePreorder(doc).flatMap(
+				(moduleUuid) => doc.formOrder[moduleUuid] ?? [],
+			);
+			expect(reading.forms.length).toBe(docForms.length);
+			const withoutIds = (operations: readonly CaseOperation[]) =>
+				operations.map(
+					({ id: _id, ...rest }) => rest,
+				) as unknown as CaseOperation[];
+			reading.forms.forEach((form, formIndex) => {
+				const formUuid = docForms[formIndex] as Uuid;
+				const read = (form.form.caseOperations ??
+					[]) as readonly CaseOperation[];
 				expect(
-					reading.findings.filter((one) =>
-						one.code.startsWith("forms-and-case-writes/"),
+					comparableOperations(withoutIds(read), readPaths(form), modules),
+				).toEqual(
+					comparableOperations(
+						withoutIds(plannedOperations(doc, formUuid)),
+						docPaths(doc, formUuid),
+						modules,
 					),
-				).toEqual([]);
-				const modules = new Map<string, string>();
-				for (const [uuid, module] of Object.entries(doc.modules))
-					modules.set(uuid, `menu:${module.name}`);
-				for (const module of reading.ctx.draft.modules)
-					modules.set(module.uuid, `menu:${module.module.name ?? ""}`);
-				const docForms = projectedModulePreorder(doc).flatMap(
-					(moduleUuid) => doc.formOrder[moduleUuid] ?? [],
 				);
-				expect(reading.forms.length).toBe(docForms.length);
-				const withoutIds = (operations: readonly CaseOperation[]) =>
-					operations.map(
-						({ id: _id, ...rest }) => rest,
-					) as unknown as CaseOperation[];
-				reading.forms.forEach((form, index) => {
-					const formUuid = docForms[index] as Uuid;
-					if (form.docType === "AdvancedForm") advancedForms += 1;
-					const read = (form.form.caseOperations ??
-						[]) as readonly CaseOperation[];
-					expect(
-						comparableOperations(withoutIds(read), readPaths(form), modules),
-					).toEqual(
-						comparableOperations(
-							withoutIds(plannedOperations(doc, formUuid)),
-							docPaths(doc, formUuid),
-							modules,
-						),
-					);
-				});
-			}),
-			{ numRuns: 8 },
-		);
-		expect(advancedForms).toBeGreaterThan(0);
+			});
+		},
+	);
+
+	it("draws advanced fuzz documents some form of which the export writes advanced", () => {
+		expect(
+			advancedFuzzDocs().some((doc) =>
+				expandDoc(doc).modules.some((module) =>
+					module.forms.some((form) => form.doc_type === "AdvancedForm"),
+				),
+			),
+		).toBe(true);
 	});
 
 	it("reads the menu's parent selection from the chain its forms' loads agree on", async () => {

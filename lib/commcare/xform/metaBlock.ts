@@ -345,6 +345,17 @@ export function addMetaBlock(
 	xform: string,
 	options: { readonly captureLocation?: boolean } = {},
 ): string {
+	const doc = parseXForm(xform);
+	addMetaBlockTo(doc, options);
+	return serializeXForm(doc);
+}
+
+/** `addMetaBlock` over a parsed XForm, which it changes in place: the
+ *  compiler's one parse of a form carries it through every step. */
+export function addMetaBlockTo(
+	doc: ReturnType<typeof parseXForm>,
+	options: { readonly captureLocation?: boolean } = {},
+): void {
 	const captureLocation = options.captureLocation === true;
 	const instances = new InstanceSink();
 	const context: WireElementContext = {
@@ -352,7 +363,6 @@ export function addMetaBlock(
 		instances,
 	};
 	const meta = buildMetaBlock(captureLocation, context);
-	const doc = parseXForm(xform);
 
 	// Append `<orx:meta>` last under `<data>`. On the `.ccz` path `addCaseBlocks`
 	// has already appended the `<case>` transaction block, so appending meta last
@@ -370,6 +380,4 @@ export function addMetaBlock(
 	appendChildren(modelEl, pollsensorNodes(modelEl, captureLocation, context));
 	for (const { id, src } of instances.declarations())
 		ensureInstance(modelEl, id, src);
-
-	return serializeXForm(doc);
 }

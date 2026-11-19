@@ -20,12 +20,16 @@
  */
 
 import type { ReadingEvent, ReadingStage } from "@/lib/deployment";
+import { HQ_CHANGES_STAGE_LABELS } from "@/lib/publish/hqChangesCopy";
+import type { HqChangesStage } from "@/lib/publish/hqChangesKinds";
 import { READING_STAGE_LABELS } from "@/lib/publish/hqReadingCopy";
 
 /**
  * Stage vocabulary for MCP progress notifications. Mirrors the chapter
  * tags emitted on `MutationEvent.stage`, and beyond them the publish's
- * three and a bring-in's seven, one per `ReadingStage`. Additive — new
+ * three, a bring-in's seven, one per `ReadingStage`, and the six of a
+ * review or bring-in of changes made in CommCare HQ, one per
+ * `HqChangesStage`. Additive — new
  * stages are added here alongside any new stage tag.
  */
 export type ProgressStage =
@@ -40,7 +44,8 @@ export type ProgressStage =
 	| "upload_started"
 	| "resources_pushed"
 	| "upload_complete"
-	| ReadingProgressStage;
+	| ReadingProgressStage
+	| HqChangesProgressStage;
 
 /** A bring-in's stage as a progress tag: `hq_` and the stage, hyphens as underscores. */
 type ReadingProgressStage = `hq_${Underscored<ReadingStage>}`;
@@ -125,6 +130,85 @@ export function readingProgressSink(
 		}
 	};
 }
+
+/**
+ * A stage of a review or a bring-in of changes made in CommCare HQ as a
+ * progress tag: `hq_changes_` and the stage, hyphens as underscores, so a
+ * client tells it from a bring-in of an app's stage of the same name.
+ */
+type HqChangesProgressStage = `hq_changes_${Underscored<HqChangesStage>}`;
+
+/** Each `HqChangesStage`'s tag, spelled out so the six are a closed table. */
+const HQ_CHANGES_PROGRESS_TAGS: Readonly<
+	Record<HqChangesStage, HqChangesProgressStage>
+> = {
+	"reading-app": "hq_changes_reading_app",
+	"reading-project-data": "hq_changes_reading_project_data",
+	checking: "hq_changes_checking",
+	"checking-media": "hq_changes_checking_media",
+	"adding-media": "hq_changes_adding_media",
+	"bringing-in": "hq_changes_bringing_in",
+};
+
+/** A stage's label with no count: what a progress message says of it. */
+function hqChangesStageLabel(stage: HqChangesStage): string {
+	return stage === "checking-media"
+		? HQ_CHANGES_STAGE_LABELS[stage](null)
+		: HQ_CHANGES_STAGE_LABELS[stage];
+}
+
+/**
+ * The `onEvent` an MCP tool hands a review or a bring-in of changes made in
+ * CommCare HQ. A `stage` event sends one notification, tagged `hq_changes_`
+ * and the stage, its message the stage's label as the panel shows it. A
+ * `files` event sends one under the tag of the stage last named, with `done`
+ * and `total` as `extra`, at most one a second, and always the one whose
+ * `done` is `total`, as a bring-in of an app's sink sends its counts.
+ *
+ * `now` is the clock the interval is measured on, in milliseconds.
+ */
+export function hqChangesProgressSink(
+	emitter: ProgressEmitter,
+	now: () => number = () => performance.now(),
+): (event: HqChangesProgressEvent) => void {
+	let stage: HqChangesStage | null = null;
+	let lastCountAt: number | null = null;
+	return (event) => {
+		if (event.type === "stage") {
+			stage = event.stage;
+			emitter.notify(
+				HQ_CHANGES_PROGRESS_TAGS[event.stage],
+				hqChangesStageLabel(event.stage),
+			);
+			return;
+		}
+		/* A count rides the stage that planned its files; one before any stage
+		 * has no tag to go under. */
+		if (stage === null) return;
+		const at = now();
+		const last = event.done === event.total;
+		if (
+			!last &&
+			lastCountAt !== null &&
+			at - lastCountAt < FILE_COUNT_INTERVAL_MS
+		)
+			return;
+		lastCountAt = at;
+		emitter.notify(
+			HQ_CHANGES_PROGRESS_TAGS[stage],
+			hqChangesStageLabel(stage),
+			{
+				done: event.done,
+				total: event.total,
+			},
+		);
+	};
+}
+
+/** What a review and a bring-in of changes made in CommCare HQ stream as they move. */
+export type HqChangesProgressEvent =
+	| { readonly type: "stage"; readonly stage: HqChangesStage }
+	| { readonly type: "files"; readonly done: number; readonly total: number };
 
 export interface ProgressEmitter {
 	notify(

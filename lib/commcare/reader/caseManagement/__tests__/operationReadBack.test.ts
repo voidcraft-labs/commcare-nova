@@ -94,10 +94,23 @@ function ownArm(
 		readonly several?: boolean;
 		readonly openCondition?: boolean;
 		readonly closeCondition?: boolean;
+		/** A Hidden Value `tag` beside the questions, calculated from `note`. */
+		readonly hidden?: boolean;
 	} = {},
 ): BlueprintDoc {
 	const text = (key: string) =>
 		f({ kind: "text", uuid: id(key), id: key, label: proseText(key) });
+	const hidden =
+		options.hidden === true
+			? [
+					f({
+						kind: "hidden",
+						uuid: id("tag"),
+						id: "tag",
+						calculate: answer("note"),
+					}),
+				]
+			: [];
 	return buildDoc(
 		{
 			appId: "app-1",
@@ -133,7 +146,7 @@ function ownArm(
 							uuid: id("form"),
 							name: "Visit",
 							type,
-							fields: [text("name"), text("note"), text("flag")],
+							fields: [text("name"), text("note"), text("flag"), ...hidden],
 							...(options.openCondition === true && {
 								openCondition: eq(formField(id("flag")), formField(id("note"))),
 							}),
@@ -164,9 +177,17 @@ function ownArm(
  *  HQ's app holds it as it holds a registration whose own arm takes a block,
  *  so the reader must tell the two apart by what each prints. */
 function surveyCreate(
-	options: { readonly conditional?: boolean; readonly computed?: boolean } = {},
+	options: {
+		readonly conditional?: boolean;
+		readonly computed?: boolean;
+		readonly hidden?: boolean;
+	} = {},
 ) {
-	const doc = ownArm("registration", { name: answer("name") });
+	const doc = ownArm(
+		"registration",
+		{ name: answer("name") },
+		{ hidden: options.hidden === true },
+	);
 	return produce(doc, (draft) => {
 		const form = draft.forms[id("form")];
 		if (form === undefined) return;
@@ -181,9 +202,14 @@ function surveyCreate(
 				name:
 					options.computed === true
 						? concat(answer("name"), term(literal(" (new)")))
-						: answer("name"),
+						: options.hidden === true
+							? answer("tag")
+							: answer("name"),
 				...(options.computed !== true && {
-					writes: [{ property: "external_id", value: answer("note") }],
+					writes:
+						options.hidden === true
+							? [{ property: "note", value: term(literal("x")) }]
+							: [{ property: "external_id", value: answer("note") }],
 				}),
 				...(options.conditional === true && {
 					condition: eq(formField(id("flag")), literal("y")),
@@ -210,6 +236,11 @@ const OWN_ARMS: Record<string, () => BlueprintDoc> = {
 		ownArm("registration", { name: answer("name"), writes: [conditionalNote] }),
 	"a registration's, for a computed write": () =>
 		ownArm("registration", { name: answer("name"), writes: [computedScore] }),
+	"a registration's, for a fixed write": () =>
+		ownArm("registration", {
+			name: answer("name"),
+			writes: [{ property: "note", value: term(literal("x")) }],
+		}),
 	"a registration's, for an open condition comparing two answers": () =>
 		ownArm(
 			"registration",
@@ -219,6 +250,22 @@ const OWN_ARMS: Record<string, () => BlueprintDoc> = {
 			},
 			{ openCondition: true },
 		),
+	"a registration's, named by a Hidden Value, for a fixed write": () =>
+		ownArm(
+			"registration",
+			{
+				name: answer("tag"),
+				writes: [{ property: "note", value: term(literal("x")) }],
+			},
+			{ hidden: true },
+		),
+	"a close form's, renaming, for a fixed write": () =>
+		ownArm("close", {
+			name: answer("name"),
+			writes: [{ property: "note", value: term(literal("x")) }],
+		}),
+	"a follow-up's, renaming, for a computed write": () =>
+		ownArm("followup", { name: answer("name"), writes: [computedScore] }),
 	"a follow-up's, for a write's condition": () =>
 		ownArm("followup", { writes: [conditionalNote] }),
 	"a follow-up's, for a computed write": () =>
@@ -312,6 +359,8 @@ const DOCUMENTS: Record<string, () => BlueprintDoc> = {
 		surveyCreate({ conditional: true }),
 	"a survey's create of its menu's case type, named by a computed value": () =>
 		surveyCreate({ computed: true }),
+	"a survey's create of its menu's case type, named by a Hidden Value, for a fixed write":
+		() => surveyCreate({ hidden: true }),
 	"every Save to Case shape": saveToCaseShapesApp,
 	"an advanced menu": () => hydrated(advancedModule()),
 	"an extension a link carries": () => hydrated(extensionCarried()),
@@ -420,6 +469,9 @@ describe("every place Nova keeps a case operation in", () => {
 				doc,
 			);
 			expect(caseFacts(outcome.draft.doc)).toEqual(caseFacts(want));
+			// A generated node read as a question of the person's own (a
+			// trimmed sibling no change reads) adds a field.
+			expect(outcome.draft.doc.fieldOrder).toEqual(want.fieldOrder);
 			const reading = await readBody(
 				exportedBody(doc),
 				doc,

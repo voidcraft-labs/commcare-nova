@@ -6,6 +6,7 @@
 // `apps.ts`↔`applyBlueprintChange.ts` cycle. Depends only on the doc/mutation
 // vocabulary — nothing from `apps.ts`.
 
+import type { MutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type AdmittedMutationBatch,
@@ -13,6 +14,9 @@ import {
 } from "@/lib/doc/mutationAdmission";
 
 export { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
+
+/** The gate's findings, as a refusing verdict carries them. */
+type CommitFindings = Extract<MutationCommitVerdict, { ok: false }>["findings"];
 
 /**
  * Thrown by the guarded commit when, against the freshly read blueprint, a
@@ -23,24 +27,29 @@ export { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
  * the builder recovers from by reloading.
  *
  * `findingCodes` names the validator findings of a gate refusal (empty for
- * every other refusal), and `placementRule` marks the kernel's refusal of a
- * held placement change, so a caller can tell a refusal a recorded placement
- * caused from any other without reading the prose.
+ * every other refusal), `findings` carries those findings themselves, so a
+ * caller can say each in its own surface's voice, and `placementRule` marks
+ * the kernel's refusal of a held placement change, so a caller can tell a
+ * refusal a recorded placement caused from any other without reading the
+ * prose.
  */
 export class BlueprintCommitRejectedError extends Error {
 	readonly findingCodes: readonly string[];
+	readonly findings: Readonly<CommitFindings>;
 	readonly placementRule: boolean;
 
 	constructor(
 		message: string,
 		options?: {
 			readonly findingCodes?: readonly string[];
+			readonly findings?: Readonly<CommitFindings>;
 			readonly placementRule?: true;
 		},
 	) {
 		super(message);
 		this.name = "BlueprintCommitRejectedError";
 		this.findingCodes = options?.findingCodes ?? [];
+		this.findings = options?.findings ?? [];
 		this.placementRule = options?.placementRule ?? false;
 	}
 }

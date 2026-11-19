@@ -2,7 +2,8 @@
 
 `readHqApp` (`index.ts`) reads a CommCare HQ app into a Nova document, or into an account of why
 it cannot be held; `readHqAppSteps` is the same reading stopping after each stage, and inside a stage long at the
-byte cap between its parts (`index.ts::STAGE_PARTS`: the forms, the entry facts, the binding, the
+byte cap between its parts (`index.ts::STAGE_PARTS`: the forms, the case lists, the entry facts,
+the binding and every pass of the expression stage inside it, the case management settle, the
 menus' settle and the assembly), which a request drives a piece at a time so the event loop turns
 between them, and a stage therefore keeps nothing outside the reading's own context across a
 stop. `STAGES` stays each stage whole, for a test that runs stages one by one. A grammar read
@@ -19,7 +20,6 @@ first reading and its fixed point's re-read share one. `lib/commcare/CLAUDE.md` 
 and the expression contract; this file is the method a change here keeps, the canonical rows,
 and what the reader is told.
 
-<!-- Added by the bring-in layer (layer 7); keep through the rebase onto layer 4. -->
 `ReaderOptions.onStage` is told each stage's index in `STAGES` before it runs, then `close`; a
 caller that catches a throw names where it came from by the last one it was told, never by the
 thrown message, which can quote the app.
@@ -136,6 +136,121 @@ of a property it keeps); and `knownLanguageCodes`
 `languageIdentityForHqCode` because a stored code is never re-minted while the minter's spelling
 for an identity can change. A first reading is told neither. A test builds the input through
 `__tests__/readerInput.ts` and `__tests__/novaExport.ts`, never by hand.
+
+A first reading is told no property's type, so a property no writer types takes the type the
+record slots that compare it give (`expressions/comparedTypes.ts`): a comparison with a value of a
+known type, through each branch of an `if`, `coalesce`, `switch` or `cond` the property stands in
+(`coalesce(seen, now()) > now()` compares `seen` with `now()`), and the known type of a branch
+beside it, since record branches agree on one type. A type one comparison gives a property
+reaches every node that reads it: `if(c, age, 3) = weight` types `age` by the `3`, then
+`weight` by the branch node `age` and `3` then type (`comparedTypes.ts::comparedTypes` scans
+again over what it found until it finds nothing new). A property of the case a menu above chose
+(`chosen-case-property`) is typed as a property of the row is, and a form's own slot (its display
+condition, its case changes) declares it on that case's type, by the datum the form's entry
+holds for it (`scanReads.ts::chosenCaseType`), as a value a device works out inside a search's
+row declares it by the datums the searched menu's entry holds (`scanReads.ts::searchRowHoleReads`,
+which the search stage declares before the rows bind, since `searchRowProperties` and
+`searchRowRelations` read only the searched case and the cases related to it). A simple date range Search field over such a
+property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
+print is HQ's prompt alone, and a record slot's comparison overrides that guess (an ordering against
+a branch node whose values are all literals spelled as one of the two types orders that type).
+A property a function's signature fixes the kind of (`format-date`'s and `date-add`'s date, a
+number a sum, a product, a negation or a distance reads, `quotient`'s whole numbers, and the value
+`datetime-coerce` reads, which tries text before a date and a date and time) takes the first type
+that position admits under which every slot reading it binds, passes its checker and prints the
+source (`comparedTypes.ts::requiredTypes`, `expressions/index.ts::withRequiredTypes`), every
+position that reads the property deciding the order together (`comparedTypes.ts::mergedCandidates`:
+the type a list's numeric sort tells first, then each position's own order, of the types every
+position admits); two
+untyped properties ordered against each other take one type in the same try, since the checker
+admits neither alone, and so do the properties of an ordering whose two sides, a branch node among
+them, give only untyped properties (`comparedTypes.ts::orderedProperties`, a date tried before a
+number, `seen >= coalesce(seen)` among them), two untyped properties compared, each side itself or
+through a value-giving branch, take a date and time first where only the print a device makes of
+two moments is the source's (`expressions/index.ts::withComparedTypes`), and where no type holds
+while the slots' other
+untyped properties stay text (a `date-add` of two of them), the try is made again with each of
+those at the first type its own position admits, typing only the property tried.
+
+**Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
+literal prints the text the untyped literal of that text prints, so which one a record slot holds
+is decided by the position it stands in, never by the print, one rule for the reader and the
+canonical form alike: it is typed by its shape exactly where its position requires that type, and
+untyped everywhere else (`expressions/temporalLiterals.ts::typedWhereRequired`, which every bound
+record slot passes through, a search's CSQL rows included). A position requires a date or a date
+and time where the checker refuses the text there: the date a function's signature takes
+(`format-date`'s and `date-add`'s), an operand compared with a value of that type or ordered
+against a value of no known type (a `between`'s bounds against its subject, and a literal or a
+branch node of literals ordered against another, among them), the whole value of a slot that
+expects one (a date Search field's starting value), and each branch of an `if`, `coalesce`,
+`switch` or `cond` standing in such a position or beside a branch that gives one. Every other
+position takes the text as it is: a part of a `concat`, the value of `date()`, the value of a
+`datetime()` that stays one (in a comparison by day), the whole value of a slot that expects no
+type (a calculated column), and a branch node in one of those with no branch beside it that gives
+a type; there the reading gives the untyped literal and the canonical row
+`untyped-value-literal` returns it. `in`'s values and a `switch`'s cases are typed against their
+subject by `folds.ts` and the canonical row `literal-type`, and again once the subject is typed
+(`typedWhereRequired`), since a subject whose own literals a later pass types is text when the
+fold reads the values. A time literal is typed the same way beside a branch that gives a time, or
+compared with one. A `datetime-coerce` of a literal printed as a value prints the literal's own
+instant text, and is that typed literal wherever a device folds it, `format-date`'s date among
+those places (`coerced-instant-literal`). A search's condition prints as CSQL, which keeps a
+`date()` or `datetime()` of a literal as written, so there the literal inside one is typed by its
+shape (`coerced-literal-type`). Form logic holds no typed literal: the checker refuses one
+(`literal-not-spellable`).
+
+**What a lowered comparison reads back as.** A comparison a device lowers to microseconds prints
+each leaf of each side, through any nesting of `if`, `coalesce`, `switch` and `datetime-coerce`, by
+one function, `lib/domain/expression/instantOperand.ts::instantLeafSpelling`: the emitter prints the
+spelling (`xpath/wire/instant.ts::instantOperandWire`), the checker refuses a comparison with a
+leaf spelled `refused` (`unlowerableLeaves`), and the reading of each spelling and the canonical
+form both take the member `instantSpellingMember` gives it (`folds.ts::instantOperandProposal`,
+the canonical row `instant-operand` over `instantOperandMember` and `loweredComparisonMembers`): a
+folded literal the canonical text of its moment, a literal branch its own text, a typed date and
+time or text the value with no coercion, a midnight or a text that may be a date the value's
+`datetime-coerce`, and two sides neither of which is parsed (two folded literals, a day number) the
+numbers they print. The row holds for every container whose tests a device lowers: a comparison,
+each bound of a range (a range one bound of which prints two numbers and the other a parse reads
+as the range of the members of a parsed side, `folds.ts::momentPair`), each equality of a
+membership and each case test of a switch. The coercion of a value as a value is refused by the
+emitter and the checker alike through `coercedValueRefusal` (a literal that names no moment, a
+blank or a yes or no, a branch node coerced to a day in some branches and a moment in others), and
+a value-giving node whose branches give a day beside a moment through `branchesMixCoercedDays`. A
+coercion an enclosing `datetime-coerce` reads through value branches is printed by that one, leaf
+by leaf, and never as a value of its own, so the rows that read a coercion as a value
+(`coerced-day`, `moment-text-coercion`) leave it to the enclosing one (`readByEnclosingCoercion`);
+`coerced-day` reads a coercion as `date()` exactly where `coercesToDay`, the emitter's own test,
+does.
+
+**A range in a list filter its search restates.** A device prints a range and the `and` of its two
+comparisons alike, and so does a search's CSQL inside a parenthesized join; but each top-level
+conjunct of the filter is a row of the search of its own, so there the range prints one row,
+parenthesized, and the two comparisons two. The reading of the list's own filter keeps two
+top-level comparisons apart in such a slot whatever they read (`folds.ts::conjunctsPrintAsRows`;
+a value a device works out inside a row is no slot's whole source, `ExpressionReadEnv.rowValues`,
+so a range there is read as one); a row reads a parenthesized lower and upper bound's comparisons
+of one operand as the range (`csqlRead.ts::CsqlBinder.rangeJoin`, after a date and time's
+equality, which prints as the range from its value to itself), and `search/rows.ts` takes the run
+of the list's clauses one row restates, in the row's spelling or as the range the run's own two
+comparisons make (the range from a value to itself, which the row reads as the equality), before
+one clause in another spelling. The canonical row `range` folds the two comparisons only where the
+join prints as the range (`joinPrintsAsRange`).
+In the same slot the canonical row `csql-anchor-left` touches only a comparison inside a Search
+field's presence test, the one part of the filter a device leaves out
+(`walk.ts::substituteUnansweredSearchInputs`), which the reader reads from the search's row.
+A clause that reads Search fields stands in the list filter or in an advanced field's condition by
+one test, `search/rows.ts::waitsForFields`, whether a device prints nothing for it in the list's
+own filter, whether a presence test or the device covers each read (a hidden field's read the
+device works out among them): the reader places a row on the list filter as such a clause only
+where it holds, and offers no field that holds no condition (a simple or a hidden one), and the
+canonical rows `search-filter-conditions-of-a-field-are-its-own` and
+`search-field-conditions-over-other-fields-are-the-filter-s` move only a clause it holds for, each
+where the search's rows come out the same.
+A clause a device prints (a presence test under a negation, which a device reads as never there)
+is a clause of the list the case list stage reads, which a row restates. A field's conjunct whose
+first field read, in the fields' order, is another advanced field is that field's
+(`search-field-conditions-of-another-field-are-its-own`), where the search's rows come out the
+same, as the reader's kind D tries that field's condition first.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted

@@ -392,7 +392,7 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		);
 	}
 
-	// The own close (§12.6): its own held block first; else the own arm's
+	// The own close: its own held block first; else the own arm's
 	// place where that place can carry it; else a close-only block.
 	if (f.closesOwn && f.own !== undefined) {
 		const ownCloseSubject: PlacementSubject = { kind: "own-close" };
@@ -987,6 +987,43 @@ export function placedBasic(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): (operationUuid: Uuid) => boolean {
+	return heldPredicate(placedPredicates, doc, formUuid, derivePlacedBasic);
+}
+
+/** Each form's predicate, worked out once per document object. */
+type FormPredicates = WeakMap<
+	BlueprintDoc,
+	Map<Uuid, (operationUuid: Uuid) => boolean>
+>;
+const placedPredicates: FormPredicates = new WeakMap();
+const siblingPredicates: FormPredicates = new WeakMap();
+
+function heldPredicate(
+	held: FormPredicates,
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	derive: (
+		doc: BlueprintDoc,
+		formUuid: Uuid,
+	) => (operationUuid: Uuid) => boolean,
+): (operationUuid: Uuid) => boolean {
+	let forms = held.get(doc);
+	if (forms === undefined) {
+		forms = new Map();
+		held.set(doc, forms);
+	}
+	let predicate = forms.get(formUuid);
+	if (predicate === undefined) {
+		predicate = derive(doc, formUuid);
+		forms.set(formUuid, predicate);
+	}
+	return predicate;
+}
+
+function derivePlacedBasic(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): (operationUuid: Uuid) => boolean {
 	const { placements } = planPlacements(doc, formUuid);
 	// An inert subcase (a child of a several-case form) keeps its place in
 	// `subcases` while its create is a block in the source, so its action
@@ -1005,6 +1042,44 @@ export function placedBasic(
 			kind === "basic" ||
 			kind === "advanced" ||
 			subcases.has(operationUuid)
+		);
+	};
+}
+
+/**
+ * Whether the change `operationUuid` of `formUuid` reads a case name or an
+ * external id from a question's trimmed sibling: each change `placedBasic`
+ * names, but the own case's where it is a Save to Case block of its one case,
+ * which trims and checks its own values. The own case's change reads the
+ * sibling where an action carries it, and in a several-case form, whose
+ * shared update of every selected case reads it
+ * (`caseOps.ts::sharedRowSibling`). The question keeps its check wherever the
+ * own case's change is (`placedBasic`).
+ */
+export function readsTrimmedSibling(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): (operationUuid: Uuid) => boolean {
+	return heldPredicate(
+		siblingPredicates,
+		doc,
+		formUuid,
+		deriveReadsTrimmedSibling,
+	);
+}
+
+function deriveReadsTrimmedSibling(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): (operationUuid: Uuid) => boolean {
+	const placed = placedBasic(doc, formUuid);
+	const { placements } = planPlacements(doc, formUuid);
+	const f = caseSlotFacts(doc, formUuid);
+	return (operationUuid) => {
+		if (operationUuid !== f.own?.uuid) return placed(operationUuid);
+		return (
+			f.severalCases ||
+			placements.get(operationUuid)?.placement.kind !== "save-to-case"
 		);
 	};
 }

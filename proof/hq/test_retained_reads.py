@@ -383,8 +383,14 @@ def _document_reads(documents, document_id, member_name):
             if kind not in saves:
                 continue
             with state.fork():
-                with _operation(state, f"hq-side-{kind}"):
-                    run(state, app_id, saves[kind])
+                # Each save opens its own operation through ``ops``, the one this test has always named it by.
+                run(
+                    state,
+                    lambda _label, _digest, kind=kind: _operation(state, f"hq-side-{kind}"),
+                    app_id,
+                    kind,
+                    saves[kind],
+                )
                 read(f"app-source-after-{kind}")
         if export.content.media is not None:
             with _operation(state, "media"):

@@ -68,6 +68,7 @@ import {
 	type ReconcilerObservedFailure,
 	ReconcilerReloadError,
 } from "@/lib/collab/reconciler";
+import { parseReloadFrame, reloadNotice } from "@/lib/collab/reloadFrame";
 import { parseRevocationFrame } from "@/lib/collab/revocationFrame";
 import {
 	type AdmittedMutationBatch,
@@ -92,7 +93,11 @@ import {
 	BuilderSessionContext,
 	type BuilderSessionStoreApi,
 } from "@/lib/session/provider";
-import { showProjectToast, toastStore } from "@/lib/ui/toastStore";
+import {
+	showActiveProjectToast,
+	showProjectToast,
+	toastStore,
+} from "@/lib/ui/toastStore";
 
 let nextProjectScopeId = 0;
 
@@ -182,6 +187,11 @@ export interface ReconcilerRuntime {
 	readonly registerPlacementConflictHandler: (
 		handler: (replay: PlacementConflictReplay) => void,
 	) => () => void;
+	/** Record the batch id of a bring-in of changes made in CommCare HQ this
+	 *  tab sends, before it sends it. The reload that bring-in forces then
+	 *  says nothing in this tab, which shows the answer to its own request;
+	 *  every other tab says who brought the changes in. */
+	readonly registerOwnHqChangesBatch: (batchId: string) => void;
 }
 
 export interface ReconcilerProviderProps {
@@ -273,11 +283,22 @@ export function createReconcilerRuntime(
 	const lookupManifestBroker = createLookupManifestBroker();
 	const projectScopeResetRegistry = createProjectScopeResetRegistry();
 	let presenceMayBeRetained = false;
+	/* The latest roster this tab holds, read when a reload frame names who
+	 * forced it: the reload clears the roster before it lands. */
+	let latestRoster: PresenceFrame = [];
+	/* The bring-ins of changes made in CommCare HQ this tab sent, and the
+	 * notice a reload owes once it lands. */
+	const ownHqChangesBatchIds = new Set<string>();
+	let pendingReloadNotice: string | null = null;
+	function registerOwnHqChangesBatch(batchId: string): void {
+		ownHqChangesBatchIds.add(batchId);
+	}
 
 	/** Clear data whose authorization follows the app's current Project. Lookup
 	 * subscribers receive the broker's explicit loading sentinel; presence has no
 	 * retained broker, so push an empty roster directly to mounted consumers. */
 	function clearPresenceState(force = false): void {
+		latestRoster = [];
 		if (!presenceMayBeRetained && !force) return;
 		presenceMayBeRetained = false;
 		const failures: unknown[] = [];
@@ -671,8 +692,24 @@ export function createReconcilerRuntime(
 			if (es !== eventSource) return;
 			reloadAfterProtocolFailure();
 		});
-		es.addEventListener("reload", () => {
+		es.addEventListener("reload", (ev) => {
 			if (es !== eventSource) return;
+			/* A bring-in of changes made in CommCare HQ is said once the reload it
+			 * forces lands, naming the member from the roster held now, before
+			 * the reload's Project reset clears it. A frame that does not parse
+			 * still reloads, and says nothing. */
+			const reloadFrame = parseReloadFrame((ev as MessageEvent<string>).data);
+			const notice = reloadNotice(
+				reloadFrame,
+				ownHqChangesBatchIds,
+				latestRoster,
+			);
+			if (notice !== null) pendingReloadNotice = notice;
+			/* Someone brought changes made in CommCare HQ in, so what the check
+			 * when the builder opened found is settled. */
+			if (reloadFrame?.reason === "hq-changes") {
+				sessionStore.getState().clearHqChangedTargets();
+			}
 			/* `requestReload` synchronously disowns this source, pauses editing, and
 			 * resets Project state before starting its serialized GET. */
 			pendingReloadRecovery = undefined;
@@ -716,6 +753,7 @@ export function createReconcilerRuntime(
 			}
 			presenceRecoveryGeneration += 1;
 			presenceMayBeRetained = roster.length > 0;
+			latestRoster = roster;
 			for (const cb of [...presenceSubs]) cb(roster);
 		});
 		es.addEventListener("organization-revision", () => {
@@ -1160,6 +1198,13 @@ export function createReconcilerRuntime(
 			// never saw individually — any of them could have migrated case
 			// data, so refresh the per-type caches wholesale.
 			invalidateDocCaseTypes();
+			// The reload has landed in the Project it read, so its notice is
+			// said in that scope.
+			if (pendingReloadNotice !== null) {
+				const notice = pendingReloadNotice;
+				pendingReloadNotice = null;
+				showActiveProjectToast("info", notice);
+			}
 		},
 		scheduleRetry,
 		onPlacementConflict: (replay) => placementConflictHandler?.(replay),
@@ -1281,6 +1326,7 @@ export function createReconcilerRuntime(
 		lookupManifestBroker,
 		projectScopeResetRegistry,
 		registerPlacementConflictHandler,
+		registerOwnHqChangesBatch,
 	};
 }
 
@@ -1383,6 +1429,7 @@ export function ReconcilerProvider({
 							runtime.projectScopeResetRegistry.isCurrent(scopeEpoch),
 						registerPlacementConflictHandler:
 							runtime.registerPlacementConflictHandler,
+						registerOwnHqChangesBatch: runtime.registerOwnHqChangesBatch,
 					}
 				: null,
 		[runtime],

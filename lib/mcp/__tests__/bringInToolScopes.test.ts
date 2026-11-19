@@ -12,7 +12,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { dispatchMcpTools } from "@/app/api/mcp/dispatch";
 import { resolveAppScope } from "@/lib/db/appAccess";
-import { getCommCareSettings, getHqCredentials } from "@/lib/db/settings";
+import {
+	getCommCareSettings,
+	getHqCredentials,
+	resolveHqTarget,
+} from "@/lib/db/settings";
+import { bringInHqChanges, reviewHqChanges } from "@/lib/deployment/hqChanges";
 import {
 	letHqManageLookupTable,
 	manageLookupTableInNova,
@@ -53,10 +58,16 @@ vi.mock("@/lib/deployment/reading", async (original) => ({
 	readHqAppForReview: vi.fn(),
 	createFromReview: vi.fn(),
 }));
+vi.mock("@/lib/deployment/hqChanges", async (original) => ({
+	...(await original<typeof import("@/lib/deployment/hqChanges")>()),
+	reviewHqChanges: vi.fn(),
+	bringInHqChanges: vi.fn(),
+}));
 vi.mock("@/lib/db/settings", async (original) => ({
 	...(await original<typeof import("@/lib/db/settings")>()),
 	getCommCareSettings: vi.fn(),
 	getHqCredentials: vi.fn(),
+	resolveHqTarget: vi.fn(),
 }));
 vi.mock("@/lib/db/appAccess", async (original) => ({
 	...(await original<typeof import("@/lib/db/appAccess")>()),
@@ -87,6 +98,9 @@ const BEHIND_THE_GATE = [
 	createFromReview,
 	getCommCareSettings,
 	getHqCredentials,
+	resolveHqTarget,
+	reviewHqChanges,
+	bringInHqChanges,
 ] as const;
 
 beforeEach(() => {
@@ -157,6 +171,23 @@ const TOOLS = [
 			table_id: TABLE,
 			managed_by: "commcare-hq",
 			confirmed: false,
+		},
+	},
+	{
+		name: "read_hq_changes",
+		scope: "nova.hq.read",
+		args: { app_id: APP, domain: "clinic" },
+	},
+	{
+		name: "bring_in_hq_changes",
+		scope: "nova.hq.write",
+		args: {
+			app_id: APP,
+			domain: "clinic",
+			reading_id: TABLE,
+			review_digest: "ab".repeat(32),
+			discard_nova_changes: false,
+			table_choices: {},
 		},
 	},
 ] as const;

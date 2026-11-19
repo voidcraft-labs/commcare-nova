@@ -12,6 +12,7 @@ import type { CommCareCredentials } from "@/lib/commcare/hq/http";
 import {
 	HQ_MEDIA_IN_FLIGHT_MAX_BYTES,
 	HQ_MEDIA_READ_CONCURRENCY,
+	type HqMediaFileRead,
 	readHqMediaFile,
 } from "@/lib/commcare/hq/media";
 import {
@@ -23,6 +24,7 @@ import {
 import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import { publishReadyMedia } from "@/lib/media/publishReadyMedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
+import type { SettledHqMediaRead } from "../../hqMediaSettle";
 import {
 	type HqMediaVerdict,
 	judgedMediaFile,
@@ -34,6 +36,10 @@ type PlanFile = ReadingMediaPlan["files"][number];
 
 /**
  * Fetches and judges every file of the plan. Stores nothing.
+ *
+ * A file `fetched` already answers (read by an earlier step of the same
+ * request, by its CommCare HQ id) is judged from that answer and not asked
+ * for again.
  *
  * A file starts only where fewer than `HQ_MEDIA_READ_CONCURRENCY` are in
  * flight and the size limits of those in flight plus its own stay within
@@ -51,6 +57,8 @@ export async function judgeReadingMedia(input: {
 	readonly keep: boolean;
 	readonly onProgress: (done: number, total: number) => void;
 	readonly cancel?: AbortSignal;
+	/** What an earlier step of the request read of a file, by its CommCare HQ id. */
+	readonly fetched?: ReadonlyMap<string, SettledHqMediaRead>;
 }): Promise<
 	| { readonly kind: "done"; readonly plan: ReadingMediaPlan }
 	| { readonly kind: "failed"; readonly failure: HqFailure }
@@ -81,15 +89,22 @@ export async function judgeReadingMedia(input: {
 
 	const judge = async (file: PlanFile): Promise<void> => {
 		const capBytes = mediaCapBytes(file.kind);
-		const read = await readHqMediaFile(
-			creds,
-			file.mediaType,
-			file.multimediaId,
-			{
-				maxBytes: capBytes,
-				cancel: signal,
-			},
-		);
+		const answered = input.fetched?.get(file.multimediaId);
+		const read: HqMediaFileRead =
+			answered === undefined
+				? await readHqMediaFile(creds, file.mediaType, file.multimediaId, {
+						maxBytes: capBytes,
+						cancel: signal,
+					})
+				: answered.kind === "missing"
+					? answered
+					: answered.bytes.byteLength > capBytes
+						? { kind: "too-large", maxBytes: capBytes }
+						: {
+								kind: "read",
+								bytes: answered.bytes,
+								declaredContentType: null,
+							};
 		if ("success" in read) {
 			if (failure === null) failure = classifyHqFailure(read, "media-file");
 			stop.abort();

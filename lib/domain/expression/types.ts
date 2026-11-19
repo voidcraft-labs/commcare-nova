@@ -797,6 +797,15 @@ function untypedLiteral(value: Expression): Literal | undefined {
 		? value.term
 		: undefined;
 }
+/** Whether a distance is the negation of a number literal no less than
+ *  zero: a fixed distance no more than zero, which the direct spelling
+ *  refuses (`distanceValidationIssue`), and which the record dialect reads
+ *  as that number. */
+function fixedNonPositiveDistance(value: Expression): boolean {
+	if (value.kind !== "negate") return false;
+	const literal = untypedLiteral(value.value)?.value;
+	return typeof literal === "number" && literal >= 0;
+}
 const computedString = E.refine(
 	(v) => typeof untypedLiteral(v)?.value !== "string",
 	"Write a string value directly.",
@@ -845,6 +854,9 @@ const conditionSchemas = [
 				E.refine(
 					(v) => typeof untypedLiteral(v)?.value !== "number",
 					"Write a distance value directly.",
+				).refine(
+					(v) => !fixedNonPositiveDistance(v),
+					"A distance needs to be more than zero, and this one is a fixed number that is not.",
 				),
 			]),
 			unit: z.union([

@@ -230,7 +230,6 @@ export async function readHqAppSource(
 ): Promise<HqAppSourceRead> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId))
 		return INVALID_DOMAIN_SLUG;
-	const admitAny = options.admit === "any";
 	const url = `${baseUrl(creds)}/a/${domain}/apps/source/${encodeURIComponent(appId)}/`;
 	const result = await readHqJson(creds, url, "app source", {
 		maxBytes: options.maxBytes ?? HQ_APP_SOURCE_MAX_BYTES,
@@ -256,42 +255,26 @@ export async function readHqAppSource(
 		return { kind: "unsupported", docType: body.doc_type };
 	}
 
-	const { modules, _attachments, profile, langs, build_spec, translations } =
-		body;
-	const addOns = body.add_ons;
-	const logoRefs = body.logo_refs;
-	if (!Array.isArray(modules)) return malformed(domain, appId, "modules");
-	if (!isRecord(_attachments)) return malformed(domain, appId, "_attachments");
-	if (!isRecord(profile)) return malformed(domain, appId, "profile");
-	if (
-		profile.custom_properties !== undefined &&
-		!isRecord(profile.custom_properties)
-	) {
-		return malformed(domain, appId, "profile.custom_properties");
-	}
-	if (
-		!Array.isArray(langs) ||
-		!langs.every((lang): lang is string => typeof lang === "string")
-	) {
-		return malformed(domain, appId, "langs");
-	}
-	if (!isRecord(build_spec) || typeof build_spec.version !== "string") {
-		return malformed(domain, appId, "build_spec");
-	}
-	if (!isStringBagByLanguage(translations)) {
-		return malformed(domain, appId, "translations");
-	}
-	if (
-		!isRecord(addOns) ||
-		!Object.values(addOns).every((value) => typeof value === "boolean")
-	) {
-		return malformed(domain, appId, "add_ons");
-	}
-	if (logoRefs !== undefined && !isRecord(logoRefs)) {
-		return malformed(domain, appId, "logo_refs");
-	}
-	const buildProfiles = readBuildProfiles(body.build_profiles);
-	if (buildProfiles === null) {
+	const parsed = parseHqAppSource(body, {
+		admit: options.admit,
+		onNote: (note) => {
+			if (note.kind === "media-map-malformed")
+				log.error("[commcare] media map is malformed", undefined, {
+					domain,
+					request: "app-source",
+					appId,
+				});
+			else
+				log.warn("[commcare] media map entry is unreadable", {
+					domain,
+					request: "app-source",
+					appId,
+					index: note.index,
+				});
+		},
+	});
+	if (parsed.kind === "source") return parsed;
+	if (parsed.key === "build_profiles") {
 		log.error("[commcare] build profiles are malformed", undefined, {
 			domain,
 			request: "app-source",
@@ -299,27 +282,96 @@ export async function readHqAppSource(
 		});
 		return HQ_MALFORMED_ANSWER;
 	}
+	return malformed(domain, appId, parsed.key);
+}
+
+/** What a parse of a source met that its caller may log: a media map that is no object, or an
+ *  entry of it Nova cannot ask for, by its position. Neither refuses the parse. */
+export type HqAppSourceParseNote =
+	| { readonly kind: "media-map-malformed" }
+	| { readonly kind: "media-entry-unreadable"; readonly index: number };
+
+export type HqAppSourceParse =
+	| { readonly kind: "source"; readonly source: HqAppSource }
+	/** The first key whose value is not the shape HQ serializes. */
+	| { readonly kind: "malformed"; readonly key: string };
+
+/**
+ * The source an `Application` body is, by the same checks `readHqAppSource`
+ * makes of HQ's answer: anything short of the expected shape names the first
+ * key that is not, and `doc_type` where the body is no `Application`. Pure:
+ * it reads the body and reports what it met through `onNote`, never a log.
+ */
+export function parseHqAppSource(
+	body: Readonly<Record<string, unknown>>,
+	options: {
+		readonly admit?: "plain" | "any";
+		readonly onNote?: (note: HqAppSourceParseNote) => void;
+	} = {},
+): HqAppSourceParse {
+	const admitAny = options.admit === "any";
+	const refuse = (key: string): HqAppSourceParse => ({
+		kind: "malformed",
+		key,
+	});
+	if (body.doc_type !== "Application") return refuse("doc_type");
+	const { modules, _attachments, profile, langs, build_spec, translations } =
+		body;
+	const addOns = body.add_ons;
+	const logoRefs = body.logo_refs;
+	if (!Array.isArray(modules)) return refuse("modules");
+	if (!isRecord(_attachments)) return refuse("_attachments");
+	if (!isRecord(profile)) return refuse("profile");
+	if (
+		profile.custom_properties !== undefined &&
+		!isRecord(profile.custom_properties)
+	) {
+		return refuse("profile.custom_properties");
+	}
+	if (
+		!Array.isArray(langs) ||
+		!langs.every((lang): lang is string => typeof lang === "string")
+	) {
+		return refuse("langs");
+	}
+	if (!isRecord(build_spec) || typeof build_spec.version !== "string") {
+		return refuse("build_spec");
+	}
+	if (!isStringBagByLanguage(translations)) {
+		return refuse("translations");
+	}
+	if (
+		!isRecord(addOns) ||
+		!Object.values(addOns).every((value) => typeof value === "boolean")
+	) {
+		return refuse("add_ons");
+	}
+	if (logoRefs !== undefined && !isRecord(logoRefs)) {
+		return refuse("logo_refs");
+	}
+	const buildProfiles = readBuildProfiles(body.build_profiles);
+	if (buildProfiles === null) return refuse("build_profiles");
 
 	const parsedModules: HqAppSourceModule[] = [];
 	for (const module of modules) {
 		if (!isRecord(module) || !Array.isArray(module.forms)) {
-			return malformed(domain, appId, "modules[]");
+			return refuse("modules[]");
 		}
 		const uniqueId = moduleUniqueId(module.unique_id, admitAny);
 		const caseType = textOrNull(module.case_type, admitAny);
 		const docType = docTypeOf(module.doc_type, admitAny);
 		if (uniqueId === undefined || caseType === undefined || docType === null) {
-			return malformed(domain, appId, "modules[]");
+			return refuse("modules[]");
 		}
 		const forms: HqAppSourceForm[] = [];
 		for (const form of module.forms) {
 			if (!isRecord(form) || typeof form.unique_id !== "string") {
-				return malformed(domain, appId, "modules[].forms[]");
+				return refuse("modules[].forms[]");
 			}
 			const xmlns = textOrNull(form.xmlns, admitAny);
 			const formDocType = docTypeOf(form.doc_type, admitAny);
 			if (xmlns === undefined || formDocType === null) {
-				return malformed(domain, appId, "modules[].forms[]");
+				return refuse("modules[].forms[]");
 			}
 			/* Paired through this response's own form ids. Key sets are never
 			 * compared: an app made before step 2 serves orphan attachments
@@ -349,7 +401,7 @@ export async function readHqAppSource(
 			 * is an app Web Apps does not offer. */
 			cloudcareEnabled: body.cloudcare_enabled === true,
 			logoRefs: isRecord(logoRefs) ? logoRefs : {},
-			profile,
+			profile: profile as unknown as HqApplicationProfile,
 			langs,
 			translations,
 			addOns: addOns as Readonly<Record<string, boolean>>,
@@ -358,7 +410,7 @@ export async function readHqAppSource(
 			name: typeof body.name === "string" ? body.name : null,
 			lastModified:
 				typeof body.last_modified === "string" ? body.last_modified : null,
-			multimediaMap: readMultimediaMap(body.multimedia_map, domain, appId),
+			multimediaMap: readMultimediaMap(body.multimedia_map, options.onNote),
 			buildProfiles,
 		},
 	};
@@ -430,16 +482,11 @@ function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
  */
 function readMultimediaMap(
 	value: unknown,
-	domain: string,
-	appId: string,
+	onNote: ((note: HqAppSourceParseNote) => void) | undefined,
 ): readonly HqMediaMapItem[] | null {
 	if (value === undefined) return null;
 	if (!isRecord(value)) {
-		log.error("[commcare] media map is malformed", undefined, {
-			domain,
-			request: "app-source",
-			appId,
-		});
+		onNote?.({ kind: "media-map-malformed" });
 		return null;
 	}
 	const items: HqMediaMapItem[] = [];
@@ -471,12 +518,7 @@ function readMultimediaMap(
 				continue;
 			}
 		}
-		log.warn("[commcare] media map entry is unreadable", {
-			domain,
-			request: "app-source",
-			appId,
-			index,
-		});
+		onNote?.({ kind: "media-entry-unreadable", index });
 		items.push({ path, multimediaId: null, mediaType: null, unreadable: true });
 	}
 	return items;

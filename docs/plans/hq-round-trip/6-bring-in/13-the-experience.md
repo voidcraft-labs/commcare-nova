@@ -2592,11 +2592,14 @@ Nova. Relay titles, sentences and next steps as written, and do not summarize an
 failure: it is everything Nova found on this read, and `check_again` says a later read may find
 more. For a `first_publish`, relay `workers.lines` first, then `hq_only.lines`, each `sentence` as
 written, then `reassurance` where it is not null, then `note`. To check again after a change in
-CommCare HQ or a Nova update, call this tool again. An account longer than one answer is paged: pass
-`page` with the `next_page` it gave. Each page reads the app again, and where the app changed since
-the last page the answer starts over with `restarted` true. An app with many pictures and sounds can
-take a few minutes, and Nova reports progress while it works. If your client stops waiting before
-the answer comes, the app can be read in Nova in a browser."
+CommCare HQ or a Nova update, call this tool again. An account longer than one answer is paged, and
+so is a review whose lookup tables don't fit one answer: pass `page` with the `next_page` it gave
+until it is null. Each review page holds its share of `review.tables`, and `review.tables_total`
+says how many there are in all; show the user every table of every page before calling
+`bring_in_hq_app`. Each page reads the app again, and where the app changed since the last page the
+answer starts over with `restarted` true. An app with many pictures and sounds can take a few
+minutes, and Nova reports progress while it works. If your client stops waiting before the answer
+comes, the app can be read in Nova in a browser."
 
 ```ts
 inputSchema: z.strictObject({
@@ -2607,7 +2610,7 @@ inputSchema: z.strictObject({
 	hq_app_id: z.string().regex(/^[\w-]{1,255}$/).describe(
 		"The app's hq_app_id from list_hq_apps."),
 	page: z.string().regex(/^\d{1,5}:[0-9a-f]{64}$/).optional().describe(
-		"For an account longer than one answer: the next_page of the previous answer."),
+		"For an account or a review longer than one answer: the next_page of the previous answer."),
 })
 ```
 
@@ -2629,9 +2632,9 @@ export function describeReading(
 	answer: ReadingAnswer,
 	key: ReadingKey,
 	options: {
-		/** The first finding of the page: 0 unless the call sent a `page` that still stands. */
+		/** The first finding or table of the page: 0 unless the call sent a `page` that still stands. */
 		readonly from: number;
-		/** True where the call sent a `page` and the fresh read is now a review or an account with another digest; false for a stop. */
+		/** True where the call sent a `page` and the fresh read is now another account or review than the one the page was cut from; false for a stop. */
 		readonly restarted: boolean;
 		/** The name of the Project the app is added to, which the review's sentences name (R2, R4, R6 to R10). */
 		readonly project: string;
@@ -2639,11 +2642,12 @@ export function describeReading(
 ): ReadingProjection;
 /**
  * Where a fresh read's page starts for a call that sent `cursor`: `{ from, restarted: false }` where
- * the read is the account the cursor was cut from; `{ from: 0, restarted: true }` where the read is
- * now a review or an account with another digest; `{ from: 0, restarted: false }` for a stop, which
- * says nothing of the app the cursor was cut from and answers as itself, so the cursor still pages
- * once the read gets through; and null where the cursor names that very account at an index past
- * its end, which no answer gave.
+ * the read is the account or review the cursor was cut from (an account by `accountDigest`, a review
+ * by its review digest); `{ from: 0, restarted: true }` where the read is now another account or
+ * review; `{ from: 0, restarted: false }` for a stop, which says nothing of the app the cursor was
+ * cut from and answers as itself, so the cursor still pages once the read gets through; and null
+ * where the cursor names that very account or review at an index past its last finding or table,
+ * which no answer gave.
  */
 export function pageFor(
 	answer: ReadingAnswer,
@@ -2664,8 +2668,9 @@ export interface ReadingProjection {
 	/** CommCare HQ's name for the app, where the read learned it. */
 	hq_app_name: string | null;
 	state: "review" | "account" | "stop";
-	/** True where the call sent `page` and the fresh read is now a review or an account with another
-	 * digest, answered from its start. False without `page`, and for a stop, which answers as itself. */
+	/** True where the call sent `page` and the fresh read is now another account or review than the
+	 * one the page was cut from, answered from its start. False without `page`, and for a stop, which
+	 * answers as itself. */
 	restarted: boolean;
 	/** M7 where `restarted` is true, else null. */
 	message: string | null;
@@ -2739,6 +2744,7 @@ export interface ReadingProjection {
 		cannot_run: { platform: "web-apps" | "android"; sentence: string; features: string[];
 		              files: string | null }[];
 		kept: { lead: string; labels: string[]; note: string };
+		/** This page's lookup tables the app reads. */
 		tables: {
 			tag: string;
 			standing: "new" | "same-managed" | "same-equal" | "choice";
@@ -2761,6 +2767,10 @@ export interface ReadingProjection {
 				}[];
 			};
 		}[];
+		/** How many lookup tables the app reads, over every page. */
+		tables_total: number;
+		/** The cursor of the page that holds the tables after this page's, or null on the last. */
+		next_page: string | null;
 		places: { count: number; sentence: string } | null;
 		media: { sentence: string | null; left_out: string | null };
 		after: string[];
@@ -2793,21 +2803,24 @@ Every sentence is the one the screen shows, from the same exports (`lib/publish/
 `hqReadingCopy.ts`, `managedData.ts`, `keptValues.ts`, part 09's `firstPublishCopy.ts` and this
 part's `bringInCopy.ts`), with dates as ISO text or the UTC day.
 
-**A long account, one page at a time.** `describeReading` takes findings from `from` until the JSON
-of the whole result would pass 80,000 characters, which is under
-`lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`, and the tool registers `LARGE_RESULT_META`. Nothing
+**A long account, or a review's many tables, one page at a time.** `describeReading` takes an
+account's findings, or a review's tables, from `from` until the JSON of the whole result would pass
+80,000 characters, which is under `lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`, and always one,
+and the tool registers `LARGE_RESULT_META`. Every other part of a review is on every page. Nothing
 is kept between calls, so each page is a fresh read, and two pages could come from two versions of
-the app. One opaque cursor closes that. `next_page` is the text `<index>:<digest>`: the first
-finding the next page holds, and `accountDigest` of the account the page was cut from. The client
-sends it back as `page`, alone beside the three key fields, so no rule pairs two fields. Where the
-fresh read is an account with that digest, the answer is its page from `<index>`. Where it is now a
-review, or its account has another digest, the tool answers the fresh read from its start with
+the app. One opaque cursor closes that. `next_page` (on `account`, or on `review`) is the text
+`<index>:<digest>`: the first finding or table the next page holds, and the digest of what the page
+was cut from, `accountDigest` of an account or the review's `review_digest`. The client sends it
+back as `page`, alone beside the three key fields, so no rule pairs two fields. Where the fresh read
+is the account or review with that digest, the answer is its page from `<index>`. Where it is now
+the other kind, or another account or review, the tool answers the fresh read from its start with
 `restarted: true` and **M7** as `message`, so a client never stitches two versions of an app into
 one list. Where it is a stop (a key CommCare HQ turned down, CommCare HQ busy or away), the answer
 is the stop with `restarted: false` and no `message`: a stop says nothing of the app the cursor was
 cut from, and its own block says what happened, so the cursor still pages once the read gets
 through. The tool decides this through `pageFor`. A `page` no answer could give (an
-index spelled with a leading zero, or an index past the end of the account its digest names) is
+index spelled with a leading zero, or an index past the end of the account or review its digest
+names) is
 `invalid_input` with the handler's own sentence: "That page isn't one Nova gave for this app. You
 can call read_hq_app without `page` to read it from the start." It is never answered as M7, which
 would tell the user the app changed when it did not. The review's sentences name the Project, so
@@ -2822,10 +2835,11 @@ and never default to the preselected choice without saying so and hearing yes. S
 `project_id`, `domain` and `hq_app_id` the read was given, the `reading_id` it returned, and
 `review_digest`, the review they answered. `runs_only_on` and `split_datetime` together must be one
 of `review.runs_on`. `table_choices` holds one answer for each table whose review entry has a
-`choice`, by tag, and `{}` where none has. The result's `status` is `created` (the app exists, in
-that Project, and publishes back to the CommCare HQ app it came from); `changed` (something changed
-in CommCare HQ or the Project since the review, no app was created, and `reading` holds what stands
-now, to show the user again); `read_again` (a lookup table the app reads changed in the Project
+`choice`, on every page of the review, by tag, and `{}` where none has. The result's `status` is
+`created` (the app exists, in that Project, and publishes back to the CommCare HQ app it came from);
+`changed` (something changed in CommCare HQ or the Project since the review, no app was created, and
+`reading` holds what stands now, to show the user again; where it is longer than one answer it is
+the first page, and `read_hq_app` with its `next_page` as `page` reads the rest); `read_again` (a lookup table the app reads changed in the Project
 while Nova was creating the app, and no app was created: call `read_hq_app` again and show the user
 the new review); `check_failed` (one of Nova's own checks stopped the create, no app was created,
 and `reading` holds what Nova reported); or `held` (no app was created and `stop` says why, such as
@@ -3254,7 +3268,9 @@ given.
    entry of `runs_on` with its `label`, `line` and `split_line`, saying which one Nova proposes,
    each of `runs_on_notes` and each entry of `cannot_run` (its `sentence`, its `features` as a
    list, its `files`); each table, with its `sentence` or its `choice` (title, body, and each
-   answer's `label`, `lines` and `reason`); places and media; what stays in CommCare HQ (`kept`);
+   answer's `label`, `lines` and `reason`), every page of them: where `review.next_page` is not
+   null, call `read_hq_app` with `page` set to it until it is, and start over where an answer says
+   `restarted`; places and media; what stays in CommCare HQ (`kept`);
    `after`; and **what the first publish changes**, the proposed entry's `first_publish`: its
    `lead`, then "relay `workers.lines` first, then `hq_only.lines`, each `sentence` as written,
    then `reassurance` where it is not null, then `note`". "If the user picks another way for the
@@ -3479,8 +3495,8 @@ A new section, "Bringing in an app from CommCare HQ", after "Creating and deleti
 | Tool | What it does |
 |---|---|
 | `list_hq_apps` | List the apps of one CommCare HQ project space by name and `hq_app_id`. `in_nova` says a Nova app already manages one, with the app to open or who to ask. Requires `nova.hq.read`. |
-| `read_hq_app` | Read one HQ app for a Nova Project the user chose. Returns `state`, and with it a `review` (with the `reading_id` to create from), an `account` of findings (each with its place, sentence, standing and next step) or a `stop`. A long account is paged with `page` and `next_page`. Calling it again reads afresh. Requires `nova.hq.read`. |
-| `bring_in_hq_app` | Create the Nova app from a review, given the `project_id`, `domain` and `hq_app_id` that were read, the `reading_id`, `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`. `status` is `created`, `changed`, `read_again`, `check_failed` or `held`. Sending it again with the same arguments answers the same app. It reads the app again with the user's CommCare HQ key and changes nothing in CommCare HQ. Requires `nova.hq.write`. |
+| `read_hq_app` | Read one HQ app for a Nova Project the user chose. Returns `state`, and with it a `review` (with the `reading_id` to create from), an `account` of findings (each with its place, sentence, standing and next step) or a `stop`. A long account, and a review with more lookup tables than one answer holds, is paged with `page` and `next_page`, a review's `tables_total` saying how many tables there are in all. Calling it again reads afresh. Requires `nova.hq.read`. |
+| `bring_in_hq_app` | Create the Nova app from a review, given the `project_id`, `domain` and `hq_app_id` that were read, the `reading_id`, `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`, one answer for each table that asks one on every page of the review. `status` is `created`, `changed`, `read_again`, `check_failed` or `held`; where the `reading` a `changed` answer holds is longer than one answer, it is the first page, and `read_hq_app` with its `next_page` as `page` reads the rest. Sending it again with the same arguments answers the same app. It reads the app again with the user's CommCare HQ key and changes nothing in CommCare HQ. Requires `nova.hq.write`. |
 
 A callout after the table: "An agent never chooses the Project, the name, where the app runs, the
 date-and-time split or a lookup table's answer for the user. `bring_in_hq_app` has no defaults for

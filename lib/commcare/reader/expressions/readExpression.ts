@@ -128,6 +128,10 @@ import {
 	recordOnlyArm,
 } from "./folds";
 import type { ExpressionReadEnv } from "./index";
+import {
+	holdsUntypedTemporalLiteral,
+	typedWhereRequired,
+} from "./temporalLiterals";
 
 // ── The mode a slot prints in ────────────────────────────────────────
 
@@ -1474,12 +1478,29 @@ export function bindSlot(
 		spans: new Map(),
 		plain: new Set(),
 	};
-	const scope = scopeWith(doc, pending, env, withdrawn, sites, prepared.syntax);
+	// A value a device works out inside a search row is no slot's whole source.
+	const scope = scopeWith(
+		doc,
+		pending,
+		env,
+		withdrawn,
+		sites,
+		env.rowValues === true ? undefined : prepared.syntax,
+	);
 	const parsed = parseFormExpression(prepared.text, scope);
 	if (!parsed.ok)
 		return { kind: "refused", cause: { kind: "parse", issues: parsed.issues } };
 	if (parsed.expression === undefined)
 		return { kind: "refused", cause: { kind: "syntax" } };
+	// A literal spelled as a date or a date and time is typed where its
+	// position requires the type, as the typed one prints the same text.
+	const context = holdsUntypedTemporalLiteral(parsed.expression)
+		? slotContext(doc, pending.ref, lookupTypes(env))
+		: undefined;
+	const candidate =
+		context === undefined
+			? parsed.expression
+			: typedWhereRequired(parsed.expression, context);
 	const foldSites = [...sites.used].sort((a, b) => {
 		const left = sites.spans.get(a);
 		const right = sites.spans.get(b);
@@ -1489,7 +1510,7 @@ export function bindSlot(
 	return {
 		kind: "bound",
 		bound: {
-			candidate: parsed.expression,
+			candidate,
 			source: prepared.syntax,
 			foldSites,
 			spans: sites.spans,
@@ -1498,7 +1519,7 @@ export function bindSlot(
 }
 
 /** Print a bound candidate in its slot of `doc` and compare the print with
- *  the source: the judgment of 2.1's steps 4 and 5. */
+ *  the source's parsed tree: the judgment that holds or refuses the slot. */
 export function judgeSlot(
 	doc: BlueprintDoc,
 	pending: PendingExpression,

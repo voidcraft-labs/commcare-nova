@@ -2,7 +2,7 @@
  * The recordings of held placements: what the latest recording wrote for
  * each target. A recording is a `holdPlacements` entry of a row whose kind
  * records placements (`placementAuthority.ts::PLACEMENT_RECORDING_KINDS`: a
- * `publish-placement` or a `blueprint-migration` row) above the app's
+ * `publish-placement`, a `blueprint-migration` or an `hq-changes` row) above the app's
  * greatest fold baseline, or, for a target no such row names,
  * the hold that baseline's snapshot holds, since a cutover writes its holds
  * into each app's baseline rather than as mutations, and an app brought in
@@ -32,7 +32,7 @@ const HOLDS_PLACEMENTS = JSON.stringify([{ kind: "holdPlacements" }]);
 
 /**
  * The hold the latest recording wrote for each of `keys`: the newest
- * `publish-placement` or `blueprint-migration` row above the app's greatest fold baseline whose
+ * `publish-placement`, `blueprint-migration` or `hq-changes` row above the app's greatest fold baseline whose
  * `holdPlacements` names the target, else the hold that baseline's snapshot
  * holds. A key whose latest recording cleared it, or that no recording names,
  * is absent. An empty `keys` reads nothing.

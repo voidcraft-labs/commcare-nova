@@ -20,7 +20,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
-import { searchRowCsql } from "./csqlRead";
+import { type CsqlRun, searchRowCsql } from "./csqlRead";
 import {
 	ancestorWalk,
 	casedbRow,
@@ -128,6 +128,15 @@ export function searchRowProperties(text: string): string[] {
 	const row = searchRowCsql(read.node);
 	if (row === undefined) return [];
 	const found: string[] = [];
+	visitRunProperties(row, found);
+	return found;
+}
+
+/** Each property a run of a row's CSQL reads of the searched case, into
+ *  `found`, and those of each choice's runs standing where the run reads the
+ *  searched case. */
+function visitRunProperties(run: CsqlRun, found: string[]): void {
+	const { holes } = run;
 	const visit = (node: FormSyntax): void => {
 		const at = core(node);
 		if (at.kind === "call") {
@@ -148,10 +157,13 @@ export function searchRowProperties(text: string): string[] {
 		if (path === undefined || path.root !== undefined) return;
 		if (path.steps.length !== 1) return;
 		const name = elementProperty(path.steps[0]);
-		if (name !== undefined && !row.holes.has(name)) found.push(name);
+		if (name === undefined) return;
+		const choice = run.choices.get(name);
+		if (choice !== undefined)
+			for (const branch of choice) visitRunProperties(branch, found);
+		else if (!holes.has(name)) found.push(name);
 	};
-	visit(row.csql);
-	return found;
+	visit(run.csql);
 }
 
 /** What a search filter row's relation functions name, from `rowType`, the
@@ -183,6 +195,8 @@ export function searchRowRelations(
 	if (!read.ok || read.node === undefined) return { links, properties };
 	const row = searchRowCsql(read.node);
 	if (row === undefined) return { links, properties };
+	// The run `visit` reads.
+	let run: CsqlRun = row;
 	const visit = (node: FormSyntax, origin: string, related: boolean): void => {
 		const at = core(node);
 		if (at.kind === "call") {
@@ -230,12 +244,24 @@ export function searchRowRelations(
 			visit(at.value, origin, related);
 			return;
 		}
-		if (!related) return;
 		const path = flat(at);
 		if (path === undefined || path.root !== undefined) return;
 		if (path.steps.length !== 1) return;
 		const name = elementProperty(path.steps[0]);
-		if (name !== undefined && !row.holes.has(name))
+		if (name === undefined) return;
+		// A choice's runs read where its marker stands: of the related case
+		// inside a relation's filter, of the searched case outside one.
+		const choice = run.choices.get(name);
+		if (choice !== undefined) {
+			const outer = run;
+			for (const branch of choice) {
+				run = branch;
+				visit(branch.csql, origin, related);
+			}
+			run = outer;
+			return;
+		}
+		if (related && !run.holes.has(name))
 			properties.push({ caseType: origin, property: name });
 	};
 	visit(row.csql, rowType, false);
@@ -258,14 +284,40 @@ function elementProperty(
 	return step === undefined || step.attribute ? undefined : rowProperty(step);
 }
 
+/** A menu's or a form's entry datums, each worked out once in one scan. */
+type EntryRows = (
+	moduleUuid: Uuid,
+	formUuid?: Uuid,
+) => ReturnType<typeof entryDatumIds>;
+
+function entryRowsOf(doc: BlueprintDoc): EntryRows {
+	const held = new Map<string, ReturnType<typeof entryDatumIds>>();
+	let projection: ReturnType<typeof formLinkProjectionContext> | undefined;
+	return (moduleUuid, formUuid) => {
+		const key = `${moduleUuid}\u0000${formUuid ?? ""}`;
+		let rows = held.get(key);
+		if (rows === undefined) {
+			projection ??= formLinkProjectionContext(doc, {
+				entryMetadataOnly: true,
+			});
+			rows = entryDatumIds(doc, projection, moduleUuid, formUuid);
+			held.set(key, rows);
+		}
+		return rows;
+	};
+}
+
 /** The type of the case a menu chose whose id `key` reads, as
  *  `instance('commcaresession')/session/data/<id>`, among the datums the
- *  menu's case list entry holds: under its own id or its id before HQ aligns
- *  a child entry with its root menu (`formLinkProjection.ts::caseListStepDatumId`). */
+ *  menu's case list entry holds, or the form's entry where `formUuid` names
+ *  one: under its own id or its id before HQ aligns a child entry with its
+ *  root menu (`formLinkProjection.ts::caseListStepDatumId`). */
 function chosenCaseType(
 	doc: BlueprintDoc,
+	entryRows: EntryRows,
 	moduleUuid: Uuid,
 	key: FormSyntax | undefined,
+	formUuid?: Uuid,
 ): string | undefined {
 	const path = key === undefined ? undefined : flat(key);
 	if (instanceId(path) !== "commcaresession" || path === undefined)
@@ -280,11 +332,7 @@ function chosenCaseType(
 		[session, data, leaf].some((step) => step.where.length > 0)
 	)
 		return undefined;
-	const rows = entryDatumIds(
-		doc,
-		formLinkProjectionContext(doc, { entryMetadataOnly: true }),
-		moduleUuid,
-	);
+	const rows = entryRows(moduleUuid, formUuid);
 	const row =
 		rows.find((one) => one.id === leaf.name) ??
 		rows.find((one) => one.chainId === leaf.name);
@@ -323,7 +371,82 @@ export function scanReads(
 	doc: BlueprintDoc,
 	env: ExpressionReadEnv,
 ): ScannedReads {
+	const scanner = readsScanner(doc, env);
+	for (const registration of pending) {
+		const prepared = preparedSource(doc, registration);
+		if (prepared.ok) scanner.scan(prepared.syntax, registration.ref, true);
+	}
+	return scanner.finish();
+}
+
+/**
+ * The case properties the device values of a search filter row read (each
+ * hole `csqlRead.ts::searchRowCsql` finds, a choice's included), read as the
+ * searched menu's own slot reads them: a property of the case a menu above
+ * chose through the datum the menu's case list entry holds for it, and one of
+ * a case type the read's own type test names. No hole is evaluated at a row
+ * of the search, so `searchRowProperties` and `searchRowRelations`, which
+ * read the searched case and the cases related to it, leave every hole out.
+ * `docOf` gives the document the menus are read into, asked only where a
+ * hole reads a case.
+ */
+export function searchRowHoleReads(
+	text: string,
+	moduleUuid: Uuid,
+	docOf: () => BlueprintDoc,
+	env: ExpressionReadEnv,
+): ScannedReads["caseProperties"] {
+	let read: ReturnType<typeof readFormSyntax>;
+	try {
+		read = readFormSyntax(text);
+	} catch {
+		return [];
+	}
+	if (!read.ok || read.node === undefined) return [];
+	const row = searchRowCsql(read.node);
+	if (row === undefined) return [];
+	const holes: FormSyntax[] = [];
+	const collect = (run: CsqlRun): void => {
+		for (const hole of run.holes.values()) holes.push(hole);
+		for (const branches of run.choices.values())
+			for (const branch of branches) collect(branch);
+	};
+	collect(row);
+	const readsCase = holes.some((hole) =>
+		nodesOf(hole).some(
+			(node) =>
+				casedbRow(core(node)) !== undefined ||
+				siblingCaseRow(core(node)) !== undefined,
+		),
+	);
+	if (!readsCase) return [];
+	const scanner = readsScanner(docOf(), env);
+	for (const hole of holes)
+		scanner.scan(
+			hole,
+			{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+			false,
+		);
+	return scanner.finish().caseProperties;
+}
+
+/** One scan of an app's reads: `scan` reads one slot's syntax into it, and
+ *  `finish` gives what every syntax it read reads. `ownRow` says whether the
+ *  syntax is evaluated at the slot's own row, which a device value of a
+ *  search's row is not. */
+function readsScanner(
+	doc: BlueprintDoc,
+	env: ExpressionReadEnv,
+): {
+	readonly scan: (
+		syntax: FormSyntax,
+		ref: PendingExpression["ref"],
+		ownRow: boolean,
+	) => void;
+	readonly finish: () => ScannedReads;
+} {
 	const properties = new Map<string, { caseType: string; property: string }>();
+	const entryRows = entryRowsOf(doc);
 	const slugs = new Set<string>();
 	const tags = new Set<string>();
 	const links = new Map<string, { child: string; parent: string }>();
@@ -438,26 +561,32 @@ export function scanReads(
 				source.length > TABLE_SOURCE.length
 			)
 				tags.add(source.slice(TABLE_SOURCE.length));
-	for (const registration of pending) {
-		const prepared = preparedSource(doc, registration);
-		if (!prepared.ok) continue;
-		const context = slotContext(doc, registration.ref, lookupTypes(env));
-		const row = context === undefined ? undefined : activeRowScope(context);
+	const scan = (
+		syntax: FormSyntax,
+		ref: PendingExpression["ref"],
+		ownRow: boolean,
+	): void => {
+		const context = slotContext(doc, ref, lookupTypes(env));
+		const row =
+			context === undefined || !ownRow ? undefined : activeRowScope(context);
 		const rowType = row?.kind === "case" ? row.caseType : undefined;
-		const form = slotForm(doc, registration.ref);
+		const form = slotForm(doc, ref);
 		const moduleUuid = context?.form?.moduleUuid;
 		const moduleType =
 			moduleUuid === undefined ? undefined : doc.modules[moduleUuid]?.caseType;
 		const reachable =
 			form === undefined ? [] : [...caseTypeHopMap(doc, moduleType).entries()];
-		notePresence(rowType ?? moduleType, prepared.syntax);
-		const nodes = nodesOf(prepared.syntax);
+		notePresence(rowType ?? moduleType, syntax);
+		const nodes = nodesOf(syntax);
 		const inPredicate = new Set<FormSyntax>();
 		const innerStep = partsOfPaths(nodes);
 		for (const node of nodes) {
 			const at = core(node);
 			const inner = innerStep.has(at);
-			if (at.kind === "filter") inPredicate.add(core(at.where));
+			// A predicate's reads are of the rows it filters, never the slot's
+			// own row.
+			if (at.kind === "filter")
+				for (const inside of nodesOf(at.where)) inPredicate.add(core(inside));
 			if (at.kind === "call" && at.name === "instance") {
 				const id = at.args[0];
 				if (id?.kind === "string" && id.value.startsWith(TABLE_ID))
@@ -495,31 +624,29 @@ export function scanReads(
 			const rowStep = read?.row ?? (results ? path.steps[1] : undefined);
 			const rest = read?.rest ?? (results ? path.steps.slice(2) : []);
 			if (rowStep === undefined) continue;
+			// The type test among a predicate's clauses, the first of them where
+			// the clauses after it lean left on it.
 			const typed = rowStep.where
-				.map((where) => {
-					const both = core(where);
-					return (
-						caseTypeTest(where) ??
-						(both.kind === "binary" && both.op === "and"
-							? (caseTypeTest(both.left) ?? caseTypeTest(both.right))
-							: undefined)
-					);
-				})
+				.flatMap((where) => clauses(where, "and"))
+				.map((clause) => caseTypeTest(clause))
 				.find((type) => type !== undefined);
 			const ownWalk =
 				rowStep.where.length === 1
 					? keyWalk(caseIdKey(rowStep.where[0]))
 					: undefined;
 			// In a menu's own slot, a case keyed on a session value is the
-			// case a menu above it chose.
+			// case a menu above it chose; in a form's own slot (its display
+			// condition, its case changes), a case its entry chose.
+			const key =
+				rowStep.where.length === 1 ? caseIdKey(rowStep.where[0]) : undefined;
 			const chosen =
-				registration.ref.entity === "module" && rowStep.where.length === 1
-					? chosenCaseType(
-							doc,
-							registration.ref.uuid,
-							caseIdKey(rowStep.where[0]),
-						)
-					: undefined;
+				key === undefined
+					? undefined
+					: ref.entity === "module"
+						? chosenCaseType(doc, entryRows, ref.uuid, key)
+						: ref.entity === "form" && moduleUuid !== undefined
+							? chosenCaseType(doc, entryRows, moduleUuid, key, ref.uuid)
+							: undefined;
 			// A search's rows are the searched menu's case type.
 			const searched =
 				results && context?.supplies.searchResults !== undefined
@@ -573,48 +700,54 @@ export function scanReads(
 		}
 		if (rowType !== undefined && context?.ruleSet === "record")
 			for (const node of nodes) {
-				if (inPredicate.has(core(node)) || innerStep.has(core(node))) continue;
 				const at = core(node);
+				if (innerStep.has(at)) continue;
 				const path = flat(at);
 				if (path === undefined) continue;
-				const own =
-					path.root === undefined ||
-					(path.root.kind === "call" &&
-						path.root.name === "current" &&
-						path.root.args.length === 0);
-				if (own) note(rowType, elementProperty(path.steps[0]));
+				// A read from `current()` is of the slot's own row inside a
+				// predicate too.
+				const fromCurrent =
+					path.root?.kind === "call" &&
+					path.root.name === "current" &&
+					path.root.args.length === 0;
+				if (inPredicate.has(at) && !fromCurrent) continue;
+				if (path.root === undefined || fromCurrent)
+					note(rowType, elementProperty(path.steps[0]));
 			}
-	}
-	// Each property an untyped query reads that no case type declares, and
-	// no read types, belongs to the slot's own case type: Nova's binder
-	// types it by the one type that declares it, and the print, which tests
-	// no type, is the same whichever type that is.
-	const declared = new Set([
-		...effectiveCaseTypes(doc).flatMap((type) =>
-			type.properties.map((one) => one.name),
-		),
-		...[...properties.values()].map((one) => one.property),
-	]);
-	for (const read of untypedReads)
-		if (
-			!declared.has(read.property) &&
-			!isStandardCaseListProperty(read.property)
-		)
-			note(read.caseType, read.property);
-	return {
-		caseProperties: [...properties.values()].sort((a, b) =>
-			a.caseType === b.caseType
-				? a.property < b.property
-					? -1
-					: a.property > b.property
-						? 1
-						: 0
-				: a.caseType < b.caseType
-					? -1
-					: 1,
-		),
-		locationDataSlugs: sortedDistinct(slugs),
-		lookupTags: sortedDistinct(tags),
-		parentLinks: [...links.values()],
 	};
+	const finish = (): ScannedReads => {
+		// Each property an untyped query reads that no case type declares, and
+		// no read types, belongs to the slot's own case type: Nova's binder
+		// types it by the one type that declares it, and the print, which tests
+		// no type, is the same whichever type that is.
+		const declared = new Set([
+			...effectiveCaseTypes(doc).flatMap((type) =>
+				type.properties.map((one) => one.name),
+			),
+			...[...properties.values()].map((one) => one.property),
+		]);
+		for (const read of untypedReads)
+			if (
+				!declared.has(read.property) &&
+				!isStandardCaseListProperty(read.property)
+			)
+				note(read.caseType, read.property);
+		return {
+			caseProperties: [...properties.values()].sort((a, b) =>
+				a.caseType === b.caseType
+					? a.property < b.property
+						? -1
+						: a.property > b.property
+							? 1
+							: 0
+					: a.caseType < b.caseType
+						? -1
+						: 1,
+			),
+			locationDataSlugs: sortedDistinct(slugs),
+			lookupTags: sortedDistinct(tags),
+			parentLinks: [...links.values()],
+		};
+	};
+	return { scan, finish };
 }

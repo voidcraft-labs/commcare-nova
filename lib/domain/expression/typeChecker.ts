@@ -48,6 +48,8 @@ import {
 } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
 import {
+	branchesMixCoercedDays,
+	coercedValueRefusal,
 	comparisonOperands,
 	comparisonPlan,
 	type InstantComparisonKind,
@@ -57,7 +59,6 @@ import {
 	instantOperand,
 	literalInstantMicros,
 	unlowerableLeaves,
-	unreadableInstantLiterals,
 } from "./instantOperand";
 import { numericAnswerText } from "./numberLiteral";
 import { serverOnlySearchSlot } from "./profiles";
@@ -2112,9 +2113,9 @@ function inferNode(
 			const rightNumber = integerCodedSelect(expression.right, ctx)
 				? "int"
 				: right;
-			for (const [value, type, side] of [
-				[expression.left, left, "left"],
-				[expression.right, right, "right"],
+			for (const [value, type, number, side] of [
+				[expression.left, left, leftNumber, "left"],
+				[expression.right, right, rightNumber, "right"],
 			] as const) {
 				if (ctx.ruleSet === "form") numericLiteral(value, [side], errors);
 				else if (type !== undefined && type !== ANY_TYPE && !isNumeric(type))
@@ -2122,6 +2123,20 @@ function inferNode(
 						path: [side],
 						code: "number-value",
 						message: `arith requires numeric operands; ${side} got '${describe(type)}'.`,
+					});
+				// `quotient` divides whole numbers, as the record dialect reads
+				// it (`queryExpressions.ts`); `div` divides decimals.
+				else if (
+					expression.op === "quotient" &&
+					type !== undefined &&
+					type !== ANY_TYPE &&
+					number !== "int"
+				)
+					errors.push({
+						path: [side],
+						code: "number-value",
+						reason: "whole-number-quotient",
+						message: `Whole-number division needs whole numbers, and its ${side} side is ${describe(type)}. You can use div to divide decimals.`,
 					});
 			}
 			return left === undefined || right === undefined
@@ -2182,16 +2197,29 @@ function inferNode(
 			if (expression.kind === "datetime-coerce") {
 				datetimeLiteralPrecision(expression.value, ["value"], errors, true);
 				// A device prints the moment a literal names, which one naming
-				// none has not (`instant.ts::datetimeCoerceValue`).
+				// none has not, a blank's coercion as `date('')`, and the
+				// coercion of a branch node as the coercion of each branch, a
+				// case's day, a value whose clock is lost or a value that names
+				// no moment as `date()` of it (`instant.ts::datetimeCoerceValue`,
+				// which refuses by the same test).
 				const device = onDeviceContext(ctx);
-				const [unreadable] =
+				const refusal =
 					device === undefined
-						? []
-						: unreadableInstantLiterals(instantOperand(expression, device));
-				if (unreadable !== undefined)
+						? undefined
+						: coercedValueRefusal(instantOperand(expression, device));
+				if (refusal?.kind === "mixed-days")
+					errors.push({
+						path: ["value"],
+						code: "branch-values",
+						message:
+							"On a device this gives a date in one branch and a date and time in another, because CommCare keeps only the day of some of these values. You can give every branch a date and time, or turn every branch into a date.",
+					});
+				if (refusal?.kind === "unreadable")
 					errors.push(
-						unreadableDatetimeError(unreadable.literal.value, ["value"]),
+						unreadableDatetimeError(refusal.leaf.literal.value, ["value"]),
 					);
+				if (refusal?.kind === "blank")
+					errors.push(unreadableDatetimeError(refusal.value, ["value"]));
 			}
 			// A number is days since 1 January 1970 (HQ's
 			// `value_functions.py::value_to_date`, Core's
@@ -2304,6 +2332,9 @@ function inferNode(
 			read(expression.cond, ["if", "cond"], "condition");
 			const then = read(expression.then, ["if", "then"], position);
 			const otherwise = read(expression.else, ["if", "else"], position);
+			checkCoercedDayBranches([expression.then, expression.else], ctx, errors, [
+				"if",
+			]);
 			return branchResult(
 				[then, otherwise],
 				ctx,
@@ -2322,6 +2353,7 @@ function inferNode(
 					["values", index],
 					"coalesce values must agree on type",
 				);
+			checkCoercedDayBranches(expression.values, ctx, errors, []);
 			return agreed ?? scalar(ANY_TYPE);
 		}
 		case "switch": {
@@ -2380,6 +2412,12 @@ function inferNode(
 					"switch case 'then' type must agree with the established branch type",
 				);
 			}
+			checkCoercedDayBranches(
+				[...expression.cases.map((branch) => branch.then), expression.fallback],
+				ctx,
+				errors,
+				["switch"],
+			);
 			return (
 				branchResult(
 					[agreed, read(expression.fallback, ["switch", "fallback"], position)],
@@ -3652,6 +3690,21 @@ function checkComparison(
 			});
 			return;
 		}
+		// A blank orders before or after nothing: a device reads it as no
+		// number and answers no for every case, and CommCare HQ's search
+		// refuses to order by it (`comparison.py::case_property_range_query`).
+		// A branch node one of whose branches is blank orders the rows that
+		// branch is chosen for as no value, and stays.
+		if (isNullLiteral(left) || isNullLiteral(right)) {
+			errors.push({
+				path,
+				code: "ordered-values",
+				reason: "blank",
+				message:
+					"This orders a value against a blank, which is never before or after anything, so it is never true. You can check whether the value is blank instead.",
+			});
+			return;
+		}
 		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);
 		const rightOrdered = rightType === ANY_TYPE || ORDERED_TYPES.has(rightType);
 		if (!leftOrdered || !rightOrdered) {
@@ -3689,6 +3742,21 @@ function checkComparison(
 		errors,
 		path,
 	);
+}
+
+/** An operand every value of which is a `null` literal: one itself, or a
+ *  branch node (`coalesce(null)`) whose every branch ends with one. */
+function isNullLiteral(expression: Expression): boolean {
+	let blank = true;
+	visitAssignmentOutputs(expression, [], (output) => {
+		if (
+			output.kind !== "term" ||
+			output.term.kind !== "literal" ||
+			output.term.value !== null
+		)
+			blank = false;
+	});
+	return blank;
 }
 
 function isCaseRowType(expression: Expression | undefined): boolean {
@@ -3889,6 +3957,28 @@ function otherKindLeaves(operand: InstantOperand): readonly InstantLeaf[] {
  * moments are lowered: every expression of a slot a form or the suite
  * evaluates, and a value of a server search condition a device works out
  * first (`ExpressionContext.runsOnDevice`). */
+/**
+ * On a device, the branches of a value-giving node where some give a day
+ * through a `datetime-coerce` a device prints as `date()` and another gives a
+ * date and time: the node then gives values of two types, as
+ * `coalesce(now(), date(x))`, which it prints, does. A branch gives a day
+ * where every value it can end with is such a coercion.
+ */
+function checkCoercedDayBranches(
+	branches: readonly Expression[],
+	ctx: TypingContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	const device = onDeviceContext(ctx);
+	if (device !== undefined && branchesMixCoercedDays(branches, device))
+		errors.push({
+			path,
+			code: "branch-values",
+			message:
+				"On a device this gives a date in one branch and a date and time in another, because CommCare keeps only the day of some of these values. You can give every branch a date and time, or turn every branch into a date.",
+		});
+}
 function onDeviceContext(ctx: TypingContext): ExpressionContext | undefined {
 	return "profile" in ctx &&
 		(ctx.runsOnDevice === true ||
@@ -4432,15 +4522,16 @@ function checkMatch(
 			message: `match mode='${p.mode}' requires a property of type ${allowed}; got '${describe(propType)}'.`,
 		});
 	}
+	// A `null` prints as the empty string does in every target.
 	if (
 		p.value.kind === "term" &&
 		p.value.term.kind === "literal" &&
-		p.value.term.value === ""
+		(p.value.term.value === "" || p.value.term.value === null)
 	) {
 		errors.push({
 			path: [...path, "value"],
 			code: "match-value-empty",
-			message: `match value cannot be the empty string. Every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-blank(prop) for absent-or-empty.`,
+			message: `match value cannot be the empty string or null. Every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-blank(prop) for absent-or-empty.`,
 		});
 	}
 	const valueType = inferScalar(p.value, ctx, errors, [...path, "value"]);
@@ -4501,7 +4592,10 @@ function checkMultiSelectContains(
  * space-separated list of choices, so text or a choice. HQ matches
  * each of its words; a device tests the whole value as one choice
  * (`XPathSelectedFunc.java::multiSelected`), so where a device evaluates it,
- * it must be one choice.
+ * it must be one choice. A value of no known type (a `null`, or branches
+ * that are all `null`) prints as the blank, which a device reads as a test
+ * of a blank list and HQ as no choice, as it reads `''`, so a device refuses
+ * it too.
  */
 function runtimeSelectedValue(
 	type: ScalarType,
@@ -4509,7 +4603,16 @@ function runtimeSelectedValue(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	if (!isKnown(type)) return;
+	if (!isKnown(type)) {
+		if (onDeviceContext(ctx) !== undefined)
+			errors.push({
+				path,
+				code: "runtime-selected-value-on-device",
+				message:
+					"This value names no choice, and the device reads a blank here differently from the server. Choose a single-choice value here, or use it in a search field's condition.",
+			});
+		return;
+	}
 	if (type !== "text" && type !== "single_select" && type !== "multi_select") {
 		errors.push({
 			path,

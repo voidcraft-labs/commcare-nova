@@ -119,6 +119,9 @@ def unheld(monkeypatch):
         # the check that reports it: neither is a field an entry carries.
         ({"equivalence": "Android's and Web Apps' readers take the value its absence gives"}, "beyond them"),
         ({"android": "HiddenPreferences.isSavedFormsEnabled (absent reads yes)"}, "beyond them"),
+        # A difference of the judge of the changes Nova's review lists is fixed where it is found: no register
+        # holds one.
+        ({"check": "changes"}, "is never a known defect"),
     ],
     ids=[
         "unknown-key",
@@ -133,6 +136,7 @@ def unheld(monkeypatch):
         "unknown-kind",
         "equivalence-field",
         "android-citation-field",
+        "changes",
     ],
 )
 def test_the_register_loader_refuses_an_entry_it_cannot_hold_to(tmp_path, change, refusal, unheld):

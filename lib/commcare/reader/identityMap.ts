@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/expression/formStructure";
 import { planPlacements } from "../placement";
 import type { WireIdentity } from "../wireIdentity";
+import { calculatedAttributeField } from "./caseList/attributeColumns";
 import {
 	type CaseOperationPlaceKey,
 	type ExternalKey,
@@ -97,15 +98,14 @@ export function externalIdentityMap(
 		if (config !== undefined) {
 			const columnCounts = new Map<string, number>();
 			for (const column of orderedColumns(config, "list")) {
-				const field = column.kind === "calculated" ? "" : column.field;
-				const n = nextOrdinal(
-					columnCounts,
-					JSON.stringify([column.kind, field]),
-				);
-				add(
-					externalKey.caseListColumn(uniqueId, column.kind, field, n),
-					column.uuid,
-				);
+				// A calculated column that reads one attribute alone is read as the
+				// plain column over it (`caseList/attributeColumns.ts`).
+				const attribute = calculatedAttributeField(column, module.caseType);
+				const kind = attribute === undefined ? column.kind : "plain";
+				const field =
+					attribute ?? (column.kind === "calculated" ? "" : column.field);
+				const n = nextOrdinal(columnCounts, JSON.stringify([kind, field]));
+				add(externalKey.caseListColumn(uniqueId, kind, field, n), column.uuid);
 			}
 			for (const input of config.searchInputs)
 				add(externalKey.searchInput(uniqueId, input.name), input.uuid);

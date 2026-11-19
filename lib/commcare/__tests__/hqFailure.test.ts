@@ -139,6 +139,21 @@ describe("classifyHqFailure, first match", () => {
 		).toBe("not-a-member");
 	});
 
+	it("reads a 401 on a media file as a refusal, since that view asks no key, plan or permission", () => {
+		for (const answer of [
+			refusal(HQ_API_ACCESS_REFUSAL),
+			error(401, { edgeRefusal: false }),
+		])
+			for (const member of [true, false, undefined])
+				expect(
+					classifyHqFailure(
+						answer,
+						"media-file",
+						member === undefined ? {} : { member },
+					).kind,
+				).toBe("refused");
+	});
+
 	it("holds an edge's plan sentence to the edge, never the plan", () => {
 		expect(
 			classifyHqFailure(

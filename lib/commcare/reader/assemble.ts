@@ -47,6 +47,7 @@ import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
+import { calculatedAttributeColumnsArePlain } from "./caseList/columns";
 import {
 	columnsInListOrder,
 	columnsJoinedAsRead,
@@ -94,7 +95,14 @@ import { appPlace, placeOrder } from "./place";
 import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
 import { joinedGuardsSplitAsRead } from "./search/guardSplit";
 import { exactSearchModeIsAbsent } from "./search/prompts";
-import { derivedConditionsAreSimpleFields } from "./search/rows";
+import {
+	derivedConditionsAreSimpleFields,
+	fieldConditionsOfAnotherFieldAreItsOwn,
+	fieldConditionsOverOtherFieldsAreTheFilters,
+	fieldConditionsReadingNoFieldAreTheFilters,
+	filterConditionsOfAFieldAreItsOwn,
+	searchesThatFindNothingAsRead,
+} from "./search/rows";
 import {
 	defaultSearchTitleIsAbsent,
 	emptySearchSettingsBesideFieldsAreAbsent,
@@ -596,6 +604,56 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: derivedConditionsAreSimpleFields,
 	},
 	{
+		/** A search one of whose sources is never true, which sends HQ the one row `match-none()`,
+		 *  and the same search whose excluded fields are advanced fields with no condition, the first
+		 *  holding `match-none` where a field's condition sent it: both print one search, and the
+		 *  reader returns the second (`search/rows.ts::searchesThatFindNothingAsRead`). */
+		id: "searches-that-find-nothing-as-read",
+		kind: "one-wire",
+		apply: searchesThatFindNothingAsRead,
+	},
+	{
+		/** A searched list filter's conjunct that reads Search fields and prints nothing in the
+		 *  list's own filter, and the same conjunct as the condition of
+		 *  the first field it reads where that field is an advanced one: both print one row and no
+		 *  clause of the list's own filter, and the reader returns the field's
+		 *  (`search/rows.ts::filterConditionsOfAFieldAreItsOwn`). */
+		id: "search-filter-conditions-of-a-field-are-its-own",
+		kind: "one-wire",
+		apply: filterConditionsOfAFieldAreItsOwn,
+	},
+	{
+		/** A conjunct of an advanced Search field's condition that reads Search fields, the first
+		 *  of them another advanced field, and the same conjunct as that
+		 *  field's condition's last, where the search's rows come out the same: both print one
+		 *  export, and the reader returns the first field's
+		 *  (`search/rows.ts::fieldConditionsOfAnotherFieldAreItsOwn`). */
+		id: "search-field-conditions-of-another-field-are-its-own",
+		kind: "one-wire",
+		apply: fieldConditionsOfAnotherFieldAreItsOwn,
+	},
+	{
+		/** A conjunct of an advanced Search field's condition that reads Search fields, the first
+		 *  of them no advanced field, that prints nothing in the list's
+		 *  own filter, and the same conjunct as the searched list filter's last clause, where the
+		 *  search's rows come out the same: both print one row and no clause of the list's own
+		 *  filter, and the reader returns the list filter's
+		 *  (`search/rows.ts::fieldConditionsOverOtherFieldsAreTheFilters`). */
+		id: "search-field-conditions-over-other-fields-are-the-filter-s",
+		kind: "one-wire",
+		apply: fieldConditionsOverOtherFieldsAreTheFilters,
+	},
+	{
+		/** On a menu whose forms read the search, a conjunct of an advanced Search field's
+		 *  condition that reads no Search field, and the same conjunct as the list filter's last
+		 *  clause, where a device's list filter prints the same with it joined and the search's
+		 *  rows come out the same: both print one export, and the reader returns the list
+		 *  filter's (`search/rows.ts::fieldConditionsReadingNoFieldAreTheFilters`). */
+		id: "search-field-conditions-reading-no-field-are-the-filter-s",
+		kind: "one-wire",
+		apply: fieldConditionsReadingNoFieldAreTheFilters,
+	},
+	{
 		/** A tile cell no wire writes (on a list with no tile, or on a column hidden from Results
 		 *  in a tile list, `modules.ts::tileCellFor`) prints nothing; the reader returns the
 		 *  document without it. */
@@ -703,6 +761,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "columns-off-a-screen-last-in-its-order",
 		kind: "one-wire",
 		apply: columnsOffAScreenLast,
+	},
+	{
+		/** A calculated column that reads one of its case's attributes, and the plain column over
+		 *  that attribute: both print `@<name>` with the `plain` format, and the reader returns the
+		 *  plain one (`caseList/columns.ts::calculatedAttributeColumnsArePlain`). It runs before
+		 *  `columns-joined-as-read`, which gives the column the identity a re-read gives it. */
+		id: "calculated-attribute-columns-are-plain",
+		kind: "one-wire",
+		apply: calculatedAttributeColumnsArePlain,
 	},
 	{
 		/** A list whose short detail's fields join other columns of the long detail than their own,
@@ -1242,7 +1309,7 @@ function mediaKeyReading(
 }
 
 /**
- * Decides every generated translation key in the reading that meets it (16.5): each stands under
+ * Decides every generated translation key in the reading that meets it: each stands under
  * a finding where what it names did not read whole, and every other is classified against the
  * strings Nova's build makes of `doc`, a media key against what CommCare HQ's build of the
  * stored app shows (`mediaKeyReading`), and claimed by its verdict. A fold writes the value as its

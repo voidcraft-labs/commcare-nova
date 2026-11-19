@@ -15,9 +15,11 @@
 
 import { INSTANT_TEXT_PATTERN } from "@/lib/domain/expression/datePattern";
 import {
+	coercesToDay,
 	type InstantLeaf,
 	type InstantOperand,
-	literalInstantMicros,
+	type InstantSpelling,
+	instantLeafSpelling,
 	literalInstantText,
 	literalStoredInstantText,
 	unlowerableLeaves,
@@ -146,12 +148,6 @@ export function instantMicros(t: WireExpr): WireExpr {
 const UNREADABLE = (value: string) =>
 	`The date-and-time value '${value}' names no moment, so no device text spells it. The checker should refuse it (unreadable-datetime) before emission.`;
 
-function folded(leaf: Extract<InstantLeaf, { class: "literal-instant" }>) {
-	const micros = literalInstantMicros(leaf.literal.value);
-	if (micros === undefined) throw new Error(UNREADABLE(leaf.literal.value));
-	return micros;
-}
-
 /** A literal's text as a device prints it (`literalInstantText`): its own
  * date, clock and offset, which the parse reads back to its microseconds. */
 function literalText(leaf: Extract<InstantLeaf, { class: "literal-instant" }>) {
@@ -244,46 +240,52 @@ function refuseUnlowerable(operand: InstantOperand): void {
 	);
 }
 
-/** One leaf's instant text. `blankStays`: inside a `coalesce`, where a blank
- * value must stay blank so the next value is chosen. */
+/** One leaf's instant text, as its spelling at its place gives it
+ * (`instantOperand.ts::instantLeafSpelling`). `blankStays`: inside a
+ * `coalesce`, where a blank value must stay blank so the next value is
+ * chosen. */
 function leafText(
 	leaf: InstantLeaf,
 	emit: InstantEmission,
 	blankStays: boolean,
 ): WireExpr {
-	switch (leaf.class) {
-		case "literal-instant":
-			return w.str(literalText(leaf));
-		case "text":
-			return emit.value(leaf.value);
-		case "typed":
-			return typedInstantText(emit.value(leaf.value));
-		case "coerced-date-typed": {
-			const value = emit.value(leaf.value);
-			const text = typedDateMidnight(value, "T00:00:00Z");
-			return blankStays ? blankGuard(value, text) : text;
+	return spellingText(
+		instantLeafSpelling(leaf, blankStays ? "coalesced" : "branch"),
+		emit,
+	);
+}
+
+/** The instant text a spelling prints. */
+function spellingText(
+	spelling: InstantSpelling,
+	emit: InstantEmission,
+): WireExpr {
+	switch (spelling.kind) {
+		case "literal-text":
+			return w.str(spelling.text);
+		case "own-text":
+			return emit.value(spelling.value);
+		case "typed-text":
+			return typedInstantText(emit.value(spelling.value));
+		case "midnight": {
+			const value = emit.value(spelling.value);
+			const text =
+				spelling.of === "typed-date"
+					? typedDateMidnight(value, "T00:00:00Z")
+					: spelling.of === "date-text"
+						? w.call("concat", [value, w.str("T00:00:00Z")])
+						: epochDayMidnight(value, "T00:00:00Z");
+			return spelling.guarded ? blankGuard(value, text) : text;
 		}
-		case "coerced-date-text": {
-			const value = emit.value(leaf.value);
-			const text = w.call("concat", [value, w.str("T00:00:00Z")]);
-			return blankStays ? blankGuard(value, text) : text;
-		}
-		case "coerced-text":
-			return coercedTextInstant(emit.value(leaf.value), "T00:00:00Z");
-		case "epoch-days": {
-			const value = emit.value(leaf.value);
-			const text = epochDayMidnight(value, "T00:00:00Z");
-			return blankStays ? blankGuard(value, text) : text;
-		}
-		case "not-instant":
-			return emit.value(leaf.value);
-		case "unknown":
-			return leaf.held === "date"
-				? typedInstantText(emit.value(leaf.value))
-				: emit.value(leaf.value);
-		case "day-only":
-		case "clock-lost":
-			throw new Error("An unlowerable leaf reached its instant text.");
+		case "text-or-midnight":
+			return coercedTextInstant(emit.value(spelling.value), "T00:00:00Z");
+		case "count":
+		case "scaled-days":
+		case "as-written":
+		case "refused":
+			throw new Error(
+				`A leaf spelled '${spelling.kind}' has no instant text; only a whole side prints so.`,
+			);
 	}
 }
 
@@ -325,25 +327,21 @@ function operandText(
 	}
 }
 
-/** One side of a lowered comparison: a folded literal, a day number scaled,
- * a value that names no moment as itself, or the parse of its instant text. */
+/** One side of a lowered comparison: a count (a folded literal, a day
+ * number's microseconds), a day number scaled, a value that names no moment
+ * as itself, or the parse of its instant text, as the side's spelling gives
+ * it (`instantOperand.ts::instantLeafSpelling`). */
 export function instantOperandWire(
 	operand: InstantOperand,
 	emit: InstantEmission,
 ): WireExpr {
 	refuseUnlowerable(operand);
 	if (operand.kind === "leaf") {
-		if (operand.class === "literal-instant") return w.num(folded(operand));
-		if (operand.class === "epoch-days") {
-			const literal =
-				operand.value.kind === "term" && operand.value.term.kind === "literal"
-					? operand.value.term.value
-					: undefined;
-			return typeof literal === "number"
-				? w.num(literal * MICROS_PER_DAY)
-				: w.mul(emit.value(operand.value), w.num(MICROS_PER_DAY));
-		}
-		if (operand.class === "not-instant") return emit.value(operand.value);
+		const spelling = instantLeafSpelling(operand, "operand");
+		if (spelling.kind === "count") return w.num(spelling.micros);
+		if (spelling.kind === "scaled-days")
+			return w.mul(emit.value(spelling.value), w.num(MICROS_PER_DAY));
+		if (spelling.kind === "as-written") return emit.value(spelling.value);
 	}
 	return instantMicros(operandText(operand, emit, false));
 }
@@ -391,6 +389,7 @@ export function datetimeCoerceValue(
 		case "leaf":
 			break;
 	}
+	if (coercesToDay(operand)) return w.call("date", [emit.value(operand.value)]);
 	switch (operand.class) {
 		case "literal-instant":
 			return w.str(literalText(operand));
@@ -418,13 +417,13 @@ export function datetimeCoerceValue(
 		case "unknown":
 			return operand.held === "date"
 				? typedInstantValue(emit.value(operand.value))
-				: operand.held === "string"
-					? emit.value(operand.value)
-					: w.call("date", [emit.value(operand.value)]);
+				: emit.value(operand.value);
 		case "not-instant":
 		case "day-only":
 		case "clock-lost":
-			return w.call("date", [emit.value(operand.value)]);
+			throw new Error(
+				"A coercion `coercesToDay` reads as a day reached the text of a moment.",
+			);
 	}
 }
 

@@ -220,16 +220,27 @@ export function caseListOrderOptions(
 		mediaOn,
 		calculatedType: (column) => {
 			if (column.kind !== "calculated") return undefined;
-			const outcome = checkExpression(
-				column.expression,
-				expressions({
-					slot: "case_list_column_expression",
-					member: { columnUuid: column.uuid },
-				}),
-			);
-			return outcome.errors.length > 0
+			const context = expressions({
+				slot: "case_list_column_expression",
+				member: { columnUuid: column.uuid },
+			});
+			const outcome = checkExpression(column.expression, context);
+			// A leaf a declared platform lacks types as it does on any other,
+			// so a document whose declaration is still to be settled (a
+			// reading's) orders by the type no declaration narrows.
+			const platformOnly =
+				outcome.errors.length > 0 &&
+				outcome.errors.every(
+					(error) =>
+						error.code === "arm-unavailable" &&
+						error.reason === "platform-unavailable",
+				);
+			const typed = platformOnly
+				? checkExpression(column.expression, { ...context, platforms: [] })
+				: outcome;
+			return typed.errors.length > 0
 				? undefined
-				: scalarDataType(outcome.type?.data);
+				: scalarDataType(typed.type?.data);
 		},
 		expressionText: (column) =>
 			hqExpressionFieldText(

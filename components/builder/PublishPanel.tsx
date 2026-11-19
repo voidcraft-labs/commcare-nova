@@ -32,6 +32,7 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { CommCareServer } from "@/lib/deployment";
 import type { ProjectSpaceConfirmationChecks } from "@/lib/deployment/confirmations";
+import type { RemoteChangeDiscard } from "@/lib/deployment/types";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	decodeExportAdvisories,
@@ -49,8 +50,11 @@ import {
 import { buildUrl } from "@/lib/routing/location";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import {
+	type HqChangesBroughtIn,
 	useCanEdit,
+	useClearHqChangesBroughtIn,
 	useClearPublishDialogRequest,
+	useHqChangesBroughtIn,
 	usePublishDialogRequest,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -205,8 +209,19 @@ export const PublishPanel = memo(function PublishPanel() {
 	const [requestedDomain, setRequestedDomain] = useState<string | undefined>(
 		undefined,
 	);
+	/** The publish over a change the request named, held with its domain. */
+	const [requestedDiscard, setRequestedDiscard] = useState<
+		RemoteChangeDiscard | undefined
+	>(undefined);
+	/** This tab's own bring-in of changes made in CommCare HQ, which the
+	 *  dialog opens on after the reload its commit forced. */
+	const [requestedBroughtIn, setRequestedBroughtIn] = useState<
+		HqChangesBroughtIn | undefined
+	>(undefined);
 	const publishDialogRequest = usePublishDialogRequest();
 	const clearPublishDialogRequest = useClearPublishDialogRequest();
+	const heldBroughtIn = useHqChangesBroughtIn();
+	const clearHeldBroughtIn = useClearHqChangesBroughtIn();
 	const downloadControllersRef = useRef(new Set<AbortController>());
 	useEffect(
 		() =>
@@ -438,6 +453,8 @@ export const PublishPanel = memo(function PublishPanel() {
 		if (current.accessPhase === "authorized") {
 			setPublishDialogMounted(true);
 			setRequestedDomain(undefined);
+			setRequestedDiscard(undefined);
+			setRequestedBroughtIn(undefined);
 			setPublishDialogOpen(true);
 		}
 	}, [session]);
@@ -445,6 +462,8 @@ export const PublishPanel = memo(function PublishPanel() {
 		for (const controller of downloadControllersRef.current) controller.abort();
 		downloadControllersRef.current.clear();
 		setRequestedDomain(undefined);
+		setRequestedDiscard(undefined);
+		setRequestedBroughtIn(undefined);
 		setPublishDialogOpen(false);
 	}, []);
 
@@ -459,8 +478,24 @@ export const PublishPanel = memo(function PublishPanel() {
 		if (session.getState().accessPhase !== "authorized") return;
 		setPublishDialogMounted(true);
 		setRequestedDomain(request.domain);
+		setRequestedDiscard(request.discard);
+		setRequestedBroughtIn(undefined);
 		setPublishDialogOpen(true);
 	}, [publishDialogRequest, clearPublishDialogRequest, session]);
+	/* A bring-in the Publish dialog sent landed, and the reload its commit
+	 * forced closed the dialog (this panel stands only while app access is
+	 * resolved): the dialog opens again on its destination step, saying the
+	 * changes are in. */
+	useEffect(() => {
+		if (heldBroughtIn === null || heldBroughtIn.home !== "publish") return;
+		if (session.getState().accessPhase !== "authorized") return;
+		clearHeldBroughtIn();
+		setPublishDialogMounted(true);
+		setRequestedDomain(heldBroughtIn.domain);
+		setRequestedDiscard(undefined);
+		setRequestedBroughtIn(heldBroughtIn);
+		setPublishDialogOpen(true);
+	}, [heldBroughtIn, clearHeldBroughtIn, session]);
 	/* Check connection reads the connection through the context, never the
 	 * Next router: a router refresh would put back Next's own address over
 	 * one the History API wrote, such as an app created in this tab. */
@@ -506,6 +541,8 @@ export const PublishPanel = memo(function PublishPanel() {
 					connectionServer={server}
 					canUploadToHq={canEdit}
 					requestedDomain={requestedDomain}
+					requestedDiscard={requestedDiscard}
+					requestedBroughtIn={requestedBroughtIn}
 					onOpenPublishing={handleOpenPublishing}
 					isRefreshingHqConnection={isRefreshingHqConnection}
 					hqConnectionRefreshFailed={hqConnectionRefreshFailed}

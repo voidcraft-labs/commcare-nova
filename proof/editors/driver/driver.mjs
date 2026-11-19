@@ -1827,6 +1827,17 @@ async function runVellum(message) {
 		await waitUntil(cdp, served, "vellum/loaded", null);
 		await waitUntil(cdp, served, "vellum/settled", null);
 		outcome.record = await evaluate(cdp, "vellum/record", null);
+		// The one edit a person makes between the open and the save, where the
+		// run names one (steps/vellum/edit.js).
+		if (message.edit) {
+			outcome.edit = await evaluate(cdp, "vellum/edit", message.edit);
+			if (!outcome.edit?.edited) {
+				throw new StepFailed(
+					"page",
+					`The run's edit of ${message.edit.path} did not take (${outcome.edit?.reason}), so the driver did not save the form.`,
+				);
+			}
+		}
 		const saving = Date.now();
 		stages.open = (saving - opening) / 1000;
 		outcome.save = await evaluate(cdp, "vellum/save", null);

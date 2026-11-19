@@ -17,6 +17,7 @@ import {
 } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { slotContext } from "@/lib/domain/expression/context";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
@@ -70,6 +71,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import { noteProperty } from "../caseManagement/catalog";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
+import { guessKey } from "../search/dateRangeGuesses";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReaderKnownCaseTypes } from "../types";
 import type { ReadSourceNames } from "../xform";
@@ -77,6 +79,11 @@ import {
 	agreedComparedTypes,
 	type ComparedType,
 	comparedTypes,
+	mergedCandidates,
+	type RequiredType,
+	requiredTypes,
+	untypedOutputProperties,
+	valueProperties,
 } from "./comparedTypes";
 import {
 	checkErrorEntry,
@@ -141,6 +148,18 @@ export interface ExpressionReadEnv {
 	/** `ReaderInput.knownCaseTypes`: the type the document Nova holds declares for each
 	 *  property step 1 declares (`noteProperty`). */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** The properties the search stage typed `date` only for a date range field over them
+	 *  (`search/dateRangeGuesses.ts`), by `guessKey`, which a record slot's comparison types
+	 *  as it compares them. */
+	readonly dateRangeGuesses?: ReadonlySet<string>;
+	/** The number type a list's stored order element compares each calculated column by
+	 *  (`caseList/order.ts::SortReading.numericColumns`), by column: the type of the number the
+	 *  column gives. */
+	readonly numericSortColumns?: ReadonlyMap<Uuid, "int" | "double">;
+	/** Each registration is a value a device works out inside a search row's text
+	 *  (`csqlRead.ts::bindDevice`), never a slot's whole source, so none of its top-level
+	 *  conjuncts is a row of the search (`folds.ts::conjunctsPrintAsRows`). */
+	readonly rowValues?: true;
 }
 export interface GeneratedValue {
 	readonly purpose: "constraint-count";
@@ -583,11 +602,33 @@ type Outcome =
 
 const WITHHOLD_ALL = new Set<EmissionRewriteId>(EMISSION_REWRITE_IDS);
 
+/** The slots `readExpressionsSteps` binds or judges between two stops. */
+const SLOTS_PER_STEP = 400;
+
 export function readExpressions(
 	doc: BlueprintDoc,
 	pending: readonly PendingExpression[],
 	env: ExpressionReadEnv,
 ): ExpressionReading {
+	const steps = readExpressionsSteps(doc, pending, env);
+	for (;;) {
+		const step = steps.next();
+		if (step.done) return step.value;
+	}
+}
+
+/**
+ * `readExpressions` a part at a time: it stops between its scan, its typing,
+ * each pass of binding and judging, its leveling and its checks, and every
+ * `SLOTS_PER_STEP` slots inside each of those, until it is resumed, so the
+ * expression stage of an app at the bring-in byte cap is no one long piece
+ * of a request.
+ */
+export function* readExpressionsSteps(
+	doc: BlueprintDoc,
+	pending: readonly PendingExpression[],
+	env: ExpressionReadEnv,
+): Generator<void, ExpressionReading, void> {
 	const types = lookupTypes(env);
 	const live = pending.map(
 		(registration) => slotContext(doc, registration.ref, types) !== undefined,
@@ -629,9 +670,11 @@ export function readExpressions(
 		for (const read of missing)
 			noteProperty(catalog, read.caseType, read.property, env.knownCaseTypes);
 	});
+	yield;
 	// 1b. Type: a property the catalog holds untyped that a record slot
 	// compares with a value of a known type is of that type.
 	const base = withComparedTypes(scannedBase, pending, live, sites, env);
+	yield;
 	const declaredProperties = missing.filter((read) =>
 		(base.caseTypes ?? []).some(
 			(type) =>
@@ -749,16 +792,24 @@ export function readExpressions(
 		withdrawn.forEach((taken, index) => {
 			if (!settled.has(index)) taken.clear();
 		});
-		for (const index of bindable) bindAt(start, index);
+		for (const [at, index] of bindable.entries()) {
+			if (at > 0 && at % SLOTS_PER_STEP === 0) yield;
+			bindAt(start, index);
+		}
+		yield;
 		current = writtenAdmitted();
 		for (;;) {
+			yield;
 			rounds++;
-			judgments = new Map(
-				[...bindings].map(([index, bound]) => [
+			judgments = new Map();
+			for (const [index, bound] of bindings) {
+				if (judgments.size > 0 && judgments.size % SLOTS_PER_STEP === 0) yield;
+				judgments.set(
 					index,
 					judgeSlot(current, pending[index] as PendingExpression, env, bound),
-				]),
-			);
+				);
+			}
+			yield;
 			const withdrawing = [...judgments].flatMap(([index, judgment]) =>
 				judgment.kind === "bound" &&
 				!judgment.equal &&
@@ -774,6 +825,7 @@ export function readExpressions(
 			current = writtenAdmitted();
 		}
 
+		yield;
 		// 4. Level: a slot still unequal is compared with the print that leaves
 		// every rewrite out, then with prints that leave out the rewrite at some
 		// of its sites (`siteLevel`), and held at the level whose print is the
@@ -782,7 +834,10 @@ export function readExpressions(
 		rewrites = [];
 		leveled = new Map<number, Expression>();
 		levels = new Map<number, PrintLevel>();
+		let leveling = 0;
 		for (const [index, judgment] of judgments) {
+			if (leveling > 0 && leveling % SLOTS_PER_STEP === 0) yield;
+			leveling += 1;
 			const registration = pending[index] as PendingExpression;
 			const bound = bindings.get(index) as BoundSlot;
 			if (judgment.kind === "unprintable") continue;
@@ -872,6 +927,7 @@ export function readExpressions(
 		if (!again || rounds >= EXPRESSION_ROUND_LIMIT) break;
 		settled = leveled;
 	}
+	yield;
 	const circumstances: ExpressionReading["circumstances"][number][] = [];
 	const checked = written(
 		base,
@@ -880,9 +936,13 @@ export function readExpressions(
 		new Map([...boundTrees(), ...leveled]),
 	);
 
+	yield;
 	// 5. Check every held slot over the document that holds every bound
 	// candidate; 6. hand every held record slot to the dialect's judge.
+	let checking = 0;
 	for (const [index, judgment] of judgments) {
+		if (checking > 0 && checking % SLOTS_PER_STEP === 0) yield;
+		checking += 1;
 		const registration = pending[index] as PendingExpression;
 		const outcome = outcomes.get(index);
 		const candidate =
@@ -1002,6 +1062,7 @@ export function readExpressions(
 			resolution: { kind: "entry", ...raw },
 		});
 
+	yield;
 	// 7. Report.
 	const bound: (Expression | undefined)[] = pending.map(() => undefined);
 	const claims: ExpressionClaim[] = [];
@@ -1200,13 +1261,19 @@ function withComparedTypes(
 	const untyped = (caseType: string, property: string): boolean => {
 		const declared = (doc.caseTypes ?? [])
 			.find((type) => type.name === caseType)
-			?.properties.some((one) => one.name === property);
+			?.properties.find((one) => one.name === property);
 		const typed = effective
 			.find((type) => type.name === caseType)
 			?.properties.find((one) => one.name === property)?.data_type;
-		return declared === true && typed === undefined;
+		return (
+			declared !== undefined &&
+			(typed === undefined ||
+				(env.dateRangeGuesses?.has(guessKey(caseType, property)) === true &&
+					declared.data_type === typed))
+		);
 	};
 	const found: ComparedType[] = [];
+	const required: { readonly one: RequiredType; readonly index: number }[] = [];
 	pending.forEach((registration, index) => {
 		if (!live[index]) return;
 		const context = slotContext(doc, registration.ref, types);
@@ -1215,11 +1282,61 @@ function withComparedTypes(
 		const bound = bindSlot(doc, registration, env, new Set());
 		if (bound.kind !== "bound") return;
 		found.push(...comparedTypes(bound.bound.candidate, context, untyped));
-		// Two properties the catalog holds untyped, compared, print as
-		// written; as dates and times a device compares them as moments. Where
-		// only that print is the source's, they are dates and times.
-		const pairs = untypedPairs(bound.bound.candidate, untyped);
+		// A list that orders by a calculated column as a number tells the
+		// number's type: the column's value takes it, and a number position
+		// in it tries it first.
+		const ref = registration.ref;
+		const sorted =
+			ref.entity === "module" && ref.slot === "case_list_column_expression"
+				? env.numericSortColumns?.get(ref.member.columnUuid)
+				: undefined;
+		const sortedType = sorted === "int" ? "int" : "decimal";
+		if (sorted !== undefined)
+			for (const one of valueProperties(
+				bound.bound.candidate,
+				[sortedType],
+				untyped,
+			))
+				required.push({ one: { ...one, told: true }, index });
+		for (const one of requiredTypes(bound.bound.candidate, context, untyped))
+			required.push({
+				one:
+					sorted !== undefined && one.candidates.includes(sortedType)
+						? {
+								...one,
+								candidates: [
+									sortedType,
+									...one.candidates.filter((type) => type !== sortedType),
+								],
+								told: true,
+							}
+						: one,
+				index,
+			});
+		// Two properties the catalog holds untyped, compared, each side itself
+		// or through a value-giving branch, print as written; as dates and
+		// times a device compares them as moments. Where only that print is the
+		// source's, they are dates and times.
+		const pairs = untypedPairs(bound.bound.candidate, untyped, false, true);
 		if (pairs.length === 0) return;
+		// Two such properties ordered against each other print bare as dates
+		// and as numbers alike: either is a type that orders, tried after
+		// every other reading of them.
+		const ordered = untypedPairs(bound.bound.candidate, untyped, true);
+		for (let at = 0; at + 1 < ordered.length; at += 2) {
+			const left = ordered[at] as { caseType: string; property: string };
+			const right = ordered[at + 1] as { caseType: string; property: string };
+			required.push(
+				{
+					one: { ...left, candidates: ["date", "decimal"], partners: [right] },
+					index,
+				},
+				{
+					one: { ...right, candidates: ["date", "decimal"], partners: [left] },
+					index,
+				},
+			);
+		}
 		const asMoments = pairs.map((one) => ({
 			...one,
 			dataType: "datetime" as const,
@@ -1231,7 +1348,140 @@ function withComparedTypes(
 		if (!equal(doc) && equal(withTypes(doc, asMoments)))
 			found.push(...asMoments);
 	});
-	return withTypes(doc, agreedComparedTypes(found));
+	const agreed = agreedComparedTypes(found);
+	const compared = withTypes(doc, agreed);
+	const typedByComparison = new Set(
+		agreed.map((one) => JSON.stringify([one.caseType, one.property])),
+	);
+	return withRequiredTypes(
+		compared,
+		pending,
+		required,
+		env,
+		(caseType, property) =>
+			untyped(caseType, property) &&
+			!typedByComparison.has(JSON.stringify([caseType, property])),
+	);
+}
+
+/**
+ * `doc` with each property a signature position reads and no comparison typed
+ * (`requiredTypes`) typed as the first type that position admits under which
+ * every slot reading it binds to a tree its checker admits and prints the
+ * source's text, with the properties the position orders it against, which
+ * take the same type in the same try. Where no type holds while the slots'
+ * other untyped properties stay text (a `date-add` of two of them, whose
+ * checker admits neither alone), the try is made again with each of those
+ * at the first type its own position admits, and only the property tried is
+ * typed. A property no such type holds stays as it was, for the slot's own
+ * finding.
+ */
+function withRequiredTypes(
+	doc: BlueprintDoc,
+	pending: readonly PendingExpression[],
+	required: readonly { readonly one: RequiredType; readonly index: number }[],
+	env: ExpressionReadEnv,
+	untyped: (caseType: string, property: string) => boolean,
+): BlueprintDoc {
+	const types = lookupTypes(env);
+	const byProperty = new Map<
+		string,
+		{
+			one: RequiredType;
+			readonly entries: RequiredType[];
+			readonly slots: Set<number>;
+			readonly partners: Map<string, { caseType: string; property: string }>;
+		}
+	>();
+	for (const { one, index } of required) {
+		const key = JSON.stringify([one.caseType, one.property]);
+		const entry = byProperty.get(key) ?? {
+			one,
+			entries: [] as RequiredType[],
+			slots: new Set<number>(),
+			partners: new Map(),
+		};
+		entry.entries.push(one);
+		entry.slots.add(index);
+		for (const partner of one.partners ?? [])
+			entry.partners.set(
+				JSON.stringify([partner.caseType, partner.property]),
+				partner,
+			);
+		byProperty.set(key, entry);
+	}
+	// Each property's candidates, in the order every position reading it
+	// decides together.
+	for (const entry of byProperty.values())
+		entry.one = { ...entry.one, candidates: mergedCandidates(entry.entries) };
+	let current = doc;
+	const typed = new Set<string>();
+	const open = (caseType: string, property: string) =>
+		untyped(caseType, property) &&
+		!typed.has(JSON.stringify([caseType, property]));
+	for (const { one, slots, partners } of byProperty.values()) {
+		if (!open(one.caseType, one.property)) continue;
+		// A partner the reading has not typed yet takes the same type in the
+		// same try: an ordering of two untyped properties admits neither alone.
+		const along = [...partners.values()].filter((partner) =>
+			open(partner.caseType, partner.property),
+		);
+		const judged = new Set(slots);
+		for (const partner of along)
+			for (const index of byProperty.get(
+				JSON.stringify([partner.caseType, partner.property]),
+			)?.slots ?? [])
+				judged.add(index);
+		// The other open properties the judged slots require, each at the first
+		// type its own position admits.
+		const beside = [...byProperty.values()]
+			.filter(
+				(other) =>
+					other.one !== one &&
+					!along.some(
+						(partner) =>
+							partner.caseType === other.one.caseType &&
+							partner.property === other.one.property,
+					) &&
+					open(other.one.caseType, other.one.property) &&
+					[...other.slots].some((index) => judged.has(index)),
+			)
+			.flatMap((other) => {
+				const [first] = other.one.candidates;
+				return first === undefined ? [] : [{ ...other.one, dataType: first }];
+			});
+		const tries = one.candidates.flatMap((dataType) => {
+			const own = [
+				{ ...one, dataType },
+				...along.map((partner) => ({ ...partner, dataType })),
+			];
+			return [own, ...(beside.length === 0 ? [] : [[...own, ...beside]])];
+		});
+		for (const trial of tries) {
+			const next = withTypes(current, trial);
+			const holds = [...judged].every((index) => {
+				const registration = pending[index] as PendingExpression;
+				const context = slotContext(next, registration.ref, types);
+				const bound = bindSlot(next, registration, env, new Set());
+				if (context === undefined || bound.kind !== "bound") return false;
+				if (
+					refusals(checkExpression(bound.bound.candidate, context).errors)
+						.length > 0
+				)
+					return false;
+				const judgment = judgeSlot(next, registration, env, bound.bound);
+				return judgment.kind === "bound" && judgment.equal;
+			});
+			if (holds) {
+				const kept = trial.slice(0, 1 + along.length);
+				current = withTypes(current, kept);
+				for (const done of kept)
+					typed.add(JSON.stringify([done.caseType, done.property]));
+				break;
+			}
+		}
+	}
+	return current;
 }
 
 /** `doc` with each of `types` declared on its property. */
@@ -1251,29 +1501,45 @@ function withTypes(
 }
 
 /** The properties of each comparison whose two sides are properties the
- *  catalog holds untyped. */
+ *  catalog holds untyped, or, `throughBranches`, give only such properties,
+ *  each itself or through a value-giving branch. */
 function untypedPairs(
 	tree: Expression,
 	untyped: (caseType: string, property: string) => boolean,
+	orderingOnly = false,
+	throughBranches = false,
 ): { caseType: string; property: string }[] {
 	const out: { caseType: string; property: string }[] = [];
-	const property = (side: Expression) =>
-		side.kind === "term" &&
-		side.term.kind === "prop" &&
-		side.term.caseType !== undefined &&
-		(side.term.via === undefined || side.term.via.kind === "self") &&
-		untyped(side.term.caseType, side.term.property)
-			? { caseType: side.term.caseType, property: side.term.property }
+	// A property of the row, or of the case a menu above chose.
+	const property = (side: Expression) => {
+		const term =
+			side.kind === "term"
+				? side.term
+				: side.kind === "project" && readChosenCaseProperty(side) !== undefined
+					? side.value
+					: undefined;
+		return term?.kind === "prop" &&
+			term.caseType !== undefined &&
+			(term.via === undefined || term.via.kind === "self") &&
+			untyped(term.caseType, term.property)
+			? { caseType: term.caseType, property: term.property }
 			: undefined;
+	};
 	const visit = (node: Expression): void => {
 		if (
-			node.kind === "eq" ||
-			node.kind === "neq" ||
+			(!orderingOnly && (node.kind === "eq" || node.kind === "neq")) ||
 			node.kind === "gt" ||
 			node.kind === "gte" ||
 			node.kind === "lt" ||
 			node.kind === "lte"
 		) {
+			if (throughBranches) {
+				const lefts = untypedOutputProperties(node.left, untyped);
+				const rights = untypedOutputProperties(node.right, untyped);
+				if (lefts !== undefined && rights !== undefined)
+					out.push(...lefts, ...rights);
+				return;
+			}
 			const left = property(node.left);
 			const right = property(node.right);
 			if (left !== undefined && right !== undefined) out.push(left, right);

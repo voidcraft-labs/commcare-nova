@@ -27,6 +27,9 @@ directories the partitions cover (``walked_files``).
   ``proof/known-defects.json``, which the sensitivity judge reads before it
   writes its evidence: ``proof/checks/sensitivity.py::hold_flips``, and
   ``proof/fixed-defects.json``, which holds a control's checks), the
+  register of the changes Nova tells a person its publish makes
+  (``proof/first-publish-changes.json``, which the checks of a document whose
+  saves in CommCare HQ are brought in hold its differences to), the
   walk-stops list (``proof/walk-stops.json``, which the stops check holds a
   document's walks to), ``lib/commcare/surface/**``, and the test modules
   outside the checks whose items run in documents' groups
@@ -75,6 +78,7 @@ DOCUMENT_GROUP_TESTS = frozenset({"proof/hq/test_branches.py"})
 JUDGE_FILES = (
     frozenset(
         {
+            "proof/first-publish-changes.json",
             "proof/fixed-defects.json",
             "proof/identity-moves.json",
             "proof/known-defects.json",

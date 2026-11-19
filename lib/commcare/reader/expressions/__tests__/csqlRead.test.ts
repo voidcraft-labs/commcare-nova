@@ -26,9 +26,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	and,
+	datetimeLiteral,
 	eq,
 	input,
 	literal,
+	neq,
 	or,
 	prop,
 	term,
@@ -49,6 +51,7 @@ import { externalIdentityMap } from "../../identityMap";
 import { readHqApp } from "../../index";
 import { canonicalExpression } from "../canonical";
 import { readSearchFilterRow } from "../csqlRead";
+import { searchRowProperties, searchRowRelations } from "../scanReads";
 import {
 	CSQL_READER_VECTORS,
 	csqlRow,
@@ -536,6 +539,23 @@ describe("a selection and a membership read back from Nova's own Search field", 
 			),
 		},
 		{
+			// HQ's comparison of a date and time is the range from the value to
+			// itself, so Nova prints the inequality as the not of that range.
+			name: "a related case's inequality of a date and time with its last change",
+			condition: visits(
+				neq(
+					term(datetimeLiteral("2025-12-31T23:59:59.5Z")),
+					term(prop("visit", "last_modified")),
+				),
+			),
+			reads: visits(
+				neq(
+					term(prop("visit", "last_modified")),
+					term(datetimeLiteral("2025-12-31T23:59:59.5Z")),
+				),
+			),
+		},
+		{
 			name: "a membership, alone and in an `or`",
 			condition: or(among("north", "south"), selects([a], "any")),
 			reads: or(among("north", "south"), selects([a], "any")),
@@ -586,4 +606,54 @@ describe("a selection and a membership read back from Nova's own Search field", 
 			if (context === undefined) throw new Error("The condition has no slot.");
 			expect(canonicalExpression(one.condition, context)).toEqual(one.reads);
 		});
+});
+
+describe("a device's choice among a row's clauses", () => {
+	const statusIs = (value: string): Expression =>
+		eq(village, term(literal(value)));
+	const choice: Expression = {
+		kind: "switch",
+		on: term(village),
+		cases: [
+			// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+			{ when: { kind: "literal", value: "a" }, then: statusIs("x") },
+			// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
+			{ when: { kind: "literal", value: "b" }, then: { kind: "match-none" } },
+		],
+		fallback: { kind: "match-all" },
+	};
+	it("reads HQ's own choice of each case of a switch whose subject reads the case as that switch", () => {
+		expect(readSearchFilterRow(novaRow(choice, filter), filter, env)).toEqual({
+			ok: true,
+			predicate: choice,
+			level: "exact",
+			rewrites: [],
+		});
+	});
+
+	it("names a property a choice's run reads where its marker stands: of the related case inside a relation's filter", () => {
+		const outcome = term(prop("visit", "outcome"));
+		const related: Expression = {
+			kind: "exists",
+			via: { kind: "subcase", identifier: "parent", ofCaseType: "visit" },
+			where: {
+				kind: "if",
+				cond: eq(
+					{
+						kind: "coalesce",
+						values: [term(literal("b")), term(literal("a"))],
+					},
+					term(literal("a")),
+				),
+				// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
+				then: { kind: "match-none" },
+				else: eq(outcome, term(literal("x"))),
+			},
+		};
+		const row = novaRow(related, filter);
+		expect(searchRowProperties(row)).toEqual([]);
+		expect(searchRowRelations(row, "patient").properties).toEqual([
+			{ caseType: "visit", property: "outcome" },
+		]);
+	});
 });

@@ -10,12 +10,13 @@ import "server-only";
 import { inventoryIndex } from "../surface/inventory";
 import { readApplication } from "./appShell";
 import { assembleDocument, assembleDocumentSteps } from "./assemble";
-import { readCaseLists, settleCaseLists } from "./caseList";
+import { readCaseLists, readCaseListsSteps, settleCaseLists } from "./caseList";
 import {
 	compareEntryFacts,
 	compareEntryFactsSteps,
 	readCaseManagement,
 	settleCaseManagement,
+	settleCaseManagementSteps,
 	writeCaseOperations,
 } from "./caseManagement";
 import { createReadContext, type ReadContext } from "./context";
@@ -63,7 +64,10 @@ const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 	[(ctx) => readCaseManagement(ctx, ctx.draft)],
 	[mintFields],
 	[(ctx) => writeCaseOperations(ctx, ctx.draft)],
-	[(ctx) => readCaseLists(ctx, ctx.draft)],
+	[
+		(ctx) => readCaseLists(ctx, ctx.draft),
+		(ctx) => readCaseListsSteps(ctx, ctx.draft),
+	],
 	[(ctx) => readSearches(ctx, ctx.draft)],
 	[(ctx) => readRootSelectionsTaken(ctx, ctx.draft)],
 	[
@@ -72,7 +76,10 @@ const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 	],
 	[(ctx) => registerLinkExpressions(ctx, ctx.draft)],
 	[bindExpressions, bindExpressionsSteps],
-	[(ctx) => settleCaseManagement(ctx, ctx.draft)],
+	[
+		(ctx) => settleCaseManagement(ctx, ctx.draft),
+		(ctx) => settleCaseManagementSteps(ctx, ctx.draft),
+	],
 	[(ctx) => settleCaseLists(ctx, ctx.draft)],
 	[(ctx) => settleSearches(ctx, ctx.draft)],
 	[
@@ -114,9 +121,8 @@ export function readHqApp(
 /**
  * `readHqApp` one stage at a time, and a long stage a part at a time: the
  * reading stops after each until it is resumed, so a caller on a request can
- * let the event loop turn between them (added by the bring-in layer: an app
- * at the byte cap is seconds of reading). Nothing outside the reading's own
- * context is held across a stop.
+ * let the event loop turn between them: an app at the byte cap is seconds of
+ * reading. Nothing outside the reading's own context is held across a stop.
  */
 export function* readHqAppSteps(
 	input: ReaderInput,
@@ -127,7 +133,7 @@ export function* readHqAppSteps(
 			`The reader was given ${input.modules.length} aligned menus for a source that holds ${input.source.modules.length}. Pass the menus of the same reading the source came from.`,
 		);
 	const ctx = createReadContext(input, options, inventoryIndex());
-	// `onStage` (added by the bring-in layer) names the part a throw came from.
+	// `onStage` names the part a throw came from.
 	for (const [index, stage] of STAGE_STEPS.entries()) {
 		options.onStage?.(index);
 		const steps = stage(ctx);

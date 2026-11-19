@@ -18,6 +18,14 @@ import {
 /** The XForm with its data root's `version` set to `version`, and nothing else moved. */
 export function setFormVersion(xform: string, version: number): string {
 	const doc = parseXForm(xform);
-	findDataElement(doc, "setFormVersion").attribs.version = String(version);
+	setFormVersionOn(doc, version);
 	return serializeXForm(doc);
+}
+
+/** `setFormVersion` over a parsed XForm, which it changes in place. */
+export function setFormVersionOn(
+	doc: ReturnType<typeof parseXForm>,
+	version: number,
+): void {
+	findDataElement(doc, "setFormVersion").attribs.version = String(version);
 }

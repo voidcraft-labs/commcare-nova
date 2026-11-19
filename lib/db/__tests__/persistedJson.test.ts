@@ -242,6 +242,52 @@ describe("durable app-change envelope admission", () => {
 		).toThrow(/must carry mutations/);
 	});
 
+	it("parses an hq-changes row with a nonempty batch and no run", () => {
+		const change = parsePersistedAppChangeEnvelope({
+			...ordinary,
+			kind: "hq-changes",
+			mutationsText: JSON.stringify([
+				{ kind: "setAppName", name: "Changed" },
+				placementHolds,
+			]),
+		});
+		expect(change).toMatchObject({
+			seq: 2,
+			batchId: "batch-2",
+			actorId: "actor-1",
+			kind: "hq-changes",
+			mutations: [{ kind: "setAppName", name: "Changed" }, placementHolds],
+		});
+		expect(change.runId).toBeUndefined();
+	});
+
+	it("refuses an hq-changes row with a run or an empty batch, as the database does", () => {
+		expect(() =>
+			parsePersistedAppChangeEnvelope({
+				...ordinary,
+				kind: "hq-changes",
+				runId: "run-1",
+			}),
+		).toThrow(
+			"app_changes row of kind hq-changes carries a run, and a bring-in of changes made in CommCare HQ carries none",
+		);
+		expect(() =>
+			parsePersistedAppChangeEnvelope({
+				...ordinary,
+				kind: "hq-changes",
+				mutationsText: "[]",
+			}),
+		).toThrow("app_changes row hq-changes must carry mutations.");
+		expect(() =>
+			parsePersistedAppChangeEnvelope({
+				...ordinary,
+				kind: "hq-changes",
+				fromProjectId: "project-a",
+				toProjectId: "project-b",
+			}),
+		).toThrow(/outside a project move/);
+	});
+
 	it("admits only the fold-baseline empty non-scope arm", () => {
 		expect(
 			parsePersistedAppChangeEnvelope({

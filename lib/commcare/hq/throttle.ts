@@ -15,7 +15,11 @@
 export const HQ_THROTTLE_MAX_WAIT_MS = 2_000;
 /** The wait for a 429 that names none: a tastypie resource's, or an edge's. */
 export const HQ_THROTTLE_ABSENT_WAIT_MS = 1_000;
-/** How many times one read is sent at most: the first and two resends. */
+/**
+ * How many times one read is sent while HQ answers 429: the first and two
+ * resends. A read no answer began for is sent once more besides
+ * (`readJson.ts`).
+ */
 export const HQ_READ_SENDS = 3;
 /** How many throttled reads of one bring-in are in flight at once. */
 export const HQ_THROTTLED_READ_CONCURRENCY = 1;

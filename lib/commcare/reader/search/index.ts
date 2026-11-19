@@ -31,6 +31,7 @@ import { readExpressions } from "../expressions";
 import { readExpression } from "../expressions/readExpression";
 import {
 	scanReads,
+	searchRowHoleReads,
 	searchRowProperties,
 	searchRowRelations,
 } from "../expressions/scanReads";
@@ -49,6 +50,7 @@ import {
 } from "../provisional";
 import { readFormSyntax } from "../syntaxRead";
 import { expressionEnvOf } from "../xform";
+import { guessKey, noteDateRangeGuesses } from "./dateRangeGuesses";
 import { type PromptReading, readSearchPrompts } from "./prompts";
 import {
 	classifySearchRows,
@@ -424,10 +426,22 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const relations = filters.rows.map((row) =>
 			searchRowRelations(row.text, caseType),
 		);
+		// A value the device works out in a row reads the cases the menu's own slot reads (the case
+		// a menu above chose, a case of a type its read tests), declared as an expression's are.
+		const holeReads = filters.rows.flatMap((row) =>
+			searchRowHoleReads(
+				row.text,
+				module.uuid,
+				() => provisionalDocument(ctx),
+				expressionEnvOf(ctx),
+			),
+		);
 		const related =
 			relations.some(
 				(one) => one.links.length > 0 || one.properties.length > 0,
-			) || properties.length > 0;
+			) ||
+			properties.length > 0 ||
+			holeReads.length > 0;
 		if (related && app.caseTypes != null)
 			ctx.writeDraft(() => {
 				app.caseTypes = produce(app.caseTypes ?? [], (draft) => {
@@ -439,6 +453,8 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 						for (const read of reads)
 							noteProperty(draft, read.caseType, read.property, told);
 					}
+					for (const read of holeReads)
+						noteProperty(draft, read.caseType, read.property, told);
 				});
 			});
 		const workflow = readSearchWorkflow(ctx, module, cursor);
@@ -556,8 +572,10 @@ const EARLY_DECLARATIONS = new WeakMap<
  * The types the Search fields give properties no writer types, written into the draft's catalog
  * before the expression stage, so every slot that reads such a property (a search's own rows, a
  * filter comparing it with a date) binds against the type the field declares. A date range field
- * over such a property declares it `date`, since the gate asks a date range field for a date
- * property (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`); a field whose row is its derivation
+ * over such a property declares it `date`, one of the two types the gate takes for a date range
+ * field (`SEARCH_INPUT_TYPE_PROPERTY_TYPES`), which the field's print, HQ's prompt alone, does
+ * not tell apart, so a record slot's comparison types it instead where one compares it
+ * (`dateRangeGuesses.ts`); a field whose row is its derivation
  * declares the type under which the row reads as that derivation (`rows.ts::dateFieldDeclarations`);
  * and a property a row compares with a value of a known type takes that type, under which the row
  * reads back (`rows.ts::rowEarlyReads`). The same reading of the rows names the worker's own data
@@ -578,6 +596,7 @@ function declareDateFieldsBeforeBinding(
 		property: string;
 		dataType: CasePropertyDataType;
 	}[] = [];
+	const guesses = new Set<string>();
 	const userFields: string[] = [];
 	const sessionUserFields: string[] = [];
 	const declare = (
@@ -606,8 +625,12 @@ function declareDateFieldsBeforeBinding(
 				input.via === undefined &&
 				properties.find((property) => property.name === input.property)
 					?.data_type === undefined
-			)
+			) {
+				const before = declarations.length;
 				declare(caseType, input.property, "date");
+				if (declarations.length > before)
+					guesses.add(guessKey(caseType, input.property));
+			}
 		for (const { property, dataType } of dateFieldDeclarations(
 			ctx,
 			doc,
@@ -625,6 +648,7 @@ function declareDateFieldsBeforeBinding(
 	}
 	declareDateSorts(ctx, app, doc, declare);
 	EARLY_DECLARATIONS.set(ctx, declarations);
+	noteDateRangeGuesses(ctx, guesses);
 	ROW_USER_FIELDS.set(ctx, { userFields, sessionUserFields });
 	const catalog = app.caseTypes;
 	if (declarations.length === 0 || catalog === undefined || catalog === null)

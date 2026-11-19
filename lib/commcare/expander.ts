@@ -222,12 +222,12 @@ export function expandDoc(
 }
 
 /** How many forms `expandDocSteps` emits between two stops. */
-const FORMS_PER_EXPANSION_STEP = 250;
+const FORMS_PER_EXPANSION_STEP = 100;
 
 /**
- * `expandDoc` a part at a time: it stops after every
- * `FORMS_PER_EXPANSION_STEP` forms it emits, at the end of a menu, and before
- * the application is serialized, until it is resumed, so a caller on a
+ * `expandDoc` a part at a time: it stops once the projection's context is
+ * built, after every `FORMS_PER_EXPANSION_STEP` forms it emits, at the end of
+ * a menu, and before the application is serialized, until it is resumed, so a caller on a
  * request can let the event loop turn while an app at the bring-in byte cap
  * is emitted. The application is `expandDoc`'s, which drives this.
  */
@@ -302,6 +302,7 @@ export function* expandDocSteps(
 	// builder and the case-references load map below read the same per-form
 	// config so their data paths agree. Empty for non-Connect apps.
 	const connectSlugs = buildConnectSlugMap(doc);
+	yield;
 
 	const moduleShellOf = (moduleUuid: Uuid, mIdx: number) => {
 		const mod = doc.modules[moduleUuid];

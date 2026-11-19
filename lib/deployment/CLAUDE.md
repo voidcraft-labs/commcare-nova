@@ -315,7 +315,14 @@ edges that talk to CommCare HQ during preflight, and each appears only when the
 app carries that thing: `managed-data` when a table the app reads is managed in
 CommCare HQ, and `target-app` whenever `plannedInPlaceUpdate` names an app. It reads the
 app's source (`lib/commcare/hq/appSource.ts::readHqAppSource`), and is the only
-edge that does. It is not the publish's only read of it: a first publish reads
+edge that does. It also compares the file at each path the app publishes with
+the one Nova recorded, by id, and settles a path it holds no record for by the
+file's content (`hqMedia.ts::hqMediaStandings`, `hqMediaSettle.ts::settleHqMedia`):
+a file that is not this app's is one more part of the app's change, so it
+stops the publish with `hq_changed` before the upload could write over it, and
+a file Nova could not read stops it with `hq_app_state_unknown`
+(`preflight.ts::hqMediaReadFailure`), never read as nothing changed. Only over
+an app that holds Nova's content, since a shell holds no file. It is not the publish's only read of it: a first publish reads
 the source after it creates the empty app, and a publish that pushed a lookup
 table or a place reads it again before the import. Each of the three compares
 what it read with its baseline and collects what changed, and preflight gives
@@ -538,11 +545,14 @@ app at `target-app` and records it gone there if it is. The recreated app
 keeps the deployment's recorded ids and media paths.
 `app_deployment_identities` holds the ids a target holds that are not the
 derivation: every menu and form of an app brought in from CommCare HQ, on the
-project space it came from, and the ids of a deployment first published before
-ids were derived (a menu's id and a form's `xmlns` as the app source held
-them, a form's id as the `ApplicationResource` read held it). Rows are written
-when an app is brought in from CommCare HQ and deleted when its deployment is
-ended; no publish writes one, and no publish reads form ids back. A deployment whose HQ app is gone stays the same
+project space it came from, each menu and form a bring-in of changes made there
+found under an id that is not its derivation, and the ids of a deployment first
+published before ids were derived (a menu's id and a form's `xmlns` as the app
+source held them, a form's id as the `ApplicationResource` read held it). Rows
+are written when an app or changes made to it are brought in from CommCare HQ
+(which first deletes a row the reading contradicts) and deleted when its
+deployment is ended; no publish writes one, and no publish
+reads form ids back. A deployment whose HQ app is gone stays the same
 deployment: its live `app` mapping carries `remote_missing_at`, and its next
 publish creates a new app in that project space. One that holds no identity
 row gets derived ids there.
@@ -603,15 +613,24 @@ the document stores them. `app_deployment_identities` holds only the ids a
 target holds that differ. The runtime role reads it
 (`store.ts::readDeploymentIdentityOverrides`, which a publish and a `.ccz`
 hand the expander as `targetWireIdentity(overrides)`), inserts rows when an
-app is brought in from CommCare HQ and deletes them when a deployment is
-ended, and never changes one. An app brought in holds one row per menu and per
+app is brought in from CommCare HQ and when changes made there are brought in
+(`store.ts::recordHqChangesTaken`, for each menu and form CommCare HQ holds
+under an id that is not its derivation, first deleting a row the reading
+contradicts: a row of the same entity under other ids, or of another entity
+under an id or `xmlns` the reading's row takes), deletes them when a
+deployment is ended, and never updates one. An app brought in holds one row per menu and per
 form the reading held (`adoption.ts::adoptedIdentityRows`), written once, in
 the birth's transaction; a deployment first published before ids were derived
 holds the rows a migration wrote.
 
 `app_deployment_media_paths` holds, the same way, the path CommCare HQ keeps
 each of that app's media files under (`adoption.ts::assignMediaPaths`: one
-path per file, the first in code-unit order of the paths that can be held).
+path per file, the first in code-unit order of the paths that can be held),
+written when the app is brought in and, for each file CommCare HQ added or
+replaced since, when changes made there are brought in
+(`store.ts::recordHqChangesTaken`, which first deletes the replaced file's row
+at that path, matched without letter case; a file that already holds a path
+keeps it).
 `store.ts::readDeploymentMediaPaths` hands them to a publish's export boundary
 and a `.ccz`'s (`heldMediaPaths`), so each file goes out at the path HQ keeps
 it under on that project space and at its content-hash path everywhere else.
@@ -691,17 +710,22 @@ sent, so the drift check compares one HQ read with another
 (`hqSourceBaseline.ts`, `hqResourceBaseline.ts`, `remoteChanges.ts`). A
 deployment holds one app baseline (`app_deployment_baselines`): the normalized
 source HQ answered right after Nova's push (`push`), right after the empty app
-was made (`create`), at the cutover (`cutover`), or when the app was brought
-in (`read`), which is compared as a push is, with the ownership descriptor of
-the body it describes. A `read` baseline's descriptor is the one
+was made (`create`), at the cutover (`cutover`), when the app was brought
+in (`read`), or when changes made there were brought in (`changes`), the last
+two compared as a push is, with the ownership descriptor of the body it
+describes. A `read` baseline's descriptor is the one
 `importApplication.ts::hqImportApplication` gives for the document over that
 read on an adopted mapping, with the Search advisory taken as unverified. It
 holds no form ids: a source read re-mints them, so the normalization replaces
 each by its position. A baseline also holds the revision of the Nova app its
-source describes (`nova_revision`: the sequence a push sent, or the birth's),
-and, for an app brought in, which CommCare HQ file stood at each path the app
-publishes there when it came in (`media_files`, `hqMedia.ts::HqMediaRecord`),
-which a push keeps for the same HQ app. A baseline of origin `read` also
+source describes (`nova_revision`: the sequence a push sent, the birth's, or
+the one a bring-in of changes committed or reviewed at),
+and which CommCare HQ file stands at each path the app publishes there
+(`media_files`, `hqMedia.ts::HqMediaRecord`, a path to the id of CommCare HQ's
+document), written from CommCare HQ's own report of the upload, from the
+source at a bring-in, and never from what Nova sent. A push's read-back keeps
+it for the same HQ app, since it comes before the upload; a create writes
+none. A baseline of origin `read` also
 holds `first_publish_changes`: the first-publish changes the person reviewed
 that do not depend on where the app runs, and the Web App setting CommCare HQ
 held. After changes made in CommCare HQ are brought in or recorded, a
@@ -791,7 +815,187 @@ handed back to CommCare HQ between a publish's last read of that fact and its
 workbook upload is written once more: the publish reads who manages each
 table of its workbook in one statement just before the upload, and a table
 handed back by then stops it at `resources` with `managed_table_handed_back`,
-nothing of the workbook or the app's content sent.
+nothing of the workbook or the app's content sent. A file a person replaces in
+CommCare HQ between the publish's last source read and its media upload is
+written over, and the record then names Nova's file: HQ's upload takes no
+expected id, so this window too stays one round trip wide.
+
+## Bringing in what changed in CommCare HQ
+
+`hqChanges/` brings a change a person made in CommCare HQ to an app Nova
+publishes there in to Nova. **The change is the difference of two readings of
+two of CommCare HQ's own answers**: the source the baseline stores
+(`baselineSource.ts::sourceFromBaseline`, each form keyed by its position
+token, every object's keys sorted) and the app as CommCare HQ serves it now,
+read in that same key order (`baselineSource.ts::inStoredKeyOrder`, since the
+reader reads an operation's writes in its map's key order), through one reader and one
+identity map (`readings.ts::makeHqChangeReadings`: `externalIdentityMap` over
+the reference document under the identity a publish to this deployment
+sends), with every other input shared (the Project's tables, CommCare HQ's
+levels, the reference's case types and language codes). Nova's own emission
+is on neither side, so whatever CommCare HQ keeps of its own (a logo, a build
+profile, the media map, a form re-spelled by its builder) and whatever the
+reader does cancels, and the difference is ordinary mutations keyed by Nova's
+UUIDs (`diffDocsToMutations` under `HQ_READING_DELTA`, a delta that moves no
+saved case rows). Nothing is ever rebuilt from CommCare HQ's app.
+
+It is offered only over a usable pair (`hqChanges/reference.ts::usablePair`):
+a baseline that holds a source that verifies (origin `push`, `read` or
+`changes`) and names a `nova_revision`, a `push` baseline's revision equal to
+the live mapping's `pushed_revision`, at or after the app's greatest fold
+baseline. The `target-app` edge sets that answer as the app change's
+`canBringIn`; a table's and a place's change carry false. Changes in Nova
+are measured against the reference document
+(`reference.ts::loadReferenceDocument`): the document at that revision, with
+what a server wrote after it (a publish's holds, a deploy's
+`blueprint-migration` applied whole, a Project move that no person's change
+preceded) and with what a publish never sends taken from the head (the kinds
+no reading holds, the worker setup under the slugs the published document
+gave it, where the app runs, the logo).
+
+**Nova holds nothing unpublished exactly where what it would publish reads
+the same as what it published**, `documentDifferences(canonK(reference),
+canonK(head))` empty and no worker or location property's slug renamed since
+(`plan.ts`: a slug nothing reads is in neither, and a read CommCare HQ adds of
+the published slug means that property). Where a property renamed in Nova since the
+publish left its old slug to a property made since, the reference holds that slug twice; every
+reading of a document the plan compares binds it to the property the published document held
+(`plan.ts::propertiesGivingWay`), and the gate then refuses the bring-in with the slug's own
+finding. A note, a review mark, a persona or a worker
+property's label changed since then is nothing CommCare HQ receives, so it
+neither causes a choice nor is lost: the changes are applied to the head and
+come in with no warning. Otherwise nothing is merged. The changes are applied
+to the reference, the review lists by place every change in Nova that taking
+them removes (`lib/doc/documentChanges.ts`), and the person chooses one side
+whole: use CommCare HQ's version, publish over it, or stop publishing there. A
+case property renamed in Nova since the reference holds the first choice back
+until it is renamed back, since that rename moved saved case data.
+
+**Two requests, and nothing stored between them**, as bringing an app in is.
+`review.ts::reviewHqChanges` (`POST /api/commcare/changes/review`) authorizes
+`edit`, reads CommCare HQ with the member's own key, writes nothing, and
+answers a review with a digest (`digest.ts::hqChangesReviewDigest`: the
+baseline's digest, CommCare HQ's source now, the head, the settled media
+standings, the target with each file CommCare HQ holds named by its content,
+and the tables the change newly reads). `bringIn.ts::bringInHqChanges`
+(`POST /api/commcare/changes/bring-in`) computes all of it again and acts only
+where its digest is the one sent. Any other answer takes nothing and answers
+`changed` with the review as it now stands, and so do the kernel's
+`AppHeadMovedError` and the record's `store.ts::HqChangesBaselineMovedError`.
+Both routes answer 200 with a stage stream for every outcome. A bring-in
+commits under `batchId.ts::hqChangesBatchId` (the deployment, the digest and
+the member), so a double press converges on the kernel's batch latch and
+another member's press meets its head test.
+
+Both requests run their synchronous work as a read does, in pieces with the
+event loop turning between them (`gather.ts::Pieces`): each reader pass by its
+stages (`readings.ts::makeHqChangeReadingsSteps`), acceptance by its checks,
+and the plan by its steps (`plan.ts::planHqChangesSteps`, whose diffs and
+preparations stop between their parts), and the next publish's body by its
+emission's parts. Both reader passes and acceptance's re-read share the
+request's held emissions (`Pieces.expansions`), so the fixed point's re-read
+of the reading now is answered with that reading's emissions. The readings made
+to learn which files the sources name are the readings the check takes where
+no judged file changes what the media index answers (none missing, none
+published), so a review reads each source once. The files settling a
+published path by content read are handed to the judge of the files the
+sources name (`settleHqMedia`'s `retain`, `judgeReadingMedia`'s `fetched`),
+so it asks CommCare HQ for each such file once. A bring-in counts its own
+pieces (the check over the files it published, the next publish's body) with
+the computation's in the one line it logs, and compresses the stored source
+off the event loop.
+
+**Three writes, and none of them is a push.** `pushed_revision`, `pushed_at`,
+the deployment's state and its phase outcomes never change, since nothing was
+sent:
+
+- A change with a batch commits through `lib/db/applyBlueprintChange.ts` as
+  kind `hq-changes` at the reviewed head, and `store.ts::recordHqChangesTaken`
+  runs as its `inTransaction`, in the commit's own transaction with the
+  sequence the commit takes. It fences on the baseline the plan read (its
+  digest, its revision, its read date and the live HQ app), writes a baseline
+  of origin `changes` whose `nova_revision` is that sequence, with the
+  ownership the next publish's body gives over that source and the target
+  (`importApplication.ts::hqImportApplication`, computed before the commit)
+  and the media record; inserts an identity row for each menu and form
+  CommCare HQ holds under an id that is not its derivation and a media path
+  row for each file it added or replaced; and keeps the next publish's list (a
+  brought-in app's `first-publish` list from this reading's acceptance, else
+  `next-publish` with the plan's `publishChanges` and each id of a stored
+  `next-publish` list this reading still gives, since only a push ends it,
+  else none).
+- A change the app already holds (`nothing`, `already-here`) runs the same
+  record in a short transaction of its own under `withDeploymentRow`, naming
+  the reviewed head, with no app change.
+- A save that reads as the same app (`nothing`, `reads-the-same`) is recorded
+  by Refresh's own writer, `store.ts::recordRefreshedAppBaseline`: the source
+  is replaced, origin, `nova_revision`, ownership and any discard stay, the
+  next publish's list is kept by the same rule where the review ran its
+  readings, and the media record is written wherever it moves
+  (`hqMedia.ts::hqMediaRecordMoves`): an id the review learned by content is
+  recorded, and an id whose file CommCare HQ no longer serves is forgotten
+  (`nextHqMediaRecord`'s `settled`), so Refresh counts neither again. A take
+  passes `settled` too.
+
+After any of them the baseline is CommCare HQ's source as it stands, so the
+next publish's comparison passes and its reference starts at that revision.
+
+**Three narrowing rules keep a change set to what CommCare HQ's app can say**
+(`plan.ts::narrowed`). No worker or location property is removed or
+relabelled, and an add of one the document holds is left out: a reading holds
+one per slug the app reads, labelled with its slug, and no definition. A
+translation whose source CommCare HQ reworded keeps its text and provenance,
+takes the new fingerprint and is marked for review. No declared case property
+leaves the catalog, and a declaration CommCare HQ's change moves takes only
+the keys the two readings' effective catalogs give apart, so saved case data
+keeps its definition and the kernel's refusal to remove a property that holds
+saved values is never met. A take check holds the rest: taking the change and
+then reading the document as the reader would must give what reading first and
+taking second gives. Where it fails, the menus and forms the change touches
+take the reader's `one-wire` spelling, which prints the same bytes, and the
+check runs once more; the batch is then replayed over the head and must give
+the target exactly.
+
+**Five places Nova's own content gives way**, because a mutation writes its
+slot whole with the reader's value: a translation whose source was reworded
+loses its reviewed mark; a translation whose own text CommCare HQ changed
+reads as a person's, reviewed; a thing CommCare HQ removed goes with what
+Nova held on it, a case property's declaration excepted; a `required`
+condition on the question that names a new case becomes always required where
+CommCare HQ moved the case name to another question; and a dormant spelling of
+a menu or form CommCare HQ changed (one-screen groups at a form's root, a tile
+cell on a list that was no tile, a formatting flag under a form whose
+formatting was off, a registration form's place) takes the reader's spelling
+where it no longer fits.
+
+**What is held, and what is unavailable.** Two changes are named and not
+taken (`held`): a new first language that would change the source language of
+an app with several (`languages-reordered`: no mutation changes the source
+language there), and a version that does not offer the app's own declaration
+of where it runs (`runs-elsewhere`). A reading now that holds something Nova
+cannot hold is an account, and nothing is taken. A review is `unavailable`
+where nothing in the project space is this app's (`not-published`: no
+deployment there, or none whose publish made the app; `publishing-stopped`:
+its deployment is ended; `app-deleted`: its live mapping is released, which
+it is only while the app is in recently deleted, since a restore settles every
+released mapping in the transaction that restores the app, so only a request
+authorized before the deletion meets it), with no usable pair (`no-reference`,
+`baseline-unread`), where the base
+reading needs Project data that has changed or does not read
+(`base-needs-project-data`, `base-unreadable`), over a stored source larger
+than `HQ_BRING_IN_APP_MAX_BYTES` (`base-too-large`), where a later
+`blueprint-migration` does not apply to the reference (`nova-updated`) or a
+Project move followed a person's change (`app-moved`), and where a check of
+the plan's or acceptance's fails (`nova-defect`, Nova's own, logged at error
+with its signature). A condition added in CommCare HQ to one of a root's
+one-screen groups reads as groups where the base reads sections; no mutation
+converts between the two, so the diff removes each page by name and adds it
+again under its own UUID (`lib/doc/diffDocsToMutations.ts::rebornFields`), and
+the change is taken. Something a publish never
+sends and its comparison does not read (the logo, a build profile) stops no
+publish and is not looked for, and something the reader reads as what Nova
+writes (`FIRST_PUBLISH_CHANGES`' register) changes nothing in the document and
+is listed as what the next publish changes there.
 
 ## One publish lifecycle
 
@@ -880,7 +1084,19 @@ anything Nova writes stops the publish at `upload` with `hq_changed`: it
 reached CommCare HQ while the Project data went, so no check before the push
 could hold it. After the update Nova reads the source back, before the media
 upload, and that read is the new baseline; a read-back that fails records an
-`unread` baseline and a warning, since the app landed. Everything a
+`unread` baseline and a warning, since the app landed. After the media upload
+settles, the publish records the id CommCare HQ reported for each path
+(`store.ts::recordDeploymentMediaFiles`, against the baseline this publish
+wrote, so a later publish's is left alone), else the id preflight found by
+content, else what the record held: an upload that failed, timed out or
+reported errors earns no entry, and an app that publishes no file records
+none. The second read, where Project data went, also compares the file ids at
+the published paths (`hqMedia.ts::mediaMovedBetween`) and settles each one that
+moved by its content, since Nova's own earlier upload may still be mapping its
+file: a file that is not this app's stops at `upload` as a moved form does.
+The record keeps no id whose file CommCare HQ no longer serves, and a `read`
+baseline's holds only the paths the bulk upload carries, never the logo's, so
+every file Refresh counts as moved is one a review settles. Everything a
 person could have decided differently is settled by then, both ownership
 conflicts and the whole organization shape included, so what remains after
 it is CommCare HQ's own answer. On a first publish that answer can come
@@ -1099,7 +1315,8 @@ faults after it: the artifact is then null, the action's record null and its
 Preview answer null, each logged, and the surface reads its records again.
 MCP's `stop_publishing` answers the ended deployment with what it could read:
 `setup_artifact` null, the resource names null (only superseded apps listed
-as left behind) and the kept list `unread`, each logged by class and code.
+as left behind), the kept list `unread` and `nova_revision` left out, each
+logged by class and code.
 
 **The transaction** (`lib/db/hqAppClaims.ts::endDeploymentInTransaction`),
 under the app row and the deployment row: it supersedes the live `app` mapping
@@ -1150,7 +1367,7 @@ mapping and a new generation, so neither writes.
 | deep links (`getEntryPointLink`) | no manifest and no published app, so it asks for a publish first |
 | Check status (`refreshDeployment`) and the kept values' refresh (`refreshKeptValues`) | say that publishing there stopped and read nothing of CommCare HQ |
 | provisioning workers (`provisionWorkers`) | refuses, saying publishing there stopped |
-| the Publishing card and the dialog's row (`nextPublishAction`) | `creates-beside` while `deploymentEnding` is not null |
+| the Publishing card, the dialog's row and MCP's `check_project_space_compatibility` (`nextPublishAction`) | `creates-beside` while `deploymentEnding` is not null; the check answers it as `new_app_beside`, the dialog's sentence |
 | the left-behind report (`leftBehindResources`) | the `app` mapping a standing ending names is not left behind, since the ending's line names it, nor one ended `claimed-elsewhere`, since another Nova app publishes to it; once a publish records a new app, or a later ending names another, a `stopped` one is left behind, unless another Nova app now holds its HQ app: no superseded `app` mapping a live, unreleased mapping of another deployment holds is ever left behind (`heldByAnotherApp`, marked by `store.ts::loadResources`), since that app publishes to it |
 | `earlierHqApps` (the `.ccz` version) | counts the ended mapping like any superseded `app` mapping |
 | the setup artifact | no HQ app id, so no link into the app's pages |
@@ -1289,8 +1506,30 @@ the strength of Nova having nothing to say.
 Builder (the App setup Publishing section and the publish dialog) and MCP
 (`check_project_space_compatibility`, `get_deployment`, `refresh_deployment`,
 `withdraw_deployment_confirmation`, `provision_workers`, `stop_publishing`),
-and the three that bring an app in (`list_hq_apps`, `read_hq_app`,
-`bring_in_hq_app`); none is given to the Solutions Architect.
+the three that bring an app in (`list_hq_apps`, `read_hq_app`,
+`bring_in_hq_app`), and the two that bring in changes made in CommCare HQ
+(`read_hq_changes`, `bring_in_hq_changes`, which call
+`hqChanges/review.ts::reviewHqChanges` and `hqChanges/bringIn.ts::bringInHqChanges`
+after the routes' own authorization); none is given to the Solutions Architect.
+`bring_in_hq_changes` alone takes `discard_nova_changes`, the client's statement
+that the person agreed to lose the changes made in Nova the review listed: a
+bring-in refuses it, taking nothing, where it is not what the review holds
+(`HqChangesDiscardMismatchError`). Every deployment the MCP tools project
+carries `nova_revision` beside `pushed_revision`
+(`store.ts::readDeploymentNovaRevisions`): the revision CommCare HQ's copy was
+last known to match, which a bring-in of changes moves and no push makes.
+A tool whose write has landed (an upload, a check, a kept refresh, a stop, a
+withdrawn confirmation, whose setup artifact is read there too) reads it and
+the resource names through `lib/mcp/tools/landedReads.ts`, which
+answers a fault by leaving `nova_revision` out and the names null, logged by
+class and code, never by failing a write that landed. `bring_in_hq_changes`
+reads `nova_revision` there too; the record, the setup artifact, the
+left-behind list, the kept list and the next publish's list come from the
+bring-in's own read (`hqChanges/bringIn.ts::deploymentViewOf`), which answers
+a fault in any of them with less, never an error: the record or the artifact
+unread is no record (`deployment` null, and the builder reads its records
+again), the resource names unread a left-behind list of superseded apps alone,
+and the kept list or the next publish's list unread none.
 **Deliberately not the Solutions Architect** — the same standing decision
 that keeps project-space compatibility checks off that surface. A deployment is
 durable state about somebody else's server, not authored vocabulary an
@@ -1361,6 +1600,24 @@ pokes it (`notifyAppDeployments`, in the write's own transaction), and the
 relay re-resolves and emits the `preview-project-space` frame, and the
 `preview-target-facts` frame when the facts changed
 (`lib/preview/CLAUDE.md` § `commcare_project`).
+
+**Changes made in CommCare HQ are one panel in three places.**
+`components/builder/HqChangesPanel.tsx` draws a review and its choices over
+the review and bring-in routes: in the publish dialog in place of the app's
+item where an `hq_changed` refusal's app change has `canBringIn`, in the
+Publishing card's dialog where Refresh from CommCare HQ answers
+`changed-in-hq`, and from the builder header's See what changed in CommCare
+HQ. That button is the answer of **the check when the builder opens**:
+`hqChanges/check.ts::checkHqChangesForApp`, behind
+`POST /api/commcare/changes/check`, which authorizes `edit` and asks, for each
+deployment with a usable pair that the member's own key reaches, whether
+CommCare HQ's copy changed (`service.ts::peekHqAppChanged`, Refresh's
+comparison with no write, the moved recorded file ids counted). It writes
+nothing and answers 200 with only the project spaces that changed; a failure
+is logged at warn with the app's id and listed nowhere. It is a Route
+Handler's `fetch`, never a Server Action, since a tab's Server Actions run one
+at a time and the builder's deployment reads are Server Actions, and no
+module that carries `"use server"` reaches it.
 
 The Workers panel (`components/builder/DeploymentWorkers.tsx`) lives inside
 each record's card in the Publishing section — and ONLY there:

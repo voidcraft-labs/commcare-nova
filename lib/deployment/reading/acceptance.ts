@@ -41,10 +41,7 @@ import {
 	readHqAppSteps,
 } from "@/lib/commcare/reader";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
-import {
-	matchingResolver,
-	mintingResolver,
-} from "@/lib/commcare/reader/identity";
+import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import type {
@@ -407,6 +404,7 @@ export function* acceptReadingSteps(
 		return failed("accounting", accounting.differences, accounting.findings);
 
 	// 2. The gate and the export readiness of a first publish, per choice.
+	yield;
 	const lookupContext: LookupValidationContext = {
 		kind: "available",
 		projectId: input.lookup.projectId,
@@ -824,11 +822,13 @@ function* fixedPointCheck(
 			"readingEmission",
 			readingEmissionSteps(emitted(draft.doc)),
 		);
+		// The reading's own identities: a first reading's are the mint's, and a re-read of an
+		// app Nova holds (a review of changes made in CommCare HQ) gives that app's UUIDs back.
 		yield;
 		const again = yield* reRead(
 			draft.doc,
 			emission,
-			mintingResolver(input.appId),
+			matchingResolver(input.appId, draft.identities.entries),
 		);
 		yield;
 		const found = fixedPointDifferences(draft.doc, again, { outcome }, naming);

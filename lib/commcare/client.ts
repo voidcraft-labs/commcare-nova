@@ -457,6 +457,32 @@ async function probePrivateFeatureFlag(
 	}
 }
 
+/**
+ * A GET no answer began for, its connection closed or never opened, sent once
+ * more at once, as `hq/readJson.ts::readHqJson` sends a read: native fetch
+ * sends nothing again by itself, so a kept-alive connection CommCare HQ closed
+ * as the request went out on it would otherwise fail it. A send the signal
+ * ended is no lost answer and goes out no more. Only a GET goes through here.
+ */
+async function getResendingUnanswered(
+	send: () => Promise<Response>,
+	signal: AbortSignal,
+	label: string,
+	domain: string,
+): Promise<Response> {
+	try {
+		return await send();
+	} catch (error) {
+		if (signal.aborted) throw error;
+		log.warn(`[commcare] ${label} not answered, sending again`, {
+			domain,
+			request: label,
+			error,
+		});
+		return send();
+	}
+}
+
 const CASE_SEARCH_DISABLED_RESPONSE =
 	"Case search is not enabled for this project";
 const CASE_SEARCH_PROBE_TYPE = "__nova_compatibility_probe__";
@@ -469,11 +495,17 @@ async function probeCaseSearchRuntime(
 		return await runBoundedCompatibilityProbe(async ({ signal }) => {
 			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
 			const url = `${baseUrl(creds)}/a/${domain}/phone/search/?${query.toString()}`;
-			const response = await fetch(url, {
-				headers: { Authorization: authHeader(creds) },
-				redirect: "manual",
+			const response = await getResendingUnanswered(
+				() =>
+					fetch(url, {
+						headers: { Authorization: authHeader(creds) },
+						redirect: "manual",
+						signal,
+					}),
 				signal,
-			});
+				"Case search runtime probe",
+				domain,
+			);
 			if (response.status === 200 && response.redirected !== true) {
 				// HQ emits a fixture as text/xml. Headers distinguish the runtime
 				// answer from a successful HTML login/proxy page without reading
@@ -1004,8 +1036,49 @@ export interface MediaBundleUploadResult {
 	readonly matched: number;
 	readonly unmatched: number;
 	readonly unmatchedFiles: readonly UnmatchedMediaFileReport[];
+	/**
+	 * Every file HQ matched, across its media classes: the app's own path
+	 * (`jr://file/...`) and the id of the document HQ mapped there
+	 * (`hqmedia/models.py::CommCareMultimedia.get_media_info`'s `path` and
+	 * `m_id`, which `tasks.py::process_bulk_upload_zip` writes into the app's
+	 * map). Null where the report holds no `matched_files` of that shape: a
+	 * report Nova cannot read for ids is no failed upload.
+	 */
+	readonly matchedFiles: readonly MatchedMediaFileReport[] | null;
 	readonly errors: readonly string[];
 	readonly timedOut: boolean;
+}
+
+/** One file HQ matched to a path of the app, from the status report's `matched_files`. */
+export interface MatchedMediaFileReport {
+	readonly path: string;
+	readonly multimediaId: string;
+}
+
+/**
+ * `matched_files` as `hqmedia/cache.py::BulkMultimediaStatusCache.get_response` serves it,
+ * a map from media class to the matched entries, or null where it is not that
+ * shape or an entry holds no `path` and `m_id` Nova can use.
+ */
+function matchedMediaFiles(
+	value: unknown,
+): readonly MatchedMediaFileReport[] | null {
+	if (!isHqObject(value)) return null;
+	const files: MatchedMediaFileReport[] = [];
+	for (const entries of Object.values(value)) {
+		if (!Array.isArray(entries)) return null;
+		for (const entry of entries) {
+			if (
+				!isHqObject(entry) ||
+				typeof entry.path !== "string" ||
+				typeof entry.m_id !== "string" ||
+				!/^[\w-]+$/.test(entry.m_id)
+			)
+				return null;
+			files.push({ path: entry.path, multimediaId: entry.m_id });
+		}
+	}
+	return files;
 }
 
 /* Poll cadence + ceiling for the async bulk-upload processing. The bytes
@@ -1096,17 +1169,19 @@ export async function uploadAppMediaBundle(
 		!/^[\w-]+$/.test(started.processing_id)
 	)
 		return { success: false, status: 502 };
-	return pollMediaBundleStatus(creds, base, started.processing_id);
+	return pollMediaBundleStatus(creds, domain, base, started.processing_id);
 }
 
 /** One deadline owns all status fetches, their bodies and the waits between
  * reads. HQ's cache can briefly be absent; HTTP failures are retried, whereas
- * a disconnected or malformed answer returns an unconfirmed typed error.
+ * a malformed answer, or a status read that gets no answer when sent once
+ * more (`getResendingUnanswered`), returns an unconfirmed typed error.
  * Expiry proves only that we stopped observing, never that HQ is still working.
  * Wire fields come from hqmedia/cache.py::BulkMultimediaStatusCache.get_response.
  */
 async function pollMediaBundleStatus(
 	creds: CommCareCredentials,
+	domain: string,
 	base: string,
 	processingId: string,
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
@@ -1115,15 +1190,21 @@ async function pollMediaBundleStatus(
 		while (!signal.aborted && Date.now() < deadline) {
 			let response: Response;
 			try {
-				response = await fetch(`${base}/status/${processingId}/`, {
-					headers: {
-						Authorization: authHeader(creds),
-						Accept: "application/json",
-					},
-					redirect: "manual",
-					cache: "no-store",
+				response = await getResendingUnanswered(
+					() =>
+						fetch(`${base}/status/${processingId}/`, {
+							headers: {
+								Authorization: authHeader(creds),
+								Accept: "application/json",
+							},
+							redirect: "manual",
+							cache: "no-store",
+							signal,
+						}),
 					signal,
-				});
+					"media bundle status",
+					domain,
+				);
 			} catch {
 				if (signal.aborted) break;
 				return { success: false, status: 503 };
@@ -1166,14 +1247,21 @@ async function pollMediaBundleStatus(
 						return { success: false, status: 502 };
 					unmatchedFiles.push({ path: file.path, reason: file.reason });
 				}
-				if (status.complete)
+				if (status.complete) {
+					const matchedFiles = matchedMediaFiles(status.matched_files);
+					if (matchedFiles === null)
+						log.warn("[commcare] media bundle report names no matched ids", {
+							processingId,
+						});
 					return {
 						matched: status.matched_count,
 						unmatched: unmatchedFiles.length,
 						unmatchedFiles,
+						matchedFiles,
 						errors: status.errors,
 						timedOut: false,
 					};
+				}
 			} else {
 				// Release even refused response bodies before another status request.
 				await response.body?.cancel();
@@ -1186,6 +1274,7 @@ async function pollMediaBundleStatus(
 			matched: 0,
 			unmatched: 0,
 			unmatchedFiles: [],
+			matchedFiles: null,
 			errors: [],
 			timedOut: true,
 		};
@@ -1335,8 +1424,8 @@ export async function readBuildXml(
 		return { success: false, status: 400 };
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 30_000);
-	try {
-		const response = await fetch(
+	const send = () =>
+		fetch(
 			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
 			{
 				headers: {
@@ -1347,6 +1436,13 @@ export async function readBuildXml(
 				cache: "no-store",
 				signal: controller.signal,
 			},
+		);
+	try {
+		const response = await getResendingUnanswered(
+			send,
+			controller.signal,
+			`build ${resource}`,
+			domain,
 		);
 		if (!response.ok) {
 			await response.body?.cancel();

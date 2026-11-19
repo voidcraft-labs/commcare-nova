@@ -46,8 +46,31 @@ HQ's URLconf and answered by the view it names, decorators and all.
   ``credentials`` among them), posted as that page posts it (``{"features": {...}}``, with the same custom
   properties) to the same view, which stores each beside the features A holds, with the same reset and refill.
 
+Then the saves a person makes to the app's content (``proof/corpus/documents.ts::HqSideContentSaves``), each a menu
+or form named by its place in the app HQ holds:
+
+- ``formLabel`` and ``formResave``: a form opened in HQ's form builder and saved by its own Save
+  (``proof/editors/vellum.py::open_and_save``, in the unit's editor driver), the first after one label is set in the
+  app's first language (the run's ``edit``, made the way ``edit`` names);
+- ``questions``: the form's source saved as the form builder saves it, a patch from the source HQ holds with its
+  ``sha1`` (``views/forms.py::patch_xform``, ``xform_patch``), held to land as posted;
+- ``formAttribute``: the form's settings posted by name to ``views/forms.py::edit_form_attr``;
+- ``formActions``: the form's case management as the Case Management tab posts it
+  (``views/forms.py::edit_form_actions``: the actions as HQ holds them, through ``make_multi``, and each new mapping
+  as the ``case_mapping_diff``);
+- ``moduleAttribute``: the menu's name posted to ``views/modules.py::edit_module_attr``;
+- ``moduleDetail``: the Case List page's save of its columns with one added at the end
+  (``views/modules.py::edit_module_detail_screens``), the list's own settings posted as HQ holds them;
+- ``formsAddedAndRemoved``: a form deleted (``views/forms.py::delete_form``), a survey added
+  (``views/forms.py::new_form``) and its questions saved through ``patch_xform``;
+- ``order``: a menu and a form moved as the sidebar's drag posts them (``views/apps.py::rearrange``);
+- ``mediaReplaced``: a picture uploaded at a path the app holds (``hqmedia/views.py::ProcessImageFileUploadView``),
+  held to map the path to the document of the posted bytes.
+
 ``hq-side.json`` also states what Nova's next publish over the saves does (``republish``, with ``stopCode`` where
-it stops), which the capture holds at emission (``proof/corpus/publish.ts``); neither is a save.
+it stops, ``recorded``, what the review answers, where it records a review that finds nothing to bring in, and
+``bringsIn``, the document the bring-in gives, where it brings the saves in), which the capture holds at emission
+(``proof/corpus/publish.ts``); none is a save.
 
 A save HQ refuses stops the observation (``HqSideSaveRefused``): the harness makes these saves, so a refusal is a
 harness that no longer saves as a person does, not something of Nova's to judge. ``save`` returns what the unit
@@ -70,10 +93,11 @@ def _digest(value) -> bytes:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).digest()
 
 
-def _answer(unit, method, view, args, body: bytes, content_type: str, what):
+def _answer(unit, method, view, args, body: bytes, content_type: str, what, *, redirects=False):
     """HQ's answer to one request to the view named ``view`` (its URL reversed from ``args``), as the record keeps
     it: the view, the status and the start of the body. A view that raises or answers with an error stops the
-    observation (``HqSideSaveRefused``)."""
+    observation (``HqSideSaveRefused``). ``redirects`` admits the redirect a view whose page posts a form answers
+    every save with (``views/utils.py::back_to_main``)."""
     from django.urls import resolve, reverse
 
     from proof.hq import requests as hq_requests
@@ -92,7 +116,7 @@ def _answer(unit, method, view, args, body: bytes, content_type: str, what):
             " look at what the view now asks of the request or of the project space."
         ) from error
     content = response.content
-    if not 200 <= response.status_code < 300:
+    if not (200 <= response.status_code < 300 or (redirects and response.status_code == 302)):
         raise HqSideSaveRefused(
             f"HQ answered the {what} the harness saves over A in a person's place ({method} {path}) with"
             f" {response.status_code}: {content[:400]!r}. The harness saves it as HQ's page does; look at what the"
@@ -101,7 +125,7 @@ def _answer(unit, method, view, args, body: bytes, content_type: str, what):
     return {"view": view, "status": response.status_code, "body": content.decode("utf-8", "replace")[:400]}
 
 
-def _form(pairs):
+def _form_body(pairs):
     from urllib.parse import urlencode
 
     return urlencode(pairs).encode(), "application/x-www-form-urlencoded; charset=UTF-8"
@@ -118,7 +142,7 @@ def ui_translations(unit, app_id, translations):
     found = []
     for lang, texts in sorted(translations.items()):
         held = dict(operations.held_app(unit, app_id).translations.get(lang) or {})
-        body, content_type = _form(
+        body, content_type = _form_body(
             [
                 ("doc_id", json.dumps(app_id)),
                 ("lang", json.dumps(lang)),
@@ -325,7 +349,7 @@ def add_ons(unit, app_id, switches):
             f" {sorted(_ADD_ONS)} (app_manager/js/add_ons.js, EditAddOns). State each at the value the section"
             " shows, with the person's switches changed."
         )
-    body, content_type = _form([(slug, "on" if on else "") for slug, on in sorted(switches.items())])
+    body, content_type = _form_body([(slug, "on" if on else "") for slug, on in sorted(switches.items())])
     return [_answer(unit, "POST", "edit_add_ons", [unit.domain, app_id], body, content_type, "add-ons")]
 
 
@@ -341,22 +365,403 @@ def profile_features(unit, app_id, features):
     return [_answer(unit, "POST", "edit_commcare_profile", [unit.domain, app_id], body, content_type, "app features")]
 
 
+# -- a person's saves to the app's content --------------------------------------------------------------------------
+
+
+def _places(unit, app_id, place):
+    """The ids HQ holds for the menu and the form at ``place`` (``{module, form}``, each from 0), and the form."""
+    app = _operations().held_app(unit, app_id)
+    module = app.get_module(place["module"])
+    form = module.get_form(place["form"])
+    return module.unique_id, form.unique_id, form
+
+
+def _operations():
+    from proof.hq import operations
+
+    return operations
+
+
+def _sha1(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
+def xform_patch(old: str, new: str) -> str:
+    """The patch HQ's form builder posts for a save from ``old`` to ``new``: a diff-match-patch patch over the two
+    sources encoded as the builder encodes them before it diffs (``encodeURI``, which ``views/forms.py::apply_patch``
+    matches with ``ENCODE_URI_SAFE`` before it applies the patch)."""
+    from urllib.parse import quote
+
+    from corehq.apps.app_manager.views.forms import ENCODE_URI_SAFE
+    from diff_match_patch import diff_match_patch
+
+    dmp = diff_match_patch()
+    return dmp.patch_toText(dmp.patch_make(quote(old, safe=ENCODE_URI_SAFE), quote(new, safe=ENCODE_URI_SAFE)))
+
+
+def _patched(unit, app_id, form_unique_id, xform, what):
+    """The form's source saved to ``xform`` as the form builder saves it (``views/forms.py::patch_xform``: a patch
+    from the source HQ holds, with that source's ``sha1``), and held to land as posted: HQ answers a stale
+    ``sha1`` with a conflict, and ``util.py::save_xform`` stores the bytes as posted where the form's ``xmlns`` is
+    its own."""
+    app = _operations().held_app(unit, app_id)
+    source = app.get_form(form_unique_id).source
+    body, content_type = _form_body([("patch", xform_patch(source, xform)), ("sha1", _sha1(source))])
+    found = _answer(unit, "POST", "patch_xform", [unit.domain, app_id, form_unique_id], body, content_type, what)
+    stored = _operations().held_app(unit, app_id).get_form(form_unique_id).source
+    if stored != xform:
+        raise HqSideSaveRefused(
+            f"HQ's form builder save of {what} did not leave the source the harness posted ({found['body'][:200]!r});"
+            " the harness posts the patch HQ's form builder posts, so look at what patch_xform now applies."
+        )
+    return found
+
+
+def _form_builder_save(unit, ops, app_id, kind, value, driver, *, edit=None):
+    """The form at ``value``'s place opened in HQ's form builder and saved by the builder's own Save
+    (``proof/editors/vellum.py::open_and_save``), with ``edit`` made between the open and the save where it is
+    given; the builder's run, held to have saved.
+
+    The operation ``hq-side:<kind>``, keyed by the save, names it in A's key and reads what HQ's form designer page
+    gives the builder (``vellum_options``, which HQ may write inside, as proof 4 reads it in an operation of its
+    own). The run itself is made after that operation, between scopes, each of the builder's requests its own
+    (``unit.request``), as proof 4 runs one (``proof/observe/proof4.py::vellum_run``): where the in-band audit
+    chooses it (``PROOF_EDITOR_AUDIT``), it is first rerun on a fresh page in a fork of the unit, and the unit
+    takes a mark only between scopes."""
+    from proof.editors import vellum
+
+    if driver is None:
+        raise ValueError(f"hq-side.json's {kind} is saved in HQ's form builder, and the unit has no editor driver.")
+    with ops(f"hq-side:{kind}", _digest(value)):
+        _module_id, form_id, _held = _places(unit, app_id, value)
+        lang = _operations().held_app(unit, app_id).langs[0]
+        options = vellum.vellum_options(unit, app_id, form_id, lang=lang)
+    run = vellum.open_and_save(driver, unit, app_id, form_id, options, edit=edit)
+    if not run.saved or run.save_refusal is not None:
+        raise HqSideSaveRefused(
+            f"HQ's form builder did not save form {form_id}{' after the label edit' if edit else ''}"
+            f" ({run.save_refusal}); the harness saves it as a person does, so look at what the builder now reports"
+            " of the form."
+        )
+    return run
+
+
+def form_label(unit, ops, app_id, value, driver):
+    """One question's label reworded in the app's first language in HQ's form builder: the form opened, the label
+    set (``proof/editors/vellum.py::open_and_save``'s ``edit``, made the way ``value["edit"]`` names) and the
+    builder's own Save pressed, through HQ's own views (``_form_builder_save``)."""
+    run = _form_builder_save(
+        unit,
+        ops,
+        app_id,
+        "formLabel",
+        value,
+        driver,
+        edit={"path": value["question"], "label": value["label"], "way": value["edit"]},
+    )
+    return [{"view": "patch_xform", "saves": [exchange.url_name for exchange in run.saves], "edit": value["edit"]}]
+
+
+def form_resave(unit, ops, app_id, value, driver):
+    """A form opened in HQ's form builder and saved with no change (``_form_builder_save``)."""
+    run = _form_builder_save(unit, ops, app_id, "formResave", value, driver)
+    return [{"view": "patch_xform", "saves": [exchange.url_name for exchange in run.saves]}]
+
+
+def questions(unit, app_id, value):
+    """A form's questions changed: its source saved to ``value["xform"]`` as the form builder saves it."""
+    _module_id, form_id, _held = _places(unit, app_id, value)
+    return [_patched(unit, app_id, form_id, value["xform"], f"the questions of form {form_id}")]
+
+
+# The form attributes the harness saves, each a key ``views/forms.py::_edit_form_attr`` stores as posted.
+FORM_ATTRIBUTES = ("post_form_workflow", "form_filter", "post_form_workflow_fallback")
+
+
+def form_attribute(unit, app_id, value):
+    """A form's own settings, posted by name to ``views/forms.py::edit_form_attr`` as the form settings page posts
+    them (``ajax``, which the view reads as true where the post names none)."""
+    _module_id, form_id, _held = _places(unit, app_id, value)
+    attributes = value["attributes"]
+    unknown = sorted(set(attributes) - set(FORM_ATTRIBUTES))
+    if unknown:
+        raise HqSideSaveRefused(
+            f"hq-side.json's formAttribute names {unknown}; the harness saves {list(FORM_ATTRIBUTES)}, each stored by"
+            " _edit_form_attr as posted."
+        )
+    body, content_type = _form_body(sorted(attributes.items()))
+    return [
+        _answer(
+            unit,
+            "POST",
+            "edit_form_attr",
+            [unit.domain, app_id, form_id, "all"],
+            body,
+            content_type,
+            f"form settings {sorted(attributes)}",
+        )
+    ]
+
+
+def form_actions(unit, app_id, value):
+    """A form's case management saved as the Case Management tab saves it (``views/forms.py::edit_form_actions``):
+    the actions as HQ holds them, in the tab's own shape (``form_action_diff.py::make_multi``), and each case
+    property's new mapping as the ``case_mapping_diff`` the tab posts beside them."""
+    from corehq.apps.app_manager.form_action_diff import make_multi
+
+    _module_id, form_id, form = _places(unit, app_id, value)
+    diff = {
+        "update_case": {
+            "add": {
+                prop: [{"question_path": path, "update_mode": "always"}]
+                for prop, path in sorted(value["update"].items())
+            }
+        }
+    }
+    body, content_type = _form_body(
+        [("actions", json.dumps(make_multi(form.actions.to_json()))), ("case_mapping_diff", json.dumps(diff))]
+    )
+    return [
+        _answer(
+            unit,
+            "POST",
+            "edit_form_actions",
+            [unit.domain, app_id, form_id],
+            body,
+            content_type,
+            f"case management of form {form_id}",
+        )
+    ]
+
+
+def module_attribute(unit, app_id, value):
+    """A menu's name in the app's first language, as the menu settings page posts it
+    (``views/modules.py::edit_module_attr``, ``name``)."""
+    app = _operations().held_app(unit, app_id)
+    module_id = app.get_module(value["module"]).unique_id
+    body, content_type = _form_body([("name", value["name"])])
+    return [
+        _answer(
+            unit,
+            "POST",
+            "edit_module_attr",
+            [unit.domain, app_id, module_id, "name"],
+            body,
+            content_type,
+            f"the name of menu {module_id}",
+        )
+    ]
+
+
+def module_detail(unit, app_id, value):
+    """A column added at the end of a menu's case list, posted as the Case List page posts its columns
+    (``views/modules.py::edit_module_detail_screens``): ``type`` ``case``, every column HQ holds then the new one,
+    and the list's own settings as HQ holds them, which ``_update_short_details`` sets from every post that names
+    columns."""
+    app = _operations().held_app(unit, app_id)
+    module = app.get_module(value["module"])
+    short = module.case_details.short
+    columns = [column.to_json() for column in short.columns] + [value["column"]]
+    body, content_type = _form_body(
+        [
+            ("type", json.dumps("case")),
+            ("short", json.dumps(columns)),
+            ("multi_select", json.dumps(short.multi_select)),
+            ("auto_select", json.dumps(short.auto_select)),
+            ("max_select_value", json.dumps(short.max_select_value)),
+        ]
+    )
+    return [
+        _answer(
+            unit,
+            "POST",
+            "edit_module_detail_screens",
+            [unit.domain, app_id, module.unique_id],
+            body,
+            content_type,
+            f"the case list columns of menu {module.unique_id}",
+        )
+    ]
+
+
+def forms_added_and_removed(unit, app_id, value):
+    """A menu's form deleted (``views/forms.py::delete_form``, the form the menu's list offers to delete), then a
+    survey added at its end as the menu's add button posts it (``views/forms.py::new_form``: ``form_type`` ``form``,
+    ``case_action`` ``none``), whose questions the form builder then saves (``patch_xform``)."""
+    app = _operations().held_app(unit, app_id)
+    module = app.get_module(value["module"])
+    removed = module.get_form(value["removed"]).unique_id
+    found = [
+        _answer(
+            unit,
+            "POST",
+            "delete_form",
+            [unit.domain, app_id, module.unique_id, removed],
+            b"",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+            f"the deletion of form {removed}",
+            redirects=True,
+        )
+    ]
+    body, content_type = _form_body([("form_type", "form"), ("case_action", "none")])
+    found.append(
+        _answer(
+            unit,
+            "POST",
+            "new_form",
+            [unit.domain, app_id, module.unique_id],
+            body,
+            content_type,
+            f"a survey added to menu {module.unique_id}",
+            redirects=True,
+        )
+    )
+    added = _operations().held_app(unit, app_id).get_module(value["module"]).get_form(-1)
+    if added.default_name() != value["added"]["name"]:
+        raise HqSideSaveRefused(
+            f"HQ named the survey it added to menu {module.unique_id} {added.default_name()!r}, and hq-side.json"
+            f" states {value['added']['name']!r}."
+        )
+    found.append(_patched(unit, app_id, added.unique_id, value["added"]["xform"], "the added survey's questions"))
+    return found
+
+
+def order(unit, app_id, value):
+    """A menu moved and a form moved within its menu, as the app manager's sidebar posts a drag
+    (``views/apps.py::rearrange``, keys ``modules`` and ``forms``, ``from`` and ``to`` as places)."""
+    found = []
+    moved = value.get("modules")
+    if moved is not None:
+        body, content_type = _form_body([("from", str(moved["from"])), ("to", str(moved["to"]))])
+        found.append(
+            _answer(
+                unit,
+                "POST",
+                "rearrange",
+                [unit.domain, app_id, "modules"],
+                body,
+                content_type,
+                "a menu moved",
+                redirects=True,
+            )
+        )
+    moved = value.get("forms")
+    if moved is not None:
+        module_id = _operations().held_app(unit, app_id).get_module(moved["module"]).unique_id
+        body, content_type = _form_body(
+            [
+                ("from", str(moved["from"])),
+                ("to", str(moved["to"])),
+                ("from_module_uid", module_id),
+                ("to_module_uid", module_id),
+            ]
+        )
+        found.append(
+            _answer(
+                unit,
+                "POST",
+                "rearrange",
+                [unit.domain, app_id, "forms"],
+                body,
+                content_type,
+                "a form moved",
+                redirects=True,
+            )
+        )
+    return found
+
+
+def media_replaced(unit, app_id, value):
+    """The file at a path the app already holds replaced, as HQ's media page uploads a picture there
+    (``hqmedia/views.py::ProcessImageFileUploadView``: ``path`` and ``originalPath`` the path, the file as
+    ``Filedata``), and held to land: the app's map points the path at the document of the new bytes."""
+    import base64
+
+    from corehq.apps.hqmedia.models import CommCareImage
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
+
+    data = base64.b64decode(value["base64"])
+    name = value["path"].rsplit("/", 1)[-1]
+    body = encode_multipart(
+        BOUNDARY,
+        {
+            "path": value["path"],
+            "originalPath": value["path"],
+            "Filedata": SimpleUploadedFile(name, data, content_type=value["mimeType"]),
+        },
+    )
+    found = _answer(
+        unit,
+        "POST",
+        "hqmedia_uploader_image",
+        [unit.domain, app_id],
+        body,
+        MULTIPART_CONTENT,
+        f"the picture at {value['path']}",
+    )
+    item = _operations().held_app(unit, app_id).multimedia_map.get(value["path"])
+    expected = CommCareImage.get_by_data(data)
+    if item is None or item.multimedia_id != expected._id:
+        raise HqSideSaveRefused(
+            f"HQ's media upload of the picture at {value['path']} left the app's map at"
+            f" {None if item is None else item.multimedia_id}, not the document of the posted bytes; the harness posts"
+            " it as HQ's media page does, so look at what the upload now maps."
+        )
+    return [found]
+
+
+def _in_operation(save):
+    """``save`` made as one operation of ``ops``, ``hq-side:<kind>``, keyed by what it saves."""
+
+    def run(unit, ops, app_id, kind, value, driver=None):
+        with ops(f"hq-side:{kind}", _digest(value)):
+            return save(unit, app_id, value)
+
+    return run
+
+
+def _in_form_builder(save):
+    """``save`` made in HQ's form builder: it opens its own operation and runs the builder after it
+    (``_form_builder_save``)."""
+
+    def run(unit, ops, app_id, kind, value, driver=None):
+        return save(unit, ops, app_id, value, driver)
+
+    return run
+
+
 SAVES = (
-    ("uiTranslations", lambda unit, app_id, value: ui_translations(unit, app_id, value)),
-    ("appAttributes", lambda unit, app_id, value: app_attributes(unit, app_id, value)),
-    ("buildProfiles", lambda unit, app_id, value: build_profiles(unit, app_id, value)),
-    ("lookupTable", lambda unit, app_id, value: lookup_table(unit, value)),
-    ("addOns", lambda unit, app_id, value: add_ons(unit, app_id, value)),
-    ("profileProperties", lambda unit, app_id, value: profile_properties(unit, app_id, value)),
-    ("profileFeatures", lambda unit, app_id, value: profile_features(unit, app_id, value)),
+    ("uiTranslations", _in_operation(ui_translations)),
+    ("appAttributes", _in_operation(app_attributes)),
+    ("buildProfiles", _in_operation(build_profiles)),
+    ("lookupTable", _in_operation(lambda unit, app_id, value: lookup_table(unit, value))),
+    ("addOns", _in_operation(add_ons)),
+    ("profileProperties", _in_operation(profile_properties)),
+    ("profileFeatures", _in_operation(profile_features)),
+    ("formLabel", _in_form_builder(form_label)),
+    ("formResave", _in_form_builder(form_resave)),
+    ("questions", _in_operation(questions)),
+    ("formAttribute", _in_operation(form_attribute)),
+    ("formActions", _in_operation(form_actions)),
+    ("moduleAttribute", _in_operation(module_attribute)),
+    ("moduleDetail", _in_operation(module_detail)),
+    ("formsAddedAndRemoved", _in_operation(forms_added_and_removed)),
+    ("order", _in_operation(order)),
+    ("mediaReplaced", _in_operation(media_replaced)),
 )
-# What ``hq-side.json`` states beside the saves: what Nova's next publish over them does.
-STATEMENTS = ("republish", "stopCode")
+# The saves HQ's form builder makes, which need the unit's editor driver.
+FORM_BUILDER_SAVES = ("formLabel", "formResave")
+# What ``hq-side.json`` states beside the saves: what Nova's next publish over them does, where its review finds
+# nothing to bring in, what the review answers, and, where it brings them in, the document the bring-in gives, the
+# changes of the next publish the review lists, and whether the capture also publishes over the same saves.
+STATEMENTS = ("republish", "stopCode", "recorded", "bringsIn", "publishChanges", "alsoPublishesOver")
 
 
-def save(unit, ops, app_id, saves):
-    """Every save ``saves`` (``hq-side.json``) names, each an operation of ``ops`` keyed by what it saves, in
-    ``SAVES``' order; what HQ answered each, by its kind."""
+def save(unit, ops, app_id, saves, *, driver=None):
+    """Every save ``saves`` (``hq-side.json``) names, in ``SAVES``' order, each keyed in ``ops`` by what it saves;
+    what HQ answered each, by its kind. ``driver`` is the unit's editor driver, which the form builder's saves
+    (``FORM_BUILDER_SAVES``) run in, after their operation (``_form_builder_save``)."""
     unknown = sorted(set(saves) - {kind for kind, _ in SAVES} - set(STATEMENTS))
     if unknown:
         raise ValueError(
@@ -366,6 +771,5 @@ def save(unit, ops, app_id, saves):
     for kind, run in SAVES:
         if kind not in saves:
             continue
-        with ops(f"hq-side:{kind}", _digest(saves[kind])):
-            found[kind] = run(unit, app_id, saves[kind])
+        found[kind] = run(unit, ops, app_id, kind, saves[kind], driver=driver)
     return found

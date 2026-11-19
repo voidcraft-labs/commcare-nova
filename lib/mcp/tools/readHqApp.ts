@@ -8,8 +8,9 @@
  * with the call's own cancellation signal and the call's progress, through
  * the one event sink a bring-in reports by. Nothing is kept: the client holds
  * the `reading_id` and `review_digest` it returns and sends both to
- * `bring_in_hq_app`. An account longer than one answer is paged, each page a
- * fresh read held to the account the previous page was cut from.
+ * `bring_in_hq_app`. An account, or a review's lookup tables, longer than one
+ * answer is paged, each page a fresh read held to the account or review the
+ * previous page was cut from.
  *
  * Scope: `nova.hq.read`, checked before any read. It writes nothing in Nova
  * or in CommCare HQ.
@@ -118,7 +119,7 @@ export function registerReadHqApp(server: McpServer, ctx: ToolContext): void {
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Read one CommCare HQ app so it can be brought in to Nova, and say whether it can be. Nothing is created, nothing is kept and nothing changes in CommCare HQ. Send `project_id`, `domain` and `hq_app_id`: where the user can edit more than one Nova Project, ask which one the app should be added to and never choose it for them, because an app that reads lookup tables stays in the Project it is added to; where they can edit one, tell them which it is. One call is one whole read. `state` is one of: `review`, with `reading_id` and `review` (what will be created; `runs_on`, the ways the app can run, each with `first_publish`, what the first upload from Nova changes in CommCare HQ under that choice; what stays in CommCare HQ; and `review.review_digest`); `account`, with `account.findings`, each thing Nova cannot hold, where it is, and whether it is Nova's to build, something Nova does not bring in, or something to change in CommCare HQ; or `stop`, with `stop`, something that ended the read such as a permission, a plan without API access, or an app already in Nova. Relay titles, sentences and next steps as written, and do not summarize an account as a failure: it is everything Nova found on this read, and `check_again` says a later read may find more. For a `first_publish`, relay `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`. To check again after a change in CommCare HQ or a Nova update, call this tool again. An account longer than one answer is paged: pass `page` with the `next_page` it gave. Each page reads the app again, and where the app changed since the last page the answer starts over with `restarted` true. An app with many pictures and sounds can take a few minutes, and Nova reports progress while it works. If your client stops waiting before the answer comes, the app can be read in Nova in a browser.",
+				"Read one CommCare HQ app so it can be brought in to Nova, and say whether it can be. Nothing is created, nothing is kept and nothing changes in CommCare HQ. Send `project_id`, `domain` and `hq_app_id`: where the user can edit more than one Nova Project, ask which one the app should be added to and never choose it for them, because an app that reads lookup tables stays in the Project it is added to; where they can edit one, tell them which it is. One call is one whole read. `state` is one of: `review`, with `reading_id` and `review` (what will be created; `runs_on`, the ways the app can run, each with `first_publish`, what the first upload from Nova changes in CommCare HQ under that choice; what stays in CommCare HQ; and `review.review_digest`); `account`, with `account.findings`, each thing Nova cannot hold, where it is, and whether it is Nova's to build, something Nova does not bring in, or something to change in CommCare HQ; or `stop`, with `stop`, something that ended the read such as a permission, a plan without API access, or an app already in Nova. Relay titles, sentences and next steps as written, and do not summarize an account as a failure: it is everything Nova found on this read, and `check_again` says a later read may find more. For a `first_publish`, relay `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`. To check again after a change in CommCare HQ or a Nova update, call this tool again. An account longer than one answer is paged, and so is a review whose lookup tables don't fit one answer: pass `page` with the `next_page` it gave until it is null. Each review page holds its share of `review.tables`, and `review.tables_total` says how many there are in all; show the user every table of every page before calling `bring_in_hq_app`. Each page reads the app again, and where the app changed since the last page the answer starts over with `restarted` true. An app with many pictures and sounds can take a few minutes, and Nova reports progress while it works. If your client stops waiting before the answer comes, the app can be read in Nova in a browser.",
 			inputSchema: z.strictObject({
 				project_id: z
 					.string()
@@ -141,7 +142,7 @@ export function registerReadHqApp(server: McpServer, ctx: ToolContext): void {
 					.regex(/^\d{1,5}:[0-9a-f]{64}$/)
 					.optional()
 					.describe(
-						"For an account longer than one answer: the next_page of the previous answer.",
+						"For an account or a review longer than one answer: the next_page of the previous answer.",
 					),
 			}),
 			_meta: LARGE_RESULT_META,

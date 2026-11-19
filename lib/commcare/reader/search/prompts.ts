@@ -485,7 +485,7 @@ function readPrompt(
 		key: string,
 		claim: Claim<"refuse">,
 		at: JsonCursor = prompt,
-		detail: { readonly name: string } = named,
+		detail: { readonly name: string; readonly reason?: string } = named,
 	): Finding => {
 		if (at.used(key)) {
 			at.refuse(key, claim, detail);
@@ -802,6 +802,9 @@ function readPrompt(
 								: "sort",
 						P.itemsetColumn,
 						cursor,
+						// The form parser's reason for a read of a column the table lacks, so a reader of
+						// the account can tell a read of the Project's data that is not there.
+						{ ...named, reason: "parse:unknown-column" },
 					);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);

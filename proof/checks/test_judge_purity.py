@@ -46,6 +46,7 @@ JUDGES = (
     "proof.checks.android",
     "proof.checks.bar",
     "proof.checks.cases",
+    "proof.checks.changes",
     "proof.checks.compare.app_json",
     "proof.checks.compare.app_strings",
     "proof.checks.compare.build_files",

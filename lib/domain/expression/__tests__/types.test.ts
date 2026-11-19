@@ -369,6 +369,27 @@ describe("isolated predicate slot failures", () => {
 			}).success,
 		).toBe(false);
 	});
+	it.each([
+		[3, false],
+		[0, false],
+		[-3, true],
+	])(
+		"refuses a radius spelled as the negation of %s unless it is more than zero",
+		(radius, admitted) => {
+			expect(
+				expressionSchema.safeParse({
+					kind: "within-distance",
+					property,
+					center: value(input),
+					distance: {
+						kind: "negate",
+						value: { kind: "term", term: { kind: "literal", value: radius } },
+					},
+					unit: "miles",
+				}).success,
+			).toBe(admitted);
+		},
+	);
 	it.each(["miles", "kilometers"])(
 		"refuses meter conversion overflow for %s",
 		(unit) => {

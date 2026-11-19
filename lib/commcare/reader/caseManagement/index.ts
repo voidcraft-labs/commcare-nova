@@ -914,6 +914,20 @@ function settleCaseChanges(
  * scalar checks held to the emitter's, and its preloads judged.
  */
 export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
+	const steps = settleCaseManagementSteps(ctx, app);
+	while (!steps.next().done);
+}
+
+/** The forms `settleCaseManagementSteps` settles between two stops. */
+const FORMS_SETTLED_PER_STEP = 100;
+
+/** `settleCaseManagement`, stopping after its document's preparation, after
+ *  every `FORMS_SETTLED_PER_STEP` forms and before the writers' types until it
+ *  is resumed. */
+export function* settleCaseManagementSteps(
+	ctx: ReadContext,
+	app: DraftApp,
+): Generator<void, void, void> {
 	settlePreloadDefaults(
 		ctx,
 		app.modules.flatMap((module) => module.forms),
@@ -924,6 +938,7 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 		ctx.doc = carryRetypedProperties(
 			takeBackWriterTypedDateTimes(ctx, ctx.doc),
 		);
+	yield;
 	const doc = ctx.doc;
 	if (doc === undefined) {
 		// No document to emit: each form's blocks stand as pass 1 read them,
@@ -932,9 +947,12 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 			for (const form of module.forms) settleSaveToCase(ctx, form);
 		return;
 	}
+	let settled = 0;
 	for (const module of app.modules) {
 		settleAdvancedMenu(ctx, doc, module);
 		for (const form of module.forms) {
+			if (settled > 0 && settled % FORMS_SETTLED_PER_STEP === 0) yield;
+			settled += 1;
 			if (doc.forms[form.uuid] === undefined) {
 				settleSaveToCase(ctx, form);
 				continue;
@@ -949,6 +967,7 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 			settleCaseChanges(ctx, ctx.doc ?? doc, form);
 		}
 	}
+	yield;
 	settleWriterTypes(ctx, app, ctx.doc ?? doc);
 }
 

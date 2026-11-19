@@ -1,12 +1,12 @@
 /**
  * Stage 10: what the bound document decides for a form. A case choices
- * itemset compared with the nodeset Nova's emitter builds for it (10.1); a
- * count that reads the rows it creates (10.3); a model-iteration repeat held
- * to where Nova's own rule runs model iteration (10.4); a pair of load-time
+ * itemset compared with the nodeset Nova's emitter builds for it; a
+ * count that reads the rows it creates; a model-iteration repeat held
+ * to where Nova's own rule runs model iteration; a pair of load-time
  * values whose order a save in HQ's form builder changes, where one reads the
- * node the other sets (11.3); and a Hidden Value whose bind type is one Nova
- * would not write for it (11.4); and a protected validation message's composed
- * expression and its text's own forms (13.2); and a Connect slot that holds the default the
+ * node the other sets; and a Hidden Value whose bind type is one Nova
+ * would not write for it; and a protected validation message's composed
+ * expression and its text's own forms; and a Connect slot that holds the default the
  * emitter writes for an unset one, read as unset. Each is compared with the production rule
  * over the document as the expression stage bound it. A check whose inputs a
  * finding withheld is skipped: that finding already sends the person to the
@@ -225,7 +225,7 @@ function held(ctx: ReadContext, element: object, attribute: string): boolean {
 	return false;
 }
 
-/** The load-time order check of one form (11.3). */
+/** The load-time order check of one form. */
 function checkLoadOrder(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -297,7 +297,7 @@ function caseWritesUnread(
 	});
 }
 
-/** The Hidden Value bind type check of one form (11.4): skipped for a Hidden Value whose
+/** The Hidden Value bind type check of one form: skipped for a Hidden Value whose
  *  calculate the expression stage did not hold, and for every one of a form a case write of
  *  which was itself a finding, since the inputs of either are not known. */
 function checkHiddenTypes(
@@ -334,7 +334,7 @@ function checkHiddenTypes(
 }
 
 /**
- * Each date-and-time sibling the case management stage settled as Nova's (13.2, `datetime`): the
+ * Each date-and-time sibling the case management stage settled as Nova's (`datetime`): the
  * form stage proposed it by its question's kind, and here, with the document's types bound, its
  * calculate must be the tree `questionDatetimeCaseValue` gives the question, or the earlier tree
  * (`typedInstantValue`), whose first publish the register already holds. A Hidden Value holding
@@ -419,7 +419,7 @@ function registrationOf(
 }
 
 /**
- * A case choices itemset over the bound document (10.1). Its filter is the expression stage's:
+ * A case choices itemset over the bound document. Its filter is the expression stage's:
  * printed in the slot through the same `caseOptionsNodeset` and compared there. The rest of the
  * nodeset, the source's text with the filter's predicate left out, is compared here with the
  * nodeset `caseOptionsNodeset` builds for the cases source with no filter: equal, the itemset is
@@ -512,7 +512,7 @@ function countRowPaths(
 	return paths;
 }
 
-/** A count that reads the rows it creates (10.3): the cycle proof the gate refuses it by, its
+/** A count that reads the rows it creates: the cycle proof the gate refuses it by, its
  *  count feedback mapped to the repeat. */
 function checkCountFeedback(
 	ctx: ReadContext,
@@ -533,7 +533,7 @@ function checkCountFeedback(
 	}
 }
 
-/** Where model iteration is held (10.4), for each model-iteration repeat of the form. */
+/** Where model iteration is held, for each model-iteration repeat of the form. */
 function checkModelIterations(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -568,7 +568,7 @@ function checkModelIterations(
 }
 
 /**
- * One protected validation message (13.2), held to what Core shows in each language.
+ * One protected validation message, held to what Core shows in each language.
  *
  * Core evaluates the stored `jr:constraintMsg` in a language over that language's text table,
  * which is the default language's text under every id and form key with the language's own laid

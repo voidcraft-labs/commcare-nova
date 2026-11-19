@@ -169,6 +169,67 @@ export function pathSteps(text: string): readonly string[] | undefined {
 	return steps;
 }
 
+/** A path read from `context`, a node path with an optional final `@name`:
+ *  absolute from the data root `root`, or from `current()`, which is `context`. */
+export function resolveContextPath(
+	node: FormSyntax,
+	context: readonly string[],
+	root: string,
+): string[] | undefined {
+	const steps: string[] = [];
+	let start: "root" | "current" | undefined;
+	const walk = (at: FormSyntax): boolean => {
+		switch (at.kind) {
+			case "group":
+				return walk(at.value);
+			case "child":
+				if (at.descendant) return false;
+				if (at.left === undefined) start = "root";
+				else if (!walk(at.left)) return false;
+				return walk(at.step);
+			case "call":
+				if (at.name !== "current" || at.args.length > 0 || start !== undefined)
+					return false;
+				start = "current";
+				return true;
+			case "name":
+				if (at.wildcard) return false;
+				steps.push(at.name);
+				return true;
+			case "self":
+				steps.push(".");
+				return true;
+			case "parent":
+				steps.push("..");
+				return true;
+			case "axis":
+				if (at.axis !== "attribute" || at.value.kind !== "name") return false;
+				steps.push(`@${at.value.name}`);
+				return true;
+			default:
+				return false;
+		}
+	};
+	if (!walk(node) || start === undefined) return undefined;
+	let at: string[];
+	let rest = steps;
+	if (start === "root") {
+		if (steps[0] !== root) return undefined;
+		at = [];
+		rest = steps.slice(1);
+	} else at = [...context];
+	for (const step of rest) {
+		if (step === ".") continue;
+		if (step === "..") {
+			if (at.length === 0) return undefined;
+			at.pop();
+			continue;
+		}
+		at.push(step);
+	}
+	return at;
+}
+
 /**
  * What a path names, read as Vellum's `processPath` reads a bind's: an absolute path from the
  * form's root, whose first step must be the data root's name, or a relative path from `base`

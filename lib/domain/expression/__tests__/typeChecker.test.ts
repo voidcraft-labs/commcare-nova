@@ -1188,6 +1188,16 @@ describe("conditionVerdict — match property-shape requirement", () => {
 		}
 	});
 
+	it("classifies a null match value, which prints as the empty one, as the same finding", () => {
+		const p = match(prop("patient", "case_name"), literal(null), "starts-with");
+		const result = conditionVerdict(p, ctx);
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.errors.map((error) => error.code)).toEqual([
+				"match-value-empty",
+			]);
+	});
+
 	it.each(["case_name", "status", "tags"] as const)(
 		"accepts fuzzy-date match on a text-shaped property (%s)",
 		(propName) => {
@@ -2482,6 +2492,14 @@ describe("checkExpression — arith arm + numeric promotion", () => {
 		},
 	);
 
+	it("quotient refuses a decimal operand, which the record dialect reads only as a whole number", () => {
+		const v = arith("quotient", term(literal(7.5)), term(literal(2)));
+		const { errors } = resolve(v);
+		expect(errors.map((error) => [error.code, error.reason])).toEqual([
+			["number-value", "whole-number-quotient"],
+		]);
+	});
+
 	it("int div int = decimal, since division is real division", () => {
 		const v = arith("div", term(literal(1)), term(literal(2)));
 		const { type, errors } = resolve(v);
@@ -3681,6 +3699,79 @@ describe("comparisons a device runs between two moments", () => {
 		expect(filterErrors(gte(opened, now()))[0]?.message).toBe(
 			"This compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
 		);
+	});
+	it("refuses an ordering against a blank, which no device and no search answers yes to", () => {
+		const blank = term(literal(null));
+		expect(codes(filterErrors(lt(blank, seen)))).toEqual([
+			"ordered-values:blank",
+		]);
+		expect(codes(filterErrors(gte(blank, now())))).toEqual([
+			"ordered-values:blank",
+		]);
+		expect(codes(filterErrors(gt(term(literal(3)), blank)))).toEqual([
+			"ordered-values:blank",
+		]);
+		expect(codes(filterErrors(gt(now(), coalesce(blank))))).toEqual([
+			"ordered-values:blank",
+		]);
+		// A blank branch orders the rows it is chosen for as no value.
+		expect(
+			filterErrors(
+				lt(
+					seen,
+					ifExpr(eq(term(literal("b")), term(literal("a"))), blank, now()),
+				),
+			),
+		).toEqual([]);
+	});
+	it("refuses, on a device, a coercion of a branch node that gives a day in one branch and a moment in another", () => {
+		// A device prints the coercion of each branch: `date(last_modified)`, a
+		// day, beside `now()`, as `if(c, date(x), now())`, which the checker
+		// refuses for its branches.
+		const choose = eq(term(literal("b")), term(literal("a")));
+		expect(
+			codes(
+				filterErrors(isBlank(datetimeCoerce(ifExpr(choose, changed, now())))),
+			),
+		).toEqual(["branch-values"]);
+		expect(
+			codes(
+				filterErrors(
+					isBlank(
+						datetimeCoerce(
+							switchExpr(
+								term(literal("b")),
+								[switchCase(literal("a"), changed)],
+								now(),
+							),
+						),
+					),
+				),
+			),
+		).toEqual(["branch-values"]);
+		// A branch node of such a coercion beside a moment prints so too.
+		expect(
+			codes(filterErrors(isBlank(coalesce(now(), datetimeCoerce(changed))))),
+		).toEqual(["branch-values"]);
+		expect(
+			codes(
+				filterErrors(isBlank(ifExpr(choose, datetimeCoerce(opened), now()))),
+			),
+		).toEqual(["branch-values"]);
+		// Two days, or two moments, agree.
+		expect(
+			filterErrors(isBlank(datetimeCoerce(ifExpr(choose, changed, opened)))),
+		).toEqual([]);
+		expect(
+			filterErrors(
+				isBlank(
+					ifExpr(choose, datetimeCoerce(changed), datetimeCoerce(opened)),
+				),
+			),
+		).toEqual([]);
+		expect(
+			filterErrors(isBlank(datetimeCoerce(ifExpr(choose, seen, now())))),
+		).toEqual([]);
 	});
 	it("admits a casedb system date ordered against a day, and two system dates under any operator", () => {
 		expect(filterErrors(gte(opened, day))).toEqual([]);

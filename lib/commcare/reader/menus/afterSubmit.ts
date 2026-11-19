@@ -532,7 +532,7 @@ function expectedGuards(
 	return guards;
 }
 
-/** Which trailing conjuncts of a stored link `xpath` are the emitter's held-case guards (9.4).
+/** Which trailing conjuncts of a stored link `xpath` are the emitter's held-case guards.
  *  `storedDatums` are the link's carried values as stored, index for index with its `datums`. */
 export function linkGuards(
 	doc: BlueprintDoc,
@@ -999,7 +999,7 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 	}
 }
 
-/** The otherwise (9.3), then the destinations, each registered (9.4). */
+/** The otherwise, then the destinations, each registered. */
 function readOtherwiseAndLinks(
 	ctx: ReadContext,
 	snapshot: BlueprintDoc,
@@ -1264,7 +1264,7 @@ function documentLink(
 	);
 }
 
-/** The guards of a read link, decided again over the document with its stored `xpath` (9.4):
+/** The guards of a read link, decided again over the document with its stored `xpath`:
  *  its target and carried selections are the ones step 4 wrote, so this agrees with the mark
  *  `registerLinkExpressions` read over the provisional document. */
 function guardsOf(
@@ -1393,7 +1393,7 @@ export function acceptAfterSubmit(
 	)
 		return;
 	if (reading.word !== "form") {
-		// (R1): the word Nova writes for the destination read is the stored word.
+		// The word Nova writes for the destination read is the stored word.
 		if (emitted?.post_form_workflow !== reading.word)
 			ctx.accounting.circumstance("unrecognized", form.place, {
 				name: `schema:${form.docType}.post_form_workflow`,

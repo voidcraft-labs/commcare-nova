@@ -1,5 +1,5 @@
 /**
- * Vellum's shadows (14.2) and `requiredCondition` (14.3). `shadowAgrees` is
+ * Vellum's shadows and `requiredCondition`. `shadowAgrees` is
  * held over pairs of real and shadow text with the head's metadata: agreeing
  * through `#form/`, through a `hashtags` entry and through a transform's exact
  * prefix; disagreeing; with no expansion; a hashtag the map holds as `null`,

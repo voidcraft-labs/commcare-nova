@@ -310,6 +310,50 @@ describe("refreshKeptValues", () => {
 		expect(await baselineRow()).toEqual(before);
 	});
 
+	it("answers changed-in-hq for a file replaced at a path the record holds, and nothing for a path it holds no record of", async () => {
+		const path = "commcare/image/visit.png";
+		const withFile = (id: string) => {
+			const source = liveSource();
+			source.multimedia_map = {
+				[`jr://file/${path}`]: {
+					multimedia_id: id,
+					media_type: "CommCareImage",
+					version: null,
+					unique_id: "52946998b4756538f0430bb5a67b6939",
+					upstream_media_id: null,
+					doc_type: "HQMediaMapItem",
+				},
+			};
+			return source;
+		};
+		await seedApp();
+		await published({
+			...baselineOf(liveSource()),
+			mediaFiles: { kind: "set", files: { [path]: "doc-nova" } },
+		});
+		const before = await baselineRow();
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, withFile("doc-person"));
+			expect(await refreshKeptValues(SCOPE, TARGET)).toEqual({
+				kind: "changed-in-hq",
+			});
+			/* A file was never fetched: the ids alone say it moved. */
+			expect(sent(peer)).toBe(1);
+		});
+		expect(await baselineRow()).toEqual(before);
+
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({ media_files: JSON.stringify({}) })
+			.execute();
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, withFile("doc-person"));
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+			expect(sent(peer)).toBe(1);
+		});
+	});
+
 	describe("answers no-baseline and asks CommCare HQ nothing", () => {
 		it("for an app with no deployment there", async () => {
 			await seedApp();

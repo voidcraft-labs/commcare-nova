@@ -266,6 +266,8 @@ export function ownedProjection(
 export type AppChangePart =
 	| { readonly kind: "name" | "languages" | "settings" | "text" | "menu-list" }
 	| { readonly kind: "menu"; readonly menu: number; readonly name: string }
+	/** Files this app publishes that CommCare HQ now holds another file at the path of. */
+	| { readonly kind: "media"; readonly count: number }
 	| {
 			readonly kind: "form";
 			readonly menu: number;
@@ -418,6 +420,11 @@ function langsOf(normalized: unknown): readonly string[] {
  * `languageNames` is the publish's own: `"target"` where the live app
  * mapping is `adopted`, so a language's display name, which the project
  * space keeps there, is no part of the comparison.
+ *
+ * `mediaChanged` is how many files this app publishes CommCare HQ holds
+ * another file in place of, which the caller works out from the media map
+ * (`hqMedia.ts`), since no update writes the map and the projection reads
+ * none of it: one `media` part where it is above zero, and none for a shell.
  */
 export function diffHqAppSource(input: {
 	readonly baseline: unknown;
@@ -426,6 +433,7 @@ export function diffHqAppSource(input: {
 	readonly shell: boolean;
 	readonly schemaDefault: SchemaDefaultReader;
 	readonly languageNames: "nova" | "target";
+	readonly mediaChanged?: number;
 }): readonly AppChangePart[] {
 	const reader = input.schemaDefault;
 	/* One set of language codes for both reads, so a key is classed alike on
@@ -519,5 +527,7 @@ export function diffHqAppSource(input: {
 	if (appKeysDiffer("languages")) parts.push({ kind: "languages" });
 	if (appKeysDiffer("settings")) parts.push({ kind: "settings" });
 	if (appKeysDiffer("text")) parts.push({ kind: "text" });
+	const mediaChanged = input.mediaChanged ?? 0;
+	if (mediaChanged > 0) parts.push({ kind: "media", count: mediaChanged });
 	return parts;
 }

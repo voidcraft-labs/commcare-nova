@@ -10,6 +10,14 @@ import { parseXForm, serializeXForm } from "./domSplice";
 
 export function stripVellumAttributes(xform: string): string {
 	const doc = parseXForm(xform);
+	stripVellumAttributesFrom(doc);
+	return serializeXForm(doc);
+}
+
+/** `stripVellumAttributes` over a parsed XForm, which it changes in place. */
+export function stripVellumAttributesFrom(
+	doc: ReturnType<typeof parseXForm>,
+): void {
 	const walk = (
 		nodes: ChildNode[],
 		inherited: ReadonlyMap<string, string>,
@@ -34,5 +42,4 @@ export function stripVellumAttributes(xform: string): string {
 		}
 	};
 	walk(doc.children, new Map());
-	return serializeXForm(doc);
 }

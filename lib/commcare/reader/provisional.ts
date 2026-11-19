@@ -40,7 +40,7 @@ import { readerDefect } from "./defects";
 import {
 	type ExpressionClaim,
 	type ExpressionReading,
-	readExpressions,
+	readExpressionsSteps,
 } from "./expressions";
 import { slotForm } from "./expressions/readExpression";
 import {
@@ -729,7 +729,8 @@ export function* bindExpressionsSteps(
 	const env = expressionEnvOf(ctx);
 	const pending = ctx.pending.list();
 	const firstDoc = provisionalDocument(ctx);
-	const first = readExpressions(firstDoc, pending, env);
+	yield;
+	const first = yield* readExpressionsSteps(firstDoc, pending, env);
 	yield;
 	const rows = searchRowUserFields(ctx);
 	const world = worldEntitiesFromReads(
@@ -753,7 +754,8 @@ export function* bindExpressionsSteps(
 	 * entities wrote nothing, the drafts give the same document, and its
 	 * reading is the first. */
 	const doc = provisionalDocument(ctx);
-	const reading = doc === firstDoc ? first : readExpressions(doc, pending, env);
+	const reading =
+		doc === firstDoc ? first : yield* readExpressionsSteps(doc, pending, env);
 	yield;
 	applyExpressionReading(ctx, reading);
 }

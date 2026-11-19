@@ -18,7 +18,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	type CasePlacement,
-	caseScalarTextGuards,
+	caseScalarTextSiblings,
 	caseWriteValueField,
 	type DatumRef,
 	type Form,
@@ -245,26 +245,29 @@ function buildPlan(
 	};
 	// The questions whose trimmed sibling the form's source holds: those a
 	// change this plan gives an action reads a case name or an external id
-	// from (the own case's, each basic subcase's, each basic or advanced
-	// placement's), the rule `placement.ts::placedBasic` gives the XForm
-	// builder, which writes the sibling. The set every candidate gives is
-	// wider: a question a Save to Case block names a case from is in it, and
-	// a basic slot reading that question by another write would name a
-	// sibling no source holds.
+	// from (the own case's where an action carries it, each basic subcase's,
+	// each basic or advanced placement's), the rule
+	// `placement.ts::readsTrimmedSibling` gives the XForm builder, which
+	// writes the sibling. The set every candidate gives is wider: a question
+	// a Save to Case block names a case from is in it, and a basic slot
+	// reading that question by another write would name a sibling no source
+	// holds.
 	const ownUuid = operations.find((op) => op.action === "own")?.uuid;
 	const subcaseOperations = new Set(
 		subcases.map((subcase) => subcase.operationUuid),
 	);
-	const guarded = caseScalarTextGuards(doc, formUuid, {
-		placedBasic: (operationUuid) => {
-			const kind = placements.get(operationUuid)?.placement.kind;
-			return (
-				operationUuid === ownUuid ||
-				kind === "basic" ||
-				kind === "advanced" ||
-				subcaseOperations.has(operationUuid)
-			);
-		},
+	const actionCarries = (operationUuid: Uuid): boolean => {
+		const kind = placements.get(operationUuid)?.placement.kind;
+		return (
+			kind === "basic" ||
+			kind === "advanced" ||
+			subcaseOperations.has(operationUuid)
+		);
+	};
+	const guarded = caseScalarTextSiblings(doc, formUuid, {
+		placedBasic: (operationUuid) =>
+			operationUuid === ownUuid || actionCarries(operationUuid),
+		readsSibling: actionCarries,
 	});
 	/**
 	 * The node a basic slot names for `property`: the question, its trimmed

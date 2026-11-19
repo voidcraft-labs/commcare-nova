@@ -16,11 +16,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import {
-	currentResourceIdentities,
-	deploymentKept,
-	setupArtifactFor,
-} from "@/lib/deployment/service";
+import { landedDeploymentKept } from "@/lib/deployment/service";
 import {
 	readDeploymentsForApp,
 	withdrawDeploymentConfirmation,
@@ -41,6 +37,11 @@ import { loadAppBlueprint } from "../loadApp";
 import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
+import {
+	landedNovaRevisions,
+	landedResourceIdentities,
+	landedSetupArtifact,
+} from "./landedReads";
 
 /** The key a call names, refused in the caller's words where it names none. */
 function confirmationKey(
@@ -130,6 +131,15 @@ export function registerWithdrawDeploymentConfirmation(
 					{ server: only.deployment.server, domain: only.deployment.domain },
 					key,
 				);
+				/* The withdrawal has landed, so what Nova could not read just
+				 * now is left out of the answer rather than failing it. */
+				const domain = only.deployment.domain;
+				const [identities, kept, novaRevisions, artifact] = await Promise.all([
+					landedResourceIdentities(scope, doc, domain, "withdraw"),
+					landedDeploymentKept(scope, deployment, "withdraw"),
+					landedNovaRevisions(scope, domain, "withdraw"),
+					landedSetupArtifact(scope, deployment, doc, "withdraw"),
+				]);
 				return {
 					content: [
 						{
@@ -138,10 +148,11 @@ export function registerWithdrawDeploymentConfirmation(
 								app_id: args.app_id,
 								...describeDeployment(
 									deployment,
-									await currentResourceIdentities(scope, doc),
-									await deploymentKept(scope, deployment),
+									identities,
+									kept,
+									novaRevisions,
 								),
-								setup_artifact: await setupArtifactFor(scope, deployment, doc),
+								setup_artifact: artifact,
 							}),
 						},
 					],

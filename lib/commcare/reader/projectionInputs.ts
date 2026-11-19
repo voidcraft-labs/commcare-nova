@@ -12,12 +12,13 @@
  * every slot that names another of them is compared through
  * `keptMediaPaths`, so a path naming the same file as the kept one compares
  * equal to it, and no comparison depends on which path is kept. The first
- * publish keeps a path by its own rule (`assignMediaPaths`, part 10 of the
- * bring-in plan, section 4.2), which drops a path it cannot hold, one that
- * names another file and one that differs from another file's only by letter
- * case before it takes the first in that order, so it keeps another path, or
- * the file's derived one, where the first here is dropped; its register
- * declares each move (`media-paths-joined`, `media-files-renamed`).
+ * publish keeps a path by its own rule
+ * (`lib/deployment/adoption.ts::assignMediaPaths`), which drops a path it
+ * cannot hold, one that names another file and one that differs from another
+ * file's only by letter case before it takes the first in that order, so it
+ * keeps another path, or the file's derived one, where the first here is
+ * dropped; its register declares each move (`media-paths-joined`,
+ * `media-files-renamed`).
  */
 
 import type { HqApplication } from "@/lib/commcare";

@@ -64,7 +64,7 @@ export interface AdoptedBirth {
 }
 
 /** A ready media asset of the Project, which a held path names. */
-async function seedAsset(
+export async function seedAsset(
 	h: AppStateTestDb,
 	projectId: string,
 	actorUserId: string,

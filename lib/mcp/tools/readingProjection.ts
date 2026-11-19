@@ -4,12 +4,12 @@
  * bring-in screens show, from the same copy exports, and dates as ISO text or
  * the UTC day.
  *
- * An account longer than one answer is cut into pages, each under
- * `PAGE_LIMIT_CHARS` of JSON, below the tool's registered result ceiling.
- * Nothing is kept between calls, so a page's cursor carries the digest of the
- * account it was cut from, and a fresh read whose account has another digest
- * answers from its start rather than stitching two versions of an app into
- * one list.
+ * An account, or a review's lookup tables, longer than one answer is cut
+ * into pages, each under `PAGE_LIMIT_CHARS` of JSON, below the tool's
+ * registered result ceiling. Nothing is kept between calls, so a page's
+ * cursor carries the digest of the account or review it was cut from, and a
+ * fresh read with another digest answers from its start rather than stitching
+ * two versions of an app into one list.
  */
 
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
@@ -168,6 +168,7 @@ export interface ReviewProjection {
 		readonly labels: readonly string[];
 		readonly note: string;
 	};
+	/** This page's lookup tables the app reads. */
 	readonly tables: readonly {
 		readonly tag: string;
 		readonly standing: ReviewTable["standing"];
@@ -179,6 +180,10 @@ export interface ReviewProjection {
 			readonly answers: readonly TableAnswerProjection[];
 		};
 	}[];
+	/** How many lookup tables the app reads, over every page. */
+	readonly tables_total: number;
+	/** The cursor of the page that holds the tables after this page's, or null on the last. */
+	readonly next_page: string | null;
 	readonly places: { readonly count: number; readonly sentence: string } | null;
 	readonly media: {
 		readonly sentence: string | null;
@@ -225,8 +230,9 @@ export interface ReadingProjection {
 	readonly state: "review" | "account" | "stop";
 	/**
 	 * True where the call sent `page` and the fresh read is now a review or an
-	 * account with another digest, answered from its start. False without
-	 * `page`, and for a stop, which answers as itself (`pageFor`).
+	 * account other than the one the page was cut from, answered from its
+	 * start. False without `page`, and for a stop, which answers as itself
+	 * (`pageFor`).
 	 */
 	readonly restarted: boolean;
 	/** The restart's sentence where `restarted` is true, else null. */
@@ -298,14 +304,16 @@ function appNameOf(answer: ReadingAnswer): string | null {
 const STANDINGS: readonly Standing[] = ["not-yet", "never", "fix-in-hq"];
 
 /** `canonicalJsonDigest` of an account's whole listed content: its `findings` and its `more`. */
-export function accountDigest(answer: AccountAnswer): string {
+export function accountDigest(
+	answer: Pick<AccountAnswer, "findings" | "more">,
+): string {
 	return canonicalJsonDigest({
 		findings: answer.findings,
 		more: answer.more,
 	});
 }
 
-/** The cursor of the page that starts at `from` of the account `digest` names. */
+/** The cursor of the page that starts at `from` of the account or review `digest` names. */
 function pageCursor(from: number, digest: string): string {
 	return `${from}:${digest}`;
 }
@@ -331,23 +339,44 @@ export function parseAccountPage(
 }
 
 /**
+ * What a page of a read's answer is cut from, and the digest its cursor
+ * carries: an account's findings under `accountDigest`, or a review's lookup
+ * tables under its review digest. Null for a stop, which no page is cut from.
+ */
+function pagedOf(
+	answer: ReadingAnswer,
+): { readonly length: number; readonly digest: string } | null {
+	switch (answer.kind) {
+		case "stop":
+			return null;
+		case "account":
+			return { length: answer.findings.length, digest: accountDigest(answer) };
+		case "review":
+			return {
+				length: answer.review.tables.length,
+				digest: answer.reviewDigest,
+			};
+	}
+}
+
+/**
  * Where a fresh read's answer starts for a call that sent `cursor`: at the
- * cursor's index where the read is the account the cursor was cut from; from
- * the start and `restarted` where the app is now a review or another account;
- * and null where the cursor names that very account at an index past its end,
- * which no answer gave. A stop is never `restarted`: it says nothing of the
- * app the cursor was cut from (a refused key, CommCare HQ busy or away), so it
- * answers as itself and the cursor still pages once the read gets through.
+ * cursor's index where the read is the account or review the cursor was cut
+ * from; from the start and `restarted` where the app is now another account
+ * or review; and null where the cursor names that very answer at an index
+ * past its end, which no answer gave. A stop is never `restarted`: it says
+ * nothing of the app the cursor was cut from (a refused key, CommCare HQ busy
+ * or away), so it answers as itself and the cursor still pages once the read
+ * gets through.
  */
 export function pageFor(
 	answer: ReadingAnswer,
 	cursor: { readonly from: number; readonly digest: string } | null,
 ): { readonly from: number; readonly restarted: boolean } | null {
-	if (cursor === null || answer.kind === "stop")
-		return { from: 0, restarted: false };
-	if (answer.kind !== "account" || accountDigest(answer) !== cursor.digest)
-		return { from: 0, restarted: true };
-	if (cursor.from >= answer.findings.length) return null;
+	const paged = pagedOf(answer);
+	if (cursor === null || paged === null) return { from: 0, restarted: false };
+	if (paged.digest !== cursor.digest) return { from: 0, restarted: true };
+	if (cursor.from >= paged.length) return null;
 	return { from: cursor.from, restarted: false };
 }
 
@@ -433,6 +462,47 @@ function accountProjection(
 	};
 }
 
+/** An account's findings, counts and paging, as `account` holds them, with no word of its files. */
+export type ListedAccountProjection = Omit<
+	AccountProjection,
+	"media_checked" | "note"
+>;
+
+/**
+ * The page of an account that starts at `from`, cut as `read_hq_app` cuts
+ * one, for an account that says nothing of whether its files were checked:
+ * a review of the changes made in CommCare HQ answers one of those. `measure`
+ * is the JSON length of the whole answer that holds the page.
+ */
+export function listedAccountProjection(
+	account: Pick<AccountAnswer, "findings" | "more" | "counts">,
+	key: ReadingKey,
+	context: CircumstanceContext,
+	from: number,
+	measure: (account: ListedAccountProjection) => number,
+): ListedAccountProjection {
+	const listed = (page: AccountProjection): ListedAccountProjection => ({
+		counts: page.counts,
+		labels: page.labels,
+		findings: page.findings,
+		total: page.total,
+		next_page: page.next_page,
+		check_again: page.check_again,
+		more: page.more,
+	});
+	/* The files' two keys are cut from every page, the one measured included,
+	 * so what they would hold never reaches a client or the page's size. */
+	return listed(
+		accountProjection(
+			{ kind: "account", appName: null, mediaChecked: true, ...account },
+			key,
+			context,
+			from,
+			(page) => measure(listed(page)),
+		),
+	);
+}
+
 // ---------------------------------------------------------------------------
 // The review
 // ---------------------------------------------------------------------------
@@ -457,7 +527,8 @@ function firstUploadAsks(
 	return null;
 }
 
-function tableProjection(
+/** One table of a review, as `review.tables` holds it: its standing, its sentence, or its choice. */
+export function tableProjection(
 	table: ReviewTable,
 	project: string,
 	domain: string,
@@ -522,11 +593,19 @@ function tableProjection(
 	}
 }
 
+/**
+ * A review with its lookup tables from `from`, as many as keep the whole
+ * answer (`measure`) under `PAGE_LIMIT_CHARS`, and always one, so following
+ * the cursors reaches the end: the tables are paged as an account's findings
+ * are (`accountProjection`).
+ */
 function reviewProjection(
 	review: ReadingReview,
 	reviewDigest: string,
 	project: string,
 	domain: string,
+	from: number,
+	measure: (review: ReviewProjection) => number,
 ): ReviewProjection {
 	const preselected = review.runsOn.find((choice) => choice.preselected);
 	if (preselected === undefined)
@@ -534,7 +613,7 @@ function reviewProjection(
 			"A review answered with no preselected way to run. A review offers at least one, exactly one of them preselected. Look at lib/deployment/reading/gather.ts::gatherReading.",
 		);
 	const asks = firstUploadAsks(review, preselected);
-	return {
+	const shell: ReviewProjection = {
 		review_digest: reviewDigest,
 		app_name: review.appName,
 		read_at: review.readAt,
@@ -585,9 +664,9 @@ function reviewProjection(
 			labels: review.kept.map((id) => KEPT_LABELS[id]),
 			note: KEPT_FOLLOWS_LINE,
 		},
-		tables: review.tables.map((table) =>
-			tableProjection(table, project, domain),
-		),
+		tables: [],
+		tables_total: review.tables.length,
+		next_page: LONGEST_CURSOR,
 		places:
 			review.places === null
 				? null
@@ -611,6 +690,28 @@ function reviewProjection(
 			ANOTHER_SPACE_NEW_APP_LINE,
 		],
 	};
+	let size = measure(shell);
+	const tables: ReviewProjection["tables"][number][] = [];
+	let end = from;
+	while (end < review.tables.length) {
+		const projected = tableProjection(
+			review.tables[end] as ReviewTable,
+			project,
+			domain,
+		);
+		const added =
+			JSON.stringify(projected).length + (tables.length > 0 ? 1 : 0);
+		if (tables.length > 0 && size + added >= PAGE_LIMIT_CHARS) break;
+		size += added;
+		tables.push(projected);
+		end += 1;
+	}
+	return {
+		...shell,
+		tables,
+		next_page:
+			end < review.tables.length ? pageCursor(end, reviewDigest) : null,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -622,7 +723,7 @@ export function describeReading(
 	answer: ReadingAnswer,
 	key: ReadingKey,
 	options: {
-		/** The first finding of the page: 0 unless the call sent a `page` that still stands. */
+		/** The first finding or table of the page: 0 unless the call sent a `page` that still stands. */
 		readonly from: number;
 		/** True where the call sent a `page` and the app is no longer what that page was cut from. */
 		readonly restarted: boolean;
@@ -665,6 +766,10 @@ export function describeReading(
 					answer.reviewDigest,
 					options.project,
 					key.domain,
+					options.from,
+					(review) =>
+						JSON.stringify({ ...head, reading_id: answer.readingId, review })
+							.length,
 				),
 			};
 	}

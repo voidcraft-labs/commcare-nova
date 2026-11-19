@@ -25,6 +25,7 @@ import { splitName } from "../../xmlNamespaces";
 import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
 import { applicationReading } from "../appShell";
+import { numericSortColumns } from "../caseList/details";
 import type { Claim } from "../claims";
 import type { DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
@@ -33,6 +34,7 @@ import { externalKey } from "../identity";
 import { pointerToken } from "../jsonCursor";
 import type { DefaultEvent, ReadMode } from "../pendingExpressions";
 import { placeKey, whereText } from "../place";
+import { dateRangeGuesses } from "../search/dateRangeGuesses";
 import type { ReadGeneratedNode } from "../types";
 import type { XmlCursor } from "../xmlCursor";
 import type { AppearanceForm } from "./appearances";
@@ -155,7 +157,7 @@ export interface DraftExpression {
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
 export interface DraftField {
 	readonly node: DataNode;
-	/** A root Question List becomes a section once the form's root is known (10.2). */
+	/** A root Question List becomes a section once the form's root is known. */
 	kind: FieldKind;
 	readonly id: string;
 	readonly parent: DraftField | null;
@@ -726,7 +728,7 @@ export function readForms(ctx: ReadContext): void {
 }
 
 /** How many forms `readFormsSteps` reads between two stops. */
-const FORMS_PER_STEP = 200;
+const FORMS_PER_STEP = 100;
 
 /** `readForms`, stopping after every `FORMS_PER_STEP` forms until it is
  *  resumed, so a reading of an app at the byte cap is no one long piece. */
@@ -1006,6 +1008,8 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		operationIdPaths,
 		recordDialect: ctx.input.recordDialect,
 		entryFactsRefused: new Set(ctx.facts.entryFactsRefused),
+		dateRangeGuesses: dateRangeGuesses(ctx),
+		numericSortColumns: numericSortColumns(ctx),
 		formPlaces,
 		computedDatums,
 		...(ctx.input.knownCaseTypes !== undefined && {

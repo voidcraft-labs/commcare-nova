@@ -74,6 +74,16 @@
  * plausible failures are a refusal that reads the setting alone, refusing a
  * document Nova publishes there, and one that never reads the verdict.
  *
+ * A document whose saves in HQ the republish brings in is written as the
+ * document that republish sends: `document.json` holds the document the
+ * bring-in gave, and its local archives install exactly the forms the
+ * republish sends, under the `xmlns` the bring-in read of HQ's app. The
+ * plausible failures are a document and an archive of D, which the lane
+ * would compare with A after the saves (an app that holds the person's
+ * change against one that does not), and an archive under the derived ids,
+ * whose added form is not the one HQ holds. The observation is the written
+ * files beside the captured republish.
+ *
  * The lane's emission holds the fixed floor's census to
  * `proof/corpus/left-out.json` (`leftOutDifferences`) and stops before
  * writing anything where they differ. The plausible failures: a rule that
@@ -103,6 +113,7 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema, effectiveAppLocalization } from "@/lib/domain";
 import { commtrackAdvanced } from "../../targeted/documents/advancedModules";
+import { hqChangesForms } from "../../targeted/documents/hqChanges";
 import { hqSideState } from "../../targeted/documents/hqSideState";
 import { lookupReservedTags } from "../../targeted/documents/lookupReservedTags";
 import { sameTypeChild } from "../../targeted/documents/sameTypeChild";
@@ -203,6 +214,26 @@ function profileUniqueId(archive: Buffer): string | undefined {
 	const parsed = parseXml(profile);
 	const root = parsed.children.find(isTag);
 	return root?.attribs.uniqueid;
+}
+
+/** The `xmlns` of each form a local archive installs: its main instance's root, read from each parsed form. */
+function archiveFormXmlns(archive: Buffer): Set<string> {
+	const found = new Set<string>();
+	for (const entry of new AdmZip(archive).getEntries()) {
+		if (!/^modules-\d+\/forms-\d+\.xml$/.test(entry.entryName)) continue;
+		const pending = [...parseXml(entry.getData().toString("utf8")).children];
+		while (pending.length > 0) {
+			const node = pending.shift();
+			if (node === undefined || !isTag(node)) continue;
+			if (node.name === "instance" && node.attribs.id === undefined) {
+				const root = node.children.find(isTag);
+				if (root?.attribs.xmlns !== undefined) found.add(root.attribs.xmlns);
+				continue;
+			}
+			pending.push(...node.children);
+		}
+	}
+	return found;
 }
 
 async function emit(
@@ -705,6 +736,34 @@ describe("the corpus emitter", () => {
 		);
 	});
 
+	it("writes the document a bring-in of a person's saves gave, and its local archive under the ids the bring-in read, where the republish sends it", {
+		timeout: 60_000,
+	}, async () => {
+		const forms = hqChangesForms();
+		const out = join(root, "brings-in");
+		await emit(out, [forms], []);
+		const written = await files(join(out, forms.id));
+		const document = JSON.parse(
+			written.get("document.json")?.toString("utf8") ?? "",
+		);
+		expect(document.doc).toEqual(
+			JSON.parse(JSON.stringify(forms.hqSide?.bringsIn)),
+		);
+		const republished = await importedApp(
+			join(out, forms.id, "export", "minimum"),
+			"republish",
+		);
+		const sent = new Set(
+			republished.modules.flatMap((module) =>
+				module.forms.map((form) => form.xmlns),
+			),
+		);
+		const local = written.get("local.ccz");
+		if (local === undefined) throw new Error(`${forms.id} has no local.ccz.`);
+		expect(archiveFormXmlns(local)).toEqual(sent);
+		expect(written.get("local-again.ccz")?.equals(local)).toBe(true);
+	});
+
 	it("refuses a document that turns sync on form entry on while its publish asks that it be off", async () => {
 		const refused: CorpusDocument = {
 			...syncOnFormEntry(),
@@ -813,34 +872,26 @@ describe("the corpus emitter", () => {
 	});
 
 	it("writes the same bytes on every run for a seed, sends the first publish's ids on the republish, and writes a document's two local exports as one archive", {
-		// Two more emissions of the whole corpus, each capturing every publish
-		// and writing every archive: 18 to 28 seconds on a CI runner sharing
-		// its cores with the rest of a shard.
+		// One more emission of the whole corpus, capturing every publish and
+		// writing every archive, as long again as the suite's own.
 		timeout: 60_000,
 	}, async () => {
-		const runs: Map<string, Buffer>[] = [];
-		// The runs happen at different times: whatever reads the clock must not reach the files.
+		// The run happens at another time than the suite's own, which reads the
+		// real clock: whatever reads the clock must not reach the files.
 		vi.useFakeTimers({ toFake: ["Date"] });
 		try {
-			for (const [run, at] of [
-				["first", "2026-03-01T00:00:00Z"],
-				["second", "2027-06-15T12:34:56Z"],
-			] as const) {
-				vi.setSystemTime(new Date(at));
-				await emit(join(root, run), fixed, sampled);
-				runs.push(await files(join(root, run)));
-			}
+			vi.setSystemTime(new Date("2027-06-15T12:34:56Z"));
+			await emit(join(root, "again"), fixed, sampled);
 		} finally {
 			vi.useRealTimers();
 		}
+		const run = await files(join(root, "again"));
 		const nova = await files(join(root, "nova"));
-		for (const run of runs) {
-			expect([...run.keys()]).toEqual([...nova.keys()]);
-			for (const [path, bytes] of nova) {
-				// What each part took is the one file that varies.
-				if (path === "timings.json") continue;
-				expect(run.get(path)?.equals(bytes), path).toBe(true);
-			}
+		expect([...run.keys()]).toEqual([...nova.keys()]);
+		for (const [path, bytes] of nova) {
+			// What each part took is the one file that varies.
+			if (path === "timings.json") continue;
+			expect(run.get(path)?.equals(bytes), path).toBe(true);
 		}
 		expect(nova.has("inputs.json")).toBe(true);
 
@@ -911,10 +962,13 @@ describe("the corpus emitter", () => {
 		// writing (about 3 s on a laptop); CI runners are slower.
 		timeout: 60_000,
 	}, async () => {
-		// Enough documents that the emitter starts three workers, spanning
-		// the producer families.
-		const spread = producers.filter((_, index) => index % 6 === 0).slice(0, 24);
-		expect(spread).toHaveLength(24);
+		// The fewest documents for which the emitter starts three workers (it
+		// gives each at most eight), spanning the producer families.
+		const step = Math.floor(producers.length / 17);
+		const spread = producers
+			.filter((_, index) => index % step === 0)
+			.slice(0, 17);
+		expect(spread).toHaveLength(17);
 		const here = await emit(join(root, "spread-here"), spread, []);
 		const workers = await emit(join(root, "spread-workers"), spread, [], {
 			jobs: 3,
@@ -934,7 +988,7 @@ describe("the corpus emitter", () => {
 
 		// A selection writes its documents exactly as the whole corpus does,
 		// though their neighbours in each process are others.
-		const chosen = [spread[5]?.id, spread[17]?.id].filter(
+		const chosen = [spread[5]?.id, spread[13]?.id].filter(
 			(id): id is string => id !== undefined,
 		);
 		const selected = await emit(join(root, "spread-selected"), spread, [], {

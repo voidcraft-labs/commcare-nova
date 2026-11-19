@@ -603,8 +603,9 @@ describe("a Search field Nova cannot hold", () => {
 						one.code,
 						one.place.kind,
 						one.detail.name,
+						one.detail.reason,
 					]),
-				).toEqual([[MISSING, "search", "case_name"]]);
+				).toEqual([[MISSING, "search", "case_name", "parse:unknown-column"]]);
 			});
 
 		it("a table the reading was not told of is handed off, and nothing else is a finding", async () => {

@@ -9,6 +9,8 @@
  * `KEPT_LABELS`.
  */
 
+import { keptChangedInHqLine } from "./hqChangesCopy";
+
 /** The label ids, in the order the kept list's labels are listed. */
 export const KEPT_LABEL_IDS = [
 	"automatic-app-updates",
@@ -149,11 +151,6 @@ export function keptListUnreadSentence(date: string): string {
 	return `Nova read CommCare HQ again but couldn't show the result just now, so these are as of ${date}. They update the next time Nova reads this deployment.`;
 }
 
-/** The sentence a refresh that found a change made in CommCare HQ ends on. */
-function keptChangedInHqSentence(date: string): string {
-	return `CommCare HQ saved this app since Nova last read it, so these stay as of ${date}.`;
-}
-
 /** The sentence a person reads after Refresh from CommCare HQ answers. */
 export function keptRefreshSentence(
 	outcome: {
@@ -175,7 +172,7 @@ export function keptRefreshSentence(
 				? "Updated. This is what CommCare HQ holds now."
 				: "Nothing has changed. This is still what CommCare HQ holds.";
 		case "changed-in-hq":
-			return keptChangedInHqSentence(date);
+			return keptChangedInHqLine(date);
 		case "superseded":
 			return "A publish or another read of CommCare HQ landed here while Nova was reading, so this is the latest Nova has.";
 		case "no-baseline":

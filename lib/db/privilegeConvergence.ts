@@ -252,8 +252,13 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
  * an app is brought in from CommCare HQ and deleted when the deployment is
  * ended (a stop, or a settle that ends it); a Project move deletes an app's
  * media-path rows and inserts them under the destination Project's asset ids;
- * no row is ever changed. The app row's lock serializes the ending and the
- * move: a settle and a move hold it `FOR UPDATE`, a stop `FOR SHARE` with the
+ * a bring-in of changes made in CommCare HQ inserts identity and media-path
+ * rows for what CommCare HQ added, deleting first the media-path row of a
+ * file CommCare HQ replaced and each identity row its reading contradicts (a
+ * row of the same entity under other ids, or of another entity under an id
+ * or `xmlns` the reading's row takes); no row is ever changed. The app row's lock
+ * serializes the ending, the move and the bring-in: a settle and a move hold
+ * it `FOR UPDATE`, a stop and a bring-in `FOR SHARE` or `FOR UPDATE` with the
  * deployment row `FOR UPDATE`. The birth writes them for a deployment it
  * inserts in the same transaction, which no other transaction sees until it
  * commits. So none of them is ever row-locked. */

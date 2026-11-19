@@ -468,8 +468,8 @@ export interface JudgeShadowsInput {
 }
 
 /**
- * Judges every shadow of the form, in document order (14.2), and each bind's
- * `requiredCondition` and `jr:requiredMsg` (14.3). Each shadow is dropped under the shadow
+ * Judges every shadow of the form, in document order, and each bind's
+ * `requiredCondition` and `jr:requiredMsg`. Each shadow is dropped under the shadow
  * entry; one that does not agree with its real attribute raises `shadow-disagrees` at its
  * question, named by the real attribute.
  */

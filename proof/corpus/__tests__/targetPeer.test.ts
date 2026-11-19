@@ -52,7 +52,8 @@ function peerHolding(
 			profile,
 		},
 		version: 1,
-		mediaFiles: undefined,
+		media: [],
+		mediaReport: undefined,
 		tables: [],
 		minted: 0,
 	};

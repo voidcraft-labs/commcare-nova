@@ -21,6 +21,7 @@ import {
 	type CaseOperationLink,
 	type CaseOperationWrite,
 	caseDataTypeForFieldKind,
+	caseScalarTextGuardIsChecked,
 	caseSelectionCardinality,
 	type Expression,
 	formFieldCanKeyCreate,
@@ -108,7 +109,7 @@ import {
 } from "../xform";
 import { X } from "../xform/claims";
 import { HOLE, isAllocatedName, matchesTemplate } from "../xform/generated";
-import { type DataNode, pathSteps } from "../xform/model";
+import { type DataNode, pathSteps, resolveContextPath } from "../xform/model";
 import {
 	advancedCaseReading,
 	nameAdvancedOperationsPast,
@@ -326,66 +327,6 @@ const EARLIER_ROWS = new WeakMap<
 >();
 
 // ── Paths ───────────────────────────────────────────────────────────────
-
-/** A path read from `context`, a node path with an optional final `@name`. */
-function resolvePath(
-	node: FormSyntax,
-	context: readonly string[],
-	root: string,
-): string[] | undefined {
-	const steps: string[] = [];
-	let start: "root" | "current" | undefined;
-	const walk = (at: FormSyntax): boolean => {
-		switch (at.kind) {
-			case "group":
-				return walk(at.value);
-			case "child":
-				if (at.descendant) return false;
-				if (at.left === undefined) start = "root";
-				else if (!walk(at.left)) return false;
-				return walk(at.step);
-			case "call":
-				if (at.name !== "current" || at.args.length > 0 || start !== undefined)
-					return false;
-				start = "current";
-				return true;
-			case "name":
-				if (at.wildcard) return false;
-				steps.push(at.name);
-				return true;
-			case "self":
-				steps.push(".");
-				return true;
-			case "parent":
-				steps.push("..");
-				return true;
-			case "axis":
-				if (at.axis !== "attribute" || at.value.kind !== "name") return false;
-				steps.push(`@${at.value.name}`);
-				return true;
-			default:
-				return false;
-		}
-	};
-	if (!walk(node) || start === undefined) return undefined;
-	let at: string[];
-	let rest = steps;
-	if (start === "root") {
-		if (steps[0] !== root) return undefined;
-		at = [];
-		rest = steps.slice(1);
-	} else at = [...context];
-	for (const step of rest) {
-		if (step === ".") continue;
-		if (step === "..") {
-			if (at.length === 0) return undefined;
-			at.pop();
-			continue;
-		}
-		at.push(step);
-	}
-	return at;
-}
 
 function parse(text: string | undefined): FormSyntax | undefined {
 	if (text === undefined) return undefined;
@@ -741,7 +682,7 @@ function setvaluesUnder(
 
 interface BlockRead {
 	readonly ok: boolean;
-	/** The entry a failing block is, where the manifest names its class; else 5.1's. */
+	/** The entry a failing block is, where the manifest names its class; else the block-shape entry. */
 	readonly claim?: Claim<"refuse">;
 	readonly detail?: FindingDetail;
 	readonly proposal?: Omit<ProposedBlock, "uuid" | "id" | "action"> & {
@@ -796,7 +737,7 @@ function generatedSiblingOf(
 	const path =
 		node === undefined
 			? undefined
-			: resolvePath(node, context, xform.parsed.dataRoot.name);
+			: resolveContextPath(node, context, xform.parsed.dataRoot.name);
 	const target =
 		path === undefined ? undefined : xform.nodes.get(path.join("/"));
 	const role = target === undefined ? undefined : xform.roles.get(target);
@@ -863,7 +804,7 @@ function rowValue(
 	if (capture !== undefined) {
 		const node = parse(capture);
 		const path =
-			node === undefined ? undefined : resolvePath(node, rowPath, root);
+			node === undefined ? undefined : resolveContextPath(node, rowPath, root);
 		const field = path === undefined ? undefined : fieldAt(xform, path);
 		if (field !== undefined)
 			return { value: { kind: "capture", field }, text, earlier: false };
@@ -952,7 +893,7 @@ function leafValues(
 	/** The leaf a `nova_instant_` node's calculate holds, where `read` is a read of one. */
 	const clockLeaf = (read: FormSyntax | undefined): string | undefined => {
 		if (read === undefined) return undefined;
-		const path = resolvePath(read, rowPath, clocks.root);
+		const path = resolveContextPath(read, rowPath, clocks.root);
 		const calculate = path === undefined ? undefined : clocks.calculateAt(path);
 		return calculate === undefined
 			? undefined
@@ -1302,7 +1243,7 @@ function readBlock(
 		if (keyed || keyedId !== undefined) {
 			const node = keyedId === undefined ? undefined : parse(keyedId.key);
 			const path =
-				node === undefined ? undefined : resolvePath(node, idPath, root);
+				node === undefined ? undefined : resolveContextPath(node, idPath, root);
 			const field = path === undefined ? undefined : fieldAt(xform, path);
 			// An answer keys a create only where the gate takes it as a key: one
 			// string (`formFieldCanKeyCreate`: not a multi-select answer, which Nova
@@ -1390,7 +1331,11 @@ function readBlock(
 		const namePath =
 			nameNode === undefined
 				? undefined
-				: resolvePath(nameNode, [...casePath, "create", "case_name"], root);
+				: resolveContextPath(
+						nameNode,
+						[...casePath, "create", "case_name"],
+						root,
+					);
 		const nameField =
 			namePath === undefined ? undefined : fieldAt(xform, namePath);
 		name = {
@@ -1538,7 +1483,11 @@ function readBlock(
 			const valuePath =
 				valueNode === undefined
 					? undefined
-					: resolvePath(valueNode, [...casePath, "update", property], root);
+					: resolveContextPath(
+							valueNode,
+							[...casePath, "update", property],
+							root,
+						);
 			const readsField =
 				valuePath === undefined ? undefined : fieldAt(xform, valuePath);
 			let answerAsIs: ProposedRow["answerAsIs"];
@@ -1645,7 +1594,7 @@ function readBlock(
 			const linkValuePath =
 				linkNode === undefined
 					? undefined
-					: resolvePath(linkNode, linkPath, root);
+					: resolveContextPath(linkNode, linkPath, root);
 			if (
 				linkValuePath !== undefined &&
 				linkValuePath.join("/") === idPath.join("/")
@@ -1752,7 +1701,8 @@ function blankOnOpening(
 	if (literalOf(setvalue.value) === "") return true;
 	const node = parse(setvalue.value);
 	const root = xform.parsed.dataRoot.name;
-	const path = node === undefined ? undefined : resolvePath(node, idPath, root);
+	const path =
+		node === undefined ? undefined : resolveContextPath(node, idPath, root);
 	if (path === undefined || fieldAt(xform, path) === undefined) return false;
 	const at = xform.setvalues.indexOf(setvalue);
 	return xform.setvalues
@@ -1829,7 +1779,7 @@ function readTarget(
 	const root = xform.parsed.dataRoot.name;
 	const node = parse(text);
 	const path =
-		node === undefined ? undefined : resolvePath(node, context, root);
+		node === undefined ? undefined : resolveContextPath(node, context, root);
 	if (path !== undefined) {
 		const absolute = `/${root}/${path.join("/")}`;
 		if (earlierCreates.has(absolute)) return { kind: "op", path: absolute };
@@ -1995,16 +1945,13 @@ function sharedOwn(
 /**
  * Whether the form holds what the emitter writes for a registration's own arm
  * beside its block: each question whose answer the arm saves as it is as the
- * case's name or external id carries its trimmed sibling
- * (`nova_trimmed_<question>`), because the own arm guards those questions
- * wherever it is kept (`placement.ts::placedBasic`,
- * `caseScalarTextGuard.ts::caseScalarTextGuards`), while a create in a block
- * guards none.
+ * case's name or external id carries the scalar check where its kind takes
+ * one, because the own arm checks those questions wherever it is kept
+ * (`placement.ts::placedBasic`, `caseScalarTextGuard.ts::caseScalarTextGuards`),
+ * while a create in a block checks none. A Hidden Value takes no check, so a
+ * question of that kind tells nothing.
  */
-function ownGuardsPrinted(
-	xform: ReadXForm,
-	read: NonNullable<BlockRead["proposal"]>,
-): boolean {
+function ownGuardsPrinted(read: NonNullable<BlockRead["proposal"]>): boolean {
 	const guarded = [
 		read.name?.readsField,
 		...read.writes.map((row) =>
@@ -2013,16 +1960,11 @@ function ownGuardsPrinted(
 				: undefined,
 		),
 	].filter((field): field is DraftField => field !== undefined);
-	if (guarded.length === 0) return true;
-	const trimmed = new Set<DataNode>();
-	for (const role of xform.roles.values())
-		if (
-			(role.kind === "generated" || role.kind === "generated-candidate") &&
-			role.purpose === "trimmed" &&
-			role.owner !== null
-		)
-			trimmed.add(role.owner);
-	return guarded.every((field) => trimmed.has(field.node));
+	return guarded.every(
+		(field) =>
+			!caseScalarTextGuardIsChecked(field.kind) ||
+			field.scalarCheck !== undefined,
+	);
 }
 
 /** A block of the session's case as the form's own arm, as far as the
@@ -2223,7 +2165,7 @@ export function readSaveToCaseBlocks(
 	// answer as it is led by its presence, and the guards the own arm takes.
 	// Where the form's own case also has a basic block that writes nothing,
 	// a block that prints back as an update of the session's case as well is
-	// that update, beside the basic block (R3). The two differ by name: the
+	// that update, beside the basic block. The two differ by name: the
 	// emitter names a block by its operation's id, and the basic block's
 	// operation takes the id the own arm would.
 	const bareOwnId = basicCaseReading(form)?.bareOwnId;
@@ -2281,7 +2223,7 @@ export function readSaveToCaseBlocks(
 	// a create always takes its text guard, and the own arm takes the guards
 	// `operationGuardKinds` gives it, so the arm is read only where the
 	// guards beside the block are the arm's. Where those are a create's too
-	// (the arm writes a fixed text column), the arm is read first (R3), and
+	// (the arm writes a fixed text column), the arm is read first, and
 	// test 4 holds its guard's content to the emitter's.
 	const firstBlock = proposed[0]?.read;
 	const registrationCandidate =
@@ -2302,7 +2244,7 @@ export function readSaveToCaseBlocks(
 			guardKindsBeside(firstBlock.block, guards),
 			operationGuardKinds(ownShape(firstBlock)),
 		) &&
-		ownGuardsPrinted(xform, firstBlock)
+		ownGuardsPrinted(firstBlock)
 			? firstBlock
 			: undefined;
 	// Any other block whose owner row carries a condition is that entry.
@@ -2489,7 +2431,7 @@ export function readSaveToCaseBlocks(
 			if (one.action === "create")
 				return one.name?.answer === undefined ? [] : [one.name.answer];
 			// A registration's own arm in a block reads its name question as it
-			// is beside the question's trimmed sibling (`ownGuardsPrinted`).
+			// is, and the question carries its check (`ownGuardsPrinted`).
 			if (one.action === "own" && one.name !== undefined) {
 				const named = one.name.answer ?? one.name.readsField;
 				return named === undefined ? [] : [named];
@@ -3829,7 +3771,7 @@ function withOwner(
  * (test 2) and the emitter's block equal to the stored one (test 4), with
  * the reader's second candidate for an owner the stored block gives as the
  * acting user's id; then the own close read from a block of its own, over the
- * document those settled on. A block that fails is the one finding of 5.1,
+ * document those settled on. A block that fails is one finding at the block,
  * and an own close that fails the finding its reading names.
  */
 export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
@@ -3937,7 +3879,9 @@ export function scalarFieldsOfRefusedBlocks(
 			const sibling = generatedSiblingOf(xform, text, context);
 			const node = parse(untrimmed(text).text);
 			const path =
-				node === undefined ? undefined : resolvePath(node, context, root);
+				node === undefined
+					? undefined
+					: resolveContextPath(node, context, root);
 			const field =
 				sibling?.purpose === "trimmed"
 					? sibling.field

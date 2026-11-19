@@ -13,7 +13,7 @@
  * exercised purely as a state machine, which is exactly what this file does.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
@@ -1880,6 +1880,54 @@ describe("reconciler", () => {
 			expect(fieldLabel(displayed, F_B)).toBe("B8");
 		});
 
+		it("a server-written change's reload re-folds an unacknowledged edit onto the new head and clears history", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 3,
+				baseDoc: base,
+				userId: "u1",
+			});
+			// Sent and unacknowledged, and still queued: neither is in the head.
+			applyLocal(h, [
+				{
+					kind: "updateField",
+					uuid: F_A,
+					targetKind: "text",
+					patch: { label: proseText("Sent label") },
+				},
+			]);
+			h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: false, kind: "network" });
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
+			expect(h.docStore.getState().canUndo).toBe(true);
+
+			// Another member brought changes in from CommCare HQ at seq 4.
+			const broughtIn = fold(base, [[{ kind: "setAppName", name: "From HQ" }]]);
+			h.reloadQueue.push({ blueprint: broughtIn, seq: 4 });
+			h.reconciler.onReloadEvent();
+			await vi.waitFor(() =>
+				expect(h.reconciler.getSnapshot().baseSeq).toBe(4),
+			);
+
+			const displayed = h.docStore.getState();
+			expect(displayed.appName).toBe("From HQ");
+			expect(fieldLabel(displayed, F_A)).toBe("Sent label");
+			expect(displayed.forms[FORM].purpose).toBe("Local purpose");
+			expect(displayed.canUndo).toBe(false);
+			// Both stay unacknowledged; an editor's landed reload sends the
+			// queued one at once.
+			expect(
+				h.reconciler
+					.getSnapshot()
+					.sentPending.map((batch) => batch.ackedSeq ?? null),
+			).toEqual([null, null]);
+			expect(displayed.peekCommandBatches()).toEqual([]);
+			expect(h.resubscribeCursors).toEqual([4]);
+		});
+
 		it("defers a reload until no PUT is in flight", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
@@ -2173,10 +2221,10 @@ describe("reconciler", () => {
 			expect(h.reconciler.getSnapshot().baseSeq).toBe(0);
 		});
 
-		// [C2] — a permanent rejection with a DEPENDENT stacked batch does NOT
+		// A permanent rejection with a DEPENDENT stacked batch does NOT
 		// silently lose it: the terminal freeze discards the whole local stack at
 		// once (the user reloads), rather than dropping B1 and no-op-losing B2.
-		it("[C2] a permanent rejection with a dependent stacked batch loses nothing silently", async () => {
+		it("a permanent rejection with a dependent stacked batch loses nothing silently", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -2224,7 +2272,7 @@ describe("reconciler", () => {
 		// commit in arbitrary order and the later-diffed batch 409s on entities
 		// its predecessor hadn't created yet (a silent drop with no real
 		// conflict). An ACKED head releases the pipeline; its echo isn't needed.
-		it("[C6] a batch dispatched behind an un-acked predecessor waits for its ack (ordered pipeline)", async () => {
+		it("a batch dispatched behind an un-acked predecessor waits for its ack (ordered pipeline)", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -2253,7 +2301,7 @@ describe("reconciler", () => {
 			await h.resolvePut(1, { ok: true, seq: 2 });
 		});
 
-		it("[C7] a re-send after a network failure targets the pipeline HEAD, and a new dispatch never overtakes it", async () => {
+		it("a re-send after a network failure targets the pipeline HEAD, and a new dispatch never overtakes it", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -2285,7 +2333,7 @@ describe("reconciler", () => {
 		// and re-arm outstanding work on the replayed setup (resumeRecovery) — or
 		// a StrictMode suspend→start cycle wedges the retry loop forever
 		// (`scheduleRetryLoop` early-returns on the stale truthy latch).
-		it("[C8] suspendRecovery + resumeRecovery re-arm a retry that spanned the suspend window", async () => {
+		it("suspendRecovery + resumeRecovery re-arm a retry that spanned the suspend window", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -2561,11 +2609,11 @@ describe("reconciler", () => {
 			expect(h.reconciler.getSnapshot().confirmedDoc.appName).toBe("Base");
 		});
 
-		// [C1] — the false-network drop REFOLDS: A's edit false-network-fails, a
+		// The false-network drop REFOLDS: A's edit false-network-fails, a
 		// peer's newer value lands via reload, and the drop must NOT leave A's
 		// stale local value in `displayed` (which the next autosave would re-PUT,
 		// clobbering the peer + inverting commit order). End: displayed === peer.
-		it("[C1] a false-network drop refolds so it can't re-PUT a stale value over a peer's edit", async () => {
+		it("a false-network drop refolds so it can't re-PUT a stale value over a peer's edit", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -2616,10 +2664,10 @@ describe("reconciler", () => {
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
 		});
 
-		// [C3] — a 200 with NO parseable seq is treated as transient (retry), never
+		// A 200 with NO parseable seq is treated as transient (retry), never
 		// a fabricated mount-time baseSeq (which would trip the false-network drop
 		// on a fresh accepted batch). Here the reconciler just keeps the batch.
-		it("[C3] a seq-less 200 is transient (retry), not a fabricated stale seq", async () => {
+		it("a seq-less 200 is transient (retry), not a fabricated stale seq", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -2646,10 +2694,10 @@ describe("reconciler", () => {
 			expect(h.hasScheduledRetry()).toBe(true);
 		});
 
-		// [C4] — a dormant data-done reconciles WITHOUT throwing the open-bracket
+		// A dormant data-done reconciles WITHOUT throwing the open-bracket
 		// assert (`load()` asserts inside an open bracket; `onDataDone` must stay
 		// on the bracket-safe suppressed-commitDoc path).
-		it("[C4] a dormant data-done reconciles bracket-safe without throwing", () => {
+		it("a dormant data-done reconciles bracket-safe without throwing", () => {
 			const h = harness({
 				appId: undefined,
 				baseSeq: 0,
@@ -2670,10 +2718,10 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().appName).toBe("Built");
 		});
 
-		// [C5] — a 409-rejected batch is never re-sent while its reload is
+		// A 409-rejected batch is never re-sent while its reload is
 		// pending (re-sending would just re-409 in a storm), and the reload's
 		// barrier holds the whole pipeline until it drops the rejected batch.
-		it("[C5] a 409 with an active retry loop does not re-send the rejected batch", async () => {
+		it("a 409 with an active retry loop does not re-send the rejected batch", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",

@@ -36,6 +36,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
+import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import {
 	DEFAULT_ADVANCED_SAMPLE_SIZE,
 	DEFAULT_EXPRESSION_SAMPLE_SIZE,
@@ -181,20 +182,89 @@ export interface TargetedEdit {
  *   key, such as the worker activity level `credentials`, beside the
  *   features A holds.
  *
+ * and then the saves a person makes to the app's content, each through the
+ * view a person's save reaches (`HqSideContentSaves`).
+ *
  * It also states what Nova's next publish over the saves does, which the
  * capture holds (`./publish.ts`): `republish` is `"proceeds"` (it goes
- * through untouched), `"discards"` (it goes through after the discard a
- * person would confirm) or `"stops"` (Nova stops it and offers no discard),
- * with `stopCode`, the publish's failure code, exactly when it stops.
+ * through with no stop), `"discards"` (it goes through after the discard a
+ * person would confirm), `"stops"` (Nova stops it and offers no discard),
+ * with `stopCode`, the publish's failure code, exactly when it stops,
+ * `"records"` (Nova stops it over a change of the app it can bring in, its
+ * review finds nothing to bring in for the reason `recorded` states and
+ * lists the changes its next publish makes, the record moves the pair, and
+ * the publish that follows goes through), or `"brings-in"` (Nova stops it,
+ * its review lists the change and, by their ids, the changes its next
+ * publish makes in HQ (`publishChanges`), the bring-in takes it, and the
+ * publish that follows sends `bringsIn`, the document the bring-in must
+ * give). On a document that brings its saves in, those listed changes are
+ * the one thing besides the registers a check of the next publish accepts
+ * (`proof/checks/changes.py`).
  */
 export type HqSideSaves = HqSideSaveKinds &
 	(
-		| { readonly republish: "proceeds" | "discards"; readonly stopCode?: never }
-		| { readonly republish: "stops"; readonly stopCode: string }
+		| {
+				readonly republish: "proceeds" | "discards";
+				readonly stopCode?: never;
+				readonly recorded?: never;
+				readonly bringsIn?: never;
+				readonly publishChanges?: never;
+				readonly alsoPublishesOver?: never;
+		  }
+		| {
+				readonly republish: "stops";
+				readonly stopCode: string;
+				readonly recorded?: never;
+				readonly bringsIn?: never;
+				readonly publishChanges?: never;
+				readonly alsoPublishesOver?: never;
+		  }
+		| {
+				readonly republish: "records";
+				readonly stopCode?: never;
+				readonly recorded: HqSideRecorded;
+				readonly bringsIn?: never;
+				readonly publishChanges?: never;
+				readonly alsoPublishesOver?: never;
+		  }
+		| {
+				readonly republish: "brings-in";
+				readonly stopCode?: never;
+				readonly recorded?: never;
+				/** The document Nova's bring-in of the saves must give, as stored. */
+				readonly bringsIn: PersistableDoc;
+				/**
+				 * The changes Nova's next publish makes in HQ that its review of
+				 * the saves lists, by their ids in the register's order
+				 * (`lib/publish/firstPublishChangeIds.ts`), each shown by its
+				 * sentence (`lib/deployment/hqChanges/review.ts::publishChangeSentences`).
+				 */
+				readonly publishChanges: readonly FirstPublishChangeId[];
+				/**
+				 * Present, and `true`, where the capture also runs the person's
+				 * other choice over the same saves, publishing over the change:
+				 * the publish stops, the discard of the change goes through, and
+				 * HQ's map holds the document of Nova's own bytes at every path
+				 * the publish sends (`./publish.ts::PublishedOverRecord`).
+				 */
+				readonly alsoPublishesOver?: true;
+		  }
 	);
 
+/**
+ * What Nova's review of a person's saves answers where it finds nothing to
+ * bring in (`HqChangesReview`'s `nothing` arm): the reason, and the changes
+ * Nova's next publish makes in HQ that it lists, by their ids in the
+ * register's order (`lib/publish/firstPublishChangeIds.ts`), each shown by
+ * its sentence (`lib/deployment/hqChanges/review.ts::publishChangeSentences`).
+ */
+export interface HqSideRecorded {
+	readonly reason: "reads-the-same" | "already-here";
+	readonly publishChanges: readonly FirstPublishChangeId[];
+}
+
 /** The saves of `HqSideSaves`, each through the HQ view a person's save reaches. */
-export interface HqSideSaveKinds {
+export interface HqSideSaveKinds extends HqSideContentSaves {
 	readonly uiTranslations?: Readonly<
 		Record<string, Readonly<Record<string, string>>>
 	>;
@@ -228,6 +298,108 @@ export interface HqSideSaveKinds {
 	readonly addOns?: Readonly<Record<string, boolean>>;
 	readonly profileProperties?: Readonly<Record<string, string | boolean>>;
 	readonly profileFeatures?: Readonly<Record<string, string>>;
+}
+
+/** A form of the app CommCare HQ holds, by its menu's place and its own place in that menu, from 0. */
+export interface HqFormPlace {
+	readonly module: number;
+	readonly form: number;
+}
+
+/**
+ * The saves a person makes to an app's content in HQ, made in this order
+ * after the saves of `HqSideSaveKinds`, each through the view a person's
+ * save reaches (`proof/observe/hqside.py`):
+ *
+ * - `formLabel`: one question's label reworded in the app's first language
+ *   in HQ's form builder (`proof/editors/vellum.py::open_and_save`, which
+ *   opens the form, makes the edit and presses the builder's own Save).
+ *   `edit` says how the edit was made: `page`, by working the builder's
+ *   page as a person does, or `builder-model`, by setting the question's
+ *   label through the builder's own object for it where the page cannot be
+ *   worked so; the builder's own Save writes the form either way;
+ * - `formResave`: a form opened in HQ's form builder and saved with no
+ *   change;
+ * - `questions`: a form's questions changed, posted as the form builder
+ *   posts a save (`views/forms.py::patch_xform`: a patch from the source HQ
+ *   holds to `xform`, with the source's `sha1`);
+ * - `formAttribute`: a form's own settings, each posted by name to
+ *   `views/forms.py::edit_form_attr` as the form settings page posts them;
+ * - `formActions`: a form's case management, each case property in
+ *   `update` saved from the question at its path, posted as the Case
+ *   Management tab posts it (`views/forms.py::edit_form_actions`: the
+ *   actions as HQ holds them, and the mappings as a `case_mapping_diff`);
+ * - `moduleAttribute`: a menu's name in the app's first language, posted to
+ *   `views/modules.py::edit_module_attr`;
+ * - `moduleDetail`: a column added at the end of a menu's case list, posted
+ *   as the Case List page posts its columns
+ *   (`views/modules.py::edit_module_detail_screens`, `type` `case`, every
+ *   column and the list's own settings as HQ holds them, then `column`);
+ * - `formsAddedAndRemoved`: a menu's form at `removed` deleted
+ *   (`views/forms.py::delete_form`), then a survey added at its end
+ *   (`views/forms.py::new_form`), given its questions in the form builder
+ *   (`patch_xform`, to `added.xform`);
+ * - `order`: a menu moved (`views/apps.py::rearrange`, key `modules`) and a
+ *   form moved within its menu (key `forms`), each from one place to
+ *   another;
+ * - `mediaReplaced`: the file at a path the app already holds replaced, as
+ *   HQ's media page uploads a picture there
+ *   (`hqmedia/views.py::ProcessImageFileUploadView`, posted with the path).
+ */
+export interface HqSideContentSaves {
+	readonly formLabel?: HqFormPlace & {
+		/** The question's path in the form, `/data/...`. */
+		readonly question: string;
+		readonly label: string;
+		readonly edit: "page" | "builder-model";
+	};
+	readonly formResave?: HqFormPlace;
+	readonly questions?: HqFormPlace & {
+		/** The form's whole XForm after the save. */
+		readonly xform: string;
+	};
+	readonly formAttribute?: HqFormPlace & {
+		readonly attributes: Readonly<Record<string, string>>;
+	};
+	readonly formActions?: HqFormPlace & {
+		/** Each case property, saved from the question at the path it names. */
+		readonly update: Readonly<Record<string, string>>;
+	};
+	readonly moduleAttribute?: {
+		readonly module: number;
+		readonly name: string;
+	};
+	readonly moduleDetail?: {
+		readonly module: number;
+		/** The column as the Case List page posts it, every key HQ stores of it. */
+		readonly column: Readonly<Record<string, unknown>>;
+	};
+	readonly formsAddedAndRemoved?: {
+		readonly module: number;
+		/** The place of the form deleted, before anything is added. */
+		readonly removed: number;
+		readonly added: {
+			/** The survey's name, as `views/forms.py::new_form` gives it. */
+			readonly name: string;
+			/** Its whole XForm after the form builder's save. */
+			readonly xform: string;
+		};
+	};
+	readonly order?: {
+		readonly modules?: { readonly from: number; readonly to: number };
+		readonly forms?: {
+			readonly module: number;
+			readonly from: number;
+			readonly to: number;
+		};
+	};
+	readonly mediaReplaced?: {
+		/** The path the app holds the file at, `jr://file/...`. */
+		readonly path: string;
+		readonly mimeType: string;
+		/** The new file's bytes. */
+		readonly base64: string;
+	};
 }
 
 /**

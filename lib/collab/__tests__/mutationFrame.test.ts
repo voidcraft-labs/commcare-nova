@@ -48,15 +48,17 @@ describe("browser mutation-frame admission", () => {
 		});
 	});
 
-	it.each(["blueprint-migration", "fold-baseline", "project-move"] as const)(
-		"rejects the server-only %s kind",
-		(kind) => {
-			expect(admitMutationFrame({ ...ordinary, kind })).toBeNull();
-			expect(
-				parseMutationFrame(JSON.stringify({ ...ordinary, kind })),
-			).toBeNull();
-		},
-	);
+	it.each([
+		"blueprint-migration",
+		"hq-changes",
+		"fold-baseline",
+		"project-move",
+	] as const)("rejects the server-only %s kind", (kind) => {
+		expect(admitMutationFrame({ ...ordinary, kind })).toBeNull();
+		expect(
+			parseMutationFrame(JSON.stringify({ ...ordinary, kind })),
+		).toBeNull();
+	});
 
 	it.each(["do-not-log", '{"private":"do-not-log"'])(
 		"classifies invalid JSON without retaining payload text: %s",

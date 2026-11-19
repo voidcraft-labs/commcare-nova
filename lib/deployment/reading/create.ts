@@ -162,6 +162,7 @@ const NO_FACTS: GatherFacts = {
 	sourceBytes: null,
 	checkMs: 0,
 	longestPieceMs: 0,
+	longestPieceAt: "",
 	mediaTotal: 0,
 	expressionRounds: null,
 };
@@ -397,10 +398,12 @@ export async function createFromReview(
 		facts = {
 			...facts,
 			checkMs: facts.checkMs + checked.facts.checkMs,
-			longestPieceMs: Math.max(
-				facts.longestPieceMs,
-				checked.facts.longestPieceMs,
-			),
+			...(checked.facts.longestPieceMs > facts.longestPieceMs
+				? {
+						longestPieceMs: checked.facts.longestPieceMs,
+						longestPieceAt: checked.facts.longestPieceAt,
+					}
+				: {}),
 		};
 		if (
 			checked.result.kind !== "clean" ||

@@ -85,6 +85,14 @@ export interface DeploymentProjection {
 	readonly ownership: string | null;
 	/** The Nova mutation sequence the remote app was built from. */
 	readonly pushed_revision: number | null;
+	/**
+	 * The revision of this app that CommCare HQ's copy was last known to
+	 * match: the push's, or, after changes made in CommCare HQ were brought
+	 * in, the revision that holds them. Null where Nova holds no read of that
+	 * copy it can compare with; absent from the answer to a write that landed
+	 * where Nova could not read it after the write.
+	 */
+	readonly nova_revision?: number | null;
 	/** CommCare HQ's own version number at the last check. */
 	readonly remote_revision: number | null;
 	readonly last_checked_at: string | null;
@@ -164,11 +172,16 @@ export interface DeploymentConfirmationProjection {
  * kept list (`service.ts::deploymentKept`), or `unread` where an upload, a
  * check or a kept refresh whose write landed could not read it
  * (`service.ts::landedDeploymentKept`), which leaves the field out.
+ * `novaRevisions` is `store.ts::readDeploymentNovaRevisions` of the app,
+ * read beside the record, or `unread` where the answer to a write that
+ * landed could not read it (`landedNovaRevisions`), which leaves
+ * `nova_revision` out.
  */
 export function describeDeployment(
 	view: DeploymentWithResources,
 	currentIdentities: ReadonlyMap<string, string> | null,
 	kept: DeploymentKept | null | "unread",
+	novaRevisions: ReadonlyMap<string, number> | "unread",
 ): DeploymentProjection {
 	const record = view.deployment;
 	const remote = activeRemoteApp(view);
@@ -207,6 +220,9 @@ export function describeDeployment(
 			!remoteAppHoldsContent(remote),
 		ownership: remote?.ownership ?? null,
 		pushed_revision: remote?.pushedRevision ?? null,
+		...(novaRevisions !== "unread" && {
+			nova_revision: novaRevisions.get(record.id) ?? null,
+		}),
 		remote_revision: remote?.remoteRevision ?? null,
 		last_checked_at: record.lastObservedAt,
 		phases,

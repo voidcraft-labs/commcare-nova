@@ -1138,7 +1138,11 @@ miss. Its steps:
      `formLinkProjection.ts::caseListStepDatumId` prints), a row-relative step in a slot whose
      context holds a case row. A search filter row is no registration, so the scan reads none: the
      search reader declares what its rows read (`search/index.ts::readSearches`, over
-     `scanReads.ts::searchRowProperties` and `searchRowRelations`). A property a `casedb` query with no
+     `scanReads.ts::searchRowProperties` and `searchRowRelations`, which read the searched case and
+     the cases related to it and leave every value a device works out out, and
+     `scanReads.ts::searchRowHoleReads`, which reads those values as the searched menu's own slot
+     reads its text, a case a menu above chose by the datums the menu's entry holds among them). A
+     property a `casedb` query with no
      type test reads (Nova writes none where one case type alone declares the property), which
      no case type declares and no read above types, is declared on the slot's own case type (its
      row's, else its form's menu's): the binder types it by the one type that declares it, and

@@ -1,5 +1,5 @@
 /**
- * Text read by reference (12.1) and the forms of a text (12.2), over hand-built
+ * Text read by reference and the forms of a text, over hand-built
  * sources read through the reader's own stages. A text is found by what
  * references it and never by its id's spelling; each form of the table reads
  * to its row; a pragma key is read by its row; a value blank in a language

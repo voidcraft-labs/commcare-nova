@@ -15,7 +15,6 @@ import type {
 } from "@/lib/publish/driftReference";
 import * as driftReferenceModule from "@/lib/publish/driftReference";
 import * as hqAppClaimsModule from "@/lib/publish/hqAppClaims";
-import * as hqChangesCopyModule from "@/lib/publish/hqChangesCopy";
 import { hqChangedBringInMessage } from "@/lib/publish/hqChangesCopy";
 import { adoptionRecordedFeaturesLine } from "@/lib/publish/planFeatures";
 import * as stopPublishingModule from "@/lib/publish/stopPublishing";
@@ -168,6 +167,12 @@ describe("the sentences", () => {
 			"A setting this app writes",
 		);
 		expect(describeAppChange({ kind: "text" })).toBe("Text this app writes");
+		expect(describeAppChange({ kind: "media", count: 1 })).toBe(
+			"A picture or sound this app publishes",
+		);
+		expect(describeAppChange({ kind: "media", count: 3 })).toBe(
+			"3 pictures or sounds this app publishes",
+		);
 	});
 
 	it("says each table part", () => {
@@ -498,11 +503,6 @@ const SAMPLED_FUNCTIONS: Readonly<Record<string, () => readonly string[]>> = {
 				hqChangedMessage([{ kind: "app", since, canBringIn }, tableChange]),
 			]),
 		),
-	hqChangedBringInMessage: () =>
-		[PUBLISHED, BROUGHT_IN, CHANGES_BROUGHT_IN].flatMap((since) => [
-			hqChangedBringInMessage(since, false),
-			hqChangedBringInMessage(since, true),
-		]),
 	lookupTableMadeAgainWarning: () => [
 		remoteChangesModule.lookupTableMadeAgainWarning("districts"),
 	],
@@ -566,7 +566,6 @@ describe("the copy", () => {
 	const modules = {
 		remoteChanges: remoteChangesModule,
 		driftReference: driftReferenceModule,
-		hqChangesCopy: hqChangesCopyModule,
 		stopPublishing: stopPublishingModule,
 		hqAppClaims: hqAppClaimsModule,
 	};

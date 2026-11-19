@@ -13,7 +13,7 @@ import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { decrypt } from "@/lib/commcare/encryption";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { resolveHqTarget } from "@/lib/db/settings";
-import { firstPublishOf } from "@/lib/deployment/resources";
+import { firstPublishOf, nextPublishAction } from "@/lib/deployment/resources";
 import { projectSpaceConfirmations } from "@/lib/deployment/service";
 import {
 	type DeploymentScope,
@@ -24,6 +24,7 @@ import {
 import type { BlueprintDoc } from "@/lib/domain";
 import { firstPublishLines } from "@/lib/publish/firstPublishCopy";
 import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
+import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 import {
 	type HqToolErrorType,
 	type McpToolErrorResult,
@@ -72,7 +73,7 @@ export function registerCheckProjectSpaceCompatibility(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Read-only check of whether one explicitly selected CommCare HQ project space can run an owned app. Returns friendly required capabilities, their verification state, any blockers, non-blocking performance advisories, and next steps. It does not compile, upload, or change the app or project space. Call `get_hq_connection` first to list reachable project spaces, then pass the exact `domain` the user selected; never choose among several spaces for them. Required support that is missing or could not be verified blocks a later upload, while an advisory never does. This tool reports only what the app needs and whether the selected project space supports it. It also returns what an upload there will ask the user to confirm, since no API key can read it: `plan_features` (each plan feature the app needs, with `plans`, `reasons`, `consequence`, `where_missing` (what the user can do where the project space lacks it, or null) and its `state`), `flat_location_fixture` (whether the project space still sends its location list, for an app that reads places), `connect_forwarder` (whether it forwards forms to CommCare Connect, for a Connect app) and `form_entry_sync_off` (whether Sync Cases On Form Entry is off, for an app that runs on Android and works on cases chosen in a menu with Search), each `null` when the app needs none and each with its own `where_missing`. Relay them with their reasons before the upload; a confirmation already on record reads `confirmed` with who confirmed it. `commtrack_off` says whether the project space's CommCare Supply setting needs confirming, and `placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case. `first_publish`, where it is not null, is what this app's next upload changes in CommCare HQ beyond the user's own edits. Its `lead` says why: the app was brought in and Nova has not uploaded to it yet, or CommCare HQ's version holds something Nova writes its own way. Relay each `sentence` of `workers.lines`, then of `hq_only.lines`, then `reassurance` where it is not null, then `note`, before the upload.",
+				"Read-only check of whether one explicitly selected CommCare HQ project space can run an owned app. Returns friendly required capabilities, their verification state, any blockers, non-blocking performance advisories, and next steps. It does not compile, upload, or change the app or project space. Call `get_hq_connection` first to list reachable project spaces, then pass the exact `domain` the user selected; never choose among several spaces for them. Required support that is missing or could not be verified blocks a later upload, while an advisory never does. This tool reports only what the app needs and whether the selected project space supports it. It also returns what an upload there will ask the user to confirm, since no API key can read it: `plan_features` (each plan feature the app needs, with `plans`, `reasons`, `consequence`, `where_missing` (what the user can do where the project space lacks it, or null) and its `state`), `flat_location_fixture` (whether the project space still sends its location list, for an app that reads places), `connect_forwarder` (whether it forwards forms to CommCare Connect, for a Connect app) and `form_entry_sync_off` (whether Sync Cases On Form Entry is off, for an app that runs on Android and works on cases chosen in a menu with Search), each `null` when the app needs none and each with its own `where_missing`. Relay them with their reasons before the upload; a confirmation already on record reads `confirmed` with who confirmed it. `commtrack_off` says whether the project space's CommCare Supply setting needs confirming, and `placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case. `first_publish`, where it is not null, is what this app's next upload changes in CommCare HQ beyond the user's own edits. Its `lead` says why: the app was brought in and Nova has not uploaded to it yet, or CommCare HQ's version holds something Nova writes its own way. Relay each `sentence` of `workers.lines`, then of `hq_only.lines`, then `reassurance` where it is not null, then `note`, before the upload. `new_app_beside`, where it is not null, says Nova stopped publishing this app to the project space, so an upload there makes a new app beside the one that stays: relay it before the upload, and upload only if the user wants a new app there.",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -149,9 +150,9 @@ export async function checkProjectSpaceCompatibility(
 			server: credentials.server,
 			domain: credentials.domain.name,
 		};
-		const [confirmations, firstPublish] = await Promise.all([
+		const [confirmations, nextUpload] = await Promise.all([
 			projectSpaceConfirmations(scope, loaded.doc, target),
-			nextUploadFirstPublish(scope, target, loaded.doc),
+			nextUploadThere(scope, target, loaded.doc),
 		]);
 		return {
 			content: [
@@ -167,7 +168,8 @@ export async function checkProjectSpaceCompatibility(
 						placement_moves: placementMovesAnswer(
 							confirmations.placement_moves,
 						),
-						first_publish: firstPublish,
+						first_publish: nextUpload.firstPublish,
+						new_app_beside: nextUpload.newAppBeside,
 					}),
 				},
 			],
@@ -181,27 +183,42 @@ export async function checkProjectSpaceCompatibility(
 }
 
 /**
- * What the next upload to the checked project space changes there beyond the
- * user's own edits, in the words the publish dialog shows: the list the app's
- * deployment there keeps, through the one rule the builder reads it by
- * (`resources.ts::firstPublishOf`), so the two cannot answer differently.
- * Null where the app has not reached the project space and where the
- * deployment keeps no list for its live app.
+ * What the next upload to the checked project space does there, in the words
+ * the publish dialog shows, each through the one rule the builder reads it by,
+ * so the two cannot answer differently:
+ *
+ * - `firstPublish`: what it changes beyond the user's own edits, the list the
+ *   app's deployment there keeps (`resources.ts::firstPublishOf`). Null where
+ *   the app has not reached the project space and where the deployment keeps
+ *   no list for its live app.
+ * - `newAppBeside`: the plan's sentence where publishing there was stopped,
+ *   so the upload makes a new app beside the one that stays
+ *   (`resources.ts::nextPublishAction`'s `creates-beside`). Null otherwise.
  */
-async function nextUploadFirstPublish(
+async function nextUploadThere(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	doc: BlueprintDoc,
-): Promise<FirstPublishProjection | null> {
+): Promise<{
+	readonly firstPublish: FirstPublishProjection | null;
+	readonly newAppBeside: string | null;
+}> {
 	const deployment = await readDeployment(scope, target);
-	if (deployment === null) return null;
+	if (deployment === null) return { firstPublish: null, newAppBeside: null };
 	const states = await readFirstPublishStates(scope);
 	const view = firstPublishOf(
 		deployment,
 		states.get(deployment.deployment.id),
 		doc.appSettings.runsOnlyOn,
 	);
-	return view === null
-		? null
-		: describeFirstPublish(firstPublishLines(view, "publish"));
+	return {
+		firstPublish:
+			view === null
+				? null
+				: describeFirstPublish(firstPublishLines(view, "publish")),
+		newAppBeside:
+			nextPublishAction(deployment) === "creates-beside"
+				? PUBLISH_PLAN_CREATES_BESIDE
+				: null,
+	};
 }
