@@ -675,6 +675,7 @@ is written by hand.
 | `media.json`, `media/<n>.<ext>` (where the base maps media) | an array, one row a mapped path in path order: `{ "path", "file", "mediaClass", "kind", "mimeType", "extension" }`, as in `[{ "path": "jr://file/commcare/image/module0_en.png", "file": "media/0.png", "mediaClass": "CommCareImage", "kind": "image", "mimeType": "image/png", "extension": "png" }]`. `path` is the full path the app's references hold, `file` the retained file, `mediaClass` HQ's own (`CommCareImage`, `CommCareAudio` or `CommCareVideo`); the files are the lane's stand-in bytes (6.3) | the unit, emission |
 | `tables.json` (where the base holds tables) | an array, one object a lookup table as HQ's models hold it, in tag order: `{ "tag", "is_global", "description", "fields": [{ "name", "properties": [...], "is_indexed" }], "item_attributes": [...], "rows": [{ "fields": { "<name>": [{ "value", "properties": {...} }] }, "item_attributes": {...} }] }`, the rows in `sort_key` order (`corehq/apps/fixtures/models.py::LookupTable`, `TypeField`, `LookupTableRow`, `Field`) | the unit (2.4) |
 | `places.json` (where the base holds places) | `{ "levels": [{ "name", "code", "parent", "shares_cases", "view_descendants" }], "places": [{ "location_id", "name", "site_code", "level", "parent", "metadata": {...}, "archived" }], "fields": [{ "slug", "label" }] }`: each level as `LocationType` holds it, `parent` its parent's code or null, and each place as `SQLLocation` holds it, `level` its level's code and `parent` its parent's site code or null; both lists parents first (`corehq/apps/locations/models.py`). Each place keeps the `location_id` HQ gave it, which Nova's reading keys a place by (`lib/commcare/hq/locations.ts`), so the unit's A holds the places the emission read; `SQLLocation.save` mints one only where none is set. `fields` is the project space's location fields definition (`CustomDataFieldsDefinition` of `locations/views.py::LocationFieldsView.field_type`, its fields in order), without which HQ's flat location list writes no `location_data` (`locations/fixtures.py::get_location_data_fields`) | the unit (2.4) |
+| `practice-workers.json` (where the project space holds a mobile worker in practice mode) | an array, one object a worker in username order: `{ "user_id", "username" }`, the id HQ gave it, which an app's `practice_mobile_worker_id` names, and its username before the project space's domain (`retain.py::practice_workers_of`, over `CommCareUser.by_domain`, the workers marked `is_demo_user`). HQ's build looks an app's practice worker up under any plan (`suite_xml/generator.py::SuiteGenerator.generate_suite`, `Application.get_practice_user`) and raises `PracticeUserException` for an id no practice worker of the project space holds (`app_manager/util.py::get_and_assert_practice_user_in_domain`), so the unit makes each again before A | the unit (2.4) |
 | `app-source.json` | HQ's answer to the source read, `operations.source_read`, as `HqAnswer.retained()` writes it | emission, Vitest |
 | `application.json`, `current-version.json` | HQ's answers to the application resource read, part 05's `operations.application_read` (05-reading-commcare-hq.md, section 14.1), and to `operations.current_version_read`, which exists today | emission, Vitest |
 | `project-spaces.json`, `project-spaces-flag.json` (where the reading asks for them) | HQ's answers to part 05's `operations.project_spaces_read`, whole and filtered by the slug of `SAVE_ONLY_EDITED_FORM_FIELDS`: the two reads Nova makes of a project space where the app's source holds a write saved only if changed (part 05, section 10.5). `retain` makes both reads for every base and keeps the two files only where the first reading's `asked` names them (5.2) | emission, Vitest |
@@ -693,8 +694,9 @@ What is written by hand lives apart, under `proof/matrix/hand/<base>/`: `expecta
 
 ### 2.3 `proof/matrix/`: authoring a base
 
-A new lane package, in `proof/checks/sharding.py::SPLIT` as two groups,
-`proof/matrix/test_retained.py` and the rest. It is in `proof/lane/blocks.py::CORPUS_PACKAGES`:
+A new lane package, its own group beside one group for each base of `proof/matrix/test_retained.py`
+(`proof/checks/sharding.py::SPLIT_BY_PARAMETER`, `proof/matrix/test_retained.py[<base>]`, the
+bases of `proof/matrix/bases.json`: the module's three tests share one authoring of a base, 12.1). It is in `proof/lane/blocks.py::CORPUS_PACKAGES`:
 `test_retained.py` runs the bundle through `proof.checks.readerbundle`, which finds it through
 `proof.native.produce`, and `bases/nova_then_builder.py` reads a corpus document through
 `proof/matrix/conftest.py` (6.2).
@@ -821,7 +823,7 @@ another multimedia id than the one the emission read, and `read(A) = D` would fa
 id. `create_mapping` then writes the map item HQ wrote (`HQMediaMapItem.gen_unique_id` of that id
 and the path).
 
-Two more operations make the project data a base holds, each from HQ's models and each before the
+Three more operations make the project data a base holds, each from HQ's models and each before the
 app is saved, so A's build, its restore and every walk run over a project space that holds them:
 
 ```python
@@ -833,6 +835,12 @@ def save_authored_places(state, places: dict) -> None:
     """Each level and place of an authored base, parents first, made with HQ's own models
     (locations/models.py::LocationType, SQLLocation) from the base's places.json, and its location
     fields definition (custom_data_fields/models.py::CustomDataFieldsDefinition, Field) from fields."""
+
+def save_authored_practice_workers(state, workers: Sequence[dict]) -> None:
+    """Each practice worker of an authored base, from its practice-workers.json: CommCareUser.create under
+    the id HQ gave it, then ota/utils.py::turn_on_demo_mode, which the worker page's practice mode switch
+    runs (users/views/mobile/users.py::toggle_demo_mode) and which stores the worker's restore. Made inside
+    HQ's own Redis and the unit's commit callbacks, as every lane caller that saves a user holds them."""
 ```
 
 A managed table is never pushed to the project space that manages it (part 11, 11-project-data.md,
@@ -846,7 +854,8 @@ file, because the observation makes the app's reads through them (5.3).
 `proof/observe/publish.py` gains `create_authored(unit, document)`, which runs the two project-data
 operations where the document holds their files, then `save_authored_app`, and returns
 `(app id, None, None)` in `create`'s shape. `first_publish_digest` gains the arm for it: the digest
-of `app.json`, `media.json`, each media file, and `tables.json` and `places.json` where they exist.
+of `app.json`, `media.json`, each media file, and `tables.json`, `places.json` and
+`practice-workers.json` where they exist.
 
 **What stands where a first publish stood.** An `hq-authored` document has no `create.json` and no
 `content.json`. Each reader of one (section 1) gains an arm for the source:
@@ -876,6 +885,21 @@ None).
 State A's version is whatever HQ's saves leave (1 after `save`, raised by each attachment and media
 save), and no check reads its number: proof 2's version clause compares a form's version between
 A's build and B's.
+
+Each state is built in a fork of the unit (`proof/observe/unit.py::_build`). HQ builds a copy of an
+app (`Application.make_build`), and a build's one save is of the app it builds: where the
+multimedia map holds a path nothing references, the media suite's
+`multimedia_map_for_build(remove_unused=True)` prunes it and saves the app
+(`hqmedia/models.py::remove_unused_mappings`), with the form and media item versions
+`create_all_files` set (`set_form_versions`, `set_media_versions`) and `media_form_errors`. The
+lane builds the state's app itself, so before the fork that save wrote into A (on `hq-media` and
+`starter-wash`, whose maps hold such a path) and Nova's republish landed over an A HQ never holds:
+the `source` comparison then held A's authored read against a B carrying A's build's media item
+versions, which the media entries' `/multimedia_map/*` rows absorbed. With the fork the unit holds
+each state as HQ holds it, unbuilt, and what the build made comes back as data. Nova's republish
+prunes the map itself, as HQ's update does (`overwrite_app_from_source`, through
+`_update_valid_domains_for_media` and `get_media_objects(remove_unused=True)`), which is what
+`unused-media-entries-removed` names.
 
 ### 2.5 The capture over an A Nova did not send
 
@@ -1169,7 +1193,7 @@ what each needs.
 | stops | runs on A, and on proof 4's B and B-edit | none |
 | proof 6 | `read(A) = D` and `read(served(D)) = D`, exactly (section 5) | new |
 | parity | runs on A (section 8) | new |
-| source | A's stored app against B's, as HQ's source read serves each: the comparison the first-publish judge needs (9.3). It runs on this source alone | new: `proof/checks/source.py` |
+| source | A's stored app against B's, as HQ's source read serves each, with no spelling rule: the comparison the first-publish judge needs (9.3). It runs on this source alone | new: `proof/checks/source.py` |
 | changes | the judge's three holds over the register file (section 9) | new |
 
 `proof/checks/eligibility.py` becomes:
@@ -1207,14 +1231,27 @@ which reads `eligible` over every name of `differences.CHECKS`.
 **One spelling rule the hop needs.** A form HQ's form builder wrote and Nova's form of the same
 document differ in a spelling no reader reads apart, and it is a rule with its proof on every
 reader, never a register entry: `hint-validation-markdown-form` (part 03,
-03-questions-and-text.md, section 8.2). P2 adds any other the runs find (outcome S). No rule is
-written for a group's `field-list` token in another case: no check of the hop reports the two
-spellings apart. Proof 1 compares each question's export class, which is one class for a group
-and a Question List (`proof/observe/identity.py`,
+03-questions-and-text.md, section 8.2). P2 adds any other the runs find (outcome S). A group's
+`field-list` token in another case is a second: proof 1 compares each question's export class,
+which is one class for a group and a Question List (`proof/observe/identity.py`,
 `export/models/new.py::FormExportDataSchema.datatype_mapping`); proof 2 leaves a form's XML out;
-Core and the served readers read the token ignoring case; and proof 4 saves B and B-edit, which
-Nova writes in lower case. `hq-questions` holds such a group (6.2), read as part 06 section 10.2
-says.
+and proof 4 saves B and B-edit, which Nova writes in lower case. But proof 3's trace records each
+group event's appearance as Core hands it (`FormRun.java::walk`, `FormEntryCaption.getAppearanceHint`),
+so it reports `Field-List` on A against `field-list` on B and the archive at
+`/runs/*/trace/*/events/*/appearance`, though Core reads the token ignoring case
+(`FormEntryController.isHostWithAppearance`, `equalsIgnoreCase`) and Formplayer and Android read
+it through Core (`FormController.indexIsInFieldList`). The step's first whole run hid that
+difference among the events a positional comparison of the events shifted, and keyed events show
+it once. It is a rule's to erase, with its proof on each reader; `hq-questions` holds such a group
+(6.2), read as part 06 section 10.2 says. Two more are the suite's: HQ's build writes a stored
+expression into the suite as its author typed it (a calculated column's into a detail's
+`xpath@function`, a list's filter into the entry's datum `@nodeset`), and Nova writes its own
+spelling. `suite-xpath-lexemes` reads each attribute Core's suite parsers hand to its XPath parser
+as the tokens Core's lexer reads in it, a string by its value (`Lexer.lex`), which erases
+whitespace and quote marks (`starter-health`'s filter); `suite-cond-as-if` reads a three-argument
+`cond` as the `if` Nova prints, which Core evaluates alike (`XPathCondFunc.evalBody`,
+`XPathIfFunc.evalBody`, both built not to evaluate their arguments first; `starter-wash`'s
+calculated columns). Each names Formplayer, the Web Apps client and Android with its test.
 
 **App strings.** Part 01 section 7.1's classifier rests on HQ's build and Nova's archive writing the
 same generated app-string ids for one document. Proof 3 already compares each language's app strings
@@ -1907,7 +1944,7 @@ manifest entry (7.5), not by template.
 | `starter-health` | template, stand-in media | HQ's health starter: two display-only menus, a Register action that returns to the list with an icon, a case list filter, an ascending sort with blanks last (part 03), three case forms whose logic reads the case (none through a `case_preload` entry and none through a default), one `case_list_form` block with a blank form id (menu 2), ten media paths at HQ's own paths, profile values Nova does not seed (`cc-fuzzy-search-enabled: yes` among them), `secure_submissions: true`, `mobile_ucr_restore_version` 1.0, `created_from_template`. Its preselected declaration is both platforms: the template holds `cloudcare_enabled: true`, so its configuration holds `CLOUDCARE` and HQ's import sets the setting on from the plan (`models/applications.py::_create_app_from_doc`), and nothing it holds is unavailable on either platform (6.1). Part 01's two `mirrors` rows on this base (`23-properties-cc-fuzzy-search-enabled`, `43-hq-secure-submissions`) need a declaration that includes Android (7.5, rule 2), which that rule gives whatever the setting. Parts 01, 02, 03; part 08's E6 | yes |
 | `starter-agriculture` | template, stand-in media | four menus and nine forms, five Phone Number questions (part 03), a child case, six forms whose questions default to a case's value (form builder defaults reading `#case/`; no `case_preload` entry), a date-descending sort, `translations.fra` for a language outside `langs` (UI keys HQ keeps, which no runtime reads for a language the app does not hold), a Register action that goes on with the new case, three `case_list_form` blocks with a blank form id (menus 0, 2 and 3), list columns showing the parent case's name (`menus-and-case-lists/idx-prop-parent-host-any-index-names-other-than-a-first-step`), and two Hidden Values with both a calculate and a default no later load-time value reads (`questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads`, first publish `hidden-value-defaults-dropped`). E6 | no |
 | `starter-wash` | template, stand-in media | four display-only menus beside one with a case list, three forms that open a child case, three `case_list_form` blocks with a blank form id (menus 2, 3 and 4; menu 0 holds none) (part 02's INERT row), a case detail column showing the parent case's address, a Hidden Value with both a calculate and a default no later load-time value reads (`questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads`), and its first form's icon, whose map entry names no file (6.3; first publish `broken-pictures-removed`, beside `case-settings-respelled` and `hidden-value-defaults-dropped`). E6 | no |
-| `hq-kept-settings` | pages, models | Web Apps turned on through `edit_app_attr`, so its preselected declaration is both platforms (6.1); holds each of the fifteen settings at a choice other than Nova's seed, `cc-log-entity-detail-enabled`, the credential level, a runtime UI text key in each of two languages, `secure_submissions: true`, `practice_mobile_worker_id`, `logo_refs` on both Android slots, `mobile_ucr_restore_version` 1.5, `persistent_menu` on and `show_breadcrumbs` off (on is HQ's own default, `models/applications.py::Application.show_breadcrumbs`, at which no claim counts the entry), `location_fixture_restore: both_fixtures` written through the model, since HQ's settings page offers it only under `HIERARCHICAL_LOCATION_FIXTURE` (`commcare-app-settings.yml`) (`location-list-setting-reset`), `practice_mobile_worker_id` naming a practice worker the project space holds (the page keeps an id only where the plan has practice mode, `edit_app_attr`'s `enable_practice_users`; and HQ's build looks the worker up under any plan, `suite_xml/generator.py::SuiteGenerator.generate_suite` asking `get_practice_user` wherever `supports_practice_users`, whose `util.py::get_and_assert_practice_user_in_domain` raises `PracticeUserException` for an id no worker of the project space holds, so `validate_app` and `create_all_files` both raise on such an app and no base may hold one: the base and the unit make that worker, in practice mode, before the app, as they make its places), `secure_submissions`, `auto_gps_capture` and `mobile_ucr_restore_version` posted with `custom_base_url` in the same settings save, a runtime UI text key in French alone, `home.sync`, so HQ's build writes English's catalog text for it (`app_strings.py::SelectKnownAppStrings.app_strings_parts` reads each language's own catalog, and `commcare-translations` holds an English one, `messages_en-2.txt`, and no French one), the entry `translations-catalog-key-hq-fills-with-its-own-text-in-a`, which the reader claims at `translations` (`appShell.ts::readCatalogFills`), one language with a display name and one without; and `custom_base_url`, a second origin with a path (`https://example.org/hq/`, as part 01's vectors hold one), posted through the app settings page's save (`views/settings.py::edit_commcare_settings`), whose `edit_app_attr` with `all` takes it always; the attribute's own URL answers 400. HQ joins each address to it with `urljoin`, which keeps the origin alone, so this base shows Nova's archive taking the origin as HQ's build does. Formplayer and a device already reach the lane's HQ under any origin (Formplayer's `RewriteHostRequestInterceptor.java`, the lane's `PeerUrls.java`, `proof/android/peer.py`); where another reader does not, its routing in the lane is taught the same and the value stays, and it is never a walk stop. Every labelled row of `KEPT_AT_HQ` (part 01 section 5). It is not `targeted-kept-values`, which stays in the corpus as the kept rows' control: that document is a Nova-born app whose kept values a person saved in HQ after Nova's first publish, on a deployment Nova created (seeded with Nova's own settings, ledger origin `push`), and this base is an app made in HQ and brought in (seeded with none, origin `read`). `KEPT_AT_HQ` binds both, and part 01, section 7.3, makes the two publish differently | no |
+| `hq-kept-settings` | pages, models | Web Apps turned on through `edit_app_attr`, so its preselected declaration is both platforms (6.1); holds each of the fifteen settings at a choice other than Nova's seed, `cc-log-entity-detail-enabled`, the credential level, a runtime UI text key in each of two languages, `secure_submissions: true`, `practice_mobile_worker_id`, `logo_refs` on both Android slots, `mobile_ucr_restore_version` 1.5, `persistent_menu` on and `show_breadcrumbs` off (on is HQ's own default, `models/applications.py::Application.show_breadcrumbs`, at which no claim counts the entry), `location_fixture_restore: both_fixtures` written through the model, since HQ's settings page offers it only under `HIERARCHICAL_LOCATION_FIXTURE` (`commcare-app-settings.yml`) (`location-list-setting-reset`), `practice_mobile_worker_id` naming a practice worker the project space holds (the page keeps an id only where the plan has practice mode, `edit_app_attr`'s `enable_practice_users`; and HQ's build looks the worker up under any plan, `suite_xml/generator.py::SuiteGenerator.generate_suite` asking `get_practice_user` wherever `supports_practice_users`, whose `util.py::get_and_assert_practice_user_in_domain` raises `PracticeUserException` for an id no worker of the project space holds, so `validate_app` and `create_all_files` both raise on such an app and no base may hold one: the base and the unit make that worker, in practice mode, before the app, as they make its places), `secure_submissions`, `auto_gps_capture` and `mobile_ucr_restore_version` posted with `custom_base_url` in the same settings save, a runtime UI text key in French alone, `home.sync`, so HQ's build writes English's catalog text for it (`app_strings.py::SelectKnownAppStrings.app_strings_parts` reads each language's own catalog, and `commcare-translations` holds an English one, `messages_en-2.txt`, and no French one), the entry `translations-catalog-key-hq-fills-with-its-own-text-in-a`, which the reader claims at `translations` (`appShell.ts::readCatalogFills`); Nova's local archive, which cannot write HQ's catalog and which only CommCare Android reads, holds the key in French's strings alone, and Android admits it because it registers its own strings (`android_translatable_strings.txt`, which name `home.sync`) as the default locale's first source before the app's files (`CommCareApplication.initializeDefaultLocalizerData`), so the lane's Core admission of a local archive registers them first too (`proof/core/src/nova/proof/core/Admission.java`, `client.ANDROID_DEFAULT_STRINGS`), where Core's own engine, strict and given none, refuses French (`Localizer`'s missing default keys); one language with a display name and one without; and `custom_base_url`, a second origin with a path (`https://example.org/hq/`, as part 01's vectors hold one), posted through the app settings page's save (`views/settings.py::edit_commcare_settings`), whose `edit_app_attr` with `all` takes it always; the attribute's own URL answers 400. HQ joins each address to it with `urljoin`, which keeps the origin alone, so this base shows Nova's archive taking the origin as HQ's build does. Formplayer and a device already reach the lane's HQ under any origin (Formplayer's `RewriteHostRequestInterceptor.java`, the lane's `PeerUrls.java`, `proof/android/peer.py`); where another reader does not, its routing in the lane is taught the same and the value stays, and it is never a walk stop. Every labelled row of `KEPT_AT_HQ` (part 01 section 5). It is not `targeted-kept-values`, which stays in the corpus as the kept rows' control: that document is a Nova-born app whose kept values a person saved in HQ after Nova's first publish, on a deployment Nova created (seeded with Nova's own settings, ledger origin `push`), and this base is an app made in HQ and brought in (seeded with none, origin `read`). `KEPT_AT_HQ` binds both, and part 01, section 7.3, makes the two publish differently | no |
 | `hq-languages` | pages, builder | three languages; a label blank in one whose first-language text is not (`blank-translations-filled`, part 09); a text whose languages share one itext id and one renamed id (part 06); a generated translation key equal to HQ's own text and one that overrides a menu name (`translation-overrides-folded`, part 01 section 7.1), the second menu's, since `edit_app_ui_translations` drops `modules.m0` from every save | no |
 | `hq-menus` | pages, models | a display-only menu under a parent that is one, a display-only menu at the top level beside a case-first menu, Register offered always with each return and with media, a Register action whose label holds no text in any language beside its form (`registration-label-fixed`, part 02 section 11.8), the case list menu item with a label and, on another menu, one whose label holds no text, written through the model since `edit_module_attr` raises for a shown item with a blank label (read as the words HQ's build writes, under `list-settings-respelled`: part 07, Departure 15), a menu and a form display condition, a child menu, an after-submit link with an otherwise, an after-submit link that carries a case by hand onto a form of a single-case menu, with no held-case guard in its condition (`link-held-case-guards-added`), a deep link id on a form and on a case list (part 02 sections 4 to 11; part 07's menu readings) | no |
 | `hq-questions` | pages, builder | every question kind of part 06 section 9.1's held rows; a Phone Number question; a Question List at the root; a count repeat over a question and one over a Hidden Value; a model-iteration repeat inside Nova's rule, in the shape the form builder's model iteration writes (`Vellum/src/modeliteration.js`; its fixture `tests/static/modeliteration/case-list-iteration-with-questions.xml`), whose ID query is every case the worker holds (`instance('casedb')/casedb/case/@case_id`), which names no case type, so the base needs none: a query of one type is refused where the app's catalog lacks the type (reason `unknown-case-type`); a label holding a date chip; a help text typed plainly and one typed with formatting; a hint typed plainly and one typed with formatting; a validation message; a validation holding an inline count (`validation-counts-moved`) and a validation message that shows an answer (`validation-messages-composed`); a date-and-time question, with the declaration `splitDatetime: true` on both platforms (`date-and-time-questions-split`); a second form with Disable Text Formatting on; a group whose appearance is written `Field-List`, put in through the form page's upload after the form builder's save (`ops.set_form_source`, 7.2), since the form builder writes the token in lower case (parts 03, 06 and 09) | no |
@@ -1916,7 +1953,7 @@ manifest entry (7.5), not by template.
 | `hq-advanced` | pages, models, builder | an advanced menu whose forms load a two-menu chain and write to the parent load, and one whose parent load is read only; an advanced preload no later default reads; and, in a project space without `SAVE_ONLY_EDITED_FORM_FIELDS`, `update_mode: "edit"` stored through the model on one property write of a basic follow-up form and on one write of an advanced load: the flag read answers `not-applied`, the first reads as saved every time and is respelled under `case-settings-respelled`, and the second is read past under the INERT entry `forms-and-case-writes/update-mode-edit-in-a-project-space-that-saves-every-time` (part 07, sections 3.2 and 14) | no |
 | `hq-nova-then-builder` | Nova's publish, builder | `targeted-save-to-case-shapes`'s first publish as the corpus captured it, then every form saved in the form builder: Save to Case blocks and generated nodes as the builder writes them back (part 06's R1 shape, and part 07's check of a form-builder save). The document (`proof/targeted/documents/saveToCaseShapes.ts`) holds the eight Save to Case arms that check lists (a root create, a keyed create, a create in a repeat, a conditional update, a close, a several-case form, the own arm in a block, the own close's block) and one form with no Save to Case operation holding a validation with a lifted count (part 06's R1 shape). Its `app.json` is HQ's stored app after those saves. The builder applies the corpus document's captured first publish with `proof.observe.publish.create`, as `proof/hq/test_retained_reads.py` publishes `navigation-base`, reading the document through `proof/matrix/conftest.py`'s `documents` fixture, whose `DOCUMENTS` names it so the package's key moves with it (`queue.py::PACKAGE_DATA`). It is the one base Nova's emitter can stale: a change to that document's capture fails `test_retained.py` on this base, and the same change adopts it again (`python3 -m proof.matrix.adopt`), which L3 says | no |
 | `hq-case-lists` | pages | a detail column its list lacks, read as a column that is not on the list with no change at the first publish (part 07, section 11.6), a sort rule on a property no column shows (`sort-rule-kept-as-hidden-column`), sort rules with each type word and with blanks first and last, a plain, a date, a phone and an ID-mapping column, a calculated column, and a list with no sort elements under an invisible first column (`list-settings-respelled`; part 07's same-state reading `no-sort-elements`); a multi-select list is no part of it: the manifest gives a multi-select case list no Android reading (`menus-and-case-lists/detail-multi-select`, RUNS / UNAVAILABLE, which the gate holds through `PLATFORM_FEATURE_UNAVAILABLE`), so a base read under a declaration that includes Android cannot hold one, and the multi-select list whose `max_select_value` is `-1` (part 07's same-state reading `detail-max-select-value-on-a-multi-select-basic-list`) is the holding row `hq-case-lists/multi-select-unbounded` of `variants.json` (7.2); its case list filter compares a date property with a quoted date (`dob > '2000-01-01'`), part 08's positive control of the typed-literal fold, with a value expectation in 6.4's file; a third menu, "Visits due", whose list holds `visits` as Search Only under a header blank in every language and sorts on `visits` with display text, which HQ's build lists in Android's Sort by under a name that shows blank and the first publish drops (`sort-by-entry-with-a-blank-name-dropped`, its rows fixed by a `caseList` expectation naming `menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column`). It is authored so its preselected declaration includes Android: its `caseList` expectations run on the local archive (6.4) (parts 03, 07 and 08) | no |
-| `hq-search` | pages, models | `SYNC_SEARCH_CASE_CLAIM` and case search on, with `CASE_SEARCH_ADVANCED`, the gate of the date fields, a field HQ does not match itself and the inline search (`case-search/input-date`, `exclude`, `inline-search-true-auto-launch-true-on-a-module-without-visible`), and `LOOKUP_TABLES` for the table its choosing field reads, made with HQ's models; a search with no title; search fields of each held kind; a list filter the search restates (`search-restates-list-filter`); a search-only filter row order HQ ANDs (`search-filter-rows-recut`); a filter row that compares a property with a search field's answer (`search-value-guards`); on the `inline_search` menu, whose forms read the search, a filter row that reads no search field and restates no clause of that menu's list filter (`search-filter-joined-to-list`, part 07 section 12.3, kind F); a bare comparison of two dates and times in a calculated column of the searching menu's list, whose property its comparison with `now()` types (a Search field's own slots are record slots of global scope, `lib/domain/expression/context.ts::slotContext`, and hold no second date and time but `now()`). No form saves the property: a Hidden Value bound `xsd:dateTime` saved straight to a case stores its day alone there, which part 09 refuses (its decision 18), and the first lane run showed it on this base as an undeclared change of the stored text. No case the walks start from holds it, so the column shows its second branch on every state, and `hq-expressions` shows the change on a value, an absolute read in a form's default (no Search field slot reads a form) and a search row calling `today()` (part 08; the first is `instant-comparison`, the second `default-reads-current`, the last `search-today-device-day`); each of `auto_launch`, `default_search` and `inline_search` on a menu of its own (parts 03, 07 and 08) | no |
+| `hq-search` | pages, models | `SYNC_SEARCH_CASE_CLAIM` and case search on, with `CASE_SEARCH_ADVANCED`, the gate of the date fields, a field HQ does not match itself and the inline search (`case-search/input-date`, `exclude`, `inline-search-true-auto-launch-true-on-a-module-without-visible`), and `LOOKUP_TABLES` for the table its choosing field reads, made with HQ's models; a search with no title; search fields of each held kind; a list filter the search restates (`search-restates-list-filter`); a search-only filter row order HQ ANDs (`search-filter-rows-recut`); a filter row that compares a property with a search field's answer (`search-value-guards`); on the `inline_search` menu, whose forms read the search, a filter row that reads no search field and restates no clause of that menu's list filter (`search-filter-joined-to-list`, part 07 section 12.3, kind F; its row `village = 'north'` compares a property with a literal, which HQ's search matches exactly, letter case included, `case_search/xpath_functions/comparison.py::_create_query` over `es/case_search.py::exact_case_property_text_query`, as Core's `=` compares two strings, so the device's joined filter keeps every case the search returns and the change touches no worker. Core's sessions answer a search with every case of its type and no filter, `proof/core/.../ProofSessionUtils.java::makeQueryRequest`, so proof 3's Core comparison shows the joined filter dropping a case HQ's search would never have returned (the first whole run: `client-5`, village `10`, on `m2`); that is the lane's stand-in, held only once Core's sessions are answered by HQ's own search over the unit's cases, as Formplayer's are, `proof/formplayer/hq.py::serve`); a bare comparison of two dates and times in a calculated column of the searching menu's list, whose property its comparison with `now()` types (a Search field's own slots are record slots of global scope, `lib/domain/expression/context.ts::slotContext`, and hold no second date and time but `now()`). No form saves the property: a Hidden Value bound `xsd:dateTime` saved straight to a case stores its day alone there, which part 09 refuses (its decision 18), and the first lane run showed it on this base as an undeclared change of the stored text. No case the walks start from holds it, so the column shows its second branch on every state, and `hq-expressions` shows the change on a value, an absolute read in a form's default (no Search field slot reads a form) and a search row calling `today()` (part 08; the first is `instant-comparison`, the second `default-reads-current`, the last `search-today-device-day`); each of `auto_launch`, `default_search` and `inline_search` on a menu of its own (parts 03, 07 and 08) | no |
 | `hq-expressions` | pages, models, builder | a form holding one expression for each expression rewrite of part 08's section 2.3 whose behavior changes: a bare comparison of two dates and times, an unguarded read of a global lookup table the builder makes with HQ's models, a row predicate without `current()` and a session value read with no guard; and, beside them, a default that reads another question (`default-reads-current`, which changes no behavior and expects no register id) (part 08, 08-the-reader-expressions.md, section 2.3; part 09's Copy C2 holds each rewrite's sentence) | no |
 | `hq-media` | models, stand-in media | image, audio and video on a label, a choice, a menu and a form at HQ's own paths; one file two paths name (`media-paths-joined`); a path differing from another only by case, a path HQ's upload cannot match and a path in Nova's derived shape that names other bytes (each `media-files-renamed`); a `multimedia_map` entry nothing references (`unused-media-entries-removed`); a menu icon whose path has no map entry (`media-references-with-no-file-removed`). Its hop also holds part 10's assertion on held paths: every held path keeps its `multimedia_id`, its `unique_id` and its resource version across the two builds (part 09, section 11.2; part 10, sections 4.2 and 4.7; part 11, section 3) | no |
 | `hq-lookups` | pages, models, builder | a global table a select reads through an itemset, a second table the form declares and nothing reads, a table whose tag holds a hyphen, an itemset filter comparing a column with an answer (parts 04 and 11) | no |
@@ -2163,7 +2200,12 @@ Nova's own publish. What this part holds of them:
   menu and a form; `proof/checks/corpus.py::BroughtIn.reading`), and `proof6.saved_requests` reads
   HQ's `saved` answer back against it with `canon`, the review's ids for a menu or form a person
   added (which the peer mints otherwise than HQ) taken as HQ's at that position
-  (`proof6.aligned_identity`). Its differences are `document@saved` and `reading@saved`. The
+  (`proof6.aligned_identity`). The reading also names, by asset, each file the review found HQ holding
+  under a path its content does not derive (`BringInRecord.reading.mediaPaths`: a picture a person
+  replaced under Nova's path, which the review resolved by its bytes to an asset the Project holds), and
+  the `saved` read back holds each such path to that asset before any asset whose content derives the
+  path (`proof6.held_media_paths`, `proof/reader/laneReading.ts::publishedFiles`), since HQ serves the
+  replaced file there. Its differences are `document@saved` and `reading@saved`. The
   capture records a reading wherever Nova's check read the app: every review that found changes,
   and a review that found nothing which the check decided. A review that found changes and
   recorded no reading is refused by name; one that found nothing with no reading (it answered
@@ -2831,8 +2873,29 @@ resource of that path whose version differs between A's and B's built media suit
 change. That is part 10's assertion (10-identity-and-the-ledger.md, section 4.7), held on every
 base that maps media and exhibited on `hq-media`.
 
-`source` is a check like any other: its differences go through `changes.declared`, then the
-spelling rules and the registers. It observes nothing new; it reads records proof 6 already needs.
+**Held properties of a column.** A case list column's `field` holds the property the column shows,
+or, where `useXpathExpression` is true, the expression it calculates
+(`models/case_list.py::DetailColumn`; `detail_screen.py` reads `field` as XPath only then). Nova
+prints every expression it holds in its own spelling (whitespace, quote marks, a three-argument
+`cond` as the `if` it equals, `reader/syntaxCompare.ts`), so a calculated column's expression is
+`forms-and-settings-rewritten`'s, at `/modules/*/case_details/*/columns/*/field`, as a list's filter
+is at `/modules/*/case_details/short/filter`. A row at that path would also absorb a change to which
+property a column shows, so the comparison reports a `field` that differs at its own pointer only
+where the column is calculated on both sides, and any other at
+`/modules/*/case_details/<detail>/columns/*/held`, which is no entry's path (`starter-wash` exhibits
+the calculated respelling).
+
+**The stored app is compared as stored.** `source` is a check like any other in that its differences
+go through `changes.declared` and then the known-defect register, which takes no entry of it. It
+applies no spelling rule. A rule is proven where builds are compared: on HQ's build, Core's run and
+each reader it names, never on what else reads the stored app. A person reads the stored app on
+HQ's own pages, and those tell rule-equal spellings apart: the form summary's comparison of two
+versions marks a form whose `form_filter` is `""` in one and null in the other as changed
+(`proof/rules/form_filter_blank.py`), and only the app summary reads `case_references_data.load`
+(`proof/rules/case_references_load.py`). So every stored difference is one an entry names, a rule's
+spelling included: a Case Management page's null `operator` is `case-settings-respelled`'s, and the
+load is `forms-and-settings-rewritten`'s. It observes nothing new; it reads records proof 6 already
+needs.
 
 **The inputs, a base.** The differences of the hop (`source`, proof 1 against A, proof 2 over every
 build file but a form's XML, proof 3 always: section 4); the entries that apply (`first-publish.json`,
@@ -2880,7 +2943,7 @@ Section 7.5's rule 3 requires every id on some base. Part 09's register names th
 | `validation-counts-moved`, `validation-messages-composed` | `hq-questions` |
 | `instant-comparison`, `empty-rows-guard`, `absent-session-value-guard`, `row-predicate-current` | `hq-expressions` |
 | `search-value-guards`, `search-today-device-day`, `search-filter-rows-recut`, `search-filter-joined-to-list`, `search-restates-list-filter` | `hq-search` |
-| `case-settings-respelled` | `hq-case-management`, and `hq-advanced` for a write stored `edit` that the project space saves every time |
+| `case-settings-respelled` | `hq-case-management`, and `hq-advanced` for a write stored `edit` that the project space saves every time; `hq-saved-pages` and the three starters for the conditions HQ's Case Management page saves (an `operator` null, a `case_preload` condition `always`), which Nova writes `=` and `never` (`caseManagement/conditions.ts::recordRespelledConditions`) |
 | `date-and-time-saved-as-hq-stores-it` | `hq-case-management`, on the form whose `nova_datetime_` sibling holds the spelling Nova wrote before this step (6.2) |
 | `sort-rule-kept-as-hidden-column`, `list-settings-respelled` | `hq-case-lists`; `hq-menus` holds `list-settings-respelled` too, for a case list menu item's blank label, and so does every base with a menu that offers no search whose title and subtitle HQ's models stored as `{}` and whose `auto_launch` is `false` under a declaration that includes Web Apps (`hq-plain` among them), which Nova writes as its shell |
 | `link-held-case-guards-added`, `registration-label-fixed` | `hq-menus` |
@@ -3072,12 +3135,17 @@ one a mapped file on the four bases with media), and the judge one Node start a 
 that name no key) and the bundle's run over each row, which no earlier estimate counted, and a
 `brings-in` document of part 15 also runs a review, a bring-in and a second publish, which the
 per-document figure does not hold. Measured, `proof/matrix` is about 16 worker-seconds and
-`proof/matrix/test_retained.py`, a group of its own, about 1,140 on one worker (three slice runs:
-1,130 to 1,142; 285 box-seconds), against 160 box-seconds counted for both. Counted as an unmeasured package
-group was then counted, at the 90th percentile of the measured ones (58.6 box-seconds), it set
-a twenty-minute shard deadline its one worker could not meet, and the step's first whole run lost
-that shard's 39 groups to it; `sharding.estimate` now counts a package group no run measured at the
-longest measured one, and documents at the 90th percentile as before. The step's first whole run is the pull request lane's run over
+`proof/matrix/test_retained.py`, then a group of its own, about 1,140 on one worker (three slice
+runs: 1,130 to 1,142; 285 box-seconds), against 160 box-seconds counted for both. Counted as an
+unmeasured package group was then counted, at the 90th percentile of the measured ones (58.6
+box-seconds), it set a twenty-minute shard deadline its one worker could not meet, and the step's
+first whole run lost that shard's 39 groups to it. So `sharding.estimate` counts a package group no
+run measured at the longest measured one, and documents at the 90th percentile as before; and
+`test_retained.py` runs as one group a base (`sharding.SPLIT_BY_PARAMETER`, the bases of
+`proof/matrix/bases.json`: its three tests share one authoring of a base, so a split by test would
+author each base three times), each counted at its even share of the module's measured whole
+(about 13 box-seconds) until a run measures it, and at the longest measured base after. The
+step's first whole run is the pull request lane's run over
 the step's head, which is a whole one (the next paragraph says why): it measures all of it, and
 `node proof/run.mjs --timings` over its outputs, committed in the stack, replaces every counted
 figure of the `no-readers` profile. At the measured median (6.354) the documents cost under half
@@ -3561,9 +3629,13 @@ could reach for, and why it is not built. The numbers are fixed, since other fil
   `configurations.py` (`_content_privileges`); `eligibility.py`; `intent.py` (`saved` from A's
   profile); `proof2.py` (`judged`, `form_xml_unjudged`), `proof3.py` (`always_b`), and their tests and `test_proof1_identity.py` (each asks `changes.declared`);
   `differences.py` (`CHECKS`); `registers.py` (`HELD_CHECKS`, the refusal of L8);
+  `compare/trace.py` (a form's events keyed by where Core stepped to each, `event_keys`,
+  `events_by_place`, their order one difference at `events/order()`), `compare/json_tree.py` (`whole`)
+  and `identity.py` (`WHOLE`: a form's question order one difference at `/order`), with their
+  controls in `test_compare.py`;
   `observations.py` (`OPERATION_CHECKS`); `manifest_usage.py` (`standing`);
-  `manifest_value_classes.py` (nineteen readers); `sharding.py` (`SPLIT`, `collection_roots`'
-  docstring); and the tests `test_corpus.py`, `test_intent.py`, `test_build_files.py`,
+  `manifest_value_classes.py` (nineteen readers); `sharding.py` (`SPLIT`, `SPLIT_BY_PARAMETER`,
+  `collection_roots`' docstring, `estimate`); and the tests `test_corpus.py`, `test_intent.py`, `test_build_files.py`,
   `test_registers.py`, `test_manifest_value_classes.py`, `test_manifest.py`,
   `test_judge_purity.py`, `test_record_determinism.py`.
 - `proof/store/fingerprints.py` (`JUDGE_FILES`), `keys.py`, `queue.py` (`PACKAGE_DATA`), `pack.py`,

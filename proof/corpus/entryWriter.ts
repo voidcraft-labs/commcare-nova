@@ -55,8 +55,8 @@
  * A document made in CommCare HQ (`hq-authored`) has no first publish: its
  * A is its base's app, which the entry writer copies from the base's
  * retained directory into `authored/` (`app.json`, `media.json` and
- * `media/`, `seed.json`, and `tables.json` and `places.json` where the base
- * holds them), so the document's key names every byte A is made of. Its one
+ * `media/`, `seed.json`, and `tables.json`, `places.json` and
+ * `practice-workers.json` where the base holds them), so the document's key names every byte A is made of. Its one
  * configuration is the base's (`base.json`'s `configuration`, as both
  * `minimum` and `maximum`, with no single flag), and only `export/minimum/`
  * is written: the republish Nova sends over A as over an app it brought in
@@ -668,6 +668,7 @@ const AUTHORED_FILES_WHERE_HELD = [
 	"media.json",
 	"tables.json",
 	"places.json",
+	"practice-workers.json",
 ] as const;
 
 /**

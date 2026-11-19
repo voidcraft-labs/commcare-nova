@@ -147,6 +147,10 @@ def selection(entry: Mapping, proof_dir: Path = sharding.PROOF_DIR) -> tuple[lis
         return ["proof/surface"], True
     if group == "proof":
         return sorted(f"proof/{path.name}" for path in Path(proof_dir).glob("test_*.py")), True
+    part = sharding.parameter_part(group)
+    if part is not None:
+        # A value of a module split by parameter: its module's items whose names hold that value.
+        return [f"proof/{part[0]}", "-k", part[1]], False
     return [group], "/" in group[len("proof/") :]
 
 

@@ -370,3 +370,19 @@ def test_a_document_difference_keeps_the_values_both_documents_hold_there():
         ("/forms/*/icon", "changed", "a", None),
         ("/fields/*", "added", None, {"id": "q"}),
     ]
+
+
+def test_the_saved_read_holds_each_file_at_the_path_the_review_found_it_under():
+    """A picture a person replaced under Nova's path is named there by the asset the review resolved it to
+    (``broughtIn.reading.mediaPaths``), over the path the document's own record keeps for it, and beside every other
+    held path the document keeps. The plausible failure: a ``saved`` read whose media index names Nova's original
+    picture at the path, which reports the person's picture as changed."""
+    stored = {"doc": {}, "hqAuthored": {"mediaPaths": {"logo": "jr://file/commcare/logo.png"}}}
+    reading = {"doc": {}, "identity": [], "mediaPaths": {"theirs": "jr://file/commcare/image/own.png"}}
+    assert proof6.held_media_paths(stored, reading) == {
+        "logo": "jr://file/commcare/logo.png",
+        "theirs": "jr://file/commcare/image/own.png",
+    }
+    moved = {"doc": {}, "mediaPaths": {"theirs": "jr://file/commcare/image/old.png"}}
+    assert proof6.held_media_paths(moved, reading) == {"theirs": "jr://file/commcare/image/own.png"}
+    assert proof6.held_media_paths({"doc": {}}, {"doc": {}, "identity": []}) == {}

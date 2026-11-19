@@ -61,7 +61,8 @@ way, where a run's sample leaves documents out, ``proof.store.queue.sampled``),
   (``app.json``, ``Application.to_json()`` with each form's source under
   ``_attachments``), the case seed made from that app (``seed.json``) and,
   where the base holds them, ``media.json`` with the files it names under
-  ``media/``, ``tables.json`` and ``places.json`` (``Document.authored``). Such a
+  ``media/``, ``tables.json``, ``places.json`` and ``practice-workers.json``
+  (``Document.authored``). Such a
   document has no first publish: each ``export/<configuration>/`` holds the
   republish of D over that app, and nothing in place of ``create`` and
   ``content``. It is exported under one configuration, and its
@@ -390,7 +391,8 @@ class BroughtIn:
     ids HQ holds for each menu and form the record keeps, the review over the record (``again``), the summary of the
     app the review read, which the capture's peer modeled (``assumed_summary``), the document the app holds after
     it, and the review's reading of CommCare HQ's app now (``reading``: ``{doc, identity}``, the document and one
-    identity row a menu and a form of it, or None where the record holds none)."""
+    identity row a menu and a form of it, with ``mediaPaths``, each asset at the path HQ holds it under where the
+    review found a file under a path its content does not derive, or None where the record holds none)."""
 
     review: dict
     taken: str
@@ -420,10 +422,18 @@ class BroughtIn:
             not isinstance(reading, dict)
             or not isinstance(reading.get("doc"), dict)
             or not isinstance(reading.get("identity"), list)
+            or set(reading) - {"doc", "identity", "mediaPaths"}
+            or not isinstance(reading.get("mediaPaths", {}), dict)
+            or not all(
+                isinstance(asset, str) and isinstance(path, str)
+                for asset, path in (reading.get("mediaPaths") or {}).items()
+            )
         ):
             raise CorpusLayoutError(
                 f"{where} records the review's reading as {reading!r}; it is {{doc, identity}}, the document the"
-                " review read of CommCare HQ's app and one identity row a menu and a form of it."
+                " review read of CommCare HQ's app and one identity row a menu and a form of it, with mediaPaths,"
+                " each asset at the path HQ holds it under, where the review found a file under a path its content"
+                " does not derive."
             )
         return cls(
             review=value["review"],
@@ -591,7 +601,7 @@ class Authored:
     """What a document made in CommCare HQ holds in place of a first publish: the app HQ's own pages and models made,
     and, where the base holds them, its media rows (``media.json``, each ``{path, file, mediaClass, kind, mimeType,
     extension}``, ``file`` under ``authored/``; ``proof/matrix/retain.py`` writes it only for a base that maps media),
-    its lookup tables and its places, each the file's path or None."""
+    its lookup tables, its places and its practice workers, each the file's path or None."""
 
     root: Path
     app: Path
@@ -599,6 +609,7 @@ class Authored:
     tables: Path | None
     places: Path | None
     seed: Path | None
+    practice_workers: Path | None = None
 
     def app_json(self):
         return _read_json(self.app)
@@ -677,6 +688,7 @@ class Document:
             tables=held("tables.json"),
             places=held("places.json"),
             seed=held("seed.json"),
+            practice_workers=held("practice-workers.json"),
         )
 
     @cached_property

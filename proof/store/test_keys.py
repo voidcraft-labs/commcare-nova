@@ -327,7 +327,8 @@ def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes
     from proof.store.conftest import copied_control
     from proof.store.test_queue import _build, _queued, _ran
 
-    monkeypatch.setattr(sharding, "SPLIT", {"matrix/test_retained.py": ()})
+    monkeypatch.setattr(sharding, "SPLIT", {})
+    monkeypatch.setattr(sharding, "SPLIT_BY_PARAMETER", {"matrix/test_retained.py": "matrix/bases.json"})
     groups = {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0}
     timings = {"profiles": {"readers": {"groups": groups}, "no-readers": {"groups": groups}}}
     write_files(
@@ -335,6 +336,7 @@ def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes
         {
             "proof/timings.json": json.dumps(timings),
             "proof/matrix/conftest.py": 'DOCUMENTS = ("one",)\n',
+            "proof/matrix/bases.json": '["one"]',
             "proof/matrix/test_retained.py": "def test_retained():\n    pass\n",
             "proof/matrix/test_seed.py": "def test_seed():\n    pass\n",
             "proof/native/test_family.py": "def test_family():\n    pass\n",
@@ -344,7 +346,7 @@ def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes
     register = [{"id": "d1", "check": "bar", "document": "one", "control": control.id}]
     (checkout / "proof" / "known-defects.json").write_text(json.dumps(register))
     documents = ["corpus:one", "corpus:two"]
-    running = ["proof/checks", "proof/matrix", "proof/matrix/test_retained.py"]
+    running = ["proof/checks", "proof/matrix", "proof/matrix/test_retained.py[one]"]
     others = ["proof/editors", "proof/native"]
     every = sorted([control.group, *documents, *running, *others])
 

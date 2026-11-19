@@ -97,7 +97,10 @@ import { shownBlockMedia } from "./menus/navMedia";
 import { registrationFormLast } from "./menus/registration";
 import { appPlace, placeOrder } from "./place";
 import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
-import { joinedGuardsSplitAsRead } from "./search/guardSplit";
+import {
+	joinedGuardsSplitAsRead,
+	unprintedGuardTranslationsAbsent,
+} from "./search/guardSplit";
 import {
 	blankSearchFieldLabelsAreTheirNames,
 	exactSearchModeIsAbsent,
@@ -109,6 +112,7 @@ import {
 	fieldConditionsReadingNoFieldAreTheFilters,
 	filterConditionsOfAFieldAreItsOwn,
 	searchesThatFindNothingAsRead,
+	searchFieldPathsAreTyped,
 } from "./search/rows";
 import {
 	defaultSearchTitleIsAbsent,
@@ -518,6 +522,14 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: joinedGuardsSplitAsRead,
 	},
 	{
+		/** A translation of a search guard sentence no Search field of the app carries, and none: no
+		 *  export holds it, and the reader returns none
+		 *  (`search/guardSplit.ts::unprintedGuardTranslationsAbsent`). */
+		id: "unprinted-search-guard-translations-are-absent",
+		kind: "not-carried",
+		apply: unprintedGuardTranslationsAbsent,
+	},
+	{
 		/** A required Search field with no message of its own beside one whose own message is
 		 *  Nova's sentence in the source language, and the two with the message swapped: both print
 		 *  one text in every language, and the reader returns the document whose first such field,
@@ -618,6 +630,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "derived-search-conditions-are-simple-fields",
 		kind: "one-wire",
 		apply: derivedConditionsAreSimpleFields,
+	},
+	{
+		/** A simple Search field whose path names the case type each step reaches, and the same
+		 *  field whose steps name none where the catalog resolves each to that type: both derive one
+		 *  search row, and the reader returns the typed path
+		 *  (`search/rows.ts::searchFieldPathsAreTyped`). */
+		id: "search-field-paths-are-typed",
+		kind: "one-wire",
+		apply: searchFieldPathsAreTyped,
 	},
 	{
 		/** A search one of whose sources is never true, which sends HQ the one row `match-none()`,

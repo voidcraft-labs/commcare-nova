@@ -2,7 +2,6 @@ package nova.proof.core;
 
 import org.commcare.resources.model.Resource;
 import org.commcare.resources.model.installers.LocaleFileInstaller;
-import org.commcare.suite.model.PropertySetter;
 import org.javarosa.core.reference.ReferenceHandler;
 import org.javarosa.core.reference.ReferenceManager;
 import org.javarosa.core.services.locale.Localization;
@@ -51,12 +50,14 @@ final class Apps {
 
     /**
      * Makes this app's archive the only reference root and its locale files the
-     * localizer's, as CommCareConfigEngine.initEnvironment leaves them after an
-     * install: the localizer is reset, each locale resource's installer registers
-     * its file in table order, "default" is added and made the default locale, and
-     * the current locale is the profile's cur_locale ("default" when it has none).
-     * Suites and the profile stay registered with the app's own platform, so they
-     * are not initialized again.
+     * localizer's, as its admission's initEnvironment left them after the install
+     * (ProofEngine.initEnvironment): the localizer is reset, the runtime's own
+     * strings registered first where the app was admitted with them
+     * (ProofEngine.registerRuntimeDefaults), each locale resource's installer
+     * registers its file in table order, "default" is added and made the default
+     * locale, and the current locale is the profile's cur_locale ("default" when it
+     * has none). Suites and the profile stay registered with the app's own
+     * platform, so they are not initialized again.
      */
     void activate(App app) throws Exception {
         if (active == app) {
@@ -65,6 +66,7 @@ final class Apps {
         ReferenceHandler.clearInstance();
         ReferenceManager.instance().addReferenceFactory(app.engine.archiveRoot());
         Localization.init(true);
+        app.engine.registerRuntimeDefaults();
         for (IStorageIterator<Resource> it = app.engine.resourceStorage().iterate(); it.hasMore(); ) {
             Resource resource = it.nextRecord();
             if (resource.getInstaller() instanceof LocaleFileInstaller) {
@@ -78,12 +80,7 @@ final class Apps {
     }
 
     static String profileLocale(App app) {
-        for (PropertySetter property : app.engine.getPlatform().getCurrentProfile().getPropertySetters()) {
-            if ("cur_locale".equals(property.getKey())) {
-                return property.getValue();
-            }
-        }
-        return "default";
+        return app.engine.profileLocale();
     }
 
     JSONObject release(String handle) throws IOException {

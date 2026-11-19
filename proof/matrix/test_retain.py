@@ -13,12 +13,17 @@ answer that drops its claims read as a base claiming nothing, which wrote
 studied without another run. ``holds`` judges a set-json row's value served
 where HQ's source read holds what the row set: a logo slot HQ's source read
 decorates with keys of its own holds the path a row set, and a key dropped, an
-item missing or another value does not.
+item missing or another value does not. ``practice_worker_rows`` keeps each
+worker in practice mode by the id an app's ``practice_mobile_worker_id`` names
+and no other worker, in one order however HQ lists them, and writes no file
+where no worker is in practice mode: a base whose practice worker the file
+lacks names an id HQ's build of A cannot find (``PracticeUserException``).
 """
 
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -102,3 +107,23 @@ def test_a_list_holds_each_item_in_its_place_and_a_value_is_itself():
     assert retain.holds("yes", "yes")
     assert not retain.holds(retain._MISSING, None)
     assert not retain.holds(None, {"path": "p"})
+
+
+def _worker(user_id, username, *, practice):
+    return SimpleNamespace(_id=user_id, raw_username=username, is_demo_user=practice)
+
+
+def test_each_worker_in_practice_mode_is_a_row_by_its_id_and_username_in_one_order():
+    workers = [
+        _worker("b2", "trainee", practice=True),
+        _worker("c3", "field", practice=False),
+        _worker("a1", "practice", practice=True),
+    ]
+    rows = [{"user_id": "a1", "username": "practice"}, {"user_id": "b2", "username": "trainee"}]
+    assert retain.practice_worker_rows(workers) == rows
+    assert retain.practice_worker_rows(reversed(workers)) == rows
+
+
+def test_a_project_space_with_no_worker_in_practice_mode_retains_no_file():
+    assert retain.practice_worker_rows([_worker("c3", "field", practice=False)]) is None
+    assert retain.practice_worker_rows([]) is None

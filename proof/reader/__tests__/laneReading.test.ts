@@ -23,7 +23,11 @@
  * that path is that file (`publishedFiles`), while an asset of other bytes, or
  * one HQ keeps at a path of its own, is not. The plausible failure: proof 6
  * holding a reading to name each of two assets of one content apart, which
- * no Project holds and no reading of HQ's one file can give.
+ * no Project holds and no reading of HQ's one file can give. A path HQ keeps a
+ * held file under is that held asset's, before any asset whose content derives
+ * the same path: a picture a person replaced under Nova's path is the person's
+ * file there. The plausible failure: proof 6's `saved` read naming Nova's
+ * original picture where HQ serves the person's.
  */
 
 import { expect, it } from "vitest";
@@ -136,9 +140,9 @@ it("names each path a document's publish sent by one asset, and every other asse
 		mediaPaths: { held: "jr://file/commcare/kept-in-hq.png" },
 	});
 	expect([...files.byPath.values()].map((file) => file.assetId)).toEqual([
+		"held",
 		"first",
 		"other",
-		"held",
 	]);
 	expect(files.byPath.get("jr://file/commcare/kept-in-hq.png")?.assetId).toBe(
 		"held",
@@ -146,4 +150,32 @@ it("names each path a document's publish sent by one asset, and every other asse
 	// The asset with the first's bytes is that file; another file, and one HQ keeps at a path of
 	// its own, stays itself.
 	expect([...files.sameFile]).toEqual([["again", "first"]]);
+});
+
+it("names a path HQ holds a replaced file under by the held asset, before the asset whose content derives it", () => {
+	const png = (bytes: number[]) => ({
+		kind: "image",
+		extension: ".png",
+		base64: Buffer.from(bytes).toString("base64"),
+	});
+	const own = png([1, 2, 3]);
+	const derived = publishedFiles({ doc: {}, media: { own } });
+	const [ownPath] = [...derived.byPath.keys()];
+	if (ownPath === undefined) throw new Error("The asset was sent at no path.");
+	// A person replaced Nova's picture under its path with one the Project also holds: the
+	// review's reading names that path by the person's asset, whatever order the media lists.
+	for (const media of [
+		{ own, theirs: png([4, 5, 6]) },
+		{ theirs: png([4, 5, 6]), own },
+	]) {
+		const files = publishedFiles({
+			doc: {},
+			media,
+			mediaPaths: { theirs: ownPath },
+		});
+		expect(files.byPath.get(ownPath)?.assetId).toBe("theirs");
+		expect([...files.sameFile]).toEqual([["own", "theirs"]]);
+	}
+	// Without the held path, the path is the content's own asset's.
+	expect(derived.byPath.get(ownPath)?.assetId).toBe("own");
 });

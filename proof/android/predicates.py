@@ -361,6 +361,22 @@ def cells(view) -> list[dict]:
     return found
 
 
+def texts(view) -> list[str]:
+    """Each text Android drew under ``view``, in order."""
+    found = [view["text"]] if "text" in view else []
+    for child in view.get("children", ()):
+        found.extend(texts(child))
+    return found
+
+
+# The end of the operation query control's first case list, whose one column shows the case's name, and the filter
+# its entries' datums read, each as Nova's local archive spells it.
+QUERY_LIST_END = (
+    '<template><text><xpath function="case_name"/></text></template></field></detail><detail id="m0_case_long">'
+)
+QUERY_LIST_FILTER = "[@case_type=&apos;patient&apos;][@status=&apos;open&apos;]"
+
+
 class Predicates(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1348,6 +1364,56 @@ class Predicates(unittest.TestCase):
             self.assertEqual(held["fuzzyOff"]["proox"], [])
         self.assertEqual(local["fuzzyOn"]["proox"], [])
         self.assertEqual(as_hq["fuzzyOn"]["proox"], ["proof text"])
+
+    def query_list(self, label, function, datum=QUERY_LIST_FILTER):
+        """The text of every row of the operation query control's first case list, its column's ``xpath@function``
+        and its datums' filter written as given (each an attribute value as the suite holds it)."""
+        archive = edited(
+            OPERATION_QUERY,
+            self.work / f"query-list-{label}.ccz",
+            "suite.xml",
+            [
+                (QUERY_LIST_END, QUERY_LIST_END.replace('function="case_name"', f'function="{function}"')),
+                (QUERY_LIST_FILTER, datum),
+            ],
+        )
+        listed = self.steps(self.walked(archive, OPERATION_QUERY_RESTORE), "EntitySelectActivity")[0]["list"]
+        return [texts(row) for row in listed["rows"]]
+
+    def test_a_list_reads_a_suite_expression_alike_in_either_spelling(self):
+        """Spelling rule ``suite-xpath-lexemes``. Contract: Android loads a suite with Core's parsers, whose lexer
+        skips whitespace between tokens and reads a string by its value (``Lexer.lex``), so a case list's column
+        and its filter spelled with other whitespace and other quote marks list the same cases and show the same
+        text, and the same column with another string shows another. Failure it catches: a reader that reads a
+        suite's expression otherwise than through Core's lexer."""
+        nova = self.query_list("nova", "concat(case_name, &apos; / &apos;, &apos;kept&apos;)")
+        typed = self.query_list(
+            "typed",
+            "concat(  case_name ,&quot; / &quot;,\n  &quot;kept&quot; )",
+            "[ @case_type = &quot;patient&quot; ] [@status =&apos;open&apos;]",
+        )
+        other = self.query_list("other", "concat(case_name, &apos; / &apos;, &apos;other&apos;)")
+        self.assertEqual(len(nova), 3)
+        for row in nova:
+            self.assertTrue(any(text.endswith(" / kept") for text in row), row)
+        self.assertEqual(typed, nova)
+        self.assertNotEqual(other, nova)
+
+    def test_a_list_reads_a_cond_and_its_if_alike(self):
+        """Spelling rule ``suite-cond-as-if``. Contract: Core evaluates a three-argument ``cond`` as the ``if`` of
+        the same arguments (``XPathCondFunc.evalBody``, ``XPathIfFunc.evalBody``), so a case list's column written
+        either way shows the same text on every row, the test true on one case and false on the others, and the
+        column with another test shows another. Failure it catches: Android evaluating ``cond`` by another rule,
+        or reading a function by its name."""
+        written = "{}(case_name = &apos;proof text&apos;, &apos;chosen&apos;, case_name)"
+        nova = self.query_list("if", written.format("if"))
+        cond = self.query_list("cond", written.format("cond"))
+        other = self.query_list("cond-other", written.format("cond").replace(" = ", " != "))
+        shown = [text for row in nova for text in row]
+        self.assertIn("chosen", shown)
+        self.assertIn("10", shown)
+        self.assertEqual(cond, nova)
+        self.assertNotEqual(other, nova)
 
     def test_every_language_code_an_archive_holds_is_offered(self):
         """Defect 1's language codes. Contract: Android's language picker offers every code an archive's suite

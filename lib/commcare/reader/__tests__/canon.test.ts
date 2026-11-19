@@ -72,6 +72,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	ancestorPath,
 	and,
 	arith,
 	concat,
@@ -85,6 +86,7 @@ import {
 	matchAll,
 	now,
 	prop,
+	relationStep,
 	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
@@ -522,6 +524,72 @@ function joinedGuard(): BlueprintDoc {
 	return doc;
 }
 
+/** `joinedGuard`'s document translating, in Spanish, a guard sentence no Search field of it
+ *  carries: a location's and a number's, which its text fields never need. */
+function unprintedGuard(): BlueprintDoc {
+	const doc = localizationWireFixture("prompts");
+	const spanish = doc.localization?.translations.spa;
+	const quote = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		searchRuntimeValidationMessage(new Set(["quote"]))?.key ?? "",
+	);
+	const unit = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		searchRuntimeValidationMessage(new Set(["geopoint", "decimal-number"]))
+			?.key ?? "",
+	);
+	const entry = spanish?.[quote];
+	const fingerprint = translationUnitsById(doc).get(unit)?.sourceFingerprint;
+	if (spanish === undefined || entry === undefined || fingerprint === undefined)
+		throw new Error("The fixture holds no Spanish guard to copy.");
+	spanish[unit] = {
+		...entry,
+		value: "Indique una ubicación y un número.",
+		sourceFingerprint: fingerprint,
+	};
+	return doc;
+}
+
+/** A menu of patients searched by the region of the household above each, the step naming the
+ *  type it reaches where `typed`. */
+function searchedThroughParent(typed: boolean): BlueprintDoc {
+	const doc = searched(
+		[
+			simpleSearchInputDef(
+				uuid(9),
+				"parent_region",
+				"Parent region",
+				"text",
+				"region",
+				{
+					via: ancestorPath(
+						typed
+							? relationStep("parent", "household")
+							: relationStep("parent"),
+					),
+				},
+			),
+		],
+		{},
+	);
+	return withCandidate(doc, (draft) => {
+		const types = draft.caseTypes ?? [];
+		const patient = types.find((one) => one.name === "patient");
+		if (patient !== undefined) patient.parent_type = "household";
+		else
+			types.push({ name: "patient", parent_type: "household", properties: [] });
+		types.push({
+			name: "household",
+			properties: [
+				{ name: "region", label: proseText("Region"), data_type: "text" },
+			],
+		});
+		draft.caseTypes = types;
+	});
+}
+
 const NAME_FIELD: SearchInputDef = simpleSearchInputDef(
 	uuid(9),
 	"name",
@@ -866,6 +934,11 @@ const PAIRS: readonly Pair[] = [
 		other: joinedGuard,
 	},
 	{
+		id: "unprinted-search-guard-translations-are-absent",
+		name: "a Spanish guard sentence no Search field carries",
+		other: unprintedGuard,
+	},
+	{
 		id: "required-messages-as-read",
 		name: "Nova's sentence as the first required field's own message",
 		other: requiredMessages,
@@ -996,6 +1069,11 @@ const PAIRS: readonly Pair[] = [
 				],
 				search: {},
 			}),
+	},
+	{
+		id: "search-field-paths-are-typed",
+		name: "a Search field over the household above whose step names no type",
+		other: () => searchedThroughParent(false),
 	},
 	{
 		id: "searches-that-find-nothing-as-read",
@@ -2142,6 +2220,15 @@ describe("a read back of Nova's export", () => {
 				]),
 		],
 		["a label reading a worker field by name, translated", namedReadTranslated],
+		[
+			"a Search field over the household above whose step names no type",
+			() => searchedThroughParent(false),
+		],
+		[
+			"a Search field over the household above whose step names its type",
+			() => searchedThroughParent(true),
+		],
+		["a Spanish guard sentence no Search field carries", unprintedGuard],
 		[
 			"a column hidden from Results and from Details under its own header, over a property another column shows",
 			() => hiddenColumnHeadedApart(false),

@@ -7,9 +7,15 @@ each reference names; a form link moved to another form is a difference at
 its ``form_id``; a kept setting that changed is reported at its own pointer,
 for no entry to absorb; ``last_modified``, which every save sets, is no
 difference; and a held media path's map item that names another file is one
-difference at ``/multimedia_map/*/held``. The plausible failures: two reads'
-re-minted ids reported as a change on every base, a link that moved hidden by
-that same allowance, and a kept key absorbed.
+difference at ``/multimedia_map/*/held``. A calculated column's expression
+that differs is reported at its ``field``, and any other column's ``field``
+at the column's ``held``, so no row naming a calculation's respelling holds a
+change of the property a column shows. No spelling rule is applied: a
+difference a registered ``app.json`` rule erases where builds are compared
+is still reported. The plausible failures: two reads' re-minted ids reported
+as a change on every base, a link that moved hidden by that same allowance,
+a kept key absorbed, a column's property changed under a calculation's
+pointer, and a stored difference a rule erased unseen.
 """
 
 from __future__ import annotations
@@ -86,3 +92,58 @@ def test_a_held_path_whose_built_resource_version_moved_is_reported():
         "doc", a, _app("c", "d", link_to="d"), HELD, (suite.format(3).encode(), suite.format(4).encode())
     )
     assert [(d.path, d.before, d.after) for d in found] == [("/multimedia_map/*/held", "3", "4")]
+
+
+def _listed(first, second, columns):
+    app = _app(first, second, link_to=second)
+    app["modules"][0]["case_details"] = {"short": {"columns": columns}, "long": {"columns": []}}
+    return app
+
+
+def test_a_calculated_column_respelled_is_at_its_field_and_a_property_column_changed_is_held():
+    calculated = {"field": 'cond(a = 1, "x", "y")', "useXpathExpression": True}
+    shown = {"field": "name", "useXpathExpression": False}
+    a = _listed("a", "b", [calculated, shown, {"field": "visits", "useXpathExpression": False}])
+    b = _listed(
+        "c",
+        "d",
+        [
+            {"field": "if(a = 1, 'x', 'y')", "useXpathExpression": True},
+            {"field": "case_name", "useXpathExpression": False},
+            # A column calculated on one side alone shows something else, whatever its text.
+            {"field": "visits", "useXpathExpression": True},
+        ],
+    )
+    found = compare_sources("doc", a, b, HELD)
+    assert sorted((d.path, d.at) for d in found) == [
+        ("/modules/*/case_details/short/columns/*/field", "/modules/0/case_details/short/columns/0/field"),
+        ("/modules/*/case_details/short/columns/*/held", "/modules/0/case_details/short/columns/1/held/field"),
+        (
+            "/modules/*/case_details/short/columns/*/useXpathExpression",
+            "/modules/0/case_details/short/columns/2/useXpathExpression",
+        ),
+    ]
+    # A column one side holds alone is an ordinary list difference.
+    longer = _listed("c", "d", [calculated, shown, {"field": "visits", "useXpathExpression": False}, shown])
+    assert [(d.path, d.kind) for d in compare_sources("doc", a, longer, HELD)] == [
+        ("/modules/*/case_details/short/columns/*", "added")
+    ]
+
+
+def test_the_stored_app_is_compared_as_stored_with_no_spelling_rule():
+    from proof.rules import normalized
+
+    def stored(operator):
+        app = _app("a", "b", link_to="b")
+        app["modules"][0]["forms"][0]["actions"] = {
+            "close_case": {"condition": {"type": "never", "question": None, "answer": None, "operator": operator}}
+        }
+        return app
+
+    page, nova = stored(None), stored("=")
+    # The registered rule condition-operator-default reads the two as one where builds are compared.
+    assert normalized("app.json", page) == normalized("app.json", nova)
+    found = compare_sources("doc", page, nova, HELD)
+    assert [(d.path, d.before, d.after) for d in found] == [
+        ("/modules/*/forms/*/actions/close_case/condition/operator", None, "=")
+    ]

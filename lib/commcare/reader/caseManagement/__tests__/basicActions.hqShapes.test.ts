@@ -210,6 +210,54 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		);
 	});
 
+	// HQ's Case Management page saves every condition that is not `if` with its
+	// operator null (`forms/case_config_ui.js::cleanCondition`) and `case_preload`
+	// as `always` whatever it loads, where a form HQ creates, and Nova, hold `=`
+	// and `never`. No build reads either (`xform.py::XForm.action_relevance`,
+	// `PreloadAction.is_active`), and the first publish writes Nova's spelling.
+	it("records the conditions HQ's Case Management page saves as respelled, and none on Nova's own", async () => {
+		const pageCondition = (type: string) => ({
+			type,
+			question: null,
+			answer: null,
+			operator: null,
+			doc_type: "FormActionCondition",
+		});
+		const respelled = (reading: CaseReading) =>
+			reading.ctx.facts.sameStateRewrites
+				.filter(
+					(one) =>
+						one.path.endsWith("/operator") ||
+						one.path.endsWith("/case_preload/condition"),
+				)
+				.map((one) => [one.path, one.register]);
+		const saved = await readCases(app([registration]), {
+			edit: (json) => {
+				const actions = actionsOf(json);
+				actions.open_case.condition = pageCondition("always");
+				actions.update_case.condition = pageCondition("always");
+				actions.close_case.condition = pageCondition("never");
+				actions.case_preload = {
+					doc_type: "PreloadAction",
+					preload: {},
+					condition: pageCondition("always"),
+				};
+			},
+		});
+		expect(codes(saved)).toEqual([]);
+		const at = "/modules/0/forms/0/actions";
+		expect(respelled(saved).sort()).toEqual(
+			[
+				[`${at}/case_preload/condition`, "case-settings-respelled"],
+				[`${at}/close_case/condition/operator`, "case-settings-respelled"],
+				[`${at}/open_case/condition/operator`, "case-settings-respelled"],
+				[`${at}/update_case/condition/operator`, "case-settings-respelled"],
+			].sort(),
+		);
+		const own = await readCases(app([registration]));
+		expect(respelled(own)).toEqual([]);
+	});
+
 	// HQ's build copies a value an update names straight into a case block leaf
 	// it binds with no type, so a Hidden Value bound `xsd:dateTime` saves its
 	// day alone there (Core's `Recalculate.wrapData`), while Nova saves a date

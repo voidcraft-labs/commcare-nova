@@ -75,6 +75,7 @@ import {
 	conditionQuestionPath,
 	conditionType,
 	readActionCondition,
+	recordRespelledConditions,
 	repeatAtPath,
 } from "./conditions";
 import { FORM_TYPE_CLAIMS, formTypeRow } from "./formType";
@@ -1710,6 +1711,7 @@ export function readBasicActions(
 	const A = json.object("actions", "FormActions", row.actions);
 	const inactive = INACTIVE_BY_ENTRY.get(row.actions.entry) as InactiveClaims;
 	ACTIONS.set(form, { cursor: A, inactive });
+	recordRespelledConditions(ctx, actions, A.pointer, row.actions.entry);
 	const caseType = module.module.caseType ?? "";
 	const r: FormReading = {
 		ctx,

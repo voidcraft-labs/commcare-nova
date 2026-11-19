@@ -284,7 +284,8 @@ def input_files(document):
     observation read (``proof.store.guard.input_files``). Part ``a`` reads both imports of a first publish in the
     two-import layout, and the privileges read both (``privileges.create.``, ``privileges.content.``). Part ``a``
     of a document made in HQ reads the app, media and seed under ``authored/`` in their place (``authored.app``,
-    ``authored.media``, ``authored.media.<name>`` a media file, ``authored.tables``, ``authored.places``, ``seed``),
+    ``authored.media``, ``authored.media.<name>`` a media file, ``authored.tables``, ``authored.places``,
+    ``authored.practice-workers``, ``seed``),
     and its privileges read the app (``privileges.authored.app``) and Nova's republish over it where Nova sent one
     (``privileges.republish.``)."""
     from proof.checks.corpus import republish_stop
@@ -666,6 +667,21 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
     part, whose record holds them) HQ is asked all the same and its answer is
     dropped, and Core's admission and the device archive are left out.
     Returns ``(_Built, flags read, settings read)``.
+
+    The build runs in a fork of the unit, so the state the unit holds after it
+    is the app as HQ holds it, unbuilt. HQ builds a copy of an app
+    (``models/applications.py::Application.make_build``), and the one save a
+    build makes is of the app it builds: ``create_all_files`` sets each form's
+    and each media item's version (``set_form_versions``, ``set_media_versions``),
+    and where the multimedia map holds a path nothing references, the media
+    suite's ``multimedia_map_for_build(remove_unused=True)`` prunes it and saves
+    (``hqmedia/models.py::ApplicationMediaMixin.remove_unused_mappings``), with
+    those versions and ``media_form_errors``. The lane builds the state's app
+    itself, so that save would write into A, and the republish would land over
+    an A HQ never holds; in production the same save writes the build copy.
+    The fork leaves HQ's state as it was, and what the build made comes back
+    as data (``_Built``: the files, the app as the build left it, the saved
+    build the next build compares with).
     """
     from proof.hq.seams import build_seams
     from proof.observe import sensitivity
@@ -673,7 +689,7 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
     from proof.observe.identity import app_identity
 
     flags = settings = None
-    with ops("build", b""):
+    with unit.fork(), ops("build", b""):
         if configuration is not None:
             built, flags, settings = sensitivity.plain_build(unit, unit.record, app_id, configuration)
         else:
@@ -1452,6 +1468,7 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
     its suite (``read_stack_values``), and each local hook's record (``observe_local(ctx)``, ``LocalContext``),
     as the ``local`` record, and its key. ``hooks`` is ``hook_inputs(document)``, computed where not given. With
     ``held_only`` nothing is observed: a record the store does not hold raises ``PartsNotHeld``."""
+    from proof.core.client import ANDROID_DEFAULT_STRINGS
     from proof.observe.build import admit
     from proof.store import guard
 
@@ -1470,7 +1487,9 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
     observed, seconds = {}, {}
     with guard.observing(document, None, LOCAL, hooks):
         for name, path in archives.items():
-            reports[name] = admit(core_runner, path)
+            # A local archive is read by CommCare Android alone (Nova hands one only an app that runs there), which
+            # admits it over its own strings (``proof/core/src/nova/proof/core/Admission.java``).
+            reports[name] = admit(core_runner, path, runtime_defaults=ANDROID_DEFAULT_STRINGS)
             readings[name] = read_stack_values(core_runner, path)
         for name, module, function, states in hook_modules():
             if LOCAL not in states:

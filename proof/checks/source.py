@@ -31,6 +31,28 @@ resource in A's and B's built media suites, each a difference at
 ``/multimedia_map/*/held``, which no first-publish entry names, so a change to a
 path Nova holds is never a declared change.
 
+A case list column's ``field`` holds the property the column shows, or, where
+``useXpathExpression`` is true, the expression it calculates
+(``models/case_list.py::DetailColumn``; ``detail_screen.py`` reads ``field`` as
+XPath only then). A calculated column's expression that differs, the column
+calculated on both sides, is reported at its own pointer
+(``/modules/*/case_details/<detail>/columns/*/field``), which
+``forms-and-settings-rewritten`` names: Nova writes every expression it holds
+in its own spelling. Any other ``field`` that differs is reported at
+``/modules/*/case_details/<detail>/columns/*/held``, which no first-publish
+entry names, so a first publish that changes which property a column shows is
+never a declared change.
+
+No spelling rule (``proof.rules``) is applied. A rule is proven where builds
+are compared: on HQ's build, Core's run and the readers a rule names, never on
+what else reads the stored app. A person reads the stored app on HQ's own
+pages, and those tell rule-equal spellings apart (the form summary's
+comparison of two versions marks a form whose ``form_filter`` is ``""`` in one
+and null in the other as changed, ``proof/rules/form_filter_blank.py``; only
+the app summary reads ``case_references_data.load``,
+``proof/rules/case_references_load.py``). So every difference of the stored
+app is one a first-publish entry names, or it fails the base.
+
 Pure: it reads records and imports neither HQ nor Django.
 """
 
@@ -145,7 +167,15 @@ class _Walk:
             return
         if isinstance(a, dict) and isinstance(b, dict):
             starred = self.own(path, {**a, **b})
+            column = _is_column(path) and "field" in a and "field" in b
+            if column and not _same(a["field"], b["field"]):
+                if _calculated(a) and _calculated(b):
+                    self.add(f"{path}/field", f"{at}/field", "changed", a["field"], b["field"])
+                else:
+                    self.add(f"{path}/{HELD}", f"{at}/{HELD}/field", "changed", a["field"], b["field"])
             for key in sorted(set(a) | set(b), key=str):
+                if column and key == "field":
+                    continue  # compared above, by what the column shows
                 step = "*" if starred else pointer_token(key)
                 child_path, child_at = f"{path}/{step}", f"{at}/{pointer_token(key)}"
                 if key not in b:
@@ -188,6 +218,17 @@ class _Walk:
                 self.add("/multimedia_map/*", step, "added", None, b[name])
             else:
                 self.compare(a[name], b[name], "/multimedia_map/*", step)
+
+
+def _is_column(path) -> bool:
+    """Whether ``path`` is a case list column's: ``/modules/*/case_details/<detail>/columns/*``."""
+    parts = path.split("/")
+    return len(parts) == 7 and parts[:4] == ["", "modules", "*", "case_details"] and parts[5:] == ["columns", "*"]
+
+
+def _calculated(column) -> bool:
+    """Whether a stored column holds an expression in its ``field`` (``DetailColumn.useXpathExpression``)."""
+    return column.get("useXpathExpression") is True
 
 
 def _same(a, b) -> bool:

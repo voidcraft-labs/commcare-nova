@@ -42,7 +42,7 @@ from __future__ import annotations
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.corpus import ANDROID
 from proof.checks.differences import Difference
-from proof.checks.identity import compare_identities, data_maps, local_identity
+from proof.checks.identity import compare_identities, data_maps, local_identity, whole_arrays
 
 
 def _without_build_identities(identities):
@@ -188,6 +188,7 @@ def edit_identity(document, observed, wire_before, wire_after, footprint, tables
                 document=document,
                 artifact=artifact,
                 data_maps=data_maps(artifact),
+                whole=whole_arrays(artifact),
                 root_path=path,
                 root_at=at,
             )

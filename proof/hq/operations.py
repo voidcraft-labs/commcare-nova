@@ -51,10 +51,12 @@ runs.
 - ``location_types_read`` and ``media_file_read``: the reads Nova's client
   makes of HQ's level resource and of one mapped file, through
   ``api_request`` (a file's answer keeps its bytes);
-- ``save_authored_app``, ``save_authored_tables``, ``save_authored_places``:
-  an app HQ's own pages and models made (``proof/hq-apps/<base>/``), and the
-  lookup tables and places it was made beside, made again by HQ's own models
-  from what was retained of them.
+- ``save_authored_app``, ``save_authored_tables``, ``save_authored_places``,
+  ``save_authored_practice_workers``: an app HQ's own pages and models made
+  (``proof/hq-apps/<base>/``), and the lookup tables, places and practice
+  workers it was made beside, made again by HQ's own models from what was
+  retained of them; ``practice_worker``: one mobile worker made and put in
+  practice mode as HQ's mobile worker pages do it.
 """
 
 import json
@@ -1460,3 +1462,54 @@ def save_authored_places(state, places) -> None:
     for place in places["places"]:
         if place["archived"] and not made[place["site_code"]].is_archived:
             made[place["site_code"]].archive()
+
+
+# The password every practice worker the lane makes signs in with. No reader signs in as one: HQ's build writes the
+# worker's stored restore (``practice_user_restore.xml``), and nothing reads the password.
+PRACTICE_WORKER_PASSWORD = "proof-practice-worker-password"
+
+
+def practice_worker(state, username, user_id="") -> str:
+    """A mobile worker of the project space in practice mode, made as HQ's mobile worker pages make one: the worker
+    by ``CommCareUser.create`` (under ``user_id`` where given, else the id HQ mints), then practice mode turned on by
+    ``ota/utils.py::turn_on_demo_mode``, the function the worker page's practice mode switch runs
+    (``users/views/mobile/users.py::toggle_demo_mode``, through ``users/tasks.py::turn_on_demo_mode_task``). It marks
+    the worker ``is_demo_user`` and stores the worker's restore (``ota/models.py::DemoUserRestore``), which HQ's build
+    writes as ``practice_user_restore.xml`` (``Application.create_practice_user_restore``) wherever the plan has
+    practice mode. ``username`` is the part before the project space's domain (``CommCareUser.raw_username``).
+    Returns the worker's id.
+
+    ``turn_on_demo_mode`` answers an error rather than raising one (it reports the exception and returns
+    ``{"errors": [...]}``), so an answer that names one refuses the worker by name."""
+    from corehq.apps.ota.utils import turn_on_demo_mode
+    from corehq.apps.users.models import CommCareUser
+    from corehq.apps.users.util import format_username
+
+    worker = CommCareUser.create(
+        state.domain,
+        format_username(username, state.domain),
+        PRACTICE_WORKER_PASSWORD,
+        created_by=None,
+        created_via=None,
+        uuid=user_id,
+    )
+    answer = turn_on_demo_mode(worker, state.domain)
+    if answer.get("errors"):
+        raise AuthoredAppNotMade(
+            f"CommCare HQ did not put the mobile worker {username} in practice mode"
+            f" (ota/utils.py::turn_on_demo_mode answered {answer['errors']}), so no app can name it as its practice"
+            " worker. Its exception is the one HQ reported just before (notify_exception)."
+        )
+    return worker._id
+
+
+def save_authored_practice_workers(state, workers) -> None:
+    """Each practice worker of an authored base, made again from the base's ``practice-workers.json`` (one object a
+    worker, ``{user_id, username}``) by ``practice_worker``, under the id HQ gave it when the base was made, which the
+    app's ``practice_mobile_worker_id`` names. HQ's build looks that worker up under any plan
+    (``suite_xml/generator.py::SuiteGenerator.generate_suite`` asks ``Application.get_practice_user`` wherever
+    ``supports_practice_users``) and raises ``PracticeUserException`` for an id no practice worker of the project
+    space holds (``app_manager/util.py::get_and_assert_practice_user_in_domain``), so the worker is made before the
+    app is built."""
+    for worker in workers:
+        practice_worker(state, worker["username"], worker["user_id"])

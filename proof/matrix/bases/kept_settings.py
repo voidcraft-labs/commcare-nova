@@ -7,41 +7,57 @@
    holds one text question ``note``, labelled in both languages, written by
    HQ's own form writer (``xform_builder.py::XFormBuilder``) and uploaded on
    the form page.
-3. One save of the app settings page's ``hq`` settings
+3. A mobile worker ``practice`` in practice mode, made before the app's
+   settings name it, as the mobile worker pages make one
+   (``proof/hq/operations.py::practice_worker``: ``CommCareUser.create``,
+   then ``ota/utils.py::turn_on_demo_mode``, which the worker page's practice
+   mode switch runs and which stores the worker's restore).
+4. One save of the app settings page's ``hq`` settings
    (``views/settings.py::edit_commcare_settings``, which stores each through
-   ``views/apps.py::edit_app_attr`` with ``all``): Web Apps on, secure
+   ``views/apps.py::edit_app_attr`` with ``all``): that worker as the app's
+   practice worker (the page keeps the id only where the plan has practice
+   mode, ``Application.enable_practice_users``, and only for a practice worker
+   of the project space, ``app_manager/util.py::
+   get_and_assert_practice_user_in_domain``), Web Apps on, secure
    submissions, location capture on every form, the mobile report version
    1.5, the persistent menu on, breadcrumbs off (HQ's own default is on,
    ``models/applications.py::Application.show_breadcrumbs``) and a custom
    base URL that is a second origin with a path, which ``edit_app_attr``
    takes always (``_always_allowed``) and whose origin alone reaches a
    build (``absolute_url_property``'s ``urljoin``).
-4. The same page's profile saves (``views/settings.py::edit_commcare_profile``):
+5. The same page's profile saves (``views/settings.py::edit_commcare_profile``):
    each of the fifteen settings Nova seeds at a choice other than Nova's
    seed, "Log Case Detail Views" on, and the worker activity credential at
    three months.
-5. The UI translations page (``views/apps.py::edit_app_ui_translations``):
+6. The UI translations page (``views/apps.py::edit_app_ui_translations``):
    the runtime text ``home.start`` in each language, ``home.sync`` in French
    alone (so HQ's build writes its own catalog text for it in English,
    ``app_strings.py::SelectKnownAppStrings.app_strings_parts``: HQ holds an
    English catalog, ``messages_en-2.txt``, and no French one), and a display
    name for French and none for English.
-6. A logo on the Android home and sign-in slots, each uploaded through the
+7. A logo on the Android home and sign-in slots, each uploaded through the
    settings page's logo uploader (``hqmedia/views.py::ProcessLogoFileUploadView``),
    the lane's stand-in picture each (``proof/matrix/media.py::stand_in``).
-7. Two values no page of HQ's offers here, set with HQ's model: the location
+8. One value no page of HQ's offers here, set with HQ's model: the location
    list setting ``both_fixtures`` (the settings page offers it only under
-   ``HIERARCHICAL_LOCATION_FIXTURE``, ``commcare-app-settings.yml``), and a
-   practice worker's id. The page stores a practice worker only for a
-   project space whose plan holds practice mode
-   (``edit_app_attr``: ``app.enable_practice_users``), and HQ's build then
-   writes that worker's restore (``Application.create_practice_user_restore``),
-   which the unit's project space does not hold; under a plan without it the
-   app keeps the id and HQ's build reads nothing of it.
+   ``HIERARCHICAL_LOCATION_FIXTURE``, ``commcare-app-settings.yml``).
+
+HQ's build reads the practice worker under any plan: the suite names its
+restore wherever the app supports practice workers
+(``suite_xml/generator.py::SuiteGenerator.generate_suite``), and
+``Application.get_practice_user`` raises ``PracticeUserException`` for an id
+no practice worker of the project space holds, so ``validate_app`` and
+``create_all_files`` both refuse an app that names one. The worker is project
+data the unit makes again before A (``proof/matrix/retain.py::
+practice_workers_of``, ``operations.save_authored_practice_workers``), as it
+makes a base's places.
 
 Its configuration is the lane's floor with ``CLOUDCARE`` (Web Apps lists the
-app) and ``COMMCARE_LOGO_UPLOADER`` (HQ's build writes the logos into the
-profile only under it, ``ApplicationBase.create_profile``). Web Apps is on and
+app), ``COMMCARE_LOGO_UPLOADER`` (HQ's build writes the logos into the
+profile only under it, ``ApplicationBase.create_profile``) and
+``PRACTICE_MOBILE_WORKERS`` (the settings page keeps a practice worker only
+under it, and HQ's build then writes the worker's restore,
+``Application.create_practice_user_restore``). Web Apps is on and
 the content runs on both platforms, so its preselected declaration is both,
 which includes Android: every kept row whose archive cell mirrors the value
 is then observed on an archive.
@@ -57,8 +73,8 @@ from proof.matrix.registry import Base
 NAME = "Clinic round"
 LANGS = ("en", "fra")
 CUSTOM_BASE_URL = "https://example.org/hq/"
-# An id no worker of any project space holds, written as HQ writes a user's id.
-PRACTICE_WORKER_ID = "5e77ab1e5e77ab1e5e77ab1e5e77ab1e"
+# The practice worker's username, the part before the project space's domain.
+PRACTICE_WORKER = "practice"
 # Each of the fifteen settings Nova seeds at one of its own choices other than Nova's seed
 # (static/app_manager/json/commcare-profile-settings.yml), and the detail-view log on.
 PROFILE_PROPERTIES = {
@@ -106,7 +122,14 @@ def survey_source(name):
 
 def _model_values(app):
     app.location_fixture_restore = "both_fixtures"
-    app.practice_mobile_worker_id = PRACTICE_WORKER_ID
+
+
+def make_practice_worker(authoring) -> str:
+    """The practice worker, made in the operation ``build:practice-worker``. Returns the id HQ gave it."""
+    from proof.hq import operations
+
+    with authoring.step("build:practice-worker", PRACTICE_WORKER.encode()):
+        return operations.practice_worker(authoring.state, PRACTICE_WORKER)
 
 
 def build(authoring) -> str:
@@ -115,8 +138,13 @@ def build(authoring) -> str:
     _pages.set_languages(authoring, app_id, LANGS)
     _pages.new_survey_module(authoring, app_id, name="Rounds")
     ops.upload_form_source(authoring, app_id, 0, 0, survey_source, "survey-source")
+    practice_worker_id = make_practice_worker(authoring)
     _pages.save_settings(
-        authoring, app_id, attributes=ATTRIBUTES, properties=PROFILE_PROPERTIES, features={"credentials": "3MON_ACTIVE"}
+        authoring,
+        app_id,
+        attributes={**ATTRIBUTES, "practice_mobile_worker_id": practice_worker_id},
+        properties=PROFILE_PROPERTIES,
+        features={"credentials": "3MON_ACTIVE"},
     )
     _pages.save_ui_translations(authoring, app_id, UI_TRANSLATIONS)
     for slot in ANDROID_LOGOS:
@@ -128,7 +156,9 @@ def build(authoring) -> str:
 BASE = Base(
     id="hq-kept-settings",
     build=build,
-    configuration=Configuration(privileges=frozenset({"CLOUDCARE", "COMMCARE_LOGO_UPLOADER"})),
+    configuration=Configuration(
+        privileges=frozenset({"CLOUDCARE", "COMMCARE_LOGO_UPLOADER", "PRACTICE_MOBILE_WORKERS"})
+    ),
     exhibits=(
         "application-and-settings/40-hq-cloudcare-enabled",
         "questions/text-input-xsd-string",

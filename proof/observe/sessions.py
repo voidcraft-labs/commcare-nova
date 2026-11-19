@@ -57,6 +57,7 @@ from pathlib import Path
 from proof.checks.compare.trace import renamespace
 from proof.checks.compare.xml_tree import parse_xml
 from proof.checks.corpus import ANDROID
+from proof.core.client import ANDROID_DEFAULT_STRINGS
 from proof.observe import casedata
 from proof.observe.build import _placed, admission_placeholders, arrange
 from proof.observe.record import bytes_digest, digest
@@ -72,9 +73,10 @@ from proof.observe.runs import (
 
 
 @contextmanager
-def admitted(core_runner, path):
-    """Core's admission report for an archive (a ``.ccz`` or a directory), its app released on exit."""
-    report = core_runner.admit(path)
+def admitted(core_runner, path, runtime_defaults=None):
+    """Core's admission report for an archive (a ``.ccz`` or a directory), its app released on exit.
+    ``runtime_defaults`` is the client's (``proof.core.client.CoreRunner.admit``)."""
+    report = core_runner.admit(path, runtime_defaults=runtime_defaults)
     app = report.get("app")
     try:
         yield report
@@ -90,9 +92,11 @@ def _admission(report, path):
     return _placed(kept, admission_placeholders(report, path))
 
 
-def run_sessions(core_runner, side, path, restore, script=None):
-    """The build's sessions over the restore: derived when ``script`` is None, else the script replayed."""
-    with admitted(core_runner, path) as report:
+def run_sessions(core_runner, side, path, restore, script=None, *, runtime_defaults=None):
+    """The build's sessions over the restore: derived when ``script`` is None, else the script replayed.
+    ``runtime_defaults`` names the strings the runtime that alone reads the archive registers as its default locale
+    first (Nova's local export, which only CommCare Android reads: ``ANDROID_DEFAULT_STRINGS``)."""
+    with admitted(core_runner, path, runtime_defaults) as report:
         admission = _admission(report, path)
         if not report.get("admitted") or report.get("app") is None:
             return Run(side, admission, None)
@@ -327,9 +331,22 @@ def local_restore(unit, database, operation=None):
 # The observation ---------------------------------------------------------------
 
 
-def _side(core_runner, unit, database, side, path, restore, blobs, *, operation, script=None, baseline=None):
+def _side(
+    core_runner,
+    unit,
+    database,
+    side,
+    path,
+    restore,
+    blobs,
+    *,
+    operation,
+    script=None,
+    baseline=None,
+    runtime_defaults=None,
+):
     """One side's sessions, and HQ's processing of their submissions, as a record."""
-    run = run_sessions(core_runner, side, path, restore, script)
+    run = run_sessions(core_runner, side, path, restore, script, runtime_defaults=runtime_defaults)
     recorded = {"admission": run.admission, "trace": None, "processed": None}
     if run.trace is None:
         return run, recorded
@@ -526,6 +543,7 @@ def observe(
                 operation=operation,
                 script=script,
                 baseline=baseline,
+                runtime_defaults=ANDROID_DEFAULT_STRINGS,
             )
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
             return recorded

@@ -586,7 +586,11 @@ export interface PublishedFiles {
  * publish sent each at: the path HQ keeps a held file under (`mediaPaths`, at
  * the top level or under `hqAuthored`), else the path its content derives
  * (`assetWirePath.ts::wirePathFor`), as production's manifest gives it
- * (`lib/media/manifest.ts::resolveMediaManifest`).
+ * (`lib/media/manifest.ts::resolveMediaManifest`). A held path takes its
+ * held asset before any asset whose content derives the same path: HQ holds
+ * the held file there (a picture a person replaced under Nova's path, which
+ * proof 6's `saved` request names by the review's `broughtIn.reading`), so the
+ * other is the same file (`sameFile`).
  */
 export function publishedFiles(document: unknown): PublishedFiles {
 	if (typeof document !== "object" || document === null || !("doc" in document))
@@ -604,22 +608,28 @@ export function publishedFiles(document: unknown): PublishedFiles {
 		{ readonly assetId: string; readonly kind: MediaKind }
 	>();
 	const sameFile = new Map<string, string>();
-	for (const [assetId, asset] of Object.entries(stored.media ?? {})) {
-		const held = Object.hasOwn(heldPaths, assetId)
-			? heldPaths[assetId]
-			: undefined;
-		const path =
-			held ??
-			`jr://file/${wirePathFor(
-				createHash("sha256")
-					.update(Buffer.from(asset.base64, "base64"))
-					.digest("hex"),
-				asset.extension,
-			)}`;
-		const earlier = byPath.get(path);
-		if (earlier === undefined) byPath.set(path, { assetId, kind: asset.kind });
-		else sameFile.set(assetId, earlier.assetId);
-	}
+	const entries = Object.entries(stored.media ?? {});
+	const heldAt = (assetId: string) =>
+		Object.hasOwn(heldPaths, assetId) ? heldPaths[assetId] : undefined;
+	// A held path first: HQ keeps the held file there, so an asset whose content derives the same
+	// path names the held file, as a read of HQ's answer does.
+	for (const held of [true, false])
+		for (const [assetId, asset] of entries) {
+			const at = heldAt(assetId);
+			if ((at !== undefined) !== held) continue;
+			const path =
+				at ??
+				`jr://file/${wirePathFor(
+					createHash("sha256")
+						.update(Buffer.from(asset.base64, "base64"))
+						.digest("hex"),
+					asset.extension,
+				)}`;
+			const earlier = byPath.get(path);
+			if (earlier === undefined)
+				byPath.set(path, { assetId, kind: asset.kind });
+			else sameFile.set(assetId, earlier.assetId);
+		}
 	return { byPath, sameFile };
 }
 

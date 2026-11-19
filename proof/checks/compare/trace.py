@@ -2,13 +2,22 @@
 
 A trace (``proof.core.client.CoreRunner.session``) is JSON: each run's
 script and the trace of what Core showed and did at each step. Two traces of
-the same script are compared position by position with JSON Pointer paths
-(``/runs/*/trace/*/…``), after the spelling rules the caller gives for the
-``trace`` artifact (``compare.spelling``), so a step that differs, or that only
-one build could take, is its own difference. A case list's rows are the one
-collection keyed otherwise: their order where they stand, and each row's
-fields and sort keys by the case it selects (``rows_by_case``), as Core keys
-an entity.
+the same script are compared run by run and step by step, where the script
+places each, with JSON Pointer paths (``/runs/*/trace/*/…``), after the
+spelling rules the caller gives for the ``trace`` artifact
+(``compare.spelling``), so a step that differs, or that only one build could
+take, is its own difference. Two collections in a step are keyed otherwise.
+A case list's rows: their order where they stand, and each row's fields and
+sort keys by the case it selects (``rows_by_case``), as Core keys an entity.
+A form's events: each by where Core stepped to it, its kind and its instance
+path (the question's data path with each repeat's instance), the ``n``-th
+time the form reached that place (``event_keys``), with the order of the
+events both sides reached as one difference (``events_by_place``). So a
+form that gains one question shows that question once, and every event
+after it is compared with the same event on the other side. Within an event,
+a select's choices stay where they stand: Core shows them in that order and
+the runner answers a select by the position of the choice it picks
+(``Answers.java::answerData``), as a worker taps the ``n``-th option.
 
 Some step fields hold an XML document the runner serialized
 (``XML_FIELDS``: a form's submission and the case database after it). Each
@@ -29,9 +38,10 @@ Every id the runtime generated is marked by the runner as
 a run renumbers every later one. Before the comparison each mark is named
 instead by the first place both runs hold one (``generated_labels``:
 ``@generated:trace/<step>/<pointer>``, into an XML field by the element
-path), so an id keeps its name on both sides wherever the other ids are
-drawn, and two ids keep two names. HQ's case processing of the same run
-holds the same marks, and is named the same way (``relabel_generated``).
+path, into a form's events by each event's key), so an id keeps its name on
+both sides wherever the other ids are drawn, and two ids keep two names.
+HQ's case processing of the same run holds the same marks, and is named the
+same way (``relabel_generated``).
 How many ids a run generated (``generated.uuids``) is not compared: every
 one is marked wherever it occurs, so a count that differs always comes with
 the difference where one side holds an id the other does not
@@ -62,9 +72,10 @@ by the end it leaves its run with (``failure_cause``). The runner records a
 stop in place of what the step would have held past it and ends the run
 with it, so where only one side stopped, what it left out that the other
 side holds is compared under the stop's path
-(``.../processing/<cause>/caseDb``, ``.../error/<cause>/events/*``,
-``_left_out``), and the run's changed end carries the cause after its
-transition: each cause of a step that stopped short is its own class.
+(``.../processing/<cause>/caseDb``, ``.../error/<cause>/events/*``: the
+events past the last both sides reached, ``_left_out``), and the run's
+changed end carries the cause after its transition: each cause of a step
+that stopped short is its own class.
 
 Objects whose keys are the app's data are written ``*`` in a structural path
 (``TRACE_DATA_MAPS``). A search's query parameters (``params``, on its step
@@ -131,9 +142,11 @@ FORM_LEFT_OUT = {
     "submission-refused": ("caseDb", "stackAfterSubmit"),
     "end-of-form-navigation-failed": ("caseDb", "stackAfterSubmit"),
 }
-# A form's field whose items the runner records one by one (``FormRun.java::walk``: an event once Core stepped
-# to it and, for a question, the runner answered it), so a stop leaves out the items past the last it holds.
-FORM_STOPPED_LISTS = frozenset({"events"})
+# A form's events, which the runner records one by one (``FormRun.java::walk``: an event once Core stepped to it
+# and, for a question, the runner answered it), so a stop leaves out the events past the last it holds. Each is
+# keyed by where Core stepped to it (``event_keys``), and their order is one difference at ``events/order()``.
+EVENTS = "events"
+EVENT_ORDER = "order()"
 # Core's refusal of a case block missing an attribute its case parser requires: the exception, and the attributes
 # in the order the parser checks them (commcare-core ``xml/CaseXmlParser.java::parse``, ``validateMandatoryProperty``
 # of ``case_id`` and then ``date_modified``, ``xml/CaseXmlParserUtil.java``).
@@ -472,7 +485,9 @@ def _left_out(step, other, end, tokens):
       screen's change too.
     - A form step beside a form step leaves out the fields its stop came
       before (``FORM_LEFT_OUT``, by the end its run left with), and of its
-      events those past the last it holds (``FORM_STOPPED_LISTS``).
+      events those the other side reached after the last event both reached
+      (``_past_the_last_reached``: the difference's token is the event's key,
+      ``event_keys``).
     - Any other step beside a step of the same screen leaves out each field it
       does not hold: the runner puts a screen's fields one after another,
       each whole (``SessionOp.java``), so a field missing is one the stop
@@ -489,9 +504,23 @@ def _left_out(step, other, end, tokens):
     if name not in step:
         return screen != FORM_SCREEN or name in FORM_LEFT_OUT.get(end, ())
     held = step[name]
-    if screen == FORM_SCREEN and name in FORM_STOPPED_LISTS and name in FORM_LEFT_OUT.get(end, ()):
-        return isinstance(held, list) and len(tokens) > 1 and tokens[1].isdigit() and int(tokens[1]) >= len(held)
+    if screen == FORM_SCREEN and name == EVENTS and name in FORM_LEFT_OUT.get(end, ()):
+        return len(tokens) > 1 and _past_the_last_reached(held, other.get(name), tokens[1])
     return False
+
+
+def _past_the_last_reached(held, others, token):
+    """Whether the event a difference's ``token`` names (its key, ``event_keys``) is one the stopping side's form
+    never reached: an event only ``others`` holds that comes, in their order, after every event ``held`` holds too.
+    An event only one side holds before that is the forms' own difference."""
+    if not isinstance(held, list) or not isinstance(others, list):
+        return False
+    reached = {pointer_token(key) for key in event_keys(held)}
+    keys = [pointer_token(key) for key in event_keys(others)]
+    if token in reached or token not in keys:
+        return False
+    last = max((index for index, key in enumerate(keys) if key in reached), default=-1)
+    return keys.index(token) > last
 
 
 def _stopped_difference(check, document, artifact, base, held, kind):
@@ -611,14 +640,17 @@ def _field_order(key):
 
 
 def _places(value, at, places):
-    """Each (place, text) of one run's value, in order: a list's items in order, an object's keys by
-    ``_field_order``."""
+    """Each (place, text) of one run's value, in order: a list's items in order, a form's events each at its key
+    (``event_keys``), an object's keys by ``_field_order``."""
     if isinstance(value, dict):
         for key in sorted(value, key=_field_order):
             item = value[key]
             place = f"{at}/{pointer_token(key)}"
             places.append((f"{place}/key()", key))
-            if key in XML_FIELDS and isinstance(item, str):
+            if key == EVENTS and isinstance(item, list):
+                for event_key, event in zip(event_keys(item), item, strict=True):
+                    _places(event, f"{place}/{pointer_token(event_key)}", places)
+            elif key in XML_FIELDS and isinstance(item, str):
                 if GENERATED_PREFIX not in item:
                     continue
                 try:
@@ -661,9 +693,11 @@ def generated_labels(before, after):
     label}, after's {mark: label})]``, run by run.
 
     A run is read in order (its steps, then its other fields), each value at
-    its place: a JSON Pointer from the run (``trace/<step>/step/value``),
-    continued into an XML field by each element's name and position among
-    its same-named siblings, attributes by name, then text, and the text
+    its place: a JSON Pointer from the run (``trace/<step>/step/value``), a
+    form's event written by its key (``event_keys``), so an event more before
+    it moves no place, continued into an XML field by each element's name
+    and position among its same-named siblings, attributes by name, then
+    text, and the text
     after each child at that child's own place (``_xml_places``). In a step, the
     submission is read after every other field and the case database last
     (``_field_order``), so an id is named where the form made it. Two ids at
@@ -866,6 +900,98 @@ def rows_by_case(before, after, *, check, document, artifact):
     return found
 
 
+def event_keys(events):
+    """Each of a form's events keyed by where Core stepped to it, in the events' order: ``<kind>:<path>``, and
+    ``#<n>`` after it the ``n``-th time the form reached that place.
+
+    The runner records each event Core's ``stepToNextEvent`` reached
+    (``FormRun.java::walk``) with its kind (``event``: ``question``,
+    ``group``, ``repeat``, ``new-repeat``, ``repeat-juncture``) and its
+    instance path (``path``: the question's or group's reference with each
+    repeat's instance, ``/data/members[2]/member_name[1]``; a new repeat's
+    prompt by the repeat it would add to, the same at each prompt, so the
+    prompts of one repeat are its ``n``-th). A form steps forward only, so
+    one place is reached again only as one repeat's next prompt. An event the
+    runner names no path for is keyed by its kind alone.
+    """
+    seen = {}
+    keys = []
+    for event in events:
+        held = event if isinstance(event, dict) else {}
+        kind, path = held.get("event"), held.get("path")
+        place = str(kind) if path is None else f"{kind}:{path}"
+        seen[place] = seen.get(place, 0) + 1
+        keys.append(place if seen[place] == 1 else f"{place}#{seen[place]}")
+    return keys
+
+
+def events_by_place(before, after, *, check, document, artifact):
+    """The events of each form both traces fill in at one step compared by where Core stepped to each
+    (``event_keys``), their order as one difference.
+
+    An event both sides reached is compared with the same event on the other
+    side (``/runs/*/trace/*/events/*/...``, its key in ``at``); one only one
+    side reached is ``added`` or ``removed`` whole (``/runs/*/trace/*/events/*``);
+    and where the events both reached come in another order, one difference
+    at ``/runs/*/trace/*/events/order()`` names both orders. So a question the
+    form gains is one difference, and moves no other. Both sides' steps are
+    left without their events.
+    """
+    found = []
+    runs_a, runs_b = before.get("runs") or [], after.get("runs") or []
+    for run in range(min(len(runs_a), len(runs_b))):
+        steps_a = runs_a[run].get("trace") if isinstance(runs_a[run], dict) else None
+        steps_b = runs_b[run].get("trace") if isinstance(runs_b[run], dict) else None
+        if not isinstance(steps_a, list) or not isinstance(steps_b, list):
+            continue
+        for step in range(min(len(steps_a), len(steps_b))):
+            step_a, step_b = steps_a[step], steps_b[step]
+            if not isinstance(step_a, dict) or not isinstance(step_b, dict):
+                continue
+            events_a, events_b = step_a.get(EVENTS), step_b.get(EVENTS)
+            if not isinstance(events_a, list) or not isinstance(events_b, list):
+                continue
+            path, base = f"/runs/*/trace/*/{EVENTS}/*", f"/runs/{run}/trace/{step}/{EVENTS}"
+            keys_a, keys_b = event_keys(events_a), event_keys(events_b)
+            held_a, held_b = dict(zip(keys_a, events_a, strict=True)), dict(zip(keys_b, events_b, strict=True))
+            for key in keys_a:
+                at = f"{base}/{pointer_token(key)}"
+                if key not in held_b:
+                    found.append(Difference(check, document, artifact, path, at, "removed", held_a[key], None))
+                    continue
+                found += compare_json(
+                    held_a[key],
+                    held_b[key],
+                    check=check,
+                    document=document,
+                    artifact=artifact,
+                    data_maps=TRACE_DATA_MAPS,
+                    root_path=path,
+                    root_at=at,
+                )
+            for key in keys_b:
+                if key not in held_a:
+                    at = f"{base}/{pointer_token(key)}"
+                    found.append(Difference(check, document, artifact, path, at, "added", None, held_b[key]))
+            order_a = [key for key in keys_a if key in held_b]
+            order_b = [key for key in keys_b if key in held_a]
+            if order_a != order_b:
+                found.append(
+                    Difference(
+                        check,
+                        document,
+                        artifact,
+                        f"/runs/*/trace/*/{EVENTS}/{EVENT_ORDER}",
+                        f"{base}/{EVENT_ORDER}",
+                        "changed",
+                        order_a,
+                        order_b,
+                    )
+                )
+            del step_a[EVENTS], step_b[EVENTS]
+    return found
+
+
 def compare_traces(before, after, *, check, document, rules, artifact="trace", xmlns=None, labels=None):
     """Every difference between two traces, as ``artifact``, after the spelling rules in ``rules`` for ``trace``.
 
@@ -898,6 +1024,7 @@ def compare_traces(before, after, *, check, document, rules, artifact="trace", x
                 for shown in held:
                     shown.pop(field, None)
     keyed = rows_by_case(shown_before, shown_after, check=check, document=document, artifact=artifact)
+    keyed += events_by_place(shown_before, shown_after, check=check, document=document, artifact=artifact)
     found = stops_by_cause(
         ends_as_vocabulary(
             prompt_keys_as_data(

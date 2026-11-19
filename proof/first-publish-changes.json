@@ -20,6 +20,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/created_from_template"
 			},
 			{
@@ -906,7 +911,7 @@
 			{
 				"check": "proof1",
 				"artifact": "form:*",
-				"path": "/order/*",
+				"path": "/order",
 				"kind": "changed"
 			},
 			{
@@ -932,6 +937,30 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/submission/data/*/text()",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "removed"
 			}
 		]
 	},

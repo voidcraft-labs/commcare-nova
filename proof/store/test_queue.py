@@ -92,10 +92,11 @@ def _build(checkout, out, *arguments, corpus=None, phase="main", stores=()):
 @pytest.fixture
 def lane(checkout, corpus, monkeypatch):
     # The synthetic checkout's packages run whole: the lane's own splits name modules of the real one
-    # (proof.checks.sharding.SPLIT), and the test of splitting names its own.
+    # (proof.checks.sharding.SPLIT, SPLIT_BY_PARAMETER), and the test of splitting names its own.
     from proof.checks import sharding
 
     monkeypatch.setattr(sharding, "SPLIT", {})
+    monkeypatch.setattr(sharding, "SPLIT_BY_PARAMETER", {})
     groups = {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0, "proof/core": 2.0}
     timings = {"profiles": {"readers": {"groups": groups}, "no-readers": {"groups": groups}}}
     write_files(checkout, {"proof/timings.json": json.dumps(timings)})

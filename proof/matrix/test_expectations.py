@@ -313,10 +313,10 @@ def _problems(base, claim_log, held, proof3):
                     f"{expectation.get('id')} names {value} for {datum}, which restore.xml holds no case of"
                 )
         opens_list = "caseList" in request
-        for expected in expectation.get("expect") or []:
-            if str(expected.get("pointer", "")).startswith("/caseList/") != opens_list:
+        for expect in expectation.get("expect") or []:
+            if str(expect.get("pointer", "")).startswith("/caseList/") != opens_list:
                 problems.append(
-                    f"{expectation.get('id')} expects {expected.get('pointer')} of a request that"
+                    f"{expectation.get('id')} expects {expect.get('pointer')} of a request that"
                     f" {'opens a case list' if opens_list else 'opens the form'}, and Core's evaluate gives a case"
                     " list's values only where the request holds caseList, a form's only where it does not"
                 )
