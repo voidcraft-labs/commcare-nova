@@ -550,7 +550,12 @@ organization", any other "reads places in your organization". A level code
 alone prints a literal and reads no place. HQ's build asks for `lookup_tables`
 on a form whose source holds the literal `src="jr://fixture/item-list:`
 (`models/forms.py::FormBase.has_fixtures`), which the XForm serializer's
-double-quoted attributes write for a form-logic table read. Each rule asks the
+double-quoted attributes write for a form-logic table read, so Nova asks for
+it where a field's slot or a form slot its source carries reads a table, or
+where the publish sends a workbook (`planPrivileges.ts::formSourceReadsTable`):
+a table read only by a case list, a Search field, a display condition or a
+link asks nothing of the plan, since HQ's validator reads forms alone and a
+worker's restore carries every table. Each rule asks the
 emitter's own decision over the form link context `expandDoc` builds, so the
 answer and the wire cannot disagree. HQ's slugs stay inside `lib/commcare`; `lib/publish/planFeatures.ts`
 holds what a person reads. No API key reads a plan, so these are confirmed by

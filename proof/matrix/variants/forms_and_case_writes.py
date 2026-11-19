@@ -512,7 +512,9 @@ def _utc_text(owner):
 def seen_moment_through_the_join(authoring, app_id):
     """``hq-case-management``'s member follow-up form given a date ``seen_on``, a time ``seen_time`` and a Hidden Value
     ``seen_moment`` joining them into one date and time, which the form saves to the member's ``seen_moment`` through
-    the node Nova writes beside it, as a date and time question split in two is saved."""
+    the node Nova writes beside it, as a date and time question split in two is saved. ``seen_moment`` is a Hidden
+    Value bound ``xsd:dateTime`` whose calculate keeps a date's clock, so the change also shows that entry
+    (``questions/hidden-value-bound-xsd-datetime``)."""
     join = (
         "date(format-date(if(/data/seen_on = '' or /data/seen_time = '', '', concat(/data/seen_on, 'T',"
         " /data/seen_time)), '%Y-%m-%dT%H:%M:%S.%3%Z'))"

@@ -16,7 +16,8 @@ for a run without one, by the server from its own collection
      "sample": {"seed": <ISO year and week> | null, "documents": [<document id>, ...]},
      "selection": {"documents": [<document id>, ...], "left": [<group>, ...]},
      "readers": false | [<reader>, ...],
-     "reader": <digest of the corpus's reader bundle>}
+     "reader": <digest of the corpus's reader bundle>,
+     "setAside": [{"base": <base id>, "reading": "account" | "declaration-not-offered", "notice": <text>}, ...]}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
 (from ``proof-plan``), and the main queue (from ``proof-corpus``, once the
@@ -73,6 +74,13 @@ bundle (``native/reader/``, ``proof.store.keys.reader_digest``), is its
 digest: what a corpus document's judged key names beside the judge's code
 (``proof.store.keys.judged_under``), which the queue builder keyed each
 corpus document's group under and the packer keys its judgments under.
+``setAside``, only in a main queue over a corpus that set a base made in HQ
+aside (its ``index.json``'s ``setAside``, ``set_aside_bases``: a retained
+base Nova's reading takes no document of, ``proof/corpus/hqAuthored.ts``),
+names each such base: the queue runs the group that authors it again
+(``proof/matrix/test_retained.py[<base>]``), never from the store, and the
+gate fails the run, naming whether that group's new copy came in
+(``proof.lane.gate``).
 
 A block's run leaves ``blocks/<id>/`` in the output of the shard that ran it:
 
@@ -140,6 +148,10 @@ SINGLE_GROUPS = ("proof", "surface")
 FAILING = ("failed", "error")
 # A block's output compared where two runs of it differ: its evidence and the surface extraction.
 COMPARED = ("checks", "surface/surface.json")
+# Where a block writes a base made in HQ it authored: under ``hq-apps/<base>/`` once Nova's reading of it came in,
+# else under ``hq-apps-unread/<base>/`` (``proof/matrix/retain.py::UNREAD_TREE``), which nothing adopts.
+AUTHORED_TREE = "hq-apps"
+UNREAD_TREE = "hq-apps-unread"
 
 
 class QueueError(ValueError):
@@ -279,6 +291,16 @@ class Selection:
 
 
 @dataclass(frozen=True)
+class SetAside:
+    """A base made in HQ the corpus set aside: its id, what Nova's reading of it answered (``account`` or
+    ``declaration-not-offered``), and the emission's notice naming why."""
+
+    base: str
+    reading: str
+    notice: str
+
+
+@dataclass(frozen=True)
 class Queue:
     blocks: tuple[Block, ...]
     cached: tuple[CachedGroup, ...] = ()
@@ -294,6 +316,8 @@ class Queue:
     # The digest of the reader bundle the corpus carries (proof.store.keys.reader_digest); None for a queue over no
     # corpus, or over one that carries none.
     reader: str | None = None
+    # The bases made in HQ the corpus set aside, in id order; none where it set none aside.
+    set_aside: tuple[SetAside, ...] = ()
 
     def groups(self) -> set[str]:
         return {name for block in self.blocks for name in block.names}
@@ -432,9 +456,48 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
     if reader is not None and (not isinstance(reader, str) or not reader):
         problems.append(f"its reader is {reader!r}, not the digest of the reader bundle its corpus carries")
         reader = None
+    set_aside, aside_problems = _set_aside(value.get("setAside", []), "its setAside")
+    problems += aside_problems
     if problems:
         raise QueueError(f"{where} is not a lane queue:\n" + "\n".join(f"- {problem}" for problem in problems))
-    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample, selection, reader)
+    return Queue(
+        tuple(blocks),
+        tuple(cached),
+        dict(fingerprints),
+        tuple(unsampled),
+        readers,
+        sample,
+        selection,
+        reader,
+        set_aside,
+    )
+
+
+SET_ASIDE_READINGS = ("account", "declaration-not-offered")
+
+
+def _set_aside(raw, where: str) -> tuple[tuple[SetAside, ...], list[str]]:
+    """The set-aside bases ``raw`` lists (``[{base, reading, notice}, ...]``, one a base), and why it does not."""
+    if not isinstance(raw, list):
+        return (), [f"{where} is not a list of the bases the corpus set aside"]
+    found, problems = [], []
+    for entry in raw:
+        base = entry.get("base") if isinstance(entry, dict) else None
+        reading = entry.get("reading") if isinstance(entry, dict) else None
+        notice = entry.get("notice") if isinstance(entry, dict) else None
+        if not isinstance(base, str) or not base or "/" in base or any(c.isspace() for c in base):
+            problems.append(f"{where} lists {entry!r}, which names no base by its id")
+        elif reading not in SET_ASIDE_READINGS:
+            problems.append(
+                f"{where} sets {base} aside for {reading!r}, which is none of {', '.join(SET_ASIDE_READINGS)}"
+            )
+        elif not isinstance(notice, str) or not notice:
+            problems.append(f"{where} sets {base} aside with no notice naming why")
+        elif any(one.base == base for one in found):
+            problems.append(f"{where} sets {base} aside twice")
+        else:
+            found.append(SetAside(base, reading, notice))
+    return tuple(sorted(found, key=lambda one: one.base)), problems
 
 
 def piece_problems(groups: Iterable[QueuedGroup]) -> list[str]:
@@ -516,6 +579,11 @@ def queue_json(queue: Queue) -> dict:
         ),
         **({} if queue.readers == lane_readers.EVERY else {"readers": lane_readers.to_record(queue.readers)}),
         **({} if queue.reader is None else {"reader": queue.reader}),
+        **(
+            {"setAside": [{"base": one.base, "reading": one.reading, "notice": one.notice} for one in queue.set_aside]}
+            if queue.set_aside
+            else {}
+        ),
     }
 
 
@@ -524,6 +592,17 @@ def unsampled_documents(corpus: Path) -> tuple[str, ...]:
     ``index.json``'s ``unsampled``, ``proof.store.queue.sampled``); none for a corpus run whole."""
     index = json.loads((Path(corpus) / "index.json").read_text(encoding="utf-8"))
     return tuple(entry["id"] for entry in index.get("unsampled", []))
+
+
+def set_aside_bases(corpus: Path) -> tuple[SetAside, ...]:
+    """The bases made in HQ the corpus at ``corpus`` set aside (its ``index.json``'s ``setAside``, written by the
+    emission, ``proof/corpus/emitCorpus.ts``), in id order; none where it set none aside. A list that is not one
+    is refused by name."""
+    index = json.loads((Path(corpus) / "index.json").read_text(encoding="utf-8"))
+    found, problems = _set_aside(index.get("setAside", []), f"{Path(corpus) / 'index.json'}'s setAside")
+    if problems:
+        raise QueueError("\n".join(problems))
+    return found
 
 
 def write_json(path: Path, value) -> None:

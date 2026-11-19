@@ -64,8 +64,8 @@ def retained_message(base_id, missing, stale, extra, out, output):
         clauses.append(f"it holds {_joined(extra)}, which HQ did not make")
     message = (
         f"proof/hq-apps/{base_id}/ is not what CommCare HQ holds and answers at its pin: {_joined(clauses)}. What HQ"
-        f" made is under {out}. Copy it into proof/hq-apps/{base_id}/ (python3 -m proof.matrix.adopt {output}) and"
-        " read what changed."
+        f" made is under {out}. Copy it into proof/hq-apps/{base_id}/ (python3 -m proof.matrix.adopt {output}, with"
+        " every other output of a sharded run) and read what changed."
     )
     if base_id in FROM_NOVAS_PUBLISH:
         message += (

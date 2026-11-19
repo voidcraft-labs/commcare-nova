@@ -1203,6 +1203,7 @@ class _Unit:
                 core_runner=self.core_runner,
                 blobs=self.blobs,
                 operation=ops,
+                a_doc=self.a_built.doc,
             )
         if any(name == "served" for name, _, _, _ in self.hooks):
             from proof.observe import served

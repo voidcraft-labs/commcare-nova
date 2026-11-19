@@ -322,12 +322,13 @@ def runs_alike(app, core_runner, first, second, *, database=None, rules=()):
 
 
 def trace_differences(first, second, *, rules=()):
-    """The differences between two runs' traces and HQ's processing of them, after ``rules``."""
+    """The differences between two runs' traces and HQ's processing of them, after ``rules``, each trace beside the
+    media its build installs, as proof 3 compares them (``proof3.comparable_trace``)."""
     runtimes = proof3.RUNTIMES["B"]
     labels = generated_labels(first.trace, second.trace)
     found = compare_traces(
-        proof3.comparable_trace(first.trace, runtimes),
-        proof3.comparable_trace(second.trace, runtimes),
+        proof3.comparable_trace(first.trace, runtimes, first.admission),
+        proof3.comparable_trace(second.trace, runtimes, second.admission),
         check=CHECK,
         document="-",
         rules=rules,

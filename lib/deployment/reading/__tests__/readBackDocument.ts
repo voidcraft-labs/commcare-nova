@@ -7,6 +7,7 @@
 
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import {
 	type Automation,
 	type BlueprintDoc,
@@ -15,9 +16,11 @@ import {
 	plainColumn,
 	proseText,
 	translationSourceFingerprint,
+	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
 import { authoredBlueprintIdentities } from "@/lib/domain/authoredIdentities";
+import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 
 const U = (name: string) => testUuid(`read-back-${name}`) as Uuid;
 
@@ -361,6 +364,37 @@ export function surveyListDocument(): BlueprintDoc {
 			},
 		],
 	});
+}
+
+/**
+ * A searched menu in English and Spanish whose Spanish holds a translation of the search guard
+ * sentence for a location and a number, which no Search field of the app carries: a translation no
+ * export holds, since an export prints only the guards its fields' values need.
+ */
+export function unprintedGuardDocument(): BlueprintDoc {
+	const doc = localizationWireFixture("prompts");
+	const spanish = doc.localization?.translations.spa;
+	const quote = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		searchRuntimeValidationMessage(new Set(["quote"]))?.key ?? "",
+	);
+	const unit = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		searchRuntimeValidationMessage(new Set(["geopoint", "decimal-number"]))
+			?.key ?? "",
+	);
+	const entry = spanish?.[quote];
+	const fingerprint = translationUnitsById(doc).get(unit)?.sourceFingerprint;
+	if (spanish === undefined || entry === undefined || fingerprint === undefined)
+		throw new Error("The fixture holds no Spanish guard to copy.");
+	spanish[unit] = {
+		...entry,
+		value: "Indique una ubicación y un número.",
+		sourceFingerprint: fingerprint,
+	};
+	return doc;
 }
 
 /** Every object of `value` whose `uuid` is `uuid`. */

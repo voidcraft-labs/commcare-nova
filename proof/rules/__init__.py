@@ -96,12 +96,14 @@ from proof.rules import (  # noqa: E402
     detail_null_booleans,
     empty_binds,
     empty_media_maps,
+    field_list_appearance_case,
     form_filter_blank,
     form_link_fallback,
     hint_validation_markdown_form,
     inactive_parent_select,
     itext_value_order,
     lookup_fields_unshown,
+    menu_image_without_media,
     model_order,
     open_action_blanks,
     preload_condition,
@@ -159,6 +161,9 @@ RULES: tuple[SpellingRule, ...] = (
     profile_unread_properties.RULE,
     # The address of a request a reader sent HQ.
     runtime_url_app_id.RULE,
+    # What the runtimes hand on: Core's trace, beside the media its build installs, and Formplayer's answers.
+    menu_image_without_media.RULE,
+    field_list_appearance_case.RULE,
 )
 
 

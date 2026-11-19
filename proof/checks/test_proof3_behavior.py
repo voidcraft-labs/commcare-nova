@@ -1011,14 +1011,20 @@ def _with_app_file(captured, app_json):
 
 
 def _submitting_subject(core_runner):
-    """The cheapest document with a local archive whose sessions on it submit a form and whose republish was sent,
-    its configuration and records (under that configuration). A republish Nova stopped before it sent anything has
-    no request body to rewrite into one HQ refuses."""
+    """The cheapest document Nova made with a local archive whose sessions on it submit a form and whose republish
+    was sent, its configuration and records (under that configuration). A republish Nova stopped before it sent
+    anything has no request body to rewrite into one HQ refuses. On a document made in HQ, Nova's republish is also
+    what its configurations' privileges are derived from (``configurations.py::_authored_publishes``), so a
+    republish rewritten to no app would change the configuration A is made under, not only what HQ makes of B."""
     from proof.checks import sharding
 
     estimate = sharding.estimate(sharding.load_timings())
     documents = sorted(
-        (document for document in cases.load_corpus().emitted if document.local_ccz is not None),
+        (
+            document
+            for document in cases.load_corpus().emitted
+            if document.local_ccz is not None and not document.hq_authored
+        ),
         key=lambda document: (estimate(document.group), document.id),
     )
     for document in documents:
@@ -1030,7 +1036,9 @@ def _submitting_subject(core_runner):
             processed = (recorded.get("local") or {}).get("processed")
             if processed and any(run["submitted"] for run in records.blobs.get_json(processed)["runs"]):
                 return document, name, records
-    raise AssertionError("No corpus document's sessions submit a form on its local archive, so nothing is shown.")
+    raise AssertionError(
+        "No corpus document Nova made has sessions that submit a form on its local archive, so nothing is shown."
+    )
 
 
 def _local_route(differences):

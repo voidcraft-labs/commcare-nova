@@ -55,7 +55,8 @@ def _report(path):
 
 
 def _held(artifact, path, stored):
-    member = hq_own_reports.held(artifact, path, _report(path), stored)
+    """The member that holds a report of the save over ``stored``, an app HQ's own page made."""
+    member = hq_own_reports.held(artifact, path, _report(path), stored, True)
     return None if member is None else member.id
 
 

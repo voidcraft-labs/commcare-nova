@@ -212,7 +212,10 @@ SEVERAL_FORM = (
     '<instance><data xmlns="http://example.org/chosen"><chosen/><last/></data></instance>'
     '<instance id="selected_cases" src="jr://instance/selected-entities/selected_cases"/>'
     '<bind nodeset="/data/chosen" calculate="count(instance(\'selected_cases\')/results/value)"/>'
-    '<bind nodeset="/data/last" calculate="instance(\'selected_cases\')/results/value[last()]"/>'
+    # The last value chosen, by its position: Core has no ``last()`` (``ASTNodeFunctionCall`` builds none), and a
+    # number in a predicate is the position it keeps (``EvaluationContext.expandReferenceAccumulator``).
+    '<bind nodeset="/data/last" calculate="instance(\'selected_cases\')/results/value'
+    "[count(instance('selected_cases')/results/value)]\"/>"
     "</model></h:head><h:body/></h:html>"
 ).encode()
 
@@ -374,6 +377,41 @@ def test_a_case_lists_text_reads_the_requests_clock(core_runner, tmp_path):
         assert rows
         days[clock] = {row["fields"][-1] for row in rows}
     assert days == {clock: {day} for clock, day in CLOCKS.items()}
+
+
+def test_a_case_list_reads_each_rows_parent_through_a_case_index_table(core_runner, tmp_path):
+    """A list column reading each row's parent case: past ``QueryContext.BULK_QUERY_THRESHOLD`` rows Core reads the
+    rows' indices in bulk through the casedb's case index table (``CaseIndexQuerySetTransform``), which Formplayer
+    and Android each keep and Core's own CommCareInstanceInitializer gives none. The plausible failure: the runner's
+    casedb holding no table, so the list raises NullPointerException where every runtime shows the parent's name
+    (``ProofSession``, ``CaseIndexes``)."""
+    restore = etree.fromstring(with_cases_named(["Household"]))
+    for index in range(60):
+        block = etree.SubElement(
+            restore,
+            f"{{{CASE_XMLNS}}}case",
+            case_id=f"member-{index}",
+            date_modified="2017-07-14T14:26:20.559000Z",
+            user_id="7afceb0259b2866be17b3632392f8a4b",
+        )
+        create = etree.SubElement(block, f"{{{CASE_XMLNS}}}create")
+        etree.SubElement(create, f"{{{CASE_XMLNS}}}case_type").text = "coverage_basic"
+        etree.SubElement(create, f"{{{CASE_XMLNS}}}case_name").text = f"member {index}"
+        etree.SubElement(create, f"{{{CASE_XMLNS}}}owner_id").text = "7afceb0259b2866be17b3632392f8a4b"
+        indices = etree.SubElement(block, f"{{{CASE_XMLNS}}}index")
+        etree.SubElement(indices, f"{{{CASE_XMLNS}}}parent", case_type="coverage_basic").text = "ordered-0"
+
+    def parent_name(fields: list[etree._Element]) -> None:
+        fields[-1].find("template/text/xpath").set(
+            "function", "instance('casedb')/casedb/case[@case_id = current()/index/parent]/case_name"
+        )
+
+    rows = m2_list(
+        core_runner, m2_list_variant(tmp_path / "parent.ccz", parent_name), restore64(etree.tostring(restore))
+    )["rows"]
+    members = [row["fields"][-1] for row in rows if row["fields"][0].startswith("member ")]
+    assert len(members) == 60
+    assert set(members) == {"Household"}
 
 
 def test_a_case_list_search_matches_as_cores_list_does(core_runner, basic_app):

@@ -157,6 +157,15 @@ def test_a_variant_s_refused_use_claimed_under_another_entry_is_entry():
     assert parity.join([use], _log((REFUSED_ENTRY.id, "fix-in-hq")), held=MANIFEST) == []
 
 
+def test_a_use_every_read_class_rules_out_beside_the_bar_s_class_is_judged_as_the_bar_s():
+    # The lane's standing is the bar's, resting on the bar's entry (manifest_usage.standing): a variant whose
+    # reader refuses it there agrees, and one whose reader holds it does not.
+    use = _use(manifest_usage.BAR, (BAR_ENTRY,))
+    assert parity.row_uses([use], "", [BAR_ENTRY.id], held=MANIFEST) == [use]
+    assert _judged([use], _record(BAR_ENTRY.id, "fix-in-hq") + "\n", [BAR_ENTRY.id]) == []
+    assert _whats(_judged([use], _record(HELD_ENTRY.id, "held") + "\n", [BAR_ENTRY.id])) == ["standing"]
+
+
 SESSION_READ = "instance('commcaresession')/session/data/case_id != ''"
 FORM_XML = (
     '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><h:title>F</h:title>'

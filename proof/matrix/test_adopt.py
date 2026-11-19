@@ -1,17 +1,24 @@
 """``python3 -m proof.matrix.adopt``: the one way the retained trees are written from a run.
 
-The contract: every directory a run wrote replaces its committed one whole
-(a file the run did not write there is removed), a directory the run did not
-write stays as it is, two blocks that wrote one file apart are refused, a
-run that wrote nothing is refused, a base whose reading did not come in (no
+The contract: adopting takes every output of a run (one a shard) and merges
+by file: every file a block wrote is written over its committed one, a
+committed file is removed only where a comparison of the test that owns it
+recorded it as committed and not made (``retained-held/``) and no block
+wrote it, a directory the run did not write stays as it is, two blocks that
+wrote one file apart are refused, across outputs as within one, a run that
+wrote nothing is refused, a base whose reading did not come in (no
 ``expected.json``) is left out by name and ``hq-apps-unread/`` is never
 copied, and the report names what changed of a base's stored app and of its
 answers. The plausible failures: a stale file left beside a regenerated base
 (the hold of ``test_retained.py`` fails on it again), a tree emptied by a
-run that did not regenerate it, one block's answer silently chosen over
-another's, a base Nova did not read committed as if retained, and a report
-that says nothing changed of a base whose app changed. Standard library
-only: it runs with no image.
+run that did not regenerate it, the files one shard's block wrote into a
+directory removed by adopting another shard's block that writes the same
+directory (``proof/hq/test_retained_reads.py`` and
+``proof/editors/test_retained_reads.py`` both write ``navigation-base/``),
+the files of a test that did not reach its comparison removed, one block's
+answer silently chosen over another's, a base Nova did not read committed as
+if retained, and a report that says nothing changed of a base whose app
+changed. Standard library only: it runs with no image.
 """
 
 from __future__ import annotations
@@ -52,6 +59,8 @@ def _run(scratch: Path):
             "blocks/a/hq-apps/hq-plain/app.json": b'{"new": true}\n',
             "blocks/a/hq-apps/hq-plain/media/0.png": b"\x89PNG",
             "blocks/a/hq-apps/hq-plain/expected.json": b'{"reads": true}\n',
+            # test_retained.py's comparison of hq-plain found stale.json committed and did not make it.
+            "blocks/a/retained-held/hq-apps/hq-plain.json": b'{"extra": ["stale.json"]}\n',
             "blocks/b/hq-apps/hq-plain/app-source.json": b'{"status": 200}\n',
             "blocks/b/hq-reads/reading/application.json": b'{"status": 404}\n',
         },
@@ -59,7 +68,7 @@ def _run(scratch: Path):
     return proof, output
 
 
-def test_a_written_directory_replaces_its_committed_one_and_no_other():
+def test_a_written_directory_takes_the_files_written_and_loses_only_what_its_comparison_did_not_make():
     with tempfile.TemporaryDirectory() as scratch:
         proof, output = _run(Path(scratch))
         lines = adopt.adopt(output, proof=proof)
@@ -186,3 +195,141 @@ def test_the_report_refuses_a_corpus_that_carries_no_reader():
         else:
             raise AssertionError("adopt reported readings with no reader bundle to read them")
         assert _tree(proof) == before
+
+
+def _shards(scratch: Path):
+    """A run of two shards whose blocks both write ``hq-reads/navigation-base/``: the HQ test's block on one (its
+    reads, and the read it no longer makes), the editors' block on the other (its saves, and the save it no longer
+    makes)."""
+    proof = scratch / "proof"
+    _write(
+        proof,
+        {
+            "hq-reads/navigation-base/app-source.json": b"old\n",
+            "hq-reads/navigation-base/app-source-gone.json": b"gone\n",
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b"old save\n",
+            "hq-reads/navigation-base/app-source-after-gone-save.json": b"gone save\n",
+        },
+    )
+    hq, editors = scratch / "proof-out-1", scratch / "proof-out-2"
+    _write(
+        hq,
+        {
+            "blocks/h/hq-reads/navigation-base/app-source.json": b"new\n",
+            "blocks/h/retained-held/hq-reads/navigation-base.json": b'{"extra": ["app-source-gone.json"]}\n',
+        },
+    )
+    _write(
+        editors,
+        {
+            "blocks/e/hq-reads/navigation-base/app-source-after-menu-save.json": b"new save\n",
+            "blocks/e/retained-held/hq-reads/navigation-base.json": (
+                b'{"extra": ["app-source-after-gone-save.json"]}\n'
+            ),
+        },
+    )
+    return proof, hq, editors
+
+
+def test_a_sharded_run_is_adopted_from_every_output_by_file_each_test_removing_only_its_own():
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, hq, editors = _shards(Path(scratch))
+        lines = adopt.adopt([hq, editors], proof=proof)
+        assert _tree(proof) == {
+            "hq-reads/navigation-base/app-source.json": b"new\n",
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b"new save\n",
+        }
+        assert lines == ["Adopted 0 directories of proof/hq-apps/.", "Adopted 1 directory of proof/hq-reads/."]
+
+
+def test_adopting_one_shard_keeps_what_another_test_writes_into_the_same_directory():
+    """Adopting the HQ test's shard alone once replaced navigation-base/ whole, deleting the editors' saves."""
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, hq, editors = _shards(Path(scratch))
+        adopt.adopt(hq, proof=proof)
+        assert _tree(proof) == {
+            "hq-reads/navigation-base/app-source.json": b"new\n",
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b"old save\n",
+            "hq-reads/navigation-base/app-source-after-gone-save.json": b"gone save\n",
+        }
+        # The other shard adopted after it gives what adopting both at once gives.
+        adopt.adopt(editors, proof=proof)
+        proof2, hq2, editors2 = _shards(Path(scratch) / "again")
+        adopt.adopt([hq2, editors2], proof=proof2)
+        assert _tree(proof) == _tree(proof2)
+
+
+def test_a_test_that_did_not_reach_its_comparison_removes_nothing_and_a_file_another_block_wrote_stays():
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, hq, editors = _shards(Path(scratch))
+        # The editors' test stopped before its comparison: it wrote one save and recorded nothing.
+        (editors / "blocks/e/retained-held/hq-reads/navigation-base.json").unlink()
+        # A block of the HQ test's records a file as not made that another block of the run wrote.
+        _write(hq, {"blocks/i/retained-held/hq-reads/navigation-base.json": b'{"extra": ["app-source.json"]}\n'})
+        adopt.adopt([hq, editors], proof=proof)
+        assert _tree(proof) == {
+            "hq-reads/navigation-base/app-source.json": b"new\n",
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b"new save\n",
+            "hq-reads/navigation-base/app-source-after-gone-save.json": b"gone save\n",
+        }
+
+
+def test_two_shards_that_wrote_one_file_apart_are_refused_and_an_output_that_is_no_run_is_named():
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, hq, editors = _shards(Path(scratch))
+        _write(editors, {"blocks/f/hq-reads/navigation-base/app-source.json": b"other\n"})
+        before = _tree(proof)
+        try:
+            adopt.adopt([hq, editors], proof=proof)
+        except adopt.AdoptRefused as refusal:
+            assert "hq-reads/navigation-base/app-source.json differently" in str(refusal)
+        else:
+            raise AssertionError("adopt took two shards' different answers for one file")
+        try:
+            adopt.adopt([hq, Path(scratch) / "nothing"], proof=proof)
+        except adopt.AdoptRefused as refusal:
+            assert "nothing holds no blocks/ directory" in str(refusal)
+        else:
+            raise AssertionError("adopt took an output that is no run's")
+        assert _tree(proof) == before
+
+
+def test_what_a_comparison_records_is_what_adopting_removes(tmp_path, monkeypatch):
+    """The writer of the held records (``retained.Retained``, whose comparisons the tests run) and their reader
+    here agree on where the records sit and what they name, for ``hold`` (JSON files named without their suffix,
+    another test's files left out) and for ``differences`` (every file, with its suffix)."""
+    from proof.matrix import retained
+
+    assert retained.HELD == adopt.HELD
+    proof = tmp_path / "proof"
+    _write(
+        proof,
+        {
+            "hq-reads/shell/app-source.json": b"old\n",
+            "hq-reads/shell/gone.json": b"gone\n",
+            "hq-reads/shell/app-source-after-app-settings-save.json": b"the editors' save\n",
+            "hq-apps/hq-plain/app.json": b"old\n",
+            "hq-apps/hq-plain/media/9.png": b"gone",
+        },
+    )
+    block = tmp_path / "out" / "blocks" / "a"
+    monkeypatch.setenv("PROOF_OUT", str(block))
+    shell = retained.Retained("shell")
+    shell.keep("app-source", {"status": 200})
+    try:
+        shell.hold(proof / "hq-reads" / "shell", others=lambda name: name.endswith("-save"))
+    except AssertionError:
+        pass
+    base = retained.Retained("hq-plain", tree="hq-apps", held=True)
+    base.keep("app", {"new": True})
+    base.keep("expected", {"reads": True})
+    base.settle()
+    assert base.differences(proof / "hq-apps" / "hq-plain") == (["expected.json"], ["app.json"], ["media/9.png"])
+    adopt.adopt(tmp_path / "out", proof=proof)
+    assert sorted(_tree(proof)) == [
+        "hq-apps/hq-plain/app.json",
+        "hq-apps/hq-plain/expected.json",
+        "hq-reads/shell/app-source-after-app-settings-save.json",
+        "hq-reads/shell/app-source.json",
+    ]
+    assert not (proof / "hq-apps" / "hq-plain" / "media").exists()

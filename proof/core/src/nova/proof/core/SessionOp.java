@@ -48,7 +48,9 @@ import java.util.List;
  * (formplayer session/MenuSession::getNextScreen and
  * services/MenuSessionRunnerService::getNextMenu): Core's own screens
  * (MenuScreen, EntityScreen, QueryScreen, SyncScreen) over a SessionWrapper,
- * whose instance initializer is Core's CommCareInstanceInitializer.
+ * whose instance initializer is Core's CommCareInstanceInitializer, its casedb
+ * reading cases' indices through a case index table as Formplayer's and
+ * Android's do (ProofSession).
  *
  * A script is a list of runs; a run is the list of choices it makes, one per
  * screen that asks for one: {"command": id} at a menu, {"select": case id} or
@@ -81,6 +83,8 @@ final class SessionOp {
     private final Generated.Inputs inputs;
     /** "afterSubmit": each submitted form's step also records what Core's session needs next (FormRun.next). */
     private boolean afterSubmit;
+    /** "searchAnswers": the client answers each case search with HQ's own answer (ProofSessionUtils). */
+    private boolean searchAnswers;
 
     private SessionOp(Apps.App app, byte[] restore, Answers answers, String locale, Generated.Inputs inputs) {
         this.app = app;
@@ -94,8 +98,10 @@ final class SessionOp {
      * {"appHandle", "restoreBase64": the case database as restore XML,
      * "answerTable": proof/core/answers.json, "questionKinds"?: {data path: Nova
      * kind}, "locale"?, "clock": the instant now() reads, "script"?: [[step,
-     * ...], ...]} gives {"locale", "clock", "profile", "derived", "runs":
-     * [{"script", "trace", "end", "generated"}]}. "profile" is the app's
+     * ...], ...], "searchAnswers"?: true where the client answers each case
+     * search with HQ's own answer (ProofSessionUtils)} gives {"locale",
+     * "clock", "profile", "derived", "runs": [{"script", "trace", "end",
+     * "generated"}]}. "profile" is the app's
      * required version and properties as its admission read them.
      */
     static JSONObject run(JSONObject request, Apps apps) throws Exception {
@@ -114,6 +120,7 @@ final class SessionOp {
         Generated.Inputs inputs = Generated.Inputs.of(app, restore, request);
         SessionOp op = new SessionOp(app, restore, answers, locale, inputs);
         op.afterSubmit = request.optBoolean("afterSubmit", false);
+        op.searchAnswers = request.optBoolean("searchAnswers", false);
 
         JSONArray runs = new JSONArray();
         JSONArray script = request.optJSONArray("script");
@@ -171,8 +178,8 @@ final class SessionOp {
         Localization.setLocale(locale);
         Generated.seedCoreRandomness();
         MockUserDataSandbox sandbox = CaseData.sandbox(app.engine.getPlatform(), restore);
-        SessionWrapper session = new SessionWrapper(app.engine.getPlatform(), sandbox);
-        ProofSessionUtils network = new ProofSessionUtils(restore, sandbox);
+        SessionWrapper session = new ProofSession(app.engine.getPlatform(), sandbox);
+        ProofSessionUtils network = new ProofSessionUtils(restore, sandbox, searchAnswers);
         Selections selections = new Selections();
         String username = sandbox.getLoggedInUser().getUsername();
 

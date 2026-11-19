@@ -50,7 +50,8 @@ import java.util.NoSuchElementException;
  * by its bytes and parsed as Core's XFormInstaller parses one. The session is a
  * SessionWrapper over the request's case data, holding the command and datums
  * the request names, so the session instance, casedb and fixtures are served by
- * Core's CommCareInstanceInitializer as they are at runtime. A datum given a list
+ * Core's CommCareInstanceInitializer as they are at runtime, its casedb reading
+ * cases' indices through a case index table as every runtime's does (ProofSession). A datum given a list
  * of case ids is a several-case datum, its cases chosen together (selectSeveral).
  * Answers are entered in form order through FormEntryController.answerQuestion;
  * constraint checks use FormEntryController.checkQuestionConstraint, which checks
@@ -80,7 +81,7 @@ final class Evaluate {
         Generated.seedCoreRandomness();
         byte[] restore = Base64.getDecoder().decode(Ops.requireString(request, "restoreBase64"));
         MockUserDataSandbox sandbox = CaseData.sandbox(app == null ? null : platform, restore);
-        SessionWrapper session = new SessionWrapper(platform, sandbox);
+        SessionWrapper session = new ProofSession(platform, sandbox);
         JSONObject frame = request.optJSONObject("session");
         if (frame != null) {
             String command = frame.optString("command", null);

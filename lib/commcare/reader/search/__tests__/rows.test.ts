@@ -28,6 +28,7 @@ import type {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
+	ancestorPath,
 	and,
 	dateLiteral,
 	eq,
@@ -39,6 +40,7 @@ import {
 	neq,
 	now,
 	prop,
+	relationStep,
 	sessionContext,
 	term,
 	whenInput,
@@ -55,6 +57,7 @@ import { moduleExpressionContexts } from "../../../expressionContext";
 import { deriveSimpleArmPredicate } from "../../../suite/case-search/simpleArmDerivation";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { readerInput, sourceFromBody } from "../../__tests__/readerInput";
+import { canonDocument } from "../../canon";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
@@ -65,10 +68,13 @@ import {
 	readLists,
 } from "../../caseList/__tests__/listReading";
 import { knownCaseTypesOf, readHqApp } from "../../index";
+import type { PromptReading } from "../prompts";
 import {
 	type ConjunctPlacement,
 	derivedConditionsAreSimpleFields,
+	filterConditionsOfAFieldAreItsOwn,
 	type RowClassification,
+	simpleDerivation,
 } from "../rows";
 
 /** Every classification the reading's settle made, in the order it made them. */
@@ -526,6 +532,65 @@ describe("the kinds of the conjuncts of `_xpath_query`", () => {
 			field,
 		]);
 		expect(registers(reading)).toContain("search-filter-rows-recut");
+	});
+
+	it("types a date field's property over the case above on that case's type, and no property of the menu's own", () => {
+		// The household's date is untyped, and the patient holds an untyped property of the same name:
+		// the row's derivation reads the household's as a date, and the patient's stays untyped.
+		const field: SimpleSearchInputDef = {
+			uuid: uuid(9),
+			name: "visited",
+			label: "Household visited",
+			kind: "simple",
+			type: "date",
+			property: "visited",
+			via: ancestorPath(relationStep("parent", "household")),
+		};
+		const base = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [field],
+			search: {},
+		});
+		const withVisited = (dataType: CasePropertyDataType | undefined) =>
+			produce(base, (draft) => {
+				draft.caseTypes = [
+					{
+						name: "patient",
+						parent_type: "household",
+						properties: [{ name: "visited", label: proseText("visited") }],
+					},
+					{
+						name: "household",
+						properties: [
+							{
+								name: "visited",
+								label: proseText("visited"),
+								...(dataType !== undefined && { data_type: dataType }),
+							},
+						],
+					},
+				];
+			});
+		const typedDoc = withVisited("date");
+		const menu = typedDoc.moduleOrder[0] as Uuid;
+		const conjunct = deriveSimpleArmPredicate(
+			field,
+			"patient",
+			moduleExpressionContexts(typedDoc, menu)({ slot: "case_list_filter" }),
+		);
+		const found = simpleDerivation(
+			withVisited(undefined),
+			menu,
+			"patient",
+			{ type: "date", input: field } as PromptReading,
+			conjunct,
+		);
+		expect(found?.property).toBe("visited");
+		const typeOf = (caseType: string) =>
+			found?.doc.caseTypes
+				?.find((one) => one.name === caseType)
+				?.properties.find((one) => one.name === "visited")?.data_type;
+		expect(typeOf("household")).toBe("date");
+		expect(typeOf("patient")).toBeUndefined();
 	});
 
 	it("reads an excluded field whose condition is a simple field's derivation as that simple field", async () => {
@@ -1162,6 +1227,30 @@ describe("a menu whose forms read the search", () => {
 		}
 	});
 
+	it("raises a conjunct with no field that the device's list filter reads otherwise than HQ's search, since joining it would change the list", async () => {
+		const entry =
+			"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s";
+		// A standard property, which HQ reads from its own metadata, and a literal longer than the
+		// exact field HQ's `!=` negates indexes.
+		for (const row of [
+			`"case_name = 'Ana'"`,
+			`"notes != '${"x".repeat(8192)}'"`,
+		]) {
+			const reading = await readLists(readingForms(), {
+				edit: (app) => {
+					rowsOf(app, PATIENTS).push({
+						property: "_xpath_query",
+						defaultValue: row,
+					});
+				},
+			});
+			expect(closedCodes(reading)).toEqual([entry]);
+			expect(placements().at(-1)).toEqual({ kind: "E", entry });
+			expect(listOf(reading, PATIENTS).filter).toEqual(notesIs("open"));
+			expect(registers(reading)).not.toContain("search-filter-joined-to-list");
+		}
+	});
+
 	it("raises a conjunct with no field where an advanced form's load names the menu", async () => {
 		const reading = await readLists(readingForms(true), {
 			edit: (app) => {
@@ -1190,5 +1279,89 @@ describe("a menu whose forms read the search", () => {
 				.map((one) => (one as RowClassification).conjuncts.at(-1)?.placement)
 				.filter((placement) => placement?.kind === "E"),
 		).toEqual([{ kind: "E", entry }]);
+	});
+});
+
+describe("an advanced field's guarded conditions, the first of which a simple field derives", () => {
+	it("reads every condition back on the field, as the canonical document holds them", async () => {
+		// The rows of the field's condition follow the list filter's, so reading the second as a
+		// list filter clause would write it ahead of the first: the first is the field's condition
+		// again, with the second joined (fuzz-expression-20260930-3).
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: and(
+				whenInput(input(ADV), eq(prop("patient", "notes"), input(ADV))),
+				whenInput(input(ADV), neq(prop("patient", "phone"), input(ADV))),
+			),
+		};
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [advanced],
+			search: {},
+			list: { filter: notesIs("open") },
+		});
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		const canonical =
+			canonDocument(doc).modules[doc.moduleOrder[0] as Uuid]?.caseListConfig;
+		const read = listOf(reading);
+		expect(authored(read.filter, reading, [advanced])).toEqual(
+			canonical?.filter,
+		);
+		expect(authored(read.searchInputs, reading, [advanced])).toEqual(
+			canonical?.searchInputs,
+		);
+		expect(authored(placements(), reading, [advanced])).toEqual([
+			{ kind: "B", clause: 0 },
+			{ kind: "D", from: "field", input: ADV },
+			{ kind: "D", from: "field", input: ADV },
+		]);
+	});
+
+	it("reads the same conditions held by the list filter back on the field, as the canonical document holds them", async () => {
+		// The list filter's rows are written before every field's, so the two clauses print the rows
+		// the field's condition prints, and with no search settings stored the canonical document
+		// moves both onto the field as the reading places them (csqlQuoteFixture).
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: { kind: "match-all" },
+		};
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [advanced],
+			list: {
+				filter: and(
+					notesIs("open"),
+					whenInput(input(ADV), eq(prop("patient", "notes"), input(ADV))),
+					whenInput(input(ADV), neq(prop("patient", "phone"), input(ADV))),
+				),
+			},
+		});
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		const canonical =
+			canonDocument(doc).modules[doc.moduleOrder[0] as Uuid]?.caseListConfig;
+		expect(canonical?.filter).toEqual(notesIs("open"));
+		// The row moves both clauses in one application: it is a fixed point on its own result.
+		const once =
+			filterConditionsOfAFieldAreItsOwn(doc).modules[doc.moduleOrder[0] as Uuid]
+				?.caseListConfig;
+		expect(once?.filter).toEqual(canonical?.filter);
+		expect(once?.searchInputs).toEqual(canonical?.searchInputs);
+		const read = listOf(reading);
+		expect(authored(read.filter, reading, [advanced])).toEqual(
+			canonical?.filter,
+		);
+		expect(authored(read.searchInputs, reading, [advanced])).toEqual(
+			canonical?.searchInputs,
+		);
 	});
 });

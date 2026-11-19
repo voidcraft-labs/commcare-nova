@@ -5258,13 +5258,16 @@ def _frame_commands(frame):
 
 def _entries_showing(root, detail_id):
     """Each ``<entry>`` or ``<remote-request>`` of a suite one of whose datums shows the detail ``detail_id`` as its
-    list."""
+    list: a ``<datum>``, or the ``<instance-datum>`` of a list that selects several cases
+    (``suite_xml/xml_models.py::InstanceDatum``, which ``Entry.all_datums`` reads beside ``<datum>``)."""
     return [
         entry
         for entry in _children(root)
         if _local(entry) in ("entry", "remote-request")
         and any(
-            isinstance(datum.tag, str) and _local(datum) == "datum" and datum.get("detail-select") == detail_id
+            isinstance(datum.tag, str)
+            and _local(datum) in ("datum", "instance-datum")
+            and datum.get("detail-select") == detail_id
             for datum in entry.iter()
         )
     ]

@@ -9,7 +9,14 @@ each file is written to ``$PROOF_OUT/<tree>/<name>/`` when it is made (a base
 once its reading came in, ``held``), so a run that fails its hold still
 leaves what HQ made for ``python3 -m proof.matrix.adopt`` to copy, and
 ``hold`` (or ``differences``) then compares the committed directory with what
-was made.
+was made. Each comparison also writes, under
+``$PROOF_OUT/retained-held/<tree>/<name>.json``, the committed files of its
+own that it did not make (``extra``, one list a directory, the union of every
+comparison of it in the block): a file is taken out of a retained tree only
+where a test that writes it reached its comparison and did not make it, so
+adopting never removes the files another test writes into the same
+directory (``proof/editors/test_retained_reads.py``'s saves under
+``navigation-base/`` and ``shell/``) or those of a test that stopped first.
 
 It is a helper both test modules import, and not a test module (nothing
 imports a test module, ``proof/store/test_partition.py``). It sits in
@@ -29,6 +36,10 @@ import pytest
 def text_of(value) -> str:
     """A retained JSON file's text: tab-indented, its non-ASCII characters as they are, one newline at the end."""
     return json.dumps(value, indent="\t", ensure_ascii=False) + "\n"
+
+
+# Under a block's output: what each comparison found committed and not made (``Retained.held_record``).
+HELD = "retained-held"
 
 
 def output_root() -> Path:
@@ -130,7 +141,21 @@ class Retained:
         missing = sorted(set(made) - set(held))
         stale = sorted(name for name in set(made) & set(held) if held[name] != made[name])
         extra = sorted(set(held) - set(made))
+        self.record_held(extra)
         return missing, stale, extra
+
+    def held_record(self) -> Path:
+        """Where the comparisons of this directory write what they found committed and not made."""
+        return output_root() / HELD / self.tree / f"{self.group}.json"
+
+    def record_held(self, extra):
+        """``extra`` (paths under the directory, with their suffixes) added to the directory's held record: the
+        files its owner compared, found committed and did not make, which adopting removes where no block of the
+        run wrote them."""
+        path = self.held_record()
+        known = set(json.loads(path.read_text(encoding="utf-8"))["extra"]) if path.is_file() else set()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text_of({"extra": sorted(known | set(extra))}), encoding="utf-8")
 
     def hold(self, committed: Path, *, ignore=(), others=lambda name: False):
         """The committed JSON files are exactly those made, byte for byte (each ``ignore``d subtree, and each file
@@ -144,6 +169,7 @@ class Retained:
         missing = sorted(set(self.made) - set(held))
         stale = sorted(name for name in set(self.made) & set(held) if held[name] != self.made[name])
         extra = sorted(set(held) - set(self.made))
+        self.record_held(f"{name}.json" for name in extra)
         assert not (missing or stale or extra), (
             f"proof/{self.tree}/{self.group}/ is not what HQ answers at its pin: missing {missing}, changed {stale},"
             f" made by nothing {extra}. HQ's answers are written to {self.out}; copy them into"

@@ -1,18 +1,26 @@
-"""Adopt what a run made of HQ into the retained trees: ``python3 -m proof.matrix.adopt <output> [--report]``.
+"""Adopt what a run made of HQ into the retained trees:
+``python3 -m proof.matrix.adopt <output>... [--report]``.
 
 A run's tests write what HQ made under each block's output before they hold
 the committed trees to it (``proof/matrix/retained.py``):
 ``<output>/blocks/<block>/hq-apps/<base>/`` (``proof/matrix/test_retained.py``)
 and ``<output>/blocks/<block>/hq-reads/<group>/``
 (``proof/hq/test_retained_reads.py``, ``proof/editors/test_retained_reads.py``).
-Adopting copies them over ``proof/hq-apps/`` and ``proof/hq-reads/``: each
-base or group directory the run wrote is replaced by everything the run's
-blocks wrote under it, so a file the run did not write there is removed; a
-directory the run did not write is left as it is. Two blocks that wrote one
-file differently are refused, by name. A base the run wrote no
-``expected.json`` for is one whose reading did not come in, and is left out,
-by name; what a run kept of such a base sits under
-``<output>/blocks/<block>/hq-apps-unread/``, which is no tree adopted.
+A sharded run leaves one output a shard, and two blocks of one run, on two
+shards, can write files of one retained directory (both of those
+``hq-reads`` tests write ``navigation-base/`` and ``shell/``), so adopting
+takes every output of the run at once and merges by file: each file any
+block wrote is written over ``proof/hq-apps/`` and ``proof/hq-reads/``, and
+two blocks that wrote one file differently are refused, by name. A committed
+file the run did not write is removed only where a test that owns it reached
+its comparison and did not make it: each comparison records the committed
+files of its own it did not make (``<output>/blocks/<block>/retained-held/``,
+``retained.Retained.record_held``), so a file another test writes, or one of
+a test that stopped before comparing, is kept. A directory the run did not
+write is left as it is. A base the run wrote no ``expected.json`` for is one
+whose reading did not come in, and is left out, by name; what a run kept of
+such a base sits under ``<output>/blocks/<block>/hq-apps-unread/``, which is
+no tree adopted.
 
 With ``--report`` it prints each base whose stored app (``app.json``) or
 whose answers changed, and each base whose reading changed: the reader
@@ -20,16 +28,18 @@ bundle the run's own corpus carries (``<corpus>/native/reader/reader.mjs``,
 ``--corpus`` or ``<output>/corpus``) reads the old answers and the new ones
 (``proof.matrix.lane_input``), and a base whose two answers differ is named.
 
-It is a file copy on the standard library, with no image: a pin pull request
-and a person moving a pin by hand run it over the output of the failing
-``test_retained.py``.
+It is a file copy on the standard library, with no image: a pin pull request,
+a person moving a pin by hand and a round that authors bases again
+(``proof/README.md``, "Authoring bases again") run it over every output of
+the run whose ``test_retained.py`` failed. Adopting one shard's output alone
+loses nothing another shard wrote, but only the outputs together refuse two
+blocks that answered one file apart.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -38,6 +48,9 @@ from proof.matrix import lane_input
 
 PROOF = Path(__file__).resolve().parents[1]
 TREES = ("hq-apps", "hq-reads")
+# What each comparison found committed and not made, under a block's output (``proof.matrix.retained.HELD``; this
+# module runs on the standard library, which that one, importing pytest, is not).
+HELD = "retained-held"
 READING_DEADLINE = 600.0
 
 
@@ -45,15 +58,25 @@ class AdoptRefused(ValueError):
     """The run's output cannot be adopted as it stands."""
 
 
-def written(output: Path, tree: str) -> dict[str, dict[str, bytes]]:
-    """Every file the run's blocks wrote under ``tree``, by its directory (a base or a group) and then its path under
-    that directory; two blocks that wrote one file differently are refused."""
+def block_roots(outputs, tree: str) -> list[Path]:
+    """Each block's ``tree`` directory across every output of the run; an output with no ``blocks/`` is refused."""
+    roots = []
+    for output in outputs:
+        blocks = Path(output) / "blocks"
+        if not blocks.is_dir():
+            raise AdoptRefused(
+                f"{output} holds no blocks/ directory, so it is no run's output. Name every output of the run."
+            )
+        roots += sorted(blocks.glob(f"*/{tree}"))
+    return roots
+
+
+def written(outputs, tree: str) -> dict[str, dict[str, bytes]]:
+    """Every file the run's blocks, across every output of the run, wrote under ``tree``, by its directory (a base
+    or a group) and then its path under that directory; two blocks that wrote one file differently are refused."""
     found: dict[str, dict[str, bytes]] = {}
     where: dict[tuple[str, str], Path] = {}
-    blocks = output / "blocks"
-    if not blocks.is_dir():
-        raise AdoptRefused(f"{output} holds no blocks/ directory, so it is no run's output. Name the run's output.")
-    for root in sorted(blocks.glob(f"*/{tree}")):
+    for root in block_roots(outputs, tree):
         for path in sorted(root.rglob("*")):
             if not path.is_file():
                 continue
@@ -73,6 +96,19 @@ def written(output: Path, tree: str) -> dict[str, dict[str, bytes]]:
     return found
 
 
+def unmade(outputs, tree: str) -> dict[str, set[str]]:
+    """The committed files of ``tree`` that a comparison of the run found and did not make, by directory: the union
+    of every block's held records (``retained-held/<tree>/<directory>.json``)."""
+    found: dict[str, set[str]] = {}
+    for root in block_roots(outputs, f"{HELD}/{tree}"):
+        for path in sorted(root.glob("*.json")):
+            extra = json.loads(path.read_text(encoding="utf-8")).get("extra")
+            if not isinstance(extra, list) or not all(isinstance(name, str) and name for name in extra):
+                raise AdoptRefused(f"{path} lists no files a comparison found and did not make.")
+            found.setdefault(path.stem, set()).update(extra)
+    return found
+
+
 def held(root: Path) -> dict[str, dict[str, bytes]]:
     """Every file of a committed tree, by its directory and its path under it."""
     found: dict[str, dict[str, bytes]] = {}
@@ -87,12 +123,21 @@ def held(root: Path) -> dict[str, dict[str, bytes]]:
     return found
 
 
-def adopt_tree(made: dict[str, dict[str, bytes]], root: Path) -> list[str]:
-    """Each directory of ``made`` written over ``root``, replacing what was there; the directories adopted."""
-    for directory, files in sorted(made.items()):
+def adopt_tree(made: dict[str, dict[str, bytes]], root: Path, removed: dict[str, set[str]] | None = None) -> list[str]:
+    """Each file of ``made`` written over ``root``, and each file ``removed`` names that ``made`` does not hold taken
+    out of it (a directory left empty with it); the directories adopted."""
+    removed = removed or {}
+    for directory in sorted(set(made) | set(removed)):
         target = root / directory
-        if target.exists():
-            shutil.rmtree(target)
+        files = made.get(directory, {})
+        for name in sorted(removed.get(directory, set()) - set(files)):
+            path = target / name
+            if path.is_file():
+                path.unlink()
+                for parent in path.parents:
+                    if parent == target.parent or any(parent.iterdir()):
+                        break
+                    parent.rmdir()
         for name, data in sorted(files.items()):
             path = target / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,14 +228,18 @@ def unread_bases(made: dict[str, dict[str, bytes]]) -> list[str]:
     return sorted(base for base, files in made.items() if "expected.json" not in files)
 
 
-def adopt(output: Path, *, proof: Path = PROOF, report: bool = False, corpus: Path | None = None) -> list[str]:
-    """Adopt the run at ``output`` into ``proof``'s trees; with ``report``, the lines of the report. A base the run
-    wrote no ``expected.json`` for is left out, by name."""
-    output = Path(output)
-    made = {tree: written(output, tree) for tree in TREES}
+def adopt(outputs, *, proof: Path = PROOF, report: bool = False, corpus: Path | None = None) -> list[str]:
+    """Adopt the run whose outputs are ``outputs`` (one a shard; one ``Path`` for a run on one machine) into
+    ``proof``'s trees; with ``report``, the lines of the report. A base the run wrote no ``expected.json`` for is
+    left out, by name."""
+    outputs = [Path(outputs)] if isinstance(outputs, (str, Path)) else [Path(output) for output in outputs]
+    output = outputs[0]
+    made = {tree: written(outputs, tree) for tree in TREES}
+    removed = {tree: unmade(outputs, tree) for tree in TREES}
     left_out = unread_bases(made["hq-apps"])
     for base in left_out:
         del made["hq-apps"][base]
+        removed["hq-apps"].pop(base, None)
     left_lines = [
         f"Left out {base}: the run wrote no expected.json for it, so Nova's reading of it did not come in. What HQ"
         f" made of it is under blocks/<block>/hq-apps-unread/{base}/ where the run kept it."
@@ -202,7 +251,8 @@ def adopt(output: Path, *, proof: Path = PROOF, report: bool = False, corpus: Pa
                 f"The run wrote no base whose reading came in, so there is nothing to adopt: {' '.join(left_lines)}"
             )
         raise AdoptRefused(
-            f"No block of {output} wrote hq-apps/ or hq-reads/, so there is nothing to adopt. Run the tests that"
+            f"No block of {', '.join(map(str, outputs))} wrote hq-apps/ or hq-reads/, so there is nothing to adopt."
+            " Run the tests that"
             " write them (proof/matrix/test_retained.py, proof/hq/test_retained_reads.py,"
             " proof/editors/test_retained_reads.py) into it."
         )
@@ -219,7 +269,7 @@ def adopt(output: Path, *, proof: Path = PROOF, report: bool = False, corpus: Pa
             )
             old_readings = readings(reader, old_root, made["hq-apps"])
     for tree in TREES:
-        adopted = adopt_tree(made[tree], proof / tree)
+        adopted = adopt_tree(made[tree], proof / tree, removed[tree])
         lines.append(f"Adopted {len(adopted)} director{'y' if len(adopted) == 1 else 'ies'} of proof/{tree}/.")
     if report:
         for base, what in changes(before, held(apps_root)).items():
@@ -236,12 +286,17 @@ def main(argv=None):
         prog="python3 -m proof.matrix.adopt",
         description="Copy what a run made of HQ over proof/hq-apps/ and proof/hq-reads/.",
     )
-    parser.add_argument("output", type=Path, help="the run's output directory (.proof/out)")
+    parser.add_argument(
+        "outputs",
+        nargs="+",
+        type=Path,
+        help="every output directory of the run (one a shard; .proof/out on one machine)",
+    )
     parser.add_argument("--report", action="store_true", help="name each base whose files or reading changed")
     parser.add_argument("--corpus", type=Path, help="the corpus whose reader bundle reads the bases")
     arguments = parser.parse_args(argv)
     try:
-        lines = adopt(arguments.output, report=arguments.report, corpus=arguments.corpus)
+        lines = adopt(arguments.outputs, report=arguments.report, corpus=arguments.corpus)
     except AdoptRefused as refusal:
         print(refusal, file=sys.stderr)
         return 1

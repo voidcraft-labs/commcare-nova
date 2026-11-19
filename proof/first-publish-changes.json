@@ -35,6 +35,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/profile/properties"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_details/*/columns/*/calc_xpath"
 			},
 			{
@@ -458,6 +463,18 @@
 				"artifact": "suite.xml",
 				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/validation[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
 			}
 		]
 	},
@@ -472,8 +489,38 @@
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
-				"path": "/suite/remote-request[*]/session[*]/query[*]/data[*]/@ref",
-				"kind": "changed"
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "removed"
 			}
 		]
 	},
@@ -515,14 +562,14 @@
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
-				"path": "/suite/remote-request[*]/session[*]/query[*]/data[*]/@ref",
-				"kind": "changed"
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
 			},
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
-				"path": "/suite/remote-request[*]/session[*]/query[*]/data[*]",
-				"kind": "added"
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
 			}
 		]
 	},
@@ -725,13 +772,19 @@
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
-				"path": "/suite/entry[*]/session[*]/query[*]/data[*]/@ref",
-				"kind": "changed"
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
 			},
 			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/entry[*]/session[*]/query[*]/data[*]",
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
 				"kind": "added"
 			}
 		]
@@ -743,6 +796,12 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/forms/*/form_links/*/xpath"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/stack[*]/create[*]/@if",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1576,6 +1635,30 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/properties/*/validations/*/text"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/xform[*]/resource[@id=*]/@descriptor",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/choices/*/text",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/choices/*/text",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1617,6 +1700,18 @@
 				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]",
 				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/headers/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/headers/*",
+				"kind": "changed"
 			}
 		]
 	}

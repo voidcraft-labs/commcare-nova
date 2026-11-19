@@ -1439,6 +1439,65 @@ class Predicates(unittest.TestCase):
 
     # The spelling rules one of whose readers is Android ---------------------------------------------------------
 
+    def test_a_form_reads_a_field_list_group_alike_in_either_letter_case(self):
+        """The spelling rule ``field-list-appearance-case``. Contract: Android asks Core whether a group is a field
+        list (``FormController.indexIsInFieldList``, through ``FormEntryController.isHostWithAppearance``, which
+        compares the group's whole appearance with ``field-list`` ignoring case), so the control's field-list
+        group written ``Field-List`` shows the worker the same screens, one screen for the group and no prompt to
+        add a row of the repeat inside it, and an appearance Core does not read as ``field-list`` in any case
+        (``FIELD-LISTS``) shows a screen a question and the prompt. Failure it catches: Android reading the
+        token's letter case."""
+        form = "modules-0/forms-0.xml"
+
+        def screens(archive):
+            return self.walked(archive, commands=["m0-f0"])["walks"]["m0-f0"]["steps"][0]["form"]["screens"]
+
+        def spelled(name, appearance):
+            replacement = ('appearance="field-list"', f'appearance="{appearance}"')
+            return edited(LABELLED_REPEAT, self.work / f"{name}.ccz", form, [replacement])
+
+        lower = screens(LABELLED_REPEAT)
+        mixed = screens(spelled("field-list-mixed", "Field-List"))
+        other = screens(spelled("field-lists", "FIELD-LISTS"))
+        self.assertNotIn("PROMPT_NEW_REPEAT", [screen["event"] for screen in lower])
+        self.assertEqual(mixed, lower)
+        self.assertIn("PROMPT_NEW_REPEAT", [screen["event"] for screen in other])
+
+    def test_a_menu_icon_no_media_resource_installs_draws_as_none(self):
+        """The spelling rule ``menu-image-without-media``. Contract: a menu that names an icon at a path no media
+        resource of the archive installs (the reference CommCare HQ's build writes for an icon whose file was never
+        uploaded: the app string and the menu's ``<display>``, and no ``<media>``) installs as the menu with no
+        icon does, lists the same items with the same texts, and holds no file for the icon, so
+        ``MediaUtil.inflateDisplayImage`` answers null and ``MenuAdapter.setupImageView`` draws the default icon,
+        as it does for a menu that names none. Failure it catches: an install refused, or a file held, for a
+        reference no media resource names."""
+        icon = "jr://file/commcare/image/module0_en.png"
+        menu = '<menu id="m0"><text><locale id="modules.m0"/></text>'
+        displayed = (
+            '<menu id="m0"><display><text><locale id="modules.m0"/></text>'
+            '<text form="image"><locale id="modules.m0.icon"/></text></display>'
+        )
+        named = edited(SURVEY, self.work / "icon-suite.ccz", "suite.xml", [(menu, displayed)])
+        for language in ("default", "en"):
+            named = edited(
+                named,
+                self.work / f"icon-{language}.ccz",
+                f"{language}/app_strings.txt",
+                [("modules.m0=Household surveys\n", f"modules.m0=Household surveys\nmodules.m0.icon={icon}\n")],
+            )
+
+        def first_menu(archive):
+            menus = [step["menu"] for step in self.steps(self.walked(archive), "MenuActivity") if step.get("menu")]
+            self.assertTrue(menus and menus[0]["items"], f"{archive.name} shows no menu")
+            return menus[0]
+
+        plain, iconed = first_menu(SURVEY), first_menu(named)
+        self.assertEqual([item["image"] for item in plain["items"]], [None])
+        self.assertEqual([item["image"] for item in iconed["items"]], [{"uri": icon, "held": False}])
+        self.assertEqual(
+            [{**item, "image": None} for item in iconed["items"]], [{**item, "image": None} for item in plain["items"]]
+        )
+
     def test_a_device_reads_an_archive_alike_under_either_app_id(self):
         """The spelling rule ``runtime-url-app-id``. Contract: an archive whose search URL and server
         properties name one app id and the same archive naming another install alike, and every profile

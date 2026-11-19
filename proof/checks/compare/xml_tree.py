@@ -30,7 +30,14 @@ it is vocabulary, not data, and the path keeps it
 (``property[@key=cc-show-saved]``). A media suite's ``media`` element, which
 holds no identity of its own, is its one resource's: Core installs each
 resource by its id at the element's path, so the step is
-``media[resource/@id=*]``. A child present on one side only is
+``media[resource/@id=*]``. A search's ``<data key="_xpath_query">`` is
+its ``ref``'s: HQ's case search adds each such value as one more filter of
+the query it runs, in no order a value's place decides
+(``case_search/utils.py::CaseSearchQueryBuilder._apply_filter``), and no
+other reader reads them, so the step is
+``data[@key=_xpath_query][@ref=*]``, the same value sent again is its
+``n``-th (``[@ref=value]#n`` in ``at``), and such a value's place among its
+siblings is no order a difference names (``_unordered``). A child present on one side only is
 ``added`` or ``removed`` whole; when the children both sides hold come in a
 different order, one ``/order()`` difference names both orders. An element
 whose namespace differs from its counterpart's is reported at
@@ -92,6 +99,9 @@ VOCABULARY_IDENTITIES = frozenset({("property", "key"), ("value", "form")})
 DATA_PATH_IDENTITIES = frozenset({("bind", "nodeset"), ("setvalue", "ref")})
 # The kinds of document a comparison names by (``compare.names``).
 NAMINGS = ("auto", "generic", "xform", "data", "casedb")
+# The key of a suite query's ``<data>`` whose values HQ's case search adds as filters one by one, in no order
+# (``case_search/const.py::CASE_SEARCH_XPATH_QUERY_KEY``).
+XPATH_QUERY_KEY = "_xpath_query"
 
 # The prefixes paths use for the namespaces CommCare documents declare, so a
 # path reads the same whichever prefix a serializer chose.
@@ -224,6 +234,11 @@ class _Naming:
             if value is None:
                 return shown, own, None, None
             return shown, own, "[resource/@id=*]", f"[resource/@id={value}]"
+        if _unordered(context, local, child):
+            value = child.get("ref")
+            if value is None:
+                return shown, own, None, None
+            return shown, own, f"[@key={XPATH_QUERY_KEY}][@ref=*]", f"[@key={XPATH_QUERY_KEY}][@ref={value}]"
         if context == XFORM_ROOT and local == "setvalue":
             event, ref = child.get("event"), child.get("ref")
             if event is None or ref is None:
@@ -245,6 +260,11 @@ class _Naming:
 # The contexts of a document named by no reader's rules (every name kept), and of an XForm outside its data.
 GENERIC = "generic"
 XFORM_ROOT = "xform"
+
+
+def _unordered(context, local, child):
+    """Whether ``child`` is a value of a multiset among its siblings: a suite query's ``_xpath_query`` data."""
+    return context == GENERIC and local == "data" and child.get("key") == XPATH_QUERY_KEY
 
 
 @functools.lru_cache(maxsize=4096)
@@ -303,11 +323,16 @@ def _steps(children, naming, context, parent_written):
             identities[key] = identities.get(key, 0) + 1
         described.append((child, tail, local, shown, own, written, concrete))
     positions = {}
+    occurrences = {}
     steps = []
     for child, tail, local, shown, own, written, concrete in described:
         app = shown == names.APP
         place = APP_STEP if app else ROW_STEP if names.is_row(shown, own, parent_written) else None
-        if concrete is not None and identities[local + concrete] == 1:
+        if concrete is not None and _unordered(context, local, child):
+            # A multiset's value sent again is its n-th, never a position among its siblings.
+            seen = occurrences[local + concrete] = occurrences.get(local + concrete, 0) + 1
+            step = (f"{shown}{written}", f"{local}{concrete}" + ("" if seen == 1 else f"#{seen}"))
+        elif concrete is not None and identities[local + concrete] == 1:
             step = (names.APP if app else f"{shown}{written}", f"{local}{concrete}")
         else:
             position = positions[local] = positions.get(local, 0) + 1
@@ -398,8 +423,14 @@ def compare_xml_trees(before, after, *, check, document, artifact, blank_text="i
             if concrete not in present_a:
                 report(below(path, run, structural, place)[0], f"{at}/{concrete}", "added", None, _serialized(child))
         common = present_a & set(concrete_b)
-        order_a = [step for step in concrete_a if step in common]
-        order_b = [step for step in concrete_b if step in common]
+        unordered = {
+            entry[0][1]
+            for steps, context in ((steps_a, context_a), (steps_b, context_b))
+            for entry in steps
+            if _unordered(context, _tag(entry[1].tag)[1], entry[1])
+        }
+        order_a = [step for step in concrete_a if step in common and step not in unordered]
+        order_b = [step for step in concrete_b if step in common and step not in unordered]
         if order_a != order_b:
             report(f"{path}/order()", f"{at}/order()", "changed", order_a, order_b)
 

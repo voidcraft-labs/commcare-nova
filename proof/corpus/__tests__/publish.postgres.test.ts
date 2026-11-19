@@ -1808,7 +1808,9 @@ it("publishes over an app brought in from CommCare HQ as the capture does, under
 		const root = join(scratch, "hq-apps");
 		const hand = join(scratch, "hand");
 		await writeControlledBase(root, hand);
-		const [base] = await hqAuthoredDocuments(root, hand);
+		const {
+			documents: [base],
+		} = await hqAuthoredDocuments(root, hand);
 		const facts = base?.hqAuthored;
 		if (base === undefined || facts === undefined)
 			throw new Error("The controlled base read to no document.");

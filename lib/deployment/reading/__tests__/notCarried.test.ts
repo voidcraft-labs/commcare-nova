@@ -30,6 +30,7 @@ import {
 	sortNamedHiddenColumnDocument,
 	surveyListDocument,
 	unexportedTextDocument,
+	unprintedGuardDocument,
 	worldDocument,
 } from "./readBackDocument";
 
@@ -49,8 +50,9 @@ function keptOut(doc: BlueprintDoc): unknown {
  * Every document the proof lane publishes, a case app that holds every kind
  * no wire carries, a survey holding a model's translation and a
  * validation message no condition can fail, a list naming a column
- * hidden from both screens in Sort by under another text than its header, and
- * a menu that lists no cases holding a list of its own.
+ * hidden from both screens in Sort by under another text than its header,
+ * a menu that lists no cases holding a list of its own, and a searched menu
+ * holding a translation of a search guard sentence none of its fields carries.
  */
 function documents(): { readonly id: string; readonly doc: BlueprintDoc }[] {
 	return [
@@ -62,6 +64,7 @@ function documents(): { readonly id: string; readonly doc: BlueprintDoc }[] {
 		{ id: "unexported-text", doc: unexportedTextDocument() },
 		{ id: "sort-named-hidden-column", doc: sortNamedHiddenColumnDocument() },
 		{ id: "survey-list", doc: surveyListDocument() },
+		{ id: "unprinted-search-guard", doc: unprintedGuardDocument() },
 	];
 }
 
@@ -77,6 +80,7 @@ describe("the content no export holds", () => {
 				"sort-named-hidden-column-header-is-its-name",
 				"tile-columns-shown-nowhere-are-as-read",
 				"translation-provenance-is-read-as-reviewed",
+				"unprinted-search-guard-translations-are-absent",
 				"validation-message-with-no-condition-is-absent",
 				"world-properties-as-read",
 			].sort(),

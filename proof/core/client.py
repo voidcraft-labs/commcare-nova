@@ -8,6 +8,13 @@ interrupt an XPath evaluation), and the next request starts a fresh JVM.
 Use it as a context manager so the JVM is shut down and joined on every exit
 path.
 
+A request can ask the client something while it runs: the JVM writes a
+callback line, ``{"id": <the request's id>, "callback": <name>, "question"}``,
+and reads the client's answer, ``{"callback": <name>, "answer"}``, as its next
+line of input (``Runner.java::ask``). The client answers it with the handler
+the request was sent with (``callbacks``); a session given ``searches`` asks
+it for HQ's own answer to each case search (``ProofSessionUtils.java``).
+
 A process that starts several runners compiles once: ``compile_runner(path)``
 writes the classes into a directory, and each runner given that directory
 (``classes=``, or ``PROOF_CORE_CLASSES`` for a runner over the runner's own
@@ -35,7 +42,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -230,9 +237,10 @@ class CoreRunner:
     def classpath(self) -> str:
         return test_classpath(self._core_dir)
 
-    def _launch(self) -> None:
+    def command(self) -> list[str]:
+        """The command that starts the runner's JVM over its compiled classes."""
         assert self._work is not None and self._classes is not None
-        command = [
+        return [
             "java",
             f"-Xmx{self._max_heap}",
             *JVM_OPTIONS,
@@ -245,6 +253,10 @@ class CoreRunner:
             f"{self._classes}{os.pathsep}{self.classpath}",
             MAIN_CLASS,
         ]
+
+    def _launch(self) -> None:
+        assert self._work is not None and self._classes is not None
+        command = self.command()
         started = time.perf_counter()
         with self._stderr_lock:
             self._stderr.clear()
@@ -370,8 +382,20 @@ class CoreRunner:
 
     # -- requests ----------------------------------------------------------
 
-    def request(self, op: str, *, deadline: float, **args: Any) -> dict[str, Any]:
-        """Sends one request and returns its result, starting a fresh JVM first when the last one halted."""
+    def request(
+        self,
+        op: str,
+        *,
+        deadline: float,
+        callbacks: Mapping[str, Callable[[dict[str, Any]], dict[str, Any]]] | None = None,
+        **args: Any,
+    ) -> dict[str, Any]:
+        """Sends one request and returns its result, starting a fresh JVM first when the last one halted.
+
+        ``callbacks`` answers each question the request asks while it runs, by
+        the callback's name: a handler is given the question and returns the
+        answer, a JSON object.
+        """
         if self._work is None or self._classes is None:
             raise CoreRunnerError("The Core runner is not started; use it as a context manager or call start().")
         if not self.alive:
@@ -379,25 +403,55 @@ class CoreRunner:
                 self._stop_process()
             self._launch()
             self.restarts += 1
-        return self._send({"op": op, **args}, deadline=deadline)
+        return self._send({"op": op, **args}, deadline=deadline, callbacks=callbacks or {})
 
-    def _send(self, message: dict[str, Any], *, deadline: float) -> dict[str, Any]:
-        process = self._process
-        assert process is not None and process.stdin is not None
-        request_id = self._next_id
-        self._next_id += 1
-        op = message["op"]
-        line = json.dumps({"id": request_id, "deadlineMs": max(1, int(deadline * 1000)), **message})
+    def _write(self, process: subprocess.Popen[bytes], value: dict[str, Any], what: str) -> None:
+        assert process.stdin is not None
         try:
-            process.stdin.write(line.encode("utf-8") + b"\n")
+            process.stdin.write(json.dumps(value).encode("utf-8") + b"\n")
             process.stdin.flush()
         except OSError as error:
             returncode = self._stop_process()
             raise CoreRunnerError(
-                f"The Core runner's JVM stopped before it read the {op} request (exit status {returncode})."
+                f"The Core runner's JVM stopped before it read {what} (exit status {returncode})."
                 f" Its stderr:\n{self.stderr}"
             ) from error
-        answer = self._next_line(deadline + CLIENT_GRACE_SECONDS)
+
+    def _send(self, message: dict[str, Any], *, deadline: float, callbacks=None) -> dict[str, Any]:
+        process = self._process
+        assert process is not None and process.stdin is not None
+        callbacks = callbacks or {}
+        request_id = self._next_id
+        self._next_id += 1
+        op = message["op"]
+        self._write(
+            process,
+            {"id": request_id, "deadlineMs": max(1, int(deadline * 1000)), **message},
+            f"the {op} request",
+        )
+        # The request's deadline runs while its callbacks are answered, as the JVM's own does.
+        started = time.perf_counter()
+        while True:
+            answer = self._next_line(max(0.0, deadline + CLIENT_GRACE_SECONDS - (time.perf_counter() - started)))
+            question = callback_of(answer, request_id)
+            if question is None:
+                break
+            name, asked = question
+            handler = callbacks.get(name)
+            if handler is None:
+                self._stop_process()
+                raise CoreRunnerError(
+                    f"The Core runner asked for the {name!r} callback while it ran the {op} request, which was sent"
+                    " with no handler for it; the client stopped the JVM so the request ends here.",
+                    kind="request",
+                )
+            try:
+                answered = handler(asked)
+            except BaseException:
+                # The JVM waits for the answer; the harness's refusal ends the request and the JVM with it.
+                self._stop_process()
+                raise
+            self._write(process, {"callback": name, "answer": answered}, f"the answer to its {name} question")
         if answer is SILENCE:
             self._stop_process()
             raise CoreDeadlineError(
@@ -500,9 +554,16 @@ class CoreRunner:
         locale: str | None = None,
         clock: str = DEFAULT_CLOCK,
         after_submit: bool = False,
+        searches: Callable[[str | None, dict[str, list[str]]], tuple[int, bytes]] | None = None,
         deadline: float = 600.0,
     ) -> dict[str, Any]:
         """Runs scripted sessions over the admitted app and returns their trace.
+
+        With ``searches``, each case search a session sends is answered by it
+        (``search_answers``): given the search's URL and parameters, it returns
+        the status and body HQ's own search view answered. Without it, the
+        runner answers a search with every case of its types and applies no
+        filter (``ProofSessionUtils.java``).
 
         Without a script the runner derives one from the app (every menu command,
         every reachable form with the first entity of each list); the trace
@@ -526,7 +587,11 @@ class CoreRunner:
             args["locale"] = locale
         if after_submit:
             args["afterSubmit"] = True
-        return self.request("session", deadline=deadline, **args)
+        callbacks = None
+        if searches is not None:
+            args["searchAnswers"] = True
+            callbacks = {"search": search_answers(searches)}
+        return self.request("session", deadline=deadline, callbacks=callbacks, **args)
 
     def evaluate(self, *, deadline: float = 120.0, app: AppHandle | None = None, **args: Any) -> dict[str, Any]:
         """Opens a form or a case list with the given session and case data and reports what Core computes."""
@@ -547,6 +612,45 @@ class CoreRunner:
                 " again in this one.",
                 kind="request",
             )
+
+
+def callback_of(line, request_id) -> tuple[str, dict[str, Any]] | None:
+    """``(name, question)`` where ``line`` is the JVM asking the client a question while it runs the request
+    ``request_id`` (``Runner.java::ask``), else None: the line is the request's answer or something the caller
+    refuses."""
+    if not isinstance(line, bytes):
+        return None
+    try:
+        value = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(value, dict) or "callback" not in value or value.get("id") != request_id:
+        return None
+    name, question = value.get("callback"), value.get("question")
+    if not isinstance(name, str) or not isinstance(question, dict):
+        return None
+    return name, question
+
+
+def search_answers(answer: Callable[[str | None, dict[str, list[str]]], tuple[int, bytes]]):
+    """The ``search`` callback of a session whose searches ``answer`` answers: given the search's URL and its
+    parameters (each key's values in the order Core sends them), it returns HQ's status and body, which the JVM
+    hands Core as the search's response."""
+
+    def handler(question: dict[str, Any]) -> dict[str, Any]:
+        params = question.get("params")
+        if not isinstance(params, dict) or not all(
+            isinstance(values, list) and all(isinstance(value, str) for value in values) for values in params.values()
+        ):
+            raise CoreRunnerError(
+                "The Core runner asked for a search's answer with parameters that are not lists of strings by key:"
+                f" {str(params)[:300]}."
+            )
+        url = question.get("url")
+        status, body = answer(url if isinstance(url, str) else None, params)
+        return {"status": int(status), "bodyBase64": base64.b64encode(body).decode("ascii")}
+
+    return handler
 
 
 def exited_within(process: subprocess.Popen, timeout: float) -> bool:

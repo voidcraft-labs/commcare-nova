@@ -926,3 +926,56 @@ def test_queue_and_collection_preserve_check_eligibility_for_migration_witnesses
     assert [item.values[0].id for item in cases.document_params("sensitivity")] == ["two"]
     assert [item.values[0].id for item in cases.document_params("proof1")] == ["one", "two"]
     assert [item.values[0].id for item in cases.document_params("proof2")] == ["two"]
+
+
+def test_the_group_that_authors_a_base_the_corpus_set_aside_runs_in_every_main_queue_never_from_the_store(tmp_path):
+    """Contract (``queue.set_aside_groups``): a base made in HQ the corpus set aside is authored again by the run,
+    whatever the store holds and whatever documents the run was asked for, so the run's own output is what the
+    base is adopted back from; a base no group authors adds nothing, which the gate names. The plausible failures:
+    the authoring group cached from an earlier run (the run then writes no new copy, and the base stays out of the
+    corpus), and a run over documents named by hand that queues no package and so never authors it."""
+    from proof.checks import sharding
+
+    proof_dir = tmp_path / "proof"
+    (proof_dir / "matrix").mkdir(parents=True)
+    (proof_dir / "matrix" / "bases.json").write_text(json.dumps(["hq-plain", "hq-search"]))
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    index = {"documents": [{"id": "hq-plain"}]}
+    (corpus / "index.json").write_text(json.dumps(index))
+
+    class Builder:
+        def package(self, name, data):
+            return queue.Group(name, 13.0)
+
+    def authoring(base):
+        return sharding.parameter_group(sharding.AUTHORING_MODULE, base)
+
+    def cached(name):
+        return queue.Group(name, 13.0, status="cached", judgments={"outcome": "k"})
+
+    # A corpus that set nothing aside leaves the store's verdicts standing.
+    groups = queue.set_aside_groups(Builder(), [cached(authoring("hq-search"))], corpus, {}, proof_dir)
+    assert [(group.name, group.status) for group in groups] == [(authoring("hq-search"), "cached")]
+
+    aside = {"base": "hq-search", "reading": "account", "notice": "set aside"}
+    gone = {"base": "hq-gone", "reading": "account", "notice": "set aside"}
+    (corpus / "index.json").write_text(json.dumps({**index, "setAside": [aside, gone]}))
+    # A whole run: the cached authoring group runs, with no judgment read from the store; another base's stays.
+    groups = queue.set_aside_groups(
+        Builder(), [cached(authoring("hq-search")), cached(authoring("hq-plain"))], corpus, {}, proof_dir
+    )
+    assert [(group.name, group.status, group.judgments) for group in groups] == [
+        (authoring("hq-search"), "observed", {}),
+        (authoring("hq-plain"), "cached", {"outcome": "k"}),
+    ]
+    # A run over documents named by hand queues no package: the authoring group is added. hq-gone is no base of
+    # proof/matrix/bases.json, so no group authors it.
+    groups = queue.set_aside_groups(Builder(), [queue.Group("corpus:hq-plain", 4.0)], corpus, {}, proof_dir)
+    assert [(group.name, group.status) for group in groups] == [
+        ("corpus:hq-plain", "observed"),
+        (authoring("hq-search"), "observed"),
+    ]
+    # The queue names the bases the corpus set aside, for the gate.
+    value = queue.queue_value(groups, {}, readers=lane_readers.EVERY, set_aside=lane_blocks.set_aside_bases(corpus))
+    assert [one.base for one in lane_blocks.parse_queue(value).set_aside] == ["hq-gone", "hq-search"]

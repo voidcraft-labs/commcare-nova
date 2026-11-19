@@ -1094,7 +1094,9 @@ describe("the hq-authored source", () => {
 		await writeControlledBase(root, hand);
 		/* The base is authored under the flags its content needs, as every
 		 * base is (`proof/matrix/registry.py`). */
-		const [read] = await hqAuthoredDocuments(root, hand);
+		const {
+			documents: [read],
+		} = await hqAuthoredDocuments(root, hand);
 		if (read === undefined)
 			throw new Error("The controlled base read to none.");
 		const { flags } = documentVerdict({
@@ -1104,7 +1106,9 @@ describe("the hq-authored source", () => {
 			...(read.media !== undefined && { media: read.media }),
 		}).minimumConfiguration;
 		base = await writeControlledBase(root, hand, flags);
-		const [authored] = await hqAuthoredDocuments(root, hand);
+		const {
+			documents: [authored],
+		} = await hqAuthoredDocuments(root, hand);
 		if (authored === undefined)
 			throw new Error("The controlled base read to none.");
 		document = authored;
