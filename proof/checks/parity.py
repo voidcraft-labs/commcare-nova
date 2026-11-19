@@ -89,6 +89,9 @@ class Record:
     key: str | None
     entry: str
     standing: str
+    # Where the value the claim reads sits, where it is not ``where`` (a key of a map whose claim names the map's
+    # schema key, ``ClaimRecord.at``): the place the first-publish judge's inert allowance reads.
+    at: str | None = None
 
 
 @functools.cache
@@ -109,7 +112,16 @@ def records_of(claims) -> list[Record]:
     for line in claims.splitlines():
         if line.strip():
             value = json.loads(line)
-            found.append(Record(value["artifact"], value["where"], value.get("key"), value["entry"], value["standing"]))
+            found.append(
+                Record(
+                    value["artifact"],
+                    value["where"],
+                    value.get("key"),
+                    value["entry"],
+                    value["standing"],
+                    value.get("at"),
+                )
+            )
     return found
 
 
@@ -312,12 +324,15 @@ def join(uses, claims, *, document: str = "", held=None) -> list[Difference]:
 
 
 def claim_places(claims) -> changes.ClaimPlaces:
-    """Each place of the app's own JSON the claim log holds a record at, those under an entry of standing inert apart
-    from the rest: what the first-publish judge's inert allowance reads (``proof.checks.changes.inert_holds``)."""
+    """Each place of the app's own JSON a record of the claim log reads, those under an entry of standing inert apart
+    from the rest: what the first-publish judge's inert allowance reads (``proof.checks.changes.inert_holds``). A
+    record's place is the value it reads (``at``), where that is not where its key's value sits: a key of a
+    language's strings is claimed under ``schema:Application.translations`` and recorded at ``/translations``, the
+    map's own key, where the join reads it, while the key itself is the value a first publish keeps or drops."""
     records = [record for record in records_of(claims) if record.artifact == "app.json"]
     return changes.ClaimPlaces(
-        inert=frozenset(record.where for record in records if record.standing == "inert"),
-        other=frozenset(record.where for record in records if record.standing != "inert"),
+        inert=frozenset(record.at or record.where for record in records if record.standing == "inert"),
+        other=frozenset(record.at or record.where for record in records if record.standing != "inert"),
     )
 
 

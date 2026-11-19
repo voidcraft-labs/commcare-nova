@@ -63,7 +63,7 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"row-predicate-current":
 		"Inside a repeat, a choice filter that names another question of that repeat now reads this entry's answer. Before, CommCare stopped on it or used one entry's answer for every entry.",
 	"search-value-guards":
-		"A search value that holds a quote mark is now matched as typed, and a value CommCare HQ can't search by finds no cases. Before, the search failed.",
+		"A search value that holds a quote mark is now matched as typed. Where a worker types a value CommCare HQ can't search by, such as one with both kinds of quote mark or a number written another way, the search field now asks them to change it. A value the app fills in itself that CommCare HQ can't search by finds no cases. Before, the search failed.",
 	"search-today-device-day":
 		"A search filter that uses today's date now uses the worker's day. In CommCare HQ it used the project space's day, which differs for a worker in another time zone.",
 	"case-settings-respelled":

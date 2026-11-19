@@ -594,6 +594,49 @@ def test_the_claim_places_read_the_log_s_records_on_the_app_s_json_by_standing()
     )
 
 
+def _record(where, standing, entry="e", *, at=None):
+    value = {"artifact": "app.json", "where": where, "key": "schema:Application.translations", "entry": entry}
+    value["standing"] = standing
+    if at is not None:
+        value["at"] = at
+    return json.dumps(value) + "\n"
+
+
+def test_a_translation_key_s_claim_is_placed_at_the_key_it_reads_and_only_an_inert_one_is_held():
+    # Contract: every claim of a language's key names the map's schema key, so it stands at /translations, where the
+    # join reads it, and reads its own key (``at``), where the inert allowance reads it. The plausible failure, run 7
+    # on hq-languages and starter-agriculture: an inert override's removal unheld beside the kept claims at
+    # /translations, or a folded or kept key's removal held by an inert claim beside it.
+    log = "".join(
+        (
+            _record("/translations", "take", "container"),
+            _record("/translations", "kept", "catalog-fill"),
+            # hq-languages: an English override equal to the form's own name, which has no effect.
+            _record("/translations", "inert", "generated-no-effect", at="/translations/en/forms.m0f0"),
+            # A generated key folded into the text it names, and a key a runtime reads, kept.
+            _record("/translations", "held", "generated-over-one-text", at="/translations/en/forms.m0f1"),
+            _record("/translations", "kept", "runtime-ui-string", at="/translations/en/cchq.case"),
+            # starter-agriculture: a language the app does not hold, read past whole.
+            _record("/translations", "inert", "key-no-runtime-reads", at="/translations/fra"),
+        )
+    )
+    places = parity.claim_places(log)
+    assert places == changes.ClaimPlaces(
+        inert=frozenset({"/translations/en/forms.m0f0", "/translations/fra"}),
+        other=frozenset({"/translations", "/translations/en/forms.m0f1", "/translations/en/cchq.case"}),
+    )
+
+    def held(at):
+        found, _ = changes.declared(_document(RESIDUE), "source", [_source(at)], places=places, register=REGISTER)
+        return bool(found)
+
+    assert held("/translations/en/forms.m0f0")
+    assert held("/translations/fra/cchq.case")
+    assert not held("/translations/en/forms.m0f1")
+    assert not held("/translations/en/cchq.case")
+    assert not held("/translations/en/other.key")
+
+
 HELD_PICTURE = "jr://file/commcare/image/held.png"
 OTHER_PICTURE = "jr://file/commcare/image/other.png"
 
@@ -1016,3 +1059,258 @@ def test_a_picture_left_out_of_a_menu_holds_that_menu_s_suite_text_and_no_other_
     assert _held_by(document, held, changes.NO_SITES) == {"media-references-with-no-file-removed"}
     other = _built("suite.xml", text, "/suite/menu[@id=m2]/text[1]", "added")
     assert _held_by(document, other, changes.NO_SITES) == frozenset()
+
+
+def test_a_menu_s_name_holds_its_forms_suite_descriptors_and_no_other_menu_s():
+    # HQ writes a form's resource descriptor from its menu's name and its own (``FormResourceContributor``), so a
+    # menu's name written again holds the descriptor of each of its forms there, and of no other menu's form.
+    sites = changes.Sites(
+        builds={("suite.xml", "xform[1]"): ("form", "1.0"), ("suite.xml", "xform[2]"): ("form", "0.0")}
+    )
+    path = "/suite/xform[*]/resource[@id=*]/@descriptor"
+    own = _built("suite.xml", path, "/suite/xform[1]/resource[@id=r1]/@descriptor")
+    other = _built("suite.xml", path, "/suite/xform[2]/resource[@id=r2]/@descriptor")
+    assert changes.locations(own, sites) == (("form", "1.0", "name"), ("menu", "1", "name"))
+    menu = _document(RESIDUE, ("text-spaces-dropped", ["/menu/1/name"]))
+    assert _held_by(menu, own, sites) == {"text-spaces-dropped"}
+    assert "text-spaces-dropped" not in _held_by(menu, other, sites)
+    form = _document(RESIDUE, ("text-spaces-dropped", ["/form/0.0/name"]))
+    assert _held_by(form, other, sites) == {"text-spaces-dropped"}
+    assert "text-spaces-dropped" not in _held_by(form, own, sites)
+    # Any other attribute of the resource stands at its form alone.
+    version = _built(
+        "suite.xml", "/suite/xform[*]/resource[@id=*]/@version", "/suite/xform[1]/resource[@id=r1]/@version"
+    )
+    assert changes.locations(version, sites) == (("form", "1.0", "name"),)
+
+
+def test_the_app_s_name_stands_at_every_text_hq_writes_from_it():
+    assert changes.locate(_built("profile.ccpr", "/profile/@name", "/profile/@name")) == ("app", "name")
+    assert changes.locate(_built("profile.ccpr", "/profile/@version", "/profile/@version")) == (
+        "app",
+        "profile",
+        changes.BELOW,
+    )
+    for key in ("app.display.name", "homescreen.title"):
+        assert changes.locate(_built("app_strings:default", "/x", f"/{key}")) == ("app", "name")
+
+
+def test_a_sort_only_element_s_header_stands_at_the_element_and_a_shown_column_s_at_its_column():
+    from proof.checks import proof2
+
+    # HQ's build writes a sort element no column shows as a column of its own, numbered by its order among the
+    # sort elements (``util.py::create_temp_sort_column``): its header's key spells the second position, where a
+    # shown column stands.
+    doc = {
+        "modules": [
+            {
+                "case_details": {
+                    "short": {
+                        "columns": [{"field": "name"}, {"field": "village"}, {"field": "opened"}],
+                        "sort_elements": [{"field": "feeling_sick"}, {"field": "name"}, {"field": "_cc_calculated_2"}],
+                    }
+                }
+            },
+            {"case_details": {"short": {"columns": [{"field": "name"}]}}},
+        ]
+    }
+    sites = proof2.header_sites(doc)
+    key = "m0.case_short.case_feeling_sick_2.header"
+    element = ("menu", "0", "case_details", "short", "sort_elements", "0", changes.BELOW)
+    assert sites.builds == {(changes.APP_STRINGS, key): element}
+    assert changes.Sites.from_json(json.loads(json.dumps(sites.as_json()))) == sites
+    header = "/m*.*.*_*_*.header"
+    sort_only = _built("app_strings:en", header, f"/{key}", "removed")
+    assert changes.locate(sort_only, sites) == element
+    kept = ["/menu/0/case_details/short/sort_elements/0/field", "/menu/0/case_details/short/columns/3"]
+    document = _document(RESIDUE, ("sort-rule-kept-as-hidden-column", kept))
+    assert _held_by(document, sort_only, sites) == {"sort-rule-kept-as-hidden-column"}
+    # Read as the column at its key's number, the header would stand at a shown column no change moves.
+    assert changes.locate(sort_only) == ("menu", "0", "case_details", "short", "columns", "1", "header")
+    assert _held_by(document, sort_only, changes.NO_SITES) == frozenset()
+    shown = _built("app_strings:en", header, "/m0.case_short.case_village_2.header", "removed")
+    assert _held_by(document, shown, sites) == frozenset()
+
+
+# Layer 9's seventh run: a difference no applying change holds, named once ---------------------------------------
+
+# The register's shape that run met: twenty entries each naming every form source by one shared row, one of them
+# naming a bind's calculation by a row of its own as well, and the change that stands everywhere narrowed to the
+# form builder's shadows.
+SHARED = ("hidden-values-added", "case-names-checked", "instant-comparison", "empty-rows-guard", "media-paths-joined")
+SHAPE = changes.parse(
+    [
+        _entry(
+            RESIDUE,
+            ["app-wide"],
+            [{"check": "source", "artifact": "app.json", "path": "/_attachments/*/data/*/:bind/@vellum:nodeset"}],
+        ),
+        *[
+            _entry(change, ["form-node"], [{"check": "source", "artifact": "app.json", "path": "/_attachments/*"}])
+            for change in SHARED
+        ],
+        _entry(
+            "row-predicate-current",
+            ["form-node"],
+            [
+                {"check": "source", "artifact": "app.json", "path": "/_attachments/*"},
+                {"check": "source", "artifact": "app.json", "path": "/_attachments/*/data/*/:bind/@calculate"},
+            ],
+        ),
+        _entry(
+            "validation-counts-moved",
+            ["form-node"],
+            [{"check": "source", "artifact": "app.json", "path": "/_attachments/*/data/*/:bind/@constraint"}],
+        ),
+        _entry(
+            "validation-messages-composed",
+            ["form-node"],
+            [{"check": "source", "artifact": "app.json", "path": "/_attachments/*/data/*/:bind/@constraint"}],
+        ),
+    ]
+)
+
+
+# The form builder's shadow every first publish drops, which the change that stands everywhere holds.
+SHADOW = _part(
+    "/_attachments/form:0.0.xml/data/age/:bind/@vellum:nodeset", "/_attachments/*/data/*/:bind/@vellum:nodeset"
+)
+
+
+def test_a_difference_only_a_row_many_entries_share_matches_is_reported_once_by_its_check_and_never_unsaid():
+    # hq-plain's: the version every source holds, matched by fifteen entries none of which apply, was fifteen
+    # unsaid differences; the stored-app comparison reports it, once.
+    document = _document(RESIDUE, ("case-names-checked", [f"{FORM}/xform/data/name"]))
+    version = _part("/_attachments/form:0.0.xml/data/@version", "/_attachments/*/data/@version")
+    assert changes.naming(version, SHAPE, changes.placed(document, SHAPE)) is None
+    assert changes.undeclared(document, "source", [version, SHADOW], register=SHAPE) == [version]
+    found = changes.differences(document, {"source": [version, SHADOW]}, readers=frozenset(), register=SHAPE)
+    assert _paths(found) == ["/case-names-checked/unseen"]
+
+
+def test_a_difference_a_row_of_one_entry_alone_names_is_unsaid_of_that_entry_once():
+    calculated = _part("/_attachments/form:0.0.xml/data/age/:bind/@calculate")
+    other = _part("/_attachments/form:0.1.xml/data/age/:bind/@calculate")
+    checked = {"source": [calculated, other, SHADOW]}
+    found = changes.differences(_document(RESIDUE), checked, readers=frozenset(), register=SHAPE)
+    assert [(d.path, d.at) for d in found] == [
+        ("/row-predicate-current/unsaid", "/row-predicate-current/unsaid/source/app.json" + calculated.at),
+        ("/row-predicate-current/unsaid", "/row-predicate-current/unsaid/source/app.json" + other.at),
+    ]
+
+
+def test_a_difference_an_applying_entry_s_own_row_names_off_its_places_is_no_one_s_unsaid():
+    # The change applies and its place misses the node: the difference is that change's at a place its producer
+    # does not give, which the check that reports it says; no other change is named for it.
+    document = _document(RESIDUE, ("row-predicate-current", [f"{FORM}/xform/data/visits"]))
+    elsewhere = _part("/_attachments/form:0.0.xml/data/age/:bind/@calculate")
+    assert changes.undeclared(document, "source", [elsewhere, SHADOW], register=SHAPE) == [elsewhere]
+    assert changes.naming(elsewhere, SHAPE, changes.placed(document, SHAPE)) is None
+    found = changes.differences(document, {"source": [elsewhere, SHADOW]}, readers=frozenset(), register=SHAPE)
+    assert _paths(found) == ["/row-predicate-current/unseen"]
+
+
+def test_a_class_two_entries_name_alike_names_neither():
+    constraint = _part(
+        "/_attachments/form:0.0.xml/data/age/:bind/@constraint", "/_attachments/*/data/*/:bind/@constraint"
+    )
+    assert changes.naming(constraint, SHAPE, {RESIDUE: ("",)}) is None
+    checked = {"source": [constraint, SHADOW]}
+    assert changes.differences(_document(RESIDUE), checked, readers=frozenset(), register=SHAPE) == []
+
+
+# The changes check's evidence, and the judgment made again from it ----------------------------------------------
+
+
+def _judged_document():
+    """A document, its checked differences, claims and sites as the changes check holds them: one difference the
+    inert allowance holds, one a change holds at its place, one unsaid, and one undeclared."""
+    document = _document(RESIDUE, ("case-names-checked", ["/menu/0"]))
+    checked = {
+        "source": [
+            _source("/profile/properties/x"),
+            _source("/modules/0/name"),
+            _part("/_attachments/form:0.0.xml/data/age/:bind/@calculate"),
+            _part("/_attachments/form:0.0.xml/data/@version", "/_attachments/*/data/@version"),
+        ],
+        "proof3": [_trace("/runs/4/trace/1/title", "/runs/*/trace/*/title")],
+    }
+    places = changes.ClaimPlaces(inert=frozenset({"/profile/properties"}))
+    return document, checked, places
+
+
+def _shape_with_menus():
+    raw = [
+        *[
+            {**one, "rows": [*one["rows"]]}
+            for one in (
+                _entry(RESIDUE, ["app-wide"], [{"check": "source", "artifact": "app.json", "path": "/x"}]),
+                _entry(
+                    "case-names-checked",
+                    ["menu"],
+                    [{"check": "source", "artifact": "app.json", "path": "/modules/*"}],
+                ),
+                _entry(
+                    "row-predicate-current",
+                    ["form-node"],
+                    [{"check": "source", "artifact": "app.json", "path": "/_attachments/*/data/*/:bind/@calculate"}],
+                ),
+            )
+        ]
+    ]
+    return changes.parse(raw)
+
+
+def test_the_judgment_is_made_again_from_the_evidence_alone(tmp_path):
+    register = _shape_with_menus()
+    document, checked, places = _judged_document()
+    found = changes.differences(
+        document, checked, places=places, sites=TWO_FORMS, readers=frozenset(), register=register
+    )
+    applying = changes.placed(document, register)
+    record = {
+        "check": "changes",
+        "document": document.id,
+        "kind": "corpus",
+        **changes.evidence(applying, checked, places=places, sites=TWO_FORMS, readers=frozenset({"formplayer"})),
+        "differences": [difference.as_json() for difference in found],
+    }
+    record = json.loads(json.dumps(record))
+    assert changes.replay(record, register) == changes.judged(
+        document.id,
+        applying,
+        checked,
+        places=places,
+        sites=TWO_FORMS,
+        readers=frozenset({"formplayer"}),
+        register=register,
+    )
+    assert [d.path for d in changes.replay(record, register)] == ["/row-predicate-current/unsaid"]
+    assert changes.replayed(record, register) == {
+        "document": "hq-planted",
+        "held": 2,
+        "undeclared": 3,
+        "unsaid": 1,
+        "unseen": [],
+    }
+    # The rows command reads the same evidence, in a sharded run's directory: the inert claim holds the profile's
+    # key, so only what no change holds gets a row.
+    shard = tmp_path / "proof-out-1-3" / "blocks" / "b0" / "checks" / "changes"
+    shard.mkdir(parents=True)
+    (shard / "corpus-hq-planted.json").write_text(json.dumps(record), encoding="utf-8")
+    assert [one["row"]["path"] for one in changes.rows(tmp_path, "hq-planted", register=register)] == [
+        "/_attachments/*/data/*/:bind/@calculate",
+        "/_attachments/*/data/@version",
+        "/runs/*/trace/*/title",
+    ]
+    assert changes.main(["replay", str(tmp_path), "hq-planted"]) == 0
+
+
+def test_evidence_written_before_it_held_the_checked_differences_is_refused_by_the_replay(tmp_path):
+    old = {"check": "changes", "document": "hq-planted", "applying": ["case-names-checked"], "differences": []}
+    with pytest.raises(changes.ChangesError, match="holds no checked differences"):
+        changes.replay(old)
+    directory = tmp_path / "blocks" / "b0" / "checks" / "changes"
+    directory.mkdir(parents=True)
+    (directory / "corpus-hq-planted.json").write_text(json.dumps(old), encoding="utf-8")
+    assert changes.main(["replay", str(tmp_path), "hq-planted"]) == 2

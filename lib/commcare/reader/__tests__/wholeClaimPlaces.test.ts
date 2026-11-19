@@ -11,7 +11,10 @@
  * (each key inside left with no record), a key inside recorded under an entry
  * that does not name it, a key at its class's default recorded (no use), and
  * a language the app does not hold recorded at its own key while its entry
- * names the translations' key.
+ * names the translations' key. Beside that place each such record names the
+ * value it reads (`ClaimRecord.at`): it would catch every key of a language's
+ * strings claimed as one value at `/translations`, where the first-publish
+ * judge cannot tell an inert key's removal from a kept one's.
  */
 
 import { describe, expect, it } from "vitest";
@@ -119,5 +122,41 @@ describe("a whole object read past under a key above it", () => {
 			{ where: "/translations", key: "schema:Application.translations", entry },
 			{ where: "/translations", key: "schema:Application.translations", entry },
 		]);
+	});
+});
+
+describe("a key of a map claimed under the map's own key", () => {
+	it("stands where the map's key sits and reads its own value, and a language read past whole reads itself", () => {
+		const ledger = new Accounting(inventoryIndex(), { log: "full" });
+		const app = ledger.json(
+			{ translations: { en: { "forms.m0f0": "Survey" }, fra: { a: "b" } } },
+			appPlace(),
+		);
+		const languages = app.map(
+			"translations",
+			"Application.translations",
+			CLAIMS.translations,
+		);
+		languages.get("en")?.account("forms.m0f0", CLAIMS.unreadLanguage);
+		languages.get("fra")?.refuseWhole(CLAIMS.unreadLanguage);
+		const read = [...ledger.close().claims.records()]
+			.filter((record) => record.entry === CLAIMS.unreadLanguage.entry)
+			.map(({ where, at }) => ({ where, at }));
+		// The map's own claim reads the map, where it stands.
+		expect(read).toEqual([
+			{ where: "/translations", at: undefined },
+			{ where: "/translations", at: "/translations/en/forms.m0f0" },
+			{ where: "/translations", at: "/translations/fra" },
+		]);
+	});
+
+	it("names no value of its own where it stands at the value it reads", () => {
+		const ledger = new Accounting(inventoryIndex(), { log: "full" });
+		const app = ledger.json({ build_spec: { version: "2.58.0" } }, appPlace());
+		app.account("build_spec", CLAIMS.buildSpec);
+		const own = [...ledger.close().claims.records()].find(
+			(record) => record.where === "/build_spec",
+		);
+		expect(own?.at).toBeUndefined();
 	});
 });

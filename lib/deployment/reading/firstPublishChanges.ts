@@ -17,13 +17,19 @@
  * it give one list for one choice.
  */
 
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
+import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
 	ReadFacts,
 	ReadFormFacts,
 	ReadGeneratedNode,
 } from "@/lib/commcare/reader/types";
+import {
+	buildRuntimeCsqlPromptValidations,
+	composeXPathQueryEmission,
+} from "@/lib/commcare/suite/case-search/xpathQuery";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import {
@@ -35,6 +41,7 @@ import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { operationCaseType } from "@/lib/domain/forms";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
+import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
@@ -358,6 +365,86 @@ const DETAIL_COLUMN_PAGE_KEYS: readonly string[] = [
 	"graph_configuration",
 ];
 
+/**
+ * The parts of a form's source `forms-and-settings-rewritten` holds: each a
+ * part class of the lane's stored-app comparison
+ * (`proof/checks/xform_parts.py`) that Nova's builder writes again on every
+ * first publish of a form (`xform/builder.ts::buildXFormSource`), where no
+ * reader reads the two spellings apart. The lane's copy of the register holds
+ * exactly these rows (`proof/ci/__tests__/firstPublishChanges.test.ts`), so a
+ * change of any other part of a form reaches the change whose place it is, or
+ * the registers.
+ */
+export const RESPELLED_FORM_PARTS = [
+	// `xform/dataRootAttributes.ts::xformDataRootRuntimeAttributes` writes `1`;
+	// HQ's build writes the form's own version over it
+	// (`models/forms.py::FormBase.add_stuff_to_xform`, `xform.py::XForm.set_version`).
+	"/_attachments/*/data/@version",
+	// The head holds none of the form builder's hashtag maps (`buildXFormSource`);
+	// Core reads neither (`XFormParser.parseElement`).
+	"/_attachments/*/:head/vellum:hashtags",
+	"/_attachments/*/:head/vellum:hashtagTransforms",
+	// The form declares the instances its printed expressions read, under the
+	// ids Nova names them by (`xpath/wire/instances.ts::InstanceSink`,
+	// `lookupInstance`); HQ's build declares any a form reads and lacks
+	// (`xform.py::XForm.add_missing_instances`). An expression that reads an
+	// instance is compared through the source its form declares, so a
+	// declaration that moves what an expression reads shows at the expression.
+	"/_attachments/*/:instance/*",
+	// A translation for each of the app's languages alone (`buildXFormSource`);
+	// HQ's build leaves out any other (`xform.py::XForm.exclude_languages`).
+	"/_attachments/*/:unlisted-translation/*",
+	// `xform/bindType.ts::fieldBindType` gives a select and a Hidden Value
+	// `xsd:string`; Core reads a bind with no type as it reads that type for
+	// both (`XFormParser.applyControlProperties`, `Recalculate.wrapData`,
+	// `SetValueAction`). The comparison names only that addition so
+	// (`xform_parts.py::_implied_string`): any other bind type a first publish
+	// adds, changes or drops stays at `@type`, where no change holds it.
+	"/_attachments/*/data/*/:bind/@type/:implied-string",
+	// Each expression printed from Nova's typed tree
+	// (`xpath/wire/serialize.ts::serializeWire`), where it is the same
+	// expression written another way: its quote marks, its grouping, its
+	// numbers, the ids of its instances (`proof/checks/xpath_tree.py`). A
+	// changed expression is a difference of the slot itself, which only the
+	// change whose place stands there holds.
+	"/_attachments/*/data/*/:bind/@calculate/:respelled",
+	"/_attachments/*/data/*/:bind/@constraint/:respelled",
+	// `buildFieldParts` writes a required condition as `required` alone, which
+	// is what Core reads (`XFormParser.parseBind` takes no `requiredCondition`).
+	"/_attachments/*/data/*/:bind/@requiredCondition",
+	// The form builder's copies, which HQ's build strips
+	// (`xform.py::XForm.strip_vellum_ns_attributes`): `buildFieldParts` writes
+	// `vellum:nodeset` on each question's bind and `serializeWire`'s `vellum`
+	// mode a shadow only where an expression reads a question; `buildContainer`
+	// writes no bind for a group with no condition; an escaped copy names how
+	// often the form builder saved the form (`Vellum/src/util.js::writeHashtags`).
+	"/_attachments/*/data/*/:bind/@vellum:nodeset",
+	"/_attachments/*/data/*/:bind/@vellum:calculate",
+	"/_attachments/*/data/*/:bind/@vellum:relevant",
+	"/_attachments/*/data/*/:bind/@vellum:constraint",
+	"/_attachments/*/data/*/:bind/@vellum:requiredCondition",
+	"/_attachments/*/data/*/:bind/@vellum:required",
+	"/_attachments/*/data/*/:bind/@vellum:vellum__*",
+	// A default read relative to its question (`buildFieldParts`), printed by
+	// `serializeWire`, where it is the same expression.
+	"/_attachments/*/data/*/:setvalue/xforms-ready/@value/:respelled",
+	// `buildLeafControl` writes a control's `ref` alone, `buildRepeatBody` a
+	// repeat's shadows only where its count names a question, and
+	// `buildLookupItemset` an itemset's rows printed by `serializeWire`, where
+	// they are the same expression.
+	"/_attachments/*/data/*/:control/@vellum:ref",
+	"/_attachments/*/data/*/:control/@vellum:nodeset",
+	"/_attachments/*/data/*/:control/@vellum:jr__count",
+	"/_attachments/*/data/*/:control/itemset/@nodeset/:respelled",
+	"/_attachments/*/data/*/:control/itemset/@vellum:nodeset",
+	// A hint writes no markdown form (`buildXFormSource`'s itext); Core reads a
+	// hint's text alone (`FormEntryPrompt.getHintText`).
+	"/_attachments/*/data/*/:itext/hint/*/markdown",
+	// `buildLabelNodes` writes an output's shadow only where it reads a question.
+	"/_attachments/*/data/*/:itext/label/*/default/output/*/@vellum:value",
+	"/_attachments/*/data/*/:itext/label/*/markdown/output/*/@vellum:value",
+] as const;
+
 /** A Search field's keys a reading takes as spelled another way (`search/prompts.ts`). */
 const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
 	"label",
@@ -530,6 +617,72 @@ function rewritePlaces(
 	return facts.facts.rewrites.flatMap((rewrite) =>
 		rewrite.id === id ? placesOfSlot(facts.positions, rewrite) : [],
 	);
+}
+
+/**
+ * Where `search-value-guards` writes its guard as a Search field's check: in
+ * each menu whose search the rewrite stands at, each stored field a value
+ * CommCare HQ can't search by can come from, at its `validations`. Those are
+ * the fields Nova's search attaches a guard to
+ * (`suite/case-search/xpathQuery.ts::buildRuntimeCsqlPromptValidations`, over
+ * the menu's composed query, as `hqJson/caseList.ts::projectCaseListForHq`
+ * reads it), whose test the projection writes alone or joined to the field's
+ * own (`searchPrompts.ts::buildValidation`). A field no guard names is no
+ * place of the change.
+ */
+function guardedSearchFieldPlaces(facts: FirstPublishFacts): string[] {
+	const menus = new Set<number>();
+	for (const rewrite of facts.facts.rewrites) {
+		if (rewrite.id !== "search-value-guards" || rewrite.pointer === undefined)
+			continue;
+		const [root, menu] = placeSteps(rewrite.pointer);
+		const m = Number(menu);
+		if (root === "modules" && menu !== "" && Number.isInteger(m)) menus.add(m);
+	}
+	const order = projectedModulePreorder(facts.doc);
+	const places: string[] = [];
+	for (const m of [...menus].sort((a, b) => a - b)) {
+		const uuid = order[m];
+		const mod = uuid === undefined ? undefined : facts.doc.modules[uuid];
+		const config = mod?.caseListConfig;
+		if (
+			uuid === undefined ||
+			mod === undefined ||
+			config === undefined ||
+			effectiveCaseSearchConfig(mod) === undefined
+		)
+			continue;
+		// Which field a guard names reads no table's name, so every table is named by its id.
+		const naming = identityLookupWireNaming();
+		const guarded = buildRuntimeCsqlPromptValidations(
+			composeXPathQueryEmission(
+				config,
+				mod.caseType,
+				moduleExpressionContexts(facts.doc, uuid, naming),
+				naming,
+			),
+		);
+		asList(
+			at(
+				at(asList(facts.source.raw.modules)[m], "search_config"),
+				"properties",
+			),
+		).forEach((field, index) => {
+			const name = at(field, "name");
+			if (typeof name === "string" && guarded.has(name))
+				places.push(
+					placeOf(
+						"menu",
+						m,
+						"search_config",
+						"properties",
+						index,
+						"validations",
+					),
+				);
+		});
+	}
+	return places;
 }
 
 /** A JSON object's value at `key`, or undefined. */
@@ -808,22 +961,37 @@ function sortColumnPlaces(facts: FirstPublishFacts): string[] {
 	return places;
 }
 
-/** The places of the media references to each of `paths`: their media map items, and each
- *  slot that names one, held or handed off. */
-function mediaReferencePlaces(
+/**
+ * The places of each media path a first publish moves, from the path CommCare
+ * HQ holds (`from`) to the one the file goes out at (`to`): both paths' media
+ * map items, and each slot that names `from`, held or handed off, as it names
+ * `from` and as it names `to`, so the slot's value and its menu's or form's
+ * media listing stand at both.
+ */
+function movedMediaPlaces(
 	facts: FirstPublishFacts,
-	paths: Iterable<string>,
+	moves: Iterable<{ readonly from: string; readonly to: string }>,
 ): string[] {
-	const wanted = new Set([...paths].map(mapPath));
-	const places = [...wanted].map((path) =>
-		placeOf("app", "multimedia_map", path),
-	);
+	const movedTo = new Map<string, string>();
+	const places: string[] = [];
+	for (const { from, to } of moves) {
+		movedTo.set(mapPath(from), mapPath(to));
+		places.push(
+			placeOf("app", "multimedia_map", mapPath(from)),
+			placeOf("app", "multimedia_map", mapPath(to)),
+		);
+	}
 	for (const reference of [
 		...facts.facts.mediaReferences,
 		...facts.facts.pendingMedia,
-	])
-		if (wanted.has(mapPath(reference.path)))
-			places.push(...placesOfMediaReference(facts.positions, reference));
+	]) {
+		const to = movedTo.get(mapPath(reference.path));
+		if (to === undefined) continue;
+		places.push(
+			...placesOfMediaReference(facts.positions, reference),
+			...placesOfMediaReference(facts.positions, { ...reference, path: to }),
+		);
+	}
 	return places;
 }
 
@@ -1083,14 +1251,18 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/_attachments/*"],
 	},
-	/** The rewrite `search-value-guards` (`csql/print.ts`). */
+	/** The rewrite `search-value-guards` (`csql/print.ts`), and its guard written as the
+	 *  check of each Search field a value it guards can come from (`guardedSearchFieldPlaces`). */
 	"search-value-guards": {
 		touchesWorkers: true,
 		scope: "reading",
 		applies: rewriteReported("search-value-guards"),
 		at: {
 			kinds: ["menu"],
-			places: (facts) => rewritePlaces(facts, "search-value-guards"),
+			places: (facts) => [
+				...rewritePlaces(facts, "search-value-guards"),
+				...guardedSearchFieldPlaces(facts),
+			],
 		},
 		paths: ["/modules/*/search_config/*"],
 	},
@@ -1382,32 +1554,24 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		at: {
 			kinds: ["app", "menu", "form", "form-node"],
 			places: (facts) =>
-				mediaReferencePlaces(
+				movedMediaPlaces(
 					facts,
-					facts.media.collapsed.flatMap((one) => [one.kept, ...one.dropped]),
+					facts.media.collapsed.flatMap(({ kept, dropped }) =>
+						dropped.map((from) => ({ from, to: kept })),
+					),
 				),
 		},
 		paths: ["/multimedia_map/*", ...MEDIA_REFERENCE_PATHS],
 	},
-	/** A path Nova cannot hold, the file taking its derivation (`adoption.ts::assignMediaPaths`). */
+	/** A path Nova cannot hold, the file going out at the path it keeps, else at its derivation
+	 *  (`adoption.ts::assignMediaPaths`). */
 	"media-files-renamed": {
 		touchesWorkers: true,
 		scope: "reading",
 		applies: (facts) => facts.media.rederived.length > 0,
 		at: {
 			kinds: ["app", "menu", "form", "form-node"],
-			places: (facts) => {
-				const derived = new Map(
-					facts.media.rows.map((row) => [row.assetId, row.wirePath]),
-				);
-				return mediaReferencePlaces(
-					facts,
-					facts.media.rederived.flatMap((one) => {
-						const to = derived.get(one.assetId);
-						return to === undefined ? [one.from] : [one.from, to];
-					}),
-				);
-			},
+			places: (facts) => movedMediaPlaces(facts, facts.media.rederived),
 		},
 		paths: ["/multimedia_map/*", ...MEDIA_REFERENCE_PATHS],
 	},

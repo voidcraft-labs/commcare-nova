@@ -261,7 +261,10 @@ in HQ's own pages (`proof/hq-apps/`), and compares a read back with `canonDocume
 canonicalization exists only as a row of `canon.ts::CANONICALIZATIONS`, never in the lane. Its
 parity joins the claim log (`accounting.ts::serializeClaimLog`) with the lane's own manifest
 classifier at the place each key's value sits, so a claim recorded anywhere else is a difference,
-never a match. The bundle's digest keys every judgment of the corpus, so a change here judges every
+never a match. A record whose key names a key above the value it reads (a language's key under
+`schema:Application.translations`, a language read past whole) also carries `at`, the value's own
+pointer, which the join does not read and the first-publish judge's inert allowance does
+(`proof/checks/parity.py::claim_places`), so an inert key's removal is told apart from a kept one's. The bundle's digest keys every judgment of the corpus, so a change here judges every
 corpus document again. `__tests__/bases.retained.test.ts` holds the reading of every retained base
 to the lane's `expected.json` in ordinary CI. No production module imports `proof/reader/`.
 

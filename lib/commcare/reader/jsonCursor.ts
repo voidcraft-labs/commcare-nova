@@ -430,6 +430,7 @@ export class JsonCursorImpl implements JsonCursor {
 			sub: key,
 			artifact: "app.json",
 			where: this.recordedAt(key, name, claim?.key ?? null),
+			at: () => `${this.pointer}/${pointerToken(key)}`,
 			name,
 			reads: () => this.pointer,
 		};
@@ -810,6 +811,7 @@ export class JsonCursorImpl implements JsonCursor {
 				sub: WHOLE,
 				artifact: "app.json",
 				where: () => where ?? this.pointer,
+				at: () => this.pointer,
 				name: `schema:${this.cls}`,
 				reads: () => reads ?? this.pointer,
 			},
@@ -844,6 +846,7 @@ export class JsonCursorImpl implements JsonCursor {
 			sub,
 			artifact: "app.json",
 			where: () => map,
+			at: () => this.pointer,
 			name: `schema:${this.cls}`,
 			reads: () => this.pointer,
 		};

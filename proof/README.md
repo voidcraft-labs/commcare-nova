@@ -744,10 +744,15 @@ names; proof 1's by its form and question or case type and property; proofs
 `changes.Sites`: a build element by the positional id in CommCare's own
 vocabulary its pointer carries, a suite menu's, detail's or command's, an app
 string's key,
-or, named only by position, by what the builds hold there; a session's step
+or, named only by position, by what the builds hold there, and a sort-only
+element's header, whose key's number is no column's, at the sort element by
+what the stored apps hold (`proof2.header_sites`); a session's step
 by the form or menu its run's script opened, a menu's choice by what it
 opens, a case by its type; whatever no record places stands nowhere, where
-only the change that stands everywhere stands). A
+only the change that stands everywhere stands). A text HQ's build writes from
+two names stands at both (`changes.locations`: a form's suite descriptor at
+its form's name and its menu's, and the profile's `name` and the
+`homescreen.title` string at the app's name). A
 change holds a difference where a row of it names the difference's class and
 one of its places stands at the difference's location or above it; of those,
 the change whose place there names the most steps alike sees it
@@ -769,13 +774,27 @@ seen apart.
   node it is about (`/_attachments/*/data/*/:bind/@calculate` at
   `/_attachments/form:0.1.xml/data/visit/when/:bind/@calculate`; an itext
   text by what reads it, so one Nova keeps under another id is no
-  difference). A `source` difference at a place the reader's claim log holds as
+  difference), as its readers read it: no whitespace that stands only
+  between elements or that Core drops inside a text, attributes in name
+  order, an output's `vellum:value` a part of its own beside its text, an
+  order holding only what both forms hold, a translation in a language the
+  app does not hold one part (`/:unlisted-translation/<lang>`), an itemset by
+  its attributes and references, the form builder's escaped copies of an
+  attribute as one class (`@vellum:vellum__*`), a slot's expression
+  under `:respelled` where both texts are one expression to Core's parser
+  (`proof/checks/xpath_tree.py`; a path from `current()` only outside a
+  predicate, where Core reads it against the slot's node), so a changed
+  expression stands at the slot itself, and a bind's `xsd:string` the after
+  form adds to a select's or an unasked node's bind under `:implied-string`,
+  any other type change staying at `@type`. A language's strings only one app
+  holds are compared key by key.
+  A `source` difference at a place the reader's claim log holds as
   inert, or under one, is matched by `forms-and-settings-rewritten`
   (`parity.claim_places_of`, `changes.inert_holds`), but not where the log
   holds a claim of another standing at that inert place or under it on the
-  difference's branch: the log records some claims at the container whose
-  value they read (`/translations`, `/profile`, `/multimedia_map`), and
-  there it does not tell the inert key from a kept one. A media path the
+  difference's branch. A record that stands at a key above the value it
+  reads (a language's key at `/translations`, where parity's join reads it)
+  also names that value (`at`), which is the place the allowance reads. A media path the
   document holds is compared apart, at `/multimedia_map/*/held`, and so is a
   case list column's `field` that differs where the column is not calculated
   on both sides (which property it shows), at
@@ -800,7 +819,16 @@ seen apart.
   `forms-and-settings-rewritten` names a form's source only by part classes
   written so (`/_attachments/*/data/*/:bind/@vellum:nodeset`): the loader
   refuses it a row over a form's whole source, so a question no change
-  touches is never held there.
+  touches is never held there, and the register types each part class with
+  the function of Nova's builder that writes it again on every first publish
+  (`firstPublishChanges.ts::RESPELLED_FORM_PARTS`, which the Vitest holds
+  the file's part rows to). The `changes` check writes beside its
+  differences everything the judge read (`changes.evidence`: the places, the
+  claims, the sites, the readers, every difference of the four checks), so
+  the command reads one run's output or a directory holding a sharded run's
+  outputs, and `python3 -m proof.checks.changes replay <output> <base>`
+  makes the judgment again with the tree's register and judge, counting what
+  is held, undeclared, unsaid and unseen.
 
 Only proofs 1 to 3 and the stored-app comparison ask the register
 (`changes.declared`, before `cases.hold`), and only on a document made in HQ
@@ -810,8 +838,11 @@ a difference no applying row matches is held to the spelling rules and the
 known-defect register like any other. The judge
 (`proof/checks/test_first_publish_changes.py`) holds three things over the
 differences of all four on every base: nothing changed that Nova's review
-would not have said (`/<id>/unsaid`, a difference no applying change holds at
-its places, which a row of an entry that does not apply names); nothing it
+would not have said (`/<id>/unsaid`, once for a difference no applying change
+holds at its places, of the one entry that names it as its own where that
+entry does not apply: of the matching rows no other entry shares, the most
+exact are that entry's alone, `changes.naming`; a class several entries share
+names none, and the check that reports the difference says it); nothing it
 would say failed to show (`/<id>/unseen`, an applying entry that sees no
 difference at its places, even while `forms-and-settings-rewritten` sees its
 form, but where every row
@@ -4234,7 +4265,10 @@ pointers (`proof/ci/__tests__/firstPublishChanges.test.ts` holds them to the
 register); a `proof1`, `proof2` or `proof3` row names a class as a known-defect
 entry does (check, artifact, exact structural path and kind), is written from
 a document's evidence, never typed, and stands only under an entry that
-touches workers where it is a `proof3` row.
+touches workers where it is a `proof3` row, but a row of a value a search sends
+CommCare HQ (a step of `_xpath_query`): HQ ANDs each value as one more filter,
+so how the values are cut is nothing a worker meets, and the cases HQ answers
+with are compared apart (`search-filter-rows-recut`).
 
 A document whose saves are brought in states, in its `hq-side.json`, the
 changes its review lists for the next publish (`publishChanges`), which the

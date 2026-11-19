@@ -371,7 +371,12 @@ describe("assignMediaPaths", () => {
 				rows: [],
 				collapsed: [],
 				rederived: [
-					{ assetId: ASSET_A, from: path, why: "names-another-file" },
+					{
+						assetId: ASSET_A,
+						from: path,
+						to: wirePathFor(HASH_A, ".png"),
+						why: "names-another-file",
+					},
 				],
 			});
 		}
@@ -384,7 +389,7 @@ describe("assignMediaPaths", () => {
 		]);
 	});
 
-	it("re-derives both paths that only case tells apart, and still holds a third path of one of them", () => {
+	it("re-derives both paths that only case tells apart, sending one to its derivation and the other to the third path it still holds", () => {
 		expect(
 			assignMediaPaths([
 				file("media/Logo.png", ASSET_A, HASH_A),
@@ -398,11 +403,13 @@ describe("assignMediaPaths", () => {
 				{
 					assetId: ASSET_A,
 					from: "media/Logo.png",
+					to: wirePathFor(HASH_A, ".png"),
 					why: "differs-only-by-case",
 				},
 				{
 					assetId: ASSET_B,
 					from: "media/logo.png",
+					to: "media/z-other.png",
 					why: "differs-only-by-case",
 				},
 			],
@@ -443,7 +450,14 @@ describe("assignMediaPaths", () => {
 			expect(assignMediaPaths([file(path)])).toEqual({
 				rows: [],
 				collapsed: [],
-				rederived: [{ assetId: ASSET_A, from: path, why: "not-holdable" }],
+				rederived: [
+					{
+						assetId: ASSET_A,
+						from: path,
+						to: wirePathFor(HASH_A, ".png"),
+						why: "not-holdable",
+					},
+				],
 			});
 		}
 	});
