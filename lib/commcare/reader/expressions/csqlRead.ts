@@ -34,7 +34,6 @@ import {
 	type PropertyRef,
 	type RelationStep,
 	type SearchInputRef,
-	type SwitchCase,
 	type Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
@@ -71,7 +70,7 @@ import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { firstDifference, sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
-import { typedRelations } from "./canonical";
+import { switchOfIfChain, typedRelations } from "./canonical";
 import {
 	agreedComparedTypes,
 	type ComparedType,
@@ -957,7 +956,7 @@ class CsqlBinder {
 			!sameJson(this.query(negated.args[0] as FormSyntax, rowType), cond)
 		)
 			return undefined;
-		return switchOfChoices({
+		return switchOfIfChain({
 			kind: "if",
 			cond,
 			// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
@@ -1004,13 +1003,15 @@ class CsqlBinder {
 				condition.kind === "switch")
 		)
 			return condition;
-		return {
+		// A chain of the device's choices on one subject is the `switch` it
+		// prints, as a chain HQ's own choices make is.
+		return switchOfIfChain({
 			kind: "if",
 			cond: condition,
 			// biome-ignore lint/suspicious/noThenProperty: an expression branch, never awaited.
 			then: thenQuery,
 			else: otherwise,
-		};
+		});
 	}
 
 	/** A branch's own run of text and holes, bound as a clause of its own. */
@@ -2375,31 +2376,6 @@ export function searchRowLevel(
 	} catch {
 		return undefined;
 	}
-}
-
-/** `node`, a choice, as the `switch` it prints where it tests one subject
- *  against a literal at two or more levels of its `else` chain: CSQL prints
- *  each case of a `switch` whose subject reads the case as the choice of an
- *  `if` on `on = when` (`csql/emitter.ts::conditionChoice`), and a nested
- *  `if` of those tests prints the same, which the canonical form holds as the
- *  `switch` (`canonical.ts`, row `switch`). */
-function switchOfChoices(node: Expression): Expression {
-	const cases: SwitchCase[] = [];
-	let on: Expression | undefined;
-	let at: Expression = node;
-	while (at.kind === "if" && at.cond.kind === "eq") {
-		const when = at.cond.right.kind === "term" ? at.cond.right.term : undefined;
-		if (when?.kind !== "literal") break;
-		if (on === undefined) on = at.cond.left;
-		else if (!sameJson(on, at.cond.left)) break;
-		// biome-ignore lint/suspicious/noThenProperty: a case's value, never awaited.
-		cases.push({ when, then: at.then });
-		at = at.else;
-	}
-	const [head, ...rest] = cases;
-	return on === undefined || head === undefined || rest.length === 0
-		? node
-		: { kind: "switch", on, cases: [head, ...rest], fallback: at };
 }
 
 /** One run of a row's CSQL: its parsed text, each marker's device node, and

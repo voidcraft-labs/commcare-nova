@@ -124,6 +124,35 @@ function isComparison(node: Expression): node is Comparison {
 	return COMPARISON_KINDS.has(node.kind);
 }
 
+/** `node`, an `if` that tests one subject against a literal at two or more
+ *  levels of its `else` chain (a `switch` on that subject at the end of the
+ *  chain among them), as that one `switch`: a device and CSQL print each case
+ *  of a `switch` as the `if` of its test, so both print the same. The one
+ *  reading of such a chain, the canonical row `switch`'s and the CSQL
+ *  reader's (`csqlRead.ts`) alike; `node` itself where it is no such chain. */
+export function switchOfIfChain(node: Expression): Expression {
+	const cases: SwitchCase[] = [];
+	let on: Expression | undefined;
+	let at: Expression = node;
+	while (at.kind === "if" && at.cond.kind === "eq") {
+		const when = termOf(at.cond.right);
+		if (when?.kind !== "literal") break;
+		if (on === undefined) on = at.cond.left;
+		else if (!sameJson(on, at.cond.left)) break;
+		// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+		cases.push({ when, then: at.then });
+		at = at.else;
+	}
+	if (on !== undefined && at.kind === "switch" && sameJson(at.on, on)) {
+		cases.push(...at.cases);
+		at = at.fallback;
+	}
+	const [head, ...rest] = cases;
+	return on === undefined || head === undefined || rest.length === 0
+		? node
+		: { kind: "switch", on, cases: [head, ...rest], fallback: at };
+}
+
 function termOf(node: Expression): Term | undefined {
 	return node.kind === "term" ? node.term : undefined;
 }
@@ -2557,22 +2586,8 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		id: "switch",
 		rewrite(node, context) {
 			if (context.ruleSet !== "record" || node.kind !== "if") return undefined;
-			const cases: SwitchCase[] = [];
-			let on: Expression | undefined;
-			let at: Expression = node;
-			while (at.kind === "if" && at.cond.kind === "eq") {
-				const when = termOf(at.cond.right);
-				if (when?.kind !== "literal") break;
-				if (on === undefined) on = at.cond.left;
-				else if (!sameJson(on, at.cond.left)) break;
-				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
-				cases.push({ when, then: at.then });
-				at = at.else;
-			}
-			const [head, ...rest] = cases;
-			if (on === undefined || head === undefined || rest.length === 0)
-				return undefined;
-			return { kind: "switch", on, cases: [head, ...rest], fallback: at };
+			const folded = switchOfIfChain(node);
+			return folded === node ? undefined : folded;
 		},
 	},
 	{
