@@ -3827,9 +3827,10 @@ own conditions instead (kind D) under which they come back in it are.
 1. **The field's own condition.** Applies where the first prompt the conjunct reads, in `properties`
    order, has `exclude: true` and is not a kind C field. The conjunct is that advanced field's
    `predicate`; a second conjunct landing on one field is conjoined with `and`, in row order.
-2. **A clause of the case list filter that waits for its fields.** Applies where every Search field
-   the conjunct reads, it reads under that field's presence guard (part 08's `when-input-present`),
-   and the clause is all-true while the worker has answered none of them
+2. **A clause of the case list filter that waits for its fields.** Applies where the clause is
+   all-true while the worker has answered none of the Search fields it reads, each read under that
+   field's presence guard (part 08's `when-input-present`) or in a value the device works out (a
+   hidden field's, which the checker admits unguarded there)
    (`search/rows.ts::waitsForFields`, the one test the canonical rows that move such a clause between
    the list filter and a field's condition read too). A guard under a negation is all-false there:
    the detail filter prints that clause, the case list stage reads it as a clause of its own, and a
