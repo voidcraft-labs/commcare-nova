@@ -57,14 +57,16 @@ The members:
 - ``settings_page_writes_unset_settings``: the app settings page's save
   adding each of the fifteen settings Nova seeds where the app's stored
   profile holds no value for it, in the stored app, each built profile and
-  Core's reading of the profile. The page posts every setting it shows, an
-  unset one at the value it shows for it
+  Core's reading of the profile, on a document made in HQ. The page posts
+  every setting it shows, an unset one at the value it shows for it
   (``settings/bootstrap5/commcare_settings.js::serialize``), and HQ stores
   each (``views/settings.py::edit_commcare_profile``), on any app. Nova's
   publish over an app it brought in leaves an unset setting unset
   (``targetOverlay.ts::projectProfileForTarget``, ``seeds: "target"``), so
   proof 4's save over B of such an app meets what the same save over the app
-  HQ made meets.
+  HQ made meets. An app Nova made holds each of the fifteen, since Nova seeds
+  them, so there a setting the save writes is Nova's (finding 40, whose
+  fixed entries the control ``case-operation-query`` keeps showing).
 
 This module reads records only: it imports neither HQ nor Django
 (``test_judge_purity``), and nothing beyond the standard library, since the
@@ -250,15 +252,17 @@ def setting_of(path: str) -> str | None:
     return None
 
 
-def settings_page_wrote_unset(difference, stored) -> bool:
+def settings_page_wrote_unset(difference, stored, made_in_hq) -> bool:
     """Whether a report of the settings page's save (``difference``, as proof 4 makes it) is a setting the app held
-    no value for, which the save wrote: the report adds it, and the stored app the save was made over (``stored``,
-    its app document) holds no value under it. The page posts every setting it shows, an unset one at the value it
-    shows for it (``settings/bootstrap5/commcare_settings.js::serialize``), and HQ's save stores each
-    (``views/settings.py::edit_commcare_profile``), so any app whose profile lacks a setting gains it, with HQ's
-    build then writing it into the profile (``ApplicationBase.create_profile``)."""
+    no value for, which the save wrote, on a document made in HQ (``made_in_hq``): the report adds it, and the
+    stored app the save was made over (``stored``, its app document) holds no value under it. The page posts every
+    setting it shows, an unset one at the value it shows for it (``settings/bootstrap5/commcare_settings.js::
+    serialize``), and HQ's save stores each (``views/settings.py::edit_commcare_profile``), so any app whose profile
+    lacks a setting gains it, with HQ's build then writing it into the profile (``ApplicationBase.create_profile``).
+    On a document Nova made the stored app holds each of the fifteen, which Nova seeds, so a setting the save adds
+    there is one Nova's publish left out (finding 40), never HQ's own."""
     key = setting_of(difference.path)
-    if key is None or difference.kind != "added" or not isinstance(stored, dict):
+    if not made_in_hq or key is None or difference.kind != "added" or not isinstance(stored, dict):
         return False
     properties = (stored.get("profile") or {}).get("properties") or {}
     return key not in properties
@@ -303,8 +307,8 @@ HQ_OWN_REPORTS: tuple[HqOwnReport, ...] = (
         applies=settings_page_wrote_unset,
         proof="proof/editors/test_hq_own_settings_page.py",
         description=(
-            "The app settings page's save writing each setting an app holds no value for, which an app made in HQ"
-            " and brought in holds none of, since Nova's publish over it seeds none."
+            "The app settings page's save writing each setting an app made in HQ holds no value for, which Nova's"
+            " publish over it seeds none of."
         ),
     ),
 )

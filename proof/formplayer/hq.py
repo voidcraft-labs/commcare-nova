@@ -790,7 +790,7 @@ def _released(unit, app, app_id):
 
 
 @contextmanager
-def _drawn_for(people: bytes):
+def drawn_for(people: bytes):
     """HQ's entropy and clock for the block drawn from the case database's own digest, not from the state the
     unit is in. The worker and their cases are the same in every state a document is served in, so the ids HQ
     draws making them (the worker's user case, each case's form) are the same in every state too, and HQ's
@@ -849,7 +849,7 @@ def serve(
         hq_redis.flush()
         with unit.committing():
             people = casedata.database_digest(database).encode()
-            with operation(f"formplayer:worker@{label}", people), _drawn_for(people):
+            with operation(f"formplayer:worker@{label}", people), drawn_for(people):
                 default_roles(unit)
                 worker = create_worker(unit, database)
                 save_cases(unit, database, worker)

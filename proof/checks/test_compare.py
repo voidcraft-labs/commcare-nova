@@ -813,6 +813,107 @@ def test_two_events_that_trade_places_are_one_order_difference():
     assert _event_found(before, before) == []
 
 
+def _searching(*queries, requests=None):
+    """A run whose one step is a search sending ``queries`` as its ``_xpath_query`` values, and each request the
+    step made sending its own (``SessionOp.java::search``)."""
+    asked = [queries] if requests is None else requests
+    step = {
+        "screen": "search",
+        "params": {"_xpath_query": list(queries), "case_type": ["client"]},
+        "requests": [
+            {"kind": "search", "params": {"_xpath_query": list(sent), "case_type": ["client"]}} for sent in asked
+        ],
+    }
+    return {"end": "incomplete", "script": [], "trace": [step]}
+
+
+def test_a_searchs_query_values_are_a_multiset_so_their_order_is_no_difference_and_each_value_one():
+    """HQ's case search adds each ``_xpath_query`` value as one more filter, in no order a value's place decides
+    (``case_search/utils.py::CaseSearchQueryBuilder._apply_filter``), so the values are compared as a multiset: the
+    same values in another order are no difference, a value only one side sends is one difference ``added`` or
+    ``removed`` whole, and a value sent twice against once is still one. The plausible failure: the values compared
+    where they stand, so one value more at the front (a list's filter the search restates, hq-search) shows every
+    later value changed, and a reorder shows two."""
+    two = _searching("match-all()", "last_visit <= today()")
+    assert _found([two], [_searching("last_visit <= today()", "match-all()")]) == []
+    found = _found([_searching("village = 'north'")], [_searching("standing = 'open'", "village = 'north'")])
+    assert [(d.path, d.at, d.kind, d.after) for d in found] == [
+        (
+            "/runs/*/trace/*/params/_xpath_query/*",
+            "/runs/0/trace/0/params/_xpath_query/0",
+            "added",
+            "standing = 'open'",
+        ),
+        (
+            "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+            "/runs/0/trace/0/requests/0/params/_xpath_query/0",
+            "added",
+            "standing = 'open'",
+        ),
+    ]
+    found = _found([_searching("a = '1'", "a = '1'")], [_searching("a = '1'")])
+    assert [(d.path, d.at, d.kind, d.before) for d in found if "requests" not in d.path] == [
+        ("/runs/*/trace/*/params/_xpath_query/*", "/runs/0/trace/0/params/_xpath_query/1", "removed", "a = '1'")
+    ]
+    # Every other parameter is still compared where it stands.
+    other = _searching("a = '1'")
+    other["trace"][0]["params"]["case_type"] = ["household"]
+    assert {(d.path, d.kind) for d in _found([_searching("a = '1'")], [other])} == {
+        ("/runs/*/trace/*/params/case_type/*", "changed")
+    }
+
+
+QUERY_SUITE = b"""<suite>
+  <remote-request>
+    <session>
+      <query url="https://hq/a/d/phone/search/x/" storage-instance="results">
+        <data key="case_type" ref="'client'"/>
+        <data key="_xpath_query" ref="'match-all()'"/>
+        <data key="_xpath_query" ref="'last_visit &lt;= today()'"/>
+        <data key="commcare_sort" ref="'name'"/>
+      </query>
+    </session>
+  </remote-request>
+</suite>"""
+
+
+def test_a_suite_querys_xpath_query_data_are_a_multiset_and_every_other_data_stays_where_it_stands():
+    """A suite query's ``_xpath_query`` data are the search's filters, which HQ reads in no order, so each is keyed by
+    its ``ref``: the same data in another order is no difference, and a value only one side sends is one ``data``
+    ``added`` or ``removed`` whole. Every other ``data`` keeps its place. The plausible failure: the data compared
+    by position, so a value moved to the front shows as every later ``ref`` changed (hq-search's
+    ``search-today-device-day``)."""
+    root = parse_xml(QUERY_SUITE)
+    query = next(root.iter("query"))
+    data = [element for element in query if element.tag == "data"]
+    query.remove(data[2])
+    data[1].addprevious(data[2])
+    assert _diff(QUERY_SUITE, _xml(root)) == set()
+    data[2].set("ref", "concat('last_visit <= \"', today(), '\"')")
+    path = "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]"
+    concrete = "/suite/remote-request[1]/session[1]/query[1]/data[@key=_xpath_query][@ref={}]"
+    assert _diff(QUERY_SUITE, _xml(root)) == {
+        (path, concrete.format("'last_visit <= today()'"), "removed"),
+        (path, concrete.format("concat('last_visit <= \"', today(), '\"')"), "added"),
+    }
+    # The same value sent twice is its second, so one more of it is one difference.
+    twice = parse_xml(QUERY_SUITE)
+    first = [element for element in next(twice.iter("query")) if element.get("key") == "_xpath_query"][0]
+    first.addnext(copy.deepcopy(first))
+    assert _diff(QUERY_SUITE, _xml(twice)) == {(path, concrete.format("'match-all()'") + "#2", "added")}
+    # Every other key's data is compared where it stands among them: a sort moved ahead of the case type shows at
+    # both places, and the filters between them move nothing.
+    moved = parse_xml(QUERY_SUITE)
+    held = next(moved.iter("query"))
+    sort = [element for element in held if element.get("key") == "commcare_sort"][0]
+    held.remove(sort)
+    held.insert(0, sort)
+    assert {(p, k) for p, _, k in _diff(QUERY_SUITE, _xml(moved))} == {
+        ("/suite/remote-request[*]/session[*]/query[*]/data[*]/@key", "changed"),
+        ("/suite/remote-request[*]/session[*]/query[*]/data[*]/@ref", "changed"),
+    }
+
+
 def test_a_repeats_prompts_are_its_nth_so_one_more_instance_moves_no_other():
     """A repeat's new-repeat prompts share one place (the repeat they add to, ``FormRun.java::walk``), so each is
     keyed as that place's ``n``-th: one instance more is its group, its questions and one prompt added, and the

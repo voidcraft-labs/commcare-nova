@@ -31,8 +31,10 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	calculatedColumn,
 	declaresAndroid,
 	NEW_APP_SETTINGS,
+	plainColumn,
 	proseText,
 } from "@/lib/domain";
 import {
@@ -40,6 +42,10 @@ import {
 	eq,
 	fixedLocation,
 	literal,
+	matchAll,
+	prop,
+	tableColumn,
+	tableLookup,
 	term,
 } from "@/lib/domain/expression";
 import {
@@ -78,6 +84,7 @@ import {
 } from "./csqlFunctionFixture";
 import { extensionCaseFixture } from "./extensionCaseFixture";
 import { clinicNames } from "./instanceReadFixture";
+import { lookupAppFixture } from "./lookupAppFixtures";
 import {
 	childCreate,
 	OP,
@@ -686,6 +693,86 @@ describe("each privilege's reasons", () => {
 			"The app reads data from a lookup table.",
 			"Refer offers cases as a question's choices.",
 		]);
+	});
+
+	it("asks for Lookup Tables where a form's source reads a table or the publish sends a workbook, and not for a table read only outside every form", () => {
+		/* HQ's build refuses a form whose stored source names a table
+		 * (`models/forms.py::FormBase.has_fixtures`); a menu's condition and a
+		 * case list's column are the suite's, which no privilege gates. */
+		const inForms = lookupAppFixture();
+		const table = inForms.table;
+		const [value, label] = table.columns;
+		const read = tableLookup(
+			table.id,
+			label.id,
+			eq(tableColumn(table.id, value.id), prop("patient", "region")),
+		);
+		const columns = [
+			plainColumn(testUuid("outside-name"), "case_name", "Name"),
+			calculatedColumn(testUuid("outside-region"), "Region", read),
+		];
+		const outside = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "region", label: proseText("Region") }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					displayCondition: eq(
+						tableLookup(table.id, label.id, matchAll()),
+						literal("Northland"),
+					),
+					caseListConfig: {
+						columns,
+						listColumnOrder: columns.map((column) => column.uuid),
+						detailColumnOrder: columns.map((column) => column.uuid),
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							displayCondition: eq(read, literal("Northland")),
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		/* Whether some form's emitted source declares a table's instance. */
+		const formSourcesReadATable = (doc: BlueprintDoc) => {
+			const hq = expandDoc(doc, { lookupNaming: inForms.naming });
+			return hq.modules.some((module) =>
+				module.forms.some((form) => {
+					const source = hq._attachments[`${form.unique_id}.xml`];
+					return (
+						typeof source === "string" &&
+						[...walkXml(readXmlEvidence(source))].some(
+							(node) =>
+								node.name === "instance" &&
+								node.attributes.src?.startsWith("jr://fixture/item-list:") ===
+									true,
+						)
+					);
+				}),
+			);
+		};
+		expect(formSourcesReadATable(inForms.doc)).toBe(true);
+		expect(reasonsOf(inForms.doc, "lookup_tables")).toEqual([
+			"The app reads data from a lookup table.",
+		]);
+		expect(formSourcesReadATable(outside)).toBe(false);
+		expect(reasonsOf(outside, "lookup_tables")).toBeUndefined();
+		expect(
+			reasonsOf(outside, "lookup_tables", {
+				lookupTables: true,
+				places: false,
+			}),
+		).toEqual(["The app reads data from a lookup table."]);
 	});
 
 	it("names each form that writes a child case and each that opens another form", () => {

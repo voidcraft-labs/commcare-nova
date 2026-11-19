@@ -35,6 +35,14 @@ import java.util.concurrent.TimeoutException;
  * interrupted, so a request that outlives its deadline is answered with an
  * error of kind "deadline" and the process halts, leaving the client to start
  * a fresh one.
+ *
+ * A request can ask the client something while it runs (ask): the runner writes
+ * a callback line, {"id": the request's id, "callback": its name, "question"},
+ * and reads the client's answer as the next line of its stdin, {"callback": the
+ * same name, "answer"}. The main thread reads stdin only between requests, so
+ * while a request runs its worker thread reads the answer alone. A session asks
+ * for HQ's answer to each case search this way where its request names
+ * "searchAnswers" (ProofSessionUtils).
  */
 public final class Runner {
     /** Exit status of a process that halted because a request outlived its deadline. */
@@ -45,6 +53,12 @@ public final class Runner {
     private final ByteArrayOutputStream captured;
     private final ExecutorService worker;
     private final Apps apps = new Apps();
+    /** The runner serving this process, which ask writes to and reads from. */
+    private static volatile Runner serving;
+    /** The protocol's input, read by the main thread between requests and by ask during one. */
+    private BufferedReader in;
+    /** The id of the request running now, which a callback line names. */
+    private volatile Object running;
 
     private Runner(PrintStream protocol, ByteArrayOutputStream captured) {
         this.protocol = protocol;
@@ -70,6 +84,7 @@ public final class Runner {
             System.exit(2);
         }
         Runner runner = new Runner(protocol, captured);
+        serving = runner;
         runner.announce();
         runner.serve();
     }
@@ -111,7 +126,7 @@ public final class Runner {
     }
 
     private void serve() throws IOException {
-        BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         String line;
         while ((line = in.readLine()) != null) {
             if (line.isBlank()) {
@@ -158,6 +173,7 @@ public final class Runner {
         synchronized (captured) {
             captured.reset();
         }
+        running = id;
         Future<JSONObject> future = worker.submit(() -> Ops.dispatch(op, request, apps));
         JSONObject response;
         try {
@@ -188,6 +204,54 @@ public final class Runner {
             }
         }
         respond(response);
+    }
+
+    /**
+     * The client's answer to a question the running request asks it: the callback line written to the protocol,
+     * then the client's next line read as {"callback": name, "answer": {...}}, whose answer is returned. A line
+     * that is not that answer, or a stdin that closed, fails the request: the client answers every callback of a
+     * request it asked for, so a request can never read the next request's line as an answer.
+     */
+    static JSONObject ask(String callback, JSONObject question) {
+        Runner runner = serving;
+        if (runner == null || runner.in == null) {
+            throw new IllegalStateException("A request asked the client for its " + callback
+                    + " answer outside a runner serving the protocol.");
+        }
+        return runner.askClient(callback, question);
+    }
+
+    private JSONObject askClient(String callback, JSONObject question) {
+        JSONObject line = new JSONObject();
+        line.put("id", running == null ? JSONObject.NULL : running);
+        line.put("callback", callback);
+        line.put("question", question);
+        protocol.println(line.toString());
+        protocol.flush();
+        String answered;
+        try {
+            answered = in.readLine();
+        } catch (IOException e) {
+            throw new IllegalStateException("The runner could not read the client's " + callback + " answer: "
+                    + e.getMessage(), e);
+        }
+        if (answered == null) {
+            throw new IllegalStateException("The client closed the protocol's input while the runner waited for its "
+                    + callback + " answer.");
+        }
+        JSONObject parsed;
+        try {
+            parsed = new JSONObject(answered);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("The client answered the runner's " + callback
+                    + " question with a line that is not a JSON object.", e);
+        }
+        JSONObject answer = parsed.optJSONObject("answer");
+        if (!callback.equals(parsed.optString("callback", null)) || answer == null) {
+            throw new IllegalStateException("The client answered the runner's " + callback
+                    + " question with a line that names no " + callback + " answer; the protocol is out of step.");
+        }
+        return answer;
     }
 
     private JSONObject failure(Object id, String kind, String errorClass, String message, String trace) {

@@ -905,6 +905,50 @@ def test_a_suites_search_instances_and_prompts(manifest):
     assert classes.reserved_request_key(prompt, manifest) is True
 
 
+# A registration form HQ's Register action opens after an empty inline search, its menu held off the menu: the action
+# sits on the list a searching entry shows, by a ``<datum>`` where the list selects one case and by an
+# ``<instance-datum>`` where it selects several (``suite_xml/xml_models.py::InstanceDatum``).
+REGISTER_AFTER_SEARCH_SUITE = """<suite version="1">
+  <detail id="m0_case_short"><title><text><locale id="t"/></text></title>
+    <field><header><text><locale id="h"/></text></header><template><text><xpath function="."/></text></template></field>
+    <action relevant="count(instance('results:inline')/results/case) = 0">
+      <display><text><locale id="r"/></text></display>
+      <stack><push><command value="'m1-f0'"/><datum id="case_id_new_patient_0" value="uuid()"/></push></stack>
+    </action></detail>
+  <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="c"/></text></command>
+    <instance id="results:inline" src="jr://instance/remote/results:inline"/>
+    <session>{query}
+      <{datum} id="{datum_id}" nodeset="instance('results:inline')/results/case" value="./@case_id"
+        detail-select="m0_case_short"/></session></entry>
+  <entry><form>http://example.org/r</form><command id="m1-f0"><text><locale id="c"/></text></command>
+    <session><datum id="case_id_new_patient_0" function="uuid()"/></session></entry>
+  <menu id="m0"><text><locale id="m"/></text><command id="m0-f0"/></menu>
+  <menu id="m1" relevant="false()"><text><locale id="m"/></text><command id="m1-f0"/></menu>
+</suite>"""
+INLINE_QUERY = (
+    '<query url="https://example.org/s" storage-instance="results:inline" template="case" default_search="false">'
+    '<data key="case_type" ref="\'patient\'"/></query>'
+)
+
+
+@pytest.mark.parametrize("datum,datum_id", [("datum", "case_id"), ("instance-datum", "selected_cases")])
+def test_a_form_the_register_action_opens_is_reached_through_the_searching_entry_s_frame(datum, datum_id):
+    """Contract: the form a list's Register action pushes is reached on the frame of the entry that shows the list,
+    whether that entry's list selects one case or several. The plausible failure: a several-case list's
+    ``<instance-datum>`` read as showing no list, so the form reads as reached with no query and its read of the
+    Search answer is refused (``no-matches-multiple-home``)."""
+
+    def register_entry(query):
+        root = etree.fromstring(
+            REGISTER_AFTER_SEARCH_SUITE.format(query=query, datum=datum, datum_id=datum_id).encode()
+        )
+        [entry] = [entry for entry in root if entry.tag == "entry" and entry.find("command").get("id") == "m1-f0"]
+        return entry
+
+    assert classes._reached_without_a_query(register_entry(INLINE_QUERY)) is False
+    assert classes._reached_without_a_query(register_entry("")) is True
+
+
 def test_csql_comparisons_by_what_stands_on_their_value_side(hq, manifest, core_runner):
     queries = {
         "time": "'dob > \"10:30\"'",

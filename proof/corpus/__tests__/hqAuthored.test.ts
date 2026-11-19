@@ -58,8 +58,10 @@ import { lookupContextOf, storedDocument } from "../documents";
 import { hydrateAdmittedDocument } from "../editBatches";
 import { WORKTREE } from "../emissionProcess";
 import {
+	BaseSetAside,
 	HQ_APPS,
 	hqAuthoredDocument,
+	hqAuthoredDocuments,
 	laneInputFor,
 	loadRetainedHqApp,
 } from "../hqAuthored";
@@ -297,6 +299,85 @@ it(
 			);
 			expect(plain.lookup).toBeUndefined();
 			expect(plain.hqAuthored?.keyedCaseIds).toEqual([]);
+		} finally {
+			await rm(scratch, { recursive: true, force: true });
+		}
+	},
+	BUDGET_MS,
+);
+
+/** The controlled base copied as `id`, its source answer's app changed by `change`. */
+async function writeChangedBase(
+	root: string,
+	id: string,
+	change: (app: Record<string, unknown>) => void,
+): Promise<void> {
+	const from = join(root, CONTROLLED_BASE);
+	const directory = join(root, id);
+	await mkdir(directory, { recursive: true });
+	for (const name of [
+		"application.json",
+		"current-version.json",
+		"lookup-tables.json",
+		"expected.json",
+	])
+		await copyFile(join(from, name), join(directory, name));
+	const base = JSON.parse(readFileSync(join(from, "base.json"), "utf8"));
+	await writeFile(
+		join(directory, "base.json"),
+		`${JSON.stringify({ ...base, id }, null, "\t")}\n`,
+	);
+	const answer = JSON.parse(
+		readFileSync(join(from, "app-source.json"), "utf8"),
+	);
+	const app = JSON.parse(answer.body) as Record<string, unknown>;
+	change(app);
+	await writeFile(
+		join(directory, "app-source.json"),
+		`${JSON.stringify({ ...answer, body: JSON.stringify(app) }, null, "\t")}\n`,
+	);
+}
+
+/*
+ * Contract: a base Nova's reading takes no document of is set aside by name,
+ * and the rest of the corpus's bases are still read, so the lane runs and
+ * authors that base again instead of the emission stopping before any test
+ * (`hqAuthored.ts::hqAuthoredDocuments`). The plausible failures: a refused
+ * base that stops the emission (the lane then cannot author it again), one
+ * dropped with no notice (a run that quietly lacks a base), and a broken
+ * retained tree set aside as though the reader had refused it.
+ */
+it(
+	"sets aside a base its reading refuses, naming it, reads the others, and stops on a base it cannot read at all",
+	async () => {
+		const scratch = await mkdtemp(join(tmpdir(), "nova-hq-authored-aside-"));
+		try {
+			const root = join(scratch, "hq-apps");
+			const hand = join(scratch, "hand");
+			await writeControlledBase(root, hand);
+			await writeChangedBase(root, "refused-base", (app) => {
+				app.doc_type = "LinkedApplication";
+			});
+			await expect(
+				hqAuthoredDocument(loadRetainedHqApp("refused-base", root), hand),
+			).rejects.toBeInstanceOf(BaseSetAside);
+			const part = await hqAuthoredDocuments(root, hand);
+			expect(part.documents.map((one) => one.id)).toEqual([CONTROLLED_BASE]);
+			expect(
+				part.setAside.map(({ base, reading }) => ({ base, reading })),
+			).toEqual([{ base: "refused-base", reading: "account" }]);
+			const [aside] = part.setAside;
+			expect(aside?.notice).toContain(
+				"The corpus sets the base refused-base aside. The base refused-base did not come in:",
+			);
+			expect(aside?.notice).toContain(
+				"proof/matrix/test_retained.py[refused-base]",
+			);
+			// A retained directory that cannot be read is no refusal of the reader's: it stops the emission.
+			await rm(join(root, "refused-base", "app-source.json"));
+			await expect(hqAuthoredDocuments(root, hand)).rejects.toThrow(
+				/refused-base holds no readable app-source\.json/,
+			);
 		} finally {
 			await rm(scratch, { recursive: true, force: true });
 		}

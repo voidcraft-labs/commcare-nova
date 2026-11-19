@@ -15,7 +15,9 @@ row for the runner):
 - Core's refusal of a submission is recorded where Core constructed it, so two
   refusals one static factory builds are two sites;
 - a case search is answered with every case of the requested type, and a
-  claim and its sync are recorded;
+  claim and its sync are recorded; a session given ``searches`` hands Core
+  the bytes its handler answers for each search, whatever the case data
+  holds, and records the status it gave;
 - values the runtime generates are marked, consistently, wherever they occur,
   and values an app authors are not;
 - the answer table's dates satisfy the date constraints HQ-built forms carry;
@@ -452,3 +454,61 @@ def test_a_search_is_answered_with_every_case_of_its_type_and_a_claim_is_recorde
     unsearched = next(run for run in empty["runs"] if screens(run, "search"))
     assert screens(unsearched, "search")[0]["requests"][0]["answered"] == 0
     assert unsearched["end"] == "no-cases"
+
+
+def search_results(case_ids: list[str]) -> bytes:
+    """A results document as HQ's search view answers one (``casexml/apps/case/fixtures.py::CaseDBFixture``, each
+    case in the case database's shape), holding person cases."""
+    root = etree.Element("results", id="case")
+    for case_id in case_ids:
+        case = etree.SubElement(root, "case", case_id=case_id, case_type="person", owner_id="test_user", status="open")
+        etree.SubElement(case, "case_name").text = f"Person {case_id}"
+        etree.SubElement(case, "date_opened").text = "2014-08-04"
+        etree.SubElement(case, "last_modified").text = "2014-08-04T21:09:07.000000Z"
+    return etree.tostring(root)
+
+
+def test_a_search_a_handler_answers_lists_the_cases_the_answer_holds_whatever_the_case_data_holds(
+    core_runner: CoreRunner,
+):
+    # The case data holds two people; the answer holds one of them, so a runner that answered from the case data
+    # (the session without a handler) lists both, and one that hands Core the handler's bytes lists one.
+    people = ["person-b", "person-a"]
+    restore = person_cases(SESSION_RESTORE.read_bytes(), people)
+    asked = []
+
+    def answer(url, params):
+        asked.append((url, params))
+        return 200, search_results(["person-a"])
+
+    def refuse(url, params):
+        return 400, b"Search has too many results. Please try a more specific search."
+
+    report = core_runner.admit(SESSION_APP)
+    assert report["admitted"], report["problems"]
+    try:
+        answered = core_runner.session(report["app"], restore=restore, searches=answer)
+        unanswered = core_runner.session(report["app"], restore=restore)
+        refused = core_runner.session(report["app"], restore=restore, searches=refuse)
+    finally:
+        core_runner.release(report["app"])
+
+    searched = next(run for run in answered["runs"] if screens(run, "search"))
+    search = screens(searched, "search")[0]
+    assert asked and all(params["case_type"] == ["person"] for _, params in asked)
+    assert asked[0][1] == search["params"]
+    assert asked[0][0] == search["url"]
+    assert search["requests"][0]["status"] == 200
+    assert search["requests"][0]["answered"] == 1
+    listed = next(step for step in screens(searched, "multi-select-list") if step["datum"] == "search_selected_cases")
+    assert [row["caseId"] for row in listed["rows"]] == ["person-a"]
+
+    standing = next(run for run in unanswered["runs"] if screens(run, "search"))
+    listed = next(step for step in screens(standing, "multi-select-list") if step["datum"] == "search_selected_cases")
+    assert {row["caseId"] for row in listed["rows"]} == set(people)
+    assert "status" not in screens(standing, "search")[0]["requests"][0]
+
+    stopped = next(run for run in refused["runs"] if screens(run, "search"))
+    request = screens(stopped, "search")[0]["requests"][0]
+    assert request["status"] == 400 and request["answered"] is None
+    assert stopped["end"] == "search-failed"

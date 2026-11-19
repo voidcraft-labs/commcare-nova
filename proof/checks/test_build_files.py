@@ -17,8 +17,10 @@ or one the comparison silently skips), a build profile's file named so no
 rule or entry can reach it, and a version clause that erases a version HQ
 changed with nothing changed.
 
-The app is HQ's own suite-test app with a build profile, published through
-HQ's import as Nova publishes and built by HQ under the check's seams.
+The app is HQ's own suite-test app with a build profile and an id on its
+menu, as every app Nova publishes holds (``hq_test_app_with_menu_ids``),
+published through HQ's import as Nova publishes and built by HQ under the
+check's seams.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from proof.checks.proof2 import parsed_build
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
-from proof.hq.conftest import hq_test_app, nova_shaped_upload
+from proof.hq.conftest import hq_test_app_with_menu_ids, nova_shaped_upload
 from proof.hq.seams import build_seams
 from proof.observe.build import build_state
 
@@ -66,12 +68,12 @@ def _changed_label(app_json, held_form_ids, form_index=None):
 def builds(hq, core_runner):
     """HQ's build of the app with a build profile (A), and of its update changing the second form's label (B)."""
     with hq_check(CONFIGURATION) as (state, record):
-        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
+        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app_with_menu_ids(), "Suite app")])
         app = _with_profile(operations.held_app(state, app_id))
         with build_seams(previous=None):
             a, hq_build = build_state(app, record, "A")
         saved_a = hq_build.saved_build()  # before the update replaces the forms' sources
-        update = _changed_label(hq_test_app(), [form.unique_id for form in app.get_forms()], form_index=1)
+        update = _changed_label(hq_test_app_with_menu_ids(), [form.unique_id for form in app.get_forms()], form_index=1)
         upload = operations.with_app_id(nova_shaped_upload(update, "Suite app", app_id="captured"), app_id)
         assert operations.apply_upload(state, upload).status == 200
         with build_seams(previous=saved_a):
@@ -266,12 +268,14 @@ def _media_versions(outcome):
 def media_builds(hq, core_runner):
     """HQ's build of the app with two media (A), and after its republish, with one media file replaced (B)."""
     with hq_check(CONFIGURATION) as (state, record):
-        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
+        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app_with_menu_ids(), "Suite app")])
         with build_seams(previous=None):
             a, hq_build = build_state(_with_media(operations.held_app(state, app_id), "b" * 32), record, "A")
         saved_a = hq_build.saved_build()
         held = [form.unique_id for form in operations.held_app(state, app_id).get_forms()]
-        republish = nova_shaped_upload(_changed_label(hq_test_app(), held), "Suite app", app_id="captured")
+        republish = nova_shaped_upload(
+            _changed_label(hq_test_app_with_menu_ids(), held), "Suite app", app_id="captured"
+        )
         assert operations.apply_upload(state, operations.with_app_id(republish, app_id)).status == 200
         with build_seams(previous=saved_a):
             b, _ = build_state(_with_media(operations.held_app(state, app_id), "c" * 32), record, "B")

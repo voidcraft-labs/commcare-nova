@@ -164,6 +164,10 @@ SPLIT: dict[str, tuple[str, ...]] = {
 # every base three times; by base, each base is a group of about a minute on one worker, where the module whole took
 # about 1,140 seconds (three slice runs), which overran a pull request's shard.
 SPLIT_BY_PARAMETER: dict[str, str] = {"matrix/test_retained.py": "matrix/bases.json"}
+# The module that authors each base made in HQ again and retains it, one group a base: the group a queue runs for a
+# base the corpus set aside (``proof.store.queue.set_aside_groups``), and the gate's base section reads
+# (``proof.lane.gate``).
+AUTHORING_MODULE = "matrix/test_retained.py"
 
 
 def parameter_values(module: str, proof_dir: Path = PROOF_DIR) -> tuple[str, ...]:

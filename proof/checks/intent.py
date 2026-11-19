@@ -1443,11 +1443,18 @@ def search_compiles(document, records, name) -> list:
     return found
 
 
-def state_differences(document, intent, state, configuration, manifest_items, saved=None, *, seeds=True) -> list:
+def state_differences(
+    document, intent, state, configuration, manifest_items, saved=None, *, seeds=True, add_ons=True
+) -> list:
+    """What one HQ state holds against the document's intent. ``add_ons`` is false for a state whose ``add_ons``
+    Nova wrote nothing of: the A of a document made in HQ, which holds the map its author left. HQ's pages offer an
+    add-on wherever the app uses it, whatever the map says (``add_ons.py::show``), so such a map is HQ's own, and
+    Nova's first publish turns each add-on it needs on."""
     found = module_case_types(document, intent, state)
     found += learned_properties(document, intent, state)
     found += data_dictionary(document, intent, state, configuration.privileges)
-    found += add_ons_in_use(document, state)
+    if add_ons:
+        found += add_ons_in_use(document, state)
     if state.build.files is not None:
         found += attachment_paths(document, intent, state)
         found += profile_settings(document, intent, state, configuration, manifest_items, saved, seeds=seeds)
@@ -1530,7 +1537,8 @@ def intent_differences(document, records, manifest_items) -> list:
     saved = saved_profile(document)
     # A migration witness's A is the export from before its migration, which states another document than D.
     judged = (("b", "B"),) if document.migration_witness else (("a", "A"), ("b", "B"))
-    # A document made in HQ: Nova wrote no Web Apps setting into its A, which holds the one its author left.
+    # A document made in HQ: Nova wrote no Web Apps setting and no add-on into its A, which holds those its author
+    # left.
     made_in_hq = getattr(document, "hq_authored", False)
     found = []
     for name in sorted(document.exports):
@@ -1539,10 +1547,18 @@ def intent_differences(document, records, manifest_items) -> list:
         for part, state_name in judged:
             state = held_state(held.part(part), state_name, blobs)
             if state is not None:
+                authored_a = made_in_hq and state_name == "A"
                 found += state_differences(
-                    document.id, intent, state, configuration, manifest_items, saved, seeds=not made_in_hq
+                    document.id,
+                    intent,
+                    state,
+                    configuration,
+                    manifest_items,
+                    saved,
+                    seeds=not made_in_hq,
+                    add_ons=not authored_a,
                 )
-                if not (made_in_hq and state_name == "A"):
+                if not authored_a:
                     found += web_apps_setting(document.id, document.platforms(), state)
         if not document.migration_witness:
             found += search_compiles(document, records, name)

@@ -24,7 +24,10 @@
  *    (`proof/targeted/index.ts`, when it exists) and the documents of the
  *    apps CommCare HQ made (`./hqAuthored.ts`, one a base `proof/hq-apps/`
  *    retains), then every document's edit batch, captures, exports and input
- *    manifest (`./emitCorpus.ts`).
+ *    manifest (`./emitCorpus.ts`). A base whose reading takes no document of
+ *    it is set aside: its notice is printed and listed in `index.json`'s
+ *    `setAside`, the rest of the corpus is emitted, and the lane's gate fails
+ *    the run (`./hqAuthored.ts::BaseSetAside`).
  *
  * Nothing in the emission starts HQ: the privileges a document's content
  * needs are derived in the lane, where HQ runs
@@ -283,12 +286,14 @@ async function main(argv: readonly string[]): Promise<void> {
 		);
 
 		const producers = producerDocuments();
+		const hqAuthored = await hqAuthoredDocuments();
+		for (const { notice } of hqAuthored.setAside) console.log(notice);
 		const fixed = [
 			...producers,
 			...workforceDocuments(producers),
 			...(await readExpanderCapture(writers.expander)),
 			...(await targetedDocuments()),
-			...(await hqAuthoredDocuments()),
+			...hqAuthored.documents,
 		];
 		const sampled = await readFuzzSample(writers.sample);
 		const position = new Map(
@@ -309,6 +314,7 @@ async function main(argv: readonly string[]): Promise<void> {
 			}),
 			requireEveryKind: true,
 			leftOut,
+			setAside: hqAuthored.setAside,
 			jobs,
 			timings: { vitestWritersSeconds },
 			log: (line) => console.log(line),

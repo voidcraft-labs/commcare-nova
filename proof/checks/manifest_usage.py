@@ -2176,6 +2176,11 @@ def standing(manifest: Manifest, use: Use):
       such entry: Nova's export uses an item the manifest says Nova does not
       hold yet, so the entry's disposition or the emitter is wrong, never a
       symptom a register entry holds;
+    - else, where a class the bar reads names the key beside the others
+      (an entry refused only because HQ's build refuses its state), the use
+      is ``BAR``, resting on each such entry: every class the check reads
+      has ruled it out, and the one left is the bar's, which reports an
+      export HQ cannot build and holds one HQ builds;
     - else every entry naming the key rules the use out, each reader having
       placed it outside its class: ``UNHELD``, resting on them all.
 
@@ -2211,7 +2216,8 @@ class _Plan:
     entries that refuse a use where it is (``refusing``) and, in a build, those whose class is the source's
     (``source``), each with the place of its value class's reader among ``readers`` (None where the check holds
     none); whether an allowing entry names it; the HELD-NEW entries naming it (``new``) and those of them with a
-    value class's reader (``judged``); and the standing itself where it needs no reader."""
+    value class's reader (``judged``); the entries refused only because HQ's build refuses their state, which the
+    check leaves to the bar beside the others (``bar``); and the standing itself where it needs no reader."""
 
     entries: tuple
     refusing: tuple  # ((Entry, reader's place or None), ...)
@@ -2221,6 +2227,7 @@ class _Plan:
     readers: tuple  # (reader, ...)
     static: tuple | None
     judged: tuple = ()  # ((Entry, reader's place), ...)
+    bar: tuple = ()  # (Entry, ...)
 
 
 class _NeedsReader(Exception):
@@ -2271,6 +2278,8 @@ def _evaluate(plan, read):
         return UNDECIDED, tuple(unsure)
     if plan.new:
         return HELD_NEW, plan.new
+    if plan.bar:
+        return BAR, plan.bar
     return UNHELD, plan.entries
 
 
@@ -2282,7 +2291,7 @@ def _standing_plan(manifest, key, built):
         return None
     if all(entry.disposition == "REFUSED" and entry.refused_by_hq_build() for entry in entries):
         return _Plan(entries, (), False, (), (), (), (BAR, entries))
-    refusing, source, new, judged, readers = [], [], [], [], []
+    refusing, source, new, judged, readers, bar = [], [], [], [], [], []
     allowed = False
     for entry in entries:
         if entry.disposition == "HELD-NEW":
@@ -2296,18 +2305,21 @@ def _standing_plan(manifest, key, built):
             allowed = True
             continue
         if entry.refused_by_hq_build():
-            continue  # the bar's, beside entries that are not
+            bar.append(entry)  # the bar's, beside entries that are not
+            continue
         reader = manifest.readers.get(entry.id) if entry.value_class is not None else None
         held = source if built and not entry.judges_builds() else refusing
         held.append((entry, None if reader is None else len(readers)))
         if reader is not None:
             readers.append(reader)
-    plan = _Plan(entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None, tuple(judged))
+    plan = _Plan(
+        entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None, tuple(judged), tuple(bar)
+    )
     try:
         static = _evaluate(plan, _no_reader)
     except _NeedsReader:
         return plan
-    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static, plan.judged)
+    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static, plan.judged, plan.bar)
 
 
 @cache

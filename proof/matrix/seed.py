@@ -39,7 +39,11 @@ from it). It is written as ``proof/hq-apps/<base>/seed.json``:
   whose other operand is a path whose last step names a property of the type.
   The expressions are each form's binds and setvalues and each menu's case
   list filter, calculated columns, sort calculations and search
-  expressions. Each is parsed by Core (the Core runner's ``xpathParse``); one
+  expressions, and the CSQL a search's ``_xpath_query`` default property
+  sends where its value is one string literal (that literal's text, the
+  query HQ's case search reads: a property its row compares with a literal
+  is found only where some case holds that literal, so a walk past the
+  search reaches the menu's forms). Each is parsed by Core (the Core runner's ``xpathParse``); one
   Core refuses compares nothing. The comparison is read over Core's own
   tokens (``proof/rules/_xpath.py::tokens``, the port of Core's lexer its
   test holds to Core): the operand beside the operator is the run of path
@@ -60,6 +64,9 @@ from __future__ import annotations
 from proof.rules import _xpath
 
 USERCASE_TYPE = "commcare-user"
+# The key of a search's default property whose value is the CSQL HQ's case search reads
+# (``case_search/const.py::CASE_SEARCH_XPATH_QUERY_KEY``).
+XPATH_QUERY = "_xpath_query"
 COMPARISONS = frozenset({"EQ", "NEQ", "LT", "LTE", "GT", "GTE"})
 # The tokens a path is made of, outside its predicates and its root call's arguments.
 PATH_TOKENS = frozenset({"QNAME", "SLASH", "DBL_SLASH", "DOT", "DBL_DOT", "AT", "WILDCARD", "NSWILDCARD"})
@@ -275,7 +282,18 @@ def _module_expressions(module):
         for default in search.default_properties:
             if default.defaultValue:
                 found.append(default.defaultValue)
+                if default.property == XPATH_QUERY:
+                    found.extend(_sent_query(default.defaultValue))
     return found
+
+
+def _sent_query(value):
+    """``[the CSQL text]`` a ``_xpath_query`` default property's value sends whatever a run gives it: the text of
+    the one string literal it is, read over Core's tokens; ``[]`` for a value that works anything out at run time."""
+    found = _xpath.tokens(value)
+    if found is None or len(found) != 1 or found[0].kind != "STR":
+        return []
+    return [_xpath.string_value(found[0])]
 
 
 def _writes(app):

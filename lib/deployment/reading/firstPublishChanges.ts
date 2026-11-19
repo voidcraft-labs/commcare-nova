@@ -428,7 +428,14 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 * `useXpathExpression` is true) are written in Nova's spelling of the
 	 * expression the reading holds: its whitespace, its quote marks, and a
 	 * three-argument `cond` as the `if` it equals
-	 * (`reader/syntaxCompare.ts`). Applies on every reading.
+	 * (`reader/syntaxCompare.ts`). The app's two settings Nova owns are written
+	 * on every publish (`targetOverlay.ts::projectApplicationForTarget`), so a
+	 * stored profile that holds no properties, which an app HQ's pages made and
+	 * no settings page saved holds, gains `cc-show-saved` and
+	 * `cc-show-incomplete` at the value the reading read its absence as, which
+	 * HQ's build writes for an absent key too
+	 * (`models/applications.py::Application.create_profile`, both `no`).
+	 * Applies on every reading.
 	 */
 	"forms-and-settings-rewritten": {
 		touchesWorkers: false,
@@ -441,6 +448,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/*/columns/*/field",
 			"/created_from_template",
 			"/media_form_errors",
+			"/profile/properties",
 			...DETAIL_COLUMN_PAGE_KEYS.map(
 				(key) => `/modules/*/case_details/*/columns/*/${key}`,
 			),

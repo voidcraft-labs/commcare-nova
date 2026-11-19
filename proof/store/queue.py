@@ -126,6 +126,15 @@ queue records the environment those keys name
 run's recorded one to before it keeps a package group's outcome. The same
 inputs write the same bytes.
 
+A base made in HQ the corpus set aside (its ``index.json``'s ``setAside``,
+``proof.lane.blocks.set_aside_bases``: a retained base Nova's reading takes
+no document of) is named in the main queue (``setAside``), and the group that
+authors it again (``proof/matrix/test_retained.py[<base>]``,
+``set_aside_groups``) runs in every main queue, whole, sampled or over
+documents named by hand, never read from the store: that run's own output is
+what ``python3 -m proof.matrix.adopt`` brings the base back from, and the
+gate fails the run until it does (``proof.lane.gate``).
+
 ``--lane-env PROOF_READERS=<readers>`` builds the queues of a run that hands
 its states to those readers alone (``proof.lane.readers``; ``0`` for none):
 every key names that set, no package whose every test starts a reader the
@@ -665,6 +674,7 @@ def queue_value(
     sample: lane_blocks.Sample | None = None,
     selection: lane_blocks.Selection | None = None,
     reader: str | None = None,
+    set_aside: tuple[lane_blocks.SetAside, ...] = (),
 ) -> dict:
     running = [group for group in groups if group.status != "cached"]
     by_name = {group.name: group for group in groups}
@@ -683,6 +693,7 @@ def queue_value(
             sample,
             selection,
             reader,
+            tuple(set_aside),
         )
     )
     for block in value["blocks"]:
@@ -791,11 +802,31 @@ def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR, *, 
     queued = _controls_of(proof_dir, readers=builder.readers, documents=only)
     for name in [*queued, *sorted(set(controls) - set(queued))]:
         groups.append(builder.document(name, proof_dir / "controls" / name.partition(":")[2]))
-    if only is not None:
-        return groups
-    for name in queued_packages(builder, proof_dir):
-        if lane_blocks.reads_corpus(name):
-            groups.append(builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent)))
+    if only is None:
+        for name in queued_packages(builder, proof_dir):
+            if lane_blocks.reads_corpus(name):
+                groups.append(builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent)))
+    return set_aside_groups(builder, groups, corpus, files, proof_dir)
+
+
+def set_aside_groups(builder: Builder, groups: list[Group], corpus: Path, files, proof_dir: Path = PROOF_DIR):
+    """``groups`` with the group that authors each base the corpus set aside run, never read from the store: a
+    cached one is run, and one the queue does not hold (a run over documents named by hand queues no package) is
+    added. A base no group authors (one ``proof/matrix/bases.json`` does not list) adds nothing; the gate names
+    it."""
+    by_name = {group.name: group for group in groups}
+    authored = set(sharding.parameter_groups(sharding.AUTHORING_MODULE, proof_dir))
+    for aside in lane_blocks.set_aside_bases(corpus):
+        name = sharding.parameter_group(sharding.AUTHORING_MODULE, aside.base)
+        if name not in authored:
+            continue
+        group = by_name.get(name)
+        if group is None:
+            group = builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent))
+            groups.append(group)
+            by_name[name] = group
+        if group.status == "cached":
+            group.status, group.judgments = "observed", {}
     return groups
 
 
@@ -936,13 +967,14 @@ def main(argv=None) -> int:
             judged_share=judged_share(execution),
         )
         proof_dir = Path(arguments.root) / "proof"
-        unsampled, selection, reader = (), None, None
+        unsampled, selection, reader, set_aside = (), None, None, ()
         if arguments.phase == "early":
             groups = early(builder, proof_dir)
         else:
             groups = main_groups(builder, arguments.corpus, proof_dir, only=only, controls=controls)
             # The bundle the corpus documents' groups are keyed under, which each block's manifest names for pack.
             reader = keys.reader_digest(arguments.corpus)
+            set_aside = lane_blocks.set_aside_bases(arguments.corpus)
             if only is None:
                 unsampled = lane_blocks.unsampled_documents(arguments.corpus)
             else:
@@ -962,6 +994,7 @@ def main(argv=None) -> int:
             sample=sample,
             selection=selection,
             reader=reader,
+            set_aside=set_aside,
         )
         # Keep the source identity that collection uses for check eligibility, including
         # cached documents and parents of configuration pieces. An early queue has none.
@@ -974,7 +1007,13 @@ def main(argv=None) -> int:
             else {}
         )
         write_queue(arguments.out, value)
-    except (QueueBuildError, fingerprints.FingerprintError, disk.StoreFormatError, sharding.ShardError) as error:
+    except (
+        QueueBuildError,
+        lane_blocks.QueueError,
+        fingerprints.FingerprintError,
+        disk.StoreFormatError,
+        sharding.ShardError,
+    ) as error:
         print(error, file=sys.stderr)
         return 2
     classes = ", ".join(f"{len(names)} {status}" for status, names in value["classes"].items())
@@ -993,6 +1032,8 @@ def main(argv=None) -> int:
             + (f", and the controls {', '.join(controls)}" if controls else "")
             + f", and leaves {len(selection.left)} other groups out: it is no verdict on the corpus."
         )
+    for aside in set_aside:
+        print(aside.notice)
     if sample is not None:
         said = described_sample(sample, len(sample.documents) + len(value.get("unsampled", ())))
         print(said)

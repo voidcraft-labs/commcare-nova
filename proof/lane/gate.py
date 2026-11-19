@@ -9,7 +9,7 @@ the standard library or the proof's own standard-library modules
 (``proof.lane.blocks``, ``proof.lane.reader``, ``proof.checks.sharding``,
 ``proof.checks.registers``, ``proof.checks.stops``,
 ``proof.checks.differences``). With no queue named, it reads the
-``queue.json`` a run on one machine writes into its output. Five sections,
+``queue.json`` a run on one machine writes into its output. Six sections,
 each with its problems:
 
 1. Exactly once (``proof.checks.sharding.verify``): every queued block ran
@@ -65,6 +65,17 @@ each with its problems:
    pins (``proof/surface/test_extraction.py``). A run over documents named by
    hand whose queues hold no surface block leaves the surface to the lane
    that extracts it, and says so; any other run without one fails.
+6. Bases: every base made in HQ that ``proof/hq-apps/`` retains is a
+   document of the run. A base Nova's reading takes no document of is set
+   aside by the emission, by name (the queues' ``setAside``,
+   ``proof.lane.blocks.set_aside_bases``), so the lane still runs and the
+   group that authors it again (``proof/matrix/test_retained.py[<base>]``)
+   runs, never from the store (``proof.store.queue``). A run whose corpus
+   set a base aside judged no document of it, so the section fails on each,
+   saying which of three things the run shows: the group's new copy came in
+   (under some block's ``hq-apps/<base>/``: adopt the run's outputs and run
+   again), Nova's reader refused the new copy too (``hq-apps-unread/``: the
+   reader or the base's builder is wrong there), or no block authored it.
 
 It prints each section, writes the whole as JSON to ``--summary`` when named,
 and appends it as Markdown to ``$GITHUB_STEP_SUMMARY`` when that is set. The
@@ -309,6 +320,7 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, do
     sections["surface"] = _surface(queues, verdict, store, committed, selection)
     for problem in sections["surface"]["problems"]:
         fails(SURFACE, problem)
+    sections["bases"] = _bases(queues, verdict, fails)
     return {
         "holds": all(section["holds"] for section in sections.values()),
         "sections": sections,
@@ -320,6 +332,50 @@ def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, do
             else {}
         ),
     }
+
+
+def _bases(queues, verdict, fails) -> dict:
+    """The bases section: each base the corpus set aside fails the run, named to the group that authors it again,
+    with what this run shows of it: its new copy came in, Nova's reader refused that too, or no block authored
+    it (the module's docstring)."""
+    set_aside = {aside.base: aside for _, queue in queues for aside in queue.set_aside}
+    problems = []
+    for base, aside in sorted(set_aside.items()):
+        group = sharding.parameter_group(sharding.AUTHORING_MODULE, base)
+        came_in = sorted(
+            directory
+            for directory in verdict.chosen.values()
+            if (directory / lane_blocks.AUTHORED_TREE / base / "expected.json").is_file()
+        )
+        unread = sorted(
+            directory for directory in verdict.chosen.values() if (directory / lane_blocks.UNREAD_TREE / base).is_dir()
+        )
+        said = (
+            f"The corpus set the base {base} aside (Nova's reading of proof/hq-apps/{base}/ answered {aside.reading}),"
+            " so this run judged no document of it."
+        )
+        if came_in:
+            problem = (
+                f"{said} This run authored it again ({group}) and Nova's reading of the new copy came in"
+                f" ({came_in[0] / lane_blocks.AUTHORED_TREE / base}). Adopt it (python3 -m proof.matrix.adopt <every"
+                " output of this run>) and run the lane again, which judges it."
+            )
+        elif unread:
+            problem = (
+                f"{said} This run authored it again ({group}), and Nova's reader did not read the new copy either:"
+                f" what HQ made and the reading are under {unread[0] / lane_blocks.UNREAD_TREE / base}. The reader"
+                " or the base's builder in proof/matrix/bases/ is wrong at that place; fix the one that is, and run"
+                " again."
+            )
+        else:
+            problem = (
+                f"{said} No block of this run authored it again ({group} did not run, or wrote nothing). Run the"
+                " lane over a main queue built from this corpus (python3 -m proof.store.queue main runs that group"
+                f" for it); if {base} is no base of proof/matrix/bases.json, remove proof/hq-apps/{base}/."
+            )
+        problems.append(problem)
+        fails(group, problem)
+    return _section(problems, setAside=sorted(set_aside))
 
 
 def _ran_controls(queues) -> frozenset[str]:
@@ -496,6 +552,7 @@ TITLES = {
     "register": "Every difference holds to the register",
     "stops": "Every walk reaches its end or a held stop",
     "surface": "The surface matches the committed one",
+    "bases": "Every base made in HQ is a document of the run",
 }
 
 

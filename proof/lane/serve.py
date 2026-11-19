@@ -40,7 +40,8 @@ Phases. With no queue, the server runs what pytest collects from PYTEST ARGS
 (the whole of ``proof/`` by default) as one block it claims itself: the run
 ``npm run proof`` makes (``proof/run.mjs``), whose queue it writes to
 ``queue.json``, naming the documents the corpus's sample leaves out where
-the queue builder sampled it (``proof.lane.blocks.unsampled_documents``).
+the queue builder sampled it (``proof.lane.blocks.unsampled_documents``) and
+the bases made in HQ the corpus set aside (``set_aside_bases``).
 With ``--bin I/N`` as well, each collected group is a block of its own and
 the server runs bin I of N of them, so N servers over the same collection
 run it all once between them. With queues it runs the early
@@ -650,8 +651,13 @@ class Server:
             queue = replace(queue, readers=lane_readers.named())
             corpus = os.environ.get("PROOF_CORPUS")
             if corpus and Path(corpus, "index.json").is_file():
-                # A corpus the queue builder sampled names the documents it leaves out, for the gate.
-                queue = replace(queue, unsampled=lane_blocks.unsampled_documents(Path(corpus)))
+                # A corpus the queue builder sampled names the documents it leaves out, and a corpus that set a
+                # base made in HQ aside names it, for the gate.
+                queue = replace(
+                    queue,
+                    unsampled=lane_blocks.unsampled_documents(Path(corpus)),
+                    set_aside=lane_blocks.set_aside_bases(Path(corpus)),
+                )
             lane_blocks.write_json(self.out / "queue.json", lane_blocks.queue_json(queue))
             self.broker.offer(info.name, self._binned(queue) if info.by_group else [])
             return

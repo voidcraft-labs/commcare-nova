@@ -10,7 +10,8 @@ state. The plausible failures: a member left out of the set while its proof
 stays, or listed with no proof; a condition wider than the fact it rests on,
 which drops a report Nova's export makes (a registration form that truly
 lacks a name, a session that ends at another datum, a Connect refusal of
-another cause or an id that moved with no block renamed); and a condition
+another cause or an id that moved with no block renamed, a setting the
+settings page adds to an app Nova made); and a condition
 narrower than the report, which leaves the report HQ's own app shows in the
 register. Each test builds the record a check reads, as the observation
 writes it, and holds the check to the report it makes.
@@ -402,9 +403,10 @@ def test_the_settings_the_member_names_are_the_fifteen_nova_seeds():
     assert sorted(hq_own_reports.UNSEEDED_SETTINGS) == sorted(NOVA_PROFILE_CONSTANTS)
 
 
-def _settings_save(stored, *, kind="added", key="cc-enable-tts", path=None):
-    """What proof 4 judges of an app settings save over ``stored`` (the app document the save was made over)
-    that wrote ``key`` into the stored app, each built profile and Core's reading of the profile."""
+def _settings_save(stored, *, kind="added", key="cc-enable-tts", path=None, made_in_hq=True):
+    """What proof 4 judges of an app settings save over ``stored`` (the app document the save was made over, of a
+    document made in HQ unless ``made_in_hq`` is false) that wrote ``key`` into the stored app, each built profile
+    and Core's reading of the profile."""
     from proof.checks.differences import Difference
 
     over = {"profile": {"properties": stored}}
@@ -415,7 +417,7 @@ def _settings_save(stored, *, kind="added", key="cc-enable-tts", path=None):
         ),
         Difference("proof4", "-", "trace@app settings", f"/profile/properties/{key}", "-", kind, None, "no"),
     ]
-    return [(difference.artifact, difference.path) for difference in proof4.not_hq_own(found, over)]
+    return [(difference.artifact, difference.path) for difference in proof4.not_hq_own(found, over, made_in_hq)]
 
 
 def test_a_setting_the_settings_page_writes_where_the_app_held_none_is_hqs_own():
@@ -432,4 +434,14 @@ def test_a_setting_the_app_held_or_the_save_changed_is_still_reported():
     assert len(_settings_save({}, kind="changed")) == 3
     # A setting outside the fifteen, and the same report made by another save, stand.
     assert len(_settings_save({}, key="cc-show-saved")) == 3
-    assert hq_own_reports.held("app.json@case list", "/profile/properties/cc-enable-tts", None, {}) is None
+    assert hq_own_reports.held("app.json@case list", "/profile/properties/cc-enable-tts", None, {}, True) is None
+
+
+def test_a_setting_the_settings_page_writes_on_an_app_nova_made_is_still_reported():
+    """Nova seeds the fifteen on an app it made, so a save adding one there is Nova's publish having left it out
+    (finding 40, whose fixed entries the control case-operation-query shows), never HQ's own."""
+    assert _settings_save({"cc-show-saved": "no"}, made_in_hq=False) == [
+        ("app.json@app settings", "/profile/properties/cc-enable-tts"),
+        ("media_profile.ccpr@app settings", "/profile/property[@key=cc-enable-tts]"),
+        ("trace@app settings", "/profile/properties/cc-enable-tts"),
+    ]

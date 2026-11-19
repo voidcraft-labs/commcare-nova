@@ -308,10 +308,15 @@ harness keeps, each with its reason.
   import. Its case database is seeded from A alone (`proof/matrix/seed.py`),
   so a reader that drops something cannot empty both walks. What a person
   writes about a base (`proof/matrix/hand/`) is written from A's authored
-  meaning, never from a reading. Where a person's saves in HQ precede a
-  republish (`brings-in`, `records`), HQ's own answer after the same saves is
-  held to what Nova's review read of the capture's peer (proof 6's
-  `document@saved`), so the peer never stands for HQ unchecked.
+  meaning, never from a reading. A retained base is written only by
+  `python3 -m proof.matrix.adopt` over every output of a run, never deleted
+  or edited by hand: a base Nova's reading refuses is set aside by the
+  emission, the run authors it again and its gate fails until that new copy
+  is adopted (`proof/README.md`, "Authoring bases again"). Where a person's
+  saves in HQ precede a republish (`brings-in`, `records`), HQ's own answer
+  after the same saves is held to what Nova's review read of the capture's
+  peer (proof 6's `document@saved`), so the peer never stands for HQ
+  unchecked.
 - **A republish after a migration is observed on its witness.** A migration
   that changes the wire or an identity has a targeted witness whose A is the
   retained export from before it (`proof/migrations/<id>/`) and whose B is

@@ -17807,6 +17807,28 @@
 		}
 	},
 	{
+		"id": "hq-case-management/seen-moment-a-hidden-date-and-time",
+		"base": "hq-case-management",
+		"entry": "questions/hidden-value-bound-xsd-datetime",
+		"change": {
+			"op": "named",
+			"name": "seen_moment_through_the_join"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [1, 0]
+					},
+					["seen_moment"]
+				],
+				"pointer": "/kind",
+				"value": "hidden"
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/seen-moment-through-the-join",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time",

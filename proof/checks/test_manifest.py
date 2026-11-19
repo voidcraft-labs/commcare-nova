@@ -1208,16 +1208,27 @@ def test_a_use_a_held_new_reader_takes_on_a_nova_export_is_reported_held_new(man
 
     assert reported(NAMED_ROOT) == [["questions/data-root-element-named-other-than-data"]]
     assert reported(DATA_ROOT) == []
+
+
+def test_a_use_no_entry_refuses_where_it_sits_stands_by_where_its_class_is_judged():
     """A key only the bar's entries name is the bar's: every use of it is an export HQ's build refuses, which the bar
-    reports. In a local archive, a key named only by entries refused for how HQ's editors treat the source still has
-    its uses placed by their classes: one an editor class takes is the source's (the same choice in the app JSON is
-    refused there), one none takes is the build's own and unheld, and one a class may take is undecided."""
+    reports. Beside a class the check reads, the bar's class is not read, so a use that read class rules out is the
+    bar's as well, never unheld: the one class left is the bar's. In a local archive, a key named only by entries
+    refused for how HQ's editors treat the source still has its uses placed by their classes: one an editor class
+    takes is the source's (the same choice in the app JSON is refused there), one none takes is the build's own and
+    unheld, and one a class may take is undecided. The plausible failure: a schedule switched off whose condition
+    names a question the form lacks, which the schedule's read class rules out, reported as held by no entry while
+    HQ's build refuses it by the bar's class."""
     built = _built(
         {
             "schema:OpenCaseAction.conflicts": [("forms-and-case-writes/conflicts", "REFUSED", "non-empty", BUILD)],
             "jr-event:xforms-revalidate": [("questions/form-level", "REFUSED", "form-level-setvalue", EDITOR)],
+            "schema:FormSchedule.transition_condition": [
+                ("forms-and-case-writes/schedule-on", "REFUSED", "schedule-enabled", ("retiring",)),
+                ("forms-and-case-writes/schedule-off-gone", "REFUSED", "schedule-names-missing", BUILD),
+            ],
         },
-        {"questions/form-level": _placed(True, False, None)},
+        {"questions/form-level": _placed(True, False, None), "forms-and-case-writes/schedule-on": _placed(True, False)},
     )
 
     def standing(key, artifact, where="0"):
@@ -1235,12 +1246,18 @@ def test_a_use_a_held_new_reader_takes_on_a_nova_export_is_reported_held_new(man
         manifest_usage.REFUSED,
         manifest_usage.UNHELD,
     ]
+    # The schedule on is the read class's; off, the use is the bar's class, the one the check leaves unread.
+    assert [standing("schema:FormSchedule.transition_condition", "app.json", where) for where in "01"] == [
+        (manifest_usage.REFUSED, ["schedule-enabled"]),
+        (manifest_usage.BAR, ["schedule-names-missing"]),
+    ]
     found = manifest_usage.unclassified(
         "doc",
         [
             manifest_usage.Use("schema:OpenCaseAction.conflicts", "app.json", "0"),
             manifest_usage.Use("jr-event:xforms-revalidate", archive, "0"),
             manifest_usage.Use("jr-event:xforms-revalidate", archive, "1"),
+            manifest_usage.Use("schema:FormSchedule.transition_condition", "app.json", "1"),
         ],
         built,
     )

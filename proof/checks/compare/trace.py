@@ -84,7 +84,13 @@ it, ``PROMPTED_PARAMS``) hold CommCare's own keys (``case_type``,
 ``_xpath_query``, every key a suite ``<data>`` names) beside the keys of the
 search's prompts, which are the app's case properties: only a key the step's
 own prompts name is the app's data (``prompt_keys_as_data``), so a lost
-``case_type`` and a lost prompt are two classes.
+``case_type`` and a lost prompt are two classes. A search's ``_xpath_query``
+values are compared as a multiset (``queries_as_multisets``): HQ's case search
+adds each value as one more filter of the query it runs, in no order a
+value's place decides (``case_search/utils.py::CaseSearchQueryBuilder._apply_filter``,
+``search_es.filter`` for each), so a value only one side sends is ``added``
+or ``removed`` whole (``.../params/_xpath_query/*``) and the values both
+send in another order are no difference.
 """
 
 from __future__ import annotations
@@ -108,6 +114,11 @@ GENERATED_MARK = re.compile(r"@generated:uuid:[0-9]+")
 GENERATED_LABEL = "@generated:"
 # The count of the ids the runtime generated in a run, which the runner keeps beside them (``Generated.java::mark``).
 GENERATED_COUNT = "uuids"
+# The ``jr://file/`` path of each media resource the build Core ran installs, which a caller that holds Core's
+# admission of the build lays beside the trace (``proof.checks.proof3.comparable_trace``) for the spelling rules to
+# read (``proof/rules/menu_image_without_media.py``). It is context and never compared: the build's media table is
+# proof 2's to compare, and the bar's to admit.
+INSTALLED_MEDIA = "installedMedia"
 # Objects in a trace whose keys are all the app's data: a search's prompt
 # errors, keyed by its prompts.
 TRACE_DATA_MAPS = frozenset({"/runs/*/trace/*/promptErrors"})
@@ -900,6 +911,79 @@ def rows_by_case(before, after, *, check, document, artifact):
     return found
 
 
+# The query parameter whose values HQ's case search reads as filters it adds one by one, in no order
+# (``case_search/const.py::CASE_SEARCH_XPATH_QUERY_KEY``).
+XPATH_QUERY = "_xpath_query"
+
+
+def _search_requests(step):
+    """``(tokens after the step, params)`` of each parameter map a search step holds: its own and each request's
+    (``PROMPTED_PARAMS``' first two places)."""
+    found = []
+    if isinstance(step.get("params"), dict):
+        found.append((("params",), step["params"]))
+    for index, request in enumerate(step.get("requests") or []):
+        if isinstance(request, dict) and isinstance(request.get("params"), dict):
+            found.append((("requests", str(index), "params"), request["params"]))
+    return found
+
+
+def queries_as_multisets(before, after, *, check, document, artifact):
+    """The ``_xpath_query`` values of each search request both traces send at one step compared as multisets.
+
+    HQ's case search reads a request's ``_xpath_query`` values as filters it
+    adds to its query one by one (``case_search/utils.py::CaseSearchQueryBuilder._apply_filter``:
+    ``search_es.filter(...)`` for each value, which Elasticsearch's ``bool``
+    filter holds as a conjunction), and reads nothing of the order they come
+    in; no other reader reads them (Core, Formplayer and CommCare Android send
+    them as the suite's ``<data>`` gives them). So each value is matched with
+    an equal value of the other side, as many times as both send it; a value
+    left over is ``removed`` or ``added`` whole at
+    ``/runs/*/trace/*/params/_xpath_query/*`` (a request's at
+    ``.../requests/*/params/_xpath_query/*``), its place on its own side in
+    ``at``. How many times a value is sent stays a difference. Both sides'
+    parameter maps are left without the key.
+    """
+    found = []
+    runs_a, runs_b = before.get("runs") or [], after.get("runs") or []
+    for run in range(min(len(runs_a), len(runs_b))):
+        steps_a = runs_a[run].get("trace") if isinstance(runs_a[run], dict) else None
+        steps_b = runs_b[run].get("trace") if isinstance(runs_b[run], dict) else None
+        if not isinstance(steps_a, list) or not isinstance(steps_b, list):
+            continue
+        for step in range(min(len(steps_a), len(steps_b))):
+            step_a, step_b = steps_a[step], steps_b[step]
+            if not isinstance(step_a, dict) or not isinstance(step_b, dict):
+                continue
+            held_b = dict(_search_requests(step_b))
+            for place, params_a in _search_requests(step_a):
+                params_b = held_b.get(place)
+                if params_b is None:
+                    continue
+                values_a, values_b = params_a.get(XPATH_QUERY), params_b.get(XPATH_QUERY)
+                if not isinstance(values_a, list) or not isinstance(values_b, list):
+                    continue
+                shape = "/".join("*" if token.isdigit() else token for token in place)
+                path = f"/runs/*/trace/*/{shape}/{XPATH_QUERY}/*"
+                base = f"/runs/{run}/trace/{step}/{'/'.join(place)}/{XPATH_QUERY}"
+                unmatched_b = list(range(len(values_b)))
+                for index, value in enumerate(values_a):
+                    match = next((other for other in unmatched_b if values_b[other] == value), None)
+                    if match is None:
+                        found.append(
+                            Difference(check, document, artifact, path, f"{base}/{index}", "removed", value, None)
+                        )
+                    else:
+                        unmatched_b.remove(match)
+                for index in unmatched_b:
+                    found.append(
+                        Difference(check, document, artifact, path, f"{base}/{index}", "added", None, values_b[index])
+                    )
+                params_a.pop(XPATH_QUERY)
+                params_b.pop(XPATH_QUERY)
+    return found
+
+
 def event_keys(events):
     """Each of a form's events keyed by where Core stepped to it, in the events' order: ``<kind>:<path>``, and
     ``#<n>`` after it the ``n``-th time the form reached that place.
@@ -1001,12 +1085,16 @@ def compare_traces(before, after, *, check, document, rules, artifact="trace", x
     Each side's generated ids are named by the first place both sides hold
     one first (``relabelled``); ``labels`` is ``generated_labels(before,
     after)``, given by a caller that names HQ's processing of the same runs
-    with it too.
+    with it too. A side's ``INSTALLED_MEDIA`` is read by the rules and then
+    left out of the comparison.
     """
     xmlns = xmlns or {}
     before, after = relabelled(before, after, labels)
     before = uncounted(normalized("trace", before, rules))
     after = uncounted(normalized("trace", map_strings(after, xmlns), rules))
+    for side in (before, after):
+        if isinstance(side, dict):
+            side.pop(INSTALLED_MEDIA, None)
     stops = (_stops(before), _stops(after))
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(before, "", "", documents_before)
@@ -1025,6 +1113,7 @@ def compare_traces(before, after, *, check, document, rules, artifact="trace", x
                     shown.pop(field, None)
     keyed = rows_by_case(shown_before, shown_after, check=check, document=document, artifact=artifact)
     keyed += events_by_place(shown_before, shown_after, check=check, document=document, artifact=artifact)
+    keyed += queries_as_multisets(shown_before, shown_after, check=check, document=document, artifact=artifact)
     found = stops_by_cause(
         ends_as_vocabulary(
             prompt_keys_as_data(

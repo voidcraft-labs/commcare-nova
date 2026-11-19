@@ -1012,24 +1012,27 @@ class State:
     served: dict | None = None
 
 
-def not_hq_own(differences, stored):
+def not_hq_own(differences, stored, made_in_hq):
     """The differences a save made that no member of ``HQ_OWN_REPORTS`` names as HQ's own, asked of the stored app
-    the save was made over (``stored``, its app document): what a save makes of any app whatever Nova wrote (the
-    settings page writing each setting an app holds no value for, ``settings_page_writes_unset_settings``) is no
-    change of Nova's next publish. Each report is asked with its artifact as the save names it
-    (``<artifact>@<editor>``), before the B and configuration are added."""
+    the save was made over (``stored``, its app document) and of whether the document was made in HQ
+    (``made_in_hq``): what a save makes of an app HQ made whatever Nova's publish over it wrote (the settings page
+    writing each setting such an app holds no value for, ``settings_page_writes_unset_settings``) is no change of
+    Nova's next publish. Each report is asked with its artifact as the save names it (``<artifact>@<editor>``),
+    before the B and configuration are added."""
     return [
         difference
         for difference in differences
-        if hq_own_reports.held(difference.artifact, difference.path, difference, stored) is None
+        if hq_own_reports.held(difference.artifact, difference.path, difference, stored, made_in_hq) is None
     ]
 
 
 class _Judged:
     """One B's record judged: its differences, named by the B and configuration, and its saves."""
 
-    def __init__(self, document, record, blobs, over, b_build, lookup_upload=None):
+    def __init__(self, document, record, blobs, over, b_build, lookup_upload=None, *, made_in_hq=False):
         self.document = document
+        # Whether the document's A is an app HQ made (``Document.hq_authored``), which HQ's own reports ask.
+        self.made_in_hq = made_in_hq
         # What HQ answered B's lookup workbook upload (``observations``' ``lookup_uploads``), which the bar reports.
         self.lookup_upload = lookup_upload
         self.record = record
@@ -1092,16 +1095,16 @@ class _Judged:
             stored_json = apply_patch(base.stored_json, self._blob(entry["stored"]))
             after = stored_from(stored_json)
             stored = stored_differences(base.stored, after, document=self.document, editor=editor, readings=readings)
-            stored = not_hq_own(stored, base.stored_json)
+            stored = not_hq_own(stored, base.stored_json, self.made_in_hq)
             save["stored_changed"] = bool(stored)
             found += stored
             built = outcome_from_delta(entry["build"], base.build, self.blobs, f"B after {editor} ({scope.name})")
             differences = build_differences(base.build, built, document=self.document, editor=editor, readings=readings)
             save["built"] = True
-            found += not_hq_own(differences, base.stored_json)
+            found += not_hq_own(differences, base.stored_json, self.made_in_hq)
             if differences:
                 behavior, save["ran"] = self.behavior_differences(editor, base, built, entry.get("trace"))
-                found += not_hq_own(behavior, base.stored_json)
+                found += not_hq_own(behavior, base.stored_json, self.made_in_hq)
             trace = entry.get("trace")
             served = entry.get("served")
             if served is not None and "refused" in served:
@@ -1261,10 +1264,11 @@ class _Judged:
         return self
 
 
-def judge_b(document, record, blobs, over: Over, b_build, lookup_upload=None):
+def judge_b(document, record, blobs, over: Over, b_build, lookup_upload=None, *, made_in_hq=False):
     """Proof 4's differences and saves over one B (``record``: its ``proof4`` record; ``b_build``: build(B);
-    ``lookup_upload``: what HQ answered B's lookup workbook upload, None where Nova's publish sent none)."""
-    judged = _Judged(document, record, blobs, over, b_build, lookup_upload).judge()
+    ``lookup_upload``: what HQ answered B's lookup workbook upload, None where Nova's publish sent none;
+    ``made_in_hq``: whether the document's A is an app HQ made)."""
+    judged = _Judged(document, record, blobs, over, b_build, lookup_upload, made_in_hq=made_in_hq).judge()
     return judged.differences, judged.saves
 
 
@@ -1368,7 +1372,15 @@ def document_editability(document, records):
                 " through proof.observe.unit._Unit.observe_b that returns before it."
             )
         b_build = replace(view.b.build, state=REPUBLISH)
-        differences, judged = judge_b(document.id, record, records.blobs, over, b_build, view.lookup_uploads.get(state))
+        differences, judged = judge_b(
+            document.id,
+            record,
+            records.blobs,
+            over,
+            b_build,
+            view.lookup_uploads.get(state),
+            made_in_hq=document.hq_authored,
+        )
         found += differences
         saves += judged
         if state == EDIT:

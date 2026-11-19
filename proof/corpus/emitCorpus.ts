@@ -4,7 +4,8 @@
  * publish sends under each configuration, its local exports and its input
  * manifest, in the layout the checks read (`proof/checks/corpus.py`):
  *
- *   <out>/index.json                  {seed, sample, entropy, shard?, documents, census}
+ *   <out>/index.json                  {seed, sample, entropy, shard?, documents, census,
+ *                                     setAside?}
  *   <out>/inputs.json                 each document's input manifest digest (`./inputs.ts`)
  *   <out>/timings.json                what each part took (the one file that
  *                                     differs between two emissions)
@@ -141,6 +142,7 @@ import {
 	writeJson,
 } from "./entryWriter";
 import { batchFootprint } from "./footprint";
+import type { SetAsideBase } from "./hqAuthored";
 import { writeCorpusInputs } from "./inputs";
 import {
 	exportFindings,
@@ -188,6 +190,12 @@ export interface EmitInput {
 	 * documents leaves it unset.
 	 */
 	readonly leftOut?: LeftOut;
+	/**
+	 * The bases the corpus sets aside (`./hqAuthored.ts::hqAuthoredDocuments`):
+	 * written to `index.json` as `setAside` where any is, which the lane's
+	 * queue builder and gate read (`proof/lane/blocks.py::set_aside_bases`).
+	 */
+	readonly setAside?: readonly SetAsideBase[];
 	/** Further timings the caller measured (the Vitest writers), in seconds. */
 	readonly timings?: Readonly<Record<string, number>>;
 	readonly log?: (line: string) => void;
@@ -239,6 +247,8 @@ export interface CorpusIndex {
 		readonly fixed: PartCensus;
 		readonly sample: PartCensus;
 	};
+	/** Each base the corpus set aside, in id order; absent where it set none aside. */
+	readonly setAside?: readonly SetAsideBase[];
 }
 
 /** What each part of an emission took, written beside the index as `timings.json`. */
@@ -1145,6 +1155,8 @@ export async function emitCorpus(input: EmitInput): Promise<EmittedCorpus> {
 		...(input.select !== undefined && { selection: input.select.label }),
 		documents: all.map((entry) => entry.index),
 		census: { fixed: fixed.census, sample: sample.census },
+		...(input.setAside !== undefined &&
+			input.setAside.length > 0 && { setAside: input.setAside }),
 	};
 	const timings: CorpusTimings = {
 		...input.timings,

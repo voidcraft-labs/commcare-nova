@@ -794,12 +794,13 @@ def _view_of(url):
 
 def _related_column(body):
     """The app file with a column over the parent case's name added to its searching menu's case list, as an
-    update that adds a related-case column sends it."""
+    update that adds a related-case column sends it. Its case name column's field is ``name``, the word HQ stores
+    for it and Nova writes (``lib/commcare/suite/wire.ts::hqColumnFieldText``)."""
     import copy
 
     edited = copy.deepcopy(body)
     module = edited["modules"][0]
-    column = copy.deepcopy(next(c for c in module["case_details"]["short"]["columns"] if c["field"] == "case_name"))
+    column = copy.deepcopy(next(c for c in module["case_details"]["short"]["columns"] if c["field"] == "name"))
     column.update({"field": "parent/name", "useXpathExpression": False})
     module["case_details"]["short"]["columns"].append(column)
     return edited

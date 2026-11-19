@@ -484,8 +484,8 @@ export interface NovaPublishVerdict {
 	 * publish asks the person to confirm for this document, sorted: each use
 	 * of `requiredPlanPrivileges` read through its gate entry's `surfaceKeys`.
 	 * A capture pushes the lookup workbook exactly when the document reads a
-	 * lookup table, and no places (the organization it is published from
-	 * holds none).
+	 * lookup table CommCare HQ does not manage, and no places (the
+	 * organization it is published from holds none).
 	 */
 	readonly planPrivileges: readonly string[];
 }
@@ -503,13 +503,26 @@ const PRIVILEGE_CONSTANTS: ReadonlyMap<string, readonly string[]> = new Map(
 );
 
 /**
- * What a capture's publish sends besides the app: the lookup workbook exactly
- * when the document reads a lookup table, and no places (the organization it
- * is published from holds none).
+ * What a capture's publish sends besides the app, as preflight reads it
+ * (`preflight.ts::publishConfirmationNeeds`): the lookup workbook exactly when
+ * the document reads a lookup table CommCare HQ does not manage from the
+ * project space the capture publishes to, which the workbook leaves out, and
+ * no places (the organization it is published from holds none). A table
+ * CommCare HQ manages is the capture's own project space's
+ * (`managedDataEdge` refuses one managed from another).
  */
-function capturePushes(doc: BlueprintDoc) {
+function capturePushes(
+	doc: BlueprintDoc,
+	source: Pick<PublishDocument, "id" | "lookup">,
+) {
+	const { tableIds } = extractLookupReferenceTargets(doc);
+	const managed = new Set(
+		lookupFixtureData(source, tableIds).definitions.flatMap((definition) =>
+			definition.hq?.managedBy === "commcare-hq" ? [definition.id] : [],
+		),
+	);
 	return {
-		lookupTables: extractLookupReferenceTargets(doc).tableIds.length > 0,
+		lookupTables: tableIds.some((tableId) => !managed.has(tableId)),
 		places: false,
 	};
 }
@@ -526,10 +539,13 @@ const CAPTURE_ATTACHMENT_TARGET = attachmentUrlTarget({
 });
 
 /** The privilege constants Nova's publish asks to be confirmed for `doc`. */
-function planPrivileges(doc: BlueprintDoc): string[] {
+function planPrivileges(
+	doc: BlueprintDoc,
+	source: Pick<PublishDocument, "id" | "lookup">,
+): string[] {
 	const uses = requiredPlanPrivileges(
 		doc,
-		capturePushes(doc),
+		capturePushes(doc, source),
 		CAPTURE_ATTACHMENT_TARGET,
 	);
 	return [
@@ -592,7 +608,7 @@ function confirmationKinds(
 	return new Set(
 		requiredConfirmations(
 			doc,
-			capturePushes(doc),
+			capturePushes(doc, source),
 			CAPTURE_ATTACHMENT_TARGET,
 			captureLookupNaming(doc, source),
 		).map((need) => need.kind),
@@ -652,7 +668,7 @@ export function novaPublishVerdict(
 			}),
 			...(flagsOff.length > 0 && { flagsOff }),
 		},
-		planPrivileges: planPrivileges(doc),
+		planPrivileges: planPrivileges(doc, source),
 	};
 }
 

@@ -186,6 +186,12 @@ the unit (`proof/observe/unit.py::_build`): HQ builds a copy of an app
 (`make_build`), and the one save a build makes, where the media suite prunes a
 map path nothing references (`remove_unused_mappings`), would otherwise write
 the build's form and media versions into the state the next step starts from.
+The version a state's record gives its build is read before the build, since
+that save comes after the profile and the suites name the version; an app with
+a menu that holds no id is also saved by `validate_app` before any file is
+written, which moves the version the in-place build's files name, so the
+lane's own tests build HQ's suite-test app with an id on its menu, as every
+app Nova publishes holds one (`proof/hq/conftest.py::hq_test_app_with_menu_ids`).
 Beside them, Nova's local
 `.ccz` is exported twice for D (`local.ccz`, `local-again.ccz`) and once for
 D′, each compiled for the configuration's project space as every archive Nova
@@ -247,8 +253,11 @@ resource and each form's data node `version`, with every media resource at
 read as stating HQ's settings for none, and one retained without the
 sequence makes no version claim. HQ's own in-use verdict for every add-on
 (`add_ons.py::_ADD_ONS`, each slug's `used_in_module` and `used_in_form`)
-over each stored state is held to the stored `add_ons`: a slug HQ sees in
-use that the app does not hold `true` is reported (`add_ons_in_use`).
+over each stored state Nova published is held to the stored `add_ons`: a slug
+HQ sees in use that the app does not hold `true` is reported
+(`add_ons_in_use`). The A of a document made in HQ holds the map its author
+left, which HQ's pages read beside the use (`add_ons.py::show`), so it is held
+to none.
 On a targeted document the value-level checks run too: each expectation in its
 `expected.json` names an export, a form, a request Core's `evaluate` runs
 there (answers, constraint checks, expressions, instances, a session and a
@@ -311,7 +320,8 @@ values, every use no REFUSED class takes, so a value is a use only where a
 reader of it reads it (an appearance token only on the elements whose
 appearance that reader compares). A REFUSED class refused only because HQ's
 build refuses its state is the bar's, which reports every export HQ cannot
-build. In Nova's own local archives, which runtimes read and no editor does, a
+build; a use every other class naming its key rules out is the bar's too,
+since that class is the one left and the check does not read it. In Nova's own local archives, which runtimes read and no editor does, a
 REFUSED class refuses only for what a runtime does: a use a class refused for
 how HQ's editors treat the source takes is judged on the app JSON that carries
 it, and a use no class takes (what HQ's build adds to the source) needs an
@@ -319,7 +329,7 @@ allowing entry like any other. Each standing is its own symptom, named in the
 difference's path after the surface key: `/<key>` (no entry names it),
 `/<key>/refused/<value class>`, `/<key>/undecided/<value class>`,
 `/<key>/held-new` (only HELD-NEW entries name the key) and `/<key>/unheld`
-(every entry naming the key rules the use out). A REFUSED class whose uses are
+(every entry naming the key rules the use out, none of them the bar's). A REFUSED class whose uses are
 two defects' names the part a use is after its class
 (`/<key>/refused/<value class>/<part>`,
 `manifest_value_classes.py::VARIANTS`): Nova's scaffolding nodes by their
@@ -514,6 +524,10 @@ and holds each to the effects as written.
    and instance path, a repeat's prompts by their order at one place), so a
    question one side alone shows is one difference and moves no other, and
    their order is one difference (`/runs/*/trace/*/events/order()`), a
+   search's `_xpath_query` values as a multiset, since HQ's case search adds
+   each as one more filter in no order (`compare/trace.py::queries_as_multisets`;
+   a suite query's `_xpath_query` data are keyed by their `ref` alike,
+   `data[@key=_xpath_query][@ref=*]`), a
    submission's version between A's and B's builds under proof 2's
    version clause, and across the two paths as each path's own counter: HQ's
    form version on HQ's build and the document's sequence in the local
@@ -643,10 +657,13 @@ grouped tiles' empty `<case datum>_parent_ids` datum (`android_grouped_tile_reop
 finding 67); and the Connect judge leaves out of B-edit's report what Connect
 does with a block the edit renamed under the opportunity
 (`connect_block_renamed`, "Connect in the unit"); and proof 4 leaves out of
-the app settings page's save each of the fifteen settings Nova seeds that the
-page writes where the stored app held no value for it, which is every one of
-them on an app made in HQ that no person saved the page of, since Nova's
-publish over an app it brought in seeds none (`settings_page_writes_unset_settings`).
+the app settings page's save, on a document made in HQ, each of the fifteen
+settings Nova seeds that the page writes where the stored app held no value
+for it, which is every one of them on such an app that no person saved the
+page of, since Nova's publish over an app it brought in seeds none
+(`settings_page_writes_unset_settings`). On an app Nova made, which holds
+all fifteen, a setting the save adds stays reported: Nova's publish left it
+out (finding 40).
 
 ### Spelling rules and the registers
 
@@ -2307,9 +2324,12 @@ at its pin byte for byte on every lane run. Its corpus document (id the
 base's, source `hq-authored:<base>`) is Nova's first reading of the retained
 answers (`proof/reader/laneReading.ts::readForLane`, the reader bundle's own
 code), under the declaration the base states or the reading's preselected
-one: a base whose reading is an account, or whose stated declaration the
-reading does not offer, stops the emission by name, because a base is made
-only of what Nova holds. Beside D the reading gives what a bring-in of A
+one. A base whose reading is an account, or whose stated declaration the
+reading does not offer, is no document, because a base is made only of what
+Nova holds: the emission sets it aside by name (its notice printed and listed
+in the corpus's `index.json` as `setAside`) and emits the rest, so the lane
+still runs and authors that base again, and the gate fails every run whose
+corpus set a base aside ("Authoring bases again", below). Beside D the reading gives what a bring-in of A
 records and leaves (`CorpusDocument.hqAuthored`): the ids HQ holds for each
 menu and form, each form's `xmlns`, the prefix each keyed create's cases
 stand under, the files D holds and the path HQ keeps each at, and the lookup
@@ -2416,14 +2436,73 @@ declaration that includes Android.
 
 **Adopting what HQ made.** `test_retained.py` writes what HQ made under its
 block's output before it holds the committed tree to it, so a failing run
-carries the new tree: `python3 -m proof.matrix.adopt <output>` copies each
-base (and each `proof/hq-reads/` group) the run wrote over the committed one,
-removing what the run did not write there, and `--report` names each base
-whose stored app, answers or reading changed, reading the old and the new
-answers with the run's own reader bundle. It is a file copy on the standard
-library, with no image. `hq-nova-then-builder` starts from Nova's own capture
-of `targeted-save-to-case-shapes`, so a change to that document's capture
-fails `test_retained.py` on this base and is adopted the same way.
+carries the new tree: `python3 -m proof.matrix.adopt <output>...`, handed
+every output of the run (one a shard, or the one output of a run on one
+machine), merges what the run's blocks wrote by file over `proof/hq-apps/`
+and `proof/hq-reads/`, refusing two blocks that wrote one file apart. Two
+tests write files of one retained directory
+(`proof/hq/test_retained_reads.py` and `proof/editors/test_retained_reads.py`
+both write `proof/hq-reads/navigation-base/` and `shell/`), and a sharded run
+puts them on different shards, so a committed file the run did not write is
+removed only where a comparison of the test that writes it recorded it as
+committed and not made (`<block>/retained-held/<tree>/<directory>.json`,
+`proof/matrix/retained.py::Retained.record_held`): a file another test writes,
+or one of a test that stopped before its comparison, stays. `--report` names
+each base whose stored app, answers or reading changed, reading the old and
+the new answers with the run's own reader bundle. It is a file copy on the
+standard library, with no image. `hq-nova-then-builder` starts from Nova's
+own capture of `targeted-save-to-case-shapes`, so a change to that
+document's capture fails `test_retained.py` on this base and is adopted the
+same way.
+
+**Authoring bases again.** A change moves retained bases when it changes a
+base's builder (`proof/matrix/bases/`), HQ at its pin, Nova's reader where a
+base's reading moves (its `expected.json`) or where the reader starts
+refusing what a base holds, or the capture `hq-nova-then-builder` starts
+from. Until the new copies are adopted, the corpus is emitted from the
+committed ones: a document is judged against the app HQ made under the
+builder and pin the tree was retained at, which is still an app HQ made, and
+`test_retained.py` fails on each base whose copy moved (Copy L3), so no run
+is green over a stale base. A base the reader now refuses is set aside by the
+emission and is no document of the run, and the gate's base section fails the
+run on it. Never delete a retained directory by hand: the set-aside is what
+lets the lane run while the reader refuses it. The round, in order:
+
+1. Make the change, and run `npx vitest run
+   lib/commcare/reader/__tests__/bases.retained.test.ts` locally: it reads
+   every committed base with the reader and names each whose `expected.json`
+   the change moves, or that no longer comes in. Those, and every base whose
+   builder the change edits, are the bases that move.
+2. Run the tests that author and retain on GitHub's runners, in one run, so
+   their outputs are one run's: `gh workflow run proof-slice.yml --ref
+   <branch> -f readers=0 -f selectors='proof/matrix/test_retained.py
+   proof/hq/test_retained_reads.py proof/editors/test_retained_reads.py'`
+   (drop the two `hq-reads` tests where the change moves no retained read).
+   The pull request lane runs them too, but it also judges every document,
+   and with a stale or set-aside base it cannot pass, so the slice is the
+   cheaper first run. The run fails where a copy moved: that is the run that
+   carries the new copies.
+3. Download every output of that run and adopt them in one command:
+   `python3 -m proof.matrix.adopt <output>... --report --corpus <the run's
+   corpus>`. A base whose new copy did not come in is left out by name, with
+   what HQ made and the whole reading under its block's `hq-apps-unread/`:
+   the reader or the base's builder is wrong at that place, so fix the one
+   that is and go back to step 2. Read the report: each base whose stored app,
+   answers or reading changed.
+4. Correct what the new copies contradict, by reading them: a base's hand
+   files (`expectations.json`, `hq-plain`'s `document.ts`, an `edit.ts`) and
+   a variant row (Copy L12, L17, L18). Run step 1's suite again: it holds
+   every adopted `expected.json` to the reading.
+5. Commit the adopted trees with the change, and run the whole pull request
+   lane. It emits the bases from the adopted trees, judges each, and
+   `test_retained.py` holds the trees to HQ again. A first-publish register
+   path the new copies moved shows in that run's `changes` evidence, and is
+   written from it (`python3 -m proof.checks.changes rows`).
+
+A test that stopped before its comparison records nothing, so adopting its
+run removes nothing of it and leaves each base or group it never made at its
+old copy, which step 5's run fails on again: adopt from a run whose authoring
+tests reached their comparisons.
 
 **What the package holds** (`proof/matrix`, two lane groups:
 `test_retained.py`, and the rest):
@@ -2722,7 +2801,13 @@ prompt, answer, the submission, the case database after it and the stack;
 answers come from a fixed table per question type, `proof/core/answers.json`,
 with up to three tried where Core refuses one), `evaluate` (an intent
 expectation), `formShape`, and the XPath readings the judges compare by
-(`xpathParse`, `xpathStrings`, `xpathSame`). Core's clock readers are frozen
+(`xpathParse`, `xpathStrings`, `xpathSame`). A session's and an evaluation's
+case database reads cases' indices through a case index table answered from
+the case storage (`ProofSession.java`, `CaseIndexes.java`), as Formplayer's
+(`FormplayerCaseIndexTable`) and Android's (`AndroidCaseIndexTable`) do: Core's
+own CommCareInstanceInitializer gives its casedb none, and a list reading each
+row's related case past `QueryContext.BULK_QUERY_THRESHOLD` rows raises
+NullPointerException there (`CaseIndexQuerySetTransform`). Core's clock readers are frozen
 to each request's clock, and every id the runtime generates is marked, so two
 traces name each generated id by the first place both hold it. Each document's
 sessions run over its case database (`proof/observe/casedata.py`): cases of
@@ -2739,8 +2824,19 @@ no property type; an untyped property stays text, and standard properties
 stay the case's own attributes. Custom
 worker-record reads seed the same user data as session reads, while the
 worker case keeps its managed identity even when session data uses one of
-those names. HQ's own code writes the restore; a remote search is answered
-with every case of the requested type. A session's bounds (400 screens and 64
+those names. HQ's own code writes the restore. In proof 3's sessions a case
+search is answered by HQ: the runner asks the client for each answer
+(`Runner.java::ask`, a callback line the client answers with the handler the
+session request was sent with, `proof/core/client.py::search_answers`), and
+`proof/observe/sessions.py::HqSearches` posts Core's request, signed in as the
+document's worker, to HQ's own search view over a fork of the unit in which
+that worker and the document's cases were made through HQ's receiver and
+indexed by HQ's pillows, as a served state makes them, so a search finds what
+HQ's search finds. Where the unit holds B while A's sessions run, A's
+searches read A's menus, the one part of the app HQ's search reads
+(`sessions.py::_held_as`). Elsewhere (proof 4's sessions and a Connect app's)
+a remote search is still answered with every case of the requested type and
+no filter. A session's bounds (400 screens and 64
 choices of a run, 5,000 derived runs) are safety nets no app the lane walks
 comes near: a run that reaches one fails the request by the bound's name,
 and is never handed back as a run that ended there.
@@ -3188,7 +3284,13 @@ What the served observation holds:
 - **Which states.** A (the unit's `served` hook, the baseline of proof 3's
   comparisons); with `b_aligned`, B aligned to A wherever its raw build
   differs from A's, and Nova's local archive, which Formplayer walks over
-  HQ's state with the archive itself handed to it as bytes; and in proof 4,
+  HQ's state with the archive itself handed to it as bytes, read as CommCare
+  Android, the one runtime Nova hands it to, reads it: with Android's own
+  strings registered as the default locale's first source, a locale resource
+  ahead of the suite's own (`proof/formplayer/observe.py::as_android_reads_it`,
+  as the Core runner admits it, `client.ANDROID_DEFAULT_STRINGS`), since
+  Formplayer's own strings lack keys Android's name (`home.sync`) and Core's
+  localizer refuses a language holding a key its default lacks; and in proof 4,
   B and each editor save whose build differs from the state it was saved
   over or whose app differs in what HQ's Web Apps page hands the client
   (`cloudcare/utils.py::format_app_doc`: its name, languages, profile, logo
@@ -4263,6 +4365,43 @@ The rules whose readers reach past HQ's build and Core:
   and another string or test still apart; Android's are
   `predicates.py::test_a_list_reads_a_suite_expression_alike_in_either_spelling`
   and `test_a_list_reads_a_cond_and_its_if_alike`.
+
+- **`menu-image-without-media`** (`menu_image_without_media`): a menu item's
+  image in Core's trace whose path no media resource of the build installs,
+  read as no image. Core's runner records the reference a menu names whatever
+  the build installs (`MenuDisplayable.getImageURI`); CommCare Android draws
+  its default icon for a reference whose file it does not hold as for none
+  (`MediaUtil.inflateDisplayImage`, `MenuAdapter.setupImageView`), and the Web
+  Apps client draws no image for a path the app's media map does not hold
+  (`formplayer/app.js`, `resourceMap`). The rule reads the trace beside the
+  media its build installs, which proof 3 lays there from Core's admission of
+  each build (`proof3.comparable_trace`, `compare/trace.py::INSTALLED_MEDIA`,
+  which the comparison never reports), and leaves an image a media resource
+  installs, so a picture the map names with no file HQ serves stays a
+  difference (`broken-pictures-removed`). Its test publishes `case-list-local`
+  with its first menu's icon at a path the map does not hold and with none,
+  holds HQ's builds apart only where the menu names its icon, Core's sessions
+  apart only at the item's image, erased given each build's admission and kept
+  where the other build's media table installs the path, and the Web Apps
+  client's screens alike; Android's is
+  `predicates.py::test_a_menu_icon_no_media_resource_installs_draws_as_none`.
+
+- **`field-list-appearance-case`** (`field_list_appearance_case`): a group's
+  appearance `field-list` in another letter case, read in lower case in Core's
+  trace (a group event's `appearance`) and in Formplayer's answers (a group's
+  `style.raw`), where the whole value equals `field-list` as Java's
+  `equalsIgnoreCase` compares it. Core decides a field list that way
+  (`FormEntryController.isHostWithAppearance`), Formplayer and Android ask it
+  there (`FormController.indexIsInFieldList`), and the Web Apps client reads
+  only its own tokens of a group's style (`form_entry/form_ui.js`). It reads no
+  form source: HQ's form builder reads only the lower-case token as a Question
+  List (`Vellum/src/parser.js`). Its test publishes `case-list-local` with its
+  first form's last control in a group written `field-list`, `Field-List` and
+  `FIELD-LISTS`, holds HQ's builds apart at the group's `@appearance` alone,
+  Core's sessions apart only at the event's appearance, erased for
+  `Field-List` and kept for `FIELD-LISTS`, and Formplayer's walk and the
+  client's screens alike; Android's is
+  `predicates.py::test_a_form_reads_a_field_list_group_alike_in_either_letter_case`.
 
 Formplayer's traces take the rules for an `instance` (each XML document a
 trace holds).
@@ -5470,7 +5609,7 @@ outside the corpus's seeded operations.
 ### The gate
 
 `python3 -m proof.lane.gate` runs on the runner's own Python with no image and
-reads every shard's output, the queues and the store. Five sections, each with
+reads every shard's output, the queues and the store. Six sections, each with
 its problems:
 
 1. **Exactly once**: every queued block ran exactly once (a block two shards
@@ -5513,6 +5652,13 @@ its problems:
    and extractor, is byte for byte the committed `surface.json`. A run over
    documents named by hand whose queues hold no surface block leaves it to
    the lane that extracts it and says so; any other run without one fails.
+6. **Bases**: every base `proof/hq-apps/` retains is a document of the run.
+   A base the emission set aside (the queues' `setAside`, from the corpus's
+   `index.json`) fails the run, named to the group that authors it again
+   (`proof/matrix/test_retained.py[<base>]`, which every main queue over such
+   a corpus runs, never from the store), saying whether that group's new
+   copy came in (adopt it and run again), was refused by the reader too
+   (`hq-apps-unread/`), or was never made ("Authoring bases again").
 
 It prints each section, writes the whole to `--summary` (uploaded as the
 run's verdict), and appends it to the job's summary. The verdict names each
@@ -5917,10 +6063,18 @@ seconds on one worker whole (three slice runs measured 1,130 to 1,142), and
 runs as one group a base (`proof/matrix/test_retained.py[<base>]`, the bases
 of `proof/matrix/bases.json`): its three tests share one authoring of a base,
 so it is split by base and never by test. Until a run measures the bases one
-by one, each is counted at its even share of the module's whole (about 13
-box-seconds), and a base whose part no run measured beside measured ones at
-the longest of those; `hq-questions`, a quarter of the variants, runs past its
-share. The next longest group is `proof/lane/test_forkserver.py`, 278. The
+by one, each is counted at its even share of the module's whole: the
+`no-readers` profile's measure of the unsplit `proof/matrix/test_retained.py`,
+284.5 box-seconds over its 22 bases, about 13 each
+(`proof.checks.sharding.estimate`). The `readers` profile holds no measure of
+the module, so there each base is counted at the longest measured package
+group until a run with the readers measures it, which oversizes the nightly
+and undersizes nothing. A base whose part no run measured beside measured
+ones is counted at the longest of those; `hq-questions`, a quarter of the
+variants, runs past its share. The `no-readers` profile is refreshed from the
+next whole pull request lane's outputs (`node proof/run.mjs --timings
+<output>...`), which measures each base's group and drops the unsplit
+module's measure. The next longest group is `proof/lane/test_forkserver.py`, 278. The
 longest group a lane runs is the least its shard can take.
 
 A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from

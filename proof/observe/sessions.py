@@ -14,6 +14,22 @@ An app made in CommCare HQ uploads no workbook: its restores serve the tables
 its A was made with (``AuthoredTables``), and B's sessions run whether or not
 the raw builds differ (``proof.observe.unit._Unit.observe_b_aligned``).
 
+Every case search a session sends is answered by HQ's own search view
+(``ota/views.py::app_aware_search``, reached through HQ's URLconf and
+middleware as Formplayer's searches are, ``proof.formplayer.hq.HqViews``),
+signed in as the document's worker over the unit's real Elasticsearch, in a
+fork of the unit in which that worker and the document's cases are made as a
+served state makes them (``HqSearches``): the worker by ``CommCareUser.create``,
+each case through HQ's receiver, both indexed by HQ's own pillows. The fork is
+opened at a side's first search and put back as its sessions end, so a side
+that searches nothing costs nothing, and no side reads what another's
+searches left. HQ's search reads the app its URL names (A's id, which the
+local archive's runtime URLs name too) only for the related cases it adds to
+its results (``case_search/utils.py::get_app_context_by_case_type``): A's
+searches run where the unit holds A's menus, so where the unit holds B by then
+and the two differ in what that reads, A's menus are saved over B's in A's fork
+(``_held_as``).
+
 Every session's submission is given to HQ's case processing
 (``proof.hq.operations.process_case_blocks``) over the same cases, with the
 files a device sends beside it, and what HQ read and made of it is kept
@@ -48,11 +64,13 @@ sent (``csql``), and each lookup upload HQ refused to serve.
 
 from __future__ import annotations
 
+import base64
 import tempfile
 import uuid
-from contextlib import contextmanager
-from dataclasses import dataclass
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlencode, urlsplit
 
 from proof.checks.compare.trace import renamespace
 from proof.checks.compare.xml_tree import parse_xml
@@ -92,16 +110,132 @@ def _admission(report, path):
     return _placed(kept, admission_placeholders(report, path))
 
 
-def run_sessions(core_runner, side, path, restore, script=None, *, runtime_defaults=None):
+def run_sessions(core_runner, side, path, restore, script=None, *, runtime_defaults=None, searches=None):
     """The build's sessions over the restore: derived when ``script`` is None, else the script replayed.
     ``runtime_defaults`` names the strings the runtime that alone reads the archive registers as its default locale
-    first (Nova's local export, which only CommCare Android reads: ``ANDROID_DEFAULT_STRINGS``)."""
+    first (Nova's local export, which only CommCare Android reads: ``ANDROID_DEFAULT_STRINGS``); ``searches``
+    answers each case search a session sends (``HqSearches``, ``proof.core.client.CoreRunner.session``)."""
     with admitted(core_runner, path, runtime_defaults) as report:
         admission = _admission(report, path)
         if not report.get("admitted") or report.get("app") is None:
             return Run(side, admission, None)
-        trace = core_runner.session(report["app"], restore=restore, script=script)
+        trace = core_runner.session(report["app"], restore=restore, script=script, searches=searches)
     return Run(side, admission, trace)
+
+
+# Searches -------------------------------------------------------------------
+
+
+@dataclass
+class HqSearches:
+    """HQ's own answer to each case search one side's sessions send, as a session's ``searches``.
+
+    The first search opens a fork of the unit (``stack``, which the caller
+    closes as the side's sessions end) and makes there, in one operation of
+    the unit, the document's worker and cases as a served state makes them
+    (``proof.formplayer.hq``: the project space's default roles,
+    ``create_worker``, ``save_cases`` through HQ's receiver, and HQ's pillows
+    caught up), under HQ's Redis, which the receiver's locks need. Each search
+    is then the request Core sends (its parameters form-encoded, as
+    ``SessionUtils.makeQueryRequest`` posts them) with the worker's own
+    credentials, answered by the view HQ's URLconf names for its URL
+    (``HqViews``), each request keyed by the side and its place in the
+    side's sessions, so HQ's answer is the same on every run of the same
+    script. A view that raises is HQ's own 500 to the device, whose status
+    the trace records with the request (``ProofSessionUtils.java``).
+    ``app_doc`` is the app the side's build was made from where the unit
+    may hold another under its id (A, while the unit holds B): ``_held_as``.
+    """
+
+    unit: object
+    database: object
+    label: str
+    operation: object
+    app_id: str
+    app_doc: dict | None = None
+    stack: ExitStack = field(default_factory=ExitStack)
+    _views: object = None
+    _credentials: str = ""
+
+    def __call__(self, url, params):
+        from proof.formplayer.client import HqRequest
+
+        if self._views is None:
+            self._open()
+        parts = urlsplit(url or "")
+        body = urlencode([(key, value) for key in sorted(params) for value in params[key]]).encode("utf-8")
+        answer = self._views(
+            HqRequest(
+                "POST",
+                parts.path,
+                parts.query,
+                (
+                    ("Content-Type", "application/x-www-form-urlencoded"),
+                    ("Authorization", f"Basic {self._credentials}"),
+                ),
+                body,
+            )
+        )
+        return answer.status, answer.body
+
+    def _open(self):
+        from proof.formplayer import hq as formplayer_hq
+        from proof.hq import redis as hq_redis
+
+        self.stack.enter_context(hq_redis.shared(None))
+        self.stack.enter_context(self.unit.fork())
+        hq_redis.flush()
+        with self.unit.committing():
+            people = casedata.database_digest(self.database).encode()
+            with self.operation(f"search-worker@{self.label}", people), formplayer_hq.drawn_for(people):
+                formplayer_hq.default_roles(self.unit)
+                worker = formplayer_hq.create_worker(self.unit, self.database)
+                formplayer_hq.save_cases(self.unit, self.database, worker)
+                if self.app_doc is not None:
+                    _held_as(self.unit, self.app_id, self.app_doc)
+                if self.unit.indexes is not None:
+                    self.unit.indexes.settle()
+        self._views = formplayer_hq.HqViews(self.unit, worker.username)
+        self._views.begin(f"core-search|{self.label}".encode(), None)
+        self._credentials = base64.b64encode(f"{worker.username}:{formplayer_hq.PASSWORD}".encode()).decode()
+
+
+def _held_as(unit, app_id, doc):
+    """The app the unit holds under ``app_id`` with ``doc``'s menus where HQ's search would read them otherwise.
+
+    HQ's search reads the app its URL names only for the related cases it adds
+    to a result: the relationships the search details' columns name and the
+    child case types their tabs list
+    (``case_search/utils.py::get_app_context_by_case_type``, over
+    ``get_search_detail_relationship_paths`` and ``get_child_case_types``,
+    which read ``app.get_modules()`` alone). Where the held app gives what
+    ``doc`` gives, nothing is written; otherwise the held app is saved with
+    ``doc``'s menus and nothing else of it changed, as a served state no page
+    makes is (``proof.formplayer.hq.serve``'s ``change``), with its version
+    kept.
+    """
+    from corehq.apps.case_search.utils import get_child_case_types, get_search_detail_relationship_paths
+
+    from proof.hq import operations
+
+    held = operations.held_app(unit, app_id)
+    wanted = type(held).wrap(_detached(doc))
+
+    def context(app):
+        return (dict(get_search_detail_relationship_paths(app)), dict(get_child_case_types(app)))
+
+    if context(held) == context(wanted):
+        return
+    stored = held.to_json()
+    stored["modules"] = _detached(doc)["modules"]
+    type(held).wrap(stored).save(increment_version=False)
+
+
+def _detached(doc):
+    """A copy of a stored document's JSON, so a wrap of it changes nothing a record holds."""
+    import json
+
+    return json.loads(json.dumps(doc))
 
 
 # Submissions ----------------------------------------------------------------
@@ -344,9 +478,16 @@ def _side(
     script=None,
     baseline=None,
     runtime_defaults=None,
+    app_id=None,
+    app_doc=None,
 ):
-    """One side's sessions, and HQ's processing of their submissions, as a record."""
-    run = run_sessions(core_runner, side, path, restore, script, runtime_defaults=runtime_defaults)
+    """One side's sessions, each search answered by HQ in a fork put back as they end (``HqSearches``), and HQ's
+    processing of their submissions, as a record."""
+    searches = HqSearches(unit, database, side, operation, app_id, app_doc)
+    with searches.stack:
+        run = run_sessions(
+            core_runner, side, path, restore, script, runtime_defaults=runtime_defaults, searches=searches
+        )
     recorded = {"admission": run.admission, "trace": None, "processed": None}
     if run.trace is None:
         return run, recorded
@@ -477,7 +618,19 @@ def search_compiles(unit, trace, operation, *, core_runner=None, suite=None):
 
 
 def observe(
-    unit, *, document, export, app_id, a_build, b_aligned, b_differs, restore_a, core_runner, blobs, operation=None
+    unit,
+    *,
+    document,
+    export,
+    app_id,
+    a_build,
+    b_aligned,
+    b_differs,
+    restore_a,
+    core_runner,
+    blobs,
+    operation=None,
+    a_doc=None,
 ):
     """Proof 3's sessions for one configuration, as the ``b_aligned`` record's ``sessions``; None where none run.
 
@@ -491,7 +644,8 @@ def observe(
     bytes); ``b_differs`` whether the raw builds of A and of B aligned to A
     differ, so that B's sessions run; ``operation`` the unit's operation each
     HQ step runs in (``unit.operation`` by default, or the part's logged one,
-    which records what HQ noted in each).
+    which records what HQ noted in each); ``a_doc`` A's stored document as its
+    build left it, whose menus A's searches are answered over (``_held_as``).
 
     Nova hands a local archive only to an app that declares Android
     (``Document.platforms``): for a document that declares none, A's
@@ -522,6 +676,8 @@ def observe(
             restore_hq,
             blobs,
             operation=operation,
+            app_id=app_id,
+            app_doc=a_doc,
         )
         if baseline.trace is None:
             return recorded
@@ -544,6 +700,7 @@ def observe(
                 script=script,
                 baseline=baseline,
                 runtime_defaults=ANDROID_DEFAULT_STRINGS,
+                app_id=app_id,
             )
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
             return recorded
@@ -565,5 +722,6 @@ def observe(
             blobs,
             operation=operation,
             script=script,
+            app_id=app_id,
         )
     return recorded

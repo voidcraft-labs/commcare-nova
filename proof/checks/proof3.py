@@ -190,8 +190,8 @@ from proof.checks import proof2
 from proof.checks.bar import error_path
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.names import CASE_FIELDS, block_path
+from proof.checks.compare.trace import INSTALLED_MEDIA, generated_labels, relabel_generated
 from proof.checks.compare.trace import compare_traces as compare_trace_documents
-from proof.checks.compare.trace import generated_labels, relabel_generated
 from proof.checks.corpus import ANDROID, BOTH, WEB_APPS
 from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
 from proof.checks.eligibility import hq_authored
@@ -352,8 +352,30 @@ class RecordIncomplete(AssertionError):
 # Traces ---------------------------------------------------------------------
 
 
-def comparable_trace(trace, runtimes):
-    """The trace as proof 3 compares it: the profile's required version and its runtime-read properties."""
+# Where a media resource HQ's build and Nova's archive install puts its file: the location ``./<dir>/<name>``
+# installs at ``jr://file/<dir>/<name>``, the path a reference to it holds (HQ's
+# ``suite_xml/generator.py::media_resources``, Nova's ``lib/commcare/multimedia/mediaSuiteXml.ts``, whose header
+# reads CommCare Android's installer at the pin).
+LOCAL_LOCATION = "./"
+MEDIA_ROOT = "jr://file/"
+
+
+def installed_media(admission):
+    """The ``jr://file/`` path of each media resource Core's admission of a build installed (``Admission.java``:
+    its ``media`` rows, one a ``MediaInstaller`` resource, each by its local location), whether or not the build
+    holds the file's bytes."""
+    found = set()
+    for row in (admission or {}).get("media") or ():
+        location = row.get("location") if isinstance(row, dict) else None
+        if isinstance(location, str) and location.startswith(LOCAL_LOCATION):
+            found.add(MEDIA_ROOT + location[len(LOCAL_LOCATION) :])
+    return sorted(found)
+
+
+def comparable_trace(trace, runtimes, admission=None):
+    """The trace as proof 3 compares it: the profile's required version and its runtime-read properties, and,
+    where Core's admission of the build that ran it is given, the media the build installs
+    (``compare.trace.INSTALLED_MEDIA``), which the rules read and the comparison leaves out."""
     shown = copy.deepcopy(trace)
     shown.pop("derived", None)
     profile = shown.pop("profile", {}) or {}
@@ -364,10 +386,12 @@ def comparable_trace(trace, runtimes):
             # Each later setter of a key overwrites an earlier one, as Android's installer writes them in order.
             properties[prop["key"]] = {"value": prop.get("value"), "force": prop.get("force")}
     shown["profile"] = {"requiredVersion": profile.get("requiredVersion"), "properties": properties}
+    if admission is not None:
+        shown[INSTALLED_MEDIA] = installed_media(admission)
     return shown
 
 
-def compare_traces(document, artifact, baseline, other, *, runtimes, xmlns=None, labels=None):
+def compare_traces(document, artifact, baseline, other, *, runtimes, xmlns=None, labels=None, admissions=(None, None)):
     """Every difference between the baseline build's trace and the other build's, as ``artifact``.
 
     Each trace is read as ``comparable_trace`` reads it under ``runtimes``;
@@ -375,11 +399,11 @@ def compare_traces(document, artifact, baseline, other, *, runtimes, xmlns=None,
     (``xmlns_alignment``), in the trace's values and in its XML documents
     (``proof.checks.compare.trace``). ``labels`` names each run's generated
     ids (``generated_labels(baseline, other)``), made here where the caller
-    gives none.
+    gives none. ``admissions`` is Core's admission of each build, where the caller holds them.
     """
     return compare_trace_documents(
-        comparable_trace(baseline, runtimes),
-        comparable_trace(other, runtimes),
+        comparable_trace(baseline, runtimes, admissions[0]),
+        comparable_trace(other, runtimes, admissions[1]),
         check=CHECK,
         document=document,
         rules=RULES,
@@ -857,6 +881,7 @@ def compare_runs(
         runtimes=RUNTIMES[other.side] & frozenset(platforms),
         xmlns=xmlns,
         labels=labels,
+        admissions=(baseline.admission, other.admission),
     )
     found += compare_case_processing(
         document, f"case_blocks@{other.side}", baseline_processed, other_processed, labels=labels

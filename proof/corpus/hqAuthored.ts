@@ -7,9 +7,13 @@
  * A base's document is Nova's first reading of its retained answers
  * (`proof/reader/laneReading.ts::readForLane`), under the declaration the
  * base states or the reading's preselected one. A base whose reading is an
- * account stops the emission by name, and so does a base whose stated
- * declaration the reading does not offer: a base is made only
- * of what Nova holds. Beside D the reading gives what a bring-in of A
+ * account, or whose stated declaration the reading does not offer, is no
+ * document (`BaseSetAside`): a base is made only of what Nova holds. The
+ * corpus sets such a base aside by name (`hqAuthoredDocuments`, written to
+ * the corpus's `index.json` as `setAside`) rather than stopping, so the lane
+ * still runs and `proof/matrix/test_retained.py` authors the base again, and
+ * the lane's gate fails every run whose corpus set a base aside
+ * (`proof/lane/gate.py`). Beside D the reading gives what a bring-in of A
  * records and leaves: the ids HQ holds for each menu and form, the prefix
  * each keyed create's cases stand under, and the lookup tables D reads,
  * with HQ's rows, managed in CommCare HQ from A's project space.
@@ -347,6 +351,40 @@ function didNotComeIn(
 	return `The base ${base} did not come in: Nova's reader found ${found} it does not hold, the first at ${at} (${code}). A base is made only of what Nova holds, so either the reader is wrong about that place or the base holds more than it should. Look at proof/hq-apps/${base}/app-source.json there, and at the entry ${code} in lib/commcare/surface/entries/.`;
 }
 
+/**
+ * A base Nova's reading does not take as a document: its reading is an
+ * account (`reading: "account"`, the message names its first finding) or
+ * does not offer the declaration the base states
+ * (`reading: "declaration-not-offered"`). `hqAuthoredDocument` throws it;
+ * `hqAuthoredDocuments` sets the base aside with it.
+ */
+export class BaseSetAside extends Error {
+	constructor(
+		readonly base: string,
+		readonly reading: "account" | "declaration-not-offered",
+		message: string,
+	) {
+		super(message);
+		this.name = "BaseSetAside";
+	}
+}
+
+/**
+ * A base the corpus set aside, as `index.json`'s `setAside` lists it: the
+ * base, what its reading answered, and the notice that names why and what
+ * follows, which the emission also prints.
+ */
+export interface SetAsideBase {
+	readonly base: string;
+	readonly reading: BaseSetAside["reading"];
+	readonly notice: string;
+}
+
+/** The notice for a base the corpus sets aside: why, and the round that brings it back. */
+export function setAsideNotice(refusal: BaseSetAside): string {
+	return `The corpus sets the base ${refusal.base} aside. ${refusal.message} The lane still runs, and proof/matrix/test_retained.py[${refusal.base}] authors it again in CommCare HQ and writes what it made under the run's output; the gate fails this run, since the base is no document of it. Where the new copy comes in, adopt the run's outputs (python3 -m proof.matrix.adopt <every output of the run>) and run the lane again; where it does not, the reader or the base's builder is wrong at that place (proof/README.md, "Authoring bases again").`;
+}
+
 /** A base whose stated declaration its reading does not offer. */
 function declarationNotOffered(
 	base: string,
@@ -461,7 +499,8 @@ async function handEdit(
 
 /**
  * One base's document: its first reading under its declaration, with the
- * edit the base states. `handRoot` holds each base's hand directory.
+ * edit the base states. `handRoot` holds each base's hand directory. Throws
+ * `BaseSetAside` where the reading takes no document of it.
  */
 export async function hqAuthoredDocument(
 	app: RetainedHqApp,
@@ -469,9 +508,15 @@ export async function hqAuthoredDocument(
 ): Promise<CorpusDocument> {
 	const reading = await readForLane(laneInputFor(app));
 	if (reading.kind === "account")
-		throw new Error(didNotComeIn(app.id, reading.findings));
+		throw new BaseSetAside(
+			app.id,
+			"account",
+			didNotComeIn(app.id, reading.findings),
+		);
 	if (reading.kind === "declaration-not-offered")
-		throw new Error(
+		throw new BaseSetAside(
+			app.id,
+			"declaration-not-offered",
 			declarationNotOffered(app.id, reading.stated, reading.offered),
 		);
 	const { media, mediaPaths } = baseMedia(app, reading.media);
@@ -521,18 +566,38 @@ function sourceBody(app: RetainedHqApp): Readonly<Record<string, unknown>> {
 	return body as Readonly<Record<string, unknown>>;
 }
 
+/** The corpus's part of the apps CommCare HQ made: the bases' documents, and the bases it set aside. */
+export interface HqAuthoredPart {
+	readonly documents: readonly CorpusDocument[];
+	readonly setAside: readonly SetAsideBase[];
+}
+
 /**
  * Every retained base's document under `root`, in id order, each with its
- * hand directory under `handRoot`; none while `root` holds none.
+ * hand directory under `handRoot`; none while `root` holds none. A base whose
+ * reading takes no document of it (`BaseSetAside`) is set aside, with its
+ * notice, and the rest are still read; any other failure (a retained file
+ * that cannot be read, a hand edit Nova's gate refuses) stops the emission.
  */
 export async function hqAuthoredDocuments(
 	root: string = join(WORKTREE, HQ_APPS),
 	handRoot: string = join(WORKTREE, HQ_HAND),
-): Promise<CorpusDocument[]> {
+): Promise<HqAuthoredPart> {
 	const documents: CorpusDocument[] = [];
-	for (const id of retainedBaseIds(root))
-		documents.push(
-			await hqAuthoredDocument(loadRetainedHqApp(id, root), handRoot),
-		);
-	return documents;
+	const setAside: SetAsideBase[] = [];
+	for (const id of retainedBaseIds(root)) {
+		try {
+			documents.push(
+				await hqAuthoredDocument(loadRetainedHqApp(id, root), handRoot),
+			);
+		} catch (error) {
+			if (!(error instanceof BaseSetAside)) throw error;
+			setAside.push({
+				base: error.base,
+				reading: error.reading,
+				notice: setAsideNotice(error),
+			});
+		}
+	}
+	return { documents, setAside };
 }

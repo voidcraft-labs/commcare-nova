@@ -17,16 +17,22 @@ import java.io.InputStream;
 import java.io.PrintStream;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 /**
- * Core's network seam for Web Apps' screens (util/screen/SessionUtils), answered
- * from the session's own case data instead of HQ.
+ * Core's network seam for Web Apps' screens (util/screen/SessionUtils).
  *
- * - A case search (QueryScreen) is answered with every case of the requested case
- *   types (the request's case_type values) from the case data as it stands. The
- *   runner does not evaluate the search's filters: what they mean is HQ's
- *   compiler's business.
+ * - A case search (QueryScreen) of a session whose request names
+ *   "searchAnswers" is answered by the client (Runner.ask, callback "search",
+ *   question {"url", "params"}): the status and the bytes HQ's own search view
+ *   answered for those parameters (proof/observe/sessions.py::HqSearches), which
+ *   Core reads whatever the status, as its own SessionUtils.makeQueryRequest
+ *   hands Core the body of every answer. Without "searchAnswers" it is answered
+ *   with every case of the requested case types (the request's case_type
+ *   values) from the case data as it stands, and none of the search's filters
+ *   is applied, so a search there finds what HQ's would not (the sessions of
+ *   proof 4 and of a Connect app).
  * - A post (SyncScreen: the case claim) is recorded and answered 201, which is
  *   what makes Core follow it with a sync.
  * - A sync (restoreUserToSandbox) is answered with the same restore the session
@@ -37,11 +43,14 @@ import java.util.List;
 final class ProofSessionUtils extends SessionUtils {
     private final byte[] restore;
     private final UserSandbox sandbox;
+    /** Whether the client answers each search with HQ's own answer (the request's "searchAnswers"). */
+    private final boolean clientAnswers;
     private JSONArray events = new JSONArray();
 
-    ProofSessionUtils(byte[] restore, UserSandbox sandbox) {
+    ProofSessionUtils(byte[] restore, UserSandbox sandbox, boolean clientAnswers) {
         this.restore = restore;
         this.sandbox = sandbox;
+        this.clientAnswers = clientAnswers;
     }
 
     /** Starts a fresh event list for the next screen and returns the previous one. */
@@ -60,6 +69,9 @@ final class ProofSessionUtils extends SessionUtils {
         event.put("params", params(requestData));
         List<String> caseTypes = new ArrayList<>(requestData.get("case_type"));
         event.put("caseTypes", new JSONArray(caseTypes));
+        if (clientAnswers) {
+            return answeredByClient(event, url, requestData);
+        }
         try {
             String caseDb = CaseData.caseDb(new CommCareInstanceInitializer(sandbox));
             byte[] results = CaseData.searchResults(caseDb, caseTypes);
@@ -71,6 +83,28 @@ final class ProofSessionUtils extends SessionUtils {
             events.put(event);
             return null;
         }
+    }
+
+    /**
+     * HQ's answer to the search, as the client gives it: its status, and the body Core reads, whose cases are
+     * counted where it is HQ's results document (an answer HQ refused is text). A question the client cannot
+     * answer fails the request (Runner.ask), never a search answered by anything else.
+     */
+    private InputStream answeredByClient(JSONObject event, URL url, Multimap<String, String> requestData) {
+        JSONObject question = new JSONObject();
+        question.put("url", url == null ? JSONObject.NULL : url.toString());
+        question.put("params", params(requestData));
+        JSONObject answer = Runner.ask("search", question);
+        int status = answer.getInt("status");
+        byte[] body = Base64.getDecoder().decode(answer.getString("bodyBase64"));
+        event.put("status", status);
+        try {
+            event.put("answered", CaseData.countCases(body));
+        } catch (Exception e) {
+            event.put("answered", JSONObject.NULL);
+        }
+        events.put(event);
+        return new ByteArrayInputStream(body);
     }
 
     @Override

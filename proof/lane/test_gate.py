@@ -961,3 +961,85 @@ def test_a_piece_that_never_ran_fails_the_run_though_its_document_was_judged(tmp
     [entry] = result["failing"]
     assert entry["group"] == PIECES[1] and entry["failed"] == [] and entry["items"] == [PIECE_ITEMS[PIECES[1]]]
     assert entry["why"] == ["it did not finish: it never ran", "1 of its 1 collected items did not run"]
+
+
+# A base made in HQ the corpus set aside -----------------------------------------------------------------------------
+
+ASIDE = lane_blocks.SetAside("hq-search", "account", "The corpus sets the base hq-search aside.")
+AUTHORING = "proof/matrix/test_retained.py[hq-search]"
+AUTHORING_ITEM = "matrix/test_retained.py::test_the_hq_apps_nova_reads_are_hqs_own[hq-search]"
+
+
+def _set_aside_lane(tmp_path, *, wrote, with_set_aside=True):
+    """The plain lane with the base ``hq-search`` set aside by its corpus, and a block of the group that authors it
+    again, which wrote the base under ``wrote`` (``hq-apps``, ``hq-apps-unread``, or None for nothing)."""
+    output, queue, committed = _lane(tmp_path)
+    blocks = list(lane_blocks.load_queue(queue).blocks)
+    authoring = lane_blocks.Block(lane_blocks.block_id([AUTHORING]), 20.0, (lane_blocks.QueuedGroup(AUTHORING),))
+    blocks.append(authoring)
+    outcome = "failed" if wrote != lane_blocks.AUTHORED_TREE else "passed"
+    record = lane_blocks.group_record(
+        group=AUTHORING, fresh=False, collected=[AUTHORING_ITEM], outcomes={AUTHORING_ITEM: outcome}, worker=3
+    )
+    directory = lane_blocks.block_dir(output, authoring.id)
+    lane_blocks.write_json(
+        directory / lane_blocks.MANIFEST, lane_blocks.manifest(authoring, phase="main", shard="s1", groups=[record])
+    )
+    if wrote is not None:
+        made = directory / wrote / "hq-search"
+        made.mkdir(parents=True)
+        (made / ("expected.json" if wrote == lane_blocks.AUTHORED_TREE else "reading.json")).write_text("{}\n")
+    aside = (ASIDE,) if with_set_aside else ()
+    lane_blocks.write_json(queue, lane_blocks.queue_json(lane_blocks.Queue(tuple(blocks), set_aside=aside)))
+    return output, queue, committed
+
+
+def test_a_run_whose_corpus_set_a_base_aside_fails_by_the_group_that_authors_it_again_saying_what_the_run_shows(
+    tmp_path,
+):
+    """Contract: a base the emission set aside is no document of the run, so a green run cannot lack it: the gate
+    fails on it, named to ``proof/matrix/test_retained.py[<base>]``, and says whether the run's new copy came in
+    (adopt it), was refused too (fix the reader or the builder) or was never made. The plausible failures: a run
+    that passes with a base quietly missing from its corpus, and a failure that sends the person to the wrong
+    step."""
+    clean = _run(*_set_aside_lane(tmp_path / "none", wrote=lane_blocks.AUTHORED_TREE, with_set_aside=False))
+    assert clean["sections"]["bases"] == {"holds": True, "problems": [], "notes": [], "setAside": []}
+
+    came_in = _run(*_set_aside_lane(tmp_path / "in", wrote=lane_blocks.AUTHORED_TREE))
+    assert not came_in["holds"] and not came_in["sections"]["bases"]["holds"]
+    assert came_in["sections"]["tests"]["holds"], "the authoring group passed; the base section alone fails"
+    [problem] = came_in["sections"]["bases"]["problems"]
+    assert problem.startswith("The corpus set the base hq-search aside (Nova's reading of proof/hq-apps/hq-search/")
+    assert "the new copy came in" in problem and "python3 -m proof.matrix.adopt" in problem
+    assert {entry["group"] for entry in came_in["failing"]} == {AUTHORING}
+
+    unread = _run(*_set_aside_lane(tmp_path / "unread", wrote=lane_blocks.UNREAD_TREE))
+    [problem] = unread["sections"]["bases"]["problems"]
+    assert "did not read the new copy either" in problem and "hq-apps-unread/hq-search" in problem
+
+    never = _run(*_set_aside_lane(tmp_path / "never", wrote=None))
+    [problem] = never["sections"]["bases"]["problems"]
+    assert f"No block of this run authored it again ({AUTHORING} did not run, or wrote nothing)" in problem
+
+
+def test_a_queue_names_the_bases_its_corpus_set_aside_and_refuses_a_list_that_is_not_one(tmp_path):
+    queue = lane_blocks.Queue((), set_aside=(ASIDE,))
+    assert lane_blocks.parse_queue(lane_blocks.queue_json(queue)).set_aside == (ASIDE,)
+    assert "setAside" not in lane_blocks.queue_json(lane_blocks.Queue(()))
+    for bad, why in (
+        ([{"base": "hq-search", "reading": "slow", "notice": "n"}], "which is none of account"),
+        ([{"base": "hq-search", "reading": "account"}], "with no notice"),
+        ([{"base": "a b", "reading": "account", "notice": "n"}], "names no base"),
+        ([{"base": "x", "reading": "account", "notice": "n"}] * 2, "sets x aside twice"),
+    ):
+        value = {**lane_blocks.queue_json(queue), "setAside": bad}
+        with pytest.raises(lane_blocks.QueueError, match=why):
+            lane_blocks.parse_queue(value)
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "index.json").write_text(json.dumps({"documents": []}))
+    assert lane_blocks.set_aside_bases(corpus) == ()
+    (corpus / "index.json").write_text(
+        json.dumps({"documents": [], "setAside": [{"base": "hq-search", "reading": "account", "notice": "n"}]})
+    )
+    assert lane_blocks.set_aside_bases(corpus) == (lane_blocks.SetAside("hq-search", "account", "n"),)

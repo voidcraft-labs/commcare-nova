@@ -43,6 +43,21 @@ def test_an_operand_that_is_no_bare_path_compares_no_property():
     assert seed.compared_literals("concat(status, 'x')") == []
 
 
+def test_a_search_query_rows_csql_is_read_where_its_value_is_one_literal():
+    """A search's ``_xpath_query`` default property sends the CSQL its string literal holds, which compares a
+    property with a literal HQ's search matches only where some case holds it (hq-search's ``village = 'north'`` on
+    the menu whose forms read the search). The plausible failure: the row read as the XPath it is, one string,
+    which compares nothing, so HQ's answer to the search is empty on every state and the walk never reaches the
+    menu's forms. A value that works anything out at run time sends no fixed text."""
+    assert seed._sent_query("\"village = 'north'\"") == ["village = 'north'"]
+    assert [pair for text in seed._sent_query("\"village = 'north'\"") for pair in seed.compared_literals(text)] == [
+        ("village", "north")
+    ]
+    assert seed.compared_literals("\"village = 'north'\"") == []
+    assert seed._sent_query("concat('village = \"', instance('commcaresession')/session/data/v, '\"')") == []
+    assert seed._sent_query("'match-all()'") == ["match-all()"]
+
+
 def test_a_session_users_data_names_are_read_from_cores_instance_paths():
     parsed = {
         "instancePaths": [

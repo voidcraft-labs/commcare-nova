@@ -30,8 +30,9 @@ each failing by base with what is missing:
 5. every first-publish id of the base whose entry holds a ``proof3`` row in
    ``proof/first-publish-changes.json`` has a ``<id>:before`` expectation run
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
-   differ, but for a row that names a media reference a trace read, which no
-   value Core's evaluate answers can show (``_shows_a_value``);
+   differ, but for a row that names a media reference a trace read or a value
+   a search sent HQ, which no value Core's evaluate answers can show
+   (``_shows_a_value``);
 6. a multi-select question an expression tests has an expectation answering
    it with two choices;
 7. a base whose app holds more than one language is read under a declaration
@@ -79,15 +80,21 @@ def _held_entries():
 # The last step of a trace path that names a media reference Core read for a screen (a question's, a choice's or a
 # menu entry's picture, sound or video), not a value.
 MEDIA_REFERENCES = frozenset({"image", "audio", "video"})
+# The step of a trace path above a value a search sent HQ: one of its ``_xpath_query`` values, on the search's step
+# or one of its requests (``proof/checks/compare/trace.py::queries_as_multisets``).
+SEARCH_QUERY = "_xpath_query"
 
 
 def _shows_a_value(row):
     """Whether a ``proof3`` row names something Core's evaluate can fix by hand: anything but a media reference a
-    trace read. Core's evaluate, which runs an expectation, answers expressions, answers and a case list's rows, and
-    reads no question's or menu's media (``proof/core/src/nova/proof/core/Evaluate.java``), so a change whose
-    behavior is a media reference moving or going (``media-files-renamed``, ``broken-pictures-removed``) is shown
-    before and after by proof 3's own comparison of A's trace with B's and the archive's, each side's reference."""
-    return row.get("check") == "proof3" and row.get("path", "").rsplit("/", 1)[-1] not in MEDIA_REFERENCES
+    trace read or a value a search sent HQ. Core's evaluate, which runs an expectation, answers expressions, answers
+    and a case list's rows, reads no question's or menu's media and sends no search
+    (``proof/core/src/nova/proof/core/Evaluate.java``), so a change whose behavior is a media reference moving or
+    going (``media-files-renamed``, ``broken-pictures-removed``), or a value a search sends HQ
+    (``search-today-device-day``, ``search-restates-list-filter``), is shown before and after by proof 3's own
+    comparison of A's trace with B's and the archive's, each side's reference or request."""
+    steps = row.get("path", "").split("/")
+    return row.get("check") == "proof3" and steps[-1] not in MEDIA_REFERENCES and SEARCH_QUERY not in steps[-2:]
 
 
 def _proof3_changes():
@@ -403,3 +410,21 @@ def test_each_bases_hand_written_expectations_hold_their_rules(claim_logs):
         if problems:
             failing[base.id] = problems
     assert not failing, "\n".join(f"{base_id}: {'; '.join(problems)}." for base_id, problems in sorted(failing.items()))
+
+
+def test_a_change_shown_only_by_what_a_trace_read_or_a_search_sent_needs_no_value_pair():
+    """Rule 5 asks a value pair only of a ``proof3`` row a value can show: not a media reference a trace read, nor a
+    value a search sent HQ, which Core's evaluate never sends; every other trace path still asks one. The plausible
+    failure: a row of a search's request values (``search-today-device-day``) asking hq-search for a pair no
+    expectation can hold, or the exemption reaching a row of the list a worker sees."""
+
+    def row(path):
+        return {"check": "proof3", "artifact": "trace@B", "path": path}
+
+    assert not _shows_a_value(row("/runs/*/trace/*/params/_xpath_query/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/_xpath_query/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/events/*/image"))
+    assert _shows_a_value(row("/runs/*/trace/*/rows/*"))
+    assert _shows_a_value(row("/runs/*/trace/*/params/case_type/*"))
+    assert _shows_a_value(row("/runs/*/trace/*/submission/data/*[*]/text()"))
+    assert not _shows_a_value({**row("/runs/*/trace/*/rows/*"), "check": "proof2"})

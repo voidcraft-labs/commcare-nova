@@ -9,12 +9,13 @@ then report an identity change again), and a re-namespaced form HQ renders
 differently (every form would get a new version, a difference proof 2
 would blame on Nova).
 
-The input is HQ's own suite-test app, published as Nova publishes (A), then
-updated with every module id, form id and form ``xmlns`` replaced and
-nothing else changed (B), the identity change a republish that mints new
-identities makes. B's own build is the negative control, showing both
-symptoms the alignment removes. The renamespacing itself is checked over
-the forms Nova emits, from a corpus document.
+The input is HQ's own suite-test app with an id on its menu, as every app
+Nova publishes holds (``hq_test_app_with_menu_ids``), published as Nova
+publishes (A), then updated with every module id, form id and form
+``xmlns`` replaced and nothing else changed (B), the identity change a
+republish that mints new identities makes. B's own build is the negative
+control, showing both symptoms the alignment removes. The renamespacing
+itself is checked over the forms Nova emits, from a corpus document.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from proof.checks.proof2 import parsed_build
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
-from proof.hq.conftest import hq_test_app, nova_shaped_upload
+from proof.hq.conftest import hq_test_app_with_menu_ids, nova_shaped_upload
 from proof.hq.operations import upload_field
 from proof.hq.seams import build_seams
 from proof.observe.alignment import align_positions, aligned_app, leftover_identities, renamespace_xform
@@ -66,12 +67,12 @@ def _data_versions(files):
 
 def test_alignment_leaves_nothing_of_bs_identities_and_hq_keeps_unchanged_versions(hq, core_runner):
     with hq_check(CONFIGURATION) as (state, record):
-        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
+        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app_with_menu_ids(), "Suite app")])
         with build_seams(previous=None):
             a, hq_build = build_state(operations.held_app(state, app_id), record, "A")
         saved_a = hq_build.saved_build()
         a_doc = operations.held_app(state, app_id).to_json()
-        update = nova_shaped_upload(_with_new_identities(hq_test_app()), "Suite app", app_id="captured")
+        update = nova_shaped_upload(_with_new_identities(hq_test_app_with_menu_ids()), "Suite app", app_id="captured")
         assert operations.apply_upload(state, operations.with_app_id(update, app_id)).status == 200
         b_app = operations.held_app(state, app_id)
         alignment = align_positions(a_doc, b_app.to_json())
@@ -137,9 +138,7 @@ def test_the_renamespacing_check_runs_in_this_modules_group_whichever_document_i
         checked.exports["minimum"] = has_forms
         (parameter,) = _first_document_with_forms()
         assert parameter.values == (expected,)
-        item = SimpleNamespace(
-            callspec=SimpleNamespace(params={"document_id": parameter.values[0]}), path=__file__
-        )
+        item = SimpleNamespace(callspec=SimpleNamespace(params={"document_id": parameter.values[0]}), path=__file__)
         assert sharding.item_group(item) == "proof/checks/test_alignment.py"
 
 
