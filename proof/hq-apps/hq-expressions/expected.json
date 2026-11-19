@@ -96,6 +96,7 @@
 		"instant-comparison",
 		"empty-rows-guard",
 		"absent-session-value-guard",
-		"row-predicate-current"
+		"row-predicate-current",
+		"list-settings-respelled"
 	]
 }

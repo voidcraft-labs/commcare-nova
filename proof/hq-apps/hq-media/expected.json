@@ -94,6 +94,7 @@
 	],
 	"firstPublish": [
 		"forms-and-settings-rewritten",
+		"list-settings-respelled",
 		"media-paths-joined",
 		"media-files-renamed",
 		"media-references-with-no-file-removed",
