@@ -68,7 +68,9 @@ if CHANGES:
             "proof2": proof2.document_build_equivalence(document, records),
             "proof3": proof3.document_behavior(document, records),
         }
-        found = changes.differences(document, checked, inert=parity.inert_of(document, records), readers=readers.named())
+        found = changes.differences(
+            document, checked, inert=parity.inert_of(document, records), readers=readers.named()
+        )
         try:
             cases.hold("changes", document, found, cases.load_register(), applying=sorted(document.first_publish))
         except AssertionError as error:
