@@ -4620,7 +4620,7 @@
 		"kind": "added",
 		"values": {
 			"before": null,
-			"after": "<assertions>\n      <assert test=\"count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.property_missing\">\n            <argument>commtrack-supply-point</argument>\n          </locale>\n        </text>\n      </assert>\n      <assert test=\"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/user/data/commtrack-supply-point]) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.case_missing\"/>\n        </text>\n      </assert>\n    </assertions>"
+			"after": "<assertions>\n      <assert test=\"count ( instance ( 'commcaresession' ) / session / user / data ) = 1 and count ( instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.property_missing\">\n            <argument>commtrack-supply-point</argument>\n          </locale>\n        </text>\n      </assert>\n      <assert test=\"count ( instance ( 'casedb' ) / casedb / case [ @ case_id = instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ] ) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.case_missing\"/>\n        </text>\n      </assert>\n    </assertions>"
 		},
 		"control": "targeted-supply-point-read"
 	},
@@ -4634,7 +4634,7 @@
 		"kind": "added",
 		"values": {
 			"before": null,
-			"after": "<datum id=\"supply_point_id\" function=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+			"after": "<datum id=\"supply_point_id\" function=\"if ( count ( instance ( 'commcaresession' ) / session / user / data ) = 1 and count ( instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ) = 1 , instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point , '' )\"/>"
 		},
 		"control": "targeted-supply-point-read"
 	},
@@ -4648,7 +4648,7 @@
 		"kind": "added",
 		"values": {
 			"before": null,
-			"after": "<datum id=\"supply_point_id\" value=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+			"after": "<datum id=\"supply_point_id\" value=\"if ( count ( instance ( 'commcaresession' ) / session / user / data ) = 1 and count ( instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ) = 1 , instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point , '' )\"/>"
 		},
 		"control": "targeted-supply-point-read"
 	},

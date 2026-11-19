@@ -15,19 +15,21 @@ question a screen in one spelling); the rule erasing a value Core does not
 read as ``field-list`` (``FIELD-LISTS``); and the rule changing a question's
 or a repeat's appearance.
 
-``case-list-local``'s first form is written with its last control inside a
-group of appearance ``field-list``, and with the same group written
-``Field-List`` and ``FIELD-LISTS``. HQ builds each whole and the builds differ
-only at that group's appearance in the form; Core's sessions over the first
-two differ only at the group event's appearance, which the rule erases,
-while the third, which Core does not read as a field list, stays a difference
-under the rule. Formplayer's walks and the Web Apps client's screens of the
-first two releases, each walk derived on its own release, compare equal once the rule reads Formplayer's
-answers.
+``targeted-plain-help``'s first form, which Core's sessions open from its
+menu with no case to choose, is written with its last control inside a group
+of appearance ``field-list``, and with the same group written ``Field-List``
+and ``FIELD-LISTS``. HQ builds each whole and the builds differ only at that
+group's appearance in the form; Core's sessions over the first two differ
+only at the group event's appearance, which the rule erases, while the third,
+which Core does not read as a field list, stays a difference under the rule.
+Formplayer's walks and the Web Apps client's screens of the first two
+releases, each walk derived on its own release, compare equal once the rule
+reads Formplayer's answers.
 """
 
 from __future__ import annotations
 
+import pytest
 from lxml import etree
 
 from proof.rules.conftest import (
@@ -43,7 +45,7 @@ from proof.rules.conftest import (
 )
 from proof.rules.field_list_appearance_case import RULE, is_field_list, normalize
 
-DOCUMENT = "case-list-local"
+DOCUMENT = "targeted-plain-help"
 FORM = "0.0"
 XHTML = "http://www.w3.org/1999/xhtml"
 APPEARANCE = ("trace", "/runs/*/trace/*/events/*/appearance", "changed")
@@ -124,17 +126,20 @@ def test_hq_builds_and_core_runs_a_field_list_alike_in_either_letter_case(rule_d
     assert APPEARANCE in shown(trace_differences(base, third, rules=(RULE,))), "the rule erased another value"
 
 
-def _readings(app, appearance):
+def _readings(app, runner, appearance):
     """The app with its form spelled ``appearance``, served and read, in a fork of the published state."""
     with app.unit.fork():
         app._write(sources={FORM: _grouped(appearance)})
-        return served_readings(app, {appearance: None})[appearance]
+        return served_readings(app, runner, {appearance: None})[appearance]
 
 
-def test_formplayer_and_web_apps_show_a_field_list_alike_in_either_case(rule_documents, hq, core_runner):
+@pytest.mark.reader("webapps")  # beside Formplayer, which its fixture starts: it reads the client's screens too
+def test_formplayer_and_web_apps_show_a_field_list_alike_in_either_case(
+    rule_documents, hq, core_runner, formplayer_runner
+):
     with published(rule_documents[DOCUMENT], core_runner) as app:
-        lower = _readings(app, "field-list")
-        mixed = _readings(app, "Field-List")
+        lower = _readings(app, formplayer_runner, "field-list")
+        mixed = _readings(app, formplayer_runner, "Field-List")
 
     handed = shown(formplayer_differences(lower, mixed))
     assert handed, "Formplayer handed both spellings alike, so the test shows nothing of the rule"

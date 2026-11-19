@@ -262,10 +262,12 @@ class _Paths:
 
     def _session(self, what, path, restore, script, clock):
         """Core's session on the archive at ``path``, replaying ``script`` (none: derived), and its submissions in
-        the session's order; on the lane's day, or at ``clock``."""
+        the session's order; on the lane's day, or at ``clock``. The sessions' searches are answered by no HQ (every
+        case of the searched type, no filter), so a session that searches is refused: what it submitted would follow
+        cases HQ's search might never return."""
         from proof.core.client import DEFAULT_CLOCK
         from proof.observe.runs import submission_of
-        from proof.observe.sessions import admitted, unmarked_submission
+        from proof.observe.sessions import admitted, searched, unmarked_submission
 
         with admitted(self.core_runner, path) as report:
             assert report.get("admitted") and report.get("app") is not None, (
@@ -274,6 +276,11 @@ class _Paths:
             trace = self.core_runner.session(
                 report["app"], restore=restore, script=script, clock=clock or DEFAULT_CLOCK
             )
+        assert not searched(trace), (
+            f"Core's sessions on {what} of {self.document.id} sent a case search, which nothing answers as HQ's search"
+            " view would. Name a Connect document whose sessions search nothing (DOCUMENTS), or give the sessions"
+            " HQ's answers (proof.observe.sessions.HqSearches)."
+        )
         made = []
         for run in trace["runs"]:
             if submission_of(run) is None:

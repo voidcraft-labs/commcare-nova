@@ -46,8 +46,10 @@
 //     translation inventory, while the pure XPath helper retains literal
 //     labels as its language-neutral fallback. The `selected()` arm matches against the raw
 //     property value; the `replace(join(...), '\\s+', ' ')` collapse
-//     trims the leading whitespace from the join's empty-arm
-//     fall-throughs. Its sort key is the mapping position
+//     turns each run of the join's spaces into one and trims nothing,
+//     so a label after an unmatched arm shows with one space before it
+//     and a label before one with one space after it, as HQ's build
+//     shows them. Its sort key is the mapping position
 //     (`sortKeys.ts::idMappingSortXpath`), as HQ's `enum` sorts.
 //
 //   - `image-map`         → CCHQ `detail_screen.py::EnumImage` format

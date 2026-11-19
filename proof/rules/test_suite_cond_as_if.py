@@ -18,7 +18,8 @@ The stored app is written with that column's expression wrapped as Nova
 prints it, ``if(<expression> = '', 'none', concat('rank ', <expression>))``,
 and with ``cond`` in place of ``if``; HQ builds both whole, the two builds
 differ at the column's ``xpath@function`` alone, which the rule erases,
-Core's sessions over the two compare equal, and Formplayer's walk and the
+Core's sessions over the two, whose list shows the column's text for its
+case, compare equal, and Formplayer's walk and the
 Web Apps client's screens of the two releases compare equal. The same
 wrapping with another test is a difference the rule leaves.
 """
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from lxml import etree
 
 from proof.rules.conftest import (
@@ -34,6 +36,7 @@ from proof.rules.conftest import (
     client_differences,
     edited,
     formplayer_differences,
+    listed,
     published,
     runs_alike,
     served_readings,
@@ -96,19 +99,23 @@ def test_hq_builds_cond_and_if_and_core_runs_both_alike(rule_documents, hq, core
         nova = app.spell(doc=edited(_wrapped(NOVA)))
         cond = app.spell(doc=edited(_wrapped(COND)))
         other = app.spell(doc=edited(_wrapped(OTHER)))
-        _, _, alike = runs_alike(app, core_runner, nova.build, cond.build)
+        first, _, alike = runs_alike(app, core_runner, nova.build, cond.build, reads="case list")
 
     found = shown(build_differences(nova.build, cond.build))
     assert found, "the two spellings built the same suite, so the test shows nothing"
     assert all(path.endswith("/@function") for _, path, _ in found), found
     assert build_differences(nova.build, cond.build, rules=(RULE,)) == []
+    assert any(field == "none" or field.startswith("rank ") for field in listed(first)), (
+        "Core's list showed no row of the wrapped column"
+    )
     assert alike == [], shown(alike)
     assert shown(build_differences(nova.build, other.build, rules=(RULE,))), "the rule erased another test"
 
 
-def test_formplayer_walks_a_cond_and_its_if_alike(rule_documents, hq, core_runner):
+@pytest.mark.reader("webapps")  # beside Formplayer, which its fixture starts: it reads the client's screens too
+def test_formplayer_walks_a_cond_and_its_if_alike(rule_documents, hq, core_runner, formplayer_runner):
     with published(rule_documents[DOCUMENT], core_runner) as app:
-        readings = served_readings(app, {"nova": _wrapped(NOVA), "cond": _wrapped(COND)})
+        readings = served_readings(app, formplayer_runner, {"nova": _wrapped(NOVA), "cond": _wrapped(COND)})
 
     nova, cond = readings["nova"], readings["cond"]
     assert _calculated(nova["doc"])["field"] != _calculated(cond["doc"])["field"]

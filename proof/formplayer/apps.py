@@ -287,10 +287,17 @@ def walked(runner, served, script=None, *, app_id=None, archives=()):
 
 def core_sessions(core_runner, files, restore, *, script=None, after_submit=False):
     """Core's sessions over a build, as proof 3 runs them (``proof.observe.sessions.run_sessions``), optionally with
-    what Core's session needs after each submission."""
-    from proof.observe.sessions import admitted
+    what Core's session needs after each submission. Its searches are answered by no HQ (every case of the searched
+    type, no filter), so a build whose sessions search is refused: Formplayer's own searches are HQ's answers, and
+    the two would differ by what the stand-in found."""
+    from proof.observe.sessions import admitted, searched
 
     with tempfile.TemporaryDirectory(prefix="proof-formplayer-core-") as directory:
         with admitted(core_runner, arrange(files, directory)) as report:
             assert report.get("admitted") and report.get("app") is not None, report
-            return core_runner.session(report["app"], restore=restore, script=script, after_submit=after_submit)
+            trace = core_runner.session(report["app"], restore=restore, script=script, after_submit=after_submit)
+    assert not searched(trace), (
+        "Core's sessions here sent a case search, which nothing answers as HQ's search view would. Name a document"
+        " whose sessions search nothing, or give the sessions HQ's answers (proof.observe.sessions.HqSearches)."
+    )
+    return trace

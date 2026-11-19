@@ -355,8 +355,9 @@ harness keeps, each with its reason.
   `fixed-defects.json` in the same pull request, where each must still show
   on its control and is held on no document. From step 5 the known register
   is empty; an entry added later names a defect `OPEN_DEFECTS` gives to a
-  later step. A fixed entry is re-pathed only
-  when the check's vocabulary or pinned upstream text moved, deleted only
+  later step. A fixed entry is re-pathed (or its pinned values re-spelled)
+  only when the check's vocabulary, a spelling rule's writing of what it
+  compares, or pinned upstream text moved, deleted only
   when upstream changed the behavior, a judge change deliberately stops
   reporting the class on its control, or a change to how the lane runs a
   control (the privileges its oracle grants it) takes the symptom off the

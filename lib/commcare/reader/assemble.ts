@@ -29,6 +29,7 @@ import {
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { formWireName } from "@/lib/domain/formWireName";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -1867,6 +1868,52 @@ function withSourceFolds(
  * Stage 11: the claims that waited for every form, the declaration's verdict, the document where
  * no finding stands, the generated translation keys, the close, and the draft.
  */
+/** The manifest entry a form's `<h:title>` is claimed under (`xform/claims.ts`, `X.title`). */
+const TITLE_ENTRY = "questions/h-title-and-data-name-whatever-their-text";
+
+/**
+ * A form's title as Core reads it (`XFormParser.parseTitle`): the text with every character up to
+ * U+0020 taken from both ends, as Java's `String.trim` takes them, and none where nothing is left,
+ * since Core's parse drops a text node of whitespace alone.
+ */
+function coreTitle(text: string | undefined): string | undefined {
+	if (text === undefined) return undefined;
+	let start = 0;
+	let end = text.length;
+	while (start < end && text.charCodeAt(start) <= 0x20) start++;
+	while (end > start && text.charCodeAt(end - 1) <= 0x20) end--;
+	return start === end ? undefined : text.slice(start, end);
+}
+
+/**
+ * Records under `form-titles-written` each form whose `<h:title>` Core reads as other text than
+ * the name Nova writes there (`formWireName`): CommCare HQ's new form holds a blank title, and a
+ * rename through Bulk App Translations leaves the old one, while Nova writes the form's name as a
+ * save in HQ's form builder does. CommCare Android shows the title at the top of a saved form a
+ * worker opens again with no menu's title to hand it (`FormEntryActivity.getHeaderString`), so the
+ * first publish changes what a worker reads there. The record names the form's source in the
+ * stored app. Nova's own export writes the name there, so its read back records nothing.
+ */
+function recordTitleRewrites(ctx: ReadContext, doc: BlueprintDoc): void {
+	for (const module of ctx.draft.modules) {
+		for (const form of module.forms) {
+			if (form.xform === null || doc.forms[form.uuid] === undefined) continue;
+			if (
+				coreTitle(form.xform.parsed.title) ===
+				coreTitle(formWireName(doc, form.uuid))
+			)
+				continue;
+			const readId =
+				ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+			ctx.facts.sameStateRewrites.push({
+				entry: TITLE_ENTRY,
+				path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
+				register: "form-titles-written",
+			});
+		}
+	}
+}
+
 export function assembleDocument(ctx: ReadContext): void {
 	const steps = assembleDocumentSteps(ctx);
 	while (!steps.next().done);
@@ -1921,6 +1968,7 @@ export function* assembleDocumentSteps(
 
 	// 6. The draft.
 	const doc = whole;
+	recordTitleRewrites(ctx, doc);
 	const facts: ReadFacts = {
 		...ctx.facts,
 		mediaReferences: [...ctx.facts.mediaReferences],

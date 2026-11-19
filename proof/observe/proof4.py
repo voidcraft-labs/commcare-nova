@@ -1184,13 +1184,21 @@ class _Observation:
     def sessions(self, outcome, script, label=PROCESSING):
         """The build's sessions over the restore and HQ's processing of their submissions (in the operation
         ``label``), as the record holds them; with the run, and the processing operation's digest, whether it wrote
-        and what HQ noted in it (None where nothing submitted)."""
-        from proof.observe.build import arrange
-        from proof.observe.sessions import processed_runs, run_sessions
+        and what HQ noted in it (None where nothing submitted).
 
-        with tempfile.TemporaryDirectory(prefix="proof4-") as scratch:
+        Each case search a session sends is answered by HQ's own search view, as proof 3's are
+        (``proof.observe.sessions.HqSearches``, in a fork put back as the sessions end). The unit holds the app
+        this build was made from (B, or the save it was read in the fork of), which is the app HQ's search reads
+        for the related cases it adds. A search answered with every case of its type would show a save that
+        changes which cases a search finds only as the request's changed values, never as the cases and forms a
+        worker then reaches, and would show a difference over a case HQ's search never returns."""
+        from proof.observe.build import arrange
+        from proof.observe.sessions import HqSearches, processed_runs, run_sessions
+
+        searches = HqSearches(self.unit, self.database, label, self.unit.operation, self.app_id)
+        with tempfile.TemporaryDirectory(prefix="proof4-") as scratch, searches.stack:
             path = arrange(outcome.files, Path(scratch, "build"))
-            run = run_sessions(self.core_runner, "proof4", path, self.restore_bytes, script)
+            run = run_sessions(self.core_runner, "proof4", path, self.restore_bytes, script, searches=searches)
         found = {"admission": run.admission, "trace": None, "processed": None}
         processing = None
         if run.trace is not None:

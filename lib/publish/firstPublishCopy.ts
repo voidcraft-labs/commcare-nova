@@ -112,6 +112,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"A hidden value that held both a starting value and a calculation keeps only its calculation. CommCare always replaced the starting value before anything read it.",
 	"sort-by-entry-with-a-blank-name-dropped":
 		"On Android, a case list's Sort by no longer lists a choice with no name. CommCare HQ listed a hidden column there whose name was blank in every language, so workers saw an empty choice. You can give its sort rule a name in Nova to list it again.",
+	"form-titles-written":
+		"Each form's title now holds the form's name. On Android, a saved form a worker opens again shows that name at the top, where it showed no title or an older name before.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */

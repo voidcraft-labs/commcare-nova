@@ -298,7 +298,8 @@ export const SAME_STATE_REGISTERS = [
  * calculation alone (`xform/afterBinding.ts`), and a sort element whose
  * display names an `invisible` column in Android's Sort by under a header
  * blank in every language, an entry the first publish drops
- * (`caseList/order.ts::readSortElements`).
+ * (`caseList/order.ts::readSortElements`), and a form whose `<h:title>` holds
+ * other text than the name Nova writes there (`assemble.ts::recordTitleRewrites`).
  */
 export const FIRST_PUBLISH_READING_RECORDS = [
 	"date-and-time-saved-as-hq-stores-it",
@@ -309,6 +310,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"form-text-characters-written-as-outputs",
 	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
+	"form-titles-written",
 ] as const;
 
 export type SameStateRegister =

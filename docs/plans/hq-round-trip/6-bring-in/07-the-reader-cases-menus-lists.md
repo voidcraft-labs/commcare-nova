@@ -3916,10 +3916,20 @@ reading): a custom text property of the searched case compared by `=` with a str
 the worker's own information (HQ's exact, letter-case match on `case_properties.value.exact`,
 `comparison.py::_create_query`), by `!=` with a literal of at most 8191 characters (the exact field's
 `ignore_above`), tested blank (`case_property_missing`, which a device reads alike since a missing
-element unpacks to `''`), or matched by `starts-with` (HQ's prefix on the exact field), and `and`,
-`or`, `match-all` and `match-none` of those. Not joined: a negation (it needs the converse, which the
-exact field's `ignore_above` breaks), a standard property (HQ reads its own indexed metadata, dates
-by the project space's time zone), a read through a related case (HQ reads every case of its index,
+element unpacks to `''`), or matched by `starts-with` (HQ's prefix on the exact field); the case's
+type compared by `=` or `!=` with a type (HQ's exact term on the type it indexes,
+`comparison.py::_create_system_query`, and the device's `@case_type` of the case HQ answered); `and`,
+`or`, `match-all` and `match-none` of those; a negation read as its argument with each comparison
+turned over, where that reading is joined (HQ's `not` is the negation of its argument's filter,
+`query_functions.py::not_`, and its `!=` the same negation of `=`, so `not(p = 'x')` is `p != 'x'`;
+`not` of `starts-with` is not joined, since a value past the exact field's `ignore_above` matches no
+prefix in HQ and may start with it on the device); and an `if` whose condition reads only literals and
+the worker's own information (`username`, `userid`, the worker's data), each branch joined, since the
+device takes one branch when it sends the search and in the list after. Not joined: any other
+standard property (HQ reads its own indexed metadata, dates by the project space's time zone), an
+`if` over any other session value (`drift` is set again from every answer the device gets, the
+search's own among them, `CommCareNetworkServiceGenerator.driftInterceptor`; `window_width` and
+`applanguage` change with the worker's window and language), a read through a related case (HQ reads every case of its index,
 the device only the related cases its instance holds), a number, a date or `today()` (HQ's numeric
 and date subfields and the project space's day against Core's conversions and the device's day), a
 typed property compared with text, a match of several values (HQ's analyzed match lowers letter case
