@@ -24,7 +24,6 @@ import pytest
 
 from proof.checks import cases, observations, parity
 
-
 PARITY = cases.document_params("parity")
 
 

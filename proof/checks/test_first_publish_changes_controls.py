@@ -69,7 +69,9 @@ def test_an_applying_entry_that_matches_nothing_is_unseen():
 
 def test_a_served_reader_s_entry_is_left_to_the_readers_and_held_with_them():
     document = _document("forms-and-settings-rewritten", "hidden-values-added")
-    checked = {"source": [_source("/x")]}
+    # The judge of an app made in HQ is handed all four checks, proof 3 among them, so an entry made of proof 3 rows
+    # is judged (``changes._unjudged`` leaves alone only an entry none of whose checks the judge was handed).
+    checked = {"source": [_source("/x")], "proof1": [], "proof2": [], "proof3": []}
     off = changes.differences(document, checked, inert=frozenset(), readers=frozenset(), register=REGISTER)
     assert off == []
     on = changes.differences(document, checked, inert=frozenset(), readers=frozenset({"formplayer"}), register=REGISTER)
