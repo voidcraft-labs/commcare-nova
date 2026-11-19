@@ -423,8 +423,12 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 * and nothing HQ builds reads, and `graph_configuration` null, which HQ
 	 * reads only on a `graph` column (`app_strings.py`,
 	 * `detail_screen.py::Graph`), a format Nova never writes; a column of an
-	 * app made in HQ's models holds neither the keys nor null. Applies on
-	 * every reading.
+	 * app made in HQ's models holds neither the keys nor null. A list's filter
+	 * and a calculated column's expression (a column's `field` where its
+	 * `useXpathExpression` is true) are written in Nova's spelling of the
+	 * expression the reading holds: its whitespace, its quote marks, and a
+	 * three-argument `cond` as the `if` it equals
+	 * (`reader/syntaxCompare.ts`). Applies on every reading.
 	 */
 	"forms-and-settings-rewritten": {
 		touchesWorkers: false,
@@ -434,6 +438,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/_attachments/*",
 			"/modules/*/forms/*/case_references_data/load",
 			"/modules/*/case_details/short/filter",
+			"/modules/*/case_details/*/columns/*/field",
 			"/created_from_template",
 			"/media_form_errors",
 			...DETAIL_COLUMN_PAGE_KEYS.map(

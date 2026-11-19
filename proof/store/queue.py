@@ -244,8 +244,8 @@ def test_functions(path: Path) -> list[str]:
 
 def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
     """Every package group with a test module (``proof.checks.sharding.item_group``'s names): a package's own, each
-    module of it ``proof.checks.sharding.SPLIT`` names that keeps a test it does not split off, and each test it
-    splits off."""
+    module of it ``proof.checks.sharding.SPLIT`` names that keeps a test it does not split off, each test it
+    splits off, and each value a module ``proof.checks.sharding.SPLIT_BY_PARAMETER`` names is split by."""
     found = set()
     if any(proof_dir.glob("test_*.py")):
         found.add("proof")
@@ -260,6 +260,9 @@ def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
             continue
         for test in tests:
             module = test.relative_to(proof_dir).as_posix()
+            if module in sharding.SPLIT_BY_PARAMETER:
+                found.update(sharding.parameter_groups(module, proof_dir))
+                continue
             if module not in sharding.SPLIT:
                 found.add(f"proof/{directory.name}")
                 continue

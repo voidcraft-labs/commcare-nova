@@ -361,8 +361,14 @@ def _packages_reaching(targets):
                 waiting.extend(graph.get(name, ()))
         return bool(seen & set(targets))
 
+    def group_of(path):
+        # A module split by parameter has no item without a value: name it by one its file lists.
+        values = sharding.parameter_values(path.relative_to(proof).as_posix())
+        callspec = SimpleNamespace(params={}, id=values[0]) if values else None
+        return sharding.item_group(SimpleNamespace(path=path, callspec=callspec))
+
     return {
-        lane_blocks.package_of(sharding.item_group(SimpleNamespace(path=path)))
+        lane_blocks.package_of(group_of(path))
         for name, path in modules.items()
         if (path.name.startswith("test_") or path.name == "conftest.py") and reaches(name)
     }

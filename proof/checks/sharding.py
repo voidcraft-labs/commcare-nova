@@ -26,8 +26,12 @@ observations, a package's session services) is built once, by one worker:
   (``proof/<package>/<module>.py``), and each test it names in that module
   one more (``proof/<package>/<module>.py::<test>``): a group runs on one
   worker, so a package whose tests take longer than a pull request's shard
-  can hold runs as several groups. A split group reads what its package
-  reads, so it is keyed by its package's data (``proof.store.queue``).
+  can hold runs as several groups. A test module ``SPLIT_BY_PARAMETER``
+  names is split instead by the value its module-scoped parameter takes,
+  each value a group (``proof/<package>/<module>.py[<value>]``), where its
+  tests share that parameter's cost (``matrix/test_retained.py``, by base).
+  A split group reads what its package reads, so it is keyed by its
+  package's data (``proof.store.queue``).
 
 The items of each group run back to back (``order_by_group``).
 ``collection_roots`` names what pytest collects for a set of groups: a
@@ -67,6 +71,7 @@ holds, and every shard that collected a phase collected the same items.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import sys
 from collections.abc import Sequence
@@ -129,8 +134,8 @@ def parse_shard(value: str, variable: str):
 # worker, measured at a CI shard's density (proof/timings.json), would otherwise bound the pull request lane's
 # shard that runs it. Each package's group, module and test here stays within about 240 seconds at that density
 # (proof/README.md, "Timings and what the lane is expected to take"): proof/editors took 701 seconds whole,
-# proof/lane 470, proof/checks 375 and proof/hq 260. proof/matrix's test_retained.py authors every base in HQ and
-# makes and reads every variant of each, so it is a group of its own beside the rest of the package.
+# proof/lane 470, proof/checks 375 and proof/hq 260. A module whose cost is in a parameter its tests share is split
+# by that parameter instead (``SPLIT_BY_PARAMETER``).
 SPLIT: dict[str, tuple[str, ...]] = {
     "checks/test_alignment.py": (),
     "checks/test_judge_purity.py": (),
@@ -149,8 +154,63 @@ SPLIT: dict[str, tuple[str, ...]] = {
         "test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_claim_brings",
         "test_two_forked_workers_write_the_evidence_one_unforked_session_writes",
     ),
-    "matrix/test_retained.py": (),
 }
+
+# The package test modules split by the value their one module-scoped parameter takes: each item is the group of
+# that value (``proof/<module>[<value>]``), and the values are the ids the named file lists (a JSON list, read with
+# the standard library, under ``proof/``). ``matrix/test_retained.py`` authors each base of
+# ``proof/matrix/bases.json`` in HQ and makes and reads every variant of it (``proof/matrix/test_registry.py`` holds
+# that list to ``registry.BASES``). Its three tests share one authoring of a base, so a split by test would author
+# every base three times; by base, each base is a group of about a minute on one worker, where the module whole took
+# about 1,140 seconds (three slice runs), which overran a pull request's shard.
+SPLIT_BY_PARAMETER: dict[str, str] = {"matrix/test_retained.py": "matrix/bases.json"}
+
+
+def parameter_values(module: str, proof_dir: Path = PROOF_DIR) -> tuple[str, ...]:
+    """The values a module ``SPLIT_BY_PARAMETER`` names is split by, as its file lists them; none for another."""
+    listed = SPLIT_BY_PARAMETER.get(module)
+    if listed is None:
+        return ()
+    values = _listed_values(proof_dir / listed)
+    if values is None:
+        raise ShardError(f"proof/{listed} lists the values proof/{module} is split by, as a JSON list of names.")
+    return values
+
+
+@functools.lru_cache(maxsize=16)
+def _listed_values(path: Path) -> tuple[str, ...] | None:
+    """The names a JSON list file holds, or None where it holds anything else."""
+    values = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(values, list) or not all(isinstance(value, str) and value for value in values):
+        return None
+    return tuple(values)
+
+
+def parameter_group(module: str, value: str) -> str:
+    """The group of a module split by parameter that the items taking ``value`` fall in."""
+    return f"proof/{module}[{value}]"
+
+
+def parameter_groups(module: str, proof_dir: Path = PROOF_DIR) -> tuple[str, ...]:
+    """The groups a module ``SPLIT_BY_PARAMETER`` names falls in: one per value its file lists."""
+    return tuple(parameter_group(module, value) for value in parameter_values(module, proof_dir))
+
+
+def group_module(group: str) -> str | None:
+    """The test module, under ``proof/``, a group of one module or of a part of one names
+    (``proof/<package>/<module>.py``, ``...::<test>``, ``...[<value>]``); None for any other group."""
+    if not group.startswith("proof/"):
+        return None
+    module = group[len("proof/") :].partition("::")[0].partition("[")[0]
+    return module if module.endswith(".py") else None
+
+
+def parameter_part(group: str) -> tuple[str, str] | None:
+    """The module and the value a group of a module split by parameter names, or None for any other group."""
+    module = group_module(group)
+    if module is None or module not in SPLIT_BY_PARAMETER or not group.endswith("]"):
+        return None
+    return module, group[len(f"proof/{module}[") : -1]
 
 
 def piece_item(group: str) -> str | None:
@@ -187,6 +247,16 @@ def item_group(item, proof_dir: Path = PROOF_DIR) -> str:
     if relative.parts[0] == SURFACE:
         return SURFACE
     module = relative.as_posix()
+    if module in SPLIT_BY_PARAMETER:
+        value = getattr(callspec, "id", None)
+        if value not in parameter_values(module, proof_dir):
+            raise ShardError(
+                f"proof/{module} is split by the value its parameter takes"
+                f" (proof.checks.sharding.SPLIT_BY_PARAMETER), and its item {getattr(item, 'nodeid', path)} takes"
+                f" {value!r}, which proof/{SPLIT_BY_PARAMETER[module]} does not list. List it there, beside the"
+                " parameter's other values."
+            )
+        return parameter_group(module, value)
     if module in SPLIT:
         test = getattr(item, "originalname", None) or getattr(item, "nodeid", "").rpartition("::")[2].partition("[")[0]
         return f"proof/{module}::{test}" if test in SPLIT[module] else f"proof/{module}"
@@ -223,7 +293,8 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
             roots.update(proof_dir.glob("test_*.py"))
         elif group.startswith("proof/"):
             # A package's directory, or the test module a split group is (its tests collected with it).
-            roots.add(proof_dir / group[len("proof/") :].partition("::")[0])
+            module = group_module(group)
+            roots.add(proof_dir / (module if module is not None else group[len("proof/") :]))
     return sorted(roots)
 
 
@@ -295,17 +366,31 @@ def estimate(timings):
     the 90th percentile of the measured documents' whole measures (``documents``, ``UNMEASURED_PERCENTILE``), a
     piece no run measured at its share of its document's (``piece_share`` for the ``pieces`` the document is
     observed in, as the queue builder counts one and ``proof.lane.blocks.piece_counts`` reads them from a block;
-    two where the caller names none), any other group at the longest of the measured groups that are not
-    documents, each at least ``DEFAULT_SECONDS``. Documents are many and alike, so a high percentile of theirs
-    bounds a new one; a package group is a test module or a package of them, few and unalike (a check of planted
-    shapes takes seconds, ``matrix/test_retained.py`` makes every base's variants in HQ and reads each one, about
-    nineteen minutes on one worker), so only the longest any of them was measured to take is a true bound."""
+    two where the caller names none), a part of a module split by parameter as below, any other group at the
+    longest of the measured groups that are not documents, each at least ``DEFAULT_SECONDS``. Documents are many
+    and alike, so a high percentile of theirs bounds a new one; a package group is a test module or a package of
+    them, few and unalike (a check of planted shapes takes seconds, ``matrix/test_retained.py`` made every base's
+    variants in HQ and read each one in about nineteen minutes on one worker before it was split by base), so only
+    the longest any of them was measured to take is a true bound.
+
+    A part of a module split by parameter (``SPLIT_BY_PARAMETER``) no run measured is counted at the longest
+    measured part of its module, and where none is measured, at its even share of the module's measured whole
+    (its unsplit group, ``proof/<module>``) over the values the module is split by: the parts of one module are
+    one test's cost cut by value, so a measured part bounds a new one better than any other group does, and the
+    whole they divide bounds them together. An even share undercounts a heavy part (a base holding a quarter of the
+    variants) until the next run measures it, by less than a shard's deadline leaves over its expected time (twice
+    it, never under twenty minutes)."""
     whole = documents(timings)
     document = max(DEFAULT_SECONDS, _percentile(whole.values(), UNMEASURED_PERCENTILE) or 0.0)
     other = max(
         DEFAULT_SECONDS,
         max((float(s) for g, s in timings.items() if not g.startswith(DOCUMENT_KINDS)), default=0.0),
     )
+    parts: dict[str, float] = {}
+    for group, measured in timings.items():
+        part = parameter_part(group)
+        if part is not None:
+            parts[part[0]] = max(parts.get(part[0], 0.0), float(measured))
 
     def seconds(group, pieces: int = 2):
         if group in timings:
@@ -313,6 +398,14 @@ def estimate(timings):
         if group.startswith(DOCUMENT_KINDS):
             name, piece, _ = group.partition("@")
             return piece_share(pieces) * whole.get(name, document) if piece else document
+        part = parameter_part(group)
+        if part is not None:
+            module = part[0]
+            if module in parts:
+                return max(DEFAULT_SECONDS, parts[module])
+            unsplit = timings.get(f"proof/{module}")
+            if unsplit is not None:
+                return max(DEFAULT_SECONDS, float(unsplit) / max(1, len(parameter_values(module))))
         return other
 
     return seconds

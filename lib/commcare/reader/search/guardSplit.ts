@@ -201,3 +201,43 @@ export function joinedGuardsSplitAsRead(doc: BlueprintDoc): BlueprintDoc {
 		}
 	});
 }
+
+/**
+ * The reader's canonical choice `unprinted-search-guard-translations-are-absent`: a translation of
+ * one of Nova's search guard sentences that no Search field of the app carries, and none. The
+ * catalog of those sentences is every app's that has a Search field
+ * (`translationUnits.ts`, `SEARCH_RUNTIME_VALIDATION_MESSAGES`), while an export prints only the
+ * guard each field's own values need (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`); the
+ * date range and search value sentences Preview alone shows are in no export at all. So no export
+ * holds such a translation, and the reader returns none.
+ */
+export function unprintedGuardTranslationsAbsent(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const translations = doc.localization?.translations;
+	if (translations === undefined) return doc;
+	const guardUnits = new Set<TranslationUnitId>(
+		SEARCH_RUNTIME_VALIDATION_MESSAGES.map((entry) =>
+			makeTranslationUnitId("system", "search-validation", entry.key),
+		),
+	);
+	const held = Object.entries(translations).flatMap(([language, entries]) =>
+		Object.keys(entries ?? {}).flatMap((unit) =>
+			guardUnits.has(unit as TranslationUnitId)
+				? [[language as LanguageTag, unit as TranslationUnitId] as const]
+				: [],
+		),
+	);
+	if (held.length === 0) return doc;
+	const printed = new Set(
+		[...guardCarriers(doc).keys()].map((key) =>
+			makeTranslationUnitId("system", "search-validation", key),
+		),
+	);
+	const unprinted = held.filter(([, unit]) => !printed.has(unit));
+	if (unprinted.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [language, unit] of unprinted)
+			delete draft.localization?.translations[language]?.[unit];
+	});
+}

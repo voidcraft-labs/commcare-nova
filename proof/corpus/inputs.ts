@@ -46,8 +46,9 @@
  *   the first publish's requests, `authored.app` (`authored/app.json`),
  *   `authored.media` (`authored/media.json`) and one role a media file
  *   (`authored.media.<file>`, `authored/media/<file>`) where the base maps
- *   media, `seed` (`authored/seed.json`), and `authored.tables` and
- *   `authored.places` where the base holds them; and its privilege inputs
+ *   media, `seed` (`authored/seed.json`), and `authored.tables`,
+ *   `authored.places` and `authored.practice-workers` where the base holds
+ *   them; and its privilege inputs
  *   are A's app (`privileges.authored.app`), Nova's republish over it under
  *   the minimum configuration (`privileges.republish.`, with what else it
  *   sent) and D′'s update there (`privileges.update.`).
@@ -257,7 +258,8 @@ function prefixed(
 
 /**
  * A document made in CommCare HQ's A, by role: its base's app, media, seed,
- * tables and places as the entry writer copied them under `authored/`.
+ * tables, places and practice workers as the entry writer copied them under
+ * `authored/`.
  */
 async function authoredA(root: string): Promise<Record<string, InputFile>> {
 	const part: Record<string, InputFile> = {
@@ -278,6 +280,7 @@ async function authoredA(root: string): Promise<Record<string, InputFile>> {
 	for (const [role, name] of [
 		["authored.tables", "tables.json"],
 		["authored.places", "places.json"],
+		["authored.practice-workers", "practice-workers.json"],
 	] as const) {
 		if (existsSync(join(root, "authored", name))) {
 			part[role] = await file(root, `authored/${name}`);

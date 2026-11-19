@@ -20,7 +20,8 @@ from HQ's own state or build as its consumers read it:
   path, the repeat it sits in, its question type class
   (``FormExportDataSchema.datatype_mapping``: scalar, multiple choice,
   geopoint, media, label) and its select values, keyed by path, and the
-  questions' order in the body (``order``); the case properties HQ learns the form
+  questions' order in the body (``order``, compared as one value, ``WHOLE``,
+  of the questions both sides hold); the case properties HQ learns the form
   writes, per case type (``IndexedFormBase.get_all_case_updates``); and
   every case transaction block in the XForm HQ built (each ``case`` element
   in the case transaction namespace), by its element path.
@@ -98,8 +99,20 @@ def local_identity(admission):
     return {"profile": {"uniqueid": profile.get("uniqueid"), "version": profile.get("version")}, "entries": entries}
 
 
+# The arrays in each identity record whose value is the order of members a record keys elsewhere, compared as one
+# value (``compare_json``'s ``whole``): a form's question order, whose questions ``/questions`` holds by path.
+# HQ's form export lists its items in that order (``export/models/new.py::FormExportDataSchema.
+# _generate_schema_from_xform``, over ``get_questions``), so the order
+# is an identity, and one question moved is one difference at ``/order`` naming both orders.
+WHOLE = {"form": frozenset({"/order"})}
+
+
 def data_maps(artifact):
     return DATA_MAPS["form"] if artifact.startswith("form:") else DATA_MAPS.get(artifact, frozenset())
+
+
+def whole_arrays(artifact):
+    return WHOLE["form"] if artifact.startswith("form:") else WHOLE.get(artifact, frozenset())
 
 
 def compare_identities(before, after, *, document, accepted_artifacts=None):
@@ -124,6 +137,7 @@ def compare_identities(before, after, *, document, accepted_artifacts=None):
                 document=document,
                 artifact=artifact,
                 data_maps=data_maps(artifact),
+                whole=whole_arrays(artifact),
             )
         )
     return found

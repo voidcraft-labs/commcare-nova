@@ -181,7 +181,12 @@ read as a change.
 HQ builds each state (`validate_app()`, `create_all_files()` and
 `create_all_files(build_profile_id)` for every build profile). B and B-edit
 are built with HQ's saved copy of `build(A)` as the previous build, so HQ's
-own `set_form_versions` decides each form's version. Beside them, Nova's local
+own `set_form_versions` decides each form's version. Each build runs in a fork of
+the unit (`proof/observe/unit.py::_build`): HQ builds a copy of an app
+(`make_build`), and the one save a build makes, where the media suite prunes a
+map path nothing references (`remove_unused_mappings`), would otherwise write
+the build's form and media versions into the state the next step starts from.
+Beside them, Nova's local
 `.ccz` is exported twice for D (`local.ccz`, `local-again.ccz`) and once for
 D′, each compiled for the configuration's project space as every archive Nova
 serves is, naming a placeholder app id that the HQ side replaces with A's id in
@@ -474,7 +479,8 @@ and holds each to the effects as written.
    batch, for every entity outside the batch's footprint: the app id, each
    module's and form's `unique_id`, each form's `xmlns`, session endpoint ids,
    the session datum ids form logic reads, every answer leaf's data path and
-   repeat, question order and type class, select values, case block positions,
+   repeat, question order (the order of the questions both hold, one
+   difference at `/order` naming both orders) and type class, select values, case block positions,
    `case_references_data`, case types, properties and index identifiers,
    each lookup table by its tag (its id and description, its fields and their
    properties, its row attributes, and each row in the table's order with its
@@ -504,7 +510,11 @@ and holds each to the effects as written.
    build wherever proof 2 still finds a difference. Each configuration's A is
    compared with that configuration's own local archive ("The layout on
    disk"). The traces are compared, a case list's rows by the case each
-   selects, a submission's version between A's and B's builds under proof 2's
+   selects, a form's events by where Core stepped to each (the event's kind
+   and instance path, a repeat's prompts by their order at one place), so a
+   question one side alone shows is one difference and moves no other, and
+   their order is one difference (`/runs/*/trace/*/events/order()`), a
+   submission's version between A's and B's builds under proof 2's
    version clause, and across the two paths as each path's own counter: HQ's
    form version on HQ's build and the document's sequence in the local
    archive, so the local archive's form version is read as the one `build(A)`
@@ -585,7 +595,9 @@ and holds each to the effects as written.
    runs Nova's review of a person's saves (`brings-in` or `records`), HQ's own
    answer after the same saves (the `saved` read at A) must read as the review
    read the capture's peer (`broughtIn.reading`, `saved_requests`), with
-   `canon`; the ids HQ mints for a menu or form a person adds are not
+   `canon`, each file the review found under a path its content does not
+   derive named there by the asset the review resolved it to
+   (`broughtIn.reading.mediaPaths`, held before any content path); the ids HQ mints for a menu or form a person adds are not
    modeled, so a row of the review's identity naming ids HQ's source does not
    hold is HQ's entity at that position (`aligned_identity`). `canonDocument`
    is the reader's one closed list (`lib/commcare/reader/canon.ts::CANONICALIZATIONS`),
@@ -699,7 +711,16 @@ the person this app's first publish makes.
   covers. A `source` difference at a place the reader's claim log holds as
   inert is matched by `forms-and-settings-rewritten` (`parity.inert_of`). A
   media path the document holds is compared apart, at
-  `/multimedia_map/*/held`, which no entry names.
+  `/multimedia_map/*/held`, which no entry names, and so is a case list
+  column's `field` that differs where the column is not calculated on both
+  sides (which property it shows), at
+  `/modules/*/case_details/<detail>/columns/*/held`; a calculated column's
+  expression is reported at its own `field`. The comparison applies no
+  spelling rule: a rule is proven on HQ's builds and the readers it names,
+  while a person reads the stored app on HQ's own pages, which tell
+  rule-equal spellings apart (the form summary's comparison of two
+  versions, `proof/rules/form_filter_blank.py`), so every stored difference
+  is one an entry names.
 - A `proof1`, `proof2` or `proof3` row names a class as a known-defect entry
   does: the check, the artifact, the exact structural path and, where it
   names one, the kind. It is written from a base's own evidence, never by
@@ -1541,8 +1562,9 @@ reads it. Per document, under its id:
   each state it runs at, `<id>@A`, `<id>@B` and `<id>@local`);
 - `authored/`, on an app made in HQ: what its A is made of, copied byte for
   byte from `proof/hq-apps/<base>/` (`app.json`, `seed.json`, and
-  `media.json` with `media/`, `tables.json` and `places.json` where the base
-  holds them), so the document's key names every byte of A; beside it
+  `media.json` with `media/`, `tables.json`, `places.json` and
+  `practice-workers.json` where the base holds them), so the document's key
+  names every byte of A; beside it
   `first-publish.json` (`{"ids": [...]}`), the first-publish changes the
   reading predicts ("First-publish changes"). Such a document has one
   configuration, the base's (`base.json`'s, as both `minimum` and
@@ -2310,7 +2332,11 @@ maps media, the lane's stand-in files (`proof/CLAUDE.md`'s seams);
 `tables.json` and `places.json` where its project space holds lookup tables or
 places, each as HQ's models hold it, the places with the project space's
 location fields (`{slug, label}`), which the unit makes before the places;
-HQ's answers to every read Nova's own reading makes (`app-source.json`,
+`practice-workers.json` where it holds a mobile worker in practice mode, each
+`{user_id, username}`, which the unit makes again under that id and puts in
+practice mode before the app (`hq-kept-settings` names one as its practice
+worker, and HQ's build of an app whose practice worker the project space does
+not hold raises `PracticeUserException`); HQ's answers to every read Nova's own reading makes (`app-source.json`,
 `application.json`, `current-version.json`, and, only where the first
 reading asked for them, `project-spaces.json` and `project-spaces-flag.json`,
 `lookup-tables.json`, `fixture-rows-<tag>.json`, `location-types.json`,
@@ -2686,7 +2712,11 @@ export over the forms index, from a schema HQ makes of the app's builds, is
 `proof/core/src` against Core's recorded test classpath, speaking one JSON
 line per request with a deadline on each: `validateForm` (Core's parse of a
 form as a report, the runner's own lifecycle tests' probe; HQ's validation is
-Formplayer's own), `admit` (Core's archive installer over a `.ccz` or HQ's build), `session` (a
+Formplayer's own), `admit` (Core's archive installer over a `.ccz` or HQ's build; Nova's local
+archive, which only CommCare Android reads, over Android's own strings at the pin, registered as the
+default locale's first source before the app's files as `CommCareApplication.initializeDefaultLocalizerData`
+does on a device, so a key one language holds and the archive's default file lacks is refused only where
+Android's strings lack it too: `client.ANDROID_DEFAULT_STRINGS`, `Admission.java`), `session` (a
 scripted session's trace: every screen, command, row, question with its
 prompt, answer, the submission, the case database after it and the stack;
 answers come from a fixed table per question type, `proof/core/answers.json`,
@@ -4218,6 +4248,22 @@ The rules whose readers reach past HQ's build and Core:
   compares the two export paths; every other rule judges HQ's stored app, HQ's
   builds and HQ's forms against each other.
 
+- **`suite-xpath-lexemes`** (`suite_xpath_lexemes`) and **`suite-cond-as-if`**
+  (`suite_cond_as_if`): an attribute of a suite that Core's suite parsers hand
+  to its XPath parser (`proof/rules/_suite.py::XPATH_ATTRIBUTES`, held to the
+  surface's `parser:` items marked `parsedAs: xpath`) read as the tokens
+  Core's lexer reads in it, a string by its value, so whitespace and quote
+  marks are one spelling; and a three-argument `cond` read as the `if` Nova
+  prints, which Core evaluates alike (`XPathCondFunc.evalBody`,
+  `XPathIfFunc.evalBody`). HQ's build writes a stored calculated column or
+  list filter into the suite as its author typed it, and Nova writes its own
+  spelling. Each test publishes `case-list-local` with its calculated column
+  written both ways, holds HQ's builds apart at that `xpath@function` alone,
+  Core's sessions, Formplayer's walk and the Web Apps client's screens alike,
+  and another string or test still apart; Android's are
+  `predicates.py::test_a_list_reads_a_suite_expression_alike_in_either_spelling`
+  and `test_a_list_reads_a_cond_and_its_if_alike`.
+
 Formplayer's traces take the rules for an `instance` (each XML document a
 trace holds).
 
@@ -4437,7 +4483,7 @@ reused is only what a key names whole, and the reuse is audited:
 | A in the unit is the app HQ made | A holding other menu ids, form ids, `xmlns`, content or places than the emission read | `proof/matrix/test_remade.py` |
 | A base's case database is A's own | a seed that reads D; a compared literal missed, so both walks show an empty list | `proof/matrix/test_seed.py` |
 | A stand-in file is the kind it stands in for | a stand-in HQ stores as another class, or Nova's judge reads as another kind | `proof/matrix/test_media.py` and `proof/matrix/__tests__/standIns.test.ts` |
-| The stored-app comparison reports what changed and only it | re-minted form ids reported as a change; a form link moved to another form not reported | `proof/checks/test_source.py` |
+| The stored-app comparison reports what changed and only it | re-minted form ids reported as a change; a form link moved to another form not reported; a column's changed property reported where a calculated column's respelling is; a spelling rule erasing a stored difference | `proof/checks/test_source.py` |
 | Proof 6, parity and the first-publish judge each report a planted difference | a judge that reports nothing | `proof/checks/test_proof6_controls.py`, `test_parity_controls.py`, `test_first_publish_changes_controls.py` |
 | A stored record stands for a fresh one | a key that misses an input | `proof/store/test_keys.py`, `test_guard.py`, the per-pull-request audit sample and the nightly audit |
 | A state made again under a stored part is the state first observed | a build made again that leaves out a read HQ writes on (with `USERCASE`, the first read of its case property map creates the project space's user field definition), so the builds after it write what the first observation's did not | `proof/checks/test_record_determinism.py`: the cheapest document a configuration of which grants `USERCASE`, observed without the served hook in every profile, whole and then under a stored `a` |
@@ -5863,12 +5909,19 @@ started while HQ boots (`proof/formplayer/shared.py`): on four vCPUs with
 four workers, as a CI shard runs, that took 45 worker-seconds off sixteen
 documents, about 11 seconds off each worker's first build. A group runs
 on one worker, so the packages whose tests took longer than a shard can
-hold whole run as several groups (`proof.checks.sharding.SPLIT`). The longest
-group without the readers is `proof/matrix/test_retained.py`, which makes
-every base's variants in HQ and reads each one, about 1,140 seconds on one worker
-(three slice runs measured 1,130 to 1,142); the next is
-`proof/lane/test_forkserver.py`, 278. The longest group a lane runs is the least its
-shard can take.
+hold whole run as several groups (`proof.checks.sharding.SPLIT`), and a
+module whose tests share one costly parameter runs as a group for each value
+of it (`SPLIT_BY_PARAMETER`). `proof/matrix/test_retained.py`, which authors
+every base in HQ and makes and reads each variant of it, took about 1,140
+seconds on one worker whole (three slice runs measured 1,130 to 1,142), and
+runs as one group a base (`proof/matrix/test_retained.py[<base>]`, the bases
+of `proof/matrix/bases.json`): its three tests share one authoring of a base,
+so it is split by base and never by test. Until a run measures the bases one
+by one, each is counted at its even share of the module's whole (about 13
+box-seconds), and a base whose part no run measured beside measured ones at
+the longest of those; `hq-questions`, a quarter of the variants, runs past its
+share. The next longest group is `proof/lane/test_forkserver.py`, 278. The
+longest group a lane runs is the least its shard can take.
 
 A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from
 the job's start to the pulled image and Postgres (the other setup overlaps

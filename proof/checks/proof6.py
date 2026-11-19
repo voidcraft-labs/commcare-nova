@@ -408,6 +408,19 @@ def aligned_identity(doc, rows, source):
     return aligned
 
 
+def held_media_paths(stored, reading):
+    """The path HQ holds each held file under for the ``saved`` read, by asset id: the document's own (under
+    ``hqAuthored`` for an app made in HQ, else at its top level), then each the review's reading resolved a file HQ
+    holds under a path its content does not derive to (``broughtIn.reading.mediaPaths``: a picture a person
+    replaced under Nova's path), which a read back's media index takes before any content path
+    (``proof/reader/laneReading.ts::publishedFiles``)."""
+    return {
+        **((stored.get("hqAuthored") or {}).get("mediaPaths") or {}),
+        **(stored.get("mediaPaths") or {}),
+        **(reading.get("mediaPaths") or {}),
+    }
+
+
 def saved_requests(document, records):
     """The hold of the review's reading, on a document whose republish runs Nova's review of a person's saves
     (``REVIEWED``): one read back, a configuration, of HQ's own answer after the saves (part ``a``'s ``saved`` read)
@@ -457,6 +470,9 @@ def saved_requests(document, records):
             **reading,
             "identity": aligned_identity(reading["doc"], reading["identity"], source),
         }
+        held = held_media_paths(document.document, reading)
+        if held:
+            stored["mediaPaths"] = held
         request = {
             "id": f"{document.id}@{name}@{SAVED}",
             "mode": "read-back",

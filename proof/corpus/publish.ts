@@ -2442,6 +2442,13 @@ export interface BringInRecord {
 	 */
 	readonly reading?: {
 		readonly doc: PersistableDoc;
+		/**
+		 * Each asset the review found HQ holding under a path its content does
+		 * not derive, at that path (`jr://file/...`): the file a person replaced
+		 * under a path is named there by the asset the review resolved its bytes
+		 * to. Absent where every file HQ holds is at its content's path.
+		 */
+		readonly mediaPaths?: Readonly<Record<string, string>>;
 		readonly identity: readonly WireIdentityOverride[];
 	};
 }
@@ -3307,8 +3314,23 @@ async function bringInOverPeer(input: {
 				`Nova's review of ${id} read a menu or form the peer's summary does not hold (${read.at}), which acceptance refuses before a review answers.`,
 			);
 		}
+		/* Each file the review found HQ holding under a path its content does not
+		 * derive (a picture a person replaced under Nova's path), by the asset the
+		 * review resolved it to: what a read of HQ's answer after the same saves
+		 * names there. */
+		const heldElsewhere = new Map<string, string>();
+		for (const file of [...adoptedMediaFiles(checked.media.now)].sort((a, b) =>
+			a.hqPath < b.hqPath ? -1 : a.hqPath > b.hqPath ? 1 : 0,
+		)) {
+			const derived = `${JR_FILE}${wirePathFor(file.contentHash, file.extension)}`;
+			if (file.hqPath !== derived && !heldElsewhere.has(file.assetId))
+				heldElsewhere.set(file.assetId, file.hqPath);
+		}
 		reading = {
 			doc: storedDocument(checked.draft.doc),
+			...(heldElsewhere.size > 0 && {
+				mediaPaths: Object.fromEntries(heldElsewhere),
+			}),
 			identity: read.rows.map(
 				({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
 					entityKind,

@@ -316,6 +316,12 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
                 assert parts["a"]["authored.app"]["path"] == "authored/app.json", (document.id, name)
                 assert parts["a"]["privileges.authored.app"]["path"] == "authored/app.json", (document.id, name)
                 assert parts["a"]["seed"]["path"] == "authored/seed.json", (document.id, name)
+                # Every file the unit makes A again from is a role part a reads, as the emission named it: a file the
+                # emission's manifest leaves out (proof/corpus/inputs.ts) would leave A's key blind to it.
+                from proof.observe.publish import authored_files
+
+                for role, path in authored_files(document.root).items():
+                    assert parts["a"].get(role, {}).get("path") == path, (document.id, name, role)
                 assert not [
                     role
                     for role in parts["a"]

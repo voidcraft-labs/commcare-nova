@@ -55,7 +55,7 @@ import hashlib
 import re
 
 from proof.checks.corpus import CorpusLayoutError
-from proof.core.client import CoreRunnerError
+from proof.core.client import ANDROID_DEFAULT_STRINGS, CoreRunnerError
 from proof.observe.build import _placed, admission_placeholders
 from proof.observe.record import canonical
 
@@ -278,7 +278,8 @@ def evaluation(core_runner, document, entry, blobs, *, form=None, archive=None):
     app = None
     try:
         if "caseList" in request:
-            report = core_runner.admit(archive)
+            # The local export is read by CommCare Android alone, which admits it over its own strings.
+            report = core_runner.admit(archive, runtime_defaults=ANDROID_DEFAULT_STRINGS)
             app = report.get("app")
             if app is None:
                 problems = _placed(report.get("problems"), admission_placeholders(report, archive))

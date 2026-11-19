@@ -21,6 +21,7 @@ import org.commcare.xml.ProfileParser;
 import org.javarosa.core.model.FormDef;
 import org.javarosa.core.reference.ReferenceHandler;
 import org.javarosa.core.services.locale.Localization;
+import org.javarosa.core.services.locale.LocalizationUtils;
 import org.javarosa.core.services.storage.IStorageIterator;
 import org.javarosa.core.services.storage.IStorageUtilityIndexed;
 import org.javarosa.core.services.storage.StorageManager;
@@ -39,6 +40,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.stream.Stream;
@@ -57,6 +59,17 @@ import java.util.zip.ZipOutputStream;
  * installer only records where each app_strings file lives and Core reads it
  * the first time its locale is set.
  *
+ * An archive only CommCare Android reads (Nova's local export, which Nova
+ * hands only an app that runs on Android) is admitted as Android installs it:
+ * the request names Android's own strings ("runtimeDefaults", its
+ * android_translatable_strings.txt at the pin), which are registered as the
+ * "default" locale's first source before the app's own files, as
+ * CommCareApplication.initializeDefaultLocalizerData does on every start and
+ * install (ProofEngine.initEnvironment). Android's localizer is strict as
+ * Core's is (Localization.init(true)), so a key a language holds and the
+ * app's default file lacks is admitted on a device where Android's own
+ * strings name it, and refused here only where they do not either.
+ *
  * Core's installer stops at the first resource it cannot install. To report
  * every problem rather than the first, a refused resource is recorded, taken out
  * of the table, and the installer is run again over what remains, until nothing
@@ -73,15 +86,19 @@ final class Admission {
 
     /**
      * {"path": a .ccz file or a directory whose files are the archive's entries,
-     * "platformVersion"?: "2.64.0"} gives the admission report, with "appHandle"
-     * set when the archive was admitted, and "archiveRoot", the jr://archive/
-     * root its resources were read under (the handle it was admitted or refused
-     * under, numbered by this runner's admissions), wherever it was opened.
+     * "platformVersion"?: "2.64.0", "runtimeDefaults"?: the path of the strings
+     * file the runtime that reads the archive registers as its default locale
+     * first} gives the admission report, with "appHandle" set when the archive
+     * was admitted, "archiveRoot", the jr://archive/ root its resources were read
+     * under (the handle it was admitted or refused under, numbered by this
+     * runner's admissions), wherever it was opened, and "runtimeDefaults", the
+     * number of strings registered so, where the request names a file.
      */
     static JSONObject admit(JSONObject request, Apps apps) throws Exception {
         File source = new File(Ops.requireString(request, "path"));
         String platformVersion = request.optString("platformVersion", PLATFORM_VERSION);
         int[] platform = parsePlatformVersion(platformVersion);
+        Hashtable<String, String> runtimeDefaults = runtimeDefaults(request);
         JSONObject report = new JSONObject();
         JSONArray problems = new JSONArray();
         report.put("problems", problems);
@@ -114,6 +131,10 @@ final class Admission {
         // A profile without "uniqueid" gets a random one (ProfileParser); seeded, it is the same every time.
         Generated.seedCoreRandomness();
         ProofEngine engine = ProofEngine.create();
+        if (runtimeDefaults != null) {
+            engine.runtimeDefaults(runtimeDefaults);
+            report.put("runtimeDefaults", runtimeDefaults.size());
+        }
         String handle = apps.nextHandle();
         Apps.App app = new Apps.App(handle, engine, handle, zip, temporary);
         boolean admitted = false;
@@ -145,6 +166,28 @@ final class Admission {
                 app.close();
                 ReferenceHandler.clearInstance();
             }
+        }
+    }
+
+    /**
+     * The strings of the file a request names as "runtimeDefaults", read with
+     * Core's own reader of a locale file (LocalizationUtils.parseLocaleInput, as
+     * Android's jr://asset/ reference is read); null where the request names
+     * none. Read before the archive is opened, so a request naming no such file
+     * leaves nothing open.
+     */
+    private static Hashtable<String, String> runtimeDefaults(JSONObject request) {
+        if (!request.has("runtimeDefaults")) {
+            return null;
+        }
+        File file = new File(Ops.requireString(request, "runtimeDefaults"));
+        try (InputStream in = Files.newInputStream(file.toPath())) {
+            return LocalizationUtils.parseLocaleInput(in);
+        } catch (IOException e) {
+            throw new RequestException("runtimeDefaults names " + file + ", which the runner cannot read (" + e
+                    + "). It names the strings a runtime registers as its default locale first, such as"
+                    + " commcare-android's app/assets/locales/android_translatable_strings.txt in the image's"
+                    + " Android checkout.");
         }
     }
 

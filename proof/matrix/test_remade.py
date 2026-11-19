@@ -20,7 +20,13 @@ point; where one differs for another reason, this test names it. The places,
 their levels and the project space's location fields made again are the
 retained ``places.json`` (``retain.places_of``), so a base whose fields the
 unit left out, and whose workers' restores on A then hold no place's
-``location_data``, fails here by name.
+``location_data``, fails here by name. So are the practice workers made again
+(``save_authored_practice_workers``, read back by
+``retain.practice_workers_of``), and the app's practice worker is one HQ's
+build finds (``Application.get_practice_user``, which raises
+``PracticeUserException`` for an id no practice worker of the project space
+holds), so a base whose worker the unit left out, and whose A HQ then cannot
+build, fails here by name rather than at every check of the hop.
 """
 
 from __future__ import annotations
@@ -81,8 +87,9 @@ def _media(directory):
 @pytest.mark.parametrize("base", BASES, ids=[base.id for base in BASES])
 def test_an_authored_app_is_remade_with_its_ids(hq, base):
     from proof.hq import operations
+    from proof.hq import redis as hq_redis
     from proof.hq.check import hq_check
-    from proof.matrix.retain import places_of, stored_document
+    from proof.matrix.retain import places_of, practice_workers_of, stored_document
 
     directory = HQ_APPS / base.id
     if not (directory / "app.json").is_file():
@@ -94,15 +101,26 @@ def test_an_authored_app_is_remade_with_its_ids(hq, base):
     places = (
         json.loads((directory / "places.json").read_text("utf-8")) if (directory / "places.json").is_file() else None
     )
-    with hq_check(base.configuration) as (state, _):
+    workers_file = directory / "practice-workers.json"
+    workers = json.loads(workers_file.read_text("utf-8")) if workers_file.is_file() else None
+    with hq_check(base.configuration) as (state, _), hq_redis.shared(None), state.committing():
         with state.operation("remade", base.id.encode()):
             if (directory / "tables.json").is_file():
                 operations.save_authored_tables(state, json.loads((directory / "tables.json").read_text("utf-8")))
             if places is not None:
                 operations.save_authored_places(state, places)
+            if workers is not None:
+                operations.save_authored_practice_workers(state, workers)
             app_id = operations.save_authored_app(state, document, _media(directory))
             remade = json.loads(json.dumps(stored_document(operations.held_app(state, app_id))))
             remade_places = places_of(state)
+            remade_workers = practice_workers_of(state)
+            # The lookup HQ's validation and suite make of the app's practice worker; it raises where none is found.
+            operations.held_app(state, app_id).get_practice_user()
+    assert remade_workers == workers, (
+        f"The practice workers made again from proof/hq-apps/{base.id}/practice-workers.json are not the ones"
+        f" retained there: HQ holds {remade_workers}."
+    )
     # The places, their levels and the location fields made again are the ones retained: without the fields HQ's
     # flat location list writes no location_data, and a worker's restore on A holds none of a place's properties.
     assert remade_places == places, (

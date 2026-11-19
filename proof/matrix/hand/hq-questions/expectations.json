@@ -782,5 +782,81 @@
 				"value": "*as typed*"
 			}
 		]
+	},
+	{
+		"id": "validation-counts-moved:before",
+		"entry": "questions/bind-constraint",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/nova_constraint_adults_0)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "validation-counts-moved:after",
+		"entry": "questions/bind-constraint",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/nova_constraint_adults_0)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "date-and-time-questions-split:before",
+		"entry": "questions/date-and-time-xsd-datetime",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/seen_at_date) + count(/data/seen_at_time)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "date-and-time-questions-split:after",
+		"entry": "questions/date-and-time-xsd-datetime",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/seen_at_date) + count(/data/seen_at_time)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			}
+		],
+		"exports": ["B", "local"]
 	}
 ]

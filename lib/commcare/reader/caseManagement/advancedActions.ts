@@ -84,6 +84,7 @@ import {
 	conditionQuestionPath,
 	conditionType,
 	readActionCondition,
+	recordRespelledConditions,
 	repeatAtPath,
 	statedBack,
 } from "./conditions";
@@ -1150,6 +1151,12 @@ export function readAdvancedActions(
 		"actions",
 		"AdvancedFormActions",
 		ADVANCED_CLAIMS.actions,
+	);
+	recordRespelledConditions(
+		ctx,
+		actions,
+		A.pointer,
+		ADVANCED_CLAIMS.actions.entry,
 	);
 	const r: Reading = {
 		ctx,

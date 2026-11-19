@@ -30,6 +30,11 @@ guessed from the text:
 - ``calls``: the functions an expression calls: each name followed by
   ``(``, which Core's parser always builds as that function's call
   (``Parser.parseFuncCalls``), and whether an argument follows the ``(``.
+
+``spans`` gives each token with its offset in the text, and ``string_value``
+a string token's value, the text between its quote marks, for the rules that
+write an expression's tokens back (``suite_xpath_lexemes``,
+``suite_cond_as_if``).
 """
 
 from __future__ import annotations
@@ -166,9 +171,9 @@ def _next(text, i, reading_value):
     raise _Unread
 
 
-def tokens(text):
-    """Core's tokens for ``text`` (``Lexer.lex``), or None where Core's lexer refuses it or this port does not read
-    a character of it."""
+def spans(text):
+    """Core's tokens for ``text`` (``Lexer.lex``), each with the offset of its first character in ``text``, or None
+    where Core's lexer refuses it or this port does not read a character of it."""
     if not isinstance(text, str):
         return None
     found, i, reading_value = [], 0, True
@@ -176,12 +181,25 @@ def tokens(text):
         while i < len(text):
             kind, length = _next(text, i, reading_value)
             if kind is not None:
-                found.append(Token(kind, text[i : i + length]))
+                found.append((Token(kind, text[i : i + length]), i))
                 reading_value = kind not in _ENDS_A_VALUE
             i += length
     except _Unread:
         return None
     return tuple(found)
+
+
+def tokens(text):
+    """Core's tokens for ``text`` (``Lexer.lex``), or None where Core's lexer refuses it or this port does not read
+    a character of it."""
+    found = spans(text)
+    return None if found is None else tuple(token for token, _ in found)
+
+
+def string_value(token):
+    """A ``STR`` token's value, the text between its quote marks, as Core's lexer gives it (``Lexer.lex``:
+    ``expr.substring(i + 1, end)``)."""
+    return token.text[1:-1]
 
 
 def plain_path(text):

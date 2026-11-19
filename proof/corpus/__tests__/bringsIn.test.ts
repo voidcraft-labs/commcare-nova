@@ -11,8 +11,9 @@
  * bring-in takes exactly the stated document (`bringsIn`), a second review
  * finds the app unchanged, the record keeps the review's reading of the app
  * with an identity row for each of its forms (which the HQ side holds HQ's
- * own answer after the same saves to), and the publish that follows sends
- * that document;
+ * own answer after the same saves to) and, for a file HQ holds under a path
+ * its content does not derive, the asset the review read there, and the
+ * publish that follows sends that document;
  * where the statement is `records`, the publish stops, the review finds
  * nothing to bring in for the stated reason and lists the stated changes of
  * the next publish, and the record lets the publish go; where it is
@@ -216,6 +217,19 @@ describe("a publish over a person's saves to an app's content in CommCare HQ", (
 		const sent = JSON.stringify(step.application);
 		expect(sent).toContain(`jr://file/commcare/${theirs}.png`);
 		expect(sent).not.toContain(replaced.path);
+		/* HQ holds the person's picture under Nova's path until that publish, so
+		 * the record names the path by the asset the review read there, which a
+		 * read of HQ's answer after the same saves names it by. */
+		const reading = step.broughtIn?.reading;
+		const shown = Object.values(reading?.doc.fields ?? {}).flatMap((field) =>
+			"label_media" in field && field.label_media?.image !== undefined
+				? [field.label_media.image]
+				: [],
+		);
+		expect(shown).toHaveLength(1);
+		expect(reading?.mediaPaths).toEqual({
+			[shown[0] as string]: replaced.path,
+		});
 	}, 60_000);
 
 	it("refuses a statement that names other changes of the next publish than the review lists", async () => {

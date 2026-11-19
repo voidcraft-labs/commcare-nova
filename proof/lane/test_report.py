@@ -255,6 +255,11 @@ def test_a_failed_piece_is_named_as_one_with_the_line_that_observes_its_configur
     )
     assert report.selection({**unrun, "group": "corpus:tile"}) == (["proof/checks", "-k", "tile"], False)
     assert report.selection({**unrun, "group": "control:tile"}) == (["proof/checks", "-k", "control-tile"], False)
+    # A base of the module split by base that never ran: the module's items named by that base.
+    assert report.selection({**unrun, "group": "proof/matrix/test_retained.py[hq-plain]"}) == (
+        ["proof/matrix/test_retained.py", "-k", "hq-plain"],
+        False,
+    )
 
 
 def test_a_dispatch_over_documents_named_by_hand_is_reported_as_that_and_never_as_a_verdict_on_the_corpus():

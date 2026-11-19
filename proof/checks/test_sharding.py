@@ -36,6 +36,7 @@ class _Param:
 @dataclass
 class _Callspec:
     params: dict = field(default_factory=dict)
+    id: str = ""
 
 
 @dataclass
@@ -116,6 +117,58 @@ def test_a_split_module_and_each_test_it_names_are_groups_of_their_own_and_read_
     assert sharding.collection_roots(groups) == [PROOF / "hq", PROOF / "hq/test_boot.py"]
     for refused in ("proof/hq/boot.py", "proof/hq/test_boot.py::", "proof/hq/test_boot.py::a b", "proof/h-q"):
         assert lane_blocks.group_problem(refused) is not None, refused
+
+
+def test_a_module_split_by_parameter_is_a_group_for_each_value_its_tests_share(monkeypatch, tmp_path):
+    """A module whose tests share one costly parameter (``matrix/test_retained.py`` authors a base once for its three
+    tests) runs as a group for each value its file lists, every test of that value in it, so no part authors a base
+    twice; each is its package's, in its phase and with its data. A value the file does not list is refused by name
+    when the item is grouped, so no item falls in a group no queue holds. The plausible failures: the module split
+    by test, which authors every base three times, or kept whole, which ran a pull request's shard past its
+    deadline."""
+    module = "matrix/test_retained.py"
+    (tmp_path / "matrix").mkdir()
+    (tmp_path / "matrix" / "bases.json").write_text(json.dumps(["one", "two"]), encoding="utf-8")
+    monkeypatch.setattr(sharding, "SPLIT_BY_PARAMETER", {module: "matrix/bases.json"})
+    items = [
+        _Item(f"{module}::{test}[{value}]", tmp_path / module, _Callspec(id=value))
+        for test in ("test_authored", "test_variants")
+        for value in ("one", "two")
+    ]
+    items.append(_Item("matrix/test_seed.py::test", tmp_path / "matrix/test_seed.py"))
+    groups = [sharding.item_group(item, tmp_path) for item in items]
+    one, two = f"proof/{module}[one]", f"proof/{module}[two]"
+    assert groups == [one, two, one, two, "proof/matrix"]
+    assert sharding.parameter_groups(module, tmp_path) == (one, two)
+    assert sharding.parameter_part(one) == (module, "one") and sharding.parameter_part("proof/matrix") is None
+    for group in groups:
+        assert lane_blocks.group_problem(group) is None, group
+        assert lane_blocks.package_of(group) == "proof/matrix"
+        assert lane_blocks.reads_corpus(group) == lane_blocks.reads_corpus("proof/matrix")
+    assert sharding.collection_roots(groups, tmp_path) == [tmp_path / "matrix", tmp_path / module]
+    unlisted = _Item(f"{module}::test_authored[three]", tmp_path / module, _Callspec(id="three"))
+    with pytest.raises(sharding.ShardError, match="'three', which proof/matrix/bases.json does not list"):
+        sharding.item_group(unlisted, tmp_path)
+    for refused in (f"proof/{module}[]", f"proof/{module}[a b]", f"proof/{module}[a]::test", f"proof/{module}[a"):
+        assert lane_blocks.group_problem(refused) is not None, refused
+
+
+def test_a_part_of_a_module_split_by_parameter_counts_at_its_modules_measure(monkeypatch):
+    """A part no run measured counts at the longest measured part of its module, and before any part is measured,
+    at its even share of the module's measured whole; never at the longest package group, which is the whole
+    itself and would count the module twenty-two times over. The plausible failure: the first run after a split
+    planned as if every base took the nineteen minutes the module took."""
+    module = "matrix/test_retained.py"
+    monkeypatch.setattr(sharding, "SPLIT_BY_PARAMETER", {module: "matrix/bases.json"})
+    monkeypatch.setattr(sharding, "parameter_values", lambda name, proof_dir=None: ("b0", "b1", "b2", "b3"))
+    whole = {f"proof/{module}": 280.0, "proof/checks": 60.0}
+    seconds = sharding.estimate(whole)
+    assert seconds(f"proof/{module}[b0]") == 70.0
+    assert seconds("proof/new") == 280.0
+    measured = sharding.estimate({**whole, f"proof/{module}[b0]": 20.0, f"proof/{module}[b1]": 90.0})
+    assert measured(f"proof/{module}[b0]") == 20.0 and measured(f"proof/{module}[b3]") == 90.0
+    # With nothing of the module measured, a part counts as any other unmeasured package group.
+    assert sharding.estimate({"proof/checks": 60.0})(f"proof/{module}[b0]") == 60.0
 
 
 def test_each_groups_items_run_together_in_first_appearance_order():

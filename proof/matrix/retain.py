@@ -18,6 +18,10 @@ which ``test_retained.py`` holds the committed tree to:
   ``locations/models.py``), parents first, each place with the
   ``location_id`` HQ gave it, and the places with the project space's
   location fields (``places_of``);
+- ``practice-workers.json``, where the project space holds a mobile worker in
+  practice mode: each by the id HQ gave it, which an app's
+  ``practice_mobile_worker_id`` names, and its username
+  (``practice_workers_of``);
 - ``seed.json``: the case seed made from A (``proof.matrix.seed``);
 - HQ's answers to the reads Nova makes of the app, through HQ's API with the
   seeded key, each in an operation ``matrix:<base>:reads``, in the order
@@ -223,6 +227,26 @@ def places_of(state):
         ],
         "fields": [{"slug": field.slug, "label": field.label} for field in fields],
     }
+
+
+def practice_worker_rows(workers):
+    """``practice-workers.json``'s rows of ``workers`` (each with ``_id``, ``raw_username`` and ``is_demo_user``, as
+    ``CommCareUser`` holds them): one ``{user_id, username}`` a worker in practice mode, in username order, or None
+    where none is. ``proof/hq/operations.py::save_authored_practice_workers`` makes each again from its row."""
+    rows = sorted(
+        ({"user_id": worker._id, "username": worker.raw_username} for worker in workers if worker.is_demo_user),
+        key=lambda row: (row["username"], row["user_id"]),
+    )
+    return rows or None
+
+
+def practice_workers_of(state):
+    """The project space's mobile workers in practice mode (``practice_worker_rows``), or None where it holds none:
+    every mobile worker of the project space as HQ's model lists them (``CommCareUser.by_domain``, the view
+    ``users/by_domain``), those marked ``is_demo_user`` kept."""
+    from corehq.apps.users.models import CommCareUser
+
+    return practice_worker_rows(CommCareUser.by_domain(state.domain))
 
 
 def app_reads(authoring, app_id, credential):
@@ -477,6 +501,9 @@ def retain(authoring, base, app_id, credential, core_runner) -> Retained:
             places = places_of(state)
             if places is not None:
                 retained.keep("places", places)
+            workers = practice_workers_of(state)
+            if workers is not None:
+                retained.keep("practice-workers", workers)
             retained.keep("seed", seed.case_seed(state, app, core_runner, worker_location=base.worker_location))
         answers = app_reads(authoring, app_id, credential)
         project_answers, media = project_data_reads(authoring, app_id, credential)

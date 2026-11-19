@@ -25,8 +25,9 @@ control (``control:<id>``), one piece of either (``corpus:<id>@<configuration>``
 ``control:<id>@<configuration>``: one configuration of it observed, below), of one
 package (``proof``, ``proof/<package>``), of one test module a package's
 group splits off (``proof/<package>/<module>.py``) or one test of it
-(``proof/<package>/<module>.py::<test>``, ``proof.checks.sharding.SPLIT``),
-or the surface block (``surface``);
+(``proof/<package>/<module>.py::<test>``, ``proof.checks.sharding.SPLIT``) or one
+value of its parameter (``proof/<package>/<module>.py[<value>]``,
+``proof.checks.sharding.SPLIT_BY_PARAMETER``), or the surface block (``surface``);
 ``proof.checks.sharding.item_group`` names the group of a collected item. A block's id is the sha256 of its
 groups' names, sorted and joined by newlines (``block_id``), so the id names
 what the block holds. A cached group is one whose every judgment the store
@@ -145,6 +146,13 @@ class QueueError(ValueError):
     """A queue file that is not a lane's queue."""
 
 
+def _parameter_value(text: str) -> bool:
+    """Whether ``text`` is a parameter's value closed by its bracket (``<value>]``): a name with no space or
+    bracket in it."""
+    value = text[:-1]
+    return text.endswith("]") and bool(value) and not any(c.isspace() or c in "[]" for c in value) and "::" not in value
+
+
 def group_problem(name) -> str | None:
     """Why ``name`` is not a group a queue may name, or None when it is one."""
     if not isinstance(name, str) or not name:
@@ -158,14 +166,19 @@ def group_problem(name) -> str | None:
         if not module:
             return None
         path, _, test = module.partition("::")
+        path, bracket, value = path.partition("[")
         if (
             path.endswith(".py")
             and path.rpartition("/")[2].startswith("test_")
             and not any(character.isspace() for character in path)
-            and (not test and "::" not in module or test.isidentifier())
+            and (not test and "::" not in module or test.isidentifier() and not bracket)
+            and (not bracket or _parameter_value(value))
         ):
             return None
-        return f"{name!r} names no test module of a package (proof/<package>/<module>.py) or test of one (::<test>)"
+        return (
+            f"{name!r} names no test module of a package (proof/<package>/<module>.py), test of one (::<test>)"
+            " or value of its parameter ([<value>])"
+        )
     for kind in DOCUMENT_KINDS:
         if name.startswith(kind):
             rest = name[len(kind) :]
@@ -177,7 +190,8 @@ def group_problem(name) -> str | None:
             return None
     return (
         f"{name!r} is none of corpus:<id>, control:<id>, a piece of one (corpus:<id>@<configuration>,"
-        " control:<id>@<configuration>), proof, proof/<package>, proof/<package>/<module>.py[::<test>] or surface"
+        " control:<id>@<configuration>), proof, proof/<package>, proof/<package>/<module>.py[::<test>],"
+        " proof/<package>/<module>.py[<value>] or surface"
     )
 
 
@@ -203,7 +217,7 @@ def piece_counts(groups) -> dict[str, int]:
 
 def package_of(name: str) -> str:
     """The package a group belongs to: ``proof/<package>`` for its own group and every module or test it splits off
-    (``proof/<package>/<module>.py[::<test>]``), and the group itself for any other."""
+    (``proof/<package>/<module>.py[::<test>]``, ``...[<value>]``), and the group itself for any other."""
     if name.startswith("proof/"):
         return "proof/" + name[len("proof/") :].partition("/")[0]
     return name

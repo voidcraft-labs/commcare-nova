@@ -16,8 +16,8 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import { formExpressionFacts } from "@/lib/domain/expression/context";
 import { type Claim, defineClaims, refuse } from "../claims";
-import type { DraftForm } from "../context";
-import { isJsonObject } from "../jsonCursor";
+import type { DraftForm, ReadContext } from "../context";
+import { isJsonObject, pointerToken } from "../jsonCursor";
 import type { DraftField } from "../xform";
 
 const F = "forms-and-case-writes";
@@ -60,6 +60,86 @@ type JsonObject = Readonly<Record<string, unknown>>;
 
 function isObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The keys of a case action that hold a `FormActionCondition`, basic and advanced. */
+const CONDITION_KEYS = new Set([
+	"condition",
+	"close_condition",
+	"open_condition",
+]);
+
+/** A basic form's `PreloadAction`s, each of which Nova writes with its condition `never`
+ *  (`hqShells.ts::emptyFormActions`). */
+const PRELOAD_ACTIONS = ["case_preload", "usercase_preload", "load_from_form"];
+
+/** The entry a preload action's condition stands under: no build reads it
+ *  (`models/form_actions.py::PreloadAction.is_active` reads the preload alone). */
+const PRELOAD_CONDITION_ENTRY = `${F}/preload-action-condition`;
+
+/**
+ * Records under `case-settings-respelled` each stored condition spelling of a
+ * form's `actions` that the first publish writes another way with nothing a
+ * build reads changed:
+ *
+ * - an `operator` stored null, which HQ's Case Management pages write on every
+ *   condition that is not `if` (`forms/case_config_ui.js::cleanCondition`,
+ *   `advanced/actions.js::actionBase.clean_condition`) and which
+ *   `xform.py::XForm.action_relevance` reads as `=`. Nova writes `=`, the value
+ *   a form HQ creates holds (`models/form_actions.py::FormActionCondition.operator`),
+ *   or the operator `stateCondition` states for an `if`, and a source read
+ *   serves no null for a condition Nova leaves out;
+ * - a preload action's condition stored other than `never` (the Case
+ *   Management page saves `case_preload` as `always` with or without a preload),
+ *   which Nova writes as `never`, recorded at the condition whole.
+ *
+ * `actions` is the stored value at `pointer`; `entry` is the entry the form's
+ * actions are claimed under.
+ */
+export function recordRespelledConditions(
+	ctx: ReadContext,
+	actions: unknown,
+	pointer: string,
+	entry: string,
+): void {
+	if (!isObject(actions)) return;
+	const whole = new Set<string>();
+	for (const key of PRELOAD_ACTIONS) {
+		const action = actions[key];
+		if (!isObject(action) || !isObject(action.condition)) continue;
+		if (conditionType(action.condition) === "never") continue;
+		const at = `${pointer}/${key}/condition`;
+		whole.add(at);
+		ctx.facts.sameStateRewrites.push({
+			entry: PRELOAD_CONDITION_ENTRY,
+			path: at,
+			register: "case-settings-respelled",
+		});
+	}
+	const visit = (value: unknown, at: string): void => {
+		if (Array.isArray(value)) {
+			value.forEach((inner, index) => {
+				visit(inner, `${at}/${index}`);
+			});
+			return;
+		}
+		if (!isObject(value)) return;
+		for (const [key, inner] of Object.entries(value)) {
+			const child = `${at}/${pointerToken(key)}`;
+			if (!CONDITION_KEYS.has(key) || !isObject(inner)) {
+				visit(inner, child);
+				continue;
+			}
+			if (whole.has(child) || !("operator" in inner) || inner.operator !== null)
+				continue;
+			ctx.facts.sameStateRewrites.push({
+				entry,
+				path: `${child}/operator`,
+				register: "case-settings-respelled",
+			});
+		}
+	};
+	visit(actions, pointer);
 }
 
 /** The form's data path of `question`, relative to the data root, as

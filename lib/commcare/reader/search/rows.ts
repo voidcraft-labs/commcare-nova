@@ -18,8 +18,12 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
+import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
-import type { RelationPath } from "@/lib/domain/expression/types";
+import {
+	isRelationPath,
+	type RelationPath,
+} from "@/lib/domain/expression/types";
 import {
 	substituteUnansweredSearchInputs,
 	walkExpressionNodes,
@@ -60,6 +64,7 @@ import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
 import { type Claim, defineClaims, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { canonicalExpression } from "../expressions/canonical";
 import type { ComparedType } from "../expressions/comparedTypes";
 import {
 	type SearchRowRuntimeClass,
@@ -271,6 +276,44 @@ function propertyRefs(
 	return out;
 }
 
+/**
+ * The `(property, via)` pairs a simple field's derivation can be, read from a conjunct: each `prop`
+ * with the walk it names, and each `prop` with no walk of its own inside an `exists` over a
+ * relation path, with that path. Every target first gives a related case's comparison one related
+ * row (`normalizeRelationEvaluationScopes`), so a simple field over the case above binds back as
+ * the presence of a case above whose own property compares, its path typed as the catalog types it.
+ */
+function derivationRefs(
+	expression: unknown,
+): { property: string; via?: RelationPath }[] {
+	const out = propertyRefs(expression);
+	const walk = (node: unknown): void => {
+		if (Array.isArray(node)) {
+			for (const one of node) walk(one);
+			return;
+		}
+		if (!isJsonObject(node)) return;
+		if (
+			node.kind === "exists" &&
+			isRelationPath(node.via) &&
+			node.via.kind !== "self"
+		) {
+			const via = node.via;
+			for (const ref of propertyRefs(node.where))
+				if (
+					ref.via === undefined &&
+					!out.some(
+						(one) => one.property === ref.property && sameJson(one.via, via),
+					)
+				)
+					out.push({ property: ref.property, via });
+		}
+		for (const value of Object.values(node)) walk(value);
+	};
+	walk(expression);
+	return out;
+}
+
 const SCALAR_MODES: readonly (SearchInputMode | undefined)[] = [
 	undefined,
 	{ kind: "fuzzy" },
@@ -281,7 +324,10 @@ const SCALAR_MODES: readonly (SearchInputMode | undefined)[] = [
 ];
 
 /** The simple field whose derivation, in `doc`'s own types, is `conjunct`, for the visible field
- *  `input` it waits for; undefined where no property, path and mode derive it. */
+ *  `input` it waits for; undefined where no property, path and mode derive it. The two trees are
+ *  compared as the field's condition slot prints them (`canonicalExpression` there): a derivation
+ *  over a related case's property prints as the presence of a related case whose property compares,
+ *  which is how the row binds back. */
 function derivedField(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
@@ -312,7 +358,27 @@ function derivedField(
 		mode: _mode,
 		...shared
 	} = rest as Record<string, unknown>;
-	for (const ref of propertyRefs(conjunct.clause))
+	let conditionContext: ExpressionContext | null | undefined;
+	const printedAlike = (derived: Expression): boolean => {
+		if (conditionContext === undefined)
+			try {
+				conditionContext = moduleExpressionContexts(
+					doc,
+					moduleUuid,
+				)({
+					slot: "search_input_predicate",
+					member: { searchInputUuid: input.uuid },
+				});
+			} catch {
+				conditionContext = null;
+			}
+		if (conditionContext === null) return false;
+		return sameJson(
+			canonicalExpression(derived, conditionContext),
+			canonicalExpression(conjunct, conditionContext),
+		);
+	};
+	for (const ref of derivationRefs(conjunct.clause))
 		for (const mode of modes) {
 			const candidate = {
 				...shared,
@@ -328,9 +394,62 @@ function derivedField(
 			} catch {
 				continue;
 			}
-			if (sameJson(derived, conjunct)) return candidate;
+			if (sameJson(derived, conjunct))
+				return withTypedPath(doc, caseType, candidate);
+			// A derivation over a related case's property binds back as the related row's presence.
+			if (candidate.via !== undefined && printedAlike(derived))
+				return withTypedPath(doc, caseType, candidate);
 		}
 	return undefined;
+}
+
+/** `field` with its path typed as the catalog resolves it from `caseType`
+ *  (`normalizeRelationEvaluationScopes.ts::canonicalizeRelationPath`): each step names the type it
+ *  reaches. Every target prints a simple field's derivation from the typed path, so a step that
+ *  names its type and one that names none print one search. `field` as it is where the catalog
+ *  resolves no type, which is the gate's to refuse. */
+function withTypedPath(
+	doc: BlueprintDoc,
+	caseType: string,
+	field: SimpleSearchInputDef,
+): SimpleSearchInputDef {
+	if (field.via === undefined || field.via.kind === "self") return field;
+	try {
+		const { via } = canonicalizeRelationPath(field.via, {
+			caseTypes: effectiveCaseTypes(doc),
+			currentCaseType: caseType,
+		});
+		return sameJson(via, field.via) ? field : { ...field, via };
+	} catch {
+		return field;
+	}
+}
+
+/**
+ * The reader's canonical choice `search-field-paths-are-typed`: a simple Search field whose path
+ * names the case type each step reaches, and the same field whose steps name none where the catalog
+ * resolves each to that type. Both derive one search row (`simpleArmDerivation.ts` hands the path to
+ * every target, which types it first, `normalizeRelationEvaluationScopes`), and the reader returns
+ * the typed path: a row over a related case binds back as the presence of a related case, whose path
+ * names the type it reaches.
+ */
+export function searchFieldPathsAreTyped(doc: BlueprintDoc): BlueprintDoc {
+	let out = doc;
+	for (const moduleUuid of doc.moduleOrder) {
+		const caseType = doc.modules[moduleUuid]?.caseType;
+		if (caseType === undefined) continue;
+		const inputs = out.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
+		inputs.forEach((input, at) => {
+			if (input.kind !== "simple") return;
+			const typed = withTypedPath(out, caseType, input);
+			if (typed === input) return;
+			out = withCandidate(out, (draft) => {
+				const held = draft.modules[moduleUuid]?.caseListConfig?.searchInputs;
+				if (held !== undefined) held[at] = typed;
+			});
+		});
+	}
+	return out;
 }
 
 /**
@@ -903,17 +1022,19 @@ export function dateFieldDeclarations(
 					doc: candidate,
 					lookup,
 				});
+				// A field over a related case types a property of that case, which this menu's
+				// case type does not hold.
 				const derived = read.ok
-					? read.conjuncts.find(
-							(conjunct) =>
-								derivedField(
-									candidate,
-									module.uuid,
-									caseType,
-									prompt.input,
-									conjunct,
-								) !== undefined,
-						)
+					? read.conjuncts.find((conjunct) => {
+							const field = derivedField(
+								candidate,
+								module.uuid,
+								caseType,
+								prompt.input,
+								conjunct,
+							);
+							return field !== undefined && field.via === undefined;
+						})
 					: undefined;
 				if (derived === undefined) continue;
 				for (const ref of propertyRefs(derived))

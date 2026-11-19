@@ -36,8 +36,9 @@ An app made in CommCare HQ (an ``hq-authored`` document) has no first
 publish: ``create_authored`` makes its A again from the files the document
 carries under ``authored/`` (``authored_files``), with HQ's own models, as
 the app HQ's pages and models made (``proof/hq/operations.py::
-save_authored_tables``, ``save_authored_places``, ``save_authored_app``), its
-media attached as HQ's template loader attaches a file. It sends no import, so
+save_authored_tables``, ``save_authored_places``,
+``save_authored_practice_workers``, ``save_authored_app``), its media attached
+as HQ's template loader attaches a file. It sends no import, so
 it answers no refusal and no lookup upload.
 
 Each returns what it saw as data: HQ's refusal of the upload (its status
@@ -53,6 +54,10 @@ from proof.observe.record import bytes_digest, digest
 
 # Where an app made in CommCare HQ keeps the files its A is made again from, under its document's directory.
 AUTHORED = "authored"
+# The project data a base holds beside its app, each a file ``<name>.json`` under ``AUTHORED`` where the base holds
+# any, made before the app in this order (``create_authored``): its lookup tables, its levels and places, and its
+# practice workers.
+AUTHORED_PROJECT_DATA = ("tables", "places", "practice-workers")
 
 
 def _json(value):
@@ -74,9 +79,10 @@ def authored_files(root) -> dict:
     """The files an app made in CommCare HQ is made again from, by role, as paths relative to its document's
     directory ``root``: ``authored.app`` (``authored/app.json``, the app as HQ stores it), and, where the base holds
     them, ``authored.media`` (``media.json``, one row a mapped path), one role a file of ``authored/media/``
-    (``authored.media.<name>``, each file the rows name), ``authored.tables`` and ``authored.places``, as
-    ``proof/corpus/inputs.ts`` names them. The case seed (``authored/seed.json``) is no file A is made from: the
-    unit reads it as the cases A's sessions run over (``proof.observe.unit.input_files``)."""
+    (``authored.media.<name>``, each file the rows name), ``authored.tables``, ``authored.places`` and
+    ``authored.practice-workers``, as ``proof/corpus/inputs.ts`` names them. The case seed (``authored/seed.json``)
+    is no file A is made from: the unit reads it as the cases A's sessions run over
+    (``proof.observe.unit.input_files``)."""
     directory = root / AUTHORED
     found = {"authored.app": f"{AUTHORED}/app.json"}
     if (directory / "media.json").is_file():
@@ -84,7 +90,7 @@ def authored_files(root) -> dict:
     if (directory / "media").is_dir():
         for name in sorted(path.name for path in (directory / "media").iterdir()):
             found[f"authored.media.{name}"] = f"{AUTHORED}/media/{name}"
-    for name in ("tables", "places"):
+    for name in AUTHORED_PROJECT_DATA:
         if (directory / f"{name}.json").is_file():
             found[f"authored.{name}"] = f"{AUTHORED}/{name}.json"
     return found
@@ -175,18 +181,36 @@ def authored_media(root):
     ]
 
 
+def _save_practice_workers(unit, workers):
+    """``operations.save_authored_practice_workers`` with what a worker's save reaches for: HQ's own Redis, where a
+    user's save takes its lock (``proof.hq.redis.shared``), and the unit's commit callbacks (``unit.committing``),
+    as every lane caller that saves a user holds them (``proof/formplayer/hq.py::create_worker``'s caller). The
+    unit's operation indexes the workers as HQ's pillows do as it ends, so the app settings page proof 4 saves
+    offers each (``views/apps.py``, ``get_practice_mode_mobile_workers``)."""
+    from proof.hq import operations
+    from proof.hq import redis as hq_redis
+
+    with hq_redis.shared(None), unit.committing():
+        operations.save_authored_practice_workers(unit, workers)
+
+
 def create_authored(unit, document):
     """An app made in CommCare HQ made again in the unit from its document's ``authored/`` files: its lookup tables
-    (``operations.save_authored_tables``) and its levels and places (``save_authored_places``) where the base holds
-    them, each before the app, so A's build, its restore and every walk run over a project space that holds them;
-    then the app from its stored document, with its media attached (``save_authored_app``).
+    (``operations.save_authored_tables``), its levels and places (``save_authored_places``) and its practice workers
+    (``save_authored_practice_workers``) where the base holds them, each before the app, so A's build, its restore and
+    every walk run over a project space that holds them; then the app from its stored document, with its media
+    attached (``save_authored_app``).
 
     Returns ``(A's id, None, None)`` in ``create``'s shape: nothing is imported, so HQ refuses nothing and no
     workbook is uploaded."""
     from proof.hq import operations
 
     directory = document.root / AUTHORED
-    for name, save in (("tables", operations.save_authored_tables), ("places", operations.save_authored_places)):
+    for name, save in (
+        ("tables", operations.save_authored_tables),
+        ("places", operations.save_authored_places),
+        ("practice-workers", _save_practice_workers),
+    ):
         if (directory / f"{name}.json").is_file():
             save(unit, json.loads((directory / f"{name}.json").read_text(encoding="utf-8")))
     app = json.loads((directory / "app.json").read_text(encoding="utf-8"))

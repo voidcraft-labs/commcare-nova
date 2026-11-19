@@ -43,6 +43,12 @@ from typing import Any
 from proof import processes
 
 CORE_DIR = Path(os.environ.get("PROOF_CORE", "/opt/core"))
+# CommCare Android's own strings, which it registers as the default locale's first source before an app's files on
+# every start and install (commcare-android ``CommCareApplication.initializeDefaultLocalizerData``,
+# ``jr://asset/locales/android_translatable_strings.txt``), in the image's Android checkout at the pin. An archive
+# only Android reads is admitted with them (``admit``'s ``runtime_defaults``).
+ANDROID_DIR = Path(os.environ.get("PROOF_ANDROID", "/opt/android"))
+ANDROID_DEFAULT_STRINGS = ANDROID_DIR / "app" / "assets" / "locales" / "android_translatable_strings.txt"
 SOURCE_DIR = Path(__file__).resolve().parent / "src"
 ANSWERS_PATH = Path(__file__).resolve().parent / "answers.json"
 MAIN_CLASS = "nova.proof.core.Runner"
@@ -444,7 +450,12 @@ class CoreRunner:
         return result["report"]
 
     def admit(
-        self, path: Path | str, *, platform_version: str | None = None, deadline: float = 180.0
+        self,
+        path: Path | str,
+        *,
+        platform_version: str | None = None,
+        runtime_defaults: Path | None = None,
+        deadline: float = 180.0,
     ) -> dict[str, Any]:
         """Admits a .ccz, or a directory holding an archive's entries, and returns Core's admission report.
 
@@ -453,6 +464,13 @@ class CoreRunner:
         observation (``proof.store.guard``, imported only by a store that
         observes), its open scope holds ``path`` first, as if this process
         read it.
+
+        ``runtime_defaults`` names the strings the runtime that reads the
+        archive registers as its default locale's first source, before the
+        app's own files (``ANDROID_DEFAULT_STRINGS`` for an archive only
+        CommCare Android reads, ``Admission.java``); without it the archive is
+        admitted as Core's own engine admits it. The file is the image's
+        pinned checkout, which the JVM reads as it reads Core's own classes.
         """
         guard = sys.modules.get("proof.store.guard")
         if guard is not None:
@@ -460,6 +478,8 @@ class CoreRunner:
         args: dict[str, Any] = {"path": str(path)}
         if platform_version is not None:
             args["platformVersion"] = platform_version
+        if runtime_defaults is not None:
+            args["runtimeDefaults"] = str(runtime_defaults)
         report = self.request("admit", deadline=deadline, **args)
         handle = report.get("appHandle")
         report["app"] = AppHandle(handle, self._generation) if handle else None
