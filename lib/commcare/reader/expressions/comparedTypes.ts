@@ -104,6 +104,27 @@ function comparedProperty(
 		: undefined;
 }
 
+/** The properties every value `side` can end with reads, itself or through a
+ *  value-giving branch, where each is a property the catalog holds untyped;
+ *  undefined where any value is something else. */
+export function untypedOutputProperties(
+	side: Expression,
+	untyped: (caseType: string, property: string) => boolean,
+): { caseType: string; property: string }[] | undefined {
+	const found: { caseType: string; property: string }[] = [];
+	for (const output of outputsOf(side)) {
+		const term = comparedProperty(output);
+		if (
+			term?.kind !== "prop" ||
+			term.caseType === undefined ||
+			!untyped(term.caseType, term.property)
+		)
+			return undefined;
+		found.push({ caseType: term.caseType, property: term.property });
+	}
+	return found.length === 0 ? undefined : found;
+}
+
 /** Each property `tree` compares, in `context`, with a value of a type a
  *  property may take, where `untyped` says the catalog holds it untyped. A
  *  type one comparison gives a property reaches every node that reads it:
