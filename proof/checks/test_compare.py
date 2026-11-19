@@ -141,6 +141,41 @@ def test_a_profile_setting_keeps_its_key_in_the_path():
     }
 
 
+MEDIA_SUITE = (
+    b'<suite version="3"><media path="../../commcare/image"><resource id="media-a-one.png" version="3">'
+    b'<location authority="local">./commcare/image/one.png</location></resource></media>'
+    b'<media path="../../commcare/image"><resource id="media-b-two.png" version="3">'
+    b'<location authority="local">./commcare/image/two.png</location></resource></media>'
+    b'<media path="../../commcare/audio"><resource id="media-c-three.mp3" version="3">'
+    b'<location authority="local">./commcare/audio/three.mp3</location></resource></media></suite>'
+)
+
+
+def test_a_media_element_is_its_resource_s_so_one_file_gone_moves_no_other():
+    """Core adds each media resource to its table by its id at the path its ``<media>`` names, so a media
+    element is paired by its one resource's id. The plausible failure: pairing by position, where one file the
+    app no longer maps reads as every later element's path and resource changed."""
+    root = parse_xml(MEDIA_SUITE)
+    first = next(element for element in root if element.tag == "media")
+    root.remove(first)
+    root[-1].set("path", "../../commcare/audio/data")
+    assert _diff(MEDIA_SUITE, _xml(root)) == {
+        ("/suite/media[resource/@id=*]", "/suite/media[resource/@id=media-a-one.png]", "removed"),
+        ("/suite/media[resource/@id=*]/@path", "/suite/media[resource/@id=media-c-three.mp3]/@path", "changed"),
+    }
+    # A media element holding more than one resource has no one id and is paired by its position.
+    two = parse_xml(MEDIA_SUITE)
+    holder = next(element for element in two if element.tag == "media")
+    holder.append(etree.fromstring(b'<resource id="media-d-four.png" version="3"/>'))
+    three = parse_xml(_xml(two))
+    next(element for element in three if element.tag == "media").append(
+        etree.fromstring(b'<resource id="media-e-five.png" version="3"/>')
+    )
+    assert _diff(_xml(two), _xml(three)) == {
+        ("/suite/media[*]/resource[@id=*]", "/suite/media[1]/resource[@id=media-e-five.png]", "added")
+    }
+
+
 def test_a_reordering_is_one_difference():
     root = parse_xml(SUITE)
     menus = [m for m in root if m.tag == "menu"]

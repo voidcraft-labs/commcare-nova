@@ -1,8 +1,11 @@
 """A form action condition's ``operator`` null, which HQ reads as ``=``.
 
-Nova writes a condition's ``operator`` null; HQ's Case Management and user
-properties saves write ``=``, the property's default
-(``models/form_actions.py::FormActionCondition.operator``). The one reader
+HQ's Case Management page writes the ``operator`` of each condition it saves
+null where the condition is not ``if``
+(``static/app_manager/js/forms/case_config_ui.js::cleanCondition``), and an
+app Nova published before its export wrote ``=`` holds it null on every such
+condition; a form HQ creates, and Nova's export, hold ``=``, the property's
+default (``models/form_actions.py::FormActionCondition.operator``). The one reader
 of the operator, ``xform.py::XForm.action_relevance``, tests it for
 ``selected`` and ``boolean_true`` and writes the ``=`` comparison for
 anything else, null included.

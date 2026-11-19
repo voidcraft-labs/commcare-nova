@@ -248,7 +248,11 @@ On a targeted document the value-level checks run too: each expectation in its
 `expected.json` names an export, a form, a request Core's `evaluate` runs
 there (answers, constraint checks, expressions, instances, a session and a
 restore) and the values Core must give, fixed by hand from the document's
-authored meaning. On HQ's side the check also compiles every CSQL string a
+authored meaning. The session gives every datum the form reads (a case the
+form creates, the worker's own case, the cases a several-case list chose), and
+a label whose itext id one state spells otherwise than another is read as Core
+shows it in the request's locale (an answer's or a check's `label`), since an
+itext id is local to one form's source. On HQ's side the check also compiles every CSQL string a
 run sends HQ (each literal `_xpath_query` of build(A)'s suite and each one
 proof 3's sessions send) with HQ's case search compiler under the
 configuration's flags, and reports each it refuses by the exception and
@@ -572,7 +576,9 @@ and holds each to the effects as written.
    `read(served(D′)) = canonDocument(D′)` at B-edit where the document
    carries an edit and no `hq-side.json`; for a migration witness the same
    at B; for a document whose republish brings a person's saves in, the read
-   at B against the document the bring-in gave; for an app made in HQ,
+   at B against the document the bring-in gave, and none at A, which serves
+   the document before the saves while `document.json` is the one the
+   bring-in gave; for an app made in HQ,
    `read(A) = D` under the declaration it was read under, `read(served(D)) =
    D` at B with no canonical form applied to D (it is in the reader's image),
    and `read(served(D′)) = canonDocument(D′)` at B-edit. Where a republish
@@ -584,9 +590,16 @@ and holds each to the effects as written.
    hold is HQ's entity at that position (`aligned_identity`). `canonDocument`
    is the reader's one closed list (`lib/commcare/reader/canon.ts::CANONICALIZATIONS`),
    each row proven there to print the same bytes; the lane keeps no second
-   list. A difference is `document@<state>`, the reading gave another
+   list. Every read back is told the document's own case types and language
+   codes, as production's re-read of an app Nova holds is, and names a file
+   by the asset the document's media give the path it was published at, a
+   built-in icon at its content path among them, where two assets of the
+   document's media went to one path the first of them, as one Project keeps
+   one asset a file (`proof/reader/laneReading.ts::publishedFiles`). A
+   difference is `document@<state>`, the reading gave another
    document, at the differing entity's place and slot with every UUID and
-   position `*` (kept in `at`), or `reading@<state>`: the reading is an
+   position `*` (kept in `at`), with the two documents' values there as its
+   `before` and `after`, or `reading@<state>`: the reading is an
    account (`/<finding code>`), a recorded media read whose bytes are not the
    document's own file (`/media/sha256`), or a state with no reads
    (`/no-reads`); a base whose first reading does not offer the declaration
@@ -617,7 +630,11 @@ leaves out home's failure to reopen a form whose stored session ends at
 grouped tiles' empty `<case datum>_parent_ids` datum (`android_grouped_tile_reopen`,
 finding 67); and the Connect judge leaves out of B-edit's report what Connect
 does with a block the edit renamed under the opportunity
-(`connect_block_renamed`, "Connect in the unit").
+(`connect_block_renamed`, "Connect in the unit"); and proof 4 leaves out of
+the app settings page's save each of the fifteen settings Nova seeds that the
+page writes where the stored app held no value for it, which is every one of
+them on an app made in HQ that no person saved the page of, since Nova's
+publish over an app it brought in seeds none (`settings_page_writes_unset_settings`).
 
 ### Spelling rules and the registers
 
@@ -650,6 +667,7 @@ request lane leaves it to the nightly. The members:
 | `registration_alert_child_case` (finding 50) | proof 4, Vellum's pre-save alerts | `proof/editors/test_hq_own_registration_alert.py` |
 | `android_grouped_tile_reopen` (finding 67) | proof 1, Android's reopen of an incomplete form | `proof/android/test_hq_own_grouped_tile_reopen.py` |
 | `connect_block_renamed` (defect 15's Connect ids) | the Connect judge's report of B-edit beyond A | `proof/connect/test_hq_own_rename.py` |
+| `settings_page_writes_unset_settings` | proof 4, the app settings page's stored app, built profiles and Core's reading of the profile | `proof/editors/test_hq_own_settings_page.py` |
 
 To add one, settle at source that an app made in HQ's own pages meets the
 report, write its proof, add the member with the narrowest condition that
@@ -1917,9 +1935,11 @@ languages. Each passes with no entry and no control. The first two are also
 native scenarios: `LookupRuntimeTest` and `LocationOwnerRuntimeTest` read
 `targeted-instance-reads`, whose places copy the location family's skipped
 fixture so HQ's own serializer writes them, and `SearchRuntimeTest` reads
-`targeted-inline-search-reads`. Core's evaluate seeds neither a several-case
-selection nor a search's results, so those reads hold no hand-fixed value and
-every walk of their documents reads them.
+`targeted-inline-search-reads`. Core's evaluate seeds no search's results, so
+those reads hold no hand-fixed value and every walk of their documents reads
+them; a several-case selection is a datum given the list of case ids chosen
+together (`Evaluate.java::selectSeveral`), which `targeted-session-reads`
+counts on HQ's builds of A and B.
 `targeted-csql-composition` holds one search per authorable CSQL construct,
 so `csql@A` compiles each under every configuration; what each finds is the
 `csql` native family's.
@@ -3859,7 +3879,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group, which Nova wrote as a field list because the group's label decided it. Fixed in step 5: a group shows on one screen only when it holds `fieldList`, and a group holding a repeat workers add entries to is born without it (`FIELD_LIST_USER_REPEAT`) | proof 4; manifest | fixed; still shown by the control `targeted-labelled-group-repeat`; `targeted-field-list-flags` holds each group with and without the flag |
 | 28 | a question that opens with its case's value was sent as Case Management's `case_preload`, which HQ's build loads after every other load-time `setvalue` (`app_manager/xform.py::XForm.add_case_preloads`), so a default later in the form that read the answer read it blank. Fixed in step 5: a question opens with its case's value only where its default reads it, written as the form builder's own default at the question's place, so no export holds a `case_preload` | manifest | fixed; still shown by the control `targeted-load-time-values`; `targeted-load-time-values` and `targeted-case-writes-one-concept` hold the fix |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional. Fixed in step 5: a repeat's count is a whole number (`REPEAT_COUNT_TYPE` refuses any other), and a count that names an integer question, an integer single select or a Hidden Value calculating an integer is written into `jr:count` directly, so only a count that is an expression keeps its `nova_count_<repeat>` node | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | fixed; still shown by the controls `targeted-repeat-count-copy` and `container-live-count-entry`; `targeted-repeat-count-whole` holds each whole count |
-| 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant. Fixed in step 3: each operand is lowered by its type (`lib/commcare/xpath/wire/instant.ts`), so a device compares instants, as Preview does | intent (Core), on the local export and on A; manifest (the local archive's suite holds a REFUSED `time-operand` use) | fixed; still shown by the controls `targeted-datetime-ordering` and `targeted-datetime-operands` |
+| 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant. Fixed in step 3: each operand is lowered by its type (`lib/commcare/xpath/wire/instant.ts`), so a device compares instants, as Preview does | intent (Core), on the local export and on A | fixed; still shown by the controls `targeted-datetime-ordering` and `targeted-datetime-operands`. The manifest check reads a date and time as no `time-operand` use (that class is a time of day, and Nova's reader holds such an ordering by comparing the two moments), so no manifest entry holds this finding |
 | 57, `case_id` column | a case list column over `case_id` was blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` made HQ's Case List page refuse to save. Fixed in step 2: every column over the three is an expression column over the attribute | manifest; proof 3 across the two paths; proof 4 | fixed; still shown by the control `targeted-case-id-column`; `targeted-attribute-columns` holds every column over the three |
 | 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`). Fixed in step 2: Nova refuses the three names in any case for every question and Connect block | the bar; proof 4 | fixed; still shown by the control `targeted-reserved-question-names` |
 | 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admitted. Fixed in step 2: Nova refuses a read of the form's root alone (`INVALID_REF`) | proof 4 | fixed; still shown by the control `targeted-form-root-read` |
@@ -5775,8 +5795,9 @@ reviewer knows what to expect and a change that makes it longer is seen.
 profile's group costs in box-seconds and its CI `execution` (shards, runner,
 workers per shard): `readers` for the nightly's lane, `no-readers` for the
 pull request lane's. The queue builder packs each profile's blocks from its
-own costs (a group it does not list is counted at the 90th percentile of the
-measured groups of its kind, so a stale profile oversizes a lane), and `node
+own costs (a document it does not list is counted at the 90th percentile of the
+measured documents, and any other group at the longest measured package group,
+since package groups are few and unalike, so a stale profile oversizes a lane), and `node
 proof/run.mjs --timings <output>...` refreshes the profile its outputs ran
 in, keeping the other and its execution; `--box-workers 4` measures a
 run on a machine that gives each worker a vCPU, as a CI shard does, by a CI
@@ -5842,9 +5863,11 @@ started while HQ boots (`proof/formplayer/shared.py`): on four vCPUs with
 four workers, as a CI shard runs, that took 45 worker-seconds off sixteen
 documents, about 11 seconds off each worker's first build. A group runs
 on one worker, so the packages whose tests took longer than a shard can
-hold whole run as several groups (`proof.checks.sharding.SPLIT`): no group
-in the `no-readers` profile takes more than about 370 seconds on one worker
-(`proof/lane/test_forkserver.py`, 371), and the longest group a lane runs is the least its
+hold whole run as several groups (`proof.checks.sharding.SPLIT`). The longest
+group without the readers is `proof/matrix/test_retained.py`, which makes
+every base's variants in HQ and reads each one, about 1,140 seconds on one worker
+(three slice runs measured 1,130 to 1,142); the next is
+`proof/lane/test_forkserver.py`, 278. The longest group a lane runs is the least its
 shard can take.
 
 A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from

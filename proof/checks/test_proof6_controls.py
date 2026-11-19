@@ -4,7 +4,8 @@ records, with no HQ.
 Contract (``proof.checks.proof6``): over HQ's own answers for the corpus
 document ``navigation-base`` after Nova's first publish (``proof/hq-reads/``),
 a source with one menu's name changed gives one ``document@A`` difference at
-that name, and one with a key no entry names gives ``reading@A``
+that name and one at the id a reading gives the menu from it, and one with a
+key no entry names (a key of a menu's case details) gives ``reading@A``
 ``/unrecognized``; a Nova-born document that differs from its reading by one
 canonical pair (a menu's purpose note, which no export carries) gives none.
 Over HQ's answers for the base ``hq-plain`` (``proof/hq-apps/hq-plain/``), the
@@ -17,7 +18,7 @@ nothing, or applies the canonical form where the claim is exact.
 On a document whose republish runs Nova's review of a person's saves, HQ's
 answer after the saves (the ``saved`` read) that reads as the review's reading
 gives nothing, and one with a menu's name changed gives one
-``document@saved`` difference at that name; a review that read HQ's app and
+``document@saved`` difference at that name and one at the menu's id; a review that read HQ's app and
 found changes and recorded no reading is refused by name, and a review that
 found nothing to bring in with no reading of the app (unchanged, or the same
 files), or a republish sent with no review, asks nothing. The ids the
@@ -25,6 +26,9 @@ capture's peer minted for a form a person adds are HQ's at that position
 (``aligned_identity``). The plausible failure: a peer that models a save
 otherwise than HQ stores it, which the review's verdict then rests on, passing
 unseen.
+
+With no bundle: a document whose saves are brought in is read back at B
+alone, and a difference keeps the value each document holds at its path.
 """
 
 from __future__ import annotations
@@ -124,6 +128,12 @@ def _with_body(answer, change):
     return {**answer, "body": json.dumps(body)}
 
 
+# A menu renamed in HQ reads back with that name and the id a reading gives a menu, the slug of its name
+# (``lib/commcare/reader/assemble.ts``'s ``menu-and-form-ids-as-read``): two value differences, the name's and the
+# id's, and nothing else.
+RENAMED_MENU = [("/modules/*/id", "changed"), ("/modules/*/name", "changed")]
+
+
 def test_a_menu_name_changed_in_hq_s_source_is_one_value_difference_at_that_name():
     def renamed(body):
         names = body["modules"][0]["name"]
@@ -133,12 +143,17 @@ def test_a_menu_name_changed_in_hq_s_source_is_one_value_difference_at_that_name
     source = _with_body(_answer(READS / "navigation-base" / "app-source.json"), renamed)
     document, records = _navigation(source=source)
     found = proof6.differences(document, records)
-    assert [(d.artifact, d.path, d.kind) for d in found] == [("document@A", "/modules/*/name", "changed")], found
+    assert [(d.artifact, d.path, d.kind) for d in found] == [
+        ("document@A", path, kind) for path, kind in RENAMED_MENU
+    ], found
 
 
 def test_a_key_no_entry_names_reads_as_an_account_at_unrecognized():
+    # A key a menu's pair of case details does not declare: no entry names ``schema:DetailPair.<undeclared>``, while
+    # an unknown key at the app's top level is the INERT entry
+    # ``application-and-settings/any-other-unknown-top-level-key-that-names-no-application``.
     def unknown(body):
-        body["proof_key_no_entry_names"] = "x"
+        body["modules"][0]["case_details"]["proof_key_no_entry_names"] = "x"
 
     source = _with_body(_answer(READS / "navigation-base" / "app-source.json"), unknown)
     document, records = _navigation(source=source)
@@ -201,7 +216,9 @@ def test_hq_s_answer_after_the_saves_reading_otherwise_than_the_review_read_them
     source = _with_body(_answer(READS / "navigation-base" / "app-source.json"), renamed)
     document, records = _reviewed(saved_source=source)
     found = proof6.differences(document, records)
-    assert [(d.artifact, d.path, d.kind) for d in found] == [("document@saved", "/modules/*/name", "changed")], found
+    assert [(d.artifact, d.path, d.kind) for d in found] == [
+        ("document@saved", path, kind) for path, kind in RENAMED_MENU
+    ], found
     assert "a person's saves" in proof6.fixed_point_message(document.id, found)
 
 
@@ -319,3 +336,37 @@ def test_a_base_read_under_a_declaration_its_reading_does_not_offer_differs_at_r
     records.configurations["minimum"].parts.pop("b")
     found = proof6.differences(document, records)
     assert [(d.artifact, d.path) for d in found] == [("document@A", "/appSettings/runsOnlyOn")], found
+
+
+# What the judge asks and keeps, with no bundle ------------------------------------------------------
+
+
+def test_a_document_whose_saves_are_brought_in_is_read_back_at_b_alone():
+    """``document.json`` of a document whose republish brings a person's saves in is the document the bring-in gave,
+    and the A Nova's first publish left serves the one before the saves: a read of A held to it would report the
+    saves themselves. The plausible failure: a judge that holds A to the brought-in document, or drops B."""
+    brought = SimpleNamespace(
+        migration_witness=False,
+        hq_authored=False,
+        brings_in={"moduleOrder": []},
+        edit=SimpleNamespace(),
+        hq_side={"republish": "brings-in"},
+    )
+    assert proof6.planned_reads(brought) == [("B", "published", "read-back", True)]
+    recorded = SimpleNamespace(**{**vars(brought), "brings_in": None, "hq_side": {"republish": "records"}})
+    assert proof6.planned_reads(recorded) == [("A", "published", "read-back", True)]
+
+
+def test_a_document_difference_keeps_the_values_both_documents_hold_there():
+    answer = {
+        "kind": "read",
+        "differences": [
+            {"path": ["forms", "6003a32a-dc61-54e6-a90b-2420a581363a", "icon"], "kind": "value", "expected": "a"},
+            {"path": ["fields", "0e4fae0d-fc0c-5299-ac5b-38d355af3d9d"], "kind": "added", "found": {"id": "q"}},
+        ],
+    }
+    found = proof6.answer_differences("planted", "A", answer)
+    assert [(d.path, d.kind, d.before, d.after) for d in found] == [
+        ("/forms/*/icon", "changed", "a", None),
+        ("/fields/*", "added", None, {"id": "q"}),
+    ]

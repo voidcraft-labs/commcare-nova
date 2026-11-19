@@ -17,13 +17,20 @@
  *   With `expected`, the answer holds `readBackDifferences(expected, { doc,
  *   choices })`, the choices being the declarations the reading offers, so
  *   `expected` loses its own declaration and the comparison requires it among
- *   them.
+ *   them. A file is the asset the document's media name at the path it was
+ *   sent at: where two of its assets were sent at one path, `expected` names
+ *   the one there (`laneReading.ts::publishedFiles`), since one Project holds
+ *   one asset a content and HQ one file a path.
  * - `first-read`: a base's first reading (`identity: "mint"`), whose answer
  *   holds the declaration it was read under and that declaration's
  *   first-publish ids. With `expected`, the two documents are compared whole
  *   (`choices: null`). With `holds`, each fragment's value is found at its
  *   pointer of the entity its external key names.
  * - `claims`: the reading's claim log in full.
+ *
+ * Each difference carries the value `expected` holds at its path and the
+ * value the reading gave there (`expected`, `found`, `null` for none), which
+ * the judge keeps as its evidence.
  *
  * `canon: true` puts `expected` in its canonical form first
  * (`lib/commcare/reader/canon.ts::canonDocument`). The entry draws nothing,
@@ -42,13 +49,19 @@ import {
 	type ReadBackDifference,
 	readBackDifferences,
 } from "@/lib/deployment/reading/readBack";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import { remapAssetRefs } from "@/lib/domain/mediaRefs";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	type LaneDeclaration,
 	type LaneReadInput,
 	type LaneReading,
+	publishedFiles,
 	readForLane,
 } from "./laneReading";
 
@@ -73,7 +86,7 @@ interface Request {
 interface Answer {
 	readonly id: string;
 	readonly kind: LaneReading["kind"];
-	readonly differences?: readonly ReadBackDifference[];
+	readonly differences?: readonly ValuedDifference[];
 	readonly findings?: readonly unknown[];
 	readonly claims: string;
 	readonly declaration?: LaneDeclaration;
@@ -94,10 +107,32 @@ const MODE_OF_IDENTITY: Readonly<
 	Record<Mode, LaneReadInput["identity"] | null>
 > = { "read-back": "match", "first-read": "mint", claims: null };
 
-function hydrated(stored: unknown): BlueprintDoc {
-	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(stored));
+function hydrated(
+	stored: unknown,
+	sameFile: ReadonlyMap<string, string> = new Map(),
+): BlueprintDoc {
+	const doc = hydratePersistedBlueprint(
+		remapAssetRefs(
+			blueprintDocSchema.parse(stored),
+			sameFile as ReadonlyMap<MediaAssetId, MediaAssetId>,
+		),
+	);
 	ensureReferenceIndex(doc);
 	return doc;
+}
+
+/**
+ * The value at `path` of a document's persisted shape, for a difference's
+ * evidence: `null` where the document holds none there.
+ */
+function valueAt(persisted: unknown, path: readonly string[]): unknown {
+	let current = persisted;
+	for (const step of path) {
+		if (typeof current !== "object" || current === null) return null;
+		if (!Object.hasOwn(current, step)) return null;
+		current = (current as Record<string, unknown>)[step];
+	}
+	return current ?? null;
 }
 
 /** The value at JSON pointer `pointer` of `value`, or undefined where it holds none. */
@@ -111,6 +146,30 @@ function atPointer(value: unknown, pointer: string): unknown {
 		current = (current as Record<string, unknown>)[step];
 	}
 	return current;
+}
+
+/** A difference of a read back, with the value each document holds at its path. */
+interface ValuedDifference extends ReadBackDifference {
+	/** What the expected document holds there, `null` for nothing. */
+	readonly expected: unknown;
+	/** What the reading gave there, `null` for nothing. */
+	readonly found: unknown;
+}
+
+/** Each difference with the values the two documents hold at its path: the evidence a judge keeps. */
+function withValues(
+	expected: BlueprintDoc,
+	found: BlueprintDoc,
+	differences: readonly ReadBackDifference[],
+): readonly ValuedDifference[] {
+	if (differences.length === 0) return [];
+	const expectedShape = toPersistableDoc(expected);
+	const foundShape = toPersistableDoc(found);
+	return differences.map((difference) => ({
+		...difference,
+		expected: valueAt(expectedShape, difference.path),
+		found: valueAt(foundShape, difference.path),
+	}));
 }
 
 /** The record of the entity `uuid` names, from whichever of the document's maps holds it. */
@@ -178,8 +237,17 @@ async function answer(request: Request): Promise<Answer> {
 		return { ...base, findings: reading.findings };
 	if (reading.kind === "declaration-not-offered")
 		return { ...base, declaration: reading.stated, offered: reading.offered };
+	// A read back names each file by the asset the document's own media give its path: where two
+	// assets of the document were sent at one path, the expected document names the one there.
 	const expectedDoc =
-		request.expected === undefined ? undefined : hydrated(request.expected);
+		request.expected === undefined
+			? undefined
+			: hydrated(
+					request.expected,
+					request.mode === "read-back"
+						? publishedFiles(request.input.document).sameFile
+						: undefined,
+				);
 	const expected =
 		expectedDoc !== undefined && request.canon === true
 			? canonDocument(expectedDoc)
@@ -187,15 +255,19 @@ async function answer(request: Request): Promise<Answer> {
 	const differences =
 		expected === undefined
 			? undefined
-			: readBackDifferences(expected, {
-					doc: reading.doc,
-					choices:
-						request.mode === "read-back"
-							? reading.offered.map((choice) => ({
-									runsOnlyOn: choice.runsOnlyOn ?? undefined,
-								}))
-							: null,
-				});
+			: withValues(
+					expected,
+					reading.doc,
+					readBackDifferences(expected, {
+						doc: reading.doc,
+						choices:
+							request.mode === "read-back"
+								? reading.offered.map((choice) => ({
+										runsOnlyOn: choice.runsOnlyOn ?? undefined,
+									}))
+								: null,
+					}),
+				);
 	return {
 		...base,
 		...(differences !== undefined && { differences }),

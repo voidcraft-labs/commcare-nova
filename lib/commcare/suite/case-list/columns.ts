@@ -143,7 +143,7 @@ import {
 } from "../../multimedia/assetWirePath";
 import { escapeRegex } from "../../xml";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
-import { columnPropertyPath, normalizeSpace } from "../wire";
+import { columnPropertyPath, hqColumnFieldText, normalizeSpace } from "../wire";
 import { keyAsVariable } from "./keyVariable";
 import { columnReadsCaseAttribute } from "./orderPlanOptions";
 import {
@@ -313,7 +313,10 @@ function detailHeaderLocaleId(
  * `m<N>.<detail>.case_<field>_<position>`: the header appends `.header`,
  * an id-mapping value `.enum.<variable>` and an image-map key's alt text
  * `.alt_text.<variable>` (`id_strings.py::detail_column_header_locale`,
- * `detail_column_enum_variable`, `detail_column_alt_text_variable`).
+ * `detail_column_enum_variable`, `detail_column_alt_text_variable`). `field`
+ * is the domain's text of the column's walk and property; the stem holds the
+ * `field` HQ JSON stores (`hqColumnFieldText`), which HQ's build names the
+ * column by, so both archives give one column one id.
  */
 function detailColumnLocaleBase(
 	target: DetailTarget,
@@ -323,7 +326,7 @@ function detailColumnLocaleBase(
 	position: number,
 ): string {
 	const localeType = DETAIL_LOCALE_TYPE[target][detailKind];
-	return `m${moduleIndex}.${localeType}.case_${field}_${position}`;
+	return `m${moduleIndex}.${localeType}.case_${hqColumnFieldText(field)}_${position}`;
 }
 
 /**

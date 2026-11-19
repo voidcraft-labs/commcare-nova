@@ -24,6 +24,7 @@ import {
 	INTERVAL_DISPLAYS,
 	TIME_SINCE_UNIT_DAYS,
 	TIME_SINCE_UNITS,
+	type TimeSinceUnit,
 } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
@@ -490,6 +491,61 @@ export function calculatedAttributeColumnsArePlain(
 				if (field === undefined || column.kind !== "calculated") return column;
 				const { expression: _value, kind: _kind, ...rest } = column;
 				return { ...rest, kind: "plain", field } as Column;
+			});
+		}
+	});
+}
+
+/**
+ * The threshold and unit the reader gives a flag interval column whose threshold is `days` days:
+ * the first unit, in `TIME_SINCE_UNITS`' order, in which `days` is a whole number of units, as
+ * `intervalCandidate` tries them over the number the column prints.
+ */
+function flagThresholdAsRead(
+	days: number,
+): { readonly threshold: number; readonly unit: TimeSinceUnit } | undefined {
+	for (const unit of TIME_SINCE_UNITS) {
+		const threshold = days / TIME_SINCE_UNIT_DAYS[unit];
+		if (Number.isInteger(threshold) && threshold >= 0)
+			return { threshold, unit };
+	}
+	return undefined;
+}
+
+/**
+ * The reader's canonical choice `flag-interval-thresholds-as-read`: an interval column that shows
+ * its text only past its threshold prints the threshold as days alone
+ * (`suite/case-list/columns.ts::intervalFlagXpath`: today's distance from the date, compared
+ * with `threshold × TIME_SINCE_UNIT_DAYS[unit]`), so two weeks and fourteen days print one
+ * column; the reader returns the first unit in which those days are a whole number
+ * (`intervalCandidate`). A column that shows the count of units (`always`) prints its unit, and
+ * is left as it is.
+ */
+export function flagIntervalThresholdsAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const moved = (column: Column) => {
+		if (column.kind !== "interval" || column.display !== "flag")
+			return undefined;
+		const read = flagThresholdAsRead(
+			column.threshold * TIME_SINCE_UNIT_DAYS[column.unit],
+		);
+		return read === undefined ||
+			(read.unit === column.unit && read.threshold === column.threshold)
+			? undefined
+			: read;
+	};
+	const holds = doc.moduleOrder.some((uuid) =>
+		(doc.modules[uuid]?.caseListConfig?.columns ?? []).some(
+			(column) => moved(column) !== undefined,
+		),
+	);
+	if (!holds) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const module of Object.values(draft.modules)) {
+			const config = module.caseListConfig;
+			if (config === undefined) continue;
+			config.columns = config.columns.map((column) => {
+				const read = moved(column);
+				return read === undefined ? column : ({ ...column, ...read } as Column);
 			});
 		}
 	});

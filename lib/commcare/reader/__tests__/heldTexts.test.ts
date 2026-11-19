@@ -871,8 +871,8 @@ describe("an app translation folded over an app string", () => {
 			units: Object.fromEntries(keys.map((key) => [key, unit])),
 		};
 	};
-	const SHORT_HEADER = "m0.case_short.case_case_name_1.header";
-	const LONG_HEADER = "m0.case_long.case_case_name_1.header";
+	const SHORT_HEADER = "m0.case_short.case_name_1.header";
+	const LONG_HEADER = "m0.case_long.case_name_1.header";
 
 	it("with a space at its start is held without it, which workers then read, recorded at the key", async () => {
 		const body = exportedBody(PROMPTS);

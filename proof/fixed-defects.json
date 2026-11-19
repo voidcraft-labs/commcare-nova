@@ -7154,26 +7154,6 @@
 		"control": "targeted-datetime-operands"
 	},
 	{
-		"id": "d56-datetime-ordering-suite-cmp-time-operand",
-		"defect": 56,
-		"part": "datetime ordering",
-		"check": "manifest",
-		"artifact": "local*.ccz/suite.xml",
-		"path": "/xpath-expr:XPathCmpExpr/refused/time-operand",
-		"kind": "refused",
-		"control": "targeted-datetime-operands"
-	},
-	{
-		"id": "d56-datetime-ordering-suite-lt-time-operand",
-		"defect": 56,
-		"part": "datetime ordering",
-		"check": "manifest",
-		"artifact": "local*.ccz/suite.xml",
-		"path": "/xpath-token:LT/refused/time-operand",
-		"kind": "refused",
-		"control": "targeted-datetime-operands"
-	},
-	{
 		"id": "d75-datetime-equality-case-list",
 		"defect": 75,
 		"part": "datetime equality",

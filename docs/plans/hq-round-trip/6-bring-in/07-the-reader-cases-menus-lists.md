@@ -148,7 +148,7 @@ reads every pinned document as it did. No migration, no DDL and no `/api` route 
     `required-messages-as-read`, `empty-search-settings-beside-fields-are-absent`,
     `exact-search-mode-is-absent`, `implicit-order-rule-is-absent`,
     `tile-columns-shown-nowhere-are-as-read` and
-    `columns-of-a-menu-that-lists-no-cases-are-off-the-detail`, each `one-wire` but the last two,
+    `columns-of-a-menu-that-lists-no-cases-are-its-one-name-column`, each `one-wire` but the last two,
     which are `not-carried`. Part 09's `canonDocument` wraps them and proof 6 calls that. (Sections
     1, 3.2, 3.4, 4.4, 5.2, 7, 8.7, 9.1, 9.4, 11.1, 11.3, 11.4, 11.5, 11.6, 12.2, 12.3, 12.4.)
 23. **A column the case detail shows and the list does not carry is read exactly.** A column gains
@@ -4167,7 +4167,15 @@ A column the case detail alone shows is in no row: it is read as a column that i
 - A key this part claims INERT and Nova writes at another value (a stale label, a referral action, a
   bookkeeping key, an earlier sort element a later one replaces, an `update_mode` the project space
   does not apply) is covered by the register's rule for inert claims, which part 09 generates from
-  the claim log (its section 11.2): this part relies on that rule and writes no row per key.
+  the claim log (its section 11.2): this part relies on that rule and writes no row per key. The
+  rule reaches only what the source holds at a value other than HQ's default, since a claim at a
+  default records nothing: a key Nova writes where the source holds none (a column's
+  bookkeeping keys on a column HQ's models made, which hold none of them and the schema's empty
+  graph) is in no claim log, so `forms-and-settings-rewritten` names those column keys as paths
+  of its own (part 09, section 11.2, row 1), and a search a menu does not offer, which Nova
+  writes as its shell, is recorded under `list-settings-respelled` where its title or subtitle
+  is spelled another way, and that entry reads its `auto_launch` from the source and the choice
+  (row 15).
 - A HELD claim whose stored value Nova writes back differently is recorded where the comparison allows
   it. Every (R2) of this part that applies a same-state rule (a key left out of, or mapped before, a
   comparison: 3.5's list, 4.4's, 8.6's blank label, 8.7's label with no text, 9.5's added guards,
@@ -4432,7 +4440,7 @@ registration's outcome itself.
 
 **The canonical choices.** This part adds the twenty-five rows of item 22 to part 06's
 `assemble.ts::READER_CANONICAL_CHOICES`, each `one-wire` but `tile-columns-shown-nowhere-are-as-read`
-and `columns-of-a-menu-that-lists-no-cases-are-off-the-detail`, which are `not-carried`. Each has its equal-bytes case in part
+and `columns-of-a-menu-that-lists-no-cases-are-its-one-name-column`, which are `not-carried`. Each has its equal-bytes case in part
 09's `canon.test.ts`, but for `unheld-placements-are-held`, which
 `lib/commcare/__tests__/heldPlacementEmission.test.ts` already holds: it prints every fuzz,
 advanced and fixture document with and without `placementHolds.ts::placementsToHold` applied and
@@ -4457,7 +4465,7 @@ canonical member:
 | `case-catalog-is-as-read` (section 7) | `catalog.test.ts` |
 | `unheld-placements-are-held` (section 1) | `basicActions.roundTrip.test.ts`, `advancedActions.roundTrip.test.ts` and `saveToCase.roundTrip.test.ts`: every placement of the read document is held |
 | `unsorted-hidden-tile-columns-are-off-the-list` (11.6) | `joinDetailColumns.test.ts` |
-| `implicit-order-rule-is-absent` (11.4), `tile-columns-shown-nowhere-are-as-read` (11.6), `columns-of-a-menu-that-lists-no-cases-are-off-the-detail` (11.3) | `listCanon.test.ts`, and every menu of every targeted and producer document in `listsReadBack.test.ts` |
+| `implicit-order-rule-is-absent` (11.4), `tile-columns-shown-nowhere-are-as-read` (11.6), `columns-of-a-menu-that-lists-no-cases-are-its-one-name-column` (11.3) | `listCanon.test.ts`, and every menu of every targeted and producer document in `listsReadBack.test.ts` |
 | `empty-search-settings-beside-fields-are-absent` (12.4) | `emptySettings.test.ts` |
 | `default-search-title-is-absent` (12.4) | `defaultTitle.test.ts` |
 | `joined-search-guards-split-as-read` (12.2) | `guardSplit.test.ts` |

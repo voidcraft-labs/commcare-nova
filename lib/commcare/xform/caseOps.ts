@@ -629,7 +629,8 @@ export function caseWriteSiblingPaths(
 					]),
 				];
 	for (const entry of named) {
-		const path = typeof entry === "string" ? entry : entry.question_path;
+		const path =
+			entry === null || typeof entry === "string" ? entry : entry.question_path;
 		if (path) paths.add(path);
 	}
 	const own = orderedCaseOperations(doc.forms[formUuid]).find(

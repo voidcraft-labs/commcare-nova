@@ -318,7 +318,8 @@
 			"session": {
 				"command": "m1-f0",
 				"data": {
-					"case_id": "household-one"
+					"case_id": "household-one",
+					"selected_cases": ["household-one"]
 				}
 			},
 			"answers": [

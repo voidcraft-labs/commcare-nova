@@ -197,11 +197,16 @@
 		"restore": "restore.xml",
 		"request": {
 			"locale": "fra",
-			"expressions": ["jr:itext('remark_text')"]
+			"constraintChecks": [
+				{
+					"path": "/data/remark",
+					"value": "Dry season"
+				}
+			]
 		},
 		"expect": [
 			{
-				"pointer": "/values/0/value",
+				"pointer": "/constraints/0/label",
 				"value": "Remarque"
 			}
 		]

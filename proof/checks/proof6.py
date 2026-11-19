@@ -12,8 +12,11 @@ document:
   being an export from before a migration, which no claim is made of;
 - a document whose ``hq-side.json`` states the republish ``brings-in``: at B,
   the read after the republish against the document the bring-in gave, with
-  ``canon``; its ``saved`` read is a person's save and no export of Nova's,
-  so no fixed point is claimed of it;
+  ``canon``, and nothing at A: its ``document.json`` is that document
+  (``proof/corpus/entryWriter.ts::republishedDocument``), while the A Nova's
+  first publish left serves the document before the person's saves, which the
+  corpus keeps only as the bodies that publish sent. Its ``saved`` read is a
+  person's save and no export of Nova's, so no fixed point is claimed of it;
 - a document whose republish runs Nova's review of a person's saves
   (``brings-in`` or ``records``): the review read the capture's peer, which
   models HQ's saves, so HQ's own answer after the same saves (its ``saved``
@@ -38,7 +41,8 @@ is compared whole. Each difference is ``Difference(check="proof6")``:
 - the reading gave another document: artifact ``document@<state>``, path the
   differing entity's place and slot with every UUID and position as ``*``
   (kept in ``at``), kind ``changed``, ``removed`` (only the expected document
-  holds it) or ``added``;
+  holds it) or ``added``, ``before`` what the expected document holds there and
+  ``after`` what the reading gave (``None`` for nothing);
 - the reading is an account: one a finding, artifact ``reading@<state>``,
   path ``/<finding code>``, the finding's place in ``at``;
 - the first reading of a base does not offer the declaration the document was
@@ -94,10 +98,12 @@ def planned_reads(document):
         if document.edit is not None:
             reads.append(("B-edit", "published", "read-back", True))
         return reads
-    reads = [("A", "published", "read-back", True)]
     if _brings_in(document) is not None:
-        reads.append(("B", "published", "read-back", True))
-    elif document.edit is not None and document.hq_side is None:
+        # ``document.json`` is the document the bring-in gave, which the republish sends; the A Nova's first publish
+        # left served the document before the saves, which the corpus keeps only as the bodies that publish sent.
+        return [("B", "published", "read-back", True)]
+    reads = [("A", "published", "read-back", True)]
+    if document.edit is not None and document.hq_side is None:
         reads.append(("B-edit", "published", "read-back", True))
     return reads
 
@@ -221,8 +227,8 @@ def answer_differences(document_id, state, answer, *, stated=None) -> list[Diffe
                     path,
                     at,
                     KINDS.get(difference.get("kind"), "changed"),
-                    None,
-                    None,
+                    difference.get("expected"),
+                    difference.get("found"),
                 )
             )
         return found

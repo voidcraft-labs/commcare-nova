@@ -753,7 +753,7 @@ describe("keys HQ's editors do not write", () => {
 });
 
 describe("a case list with no column", () => {
-	it("writes HQ's one name column on a survey menu's short detail, headed Name in every language", () => {
+	it("writes HQ's one name column on both of a survey menu's details, headed Name in every language", () => {
 		const doc = buildDoc({
 			appName: "Clinica",
 			modules: [
@@ -793,7 +793,7 @@ describe("a case list with no column", () => {
 			useXpathExpression: false,
 			calc_xpath: ".",
 		});
-		expect(details.long.columns).toEqual([]);
+		expect(details.long.columns).toEqual(details.short.columns);
 	});
 });
 
@@ -901,10 +901,10 @@ describe("case_name in case list columns", () => {
 		],
 	});
 
-	it("expander keeps case_name column in case details", () => {
+	it("expander keeps the case name column in case details, in HQ's word", () => {
 		const hq = expandDoc(doc);
 		const cols = hq.modules[0].case_details.short.columns;
-		expect(cols.some((c) => c.field === "case_name")).toBe(true);
+		expect(cols.some((c) => c.field === "name")).toBe(true);
 	});
 
 	it("validator allows case_name in case_list_columns", () => {
@@ -2818,7 +2818,7 @@ describe("case detail (long) view", () => {
 		const hq = expandDoc(doc);
 		const longCols = hq.modules[0].case_details.long.columns;
 		expect(longCols.length).toBe(2);
-		expect(longCols[0].field).toBe("case_name");
+		expect(longCols[0].field).toBe("name");
 	});
 
 	it("uses visibleInList / visibleInDetail flags to surface a wider long detail", () => {
@@ -2894,7 +2894,7 @@ describe("case detail (long) view", () => {
 		expect(
 			shortCols.map((c) => [c.field, c.format, c.useXpathExpression]),
 		).toEqual([
-			["case_name", "plain", false],
+			["name", "plain", false],
 			["age", "invisible", false],
 			["dob", "invisible", false],
 		]);
@@ -2902,7 +2902,7 @@ describe("case detail (long) view", () => {
 		// Details keeps all three columns, in its independent display order, with
 		// normal `plain` format because `visibleInDetail` is unset.
 		expect(longCols.length).toBe(3);
-		expect(longCols[0].field).toBe("case_name");
+		expect(longCols[0].field).toBe("name");
 		expect(longCols[0].format).toBe("plain");
 		expect(longCols[1].field).toBe("age");
 		expect(longCols[1].format).toBe("plain");
@@ -4240,7 +4240,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		});
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(shortCols).toHaveLength(1);
-		expect(shortCols[0].field).toBe("case_name");
+		expect(shortCols[0].field).toBe("name");
 		expect(shortCols[0].format).toBe("plain");
 		expect(shortCols[0].useXpathExpression).toBe(false);
 	});
@@ -4536,11 +4536,11 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			details.short.columns.map((column) => [column.field, column.format]),
 		).toEqual([
 			["phone", "invisible"],
-			["case_name", "plain"],
+			["name", "plain"],
 		]);
 		expect(details.short.sort_elements).toEqual([
 			{
-				field: "case_name",
+				field: "name",
 				type: "plain",
 				direction: "ascending",
 				blanks: "first",
@@ -4583,7 +4583,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		expect(sortElements[0].type).toBe("int");
 		expect(sortElements[0].blanks).toBe("last");
 		expect(sortElements[0].display).toEqual({ en: "" });
-		expect(sortElements[1].field).toBe("case_name");
+		expect(sortElements[1].field).toBe("name");
 		expect(sortElements[1].direction).toBe("ascending");
 		expect(sortElements[1].type).toBe("plain");
 		expect(sortElements[1].blanks).toBe("first");

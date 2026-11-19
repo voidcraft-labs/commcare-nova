@@ -3041,6 +3041,24 @@ def shadow_commtrack_on(use, manifest):
     return any(_shows_product_stock(load) for load in loads)
 
 
+def schedule_enabled(use, manifest):
+    """``forms-and-case-writes/advancedform-schedule-with-enabled-true-visits-transition``: a form's visit schedule
+    that is on. ``FormSchedule.enabled`` is true where the schedule leaves it out
+    (``models/forms.py::FormSchedule``), and every reader of the schedule tests it (``xform.py``'s scheduler blocks,
+    ``form.schedule.enabled``), so a schedule HQ writes on every new advanced or mirror form, ``enabled`` false, is
+    the INERT class beside it. A use of a key inside the schedule (its visits, its conditions) is read in the
+    schedule it sits in; a value of ``enabled`` that is no truth value, which HQ's model refuses as it wraps the
+    app, is not settled."""
+    at = _json(use)
+    if at is None:
+        return None
+    schedule = at.value if at.key == "schedule" else at.nearest("FormSchedule")
+    if not isinstance(schedule, dict):
+        return None
+    enabled = schedule.get("enabled", True)
+    return enabled if isinstance(enabled, bool) else None
+
+
 def _reads_through(load, opens):
     """Whether a source form's XForm reads or writes through a load: its preloads, its ``case_properties``, its
     close, or an open action's index to its tag (``xform.py::_create_casexml_advanced``)."""
@@ -5226,6 +5244,91 @@ def _form_entries(form):
     ]
 
 
+def _command_literal(command):
+    """The command a stack frame's ``<command>`` names: its ``value``'s one string literal, read through Core's
+    lexer, or None where it names its value otherwise."""
+    found = xpath_tokens(command.get("value") or "")
+    return found[0].text[1:-1] if found is not None and len(found) == 1 and found[0].kind == "STR" else None
+
+
+def _frame_commands(frame):
+    """The command each ``<command>`` of a stack frame names, in order (``_command_literal``)."""
+    return [_command_literal(command) for command in _children(frame) if _local(command) == "command"]
+
+
+def _entries_showing(root, detail_id):
+    """Each ``<entry>`` or ``<remote-request>`` of a suite one of whose datums shows the detail ``detail_id`` as its
+    list."""
+    return [
+        entry
+        for entry in _children(root)
+        if _local(entry) in ("entry", "remote-request")
+        and any(
+            isinstance(datum.tag, str) and _local(datum) == "datum" and datum.get("detail-select") == detail_id
+            for datum in entry.iter()
+        )
+    ]
+
+
+def _reached_without_a_query(entry):
+    """Whether a suite opens an entry's form with no query on the session's frame (True), only after one (False),
+    or does not say (None).
+
+    Core opens the form from the frame the session is in when the entry's last step is met. A menu's command
+    begins that frame and the entry's own session fills it, and a stack's ``<create>`` begins a frame of its own
+    steps (``CommCareSession.processStackOp``, ``createFrame``), so either holds a query only where the entry's
+    session or the frame's steps before the command hold one. A ``<push>`` adds its steps to the frame the session
+    is in (``performPush``): a case list's action, HQ's Register action after an empty search among them
+    (``suite_xml/sections/details.py::get_case_list_form_action``, a ``PushFrame``), pushes onto the frame of the
+    entry or search whose datum shows that list, which holds its query where that one's session does; a push
+    anywhere else is not read here. A menu held off the menu (``_puts_off_the_menu``) offers its commands to no
+    one. Where the suite reaches the entry by none of these, it does not say how the form opens, and the entry's
+    own session is read."""
+    root = entry.getparent()
+    command = _command_id(entry)
+    if root is None or command is None:
+        return not _entry_searches_inline(entry)
+    own = _entry_searches_inline(entry)
+    verdicts = set()
+    for menu in _children(root):
+        if _local(menu) != "menu" or not any(
+            _local(child) == "command" and child.get("id") == command for child in _children(menu)
+        ):
+            continue
+        off = _puts_off_the_menu(menu.get("relevant"))
+        if off is None:
+            verdicts.add(None)
+        elif not off:
+            verdicts.add(not own)
+    for frame in root.iter():
+        if not isinstance(frame.tag, str) or _local(frame) not in ("create", "push"):
+            continue
+        names = _frame_commands(frame)
+        if command not in names:
+            if None in names:
+                verdicts.add(None)
+            continue
+        if _local(frame) == "create":
+            queried = False
+            for step in _children(frame):
+                if _local(step) == "command" and _command_literal(step) == command:
+                    break
+                queried = queried or _local(step) == "query"
+            verdicts.add(not (own or queried))
+            continue
+        detail = next((at for at in frame.iterancestors() if _local(at) == "detail"), None)
+        if detail is None:
+            verdicts.add(None)
+            continue
+        showing = _entries_showing(root, detail.get("id"))
+        verdicts.update(not (own or _entry_searches_inline(shown)) for shown in showing)
+    if True in verdicts:
+        return True
+    if None in verdicts:
+        return None
+    return False if verdicts else not own
+
+
 def non_inline_search_form(prefix):
     def reader(use, manifest):
         document, read = _instance_reads(use)
@@ -5240,19 +5343,22 @@ def non_inline_search_form(prefix):
             entries = _form_entries(document)
             if not entries:
                 return None
-            return any(not _entry_searches_inline(entry) for entry in entries)
+            verdicts = {_reached_without_a_query(entry) for entry in entries}
+            return True if True in verdicts else None if None in verdicts else False
         instance, entry = _instance_in(use)
         if instance is None:
             return None
         if entry is None or not (instance.get("id") or "").startswith(prefix):
             return False
-        return not _entry_searches_inline(entry)
+        return _reached_without_a_query(entry)
 
     reader.__doc__ = (
-        f"An ``{prefix}`` instance a form's entry declares, or a form's expression reads, reached through a search"
-        " that is not inline (the session of an entry that opens the form holds no query): the search's"
-        " ``<rewind>`` drops the step that loads it (``SessionFrame.rewindToMarkAndSet``). An app JSON's slot is"
-        " evaluated outside a form."
+        f"An ``{prefix}`` instance a form's entry declares, or a form's expression reads, where the suite opens the"
+        " form with no query on the session's frame (``_reached_without_a_query``): reached through a search that"
+        " is not inline, the search's ``<rewind>`` drops the step that loads it"
+        " (``SessionFrame.rewindToMarkAndSet``). A form HQ's Register action opens after an empty inline search"
+        " (the no-matches form, in a menu held off the menu) is pushed onto the searching entry's frame, which holds"
+        " the query. An app JSON's slot is evaluated outside a form."
     )
     return reader
 
@@ -5562,11 +5668,17 @@ def _media_paths(value):
 MEDIA_PREFIX = "jr://file/"
 
 
+# What ``_media`` gives for an item of the app HQ made whose path HQ holds no file at: a format class takes no
+# such item.
+NO_FILE = object()
+
+
 def _media(use):
     """What the file a ``media-class`` use's multimedia map item names is (``proof.observe.manifest.
-    media_facts``): in the app HQ made, the file HQ holds at the item's path (``Readings.authored_media``), and in
-    an app Nova sends, the file Nova's local archive carries at the reference's path. None where neither holds
-    one."""
+    media_facts``): in the app HQ made, the file HQ holds at the item's path (``Readings.authored_media``), or
+    ``NO_FILE`` where HQ holds none there (a starter app's template maps a path its own media list leaves out, and
+    HQ's media view answers 404 for it, ``hqmedia/views.py::ViewMultimediaFile``); and in an app Nova sends, the
+    file Nova's local archive carries at the reference's path. None where the readings do not say."""
     at = _json(use)
     if at is None:
         return None
@@ -5579,7 +5691,7 @@ def _media(use):
     if path is None:
         return None
     if at.app.authored:
-        return readings.authored_media.get(path)
+        return readings.authored_media.get(path, NO_FILE)
     if not path.startswith(MEDIA_PREFIX):
         return None
     return readings.media.get(path[len(MEDIA_PREFIX) :])
@@ -5592,16 +5704,16 @@ def _video_tracks(iso):
 def tiff_heif(use, manifest):
     """``expressions-and-data/image-tiff-heif``: an image HQ classifies as TIFF or HEIF."""
     facts = _media(use)
-    if facts is None:
-        return None
+    if facts is None or facts is NO_FILE:
+        return None if facts is None else False
     return facts["mime"] in ("image/tiff", "image/heif", "image/heic", "image/heif-sequence", "image/heic-sequence")
 
 
 def svg_image(use, manifest):
     """``expressions-and-data/image-svg``: an image HQ classifies as SVG, which it cannot store."""
     facts = _media(use)
-    if facts is None:
-        return None
+    if facts is None or facts is NO_FILE:
+        return None if facts is None else False
     return facts["mime"] == "image/svg+xml"
 
 
@@ -5613,8 +5725,8 @@ def other_wav(use, manifest):
     """``expressions-and-data/audio-wav-that-is-not-8-or-16-bit-pcm``: a WAV whose ``fmt`` chunk holds another
     codec, or PCM of another sample size, which Android does not play."""
     facts = _media(use)
-    if facts is None:
-        return None
+    if facts is None or facts is NO_FILE:
+        return None if facts is None else False
     wav = facts.get("wav")
     if "wav" not in facts:
         return False
@@ -5625,8 +5737,8 @@ def audio_3gp(use, manifest):
     """``expressions-and-data/audio-3gp``: a 3GP file with no video track (``ftyp`` brand ``3g…``), which HQ
     classifies as video."""
     facts = _media(use)
-    if facts is None:
-        return None
+    if facts is None or facts is NO_FILE:
+        return None if facts is None else False
     iso = facts.get("iso")
     return iso is not None and str(iso["brand"]).startswith("3g") and not _video_tracks(iso)
 
@@ -5635,8 +5747,8 @@ def audio_m4a_other_brand(use, manifest):
     """``expressions-and-data/audio-m4a-with-another-brand-isom-mp41-mp42-dash``: an MPEG-4 file with no video
     track whose brand is ``isom``, ``mp41``, ``mp42`` or ``dash``, which HQ classifies as video."""
     facts = _media(use)
-    if facts is None:
-        return None
+    if facts is None or facts is NO_FILE:
+        return None if facts is None else False
     iso = facts.get("iso")
     return iso is not None and iso["brand"] in ("isom", "mp41", "mp42", "dash") and not _video_tracks(iso)
 
@@ -5645,8 +5757,8 @@ def av1_mov_avi_theora_h263(use, manifest):
     """``expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp``: an AV1 video track, a QuickTime file
     (``ftyp`` brand ``qt``), an AVI (as HQ classifies it), Theora in Ogg, or an H.263 track."""
     facts = _media(use)
-    if facts is None:
-        return None
+    if facts is None or facts is NO_FILE:
+        return None if facts is None else False
     iso = facts.get("iso")
     if iso is not None:
         codecs = {codec for track in _video_tracks(iso) for codec in track["codecs"]}
@@ -6289,14 +6401,21 @@ def unnamed_instances(use, manifest):
     """``expressions-and-data/more-than-one-instance-without-an-id``: an ``<instance>`` without an ``id`` after the
     form's first such instance, which Vellum refuses to open (``parser.js::_getInstances``, which finds every element
     named ``instance`` in the document, takes the first whose ``id`` is empty as the main instance and throws on a
-    later one). The first is the form's main instance, which is not in the class."""
+    later one). The first is the form's main instance, which is not in the class where a later one is the model's
+    own; where every later one is an element inside an instance's content (a data node named ``instance``), which
+    is no use of the model's ``<instance>``, the class stands at the main instance, the one use the form makes of
+    it."""
     form, element = _instance_element(use)
     if form is None:
         return None
     if element is None or element.get("id"):
         return False
     unnamed = [other for other in form.named_instance_elements if not other.get("id")]
-    return len(unnamed) > 1 and element is not unnamed[0]
+    if len(unnamed) < 2:
+        return False
+    if element is not unnamed[0]:
+        return True
+    return not any(other.getparent() is form.model for other in unnamed[1:])
 
 
 def supply_point_datum(use, manifest):
@@ -6550,6 +6669,68 @@ def _literal_equalities(tree, sessions):
     return {}
 
 
+def _list_filter_detail(at):
+    """The short detail a menu's case list filter is (``m<i>_case_short``), where an app JSON use sits on that
+    filter; None for any other slot."""
+    if at.key != "filter" or at.scope[-1][0] != "Detail":
+        return None
+    module = at.nearest(*MODULES)
+    pair = (module or {}).get("case_details")
+    if not isinstance(pair, dict) or pair.get("short") is not at.owner:
+        return None
+    m = next((index for index, held in enumerate(at.app.modules) if held is module), None)
+    return None if m is None else f"m{m}_case_short"
+
+
+def _nodeset_session_data(text, sessions):
+    """Each id a datum's ``nodeset`` reads of the session's data, ``instance('<session>')/session/data/<id>``, read
+    through Core's lexer; None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    kinds = [token.kind for token in found]
+    shape = ["QNAME", "LPAREN", "STR", "RPAREN", "SLASH", "QNAME", "SLASH", "QNAME", "SLASH", "QNAME"]
+    read = set()
+    for index in range(len(found) - len(shape) + 1):
+        if kinds[index : index + len(shape)] != shape:
+            continue
+        names = [found[index + offset].text for offset in (0, 5, 7)]
+        if names == ["instance", "session", "data"] and found[index + 2].text[1:-1] in sessions:
+            read.add(found[index + 9].text)
+    return read
+
+
+def _filter_unsupplied(at, read, guarded, sessions):
+    """``datum_not_supplied`` for a menu's case list filter. HQ's build writes the filter into the ``nodeset`` of
+    each datum that selects from the list (``suite_xml/sections/entries.py::EntriesHelper.get_filter_xpath``), and
+    where it aligns a child menu's datums with its parent's it renames each session read there to the id the
+    parent gives the same case (``add_parent_datums``, ``_update_refs``), so the filter's reads are judged as the
+    built ``nodeset`` holds them: True where it reads an id written after the datum that one of the filter's own
+    unguarded reads names, False where every id it reads is written before, and None where it reads one the filter
+    does not (HQ's own index test) or no suite the check reads holds such a datum."""
+    detail_id = _list_filter_detail(at)
+    verdicts = set()
+    for suite in _app_suites(at.app):
+        for holder in _children(suite.root):
+            if _local(holder) not in ("entry", "remote-request"):
+                continue
+            ids = _session_ids(holder)
+            for position, (_, datum) in enumerate(ids):
+                if datum.get("detail-select") != detail_id:
+                    continue
+                nodeset = _nodeset_session_data(datum.get("nodeset"), sessions)
+                if nodeset is None:
+                    verdicts.add(None)
+                    continue
+                written = {datum_id for datum_id, _ in ids[:position]}
+                for unsupplied in nodeset - written:
+                    verdicts.add(True if unsupplied in read else False if unsupplied in guarded else None)
+                verdicts.add(False)
+    if True in verdicts:
+        return True
+    return None if None in verdicts or not verdicts else False
+
+
 def _detail_supplied(root, detail_id):
     """The ids written before each datum that shows a detail (through the datum, for a detail that stays on
     screen while the form runs), every such datum agreeing; None where no datum shows it."""
@@ -6614,10 +6795,13 @@ def datum_not_supplied(use, manifest):
         and path["steps"][2] not in _OWN_SESSION_DATA
     }
     tree = document.tree(text) if read and hasattr(document, "tree") else None
+    unguarded = set(read)
     if tree is not None and not _holds_other(tree):
         read &= _unpacked_session_data(tree, sessions, frozenset())
     if not read:
         return False
+    if isinstance(use.at, JsonAt) and _list_filter_detail(use.at) is not None:
+        return _filter_unsupplied(use.at, read, unguarded - read, sessions)
     if isinstance(use.at, JsonAt):
         supplied = _slot_supplied(use.at, sessions)
     elif document.kind == "xform":
@@ -7241,11 +7425,31 @@ def _time_kind(manifest, document, tree, context, seen, case_type=None, in_predi
         name, arguments = tree[1], tree[2]
         if name in NON_TIME_CALLS:
             return False
-        branches = arguments[1:] if name == "if" and len(arguments) == 3 else arguments if name == "coalesce" else None
+        branches = (
+            arguments[1:]
+            if name == "if" and len(arguments) == 3
+            else arguments
+            if name == "coalesce"
+            # Core's cond gives the value after the first condition that holds, else its last argument
+            # (``XPathCondFunc.evalBody``).
+            else [*arguments[1:-1:2], arguments[-1]]
+            if name == "cond" and len(arguments) >= 3 and len(arguments) % 2 == 1
+            else None
+        )
         if not branches:
             return None
         kinds = {_time_kind(manifest, document, branch, context, seen, case_type, in_predicate) for branch in branches}
         return True if True in kinds else None if None in kinds else False
+    if kind == "path" and tree[1] == "instance:commcaresession":
+        # Core writes the session's drift as a whole number (``SessionInstanceBuilder.addMetadata``,
+        # ``String.valueOf`` of a long) and its window width as the client gives it, the window's width in pixels
+        # (Web Apps' ``menus/api.js``, ``String(window.innerWidth)``); no other session value is read here.
+        return False if _session_context_read(tree) in ("drift", "window_width") else None
+    if kind == "path" and document.kind == "xform" and tree[1] == "instance:casedb":
+        read = _own_case_property(tree)
+        if read is None:
+            return None
+        return _property_time_kind(document, _datum_case_type(document, read[0]), read[1])
     if kind == "path" and (document.kind == "runtime" or case_type is not None):
         if _system_date_read(tree):
             return False
@@ -7270,6 +7474,96 @@ def _time_kind(manifest, document, tree, context, seen, case_type=None, in_predi
             return None
         return None if path is None else _time_node(manifest, document, path, seen)
     return None
+
+
+def _property_time_kind(document, case_type, property_name):
+    """Whether a case property of a type holds a time (``_time_kind``): by the document's catalog, None where it
+    does not type the property."""
+    data_type = ((document.case_types or {}).get(case_type) or {}).get(property_name) if case_type else None
+    if data_type == "time":
+        return True
+    if data_type in ("date", "datetime", "int", "decimal"):
+        return False
+    return None
+
+
+def _session_context_read(tree):
+    """The child of the session's ``context`` a path reads, ``instance('commcaresession')/session/context/<name>``
+    with no predicate, or None."""
+    steps, predicates = tree[4], tree[3]
+    if len(steps) != 3 or list(predicates) != [["text", "commcaresession"]]:
+        return None
+    if any(axis != "child" or count for axis, _, count in steps):
+        return None
+    if [step[1] for step in steps[:2]] != ["session", "context"]:
+        return None
+    return steps[2][1]
+
+
+def _session_data_read(tree):
+    """The id a path reads of the session's data, ``instance('commcaresession')/session/data/<id>`` with no
+    predicate, or None."""
+    if tree[0] != "path" or tree[1] != "instance:commcaresession":
+        return None
+    steps, predicates = tree[4], tree[3]
+    if len(steps) != 3 or list(predicates) != [["text", "commcaresession"]]:
+        return None
+    if any(axis != "child" or count for axis, _, count in steps):
+        return None
+    if [step[1] for step in steps[:2]] != ["session", "data"]:
+        return None
+    return steps[2][1]
+
+
+def _own_case_property(tree):
+    """``instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/<id>]/<property>``, the
+    read of a case a session datum names that HQ's form builder writes for ``#case/<property>``: (the datum's id,
+    the property), or None for any other path."""
+    steps, predicates = tree[4], tree[3]
+    if (
+        len(steps) != 3
+        or list(steps[0]) != ["child", "casedb", 0]
+        or list(steps[1]) != ["child", "case", 1]
+        or steps[2][0] != "child"
+        or steps[2][2]
+        or len(predicates) != 2
+        or list(predicates[0]) != ["text", "casedb"]
+    ):
+        return None
+    predicate = predicates[1]
+    if predicate[:2] != ["binary", "="]:
+        return None
+    for path, datum in (predicate[2:], reversed(predicate[2:])):
+        if _bare_read(path, "attribute") == "case_id" and _session_data_read(datum) is not None:
+            return _session_data_read(datum), steps[2][1]
+    return None
+
+
+def _datum_case_type(form, datum_id):
+    """The case type the session datum ``datum_id`` selects in every entry that opens a form (``_form_entries``):
+    the type its ``nodeset`` names first, ``instance('casedb')/casedb/case[@case_type='<type>']…``, read through
+    Core's lexer; None where an entry selects it otherwise, or the entries disagree or hold none."""
+    types = set()
+    for entry in _form_entries(form):
+        datums = [
+            datum
+            for datum in entry.iter()
+            if isinstance(datum.tag, str) and _local(datum) == "datum" and datum.get("id") == datum_id
+        ]
+        if len(datums) != 1:
+            return None
+        found = xpath_tokens(datums[0].get("nodeset") or "")
+        shape = [token.kind for token in found or ()][:14]
+        expected = ["QNAME", "LPAREN", "STR", "RPAREN", "SLASH", "QNAME", "SLASH", "QNAME"]
+        expected += ["LBRACK", "AT", "QNAME", "EQ", "STR", "RBRACK"]
+        if (
+            shape != expected
+            or [found[index].text for index in (0, 5, 7, 10)] != ["instance", "casedb", "case", "case_type"]
+            or found[2].text[1:-1] != "casedb"
+        ):
+            return None
+        types.add(found[12].text[1:-1])
+    return next(iter(types)) if len(types) == 1 else None
 
 
 def _system_date_read(tree):
@@ -9283,6 +9577,7 @@ VALUE_CLASSES = {
     ),
     "forms-and-case-writes/show-product-stock-true-or-a-non-empty-product-program": commtrack_on,
     "forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non": shadow_commtrack_on,
+    "forms-and-case-writes/advancedform-schedule-with-enabled-true-visits-transition": schedule_enabled,
     "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": (
         shadow_parent_tag_not_repeated
     ),

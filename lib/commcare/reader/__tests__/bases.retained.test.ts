@@ -13,7 +13,8 @@
  * are the ones the lane recorded in its `expected.json`; each record of a
  * key of one of HQ's classes stands at that key's own pointer; every record's
  * key is one its entry names, or none; every retained
- * answer is one the reading asked for; and the reading asks for nothing
+ * answer is one the reading asked for; the reading holds every placement
+ * its emission derives; and the reading asks for nothing
  * the base does not hold, a mapped file's read among them (such a request
  * ends the reading, naming its path).
  *
@@ -39,6 +40,7 @@ import {
 	RETAINED_BASES,
 	retainedBase,
 } from "@/__tests__/helpers/retainedHqApps";
+import { placementsToHold } from "@/lib/commcare/placementHolds";
 import { inventoryIndex } from "@/lib/commcare/surface/inventory";
 import { placeLine } from "@/lib/publish/hqFindingCopy";
 import type { RetainedHqApp } from "@/proof/corpus/hqAuthored";
@@ -235,6 +237,21 @@ function discrepancies(base: RetainedHqApp, reading: LaneReading): string[] {
 		: [...found, unaskedMessage(base.id, unasked)];
 }
 
+/**
+ * Each placement Nova's emission of `reading`'s document derives that the document does not
+ * hold: a sentence naming it, none where the reading holds every one. A reading holds every
+ * placement CommCare HQ keeps a case change, a query repeat or a menu's kind at
+ * (`assemble.ts`'s `unheld-placements-are-held`), so the first publish records none into the
+ * document and a read of the app it left gives the document back (proof 6's `read(A) = D`).
+ */
+function unheldPlacements(base: RetainedHqApp, reading: LaneReading): string[] {
+	if (reading.kind !== "read") return [];
+	return placementsToHold(reading.doc).map(
+		(hold) =>
+			`Nova's reading of the base ${base.id} holds no placement where its emission places ${JSON.stringify(hold)}, so the first publish would record one the reading did not read. Look at the reader stage that reads that case change, query repeat or menu.`,
+	);
+}
+
 async function readBase(base: RetainedHqApp): Promise<LaneReading> {
 	return readForLane(laneInputOf(base));
 }
@@ -255,6 +272,7 @@ describe("the apps CommCare HQ made that the proof lane retained", () => {
 				const reading = await readBase(base);
 				expect([
 					...discrepancies(base, reading),
+					...unheldPlacements(base, reading),
 					...misplacedRecords(base, reading),
 					...(reading.kind === "read" ? unnamedKeys(base, reading.claims) : []),
 				]).toEqual([]);

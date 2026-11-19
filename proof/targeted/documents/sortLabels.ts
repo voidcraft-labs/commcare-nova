@@ -15,7 +15,11 @@
  * shown on Details, under the name "Highest score" ("Meilleur score" in
  * French), and a tile list whose rank column is shown nowhere and is carried
  * by its rule alone, under the name "Rank" ("Rang"). The document declares
- * both platforms.
+ * both platforms. Core's case list opens only on the installed local archive
+ * (`proof/observe/intent.py::expectations`), so the values below hold Nova's
+ * local suite in each language; proof 3 holds Core's list in HQ's build of A
+ * and of B to the local archive's in the app's default language, and proof 2
+ * holds A's and B's app strings in every language.
  *
  * Fixed values: Amani has score 5 and rank 2, Baraka score 9 and rank 1. The
  * list orders by score descending, so Baraka comes first; the tile list orders
@@ -182,17 +186,17 @@ export function sortLabels() {
 	});
 	const named = (
 		list: "list" | "tile",
-		exportName: "local" | "A",
 		locale: "en" | "fr",
 		name: string,
 	): Expectation => ({
-		id: `${list}-sort-name-${locale}-${exportName}`,
-		export: exportName,
+		id: `${list}-sort-name-${locale}-local`,
+		export: "local",
 		form: list === "list" ? listForm : tileForm,
 		restore: "restore.xml",
 		request: {
 			locale,
 			session: { command: list === "list" ? "m0-f0" : "m1-f0" },
+			caseList: {},
 		},
 		expect: [
 			// The name field follows the one field the list shows.
@@ -207,12 +211,12 @@ export function sortLabels() {
 		rows: ["menus-and-case-lists, a sort's name in Sort by"],
 		doc,
 		expected: {
-			intent: (["local", "A"] as const).flatMap((exportName) => [
-				named("list", exportName, "en", "Highest score"),
-				named("list", exportName, "fr", "Meilleur score"),
-				named("tile", exportName, "en", "Rank"),
-				named("tile", exportName, "fr", "Rang"),
-			]),
+			intent: [
+				named("list", "en", "Highest score"),
+				named("list", "fr", "Meilleur score"),
+				named("tile", "en", "Rank"),
+				named("tile", "fr", "Rang"),
+			],
 		},
 		files: { "restore.xml": restore },
 	});

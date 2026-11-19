@@ -125,6 +125,25 @@ describe("the targeted documents", () => {
 			}
 		}
 	});
+
+	/* Core's evaluate opens a case list only where the request holds
+	 * `caseList`, and else opens the form, so a list's values expected of a
+	 * request without one are asked of a form that gives none (a form that
+	 * needs the case the list would have chosen raises instead). */
+	it("ask a case list's values only of a request that opens the list, and a form's only of one that opens the form", () => {
+		for (const document of targetedDocuments()) {
+			const expected = document.expected as Expected;
+			for (const entry of expected.intent) {
+				const opensList = entry.request.caseList !== undefined;
+				for (const { pointer } of entry.expect) {
+					expect(
+						pointer.startsWith("/caseList/"),
+						`${document.id}: ${entry.id} expects ${pointer}`,
+					).toBe(opensList);
+				}
+			}
+		}
+	});
 });
 
 /** The configurations the corpus writes for a document no A is retained for (`../../corpus/entryWriter.ts`). */

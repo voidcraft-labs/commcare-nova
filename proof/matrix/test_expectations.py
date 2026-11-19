@@ -7,8 +7,14 @@ base's builder authors and never from a reading. An expectation is
 HQ's ``{menu, form}``, and ``entry`` and ``exports`` beside it. The rules,
 each failing by base with what is missing:
 
-1. the restore parses; every datum value an expectation's session names is a
-   case of it; every case type it writes is in the base's ``seed.json``
+1. the restore parses; a form's expectation gives every datum HQ's build of
+   the form reads from its session (``_session_datums``: a case the form
+   creates, the worker's own case, the cases a several-case list chose); every
+   datum value an expectation's session names is a case of the restore, but a
+   case the form creates, which is one the restore lacks, and the worker's own
+   case, which is its ``commcare-user`` case; a case list's values are
+   expected only of a request that opens the list, a form's only of one that
+   opens the form; every case type it writes is in the base's ``seed.json``
    catalog, and every property it writes is one the catalog gives the type
    (what the app's forms write) or one a form of the app loads into a
    question for it (a ``case_preload`` or an advanced load's ``preload``), so
@@ -24,7 +30,8 @@ each failing by base with what is missing:
 5. every first-publish id of the base whose entry holds a ``proof3`` row in
    ``proof/first-publish-changes.json`` has a ``<id>:before`` expectation run
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
-   differ;
+   differ, but for a row that names a media reference a trace read, which no
+   value Core's evaluate answers can show (``_shows_a_value``);
 6. a multi-select question an expression tests has an expectation answering
    it with two choices;
 7. a base whose app holds more than one language is read under a declaration
@@ -32,7 +39,9 @@ each failing by base with what is missing:
 
 Where a claim sits is read from the base's claim log, which the reader bundle
 gives for its committed answers (``proof.matrix.lane_input``). The plausible
-failures: a datum naming a case the restore lacks; a hand restore writing a
+failures: a datum naming a case the restore lacks; a registration form's
+expectation that gives no id for the case it creates, which Core raises on at
+A; a hand restore writing a
 property the app does not hold; a held entry with no value fixed by hand, in a
 form or on a case list; a declared change with no before and after; a base of
 several languages, or one with a case list expectation, read as Web Apps only.
@@ -67,13 +76,28 @@ def _held_entries():
     return found
 
 
+# The last step of a trace path that names a media reference Core read for a screen (a question's, a choice's or a
+# menu entry's picture, sound or video), not a value.
+MEDIA_REFERENCES = frozenset({"image", "audio", "video"})
+
+
+def _shows_a_value(row):
+    """Whether a ``proof3`` row names something Core's evaluate can fix by hand: anything but a media reference a
+    trace read. Core's evaluate, which runs an expectation, answers expressions, answers and a case list's rows, and
+    reads no question's or menu's media (``proof/core/src/nova/proof/core/Evaluate.java``), so a change whose
+    behavior is a media reference moving or going (``media-files-renamed``, ``broken-pictures-removed``) is shown
+    before and after by proof 3's own comparison of A's trace with B's and the archive's, each side's reference."""
+    return row.get("check") == "proof3" and row.get("path", "").rsplit("/", 1)[-1] not in MEDIA_REFERENCES
+
+
 def _proof3_changes():
+    """The changes whose rows hold a ``proof3`` row a value expectation can show (``_shows_a_value``)."""
     if not FIRST_PUBLISH_CHANGES.is_file():
         return set()
     return {
         change["change"]
         for change in json.loads(FIRST_PUBLISH_CHANGES.read_text(encoding="utf-8"))
-        if any(row.get("check") == "proof3" for row in change.get("rows") or [])
+        if any(_shows_a_value(row) for row in change.get("rows") or [])
     }
 
 
@@ -112,6 +136,45 @@ def _loaded_properties(app):
 
 def _forms(app):
     return [(m, f) for m, module in enumerate(app.get("modules", [])) for f, _ in enumerate(module.get("forms", []))]
+
+
+def _active(action):
+    return ((action or {}).get("condition") or {}).get("type") in ("always", "if")
+
+
+def _session_datums(app, m, f):
+    """``{datum id: kind}``: each datum HQ's suite gives the form at ``(m, f)`` that HQ's build of the form reads
+    from its session, beyond the case its menu selects. ``new`` is a case the form creates, whose id the suite
+    computes with ``uuid()`` (``suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta``, named
+    by ``models/forms.py::FormBase.session_var_for_action`` and ``form_actions.py::AdvancedOpenCaseAction.
+    case_session_var``; one inside a repeat is the form's own ``uuid()``); ``worker`` is the worker's own case, for a
+    form that loads or saves it (``get_extra_case_id_datums``, ``util.py::actions_use_usercase``), which
+    ``xform.py::SESSION_USERCASE_ID`` reads; ``several`` is the cases a several-case list chose
+    (``suite_xml/utils.py::get_select_chain_with_sessions``), whose instance the form declares
+    (``xform.py::XForm._create_casexml``). Core raises on a form that reads a datum its session lacks, so a request
+    that leaves one out asks a question of a form that cannot open."""
+    module = app["modules"][m]
+    form = module["forms"][f]
+    actions = form.get("actions") or {}
+    datums = {}
+    if form.get("doc_type") == "Form":
+        opens = _active(actions.get("open_case"))
+        if opens:
+            datums[f"case_id_new_{module['case_type']}_0"] = "new"
+        for index, subcase in enumerate(actions.get("subcases") or []):
+            if _active(subcase) and not subcase.get("repeat_context"):
+                datums[f"case_id_new_{subcase['case_type']}_{index + (1 if opens else 0)}"] = "new"
+        if (actions.get("usercase_update") or {}).get("update") or (actions.get("usercase_preload") or {}).get(
+            "preload"
+        ):
+            datums["usercase_id"] = "worker"
+    elif form.get("doc_type") in ("AdvancedForm", "ShadowForm"):
+        for index, opened in enumerate(actions.get("open_cases") or []):
+            if not opened.get("repeat_context"):
+                datums[f"case_id_new_{opened['case_type']}_{index}"] = "new"
+    if ((module.get("case_details") or {}).get("short") or {}).get("multi_select") and form.get("requires") == "case":
+        datums["selected_cases"] = "several"
+    return datums
 
 
 def _languages(app):
@@ -211,11 +274,51 @@ def _problems(base, claim_log, held, proof3):
         restore = expectation.get("restore")
         if restore != "restore.xml":
             problems.append(f"{expectation.get('id')} names the restore {restore!r}, and a base's is restore.xml")
-        data = ((expectation.get("request") or {}).get("session") or {}).get("data") or {}
+        request = expectation.get("request") or {}
+        data = (request.get("session") or {}).get("data") or {}
+        form = expectation.get("form") or {}
+        needed = (
+            _session_datums(app, form["menu"], form["form"])
+            if "caseList" not in request and (form.get("menu"), form.get("form")) in _forms(app)
+            else {}
+        )
+        for datum, kind in sorted(needed.items()):
+            if datum not in data:
+                problems.append(
+                    f"{expectation.get('id')} gives no {datum}, which HQ's build of form {form['menu']}.{form['form']}"
+                    f" reads from its session ({kind})"
+                )
         for datum, value in sorted(data.items()):
-            if value not in cases:
+            kind = needed.get(datum)
+            if kind == "several":
+                if not isinstance(value, list) or not value or any(one not in cases for one in value):
+                    problems.append(
+                        f"{expectation.get('id')} names {value} for {datum}, which takes the cases restore.xml holds"
+                        " that a several-case list chose, as a list"
+                    )
+            elif kind == "new":
+                if not isinstance(value, str) or value in cases:
+                    problems.append(
+                        f"{expectation.get('id')} names {value} for {datum}, the case the form creates, which is"
+                        " one id restore.xml holds no case of"
+                    )
+            elif kind == "worker":
+                if not isinstance(value, str) or (cases.get(value) or (None,))[0] != "commcare-user":
+                    problems.append(
+                        f"{expectation.get('id')} names {value} for {datum}, which is the worker's own case"
+                        " (commcare-user) restore.xml holds"
+                    )
+            elif not isinstance(value, str) or value not in cases:
                 problems.append(
                     f"{expectation.get('id')} names {value} for {datum}, which restore.xml holds no case of"
+                )
+        opens_list = "caseList" in request
+        for expected in expectation.get("expect") or []:
+            if str(expected.get("pointer", "")).startswith("/caseList/") != opens_list:
+                problems.append(
+                    f"{expectation.get('id')} expects {expected.get('pointer')} of a request that"
+                    f" {'opens a case list' if opens_list else 'opens the form'}, and Core's evaluate gives a case"
+                    " list's values only where the request holds caseList, a form's only where it does not"
                 )
         exports = expectation.get("exports", list(EXPORTS))
         if not set(exports) <= set(EXPORTS):

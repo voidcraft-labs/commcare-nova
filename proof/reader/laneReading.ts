@@ -72,11 +72,16 @@ import {
 	type MediaKind,
 } from "@/lib/domain";
 import type { LookupRowId } from "@/lib/domain/lookupIds";
+import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureDataSnapshot,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import {
+	partitionAssetRefs,
+	resolveBuiltinManifestEntries,
+} from "@/lib/media/builtinIconAssets";
 import {
 	type CircumstanceDetail,
 	circumstanceFinding,
@@ -543,14 +548,13 @@ interface StoredDocument {
 	readonly doc: BlueprintDoc;
 	readonly lookupDefinitions: readonly LookupTableDefinition[];
 	readonly lookup: LookupValidationContext;
-	/** Each uploaded asset by the path its publish sent it at. */
+	/** Each file by the path its publish sent it at: an uploaded asset, or a built-in icon the
+	 *  document shows. */
 	readonly media: ReadonlyMap<
 		string,
 		{ readonly assetId: string; readonly kind: MediaKind }
 	>;
 	readonly identity: readonly WireIdentityOverride[];
-	/** Whether the document is an app made in CommCare HQ, whose reading is a first reading. */
-	readonly hqAuthored: boolean;
 }
 
 interface StoredMedia {
@@ -559,42 +563,47 @@ interface StoredMedia {
 	readonly base64: string;
 }
 
+/** The uploaded files Nova's publish of a corpus document sent, by path. */
+export interface PublishedFiles {
+	/** The asset each path names, the first in the document's media order of those sent there. */
+	readonly byPath: ReadonlyMap<
+		string,
+		{ readonly assetId: string; readonly kind: MediaKind }
+	>;
+	/**
+	 * Each asset sent at a path an earlier asset of the document's media was sent at, to that
+	 * earlier asset. Two assets of one Project are never one file: the media store keeps one
+	 * ready asset a content (`lib/media/publishReadyMedia.ts`, and the browser upload's confirm),
+	 * so where a corpus document gives two of its assets the same bytes (the compiler fuzz's
+	 * manifest gives every asset of a kind one file, `compilerEvidence.ts::manifestFor`), HQ holds
+	 * one file at their one path and a reading of it names the one asset `byPath` holds there.
+	 */
+	readonly sameFile: ReadonlyMap<string, string>;
+}
+
 /**
- * What a read back reads of `document.json`. The ids CommCare HQ holds for
- * each menu and form, and the path HQ keeps each held file under, stand
- * either under `hqAuthored`, for an app made in CommCare HQ, or at the
- * document's top level (`identity`, `mediaPaths`), which proof 6 gives the
- * document a bring-in of a person's saves left (`proof/checks/proof6.py`,
- * `BroughtIn.identities`); the top level's stand where both are given. Only
- * `hqAuthored` makes the reading a first reading's: a Nova-born document
- * keeps its known case types and language codes whatever ids HQ holds.
+ * The uploaded files of a corpus document's `document.json`, by the path its
+ * publish sent each at: the path HQ keeps a held file under (`mediaPaths`, at
+ * the top level or under `hqAuthored`), else the path its content derives
+ * (`assetWirePath.ts::wirePathFor`), as production's manifest gives it
+ * (`lib/media/manifest.ts::resolveMediaManifest`).
  */
-function storedDocument(document: unknown): StoredDocument {
+export function publishedFiles(document: unknown): PublishedFiles {
 	if (typeof document !== "object" || document === null || !("doc" in document))
 		throw new Error(NOT_A_DOCUMENT);
 	const stored = document as {
-		readonly doc: unknown;
-		readonly lookup?: {
-			readonly projectId: string;
-			readonly projectRevision: string;
-			readonly definitions: readonly LookupTableDefinition[];
-		};
 		readonly media?: Readonly<Record<string, StoredMedia>>;
-		readonly identity?: readonly WireIdentityOverride[];
 		readonly mediaPaths?: Readonly<Record<string, string>>;
 		readonly hqAuthored?: {
-			readonly identity: readonly WireIdentityOverride[];
 			readonly mediaPaths?: Readonly<Record<string, string>>;
 		};
 	};
-	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(stored.doc));
-	ensureReferenceIndex(doc);
-	const definitions = stored.lookup?.definitions ?? [];
 	const heldPaths = stored.mediaPaths ?? stored.hqAuthored?.mediaPaths ?? {};
-	const media = new Map<
+	const byPath = new Map<
 		string,
 		{ readonly assetId: string; readonly kind: MediaKind }
 	>();
+	const sameFile = new Map<string, string>();
 	for (const [assetId, asset] of Object.entries(stored.media ?? {})) {
 		const held = Object.hasOwn(heldPaths, assetId)
 			? heldPaths[assetId]
@@ -607,6 +616,59 @@ function storedDocument(document: unknown): StoredDocument {
 					.digest("hex"),
 				asset.extension,
 			)}`;
+		const earlier = byPath.get(path);
+		if (earlier === undefined) byPath.set(path, { assetId, kind: asset.kind });
+		else sameFile.set(assetId, earlier.assetId);
+	}
+	return { byPath, sameFile };
+}
+
+/**
+ * What a read back reads of `document.json`. The ids CommCare HQ holds for
+ * each menu and form, and the path HQ keeps each held file under, stand
+ * either under `hqAuthored`, for an app made in CommCare HQ, or at the
+ * document's top level (`identity`, `mediaPaths`), which proof 6 gives the
+ * document a bring-in of a person's saves left (`proof/checks/proof6.py`,
+ * `BroughtIn.identities`); the top level's stand where both are given. Every
+ * read back is told the document's own case types and language codes
+ * (`knownCaseTypesOf`, `knownLanguageCodesOf`), as production's re-read of an
+ * app Nova holds is, a brought-in one too
+ * (`lib/deployment/hqChanges/readings.ts`, and acceptance's own re-read of a
+ * reading), so a type Nova's edit of an app made in CommCare HQ declares
+ * reads back declared.
+ *
+ * The files are those Nova's publish of the document sent: each uploaded
+ * asset at the path it was sent at (`publishedFiles`), and each built-in icon
+ * the document shows at the content path production's manifest gives it
+ * (`lib/media/builtinIconAssets.ts::resolveBuiltinManifestEntries`), as the
+ * index a read of changes made in CommCare HQ answers a published path with
+ * (`lib/deployment/hqChanges/readings.ts::withOwnFiles`).
+ */
+async function storedDocument(document: unknown): Promise<StoredDocument> {
+	if (typeof document !== "object" || document === null || !("doc" in document))
+		throw new Error(NOT_A_DOCUMENT);
+	const stored = document as {
+		readonly doc: unknown;
+		readonly lookup?: {
+			readonly projectId: string;
+			readonly projectRevision: string;
+			readonly definitions: readonly LookupTableDefinition[];
+		};
+		readonly identity?: readonly WireIdentityOverride[];
+		readonly hqAuthored?: {
+			readonly identity: readonly WireIdentityOverride[];
+		};
+	};
+	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(stored.doc));
+	ensureReferenceIndex(doc);
+	const definitions = stored.lookup?.definitions ?? [];
+	const media = new Map(publishedFiles(document).byPath);
+	const { builtinSlugs } = partitionAssetRefs([...collectAssetRefs(doc)]);
+	for (const [assetId, asset] of await resolveBuiltinManifestEntries(
+		builtinSlugs,
+		false,
+	)) {
+		const path = `jr://file/${asset.wirePath}`;
 		if (!media.has(path)) media.set(path, { assetId, kind: asset.kind });
 	}
 	return {
@@ -620,7 +682,6 @@ function storedDocument(document: unknown): StoredDocument {
 		} as LookupValidationContext,
 		media,
 		identity: stored.identity ?? stored.hqAuthored?.identity ?? [],
-		hqAuthored: stored.hqAuthored !== undefined,
 	};
 }
 
@@ -648,7 +709,7 @@ async function readBack(
 	creds: Parameters<typeof gatherFromHq>[0]["creds"],
 	asked: () => readonly string[],
 ): Promise<LaneReading> {
-	const stored = storedDocument(input.document);
+	const stored = await storedDocument(input.document);
 	const remoteAppId = remoteAppIdOf(input.application);
 	const account = (finding: Finding): LaneReading => ({
 		kind: "account",
@@ -703,10 +764,8 @@ async function readBack(
 		appStrings: readingAppStrings(stored.lookup),
 		recordDialect: recordDialectRoundTrip,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
-		...(!stored.hqAuthored && {
-			knownCaseTypes: knownCaseTypesOf(doc),
-			knownLanguageCodes: knownLanguageCodesOf(doc),
-		}),
+		knownCaseTypes: knownCaseTypesOf(doc),
+		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};
 	const outcome = readHqApp(readerInput, { claims: input.claims });
 	const claims =

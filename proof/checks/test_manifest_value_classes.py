@@ -1244,7 +1244,9 @@ def test_a_media_class_in_the_app_hq_made_is_read_from_the_file_hq_holds_at_its_
     (``Readings.authored_media``, by the path the map gives it); an app Nova sends names the file of Nova's local
     archive at the reference's path (``Readings.media``). The plausible failures: a class left undecided at an
     item of HQ's app whose file Nova's archive does not hold under that path (a file Nova keeps elsewhere, or one
-    no reference reads), and one read from Nova's file where HQ holds another under the same path."""
+    no reference reads), one read from Nova's file where HQ holds another under the same path, and an item of HQ's
+    app whose path HQ holds no file at (a starter app's stale item) left undecided where no format class can take
+    it."""
     path = "commcare/b31d.png"
     readings = manifest_usage.Readings(
         questions={},
@@ -1272,10 +1274,11 @@ def test_a_media_class_in_the_app_hq_made_is_read_from_the_file_hq_holds_at_its_
         uses = [use for use in found.uses if use.key == "media-class:CommCareImage"]
         return {use.where.split("/")[2]: classes.svg_image(use, manifest) for use in uses}
 
+    # HQ holds no file at gone.png (its media view answers 404), so no format class takes the item.
     assert verdicts(True) == {
         "jr:~1~1file~1commcare~1b31d.png": True,
         "jr:~1~1file~1unread.png": False,
-        "jr:~1~1file~1gone.png": None,
+        "jr:~1~1file~1gone.png": False,
     }
     assert verdicts(False) == {
         "jr:~1~1file~1commcare~1b31d.png": False,
@@ -2419,6 +2422,13 @@ def _advanced_app(loads=(), opens=(), modules_before=(), **module):
     return _with_forms(_app([*modules_before, advanced]), f=QUESTIONS)
 
 
+def _scheduled_app(schedule):
+    """An app whose advanced menu's one form (``_advanced_app``) holds this visit schedule."""
+    app = _advanced_app()
+    app["modules"][0]["forms"][0]["schedule"] = schedule
+    return app
+
+
 def _shadow_app(source_loads, extra_loads):
     """An app whose advanced menu holds the advanced form ``f`` with these loads and the mirror form ``s`` of it whose
     ``extra_actions`` hold ``extra_loads``."""
@@ -2511,6 +2521,27 @@ def _advanced_actions():
                 _advanced_app([_load("load_patient_0", product_program="", show_product_stock=False)]),
                 "schema:LoadUpdateAction.product_program",
                 f"{loads}/0/product_program",
+            ),
+        ),
+        "forms-and-case-writes/advancedform-schedule-with-enabled-true-visits-transition": (
+            refused(
+                "app",
+                _scheduled_app({"doc_type": "FormSchedule", "enabled": True}),
+                "schema:AdvancedForm.schedule",
+                "/modules/0/forms/0/schedule",
+            ),
+            # The schedule HQ writes on every new advanced form (``AdvancedModule.new_form``): off.
+            accepted(
+                "app",
+                _scheduled_app({"doc_type": "FormSchedule", "enabled": False}),
+                "schema:AdvancedForm.schedule",
+                "/modules/0/forms/0/schedule",
+            ),
+            accepted(
+                "app",
+                _scheduled_app({"doc_type": "FormSchedule", "enabled": False}),
+                "schema:FormSchedule.enabled",
+                "/modules/0/forms/0/schedule/enabled",
             ),
         ),
         "forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non": (
@@ -5087,6 +5118,8 @@ def _data_binds_and_itext():
     )
     inline = form(data="<q/>", model='<instance id="inline"><root><row/></root></instance>')
     unnamed = form(data="<q/>", model="<instance><extra/></instance>")
+    # A data node named instance: Vellum's second unnamed instance, an element of the main instance's content.
+    instance_question = form(data="<q/><instance/>")
     session = "instance('commcaresession')/session/data/supply_point_id"
     supply = form(data="<p/>", model=f'<bind nodeset="/data/p" calculate="{session}"/>')
     supply_second = form(
@@ -5670,6 +5703,7 @@ def _data_binds_and_itext():
         "expressions-and-data/more-than-one-instance-without-an-id": (
             refused("form", unnamed, "xform:model/instance", "model[1]/instance[4]"),
             accepted("form", unnamed, "xform:model/instance", "model[1]/instance[1]"),
+            refused("form", instance_question, "xform:model/instance", "model[1]/instance[1]"),
             accepted("form", inline, "xform:model/instance", "model[1]/instance[1]"),
         ),
         "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": (
@@ -6401,7 +6435,6 @@ KNOWN_GAPS = frozenset(
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
-        "forms-and-case-writes/advancedform-schedule-with-enabled-true-visits-transition",
         "forms-and-case-writes/custom-assertions-form-non-empty",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",
         "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform",

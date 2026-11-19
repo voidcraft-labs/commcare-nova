@@ -46,7 +46,7 @@ import {
 import { declaredTypeHolds } from "../../validator/rules/fieldKindMatchesPropertyType";
 import { withCandidate } from "../candidate";
 import { defineClaims, refuse } from "../claims";
-import type { DraftApp, DraftForm, ReadContext } from "../context";
+import type { DraftApp, ReadContext } from "../context";
 import {
 	agreedComparedTypes,
 	type ComparedType,
@@ -56,7 +56,7 @@ import { appPlace } from "../place";
 import type { ReaderKnownCaseTypes } from "../types";
 import type { DraftField } from "../xform";
 import { advancedCaseReading } from "./advancedActions";
-import { basicCaseReading } from "./basicActions";
+import { basicCaseReading, boundDateTime } from "./basicActions";
 import { knownCaseTypesOf } from "./knownCaseTypes";
 import { saveToCaseReading } from "./saveToCase";
 
@@ -271,17 +271,6 @@ function declareToldTypes(
 			});
 			if (!contradicted) property.data_type = declared;
 		}
-}
-
-/** Whether `field` is a Hidden Value whose bind in `form`'s source is typed `xsd:dateTime`. */
-function boundDateTime(
-	form: DraftForm,
-	field: DraftField | undefined,
-): boolean {
-	if (field === undefined || field.kind !== "hidden") return false;
-	const type = form.xform?.binds.get(field.node)?.type;
-	if (type === undefined) return false;
-	return (type.startsWith("xsd:") ? type.slice(4) : type) === "dateTime";
 }
 
 /** The `datetime` declarations each reading made before its expressions bound, by type and
@@ -766,9 +755,10 @@ function listProperties(
 	return out;
 }
 
-/** Every property reference a document's expressions hold, by structure:
- *  a record read (`prop`), on the type its relation reaches from the type it
- *  starts from, or a form's read of its case (`form-case`). */
+/** Every property reference a document's expressions and texts hold, by
+ *  structure: a record read (`prop`), on the type its relation reaches from the
+ *  type it starts from, a form's read of its case (`form-case`), or a text's
+ *  reference to a case property (`case-ref`). */
 function expressionReads(
 	value: unknown,
 	out: { caseType: string; property: string }[],
@@ -780,8 +770,13 @@ function expressionReads(
 	}
 	if (typeof value !== "object" || value === null) return;
 	const record = value as Readonly<Record<string, unknown>>;
+	// A text's reference to a case property (`case-ref`) prints as the read of that property
+	// (`lib/domain/proseExpression.ts::proseReferenceExpression`, a `form-case` term), which the
+	// reader declares as any read's.
 	if (
-		(record.kind === "prop" || record.kind === "form-case") &&
+		(record.kind === "prop" ||
+			record.kind === "form-case" ||
+			record.kind === "case-ref") &&
 		typeof record.caseType === "string" &&
 		typeof record.property === "string"
 	) {

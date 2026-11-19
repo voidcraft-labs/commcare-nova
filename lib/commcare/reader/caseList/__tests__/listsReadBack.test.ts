@@ -10,7 +10,7 @@
  * where the document holds none beside its Search fields; a lookup Search field's sort column read
  * where the field orders by its label column; the rule an unsorted list writes read as an authored
  * rule; a tile column shown nowhere read with the header the document gave it; a column of a menu
- * that lists no cases read on the detail.
+ * that lists no cases read off the detail.
  */
 import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";

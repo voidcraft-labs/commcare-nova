@@ -102,21 +102,21 @@ def _moved():
                 "proof2",
                 DOCUMENT,
                 "media_suite.xml",
-                "/suite/media[*]/resource[@id=*]",
-                f"/suite/media[1]/resource[@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{OLD_NAME}]",
+                "/suite/media[resource/@id=*]",
+                f"/suite/media[resource/@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{OLD_NAME}]",
                 "removed",
-                "<resource/>",
+                "<media/>",
                 None,
             ),
             Difference(
                 "proof2",
                 DOCUMENT,
                 "media_suite.xml",
-                "/suite/media[*]/resource[@id=*]",
-                f"/suite/media[1]/resource[@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{NEW_NAME}]",
+                "/suite/media[resource/@id=*]",
+                f"/suite/media[resource/@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{NEW_NAME}]",
                 "added",
                 None,
-                "<resource/>",
+                "<media/>",
             ),
         ],
         "proof3": [
@@ -208,8 +208,13 @@ def test_the_same_move_where_the_review_lists_nothing_is_held_by_nothing_and_rep
         assert changes.declared(document, check, found, register=register) == ([], frozenset())
         assert changes.undeclared(document, check, found, register=register) == found
     found = changes.differences(document, checked, readers=frozenset(), register=register)
-    assert {difference.path for difference in found} == {"/media-files-renamed/unsaid"}
-    assert len(found) == len(_all(checked))
+    # Each difference is unsaid of every change a row of which names it: the rename's of each, and a picture
+    # taken out of the map and the media suite is also what broken-pictures-removed's rows name.
+    assert {difference.path for difference in found} == {
+        "/media-files-renamed/unsaid",
+        "/broken-pictures-removed/unsaid",
+    }
+    assert len([d for d in found if d.path == "/media-files-renamed/unsaid"]) == len(_all(checked))
 
 
 def test_a_listed_change_that_shows_nothing_is_unseen():

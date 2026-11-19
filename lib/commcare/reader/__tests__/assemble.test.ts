@@ -85,7 +85,7 @@ import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { assembleDocument, READER_CANONICAL_CHOICES } from "../assemble";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import {
-	columnsOfAMenuThatListsNoCasesOffTheDetail,
+	columnsOfAMenuThatListsNoCases,
 	columnsOffAScreenLast,
 } from "../caseList/details";
 import {
@@ -1444,13 +1444,13 @@ describe("the reader's canonical choices", () => {
 		expect(READER_CANONICAL_CHOICES.indexOf(tile)).toBe(landing + 3);
 	});
 
-	it("takes a column of a menu that lists no cases off the detail, before the detail is ordered", () => {
+	it("gives a menu that lists no cases its one name column, before the detail is ordered", () => {
 		// `caseList/__tests__/listCanon.test.ts` holds the pair, its export and its
 		// reading.
 		const row = choice(
-			"columns-of-a-menu-that-lists-no-cases-are-off-the-detail",
+			"columns-of-a-menu-that-lists-no-cases-are-its-one-name-column",
 		);
-		expect(row.apply).toBe(columnsOfAMenuThatListsNoCasesOffTheDetail);
+		expect(row.apply).toBe(columnsOfAMenuThatListsNoCases);
 		expect(READER_CANONICAL_CHOICES.indexOf(row)).toBe(
 			READER_CANONICAL_CHOICES.indexOf(
 				choice("columns-off-a-screen-last-in-its-order"),

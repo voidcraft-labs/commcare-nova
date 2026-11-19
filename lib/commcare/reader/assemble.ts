@@ -47,11 +47,14 @@ import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
-import { calculatedAttributeColumnsArePlain } from "./caseList/columns";
+import {
+	calculatedAttributeColumnsArePlain,
+	flagIntervalThresholdsAsRead,
+} from "./caseList/columns";
 import {
 	columnsInListOrder,
 	columnsJoinedAsRead,
-	columnsOfAMenuThatListsNoCasesOffTheDetail,
+	columnsOfAMenuThatListsNoCases,
 	columnsOffAScreenLast,
 	sortNamedHiddenColumnHeader,
 } from "./caseList/details";
@@ -95,7 +98,10 @@ import { registrationFormLast } from "./menus/registration";
 import { appPlace, placeOrder } from "./place";
 import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
 import { joinedGuardsSplitAsRead } from "./search/guardSplit";
-import { exactSearchModeIsAbsent } from "./search/prompts";
+import {
+	blankSearchFieldLabelsAreTheirNames,
+	exactSearchModeIsAbsent,
+} from "./search/prompts";
 import {
 	derivedConditionsAreSimpleFields,
 	fieldConditionsOfAnotherFieldAreItsOwn,
@@ -530,6 +536,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: defaultSearchTitleIsAbsent,
 	},
 	{
+		/** A Search field whose label is blank, and the same field labelled with its name: a blank
+		 *  label's translation unit takes the name as its source, so both print the name in every
+		 *  language, and the reader returns the field labelled with its name
+		 *  (`search/prompts.ts::blankSearchFieldLabelsAreTheirNames`). */
+		id: "blank-search-field-labels-are-their-names",
+		kind: "one-wire",
+		apply: blankSearchFieldLabelsAreTheirNames,
+	},
+	{
 		/** A menu with Search fields holding a settings object that sets nothing, and holding none:
 		 *  both search with Nova's own settings and print one `search_config`, and the reader
 		 *  returns none (`search/settings.ts::emptySearchSettingsBesideFieldsAreAbsent`). It reads
@@ -745,12 +760,13 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
-		/** A column of a menu that lists no cases, shown on Details or not: such a menu is written
-		 *  the empty pair, whose detail holds no column, so the reader returns each column off the
-		 *  detail (`caseList/details.ts::columnsOfAMenuThatListsNoCasesOffTheDetail`). */
-		id: "columns-of-a-menu-that-lists-no-cases-are-off-the-detail",
+		/** The columns of a menu that lists no cases: such a menu is written the pair every new menu
+		 *  holds in CommCare HQ, whatever its list holds, so the reader returns the one name column
+		 *  on both screens that pair reads as
+		 *  (`caseList/details.ts::columnsOfAMenuThatListsNoCases`). */
+		id: "columns-of-a-menu-that-lists-no-cases-are-its-one-name-column",
 		kind: "not-carried",
-		apply: columnsOfAMenuThatListsNoCasesOffTheDetail,
+		apply: columnsOfAMenuThatListsNoCases,
 	},
 	{
 		/** A column off the detail or off the list (one the short detail holds no field for, a
@@ -771,6 +787,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "calculated-attribute-columns-are-plain",
 		kind: "one-wire",
 		apply: calculatedAttributeColumnsArePlain,
+	},
+	{
+		/** An interval column that shows its text only past its threshold, and the same column with
+		 *  the threshold in another unit of as many days: both print the threshold as days alone,
+		 *  and the reader returns the first unit in which those days are whole
+		 *  (`caseList/columns.ts::flagIntervalThresholdsAsRead`). */
+		id: "flag-interval-thresholds-as-read",
+		kind: "one-wire",
+		apply: flagIntervalThresholdsAsRead,
 	},
 	{
 		/** A list whose short detail's fields join other columns of the long detail than their own,

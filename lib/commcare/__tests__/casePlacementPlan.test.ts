@@ -143,7 +143,7 @@ describe("planFormCaseWire", () => {
 			{
 				case_type: "kid",
 				repeat_context: "/data/kids",
-				condition: null,
+				condition: "=",
 				relationship: "child",
 				reference_id: "",
 			},
@@ -472,7 +472,7 @@ const never = {
 	type: "never",
 	question: null,
 	answer: null,
-	operator: null,
+	operator: "=",
 	doc_type: "FormActionCondition",
 };
 const always = { ...never, type: "always" };

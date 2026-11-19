@@ -111,5 +111,43 @@
 				"value": "Bring seeds"
 			}
 		]
+	},
+	{
+		"id": "connect-app-captures-location:before",
+		"entry": "application-and-settings/45-hq-auto-gps-capture",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/meta/location)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "connect-app-captures-location:after",
+		"entry": "application-and-settings/45-hq-auto-gps-capture",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/meta/location)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		],
+		"exports": ["B", "local"]
 	}
 ]

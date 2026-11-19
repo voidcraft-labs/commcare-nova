@@ -8,6 +8,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_cooperative_0": "new-cooperative"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/cooperative/cooperative_name",
@@ -69,6 +74,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_cooperative_0": "new-cooperative"
+				}
+			},
 			"constraintChecks": [
 				{
 					"path": "/data/cooperative/cooperative_name",
@@ -93,6 +103,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_cooperative_0": "new-cooperative"
+				}
+			},
 			"constraintChecks": [
 				{
 					"path": "/data/cooperative/cooperative_name",

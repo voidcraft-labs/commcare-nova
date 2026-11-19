@@ -2183,21 +2183,22 @@ export function columnsInListOrder(doc: BlueprintDoc): BlueprintDoc {
 }
 
 /**
- * The reader's canonical choice `columns-of-a-menu-that-lists-no-cases-are-off-the-detail`: a menu
- * whose forms are all surveys, with no case list entry, lists no cases, and Nova writes it the
- * pair every new menu holds in CommCare HQ, whatever its list and its search hold
- * (`expander.ts`, `hasCases`): one `name` column headed with the same word in every language,
- * on the list and off the detail, and the search's shell defaults. So no export carries the
- * menu's columns, their headers' translations, their order rules, its tile, its filter, its
- * selection, its Search fields or its search settings, and the reader returns the list that pair
- * reads as: that one plain `case_name` column off the detail and nothing else. The column keeps
+ * The reader's canonical choice `columns-of-a-menu-that-lists-no-cases-are-its-one-name-column`: a
+ * menu whose forms are all surveys, with no case list entry, lists no cases, and Nova writes it
+ * the pair every new menu holds in CommCare HQ, whatever its list and its search hold
+ * (`expander.ts`, `hasCases`, `hqJson/caseList.ts::emptyListDetailPair`): one `name` column
+ * headed with the same word in every language, on the list and on the detail, and the search's
+ * shell defaults. So no export carries the menu's columns, their headers' translations, their
+ * order rules, its tile, its filter, its selection, its Search fields or its search settings, and
+ * the reader returns the list that pair reads as: that one plain `case_name` column, on both
+ * screens, and nothing else. The column keeps
  * the identity of the menu's own first plain `case_name` column where it has one, the identity a
  * re-read gives it, and otherwise the UUID a re-read gives a key the document lacks
  * (`identityMap.ts::reReadUuidOf`), which is not the key's own mint where the document holds
  * that under another column (one whose property was changed in Nova). It runs
  * before `columns-off-a-screen-last-in-its-order`.
  */
-export function columnsOfAMenuThatListsNoCasesOffTheDetail(
+export function columnsOfAMenuThatListsNoCases(
 	doc: BlueprintDoc,
 ): BlueprintDoc {
 	const lists = new Map<Uuid, CaseListConfig>();
@@ -2216,22 +2217,19 @@ export function columnsOfAMenuThatListsNoCasesOffTheDetail(
 				: orderedColumns(config, "list").find(
 						(column) => column.kind === "plain" && column.field === "case_name",
 					);
-		const column = {
-			...plainColumn(
-				own?.uuid ??
-					reRead(
-						externalKey.caseListColumn(
-							DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
-							"plain",
-							"case_name",
-							0,
-						),
+		const column = plainColumn(
+			own?.uuid ??
+				reRead(
+					externalKey.caseListColumn(
+						DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
+						"plain",
+						"case_name",
+						0,
 					),
-				"case_name",
-				SHELL_COLUMN_HEADER,
-			),
-			visibleInDetail: false,
-		};
+				),
+			"case_name",
+			SHELL_COLUMN_HEADER,
+		);
 		const list: CaseListConfig = {
 			columns: [column],
 			listColumnOrder: [column.uuid],

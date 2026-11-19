@@ -214,11 +214,13 @@ def _nova_plan_privileges(document):
 @pytest.mark.parametrize("document", cases.document_params())
 def test_nova_asks_for_the_plan_privileges_hqs_own_model_of_the_app_needs(hq, document):
     """Nova's derivation from the document, over D's create and D′'s update, names exactly the plan privileges the
-    lane's oracle derives from HQ's own model of what the minimum configuration's publishes sent. A Nova rule that
-    misses content HQ gates, or asks for a privilege no HQ reader needs, fails on the document that shows it."""
+    lane's oracle derives from HQ's own model of what the minimum configuration's publishes sent. On a document made
+    in HQ those are Nova's publishes over A alone, never A itself: the app HQ made can need what Nova's publish no
+    longer holds (``configurations.published_privileges``). A Nova rule that misses content HQ gates, or asks for a
+    privilege no HQ reader needs, fails on the document that shows it."""
     nova = _nova_plan_privileges(document)
     assert nova <= PLAN_PRIVILEGES, sorted(nova - PLAN_PRIVILEGES)
-    assert sorted(nova) == sorted(set(configurations.content_privileges(document.root)) & PLAN_PRIVILEGES)
+    assert sorted(nova) == sorted(set(configurations.published_privileges(document.root)) & PLAN_PRIVILEGES)
 
 
 def test_a_configuration_keeps_the_privileges_its_document_names(hq, copied):
@@ -295,6 +297,7 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
     assert set(listed) == {document.id for document in documents}
     edited = 0
     stopped = 0
+    authored = 0
     media_documents = set()
     for document in documents:
         assert listed[document.id] == _digest(document.root / "inputs.json"), document.id
@@ -306,14 +309,29 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
                 for role, entry in inputs.items():
                     assert entry["digest"] == _digest(document.root / entry["path"]), (document.id, name, part, role)
             export = document.exports[name]
-            assert parts["a"]["create.request.body"]["path"] == f"export/{name}/create.body"
+            if document.hq_authored:
+                # A document made in HQ has no first publish: part a reads the app HQ made, and the files A is made
+                # again from, in its place, and its privileges read that app and Nova's republish over it.
+                authored += 1
+                assert parts["a"]["authored.app"]["path"] == "authored/app.json", (document.id, name)
+                assert parts["a"]["privileges.authored.app"]["path"] == "authored/app.json", (document.id, name)
+                assert parts["a"]["seed"]["path"] == "authored/seed.json", (document.id, name)
+                assert not [
+                    role
+                    for role in parts["a"]
+                    if role.startswith(("create.", "content.", "privileges.create.", "privileges.content."))
+                ], (document.id, name)
+                if export.republish_stopped is None:
+                    assert parts["a"]["privileges.republish.request.body"]["path"] == "export/minimum/republish.body"
+            else:
+                assert parts["a"]["create.request.body"]["path"] == f"export/{name}/create.body"
+                assert parts["a"]["privileges.create.request.body"]["path"] == "export/minimum/create.body"
             # A first publish in two imports is read whole by part a: the shell and the content.
             first = "content." if export.two_imports else "create."
             if export.two_imports:
                 assert parts["a"]["content.request.body"]["path"] == f"export/{name}/content.body"
                 assert parts["a"]["privileges.content.request.body"]["path"] == "export/minimum/content.body"
                 assert "create.media.body" not in parts["a"] and "create.lookups.body" not in parts["a"]
-            assert parts["a"]["privileges.create.request.body"]["path"] == "export/minimum/create.body"
             if export.republish_stopped is not None:
                 # A republish Nova stopped before it sent anything is read by part b as its recorded outcome alone.
                 stopped += 1
@@ -321,7 +339,7 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
                 assert parts["b"]["outcome.json"]["path"] == f"export/{name}/outcome.json"
             else:
                 assert parts["b"]["request.body"]["path"] == f"export/{name}/republish.body"
-            if export.content.lookups is not None:
+            if export.content is not None and export.content.lookups is not None:
                 assert parts["a"][f"{first}lookups.body"]["path"] == (
                     f"export/{name}/{export.content.lookups.body_path.name}"
                 )
@@ -359,6 +377,7 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
             assert manifest["judge"]["batch"]["digest"] == _digest(document.root / "edit" / "batch.json")
     assert edited > 0, "some document's edit is published, so b_edit was compared"
     assert stopped > 0, "some document's republish is stopped, so its outcome-only part b was compared"
+    assert authored > 0, "some document is made in HQ, so the roles that stand for its first publish were compared"
     assert media_documents, "some document's publish sends media, so its upload's roles were compared"
 
 

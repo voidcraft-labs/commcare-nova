@@ -1710,6 +1710,31 @@ describe("each entry", () => {
 		expect(view.touchesWorkers).toBe(true);
 	});
 
+	it("lists a list setting respelled where a menu that offers no search stores another auto_launch than the choice writes", {
+		timeout: 60_000,
+	}, async () => {
+		// Nova writes such a search's `auto_launch` as whether the app runs in
+		// Web Apps; a menu made in CommCare HQ's models holds `false`.
+		const id = "list-settings-respelled";
+		const pair = editedPair(
+			() => patients([plainColumn(uuid(1), "case_name", "Name")]),
+			onMenu((menu) => {
+				menu.search_config.auto_launch = false;
+			}),
+		);
+		expect(applies(id, await pair.off())).toBe(false);
+		const stored = await pair.on();
+		expect(applies(id, stored)).toBe(true);
+		const android: FirstPublishFacts = {
+			...stored,
+			doc: {
+				...stored.doc,
+				appSettings: { ...stored.doc.appSettings, runsOnlyOn: "android" },
+			},
+		};
+		expect(applies(id, android)).toBe(false);
+	});
+
 	it("records a label whose instance( CommCare HQ's build reads, held as text in the source, at the pointer of its form", {
 		timeout: 60_000,
 	}, async () => {

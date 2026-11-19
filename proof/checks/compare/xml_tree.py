@@ -27,7 +27,10 @@ several documents, has one path. A profile property's ``key`` is the
 exception: Core reads each property by it as CommCare's setting name
 (``ProfileParser``'s ``property`` reader, ``Profile.addPropertySetter``), so
 it is vocabulary, not data, and the path keeps it
-(``property[@key=cc-show-saved]``). A child present on one side only is
+(``property[@key=cc-show-saved]``). A media suite's ``media`` element, which
+holds no identity of its own, is its one resource's: Core installs each
+resource by its id at the element's path, so the step is
+``media[resource/@id=*]``. A child present on one side only is
 ``added`` or ``removed`` whole; when the children both sides hold come in a
 different order, one ``/order()`` difference names both orders. An element
 whose namespace differs from its counterpart's is reported at
@@ -207,6 +210,20 @@ class _Naming:
             if value is None:
                 return shown, own, None, None
             return shown, own, "[@case_id=*]", f"[@case_id={value}]"
+        if context == GENERIC and local == "media":
+            # A media suite's ``<media path>`` says where the resources it holds are installed, and HQ writes one
+            # resource in each (``suite_xml/generator.py::MediaSuiteGenerator.media_resources``); Core adds each to
+            # its resource table by the resource's id with the path's installer (``SuiteParser``'s ``media`` case,
+            # ``ResourceTable.addResource``), never by the element's position. So a media element holding one
+            # resource is that resource's, and one file the app no longer maps is one media element gone, not every
+            # later one moved.
+            resources = [
+                element for element in child if isinstance(element.tag, str) and _tag(element.tag)[1] == "resource"
+            ]
+            value = resources[0].get("id") if len(resources) == 1 else None
+            if value is None:
+                return shown, own, None, None
+            return shown, own, "[resource/@id=*]", f"[resource/@id={value}]"
         if context == XFORM_ROOT and local == "setvalue":
             event, ref = child.get("event"), child.get("ref")
             if event is None or ref is None:

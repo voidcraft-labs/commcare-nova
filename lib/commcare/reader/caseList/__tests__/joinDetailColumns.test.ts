@@ -130,7 +130,7 @@ describe("a column the detail alone shows", () => {
 			const short = reading.app.modules[0]?.case_details.short.columns.map(
 				(column) => column.field,
 			);
-			expect(short).toEqual(["case_name"]);
+			expect(short).toEqual(["name"]);
 			const read = comparableList(listOf(reading)) as {
 				list: { field: string; notOnList?: true }[];
 			};

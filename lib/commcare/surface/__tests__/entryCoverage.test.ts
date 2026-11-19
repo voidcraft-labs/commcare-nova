@@ -504,6 +504,11 @@ describe("the register ids rule 3 reads from a base's firstPublish", () => {
 		runsOnlyOn: Platform | null,
 	): FirstPublishFacts =>
 		({
+			// A source with no menu: a change a predicate works out from the
+			// stored app beside the reading's records (a search a menu does not
+			// offer) has nothing to find, so each id stands on its records alone.
+			source: { raw: { modules: [] } },
+			doc: { appSettings: { runsOnlyOn } },
 			facts: {
 				sameStateRewrites: registers.map((register) => ({
 					entry: "planted",
@@ -512,7 +517,7 @@ describe("the register ids rule 3 reads from a base's firstPublish", () => {
 				})),
 			} as unknown as ReadFacts,
 			choice: { runsOnlyOn, split: false },
-		}) as FirstPublishFacts;
+		}) as unknown as FirstPublishFacts;
 
 	it("are each a first-publish change predicted exactly where a reading records a rewrite under it, under every declaration a worker meets it", () => {
 		for (const id of REGISTER_IDS) {

@@ -39,9 +39,9 @@ const VALID_CONDITION_TYPES: ReadonlySet<string> = new Set([
 
 /**
  * `FormActionCondition.operator = StringProperty(choices=['=','selected',
- * 'boolean_true'], default='=')`. Only constrained when the value is non-null —
- * the factories emit `null` for the never/always conditions, and a null operator
- * is the absent state jsonobject leaves at its default.
+ * 'boolean_true'], default='=')`. Only constrained when the value is non-null:
+ * jsonobject takes a null, which CommCare HQ's case settings pages write on a
+ * condition that is not `if`.
  */
 const VALID_CONDITION_OPERATORS: ReadonlySet<string> = new Set([
 	"=",
@@ -176,8 +176,8 @@ function checkCondition(
 		);
 	}
 
-	// `operator` is nullable in CCHQ (the always/never factories emit null); only
-	// a present non-null value is constrained by the choice list.
+	// `operator` is nullable in CommCare HQ (its case settings pages write null on
+	// a condition that is not `if`); only a non-null value is held to the choices.
 	if (
 		condition.operator !== null &&
 		!VALID_CONDITION_OPERATORS.has(condition.operator)

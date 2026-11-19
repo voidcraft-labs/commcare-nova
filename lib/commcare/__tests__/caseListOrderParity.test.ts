@@ -14,6 +14,7 @@ import type { HqApplication } from "@/lib/commcare";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { moduleCaseListOrderPlan } from "@/lib/commcare/suite/case-list/orderPlanOptions";
+import { hqColumnFieldText } from "@/lib/commcare/suite/wire";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -226,7 +227,7 @@ function impliedElement(
 ) {
 	const field =
 		rule.element.kind === "property"
-			? rule.element.property
+			? hqColumnFieldText(rule.element.property)
 			: `_cc_calculated_${rule.element.position}`;
 	const ruled = [
 		...plan.fields.flatMap((planned) =>
@@ -293,7 +294,8 @@ describe("the order plan's two emitters", () => {
 			const plan = moduleCaseListOrderPlan(mod, doc, true);
 			const short = hq.modules[index].case_details.short;
 
-			// HQ JSON: one stored column per field, its `field` the join text.
+			// HQ JSON: one stored column per field, its `field` the join text, a
+			// property in HQ's word.
 			expect(
 				short.columns.map((column) => [
 					column.field,
@@ -301,7 +303,9 @@ describe("the order plan's two emitters", () => {
 				]),
 			).toEqual(
 				plan.fields.map((field) => [
-					field.joinText,
+					field.wire === "expression"
+						? field.joinText
+						: hqColumnFieldText(field.joinText),
 					field.wire === "expression",
 				]),
 			);
@@ -372,7 +376,7 @@ describe("the order plan's two emitters", () => {
 	it("writes a tile list's name in Sort by as its sort row's display, and as the appended field's locale", () => {
 		const index = Object.keys(LISTS).indexOf("Tile named in Sort by");
 		const short = hq.modules[index].case_details.short;
-		expect(short.columns.map((column) => column.field)).toEqual(["case_name"]);
+		expect(short.columns.map((column) => column.field)).toEqual(["name"]);
 		expect(short.sort_elements).toMatchObject([
 			{ field: "age", display: { en: "Youngest first" } },
 		]);
@@ -396,7 +400,7 @@ describe("the order plan's two emitters", () => {
 				element.blanks,
 			]),
 		).toEqual([
-			["case_name", "ascending", "last"],
+			["name", "ascending", "last"],
 			["age", "descending", "first"],
 		]);
 		const sorts = xmlChildren(shortDetail(suite, index), "field").map(
@@ -414,9 +418,9 @@ describe("the order plan's two emitters", () => {
 		const index = Object.keys(LISTS).indexOf("Detail only");
 		const mod = doc.modules[doc.moduleOrder[index]];
 		const { short, long } = hq.modules[index].case_details;
-		expect(short.columns.map((column) => column.field)).toEqual(["case_name"]);
+		expect(short.columns.map((column) => column.field)).toEqual(["name"]);
 		expect(long.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 			"phone",
 		]);
 
@@ -485,7 +489,7 @@ describe("the order plan's two emitters", () => {
 		expect(
 			short.columns.map((column) => [column.field, column.useXpathExpression]),
 		).toEqual([
-			["case_name", false],
+			["name", false],
 			["@owner_id", true],
 			["@status", true],
 			["@owner_id", true],

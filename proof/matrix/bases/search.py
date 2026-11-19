@@ -9,26 +9,27 @@
    (``views/modules.py::new_module``). Its registration form's source is
    written by HQ's own form writer (``xform_builder.py::XFormBuilder``) and
    uploaded on the form page: text ``client_name``, ``village``,
-   ``client_code`` and ``standing``, a ``district``, the dates ``dob`` and
-   ``last_visit``, and a Hidden Value ``registered_at`` calculated ``now()``
-   and typed a date and time (``xsd:dateTime``), so Core stores the moment
-   and not its day (``Recalculate.wrapData`` keeps a date of a bind of any
-   other type as a date);
-   its case management (``edit_form_actions``) names the case from
-   ``client_name`` and saves the rest, ``registered_at`` straight from the
-   Hidden Value as the Case Management tab saves it. Its follow-up form holds
+   ``client_code`` and ``standing``, a ``district``, and the dates ``dob``
+   and ``last_visit``; its case management (``edit_form_actions``) names the
+   case from ``client_name`` and saves the rest. No form saves
+   ``registered_at``: a value its form types a date and time and saves
+   straight to a case is saved there as its day alone (HQ's build binds the
+   case block's leaf with no type, and Core's ``Recalculate.wrapData`` wraps
+   a date there as a date), which Nova refuses
+   (``forms-and-case-writes/a-datetime-question-saved-straight-to-a-case``).
+   Its follow-up form holds
    a text question ``visit_note`` and a text question ``note_again`` whose
    Default Value reads it by its absolute path (``/data/visit_note``), which
    Nova's publish spells from ``current()`` (``default-reads-current``, which
    changes no behavior and states no first-publish change). Its case list,
    saved on the Case List tab (``edit_module_detail_screens``), shows the
    name and a calculated column comparing two dates and times bare,
-   ``if(registered_at < now(), ...)``: Core reads the stored text of a date
-   and time as no number (``FunctionUtils.toNumeric``, whose
-   ``checkForInvalidNumericOrDatestringCharacters`` refuses its ``T``), so
-   the column shows its second branch for every case on the app as HQ
-   holds it, and Nova's publish compares the two as moments
-   (``instant-comparison``), on the list the search's results show. Its Search, saved on the Case List page
+   ``if(registered_at < now(), ...)``, which the reading types a date and
+   time by its comparison with ``now()`` and Nova's publish compares as
+   moments (``instant-comparison``), on the list the search's results show.
+   No case the walks start from holds ``registered_at``, so the column shows
+   its second branch on every state; ``hq-expressions`` shows the change on
+   a value. Its Search, saved on the Case List page
    (``edit_module_detail_screens``, ``search_properties``): search first
    (``auto_launch``), with no title, and a field of each kind HQ's page
    offers that Nova holds: ``client_name``, which HQ does not match itself
@@ -106,7 +107,7 @@ REGISTERED_COLUMN = "if(registered_at < now(), 'Registered', 'Not yet')"
 
 
 def registration_source(name):
-    """The registration form, as HQ's ``XFormBuilder`` writes it, with ``registered_at`` typed a date and time."""
+    """The registration form, as HQ's ``XFormBuilder`` writes it."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
     xform = XFormBuilder(name)
@@ -117,13 +118,6 @@ def registration_source(name):
     xform.new_question("district", "District", "string")
     xform.new_question("dob", "Date of birth", "date")
     xform.new_question("last_visit", "Last visit", "date")
-    xform.new_question("registered_at", None, None, calculate="now()")
-    # The form writer gives a Hidden Value no type. It makes its binds with no namespace while the form is in
-    # memory (``lxml.builder.E``), so the bind is found by local name.
-    binds = xform._etree.xpath("//*[local-name()='bind'][@nodeset='/data/registered_at']")
-    if len(binds) != 1:
-        raise ValueError(f"The form writer wrote {len(binds)} binds for registered_at.")
-    binds[0].set("type", "xsd:dateTime")
     return xform.tostring(xml_declaration=True).decode("utf-8")
 
 
@@ -232,7 +226,6 @@ def build(authoring) -> str:
             "district": "/data/district",
             "dob": "/data/dob",
             "last_visit": "/data/last_visit",
-            "registered_at": "/data/registered_at",
         },
     )
     ops.upload_form_source(authoring, app_id, 0, 1, follow_up_source, "follow-up-source")

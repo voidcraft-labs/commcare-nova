@@ -1538,3 +1538,27 @@ export function exactSearchModeIsAbsent(doc: BlueprintDoc): BlueprintDoc {
 					delete (input as { mode?: unknown }).mode;
 	});
 }
+
+/**
+ * The reader's canonical choice `blank-search-field-labels-are-their-names`: a Search field whose
+ * label is blank, and the same field labelled with its name. A blank label's translation unit
+ * takes the field's name as its source (`lib/domain/translationUnits.ts`, the
+ * `search-input-label` unit), so both print the name as the prompt's label in every language,
+ * and the reader reads the label a prompt holds (`readSearchPrompts`), so it returns the field
+ * labelled with its name.
+ */
+export function blankSearchFieldLabelsAreTheirNames(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const blank = doc.moduleOrder.some((uuid) =>
+		doc.modules[uuid]?.caseListConfig?.searchInputs.some(
+			(input) => input.label === "",
+		),
+	);
+	if (!blank) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const module of Object.values(draft.modules))
+			for (const input of module.caseListConfig?.searchInputs ?? [])
+				if (input.label === "") input.label = input.name;
+	});
+}

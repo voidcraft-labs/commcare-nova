@@ -1,16 +1,16 @@
 """The rule ``condition-operator-default`` is sound: HQ builds a condition's null operator as ``=``.
 
-Contract: the rule erases a form action condition's ``operator`` null
-against ``=``, as the Case Management and user properties saves write the
-default. The plausible failures: HQ's build telling null from ``=`` where it
-reads the operator (an ``if`` condition), and the rule erasing another
-operator, which HQ builds differently.
+Contract: the rule erases a form action condition's ``operator`` null, which
+HQ's Case Management page writes on a condition that is not ``if``, against
+``=``, the default a form HQ creates and Nova's export hold. The plausible
+failures: HQ's build telling null from ``=`` where it reads the operator (an
+``if`` condition), and the rule erasing another operator, which HQ builds
+differently.
 
 A corpus document whose form opens a case is published with that action's
-condition made an ``if`` on one of the form's questions, its operator null
-(Nova's), ``=`` (the saves') and ``selected``: the first two build alike and
-the rule erases their difference; ``selected`` builds another relevance,
-which the rule leaves.
+condition made an ``if`` on one of the form's questions, its operator null,
+``=`` and ``selected``: the first two build alike and the rule erases their
+difference; ``selected`` builds another relevance, which the rule leaves.
 """
 
 from __future__ import annotations

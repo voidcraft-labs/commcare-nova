@@ -43,10 +43,10 @@ its states are served to the readers: the seconds of one worker's wall time the
 group took, without what the worker's session shares (its services), divided
 by the number of workers that shared a CI box (``proof.lane.timings``; ``node
 proof/run.mjs --timings`` writes them). ``load_timings`` reads the run's own
-profile. A group it does not list is counted high, at the 90th percentile of
-those it lists of its kind (documents and controls, or the rest), so a stale or
-partial profile oversizes a lane rather than overrunning its shards
-(``estimate``). A document a run observed in pieces is measured as it ran: each
+profile. A group it does not list is counted high, so a stale or partial
+profile oversizes a lane rather than overrunning its shards (``estimate``): a
+document or control at the 90th percentile of those it lists, and any other
+group at the longest of the others it lists. A document a run observed in pieces is measured as it ran: each
 piece under its own name, and the document's own group judging alone; its
 whole measure is their sum (``documents``), and a piece no run has measured is
 counted at its share of it for the number of pieces the document is observed
@@ -249,7 +249,7 @@ def load_timings(path: Path = TIMINGS, *, readers: bool | None = None):
     return groups
 
 
-# The share of measured groups an unmeasured one is counted above: a stale or partial profile then oversizes a
+# The share of measured documents an unmeasured one is counted above: a stale or partial profile then oversizes a
 # lane rather than overrunning its shards' deadlines.
 UNMEASURED_PERCENTILE = 0.9
 
@@ -295,14 +295,16 @@ def estimate(timings):
     the 90th percentile of the measured documents' whole measures (``documents``, ``UNMEASURED_PERCENTILE``), a
     piece no run measured at its share of its document's (``piece_share`` for the ``pieces`` the document is
     observed in, as the queue builder counts one and ``proof.lane.blocks.piece_counts`` reads them from a block;
-    two where the caller names none), any other group at the 90th percentile of the measured groups that are not
-    documents, each at least ``DEFAULT_SECONDS``."""
+    two where the caller names none), any other group at the longest of the measured groups that are not
+    documents, each at least ``DEFAULT_SECONDS``. Documents are many and alike, so a high percentile of theirs
+    bounds a new one; a package group is a test module or a package of them, few and unalike (a check of planted
+    shapes takes seconds, ``matrix/test_retained.py`` makes every base's variants in HQ and reads each one, about
+    nineteen minutes on one worker), so only the longest any of them was measured to take is a true bound."""
     whole = documents(timings)
     document = max(DEFAULT_SECONDS, _percentile(whole.values(), UNMEASURED_PERCENTILE) or 0.0)
     other = max(
         DEFAULT_SECONDS,
-        _percentile([float(s) for g, s in timings.items() if not g.startswith(DOCUMENT_KINDS)], UNMEASURED_PERCENTILE)
-        or 0.0,
+        max((float(s) for g, s in timings.items() if not g.startswith(DOCUMENT_KINDS)), default=0.0),
     )
 
     def seconds(group, pieces: int = 2):

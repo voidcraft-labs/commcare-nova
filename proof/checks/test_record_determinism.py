@@ -561,11 +561,16 @@ def test_records_name_their_blobs_and_read_back_whole():
 
 
 def _cheapest_where(holds, what, shows="its upload replayed"):
-    """The cheapest corpus document and configuration for which ``holds(document, name)``: ``(document, name)``."""
+    """The cheapest corpus document and configuration for which ``holds(document, name)``: ``(document, name)``.
+
+    Only a document whose A Nova's first publish made is a candidate: a document made in CommCare HQ
+    (``Document.hq_authored``) captured no first publish (its ``Export.content`` is None), and its A is saved
+    from HQ's own stored app with the media HQ's uploads mapped, so no Nova upload makes it."""
     estimate = sharding.estimate(sharding.load_timings())
     found = [
         (estimate(document.group), document.id, name, document)
         for document in cases.load_corpus().emitted
+        if not document.hq_authored
         for name in sorted(document.exports)
         if holds(document, name)
     ]
