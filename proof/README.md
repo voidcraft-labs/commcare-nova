@@ -689,7 +689,9 @@ the person this app's first publish makes.
   the row of each difference of the base no applying row holds.
 
 Only proofs 1 to 3 and the stored-app comparison ask the register
-(`changes.declared`, before `cases.hold`), and only on a document made in HQ;
+(`changes.declared`, before `cases.hold`), and only on a document made in HQ
+and on one whose saves in HQ are brought in, where the changes its review lists
+for the next publish apply ("Changes a review lists for the next publish");
 a difference no applying row matches is held to the spelling rules and the
 known-defect register like any other. The judge
 (`proof/checks/test_first_publish_changes.py`) holds three things over the
@@ -703,8 +705,10 @@ reader, which leaves it to the run that does); and a behavior difference
 holds the three over planted evidence in both profiles. The known-defect
 register takes no entry naming `proof6`, `parity`, `source` or `changes`
 (`proof/checks/registers.py` refuses one): a difference of theirs means
-Nova's reader, its manifest or its first-publish list is wrong, and it is
-fixed where it is found.
+Nova's reader, its manifest, the review's list or the register's rows are
+wrong, and it is fixed where it is found. A run whose documents hold no app
+made in HQ (a sample, documents named by hand, a self-test's private corpus)
+collects no item of the stored-app comparison, the judge or parity.
 
 ### Every walk reaches its end
 
@@ -3959,9 +3963,10 @@ touches workers where it is a `proof3` row.
 A document whose saves are brought in states, in its `hq-side.json`, the
 changes its review lists for the next publish (`publishChanges`), which the
 capture holds to the review's own list (`proof/corpus/publish.ts::bringInOverPeer`)
-and `proof/checks/corpus.py::Document.next_publish` reads. On that document
-alone, proofs 1, 2 and 3 accept exactly the differences a row of a listed
-change names (`proof/checks/changes.py::undeclared`, called before the
+and `proof/checks/corpus.py::Document.next_publish` reads. A document made in
+HQ states no saves, so a document has the first-publish list, this one, or
+none (`changes.py::_applying`). On such a document, proofs 1, 2 and 3 accept
+exactly the differences a row of a listed change names (`proof/checks/changes.py::undeclared`, called before the
 register), and the check `changes` (`proof/checks/test_next_publish_changes.py`)
 holds the list strict both ways over the three proofs together: a difference
 only a row of a change the review did not list matches is `/<id>/unsaid`, and a
