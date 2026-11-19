@@ -52,26 +52,28 @@ export interface ProfileServerProperty {
  * where the worker syncs, where forms are sent, where the key server is, and
  * the domain Android appends to a worker's name when it signs in.
  *
- * They are the strings HQ's own profile holds for the same app
- * (`templates/app_manager/profile.xml`, `ApplicationBase.ota_restore_url`,
- * `::post_url`, `::key_server_url`, `corehq/apps/users/util.py::cc_user_domain`),
- * with the receiver URL HQ's own `post_url` picks: the secure receiver where
- * the project space's app submits securely, read from the deployment's
- * `TargetFacts`, and the plain one otherwise. The three URLs stand on the
- * project space's custom base URL where it holds one, as
- * `ApplicationBase.url_base` moves all three: `customBaseUrl` is what HQ's
- * `urljoin` of that URL with a root path keeps of it, its scheme and its
- * netloc exactly as stored.
+ * They are the strings HQ's own profile holds for the same app on the
+ * deployment's server (`templates/app_manager/profile.xml`,
+ * `ApplicationBase.ota_restore_url`, `::post_url`, `::key_server_url`,
+ * `corehq/apps/users/util.py::cc_user_domain`), with the receiver URL HQ's
+ * own `post_url` picks: the secure receiver where the project space's app
+ * submits securely, read from the deployment's `TargetFacts`, and the plain
+ * one otherwise. The three URLs always stand on the base URL of the server
+ * the deployment is on, and nothing else is an input to them: a phone sends
+ * a worker's name and password to `ota-restore-url` and every form to
+ * `PostURL`, so no value CommCare HQ keeps can name where they go. A project
+ * space whose app holds a custom base URL elsewhere has no `.ccz`
+ * (`lib/deployment/runtimeTarget.ts::workersSentElsewhere`).
  * `cc_user_domain` joins the domain to HQ's `HQ_ACCOUNT_ROOT`, which is
  * `commcarehq.org` on every server Nova publishes to, and lower-cases the
  * whole, as HQ's own does. With no facts, no project space was read, and the
- * server's own base and the plain receiver stand.
+ * plain receiver stands.
  */
 export function profileServerProperties(
 	target: RuntimeTarget,
-	facts: Pick<TargetFacts, "secureSubmissions" | "customBaseUrl"> | null,
+	facts: Pick<TargetFacts, "secureSubmissions"> | null,
 ): readonly ProfileServerProperty[] {
-	const base = facts?.customBaseUrl ?? COMMCARE_SERVERS[target.server].baseUrl;
+	const base = COMMCARE_SERVERS[target.server].baseUrl;
 	const domain = encodeURIComponent(target.domain);
 	const appId = encodeURIComponent(target.appId);
 	const receiver =

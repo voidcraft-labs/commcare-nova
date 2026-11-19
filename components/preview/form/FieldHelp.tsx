@@ -17,6 +17,7 @@ import {
 } from "@/components/shadcn/dialog";
 import type { ProseTemplate } from "@/lib/domain";
 import type { Media } from "@/lib/domain/multimedia";
+import { PREVIEW_LABEL_RENDERING } from "@/lib/markdown";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
@@ -88,6 +89,7 @@ export function FieldHelp({
 						label={help}
 						resolvedLabel={resolvedHelp}
 						isEditMode
+						rendering={PREVIEW_LABEL_RENDERING}
 						plainLabel={asTyped}
 						className="text-xs text-nova-text-muted"
 					/>

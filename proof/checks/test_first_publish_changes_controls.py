@@ -824,8 +824,9 @@ def test_the_split_holds_no_other_form_s_question_of_the_same_name_and_a_title_n
     moved = _trace("/runs/4/trace/3/submission/data/visit[1]/text()", "/runs/*/trace/*/submission/data/*/text()")
     assert _held_by(split, moved) == {SPLIT}
     titles = _document(RESIDUE, ("form-titles-written", ["/form/2.0/xform/title"]))
-    assert _held_by(titles, _trace("/runs/0/trace/1/title", "/runs/*/trace/*/title")) == frozenset()  # (d)
-    assert _held_by(titles, _trace("/runs/4/trace/1/title", "/runs/*/trace/*/title")) == {"form-titles-written"}
+    title = "/runs/*/trace/*/title/form"
+    assert _held_by(titles, _trace("/runs/0/trace/1/title/form", title)) == frozenset()  # (d)
+    assert _held_by(titles, _trace("/runs/4/trace/1/title/form", title)) == {"form-titles-written"}
 
 
 def _built(artifact, path, at, kind="changed"):
@@ -1314,3 +1315,32 @@ def test_evidence_written_before_it_held_the_checked_differences_is_refused_by_t
     directory.mkdir(parents=True)
     (directory / "corpus-hq-planted.json").write_text(json.dumps(old), encoding="utf-8")
     assert changes.main(["replay", str(tmp_path), "hq-planted"]) == 2
+
+
+def test_the_form_titles_rows_hold_a_forms_title_and_never_a_case_lists():
+    """Planted control for ``form-titles-written``'s ``proof3`` rows in the repository's register: a first publish
+    that wrote a form's title shows it as the form step's title (``/runs/*/trace/*/title/form``), which the rows hold
+    on a base the change applies to, while a case list's title that changed on the same base is no form's title and
+    is left for the other holds. Failure it catches: rows written at the step's ``title`` alone, which a case list
+    and a search share with a form, so a renamed case list would pass as a written form title."""
+    from proof.checks.compare.trace import compare_traces
+
+    def trace(form_title, list_title):
+        steps = [{"screen": "case-list", "title": list_title, "rows": []}, {"screen": "form", "title": form_title}]
+        return {"runs": [{"end": "submitted", "script": [], "trace": steps}]}
+
+    found = compare_traces(
+        trace(None, "Patients"),
+        trace("Followup Form", "Clients"),
+        check="proof3",
+        document="hq-planted",
+        rules=(),
+        artifact="trace@B",
+    )
+    assert _paths(found) == ["/runs/*/trace/*/title/case-list", "/runs/*/trace/*/title/form"]
+    # Both steps stand at form 0.0, so the change's place stands at both titles: only its rows tell them apart.
+    document = _document(RESIDUE, ("form-titles-written", [f"{FORM}/xform/title"]))
+    sites = _run_at_form(0, "0.0", steps=2)
+    held, ids = changes.declared(document, "proof3", found, sites=sites)
+    assert [difference.at for difference in held] == ["/runs/0/trace/1/title/form"]
+    assert ids == {"form-titles-written"}

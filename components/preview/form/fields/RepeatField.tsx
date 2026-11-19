@@ -56,6 +56,7 @@ import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDoc
 import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { useFormLayout } from "../FormLayoutContext";
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -163,6 +164,10 @@ export function RepeatField({
 	position,
 }: RepeatFieldProps) {
 	const { language } = useBuilderLanguage();
+	/* The running label renders as the platform Preview plays renders it
+	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
+	const labelRendering = usePreviewPlatformRules().labelMarkdown;
+
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
 	// resolved label text + the "Add …" button.
@@ -320,6 +325,7 @@ export function RepeatField({
 										label={field.label}
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
+										rendering={labelRendering}
 										plainLabel={labelShowsAsTyped(textForm, field)}
 										className={FIELD_STYLES.label}
 									/>

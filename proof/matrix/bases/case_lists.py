@@ -38,6 +38,23 @@
    shows blank, which the first publish drops
    (``sort-by-entry-with-a-blank-name-dropped``). It is a menu of its own so
    that no other list's columns or sort rules move.
+6. The words of "Visits due"'s columns: HQ's build reads ``name``,
+   ``date-opened`` and ``external-id`` as the case's own ``case_name``,
+   ``date_opened`` and ``external_id`` (``detail_screen.py::CASE_PROPERTY_MAP``),
+   so a column stores either word of each, and the Case List page stores the
+   field as typed (``views/modules.py::edit_module_detail_screens`` wraps each
+   posted column with ``DetailColumn.from_json``, which renames no field). Its
+   list's name is typed ``case_name``; its Case Detail tab shows the name as
+   ``name``, the opening date typed ``date_opened`` and the external id typed
+   ``external-id``. The app string id HQ's build gives a column's header names
+   the stored word (``id_strings.py::detail_column_header_locale``,
+   ``m2.case_short.case_case_name_1.header``), so a first publish that wrote
+   the other word would move each id. The UI translations page
+   (``views/apps.py::edit_app_ui_translations``) holds an English override of
+   the external id's header under its id (``EXTERNAL_ID_HEADER_KEY``), which
+   ``app_strings.py``'s strategies lay over the header HQ's build writes
+   there, and which reads as that header's English wording only where the
+   reading names the column's id by its stored word.
 
 It saves no setting. Web Apps is off, as ``Application.cloudcare_enabled``
 defaults, and its content runs on Android, so its preselected declaration is
@@ -61,6 +78,10 @@ from proof.matrix.registry import Base
 NAME = "Patient lists"
 CASE_TYPE = "patient"
 FILTER = "dob > '2000-01-01'"
+# The app string id HQ's build gives the header of "Visits due"'s third Case Detail column, stored as ``external-id``
+# (``id_strings.py::detail_column_header_locale``: the menu, the detail, the model, the field and the column's place
+# from one).
+EXTERNAL_ID_HEADER_KEY = "m2.case_long.case_external-id_3.header"
 
 
 def registration_source(name):
@@ -228,9 +249,16 @@ def build(authoring) -> str:
         authoring,
         app_id,
         2,
-        columns=[_column("name", "Name"), _column("visits", "", format="invisible")],
+        columns=[_column("case_name", "Name"), _column("visits", "", format="invisible")],
         sort_elements=[_sort("visits", "int", "descending", "last", display="Visit count")],
     )
+    _pages.save_case_detail(
+        authoring,
+        app_id,
+        2,
+        columns=[_column("name", "Name"), _column("date_opened", "Opened"), _column("external-id", "Reference")],
+    )
+    _pages.save_ui_translations(authoring, app_id, {"en": {EXTERNAL_ID_HEADER_KEY: "Patient reference"}})
     return app_id
 
 
@@ -259,5 +287,7 @@ BASE = Base(
         "menus-and-case-lists/7-invisible-search-only-on-the-case-list-outside-a-custom-tile",
         "menus-and-case-lists/no-sort-elements",
         "menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
+        "menus-and-case-lists/name-date-opened-external-id-status-owner-id-hq-renames-to-case",
+        "application-and-settings/translations-generated-key-over-one-text",
     ),
 )

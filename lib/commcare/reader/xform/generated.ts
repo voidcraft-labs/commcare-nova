@@ -15,6 +15,7 @@
  */
 
 import { type Element, isTag } from "domhandler";
+import { recordFromEntries } from "@/lib/domain/records";
 import type { WireElementContext } from "../../elementBuilders";
 import {
 	buildOwnerNodes,
@@ -76,9 +77,12 @@ function named<U extends ClaimUse>(
 	key: string,
 ): Claim<U> {
 	const claim = make(entry, key);
-	defineClaims("xform", {
-		[`${entry.slice(entry.indexOf("/") + 1)}@${use}@${key}`]: claim,
-	});
+	defineClaims(
+		"xform",
+		recordFromEntries([
+			[`${entry.slice(entry.indexOf("/") + 1)}@${use}@${key}`, claim],
+		]),
+	);
 	return claim;
 }
 
@@ -494,16 +498,44 @@ export function matchesHoles(
 	isHole: (name: string) => boolean,
 ): ReadonlyMap<string, FormSyntax> | undefined {
 	const left = readFormSyntax(source);
-	const right = readFormSyntax(
+	if (!left.ok || left.node === undefined) return undefined;
+	return matchesHolesIn(left.node, template, isHole);
+}
+
+/** `matchesTemplate` over a tree already read: for a walk that asks of each node of one text,
+ *  which reads the text once rather than once a node. The hole's subtree is the tree's own, so
+ *  its span is in the text the tree was read from. */
+export function matchesTemplateIn(
+	source: FormSyntax,
+	template: WireExpr,
+	hole: string,
+): FormSyntax | undefined {
+	return matchesHolesIn(source, template, (name) => name === hole)?.get(hole);
+}
+
+/** Each template's tree as the grammar reads its print, by the template: a walk that matches
+ *  every node of a text against one template prints and reads it once. */
+const templateSyntaxes = new WeakMap<WireExpr, FormSyntax | null>();
+
+function templateSyntax(template: WireExpr): FormSyntax | undefined {
+	const known = templateSyntaxes.get(template);
+	if (known !== undefined) return known ?? undefined;
+	const read = readFormSyntax(
 		serializeWire(template, { target: "xform", constraint: false }).text,
 	);
-	if (
-		!left.ok ||
-		!right.ok ||
-		left.node === undefined ||
-		right.node === undefined
-	)
-		return undefined;
+	const tree = read.ok && read.node !== undefined ? read.node : null;
+	templateSyntaxes.set(template, tree);
+	return tree ?? undefined;
+}
+
+/** `matchesHoles` over a source tree already read. */
+function matchesHolesIn(
+	source: FormSyntax,
+	template: WireExpr,
+	isHole: (name: string) => boolean,
+): ReadonlyMap<string, FormSyntax> | undefined {
+	const right = templateSyntax(template);
+	if (right === undefined) return undefined;
 	const bound = new Map<string, FormSyntax>();
 	const strip = (node: FormSyntax): FormSyntax =>
 		node.kind === "group" ? strip(node.value) : node;
@@ -555,7 +587,7 @@ export function matchesHoles(
 				return false;
 		}
 	};
-	return match(left.node, right.node) ? bound : undefined;
+	return match(source, right) ? bound : undefined;
 }
 
 function holdsHole(
@@ -590,9 +622,9 @@ export const HOLE = "nova_reader_hole";
 
 // ── A bind's shape ───────────────────────────────────────────────────────
 
-/** The attributes a generated node's bind may carry, shadows aside: its path, the ones listed
- *  and nothing else. */
-const BIND_PATH = new Set(["nodeset", "ref"]);
+/** The attributes a generated node's bind may carry, shadows aside: its path, the `nodeset` Core
+ *  reads a bind's node from, the ones listed and nothing else. */
+const BIND_PATH = new Set(["nodeset"]);
 
 function bindHoldsOnly(
 	bind: BindFacts,

@@ -89,6 +89,8 @@ describe("targetFactsFromSource over the retained read", () => {
 		expect(facts).toMatchObject({
 			uiText: {},
 			uiTextKeys: [],
+			uiTextNotCarried: [],
+			profileNotCarried: false,
 			secureSubmissions: false,
 			customBaseUrl: null,
 			autoGpsCapture: false,
@@ -185,29 +187,60 @@ describe("targetFactsFromSource over the retained read", () => {
 		).toBe(false);
 	});
 
-	/* Each expectation is what Python's `urljoin(base, "/a/…")` keeps of the
-	 * base before `/a/…`, the join `absolute_url_property` makes. */
-	it("keeps the scheme and the netloc of a custom base URL as HQ's urljoin does", () => {
+	/* Each base is read as Python's `urljoin(base, "/a/…")` keeps it, the join
+	 * `absolute_url_property` makes; the fact is the host a person reads,
+	 * never the user information before it, and the origin a phone reaches
+	 * where the base is one a server could be at. */
+	it("keeps a custom base URL's host and origin, and never its user information", () => {
 		const base = (value: unknown) =>
 			factsOf((source) => {
 				source.custom_base_url = value;
 			}).customBaseUrl;
-		expect(base("https://example.org/hq/path")).toBe("https://example.org");
-		expect(base("https://example.org/")).toBe("https://example.org");
-		expect(base("https://example.org")).toBe("https://example.org");
-		expect(base("https://example.org?x=1#f")).toBe("https://example.org");
-		expect(base("https://example.org:8443/x")).toBe("https://example.org:8443");
-		expect(base("https://relay:s3cret@proxy.example.org/hq/")).toBe(
-			"https://relay:s3cret@proxy.example.org",
-		);
-		expect(base("https://Proxy.Example.org:443/")).toBe(
-			"https://Proxy.Example.org:443",
-		);
-		expect(base("HTTPS://example.org")).toBe("https://example.org");
-		expect(base("  https://ex\tample.org/x")).toBe("https://example.org");
-		expect(base("https://[::1]:8443/x")).toBe("https://[::1]:8443");
-		expect(base("https://[fe80::1%eth0]/")).toBe("https://[fe80::1%eth0]");
-		expect(base("https://[v1.x]/")).toBe("https://[v1.x]");
+		expect(base("https://example.org/hq/path")).toEqual({
+			host: "example.org",
+			origin: "https://example.org",
+		});
+		expect(base("https://example.org?x=1#f")).toEqual({
+			host: "example.org",
+			origin: "https://example.org",
+		});
+		expect(base("https://example.org:8443/x")).toEqual({
+			host: "example.org:8443",
+			origin: "https://example.org:8443",
+		});
+		/* An explicit default port and the host's own letters: the same origin. */
+		expect(base("https://Proxy.Example.org:443/")).toEqual({
+			host: "Proxy.Example.org:443",
+			origin: "https://proxy.example.org",
+		});
+		expect(base("HTTPS://www.commcarehq.org")).toEqual({
+			host: "www.commcarehq.org",
+			origin: "https://www.commcarehq.org",
+		});
+		expect(base("  https://ex\tample.org/x")).toEqual({
+			host: "example.org",
+			origin: "https://example.org",
+		});
+		/* User information is never kept, and makes no server's own origin. */
+		const credentials = base("https://relay:s3cret@proxy.example.org/hq/");
+		expect(credentials).toEqual({ host: "proxy.example.org", origin: null });
+		expect(JSON.stringify(credentials)).not.toContain("s3cret");
+		expect(base("https://u:p@www.commcarehq.org")).toEqual({
+			host: "www.commcarehq.org",
+			origin: null,
+		});
+		/* Plain http is no server's own origin. */
+		expect(base("http://x")).toEqual({ host: "x", origin: null });
+		expect(base("https://india.commcarehq.org/hq/")).toEqual({
+			host: "india.commcarehq.org",
+			origin: "https://india.commcarehq.org",
+		});
+		expect(base("https://[::1]:8443/x")).toEqual({
+			host: "[::1]:8443",
+			origin: "https://[::1]:8443",
+		});
+		/* A host `urlsplit` accepts and WHATWG's parser does not: a host to show, no origin. */
+		expect(base("https://[v1.x]/")).toEqual({ host: "[v1.x]", origin: null });
 		expect(base("https://ex℀mple/")).toBeNull();
 		expect(base("example.org")).toBeNull();
 		expect(base("https:example.org")).toBeNull();
@@ -251,6 +284,79 @@ describe("targetFactsFromSource over the retained read", () => {
 			(source.profile as Json).features = { credentials: "3MON_ACTIVE" };
 		});
 		expect(facts.credentialLevel).toBe("3MON_ACTIVE");
+		expect(facts.profileNotCarried).toBe(false);
+	});
+
+	/* A value XML 1.0 cannot carry would make the profile's serializer throw
+	 * on every `.ccz` of the deployment, so it is left out and said. */
+	it("leaves out a setting or a credential level XML cannot carry, and says so", () => {
+		const control = String.fromCharCode(0x01);
+		const setting = factsOf((source) => {
+			properties(source)["cc-autosync-freq"] = `freq${control}daily`;
+		});
+		expect(setting.profileProperties).not.toHaveProperty("cc-autosync-freq");
+		expect(setting.profileProperties["cc-autoup-freq"]).toBe("freq-never");
+		expect(setting.profileNotCarried).toBe(true);
+		const level = factsOf((source) => {
+			(source.profile as Json).features = { credentials: `3MON${control}` };
+		});
+		expect(level.credentialLevel).toBeNull();
+		expect(level.profileNotCarried).toBe(true);
+		/* A tab, a line break and a carriage return are characters XML carries. */
+		const carried = factsOf((source) => {
+			properties(source)["cc-maps-default-layer"] = "normal\tlayer";
+		});
+		expect(carried.profileProperties["cc-maps-default-layer"]).toBe(
+			"normal\tlayer",
+		);
+		expect(carried.profileNotCarried).toBe(false);
+	});
+
+	/* Core's locale reader trims a line, ends it at a line feed or a carriage
+	 * return, cuts it at an unescaped `#` and splits it at the first `=`, and
+	 * HQ's build writes a key stripped: a key that is not one record under its
+	 * own name would set another string in the archive, and a value holding a
+	 * carriage return would add a line of its own. */
+	it("carries the project space's text only where its line reads back as one record under its own key", () => {
+		const facts = factsOf((source) => {
+			source.langs = ["en", "fra"];
+			translations(source).en = {
+				"home.start": "Begin",
+				" modules.m0": "Smuggled",
+				"\tforms.m0f0": "Smuggled",
+				"x=y\nmodules.m0": "Smuggled",
+				"a#b": "Smuggled",
+				"home.sync": "Sync\rmodules.m0=Smuggled",
+				"my.own.note": "A note",
+			};
+			translations(source).fra = { "home.start": "Commencer" };
+		});
+		expect(facts.uiText).toEqual({
+			en: { "home.start": "Begin", "my.own.note": "A note" },
+			fra: { "home.start": "Commencer" },
+		});
+		expect(facts.uiTextNotCarried).toEqual(["en"]);
+		/* The runtime key stays listed: the project space holds it. */
+		expect(facts.uiTextKeys).toEqual(["home.start", "home.sync"]);
+		/* A blank value under such a key is no text HQ's build writes. */
+		const blank = factsOf((source) => {
+			translations(source).en = { " modules.m0": "" };
+		});
+		expect(blank.uiTextNotCarried).toEqual([]);
+	});
+
+	it("leaves out a language name holding a carriage return, where Nova's label stands", () => {
+		const facts = factsOf(
+			(source) => {
+				source.langs = ["en", "fra"];
+				translations(source).en = {
+					en: "English",
+					fra: "French\rhome.start=x",
+				};
+			},
+			{ adopted: true },
+		);
+		expect(facts.languageNames).toEqual({ en: { en: "English" } });
 	});
 
 	it("carries language names only on an app Nova brought in", () => {

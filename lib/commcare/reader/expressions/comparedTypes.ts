@@ -35,6 +35,7 @@ import {
 import type { Expression, Term } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
+import { rethrowWorkStop } from "../../workMeter";
 
 /** The types a comparison gives a property, the value types that name one. */
 const COMPARED_TYPES: ReadonlySet<string> = new Set<CasePropertyDataType>([
@@ -221,7 +222,8 @@ function scanComparedTypes(
 		let type: string | undefined;
 		try {
 			type = scalarDataType(typeOf(other, context)?.data);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			return;
 		}
 		// Text is not ordered, so an ordering against a literal spelled as a

@@ -13,7 +13,7 @@ export const STOP_PUBLISHING_ACTION = "Stop publishing here";
 
 /** The line under that control. */
 export const STOP_PUBLISHING_HELPER =
-	"The app in CommCare HQ stays as it is, and this app stops publishing to it. It can be brought in to Nova again as a new app.";
+	"The app in CommCare HQ stays as it is, and this app stops publishing to it. It can be brought in to Nova again as a new app once any publish to it has finished.";
 
 /** The confirmation's title. */
 export function stopPublishingConfirmTitle(domain: string): string {
@@ -22,7 +22,7 @@ export function stopPublishingConfirmTitle(domain: string): string {
 
 /** The confirmation's body. */
 export function stopPublishingConfirmBody(domain: string): string {
-	return `Nova stops publishing this app to “${domain}”. The app in CommCare HQ stays exactly as it is, and you or a teammate can bring it in to Nova again as a new app. If you publish to “${domain}” later, Nova makes a new app there.`;
+	return `Nova stops publishing this app to “${domain}”. The app in CommCare HQ stays exactly as it is, and once any publish to it has finished, you or a teammate can bring it in to Nova again as a new app. If you publish to “${domain}” later, Nova makes a new app there.`;
 }
 
 export const STOP_PUBLISHING_CONFIRM = "Stop publishing";
@@ -101,6 +101,14 @@ export function restoredStoppedPublishing(spaces: readonly string[]): string {
 /** The home list's line for a restore that met where the app publishes changing three times in a row. */
 export const RESTORE_CLAIMS_CHANGED =
 	"Nova couldn't bring this app back just now, because where it publishes was changing at the same moment. Nothing was changed, and you can try again.";
+
+/**
+ * A publish of an app whose CommCare HQ app it gave up while it was deleted,
+ * where another Nova app's publish to that HQ app is still finishing
+ * (`app_changed_while_publishing`).
+ */
+export const PUBLISH_WAITS_FOR_ANOTHER_WRITE =
+	"Another Nova app's publish to this app in CommCare HQ is still finishing, so nothing was sent. You can publish again in a few minutes.";
 
 /** A publish whose settling of a released mapping met the same (`app_changed_while_publishing`). */
 export const PUBLISH_CLAIMS_CHANGED =

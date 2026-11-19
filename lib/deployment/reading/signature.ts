@@ -10,6 +10,7 @@
  */
 
 import { z } from "zod";
+import { type SourceTable, tableOf } from "@/lib/commcare/sourceKeys";
 import { automationSchema } from "@/lib/domain/automations";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { fieldSchema } from "@/lib/domain/fields";
@@ -89,13 +90,13 @@ export const DOCUMENT_SCHEMA_KEYS: ReadonlySet<string> = (() => {
 })();
 
 /** The top-level keys a signature names in its own words. */
-const TOP_LEVEL_WORDS: Readonly<Record<string, string>> = {
+const TOP_LEVEL_WORDS: SourceTable<string> = tableOf({
 	modules: "menu",
 	forms: "form",
 	fields: "question",
 	caseTypes: "case-type",
 	localization: "translations",
-};
+});
 
 /**
  * A document path as content-free segments: the top-level key, in its own
@@ -109,7 +110,8 @@ export function documentPathKinds(path: readonly string[]): readonly string[] {
 	const [top, ...rest] = path;
 	if (top === undefined) return [];
 	return [
-		TOP_LEVEL_WORDS[top] ?? (DOCUMENT_SCHEMA_KEYS.has(top) ? top : "document"),
+		TOP_LEVEL_WORDS.get(top) ??
+			(DOCUMENT_SCHEMA_KEYS.has(top) ? top : "document"),
 		...rest.filter((segment) => DOCUMENT_SCHEMA_KEYS.has(segment)),
 	];
 }

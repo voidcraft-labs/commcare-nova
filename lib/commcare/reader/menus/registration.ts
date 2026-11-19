@@ -14,6 +14,7 @@ import {
 	makeTranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { caseListFormLabelUnit } from "../../emissionPlan";
 import { emptyShortListColumns } from "../../hqJson/caseList";
 import { hqXPath, serializeHqModule } from "../../hqJson/xpath";
@@ -39,7 +40,7 @@ import {
 	refuseLineEndKey,
 	refuseUnheldText,
 } from "../heldText";
-import { isJsonObject, sameJson } from "../jsonCursor";
+import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
 import { keptMediaPaths } from "../projectionInputs";
 import { sameXPathText } from "../syntaxCompare";
 import {
@@ -181,7 +182,7 @@ const REGISTRATION = {
 
 defineClaims(
 	"menus.registration",
-	Object.fromEntries(
+	recordFromEntries(
 		Object.entries(REGISTRATION).flatMap(([name, one]) =>
 			"use" in one
 				? [[name, one as Claim]]
@@ -223,28 +224,24 @@ function registrationsOf(
 	formMenuType: string,
 	caseType: string,
 ): readonly ("own" | "child")[] {
-	const actions = isJsonObject(form.actions) ? form.actions : {};
+	const actions = isJsonObject(form.actions) ? form.actions : NO_ENTRIES;
 	const active = (action: unknown) => {
 		const condition =
 			isJsonObject(action) && isJsonObject(action.condition)
 				? action.condition
-				: {};
+				: NO_ENTRIES;
 		return condition.type === "always" || condition.type === "if";
 	};
 	const atRoot = (one: JsonObject) => blank(one.repeat_context);
 	if (form.doc_type === "AdvancedForm") {
-		const opens = Array.isArray(actions.open_cases)
-			? actions.open_cases.filter(isJsonObject)
-			: [];
+		const opens = objectMembers(actions.open_cases) ?? [];
 		return opens
 			.filter((open) => open.case_type === caseType && atRoot(open))
 			.map(() => "own" as const);
 	}
 	const found: ("own" | "child")[] = [];
 	if (active(actions.open_case) && formMenuType === caseType) found.push("own");
-	const subcases = Array.isArray(actions.subcases)
-		? actions.subcases.filter(isJsonObject)
-		: [];
+	const subcases = objectMembers(actions.subcases) ?? [];
 	for (const subcase of subcases)
 		if (subcase.case_type === caseType && atRoot(subcase) && active(subcase))
 			found.push("child");
@@ -253,7 +250,9 @@ function registrationsOf(
 
 /** Whether the host's forms read the search: its search runs inline and launches itself. */
 function formsReadSearch(host: JsonObject): boolean {
-	const config = isJsonObject(host.search_config) ? host.search_config : {};
+	const config = isJsonObject(host.search_config)
+		? host.search_config
+		: NO_ENTRIES;
 	return config.inline_search === true && config.auto_launch === true;
 }
 
@@ -262,7 +261,9 @@ function hostParentType(
 	ctx: ReadContext,
 	host: JsonObject,
 ): string | undefined {
-	const select = isJsonObject(host.parent_select) ? host.parent_select : {};
+	const select = isJsonObject(host.parent_select)
+		? host.parent_select
+		: NO_ENTRIES;
 	if (select.active !== true) return undefined;
 	const type = textOf(rawModuleById(ctx, select.module_id)?.case_type);
 	return type === "" ? undefined : type;
@@ -430,12 +431,10 @@ function caseListModuleRulesBreak(host: JsonObject): boolean {
 	let types: string | undefined;
 	let tag: unknown;
 	for (const form of rawForms(host)) {
-		const actions = isJsonObject(form.actions) ? form.actions : {};
-		const loads = (
-			Array.isArray(actions.load_update_cases)
-				? actions.load_update_cases.filter(isJsonObject)
-				: []
-		).filter((load) => !isJsonObject(load.auto_select));
+		const actions = isJsonObject(form.actions) ? form.actions : NO_ENTRIES;
+		const loads = (objectMembers(actions.load_update_cases) ?? []).filter(
+			(load) => !isJsonObject(load.auto_select),
+		);
 		const loaded = JSON.stringify(
 			[...new Set(loads.map((load) => textOf(load.case_type)))].sort(),
 		);
@@ -446,9 +445,7 @@ function caseListModuleRulesBreak(host: JsonObject): boolean {
 		for (let index = 1; index < loads.length; index++) {
 			const previous = (loads[index - 1] as JsonObject).case_tag;
 			const indices = (loads[index] as JsonObject).case_indices;
-			const tags = Array.isArray(indices)
-				? indices.filter(isJsonObject).map((one) => one.tag)
-				: [];
+			const tags = (objectMembers(indices) ?? []).map((one) => one.tag);
 			if (!blank(previous) && !tags.includes(previous)) return true;
 		}
 		if (textOf(last.case_type) !== textOf(host.case_type)) return true;
@@ -575,8 +572,10 @@ export function readCaseListRegistration(
 		named: ReturnType<typeof draftFormByReadId>;
 	}[] = [];
 	for (const host of app.modules) {
-		const json = stored[host.index] ?? {};
-		const block = isJsonObject(json.case_list_form) ? json.case_list_form : {};
+		const json = stored[host.index] ?? NO_ENTRIES;
+		const block = isJsonObject(json.case_list_form)
+			? json.case_list_form
+			: NO_ENTRIES;
 		if (!host.json.used("case_list_form")) continue;
 		if (blank(block.form_id)) {
 			host.json.drop("case_list_form", REGISTRATION.blank[host.docType]);
@@ -585,14 +584,14 @@ export function readCaseListRegistration(
 		const named = draftFormByReadId(ctx, block.form_id);
 		candidates.push({ host, block, named });
 		if (named !== undefined) {
-			const menu = stored[named.module.index] ?? {};
+			const menu = stored[named.module.index] ?? NO_ENTRIES;
 			if (hiddenMenuShape(ctx, json, block, menu))
 				hiddenNamed.set(named.form, host);
 		}
 	}
 	for (const { host, block, named } of candidates) {
 		const cls = host.docType;
-		const json = stored[host.index] ?? {};
+		const json = stored[host.index] ?? NO_ENTRIES;
 		const caseType = textOf(json.case_type);
 		const listPlace = caseListPlaceOf(host);
 		const refuseBlock = (claim: Readonly<Record<MenuClass, Claim<"refuse">>>) =>
@@ -601,8 +600,8 @@ export function readCaseListRegistration(
 			refuseBlock(REGISTRATION.missing);
 			continue;
 		}
-		const formMenu = stored[named.module.index] ?? {};
-		const form = rawForms(formMenu)[named.form.index] ?? {};
+		const formMenu = stored[named.module.index] ?? NO_ENTRIES;
+		const form = rawForms(formMenu)[named.form.index] ?? NO_ENTRIES;
 		const parentType = hostParentType(ctx, json);
 		if (formChoosesCase(form)) {
 			if (parentType !== undefined && textOf(formMenu.case_type) === parentType)
@@ -620,8 +619,10 @@ export function readCaseListRegistration(
 			continue;
 		}
 		if (json.put_in_root === true) {
-			const details = isJsonObject(json.case_details) ? json.case_details : {};
-			const short = isJsonObject(details.short) ? details.short : {};
+			const details = isJsonObject(json.case_details)
+				? json.case_details
+				: NO_ENTRIES;
+			const short = isJsonObject(details.short) ? details.short : NO_ENTRIES;
 			if (!blank(short.case_tile_template)) refuseBlock(REGISTRATION.tileAbove);
 			else if (!blank(json.root_module_id))
 				refuseBlock(REGISTRATION.childAbove);
@@ -837,12 +838,14 @@ export function settleRegistrations(
 			ctx.accounting.hasFindingAt(listPlace)
 		)
 			continue;
-		const host = stored[block.host.index] ?? {};
+		const host = stored[block.host.index] ?? NO_ENTRIES;
 		const ours = moduleOf(block.host.uniqueId) as JsonObject | undefined;
-		const source = isJsonObject(host.case_list_form) ? host.case_list_form : {};
+		const source = isJsonObject(host.case_list_form)
+			? host.case_list_form
+			: NO_ENTRIES;
 		const emitted = isJsonObject(ours?.case_list_form)
 			? ours.case_list_form
-			: {};
+			: NO_ENTRIES;
 		const unrecognized = (name: string) =>
 			ctx.accounting.circumstance("unrecognized", listPlace, { name });
 		if (source.form_id !== emitted.form_id) {
@@ -905,7 +908,7 @@ export function settleRegistrations(
 			}
 		}
 		if (block.hidden !== undefined) {
-			const menu = stored[block.hidden.index] ?? {};
+			const menu = stored[block.hidden.index] ?? NO_ENTRIES;
 			const synthetic = moduleOf(block.hidden.uniqueId) as
 				| JsonObject
 				| undefined;
@@ -935,7 +938,7 @@ export function settleRegistrations(
  */
 export function registrationFormLast(doc: BlueprintDoc): BlueprintDoc {
 	let changed = false;
-	const formOrder: Record<string, Uuid[]> = { ...doc.formOrder };
+	const formOrder = recordFromEntries(Object.entries(doc.formOrder));
 	for (const moduleUuid of doc.moduleOrder) {
 		const slot = doc.modules[moduleUuid]?.caseListRegistrationForm;
 		if (slot?.kind !== "after-empty-search") continue;

@@ -29,11 +29,11 @@ import {
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { Column } from "@/lib/domain";
 import type { LanguageTag } from "@/lib/domain/localization";
+import { isOpenableAddress } from "@/lib/links/openableAddress";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
 	columnRawText,
-	isOpenableAddress,
 	type PreviewFormattedValue,
 	projectCalculatedValue,
 	projectColumnDisplay,

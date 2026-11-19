@@ -10,10 +10,20 @@
  * own keys is wire vocabulary, which is why it lives in this package; the
  * deployment layer applies it to a stored baseline.
  *
+ * Every baseline reaches an archive only through `targetFactsFromSource`, a
+ * bring-in's, a bring-in of changes', a publish's read-back and a Refresh of
+ * kept values alike, so what CommCare HQ keeps is admitted here and nowhere
+ * else: no fact names an address a phone is sent to (a custom base URL is a
+ * host to show), a text is carried only where its line in the archive reads
+ * back as one record under its own key, and a setting only where XML can
+ * carry it. What is left out is said in the facts.
+ *
  * Pure, and outside the barrel.
  */
 
 import { isRuntimeUiStringKey, translationKeyOwner } from "./appStringKeys";
+import { isLocaleFileKey, isLocaleFileValue } from "./localeFile";
+import { xmlTextIssue } from "./xmlText";
 
 /** The profile settings a project space holds that a `.ccz` writes at its value. */
 export const KEPT_PROFILE_PROPERTY_KEYS = [
@@ -45,25 +55,60 @@ const ANDROID_LOGO_SLOTS: readonly AndroidLogoSlot[] = [
 	"demo",
 ];
 
+/**
+ * The address a project space's custom base URL sends a phone to in HQ's own
+ * build, for a person to read and for the one comparison a download makes.
+ * It is never written into a file: a `.ccz` names only the server the
+ * deployment is on (`runtimeTarget.ts::profileServerProperties`).
+ */
+export interface HeldBaseUrl {
+	/** The host, and its port where one is written, as stored, never the user information before it. */
+	readonly host: string;
+	/**
+	 * The base's origin as a phone reaches it where it is `https` with no user
+	 * information (`URL.origin`: the host's letters lowered, a default port
+	 * dropped), and null for any other base, which is no server's own address.
+	 */
+	readonly origin: string | null;
+}
+
 /** What one project space holds of the values Nova leaves to CommCare HQ. */
 export interface TargetFacts {
 	/** When CommCare HQ was read: the baseline's `observed_at`. */
 	readonly observedAt: string;
-	/** Each kept setting the project space holds a value for, as HQ's build writes it. */
+	/**
+	 * Each kept setting the project space holds a value for, as HQ's build
+	 * writes it, where XML can carry the value.
+	 */
 	readonly profileProperties: Readonly<
 		Partial<Record<KeptProfilePropertyKey, string>>
 	>;
-	/** Per HQ language code, each key the project space owns that holds text. */
+	/**
+	 * A kept setting or the worker activity credential level holds a character
+	 * XML 1.0 cannot carry, so the facts leave it out and a `.ccz` writes none.
+	 */
+	readonly profileNotCarried: boolean;
+	/**
+	 * Per HQ language code, each key the project space owns that holds text,
+	 * where the key is one locale record under its own name and the text is
+	 * one record too: no carriage return, and not only control characters
+	 * (`localeFile.ts::isLocaleFileKey`, `isLocaleFileValue`).
+	 */
 	readonly uiText: Readonly<Record<string, Readonly<Record<string, string>>>>;
 	/** Every runtime UI text key the project space owns in any language, blank ones included, sorted. */
 	readonly uiTextKeys: readonly string[];
+	/**
+	 * The language codes, sorted, whose stored `translations` hold text HQ's
+	 * build writes and a `.ccz` cannot carry as it is stored: under a key that
+	 * is no locale record of its own name, or a text that is no one record.
+	 */
+	readonly uiTextNotCarried: readonly string[];
 	readonly secureSubmissions: boolean;
 	/**
-	 * The scheme and netloc HQ's build keeps of the project space's custom base
-	 * URL, the netloc exactly as stored (`hqUrlBase`), or null where it keeps no
-	 * address.
+	 * Where HQ's build sends a phone for the project space's custom base URL
+	 * (`hqUrlBase`), or null where it keeps no address.
 	 */
-	readonly customBaseUrl: string | null;
+	readonly customBaseUrl: HeldBaseUrl | null;
 	/** Location captured with every form, on an app Nova does not set it on. */
 	readonly autoGpsCapture: boolean;
 	readonly androidLogos: readonly AndroidLogoSlot[];
@@ -75,8 +120,8 @@ export interface TargetFacts {
 	readonly credentialLevel: string | null;
 	/**
 	 * On a deployment Nova brought the app in from: per language of the source, each language code
-	 * that language's `translations` entry holds a non-empty name for. Null where Nova created
-	 * the HQ app.
+	 * that language's `translations` entry holds a non-empty name for that a locale file carries
+	 * as one record (`localeFile.ts::isLocaleFileValue`). Null where Nova created the HQ app.
 	 */
 	readonly languageNames: Readonly<
 		Record<string, Readonly<Record<string, string>>>
@@ -204,7 +249,7 @@ function acceptsNetlocCharacters(netloc: string): boolean {
 
 /**
  * What HQ's build keeps of a stored `custom_base_url` in the URLs it joins
- * onto it, or null where it keeps no address.
+ * onto it, as its scheme and netloc, or null where it keeps no address.
  *
  * `ApplicationBase.url_base` is the stored value where it is non-empty, and
  * `absolute_url_property` joins it with a path from the root
@@ -217,9 +262,11 @@ function acceptsNetlocCharacters(netloc: string): boolean {
  * first `/`, `?` or `#`. Only an `http` or `https` base with a netloc
  * `urlsplit` accepts gives an address: any other base joins to a URL a
  * phone does not reach (a path alone, `https:///a/…`) or makes HQ's build
- * raise, so the archive keeps the server's own base there.
+ * raise, so it names no address a phone is sent to.
  */
-function hqUrlBase(value: unknown): string | null {
+function hqUrlBase(
+	value: unknown,
+): { readonly scheme: "http" | "https"; readonly netloc: string } | null {
 	if (typeof value !== "string" || value === "") return null;
 	let start = 0;
 	while (start < value.length && value.charCodeAt(start) <= 0x20) start++;
@@ -246,7 +293,28 @@ function hqUrlBase(value: unknown): string | null {
 		return null;
 	}
 	if (!acceptsNetlocCharacters(netloc)) return null;
-	return `${scheme}://${netloc}`;
+	return { scheme, netloc };
+}
+
+/**
+ * What a person reads of a stored `custom_base_url`, and its origin where it
+ * is one a server could be at (`HeldBaseUrl`). The host is the netloc after
+ * its last `@`, as `urlsplit` reads it, so no user information is kept.
+ */
+function heldBaseUrl(value: unknown): HeldBaseUrl | null {
+	const base = hqUrlBase(value);
+	if (base === null) return null;
+	const at = base.netloc.lastIndexOf("@");
+	const host = base.netloc.slice(at + 1);
+	let origin: string | null = null;
+	if (base.scheme === "https" && at === -1) {
+		try {
+			origin = new URL(`https://${host}/`).origin;
+		} catch {
+			origin = null;
+		}
+	}
+	return { host, origin };
 }
 
 /** The facts one normalized source read holds. A source that is no object gives null. */
@@ -264,26 +332,54 @@ export function targetFactsFromSource(
 
 	const profile = objectAt(source, "profile");
 	const properties = objectAt(profile, "properties");
+	/* A value XML cannot carry would make every `.ccz` of the deployment
+	 * throw at the profile's serializer, so it is left out and said. */
+	let profileNotCarried = false;
+	const xmlCarried = (text: string | null): string | null => {
+		if (text === null || xmlTextIssue(text) === undefined) return text;
+		profileNotCarried = true;
+		return null;
+	};
 	const profileProperties: Partial<Record<KeptProfilePropertyKey, string>> = {};
 	for (const key of KEPT_PROFILE_PROPERTY_KEYS) {
-		const text = hqProfileValueText(properties[key]);
+		const text = xmlCarried(hqProfileValueText(properties[key]));
 		if (text !== null) profileProperties[key] = text;
 	}
+	const credentialLevel = xmlCarried(
+		hqProfileValueText(objectAt(profile, "features").credentials),
+	);
 
 	const langs = sourceLanguages(source);
 	const translations = objectAt(source, "translations");
 	/* Keys are CommCare HQ's stored text, so every record is built with
 	 * `Object.fromEntries`, which defines each key as its own: an assignment
 	 * would read a key such as `__proto__` as the object's prototype. */
+	/* A text is carried only where the archive's line reads back as it: under
+	 * a key that is one locale record of its own name, so the key a device
+	 * reads is the one `translationKeyOwner` judged, and with a text that is
+	 * one record (no carriage return, which would end the line there, and not
+	 * only control characters, which leave it defining nothing). HQ's build writes every
+	 * non-empty value whatever its key, so a text left out is said. */
+	const langCodes: ReadonlySet<string> = new Set(langs);
 	const uiTextEntries: [string, Record<string, string>][] = [];
 	const uiTextKeys = new Set<string>();
+	const uiTextNotCarried = new Set<string>();
 	for (const [lang, table] of Object.entries(translations)) {
 		if (!isObject(table)) continue;
 		const texts: [string, string][] = [];
 		for (const [key, value] of Object.entries(table)) {
-			if (translationKeyOwner(key, langs) !== "target") continue;
+			const written = typeof value === "string" && value !== "";
+			if (!isLocaleFileKey(key)) {
+				if (written) uiTextNotCarried.add(lang);
+				continue;
+			}
+			if (translationKeyOwner(key, langCodes) !== "target") continue;
 			if (isRuntimeUiStringKey(key)) uiTextKeys.add(key);
-			if (typeof value !== "string" || value === "") continue;
+			if (!written) continue;
+			if (!isLocaleFileValue(value)) {
+				uiTextNotCarried.add(lang);
+				continue;
+			}
 			texts.push([key, value]);
 		}
 		if (texts.length > 0) uiTextEntries.push([lang, Object.fromEntries(texts)]);
@@ -295,14 +391,15 @@ export function targetFactsFromSource(
 	let languageNames: Record<string, Record<string, string>> | null = null;
 	if (input.adopted) {
 		const held: [string, Record<string, string>][] = [];
-		for (const lang of new Set(langs)) {
+		for (const lang of langCodes) {
 			if (!Object.hasOwn(translations, lang)) continue;
 			const table = translations[lang];
 			if (!isObject(table)) continue;
 			const names: [string, string][] = [];
-			for (const code of new Set(langs)) {
+			for (const code of langCodes) {
 				const name = Object.hasOwn(table, code) ? table[code] : undefined;
-				if (typeof name === "string" && name !== "") names.push([code, name]);
+				if (typeof name === "string" && name !== "" && isLocaleFileValue(name))
+					names.push([code, name]);
 			}
 			if (names.length > 0) held.push([lang, Object.fromEntries(names)]);
 		}
@@ -321,10 +418,12 @@ export function targetFactsFromSource(
 	return {
 		observedAt: input.observedAt,
 		profileProperties,
+		profileNotCarried,
 		uiText,
 		uiTextKeys: [...uiTextKeys].sort(),
+		uiTextNotCarried: [...uiTextNotCarried].sort(),
 		secureSubmissions: source.secure_submissions === true,
-		customBaseUrl: hqUrlBase(source.custom_base_url),
+		customBaseUrl: heldBaseUrl(source.custom_base_url),
 		autoGpsCapture:
 			!input.novaOwnsAutoGpsCapture && source.auto_gps_capture === true,
 		androidLogos,
@@ -333,9 +432,7 @@ export function targetFactsFromSource(
 		breadcrumbs: source.show_breadcrumbs !== false,
 		mobileReportVersion:
 			typeof mobileReportVersion === "string" ? mobileReportVersion : "2.0",
-		credentialLevel: hqProfileValueText(
-			objectAt(profile, "features").credentials,
-		),
+		credentialLevel,
 		languageNames,
 	};
 }

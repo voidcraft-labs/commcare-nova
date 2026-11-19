@@ -13,7 +13,7 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
-import { mintingResolver } from "../../identity";
+import { claimsUnder, mintingResolver } from "../../identity";
 import { worldEntitiesFromReads } from "../../worldEntities";
 import { readExpressions } from "../index";
 import { fieldNamed, readEnv, registration } from "./expressionReadFixture";
@@ -54,7 +54,7 @@ describe("the worker's reads, learned by a first run", () => {
 		]);
 		const minted = worldEntitiesFromReads(
 			first.worldReads,
-			mintingResolver("app"),
+			claimsUnder(mintingResolver("app")),
 		);
 		const persisted = toPersistableDoc(doc);
 		const withWorld = hydratePersistedBlueprint({
@@ -121,7 +121,7 @@ describe("the worker's reads, learned by a first run", () => {
 		expect(first.worldReads.userFields).toEqual(["role"]);
 		const minted = worldEntitiesFromReads(
 			first.worldReads,
-			mintingResolver("app"),
+			claimsUnder(mintingResolver("app")),
 		);
 		const [role] = minted.userProperties;
 		if (role === undefined) throw new Error("No worker property was minted.");

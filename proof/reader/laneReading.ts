@@ -24,6 +24,7 @@ import { v7 } from "uuid";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
 import {
+	type HqAlignedModule,
 	type HqAppReading,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
@@ -36,6 +37,7 @@ import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
+	type ReadDraft,
 	type ReaderInput,
 	type ReaderLookupCatalog,
 	type ReaderMediaResolution,
@@ -47,13 +49,13 @@ import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { levelsAsPublished } from "@/lib/commcare/reader/worldEntities";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
+	type ColumnFieldWordRow,
 	targetWireIdentity,
 	type WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
 import {
 	type AdoptedKeyedCaseId,
 	adoptedIdentityRows,
-	adoptedKeyedCaseIdRows,
 	assignMediaPaths,
 } from "@/lib/deployment/adoption";
 import type { AcceptedDeclaration } from "@/lib/deployment/reading/acceptance";
@@ -64,6 +66,11 @@ import {
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
+import {
+	EMPTY_TARGET_IDENTITY,
+	observedTargetIdentity,
+	resolveTargetIdentity,
+} from "@/lib/deployment/targetIdentity";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -235,9 +242,14 @@ export type LaneReading =
 			readonly firstPublishPlaces: readonly FirstPublishChangePlaces[];
 			/** Each create keyed by an answer the document keeps, with the prefix its cases stand
 			 *  under in CommCare HQ's app: the rows a bring-in records
-			 *  (`adoption.ts::adoptedKeyedCaseIdRows`), which every later publish to that project
+			 *  (`targetIdentity.ts::resolveTargetIdentity`'s keyed creates), which every later publish to that project
 			 *  space prints the create under. */
 			readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
+			/** Each case list column the document keeps whose field CommCare HQ's app stores
+			 *  under the word Nova does not write, by screen: the rows a bring-in records
+			 *  (`targetIdentity.ts::resolveTargetIdentity`'s column words), which every later
+			 *  publish to that project space prints the column under. */
+			readonly columnWords: readonly ColumnFieldWordRow[];
 			/** A first reading's lookup data: each table the document reads, with CommCare HQ's
 			 *  rows, as the birth leaves it in the Project (`bornLookup`). Absent on a read back,
 			 *  whose tables are the corpus document's own. */
@@ -555,7 +567,9 @@ async function firstReading(
 			chosen.firstPublishFacts,
 			chosen.firstPublish.ids,
 		),
-		keyedCaseIds: adoptedKeyedCaseIdRows(draft.identities),
+		/* The record the birth writes (`reading/birth.ts::adoptedDeploymentWrite`). */
+		keyedCaseIds: result.gathered.targetIdentity.keyedCaseIds,
+		columnWords: result.gathered.targetIdentity.columnWords,
 		lookup: bornLookup(result.gathered),
 		media: laneMediaOf(result.gathered),
 		asked: asked(),
@@ -942,7 +956,7 @@ async function readBack(
 		),
 		firstPublish: [],
 		firstPublishPlaces: [],
-		keyedCaseIds: adoptedKeyedCaseIdRows(draft.identities),
+		...readBackRecordRows(draft, modules),
 		sameFile: files.sameFile,
 		asked: asked(),
 		claims,
@@ -974,4 +988,35 @@ export async function readForLane(input: LaneReadInput): Promise<LaneReading> {
 			throw new Error(noRetainedAnswer(error.path, input.appId));
 		throw error;
 	}
+}
+
+/**
+ * The keyed creates and the column words a read back holds, as a birth over it
+ * records them: the reading observed
+ * (`targetIdentity.ts::observedTargetIdentity`) and resolved over nothing.
+ */
+function readBackRecordRows(
+	draft: ReadDraft,
+	modules: readonly HqAlignedModule[],
+): {
+	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
+	readonly columnWords: readonly ColumnFieldWordRow[];
+} {
+	const observed = observedTargetIdentity({
+		read: draft.identities,
+		aligned: modules,
+		mediaFiles: [],
+		mediaMap: [],
+		doc: draft.doc,
+	});
+	if (!observed.ok)
+		throw new Error(
+			`A read back named a menu or form CommCare HQ's application resource does not hold (${observed.at}). Look at lib/deployment/adoption.ts::adoptedIdentityRows.`,
+		);
+	const { keyedCaseIds, columnWords } = resolveTargetIdentity(
+		EMPTY_TARGET_IDENTITY,
+		observed.observed,
+		draft.doc,
+	);
+	return { keyedCaseIds, columnWords };
 }

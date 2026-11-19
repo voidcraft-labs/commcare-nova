@@ -23,7 +23,9 @@ import "server-only";
  */
 
 import type { HqApplicationProfile } from "@/lib/commcare";
+import { NO_ENTRIES } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
+import { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 import {
 	baseUrl,
 	type CommCareApiError,
@@ -34,12 +36,7 @@ import {
 } from "./http";
 import { readHqJson } from "./readJson";
 
-/**
- * The most bytes of an app source Nova reads: 64 MiB. A longer body refuses
- * the read whole. The bound guards the server's memory against a body of any
- * length; it is not fitted to any app's size.
- */
-export const HQ_APP_SOURCE_MAX_BYTES = 64 * 1024 * 1024;
+export { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 
 /** The four document kinds `hqmedia/models.py::CommCareMultimedia.get_doc_class` names. */
 export const HQ_MEDIA_TYPES = [
@@ -265,11 +262,12 @@ export async function readHqAppSource(
 					appId,
 				});
 			else
-				log.warn("[commcare] media map entry is unreadable", {
+				log.warn("[commcare] media map entries are unreadable", {
 					domain,
 					request: "app-source",
 					appId,
-					index: note.index,
+					count: note.count,
+					firstIndexes: note.firstIndexes,
 				});
 		},
 	});
@@ -285,11 +283,20 @@ export async function readHqAppSource(
 	return malformed(domain, appId, parsed.key);
 }
 
-/** What a parse of a source met that its caller may log: a media map that is no object, or an
- *  entry of it Nova cannot ask for, by its position. Neither refuses the parse. */
+/** The most positions of unreadable media map entries one note names. */
+export const UNREADABLE_MEDIA_ENTRY_POSITIONS = 5;
+
+/** What a parse of a source met that its caller may log: a media map that is no object, or the
+ *  entries of it Nova cannot ask for, as one note for the whole map with their count and the
+ *  positions of the first few. Neither refuses the parse. */
 export type HqAppSourceParseNote =
 	| { readonly kind: "media-map-malformed" }
-	| { readonly kind: "media-entry-unreadable"; readonly index: number };
+	| {
+			readonly kind: "media-entries-unreadable";
+			readonly count: number;
+			/** The first `UNREADABLE_MEDIA_ENTRY_POSITIONS` positions, in the map's order. */
+			readonly firstIndexes: readonly number[];
+	  };
 
 export type HqAppSourceParse =
 	| { readonly kind: "source"; readonly source: HqAppSource }
@@ -400,7 +407,7 @@ export function parseHqAppSource(
 			/* HQ serializes the property on every app, so anything but `true`
 			 * is an app Web Apps does not offer. */
 			cloudcareEnabled: body.cloudcare_enabled === true,
-			logoRefs: isRecord(logoRefs) ? logoRefs : {},
+			logoRefs: isRecord(logoRefs) ? logoRefs : NO_ENTRIES,
 			profile: profile as unknown as HqApplicationProfile,
 			langs,
 			translations,
@@ -490,6 +497,10 @@ function readMultimediaMap(
 		return null;
 	}
 	const items: HqMediaMapItem[] = [];
+	/* One note for the map, after the loop: the map is an app author's, and
+	 * its length is bounded only by the source's. */
+	let unreadable = 0;
+	const firstIndexes: number[] = [];
 	for (const [index, [path, entry]] of Object.entries(value).entries()) {
 		if (isRecord(entry)) {
 			const id = entry.multimedia_id;
@@ -518,9 +529,17 @@ function readMultimediaMap(
 				continue;
 			}
 		}
-		onNote?.({ kind: "media-entry-unreadable", index });
+		unreadable += 1;
+		if (firstIndexes.length < UNREADABLE_MEDIA_ENTRY_POSITIONS)
+			firstIndexes.push(index);
 		items.push({ path, multimediaId: null, mediaType: null, unreadable: true });
 	}
+	if (unreadable > 0)
+		onNote?.({
+			kind: "media-entries-unreadable",
+			count: unreadable,
+			firstIndexes,
+		});
 	return items;
 }
 

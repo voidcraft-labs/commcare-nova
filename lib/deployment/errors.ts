@@ -30,9 +30,17 @@ export type DeploymentErrorCode =
 	 * The caller can see and edit the deployment and may not do this to it.
 	 * Its message names who may.
 	 */
-	| "not_permitted";
+	| "not_permitted"
+	/**
+	 * The request named a state of the deployment it no longer stands at (a
+	 * stop naming an HQ app the deployment no longer publishes to), and
+	 * nothing was written. Its message says to look again.
+	 */
+	| "stale";
 
 export class DeploymentError extends Error {
+	/* Every subclass keeps this name, so a surface that matches by name
+	 * (`lib/apiError.ts`) answers it as the code it carries. */
 	readonly name = "DeploymentError";
 	readonly code: DeploymentErrorCode;
 
@@ -67,6 +75,60 @@ export class DeploymentEndedError extends Error {
 			`Deployment ${deploymentId} ended since its publish first read it: the publish read ${expectedEndings} endings and the row now holds ${endings}, so this write was refused.`,
 		);
 	}
+}
+
+/** What a read of a deleted app's deployments tells its member. */
+export const APP_DELETED_READ =
+	"This app was deleted, so Nova can't show where it's published. You can restore it from Recently deleted in your apps.";
+
+/** What a write to a deleted app's deployments tells its member. */
+export const APP_DELETED_WRITE =
+	"This app was deleted, so Nova changed nothing about where it's published. You can restore it from Recently deleted in your apps.";
+
+/**
+ * The app is in recently deleted, said only to a caller who is still a member
+ * of its Project with the capability the read or write asked for, so it
+ * confirms nothing a stranger may not know. Made by the one authorization a
+ * deployment read and a deployment write share
+ * (`store.ts::authorizeDeploymentApp`); a caller that stopped partway says
+ * what it did in its own words with `restated`, which keeps the class and so
+ * the proof. It is a `not_found` to every surface that branches on the code;
+ * a surface that says something of a deleted app reads the class.
+ */
+export class DeploymentAppDeletedError extends DeploymentError {
+	constructor(message: string) {
+		super("not_found", message);
+	}
+
+	/** The same answer, told in the words of the act it stopped. */
+	restated(message: string): DeploymentAppDeletedError {
+		return new DeploymentAppDeletedError(message);
+	}
+}
+
+/**
+ * What a publish tells a member whose app was deleted while it ran: nothing
+ * sent, or what CommCare HQ may hold of what was. What each write made is
+ * recorded on its admission either way; the attempt itself is not folded,
+ * since the deployment belongs to an app in recently deleted.
+ */
+export function appDeletedWhilePublishing(
+	domain: string,
+	sentAnything: boolean,
+): string {
+	return sentAnything
+		? `This app was deleted while it was being published to “${domain}”, so Nova stopped. CommCare HQ may hold part of what was already sent there, and Nova kept a record of it. You can restore the app from Recently deleted in your apps and publish again.`
+		: `This app was deleted while Nova was getting it ready to publish to “${domain}”, so nothing was sent. You can restore it from Recently deleted in your apps and publish again.`;
+}
+
+/**
+ * What a publish tells a publisher who can no longer publish the app (no
+ * longer a member of its Project, or no longer allowed to edit it) once
+ * something had gone to CommCare HQ: that it went and was recorded, and
+ * nothing of the deployment they may no longer read.
+ */
+export function accessLostWhilePublishing(domain: string): string {
+	return `Nova stopped publishing this app to “${domain}” because you can no longer publish it. CommCare HQ may hold part of what was already sent there, and Nova kept a record of it. Someone who can edit the app can publish it again.`;
 }
 
 /** The one not-found message every ambiguous case shares. */

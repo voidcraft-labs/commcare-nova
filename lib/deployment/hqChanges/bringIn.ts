@@ -6,12 +6,13 @@ import "server-only";
  * id it was sent and the bytes of each file CommCare HQ added or replaced
  * kept, and acts only where its digest is the one the person reviewed:
  *
- * - changes, with no case property renamed in Nova since: the tables the
- *   changed app newly reads are written in a short transaction of their
- *   own, the files it took are published to the Project's library, the
- *   ownership the next publish's body gives is computed, and the batch
- *   commits at the reviewed head through `applyBlueprintChange` with the
- *   deployment's record in the commit's own transaction;
+ * - changes, with no case property renamed in Nova since: the files it took
+ *   are published to the Project's library, the ownership the next
+ *   publish's body gives is computed, and the batch commits at the reviewed
+ *   head through `applyBlueprintChange`, with the tables the changed app
+ *   newly reads (`projectDataWrite`, before the gate) and the deployment's
+ *   record (`inTransaction`) in the commit's own transaction, so a change
+ *   that is turned back writes no table;
  * - nothing, because the app already holds the change: the record alone,
  *   in a short transaction of its own;
  * - nothing, because CommCare HQ's save reads as the same app: the source
@@ -24,7 +25,6 @@ import "server-only";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
-import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { readAppChangeStreamRowsSince } from "@/lib/db/appChangeStream";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
@@ -32,11 +32,10 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
-import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { NO_ENTRIES } from "@/lib/domain/records";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
@@ -50,13 +49,13 @@ import {
 	renamedInNovaLine,
 } from "@/lib/publish/hqChangesCopy";
 import type { DeploymentView } from "../actions";
-import {
-	type AdoptedMediaFile,
-	adoptedIdentityRows,
-	assignMediaPaths,
-} from "../adoption";
+import { type AdoptedMediaFile, assignMediaPaths } from "../adoption";
 import { attachmentUrlTarget } from "../attachmentTarget";
-import { DeploymentEndedError, deploymentNotFound } from "../errors";
+import {
+	DeploymentAppDeletedError,
+	DeploymentEndedError,
+	deploymentNotFound,
+} from "../errors";
 import {
 	hqMediaRecordFromSource,
 	hqMediaRecordMoves,
@@ -76,6 +75,12 @@ import type { BroughtInTableWrite } from "../reading/projectData/lookupTables";
 import { adoptedMediaFiles } from "../reading/projectData/media";
 import { publishKeptReadingMedia } from "../reading/projectData/mediaStore";
 import type { ReviewTable } from "../reading/projectData/reviewTypes";
+import {
+	type BringInRoom,
+	holdChangesReadings,
+	noRoomFinding,
+	withBringInRoom,
+} from "../reading/room";
 import { firstPublishOf, leftBehindResources } from "../resources";
 import {
 	currentResourceIdentities,
@@ -88,13 +93,13 @@ import {
 	HqChangesBaselineMovedError,
 	type HqChangesTaken,
 	readDeployment,
-	readDeploymentMediaPaths,
 	readFirstPublishStates,
 	readMemberNames,
 	recordHqChangesTaken,
 	recordRefreshedAppBaseline,
+	withDeploymentReadSnapshot,
 } from "../store";
-import type { DeploymentIdentityOverride } from "../types";
+import { exportIdentityOf, sameTargetIdentity } from "../targetIdentity";
 import { hqChangesBatchId } from "./batchId";
 import { hqChangesGateRefusal } from "./gate";
 import {
@@ -109,7 +114,11 @@ import {
 	scopeContext,
 	withJudged,
 } from "./review";
-import type { HqChangesOutcome, HqChangesReview } from "./types";
+import {
+	changedOutcome,
+	type HqChangesOutcome,
+	type HqChangesReview,
+} from "./types";
 
 /** What a bring-in is sent beside the key: the review it answers and each table's answer. */
 export interface HqChangesBringInInput {
@@ -157,17 +166,37 @@ const MEMBER_KINDS: ReadonlySet<string> = new Set([
 /**
  * One bring-in. It takes no `cancel`: once a person has chosen to bring the
  * changes in, the work runs to its end whether or not the tab is there.
+ * Where the process has no room for what it reads (`reading/room.ts`), it
+ * stops reading, takes nothing, and answers `nova-busy`. Every write comes
+ * after `beginWrites`, after which nothing stops it.
  */
-export async function bringInHqChanges(
+export function bringInHqChanges(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	input: HqChangesBringInInput,
 	options: { readonly onEvent: (event: HqChangesProgress) => void },
 ): Promise<HqChangesOutcome> {
+	return withBringInRoom(
+		"changes-bring-in",
+		(room) => bringInInRoom(scope, target, input, options, room),
+		() => ({
+			kind: "changed",
+			now: { kind: "stop", finding: noRoomFinding() },
+		}),
+	);
+}
+
+async function bringInInRoom(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: HqChangesBringInInput,
+	options: { readonly onEvent: (event: HqChangesProgress) => void },
+	room: BringInRoom,
+): Promise<HqChangesOutcome> {
 	const started = performance.now();
 	/* One count of synchronous pieces for the whole bring-in: the computation's,
 	 * the check over published files and the record's. */
-	const pieces = new Pieces();
+	const pieces = new Pieces(room.signal);
 	const computed = await computeHqChanges(
 		scope,
 		target,
@@ -176,6 +205,7 @@ export async function bringInHqChanges(
 			keepMedia: true,
 			onEvent: options.onEvent,
 			pieces,
+			cancel: room.signal,
 		},
 		"bring-in",
 	);
@@ -185,6 +215,9 @@ export async function bringInHqChanges(
 		checkMs: pieces.total,
 		longestPieceMs: pieces.longest,
 		longestPieceAt: pieces.longestAt,
+		workUnits: pieces.units,
+		longestPieceUnits: pieces.longestUnits,
+		longestPieceUnitsAt: pieces.longestUnitsAt,
 	});
 	const answered = (outcome: HqChangesOutcome): HqChangesOutcome => {
 		logAnswered(
@@ -218,7 +251,7 @@ export async function bringInHqChanges(
 				kind: "refused",
 				message: hqChangesPublishingStoppedLine(target.domain),
 			});
-		return answered({ kind: "changed", now: again.review, editedBy });
+		return answered(changedOutcome(again.review, editedBy));
 	};
 
 	/* Publishing there stopped since the review: there is nothing to take. */
@@ -234,7 +267,7 @@ export async function bringInHqChanges(
 		(review.kind !== "nothing" && review.kind !== "changes") ||
 		review.reviewDigest !== input.reviewDigest
 	)
-		return answered({ kind: "changed", now: review, editedBy: null });
+		return answered(changedOutcome(review));
 
 	/* The caller's statement about Nova's own changes, where it sent one. */
 	const removes = review.kind === "changes" && review.novaChanges.length > 0;
@@ -246,6 +279,8 @@ export async function bringInHqChanges(
 		throw new HqChangesDiscardMismatchError(removes);
 	}
 
+	/* Each arm writes; the room stops nothing from here on. */
+	room.beginWrites();
 	try {
 		if (review.kind === "nothing" && review.reason === "reads-the-same")
 			return answered(await recordReadsTheSame(scope, target, basis, checked));
@@ -282,6 +317,9 @@ export async function bringInHqChanges(
 				kind: "refused",
 				message: hqChangesPublishingStoppedLine(target.domain),
 			});
+		/* The app went to recently deleted since the review, for a member who
+		 * may still edit it: the review as it now stands says so. */
+		if (error instanceof DeploymentAppDeletedError) return changedNow();
 		throw error;
 	}
 }
@@ -309,9 +347,11 @@ async function storedSource(
 }
 
 /**
- * A save in CommCare HQ that reads as the same app: the source recorded, and
- * the media record where it moves, an id learned by content or one whose file
- * CommCare HQ no longer serves forgotten.
+ * A save in CommCare HQ that reads as the same app: the source recorded, the
+ * media record where it moves, an id learned by content or one whose file
+ * CommCare HQ no longer serves forgotten, and where CommCare HQ now keeps what
+ * the document doesn't hold, where that moved (a form's id, a keyed create's
+ * prefix, a file's path), which the review named.
  */
 async function recordReadsTheSame(
 	scope: DeploymentScope,
@@ -323,7 +363,7 @@ async function recordReadsTheSame(
 		published: basis.published,
 		previous: basis.baseline.mediaFiles,
 		learned: basis.learned,
-		reported: {},
+		reported: NO_ENTRIES,
 		settled: basis.published,
 	});
 	const written = await recordRefreshedAppBaseline(scope, target, {
@@ -347,6 +387,11 @@ async function recordReadsTheSame(
 		...(hqMediaRecordMoves(basis.baseline.mediaFiles, mediaFiles) && {
 			mediaFiles,
 		}),
+		...(checked !== null &&
+			!sameTargetIdentity(
+				checked.targetIdentity.read,
+				checked.targetIdentity.next,
+			) && { targetIdentity: checked.targetIdentity }),
 	});
 	if (written.outcome === "superseded") {
 		const again = await computeHqChanges(
@@ -355,7 +400,7 @@ async function recordReadsTheSame(
 			{ readingId: basis.readingId, keepMedia: false, onEvent: () => {} },
 			"bring-in",
 		);
-		return { kind: "changed", now: again.review, editedBy: null };
+		return changedOutcome(again.review);
 	}
 	return {
 		kind: "recorded",
@@ -466,7 +511,10 @@ async function bringChangesIn(
 				throw error;
 			}
 		}
-		/* The check once more, over exactly what the app takes. */
+		/* The check once more, over exactly what the app takes: its two
+		 * readings are the review's, which this request already holds a charge
+		 * for, and never refused, since the request has begun to write. */
+		holdChangesReadings(fetched.baseline.sourceBytes, fetched.normalized.bytes);
 		const again = await checkHqChanges(
 			fetched,
 			{
@@ -488,11 +536,7 @@ async function bringChangesIn(
 				undefined,
 				scopeContext(scope, "bring-in"),
 			);
-			return {
-				kind: "changed",
-				now: again.review,
-				editedBy: null,
-			};
+			return changedOutcome(again.review);
 		}
 		checked = again.checked;
 	}
@@ -502,35 +546,8 @@ async function bringChangesIn(
 			"The check over the published files came back with a plan that holds no changes under the same digest. Look at checkHqChanges.",
 		);
 
-	/* The tables the changed app newly reads, in a short transaction of their own. */
+	/* The tables the changed app newly reads, written in the commit below. */
 	const tables = newTableWrites(answeredData, checked.newTags, review.tables);
-	if (tables.length > 0) {
-		try {
-			await withAppTx((tx) =>
-				writeBroughtInLookupTablesInTransaction(
-					tx,
-					{
-						projectId: scope.projectId,
-						actorUserId: scope.actorUserId,
-						appId: scope.appId,
-					},
-					{
-						origin: answeredData.gathered.origin,
-						tables,
-						readAt: answeredData.gathered.tablesReadAt,
-					},
-				),
-			);
-		} catch (error) {
-			if (
-				error instanceof BroughtInTableChangedError ||
-				(error instanceof LookupError &&
-					(error.code === "tag_taken" || error.code === "conflict"))
-			)
-				return changedNow();
-			throw error;
-		}
-	}
 
 	/* The ownership the next publish's body gives, and the record. */
 	onEvent({ type: "stage", stage: "bringing-in" });
@@ -559,6 +576,26 @@ async function bringChangesIn(
 			kind: "hq-changes",
 			expectedHeadSeq: fetched.head.seq,
 			guard: { mutations: admitMutationBatch(plan.batch) },
+			/* The tables the change newly reads are written in the commit's own
+			 * transaction, before its gate reads them: a change that is turned
+			 * back (a moved head, a refused gate, a moved baseline) creates,
+			 * refreshes and adopts no table. */
+			...(tables.length > 0 && {
+				projectDataWrite: ({ tx, projectId }) =>
+					writeBroughtInLookupTablesInTransaction(
+						tx,
+						{
+							projectId,
+							actorUserId: scope.actorUserId,
+							appId: scope.appId,
+						},
+						{
+							origin: answeredData.gathered.origin,
+							tables,
+							readAt: answeredData.gathered.tablesReadAt,
+						},
+					),
+			}),
 			inTransaction: async ({ tx, seq: at }) => {
 				await recordHqChangesTaken(
 					{ kind: "commit", tx, seq: at },
@@ -571,6 +608,15 @@ async function bringChangesIn(
 		if (error instanceof AppHeadMovedError)
 			return changedNow(await headMovedBy(scope, fetched.head.seq));
 		if (error instanceof HqChangesBaselineMovedError) return changedNow();
+		/* A table the change newly reads is no longer what the review showed
+		 * (its revisions, the apps that read it, a tag taken since): the review
+		 * as it now stands. */
+		if (
+			error instanceof BroughtInTableChangedError ||
+			(error instanceof LookupError &&
+				(error.code === "tag_taken" || error.code === "conflict"))
+		)
+			return changedNow();
 		if (error instanceof BlueprintCommitRejectedError) {
 			/* The gate's refusal at the commit, said as the export boundary's is: each finding in
 			 * the builder's voice for the panel and in its own sentence for MCP. */
@@ -589,8 +635,9 @@ async function bringChangesIn(
 		seq,
 		mutations: plan.batch.length,
 		tables: tables.length,
-		mediaFiles: taking.taken.mediaPaths.length,
-		identityRows: taking.taken.identities.length,
+		mediaPaths: taking.taken.targetIdentity.next.mediaPaths.length,
+		identityRows: taking.taken.targetIdentity.next.entities.length,
+		keyedCaseIds: taking.taken.targetIdentity.next.keyedCaseIds.length,
 	});
 	return {
 		kind: "brought-in",
@@ -627,7 +674,6 @@ function defect(
 					? review.since
 					: null,
 		},
-		editedBy: null,
 	};
 }
 
@@ -687,8 +733,10 @@ type Taking =
 /**
  * The record of a take: CommCare HQ's source as read, the ownership the next
  * publish's body gives over it and the document the app takes, the file at
- * each path, every menu and form of the reading with the ids CommCare HQ
- * holds, the files taken at their paths, and the next publish's list.
+ * each path, the target-identity record the reading resolves
+ * (`review.ts::takenTargetIdentity`, which the export is computed over), and
+ * the next publish's list. `mediaPaths` are the files the app takes from
+ * CommCare HQ, whose file at each kept path the record learns.
  */
 async function takenFor(
 	scope: DeploymentScope,
@@ -701,35 +749,9 @@ async function takenFor(
 	const plan = checked.plan;
 	const doc = plan.kind === "changes" ? plan.target : basis.head.doc;
 
-	/* The ids CommCare HQ holds for every menu and form the app now holds. */
-	const rows = adoptedIdentityRows(checked.draft.identities, basis.modules);
-	if (!rows.ok)
-		return {
-			kind: "refusal",
-			outcome: defect(scope, "identity-rows", {
-				kind: "unavailable",
-				reason: "nova-defect",
-				since: basis.since,
-			}),
-		};
-	const holds = new Set<string>([
-		...Object.keys(doc.modules),
-		...Object.keys(doc.forms),
-	]);
-	const identities = rows.rows.filter((row) => holds.has(row.novaEntityUuid));
-	const overrides = mergedOverrides(basis.overrides, identities);
-
-	/* The paths CommCare HQ will hold each file under once the record lands. */
-	const assignment = assignMediaPaths(mediaPaths);
-	const heldBefore = await readDeploymentMediaPaths(scope, target);
-	const heldAfter = new Map<MediaAssetId, string>(heldBefore);
-	for (const row of assignment.rows) {
-		if (heldAfter.has(row.assetId)) continue;
-		for (const [assetId, path] of heldAfter)
-			if (path.toLowerCase() === row.wirePath.toLowerCase())
-				heldAfter.delete(assetId);
-		heldAfter.set(row.assetId, row.wirePath);
-	}
+	/* Where CommCare HQ keeps everything once the record lands: what the next
+	 * publish prints under, and so what its body's ownership is computed over. */
+	const exported = exportIdentityOf(doc, checked.targetIdentity.next);
 
 	/* The next publish's body over that source and the document taken. */
 	const boundary = await prepareExportBoundary({
@@ -737,7 +759,7 @@ async function takenFor(
 		access: scope,
 		doc,
 		compiledAtSeq: basis.head.seq,
-		heldMediaPaths: heldAfter,
+		heldMediaPaths: exported.heldMediaPaths,
 		attachmentTarget: attachmentUrlTarget(target),
 		lookupTarget: target,
 	});
@@ -753,16 +775,18 @@ async function takenFor(
 			target,
 			compatibility: { advisories: [] },
 			update: { appId: basis.live.remoteId, source: basis.source },
-			identity: targetWireIdentity(overrides),
+			identity: exported.identity,
 			languageNames: seeds,
 			seeds,
-			keyedCaseIdPrefixes: new Map(),
+			keyedCaseIdPrefixes: exported.keyedCaseIdPrefixes,
 		}),
 	);
 
 	/* The file at each path the app publishes: reported by no upload, learned by
 	 * content, the one each file taken was fetched by, else the previous record's. */
-	const keptPaths = assignment.rows.map((row) => row.wirePath);
+	const keptPaths = assignMediaPaths(mediaPaths).rows.map(
+		(row) => row.wirePath,
+	);
 	const fetchedBy = hqMediaRecordFromSource(
 		keptPaths,
 		basis.source.multimediaMap ?? [],
@@ -773,7 +797,7 @@ async function takenFor(
 		),
 		previous: basis.baseline.mediaFiles,
 		learned: { ...basis.learned, ...fetchedBy },
-		reported: {},
+		reported: NO_ENTRIES,
 		settled: basis.published,
 	});
 
@@ -791,8 +815,7 @@ async function takenFor(
 			source: await storedSource(basis),
 			ownership,
 			mediaFiles,
-			identities,
-			mediaPaths,
+			targetIdentity: checked.targetIdentity,
 			firstPublish: {
 				accepted: firstPublishListToStore(
 					checked.declaration.firstPublish,
@@ -805,32 +828,37 @@ async function takenFor(
 	};
 }
 
-/** The deployment's overrides with the reading's rows for entities it holds none for. */
-function mergedOverrides(
-	stored: readonly DeploymentIdentityOverride[],
-	reading: readonly DeploymentIdentityOverride[],
-): readonly DeploymentIdentityOverride[] {
-	const held = new Set(stored.map((row) => row.novaEntityUuid));
-	return [...stored, ...reading.filter((row) => !held.has(row.novaEntityUuid))];
-}
-
-/** The member other than the requester whose change moved the head past `seq`, by name. */
+/**
+ * The member other than the requester whose change moved the head past `seq`,
+ * by name, read in a snapshot that first proves the requester may still edit
+ * the app where it is now. A head that a Project move passed names no one:
+ * whoever edited it since is another Project's member. A requester the app has
+ * left, or who lost edit, is answered as the kernel answers them, with the
+ * refusal the snapshot throws.
+ */
 async function headMovedBy(
 	scope: DeploymentScope,
 	seq: number,
 ): Promise<string | null> {
-	const rows = await readAppChangeStreamRowsSince(
-		await getAppDb(),
-		scope.appId,
-		seq,
-	);
-	const last = [...rows]
-		.reverse()
-		.find(
-			(row) => MEMBER_KINDS.has(row.kind) && row.actor_id !== scope.actorUserId,
+	return withDeploymentReadSnapshot(scope, "edit", async (snapshot) => {
+		const rows = await readAppChangeStreamRowsSince(
+			snapshot.db,
+			scope.appId,
+			seq,
 		);
-	if (last === undefined) return null;
-	return (await readMemberNames([last.actor_id])).get(last.actor_id) ?? null;
+		if (rows.some((row) => row.kind === "project-move")) return null;
+		const last = [...rows]
+			.reverse()
+			.find(
+				(row) =>
+					MEMBER_KINDS.has(row.kind) && row.actor_id !== scope.actorUserId,
+			);
+		if (last === undefined) return null;
+		return (
+			(await readMemberNames(snapshot, [last.actor_id])).get(last.actor_id) ??
+			null
+		);
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -879,8 +907,7 @@ async function deploymentViewOf(
 	const { deployment, snapshot } = read;
 	const doc = snapshot.blueprint;
 	const artifact = await landed(
-		() =>
-			setupArtifactFor(scope, deployment, doc, snapshot.organization.locations),
+		() => setupArtifactFor(scope, deployment, doc, snapshot.organization),
 		"setup artifact",
 	);
 	if (artifact === null) return null;

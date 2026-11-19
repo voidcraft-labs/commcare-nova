@@ -107,6 +107,18 @@ export interface ApplyBlueprintChangeArgs {
 		readonly seq: number;
 	}) => Promise<void>;
 	/**
+	 * Server-owned callers only, and only with `hq-changes`: the Project data
+	 * the change newly reads (its lookup tables), written in the commit's
+	 * transaction before the gate reads the lookup context
+	 * (`CanonicalCommitTransactionHooks.projectDataWrite`), so a change that
+	 * is turned back writes none of it. A batch already committed under its
+	 * id runs nothing.
+	 */
+	readonly projectDataWrite?: (context: {
+		readonly tx: Transaction<AppDatabase>;
+		readonly projectId: string;
+	}) => Promise<void>;
+	/**
 	 * Guarded MUTATION commit: the blueprint write is a transactional
 	 * read-evaluate-write — re-apply `mutations` onto the FRESH stored
 	 * blueprint and re-run the validity verdict before writing. A
@@ -179,7 +191,9 @@ export async function applyBlueprintChange(
 	if (
 		args.kind === "hq-changes"
 			? args.expectedHeadSeq === undefined
-			: args.expectedHeadSeq !== undefined || args.inTransaction !== undefined
+			: args.expectedHeadSeq !== undefined ||
+				args.inTransaction !== undefined ||
+				args.projectDataWrite !== undefined
 	) {
 		throw new Error(
 			`Only a bring-in of changes made in CommCare HQ commits at an expected head with its own transaction work. This call asked for that under the kind ${args.kind}; an editor's batch takes neither.`,
@@ -484,6 +498,9 @@ async function persistBlueprint(
 				await inTransaction({ tx: context.tx, seq: context.seq });
 				return outcome || undefined;
 			},
+		}),
+		...(args.projectDataWrite !== undefined && {
+			projectDataWrite: args.projectDataWrite,
 		}),
 		...(args.sidecars !== undefined && { sidecars: args.sidecars }),
 		...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),

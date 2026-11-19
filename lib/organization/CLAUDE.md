@@ -70,10 +70,14 @@ app's birth, inside the genesis tail and before the tail's integrity step, so
 `applyOrganizationCommitIntegrity` proves the rows against the levels and
 location properties the same birth saves; it takes no lock, because the app row
 is that transaction's own insert. `refreshManagedPlacesInTransaction` matches
-CommCare HQ's places by `hq_location_id` first, because CommCare HQ lets a
-place's site code change under its stable `location_id`, then by site code (a
-code CommCare HQ re-made under a new id).
-It inserts, updates (site code included), archives and restores, keeps live a
+CommCare HQ's places by `hq_location_id` alone, because CommCare HQ lets a
+place's site code change under its stable `location_id`, and a row is one
+CommCare HQ place for its whole life: only the insert writes `hq_location_id`.
+A place CommCare HQ lists under an id no row holds is a new place with a new
+Nova id, whatever its site code, so a persona's assignment, an owner rule, an
+automation or a saved case's owner never moves to a place CommCare HQ deleted
+and made again under the same code, nor to one that took a code another place
+gave up; an archived row is never revived for it either. It inserts, updates (site code included), archives and restores, keeps live a
 place the plan no longer lists that `app_location_references` names (a
 persona, an owner rule or an automation) and its unlisted ancestors, so
 nothing live stands under an archived place. A kept place KEEPS its
@@ -83,8 +87,11 @@ out at a level the app lacks, `leftOutHqLocationIds`) takes `hq_gone_at`,
 which worker provisioning reads as gone and the next match clears. A kept place
 the plan leaves out stays as the copy held it, at its old level, and the
 refresh names it (`keptLeftOut`), as the standing left-out line
-(`lib/publish/managedData.ts::managedPlacesLeftOut`) says such places stay. A gone row
-whose code CommCare HQ now gives another place takes a numbered code, and
+(`lib/publish/managedData.ts::managedPlacesLeftOut`) says such places stay. A row
+CommCare HQ no longer lists whose code CommCare HQ now gives another place takes
+a numbered code; where something still names it, the refresh names it in
+`remade` (`managedPlacesRemade`: CommCare HQ made it again as a new place, and a
+person can move what uses it, then refresh again), and
 re-coded rows pass through a `~<id>` placeholder so a swap never meets the
 unique site code midway. Past `MAX_LOCATIONS_PER_APP` (archived rows count,
 since every whole-tree read reads them) it deletes archived rows nothing

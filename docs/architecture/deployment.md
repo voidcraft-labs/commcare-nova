@@ -219,6 +219,7 @@ arguments; it is not encryption. Keep execution metadata in the private cutover
 archive. Each app is fenced by sequence and source/target digests, active
 holders refuse, and reruns verify the durable receipt. The fenced Job runner accepts the scanner (optionally scoped by `--app`) and
 the writer with `--plan-base64`, with `--execute` only for a reviewed write.
+
 Apply these reviewed repairs before deployment admission: the runtime database
 probe checks every saved app with the incoming validator. An app brought in from CommCare HQ is a saved app
 like any other and passed this gate at its birth, so a rule that tightens ships
@@ -226,6 +227,23 @@ its scan over saved apps first, and that scan meets shapes only CommCare HQ's
 editors author. After execution,
 verify the affected app histories and require a clean full census or runtime
 database probe before deploying the new revision.
+
+The `nova.hq.import` repair uses `scripts/scan-hq-import-scope.ts` for the
+read-only count and `scripts/migrate-hq-import-scope.ts` for the writer, bundled
+as `hq-import-scope-scan.cjs` and `hq-import-scope-repair.cjs`. In one
+transaction it adds `nova.hq.import` to every OAuth client's own scope list that
+lacks it, and to every consent, live refresh token and enabled API key that
+already holds both `nova.hq.read` and `nova.hq.write`; a second run changes
+nothing. Both print counts only. The writer is a dry run unless `--execute` is
+supplied; the fenced Job runner admits the scanner bare and the writer bare or
+with `--execute`. Unlike the repairs above, it runs once the revision that knows the scope serves all
+traffic, never before: a revision that doesn't know it rewrites a metadata
+document client's list without it and then refuses that client's repaired
+refresh token. The write runs a second time ten minutes later, for a token
+minted during the first from a code or a refresh that read its grant before
+the first committed. After the run, both bundles, their Job admissions, the
+policy cases, both scripts, their library and test, and this paragraph are
+removed.
 
 ## Incremental transcript storage cutover
 

@@ -70,7 +70,9 @@ describe("Back and Forward onto a form chosen from a list's form menu", () => {
 			try {
 				shown.push({
 					path: getBuilderPathSegmentsSnapshot().join("/"),
-					cases: readCurrentPreviewSelections()?.target?.cases,
+					cases: readCurrentPreviewSelections(
+						session.getState().previewSessionId,
+					)?.target?.cases,
 				});
 				recordSessionSelections(session);
 			} finally {
@@ -86,8 +88,7 @@ describe("Back and Forward onto a form chosen from a list's form menu", () => {
 			/* Choosing Bea on the list holds its form menu on an entry of its
 			 * own; choosing the form there opens it after the menu. */
 			pushBuilderHistory(`${APP}/${PATIENTS}/results`, false, {
-				moduleUuid: PATIENTS,
-				cases: [BEA],
+				menu: { moduleUuid: PATIENTS, cases: [BEA] },
 				session: session.getState().previewSessionId,
 			});
 			recordSessionSelections(session);
@@ -119,7 +120,10 @@ describe("Back and Forward onto a form chosen from a list's form menu", () => {
 			});
 			expect(getBuilderPathSegmentsSnapshot()).toEqual([CHECK]);
 			expect(session.getState().previewCaseTarget?.cases).toEqual([BEA]);
-			expect(readCurrentPreviewSelections()?.target?.cases).toEqual([BEA]);
+			expect(
+				readCurrentPreviewSelections(session.getState().previewSessionId)
+					?.target?.cases,
+			).toEqual([BEA]);
 		} finally {
 			stopPop();
 			stopPath();

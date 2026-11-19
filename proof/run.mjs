@@ -2,9 +2,9 @@
 // and regenerates the surface manifest's generated half: `npm run surface`.
 //
 // It runs the pinned harness image (proof/image.lock, or PROOF_IMAGE) beside a
-// Postgres it starts and removes (proof/compose.yaml), with this checkout
-// mounted read-only at /work, Linux node_modules for it, and the run's output
-// directory mounted writable at /out. Inside the image one process, the lane's
+// Postgres it starts and removes (proof/compose.yaml), with a view of this
+// checkout mounted read-only at /work, Linux node_modules for it, read-only,
+// and the run's output directory mounted writable at /out. Inside the image one process, the lane's
 // fork server (python -m proof.lane.serve), boots HQ once and forks k pytest
 // workers (`--workers k`, default 1) that run what pytest collects from the
 // arguments as one block it claims itself (or, with `--bin i/n`, bin i of n of
@@ -48,13 +48,23 @@
 // `node proof/run.mjs --lane [options]` is one CI shard: the same container,
 // with no node_modules (a shard runs no Nova TypeScript), serving the queues
 // the workflow downloaded. `--early-queue FILE` and `--queue FILE` name them
-// (the main queue may arrive later, in a directory mounted writable),
+// (the main queue may arrive later, in a directory mounted read-only),
 // `--claim '<command> {block}'` claims each block, `--wait-for '<command>'`
 // brings the main queue and the corpus, `--bin i/n` takes a static bin instead
-// of claiming, `--label` names the shard, and `--command-env A,B` passes those
-// variables to the claim and wait commands only. A shard never emits the
-// corpus: with `--queue`, PROOF_CORPUS must name the directory the corpus is
-// downloaded or brought into (mounted writable).
+// of claiming, and `--label` names the shard. The claim and wait commands run
+// here on the host, never in the container (proof/ci/hostCommands.mjs), so
+// the job's artifact-service credentials stay outside it. A shard never emits
+// the corpus: with `--queue`, PROOF_CORPUS must name the directory the corpus
+// is downloaded or brought into (mounted read-only).
+//
+// What the container wrote is data (proof/ci/untrusted.mjs). It sees the
+// checkout as a view of the files git lists (checkoutView: no ignored file,
+// no .git), with node_modules read-only, and once it has exited the run's
+// output is sealed: one holding anything but directories and plain files is
+// moved to `<output>.refused` and the run exits SEAL_REFUSED (6), so no
+// later step uploads, adopts or reads through a link a container left.
+// `node proof/run.mjs --seal DIRECTORY` seals another job's container output
+// the same way.
 //
 // `node proof/run.mjs --matrix [shards|default] [--deadline minutes]` prints
 // CI's proof matrix (proof/timings.json's execution of the profile
@@ -69,10 +79,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
 	copyFile,
+	link,
 	lstat,
 	mkdir,
 	readdir,
 	readFile,
+	readlink,
 	rename,
 	rm,
 	symlink,
@@ -80,6 +92,8 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hostCommands } from "./ci/hostCommands.mjs";
+import { readSurface, SEAL_REFUSED, sealOutput } from "./ci/untrusted.mjs";
 
 const worktree = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const COMPOSE_FILE = join(worktree, "proof", "compose.yaml");
@@ -197,13 +211,15 @@ async function imageId(image) {
 }
 
 /**
- * The node_modules the harness mounts at /work/node_modules. On Linux the
- * checkout's own install already suits the image, so it is used in place;
- * elsewhere (a macOS checkout's native binaries cannot run in the container)
- * a Docker volume keyed by package-lock.json holds a Linux install, filled
- * with `npm ci` the first time that lock is seen.
+ * The node_modules the harness mounts, read-only, at /work/node_modules. On
+ * Linux the checkout's own install already suits the image, so it is used in
+ * place; elsewhere (a macOS checkout's native binaries cannot run in the
+ * container) a Docker volume keyed by package-lock.json holds a Linux
+ * install, filled with `npm ci` over the checkout's view (`view`) the first
+ * time that lock is seen. Nothing the container runs can write either: the
+ * harness's own writes go to /out and the container's temporary directory.
  */
-async function nodeModules(image, platform) {
+async function nodeModules(image, platform, view) {
 	const hostInstall = join(worktree, "node_modules");
 	if (
 		platform === "linux" &&
@@ -236,7 +252,7 @@ async function nodeModules(image, platform) {
 			"run",
 			"--rm",
 			"-v",
-			`${worktree}:/work:ro`,
+			`${view}:/work:ro`,
 			"-v",
 			`${volume}:/work/node_modules`,
 			"-v",
@@ -261,6 +277,146 @@ async function nodeModules(image, platform) {
 		}
 	}
 	return volume;
+}
+
+/** The file a copy of the checkout without git lists its files in, NUL-separated (proof/remote/run.sh writes it). */
+export const CHECKOUT_FILES = join(".proof", "checkout-files");
+
+/**
+ * The checkout's files the harness's container may see: every file git
+ * lists (tracked, and untracked but not ignored, so an uncommitted edit
+ * runs), and nothing git ignores (an `.env`, a key, `.git` itself with any
+ * credential it holds). In a copy without git (a proof machine's slot) they
+ * are the ones CHECKOUT_FILES lists, and with neither the run is refused.
+ */
+async function checkoutFiles(root) {
+	if (existsSync(join(root, ".git"))) {
+		const listed = await capture("git", [
+			"-C",
+			root,
+			"ls-files",
+			"-z",
+			"--cached",
+			"--others",
+			"--exclude-standard",
+		]);
+		if (listed.code !== 0) {
+			throw new Error(
+				`git could not list the files of ${root} (it exited ${listed.code}), and the harness's container sees only the files git lists. Look at whether ${root} is a working git checkout.`,
+			);
+		}
+		return [...new Set(listed.stdout.split("\0").filter(Boolean))].sort();
+	}
+	const named = join(root, CHECKOUT_FILES);
+	if (!existsSync(named)) {
+		throw new Error(
+			`${root} is no git checkout and holds no ${CHECKOUT_FILES}, so the files its container may see cannot be listed. Run from a git checkout, or copy the tree with proof/remote/run.sh, which lists them.`,
+		);
+	}
+	return (await readFile(named, "utf8")).split("\0").filter(Boolean).sort();
+}
+
+/**
+ * What a CI shard's container and the surface extraction read of the
+ * checkout: the harness and the surface, and the files that pin its
+ * dependencies (a shard's checkout holds no more, proof/CLAUDE.md).
+ */
+export const HARNESS_PATHS = [
+	"proof/",
+	"lib/commcare/surface/",
+	".nvmrc",
+	"package.json",
+	"package-lock.json",
+];
+
+/**
+ * Builds the directory mounted read-only at /work: the checkout's listed
+ * files (checkoutFiles), or those under `only` where it names paths (a
+ * directory ending in `/`), at their paths under `into`, each a hard link to
+ * the checkout's file where the file system allows one and a copy
+ * otherwise, a tracked link as the same link, and an empty node_modules/ for
+ * the install's mount. A file listed and since removed is left out. Returns
+ * `into`.
+ *
+ * @param {string} into
+ * @param {{ root?: string, only?: readonly string[] }} [options]
+ */
+export async function checkoutView(into, { root = worktree, only } = {}) {
+	const files = (await checkoutFiles(root)).filter(
+		(name) =>
+			only === undefined ||
+			only.some((path) =>
+				path.endsWith("/") ? name.startsWith(path) : name === path,
+			),
+	);
+	await rm(into, { recursive: true, force: true });
+	await mkdir(join(into, "node_modules"), { recursive: true });
+	const made = new Set();
+	const directoryOf = async (path) => {
+		const directory = dirname(path);
+		if (!made.has(directory)) {
+			await mkdir(directory, { recursive: true });
+			made.add(directory);
+		}
+	};
+	const place = async (name) => {
+		if (name.split("/").some((part) => part === ".." || part === "")) {
+			throw new Error(
+				`The checkout lists ${JSON.stringify(name)}, which is no path inside it.`,
+			);
+		}
+		const from = join(root, name);
+		const to = join(into, name);
+		let held;
+		try {
+			held = await lstat(from);
+		} catch (error) {
+			if (error.code === "ENOENT") return;
+			throw error;
+		}
+		await directoryOf(to);
+		if (held.isSymbolicLink()) {
+			await symlink(await readlink(from), to);
+		} else if (held.isFile()) {
+			try {
+				await link(from, to);
+			} catch (error) {
+				if (!["EXDEV", "EPERM", "EMLINK", "ENOTSUP"].includes(error.code)) {
+					throw error;
+				}
+				await copyFile(from, to);
+			}
+		}
+	};
+	// A few hundred at once: each is a metadata call, and a checkout holds thousands.
+	for (let start = 0; start < files.length; start += 256) {
+		await Promise.all(files.slice(start, start + 256).map(place));
+	}
+	return into;
+}
+
+/** The outputs sealOutput moved aside in this process. */
+const refusedOutputs = new Set();
+
+/** Seals a run's output however the run ended, so no later step meets what the container left unsealed. */
+async function sealed(output) {
+	if ((await sealOutput(output)).length > 0) refusedOutputs.add(output);
+}
+
+/**
+ * A new directory under the output root for one run's view of the checkout,
+ * named by this process; the views of runs whose process has ended (one
+ * killed before it removed its own) are removed first.
+ */
+async function viewDirectory(outputRoot) {
+	const views = join(outputRoot, "views");
+	await mkdir(views, { recursive: true });
+	for (const name of await readdir(views)) {
+		const pid = Number(name.split("-")[0]);
+		if (Number.isSafeInteger(pid) && pid > 0 && running(pid)) continue;
+		await rm(join(views, name), { recursive: true, force: true });
+	}
+	return join(views, `${process.pid}-${randomBytes(6).toString("hex")}`);
 }
 
 // pytest's options whose value, written as the next argument or after `=`, names a path: rewritten under /work
@@ -784,36 +940,61 @@ function passedThrough(names = PASSED_THROUGH) {
  * leaving the extraction, its timings and its key (the image's id and the
  * extractor code's digest) in `output`, .proof/surface by default, where
  * PROOF_SURFACE_EXTRACTION can name it. The extraction reads code, never data
- * or the network, so it runs with no network at all.
+ * or the network, so it runs with no network at all. What it wrote is data:
+ * the output is sealed (proof/ci/untrusted.mjs) and its surface.json read
+ * without following a link, within a bound and as JSON before a byte of it
+ * reaches the checkout; a refused surface leaves the committed one as it was.
  */
 export async function surface({
 	destination = join(worktree, "lib", "commcare", "surface", "surface.json"),
 	output = join(worktree, ".proof", "surface"),
+	outputRoot = OUTPUT_ROOT,
+	checkout = worktree,
 } = {}) {
 	const image = await harnessImage();
 	const id = await imageId(image);
 	await rm(output, { recursive: true, force: true });
+	await rm(`${output}.refused`, { recursive: true, force: true });
 	await mkdir(output, { recursive: true });
-	const code = await execute("docker", [
-		"run",
-		"--rm",
-		"--network",
-		"none",
-		"-v",
-		`${worktree}:/work:ro`,
-		"-v",
-		`${output}:/out`,
-		"-e",
-		`PROOF_IMAGE_ID=${id}`,
-		image,
-		"python",
-		"-m",
-		"proof.lane.extraction",
-		"--out",
-		"/out",
-	]);
+	const view = await checkoutView(await viewDirectory(outputRoot), {
+		root: checkout,
+		only: HARNESS_PATHS,
+	});
+	let code;
+	try {
+		code = await execute("docker", [
+			"run",
+			"--rm",
+			"--network",
+			"none",
+			"-v",
+			`${view}:/work:ro`,
+			"-v",
+			`${output}:/out`,
+			"-e",
+			`PROOF_IMAGE_ID=${id}`,
+			image,
+			"python",
+			"-m",
+			"proof.lane.extraction",
+			"--out",
+			"/out",
+		]);
+	} finally {
+		await rm(view, { recursive: true, force: true });
+	}
+	if ((await sealOutput(output)).length > 0) return SEAL_REFUSED;
 	if (code !== 0) return code;
-	await copyFile(join(output, "surface.json"), destination);
+	let read;
+	try {
+		read = await readSurface(join(output, "surface.json"));
+	} catch (error) {
+		console.error(
+			`${error.message} So ${relative(worktree, destination)} was left as it was. Look at the extraction's log in ${output}.`,
+		);
+		return 1;
+	}
+	await writeFile(destination, read.bytes);
 	console.error(`Wrote ${relative(worktree, destination)}.`);
 	return 0;
 }
@@ -875,7 +1056,11 @@ async function runServer({ image, mounts, environment, serve, output }) {
 /** `npm run proof`: the whole lane, or what the arguments select, on this machine. */
 export async function main(
 	args,
-	{ platform = process.platform, outputRoot = OUTPUT_ROOT } = {},
+	{
+		platform = process.platform,
+		outputRoot = OUTPUT_ROOT,
+		checkout = worktree,
+	} = {},
 ) {
 	refuseRetired();
 	const lane = laneOptions(args);
@@ -885,44 +1070,52 @@ export async function main(
 	const android = androidRuntime();
 	const image = await harnessImage();
 	const id = await imageId(image);
-	const modules = await nodeModules(image, platform);
-	const output = await runOutput({ root: outputRoot });
-	console.error(`The proof lane writes its output into ${output}.`);
-	return runServer({
-		image,
-		mounts: [
-			"-v",
-			`${worktree}:/work:ro`,
-			"-v",
-			`${modules}:/work/node_modules`,
-			"-v",
-			`${output}:/out`,
-			...(corpus ? ["-v", `${corpus}:/corpus:ro`] : []),
-			...extraction.mounts,
-			...store.mounts,
-			...android.mounts,
-		],
-		environment: [
-			...passedThrough(),
-			"-e",
-			`PROOF_IMAGE_ID=${id}`,
-			...(await laneFingerprints(image, id)),
-			...(corpus ? ["-e", "PROOF_CORPUS=/corpus"] : []),
-			...extraction.environment,
-			...store.environment,
-			...android.environment,
-		],
-		output,
-		serve: [
-			"--workers",
-			String(lane.workers),
-			"--claim",
-			"static",
-			...(lane.bin ? ["--bin", lane.bin] : []),
-			"--",
-			...pytestArguments(lane.pytest),
-		],
+	const view = await checkoutView(await viewDirectory(outputRoot), {
+		root: checkout,
 	});
+	try {
+		const modules = await nodeModules(image, platform, view);
+		const output = await runOutput({ root: outputRoot });
+		console.error(`The proof lane writes its output into ${output}.`);
+		const code = await runServer({
+			image,
+			mounts: [
+				"-v",
+				`${view}:/work:ro`,
+				"-v",
+				`${modules}:/work/node_modules:ro`,
+				"-v",
+				`${output}:/out`,
+				...(corpus ? ["-v", `${corpus}:/corpus:ro`] : []),
+				...extraction.mounts,
+				...store.mounts,
+				...android.mounts,
+			],
+			environment: [
+				...passedThrough(),
+				"-e",
+				`PROOF_IMAGE_ID=${id}`,
+				...(await laneFingerprints(image, id)),
+				...(corpus ? ["-e", "PROOF_CORPUS=/corpus"] : []),
+				...extraction.environment,
+				...store.environment,
+				...android.environment,
+			],
+			output,
+			serve: [
+				"--workers",
+				String(lane.workers),
+				"--claim",
+				"static",
+				...(lane.bin ? ["--bin", lane.bin] : []),
+				"--",
+				...pytestArguments(lane.pytest),
+			],
+		}).finally(() => sealed(output));
+		return refusedOutputs.has(output) ? SEAL_REFUSED : code;
+	} finally {
+		await rm(view, { recursive: true, force: true });
+	}
 }
 
 /** The `--lane` options, each a value taken from the arguments. */
@@ -935,7 +1128,6 @@ export function shardOptions(args) {
 		claim: undefined,
 		bin: undefined,
 		waitFor: undefined,
-		commandEnv: [],
 	};
 	const names = {
 		"--workers": "workers",
@@ -945,7 +1137,6 @@ export function shardOptions(args) {
 		"--claim": "claim",
 		"--bin": "bin",
 		"--wait-for": "waitFor",
-		"--command-env": "commandEnv",
 	};
 	for (let index = 0; index < args.length; index++) {
 		const name = names[args[index]];
@@ -955,8 +1146,7 @@ export function shardOptions(args) {
 				`--lane takes ${Object.keys(names).join(", ")}, each with a value; got ${JSON.stringify(args[index])}${value === undefined ? " without one" : ""}.`,
 			);
 		}
-		options[name] =
-			name === "commandEnv" ? value.split(",").filter(Boolean) : value;
+		options[name] = value;
 		index++;
 	}
 	if (options.workers !== undefined)
@@ -970,13 +1160,19 @@ export function shardOptions(args) {
 }
 
 /**
- * One CI shard: the harness container serving the queues, with the claim
- * and wait commands running inside it from /work. The main queue's
- * directory and the corpus directory are mounted writable, since the wait
- * command fills them; nothing of Nova's node_modules is mounted, so the
- * shard never emits the corpus, and a main queue needs PROOF_CORPUS.
+ * One CI shard: the harness container serving the queues. The claim and
+ * wait commands run here on the host (proof/ci/hostCommands.mjs), with this
+ * process's environment and so the job's artifact-service credentials, and
+ * the server reaches them through its relay; nothing of the credentials
+ * enters the container. The main queue's directory and the corpus directory
+ * are mounted read-only, since the wait command fills them from the host;
+ * nothing of Nova's node_modules is mounted, so the shard never emits the
+ * corpus, and a main queue needs PROOF_CORPUS.
  */
-export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
+export async function shard(
+	args,
+	{ outputRoot = OUTPUT_ROOT, checkout = worktree } = {},
+) {
 	refuseRetired();
 	const options = shardOptions(args);
 	if (options.queue && !process.env.PROOF_CORPUS) {
@@ -1005,50 +1201,75 @@ export async function shard(args, { outputRoot = OUTPUT_ROOT } = {}) {
 	const image = await harnessImage();
 	const id = await imageId(image);
 	const output = await runOutput({ root: outputRoot });
-	const mounts = [
-		"-v",
-		`${worktree}:/work:ro`,
-		"-v",
-		`${output}:/out`,
-		...extraction.mounts,
-		...store.mounts,
-		...android.mounts,
-	];
-	const environment = [
-		...passedThrough(),
-		...passedThrough(options.commandEnv),
-		"-e",
-		`PROOF_IMAGE_ID=${id}`,
-		...(await laneFingerprints(image, id)),
-		...extraction.environment,
-		...store.environment,
-		...android.environment,
-	];
-	const serve = ["--workers", String(workers)];
-	if (options.label) serve.push("--label", options.label);
-	if (early) {
-		mounts.push("-v", `${early}:/lane/early-queue.json:ro`);
-		serve.push("--early-queue", "/lane/early-queue.json");
+	const queue = options.queue && resolve(process.cwd(), options.queue);
+	const claimed = options.claim && options.claim !== "static";
+	const view = await checkoutView(await viewDirectory(outputRoot), {
+		root: checkout,
+		only: HARNESS_PATHS,
+	});
+	const commands =
+		claimed || options.waitFor
+			? await hostCommands({
+					claim: claimed ? options.claim : undefined,
+					waitFor: options.waitFor,
+					earlyQueue: early,
+					queue,
+					cwd: worktree,
+				})
+			: undefined;
+	try {
+		const mounts = [
+			"-v",
+			`${view}:/work:ro`,
+			"-v",
+			`${output}:/out`,
+			...extraction.mounts,
+			...store.mounts,
+			...android.mounts,
+			...(commands?.mounts ?? []),
+		];
+		const environment = [
+			...passedThrough(),
+			"-e",
+			`PROOF_IMAGE_ID=${id}`,
+			...(await laneFingerprints(image, id)),
+			...extraction.environment,
+			...store.environment,
+			...android.environment,
+		];
+		const serve = ["--workers", String(workers)];
+		if (options.label) serve.push("--label", options.label);
+		if (early) {
+			mounts.push("-v", `${early}:/lane/early-queue.json:ro`);
+			serve.push("--early-queue", "/lane/early-queue.json");
+		}
+		if (queue) {
+			await mkdir(dirname(queue), { recursive: true });
+			mounts.push("-v", `${dirname(queue)}:/lane/queue:ro`);
+			serve.push("--queue", `/lane/queue/${basename(queue)}`);
+		}
+		if (process.env.PROOF_CORPUS) {
+			const corpus = resolve(process.cwd(), process.env.PROOF_CORPUS);
+			await mkdir(corpus, { recursive: true });
+			mounts.push("-v", `${corpus}:/corpus:ro`);
+			environment.push("-e", "PROOF_CORPUS=/corpus");
+		}
+		serve.push("--claim", commands?.claim ?? "static");
+		if (options.bin) serve.push("--bin", options.bin);
+		if (commands?.waitFor) serve.push("--wait-for", commands.waitFor);
+		console.error(`The proof shard writes its output into ${output}.`);
+		const code = await runServer({
+			image,
+			mounts,
+			environment,
+			serve,
+			output,
+		}).finally(() => sealed(output));
+		return refusedOutputs.has(output) ? SEAL_REFUSED : code;
+	} finally {
+		await commands?.close();
+		await rm(view, { recursive: true, force: true });
 	}
-	if (options.queue) {
-		const queue = resolve(process.cwd(), options.queue);
-		await mkdir(dirname(queue), { recursive: true });
-		mounts.push("-v", `${dirname(queue)}:/lane/queue`);
-		serve.push("--queue", `/lane/queue/${basename(queue)}`);
-	}
-	if (process.env.PROOF_CORPUS) {
-		const corpus = resolve(process.cwd(), process.env.PROOF_CORPUS);
-		await mkdir(corpus, { recursive: true });
-		mounts.push("-v", `${corpus}:/corpus`);
-		environment.push("-e", "PROOF_CORPUS=/corpus");
-	}
-	serve.push("--claim", options.claim ?? "static");
-	if (options.bin) serve.push("--bin", options.bin);
-	if (options.waitFor) serve.push("--wait-for", options.waitFor);
-	if (options.commandEnv.length > 0)
-		serve.push("--command-env", options.commandEnv.join(","));
-	console.error(`The proof shard writes its output into ${output}.`);
-	return runServer({ image, mounts, environment, serve, output });
 }
 
 /**
@@ -1224,6 +1445,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	};
 	if (command === "--surface") {
 		surface().then(done, failed);
+	} else if (command === "--seal" && rest.length === 1) {
+		sealOutput(resolve(rest[0])).then(
+			(foreign) => done(foreign.length > 0 ? SEAL_REFUSED : 0),
+			failed,
+		);
 	} else if (command === "--lane") {
 		// Exit 1 belongs to completed checks; CI leaves their verdict to the gate.
 		// A runner exception is infrastructure failure and must fail the shard itself.

@@ -39,17 +39,22 @@ identifier the store mints comes from the `uuid` package (`newPreviewSessionId`,
 only in a secure context: the builder opened over plain http on a LAN
 address would throw making the store. `lib/lint/randomUuid.grit` refuses
 `crypto.randomUUID()` in every client directory. The worker's own
-steps (menu selections, case targets, Home) keep it. A step the browser's
-history keeps, a case list's held form menu (`lib/routing/previewHeldMenu.ts`),
-records the session that took it and stands only in that session, so Back
-onto it after a change of worker shows the list rather than the previous
-worker's case.
+steps (menu selections, case targets, Home) keep it. It is also the key of
+the records the session keeps for the browser's history entries
+(`lib/routing/previewEntryRecords.ts`): what an entry was shown with (a case
+list's held form menu, `lib/routing/previewHeldMenu.ts`, its case selections
+and each search's context) lives in memory in those records, never in the
+entry's state, and a new session starts them empty, so Back onto a held
+menu's entry after a change of worker shows the list rather than the
+previous worker's case, and nothing a worker chose or typed outlives the
+session in the tab's history.
 
 `previewTaskId` names the running task of that session: every arrival at
 Home (`clearPreviewNavigation`) mints a new one, whatever the task held.
-Each history entry records the case selections it was shown with (the menu
-selections, the selections part of the case target, the selected case) and
-the session and task it was shown in (`lib/routing/previewSelectionsHistory.ts`).
+The session's record of each history entry holds the case selections it was
+shown with (the menu selections, the selections part of the case target, the
+selected case) and the task it was shown in
+(`lib/routing/previewSelectionsHistory.ts`).
 Back or Forward onto an entry of the same session and another task (past
 Home) puts that entry's selections back on Web Apps, before the screens
 render it (`restorePreviewSelections`, from a popstate listener in

@@ -5,7 +5,7 @@
 // are all exercised without a second container.
 
 import { Client, type Notification } from "pg";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { LOOKUP_STREAM_CHANNEL } from "@/lib/db/pg";
 import {
@@ -62,6 +62,13 @@ const OWNER_B: LookupScope = {
 	actorId: "owner-b",
 	role: "owner",
 };
+
+/* Every lookup writer reads its member's role on its own transaction. */
+beforeEach(async () => {
+	await h.seedProjectMember(OWNER_A.actorId, OWNER_A.projectId, "owner");
+	await h.seedProjectMember(VIEWER_A.actorId, VIEWER_A.projectId, "viewer");
+	await h.seedProjectMember(OWNER_B.actorId, OWNER_B.projectId, "owner");
+});
 
 const TEXT_COLUMN: LookupColumnDraft = {
 	wireName: "name",
@@ -227,15 +234,47 @@ describe("lookup persistence service", () => {
 		expect(foreignOnly.definitions).toEqual([]);
 	});
 
-	it("accepts an already-authorized scope without reimplementing role policy", async () => {
-		const table = await createTable(VIEWER_A);
-		const renamed = await updateLookupTableName(VIEWER_A, {
-			tableId: table.id,
-			expectedTableRevision: table.tableRevision,
-			name: "Clinics",
+	it("reads the member's role on the write's own transaction, whatever role its scope carries", async () => {
+		const table = await createTable();
+		/* A viewer's scope that claims to be an owner writes nothing. */
+		const claimed = { ...VIEWER_A, role: "owner" };
+		await expect(
+			updateLookupTableName(claimed, {
+				tableId: table.id,
+				expectedTableRevision: table.tableRevision,
+				name: "Clinics",
+			}),
+		).rejects.toMatchObject({
+			code: "not_found",
+			standing: "below-capability",
 		});
+		/* An editor's tag change needs the Project's delete. */
+		await h.seedProjectMember("editor-a", "project-a", "editor");
+		await expect(
+			updateLookupTableTag(
+				{ projectId: "project-a", actorId: "editor-a", role: "owner" },
+				{
+					tableId: table.id,
+					expectedTableRevision: table.tableRevision,
+					tag: "clinics",
+				},
+			),
+		).rejects.toMatchObject({
+			code: "not_found",
+			standing: "below-capability",
+		});
+		/* An owner whose scope still says viewer writes, as the member they are. */
+		const renamed = await updateLookupTableName(
+			{ ...OWNER_A, role: "viewer" },
+			{
+				tableId: table.id,
+				expectedTableRevision: table.tableRevision,
+				name: "Clinics",
+			},
+		);
 		expect(renamed.projectRevision).toBe("2");
 		expect((await getLookupTable(VIEWER_A, table.id)).name).toBe("Clinics");
+		expect((await getLookupTable(VIEWER_A, table.id)).tag).toBe(table.tag);
 	});
 
 	it("advances exactly once, makes no-ops revisionless, rolls rejection back, and reports a fresh conflict token", async () => {

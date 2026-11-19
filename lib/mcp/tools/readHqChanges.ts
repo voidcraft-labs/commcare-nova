@@ -18,7 +18,8 @@
  * The project space is the member's connection's, as `upload_app_to_hq`
  * resolves it: `domain` can be left out where the key reaches one.
  *
- * Scope: `nova.hq.read`, checked before any read. It changes nothing in Nova
+ * Scope: `nova.hq.import`, checked by its registration before anything runs:
+ * its answer is what CommCare HQ holds of the app. It changes nothing in Nova
  * or in CommCare HQ. Kept off the Solutions Architect, as every deployment
  * tool is.
  */
@@ -46,16 +47,17 @@ import type { Platform } from "@/lib/domain/platforms";
 import { madeByLine } from "@/lib/publish/documentChangeCopy";
 import type { DriftReference } from "@/lib/publish/driftReference";
 import {
-	CANNOT_BRING_IN_TOO_LARGE_LEAD,
 	cannotBringInLead,
 	hqChangesHeldLine,
 	hqChangesLead,
 	hqChangesUnavailableLine,
 	NEXT_PUBLISH_LEAD,
 	nothingToBringInLine,
+	novaLimitLead,
 	renamedInNovaLine,
 	sincePhrase,
 } from "@/lib/publish/hqChangesCopy";
+import { cutFindingName } from "@/lib/publish/hqFindings";
 import {
 	BringInToolError,
 	type McpToolErrorResult,
@@ -63,16 +65,22 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { rethrowAsMcpAccess } from "../ownership";
+import {
+	arrayItemChars,
+	cutPage,
+	fitPiece,
+	PIECE_MAX_CHARS,
+	toolText,
+} from "../paging";
 import { createProgressEmitter, hqChangesProgressSink } from "../progress";
 import { LARGE_RESULT_META } from "../resultSize";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import {
 	accountDigest,
 	circumstanceContextFor,
 	type ListedAccountProjection,
 	listedAccountProjection,
-	PAGE_LIMIT_CHARS,
 	parseAccountPage,
 	type StopProjection,
 	stopProjection,
@@ -190,6 +198,13 @@ export type HqChangesReviewProjection = ReviewHead &
 				readonly since: DriftReference;
 				/** Why there is nothing to bring in. */
 				readonly message: string;
+				/**
+				 * Where CommCare HQ now keeps what the app doesn't hold (a form's
+				 * id, the case id a create keyed by an answer files under, a
+				 * file's path), each a sentence, which recording the read
+				 * follows; empty where nothing moved.
+				 */
+				readonly hq_changes: readonly string[];
 				/** What the next publish changes in CommCare HQ, each a sentence. */
 				readonly publish_changes: readonly string[];
 				/** The lead over `publish_changes`, where it holds any. */
@@ -296,7 +311,8 @@ function publishChangesOf(lines: readonly string[]) {
 
 /**
  * The lead over an account of what Nova can't hold, as the panel chooses it: where the account's one finding is that
- * CommCare HQ's version is too large, Nova read nothing, and the lead says so.
+ * CommCare HQ's version is past a limit of Nova's own (its size, or the work of reading it), Nova
+ * brought nothing in, and the lead says so.
  */
 function cannotBringInLeadFor(
 	review: Extract<HqChangesReview, { readonly kind: "account" }>,
@@ -306,8 +322,8 @@ function cannotBringInLeadFor(
 		review.more === 0 &&
 		only !== undefined &&
 		only.subject === null &&
-		only.code === "too-large"
-		? CANNOT_BRING_IN_TOO_LARGE_LEAD
+		(only.code === "too-large" || only.code === "too-intricate")
+		? novaLimitLead(only.code)
 		: cannotBringInLead(review.findings.length + review.more);
 }
 
@@ -375,12 +391,11 @@ const LONGEST_CUT_LINE: CutLine = {
 /**
  * The most characters of JSON one part of a cut line takes, its quotes
  * included: a line longer than this is cut into parts no longer, each a page
- * of its own, so that part and the rest of the answer stay under
- * `PAGE_LIMIT_CHARS`. A line names menus, forms and questions by what the app
- * calls them, and no name or id has a length bound, so a line can be longer
- * than any answer.
+ * of its own (`paging.ts`: a piece and its comma at most `PIECE_MAX_CHARS`).
+ * A line names menus, forms and questions by what the app calls them, so a
+ * line can be longer than any answer.
  */
-export const LINE_PART_MAX_CHARS = 60_000;
+export const LINE_PART_MAX_CHARS = PIECE_MAX_CHARS - 1;
 
 /** One line of a list, or one part of a line too long for one answer. */
 interface LinePiece {
@@ -519,13 +534,13 @@ interface ChangesPage {
 }
 
 /**
- * The pieces from `from` (`changePieces`), as many as keep the whole answer
- * (`shell` with them) under `PAGE_LIMIT_CHARS`, and always one, so following
- * the cursors reaches the end. A line too long for one answer is cut into
- * parts (`lineParts`), each a page of its own that says which part it holds
- * (`cut_line`); the cursor counts pieces, so none is skipped or read twice.
- * The sentence over the renames is over this page's, so it grows with them
- * and is measured with them.
+ * The pieces from `from` (`changePieces`), as many as the one pager
+ * (`paging.ts::cutPage`) gives the page beside its shell. A line too long for
+ * one answer is cut into parts (`lineParts`), each a page of its own that says
+ * which part it holds (`cut_line`); the cursor counts pieces, so none is
+ * skipped or read twice. The sentence over the renames is over this page's,
+ * so it grows with them and is measured with them, and a rename is fitted so
+ * that it and its words in the sentence are one piece.
  */
 function changesPage(
 	pieces: readonly ChangePiece[],
@@ -539,62 +554,84 @@ function changesPage(
 	const tables: TableProjection[] = [];
 	const names: string[] = [];
 	let cutLine: CutLine | null = null;
-	let size = measureShell({
-		hq_changes: [],
-		nova_changes: [],
-		renamed_in_nova: [],
-		renamed_in_nova_line: null,
-		tables: [],
-		made_by: [],
-		next_page: LONGEST_CHANGES_CURSOR,
-		cut_line: LONGEST_CUT_LINE,
-	});
-	/* The JSON of a value added to an array: its own, and a comma after the first. */
-	const item = (value: unknown, into: readonly unknown[]) =>
-		JSON.stringify(value).length + (into.length > 0 ? 1 : 0);
 	/* The JSON of the sentence over some renames, where `null` is four characters. */
 	const lineChars = (over: readonly RenameProjection[]) =>
 		JSON.stringify(renamesLine(over)).length;
-	let end = from;
-	while (end < pieces.length) {
-		const piece = pieces[end] as ChangePiece;
-		const cut = piece.kind === "line" && piece.parts > 1;
-		/* A part of a cut line is a page of its own. */
-		if (end > from && cut) break;
-		let added: number;
-		let take: () => void;
+	/* Each piece as the page holds it: a rename, a table and a name fitted to a piece. */
+	const fitted = (piece: ChangePiece): ChangePiece => {
 		switch (piece.kind) {
-			case "line": {
-				const into = piece.list === "hq_changes" ? hq : nova;
-				added = item(piece.text, into);
-				take = () => into.push(piece.text);
-				break;
-			}
+			case "line":
+				return piece;
 			case "rename":
-				added =
-					item(piece.rename, renames) +
-					lineChars([...renames, piece.rename]) -
-					lineChars(renames);
-				take = () => renames.push(piece.rename);
-				break;
+				return { ...piece, rename: fitPiece(piece.rename, RENAME_MAX_CHARS) };
 			case "table":
-				added = item(piece.table, tables);
-				take = () => tables.push(piece.table);
-				break;
+				return { ...piece, table: fitPiece(piece.table) };
 			case "name":
-				added = item(piece.name, names);
-				take = () => names.push(piece.name);
-				break;
+				return { ...piece, name: fitPiece(piece.name) };
 		}
-		if (end > from && size + added >= PAGE_LIMIT_CHARS) break;
-		size += added;
-		take();
-		end += 1;
-		if (cut && piece.kind === "line") {
-			cutLine = { list: piece.list, part: piece.part, parts: piece.parts };
-			break;
-		}
-	}
+	};
+	const at = (index: number) => fitted(pieces[index] as ChangePiece);
+	const end = cutPage({
+		count: pieces.length,
+		from,
+		shellChars: measureShell({
+			hq_changes: [],
+			nova_changes: [],
+			renamed_in_nova: [],
+			renamed_in_nova_line: null,
+			tables: [],
+			made_by: [],
+			next_page: LONGEST_CHANGES_CURSOR,
+			cut_line: LONGEST_CUT_LINE,
+		}),
+		alone: (index) => {
+			const piece = pieces[index] as ChangePiece;
+			return piece.kind === "line" && piece.parts > 1;
+		},
+		pieceChars: (index) => {
+			const piece = at(index);
+			switch (piece.kind) {
+				case "line":
+					return arrayItemChars(
+						piece.text,
+						(piece.list === "hq_changes" ? hq : nova).length,
+					);
+				case "rename":
+					return (
+						arrayItemChars(piece.rename, renames.length) +
+						lineChars([...renames, piece.rename]) -
+						lineChars(renames)
+					);
+				case "table":
+					return arrayItemChars(piece.table, tables.length);
+				case "name":
+					return arrayItemChars(piece.name, names.length);
+			}
+		},
+		take: (index) => {
+			const piece = at(index);
+			switch (piece.kind) {
+				case "line":
+					(piece.list === "hq_changes" ? hq : nova).push(piece.text);
+					if (piece.parts > 1)
+						cutLine = {
+							list: piece.list,
+							part: piece.part,
+							parts: piece.parts,
+						};
+					return;
+				case "rename":
+					renames.push(piece.rename);
+					return;
+				case "table":
+					tables.push(piece.table);
+					return;
+				case "name":
+					names.push(piece.name);
+					return;
+			}
+		},
+	});
 	return {
 		hq_changes: hq,
 		nova_changes: nova,
@@ -606,6 +643,10 @@ function changesPage(
 		cut_line: cutLine,
 	};
 }
+
+/** The most characters of JSON one rename takes: it is named again in the sentence over the
+ *  renames, so a rename and its words there are one piece together. */
+const RENAME_MAX_CHARS = Math.floor(PIECE_MAX_CHARS / 3);
 
 /**
  * One review as a client reads it, every sentence the panel shows from the
@@ -620,8 +661,15 @@ export function describeHqChangesReview(
 		readonly projectId: string;
 		readonly remoteAppId: string | null;
 		readonly page: { readonly from: number; readonly restarted: boolean };
+		/**
+		 * The whole answer this review goes out in, where it is part of a larger
+		 * one (`bring_in_hq_changes`'s `changed`): a page is cut against that
+		 * answer's text, never against the review's alone.
+		 */
+		readonly envelope?: (projected: HqChangesReviewProjection) => unknown;
 	},
 ): HqChangesReviewProjection {
+	const wrap = options.envelope ?? ((projected) => projected);
 	const since = (reference: DriftReference) =>
 		sincePhrase(reference, head.domain);
 	switch (review.kind) {
@@ -632,13 +680,16 @@ export function describeHqChangesReview(
 				reason: review.reason,
 				since: review.since,
 				message: nothingToBringInLine(review.reason, since(review.since)),
+				/* Where CommCare HQ now keeps what the app doesn't hold, which
+				 * recording the read follows; empty where nothing moved. */
+				hq_changes: review.hqChanges,
 				...publishChangesOf(review.publishChanges),
 				reading_id: review.readingId,
 				review_digest: review.reviewDigest,
 				next: review.reviewDigest === null ? null : RECORD_NOTHING_NEXT,
 			};
 		case "changes": {
-			const project = review.projectName;
+			const project = cutFindingName(review.projectName);
 			const shell = {
 				...head,
 				kind: "changes" as const,
@@ -675,7 +726,10 @@ export function describeHqChangesReview(
 					),
 					options.page.from,
 					review.reviewDigest,
-					(page) => JSON.stringify({ ...shell, ...page }).length,
+					(page) =>
+						JSON.stringify(
+							wrap({ ...shell, ...page } as HqChangesReviewProjection),
+						).length,
 				),
 			};
 		}
@@ -702,7 +756,10 @@ export function describeHqChangesReview(
 				key,
 				circumstanceContextFor(head, null),
 				options.page.from,
-				(page) => JSON.stringify({ ...shell, account: page }).length,
+				(page) =>
+					JSON.stringify(
+						wrap({ ...shell, account: page } as HqChangesReviewProjection),
+					).length,
 			);
 			return {
 				...shell,
@@ -778,12 +835,13 @@ export function registerReadHqChanges(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"read_hq_changes",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
-				"Read what changed in CommCare HQ since Nova last published this app to a project space, or brought it in or last brought in changes from it. Changes nothing. Call it when `upload_app_to_hq` answers `hq_changed` with `can_bring_in` true on the app's change, or when the user asks what changed there. `hq_changes` lists what bringing the changes in changes in this app. `nova_changes` lists what that would remove of changes made in Nova since then: it is empty when nothing would be removed. Where a review is longer than one answer, `next_page` is not null: call again with `page` set to it until it is, and if an answer says `restarted`, the lists changed and start again. Each answer holds its share of `hq_changes`, then `nova_changes`, then `renamed_in_nova` (with `renamed_in_nova_line` over the renames it holds), then `tables`, then `made_by`, and `hq_changes_total`, `nova_changes_total`, `renamed_in_nova_total`, `tables_total` and `made_by_total` say how many each holds in all. Where `cut_line` is not null, the answer's one line is part `part` of `parts` of a line too long for one answer: the next answers hold the rest, and the parts joined in order are that line. Show the user every line of both lists, every rename, every table and `made_by` before calling `bring_in_hq_changes` with the last answer's `reading_id` and `review_digest`. A `kind` of `nothing` with a `review_digest` means CommCare HQ saved the app and there is nothing to bring in: send that `reading_id` and `review_digest` to `bring_in_hq_changes` to record it, which changes nothing in the app, and the next upload no longer stops for this app's change in CommCare HQ. A `kind` of `account`, `held`, `unavailable` or `stop` means Nova can't bring the changes in: relay its sentences, which say what the user can do instead. An `unavailable` answer whose `reason` is `not-published`, `publishing-stopped` or `app-deleted` means nothing in that project space is this app's.",
+				"Read what changed in CommCare HQ since Nova last published this app to a project space, or brought it in or last brought in changes from it. Changes nothing. Call it when `upload_app_to_hq` answers `hq_changed` with `can_bring_in` true on the app's change, or when the user asks what changed there. `hq_changes` lists what bringing the changes in changes in this app. `nova_changes` lists what that would remove of changes made in Nova since then: it is empty when nothing would be removed. Where a review is longer than one answer, `next_page` is not null: call again with `page` set to it until it is, and if an answer says `restarted`, the lists changed and start again. Each answer holds its share of `hq_changes`, then `nova_changes`, then `renamed_in_nova` (with `renamed_in_nova_line` over the renames it holds), then `tables`, then `made_by`, and `hq_changes_total`, `nova_changes_total`, `renamed_in_nova_total`, `tables_total` and `made_by_total` say how many each holds in all. Where `cut_line` is not null, the answer's one line is part `part` of `parts` of a line too long for one answer: the next answers hold the rest, and the parts joined in order are that line. Show the user every line of both lists, every rename, every table and `made_by` before calling `bring_in_hq_changes` with the last answer's `reading_id` and `review_digest`. A `kind` of `nothing` with a `review_digest` means CommCare HQ saved the app and there is nothing to bring in: send that `reading_id` and `review_digest` to `bring_in_hq_changes` to record it, which changes nothing in the app, and the next upload no longer stops for this app's change in CommCare HQ. A `nothing` answer's `hq_changes` says where CommCare HQ now keeps something the app follows (a form's id, the case id a create files under, a file's path): show the user each line. A `kind` of `account`, `held`, `unavailable` or `stop` means Nova can't bring the changes in: relay its sentences, which say what the user can do instead. An `unavailable` answer whose `reason` is `not-published`, `publishing-stopped`, `app-deleted` or `hq-app-taken` means nothing in that project space is this app's.",
 			inputSchema: z.strictObject({
 				app_id: deploymentAppIdSchema.describe(
 					"The Nova app whose changes in CommCare HQ to read. Must be an app the user can edit.",
@@ -805,7 +863,6 @@ export function registerReadHqChanges(
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqRead, "read_hq_changes");
 				const cursor =
 					args.page === undefined ? null : parseAccountPage(args.page);
 				if (args.page !== undefined && cursor === null)
@@ -829,7 +886,7 @@ export function registerReadHqChanges(
 					page,
 				});
 				return {
-					content: [{ type: "text", text: JSON.stringify(projection) }],
+					content: [{ type: "text", text: toolText(projection) }],
 				};
 			} catch (err) {
 				return toMcpErrorResult(err, {

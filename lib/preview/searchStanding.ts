@@ -23,9 +23,9 @@
 // its home screen resets the whole session (`clearAllState`).
 //
 // Preview keeps each module's current search in the session store, and each
-// browser history entry records which searches stand on it, with their
-// contexts, so one the session has since replaced stands again there
-// (`lib/routing/previewSearchHistory.ts`): a search stands on the entry it was
+// browser history entry names which searches stand on it, the session keeping
+// their contexts in the entry's record, so one the session has since replaced
+// stands again there (`lib/routing/previewSearchHistory.ts`): a search stands on the entry it was
 // begun on and on every entry a step forward pushes from one it stands on, and
 // arriving on a screen lets go of every search whose list is not on the path to
 // it. A crumb lets go as Web Apps' cut does; a submission lets every search
@@ -270,9 +270,8 @@ export function previewSearchArrival(args: {
 	readonly states: Readonly<Record<string, PreviewSearchState>>;
 	/** The searches the entry records as standing on it. */
 	readonly standing: readonly string[];
+	/** The contexts the entry's record holds in the running Preview session. */
 	readonly contexts: Readonly<Record<string, RecordedPreviewSearch>>;
-	/** The running Preview session. */
-	readonly session: string;
 	readonly replay: PreviewSearchReplay;
 	/** The worker moved here (a step, Back or Forward), rather than the
 	 *  entry's record being rewritten on the screen they are on. */
@@ -284,12 +283,7 @@ export function previewSearchArrival(args: {
 	readonly searches: Readonly<Record<string, PreviewSearchState>>;
 } {
 	const recorded = new Set(args.standing);
-	const held = previewSearchesOnEntry(
-		args.states,
-		recorded,
-		args.contexts,
-		args.session,
-	);
+	const held = previewSearchesOnEntry(args.states, recorded, args.contexts);
 	const kept = new Set(
 		previewSearchesStandingAt(
 			args.source,

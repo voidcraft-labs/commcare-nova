@@ -1037,7 +1037,8 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			deploymentStore,
 			"readDeploymentPreviewRecords",
 		);
-		const factsRead = vi.spyOn(deploymentStore, "readTargetFacts");
+		/* The facts as each lane run projected them, once its snapshot was given back. */
+		const factsRead = vi.spyOn(deploymentStore, "targetFactsOf");
 		const answerResolved = vi.spyOn(
 			previewSpace,
 			"readPreviewDeploymentAnswer",
@@ -1092,9 +1093,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					"cc-autoup-freq": "7",
 				});
 				await laneFinishedRunThatRead(() =>
-					factsRead.mock.settledResults.some(
+					factsRead.mock.results.some(
 						(result) =>
-							result.type === "fulfilled" &&
+							result.type === "return" &&
 							result.value?.profileProperties["cc-autoup-freq"] === "7",
 					),
 				);
@@ -1188,7 +1189,10 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const fuzzyOnly = { fuzzyListSearch: true, markRequiredQuestions: false };
 		const both = { fuzzyListSearch: true, markRequiredQuestions: true };
 		const deploymentStore = await import("@/lib/deployment/store");
-		const factsRead = vi.spyOn(deploymentStore, "readTargetFacts");
+		/* A lane run reads the facts' bytes in its snapshot and projects them
+		 * after it; a fault is injected at the read. */
+		const factsRead = vi.spyOn(deploymentStore, "holdTargetFacts");
+		const factsProjected = vi.spyOn(deploymentStore, "targetFactsOf");
 
 		const { frames } = await collectUntil(appId, {
 			predicate: (f) =>
@@ -1214,19 +1218,20 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 				});
 				await vi.waitFor(
 					() => {
-						const results = factsRead.mock.settledResults;
-						const faulted = results.findIndex(
+						const faulted = factsRead.mock.settledResults.findIndex(
 							(result) => result.type === "rejected",
 						);
 						expect(faulted).toBeGreaterThanOrEqual(0);
+						const faultedAt =
+							factsRead.mock.invocationCallOrder[faulted] ?? Infinity;
 						expect(
-							results
-								.slice(faulted + 1)
-								.some(
-									(result) =>
-										result.type === "fulfilled" &&
-										result.value?.profileProperties["cc-autoup-freq"] === "7",
-								),
+							factsProjected.mock.results.some(
+								(result, index) =>
+									(factsProjected.mock.invocationCallOrder[index] ?? 0) >
+										faultedAt &&
+									result.type === "return" &&
+									result.value?.profileProperties["cc-autoup-freq"] === "7",
+							),
 						).toBe(true);
 					},
 					{ timeout: 5_000 },

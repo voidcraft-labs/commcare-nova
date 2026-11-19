@@ -12,27 +12,38 @@
  * read-only records, and a held outcome may be a thrown reason, which is
  * thrown again.
  *
- * Texts are kept in the order they were first asked, and the oldest are
- * dropped once those held pass `heldCharacters`, so what is held stays within
- * a bound whatever reads pass through.
+ * Answers are kept in the order their texts were first asked, and the oldest
+ * are dropped once those held weigh more than `budget`, so what is held stays
+ * within a bound whatever reads pass through. An answer's weight is
+ * `weigh(answer, text)`, by default its text's length; a cache whose answers
+ * can be large beside their text (a parsed document) weighs them by what they
+ * hold. An answer heavier than the whole budget is answered and not held.
  */
 export class HeldByText<T> {
-	private readonly held = new Map<string, T>();
-	private characters = 0;
+	private readonly held = new Map<string, { answer: T; weight: number }>();
+	private weight = 0;
 
-	constructor(private readonly heldCharacters: number) {}
+	constructor(
+		private readonly budget: number,
+		private readonly weigh: (answer: T, text: string) => number = (
+			_answer,
+			text,
+		) => text.length,
+	) {}
 
 	/** `answer(text)`, or the answer it gave this text before. */
 	of(text: string, answer: (text: string) => T): T {
 		const known = this.held.get(text);
-		if (known !== undefined || this.held.has(text)) return known as T;
+		if (known !== undefined) return known.answer;
 		const found = answer(text);
-		this.held.set(text, found);
-		this.characters += text.length;
-		for (const [oldest] of this.held) {
-			if (this.characters <= this.heldCharacters) break;
+		const weight = this.weigh(found, text);
+		if (weight > this.budget) return found;
+		this.held.set(text, { answer: found, weight });
+		this.weight += weight;
+		for (const [oldest, entry] of this.held) {
+			if (this.weight <= this.budget) break;
 			this.held.delete(oldest);
-			this.characters -= oldest.length;
+			this.weight -= entry.weight;
 		}
 		return found;
 	}

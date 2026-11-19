@@ -172,7 +172,9 @@ interface Projection {
 
 /**
  * Nova's part of `translations`: per language, every key the target does not
- * own (`appStringKeys.ts`), a generated key or a language's name. With
+ * own (`appStringKeys.ts`), a generated key, a language's name, or a key
+ * HQ's build writes as no one record of its own name, which no publish
+ * carries, so one stored in CommCare HQ is a change the check sees. With
  * `languageNames: "target"` (the app mapping is `adopted`) a language's name
  * is the project space's, as the overlay carries it, and no part of Nova's.
  * A language left with no such key is left out.
@@ -193,6 +195,7 @@ function ownedTranslations(
 			const owner = translationKeyOwner(key, codes);
 			return (
 				owner === "generated" ||
+				owner === "not-its-own" ||
 				(owner === "language-name" && languageNames === "nova")
 			);
 		});

@@ -48,6 +48,13 @@ export type HqChangesReview =
 			 */
 			readonly reason: "unchanged" | "reads-the-same" | "already-here";
 			readonly since: DriftReference;
+			/**
+			 * Where CommCare HQ now keeps what the document doesn't hold, which a
+			 * bring-in records and Nova follows (a form's id, a keyed create's
+			 * case id prefix, a file's path), as sentences; empty where nothing
+			 * moved.
+			 */
+			readonly hqChanges: readonly string[];
 			/** What the next publish changes in CommCare HQ, as sentences. */
 			readonly publishChanges: readonly string[];
 			/** Null for `unchanged`: there is nothing to record. */
@@ -57,7 +64,10 @@ export type HqChangesReview =
 	| {
 			readonly kind: "changes";
 			readonly since: DriftReference;
-			/** Every line of what changed in CommCare HQ. */
+			/**
+			 * Every line of what changed in CommCare HQ, then where CommCare HQ
+			 * now keeps what the document doesn't hold, which Nova follows.
+			 */
 			readonly hqChanges: readonly string[];
 			/** Every line of what changed in Nova since; empty where taking the change removes nothing. */
 			readonly novaChanges: readonly string[];
@@ -125,6 +135,28 @@ export type HqChangesReview =
 	/** CommCare HQ could not be read, or the read is not Nova's to make. */
 	| { readonly kind: "stop"; readonly finding: CircumstanceFinding };
 
+/** A review that lists what to bring in, or says there is nothing to. */
+export type HqChangesListedReview = Extract<
+	HqChangesReview,
+	{ readonly kind: "changes" | "nothing" }
+>;
+
+/** Every other review: an account, a held change, an unavailable review, a stop. */
+export type HqChangesUnlistedReview = Exclude<
+	HqChangesReview,
+	HqChangesListedReview
+>;
+
+/** The `changed` outcome over `now`, carrying `editedBy` only beside a listed review. */
+export function changedOutcome(
+	now: HqChangesReview,
+	editedBy: string | null = null,
+): Extract<HqChangesOutcome, { readonly kind: "changed" }> {
+	return now.kind === "changes" || now.kind === "nothing"
+		? { kind: "changed", now, editedBy }
+		: { kind: "changed", now };
+}
+
 /** What a bring-in of the changes made in CommCare HQ answers. */
 export type HqChangesOutcome =
 	| {
@@ -140,13 +172,20 @@ export type HqChangesOutcome =
 	 * record is null where Nova could not read it after the record landed.
 	 */
 	| { readonly kind: "recorded"; readonly deployment: DeploymentView | null }
-	/** The app, the baseline or CommCare HQ is not what was reviewed. `now` is where it stands. */
+	/**
+	 * The app, the baseline or CommCare HQ is not what was reviewed. `now` is
+	 * where it stands. A member who moved the app's head is named only beside a
+	 * review that lists what to bring in or says there is nothing: every other
+	 * review is not one the person can act on in this app, and a review that is
+	 * unavailable because the app moved must not name who edits it now.
+	 */
 	| {
 			readonly kind: "changed";
-			readonly now: HqChangesReview;
+			readonly now: HqChangesListedReview;
 			/** The member whose edit moved the head, where that is what changed. */
 			readonly editedBy: string | null;
 	  }
+	| { readonly kind: "changed"; readonly now: HqChangesUnlistedReview }
 	/**
 	 * The changes would leave the app with what no longer works, and nothing
 	 * was taken. The same findings in the two voices of

@@ -219,12 +219,19 @@ export interface PreviewPlatformRules {
 	/** Web Apps `question.html` renders the hint through `markdown.render`;
 	 *  Android `QuestionWidget::addHintText` as plain text. */
 	readonly hint: "markdown" | "plain";
-	/** Label markdown. Web Apps `cloudcare/js/markdown.js::render`
-	 *  (`breaks: true`, markdown-it `html: false`, so raw HTML shows as
-	 *  written); Android `CommCareApplication.java::getMarkwonInstance`, with
-	 *  no HTML or image plugin: a single newline joins with a space, an image
-	 *  shows its alt text, and a raw tag is dropped with its text kept
-	 *  (`proof/android/test_form_reads.py` reads a label off a device). */
+	/** Label markdown. Both runtimes format the label Core hands them with
+	 *  its values already substituted (`FormEntryCaption.getSpecialFormQuestionText`
+	 *  → `FormDef.fillTemplateString`), so a value's own formatting shows.
+	 *  Web Apps `cloudcare/js/markdown.js::render` (`breaks: true`, markdown-it
+	 *  `html: false`, so raw HTML shows as written, and no linkify, so a bare
+	 *  address is text); Android `CommCareApplication.java::getMarkwonInstance`,
+	 *  with no HTML, image or linkify plugin: a single newline joins with a
+	 *  space, an image shows its alt text, and a raw tag is dropped with its
+	 *  text kept (`proof/android/test_form_reads.py` reads a label off a
+	 *  device). Under `images: "shown"` Preview draws a picture whose address
+	 *  is inside the label and describes one at any other address, so label
+	 *  text never makes the builder's page request anything
+	 *  (`lib/markdown.tsx::labelMarkdownOptions`). */
 	readonly labelMarkdown: {
 		readonly singleNewline: "break" | "space";
 		readonly html: "literal" | "dropped";

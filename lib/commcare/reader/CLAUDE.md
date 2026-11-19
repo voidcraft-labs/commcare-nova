@@ -24,6 +24,61 @@ and what the reader is told.
 caller that catches a throw names where it came from by the last one it was told, never by the
 thrown message, which can quote the app.
 
+## The work a reading does
+
+A reading's work is counted, never timed: every part of every stage runs under the reading's
+work meter (`lib/commcare/workMeter.ts`), which the reader's few doors charge by the size of
+what each handles: a grammar read its text's characters (`parse`, `syntaxRead.ts`), a
+candidate document the objects it makes and freezes (`propose`, `candidate.ts::withCandidate`),
+a print the characters the XPath and XML serializers write and the documents an emission plan
+reads (`print`), a comparison the nodes it compares (`compare`, `jsonCursor.ts::sameJson`,
+`syntaxCompare.ts`), and a walk the reader makes of a collection the source holds the members it
+examines (`visit`). `ReadWork` carries the units by door beside the reading's limit, which is a
+function of the source's size alone (`work.ts::readWorkLimit`: `READ_WORK_BASE` and
+`READ_WORK_PER_SOURCE_CHARACTER` a character, each set at four times what a measurement saw,
+which `__tests__/readWorkLimit.test.ts` holds every retained base and published document under a
+quarter of). A charge past the limit stops the reading, and `readHqAppSteps` alone turns that
+stop into its outcome: an account of one finding at the app, `too-intricate`, the same on every
+run. A request's signal (`ReaderOptions.signal`, or the request's own meter, which a reading's
+meter charges as its parent) stops a reading at its next charge, and the stop is thrown to the
+caller. A stop is sticky, so a meter that stopped throws at every later charge, and every
+`catch` in the reader rethrows it first (`rethrowWorkStop(error)`, which a Biome plugin,
+`lib/lint/workStopCatch.grit`, requires as the first statement of every `catch` here but
+`index.ts`'s).
+
+So a stage keeps its work linear in what it reads: it decides a choice from that choice's own
+evidence and prints the whole once to confirm, and never builds the set of combinations of
+independent choices (the search settle chooses each Search field's rule on its own printed
+property, `search/settings.ts::settleSearchSettings`), and a lookup inside a loop over a
+collection is an index built once (a language's shown text, `hqText.ts::shownText`; the menus by
+id and the parent selections a build walks, `menus/modules.ts`, `hq/entryFacts.ts`; a
+reading's findings, `Accounting.findings`, `findingCount`, `findingRaised`).
+
+What the source hands the reader is held to three rules at the reader's own doors, never at a
+call site. A collection of HQ's objects is read whole or not at all: `JsonCursor.list`, `map` and
+`coveredList` (and every raw read of such a list, through `jsonCursor.ts::objectMembers`) take a
+list or map only where every member is an object, so a cursor's index is always the member's
+stored position, and any other collection is left unclaimed for the close (a bare-string update
+map is refused at its key, `basicActions.ts::readUpdateMap`). A table looked up by a name the
+source supplies (a column's format, an appearance, a `vellum:role`, an element's name, an upload's
+media type, an after-submit word) is a `lib/commcare/sourceKeys.ts::SourceTable`, a `ReadonlyMap`
+made by `tableOf`, so a name every object inherits (`constructor`) answers nothing and takes the
+site's ordinary verdict for an unknown name. A record built under names the source supplies (a
+language's texts, a mapping's labels, a table's columns, the claims a reading registers) comes from
+`lib/domain/records.ts::recordFromEntries`, with no prototype, so `__proto__` is an entry like any
+other; an absent one reads as `NO_ENTRIES`, and a record the reader did not build (a document it is
+told) is read under such a name through `ownRecordValue`. Every object of HQ's JSON comes in with no
+prototype (`lib/commcare/hq/jsonText.ts::parseHqJsonText`, which also reads the JSON a form's source
+holds), and so does every element's attributes (`xmlParse.ts`). A Biome plugin
+(`lib/lint/sourceKeyedRecord.grit`) refuses, here, in `lib/commcare/hq` and in the reading code of
+`lib/deployment`, the forms that build a record with a prototype (`{}` typed as a record, `?? {}`,
+`Object.fromEntries`, a computed key, an object literal typed as a table). And a name an app supplies is cut once, where the
+finding is made (`hqFindings.ts::cutFindingName` and `shownPlace`, over
+`lib/publish/shownText.ts::cutShown`: 200 characters and 800 code units), so no caller cuts one
+first. A form's text past what one parse builds (`xmlParse.ts::XmlLimits`) is `unrecognized` at
+the form, and an app whose forms together pass a reading's total never reaches the reader
+(`lib/deployment/reading/gather.ts::formsWithinReading`, `too-large`).
+
 ## The method: propose, print back, compare trees
 
 Every recognition is a proposal the production emitter prints back. A reader stage proposes the
@@ -36,11 +91,32 @@ the next candidate. Nothing is recognized by a text pattern, and no XPath is rea
 expression: XPath text is read through `syntaxRead.ts` and compared through
 `syntaxCompare.ts::sameXPathText`. Two stored values (JSON, a document's slot, an expression tree)
 are compared through one equality, `jsonCursor.ts::sameJson`: key order never matters, and a key
-whose value is `undefined` is absent, as JSON leaves it out.
+whose value is `undefined` is absent, as JSON leaves it out. Two XML elements are compared whole
+through one equality, `sameElement.ts::sameElementWhole` (name and namespace, attributes as sets, own
+text trimmed of XML's whitespace, children in order).
+
+A claim that covers a stored subtree under a held entry (`XmlCursor.takeSubtree`, `derivedSubtree`)
+hides every node under it from the close, so it stands only where the subtree was compared whole with
+the element the emitter builds for the reading, or every node of it was read: a Connect block against
+`xform/builder.ts::connectBlockData` over the slots read (`xform/connect.ts`), a Save to Case block, a
+bind on an attribute and a leaf of the region by test 4 (`caseManagement/saveToCaseCompare.ts`), an
+itext media value against `itextMediaValues`' element for the path read (`xform/media.ts`), a
+markdown copy and a protected message's forms by their attributes beside the content compared
+(`xform/prose.ts::claimMarkdown`, `xform/afterBinding.ts`). A setvalue of a case region and an
+itemset's `label` and `value` are claimed node by node, only the nodes the reading read
+(`saveToCase.ts::claimSetvalue`, `options.ts::settleCaseChoices`), so anything else is reported at the
+close. What a source element does is read as Core reads it, never as Nova would print it: a setvalue's
+target (`xform/model.ts::heldSetvalueRef`: `bind` before `ref`, a relative `ref` from `/`, an attribute
+of the name in any namespace but the form builder's, a text value where `value` is absent), a
+control's node (`xform/body.ts::coreControlPath`: `bind`, then a repeat's `nodeset` or any other
+control's `ref`) and a bind's (`nodeset` alone), and only Nova's one spelling of each is held.
 
 Four rules hold everywhere here:
 
-- **Pure.** The reader reads only its arguments and never throws for an app's content: content
+- **Pure.** The reader reads only its arguments, changes none of them, and never throws for an
+  app's content. The identity resolver an input names holds nothing: the keys a reading claims are
+  its context's own (`ReadContext.identities`, `identity.ts::claimsUnder`), so one input object read
+  twice, or read frozen, reads alike (`__tests__/readerPurity.test.ts`). Content
   it cannot hold is a finding, and what the reader itself got wrong is a `ReaderDefect`
   (`defects.ts`), logged and never shown. A throw is left only for a caller's broken input (menus
   from another reading) or a broken invariant of the reader's own.
@@ -225,10 +301,20 @@ A new row:
    carries what it removes), the row a fixed point on its own result, and, where the reader takes
    the pair, a reading of the export that gives the row's member;
 3. states in its doc comment its pair, the member the reader returns and why both print one
-   source, naming the function that applies it.
+   source, naming the function that applies it;
+4. derives its member from the document's own evidence and confirms it with a bounded number
+   of prints of the document, never one a candidate: a row never enumerates orders or subsets
+   (`menus/afterSubmit.ts::searchLinkGuardsAreCarriedValues` reads each link's order off one
+   print and confirms every form with one more).
 
-A row never parses or prints, and never hides a difference a runtime reads: if the two members'
-exports differ, the reader is wrong and the reader module is corrected instead.
+A row never parses, and never hides a difference a runtime reads: if the two members'
+exports differ, the reader is wrong and the reader module is corrected instead. The contract is held
+where the rows are applied: `canon.ts::canonicalSlots` takes each expression rewrite only where the
+slot's production print with the rewritten node in place (`expressions/readExpression.ts::printSlotUnder`)
+is the print of the slot as given (`expressions/canonical.ts::RewriteGuard`, over `settledBy`), and
+tells each rewrite it withholds (`canon.ts::WithheldRewrite`, a row id and a slot kind), which is
+Nova's own defect; and a respelling Changes in HQ writes into an app is written only where the app's
+export is the same bytes (`lib/deployment/hqChanges/plan.ts::sameExport`).
 
 The yardsticks that hold the bar: `__tests__/targetedReadBack.test.ts` (every targeted and
 producer document, compared whole: every place of the document but its expression slots, which
@@ -286,7 +372,13 @@ the aligned menus, it carries what no export holds: the identity resolver (`mint
 first reading; `matchingResolver` with the identities of the document Nova holds for a re-read,
 which `identityMapParity.test.ts` holds to `externalIdentityMap`), the source project space's
 lookup tables, organization levels and media files, the app strings Nova's build gives a
-document, the record dialect's judge, whether the project space applies "save only if changed",
+document (each case list column named by the word the reading found it stored under, which HQ's
+build names the column's app strings by, so a translation stored under HQ's id for a column's
+header is judged against that id; asked of the reading's document under the declaration it
+proposes, `assemble.ts::underProposedDeclaration`, since a document that declares nothing runs on
+both platforms and the gate refuses content only one of them runs, a list choosing several cases
+or `here()` in a calculated column), the record dialect's judge, whether the project space applies
+"save only if changed",
 and, for an app Nova already holds, `knownCaseTypes`: the case type each index of a type reaches,
 consulted only where the app itself fixes none, and the type the document declares for each
 property, which every property the reading holds takes (`catalog.ts::noteProperty`,
@@ -422,6 +514,14 @@ take it. A canonical row that gives an entity the UUID a re-read gives it asks
 or claims through a matching resolver over the document's entities of that kind
 (`worldEntities.ts::heldResolver`), and never calls `mintEntityUuid` itself.
 
+A document holds a case list column's property and not the word its `field` stores it under,
+where CommCare HQ names the property by two (`name` or `case_name`, `date-opened` or
+`date_opened`, `external-id` or `external_id`): both read as one property, and the reading carries
+the word each column stores on each screen beside the document (`ReadDraft.identities.columnFieldWords`,
+`caseList/fieldWords.ts::columnFieldWordsRead`), as it carries a form's id and a keyed create's
+prefix, which the deployment's target-identity record holds (`lib/deployment/CLAUDE.md`,
+"Identities") and every export to that project space prints the column under.
+
 A document holds a media slot's asset and no path, so a projection prints each asset at one path,
 the first in code-unit order of those the source spells for it (`projectionInputs.ts`). Where
 CommCare HQ holds one file under several paths, every comparison of a stored media path reads it
@@ -481,7 +581,7 @@ the source's text. A Search field's validation message is held apart from the ru
 joined after it (`search/prompts.ts::readValidation`, `search/guardSplit.ts::sharedGuardText`); where
 no language's message tells whether the guard is joined, the whole test is the rule, its refusal
 waits for the search settle (`PendingExpression.deferRefusal`), and a test ending with the guard the
-projection joins to the field (`search/settings.ts::runtimeGuardEnding`) is `unrecognized` at its
+projection joins to the field (`search/settings.ts::runtimeGuardEndings`) is `unrecognized` at its
 message, which keeps it out, rather than refused for the guard's reads, and the rule before the
 guard is read on its own, its refusal standing beside the message's where Nova cannot hold it
 either (`search/index.ts::untoldRuleRefusal`). A
@@ -611,6 +711,15 @@ A change that holds one removes its line.
   `heldText.ts::heldText` by `unheldRefusal`, whether or not another language holds the blank HQ's
   build fills, and the app's `name`, a `translations` value and the texts checked at their own
   key, which check the rest first.
+- **A key of an app language's `translations` that is no locale record under its own name** (a
+  space or a control character at either end, `=`, `#` or a line break in it,
+  `localeFile.ts::isLocaleFileKey`): refused at `translations` under
+  `application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name`, naming the
+  key (`appShell.ts::readTranslations`). HQ's build writes the key stripped and on one line
+  (`commcare_translations.py::dumps`), so it sets another string than its own name there (` home.start`
+  sets the target's `home.start`, `x=y` sets `x`) or none, which no document holds, and no publish carries
+  it (`appStringKeys.ts::translationKeyOwner`, `not-its-own`); a key with no `=` before a `#` or a line
+  break stops HQ's build, whose read-back of each language's strings raises on a line with no `=`.
 - **A text a device shows none of**, nothing but spaces before a carriage return and a rest that
   defines no app string: refused under
   `application-and-settings/app-text-holding-a-carriage-return-before-which-a-device-shows-nothing`
@@ -652,6 +761,17 @@ A change that holds one removes its line.
   screen title read the text through Core's `Localizer.processArguments` (`Visits ${0}` shows as
   `Visits`), while Web Apps' menu list shows it as stored, so no text Nova holds shows alike on
   every screen, and the gate refuses each (`localeFile.ts::appStringValueIssue`).
+- **A setvalue Core reads otherwise than an absolute `ref` and a `value`** (a `bind`, which Core
+  reads in place of `ref`; a relative `ref`, which Core resolves from `/`; an attribute of either
+  name in another namespace before the plain one; no `value`, where Core sets the text): one finding
+  at the form under `questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate`
+  (`xform/model.ts::heldSetvalueRef`, `xform/logic.ts::readDefaults`). Core's reading of each is a
+  default or an id Nova could hold, but not in the one spelling it prints, and a reading from the
+  form builder's spelling would aim it elsewhere.
+- **A Connect deliver unit whose `work_area_id` holds a fixed id**: refused whole under
+  `questions/connect-deliver-unit-work-area-id-expression`, its record at the leaf
+  (`xform/connect.ts`). Connect files the visit under that work area
+  (`form_receiver/processor.py::process_deliver_unit`), and Nova's document holds no work area.
 - **A form expression no XPath grammar reads, outside a bind** (a setvalue's `value` of `((((`):
   `unrecognized` at the question under the slot's key, with the `expression-not-written-back`
   defect beside it (`expressions/findings.ts::parseIssueEntry`, `parse:syntax`, which names an

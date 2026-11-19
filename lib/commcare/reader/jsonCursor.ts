@@ -8,8 +8,10 @@
  * absent declared key reads as that default and records nothing at all.
  */
 
+import { NO_ENTRIES } from "@/lib/domain/records";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { schemaPropertyDefault } from "../surface/schemaDefaults";
+import { chargeWork } from "../workMeter";
 import type {
 	Admitted,
 	ClaimLedger,
@@ -86,7 +88,12 @@ export interface JsonCursor {
 		claim: ContainerClaim,
 		place?: HqPlace,
 	): JsonCursor;
-	/** `cls` names every element's class, or picks each element's (a menu's from its `doc_type`). */
+	/**
+	 * `cls` names every element's class, or picks each element's (a menu's from its `doc_type`).
+	 * A list holding any member that is not an object is no list of the class: its key is left
+	 * unclaimed and no cursor is given (`objectMembers`), so a cursor's index is always the
+	 * member's stored position. `map` reads a map the same way.
+	 */
 	list(
 		key: string,
 		cls: ElementClass,
@@ -176,6 +183,44 @@ type JsonObject = Readonly<Record<string, unknown>>;
 
 export function isJsonObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Whether `cls` names one of HQ's object classes (the surface declares its `doc_type`), or picks
+ *  each element's class, as a list of menus or forms does: a collection of it holds objects. */
+function ofObjects(cls: ElementClass): boolean {
+	return (
+		typeof cls === "function" || schemaPropertyDefault(cls, "doc_type").known
+	);
+}
+
+/**
+ * The members of a list whose every member is an object, in their stored
+ * positions; undefined for anything else. A list of HQ's objects is read
+ * whole or not at all: a member of another shape (a `null`, which HQ's own
+ * load reads as an object of the class at its defaults, or a string) leaves
+ * the whole list unread, so its key is left unclaimed for the close to
+ * report, and no reader ever holds a list whose positions are not the
+ * stored ones. A list of another class (strings) is claimed whole and gives
+ * no cursor.
+ */
+export function objectMembers(
+	value: unknown,
+): readonly JsonObject[] | undefined {
+	return Array.isArray(value) && value.every(isJsonObject) ? value : undefined;
+}
+
+/** The entries of a map whose every value is an object; undefined for
+ *  anything else, as `objectMembers` answers for a list. */
+export function objectEntries(
+	value: unknown,
+): readonly (readonly [string, JsonObject])[] | undefined {
+	if (!isJsonObject(value)) return undefined;
+	const entries = Object.entries(value).filter(
+		([, element]) => element !== undefined,
+	);
+	return entries.every(([, element]) => isJsonObject(element))
+		? (entries as (readonly [string, JsonObject])[])
+		: undefined;
 }
 
 /** The keys of `value` that hold a value: a key whose value is `undefined` is no key of JSON. */
@@ -269,19 +314,34 @@ export function findingNodes(
  * through leave it out. The reader's one structural equality of stored values.
  */
 export function sameJson(a: unknown, b: unknown): boolean {
+	const compared = { nodes: 0 };
+	const same = alikeJson(a, b, compared);
+	// The work meter's `compare` door: one unit a pair of values compared.
+	chargeWork("compare", compared.nodes);
+	return same;
+}
+
+function alikeJson(
+	a: unknown,
+	b: unknown,
+	compared: { nodes: number },
+): boolean {
+	compared.nodes += 1;
 	if (a === b) return true;
 	if (Array.isArray(a)) {
 		return (
 			Array.isArray(b) &&
 			a.length === b.length &&
-			a.every((value, index) => sameJson(value, b[index]))
+			a.every((value, index) => alikeJson(value, b[index], compared))
 		);
 	}
 	if (isJsonObject(a) && isJsonObject(b)) {
 		const keys = definedKeys(a);
 		return (
 			keys.length === definedKeys(b).length &&
-			keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
+			keys.every(
+				(key) => Object.hasOwn(b, key) && alikeJson(a[key], b[key], compared),
+			)
 		);
 	}
 	return false;
@@ -668,12 +728,20 @@ export class JsonCursorImpl implements JsonCursor {
 
 	/** A child cursor no key reaches: it holds nothing to account. */
 	private empty(cls: string, pointer: string, place: HqPlace): JsonCursorImpl {
-		return new JsonCursorImpl(this.ledger, {}, cls, pointer, place, this);
+		return new JsonCursorImpl(
+			this.ledger,
+			NO_ENTRIES,
+			cls,
+			pointer,
+			place,
+			this,
+		);
 	}
 
 	/**
-	 * Claims a container key whose value has the expected shape. A used value
-	 * of another shape is left unclaimed, for the close to report; a value at
+	 * Claims a container key whose value has the expected shape: an object, or
+	 * a list or map every member of which is one. A used value of another
+	 * shape is left unclaimed, for the close to report; a value at
 	 * its default is no use and claims nothing but a kept entry's record.
 	 * Answers whether to descend, and
 	 * whether the children stand under the claim (false where the claim was a
@@ -724,12 +792,15 @@ export class JsonCursorImpl implements JsonCursor {
 		place?: (index: number, value: unknown) => HqPlace,
 	): readonly JsonCursor[] {
 		const value = this.peek(key);
-		const verdict = this.container(key, claim, Array.isArray(value));
-		if (verdict === "skip" || !Array.isArray(value)) return [];
+		const members = objectMembers(value);
+		const verdict = this.container(
+			key,
+			claim,
+			members !== undefined || (Array.isArray(value) && !ofObjects(cls)),
+		);
+		if (verdict === "skip" || members === undefined) return [];
 		const base = `${this.pointer}/${pointerToken(key)}`;
-		const children: JsonCursor[] = [];
-		value.forEach((element: unknown, index: number) => {
-			if (!isJsonObject(element)) return;
+		return members.map((element, index) => {
 			const child = new JsonCursorImpl(
 				this.ledger,
 				element,
@@ -739,18 +810,16 @@ export class JsonCursorImpl implements JsonCursor {
 				this,
 			);
 			if (verdict === "covered") child.whole = true;
-			children.push(child);
+			return child;
 		});
-		return children;
 	}
 
 	coveredList(key: string, cls: ElementClass): readonly JsonCursor[] {
-		const value = this.peek(key);
-		if (!Array.isArray(value)) return [];
+		const members = objectMembers(this.peek(key));
+		if (members === undefined) return [];
 		const base = `${this.pointer}/${pointerToken(key)}`;
 		const children: JsonCursor[] = [];
-		value.forEach((element: unknown, index: number) => {
-			if (!isJsonObject(element)) return;
+		members.forEach((element, index) => {
 			const child = new JsonCursorImpl(
 				this.ledger,
 				element,
@@ -771,12 +840,16 @@ export class JsonCursorImpl implements JsonCursor {
 		claim: ContainerClaim,
 	): ReadonlyMap<string, JsonCursor> {
 		const value = this.peek(key);
-		const verdict = this.container(key, claim, isJsonObject(value));
+		const entries = objectEntries(value);
+		const verdict = this.container(
+			key,
+			claim,
+			entries !== undefined || (isJsonObject(value) && !ofObjects(cls)),
+		);
 		const children = new Map<string, JsonCursor>();
-		if (verdict === "skip" || !isJsonObject(value)) return children;
+		if (verdict === "skip" || entries === undefined) return children;
 		const base = `${this.pointer}/${pointerToken(key)}`;
-		for (const [name, element] of Object.entries(value)) {
-			if (!isJsonObject(element)) continue;
+		for (const [name, element] of entries) {
 			const child = new JsonCursorImpl(
 				this.ledger,
 				element,

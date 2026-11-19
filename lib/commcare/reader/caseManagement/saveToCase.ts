@@ -47,6 +47,7 @@ import {
 	sourceWritePropertyProblem,
 	stopsFormBuilder,
 } from "@/lib/domain/questionId";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { planFormCaseWire } from "../../casePlacementPlan";
@@ -58,9 +59,11 @@ import { expandDoc } from "../../expander";
 import { sessionDataRef } from "../../formLinkProjection";
 import { isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import { planPlacements } from "../../placement";
+import { type SourceTable, tableOf } from "../../sourceKeys";
 import { USERCASE_ID_FUNCTION } from "../../usercaseWire";
 import { caseOperationCaseTypeNameProblem } from "../../validator/rules/caseOperations";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
+import { rethrowWorkStop } from "../../workMeter";
 import { captureUrlCalculate } from "../../xform/captureUrlNode";
 import {
 	caseScalarTextValueCalculation,
@@ -108,8 +111,14 @@ import {
 	type ReadSaveToCaseBlock,
 	type ReadXForm,
 } from "../xform";
+import { coreControlPath } from "../xform/body";
 import { X } from "../xform/claims";
-import { HOLE, isAllocatedName, matchesTemplate } from "../xform/generated";
+import {
+	HOLE,
+	isAllocatedName,
+	matchesTemplate,
+	matchesTemplateIn,
+} from "../xform/generated";
 import { type DataNode, pathSteps, resolveContextPath } from "../xform/model";
 import type { StandingRefusal } from "../xform/refusals";
 import { qualifiedAttribute, type XmlNode } from "../xmlCursor";
@@ -352,7 +361,7 @@ function regionClaims<U extends "take" | "derived">(
 ): ReadonlyMap<RegionKey, Claim<U>> {
 	const short = entry.slice(entry.indexOf("/") + 1);
 	const claims = new Map<RegionKey, Claim<U>>();
-	const named: Record<string, Claim> = {};
+	const named = recordFromEntries<Claim>([]);
 	for (const key of keys) {
 		const claim = (
 			use === "take" ? take(entry, key) : derived(entry, key)
@@ -624,6 +633,17 @@ function inside(text: string, template: WireExpr): string | undefined {
 	return hole === undefined ? undefined : text.slice(hole.from, hole.to);
 }
 
+/** What `template`'s hole holds in `node`, a node of the tree read from `text`, as `text`'s own
+ *  text: `inside` of the node's span, with the span read once with the whole text. */
+function insideNode(
+	node: FormSyntax,
+	text: string,
+	template: WireExpr,
+): string | undefined {
+	const hole = matchesTemplateIn(node, template, HOLE);
+	return hole === undefined ? undefined : text.slice(hole.from, hole.to);
+}
+
 const holeWire = (): WireExpr => w.context([w.step(HOLE)]);
 
 /** `text` with the emitter's trim taken off, or itself. */
@@ -823,7 +843,7 @@ export function saveToCaseReading(form: DraftForm): FormBlocks | undefined {
 	return READINGS.get(form);
 }
 
-const CONTAINER_SEGMENT: Readonly<Record<string, SaveToCaseBlockSegment>> = {
+const CONTAINER_SEGMENT: SourceTable<SaveToCaseBlockSegment> = tableOf({
 	operations: "operations",
 	// The group a published placement keeps a child's block in, which the
 	// emitter writes where an operations group would stand (`caseOps.ts`,
@@ -833,7 +853,7 @@ const CONTAINER_SEGMENT: Readonly<Record<string, SaveToCaseBlockSegment>> = {
 	keyed: "keyed",
 	"selected-cases": "selected-cases",
 	"selected-case": "selected-case",
-};
+});
 
 const SEGMENT_ORDER: readonly SaveToCaseBlockSegment[] = [
 	"selected-cases",
@@ -894,7 +914,7 @@ function bindsUnder(
 	if (read === undefined) {
 		read = binds.map((element) => ({
 			element,
-			steps: pathSteps(element.attribs.nodeset ?? element.attribs.ref ?? ""),
+			steps: pathSteps(element.attribs.nodeset ?? ""),
 		}));
 		BIND_STEPS.set(binds, read);
 	}
@@ -925,9 +945,7 @@ function laterBindsUnder(
 	const root = xform.parsed.dataRoot.name;
 	return xform.parsed.binds.filter((element) => {
 		if (first.has(element)) return false;
-		const steps = pathSteps(
-			element.attribs.nodeset ?? element.attribs.ref ?? "",
-		);
+		const steps = pathSteps(element.attribs.nodeset ?? "");
 		if (steps === undefined || steps[0] !== "/" || steps[1] !== root)
 			return false;
 		const path = steps.slice(2);
@@ -1175,9 +1193,13 @@ function leafValues(
 			? undefined
 			: inside(calculate, typedInstantValue(holeWire()));
 	};
+	// Each node is matched against the templates as a node of the one tree read from `text`,
+	// so a walk of the tree reads the text once, never once a node.
+	const storedTemplate = storedInstantValue(holeWire());
+	const clockTemplate = storedClockValue(holeWire());
 	const visit = (node: FormSyntax): void => {
 		const own = text.slice(node.from, node.to);
-		const stored = inside(own, storedInstantValue(holeWire()));
+		const stored = insideNode(node, text, storedTemplate);
 		if (stored !== undefined && own !== stored) {
 			// The typed leaf inside may itself be a clock node's read.
 			replacements.push({
@@ -1188,7 +1210,7 @@ function leafValues(
 			return;
 		}
 		// A clock read: the stored text of a `nova_instant_` node, or the node read alone.
-		const clockRead = inside(own, storedClockValue(holeWire()));
+		const clockRead = insideNode(node, text, clockTemplate);
 		const leaf = clockLeaf(clockRead === undefined ? node : parse(clockRead));
 		if (leaf !== undefined) {
 			replacements.push({ from: node.from, to: node.to, text: `(${leaf})` });
@@ -1488,7 +1510,7 @@ function readBlock(
 		const role = xform.roles.get(wrapper);
 		const container = role?.kind === "case-region" ? role.container : undefined;
 		const segment =
-			container === undefined ? undefined : CONTAINER_SEGMENT[container];
+			container === undefined ? undefined : CONTAINER_SEGMENT.get(container);
 		if (segment === undefined) return { ok: false };
 		segments.push(segment);
 	}
@@ -2644,7 +2666,7 @@ export function readSaveToCaseBlocks(
 		const n = counts.get(key) ?? 0;
 		counts.set(key, n + 1);
 		const uuid = ctx.accounting.identity(
-			ctx.resolver.claim(
+			ctx.identities.claim(
 				externalKey.caseOperation(
 					form.xmlns,
 					["save-to-case", repeatPath, path],
@@ -2957,8 +2979,9 @@ function claimAccepted(
 			);
 		}
 	};
-	/** A bind on an attribute, or a setvalue: claimed whole at its element, each attribute
-	 *  recorded where it sits. */
+	/** A bind on an attribute, or a leaf of the region: claimed whole at its element, each
+	 *  attribute recorded where it sits. Test 4 holds each to the emitter's whole
+	 *  (`saveToCaseCompare.ts`, `sameBind` and `sameElementWhole`). */
 	const claimWhole = (
 		element: Element,
 		claims: ReadonlyMap<RegionKey, Claim<"derived">>,
@@ -2970,6 +2993,20 @@ function claimAccepted(
 			fallback;
 		xform.cursor.derivedSubtree(element, claim);
 		recordWithin(xform, element, claim, controls);
+		registerUses(element);
+	};
+	/** A setvalue: its element and the three attributes Nova writes on one, each claimed where it
+	 *  sits, so any other attribute (a `bind`, which Core reads in place of `ref`) is left for the
+	 *  close to report. */
+	const claimSetvalue = (
+		element: Element,
+		claims: ReadonlyMap<RegionKey, Claim<"derived">>,
+		fallback: Claim<"derived">,
+	) => {
+		claimRegionNode(xform, { element }, claims, fallback);
+		for (const attribute of ["event", "ref", "value"])
+			if (Object.hasOwn(element.attribs, attribute))
+				claimRegionNode(xform, { element, attribute }, claims, fallback);
 		registerUses(element);
 	};
 	const claimBinds = (
@@ -2992,7 +3029,7 @@ function claimAccepted(
 			registerUses(bind);
 		}
 		for (const setvalue of setvaluesUnder(xform, prefix))
-			claimWhole(setvalue, binds, fallback);
+			claimSetvalue(setvalue, binds, fallback);
 	};
 	const blocks: {
 		block: ReadSaveToCaseBlock;
@@ -3137,7 +3174,7 @@ function claimAccepted(
 					if (key.startsWith("@") && !key.includes("/"))
 						claimWhole(attributeBind, REGION.rows, fallback);
 				for (const one of iterationSetvalues(xform, node))
-					claimWhole(one.element, REGION.rows, fallback);
+					claimSetvalue(one.element, REGION.rows, fallback);
 			}
 			continue;
 		}
@@ -3160,7 +3197,7 @@ function claimAccepted(
 					);
 		if (bind !== undefined) registerUses(bind.element);
 		for (const setvalue of setvaluesUnder(xform, node.path))
-			claimWhole(setvalue, REGION.rows, SAVE_TO_CASE_CLAIMS.rows);
+			claimSetvalue(setvalue, REGION.rows, SAVE_TO_CASE_CLAIMS.rows);
 	}
 	claimControls(ctx, xform);
 }
@@ -3178,7 +3215,8 @@ function regionControls(
 	const walk = (element: Element) => {
 		for (const child of children(element)) {
 			const local = localName(child);
-			const ref = child.attribs.ref ?? child.attribs.nodeset;
+			const binding = coreControlPath(child, local);
+			const ref = binding?.attribute === "bind" ? undefined : binding?.text;
 			if ((local === "group" || local === "repeat") && ref !== undefined) {
 				const steps = pathSteps(ref);
 				const node =
@@ -3237,7 +3275,8 @@ function claimControls(ctx: ReadContext, xform: ReadXForm): void {
 	const walk = (element: Element) => {
 		for (const child of children(element)) {
 			const local = localName(child);
-			const ref = child.attribs.ref ?? child.attribs.nodeset;
+			const binding = coreControlPath(child, local);
+			const ref = binding?.attribute === "bind" ? undefined : binding?.text;
 			if ((local === "group" || local === "repeat") && ref !== undefined) {
 				const steps = pathSteps(ref);
 				const path =
@@ -3785,14 +3824,14 @@ function emittedForm(ctx: ReadContext, doc: BlueprintDoc, form: DraftForm) {
 	if (forms === undefined) {
 		forms = new Map();
 		const inputs = readProjectionInputs(ctx);
-		let attachments: Record<string, unknown> = {};
+		let attachments: Readonly<Record<string, unknown>> = NO_ENTRIES;
 		try {
 			attachments = expandDoc(doc, {
 				...inputs,
 				keyedCaseIdPrefixes: keyedCaseIdPrefixes(ctx),
 			})._attachments as Record<string, unknown>;
-		} catch {
-			attachments = {};
+		} catch (error) {
+			rethrowWorkStop(error);
 		}
 		for (const module of ctx.draft.modules)
 			for (const one of module.forms) {
@@ -3864,7 +3903,8 @@ function ownCloseHolds(
 	let shape: readonly SaveToCaseBlockSegment[] | undefined;
 	try {
 		shape = saveToCaseBlockShape(doc, form.uuid, { kind: "own-close" });
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		shape = undefined;
 	}
 	const emitted = emittedForm(ctx, doc, form);
@@ -3963,7 +4003,8 @@ function heldSlotPrints(
 		env ??= expressionEnvOf(ctx);
 		try {
 			return printSlot(doc, registration.ref, tree, env);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			return undefined;
 		}
 	};
@@ -3992,7 +4033,8 @@ function blocksHold(
 				kind: "operation",
 				operationUuid: one.uuid,
 			});
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			shape = undefined;
 		}
 		if (
@@ -4091,7 +4133,8 @@ function withoutInheritedConditions(
 		let guards: ReadonlySet<Uuid> | undefined;
 		try {
 			guards = caseOperationConditionalGuardUuids(current, formUuid).get(uuid);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			guards = undefined;
 		}
 		const inherited = [...(guards ?? [])].flatMap((producer) => {
@@ -4171,14 +4214,15 @@ function withSeveralCaseOwn(
 				}),
 				form.uuid,
 			).placements.get(form.uuid)?.placement;
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			return undefined;
 		}
 	})();
 	if (planned?.kind !== "save-to-case" || planned.repeat !== undefined)
 		return doc;
 	const uuid = ctx.accounting.identity(
-		ctx.resolver.claim(
+		ctx.identities.claim(
 			externalKey.caseOperation(
 				form.xmlns,
 				["save-to-case", [], planned.path],
@@ -4217,7 +4261,8 @@ function withBasicCreateTargets(
 	let datums: readonly { readonly operationUuid: Uuid; readonly id: string }[];
 	try {
 		datums = planFormCaseWire(doc, formUuid).datums;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return doc;
 	}
 	if (datums.length === 0) return doc;

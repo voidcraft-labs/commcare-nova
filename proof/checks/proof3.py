@@ -1009,6 +1009,7 @@ def behavioral_equivalence(
     local_files=None,
     platforms=BOTH,
     always_b=False,
+    local_refused=False,
 ):
     """Proof 3's differences for one document under one configuration.
 
@@ -1022,7 +1023,10 @@ def behavioral_equivalence(
     platforms the document declares (``Document.platforms``): Nova hands a local archive only to an app that
     declares Android, so for one that declares none no local run is compared and none is missed, and B's
     comparison goes on from A's baseline. ``always_b`` compares B's sessions whether or not proof 2 finds a
-    difference: on an app made in HQ, whose forms proof 2 leaves out.
+    difference: on an app made in HQ, whose forms proof 2 leaves out. ``local_refused`` says the document states
+    the download's refusal in place of its local archive (``Document.local_refusal``, which the bar holds to A,
+    ``proof.checks.bar.local_outcome``): Nova makes no ``.ccz`` for that project space, so no local run is compared
+    and none is missed, and A's and B's are compared as for any other app.
     """
     android = ANDROID in platforms
     if observed.a is None:
@@ -1032,7 +1036,7 @@ def behavioral_equivalence(
     if unbuildable(observed.a.build) is not None:
         unbuildable_cause_held(observed.a.build)
         return []
-    if android and not has_local:
+    if android and not has_local and not local_refused:
         return _refused(document, "trace@local.ccz", "/no-local-archive", "The document carries no local archive.")
     if sessions is None:
         raise RecordIncomplete(
@@ -1050,7 +1054,7 @@ def behavioral_equivalence(
         return admission_refusals(document, "trace@A", baseline.admission)
     baseline_processed = _processed(sessions["baseline"], blobs)
     found = []
-    if android:
+    if android and has_local:
         local = _run(sessions["local"], "local.ccz", blobs)
         from proof.checks.proof4 import trace_versions
 
@@ -1301,6 +1305,7 @@ def document_behavior(document, records):
             local_files=local_files,
             platforms=platforms,
             always_b=hq_authored(document.source),
+            local_refused=document.local_refusal is not None,
         )
         if (sessions or {}).get("local", {}).get("trace") is not None:
             compared.add("trace@local.ccz")

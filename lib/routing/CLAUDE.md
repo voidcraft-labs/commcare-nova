@@ -57,9 +57,31 @@ is separate and remains the running case-record deep link.
 
 Navigation uses `pushState` / `replaceState` directly. Calling Next's router for selection changes triggers a server-side RSC re-render for every click, which is catastrophic on a canvas where selection flips constantly. The history events still work (back/forward traverse them), but we pay zero server cost for same-app navigation.
 
-One Preview step lives in history state rather than the path: a case
-list's own form menu holding its chosen cases (`previewHeldMenu.ts`). It is an
-entry at the list's URL whose state carries the held cases and the Preview
+**A history entry's state holds identifiers and topology only, never a
+value read from the Project's data or typed by the worker.** An entry
+outlives the page that wrote it, the signed-in member and their Project
+membership, so `builderHistoryState.ts` names the closed set the builder
+writes (`__novaProjectScope`, the entry's own id `__novaEntry`, the entry it
+was pushed after `__novaPreviousEntry: { path, entry }`, `__novaPreviousGap`,
+and the standing searches' submission ids `__novaPreviewSearches` /
+`__novaPreviewSearchesEnd`), and `useClientPath.ts::writeHistory` seals every
+state through `sealedBuilderHistoryState` before `pushState` / `replaceState`:
+Next's own keys pass through, every other builder key is dropped. What an
+entry was shown with (the case selections, a held form menu's cases, each
+search's context with its answers and hidden values) lives in
+`previewEntryRecords.ts`: in memory, keyed by the entry's id, in the records
+of the one Preview session that showed it. The session id is the key of the
+container: a write for another session lets the earlier session's records go
+and starts empty, a read for another session finds nothing, and a session once
+let go never writes again. Every write mints a new entry id and carries the
+current entry's search contexts on to it (the search history prunes them); a
+lens write also carries the screen's held menu, a write that names a held
+menu files the record in that menu's session, and the selections are
+recorded as the screen shows them.
+
+One Preview step lives in history rather than the path: a case
+list's own form menu holding its chosen cases (`previewHeldMenu.ts`). It is
+an entry at the list's URL whose record holds the held cases in the Preview
 session that held them, written only by `navigate.holdPreviewMenu` (pushed
 after the list, or replacing the case's details the choice went through) and
 `navigate.reopenPreviewHeldMenu` (a case crumb on a form chosen there, which
@@ -67,32 +89,34 @@ steps back onto the menu where the form was opened from it, and otherwise
 pushes the menu again; where the entry that step lands on no longer holds the
 menu, as after the menu's own Back showed the list in its entry and Forward
 came back to the form, it pushes the menu again there,
-`previewHeldMenuStands`). `previewHeldMenu.ts::builderEntryState` decides every
-write's state and `useClientPath.ts` applies it: every other write drops the
-mark, so no entry inherits a menu it did not open, and each pushed entry
-records the entry it was pushed after; a replace, and a language change's copy
-of the screen, keep the entry before the screen they stand for, with how many
-entries lie between (`__novaPreviousGap`). That is how a menu knows its list's
-entry is behind it (`afterList`: the list at its module's Results, Search,
-Details or data review URL, all of which Preview shows the running list at; an entry holding
-a menu an earlier Preview session held shows the list now, so it counts as the
-list's), whether pushed from the list or in place of the case's details or
-their copy under another language, and how a form knows the menu is right
-before it. `usePreviewHeldMenu` reads the current entry's, on
-writes and on Back and Forward alike, and the list honors it only in the
-session that took it (`menuProjection.ts::previewCaseListHeldChoices`). A
-language change is a lens on the screen, so `pushBuilderLensHistory` keeps the
-mark, and `stepBackOffPreviewHeldMenu` (the menu's own Back)
-steps past the menu's entries, and the details it replaced, at once and keeps
-the language where its list's
-entry is behind it, and otherwise shows the list in the menu's own entry
-(`previewHeldMenuBack`). A stale Project generation's entry loses the mark,
-and the entry it was pushed after, with its case link
-(`reconcileBuilderHistoryEntry`), since the held cases are Project data.
+`previewHeldMenuStands`). Each takes the session that holds the menu.
+`previewHeldMenu.ts::builderEntryState` decides every write's entry and
+`useClientPath.ts` applies it: every other write's record holds no menu, so
+no entry inherits a menu it did not open, and each pushed entry records the
+entry it was pushed after; a replace, and a language change's copy of the
+screen, keep the entry before the screen they stand for, with how many
+entries lie between (`__novaPreviousGap`). That is how a menu knows its
+list's entry is behind it (`afterList`: the list at its module's Results,
+Search, Details or data review URL, all of which Preview shows the running
+list at; an entry whose menu an earlier Preview session held has no record in
+this one and shows the list, so it counts as the list's), whether pushed from
+the list or in place of the case's details or their copy under another
+language, and how a form knows the menu is right before it.
+`usePreviewHeldMenu(session)` reads the current entry's, on writes and on
+Back and Forward alike, in the session running now. A language change is a
+lens on the screen, so `pushBuilderLensHistory` keeps the menu, and
+`stepBackOffPreviewHeldMenu(session)` (the menu's own Back) steps past the
+menu's entries, and the details it replaced, at once and keeps the language
+where its list's entry is behind it, and otherwise shows the list in the
+menu's own entry (`previewHeldMenuBack`). A stale Project generation's entry
+loses its id, and the entry it was pushed after
+(`reconcileBuilderHistoryEntry`), so nothing the session holds for it is read
+under the new generation.
 
 A screen's own Back to the screen it was opened from goes through
-`navigate.stepBackTo` (`useClientPath.ts::stepBackToBuilderEntry`): where the
-entry the current one was pushed after is that screen, holding no form menu
+`navigate.stepBackTo` (`useClientPath.ts::stepBackToBuilderEntry`, given the
+running Preview session): where the entry the current one was pushed after
+is that screen, holding no form menu in that session
 (`previewHeldMenu.ts::stepsBackToPrevious`, past a language change's copies
 too), it steps back onto it rather than writing a copy after itself, which
 would leave the screen twice in history and make the browser's next Back land
@@ -116,54 +140,54 @@ writes), `forward` for every other write; a Preview case list reads it as it
 shows again to keep or start afresh the worker's place in it
 (`lib/preview/caseListReturn.ts`).
 
-An entry's state also records which of Preview's searches stand on it
-(`previewSearchHistory.ts`), as Web Apps keeps each query on the page's
-address. It is not a mark `builderEntryState` drops: a pushed entry inherits
-the record of the entry it was pushed from, as Web Apps' `addSelection`
-keeps the query data, and the screen it lands on keeps only the searches on
-its path (`lib/preview/searchStanding.ts`). `recordPreviewStandingSearches`
-rewrites that record alone on the current entry, keeping its address, held
-menu and the entry it was pushed after, so it is no screen write;
-`usePreviewStandingSearches` reads it on writes and on Back and Forward.
-A form's submission ends the searches it was opened under on the screen it
-lands on alone: `endPreviewStandingSearches` marks the form's entry, and the
-next write from it (`previewSearchHistory.ts::previewSearchHistoryWrite`,
-applied in `pushBuilderHistory`) records only the searches begun on that entry
-since (`beginPreviewStandingSearch`, a registration re-keying its menu's
-search) and, being a push, drops the mark from the entry it leaves, which
-keeps its searches for Back and Forward, as Web Apps clears the query data of
-the address it pushes after a submission and no earlier one. A language
-change keeps the mark with the screen. The entry also records the context of
-each search standing on it and the Preview session that ran it
-(`__novaPreviewSearchContexts`, written with the search by
-`beginPreviewStandingSearch` and pruned with the record), so a search the
+An entry's state also names which of Preview's searches stand on it
+(`previewSearchHistory.ts`), by submission id, as Web Apps keeps each query
+on the page's address. A pushed entry inherits the names of the entry it was
+pushed from, as Web Apps' `addSelection` keeps the query data, and the screen
+it lands on keeps only the searches on its path
+(`lib/preview/searchStanding.ts`). `recordPreviewStandingSearches` rewrites
+those names alone on the current entry (and prunes its record's contexts),
+keeping its address, id, held menu and the entry it was pushed after, so it
+is no screen write; `usePreviewStandingSearches` reads them on writes and on
+Back and Forward. A form's submission ends the searches it was opened under
+on the screen it lands on alone: `endPreviewStandingSearches` marks the
+form's entry, and the next write from it
+(`previewSearchHistory.ts::previewSearchHistoryWrite`, applied in
+`pushBuilderHistory`) records only the searches begun on that entry since
+(`beginPreviewStandingSearch`, a registration re-keying its menu's search)
+and, being a push, drops the mark from the entry it leaves, which keeps its
+searches for Back and Forward, as Web Apps clears the query data of the
+address it pushes after a submission and no earlier one. A language change
+keeps the mark with the screen. The context of each search standing on an
+entry (its answers, hidden values, the values worked out for them) is in the
+entry's record in the session that ran it, written with the search by
+`beginPreviewStandingSearch` and pruned with the names, so a search the
 session has since replaced stands again when history returns to the entry
-(`previewSearchesOnEntry`); `usePreviewSearchContexts` reads it. The record
-says only that the search stands: what answers it runs with when it stands
-again is the platform's (`lib/preview/searchStanding.ts::previewSearchArrival`),
-on Web Apps the answers the worker last gave the module's query in the
-session, taken on every screen the search stands on (run again where the
-arrival shows that module's list, held completed with them on a menu or a
-form past it), as Web Apps' address carries no answers.
-Submissions are unique across every search, so an entry an earlier session or
-Project wrote names none the session holds.
+(`previewSearchesOnEntry`); `usePreviewSearchContexts(session)` reads it. The
+record says only that the search stands: what answers it runs with when it
+stands again is the platform's
+(`lib/preview/searchStanding.ts::previewSearchArrival`), on Web Apps the
+answers the worker last gave the module's query in the session, taken on
+every screen the search stands on (run again where the arrival shows that
+module's list, held completed with them on a menu or a form past it), as Web
+Apps' address carries no answers. Submissions are unique across every search,
+so an entry an earlier session or Project wrote names none the session holds.
 
-An entry's state also records the case selections it was shown with
-(`previewSelectionsHistory.ts`, `__novaPreviewSelections`: the menu
-selections, the selections part of the case target, the selected case, and
-the Preview session and task they were held in), as Web Apps' address holds
-the session's `selections`. `usePreviewSelectionsArrival` writes it on every
-screen but Home and on every change of the selections
-(`recordPreviewSelections`, a record in place like the standing searches,
-never a move); `builderEntryState` drops it from a written entry
-(`withoutPreviewHistorySteps`), so no entry inherits another's, and a stale
-Project generation loses it with the held menu. Back or Forward onto an
-entry of this session returns the entry's selections on Web Apps wherever
-the session holds others (past Home, an entry of an earlier or later task,
-which the session takes up again; within the task, an entry shown before a
-crumb let a case go or a later list chose another) before any screen renders
-it: `onPopState` runs the listeners `subscribeBuilderHistoryPop` registers
-after the reconcile and before the path subscribers, since a screen reads the
+The session also keeps, in each entry's record, the case selections it was
+shown with (`previewSelectionsHistory.ts`: the menu selections, the
+selections part of the case target, the selected case, and the task they
+were held in), as Web Apps' address holds the session's `selections`.
+`usePreviewSelectionsArrival` writes it on every screen but Home on Web Apps
+and on every change of the selections (`recordPreviewSelections`, a record in
+place, never a move); Android shows every entry with the session as it
+stands, so it keeps none. `builderEntryState` gives a written entry a record
+of its own, so no entry inherits another's. Back or Forward onto an entry of
+this session returns the entry's selections on Web Apps wherever the session
+holds others (past Home, an entry of an earlier or later task, which the
+session takes up again; within the task, an entry shown before a crumb let a
+case go or a later list chose another) before any screen renders it:
+`onPopState` runs the listeners `subscribeBuilderHistoryPop` registers after
+the reconcile and before the path subscribers, since a screen reads the
 selections as it mounts (`previewSelectionsHistory.ts::previewSelectionsArrival`).
 The window runs its popstate listeners in the order they were added, and
 Next's App Router adds its own at hydration, before the builder's; react-dom
@@ -208,6 +232,10 @@ its external link ID leaves its authoring URL unchanged.
 ## Testing the routing boundary
 
 `navigation.ts` owns event-time navigation and guarded selection decisions;
+`builderHistoryState.ts` owns what a history entry may hold and
+`previewEntryRecords.ts` what the Preview session holds for it
+(`__tests__/builderHistoryState.test.ts` drives the real writers through a
+Preview walk and reads every entry the browser keeps);
 `builderLocation.ts` owns the shared document/path cache and subscriptions;
 `breadcrumbs.ts` derives the trail from already projected names;
 `locationRecovery.ts` advances recovery and prior topology together;

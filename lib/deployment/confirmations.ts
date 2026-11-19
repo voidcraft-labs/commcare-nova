@@ -40,10 +40,8 @@ import {
 	FORM_ENTRY_SYNC_OFF,
 	formEntrySyncWhereMissing,
 	isPlanFeatureId,
-	PLAN_FEATURES,
 	type PlanFeatureCheck,
 	type PlanFeatureId,
-	PROJECT_SPACE_SETTINGS,
 	type ProjectSpaceSettingCheck,
 	type ProjectSpaceSettingKind,
 	webAppsWhereMissing,
@@ -54,6 +52,7 @@ import {
 	confirmationSubject,
 	type DeploymentConfirmation,
 	type DeploymentConfirmationKey,
+	type DeploymentConfirmationKind,
 	type DeploymentConfirmationNeeded,
 } from "./types";
 
@@ -190,8 +189,8 @@ export function confirmationKeyOf(
 }
 
 function sameSubject(
-	a: Pick<DeploymentConfirmationNeeded, "kind" | "subject">,
-	b: Pick<DeploymentConfirmationNeeded, "kind" | "subject">,
+	a: { readonly kind: DeploymentConfirmationKind; readonly subject: string },
+	b: { readonly kind: DeploymentConfirmationKind; readonly subject: string },
 ): boolean {
 	return a.kind === b.kind && a.subject === b.subject;
 }
@@ -317,23 +316,6 @@ export function confirmationChecks(
 			? saveToCaseOffer
 			: null,
 	};
-}
-
-/**
- * What a confirmation on record is called, as the dialog row that asked for
- * it named it. A plan feature Nova no longer knows reads as its id.
- */
-export function confirmationLabel(
-	confirmation: Pick<DeploymentConfirmation, "kind" | "subject">,
-): string {
-	switch (confirmation.kind) {
-		case "plan-feature":
-			return isPlanFeatureId(confirmation.subject)
-				? PLAN_FEATURES[confirmation.subject].label
-				: confirmation.subject;
-		default:
-			return PROJECT_SPACE_SETTINGS[confirmation.kind].label;
-	}
 }
 
 /** The sentence a refusal for missing confirmations opens with. */

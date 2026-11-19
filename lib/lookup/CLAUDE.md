@@ -25,20 +25,47 @@ references and emits the exact CommCare fixture wire.
   the existing `view` / `edit` / `delete` capability map is the authority.
 - Browser boundaries receive an explicit Project id from the displayed state,
   authorize that exact id freshly, and construct `LookupScope` server-side.
-  Never fall back to the user's mutable active Project.
+  Never fall back to the user's mutable active Project. A `LookupScope`'s
+  `role` serves reads and a boundary's early answer; it never authorizes a
+  write (below).
 
 ## Valid writes
 
 Every mutation parses/coerces input before its lookup write, then uses this
 lookup lock order:
 
-1. create-if-missing and lock `lookup_project_state` for the Project;
-2. lock the target `lookup_tables` row, when there is one;
-3. compare `expectedTableRevision` and re-read the current definition;
-4. validate and write children/counters;
-5. advance the Project revision once, stamp the affected table revision axis,
+1. read the member's role on the write's own transaction, under the shared
+   membership gate with the member row `FOR SHARE`
+   (`writerTransaction.ts::authorizeLookupWriteInTransaction`), with the
+   capability the write needs;
+2. create-if-missing and lock `lookup_project_state` for the Project;
+3. lock the target `lookup_tables` row, when there is one;
+4. compare `expectedTableRevision` and re-read the current definition;
+5. validate and write children/counters;
+6. advance the Project revision once, stamp the affected table revision axis,
    and issue the transactional lookup notification;
-6. commit.
+7. commit.
+
+**Authority is read in the transaction that writes, by type.** Step 1 answers
+a `LookupWriteAuthority` that only `authorizeLookupWriteInTransaction` makes
+and that is good only on the transaction it was read on (a module-private
+map from each authority to its transaction); `lockLookupProjectState` and
+`lockLookupTableForUpdate` take one and nothing else, so no writer reaches
+Project state or a table on a role read before its transaction, during a read
+of CommCare HQ, or in another transaction. A member removed since the request
+began is `LookupAuthorityError` `not-a-member`; one whose role fell below the
+write's capability is `below-capability` with that capability. Both carry the
+code `not_found`, the shape every ordinary boundary already gives a resource
+the caller may not touch; a surface that names who can change something reads
+`standing` and `capability`. Each writer states its own capability, never its
+caller: the service's writers `edit`, a tag or wire-name change `delete`;
+schema governance `delete`; an authoring batch `delete` where it renames a
+tag or a wire name, retypes or removes a column, or removes a table, else
+`edit`; and `lockLookupTableForUpdate` holds each purpose to its floor
+(`author` and `hq-refresh` need `edit`, `remove-table` and `hq-management`
+need `delete`), so the adoption arm of a refresh and a takeover need `delete`
+inside the writer whoever calls them. A second read on one transaction is
+harmless: the gate is held and the row already locked.
 
 `lockLookupTableForUpdate` takes the write's purpose. A table managed in
 CommCare HQ (`hq_server` set, no takeover) refuses an `author` write with
@@ -46,18 +73,26 @@ CommCare HQ (`hq_server` set, no takeover) refuses an `author` write with
 every state; `hq-refresh` and `hq-management` are `managed.ts`'s alone. No
 writer reaches a table row another way.
 
-Browser actions and accepted-design materialization enter that prefix directly:
-their exact Project authority is already established and they never need an app
-lock. App-bound SA/MCP writes first take the invocation's app row `FOR SHARE`,
-prove its unchanged Project, fresh membership, and, for chat, exact run holder,
-then enter the same Project-state/table prefix. No code may hold Project state
-or a lookup table and later request an app lock. A birth that brings tables in
-from CommCare HQ is app-first like every app-bound writer: it inserts its own
-app row, which no other session can name, then takes Project state and writes
-the tables (`lib/deployment/reading/projectData/lookupTableStore.ts::writeBroughtInLookupTablesInTransaction`,
+Browser actions, the CSV route and schema governance enter the prefix
+directly: they take no app lock, so their order is the membership gate, then
+Project state, then tables. App-bound SA/MCP writes first take the
+invocation's app row, prove its unchanged Project, fresh membership, and, for
+chat, exact run holder, then read the lookup authority and enter the same
+Project-state/table prefix. No code may hold Project state or a lookup table
+and later request an app lock or the membership gate. A birth that brings
+tables in from CommCare HQ is app-first like every app-bound writer: it inserts
+its own app row, which no other session can name, then takes Project state and
+writes the tables (`lib/deployment/reading/projectData/lookupTableStore.ts::writeBroughtInLookupTablesInTransaction`,
 which takes the birth's transaction after its app row is inserted), and
-requests no other app row after. The app-bound bridge is app-first; the direct Project
-writer is Project-first with no reverse edge.
+requests no other app row after. A bring-in of changes made in CommCare HQ
+runs the same writer inside its commit (`lib/db/applyBlueprintChange.ts`'s
+`projectDataWrite`): the app row `FOR UPDATE`, the membership gate and member
+row, Project state, the tables in id order, then the deployment row the
+commit's record takes. A publish's workbook admission takes the app row, the
+deployment row, then the lookup authority, Project state and the tables; it
+holds the app row against that commit, so the two never cross. The
+app-bound bridge is app-first; the direct Project writer is Project-first with
+no reverse edge.
 
 Case submissions also hold their app authority before locking the program's
 referenced lookup tables `FOR SHARE` in UUID order. These locks remain through
@@ -148,11 +183,11 @@ second authoring batch.
 `schemaGovernance.ts` is the server-only transaction authority those three
 actions call. It reuses `writerTransaction.ts`, the same
 Project-state/table lock and revision helpers as every lookup writer. Its
-wrapper and transaction core require the scope's `delete` capability before
-taking a lock and collapse an insufficient role to the same not-found shape as
-a missing or foreign resource.
-Its complete lock prefix is Project state `FOR UPDATE` -> exact table `FOR
-UPDATE` -> exact table/column edges. It never takes an app lock. Blocker results
+transaction core reads the member's `delete` on its own transaction before
+taking a lock and collapses an insufficient role, or a membership removed since
+the request began, to the same not-found shape as a missing or foreign resource.
+Its complete lock prefix is the membership gate and member row -> Project state
+`FOR UPDATE` -> exact table `FOR UPDATE` -> exact table/column edges. It never takes an app lock. Blocker results
 contain the sorted exact app-id set only; a fresh carrier-path re-walk belongs to
 confirmation UX.
 
@@ -222,7 +257,7 @@ copy of CommCare HQ's table, and only while CommCare HQ manages the table:
 only a refresh keeps such a column, and a table Nova manages is not refreshed,
 so a column added or renamed in Nova is never reported gone.
 
-`managed.ts` holds the two writers of a copy. The create arm makes tables
+`managed.ts` holds the writers of a copy, each taking a `LookupWriteAuthority`. The create arm makes tables
 under the ids it is given, every column `text`, its label the field name's
 first 120 characters (`managedRules.ts::columnLabelFor`), its origin in the
 table's insert, with one revision and one notice. The refresh arm matches
@@ -258,14 +293,46 @@ CommCare HQ began, and no lock spans that read, so a refresh, Refresh or
 hand-back passes `olderReadYields`: under the table lock, one whose `at` is
 earlier than the stored `hq_refreshed_at` writes nothing and answers
 `superseded`, and a hand-back whose `at` is earlier than a takeover recorded
-since is `conflict`. A birth passes false, since its app binds the column ids
-its reading gave; it passes its reading's own read date as `at`, and its
-writer refuses a table whose stored `hq_refreshed_at` is later
-(`lib/deployment/reading/projectData/lookupTableStore.ts`), so it never writes
-an older read over a newer one either. The CSV replacement route refuses a table CommCare HQ
+since is `conflict`. A bring-in passes false, since its app binds the column ids
+its reading gave; it passes its reading's own read date as `at`, and the
+refresh arm refuses, under the table's lock, a table whose stored
+`hq_refreshed_at` is later (`LookupReviewMovedError`), so it never writes an
+older read over a newer one either. The CSV replacement route refuses a table CommCare HQ
 manages with `managed_in_hq` before it compares the revision or reads the CSV,
 as the lock does for every other writer. A change of who manages a table
 stamps `definition_revision`, because every client reads editability from it.
+A hand-back (`adopt`) of a table a publish's workbook carries waits while that
+workbook's write to CommCare HQ is open (`hq_remote_writes`, refused
+`conflict` with `handBackWhilePublishing`): the publish admits its workbook
+under the Project state and each table's row
+(`lockLookupTablesForPublishInTransaction`, which changes nothing and reads
+the publisher's `edit` on its own transaction), so a hand-back committed
+first stops the workbook, and one after waits for it.
+
+**A change of who manages a table is held to what was reviewed.** An adoption
+(`adopt`) and a takeover take `ManagedTableReviewed`, the table's
+`definitionRevision`, `rowsRevision` and `readerAppIds` (the Project's apps
+whose reference edges name it, sorted) as the person or the reading saw them;
+the types make an unreviewed change of who manages a table impossible. Both
+compare it after the table's `FOR UPDATE` lock, reading the edges on that
+transaction: adding an app's reference moves no revision, and an app commit
+takes the table `FOR KEY SHARE`, which waits behind that lock, so no reader can
+appear between the compare and the commit. A mismatch is
+`LookupReviewMovedError` (code `conflict`), and nothing is written. A refresh
+may carry the revisions a reading saw (a bring-in's `same-managed` table), and
+is held to them the same way; Refresh and a publish's re-read carry none, since
+they confirm nothing and a copy CommCare HQ manages takes no author's edit. A
+read that began before the table's last refresh is refused the same way where
+`olderReadYields` is false. `readManagedTableReview` reads the review a
+confirmation shows (who manages the table, the triple, the definition and the
+named readers) from one read-only `REPEATABLE READ` snapshot, and
+`managedTableReviewDigest` is the digest a confirmation carries back
+(`lib/deployment/managedData.ts`). An accepted design that protects a column is
+not one of the readers: it is a member's private, pre-app work, and the columns
+it protects are kept by every refresh and adoption as an app's are, so it
+loses nothing the confirmation would have to name. The dates
+`hq_refreshed_at` and `hq_taken_over_at` order reads of CommCare HQ; they never
+stand in for the member's authority or the table's revisions.
 
 ## Reads and realtime
 
@@ -333,9 +400,10 @@ stale manifest or installs a partial table page.
 
 - `service.ts` is server-only and owns SQL. It accepts an authorized
   `LookupScope`; no route or action contains database logic.
-- `writerTransaction.ts` is the one private lookup-writer lock/revision/notify
-  protocol shared by `service.ts` and schema governance. Do not fork its
-  lock order in a new writer.
+- `writerTransaction.ts` is the one private lookup-writer
+  authority/lock/revision/notify protocol shared by `service.ts`, schema
+  governance, the authoring batch and `managed.ts`. Do not fork its lock order
+  in a new writer, and never construct a `LookupWriteAuthority` by hand.
 - `actions.ts` authenticates, runtime-parses untrusted arguments, authorizes the
   explicit Project, calls the service, and maps typed errors to discriminated
   results.

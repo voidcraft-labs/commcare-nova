@@ -14,8 +14,17 @@
  *     HQ app the app gave up, from a holder in recently deleted too, or ends
  *     the deployment where a live Nova app holds it.
  *   - `endDeploymentInTransaction`: the one transaction that ends a
- *     deployment, for a person who stops publishing and for a settle.
+ *     deployment, for a person who stops publishing and for a settle. It
+ *     ends the mapping of the HQ app it names, or nothing.
  *   - `remapDeploymentMediaPathsInTransaction`: a Project move's media paths.
+ *
+ * It also holds the ledger of writes Nova lets out to CommCare HQ
+ * (`hq_remote_writes`): `admitRemoteWritesInTransaction` records one under
+ * its admission's locks, and a write is open until its process settles it or
+ * its hold ends (`openRemoteWrite.ts`, the one rule). No grant of an HQ app
+ * to another Nova app happens while a write of another app to that HQ app is
+ * open: a birth refuses with `HqAppWriteInFlightError`, and a settle leaves
+ * the claim released.
  *
  * Lock order. Every HQ app's transaction advisory lock (keyed on
  * `nova-hq-app-claim-v1`) is taken before any app row: a birth takes its one
@@ -38,6 +47,7 @@ import {
 	lockAppRow,
 	type PersistedBlueprintAppRow,
 } from "./canonicalCommitKernel";
+import { openRemoteWrite } from "./openRemoteWrite";
 import { type AppDatabase, notifyAppDeployments } from "./pg";
 
 export const HQ_APP_CLAIM_INDEX = "app_deployment_resources_hq_app_claim";
@@ -50,6 +60,16 @@ export interface HqAppKey {
 }
 
 export const HQ_APP_MAPPING_OWNERSHIPS = ["nova-created", "adopted"] as const;
+
+/** What a write Nova lets out to CommCare HQ is, by the resource it writes. */
+export const HQ_REMOTE_APP_WRITE_KINDS = ["create", "import", "media"] as const;
+export type HqRemoteAppWriteKind = (typeof HQ_REMOTE_APP_WRITE_KINDS)[number];
+/** Every kind of write the ledger holds: an app's, a lookup table workbook, a batch of places, a worker account. */
+export type HqRemoteWriteKind =
+	| HqRemoteAppWriteKind
+	| "workbook"
+	| "places"
+	| "worker";
 export const HQ_APP_END_REASONS = ["stopped", "claimed-elsewhere"] as const;
 export type HqAppEndReason = (typeof HQ_APP_END_REASONS)[number];
 
@@ -80,6 +100,24 @@ export class HqAppAlreadyClaimedError extends Error {
 	}
 }
 
+/**
+ * A birth met a write another Nova app let out to this HQ app that has not
+ * settled yet: the app that stopped publishing there may still be changing
+ * it. Nothing was written. `settlesAt` is when the latest such write settles
+ * at the latest.
+ */
+export class HqAppWriteInFlightError extends Error {
+	readonly name = "HqAppWriteInFlightError";
+	constructor(
+		readonly key: HqAppKey,
+		readonly settlesAt: string,
+	) {
+		super(
+			`A publish to this CommCare HQ app on “${key.domain}” is still finishing, so no other Nova app can take it until ${settlesAt} at the latest.`,
+		);
+	}
+}
+
 /** Whether an error is a unique violation of the one-HQ-app-one-Nova-app index. */
 export function isHqAppClaimIndexViolation(error: unknown): boolean {
 	const candidate = error as { code?: unknown; constraint?: unknown } | null;
@@ -98,7 +136,11 @@ function claimLockText(key: HqAppKey): string {
 	]);
 }
 
-async function lockHqApp(
+/**
+ * The HQ app's transaction advisory lock. Every protocol takes it before any
+ * app row: a birth, a settle, and the admission of a write to that HQ app.
+ */
+export async function lockHqApp(
 	tx: Transaction<AppDatabase>,
 	key: HqAppKey,
 ): Promise<void> {
@@ -168,9 +210,50 @@ async function readLiveClaim(
 }
 
 /**
+ * When the last hold of an open write to the HQ app by an app other than
+ * `exceptAppId` ends, or null where none is open. Read under the HQ app's
+ * advisory lock, which every admission of a write to it takes first, so an
+ * admission either committed before this read and is seen, or waits and then
+ * finds the mapping it needs gone or released.
+ *
+ * An open create on the same project space whose app is not recorded yet
+ * counts too: CommCare HQ may have made the very app this claim is for, and
+ * only the create's record names it (`lib/deployment/store.ts::recordCreatedRemoteApp`,
+ * which settles the create in its own transaction). A create is admitted
+ * before it is sent, so one HQ answers after this read made no app the
+ * claimant could have read.
+ */
+async function openWriteHeldUntil(
+	tx: Transaction<AppDatabase>,
+	key: HqAppKey,
+	exceptAppId: string | null,
+): Promise<Date | null> {
+	let query = tx
+		.selectFrom("hq_remote_writes")
+		.select((eb) => eb.fn.max("held_until").as("held_until"))
+		.where("resource_kind", "=", "app")
+		.where("server", "=", key.server)
+		.where("domain", "=", key.domain)
+		.where((eb) =>
+			eb.or([
+				eb("resource_id", "=", key.remoteAppId),
+				eb.and([
+					eb("write_kind", "=", "create"),
+					eb("resource_id", "is", null),
+				]),
+			]),
+		)
+		.where(openRemoteWrite);
+	if (exceptAppId !== null) query = query.where("app_id", "<>", exceptAppId);
+	const row = await query.executeTakeFirst();
+	return row?.held_until ?? null;
+}
+
+/**
  * The first step of a birth's transaction. Throws `HqAppAlreadyClaimedError`
- * where a live app holds the HQ app; where its holder is in recently deleted,
- * releases that holder's mapping and returns.
+ * where a live app holds the HQ app, and `HqAppWriteInFlightError` where a
+ * write another app let out to it has not settled; where its holder is in
+ * recently deleted, releases that holder's mapping and returns.
  */
 export async function claimHqAppInTransaction(
 	tx: Transaction<AppDatabase>,
@@ -178,10 +261,14 @@ export async function claimHqAppInTransaction(
 ): Promise<void> {
 	await lockHqApp(tx, key);
 	const claim = await readLiveClaim(tx, key);
-	if (claim === undefined) return;
-	if (claim.deleted_at === null) {
+	if (claim !== undefined && claim.deleted_at === null) {
 		throw new HqAppAlreadyClaimedError(key, holderOf(claim));
 	}
+	const inFlight = await openWriteHeldUntil(tx, key, null);
+	if (inFlight !== null) {
+		throw new HqAppWriteInFlightError(key, inFlight.toISOString());
+	}
+	if (claim === undefined) return;
 	/* The holder is in recently deleted. Its row lock keeps it there until this
 	 * transaction ends; a restore that committed in between makes it live. */
 	const holderApp = await lockAppRow(tx, claim.app_id);
@@ -359,11 +446,30 @@ export async function lockReleasedClaimsInTransaction(
 	return { app, released: settled };
 }
 
+/** What a settle of an app's released claims did. */
+export interface SettledClaims {
+	/** The project spaces it ended, because a live Nova app publishes there now. */
+	readonly stopped: readonly {
+		readonly server: string;
+		readonly domain: string;
+	}[];
+	/**
+	 * The project spaces whose claim it left released, because a write another
+	 * app let out to that HQ app has not settled yet. A later settle takes it
+	 * back once it has.
+	 */
+	readonly waiting: readonly {
+		readonly server: string;
+		readonly domain: string;
+	}[];
+}
+
 /**
  * Settle every released claim the locks hold, in their order: take back an HQ
  * app nobody holds, take it back from a holder in recently deleted (which
- * gives it up in turn), or end the deployment where a live app holds it.
- * Returns the project spaces it ended.
+ * gives it up in turn), or end the deployment where a live app holds it. A
+ * take-back waits, leaving the claim released, while a write another app let
+ * out to that HQ app is open.
  *
  * Every case was read under the locks that decide it, so no statement here can
  * meet the claim index: a violation of it is an invariant failure.
@@ -376,8 +482,9 @@ export async function settleReleasedClaimsInTransaction(
 		readonly at: Date;
 		readonly locks: ReleasedClaimLocks;
 	},
-): Promise<readonly { readonly server: string; readonly domain: string }[]> {
+): Promise<SettledClaims> {
 	const stopped: { readonly server: string; readonly domain: string }[] = [];
+	const waiting: { readonly server: string; readonly domain: string }[] = [];
 	const notified = new Set<string>();
 	for (const entry of input.locks.released) {
 		const holder = entry.holder;
@@ -385,6 +492,7 @@ export async function settleReleasedClaimsInTransaction(
 			const { ended } = await endDeploymentInTransaction(tx, {
 				deploymentId: entry.deploymentId,
 				appId: input.appId,
+				remoteAppId: entry.key.remoteAppId,
 				byUserId: input.actorUserId,
 				reason: "claimed-elsewhere",
 				at: input.at,
@@ -395,6 +503,10 @@ export async function settleReleasedClaimsInTransaction(
 				);
 			}
 			stopped.push({ server: entry.key.server, domain: entry.key.domain });
+			continue;
+		}
+		if ((await openWriteHeldUntil(tx, entry.key, input.appId)) !== null) {
+			waiting.push({ server: entry.key.server, domain: entry.key.domain });
 			continue;
 		}
 		if (holder !== null) {
@@ -419,21 +531,25 @@ export async function settleReleasedClaimsInTransaction(
 	}
 	for (const appId of [...notified].sort())
 		await notifyAppDeployments(tx, appId);
-	return stopped;
+	return { stopped, waiting };
 }
 
 /**
- * End a deployment: supersede its live `app` mapping with who ended it and
- * why, delete its identity, keyed-case-id and media-path rows, clear what
- * described the HQ app and count the ending. The caller holds the app row
- * lock. Its baseline, its confirmations and every other mapping are kept.
- * `{ ended: false }`: there was no live `app` mapping, and nothing changed.
+ * End a deployment: supersede its live `app` mapping of the HQ app
+ * `remoteAppId` names with who ended it and why, delete its identity,
+ * keyed-case-id, media-path and column-word rows, clear what described the HQ app and
+ * count the ending. The caller holds the app row lock and the deployment row.
+ * Its baseline, its confirmations and every other mapping are kept.
+ * `{ ended: false }`: there was no live `app` mapping of that HQ app, and
+ * nothing changed.
  */
 export async function endDeploymentInTransaction(
 	tx: Transaction<AppDatabase>,
 	input: {
 		readonly deploymentId: string;
 		readonly appId: string;
+		/** The HQ app whose mapping ends: a mapping of any other is left as it is. */
+		readonly remoteAppId: string;
 		readonly byUserId: string;
 		readonly reason: HqAppEndReason;
 		readonly at: Date;
@@ -449,6 +565,7 @@ export async function endDeploymentInTransaction(
 		})
 		.where("deployment_id", "=", input.deploymentId)
 		.where("kind", "=", "app")
+		.where("remote_id", "=", input.remoteAppId)
 		.where("superseded_at", "is", null)
 		.returning("id")
 		.execute();
@@ -459,6 +576,10 @@ export async function endDeploymentInTransaction(
 		.execute();
 	await tx
 		.deleteFrom("app_deployment_keyed_case_ids")
+		.where("deployment_id", "=", input.deploymentId)
+		.execute();
+	await tx
+		.deleteFrom("app_deployment_column_field_words")
 		.where("deployment_id", "=", input.deploymentId)
 		.execute();
 	await tx
@@ -484,6 +605,71 @@ export async function endDeploymentInTransaction(
 		.execute();
 	await notifyAppDeployments(tx, input.appId);
 	return { ended: true };
+}
+
+/** One write to record in `hq_remote_writes`, as its admission inserts it. */
+export interface RemoteWriteAdmission {
+	readonly deploymentId: string;
+	readonly server: string;
+	readonly domain: string;
+	readonly appId: string;
+	readonly projectId: string;
+	readonly actorUserId: string;
+	readonly resourceKind: "app" | "lookup-table" | "location" | "worker";
+	/** The HQ app's id, the Nova table's, the Nova place's, or the persona's; null only for a create. */
+	readonly resourceId: string | null;
+	readonly writeKind: HqRemoteWriteKind;
+	/** How long, from now, the write stays open if its process never says. */
+	readonly holdSeconds: number;
+}
+
+/**
+ * Record writes the caller is about to send, open for `holdSeconds` from the
+ * transaction's own clock, and answer their ids. The caller holds the locks
+ * that admit them: for a write to an HQ app, that app's advisory lock, then
+ * the app row and the deployment row, under which it proved the deployment's
+ * live, unreleased mapping names that HQ app; for a workbook, the app row,
+ * the deployment row, the Project's lookup state and each table's row.
+ */
+export async function admitRemoteWritesInTransaction(
+	tx: Transaction<AppDatabase>,
+	writes: readonly RemoteWriteAdmission[],
+): Promise<readonly string[]> {
+	if (writes.length === 0) return [];
+	const rows = await tx
+		.insertInto("hq_remote_writes")
+		.values(
+			writes.map((write) => ({
+				deployment_id: write.deploymentId,
+				server: write.server,
+				domain: write.domain,
+				app_id: write.appId,
+				project_id: write.projectId,
+				actor_user_id: write.actorUserId,
+				resource_kind: write.resourceKind,
+				resource_id: write.resourceId,
+				write_kind: write.writeKind,
+				held_until: sql<Date>`now() + make_interval(secs => ${write.holdSeconds})`,
+			})),
+		)
+		.returning("id")
+		.execute();
+	return rows.map((row) => row.id);
+}
+
+/** Whether a write `appId` let out to CommCare HQ is still open: a Project move waits for it. */
+export async function appHasOpenRemoteWriteInTransaction(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<boolean> {
+	const row = await tx
+		.selectFrom("hq_remote_writes")
+		.select("id")
+		.where("app_id", "=", appId)
+		.where(openRemoteWrite)
+		.limit(1)
+		.executeTakeFirst();
+	return row !== undefined;
 }
 
 /**

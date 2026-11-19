@@ -1,0 +1,10 @@
+or {
+	or {
+		`try { $_ } catch ($error) { $body }`,
+		`try { $_ } catch ($error) { $body } finally { $_ }`
+	} as $clause where { ! $body <: [`rethrowWorkStop($error);`, ...] },
+	`try { $_ } catch { $_ }` as $clause,
+	`try { $_ } catch { $_ } finally { $_ }` as $clause
+} where {
+	register_diagnostic(span=$clause, message="This catch can swallow the work meter's stop: a reading past its work limit, or one whose request was cancelled, would go on working where it should stop. Bind the error and make rethrowWorkStop(error) the catch's first statement (lib/commcare/workMeter.ts); only lib/commcare/reader/index.ts turns a reading's stop into its outcome.")
+}

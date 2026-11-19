@@ -18,6 +18,7 @@ import {
 	caseScalarTextGuards,
 } from "@/lib/domain/caseScalarTextGuard";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import { planFormCaseWire } from "../../casePlacementPlan";
 import {
 	entryFactsDifference,
@@ -49,6 +50,7 @@ import {
 	validateCaseOperations,
 } from "../../validator/rules/caseOperations";
 import { multiSelectFormSemantics } from "../../validator/rules/multiSelect";
+import { rethrowWorkStop } from "../../workMeter";
 import {
 	type GeneratedNodePurpose,
 	planGeneratedNodes,
@@ -248,7 +250,7 @@ function holdWireScopeOrder(ctx: ReadContext, form: DraftForm): void {
 type JsonObject = Readonly<Record<string, unknown>>;
 
 function object(value: unknown): JsonObject {
-	return isJsonObject(value) ? value : {};
+	return isJsonObject(value) ? value : NO_ENTRIES;
 }
 
 /** A question path of a form's actions mapped to the question it reads: the
@@ -416,7 +418,8 @@ function firstDifference(
 	b: Readonly<Record<string, unknown>>,
 ): string | undefined {
 	for (const key of Object.keys(a))
-		if (!sameJson(a[key], b[key])) return `schema:FormActions.${key}`;
+		if (!sameJson(a[key], ownRecordValue(b, key)))
+			return `schema:FormActions.${key}`;
 	return undefined;
 }
 
@@ -628,7 +631,8 @@ function settleBasicForm(
 			identity: inputs.identity,
 			attachmentTarget: inputs.attachmentTarget,
 		});
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		ctx.accounting.defect(
 			form.place,
 			`schema:${form.docType}.actions`,
@@ -1083,7 +1087,8 @@ export function* compareEntryFactsSteps(
 		const expansion = yield* readExpansionSteps(ctx, doc);
 		yield;
 		emitted = hqEntryFacts(expansion);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		if (keepsRefusedCaseType(ctx)) return;
 		ctx.accounting.defect(
 			appPlace(),

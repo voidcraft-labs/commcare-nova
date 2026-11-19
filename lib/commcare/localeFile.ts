@@ -1,6 +1,10 @@
 /**
- * CommCare's locale-file values: the gate's rule for a text that lands in the
- * app strings, and the one writer of such a value.
+ * CommCare's locale files: the gate's rule for a text that lands in the app
+ * strings, the one writer of such a value (`hqLocaleFileValue`) and of a
+ * whole file (`localeFileText`, over `isLocaleFileKey` and
+ * `isLocaleFileValue`), and the one port of Core's reader of a file
+ * (`readLocaleFileAsCore`), which the reader of CommCare HQ's apps and the
+ * writer's tests both read lines through.
  *
  * A text reaches a device through two writers. CommCare HQ's build writes it
  * on one line of `app_strings.txt` (`commcare_translations.py::dumps`, at the
@@ -222,6 +226,184 @@ export function hqLocaleFileValue(value: string): string {
 		spelled += unit === "#" && lines[index - 1] !== "\\" ? "\\#" : unit;
 	}
 	return spelled;
+}
+
+/** One record of a locale file: the app string a line defines, and its text. */
+export interface LocaleRecord {
+	readonly key: string;
+	readonly value: string;
+}
+
+/** Whether Java's `String.trim()` removes this code unit at a line's end: every one up to U+0020. */
+function javaTrimmed(code: number): boolean {
+	return code <= 0x20;
+}
+
+/** Java's `String.trim()`: every code unit up to U+0020 at both ends dropped. */
+function javaTrim(text: string): string {
+	let start = 0;
+	let end = text.length;
+	while (start < end && javaTrimmed(text.charCodeAt(start))) start += 1;
+	while (end > start && javaTrimmed(text.charCodeAt(end - 1))) end -= 1;
+	return text.slice(start, end);
+}
+
+/** Core's `LocalizationUtils.replace`: every occurrence, left to right, none overlapping. */
+function coreReplace(text: string, pattern: string, by: string): string {
+	return text.split(pattern).join(by);
+}
+
+/**
+ * The lines `BufferedReader.readLine` gives of a locale file: a line ends at
+ * a line feed, a carriage return, or a carriage return followed by a line
+ * feed, and the file's last line needs no ending.
+ */
+export function localeFileLines(text: string): readonly string[] {
+	const lines: string[] = [];
+	let start = 0;
+	for (let index = 0; index < text.length; index += 1) {
+		const unit = text[index];
+		if (unit !== "\n" && unit !== "\r") continue;
+		lines.push(text.slice(start, index));
+		if (unit === "\r" && text[index + 1] === "\n") index += 1;
+		start = index + 1;
+	}
+	if (start < text.length) lines.push(text.slice(start));
+	return lines;
+}
+
+/**
+ * The app string one line of a locale file defines, as CommCare Core's
+ * `LocalizationUtils.parseAndAdd` reads it: the line trimmed (Java's
+ * `String.trim()`), a `#` no backslash precedes and what follows it dropped,
+ * then the key before the first `=` and the value after it, `\#` read as `#`
+ * and then `\n` as a line break (`parseValue`). Undefined where the line
+ * defines nothing: no `=`, or nothing after it.
+ */
+export function readLocaleLineAsCore(line: string): LocaleRecord | undefined {
+	let read = javaTrim(line);
+	let dec = read.length;
+	for (;;) {
+		const at = read.slice(0, dec).lastIndexOf("#");
+		if (at === -1) break;
+		if (at === 0 || read[at - 1] !== "\\") {
+			read = read.slice(0, at);
+			dec = read.length;
+		} else dec = at;
+	}
+	const equal = read.indexOf("=");
+	if (equal === -1 || equal === read.length - 1) return undefined;
+	return {
+		key: read.slice(0, equal),
+		value: coreReplace(
+			coreReplace(read.slice(equal + 1), "\\#", "#"),
+			"\\n",
+			"\n",
+		),
+	};
+}
+
+/**
+ * A locale file as CommCare Core reads it
+ * (`LocalizationUtils.parseLocaleInput`): each line read by
+ * `readLocaleLineAsCore`, and a later line defining a key already defined
+ * replacing it (`Hashtable.put`).
+ */
+export function readLocaleFileAsCore(
+	text: string,
+): ReadonlyMap<string, string> {
+	const table = new Map<string, string>();
+	for (const line of localeFileLines(text)) {
+		const record = readLocaleLineAsCore(line);
+		if (record !== undefined) table.set(record.key, record.value);
+	}
+	return table;
+}
+
+/**
+ * Whether `key` is one record of a locale file under its own name: the line
+ * `key=…` that both CommCare HQ's build (`commcare_translations.py::dumps`,
+ * which writes `key.strip()`, and `load`) and CommCare Core
+ * (`parseAndAdd`) read defines `key` and no other string. It is not empty;
+ * it holds no `=` (the line's key ends at the first), no `#` (a comment
+ * starts there), and no line feed or carriage return (the line ends there);
+ * and no character stands at either end that Java's `String.trim()` or
+ * Python's `str.strip()` removes, so both read the key as written.
+ */
+export function isLocaleFileKey(key: string): boolean {
+	if (key === "") return false;
+	for (let index = 0; index < key.length; index += 1) {
+		const unit = key[index];
+		if (unit === "=" || unit === "#" || unit === "\n" || unit === "\r")
+			return false;
+	}
+	const first = key.charCodeAt(0);
+	const last = key.charCodeAt(key.length - 1);
+	return !(
+		javaTrimmed(first) ||
+		javaTrimmed(last) ||
+		isPythonSpace(first) ||
+		isPythonSpace(last)
+	);
+}
+
+/**
+ * Whether a locale file can carry `value` as one record: it holds no
+ * carriage return, which ends the line in Core's reader while `dumps` leaves
+ * it as it is, and its spelling (`hqLocaleFileValue`) is not only characters
+ * Java's `String.trim()` drops from the line's end, which leaves the line
+ * defining no string. Every other value reads back as one record, at the
+ * text a device shows of it.
+ */
+export function isLocaleFileValue(value: string): boolean {
+	if (value.includes("\r")) return false;
+	const spelled = hqLocaleFileValue(value);
+	for (let index = 0; index < spelled.length; index += 1)
+		if (!javaTrimmed(spelled.charCodeAt(index))) return true;
+	return false;
+}
+
+/**
+ * The text of one `app_strings.txt`: a line `key=value` for each record of
+ * `table`, in its order, the value spelled as CommCare HQ's build spells it
+ * (`hqLocaleFileValue`). The only writer of a locale line, so each line is
+ * read by Core as exactly one record of `table`, under its key, at the text
+ * a device shows of its value. A key that is no locale file key
+ * (`isLocaleFileKey`) or a value a locale file cannot carry as one record
+ * (`isLocaleFileValue`) is a defect of the compiler's, which admits the
+ * project space's text where it reads it (`targetFacts.ts::targetFactsFromSource`)
+ * and builds its own keys from indexes and identifiers, and throws.
+ */
+export function localeFileText(table: ReadonlyMap<string, string>): string {
+	const lines: string[] = [];
+	/* The messages name neither the key nor the value: either can be text the
+	 * project space holds, and a thrown error reaches the logs. */
+	for (const [key, value] of table) {
+		if (!isLocaleFileKey(key)) {
+			throw new Error(
+				"Nova's compiler was about to write an app string under a key a device reads as another string or as none: " +
+					"one that is empty, holds =, # or a line break, or starts or ends with a space. " +
+					"Every key an archive writes is Nova's own or one the project space holds that reads as itself, so look at what put this key in the app-string table.",
+			);
+		}
+		if (!isLocaleFileValue(value)) {
+			throw new Error(
+				"Nova's compiler was about to write an app string a device reads as no one record: one holding a carriage return, which ends its line, or only control characters, which leave the line defining nothing. " +
+					"Nova's gate admits neither in an app string, and the project space's text is left out where it holds one, so look at what put this value in the app-string table.",
+			);
+		}
+		lines.push(`${key}=${hqLocaleFileValue(value)}`);
+	}
+	return lines.join("\n");
+}
+
+/** Python's `str.strip()` with no argument: every `isPythonSpace` character at both ends dropped. */
+export function pythonStrip(text: string): string {
+	let start = 0;
+	let end = text.length;
+	while (start < end && isPythonSpace(text.charCodeAt(start))) start += 1;
+	while (end > start && isPythonSpace(text.charCodeAt(end - 1))) end -= 1;
+	return text.slice(start, end);
 }
 
 /**

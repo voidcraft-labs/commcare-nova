@@ -727,7 +727,7 @@ it("passes verified OAuth authentication into SDK incremental-consent challenges
 			"audit_context",
 			{
 				inputSchema: z.object({}),
-				scopeChallenge: oauthScopeChallenge(context, SCOPES.hqWrite),
+				scopeChallenge: oauthScopeChallenge(context, [SCOPES.hqWrite]),
 			},
 			async () => {
 				throw new Error("A missing grant must stop before execution");

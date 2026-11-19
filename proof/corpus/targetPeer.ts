@@ -61,7 +61,16 @@
  *   app the peer holds, whose id is fixed. The peer counts the imports into
  *   the app's version as HQ does (`ApplicationBase.save` raises it by one):
  *   the create leaves version 1, and the content import that fills it
- *   version 2. The capture takes the peer's state after the first publish
+ *   version 2, which an update's answer names. A media job that maps a file
+ *   saves the app once more (`hqmedia/tasks.py::process_bulk_upload_zip`),
+ *   and so do a person's saves in HQ (`applyHqSide`), which the model counts
+ *   as one: Nova compares the counter only within one publish, with reads it
+ *   makes after those saves. The capture records the counter around each
+ *   import and each media upload (`saveCounter`), and the HQ side holds
+ *   HQ's own counter's move over the same write to it
+ *   (`proof/observe/publish.py`), so the model cannot drift from HQ's;
+ *   `proof/hq/test_publish.py` holds the facts it models to HQ's own views.
+ *   The capture takes the peer's state after the first publish
  *   (`snapshot`) and puts it back before each later update (`restore`),
  *   since each one stands for a separate next publish over that same app.
  * - `POST /a/<domain>/apps/api/<app id>/multimedia/`
@@ -77,6 +86,11 @@
  *   complete, no errors, and every file of the ZIP matched, each under its
  *   class with the path it was mapped at and the id of the document there
  *   (`matched_files`), which Nova records as the file standing at the path.
+ * - `GET /a/<domain>/apps/view/<app id>/current_version/`
+ *   (`app_manager/views/releases.py::current_app_version`): the app's save
+ *   counter as `currentVersion`, with `latestBuild` and `latestReleasedBuild`
+ *   null, since the peer makes no build; 404 before a create, as HQ answers
+ *   an app it holds no working copy of.
  * - `GET /hq/multimedia/file/<class>/<id>/` (`hqmedia/views.py::ViewMultimediaFile`):
  *   the bytes of the media document the peer holds under that class and
  *   id, 404 for any other, as Nova reads a file to settle a path by its
@@ -1030,6 +1044,16 @@ export class TargetPeer {
 		};
 	}
 
+	/**
+	 * The app's save counter as `current_app_version` answers it, or null
+	 * before a create, when HQ holds no app to answer for. A capture records
+	 * it around each write so the HQ side holds HQ's own counter's move over
+	 * the same write to the peer's (`proof/observe/publish.py`).
+	 */
+	saveCounter(): number | null {
+		return this.holding.source === undefined ? null : this.holding.version;
+	}
+
 	/** The requests received since `mark`, for one step of a capture. */
 	since(mark: number): readonly PeerRequest[] {
 		return this.requests.slice(mark);
@@ -1156,7 +1180,14 @@ export class TargetPeer {
 				media_type: HQ_MEDIA_NICE_NAME[file.mediaClass],
 			});
 		}
-		this.holding = { ...this.holding, source: next, mediaReport: report };
+		const matched = Object.values(report).flat().length;
+		this.holding = {
+			...this.holding,
+			source: next,
+			mediaReport: report,
+			/* The job saves the app once where it mapped a file. */
+			version: this.holding.version + (matched > 0 ? 1 : 0),
+		};
 	}
 
 	/**
@@ -1319,7 +1350,12 @@ export class TargetPeer {
 			next = this.pageSaved(next);
 		}
 		next = sourceAfterContentSaves(next, saves);
-		this.holding = { ...this.holding, source: next };
+		/* A person's saves leave the save counter past where Nova last read it. */
+		this.holding = {
+			...this.holding,
+			source: next,
+			version: this.holding.version + 1,
+		};
 		if (saves.mediaReplaced !== undefined)
 			this.replaceMedia(saves.mediaReplaced);
 		const kept = saves.lookupTable;
@@ -1535,6 +1571,19 @@ export class TargetPeer {
 					fixture_type: table?.tag ?? null,
 					id: row.id,
 				})),
+			});
+		}
+		if (
+			route ===
+			`GET ${domainPath}/apps/view/${this.state.appId}/current_version/`
+		) {
+			if (this.holding.source === undefined) {
+				return { status: 404, contentType: "text/html", body: "Not Found" };
+			}
+			return json(200, {
+				currentVersion: this.holding.version,
+				latestBuild: null,
+				latestReleasedBuild: null,
 			});
 		}
 		if (route === `GET ${domainPath}/apps/source/${this.state.appId}/`) {

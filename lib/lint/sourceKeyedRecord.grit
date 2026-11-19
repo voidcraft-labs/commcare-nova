@@ -1,0 +1,60 @@
+or {
+	`Object.fromEntries($_)`,
+	`$_: $type = {}` where {
+		$type <: or {
+			contains `Record<string, $_>`,
+			contains TsIndexSignatureParameter()
+		}
+	},
+	`{} as $type` where {
+		$type <: or {
+			contains `Record<string, $_>`,
+			contains TsIndexSignatureParameter()
+		}
+	},
+	or {
+		`$_ ?? {}`,
+		`$_ || {}`,
+		`$_ ? $other : {}` where { ! $other <: JsObjectExpression() },
+		`$_ ? {} : $other` where { ! $other <: JsObjectExpression() }
+	} as $fallback where {
+		! $fallback <: or {
+			within `Object.values($fallback)`,
+			within `Object.entries($fallback)`,
+			within `Object.keys($fallback)`,
+			within JsSpread()
+		}
+	},
+	JsPropertyObjectMember(name=JsComputedMemberName(expression=$key)) where {
+		! $key <: or {
+			JsStringLiteralExpression(),
+			JsTemplateExpression(elements=[JsTemplateChunkElement()]),
+			r"[A-Z][A-Z0-9_]*",
+			JsStaticMemberExpression(object=r"[A-Z][A-Z0-9_]*"),
+			JsStaticMemberExpression(object=r"Symbol")
+		}
+	},
+	`const $_: $type = $table` where {
+		$type <: or {
+			contains `Record<string, $_>`,
+			contains TsIndexSignatureParameter()
+		},
+		$table <: JsObjectExpression()
+	},
+	`let $_: $type = $table` where {
+		$type <: or {
+			contains `Record<string, $_>`,
+			contains TsIndexSignatureParameter()
+		},
+		$table <: JsObjectExpression()
+	},
+	`$table satisfies $type` where {
+		$type <: or {
+			contains `Record<string, $_>`,
+			contains TsIndexSignatureParameter()
+		},
+		$table <: JsObjectExpression()
+	}
+} as $built where {
+	register_diagnostic(span=$built, message="This builds a record with Object's prototype, which answers a name every object inherits (constructor, toString) as an entry and drops one named __proto__, where a source's names may key it: a language, a property, a case type, a translation key, a media path. Build it with recordFromEntries (lib/domain/records.ts), fall back to NO_ENTRIES, look a fixed table up through tableOf (lib/commcare/sourceKeys.ts) or hold a Map; read a record Nova did not build through ownRecordValue.")
+}

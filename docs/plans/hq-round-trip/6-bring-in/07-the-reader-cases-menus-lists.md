@@ -719,8 +719,8 @@ line here says what the shorthand is in the frame's own names:
   document of the line above and one new object for each candidate, and is written into the draft
   only once its projection passed. No candidate is ever tried by writing it into the draft and
   reading the draft back.
-- `ctx.resolver`: part 10's `IdentityResolver` (`ctx.input.resolver`). Every entity this part mints goes
-  through `externalKey.<kind>` and `ctx.resolver.claim` with the key parts of part 10
+- `ctx.identities`: the reading's claims under part 10's `IdentityResolver` (`ctx.input.resolver`). Every entity this part mints goes
+  through `externalKey.<kind>` and `ctx.identities.claim` with the key parts of part 10
   (10-identity-and-the-ledger.md, section 2.2; the file is `reader/identity.ts`):
   `caseOperation` `[xmlns, place, action, n]`, `formLink` `[xmlns, target, n]`, `entryPoint` (three
   shapes), `caseListColumn` `[moduleUniqueId, columnKind, field, n]`, `searchInput` `[moduleUniqueId,
@@ -902,6 +902,21 @@ prints each keyed create's id under the same prefix and a key a worker enters ag
 publish reaches the case it reached before. A publish to any other project space, and an operation
 whose case type was changed since, take the derivation.
 
+A case list column over the case's name, its opening date or its external id is read the same
+whichever of HQ's two words its `field` stores (`name` or `case_name`, `date-opened` or
+`date_opened`, `external-id` or `external_id`, `detail_screen.py::CASE_PROPERTY_MAP`), and the
+document holds the property alone. The word is where HQ keeps the column: HQ's build names the
+column's app strings by it (`id_strings.py::detail_column_header_locale`). The reading hands out the
+word each column the document holds stores on each screen, in
+`ReadDraft.identities.columnFieldWords` (`caseList/fieldWords.ts::columnFieldWordsRead`, rows of
+`wireIdentity.ts::ColumnFieldWordRow`), and part 10 (section 3.1) records each that is not Nova's
+word (`suite/wire.ts::hqColumnFieldText` writes `name`, `date-opened` and `external_id`) as the
+adopted deployment's rows, so every publish there writes each column's field, its sort element and
+its app string ids under the word HQ keeps (`WireIdentity.columnFieldWord`). The reading's own
+emission prints under the words it read (`reading/emission.ts`), and its app strings
+(`ReaderInput.appStrings`, given the words) name each column so, so a translation stored under HQ's
+id for a column's header folds into the header and is not read as inert.
+
 Part 09's check 4 expands the document with the same four (section 6), so the two comparisons cannot
 differ on an id, an address, a table name or a path.
 
@@ -1024,7 +1039,7 @@ Value (part 06, 13.3). "A folded node" below is a candidate settled as generated
 | a label, a question in a repeat the transaction does not take | finding | `a-case-write-name-or-preload-on-a-question-the-picker-does-not` |
 | no node, in an active action | finding | `update-path-naming-no-question-in-the-form-in-an-active-action` |
 | a date-and-time question, bare (no sibling) | finding | `a-datetime-question-saved-straight-to-a-case` |
-| a string, not an object (`update: { p: "/data/q" }`) | finding | `update-case-update-value-as-a-bare-string-legacy-pre` |
+| a string, not an object (`update: { p: "/data/q" }`) | finding, at the `update` key, which is refused whole before any entry is read; any other value that is no object leaves the map unclaimed (`unrecognized`), as a subcase's and an advanced action's `case_properties` holding one do | `update-case-update-value-as-a-bare-string-legacy-pre` |
 
 **`open_case`** (read only where active):
 
@@ -1663,10 +1678,13 @@ all four hold:
    // lib/commcare/reader/caseManagement/saveToCaseCompare.ts
    /** Whether the block the emitter writes at `stored.block.path` equals the stored one, with
     *  its wrappers: elements by name and order, attributes as sets, each bind by its path with
-    *  every expression attribute as a syntax tree (`sameXPathText`), each setvalue by event,
-    *  ref and value tree; a wrapper by its own element, its own binds and setvalues and its
+    *  every expression attribute as a syntax tree (`sameXPathText`), each setvalue whole, as a
+    *  bind is: its path read as Core reads it and only in Nova's spelling (an absolute `ref`,
+    *  `xform/model.ts::heldSetvalueRef`), every attribute outside the form builder's namespace as
+    *  a set and its `value` as a tree; a wrapper by its own element, its own binds and setvalues and its
     *  children's names in order, so a guard the emitter writes beside the block and the
-    *  source lacks is a difference. */
+    *  source lacks is a difference. Elements are compared by `sameElement.ts::sameElementWhole`
+    *  (name and namespace, attributes as sets, own text trimmed, children in order). */
    export function blockTreesEqual(
    	stored: StoredSaveToCaseBlock, // { block: ReadSaveToCaseBlock; form: FormSourceModel }
    	emitted: FormSourceModel, // the form's source `expandDoc` writes, parsed
@@ -1850,7 +1868,7 @@ for the own arm's key. It cannot keep the update's UUID: an operation's external
 action, so the update's key is no key of the reading, and a re-read through `matchingResolver`
 mints the own arm's, which the row asks `identityMap.ts::reReadUuidOf` for (part 10, section 2.3:
 where the document holds the key's own mint under another key, a re-read gives another). No candidate claims a key: the choice is made on what the source prints
-before the chosen block's key is claimed, once, so `IdentityResolver` needs no look that records
+before the chosen block's key is claimed, once, so `IdentityClaims` needs no look that records
 nothing.
 
 **The shared update of a several-case form.** A follow-up or close form of a menu that selects
@@ -1924,6 +1942,15 @@ condition the expression stage cannot hold has that slot's finding alone. So a c
 own case that an earlier Nova wrote as an operation, in a block of the operation's name that also
 writes the case's type (`targeted-migration-case-writes`, the Discharge form), is that finding:
 Nova's own close writes no type.
+
+**What an accepted block's claims cover.** An accepted block is claimed whole at its data node, test 4
+having compared it whole with the emitter's; a bind on an attribute and a leaf of the region are
+claimed whole too, each compared whole by test 4. A setvalue of the region is claimed at its element
+and at the three attributes Nova writes on one (`event`, `ref`, `value`), never as a subtree
+(`saveToCase.ts::claimAccepted`, `claimSetvalue`), so any other attribute (a `bind`, which Core reads in
+place of `ref`, `XFormParser.parseSetValueAction`) is reported at the close, and a setvalue Core reads
+otherwise than an absolute `ref` and a `value` stands under no block at all (part 06, 8.3): its own
+refusal at the form, and the block it would have set a test 4 difference.
 
 **One cause, one finding.** A block the reading refuses holds everything that stands only for it:
 a block any of whose slots the expression stage refused is that slot's finding alone, with no
@@ -3028,7 +3055,12 @@ against Nova's. A link that carries nothing and whose condition ends with those 
 link, and the reader returns the one that carries them: a row of part 06's
 `assemble.ts::READER_CANONICAL_CHOICES` under the id `search-link-guards-are-carried-values`, whose
 `apply` takes a condition's last clauses for the values only where Nova's projection of the two links
-(`projectAfterSubmit`) prints the same.
+(`projectAfterSubmit`) prints the same. The row takes the order from the guards themselves, as
+`collapsedDatums` does, and never tries orders: every link's values are carried in the target's order
+in one document, printed once, and each trailing clause of a link's condition is matched to the one
+guard of that print that is the same tree; the document carrying each link's values in that order is
+printed once more to confirm, form by form, so a pass is at most four prints of the document however
+many links and values it holds.
 
 Steps 2 and 3 are the pure function `linkGuards(doc, formUuid, link, xpath)` of section 9's code
 block, which answers `guards` and `expected` (the count `g`). The mark is held nowhere:
@@ -3195,13 +3227,16 @@ registers its formats in `detail_screen.py` (`register_format_type`). `model: "p
 (`field-property-paths-in-column-field-paths`; else
 `field-failing-details-utils-js-isvalidpropertyname-non`); HQ's five renamed names read as Nova's
 standard properties (`name-date-opened-external-id-status-owner-id-hq-renames-to-case`,
-`last-modified`, `prop`); a relation path, `user/`, `#owner_name` and the prefixed generators are their
+`last-modified`, `prop`; the word a column stores for one of the three HQ names by two is carried
+beside the document, 2.4); a relation path, `user/`, `#owner_name` and the prefixed generators are their
 rows' findings (`idx-prop-parent-host-any-index-names-other-than-a-first-step`, `user-prop-usercase`,
 `user-steps-prop`, `owner-name`, `property-x-or-prefix-x-with-a-prefix-hq-registers-no-generator`,
 `attachment-name-with-any-other-format`, `ledger-section`, `location-type`, `schedule-var`,
 `indicator-call-center-name`, `indicator-any-other-set-name`). `case_id` as a property column's
 `field` (not calculated) is `case-id-as-a-property-column-s-field` (REFUSED, broken at runtime, new,
-section 14): `PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP`, which maps
+section 14): `PropertyXpathGenerator.xpath` maps the field through `CASE_PROPERTY_MAP` (read in Nova as
+`columns.ts::HQ_PROPERTY_RENAMES`, a `SourceTable` of its own entries, so a property named as a member
+every object inherits, `constructor` among them, is an ordinary property), which maps
 `status` and `owner_id` to their attributes and has no entry for `case_id`, so the column reads the
 child element `case_id`, which no case carries (Core holds the id as an attribute,
 `CaseChildElement`), and is blank where Nova's column over `case_id` (`@case_id`) shows the id. A
@@ -3710,7 +3745,14 @@ on an advanced menu is 4.1's blocker.
 | `receiver_expression`, `default_value`, `input_` or `appearance` `""`; `required` whose `test` is blank or `null`, whatever its `text` | nothing: HQ's Case List page writes the first two blanks on every save, its build and Web Apps read each of the four only where it holds text (`if prop.input_`, `if prop.appearance`: a blank widget is a plain text field, and no widget beside `hidden`), and its build writes no `<required>` and no text for a blank test (`remote_requests.py`, `app_strings.py`: `if prop.required.test`); recorded under `list-settings-respelled` | `a-blank-text-in-a-search-key-hq-reads-only-where-it-holds-text` (INERT) |
 | `required` or `validations[0]` with a `test`, whose `text` is blank in every app language | finding: HQ's build writes the requirement's text blank, and no text for such a validation, whose worker reads the runtime's own sentence; Nova holds no check without a message | `a-required-or-validation-test-with-no-message-in-any-language` |
 | `required { test, text }` | `required: { when?, message? }` (slot `search_input_required_when`, mode `no-case`; a `test` of `true()` is an absent `when`; a text that is Nova's own required message in every language is an absent `message`), role `search-input-required-message`. Nova's message for a required field with none of its own is one unit of the app (`system/search-required/default`), printed whole by each such field, so its text in each language is read over every Search field of the app (`prompts.ts::requiredDefaultTexts`): in the reading's source language (part 06, section 6.3, item 4) it is `SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`, and in every other language the text there of the first required field, in menu and prompt order, whose source-language text is that sentence; it is written as the unit's translation. A field whose text is that one in every language holds no message; any other keeps its source-language text as its message and each other language's as that message's translation, which prints the same bytes. A document whose field's own message is Nova's sentence in the source language prints the bytes of the document whose fields hold their messages where this reading puts them, and the canonical choice `required-messages-as-read` (`search/systemSentences.ts::requiredMessagesAsRead`; part 09, section 9) makes that document of it | `required-test-text` |
-| `validations[0] { test, text }` | `validation: { rule, message }` (slot `search_input_validation_rule`, mode `no-dots`), role `search-input-validation-message`, after removing the runtime guard Nova conjoins (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`): the texts are read in the source language first, then the others in the app's order, since the guard's message is Nova's own sentence in the source language and any text in a translation, and the first that tells decides: a text that is one of `SEARCH_RUNTIME_VALIDATION_MESSAGES` is the guard alone (the test claimed `derived`, no validation read); one that ends with a space and one of them is the authored rule, the left operand of the test's top-level `and`, with the authored message before it. The guard's message is one unit of the app (`system/search-validation/<key>`), so its text in each language is read over every Search field of the app (`prompts.ts::guardTexts`) and written as that unit's translation. In the reading's source language the unit's text is its source, the catalog sentence, whatever the stored texts say, because a system unit's source text is Nova's own and a document holds no other text there; a field whose source-language text does not end with it keeps its whole text there, and the settle's (R2) then finds the projection differs (`unrecognized`, `schema:Assertion.text`). The source is the first language, in `langs` order, that a reading with it as the source prints back at each place Nova writes a source text apart from a translation, the app's name and Nova's own sentences (part 06, section 6.3, item 4: `languages.ts::readingSourceCode`; here, a language whose text is Nova's sentence for every system unit the app's searches print, `systemSentences.ts::systemSentenceHolders`), so an app whose first language holds a translated guard, a Nova document whose source language is not its first, reads with its own source language, and the first language's text is the guard's translation. In every other language (`guardSplit.ts::readGuardText`): a field whose text is the guard alone gives its language's text as it stands; else, where every joined text of the language ends with the catalog sentence, it is untranslated; else it is the longest text after a space that every joined text of the language ends with and that leaves each field a message of its own, of those where neither side has a character up to U+0020 at the end that meets the space (else the longest of all), the reading's choice where one field's message ends (the bytes are the join alone), which the canonical choice `joined-search-guards-split-as-read` (`guardSplit.ts::joinedGuardsSplitAsRead`; part 09, section 9) makes of a Nova-born document, whose joins always have such a clean split (`guardSplit.ts::sharedGuardText`). Each field's message in a language is its text less a space and that guard text, and each side is held as every app string is (`heldText.ts::holdText`): a message whose end meets the guard's text with a space of its own (`Use lowercase.  Must be a date.`) loses it, Nova's join shows one space fewer, and the reading records `text-spaces-dropped` at the text (13.3); the settle's (R2) compares the stored text as so held (`PromptReading.validationText`). The settle's (R2) holds either reading, and (R3) tries the rule with its guard, then without. Where no language's text tells (a message an author edited in HQ so none ends with a catalog sentence), the whole test is the rule, registered with `deferRefusal`, so a refusal of it waits for the settle; once the menu's rows are placed the settle asks the projection of the menu with the field holding no check for the guard it joins to the field and compares the stored test's last top-level conjuncts with it as parsed trees (`settings.ts::runtimeGuardEnding`): where they are the guard the field is `unrecognized` at `schema:Assertion.text`, since Nova prints the guard's sentence in the source language and no message ends with it, and the refusal of the guard's reads is dropped (`search/index.ts::settleUntoldChecks`), while the conjuncts before the guard, where one node of the test holds them, are read on their own as the field's rule and their refusal, where Nova cannot hold them, stands beside the message's (`search/index.ts::untoldRuleRefusal`); elsewhere the refusal stands. A check whose rule refused with no settle reaching it, or on a menu a finding keeps from the settle, stands as the expression stage made it | `validations-0-test-text` |
+| `validations[0] { test, text }` | `validation: { rule, message }` (slot `search_input_validation_rule`, mode `no-dots`), role `search-input-validation-message`, after removing the runtime guard Nova conjoins (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`): the texts are read in the source language first, then the others in the app's order, since the guard's message is Nova's own sentence in the source language and any text in a translation, and the first that tells decides: a text that is one of `SEARCH_RUNTIME_VALIDATION_MESSAGES` is the guard alone (the test claimed `derived`, no validation read); one that ends with a space and one of them is the authored rule, the left operand of the test's top-level `and`, with the authored message before it. The guard's message is one unit of the app (`system/search-validation/<key>`), so its text in each language is read over every Search field of the app (`prompts.ts::guardTexts`) and written as that unit's translation. In the reading's source language the unit's text is its source, the catalog sentence, whatever the stored texts say, because a system unit's source text is Nova's own and a document holds no other text there; a field whose source-language text does not end with it keeps its whole text there, and the settle's (R2) then finds the projection differs (`unrecognized`, `schema:Assertion.text`). The source is the first language, in `langs` order, that a reading with it as the source prints back at each place Nova writes a source text apart from a translation, the app's name and Nova's own sentences (part 06, section 6.3, item 4: `languages.ts::readingSourceCode`; here, a language whose text is Nova's sentence for every system unit the app's searches print, `systemSentences.ts::systemSentenceHolders`), so an app whose first language holds a translated guard, a Nova document whose source language is not its first, reads with its own source language, and the first language's text is the guard's translation. In every other language (`guardSplit.ts::readGuardText`): a field whose text is the guard alone gives its language's text as it stands; else, where every joined text of the language ends with the catalog sentence, it is untranslated; else it is the longest text after a space that every joined text of the language ends with and that leaves each field a message of its own, of those where neither side has a character up to U+0020 at the end that meets the space (else the longest of all), the reading's choice where one field's message ends (the bytes are the join alone), which the canonical choice `joined-search-guards-split-as-read` (`guardSplit.ts::joinedGuardsSplitAsRead`; part 09, section 9) makes of a Nova-born document, whose joins always have such a clean split (`guardSplit.ts::sharedGuardText`). Each field's message in a language is its text less a space and that guard text, and each side is held as every app string is (`heldText.ts::holdText`): a message whose end meets the guard's text with a space of its own (`Use lowercase.  Must be a date.`) loses it, Nova's join shows one space fewer, and the reading records `text-spaces-dropped` at the text (13.3); the settle's (R2) compares the stored text as so held (`PromptReading.validationText`). The settle's (R2) holds either reading, and (R3) chooses each field's rule on that field's own
+evidence: the menu's search is printed once with every field's rule as read, once without each
+rule's last top-level conjunct, once without its first and once with no rule
+(`settings.ts::settleSearchSettings`), each field takes the first of those whose printed property is
+the stored one, and the menu of those choices is compared whole once; where it differs, the
+difference reported is that of the rules as read. A field's rule prints into its own property alone,
+so this is the reading the combinations gave, in at most five prints of the menu whatever the number
+of fields (`search/__tests__/settleWork.test.ts`). Where no language's text tells (a message an author edited in HQ so none ends with a catalog sentence), the whole test is the rule, registered with `deferRefusal`, so a refusal of it waits for the settle; once the menu's rows are placed the settle asks the projection of the menu with every such field holding no check, printed once for all of them, for the guard it joins to each field and compares the stored test's last top-level conjuncts with it as parsed trees (`settings.ts::runtimeGuardEndings`): where they are the guard the field is `unrecognized` at `schema:Assertion.text`, since Nova prints the guard's sentence in the source language and no message ends with it, and the refusal of the guard's reads is dropped (`search/index.ts::settleUntoldChecks`), while the conjuncts before the guard, where one node of the test holds them, are read on their own as the field's rule and their refusal, where Nova cannot hold them, stands beside the message's (`search/index.ts::untoldRuleRefusal`); elsewhere the refusal stands. A check whose rule refused with no settle reaching it, or on a menu a finding keeps from the settle, stands as the expression stage made it | `validations-0-test-text` |
 | `validations[1:]`; `hidden` with `required` or `validations` | finding | `validations-1`, `hidden-together-with-required-or-validations` |
 | `hidden: true`, `exclude: true`, a `default_value`, no itemset, input type or appearance | `{ kind: "hidden", name, value }` (slot `search_input_hidden_value`) | `hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset` |
 | the three other hidden shapes | finding | `hidden-exclude-without-a-default-value-on-a-prompt-with-no`, `hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`, `hidden-on-a-prompt-that-carries-an-itemset-input-type-or` |
@@ -4110,7 +4152,7 @@ For a manifest finding of this part it is one of:
   translated by Nova. A word the map lacks (a format HQ registers no menu label for, a workflow word
   outside the six) gives no `detail.name`: the place and the sentence stand alone.
 
-At most 200 characters (part 01 section 8.3). An `unrecognized` circumstance is the exception part 01
+Cut once, by the finding's constructor, to 200 characters and 800 code units (part 01 section 8.3, `cutFindingName`); no reader cuts a name first. An `unrecognized` circumstance is the exception part 01
 itself makes: its `detail.name` is the surface key, or the key's path (part 01, 8.3's row for it),
 which the read logs at error under that key where it is a declared surface key (part 12, section
 10, `gather.ts::unrecognizedLogKey`) and what its block, worded as Nova's own gap, is filed with.

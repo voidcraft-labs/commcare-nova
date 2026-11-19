@@ -18,15 +18,41 @@
 // (`app_deployment_identities`), and `targetWireIdentity` lays them over the
 // derivation. The row shape is declared here because `lib/commcare` imports
 // nothing from `lib/deployment`.
+//
+// A case list column over a property CommCare HQ names by two words is kept
+// under the word its column stores (`suite/wire.ts::hqColumnFieldText`), which
+// HQ's build names the column's app strings by. A target holds the word only
+// where it is not the one Nova writes, and the identity carries it, so every
+// place that writes the column's field, its sort element or its app string ids
+// writes one word.
 
 import type { Form, Uuid } from "@/lib/domain";
 
-/** The ids one export writes for every menu and form. */
+/** A case list column's screen in CommCare HQ: the list (`short`) or the detail (`long`). */
+export type ColumnScreen = "short" | "long";
+
+/**
+ * The word a target keeps a column's property under on one screen, where it
+ * holds one (`WireIdentity.columnFieldWord`), which every column field, hidden
+ * field, sort element and app string id of the column writes.
+ */
+export type ColumnFieldWordOf = (
+	columnUuid: Uuid,
+	screen: ColumnScreen,
+) => string | undefined;
+
+/** The ids one export writes for every menu and form, and the word each case list column's field names its property by. */
 export interface WireIdentity {
 	/** Any module of the emission plan, the hidden menu included. */
 	moduleUniqueId(moduleUuid: Uuid): string;
 	formUniqueId(formUuid: Uuid): string;
 	formXmlns(form: Form): string;
+	/**
+	 * The word CommCare HQ keeps the property of the column `columnUuid` under
+	 * on `screen`, where a target holds one; undefined where the column takes
+	 * the word Nova writes (`suite/wire.ts::hqColumnFieldText`).
+	 */
+	readonly columnFieldWord: ColumnFieldWordOf;
 }
 
 const XMLNS_PREFIX = "http://openrosa.org/formdesigner/";
@@ -46,7 +72,15 @@ export const DERIVED_WIRE_IDENTITY: WireIdentity = {
 	moduleUniqueId: derivedUniqueId,
 	formUniqueId: derivedUniqueId,
 	formXmlns: (form) => derivedFormXmlns(form.uuid),
+	columnFieldWord: () => undefined,
 };
+
+/** The word a target keeps one case list column's property under on one screen. */
+export interface ColumnFieldWordRow {
+	readonly columnUuid: string;
+	readonly screen: ColumnScreen;
+	readonly word: string;
+}
 
 /** One id a target holds that is not the derivation. */
 export interface WireIdentityOverride {
@@ -60,12 +94,25 @@ export interface WireIdentityOverride {
 /**
  * A target's overrides first, the derivation for every entity without one.
  * The fallback is per entity and per field: a form row that holds HQ's
- * `xmlns` and no `unique_id` gives that `xmlns` beside the derived id.
+ * `xmlns` and no `unique_id` gives that `xmlns` beside the derived id. Each of
+ * `columnWords` is the word of its column on its screen.
  */
 export function targetWireIdentity(
 	overrides: readonly WireIdentityOverride[],
+	columnWords: readonly ColumnFieldWordRow[] = [],
 ): WireIdentity {
-	if (overrides.length === 0) return DERIVED_WIRE_IDENTITY;
+	const words = new Map(
+		columnWords.map((row) => [
+			`${row.columnUuid}\u0000${row.screen}`,
+			row.word,
+		]),
+	);
+	const columnFieldWord = (columnUuid: Uuid, screen: ColumnScreen) =>
+		words.get(`${columnUuid}\u0000${screen}`);
+	if (overrides.length === 0)
+		return words.size === 0
+			? DERIVED_WIRE_IDENTITY
+			: { ...DERIVED_WIRE_IDENTITY, columnFieldWord };
 	const moduleIds = new Map<string, string>();
 	const formIds = new Map<string, string>();
 	const formXmlns = new Map<string, string>();
@@ -90,5 +137,6 @@ export function targetWireIdentity(
 			formIds.get(formUuid) ?? derivedUniqueId(formUuid),
 		formXmlns: (form) =>
 			formXmlns.get(form.uuid) ?? derivedFormXmlns(form.uuid),
+		columnFieldWord,
 	};
 }

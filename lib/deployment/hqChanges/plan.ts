@@ -18,12 +18,16 @@
  */
 
 import { Immer } from "immer";
+import { expandDocSteps } from "@/lib/commcare/expander";
+import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { ReadDraft, ReadOutcome } from "@/lib/commcare/reader";
 import {
 	CANONICALIZATIONS,
 	type Canonicalization,
 	canonDocumentSteps,
+	type WithheldRewrite,
 } from "@/lib/commcare/reader/canon";
+import { rethrowWorkStop } from "@/lib/commcare/workMeter";
 import {
 	preparedCandidateHasAdmissionIssue,
 	prepareMutationCandidateSteps,
@@ -59,7 +63,8 @@ import type {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { entryPointByUuid } from "@/lib/domain/entryPoints";
-import { ownRecordValue } from "@/lib/domain/records";
+import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
+import { log } from "@/lib/logger";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import type {
 	CasePropertyRename,
@@ -86,7 +91,12 @@ import type { HqChangeReadings } from "./readings";
 import type { ReferenceDocument } from "./reference";
 
 /** This plan's own checks. */
-export const HQ_CHANGE_PLAN_CHECKS = ["apply", "commutes", "replay"] as const;
+export const HQ_CHANGE_PLAN_CHECKS = [
+	"apply",
+	"commutes",
+	"replay",
+	"respell",
+] as const;
 export type HqChangePlanCheck = (typeof HQ_CHANGE_PLAN_CHECKS)[number];
 /** Which check failed: one of this plan's, or one of acceptance's (`ACCEPTANCE_CHECKS`). */
 export type HqChangeCheck = AcceptanceCheck | HqChangePlanCheck;
@@ -213,9 +223,10 @@ function* applied(
 function* canonK(
 	doc: BlueprintDoc,
 	givesWay: ReadonlySet<string> = NO_PROPERTY,
+	withheld?: (rewrite: WithheldRewrite) => void,
 ): Steps<BlueprintDoc> {
 	const canon = toPersistableDoc(
-		yield* canonDocumentSteps(withSlugsBound(doc, givesWay)),
+		yield* canonDocumentSteps(withSlugsBound(doc, givesWay), withheld),
 	) as Record<string, unknown>;
 	for (const key of KEYS_WITH_NO_EXTERNAL_KEY) delete canon[key];
 	const settings = canon.appSettings as PersistableDoc["appSettings"];
@@ -289,7 +300,10 @@ function withSlugsBound(
 			while (held.has(`${property.slug}_${n}`)) n++;
 			const slug = `${property.slug}_${n}`;
 			held.add(slug);
-			next = { ...(next ?? record), [uuid]: { ...property, slug } };
+			next = recordFromEntries([
+				...Object.entries(next ?? record),
+				[uuid, { ...property, slug }],
+			]);
 		}
 		return next;
 	};
@@ -490,7 +504,9 @@ function narrowed(
 				});
 				continue;
 			}
-			const merged: Record<string, unknown> = { ...held };
+			const merged: Record<string, unknown> = recordFromEntries(
+				Object.entries(held),
+			);
 			const was = read as Record<string, unknown>;
 			const next = property as Record<string, unknown>;
 			for (const key of new Set([...Object.keys(was), ...Object.keys(next)])) {
@@ -715,10 +731,16 @@ const ONE_WIRE: readonly Canonicalization[] = CANONICALIZATIONS.filter(
 );
 
 /** `doc` under every `one-wire` row of the canonical list, applied until none changes it. */
-function oneWireSpelling(doc: BlueprintDoc): BlueprintDoc {
+function oneWireSpelling(
+	doc: BlueprintDoc,
+	withheld?: (rewrite: WithheldRewrite) => void,
+): BlueprintDoc {
 	let current = doc;
 	for (let pass = 0; pass <= ONE_WIRE.length; pass++) {
-		const next = ONE_WIRE.reduce((one, row) => row.apply(one), current);
+		const next = ONE_WIRE.reduce(
+			(one, row) => row.apply(one, withheld),
+			current,
+		);
 		if (deepEqual(toPersistableDoc(next), toPersistableDoc(current)))
 			return current;
 		current = next;
@@ -751,8 +773,9 @@ function inReaderSpelling(
 	doc: BlueprintDoc,
 	touched: readonly Uuid[],
 	givesWay: ReadonlySet<string>,
+	withheld?: (rewrite: WithheldRewrite) => void,
 ): BlueprintDoc {
-	const spelled = oneWireSpelling(withSlugsBound(doc, givesWay));
+	const spelled = oneWireSpelling(withSlugsBound(doc, givesWay), withheld);
 	const next = toPersistableDoc(doc);
 	const modules = { ...next.modules };
 	const forms = { ...next.forms };
@@ -868,18 +891,19 @@ function* takeOver(
 	image: BlueprintDoc | null,
 	/** The properties that give way where a document holds one slug twice. */
 	givesWay: ReadonlySet<string>,
+	withheld?: (rewrite: WithheldRewrite) => void,
 ): Steps<Target | { readonly failure: Failure }> {
 	const target = yield* targetOver(D, narrowed(H, B, T, D), head);
 	if (!("doc" in target)) return target;
 	yield;
-	const canon = image ?? (yield* canonK(D, givesWay));
+	const canon = image ?? (yield* canonK(D, givesWay, withheld));
 	yield;
 	const read = yield* applied(canon, narrowed(H, B, T, canon), "commutes");
 	if (!("doc" in read)) return read;
 	yield;
-	const targetK = yield* canonK(target.doc, givesWay);
+	const targetK = yield* canonK(target.doc, givesWay, withheld);
 	yield;
-	const readK = yield* canonK(read.doc, givesWay);
+	const readK = yield* canonK(read.doc, givesWay, withheld);
 	yield;
 	const difference = firstDifference(targetK, readK);
 	return difference === null
@@ -1032,9 +1056,50 @@ export function planFromDocuments(
 	return drained(planFromDocumentsSteps(input));
 }
 
-/** `planFromDocuments` one step at a time. */
+/** `planFromDocuments` one step at a time. A canonical rewrite a slot's print refused while it
+ *  planned (`canon.ts::WithheldRewrite`) is Nova's own defect, logged once when it ends by row and
+ *  slot kind, never by what the slot holds. */
 function* planFromDocumentsSteps(
 	input: DocumentsInput,
+): Steps<Exclude<HqChangePlan, { readonly kind: "account" }>> {
+	const withheld = new Set<string>();
+	try {
+		return yield* plannedFromDocuments(input, (rewrite) =>
+			withheld.add(`${rewrite.rowId} in ${rewrite.slot}`),
+		);
+	} finally {
+		if (withheld.size > 0)
+			log.error(
+				`[hq-changes] canonical rewrites withheld: ${withheld.size}`,
+				undefined,
+				{ rewrites: [...withheld].slice(0, 5).join(", ") },
+			);
+	}
+}
+
+/**
+ * Whether `respelled`, `doc` with the reader's `one-wire` spelling written into what a change
+ * touches, is the app `doc` is: CommCare HQ's import file of each, expanded alike, is the same
+ * bytes. A spelling that prints otherwise would change the app with no change CommCare HQ made.
+ */
+function* sameExport(
+	doc: BlueprintDoc,
+	respelled: BlueprintDoc,
+): Steps<boolean> {
+	const options = { lookupNaming: identityLookupWireNaming() };
+	try {
+		const before = JSON.stringify(yield* expandDocSteps(doc, options));
+		const after = JSON.stringify(yield* expandDocSteps(respelled, options));
+		return before === after;
+	} catch (error) {
+		rethrowWorkStop(error);
+		return false;
+	}
+}
+
+function* plannedFromDocuments(
+	input: DocumentsInput,
+	withheld: (rewrite: WithheldRewrite) => void,
 ): Steps<Exclude<HqChangePlan, { readonly kind: "account" }>> {
 	const { ref, now, base: B, theirs: T } = input;
 
@@ -1062,10 +1127,10 @@ function* planFromDocumentsSteps(
 	 * since the publish is a change Nova holds unpublished though nothing reads it now: a read
 	 * CommCare HQ's change adds of the published slug means that property. */
 	const givesWay = propertiesGivingWay(ref, now);
-	const refK = yield* canonK(ref, givesWay);
+	const refK = yield* canonK(ref, givesWay, withheld);
 	yield;
 	/* The reference is the head itself where nothing was committed since the publish. */
-	const nowK = now === ref ? refK : yield* canonK(now, givesWay);
+	const nowK = now === ref ? refK : yield* canonK(now, givesWay, withheld);
 	yield;
 	const unpublished =
 		(nowK !== refK && documentDifferences(refK, nowK).length > 0) ||
@@ -1090,19 +1155,26 @@ function* planFromDocumentsSteps(
 		head,
 		unpublished ? refK : nowK,
 		givesWay,
+		withheld,
 	);
 	yield;
 	if (!("doc" in taken)) {
 		respelled = touchedBy(D, Hn);
 		yield;
+		const spelled = inReaderSpelling(D, respelled, givesWay, withheld);
+		yield;
+		/* The spelling is written into the app only where it is the same app. */
+		if (!(yield* sameExport(D, spelled)))
+			return differs({ check: "respell", segments: ["export-differs"] });
 		taken = yield* takeOver(
-			inReaderSpelling(D, respelled, givesWay),
+			spelled,
 			H,
 			B,
 			theirs,
 			head,
 			null,
 			givesWay,
+			withheld,
 		);
 		yield;
 		if (!("doc" in taken)) return differs(taken.failure);

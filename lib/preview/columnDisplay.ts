@@ -18,6 +18,7 @@ import {
 	type CaseReading,
 	resolveCaseListTemporalType,
 } from "@/lib/domain/expression/temporalType";
+import { isOpenableAddress } from "@/lib/links/openableAddress";
 import {
 	caseRowDisplaySourceValue,
 	caseRowDisplayValue,
@@ -627,28 +628,4 @@ export function formatIntervalForPreview(
 				? column.text
 				: String(Math.trunc(diffDays / divisor)),
 	};
-}
-
-/**
- * Is this case value something the builder may turn into an `href`?
- *
- * Only `http:` and `https:`. The value comes from a worker's own
- * submission, so a case property could hold `javascript:` or a
- * `data:text/html` payload, and neither `target="_blank"` nor
- * `rel="noopener noreferrer"` defends against a scheme — they govern the
- * new context, not what runs in it. The device path has its own answer
- * (Web Apps sanitizes the rendered markdown through DOMPurify), so this
- * guard is what gives the builder's preview the same footing.
- *
- * Parsed rather than prefix-matched: `URL` resolves the escapes and
- * whitespace that make `java\tscript:` read as `http` to a `startsWith`.
- */
-export function isOpenableAddress(value: string): boolean {
-	if (value === "") return false;
-	try {
-		const protocol = new URL(value).protocol;
-		return protocol === "http:" || protocol === "https:";
-	} catch {
-		return false;
-	}
 }

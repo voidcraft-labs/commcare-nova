@@ -9,8 +9,12 @@
 
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { holdsUserRepeat } from "@/lib/doc/groupFieldLists";
+import { applyMutations } from "@/lib/doc/mutations";
 import { applyHoldPlacements } from "@/lib/doc/mutations/placements";
-import { planDeclarationChoices } from "@/lib/doc/platformDeclaration";
+import {
+	type DeclarationChoices,
+	planDeclarationChoices,
+} from "@/lib/doc/platformDeclaration";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -38,6 +42,7 @@ import {
 	proseTemplateIsEmpty,
 	proseText,
 } from "@/lib/domain/prose";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	snapshotTranslationUnits,
 	type TranslationUnit,
@@ -59,6 +64,7 @@ import {
 	columnsOffAScreenLast,
 	sortNamedHiddenColumnHeader,
 } from "./caseList/details";
+import { columnFieldWordsRead } from "./caseList/fieldWords";
 import {
 	implicitOrderRuleIsAbsent,
 	orderPrioritiesAsRead,
@@ -1320,7 +1326,9 @@ function mediaKeyReading(
 	if (owner.kind === "app") return undefined;
 	const menu = Array.isArray(modules) ? modules[owner.menu] : undefined;
 	const block = (value: unknown) =>
-		isJsonObject(value) ? (value as Readonly<Record<string, unknown>>) : {};
+		isJsonObject(value)
+			? (value as Readonly<Record<string, unknown>>)
+			: NO_ENTRIES;
 	const shows = (
 		holder: Readonly<Record<string, unknown>>,
 		key: "media_image" | "media_audio",
@@ -1367,15 +1375,40 @@ function mediaKeyReading(
 }
 
 /**
+ * `doc` under the declaration the reading proposes: the proposed choice's mutations (where the app
+ * runs, and each date-and-time question split where the choice splits them) applied, which is the
+ * document Nova's gate judges the reading as. A document that declares nothing runs on both
+ * platforms, so content only one of them runs (a list choosing several cases, `here()` in a
+ * calculated column, a read of the case list's search text) is one the gate refuses until the
+ * declaration is written. Where no declaration runs the content, `doc` as it stands, which the
+ * declaration's findings already hold.
+ */
+function underProposedDeclaration(
+	doc: BlueprintDoc,
+	declaration: DeclarationChoices,
+): BlueprintDoc {
+	if (declaration.kind !== "choices") return doc;
+	const choice = declaration.choices[declaration.proposed];
+	if (choice === undefined || choice.mutations.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		applyMutations(draft, choice.mutations);
+		// The index is derived state the reader's documents never hold.
+		delete draft.refIndex;
+	});
+}
+
+/**
  * Decides every generated translation key in the reading that meets it: each stands under
  * a finding where what it names did not read whole, and every other is classified against the
- * strings Nova's build makes of `doc`, a media key against what CommCare HQ's build of the
- * stored app shows (`mediaKeyReading`), and claimed by its verdict. A fold writes the value as its
- * unit's text in that language, once per unit, and is counted. Returns whether a key folded.
+ * strings Nova's build makes of `doc` under the declaration the reading proposes
+ * (`underProposedDeclaration`), a media key against what CommCare HQ's build of the stored app
+ * shows (`mediaKeyReading`), and claimed by its verdict. A fold writes the value as its unit's text
+ * in that language, once per unit, and is counted. Returns whether a key folded.
  */
 function decideGeneratedKeys(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
+	declaration: DeclarationChoices,
 	sourceFolds: Map<TranslationUnitId, string>,
 	foldedKeys: Set<string>,
 ): boolean {
@@ -1393,7 +1426,10 @@ function decideGeneratedKeys(
 		left.push({ held, target });
 	}
 	if (left.length === 0) return false;
-	const table = ctx.input.appStrings(doc);
+	const table = ctx.input.appStrings(
+		underProposedDeclaration(doc, declaration),
+		columnFieldWordsRead(ctx, doc),
+	);
 	if (table === null) {
 		const first = [...findings].sort((a, b) => placeOrder(a.place, b.place))[0];
 		if (first === undefined)
@@ -1554,9 +1590,7 @@ function withDeferredNames(
 ): AppStringTable {
 	const deferred = deferredFormNames(ctx);
 	if (deferred.length === 0) return table;
-	const languages: Record<string, Record<string, string>> = {
-		...table.languages,
-	};
+	const languages = recordFromEntries(Object.entries(table.languages));
 	for (const one of deferred) {
 		const key = classified.find(
 			(held) => held.language === one.language && held.key === one.key,
@@ -1564,7 +1598,10 @@ function withDeferredNames(
 		const strings = languages[one.language];
 		if (key === undefined || strings === undefined) continue;
 		if (!Object.hasOwn(strings, key.id)) continue;
-		languages[one.language] = { ...strings, [key.id]: one.stored };
+		languages[one.language] = recordFromEntries([
+			...Object.entries(strings),
+			[key.id, one.stored],
+		]);
 	}
 	return { ...table, languages };
 }
@@ -1947,6 +1984,7 @@ export function* assembleDocumentSteps(
 	const folded = decideGeneratedKeys(
 		ctx,
 		whole ?? working,
+		declaration,
 		sourceFolds,
 		foldedKeys,
 	);
@@ -2011,7 +2049,8 @@ export function* assembleDocumentSteps(
 				})),
 			),
 			keyedCreates: keyedCreatesRead(ctx, doc),
-			entries: ctx.resolver.entries(),
+			columnFieldWords: columnFieldWordsRead(ctx, doc),
+			entries: ctx.identities.entries(),
 		},
 		declaration,
 		facts,

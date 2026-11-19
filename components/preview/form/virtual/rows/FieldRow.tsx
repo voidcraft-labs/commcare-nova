@@ -44,6 +44,7 @@ import {
 	type ProseTemplate,
 	type Uuid,
 } from "@/lib/domain";
+import { PREVIEW_LABEL_RENDERING } from "@/lib/markdown";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -192,6 +193,7 @@ export const FieldRow = memo(function FieldRow({
 									label={shownLabel}
 									resolvedLabel={state.resolvedLabel}
 									isEditMode
+									rendering={PREVIEW_LABEL_RENDERING}
 									plainLabel={labelFormatText?.plain === true}
 									className={FIELD_STYLES.label}
 									proseSlot={{ entity: "field", uuid, slot: "label" }}
@@ -214,6 +216,7 @@ export const FieldRow = memo(function FieldRow({
 							label={shownHint}
 							resolvedLabel={state.resolvedHint}
 							isEditMode
+							rendering={PREVIEW_LABEL_RENDERING}
 							className={FIELD_STYLES.hint}
 							proseSlot={{ entity: "field", uuid, slot: "hint" }}
 						/>

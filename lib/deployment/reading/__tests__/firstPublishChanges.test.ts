@@ -514,6 +514,26 @@ function withBlankTitle(xml: string): string {
 	return serializeXml(document);
 }
 
+/** The form declaring the mobile reports fixture before its first bind, read by nothing, as a
+ *  form CommCare HQ's form builder kept a declaration of holds it. */
+function withDeclaredReports(xml: string): string {
+	const document = parseXml(xml);
+	const bind = findOne(
+		(element: Element) => element.name === "bind",
+		document.children.filter(isTag),
+		true,
+	);
+	if (bind === null) throw new Error("The export holds no <bind>.");
+	prepend(
+		bind,
+		new Element("instance", {
+			id: "commcare:reports",
+			src: "jr://fixture/commcare:reports",
+		}),
+	);
+	return serializeXml(document);
+}
+
 /** A survey whose Hidden Value `h` is calculated, beside a question `n` with a default. */
 function calculatedDoc(): BlueprintDoc {
 	return buildDoc({
@@ -1973,6 +1993,10 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	),
 	// A form whose title holds no text, as CommCare HQ's new form holds it.
 	"form-titles-written": editedPair(followUpDoc, { xml: withBlankTitle }),
+	// A form declaring a fixture nothing reads that the project space may not serve.
+	"unread-fixture-declarations-dropped": editedPair(followUpDoc, {
+		xml: withDeclaredReports,
+	}),
 };
 
 /** A media map item as CommCare HQ stores one for an image. */

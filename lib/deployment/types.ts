@@ -19,6 +19,10 @@ import {
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import {
+	LEVEL_CODE_MAX_LENGTH,
+	LEVEL_CODE_PATTERN,
+} from "@/lib/domain/organization";
 import type { DriftReference } from "@/lib/publish/driftReference";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import type { KeptListValues } from "@/lib/publish/keptValues";
@@ -386,7 +390,14 @@ export type DeploymentConfirmationKey =
 	| { readonly kind: "flat-location-fixture" }
 	| { readonly kind: "connect-forwarder" }
 	| { readonly kind: "form-entry-sync-off" }
-	| { readonly kind: "commtrack-off" };
+	| { readonly kind: "commtrack-off" }
+	/**
+	 * That places at one level of a project space whose places CommCare HQ
+	 * manages for the app take workers there, by the level's code: HQ's level
+	 * API does not say, and provisioning stands workers there only once a
+	 * person said so. Asked by provisioning alone, never by a publish.
+	 */
+	| { readonly kind: "worker-level"; readonly subject: string };
 
 /**
  * One thing a publish asks a person to confirm, with the words to ask it in:
@@ -395,7 +406,7 @@ export type DeploymentConfirmationKey =
  * why this app needs it.
  */
 export interface DeploymentConfirmationNeeded {
-	readonly kind: DeploymentConfirmationKind;
+	readonly kind: PublishConfirmationKind;
 	/** A plan feature's id, or the kind's own name for the other kinds. */
 	readonly subject: string;
 	readonly label: string;
@@ -408,7 +419,9 @@ export interface DeploymentConfirmationNeeded {
 
 /** The subject a confirmation key is stored under. */
 export function confirmationSubject(key: DeploymentConfirmationKey): string {
-	return key.kind === "plan-feature" ? key.subject : key.kind;
+	return key.kind === "plan-feature" || key.kind === "worker-level"
+		? key.subject
+		: key.kind;
 }
 
 /** Names one HQ table or place a baseline is kept for. */
@@ -733,9 +746,15 @@ export interface DeploymentWithResources {
 export const DEPLOYMENT_CONFIRMATION_KINDS = [
 	"plan-feature",
 	...PROJECT_SPACE_SETTING_KINDS,
+	"worker-level",
 ] as const;
 export type DeploymentConfirmationKind =
 	(typeof DEPLOYMENT_CONFIRMATION_KINDS)[number];
+/** What a publish asks a person to confirm: every kind but the levels provisioning asks about. */
+export type PublishConfirmationKind = Exclude<
+	DeploymentConfirmationKind,
+	"worker-level"
+>;
 
 /** One confirmation in force on a deployment. */
 export interface DeploymentConfirmation {
@@ -942,6 +961,26 @@ export const deploymentTargetSchema = z.strictObject({
 });
 export type DeploymentTarget = z.infer<typeof deploymentTargetSchema>;
 
+/** CommCare HQ's id of an app, as a deployment's `app` mapping holds it. */
+export const hqAppIdSchema = z.string().regex(/^[\w-]{1,255}$/);
+
+/**
+ * A stop as the browser sends it: the deployment, and the HQ app the person
+ * was looking at, whose mapping the stop ends or nothing
+ * (`store.ts::endDeployment`).
+ */
+export const stopPublishingSchema = deploymentTargetSchema.extend({
+	hqAppId: hqAppIdSchema,
+});
+export type StopPublishingRequest = z.infer<typeof stopPublishingSchema>;
+
+/** An organization level's code, the subject of a `worker-level` confirmation. */
+export const organizationLevelCodeSchema = z
+	.string()
+	.min(1)
+	.max(LEVEL_CODE_MAX_LENGTH)
+	.regex(LEVEL_CODE_PATTERN);
+
 /** One confirmation key as a caller states it, in the vocabulary a refusal named. */
 export const deploymentConfirmationKeySchema = z.discriminatedUnion("kind", [
 	z.strictObject({
@@ -952,6 +991,10 @@ export const deploymentConfirmationKeySchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("connect-forwarder") }),
 	z.strictObject({ kind: z.literal("form-entry-sync-off") }),
 	z.strictObject({ kind: z.literal("commtrack-off") }),
+	z.strictObject({
+		kind: z.literal("worker-level"),
+		subject: organizationLevelCodeSchema,
+	}),
 ]);
 
 /** Withdraw one confirmation from the deployment on one target. */
@@ -973,6 +1016,13 @@ export type WithdrawDeploymentConfirmationRequest = z.infer<
  * is also how anybody would want to hand them out.
  */
 export const MAX_WORKERS_PER_PROVISION_CALL = 50;
+
+/**
+ * How many levels one provisioning call may confirm: a bound on what one call
+ * carries, since a call names a level only where a worker it makes stands at
+ * one of its places.
+ */
+export const MAX_WORKER_LEVELS_PER_PROVISION_CALL = 100;
 
 /**
  * One provisioning call, as the browser and MCP both state it.
@@ -1003,6 +1053,16 @@ export const provisionWorkersSchema = z.strictObject({
 	 * is ever adopted without being named here.
 	 */
 	adoptPersonaUuids: z.array(z.string().min(1)).readonly().optional(),
+	/**
+	 * The codes of the levels a person confirmed take workers in this project
+	 * space, after a refusal named them (`worker_levels_unconfirmed`). Only a
+	 * level of places CommCare HQ manages for the app there is ever asked.
+	 */
+	confirmWorkerLevels: z
+		.array(organizationLevelCodeSchema)
+		.max(MAX_WORKER_LEVELS_PER_PROVISION_CALL)
+		.readonly()
+		.optional(),
 });
 export type ProvisionWorkersRequest = z.infer<typeof provisionWorkersSchema>;
 

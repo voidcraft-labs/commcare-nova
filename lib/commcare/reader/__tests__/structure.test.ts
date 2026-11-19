@@ -259,7 +259,7 @@ describe("readStructure", () => {
 			},
 		]);
 		expect(
-			ctx.resolver.entries().filter((entry) => entry.kind === "form"),
+			ctx.identities.entries().filter((entry) => entry.kind === "form"),
 		).toEqual([]);
 		expect(ctx.draft.modules.flatMap((draft) => draft.forms)).toEqual([]);
 	});

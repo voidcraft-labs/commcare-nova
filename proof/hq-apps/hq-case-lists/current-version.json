@@ -3,5 +3,5 @@
 	"headers": {
 		"Content-Type": "application/json"
 	},
-	"body": "{\"currentVersion\": 16, \"latestBuild\": null, \"latestReleasedBuild\": null}"
+	"body": "{\"currentVersion\": 18, \"latestBuild\": null, \"latestReleasedBuild\": null}"
 }

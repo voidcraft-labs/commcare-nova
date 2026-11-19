@@ -47,7 +47,7 @@ const PATHS = {
 	application: `/a/${DOMAIN}/api/application/v1/${APP}/`,
 	source: `/a/${DOMAIN}/apps/source/${APP}/`,
 	version: `/a/${DOMAIN}/apps/view/${APP}/current_version/`,
-	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`,
+	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`,
 	icon: `/hq/multimedia/file/CommCareImage/${MEDIA_ID}/`,
 };
 

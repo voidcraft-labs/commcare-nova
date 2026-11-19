@@ -167,7 +167,7 @@ it(
 		const root = join(WORKTREE, HQ_APPS);
 		if (!existsSync(join(root, BASE)))
 			throw new Error(
-				`proof/hq-apps/${BASE}/ does not exist, and the hand-written document is held to Nova's reading of it. A lane run writes it (proof/matrix/test_retained.py); copy it in with python3 -m proof.matrix.adopt over that run's output.`,
+				`proof/hq-apps/${BASE}/ does not exist, and the hand-written document is held to Nova's reading of it. A lane run writes it (proof/matrix/test_retained.py); copy it in with python3 -m proof.matrix.adopt over every output of that run.`,
 			);
 		const app = loadRetainedHqApp(BASE);
 		const hand = document();
@@ -468,4 +468,43 @@ it("holds the hand-written document of hq-plain and its edit to Nova's commit ga
 			`Nova's gate refuses the edit of ${BASE}: ${edited.findings.map((finding) => finding.code).join(", ")}`,
 		);
 	expect(edited.mutations.length).toBeGreaterThan(0);
+});
+
+// A media row's file is looked up among the base's own media files, never joined to a path: a tree carried from a
+// run or an artifact cannot make the emission read a file outside its base. The plausible failure: a row naming
+// `../app.json` or an absolute path read as a picture's bytes. Paired with the committed hq-media base, whose rows
+// each name one of its files.
+it.each(["../app.json", "/etc/hosts", "media/9.png"])(
+	"stops the emission by name where a media.json row names %s",
+	async (named) => {
+		const scratch = await mkdtemp(join(tmpdir(), "nova-hq-authored-media-"));
+		try {
+			const root = join(scratch, "hq-apps");
+			await writeControlledBase(root, join(scratch, "hand"));
+			const directory = join(root, CONTROLLED_BASE);
+			await mkdir(join(directory, "media"), { recursive: true });
+			await writeFile(join(directory, "media", "0.png"), "picture\n");
+			await writeFile(
+				join(directory, "media.json"),
+				JSON.stringify([
+					{ path: "jr://file/a.png", file: "media/0.png" },
+					{ path: "jr://file/b.png", file: named },
+				]),
+			);
+			expect(() => loadRetainedHqApp(CONTROLLED_BASE, root)).toThrow(
+				`holds a media.json row naming ${JSON.stringify(named)}, which is not one of its media files`,
+			);
+		} finally {
+			await rm(scratch, { recursive: true, force: true });
+		}
+	},
+);
+
+it("reads each media row of the committed hq-media base from its own media files", () => {
+	const app = loadRetainedHqApp("hq-media");
+	expect(app.media.length).toBeGreaterThan(0);
+	for (const row of app.media) {
+		expect(row.file).toMatch(/^media\/[0-9]+\.[a-z0-9]+$/);
+		expect(row.bytes.length).toBeGreaterThan(0);
+	}
 });

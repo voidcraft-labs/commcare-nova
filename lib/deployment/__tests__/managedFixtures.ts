@@ -12,6 +12,11 @@
 import type { MockAgent } from "undici";
 import { v7 } from "uuid";
 import {
+	HqSaveCounter,
+	isSaveCounterPath,
+	withHqPeer,
+} from "@/__tests__/helpers/hqSaveCounter";
+import {
 	type RetainedPublishRead,
 	replyRetained,
 	retainedPublishRead,
@@ -31,10 +36,24 @@ import {
 } from "@/lib/domain/lookupIds";
 import { createManagedLookupTablesInTransaction } from "@/lib/lookup/managed";
 import type { LookupScope } from "@/lib/lookup/types";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { canonicalLookupTable } from "../hqResourceBaseline";
 import { managedLookupContentOf } from "../reading/projectData/lookupTables";
 
 export const HOST = "https://india.commcarehq.org";
+
+/**
+ * CommCare HQ's save counter for the apps the peer stands for, which each
+ * accepted import moves. A suite resets it before each case.
+ */
+export const hqSaves = new HqSaveCounter();
+
+/** The peer `withHttpPeer` gives, with every app's save counter answered from `hqSaves`. */
+export function withManagedPeer<T>(
+	run: (peer: MockAgent) => Promise<T>,
+): Promise<T> {
+	return withHqPeer(hqSaves, HOST, run);
+}
 
 /** One table as the peer serves it: CommCare HQ's definition and its rows. */
 export interface ServedTable {
@@ -99,10 +118,10 @@ export async function makeManagedCopy(
 	};
 	const hqTable = hqTableOf(table);
 	const rows = hqRowsOf(table);
-	await h.withTransaction((tx) =>
+	await h.withTransaction(async (tx) =>
 		createManagedLookupTablesInTransaction(
 			tx,
-			scope,
+			await authorizeLookupWriteInTransaction(tx, scope, "edit"),
 			[
 				{
 					binding,
@@ -176,7 +195,7 @@ export function serveTableList(
 ): void {
 	intercept(
 		peer,
-		`/a/${domain}/api/lookup_table/v1/?limit=100`,
+		`/a/${domain}/api/lookup_table/v1/?limit=1000`,
 		"GET",
 		host,
 	).reply(200, {
@@ -193,19 +212,19 @@ export function serveTableList(
 	});
 }
 
-/** A table's rows, as `FixtureResource` answers a filtered read. */
+/**
+ * A table's rows, as `FixtureResource` answers a filtered read. `before` runs
+ * as CommCare HQ receives the read, for a case about what happens while Nova
+ * is reading CommCare HQ.
+ */
 export function serveRows(
 	peer: MockAgent,
 	domain: string,
 	table: ServedTable,
 	host = HOST,
+	before?: () => Promise<void>,
 ): void {
-	intercept(
-		peer,
-		`/a/${domain}/api/fixture/v1/?fixture_type_id=${table.id}`,
-		"GET",
-		host,
-	).reply(200, {
+	const body = {
 		meta: { next: null, total_count: table.rows.length },
 		objects: table.rows.map((row, index) => {
 			const many = table.manyValues;
@@ -228,6 +247,20 @@ export function serveRows(
 				fields,
 			};
 		}),
+	};
+	const interceptor = intercept(
+		peer,
+		`/a/${domain}/api/fixture/v1/?fixture_type_id=${table.id}`,
+		"GET",
+		host,
+	);
+	if (before === undefined) {
+		interceptor.reply(200, body);
+		return;
+	}
+	interceptor.reply(async () => {
+		await before();
+		return { statusCode: 200, data: JSON.stringify(body) };
 	});
 }
 
@@ -286,7 +319,7 @@ export const importPath = (domain: string) =>
 export const sourcePath = (domain: string, appId = HQ_APP) =>
 	`/a/${domain}/apps/source/${appId}/`;
 export const tablesPath = (domain: string) =>
-	`/a/${domain}/api/lookup_table/v1/?limit=100`;
+	`/a/${domain}/api/lookup_table/v1/?limit=1000`;
 export const rowsPath = (domain: string, table: ServedTable) =>
 	`/a/${domain}/api/fixture/v1/?fixture_type_id=${table.id}`;
 export const workbookPath = (domain: string) => `/a/${domain}/fixtures/fixapi/`;
@@ -307,12 +340,14 @@ export function acceptImport(
 ): void {
 	intercept(peer, importPath(domain), "POST").reply(async () => {
 		await options.before?.();
+		const appId = options.appId ?? HQ_APP;
+		if (status === 201) hqSaves.create(appId);
 		return {
 			statusCode: status,
 			data: JSON.stringify({
 				success: true,
-				app_id: options.appId ?? HQ_APP,
-				version: status === 201 ? 1 : 2,
+				app_id: appId,
+				...(status === 200 && { version: hqSaves.save(appId) }),
 			}),
 		};
 	});
@@ -342,6 +377,8 @@ export function takeWorkbook(peer: MockAgent, domain: string): void {
 /** Every request but the project-space reads each preflight makes for its flags. */
 export function publishRequests(peer: MockAgent, host = HOST): string[] {
 	return sent(peer, host).filter(
-		(line) => !line.startsWith("GET /api/user_domains/v1/"),
+		(line) =>
+			!line.startsWith("GET /api/user_domains/v1/") &&
+			!isSaveCounterPath(line.slice("GET ".length)),
 	);
 }

@@ -163,11 +163,19 @@ async function publish(
  * `afterFirst` runs once the first statement has answered and before the
  * reader sees that answer, on a handle the count does not watch.
  */
-function countStatements(afterFirst?: () => Promise<void>): {
+/** The statements every read's snapshot makes before the read's own: read-only, the app's row, the
+ *  caller's membership (`store.ts::withDeploymentReadSnapshot`). */
+const SNAPSHOT_STATEMENTS = 3;
+
+/** Counts every statement, and runs `after` once the statement numbered `after.at` answered. */
+function countStatements(after?: {
+	readonly at: number;
+	readonly run: () => Promise<void>;
+}): {
 	readonly count: () => number;
 } {
 	let statements = 0;
-	let ranAfterFirst = false;
+	let answered = 0;
 	const plugin: KyselyPlugin = {
 		transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
 			statements += 1;
@@ -176,10 +184,8 @@ function countStatements(afterFirst?: () => Promise<void>): {
 		async transformResult(
 			args: PluginTransformResultArgs,
 		): Promise<QueryResult<UnknownRow>> {
-			if (afterFirst !== undefined && !ranAfterFirst) {
-				ranAfterFirst = true;
-				await afterFirst();
-			}
+			answered += 1;
+			if (after !== undefined && answered === after.at) await after.run();
 			return args.result;
 		},
 	};
@@ -261,7 +267,7 @@ describe("readTargetFacts", () => {
 			],
 		).toBe("yes");
 		/* The row without its bytes, then the bytes. */
-		expect(first.count()).toBe(2);
+		expect(first.count()).toBe(SNAPSHOT_STATEMENTS + 2);
 
 		const second = countStatements();
 		expect(
@@ -269,7 +275,7 @@ describe("readTargetFacts", () => {
 				"cc-fuzzy-search-enabled"
 			],
 		).toBe("yes");
-		expect(second.count()).toBe(1);
+		expect(second.count()).toBe(SNAPSHOT_STATEMENTS + 1);
 
 		/* A refresh that rewrites the date over the same bytes is still a
 		 * hit, and the date is the row's. */
@@ -280,7 +286,7 @@ describe("readTargetFacts", () => {
 			observedAt: LATER,
 			profileProperties: { "cc-fuzzy-search-enabled": "yes" },
 		});
-		expect(redated.count()).toBe(1);
+		expect(redated.count()).toBe(SNAPSHOT_STATEMENTS + 1);
 
 		__setAppDbForTests(h.db());
 		await publish(scope, readBaseline("hq-app", "no", { observedAt: LATEST }));
@@ -289,7 +295,7 @@ describe("readTargetFacts", () => {
 			observedAt: LATEST,
 			profileProperties: { "cc-fuzzy-search-enabled": "no" },
 		});
-		expect(third.count()).toBe(2);
+		expect(third.count()).toBe(SNAPSHOT_STATEMENTS + 2);
 	});
 
 	it("projects the same bytes afresh when the baseline's ownership of GPS capture changes", async () => {
@@ -316,38 +322,41 @@ describe("readTargetFacts", () => {
 			observedAt: LATER,
 			autoGpsCapture: false,
 		});
-		expect(after.count()).toBe(2);
+		expect(after.count()).toBe(SNAPSHOT_STATEMENTS + 2);
 	});
 
-	it("answers a baseline rewritten between its two statements with the bytes it read and their own date", async () => {
+	it("answers a baseline rewritten between its two statements from the moment it began", async () => {
 		const scope = await seed();
 		await publish(scope, readBaseline("hq-app", "yes"));
 		const newer = readBaseline("hq-app", "no", { observedAt: LATER });
 		const unwatched = h.db();
 
-		const racing = countStatements(async () => {
-			await unwatched
-				.updateTable("app_deployment_baselines")
-				.set({
-					source_gzip: newer.sourceGzip,
-					source_bytes: newer.sourceBytes,
-					source_digest: newer.sourceDigest,
-					observed_at: LATER,
-				})
-				.execute();
+		/* The rewrite commits on another connection once the row without its bytes has answered. */
+		const racing = countStatements({
+			at: SNAPSHOT_STATEMENTS + 1,
+			run: async () => {
+				await unwatched
+					.updateTable("app_deployment_baselines")
+					.set({
+						source_gzip: newer.sourceGzip,
+						source_bytes: newer.sourceBytes,
+						source_digest: newer.sourceDigest,
+						observed_at: LATER,
+					})
+					.execute();
+			},
 		});
 		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
-			observedAt: LATER,
-			profileProperties: { "cc-fuzzy-search-enabled": "no" },
+			profileProperties: { "cc-fuzzy-search-enabled": "yes" },
 		});
-		expect(racing.count()).toBe(2);
+		expect(racing.count()).toBe(SNAPSHOT_STATEMENTS + 2);
 
-		/* The projection was kept under the bytes it read. */
+		/* The next read begins after the rewrite, and reads it. */
 		const next = countStatements();
 		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
 			observedAt: LATER,
 			profileProperties: { "cc-fuzzy-search-enabled": "no" },
 		});
-		expect(next.count()).toBe(1);
+		expect(next.count()).toBe(SNAPSHOT_STATEMENTS + 2);
 	});
 });

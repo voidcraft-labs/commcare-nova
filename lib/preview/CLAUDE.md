@@ -62,7 +62,26 @@ Preview's reading goes stale.
 
 Labels render through `lib/references/LabelContent.tsx` (a question's, a
 display label's and a section title with the platform's `labelMarkdown` rule),
-hints by `rules.hint`, validation messages as plain text. A help text holding
+hints by `rules.hint`, validation messages as plain text. In the running
+preview a label's values are substituted into its text before the whole is
+formatted (`engine/labelRefs.ts`), as Core does before Web Apps or Android
+formats it (`FormEntryCaption.getSpecialFormQuestionText` →
+`FormDef.fillTemplateString`), so formatting a case property, a lookup cell
+or an answer holds shows as it does on a device (the proof lane's
+`targeted-styled-value` holds that order on a device and in Web Apps'
+`caption_markdown`); edit mode shows the template
+with each value as its chip. Every label, hint, help text, choice and Search
+subtitle renders through `PreviewMarkdown` with a required `rendering`, under
+one policy whoever wrote the text (`lib/markdown.tsx::labelMarkdownOptions`):
+a bare address is text, as on both runtimes; a link opens only a web address
+(`lib/links/openableAddress.ts`, the link column's guard), any other scheme
+drawing its words; and a picture is drawn only where its address is inside
+the label (an image `data:` address Web Apps' renderer draws), a picture at
+any other address drawing its description, so label text never makes the
+builder's page request anything. That last is a difference from Web Apps,
+which loads the picture, and the public docs state it. Core substitutes a
+value holding `${n}` again, to a fixpoint over the form's outputs; Preview
+makes one pass and shows such a value as written. A help text holding
 `plainHelp`, or in a form holding `plainText`, follows `rules.plainHelp`.
 A Text question with a number keypad follows `rules.numberKeypad`. Its
 message answers only a typed answer the platform refused
@@ -469,8 +488,9 @@ Form/Details target, and transient search context while retaining the chosen wor
 actor authorization, and a claim stays, because it is a case row that outlives the task as HQ's does. Reopening a related-record history therefore offers its
 parent selection again, matching isolated app-test Home. Moving within a parent
 menu still retains the parent needed by its children. Home also starts a new
-task of the session, and every history entry records the selections it was
-shown with, so on Web Apps the browser's Back (or Forward) shows the popped
+task of the session, and the session keeps, for every history entry it
+showed, the selections it was shown with (`lib/routing/previewEntryRecords.ts`,
+in memory, never in the entry's state), so on Web Apps the browser's Back (or Forward) shows the popped
 entry with them wherever the session holds others, past Home (taking up the
 entry's task again) and within one task (an entry shown before a crumb let a
 case go, or before a later list chose another case), as Web Apps' address
@@ -1198,10 +1218,11 @@ device's session. Choosing a case on a list that goes on into its own form
 menu opens that menu on a history entry of its own at the list's URL, pushed
 after the list, or in place of the case's details the choice went through,
 which a device leaves behind (`CaseListScreen`'s `holdFormMenu`,
-`navigate.holdPreviewMenu`); the entry carries the held cases, and the
-Preview session that held them (the session store's `previewSessionId`), in
-its history state (`lib/routing/previewHeldMenu.ts`), the list shows its menu
-exactly on an entry that holds one in the session running now
+`navigate.holdPreviewMenu`); the Preview session that held them (the
+session store's `previewSessionId`) keeps the held cases for the entry, in
+the entry's record (`lib/routing/previewHeldMenu.ts`,
+`lib/routing/previewEntryRecords.ts`), never in its history state, the list
+shows its menu exactly on an entry that holds one in the session running now
 (`previewCaseListHeldChoices`), and a form chosen there is pushed after it.
 So Back off the form lands on the menu with the case held, Back off the menu
 (its own Back, the strip's Go back or the browser's) reaches the list with

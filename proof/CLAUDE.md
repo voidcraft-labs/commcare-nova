@@ -280,7 +280,12 @@ harness keeps, each with its reason.
 - **The capture moves with publish.** A change to what `publishAppToHq` reads
   or sends changes `proof/corpus/publish.ts` in the same pull request, the
   peer answers a read only with what the HQ side then holds to HQ's own view,
-  and retained controls replay the layout they were captured in. So does a
+  and retained controls replay the layout they were captured in. That holds
+  HQ's save counter too, which a publish binds its baseline to: the capture
+  records the peer's counter around each import and media upload, and the HQ
+  side holds HQ's own counter's move over the same write to it
+  (`proof/observe/publish.py`, `operations.hold_save_counter`), the facts the
+  model rests on held to HQ's views by `proof/hq/test_publish.py`. So does a
   change to the review or the bring-in of changes made in CommCare HQ
   (`lib/deployment/hqChanges`): the capture runs them over the peer where a
   document states `brings-in` or `records` (`bringInOverPeer`), the peer
@@ -761,6 +766,32 @@ harness keeps, each with its reason.
   by a serializer spells its apostrophes another way. A state the harness
   makes of B (aligned to A) keeps B's own bytes but for the namespace's
   name (`proof/observe/alignment.py::renamespace_xform`).
+- **What a container or another job wrote is data.** The lane's container
+  runs upstream code at its pins, and an artifact holds whatever the job that
+  uploaded it wrote, so the host follows no link in either, runs nothing from
+  either, and promotes into the repository only plain files at paths the
+  retained layout names (`proof/matrix/retained-layout.json`), within its
+  bounds. The container sees only the files git lists of the checkout
+  (`proof/run.mjs::checkoutView`: never `.git`, an `.env` or a key) with
+  `node_modules` read-only, and no credential: a shard's claim and wait
+  commands run on the host (`proof/ci/hostCommands.mjs`, through
+  `proof/lane/relay.py`). Its output is sealed before any step reads or
+  uploads it (`proof/ci/untrusted.mjs`), a surface is read without following
+  a link and as JSON, and the retained trees move only through
+  `proof/matrix/layout.py` (`adopt`, `place`, `lane_input`), which checks
+  every name before a byte is read and refuses the whole tree by name;
+  adopting merges every output of one run by file through it, and reads the
+  run's held records with `layout.read_held`, each able to name only a file
+  its directory may hold. A tool the container runs that would write into
+  the view or `node_modules` is pointed at its own temporary directory or the
+  output by its own switch (Vitest's writers:
+  `proof/corpus/emissionProcess.ts::VITEST_WRITER_OPTIONS`). Never
+  copy a run's output or an artifact with `cp`, `rglob` or a download
+  straight into the checkout, never join a path from a value a container
+  wrote, and never give the container a writable host path but its output
+  and the relay's requests directory, of which the host reads names alone.
+  No test runner discovers in a retained tree or in a run's output
+  (`vitest.config.mts`'s exclude, `proof/pytest.ini`'s `norecursedirs`).
 - **The repository is public.** Nothing here describes an HQ route usable
   without a credential or any other HQ weakness, holds client data, or
   references a scratch directory or private script.

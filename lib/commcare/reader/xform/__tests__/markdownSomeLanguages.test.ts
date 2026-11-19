@@ -186,3 +186,23 @@ describe("a markdown copy some languages lack", () => {
 		);
 	});
 });
+
+describe("a markdown copy holding an attribute Nova does not write", () => {
+	// The copy is compared with the text by its content alone, so it is held only where it is
+	// the copy Nova writes, `form` its only attribute.
+	it("is left for the close to report", async () => {
+		const marked = editFrench((text) => {
+			const copy = text.children.find(isCopy) as Element | undefined;
+			if (copy === undefined) return false;
+			copy.attribs.note = "kept";
+			return true;
+		});
+		const outcome = await reading(twoLanguageApp(), marked.xml);
+		expect(marked.edits()).toBeGreaterThan(0);
+		expect(
+			(outcome.kind === "account" ? outcome.findings : [])
+				.filter((finding) => finding.code === "unrecognized")
+				.map((finding) => finding.detail.name),
+		).toContain("xform:value@note");
+	});
+});

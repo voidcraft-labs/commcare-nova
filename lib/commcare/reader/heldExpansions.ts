@@ -21,12 +21,19 @@
  * way down, `lib/domain/settled.ts`), so what it was compared by cannot
  * change after; and the emission is frozen whole when it is held, so no
  * reader of it can change what a later reading is answered with. Held for
- * one request only, at most `HELD_EXPANSIONS` at a time, oldest first out.
+ * one request only, at most `HELD_EXPANSIONS` at a time, oldest first out. A
+ * reading answered with a held emission counts toward its own work limit what
+ * the emission charged (`WorkMeter.chargeDoneElsewhere`), so the work a
+ * reading counts, and its limit's verdict, are the same whether or not another
+ * reading of the request emitted first, while the request's meter counts only
+ * the work done.
  */
 import type { HqApplication } from "@/lib/commcare";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import { recordFromEntries } from "@/lib/domain/records";
 import { isDeeplySettled } from "@/lib/domain/settled";
+import { currentWorkMeter, WORK_KINDS, type WorkKind } from "../workMeter";
 
 /** At most this many emissions are held: two per reading. */
 const HELD_EXPANSIONS = 4;
@@ -39,6 +46,9 @@ interface Held {
 	readonly persisted: unknown;
 	readonly fieldParent: unknown;
 	readonly expansion: HqApplication;
+	/** The work meter's units the emission charged, by kind, which a reading answered with it
+	 *  charges again, so a reading's work is a function of its input alone. */
+	readonly charged: Readonly<Record<WorkKind, number>>;
 }
 
 /**
@@ -127,10 +137,24 @@ export class HeldExpansions {
 				samePlainData(one.facts, facts) &&
 				samePlainData(one.fieldParent, doc.fieldParent) &&
 				samePlainData(one.persisted, persisted)
-			)
+			) {
+				const meter = currentWorkMeter();
+				for (const kind of WORK_KINDS)
+					meter?.chargeDoneElsewhere(kind, one.charged[kind]);
 				return one.expansion;
+			}
+		const before = currentWorkMeter()?.byKind;
 		const expansion = yield* emit();
 		if (!isDeeplySettled(doc)) return expansion;
+		const after = currentWorkMeter()?.byKind;
+		const charged = recordFromEntries(
+			WORK_KINDS.map((kind) => [
+				kind,
+				before === undefined || after === undefined
+					? 0
+					: after[kind] - before[kind],
+			]),
+		) as Record<WorkKind, number>;
 		deepFreeze(expansion);
 		deepFreeze(facts);
 		this.held.push({
@@ -138,6 +162,7 @@ export class HeldExpansions {
 			persisted,
 			fieldParent: doc.fieldParent,
 			expansion,
+			charged,
 		});
 		if (this.held.length > HELD_EXPANSIONS) this.held.shift();
 		return expansion;

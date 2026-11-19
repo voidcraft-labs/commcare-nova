@@ -18,6 +18,7 @@ import {
 } from "@/lib/doc/documentDifferences";
 import type { DeclarationChoice } from "@/lib/doc/platformDeclaration";
 import type { BlueprintDoc } from "@/lib/domain";
+import { recordFromEntries } from "@/lib/domain/records";
 
 /** One differing path between the document a read back must give and the one it gave. */
 export type ReadBackDifference = DocumentDifference;
@@ -63,7 +64,7 @@ export const KEYS_WITH_NO_EXTERNAL_KEY: ReadonlySet<keyof BlueprintDoc> =
 
 /** `doc` less every key `KEYS_WITH_NO_EXTERNAL_KEY` names, and less its declaration where asked. */
 function compared(doc: BlueprintDoc, dropDeclaration: boolean): BlueprintDoc {
-	const kept = Object.fromEntries(
+	const kept = recordFromEntries(
 		Object.entries(doc).filter(
 			([key]) => !KEYS_WITH_NO_EXTERNAL_KEY.has(key as keyof BlueprintDoc),
 		),

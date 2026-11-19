@@ -19,6 +19,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	type ExpressionCarrierRef,
 	expressionSlotValues,
@@ -127,17 +128,17 @@ export function sourceMayReadPlaces(sourceText: string): boolean {
 
 // ── The plan of the copy ─────────────────────────────────────────────────
 
-/** `"12,400 places"`, or `"more than 10,000 places"` where no total was named. */
+/** `"12,400 places"`, or `"more place information than Nova reads"` where the list passed its byte bound. */
 function placesOverLimitName(totalCount: number | null): string {
 	return totalCount === null
-		? `more than ${MAX_LOCATIONS_PER_APP.toLocaleString("en-US")} places`
+		? "more place information than Nova reads"
 		: `${totalCount.toLocaleString("en-US")} places`;
 }
 
 /**
  * The circumstance of a project space with more places than an app holds,
- * named by CommCare HQ's total, or by Nova's limit where the read stopped
- * with no total.
+ * named by CommCare HQ's total, or, where the list passed
+ * `bounds.ts::HQ_LOCATION_LIST_MAX_BYTES`, by that.
  */
 export function placesOverNovaLimitFinding(totalCount: number | null): Finding {
 	return circumstanceFinding("places-over-nova-limit", ORGANIZATION, {
@@ -211,14 +212,14 @@ export function planManagedPlaces(input: {
 		return {
 			places: [],
 			digest: placesDigest([]),
-			leftOut: {},
+			leftOut: NO_ENTRIES,
 			leftOutHqLocationIds: [],
 			findings: [placesOverNovaLimitFinding(hqPlaces.length)],
 		};
 	}
 
 	const levelByCode = new Map(levels.map((level) => [level.code, level]));
-	const levelRecord: Record<string, OrganizationLevel> = Object.fromEntries(
+	const levelRecord: Record<string, OrganizationLevel> = recordFromEntries(
 		levels.map((level) => [level.uuid, level]),
 	);
 	const byId = new Map(hqPlaces.map((place) => [place.locationId, place]));
@@ -239,7 +240,7 @@ export function planManagedPlaces(input: {
 	}
 
 	const places: ManagedPlaceWrite[] = [];
-	const leftOut: Record<string, number> = {};
+	const leftOut = recordFromEntries<number>([]);
 	const leftOutHqLocationIds: string[] = [];
 	const findingNames: string[] = [];
 	const found = new Set<string>();
@@ -269,7 +270,7 @@ export function planManagedPlaces(input: {
 		if (latitude === false || longitude === false) holdable = false;
 		if (!holdable) notHoldable(place.name);
 
-		const values: Record<string, string> = {};
+		const values = recordFromEntries<string>([]);
 		for (const property of properties) {
 			if (
 				property.levelUuids !== undefined &&

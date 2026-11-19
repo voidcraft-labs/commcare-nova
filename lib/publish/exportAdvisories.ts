@@ -22,6 +22,8 @@ export const EXPORT_ADVISORY_HEADER = "X-Nova-Export-Advisories";
 export type ExportAdvisoryId =
 	| "attachment_links_without_target"
 	| "kept_ui_text_falls_back"
+	| "kept_ui_text_not_carried"
+	| "kept_profile_values_not_carried"
 	| "kept_android_logos_absent"
 	| "kept_practice_worker_absent"
 	| "kept_language_names_differ";
@@ -43,6 +45,10 @@ export type AttachmentTargetState = "known" | "none" | "ambiguous";
 /** What a `.ccz` cannot follow of what its project space holds. Plain booleans: no wire vocabulary. */
 export interface KeptAdvisoryFacts {
 	readonly uiTextFallsBack: boolean;
+	/** Wording a language of the archive stores that a file cannot carry as it is stored. */
+	readonly uiTextNotCarried: boolean;
+	/** A setting the project space holds that a file cannot carry as it is stored. */
+	readonly profileNotCarried: boolean;
 	readonly androidLogos: boolean;
 	readonly practiceWorker: boolean;
 	/** Some language name in the archive is Nova's where CommCare HQ holds none. */
@@ -66,6 +72,20 @@ const KEPT_ADVISORIES: readonly {
 		title: "Some of CommCare's own wording differs in this file",
 		message:
 			"This project space rewords some of CommCare's own screens. This CCZ carries each rewording it holds. Where a language has none, an app installed from CommCare HQ shows CommCare HQ's translation and this file shows the phone's built-in wording.",
+	},
+	{
+		id: "kept_ui_text_not_carried",
+		when: "uiTextNotCarried",
+		title: "Some wording stored in CommCare HQ isn't in this file",
+		message:
+			"This project space's app stores some wording in CommCare HQ in a form a CCZ can't carry. This file shows the app's own wording or the phone's built-in wording in those places, and an app installed from CommCare HQ may show the stored wording.",
+	},
+	{
+		id: "kept_profile_values_not_carried",
+		when: "profileNotCarried",
+		title: "Some settings aren't in this file",
+		message:
+			"This project space's app holds a setting in CommCare HQ in a form a CCZ can't carry. This file leaves that setting at the phone's own value, and an app installed from CommCare HQ uses the project space's.",
 	},
 	{
 		id: "kept_android_logos_absent",

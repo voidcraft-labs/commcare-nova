@@ -38,21 +38,11 @@ import {
 	USERCASE_MISSING_MESSAGE,
 } from "../usercaseWire";
 import { parseXml } from "../xmlParse";
+import { bilingualSurveyDoc, SMUGGLING_SOURCE } from "./localeSmugglingFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
-import { usercaseWriteFixture } from "./usercaseWriteFixture";
 
 /** A survey that writes the worker's record, in English and French. */
-function bilingualDoc(): BlueprintDoc {
-	const doc = usercaseWriteFixture("survey");
-	doc.localization = {
-		sourceLanguage: "eng",
-		defaultLanguage: "eng",
-		languageOrder: ["eng", "fra"],
-		wireCodes: { eng: "en", fra: "fra" },
-		translations: {},
-	};
-	return doc;
-}
+const bilingualDoc = bilingualSurveyDoc;
 
 function compiled(
 	doc: BlueprintDoc,
@@ -209,16 +199,22 @@ describe("a CCZ made for a project space that keeps values", () => {
 		});
 	});
 
-	it("sends forms to the secure receiver on the custom base URL's origin", () => {
+	/* The source keeps a custom base URL elsewhere; the archive's three URLs
+	 * stand on the deployment's own server whatever it keeps. */
+	it("sends forms to the secure receiver on the deployment's own server, whatever custom base URL is kept", () => {
 		expect(properties.get("PostURL")?.value).toBe(
-			"https://example.org/a/nova-test/receiver/secure/nova-test-app/",
+			"https://www.commcarehq.org/a/nova-test/receiver/secure/nova-test-app/",
 		);
 		expect(properties.get("ota-restore-url")?.value).toBe(
-			"https://example.org/a/nova-test/phone/restore/nova-test-app/",
+			"https://www.commcarehq.org/a/nova-test/phone/restore/nova-test-app/",
 		);
 		expect(properties.get("key_server")?.value).toBe(
-			"https://example.org/a/nova-test/phone/keys/",
+			"https://www.commcarehq.org/a/nova-test/phone/keys/",
 		);
+		for (const key of ["PostURL", "ota-restore-url", "key_server"])
+			expect(new URL(properties.get(key)?.value ?? "").origin, key).toBe(
+				"https://www.commcarehq.org",
+			);
 		expect(properties.get("cc_user_domain")?.value).toBe(
 			"nova-test.commcarehq.org",
 		);
@@ -367,6 +363,62 @@ const RETAINED_ARCHIVE_FILES = [
 	"en/app_strings.txt",
 	"fra/app_strings.txt",
 ] as const;
+
+describe("a CCZ made for a project space whose stored text would set another string", () => {
+	const doc = bilingualDoc();
+	const facts = targetFactsFromSource(SMUGGLING_SOURCE, {
+		...READ,
+		adopted: true,
+	});
+	if (facts === null) throw new Error("The source is an object.");
+	const files = compiled(doc, facts, true);
+	const own = compiled(doc, null, true);
+
+	it("holds the document's own text under every key Nova writes, in every language's file", () => {
+		for (const dir of ["default", "en", "fra"]) {
+			const read = readLocaleFile(text(files, `${dir}/app_strings.txt`));
+			const nova = readLocaleFile(text(own, `${dir}/app_strings.txt`));
+			for (const [key, value] of nova)
+				if (key !== "home.sync")
+					expect(read.get(key), `${dir} ${key}`).toBe(value);
+			expect(read.has("x")).toBe(false);
+			expect(read.has("a")).toBe(false);
+			expect(read.has(" modules.m0")).toBe(false);
+		}
+		/* A text with no carriage return, under its own key, is carried. */
+		expect(
+			readLocaleFile(text(files, "en/app_strings.txt")).get("home.sync"),
+		).toBe("Sync now");
+	});
+
+	it("writes every line as one record of its table, read as Core reads a locale file", () => {
+		for (const dir of ["default", "en", "fra"]) {
+			const source = text(files, `${dir}/app_strings.txt`);
+			const lines = source.split("\n");
+			expect(
+				lines.every((line) => !line.includes("\r")),
+				dir,
+			).toBe(true);
+			expect(readLocaleFile(source).size, dir).toBe(lines.length);
+		}
+	});
+
+	it("writes no setting and no credential level XML cannot carry, so the profile is still written", () => {
+		const profile = only(
+			elements(parseXml(text(files, "profile.ccpr"))),
+			"profile",
+		);
+		const keys = elements(profile)
+			.filter((element) => element.name === "property")
+			.map((element) => element.attribs.key);
+		expect(keys).not.toContain("cc-autosync-freq");
+		expect(
+			elements(only(elements(profile), "features")).map(
+				(element) => element.name,
+			),
+		).toEqual(["checkoff", "users"]);
+	});
+});
 
 describe("a CCZ with no project space read", () => {
 	it("is byte for byte the archive Nova wrote before it read a project space", () => {

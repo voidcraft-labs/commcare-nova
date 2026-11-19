@@ -14,6 +14,7 @@ import { buildLookupFixtures } from "./lookup/fixtures";
 import { type LookupNamingDefinition, lookupWireNaming } from "./lookup/naming";
 import type { AppStringTable } from "./reader/types";
 import type { RuntimeTarget } from "./runtimeTarget";
+import type { WireIdentity } from "./wireIdentity";
 
 /** The project space a document's app strings are read for. With the
  *  server and the app's own id it names the profile's and the suite's
@@ -36,6 +37,11 @@ const APP_STRINGS_DOMAIN = "nova-app-strings";
  * manifest writes: a menu's media paths and an image map's alt texts, keyed
  * by a file's path.
  *
+ * `identity` gives the word each case list column's property is kept under
+ * (`WireIdentity.columnFieldWord`), which names the column's strings; a
+ * reading passes the words its source keeps, so its overrides are judged
+ * under the ids HQ's build of it writes. Absent reads the derivation.
+ *
  * Total over a document Nova's gate admits under a lookup context holding
  * `lookupDefinitions`. The compiler's form, suite and media-suite oracles
  * throw for a document the gate refuses, so a caller holding such a
@@ -45,6 +51,7 @@ const APP_STRINGS_DOMAIN = "nova-app-strings";
 export function localAppStringTable(
 	doc: BlueprintDoc,
 	lookupDefinitions: readonly LookupNamingDefinition[],
+	identity?: WireIdentity,
 ): AppStringTable {
 	const runtimeTarget: RuntimeTarget = {
 		server: "production",
@@ -59,11 +66,16 @@ export function localAppStringTable(
 		naming,
 		new Map(naming.tables.map((table) => [table.tableId, []])),
 	);
-	const hqJson = expandDoc(doc, { runtimeTarget, lookupNaming: naming });
+	const hqJson = expandDoc(doc, {
+		runtimeTarget,
+		lookupNaming: naming,
+		...(identity !== undefined && { identity }),
+	});
 	const parts = compileCczParts(hqJson, doc.appName, doc, {
 		runtimeTarget,
 		lookupNaming: naming,
 		lookupFixtures,
+		...(identity !== undefined && { identity }),
 	});
 	return {
 		languages: Object.fromEntries(

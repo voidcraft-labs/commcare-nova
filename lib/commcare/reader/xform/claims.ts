@@ -6,6 +6,7 @@
  * to the manifest.
  */
 
+import { recordFromEntries } from "@/lib/domain/records";
 import {
 	account,
 	type Claim,
@@ -38,8 +39,8 @@ function under<U extends ClaimUse, const S extends string>(
 	keys: Readonly<Record<S, string | null>>,
 ): Readonly<Record<S, Claim<U>>> {
 	const short = entry.slice(entry.indexOf("/") + 1);
-	const sites = {} as Record<S, Claim<U>>;
-	const named: Record<string, Claim> = {};
+	const sites = recordFromEntries<Claim<U>>([]) as Record<S, Claim<U>>;
+	const named = recordFromEntries<Claim>([]);
 	for (const site of Object.keys(keys) as S[]) {
 		const key = keys[site];
 		const one = MAKERS[use](entry, key);
@@ -58,7 +59,10 @@ function one<U extends ClaimUse>(
 	key: string | null,
 ): Claim<U> {
 	const claim = MAKERS[use](entry, key);
-	defineClaims("xform", { [entry.slice(entry.indexOf("/") + 1)]: claim });
+	defineClaims(
+		"xform",
+		recordFromEntries([[entry.slice(entry.indexOf("/") + 1), claim]]),
+	);
 	return claim;
 }
 
@@ -93,7 +97,7 @@ function kind(
 	},
 	nodeAs: readonly string[] = [],
 ): KindSites {
-	const present = Object.fromEntries(
+	const present = recordFromEntries(
 		Object.entries(keys).filter(([, key]) => key !== undefined),
 	) as Record<string, string>;
 	const sites = under("take", Q(id), present) as unknown as KindSites;
@@ -112,7 +116,7 @@ function nodeTypes<U extends ClaimUse>(
 	return under(
 		use,
 		entry,
-		Object.fromEntries(types.map((type) => [type, `mug:${type}`])),
+		recordFromEntries(types.map((type) => [type, `mug:${type}`])),
 	);
 }
 
@@ -134,7 +138,7 @@ type TextChild = "label" | "hint" | "help" | "alert";
 
 /** A text child's element on each control, by the control's tag. */
 function elementKeys(child: TextChild): Record<TextControl, string> {
-	return Object.fromEntries(
+	return recordFromEntries(
 		TEXT_CONTROLS.map((tag) => [tag, `xform:${tag}/${child}`]),
 	) as Record<TextControl, string>;
 }
@@ -143,7 +147,7 @@ function elementKeys(child: TextChild): Record<TextControl, string> {
 function slotKeys(
 	child: TextChild,
 ): Record<TextControl | `${TextControl}Ref`, string> {
-	return Object.fromEntries(
+	return recordFromEntries(
 		TEXT_CONTROLS.flatMap((tag) => [
 			[tag, `xform:${tag}/${child}`],
 			[`${tag}Ref`, `xform:${tag}/${child}@ref`],

@@ -30,30 +30,36 @@ import {
 	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { getSession } from "@/lib/auth-utils";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { log } from "@/lib/logger";
 import { refreshKeptValuesAction } from "../actions";
+import {
+	downloadKeptAdvisoryFacts,
+	resolveDownloadTarget,
+} from "../downloadTarget";
 import { DeploymentError } from "../errors";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { deploymentKept, refreshKeptValues } from "../service";
 import {
 	type DeploymentScope,
-	endDeployment,
 	foldDeploymentAttempt,
+	holdTargetFacts,
 	readDeployment,
 	readTargetFacts,
 	recordCreatedRemoteApp,
 	recordRemoteResource,
 } from "../store";
 import type { AppBaselineWrite, AppOwnership } from "../types";
+import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
 vi.mock("../store", async (original) => {
 	const store = await original<typeof import("../store")>();
-	return { ...store, readTargetFacts: vi.fn(store.readTargetFacts) };
+	return { ...store, holdTargetFacts: vi.fn(store.holdTargetFacts) };
 });
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
@@ -143,6 +149,25 @@ function formEditedSource(): Record<string, unknown> {
 		"<h:title>Visit</h:title>",
 		"<h:title>Visit, edited</h:title>",
 	);
+	return source;
+}
+
+/** `source` with one key of its first language's `translations` set to `value`. */
+function withTranslation(
+	source: Record<string, unknown>,
+	key: string,
+	value: string,
+): Record<string, unknown> {
+	const [lang] = source.langs as string[];
+	if (lang === undefined) throw new Error("The retained read holds a language");
+	const translations = (source.translations ?? {}) as Record<
+		string,
+		Record<string, string>
+	>;
+	source.translations = {
+		...translations,
+		[lang]: { ...translations[lang], [key]: value },
+	};
 	return source;
 }
 
@@ -310,6 +335,21 @@ describe("refreshKeptValues", () => {
 		expect(await baselineRow()).toEqual(before);
 	});
 
+	/* A key HQ's build writes as another string than its own name is no
+	 * publish's to carry, so one stored in CommCare HQ is a change. */
+	it("answers changed-in-hq for a stored key that sets another string than its own name, and writes nothing", async () => {
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		const before = await baselineRow();
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, withTranslation(liveSource(), " modules.m0", "Other"));
+			expect(await refreshKeptValues(SCOPE, TARGET)).toEqual({
+				kind: "changed-in-hq",
+			});
+		});
+		expect(await baselineRow()).toEqual(before);
+	});
+
 	it("answers changed-in-hq for a file replaced at a path the record holds, and nothing for a path it holds no record of", async () => {
 		const path = "commcare/image/visit.png";
 		const withFile = (id: string) => {
@@ -449,7 +489,7 @@ describe("refreshKeptValues", () => {
 			await seedApp();
 			await published(baselineOf(liveSource()));
 			await h.seedProjectMember("an-admin", PROJECT, "admin");
-			await endDeployment(
+			await stopHere(
 				{ ...SCOPE, role: "admin", actorUserId: "an-admin" },
 				TARGET,
 			);
@@ -472,7 +512,7 @@ describe("refreshKeptValues", () => {
 			await withHttpPeer(async (peer) => {
 				/* The read compares equal, so only the ending stops the write. */
 				request(peer).reply(async () => {
-					await endDeployment(
+					await stopHere(
 						{ ...SCOPE, role: "admin", actorUserId: "an-admin" },
 						TARGET,
 					);
@@ -809,6 +849,67 @@ describe("refreshKeptValues", () => {
 	});
 });
 
+/* Every route into a baseline reaches a `.ccz` only through the facts'
+ * projection: a Refresh's read and a publish's read-back (the writer
+ * `recordRemoteResource` takes with a baseline) alike. */
+describe("what a CCZ made after a read follows", () => {
+	const doc = buildDoc({ appName: "Patients and visits" });
+
+	it("makes the CCZ before a Refresh reads a custom base URL elsewhere, and refuses it after, naming the host alone", async () => {
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		const before = await resolveDownloadTarget(SCOPE, {
+			format: "ccz",
+			...TARGET,
+			doc,
+		});
+		expect(before).toMatchObject({ format: "ccz" });
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, {
+				...liveSource(),
+				custom_base_url: "https://relay:s3cret@elsewhere.example.org/hq/",
+			});
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+		});
+		const after = await resolveDownloadTarget(SCOPE, {
+			format: "ccz",
+			...TARGET,
+			doc,
+		});
+		expect(after).toMatchObject({
+			kind: "refused",
+			reason: "workers-sent-elsewhere",
+		});
+		if (!("kind" in after)) throw new Error("Expected the refusal");
+		expect(after.message).toContain("elsewhere.example.org");
+		expect(after.message).not.toContain("s3cret");
+	});
+
+	it("leaves out the text a publish's read-back holds under a key that sets another string, and the download says so", async () => {
+		await seedApp();
+		const source = withTranslation(
+			withTranslation(liveSource(), " modules.m0", "Smuggled"),
+			"home.start",
+			"Begin",
+		);
+		await published(baselineOf(source));
+		const [lang] = source.langs as string[];
+		const facts = await readTargetFacts(SCOPE, TARGET);
+		expect(facts?.uiText[lang ?? ""]).toEqual({ "home.start": "Begin" });
+		expect(facts?.uiTextNotCarried).toEqual([lang]);
+		const download = await resolveDownloadTarget(SCOPE, {
+			format: "ccz",
+			...TARGET,
+			doc,
+		});
+		if ("kind" in download) throw new Error(download.message);
+		expect(downloadKeptAdvisoryFacts(download, doc)).toMatchObject({
+			uiTextNotCarried: true,
+			profileNotCarried: false,
+		});
+	});
+});
+
 describe("refreshKeptValuesAction", () => {
 	it("answers a refresh whose write landed as landed when its kept list cannot be read after it, and logs the fault by its class and code alone", async () => {
 		await seedApp();
@@ -817,7 +918,7 @@ describe("refreshKeptValuesAction", () => {
 		/* A fault whose message quotes what it was reading: no log line may
 		 * carry it. */
 		const words = "Mother's Visit Checklist";
-		vi.mocked(readTargetFacts).mockRejectedValueOnce(
+		vi.mocked(holdTargetFacts).mockRejectedValueOnce(
 			Object.assign(new Error(`could not read “${words}”`), {
 				code: "57P01",
 			}),

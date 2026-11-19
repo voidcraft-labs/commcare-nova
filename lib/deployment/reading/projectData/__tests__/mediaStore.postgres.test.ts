@@ -74,7 +74,7 @@ beforeEach(() => {
 		});
 });
 
-/** A create's plan after judging: each file held with its bytes kept, or given the verdict named. */
+/** A create's plan after judging: each file held with its bytes kept by their content, or given the verdict named. */
 async function judgedPlan(
 	files: readonly (readonly [string, MediaKind, Buffer | HqMediaVerdict])[],
 ): Promise<ReadingMediaPlan> {
@@ -105,11 +105,9 @@ async function judgedPlan(
 		const judged = await validateSniffedMediaBytes(held);
 		if (!judged.ok)
 			throw new Error(`The fixture for ${id} is not a file the gate takes.`);
-		verdicts[key] = {
-			kind: "held",
-			file: judgedMediaFile(paths, kind, judged.validated),
-		};
-		kept.set(key, held);
+		const file = judgedMediaFile(paths, kind, judged.validated);
+		verdicts[key] = { kind: "held", file };
+		kept.set(file.contentHash, held);
 	}
 	return { files: planned, verdicts, kept, published: {} };
 }
@@ -186,17 +184,21 @@ it("publishes each held file once, as a ready row with the judged facts and its 
 	]);
 });
 
-it("makes one asset of two files with the same bytes, under both keys", async () => {
+it("publishes two files with the same bytes once, and records the one asset under both keys", async () => {
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
-	const done = await publish(
-		await judgedPlan([
-			["one", "image", PNG],
-			["two", "image", PNG],
-		]),
-	).answer;
+	const plan = await judgedPlan([
+		["one", "image", PNG],
+		["two", "image", PNG],
+	]);
+	expect(plan.kept.size).toBe(1);
+	const { answer, progress } = publish(plan);
+	const done = await answer;
 	expect(done.published["CommCareImage/one"]).toBe(
 		done.published["CommCareImage/two"],
 	);
+	/* One publication, which recorded both keys at once. */
+	expect(progress).toEqual([[2, 2]]);
+	expect(done.kept.size).toBe(0);
 	expect(await rows()).toHaveLength(1);
 	expect(uploadAssetBytes).toHaveBeenCalledTimes(1);
 });

@@ -154,6 +154,8 @@ describe("exportAdvisories", () => {
 
 const NOTHING_KEPT: KeptAdvisoryFacts = {
 	uiTextFallsBack: false,
+	uiTextNotCarried: false,
+	profileNotCarried: false,
 	androidLogos: false,
 	practiceWorker: false,
 	languageNames: false,
@@ -162,6 +164,8 @@ const NOTHING_KEPT: KeptAdvisoryFacts = {
 /** Each kept advisory and the fact it is said under. */
 const KEPT: readonly [keyof KeptAdvisoryFacts, KeptExportAdvisoryId][] = [
 	["uiTextFallsBack", "kept_ui_text_falls_back"],
+	["uiTextNotCarried", "kept_ui_text_not_carried"],
+	["profileNotCarried", "kept_profile_values_not_carried"],
 	["androidLogos", "kept_android_logos_absent"],
 	["practiceWorker", "kept_practice_worker_absent"],
 	["languageNames", "kept_language_names_differ"],

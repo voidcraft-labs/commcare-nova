@@ -19,8 +19,8 @@ import type { PreviewSearchState } from "@/lib/session/types";
 import { previewStandingSearch } from "../searchStanding";
 
 /** A module's search as the screen on show holds it: the session's context
- *  for the module, or the one the current history entry recorded where the
- *  session has since replaced it (`previewSearchHistory.ts::previewSearchesOnEntry`),
+ *  for the module, or the one the current history entry's record holds where
+ *  the session has since replaced it (`previewSearchHistory.ts::previewSearchesOnEntry`),
  *  where that search stands on the entry (`searchStanding.ts`), and none
  *  where the worker has left it behind. */
 export function usePreviewStandingSearchState(
@@ -28,23 +28,22 @@ export function usePreviewStandingSearchState(
 ): PreviewSearchState | undefined {
 	const state = usePreviewSearchState(moduleUuid);
 	const standing = usePreviewStandingSearches();
-	const contexts = usePreviewSearchContexts();
 	const session = usePreviewSessionId();
+	const contexts = usePreviewSearchContexts(session);
 	return useMemo(() => {
 		if (moduleUuid === undefined) return undefined;
 		const held = previewSearchesOnEntry(
 			state === undefined ? {} : { [moduleUuid]: state },
 			standing,
 			contexts,
-			session,
 		);
 		return previewStandingSearch(held[moduleUuid], standing);
-	}, [contexts, moduleUuid, session, standing, state]);
+	}, [contexts, moduleUuid, standing, state]);
 }
 
 /** Set or clear a module's search. A search begun here stands on the
- *  current history entry, recorded there with its context before the
- *  session holds it, so no render sees the search without its standing, and
+ *  current history entry, named there with its context in the entry's
+ *  record before the session holds it, so no render sees the search without its standing, and
  *  a change of its context is recorded there too. */
 export function useSetPreviewStandingSearchState(): (
 	moduleUuid: string,
@@ -60,8 +59,7 @@ export function useSetPreviewStandingSearchState(): (
 				const held = previewSearchesOnEntry(
 					previewSearchStates,
 					new Set(recorded),
-					readCurrentPreviewSearchContexts(),
-					previewSessionId,
+					readCurrentPreviewSearchContexts(previewSessionId),
 				);
 				const live = new Set(
 					Object.entries(held)
@@ -75,7 +73,8 @@ export function useSetPreviewStandingSearchState(): (
 				 * the same search or a new one) is the landing's to carry on. */
 				beginPreviewStandingSearch(
 					recorded.filter((submission) => live.has(submission)),
-					{ moduleUuid, session: previewSessionId, state },
+					{ moduleUuid, state },
+					previewSessionId,
 				);
 			}
 			set(moduleUuid, state);

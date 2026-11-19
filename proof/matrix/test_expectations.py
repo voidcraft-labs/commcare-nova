@@ -87,8 +87,9 @@ SEARCH_QUERY = "_xpath_query"
 # The last step of a trace path that names how many cases HQ's search view answered one of a search's requests with
 # (``.../requests/*/answered``, ``ProofSessionUtils.java``'s count of HQ's answer).
 SEARCH_ANSWER = ("requests", "*", "answered")
-# The last step of a trace path that names a form's title as Core read it from the form (``FormDef.getTitle``).
-FORM_TITLE = "title"
+# The last steps of a trace path that names a form step's title as Core read it from the form
+# (``FormDef.getTitle``): the comparison keys a step's title by its screen, and a form's is ``title/form``.
+FORM_TITLE = ("title", "form")
 # A trace step's own key that names a screen no expectation opens on A: a menu's entries (``choices``,
 # ``SessionOp.java``'s menu step), which Core's evaluate never shows, and a case list's headers (``headers``,
 # ``SessionOp.java::describeList``), which it shows only where an expectation opens a case list, on the local
@@ -113,7 +114,7 @@ def _shows_a_value(row):
     return (
         row.get("check") == "proof3"
         and steps[-1] not in MEDIA_REFERENCES
-        and steps[-1] != FORM_TITLE
+        and tuple(steps[-len(FORM_TITLE) :]) != FORM_TITLE
         and SEARCH_QUERY not in steps[-2:]
         and tuple(steps[-len(SEARCH_ANSWER) :]) != SEARCH_ANSWER
         and not (steps[1:5] == ["runs", "*", "trace", "*"] and len(steps) > 5 and steps[5] in SCREEN_ONLY)
@@ -453,7 +454,7 @@ def test_a_change_shown_only_by_what_a_trace_read_or_a_search_sent_needs_no_valu
     assert _shows_a_value(row("/runs/*/trace/*/answered"))
     assert not _shows_a_value(row("/runs/*/trace/*/events/*/image"))
     # A form's title, which Core's evaluate never reads (``form-titles-written``).
-    assert not _shows_a_value(row("/runs/*/trace/*/title"))
+    assert not _shows_a_value(row("/runs/*/trace/*/title/form"))
     assert _shows_a_value(row("/runs/*/trace/*/rows/*"))
     assert _shows_a_value(row("/runs/*/trace/*/params/case_type/*"))
     assert _shows_a_value(row("/runs/*/trace/*/submission/data/*[*]/text()"))

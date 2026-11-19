@@ -10,6 +10,7 @@ import path from "node:path";
 import type { MockAgent } from "undici";
 import { describe, expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
 import { type HqLocation, listHqLocations } from "@/lib/commcare/hq/locations";
 import {
 	type HqFixtureRow,
@@ -17,6 +18,7 @@ import {
 	listHqLookupTables,
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
+import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import {
 	ABSENT_RESOURCE_DIGEST,
 	canonicalLookupTable,
@@ -57,7 +59,11 @@ function serve(peer: MockAgent, requestPath: string, answer: RetainedAnswer) {
 
 async function tablesFrom(relative: string): Promise<readonly HqLookupTable[]> {
 	return withHttpPeer(async (peer) => {
-		serve(peer, "/a/clinic/api/lookup_table/v1/?limit=100", retained(relative));
+		serve(
+			peer,
+			"/a/clinic/api/lookup_table/v1/?limit=1000",
+			retained(relative),
+		);
 		const tables = await listHqLookupTables(CREDS, DOMAIN);
 		if ("success" in tables) throw new Error(`${relative} did not parse`);
 		return tables;
@@ -70,34 +76,36 @@ function tagged(tables: readonly HqLookupTable[], tag: string): HqLookupTable {
 	return table;
 }
 
-/** One table's rows, following HQ's cursor over the retained pages. */
+/** One table's rows over the retained pages, each asked by its own offset, twice where there are several. */
 async function rowsFrom(
-	tableId: string,
+	table: HqLookupTable,
 	pages: readonly string[],
 ): Promise<{ totalCount: number; rows: readonly HqFixtureRow[] }> {
 	return withHttpPeer(async (peer) => {
-		let next = `/a/clinic/api/fixture/v1/?fixture_type_id=${tableId}`;
+		const first = `/a/clinic/api/fixture/v1/?fixture_type_id=${table.id}`;
 		for (const page of pages) {
 			const answer = retained(page);
-			serve(peer, next, answer);
-			if ("exception" in answer) break;
-			const cursor = (
-				JSON.parse(answer.body) as { meta: { next: string | null } }
-			).meta.next;
-			if (cursor === null) break;
-			const url = new URL(cursor, `${HOST}${next}`);
-			next = `${url.pathname}${url.search}`;
+			const offset =
+				"exception" in answer
+					? 0
+					: (JSON.parse(answer.body) as { meta: { offset: number } }).meta
+							.offset;
+			for (let pass = 0; pass < (pages.length > 1 ? 2 : 1); pass++)
+				serve(peer, offset === 0 ? first : `${first}&offset=${offset}`, answer);
 		}
-		const rows = await readHqLookupTableRows(CREDS, DOMAIN, tableId);
-		if ("success" in rows)
-			throw new Error(`the rows of ${tableId} did not read`);
+		const rows = await readHqLookupTableRows(CREDS, DOMAIN, table, {
+			maxRows: LOOKUP_MAX_ROWS,
+			maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+		});
+		if ("success" in rows || "kind" in rows)
+			throw new Error(`the rows of ${table.id} did not read`);
 		return rows;
 	});
 }
 
 async function placesFrom(relative: string): Promise<readonly HqLocation[]> {
 	return withHttpPeer(async (peer) => {
-		serve(peer, "/a/clinic/api/location/v2/?limit=1000", retained(relative));
+		serve(peer, "/a/clinic/api/location/v2/?limit=5000", retained(relative));
 		const places = await listHqLocations(CREDS, DOMAIN);
 		if ("success" in places) throw new Error(`${relative} did not parse`);
 		return places;
@@ -108,7 +116,7 @@ describe("a lookup table", () => {
 	it("compares in order: where the table is, then its definition, then its rows", async () => {
 		const tables = await tablesFrom("lookups/lookup-tables.json");
 		const plain = tagged(tables, "plain");
-		const rows = await rowsFrom(plain.id, ["lookups/fixture-rows-plain.json"]);
+		const rows = await rowsFrom(plain, ["lookups/fixture-rows-plain.json"]);
 		const baseline = canonicalLookupTable(plain, rows.rows);
 
 		expect(
@@ -149,7 +157,7 @@ describe("a lookup table", () => {
 	it("digests both row shapes, leaves row ids out, and reads the count before the digest", async () => {
 		const tables = await tablesFrom("lookups/lookup-tables.json");
 		const rich = tagged(tables, "rich");
-		const rows = await rowsFrom(rich.id, ["lookups/fixture-rows-rich.json"]);
+		const rows = await rowsFrom(rich, ["lookups/fixture-rows-rich.json"]);
 		const baseline = canonicalLookupTable(rich, rows.rows);
 
 		const renumbered = rows.rows.map((row, index) => ({
@@ -213,7 +221,7 @@ describe("a lookup table", () => {
 
 	it("digests the two pages of a 1,005-row table as one list", async () => {
 		const long = tagged(await tablesFrom("lookups/lookup-tables.json"), "long");
-		const rows = await rowsFrom(long.id, [
+		const rows = await rowsFrom(long, [
 			"lookups/fixture-rows-long-1.json",
 			"lookups/fixture-rows-long-2.json",
 		]);

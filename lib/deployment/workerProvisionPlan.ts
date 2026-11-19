@@ -232,18 +232,16 @@ export interface PlannedWorker {
 	/** The bare name; CommCare HQ appends the project space's own suffix. */
 	readonly username: string;
 	/**
-	 * Every user property the app declares, keyed by its current slug, with
-	 * an empty value for one this persona has nothing to say about.
-	 *
-	 * Complete rather than only what is set, for the same reason a place
-	 * sends its whole property bag: `users/user_data.py::UserData.update`
-	 * touches exactly the keys it is handed, so a value cleared in Nova
-	 * would sit on the account forever if the key were simply left out.
+	 * What the persona states, keyed by each property's current slug: every
+	 * user property the persona or its role holds a value for, a blank value
+	 * it holds included (a blank override says "nothing", which is a value).
 	 */
 	readonly userData: Readonly<Record<string, string>>;
+	/** The current slug of every user property the app declares. */
+	readonly declaredUserProperties: readonly string[];
 	/**
 	 * The persona's places as Nova knows them, primary first. Empty when
-	 * the persona stands nowhere, which is a real state rather than a gap.
+	 * the persona stands nowhere.
 	 */
 	readonly locationUuids: readonly string[];
 }
@@ -307,7 +305,47 @@ export type WorkerProvisionProblem =
 			readonly personaUuid: string;
 			readonly personaName: string;
 			readonly locationUuid: string;
+	  }
+	| {
+			/**
+			 * The persona stands in a place CommCare HQ manages for the app in
+			 * this project space, at a level no person has said takes workers
+			 * there. HQ's level API does not return the setting
+			 * (`locations/resources/v0_5.py::LocationTypeResource`), its worker
+			 * API does not check it (`api/user_updates.py::_verify_location_ids`),
+			 * and its own pages refuse such an assignment
+			 * (`users/validation.py::validate_assigned_locations_allow_users`),
+			 * so Nova stands nobody there until a person confirms the level.
+			 */
+			readonly kind: "level-unconfirmed";
+			readonly personaUuid: string;
+			readonly personaName: string;
+			readonly locationUuid: string;
+			readonly level: WorkerLevel;
 	  };
+
+/** A level of the app's organization, as a confirmation names it. */
+export interface WorkerLevel {
+	readonly code: string;
+	readonly name: string;
+}
+
+/**
+ * A level a person is asked to confirm takes workers in a project space whose
+ * places CommCare HQ manages, with the personas a provisioning call would
+ * stand there.
+ */
+export interface WorkerLevelToConfirm extends WorkerLevel {
+	readonly personaNames: readonly string[];
+}
+
+/** One place CommCare HQ manages for the app in a project space, as provisioning reads it. */
+export interface ManagedPlaceForWorkers {
+	/** CommCare HQ's id for the place. */
+	readonly hqLocationId: string;
+	/** The level the place stands at in Nova's copy. */
+	readonly level: WorkerLevel;
+}
 
 /** A username already in use by an account Nova cannot account for. */
 export interface WorkerConflict {
@@ -335,9 +373,17 @@ export interface PlannedWorkerPush {
 	 */
 	readonly remoteId: string | null;
 	readonly ownership: DeploymentResourceOwnership;
+	/** The user data the write sends (`workerWriteOf`). */
 	readonly userData: Readonly<Record<string, string>>;
-	/** CommCare HQ location ids, primary first. Empty means stands nowhere. */
-	readonly locationIds: readonly string[];
+	/**
+	 * The places the write sends: CommCare HQ location ids, primary first;
+	 * `null` to clear every assignment; absent to leave the account's
+	 * assignments as they are (`workerWriteOf`).
+	 */
+	readonly locations?: {
+		readonly primaryLocationId: string;
+		readonly locationIds: readonly string[];
+	} | null;
 }
 
 export type WorkerProvisionPlan =
@@ -360,11 +406,22 @@ export interface PlanWorkerProvisioningInput {
 	readonly mappings: readonly DeploymentResource[];
 	/**
 	 * Each place CommCare HQ manages for the app in this project space, by
-	 * Nova's place id, to CommCare HQ's id for it. Such places were never
-	 * pushed, so no `location` mapping names them; empty for every other
-	 * project space.
+	 * Nova's place id, with CommCare HQ's id for it and its level. Such places
+	 * were never pushed, so no `location` mapping names them; empty for every
+	 * other project space.
 	 */
-	readonly managedPlaceIds: ReadonlyMap<string, string>;
+	readonly managedPlaces: ReadonlyMap<string, ManagedPlaceForWorkers>;
+	/**
+	 * The codes of the levels a person confirmed take workers in this project
+	 * space: the deployment's `worker-level` confirmations and the ones this
+	 * call brings.
+	 */
+	readonly confirmedWorkerLevels: ReadonlySet<string>;
+	/**
+	 * Whether the app has an organization, so has something to say about
+	 * where a worker Nova made stands.
+	 */
+	readonly appHasOrganization: boolean;
 	/**
 	 * The places CommCare HQ manages for the app in this project space that
 	 * it no longer has, by Nova's place id; empty for every other project
@@ -405,7 +462,8 @@ export function workerProvisionProblems(
 		PlanWorkerProvisioningInput,
 		| "workers"
 		| "mappings"
-		| "managedPlaceIds"
+		| "managedPlaces"
+		| "confirmedWorkerLevels"
 		| "goneManagedPlaceIds"
 		| "workerDataGaps"
 		| "domain"
@@ -415,6 +473,7 @@ export function workerProvisionProblems(
 	const claimed = new Map<string, string>();
 	const named = new Set<string>();
 	const remoteIdByLocationUuid = remoteLocationIds(input);
+	const pushed = pushedPlaceIds(input.mappings);
 
 	for (const worker of input.workers) {
 		if (named.has(worker.personaUuid)) {
@@ -467,6 +526,21 @@ export function workerProvisionProblems(
 				});
 				continue;
 			}
+			const managed = input.managedPlaces.get(locationUuid);
+			if (
+				managed !== undefined &&
+				!pushed.has(locationUuid) &&
+				!input.confirmedWorkerLevels.has(managed.level.code)
+			) {
+				problems.push({
+					kind: "level-unconfirmed",
+					personaUuid: worker.personaUuid,
+					personaName: worker.personaName,
+					locationUuid,
+					level: managed.level,
+				});
+				continue;
+			}
 			if (remoteIdByLocationUuid.has(locationUuid)) continue;
 			problems.push({
 				kind: "place-not-pushed",
@@ -485,14 +559,97 @@ export function workerProvisionProblems(
  * CommCare HQ manages there, through the id the copy holds.
  */
 function remoteLocationIds(
-	input: Pick<PlanWorkerProvisioningInput, "mappings" | "managedPlaceIds">,
+	input: Pick<PlanWorkerProvisioningInput, "mappings" | "managedPlaces">,
 ): ReadonlyMap<string, string> {
-	const ids = new Map(input.managedPlaceIds);
+	const ids = new Map<string, string>();
+	for (const [placeId, place] of input.managedPlaces)
+		ids.set(placeId, place.hqLocationId);
 	for (const resource of input.mappings) {
 		if (resource.kind === "location")
 			ids.set(resource.novaResourceId, resource.remoteId);
 	}
 	return ids;
+}
+
+/** The places a publish pushed to this project space, by Nova's place id. */
+function pushedPlaceIds(
+	mappings: readonly DeploymentResource[],
+): ReadonlySet<string> {
+	return new Set(
+		mappings
+			.filter((resource) => resource.kind === "location")
+			.map((resource) => resource.novaResourceId),
+	);
+}
+
+/**
+ * The levels a person is asked to confirm, from a call's problems: each level
+ * once, in the order the problems name them, with the personas that would
+ * stand there.
+ */
+export function workerLevelsToConfirm(
+	problems: readonly WorkerProvisionProblem[],
+): readonly WorkerLevelToConfirm[] {
+	const byCode = new Map<
+		string,
+		{ readonly level: WorkerLevel; readonly names: string[] }
+	>();
+	for (const problem of problems) {
+		if (problem.kind !== "level-unconfirmed") continue;
+		const entry = byCode.get(problem.level.code) ?? {
+			level: problem.level,
+			names: [],
+		};
+		if (!entry.names.includes(problem.personaName))
+			entry.names.push(problem.personaName);
+		byCode.set(problem.level.code, entry);
+	}
+	return [...byCode.values()].map(({ level, names }) => ({
+		code: level.code,
+		name: level.name,
+		personaNames: names,
+	}));
+}
+
+/**
+ * What a write to one account says, by who owns it.
+ *
+ * An account Nova made is Nova's statement whole: every declared property,
+ * empty where the persona holds no value, because
+ * `users/user_data.py::UserData.update` touches only the keys it is handed
+ * and a value cleared in Nova would otherwise stay on the account; and its
+ * places, cleared where the persona stands nowhere in an app that has an
+ * organization (`api/user_updates.py::_update_location` reads an empty list
+ * as "remove all").
+ *
+ * An account Nova took over is a person's, made and assigned by hand in
+ * CommCare HQ, so a write sends only what the persona states: the properties
+ * it or its role holds a value for, and its places only where it stands
+ * somewhere. What the persona says nothing about stays as CommCare HQ holds
+ * it.
+ */
+function workerWriteOf(
+	worker: PlannedWorker,
+	ownership: DeploymentResourceOwnership,
+	locationIds: readonly string[],
+	appHasOrganization: boolean,
+): Pick<PlannedWorkerPush, "userData" | "locations"> {
+	const ownsWhole = ownership === "nova-created";
+	const userData: Record<string, string> = {};
+	for (const slug of worker.declaredUserProperties) {
+		const value = ownRecordValue(worker.userData, slug);
+		if (value !== undefined) userData[slug] = value;
+		else if (ownsWhole) userData[slug] = "";
+	}
+	const [primary] = locationIds;
+	if (primary !== undefined)
+		return {
+			userData,
+			locations: { primaryLocationId: primary, locationIds },
+		};
+	return ownsWhole && appHasOrganization
+		? { userData, locations: null }
+		: { userData };
 }
 
 /**
@@ -546,9 +703,9 @@ export function planWorkerProvisioning(
 			personaName: worker.personaName,
 			username: worker.username,
 			completeUsername,
-			userData: worker.userData,
-			locationIds,
 		} as const;
+		const writeOf = (ownership: DeploymentResourceOwnership) =>
+			workerWriteOf(worker, ownership, locationIds, input.appHasOrganization);
 
 		/* Nova already holds this persona's account under this exact name.
 		 * The account is updated in place, under the claim already recorded.
@@ -573,6 +730,7 @@ export function planWorkerProvisioning(
 		) {
 			pushes.push({
 				...shared,
+				...writeOf(mapping.ownership),
 				remoteId: mapping.remoteId,
 				ownership: mapping.ownership,
 			});
@@ -592,7 +750,12 @@ export function planWorkerProvisioning(
 			 * makes an account that did not exist a moment ago: Nova made it,
 			 * and inheriting the old claim would file an account nobody has
 			 * ever seen as one somebody chose to take over. */
-			pushes.push({ ...shared, remoteId: null, ownership: "nova-created" });
+			pushes.push({
+				...shared,
+				...writeOf("nova-created"),
+				remoteId: null,
+				ownership: "nova-created",
+			});
 			continue;
 		}
 
@@ -605,7 +768,12 @@ export function planWorkerProvisioning(
 			});
 			continue;
 		}
-		pushes.push({ ...shared, remoteId: remote.userId, ownership: "adopted" });
+		pushes.push({
+			...shared,
+			...writeOf("adopted"),
+			remoteId: remote.userId,
+			ownership: "adopted",
+		});
 	}
 
 	if (conflicts.length > 0) return { ok: false, reason: "conflict", conflicts };
@@ -640,16 +808,20 @@ export function plannedWorkersFor(
 		if (persona === undefined) continue;
 		const values = personaUserData(persona, doc);
 		const userData: Record<string, string> = {};
+		const declaredUserProperties: string[] = [];
 		for (const property of declared) {
 			const slug = slugs.get(property.uuid);
 			if (slug === undefined) continue;
-			userData[slug] = ownRecordValue(values, property.uuid) ?? "";
+			declaredUserProperties.push(slug);
+			const value = ownRecordValue(values, property.uuid);
+			if (value !== undefined) userData[slug] = value;
 		}
 		workers.push({
 			personaUuid: persona.uuid,
 			personaName: persona.name,
 			username: request.username,
 			userData,
+			declaredUserProperties,
 			locationUuids: assignedLocationUuids(persona.locations),
 		});
 	}

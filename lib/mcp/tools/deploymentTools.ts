@@ -23,9 +23,11 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
-	artifactLocations,
+	artifactOrganization,
 	currentResourceIdentities,
-	deploymentKept,
+	type HeldDeploymentKept,
+	holdDeploymentKept,
+	keptFromHeld,
 	landedDeploymentKept,
 	refreshDeployment,
 	refreshKeptValues,
@@ -37,14 +39,16 @@ import {
 	readDeploymentNovaRevisions,
 	readDeploymentsForApp,
 	readTargetFacts,
+	withDeploymentReadSnapshot,
 } from "@/lib/deployment/store";
 import { deploymentKeptOf } from "@/lib/deployment/targetFacts";
 import {
+	type DeploymentKept,
 	deploymentAppIdSchema,
 	deploymentServerSchema,
 	deploymentTargetSchema,
 } from "@/lib/deployment/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, orderedOrganizationLevels } from "@/lib/domain";
 import { driftDate } from "@/lib/publish/driftReference";
 import {
 	keptChanged,
@@ -58,7 +62,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
 import { landedNovaRevisions, landedResourceIdentities } from "./landedReads";
@@ -75,10 +79,11 @@ export function registerGetDeployment(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"get_deployment",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
 				"Report where an app has been published on CommCare HQ and what state each publication is in. `state` is one of `preflight`, `uploaded`, `built`, `released`, `runnable`, `incomplete` or `ended`; `incomplete` also carries `retry_from`, the phase a retry re-enters. Nova can import an app with an API key but cannot make a build or release one, because CommCare HQ allows those only from a signed-in browser session. So `built` and `released` are observed rather than performed, and `setup_artifact` states what a person must do on the project space. `deployment.confirmations` lists what a person confirmed about each project space for this app (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off); `withdraw_deployment_confirmation` takes one back, and the next upload there asks again. Reads only; call `refresh_deployment` to ask CommCare HQ again. `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. `brought_in` says the app came from CommCare HQ on that project space, when and by whom. `ending` says Nova stopped publishing there: the app in CommCare HQ stays, and the next upload makes a new app beside it; where `ending.held_by_another_app` is true, another Nova app publishes to that CommCare HQ app now, so `ending.hq_app_id` is left out and there is no way back to it to offer. `nova_revision` is the revision of this app that CommCare HQ's copy was last known to match, beside `pushed_revision`, the one Nova last sent: after changes made in CommCare HQ are brought in, the two differ, and only a revision after `nova_revision` holds something waiting to be published.",
 			inputSchema: z.object({
@@ -91,7 +96,6 @@ export function registerGetDeployment(
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqRead, "get_deployment");
 				const { doc, access } = await loadAppBlueprint(
 					args.app_id,
 					ctx.userId,
@@ -103,34 +107,52 @@ export function registerGetDeployment(
 					role: access.role,
 					actorUserId: ctx.userId,
 				};
-				const deployments = await readDeploymentsForApp(scope);
-				/* One read of the app's places for all of them, and one of its
+				/* The records, their ledgers, the revisions and every kept list of
+				 * one moment, for a caller allowed to see them then: a move or a stop
+				 * that commits meanwhile is wholly before or wholly after. Each kept
+				 * list is projected once the snapshot has given its connection back. */
+				const { deployments, novaRevisions, heldKept } =
+					await withDeploymentReadSnapshot(scope, "view", async (snapshot) => {
+						const deployments = await readDeploymentsForApp(snapshot);
+						const heldKept = new Map<string, HeldDeploymentKept>();
+						for (const deployment of deployments)
+							heldKept.set(
+								deployment.deployment.id,
+								await holdDeploymentKept(snapshot, deployment),
+							);
+						return {
+							deployments,
+							novaRevisions: await readDeploymentNovaRevisions(snapshot),
+							heldKept,
+						};
+					});
+				const kept = new Map<string, DeploymentKept | null>(
+					[...heldKept].map(([id, held]) => [id, keptFromHeld(held)]),
+				);
+				/* One read of the app's organization for all of them, and one of its
 				 * lookup identities: both belong to the app, not to any one
 				 * project space, so a second read could only return the same
 				 * answer. */
-				const locations =
-					deployments.length === 0 ? [] : await artifactLocations(scope);
+				const organization =
+					deployments.length === 0 ? null : await artifactOrganization(scope);
 				const identities =
 					deployments.length === 0
 						? new Map<string, string>()
 						: await currentResourceIdentities(scope, doc);
-				const novaRevisions =
-					deployments.length === 0
-						? new Map<string, number>()
-						: await readDeploymentNovaRevisions(scope);
 				const views = await Promise.all(
 					deployments.map(async (deployment) => ({
 						...describeDeployment(
 							deployment,
 							identities,
-							await deploymentKept(scope, deployment),
+							kept.get(deployment.deployment.id) ?? null,
 							novaRevisions,
+							orderedOrganizationLevels(doc),
 						),
 						setup_artifact: await setupArtifactFor(
 							scope,
 							deployment,
 							doc,
-							locations,
+							organization,
 						),
 					})),
 				);
@@ -150,10 +172,11 @@ export function registerRefreshDeployment(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"refresh_deployment",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
 				"Ask CommCare HQ again what has happened to an app Nova published, and update the stored deployment state. It reads CommCare HQ and writes Nova's own record, so it needs the HQ write scope and edit access to the app: it can move a deployment to `built`, `released`, or `runnable`, and can move it BACK when a build stops being released there. `runnable` means the released build served the file a device installs from. Its result carries the same `deployment.confirmations` as `get_deployment`. Use this after telling a user to make a version and release it on CommCare HQ. Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ (the `kept` list of `get_deployment`) without asking about builds. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise. Where Nova couldn't read back `kept` or `nova_revision` after its write landed, that field is left out and the refresh still landed: `get_deployment` reads them again.",
 			inputSchema: z.object({
@@ -179,7 +202,6 @@ export function registerRefreshDeployment(
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "refresh_deployment");
 				/* Read-only against CommCare HQ, but it persists what it saw,
 				 * so the app capability is `edit` rather than `view`. */
 				const { doc, access } = await loadAppBlueprint(
@@ -226,6 +248,7 @@ export function registerRefreshDeployment(
 						identities,
 						kept,
 						novaRevisions,
+						orderedOrganizationLevels(doc),
 					),
 					setup_artifact: refreshed.artifact,
 				});
@@ -307,12 +330,13 @@ async function refreshKeptValuesResult(
 			await landedResourceIdentities(scope, doc, target.domain, "kept-refresh"),
 			kept,
 			await landedNovaRevisions(scope, target.domain, "kept-refresh"),
+			orderedOrganizationLevels(doc),
 		),
 		setup_artifact: await setupArtifactFor(
 			scope,
 			outcome.deployment,
 			doc,
-			await artifactLocations(scope),
+			await artifactOrganization(scope),
 		),
 	};
 }

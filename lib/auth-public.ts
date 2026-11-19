@@ -41,6 +41,7 @@ export const NOVA_API_KEY_SCOPES = [
 	"nova.write",
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.hq.import",
 	"nova.projects.read",
 	"nova.projects.write",
 ] as const;
@@ -80,6 +81,15 @@ export const NOVA_MCP_SCOPE_LABELS: Record<NovaApiKeyScope, string> = {
 	"nova.write": "Write",
 	"nova.hq.read": "HQ Read",
 	"nova.hq.write": "HQ Write",
+	"nova.hq.import": "HQ Import",
 	"nova.projects.read": "Projects Read",
 	"nova.projects.write": "Projects Write",
 };
+
+/**
+ * What a cookie-authenticated route answers, with a 403, a request that can
+ * change something and came from a page that is not one of Nova's own
+ * (`auth-utils.ts::isOwnOriginRequest`).
+ */
+export const CROSS_ORIGIN_REFUSAL =
+	"Nova only takes this request from its own pages, and this one came from another site, so nothing was done. If you were using Nova, please reload the page and try again.";

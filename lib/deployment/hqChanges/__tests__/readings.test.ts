@@ -319,14 +319,12 @@ describe("both readings of one app", () => {
 			source: _baseSource,
 			modules: _baseModules,
 			media: _baseMedia,
-			resolver: baseResolver,
 			...baseShared
 		} = base;
 		const {
 			source: _nowSource,
 			modules: _nowModules,
 			media: _nowMedia,
-			resolver: nowResolver,
 			...nowShared
 		} = now;
 		expect(Object.keys(nowShared).sort()).toEqual(
@@ -334,8 +332,8 @@ describe("both readings of one app", () => {
 		);
 		for (const key of Object.keys(baseShared) as (keyof typeof baseShared)[])
 			expect(nowShared[key], key).toBe(baseShared[key]);
-		// Each reading mints through a resolver of its own.
-		expect(nowResolver).not.toBe(baseResolver);
+		// One resolver serves both, since a reading keeps what it claims to itself.
+		expect(Object.keys(baseShared)).toContain("resolver");
 		expect(base.knownCaseTypes).toBeDefined();
 		expect(base.knownLanguageCodes).toBeDefined();
 	});

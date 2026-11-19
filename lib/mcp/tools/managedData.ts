@@ -10,9 +10,12 @@
  * app the caller cannot reach is an error, collapsed to `not_found` as every
  * tool collapses it.
  *
- * Scope: `nova.hq.write` for both, checked before any read: a refresh reads
- * CommCare HQ with the caller's key and writes Nova's copy, and who manages a
- * table decides what every later publish to its project space writes. The
+ * Scopes, checked by each tool's registration before anything runs: a
+ * refresh reads CommCare HQ with the caller's key and copies what it holds
+ * into Nova (`nova.hq.import`); who manages a table decides what every later
+ * publish to its project space writes, and handing it back copies CommCare
+ * HQ's rows in, so `set_lookup_table_management` needs `nova.hq.write` and
+ * `nova.hq.import`. The
  * Project resolves at `view`; the services decide the capability each act
  * needs, so the answer to a role that falls short names who can. Kept off
  * the Solutions Architect, as every deployment tool is.
@@ -34,7 +37,6 @@ import {
 import { LOOKUP_DISCARD_NOTE } from "@/lib/deployment/remoteChanges";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
-import { getLookupDefinitions } from "@/lib/lookup/service";
 import type {
 	LookupReferencingAppSummary,
 	LookupScope,
@@ -64,7 +66,7 @@ import {
 	requireProjectAccess,
 	rethrowAsMcpAccess,
 } from "../ownership";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
 function jsonResult(payload: unknown): McpToolSuccessResult {
@@ -163,10 +165,11 @@ export function registerRefreshManagedData(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"refresh_managed_data",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
 				"Read again a lookup table, or an app's places, that CommCare HQ manages, and update Nova's copy. Nova never changes that data in the project space that manages it. Use it after the user changed the table or the places in CommCare HQ and wants Preview to show it. The result's `message` says what changed, or why the copy was kept as it was.",
 			/* Strict, so the served schema is closed: the SDK converts an input
@@ -190,7 +193,6 @@ export function registerRefreshManagedData(
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "refresh_managed_data");
 				const { table_id: tableInput, app_id: appId } = args;
 				if ((tableInput === undefined) === (appId === undefined)) {
 					throw new McpInvalidInputError(REFRESH_MANAGED_DATA_TARGET_MESSAGE);
@@ -265,12 +267,13 @@ export function registerSetLookupTableManagement(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"set_lookup_table_management",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				'Change who manages a lookup table that came from CommCare HQ. With `confirmed: false` this changes nothing: it returns what the change does and the apps that read the table. Show the user that answer and ask. Send `confirmed: true` only after they agree. `managed_by: "nova"` means the table is edited in Nova from then on and each publish replaces it in CommCare HQ, and a later change there stops the next publish. `managed_by: "commcare-hq"` hands it back: Nova takes CommCare HQ\'s columns and rows and stops changing the table there. Never decide this for the user.',
+				'Change who manages a lookup table that came from CommCare HQ. Without `review_digest` this changes nothing: it returns what the change does, the apps that read the table and a `review_digest`. Show the user that answer and ask. Only after they agree, send the same call again with that `review_digest`. The change is made only while the table and the apps that read it are still what that answer showed; otherwise nothing changes, the answer\'s `reason` is `review-moved`, and it holds the change as it stands now with a new `review_digest`: show it and ask again. `managed_by: "nova"` means the table is edited in Nova from then on and each publish replaces it in CommCare HQ, and a later change there stops the next publish. `managed_by: "commcare-hq"` hands it back: Nova takes CommCare HQ\'s columns and rows and stops changing the table there. Never decide this for the user.',
 			inputSchema: z.strictObject({
 				project_id: projectIdSchema,
 				table_id: tableIdSchema,
@@ -279,16 +282,17 @@ export function registerSetLookupTableManagement(
 					.describe(
 						"Who manages the table from now on: `nova`, or `commcare-hq` to hand it back.",
 					),
-				confirmed: z
-					.boolean()
+				review_digest: z
+					.string()
+					.regex(/^[0-9a-f]{64}$/)
+					.optional()
 					.describe(
-						"False to read what the change does without changing anything; true only after the user agreed to it.",
+						"Leave this out to read what the change does without changing anything. Send the `review_digest` that answer returned only after the user agreed to it.",
 					),
 			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "set_lookup_table_management");
 				const scope = await lookupScope(ctx, args.project_id);
 				const tableId = parsedTableId(args.table_id);
 				if (tableId === null) {
@@ -301,11 +305,32 @@ export function registerSetLookupTableManagement(
 						),
 					);
 				}
-				if (args.confirmed) {
+				if (args.review_digest !== undefined) {
 					const outcome =
 						args.managed_by === "nova"
-							? await manageLookupTableInNova(scope, tableId)
-							: await letHqManageLookupTable(scope, tableId);
+							? await manageLookupTableInNova(
+									scope,
+									tableId,
+									args.review_digest,
+								)
+							: await letHqManageLookupTable(
+									scope,
+									tableId,
+									args.review_digest,
+								);
+					/* The table or its readers moved since the user agreed: answer
+					 * the change as it stands now, to show and ask about again. */
+					if (!outcome.ok && outcome.reason === "review-moved") {
+						return jsonResult({
+							...(await managementPreview(scope, tableId, args.managed_by, {
+								projectId: args.project_id,
+								tableId: args.table_id,
+							})),
+							ok: false,
+							reason: outcome.reason,
+							message: outcome.message,
+						});
+					}
 					return jsonResult(
 						tableAnswer(args.project_id, args.table_id, outcome),
 					);
@@ -328,10 +353,10 @@ export function registerSetLookupTableManagement(
 
 /**
  * What a change of who manages a table does, as its confirmation in the
- * builder says it, and the apps that read the table. Writes nothing. The
- * same refusals as the change itself: no such table, and a role that may
- * not make the change. A table already managed as asked answers with no
- * lines, since nothing would change.
+ * builder says it, the apps that read the table, and the `review_digest` the
+ * change is made under. Writes nothing. The same refusals as the change
+ * itself: no such table, and a role that may not make the change. A table
+ * already managed as asked answers with no lines, since nothing would change.
  */
 async function managementPreview(
 	scope: LookupScope,
@@ -340,11 +365,7 @@ async function managementPreview(
 	ids: { readonly projectId: string; readonly tableId: string },
 ) {
 	const view = await readManagedLookupTableView(scope, tableId);
-	const definition =
-		view === null
-			? undefined
-			: (await getLookupDefinitions(scope, [tableId])).definitions[0];
-	if (view === null || definition === undefined) {
+	if (view === null) {
 		return refusedTable(
 			ids.projectId,
 			ids.tableId,
@@ -374,21 +395,18 @@ async function managementPreview(
 			? []
 			: lines.filter((line): line is string => line !== null),
 		apps: view.apps.map(appOf),
+		review_digest: view.reviewDigest,
 	});
 	if (managedBy === "nova") {
-		return preview(manageInNovaTitle(definition.name), [
+		return preview(manageInNovaTitle(view.name), [
 			...manageInNovaBody(domain),
 			LOOKUP_DISCARD_NOTE,
 			readers,
 		]);
 	}
-	return preview(letHqManageTitle(definition.name), [
+	return preview(letHqManageTitle(view.name), [
 		letHqManageBody(domain),
-		columnsBecomeText(
-			definition.columns
-				.filter((column) => column.dataType !== "text")
-				.map((column) => column.label),
-		),
+		columnsBecomeText(view.typedColumns),
 		readers,
 	]);
 }

@@ -192,6 +192,49 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
 	return `The app no longer has the case types ${quotedNames(caseTypes)}. Their cases saved in Nova are kept, and no list in this app shows them.`;
 }
 
+/**
+ * The lines a review says for where CommCare HQ now keeps what the document
+ * doesn't hold: a form's id, the case id a create keyed by an answer files its
+ * cases under, a file's path, the name a case list column gives its property.
+ * Nova follows each, so the app is unchanged and the next publish keeps it.
+ * `formIds` and `keyedPrefixes` are form names, `columnFields` menu names.
+ */
+export function whereHqKeepsLines(changes: {
+	readonly formIds: readonly string[];
+	readonly keyedPrefixes: readonly string[];
+	readonly mediaPaths: number;
+	readonly columnFields: readonly string[];
+}): readonly string[] {
+	const quoted = (names: readonly string[]) =>
+		namesInWords(names.map((name) => `“${name}”`));
+	const lines: string[] = [];
+	if (changes.keyedPrefixes.length > 0) {
+		const one = changes.keyedPrefixes.length === 1;
+		lines.push(
+			`In CommCare HQ, ${quoted(changes.keyedPrefixes)} now ${one ? "files the cases it makes" : "file the cases they make"} from an answer under a new case id. Nova follows it, so a key a worker enters again reaches the case CommCare HQ holds for it.`,
+		);
+	}
+	if (changes.formIds.length > 0) {
+		const one = changes.formIds.length === 1;
+		lines.push(
+			`In CommCare HQ, ${quoted(changes.formIds)} ${one ? "has a new form id" : "have new form ids"}. Nova follows ${one ? "it" : "them"}.`,
+		);
+	}
+	if (changes.mediaPaths > 0) {
+		const one = changes.mediaPaths === 1;
+		lines.push(
+			`In CommCare HQ, ${one ? "one media file is" : `${changes.mediaPaths} media files are`} kept at another path. Nova follows ${one ? "it" : "them"}.`,
+		);
+	}
+	if (changes.columnFields.length > 0) {
+		const one = changes.columnFields.length === 1;
+		lines.push(
+			`In CommCare HQ, the case ${one ? "list" : "lists"} of ${quoted(changes.columnFields)} now ${one ? "names" : "name"} a column's property another way. Nova follows ${one ? "it" : "them"}, so each column's translations stay where they are.`,
+		);
+	}
+	return lines;
+}
+
 /** The panel's lead over what the next publish changes, each line the register's own sentence. */
 export const NEXT_PUBLISH_LEAD =
 	"Nova writes a few things its own way, so your next publish changes these in CommCare HQ:";
@@ -236,6 +279,19 @@ export function cannotBringInLead(n: number): string {
 /** The lead where CommCare HQ's version is larger than Nova brings in, so Nova read nothing. */
 export const CANNOT_BRING_IN_TOO_LARGE_LEAD =
 	"CommCare HQ's version of this app is larger than Nova brings in, so Nova brought nothing in.";
+
+/** The lead where reading CommCare HQ's version takes more work than Nova gives one app, so
+ *  Nova stopped reading it. */
+export const CANNOT_BRING_IN_TOO_INTRICATE_LEAD =
+	"CommCare HQ's version of this app takes more checking than Nova gives one app, so Nova brought nothing in.";
+
+/** The lead over an account whose one finding is a limit of Nova's own at the app: its size or
+ *  the work of reading it. */
+export function novaLimitLead(code: "too-large" | "too-intricate"): string {
+	return code === "too-large"
+		? CANNOT_BRING_IN_TOO_LARGE_LEAD
+		: CANNOT_BRING_IN_TOO_INTRICATE_LEAD;
+}
 
 /** Under the account of what Nova can't hold, above the two choices that stay as they are. */
 export const CANNOT_BRING_IN_OTHER_WAYS =
@@ -300,10 +356,11 @@ export interface HqChangesLineContext {
 
 /**
  * Why Nova can't bring in CommCare HQ's changes there. `not-published`,
- * `publishing-stopped` and `app-deleted` say nothing there is this app's (never published there,
- * publishing there stopped, or the app is in recently deleted and another
- * Nova app took its CommCare HQ app); the rest say why Nova can't tell
- * CommCare HQ's changes from this app's.
+ * `publishing-stopped`, `app-deleted` and `hq-app-taken` say nothing there is
+ * this app's (never published there, publishing there stopped, the app is in
+ * recently deleted, or another Nova app took its CommCare HQ app while it
+ * was); the rest say why Nova can't tell CommCare HQ's changes from this
+ * app's.
  */
 export function hqChangesUnavailableLine(
 	reason: HqChangesUnavailable,
@@ -317,7 +374,9 @@ export function hqChangesUnavailableLine(
 		case "publishing-stopped":
 			return hqChangesPublishingStoppedLine(domain);
 		case "app-deleted":
-			return `This app is in recently deleted, and another Nova app took its app in “${domain}” while it was there, so there's nothing there to bring in. Once this app is restored, you can check again.`;
+			return `This app is in recently deleted, so there's nothing in “${domain}” to bring in to it. Once it's restored, you can check again.`;
+		case "hq-app-taken":
+			return `Another Nova app took this app's app in “${domain}” while this app was in recently deleted, so there's nothing there to bring in. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise.`;
 		case "no-reference":
 			return `Nova can't tell CommCare HQ's changes from this app's here, because its record of the last publish to “${domain}” doesn't hold what that takes. ${AFTER_NEXT_PUBLISH}`;
 		case "baseline-unread":
@@ -328,6 +387,8 @@ export function hqChangesUnavailableLine(
 			return `Nova couldn't read its own record of what it left in “${domain}”, so it can't tell what changed there. That's Nova's to fix, and Nova has reported it. ${AFTER_NEXT_PUBLISH}`;
 		case "base-too-large":
 			return `Nova's record of what it left in “${domain}” is larger than Nova compares, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.`;
+		case "comparison-too-intricate":
+			return `Comparing CommCare HQ's version with what Nova left in “${domain}” takes more checking than Nova gives one app, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.`;
 		case "nova-updated":
 			return `Nova updated how this app is stored since ${since}, so it can't tell this app's changes from CommCare HQ's here. ${AFTER_NEXT_PUBLISH}`;
 		case "nova-defect":

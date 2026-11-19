@@ -4,6 +4,16 @@
  * `resolveLabel()` is the form engine's entry point: literal text stays as
  * written, and each reference part is evaluated by the caller, which prints
  * it at the Preview target as the XForm's `<output>` for it reads.
+ *
+ * The value's text goes into the label as it is, and the whole is formatted
+ * after (`lib/references/LabelContent.tsx`), in the synchronous and the
+ * worker pass alike: Core substitutes each `<output>` into the label's
+ * markdown form before Web Apps or Android formats it
+ * (`FormEntryCaption.getSpecialFormQuestionText` →
+ * `FormDef.fillTemplateString`), so formatting a value holds shows as on a
+ * device. Core then substitutes again wherever a value holds `${n}`, reading
+ * the form's `n`th output, until the text stops changing; Preview makes the
+ * one pass, so such a value shows as written.
  */
 import type { ProseAtomPart, ProseTemplate } from "@/lib/domain";
 import { isNodesetCardinalityFailure } from "../xpath/runtimeError";

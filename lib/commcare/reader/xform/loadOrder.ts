@@ -90,7 +90,10 @@ export function effectiveLoadOrder(form: ReadXForm): readonly LoadStep[] {
 }
 
 /** Each pair of one event whose relative order differs between A and Nova's emission of the
- *  document, where `reader` reads `read.target`. */
+ *  document, where `reader` reads `read.target`, in the order of the pairs in `order` (the
+ *  earlier step first), the later step's read before the earlier's. Each step's reads are
+ *  asked once and looked up among the steps that set what they name, so the work is the reads,
+ *  never every pair of steps. */
 export function loadOrderConflicts(
 	order: readonly LoadStep[],
 	emitted: readonly LoadStep[],
@@ -98,19 +101,39 @@ export function loadOrderConflicts(
 ): readonly { readonly reader: LoadStep; readonly read: LoadStep }[] {
 	const position = new Map<LoadStep, number>();
 	for (const [index, step] of emitted.entries()) position.set(step, index);
-	const conflicts: { reader: LoadStep; read: LoadStep }[] = [];
-	for (let i = 0; i < order.length; i++)
-		for (let j = i + 1; j < order.length; j++) {
-			const before = order[i] as LoadStep;
-			const after = order[j] as LoadStep;
-			if (before.event !== after.event) continue;
-			const at = position.get(before);
-			const atAfter = position.get(after);
-			if (at === undefined || atAfter === undefined || at < atAfter) continue;
-			if (reads(after).has(before.target))
-				conflicts.push({ reader: after, read: before });
-			if (reads(before).has(after.target))
-				conflicts.push({ reader: before, read: after });
-		}
-	return conflicts;
+	const setting = new Map<string, number[]>();
+	for (const [index, step] of order.entries()) {
+		const at = setting.get(step.target);
+		if (at === undefined) setting.set(step.target, [index]);
+		else at.push(index);
+	}
+	const found: {
+		readonly key: readonly [number, number, number];
+		readonly conflict: { reader: LoadStep; read: LoadStep };
+	}[] = [];
+	for (const [index, reader] of order.entries()) {
+		const at = position.get(reader);
+		if (at === undefined) continue;
+		for (const target of reads(reader))
+			for (const other of setting.get(target) ?? []) {
+				if (other === index) continue;
+				const read = order[other] as LoadStep;
+				if (read.event !== reader.event) continue;
+				const atRead = position.get(read);
+				if (atRead === undefined) continue;
+				// The pair in `order`'s order: the earlier step, then the later.
+				const [first, second] = other < index ? [read, reader] : [reader, read];
+				const firstAt = position.get(first) as number;
+				const secondAt = position.get(second) as number;
+				if (firstAt < secondAt) continue;
+				found.push({
+					key: other < index ? [other, index, 0] : [index, other, 1],
+					conflict: { reader, read },
+				});
+			}
+	}
+	found.sort(
+		(a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.key[2] - b.key[2],
+	);
+	return found.map((one) => one.conflict);
 }

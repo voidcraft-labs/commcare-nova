@@ -8,6 +8,10 @@ import "server-only";
 
 import type { Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import {
+	HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES,
+	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+} from "@/lib/commcare/hq/bounds";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
@@ -17,19 +21,23 @@ import {
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
 import type { AppDatabase } from "@/lib/db/pg";
-import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { recordFromEntries } from "@/lib/domain/records";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
 import {
 	createManagedLookupTablesInTransaction,
 	type ManagedOriginWrite,
+	type ManagedTableReviewed,
 	readKeptLookupColumnIds,
 	refreshManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
 import type { ManagedLookupContent } from "@/lib/lookup/managedRules";
-import type { LookupScope } from "@/lib/lookup/types";
-import { lockLookupProjectState } from "@/lib/lookup/writerTransaction";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import {
+	authorizeLookupWriteInTransaction,
+	lockLookupProjectState,
+} from "@/lib/lookup/writerTransaction";
 import { canonicalLookupTable } from "../../hqResourceBaseline";
 import { readSiblingLookupMappings } from "../../store";
 import { isDeploymentServer } from "../../types";
@@ -75,7 +83,15 @@ function failsEveryTime(error: CommCareApiError): boolean {
  * The project space's lookup tables the source may read, with their rows.
  * One list read; then, for each table whose tag the source names
  * (`candidateLookupTags`), its rows, one table at a time, stopping once the
- * first page names more rows than Nova holds.
+ * first page names more rows than Nova holds (`over-row-limit`) or the rows
+ * pass `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` (`over-byte-limit`), each a finding of
+ * that table. The rows the request keeps are bounded together too: each table
+ * is read at most as far as what remains of
+ * `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`, and a table that passes what remains,
+ * where that is less than one table's bound, is the request reading more
+ * lookup data than Nova brings in, which answers a failure of cause
+ * `too-large` for `lookup-rows` (`failure.ts` words it
+ * `lookup-data-too-large`).
  *
  * A row read that fails with an answered status of 500 or more, or with no
  * answer, is sent once more. `readHqJson` already sends a read no answer began
@@ -111,13 +127,17 @@ export async function readHqLookupTablesForReading(input: {
 	if ("success" in list) return { ...list, request: "lookup-tables" };
 	const candidates = new Set(candidateLookupTags(input.sourceText, list));
 	const tables: HqLookupTableRead[] = [];
+	/* What remains of the request's bound on the rows it keeps. */
+	let remaining = HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES;
 	for (const table of list) {
 		if (!candidates.has(table.tag)) continue;
 		candidates.delete(table.tag);
+		const bound = Math.min(HQ_LOOKUP_TABLE_ROWS_MAX_BYTES, remaining);
 		const readRows = () =>
-			readHqLookupTableRows(creds, domain, table.id, {
+			readHqLookupTableRows(creds, domain, table, {
 				cancel,
-				stopPast: LOOKUP_MAX_ROWS,
+				maxRows: LOOKUP_MAX_ROWS,
+				maxBytes: bound,
 			});
 		let answer = await readRows();
 		if (
@@ -137,13 +157,25 @@ export async function readHqLookupTablesForReading(input: {
 		}
 		if ("success" in answer) return { ...answer, request: "lookup-rows" };
 		if ("kind" in answer) {
-			tables.push({
-				kind: "over-row-limit",
-				table,
-				totalCount: answer.totalCount,
-			});
+			if (answer.by === "rows") {
+				tables.push({
+					kind: "over-row-limit",
+					table,
+					totalCount: answer.totalCount,
+				});
+				continue;
+			}
+			if (bound < HQ_LOOKUP_TABLE_ROWS_MAX_BYTES)
+				return {
+					success: false,
+					status: 502,
+					cause: "too-large",
+					request: "lookup-rows",
+				};
+			tables.push({ kind: "over-byte-limit", table });
 			continue;
 		}
+		remaining -= answer.bytes;
 		tables.push({
 			kind: "read",
 			table,
@@ -176,29 +208,42 @@ export class BroughtInTableChangedError extends Error {
 }
 
 /**
- * Write the tables a bring-in's app reads, inside the birth's transaction,
- * after its app row is inserted and before the gate reads the Project's
- * lookup definitions.
+ * Write the tables a bring-in's app reads, inside the transaction that makes
+ * the app or commits its change: the birth's, after its app row is inserted,
+ * and a bring-in of changes made in CommCare HQ's commit, after its app row,
+ * head and membership checks; in both before the gate reads the Project's
+ * lookup definitions. A bring-in that is turned back therefore creates and
+ * changes no lookup table.
  *
- * Under the Project's lookup lock it reads the Project's tables of the written
- * tags with their rows and the columns CommCare HQ's content would keep, and
- * derives each standing again, with the sibling mappings read on the same
- * transaction. Where a standing's kind is no longer the one its binding was
- * made for, an answered offer is no longer offered, a `same-managed` table
- * would now hold more columns than Nova takes, or a Project table's revisions
- * moved since the read, it throws `BroughtInTableChangedError` and the birth
- * rolls back whole. Otherwise one create for the `new` tables, then a refresh
- * for each `same-managed` and an adopt for each `use-commcare-hq`, in table id
- * order, the order every writer that locks several of the Project's tables
- * takes them in; nothing for a table used as it stands. A `choice` with no
- * answer never reaches here.
+ * It reads the member's role on that transaction
+ * (`authorizeLookupWriteInTransaction`), then, under the Project's lookup
+ * lock, the Project's tables of the written tags with their rows and the
+ * columns CommCare HQ's content would keep, and derives each standing again,
+ * with the sibling mappings read on the same transaction. Every writer of a
+ * table's content takes that lock first, so these reads stand until commit.
+ * Where a standing's kind is no longer the one its binding was made for, an
+ * answered offer is no longer offered, a `same-managed` table would now hold
+ * more columns than Nova takes, or a Project table's revisions moved since the
+ * read, it throws `BroughtInTableChangedError` and the transaction rolls back
+ * whole. Otherwise one create for the `new` tables, then a refresh for each
+ * `same-managed` and an adopt for each `use-commcare-hq`, in table id order,
+ * the order every writer that locks several of the Project's tables takes
+ * them in; nothing for a table used as it stands. A `choice` with no answer
+ * never reaches here.
+ *
+ * Each refresh and adoption is held, under the table's own lock, to what the
+ * reading saw (`ManagedTableReviewed`): its revisions, and for an adoption
+ * the apps the review listed as reading the table. An app that began reading
+ * it since moves no revision, and app commits take no Project state, so only
+ * that lock makes the list hold. A mismatch is `LookupReviewMovedError`.
  *
  * `readAt` is when the reading's read of CommCare HQ's tables began. A table
- * the birth would refresh or adopt whose stored `hq_refreshed_at` is later
+ * the bring-in would refresh or adopt whose stored `hq_refreshed_at` is later
  * was refreshed from a newer read of CommCare HQ since, which need move no
- * revision, so it throws `BroughtInTableChangedError` too rather than write
- * the older read over it. Every table the birth writes is stamped `readAt`,
- * so a refresh whose read began before the birth's never replaces it.
+ * revision, so the writer refuses it (`LookupReviewMovedError`) rather than
+ * write the older read over it. Every table the bring-in writes is stamped
+ * `readAt`, so a refresh whose read began before the bring-in's never
+ * replaces it.
  *
  * The standing is derived again with no apps and no fields read: its kind
  * depends on neither, and the one offer that reads the fields, `use-project`'s
@@ -225,24 +270,15 @@ export async function writeBroughtInLookupTablesInTransaction(
 			`A bring-in names the CommCare HQ server "${origin.server}", which Nova does not know.`,
 		);
 	}
-	const role = await projectRoleForInTransaction(
+	const authority = await authorizeLookupWriteInTransaction(
 		tx,
-		scope.actorUserId,
-		scope.projectId,
+		{ projectId: scope.projectId, actorId: scope.actorUserId },
+		"edit",
 	);
-	if (role === null || !roleAllowsApp(role, "edit")) {
-		throw new Error(
-			"The birth's writer of lookup tables runs for a member who may edit the Project.",
-		);
-	}
-	const lookupScope: LookupScope = {
-		projectId: scope.projectId,
-		actorId: scope.actorUserId,
-		role,
-	};
+	const { role } = authority;
 	const mayAdminister = roleAllowsApp(role, "delete");
 
-	await lockLookupProjectState(tx, scope.projectId);
+	await lockLookupProjectState(tx, authority);
 	const tags = write.tables.map((table) => table.read.table.tag);
 	const stored = await tx
 		.selectFrom("lookup_tables")
@@ -289,6 +325,8 @@ export async function writeBroughtInLookupTablesInTransaction(
 	const refreshes: {
 		readonly tableId: string;
 		readonly mode: "refresh" | "adopt";
+		/** What the reading saw of the Project table, which the write holds it to under its lock. */
+		readonly reviewed: ManagedTableReviewed;
 		readonly content: ManagedLookupContent;
 		readonly origin: ManagedOriginWrite;
 		readonly newColumnIds: BroughtInTableWrite["binding"]["columns"];
@@ -380,12 +418,10 @@ export async function writeBroughtInLookupTablesInTransaction(
 			}
 		}
 		if (mode === null || definition === undefined) continue;
-		if (
-			row !== undefined &&
-			row.hq_refreshed_at !== null &&
-			row.hq_refreshed_at > write.readAt
-		) {
-			throw new BroughtInTableChangedError(tag);
+		if (table.projectTable === null) {
+			throw new Error(
+				`A lookup table the bring-in refreshes or adopts reached the write with no Project table (table ${write.tables.indexOf(table) + 1} of the ${write.tables.length} it writes).`,
+			);
 		}
 		// The fields the Project table has no column for take the ids the
 		// binding gave them, so the document's reads name the columns made.
@@ -395,9 +431,22 @@ export async function writeBroughtInLookupTablesInTransaction(
 		refreshes.push({
 			tableId: definition.id,
 			mode,
+			reviewed: {
+				definitionRevision: parseLookupRevision(
+					table.projectTable.definitionRevision,
+				),
+				rowsRevision: parseLookupRevision(table.projectTable.rowsRevision),
+				/* The apps the person was shown reading the table, which an
+				 * adoption is held to; a refresh of a table managed from this
+				 * project space names none and is held to its revisions. */
+				readerAppIds:
+					table.standing.kind === "choice"
+						? table.standing.apps.map((app) => app.appId).sort()
+						: [],
+			},
 			content,
 			origin: managedOrigin,
-			newColumnIds: Object.fromEntries(
+			newColumnIds: recordFromEntries(
 				Object.entries(table.binding.columns).filter(
 					([field]) => !wireNames.has(field),
 				),
@@ -408,7 +457,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 	if (created.length > 0) {
 		await createManagedLookupTablesInTransaction(
 			tx,
-			lookupScope,
+			authority,
 			created,
 			write.readAt,
 		);
@@ -417,16 +466,30 @@ export async function writeBroughtInLookupTablesInTransaction(
 		left.tableId < right.tableId ? -1 : left.tableId > right.tableId ? 1 : 0,
 	);
 	for (const refresh of refreshes) {
-		await refreshManagedLookupTableInTransaction(tx, lookupScope, {
+		const base = {
 			tableId: lookupTableIdSchema.parse(refresh.tableId),
 			content: refresh.content,
 			origin: refresh.origin,
 			at: write.readAt,
-			mode: refresh.mode,
 			newColumnIds: refresh.newColumnIds,
 			/* The app's columns bind the ids the reading gave them, so the
-			 * birth writes what the reading read. */
+			 * bring-in writes what the reading read, or refuses where a newer
+			 * read of CommCare HQ's table landed since. */
 			olderReadYields: false,
-		});
+		};
+		await refreshManagedLookupTableInTransaction(
+			tx,
+			authority,
+			refresh.mode === "adopt"
+				? { ...base, mode: "adopt", reviewed: refresh.reviewed }
+				: {
+						...base,
+						mode: "refresh",
+						reviewed: {
+							definitionRevision: refresh.reviewed.definitionRevision,
+							rowsRevision: refresh.reviewed.rowsRevision,
+						},
+					},
+		);
 	}
 }

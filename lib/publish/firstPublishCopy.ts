@@ -114,6 +114,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"On Android, a case list's Sort by no longer lists a choice with no name. CommCare HQ listed a hidden column there whose name was blank in every language, so workers saw an empty choice. You can give its sort rule a name in Nova to list it again.",
 	"form-titles-written":
 		"Each form's title now holds the form's name. On Android, a saved form a worker opens again shows that name at the top, where it showed no title or an older name before.",
+	"unread-fixture-declarations-dropped":
+		"A form no longer asks for data it never reads, such as a mobile report or the list of places. Where a worker's phone or Web Apps doesn't have that data, the form couldn't open before, and now it opens.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */

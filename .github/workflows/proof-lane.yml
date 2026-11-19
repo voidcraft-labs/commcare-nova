@@ -51,8 +51,14 @@ name: Proof lane
 # of the checkout's, so a prewarm checks the very tree that pull request will;
 # `retained` puts the retained trees (proof/hq-apps/, proof/hq-reads/) that
 # pull request will carry in place of the checkout's, in each job that puts
-# the surface in place, by proof/ci/retained.mjs, which removes the checkout's
-# trees first (a download removes no file the artifact lacks).
+# the surface in place, by python3 -m proof.matrix.place unpack, which reads
+# the artifact whole through the retained layout (proof/matrix/layout.py),
+# refuses it by name where any entry is outside it, and only then replaces
+# each tree with the members it read (a download removes no file the artifact
+# lacks). Each artifact is downloaded outside the checkout and placed from
+# there: the surface by node proof/ci/untrusted.mjs surface, which takes the
+# one surface.json the artifact holds, read without following a link, within
+# a bound and as JSON.
 on:
   workflow_call:
     inputs:
@@ -161,12 +167,15 @@ jobs:
       - name: Record the candidate image in the lock
         if: ${{ inputs.image != '' }}
         run: node proof/ci/candidate.mjs --image "$CANDIDATE"
-      - name: Put the candidate's surface in place
+      - name: Download the candidate's surface
         if: ${{ inputs.surface != '' }}
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.surface }}
-          path: lib/commcare/surface
+          path: ${{ runner.temp }}/surface
+      - name: Put the candidate's surface in place
+        if: ${{ inputs.surface != '' }}
+        run: node proof/ci/untrusted.mjs surface "$RUNNER_TEMP/surface" lib/commcare/surface/surface.json
       - name: Download the candidate's retained trees
         if: ${{ inputs.retained != '' }}
         uses: actions/download-artifact@v8
@@ -175,7 +184,7 @@ jobs:
           path: ${{ runner.temp }}/retained
       - name: Put the candidate's retained trees in place
         if: ${{ inputs.retained != '' }}
-        run: node proof/ci/retained.mjs "$RUNNER_TEMP/retained" proof
+        run: python3 -m proof.matrix.place unpack "$RUNNER_TEMP/retained" proof
       - name: Install pinned npm
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
@@ -336,12 +345,15 @@ jobs:
       - name: Record the candidate image in the lock
         if: ${{ inputs.image != '' }}
         run: node proof/ci/candidate.mjs --image "$CANDIDATE"
-      - name: Put the candidate's surface in place
+      - name: Download the candidate's surface
         if: ${{ inputs.surface != '' }}
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.surface }}
-          path: lib/commcare/surface
+          path: ${{ runner.temp }}/surface
+      - name: Put the candidate's surface in place
+        if: ${{ inputs.surface != '' }}
+        run: node proof/ci/untrusted.mjs surface "$RUNNER_TEMP/surface" lib/commcare/surface/surface.json
       - name: Download the candidate's retained trees
         if: ${{ inputs.retained != '' }}
         uses: actions/download-artifact@v8
@@ -350,7 +362,7 @@ jobs:
           path: ${{ runner.temp }}/retained
       - name: Put the candidate's retained trees in place
         if: ${{ inputs.retained != '' }}
-        run: node proof/ci/retained.mjs "$RUNNER_TEMP/retained" proof
+        run: python3 -m proof.matrix.place unpack "$RUNNER_TEMP/retained" proof
       # Postgres comes through mirror.gcr.io, whose per-minute quota is shared
       # by everyone pulling through it, and fourteen shards start at once, so
       # a pull is sometimes refused with nothing wrong with it. The script
@@ -412,10 +424,14 @@ jobs:
             --early-queue "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$ATTEMPT.json" \
             --queue "$RUNNER_TEMP/lane/queue/queue.json" \
             "${claim[@]}" \
-            --wait-for "node proof/ci/wait.mjs --queue proof-queue-$LABEL-$ATTEMPT.json --corpus proof-corpus-$LABEL-$ATTEMPT.tar.zst --failed proof-emission-failed-$LABEL-$ATTEMPT --deadline 1800" \
-            --command-env ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL
+            --wait-for "node proof/ci/wait.mjs --queue proof-queue-$LABEL-$ATTEMPT.json --corpus proof-corpus-$LABEL-$ATTEMPT.tar.zst --failed proof-emission-failed-$LABEL-$ATTEMPT --deadline 1800"
           code=$?
           case $code in 0|1) exit 0 ;; *) exit $code ;; esac
+      # run.mjs seals the output as the run ends; sealed again here in case it ended before it could, so the upload
+      # (which follows a link to its target) meets plain files and directories only.
+      - name: Seal the shard's output
+        if: ${{ !cancelled() }}
+        run: node proof/run.mjs --seal "$RUNNER_TEMP/proof-out"
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
@@ -468,12 +484,15 @@ jobs:
       - name: Record the candidate image in the lock
         if: ${{ inputs.image != '' }}
         run: node proof/ci/candidate.mjs --image "$CANDIDATE"
-      - name: Put the candidate's surface in place
+      - name: Download the candidate's surface
         if: ${{ inputs.surface != '' }}
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.surface }}
-          path: lib/commcare/surface
+          path: ${{ runner.temp }}/surface
+      - name: Put the candidate's surface in place
+        if: ${{ inputs.surface != '' }}
+        run: node proof/ci/untrusted.mjs surface "$RUNNER_TEMP/surface" lib/commcare/surface/surface.json
       - name: Download the candidate's retained trees
         if: ${{ inputs.retained != '' }}
         uses: actions/download-artifact@v8
@@ -482,7 +501,7 @@ jobs:
           path: ${{ runner.temp }}/retained
       - name: Put the candidate's retained trees in place
         if: ${{ inputs.retained != '' }}
-        run: node proof/ci/retained.mjs "$RUNNER_TEMP/retained" proof
+        run: python3 -m proof.matrix.place unpack "$RUNNER_TEMP/retained" proof
       - uses: actions/download-artifact@v8
         with:
           pattern: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-*

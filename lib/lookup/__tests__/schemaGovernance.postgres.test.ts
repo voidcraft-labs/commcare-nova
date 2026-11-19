@@ -2,7 +2,7 @@
 
 import { sql } from "kysely";
 import { Client, type Notification } from "pg";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { LOOKUP_STREAM_CHANNEL } from "@/lib/db/pg";
 import {
@@ -34,6 +34,19 @@ const ROW_WRITER: LookupScope = {
 	...GOVERNOR,
 	actorId: "row-seed-writer",
 };
+/** A member who may edit the Project's data and not delete it, whatever role a scope claims. */
+const EDITOR: LookupScope = {
+	...GOVERNOR,
+	actorId: "schema-editor",
+};
+
+/* Every lookup writer reads its member's role on its own transaction. */
+beforeEach(async () => {
+	await h.seedProjectMember(GOVERNOR.actorId, GOVERNOR.projectId, "owner");
+	await h.seedProjectMember(ROW_WRITER.actorId, ROW_WRITER.projectId, "editor");
+	await h.seedProjectMember(EDITOR.actorId, EDITOR.projectId, "editor");
+});
+
 const TEXT_COLUMN: LookupColumnDraft = {
 	wireName: "name",
 	label: "Name",
@@ -104,10 +117,9 @@ describe("lookup schema governance", () => {
 			(scope: LookupScope, op: LookupSchemaGovernanceOperation) =>
 				runCore(op, scope),
 		]) {
-			await expectGovernanceError(
-				apply({ ...GOVERNOR, role: "editor" }, operation),
-				"not_found",
-			);
+			/* The member's own role decides, read on the governance transaction:
+			 * an editor whose scope claims more is refused like a stranger. */
+			await expectGovernanceError(apply(EDITOR, operation), "not_found");
 			await expectGovernanceError(
 				apply({ ...GOVERNOR, projectId: "foreign" }, operation),
 				"not_found",

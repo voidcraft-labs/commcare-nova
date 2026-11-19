@@ -1748,6 +1748,55 @@ test.describe("a create's answers", () => {
 		}
 	});
 
+	test("a publish still finishing at CommCare HQ keeps the review and every answer, says so above the footer, and the same create can be sent again", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		try {
+			await recorded(routes, "/api/commcare/bring-in/read", (route) =>
+				fulfillNdjson(route, answered(reviewAnswer())),
+			);
+			const creates = await recorded(
+				routes,
+				"/api/commcare/bring-in/create",
+				(route) =>
+					fulfillNdjson(
+						route,
+						answered({ kind: "refused", refusal: "publish_in_flight" }),
+					),
+			);
+			await open(page, routes, APP_ADDRESS);
+			await answerTheReview(page);
+			await expect(
+				page.getByRole("alert").filter({
+					hasText: READING_REFUSAL_COPY.publish_in_flight,
+				}),
+			).toHaveText(READING_REFUSAL_COPY.publish_in_flight);
+			await expect(
+				heading(page, reviewHeading("Household visits")),
+			).toBeVisible();
+			await expect(
+				page.getByRole("textbox", { name: "App name", exact: true }),
+			).toHaveValue("Visits for the clinic");
+			await expect(
+				page.getByRole("radio", { name: "Android only", exact: true }),
+			).toBeChecked();
+			await expect(
+				page
+					.locator('[data-review-table-choice="district"]')
+					.getByRole("radio", { checked: true }),
+			).toHaveCount(1);
+			expect(creates).toHaveLength(1);
+
+			/* A few minutes later, the same answers go again as they were. */
+			await button(page, BRING_IN_ACTIONS.bringItIn).click();
+			await expect.poll(() => creates.length).toBe(2);
+			expect(creates[1]).toEqual(creates[0]);
+		} finally {
+			await routes.removeAll();
+		}
+	});
+
 	test("changed with a review keeps what still applies, and says where a choice was dropped", async ({
 		page,
 	}) => {

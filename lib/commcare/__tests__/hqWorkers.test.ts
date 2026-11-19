@@ -5,6 +5,7 @@ import {
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { log } from "@/lib/logger";
+import { HQ_WORKER_WRITE_ACK_MAX_BYTES } from "../hq/bounds";
 import {
 	createHqMobileWorker,
 	findHqMobileWorkers,
@@ -352,5 +353,22 @@ it("rejects invalid domains and path-shaped worker IDs before any remote write",
 			status: 400,
 		});
 		expect(peer.getCallHistory()?.calls()).toHaveLength(0);
+	});
+});
+
+it("takes an acknowledgement longer than Nova reads as one it cannot confirm, so a created worker's password survives", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.reply(
+				201,
+				JSON.stringify({
+					id: "worker-1",
+					username,
+					user_data: { note: "x".repeat(HQ_WORKER_WRITE_ACK_MAX_BYTES) },
+				}),
+			);
+		expect(await create()).toEqual(unknownWrite);
 	});
 });

@@ -185,6 +185,9 @@ def base(base_id: str) -> Base:
 # Variants ----------------------------------------------------------------------------------------------------------
 
 STANDINGS = ("never", "fix-in-hq", "not-yet")
+# The circumstance a reading reports where something of the source is left unclaimed, which names a surface key
+# (its ``detail.name``) and no manifest entry: a row that expects it names it as its ``entry`` and the key as ``key``.
+UNRECOGNIZED = "unrecognized"
 CHANGE_OPS = ("set-json", "named")
 PLACE_KINDS = (
     "app",
@@ -209,11 +212,13 @@ class VariantsRefused(ValueError):
 
 @dataclass(frozen=True)
 class Refusal:
-    """What a refusing row expects the reading to report: the finding's code, its standing and its place."""
+    """What a refusing row expects the reading to report: the finding's code, its standing and its place, and, for
+    the circumstance ``unrecognized``, the surface key it names."""
 
     entry: str
     standing: str
     place: Mapping
+    key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +238,7 @@ class Variant:
     second: Mapping | None = None
     also: tuple[Mapping, ...] = ()
     hq_never_serves: Mapping | None = None
+    key: str | None = None  # the surface key a row expecting ``unrecognized`` names
 
     @property
     def refusing(self) -> bool:
@@ -245,7 +251,7 @@ class Variant:
 
     def refusals(self) -> tuple[Refusal, ...]:
         """The findings a refusing row expects, its own and each it composes."""
-        found = [Refusal(self.entry, self.standing, self.place)] if self.refusing else []
+        found = [Refusal(self.entry, self.standing, self.place, self.key)] if self.refusing else []
         found.extend(Refusal(one["entry"], one["standing"], one["place"]) for one in self.composed())
         return tuple(found)
 
@@ -343,8 +349,9 @@ def load_variants(path: Path = VARIANTS, *, bases: tuple[Base, ...] | None = Non
     standing of ``never``, ``fix-in-hq`` or ``not-yet`` with a place, or ``holds`` in place of both, a list that is
     empty where no fragment of the document changes (or neither, on a row whose value HQ never serves), a change the
     lane can make, and composed findings (``second``, then
-    ``also``, a list, only beside a ``second``) only beside a refusal. A function of ``proof/matrix/variants/``
-    that no row names is refused as well."""
+    ``also``, a list, only beside a ``second``) only beside a refusal. A row whose entry is the circumstance
+    ``unrecognized`` names the surface key it leaves unclaimed (``key``), and no other row names one. A function of
+    ``proof/matrix/variants/`` that no row names is refused as well."""
     known = {found.id for found in (BASES if bases is None else bases)}
     named = _named_changes() if named is None else named
     rows = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -385,6 +392,15 @@ def load_variants(path: Path = VARIANTS, *, bases: tuple[Base, ...] | None = Non
                 raise VariantsRefused(f"The variant {row_id} refuses and holds; a row does one.")
         _check_change(row_id, row.get("change"), named)
         _check_references(row_id, row)
+        key = row.get("key")
+        if (row.get("entry") == UNRECOGNIZED) != (key is not None) or (
+            key is not None and (not isinstance(key, str) or not key or standing is None)
+        ):
+            raise VariantsRefused(
+                f"The variant {row_id} names the entry {row.get('entry')!r} and the key {key!r}. A row expecting the"
+                f" circumstance {UNRECOGNIZED} names the surface key the reading leaves unclaimed (key) with its"
+                " standing and place, and no other row names a key."
+            )
         second = row.get("second")
         also = row.get("also")
         if also is not None and (second is None or not isinstance(also, list) or not also):
@@ -420,6 +436,7 @@ def load_variants(path: Path = VARIANTS, *, bases: tuple[Base, ...] | None = Non
                 second=second,
                 also=tuple(also or ()),
                 hq_never_serves=never,
+                key=key,
             )
         )
     unused = sorted(set(named) - used)

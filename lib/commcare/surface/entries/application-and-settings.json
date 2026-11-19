@@ -2125,6 +2125,36 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations` key, in an app language, that is no locale record under its own name: a space or a control character at either end, or `=`, `#`, a line break or a carriage return in it, or empty",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "key-not-its-own",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build writes each key stripped, on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, `key.strip()`), and Core reads a line's key up to its first `=`, drops what follows a `#` as a comment and ends the line at a line break or a carriage return (`LocalizationUtils.parseLocaleInput`, `parseAndAdd`), so the value sets the wording of another string than the key names (a key holding `=` sets the string before it, and a key holding a line break the string its second line names) or none, and Nova's document holds no such key and no publish carries one (`appStringKeys.ts::translationKeyOwner`, `not-its-own`); not HQ-buildable: HQ's build reads each language's strings back to merge its default table (`app_strings.py::AppStringsBase.create_default_app_strings`, `commcare_translations.py::load`), which raises on a line holding no `=`, so a key with no `=` before a `#` or a line break stops the build",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's build writes each key stripped, on one line of the language's `app_strings.txt` (`commcare_translations.py::dumps`, `key.strip()`), and Core reads a line's key up to its first `=`, drops what follows a `#` as a comment and ends the line at a line break or a carriage return (`LocalizationUtils.parseLocaleInput`, `parseAndAdd`), so the value sets the wording of another string than the key names (a key holding `=` sets the string before it, and a key holding a line break the string its second line names) or none, and Nova's document holds no such key and no publish carries one (`appStringKeys.ts::translationKeyOwner`, `not-its-own`)"
+			},
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ's build reads each language's strings back to merge its default table (`app_strings.py::AppStringsBase.create_default_app_strings`, `commcare_translations.py::load`), which raises on a line holding no `=`, so a key with no `=` before a `#` or a line break stops the build"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/recipients",
 		"area": "application-and-settings",
 		"section": "Application",
@@ -4008,7 +4038,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "omit (the local `.ccz` writes `ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain` for its project space, on the custom base URL and the secure receiver where the project space holds them)",
+			"cell": "omit (the local `.ccz` writes `ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain` for its project space, on the server the app is published on and the secure receiver where the project space holds it; a project space whose app holds a custom base URL elsewhere has no `.ccz`)",
 			"markers": ["omit"]
 		},
 		"gates": ["toggle/MOBILE_RECOVERY_MEASURES"]

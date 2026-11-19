@@ -825,7 +825,7 @@ A message an author edited in HQ so no language ends with the guard's sentence t
 whole test is registered as the rule, with `deferRefusal`: the expression stage's refusal of it
 waits for the search settle (`provisional.ts::settleDeferredRefusal`). Once the menu's rows are placed
 the settle asks the projection for the guard it joins to the field and compares the stored test's
-last top-level conjuncts with it as parsed trees (`search/settings.ts::runtimeGuardEnding`). Where
+last top-level conjuncts with it as parsed trees (`search/settings.ts::runtimeGuardEndings`). Where
 they are the guard, Nova prints the guard's sentence in the source language and no message ends
 with it, so the field is `unrecognized` at `schema:Assertion.text` and the refusal of the guard's
 reads is dropped; the field's own rule, the conjuncts before the guard, is then read on its own
@@ -1228,10 +1228,19 @@ miss. Its steps:
    account and never reaches the gate.
 
 Steps 2 to 4 print every slot of the app once per round. That is pure computation with no I/O. A pure
-function has no clock, so the bound is the round limit, never a deadline. What bounds the work is the
-size of the app: a body over the bring-in's byte bound is refused before anything is parsed (part 12,
-section 3.6), and `expressionRounds.test.ts` holds that the largest corpus document and the three
-starter bases finish in at most four rounds.
+function has no clock, so the round limit bounds the rounds, never a deadline, and
+`expressionRounds.test.ts` holds that the largest corpus document and the three starter bases finish
+in at most four rounds. The work of the whole reading is bounded by its work limit
+(`lib/commcare/reader/work.ts::readWorkLimit`), a count of the work meter's units that is a function
+of the source's size alone (part 06, 2.2): a reading that would pass it ends as the account of one
+`too-intricate` finding at the app. Bytes bound the work only where it is linear, so the byte cap
+(part 12, section 3.6) alone does not.
+
+Typing where a position requires a date or a date and time
+(`expressions/temporalLiterals.ts::typedWhereRequired`) is one pass over the tree: a node's
+children are visited once with nothing required, and a requirement descends only to a literal or
+through a branch node's branches; `expressions/__tests__/temporalLiteralsWork.test.ts` holds a chain
+thirty comparisons deep to its meter units.
 
 ---
 
@@ -1805,19 +1814,36 @@ export interface PrintCollision {
 	): Expression | undefined;
 }
 export const PRINT_COLLISIONS: readonly PrintCollision[];
+/** The slot's production print a caller holds: each rewrite is taken only where the slot, the
+ *  rewritten node in place, prints what it printed with the tree as given. */
+export interface RewriteGuard {
+	print(expression: Expression): string | undefined;
+	withheld(rowId: string): void;
+}
 /** Every collision applied bottom-up until none applies, a term's own expressions (a question
- *  read's row filters) included. It never parses and never prints. */
+ *  read's row filters) included. It never parses; where `guard` is given, it prints the slot to
+ *  hold each rewrite to the row's contract, and applies no rewrite whose result prints
+ *  differently. */
 export function canonicalExpression(
 	expression: Expression,
 	context: ExpressionContext,
 	print?: SlotPrint,
+	guard?: RewriteGuard,
 ): Expression;
 /** The `relation-type` row alone, which a search row's reading takes (7.3). */
 export function typedRelations(expression: Expression, context: ExpressionContext): Expression;
 ```
 
-Each row is a rewrite over the typed tree. A test prints both trees of every row in a real slot and
-requires equal bytes, so a canonicalization can never hide a difference a runtime reads. Part 09's
+Each row is a rewrite over the typed tree. Its contract, that both members print the same bytes in
+the slot, is held where the rows are applied, not where they are written: `settledBy`, the one applier,
+takes a rewrite at a node only where the slot's production print with the rewritten node in place is
+the print of the slot as given (`RewriteGuard`), and `canon.ts::canonicalSlots` gives every slot its
+print under the identity lookup naming (`readExpression.ts::printSlotUnder`). A rewrite the print
+refuses is not applied and is told by row id and slot kind, never the expression: it is Nova's own
+defect. A slot whose own tree has no print keeps the rows as they are. A test over chosen pairs proves
+the pairs: `printCollisions.test.ts` holds each row's pair to one print and to the guard, and holds a
+tree the `instant` row must not take (arithmetic that differs from the lowering where the row does not
+look). Part 09's
 `lib/commcare/reader/canon.ts` (its section 9) wraps `canonicalExpression` as the canonicalization
 `expression-print-collisions`, and proof 6 (part 14, section 5.5) reaches it through that file's
 `canonDocument`, and part 15 reaches it the same way, through `canonDocument` in its round-trip
@@ -1864,7 +1890,7 @@ trees do, so the slot is `unrecognized`, which is the truth: Nova would write th
 | `junction-first-clause` | `and(a, b, c)`, and the same for `or` | `and(and(a, b), c)`: the printer groups only a later operand of the same precedence, so a first clause of the same junction prints as that many clauses of the outer one (run E5, outcome B) |
 | `literal-pieces` | a literal outside a `concat`: itself. Inside a `concat`: each literal argument replaced by the texts of the arguments `serialize.ts::literalArguments(value, mode, true)` prints it as, then each maximal run of adjacent literal arguments joined into one literal exactly where `literalArguments` of the joined text holds that run's texts, and left as the separate pieces otherwise; a `concat` left with one part is that part. `serialize.ts` exports `literalArguments` (each argument's token and the text it holds) for this row alone; the tokens alone are quoted text, which a literal does not hold | a `concat` of the pieces the printer would split a literal into; in a `concat`, two adjacent literals, or a literal beside a literal the printer splits |
 | `input-presence` | `when-input-present` | `if(count(input), clause, match-all)`, in a record slot |
-| `instant` | a comparison of two dates and times | the lowered arithmetic built from calls |
+| `instant` | a comparison of two dates and times | exactly the tree the lowering of that comparison prints as in this slot, whole: the row proposes the comparison from a fragment of the arithmetic, and the guard takes it only where the slot prints the same, so arithmetic that differs anywhere is itself |
 | `relation-scope` | a record slot's whole tree as `normalizeRelationEvaluationScopes` gives it: one boolean test over one related row | a comparison of a related case's property, which every record target normalizes before printing |
 | `relation-hops` | outside a Search field's condition, `exists` or `missing` over an ancestor walk of several hops as the presence of the first hop whose candidates hold the presence of the rest (`rowScope.ts::immediateRelationPresence` tests one hop at a time) | the walk whole |
 | `relation-where-match-all` | outside a Search field's condition, `exists` or `missing` with no condition | the same with `match-all`, which prints the `true()` an absent condition prints |
@@ -2586,7 +2612,7 @@ or function HQ's search refuses, `csql:operator:<op>`, `csql:function:<name>`,
 `csql:untyped-right-side`) and for a refusal of `checkCsqlRepresentability`
 (`csql:<its reason>`);
 `detail.name` is the attribute or key the expression sits in (`relevant`, `module_filter`,
-a column's header in the app's first language, a search field's name), at most 200 characters. The
+a column's header in the app's first language, a search field's name), cut by the finding's constructor (part 01, 8.3, `cutFindingName`) and never before. The
 expression's text is never put in a finding or a log line: it is app content.
 
 A row of `ExpressionReading.circumstances` carries two members of its own, since its code is
@@ -2873,12 +2899,22 @@ form's logic, the slot's own entry elsewhere), so no reading names this entry.
 One use is of a form, not of an expression. A form's `<instance>` declaration that no held expression
 of the form reads is claimed once the form's registrations are bound, from `env.instanceSources`:
 `expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user` (INERT) for an
-`item-list:<tag>`, `locations` or `user-groups` source, and
-`expressions-and-data/declared-unreferenced-instance-whose-source-loads-no-data-casedb` (INERT) for
-any other. Those claims carry the form's place and the key `instance-source:<src>`, and `source` is
-`-1`: they belong to no registration. Nova writes a form's declarations from what its printed
-expressions read (`xform/builder.ts`, the `InstanceSink`), so an unread declaration is not written
-back, which is what INERT says. This is the claim parts 06 and 11 leave to this part.
+`item-list:<tag>` or `user-groups` source,
+`expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not` (HELD) for any
+other fixture, and `expressions-and-data/declared-unreferenced-instance-whose-source-loads-no-data-casedb`
+(INERT) for any other source, `ledgerdb` among them (`surfaceUses.ts::unreadDeclarationUse`). Those
+claims carry the form's place and the key `instance-source:<src>`, and `source` is `-1`: they belong
+to no registration. A declaration takes the first claim of its own key, place and entry
+(`provisional.ts::claimDeclarations`), so one claimed otherwise (a table a choice list's itemset
+reads) leaves no claim of its class to the next. Nova writes a form's declarations from what its
+printed expressions read (`xform/builder.ts`, the `InstanceSink`), so an unread declaration is not
+written back: that is what INERT says of a source whose load cannot fail or that the project space
+serves. Core initializes every declared instance when the form opens (`FormDef.initialize`), and a
+fixture the project space does not serve throws there (`CommCareInstanceInitializer.loadFixtureRoot`,
+on Android and in Formplayer alike), so the form cannot open; no export says whether `locations`,
+`commcare:reports` or another fixture is served, so dropping it changes whether the form opens where
+it is not, and the reading records the form under `unread-fixture-declarations-dropped` (part 09).
+This is the claim parts 06 and 11 leave to this part.
 
 ---
 

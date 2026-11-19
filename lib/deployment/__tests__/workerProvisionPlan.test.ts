@@ -22,7 +22,11 @@ import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import type { DeploymentResource } from "../types";
-import type { PlannedWorker, RemoteWorker } from "../workerProvisionPlan";
+import type {
+	ManagedPlaceForWorkers,
+	PlannedWorker,
+	RemoteWorker,
+} from "../workerProvisionPlan";
 import {
 	completeWorkerUsername,
 	defaultWorkerUsername,
@@ -33,6 +37,7 @@ import {
 	requiredWorkerDataGaps,
 	retainUnconfirmedWorkers,
 	unconfirmedWorkerKey,
+	workerLevelsToConfirm,
 	workerProvisionProblems,
 } from "../workerProvisionPlan";
 
@@ -42,6 +47,18 @@ const JOSEPH = asUuid("018f0000-0000-7000-8000-000000000002");
 const DENVER = asUuid("018f0000-0000-7000-8000-0000000000d1");
 const CADRE = asUuid("018f0000-0000-7000-8000-0000000000c1");
 const CHW = asUuid("018f0000-0000-7000-8000-0000000000e1");
+const DISTRICT_LEVEL = { code: "district", name: "District" } as const;
+
+function managedDenver(
+	over: Partial<ManagedPlaceForWorkers> = {},
+): ReadonlyMap<string, ManagedPlaceForWorkers> {
+	return new Map([
+		[
+			DENVER,
+			{ hqLocationId: "hq-managed-denver", level: DISTRICT_LEVEL, ...over },
+		],
+	]);
+}
 
 function worker(over: Partial<PlannedWorker> = {}): PlannedWorker {
 	return {
@@ -49,6 +66,7 @@ function worker(over: Partial<PlannedWorker> = {}): PlannedWorker {
 		personaName: "Amina",
 		username: "amina",
 		userData: { cadre: "community" },
+		declaredUserProperties: ["cadre"],
 		locationUuids: [],
 		...over,
 	};
@@ -103,12 +121,14 @@ function plan(
 	return planWorkerProvisioning({
 		workers: [worker()],
 		mappings: [],
-		managedPlaceIds: new Map(),
+		managedPlaces: new Map(),
+		confirmedWorkerLevels: new Set(),
 		goneManagedPlaceIds: new Set(),
 		hqWorkers: [],
 		workerDataGaps: new Map(),
 		domain: DOMAIN,
 		adoptPersonaUuids: [],
+		appHasOrganization: true,
 		...over,
 	});
 }
@@ -351,14 +371,18 @@ describe("things CommCare HQ would take and then not do", () => {
 		});
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("Expected a provisionable plan");
-		expect(result.pushes[0]?.locationIds).toEqual(["hq-denver", "hq-second"]);
+		expect(result.pushes[0]?.locations).toEqual({
+			primaryLocationId: "hq-denver",
+			locationIds: ["hq-denver", "hq-second"],
+		});
 	});
 
-	it("stands a persona in the place CommCare HQ manages, by the id the copy holds", () => {
+	it("stands a persona in the place CommCare HQ manages, by the id the copy holds, once its level is confirmed", () => {
 		const input = {
 			workers: [worker({ locationUuids: [DENVER] })],
 			mappings: [],
-			managedPlaceIds: new Map([[DENVER, "hq-managed-denver"]]),
+			managedPlaces: managedDenver(),
+			confirmedWorkerLevels: new Set(["district"]),
 			goneManagedPlaceIds: new Set<string>(),
 			workerDataGaps: new Map(),
 			domain: DOMAIN,
@@ -367,7 +391,10 @@ describe("things CommCare HQ would take and then not do", () => {
 		expect(workerProvisionProblems(input)).toEqual([]);
 		const result = plan(input);
 		if (!result.ok) throw new Error("Expected a provisionable plan");
-		expect(result.pushes[0]?.locationIds).toEqual(["hq-managed-denver"]);
+		expect(result.pushes[0]?.locations).toEqual({
+			primaryLocationId: "hq-managed-denver",
+			locationIds: ["hq-managed-denver"],
+		});
 		// A place neither the copy nor the ledger holds is still refused.
 		expect(
 			workerProvisionProblems({
@@ -391,7 +418,8 @@ describe("things CommCare HQ would take and then not do", () => {
 		const input = {
 			workers: [worker({ locationUuids: [DENVER] })],
 			mappings: [],
-			managedPlaceIds: new Map<string, string>(),
+			managedPlaces: new Map<string, ManagedPlaceForWorkers>(),
+			confirmedWorkerLevels: new Set<string>(),
 			goneManagedPlaceIds: new Set([DENVER]),
 			workerDataGaps: new Map(),
 			domain: DOMAIN,
@@ -407,6 +435,152 @@ describe("things CommCare HQ would take and then not do", () => {
 		expect(plan(input)).toMatchObject({
 			ok: false,
 			reason: "unprovisionable",
+		});
+	});
+});
+
+describe("a level of places CommCare HQ manages", () => {
+	// HQ's level API returns no `has_users`, its worker API does not check
+	// it, and its own pages refuse a worker at a level without it, so Nova
+	// stands nobody at a managed place until a person confirms the level.
+	it("refuses a persona at a managed place whose level nobody confirmed, naming the level, and plans no push", () => {
+		const input = {
+			workers: [worker({ locationUuids: [DENVER] })],
+			mappings: [],
+			managedPlaces: managedDenver(),
+			confirmedWorkerLevels: new Set<string>(),
+			goneManagedPlaceIds: new Set<string>(),
+			workerDataGaps: new Map(),
+			domain: DOMAIN,
+		};
+		const problems = workerProvisionProblems(input);
+		expect(problems).toEqual([
+			{
+				kind: "level-unconfirmed",
+				personaUuid: AMINA,
+				personaName: "Amina",
+				locationUuid: DENVER,
+				level: DISTRICT_LEVEL,
+			},
+		]);
+		expect(plan(input)).toMatchObject({
+			ok: false,
+			reason: "unprovisionable",
+		});
+		// Another level's confirmation answers nothing.
+		expect(
+			workerProvisionProblems({
+				...input,
+				confirmedWorkerLevels: new Set(["facility"]),
+			}),
+		).toHaveLength(1);
+	});
+
+	it("asks nothing about a place a publish pushed, whose level a person authored", () => {
+		const result = plan({
+			workers: [worker({ locationUuids: [DENVER] })],
+			mappings: [placeMapping()],
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("names each level once, with every persona that would stand there", () => {
+		const JOSEPH_PLACE = "joseph-place";
+		const managed = new Map<string, ManagedPlaceForWorkers>([
+			[DENVER, { hqLocationId: "hq-d", level: DISTRICT_LEVEL }],
+			[JOSEPH_PLACE, { hqLocationId: "hq-j", level: DISTRICT_LEVEL }],
+		]);
+		const problems = workerProvisionProblems({
+			workers: [
+				worker({ locationUuids: [DENVER] }),
+				worker({
+					personaUuid: JOSEPH,
+					personaName: "Joseph",
+					username: "joseph",
+					locationUuids: [JOSEPH_PLACE, DENVER],
+				}),
+			],
+			mappings: [],
+			managedPlaces: managed,
+			confirmedWorkerLevels: new Set(),
+			goneManagedPlaceIds: new Set(),
+			workerDataGaps: new Map(),
+			domain: DOMAIN,
+		});
+		expect(workerLevelsToConfirm(problems)).toEqual([
+			{ code: "district", name: "District", personaNames: ["Amina", "Joseph"] },
+		]);
+	});
+});
+
+describe("what a write to an account says", () => {
+	const pushOf = (over: Partial<Parameters<typeof plan>[0]>) => {
+		const result = plan(over);
+		if (!result.ok) throw new Error("Expected a provisionable plan");
+		const [push] = result.pushes;
+		if (push === undefined) throw new Error("Expected one push");
+		return push;
+	};
+
+	it("sends an account Nova made every declared property, empty where the persona holds none", () => {
+		expect(
+			pushOf({ workers: [worker({ userData: {} })], mappings: [mapping()] })
+				.userData,
+		).toEqual({ cadre: "" });
+	});
+
+	it("clears the places of an account Nova made whose persona stands nowhere, in an app with an organization", () => {
+		const push = pushOf({ mappings: [mapping()] });
+		expect(push.locations).toBeNull();
+		expect(
+			"locations" in
+				pushOf({ mappings: [mapping()], appHasOrganization: false }),
+		).toBe(false);
+	});
+
+	it("leaves an adopted account's places alone where the persona stands nowhere", () => {
+		// `api/user_updates.py::_update_location` reads an empty list as
+		// "remove all": a real worker's hand-made assignment would go.
+		const taken = pushOf({
+			hqWorkers: [remote({ userId: "somebody-elses" })],
+			adoptPersonaUuids: [AMINA],
+		});
+		expect(taken.ownership).toBe("adopted");
+		expect("locations" in taken).toBe(false);
+		const kept = pushOf({
+			mappings: [mapping({ ownership: "adopted" })],
+			hqWorkers: [remote()],
+		});
+		expect("locations" in kept).toBe(false);
+	});
+
+	it("sends an adopted account only the properties its persona states, a blank override included", () => {
+		// `users/user_data.py::UserData.update` touches only the keys it is
+		// handed: a property the persona says nothing about keeps the value
+		// the worker's account holds.
+		const taken = pushOf({
+			workers: [
+				worker({
+					userData: { district: "" },
+					declaredUserProperties: ["cadre", "district"],
+				}),
+			],
+			hqWorkers: [remote({ userId: "somebody-elses" })],
+			adoptPersonaUuids: [AMINA],
+		});
+		expect(taken.userData).toEqual({ district: "" });
+	});
+
+	it("sends an adopted account the places its persona names", () => {
+		const push = pushOf({
+			workers: [worker({ locationUuids: [DENVER] })],
+			mappings: [placeMapping()],
+			hqWorkers: [remote({ userId: "somebody-elses" })],
+			adoptPersonaUuids: [AMINA],
+		});
+		expect(push.locations).toEqual({
+			primaryLocationId: "hq-denver",
+			locationIds: ["hq-denver"],
 		});
 	});
 });
@@ -490,14 +664,14 @@ describe("plannedWorkersFor", () => {
 		});
 	});
 
-	it("sends an empty value for a declared property with none set", () => {
-		// A cleared value would otherwise sit on the account forever:
-		// `users/user_data.py::UserData.update` touches only the keys it is
-		// handed.
+	it("states only the values the persona or its role holds, beside every declared slug", () => {
+		// Whether an unstated property goes out empty is the write's to
+		// decide, by who owns the account.
 		const [projected] = plannedWorkersFor(doc, [
 			{ personaUuid: JOSEPH, username: "joseph" },
 		]);
-		expect(projected?.userData).toEqual({ cadre: "" });
+		expect(projected?.userData).toEqual({});
+		expect(projected?.declaredUserProperties).toEqual(["cadre"]);
 	});
 
 	it("skips a persona the document no longer has", () => {

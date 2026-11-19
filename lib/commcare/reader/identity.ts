@@ -209,7 +209,18 @@ export type IdentityClaim =
 			readonly firstPlace: string;
 	  };
 
+/**
+ * The UUID each key takes: a function of the key alone, holding nothing, so
+ * one resolver may be given to any number of readings, and a reading leaves
+ * it as it found it. What a reading has claimed is its own
+ * (`IdentityClaims`, from `claimsUnder`).
+ */
 export interface IdentityResolver {
+	uuidOf(key: ExternalKey): Uuid;
+}
+
+/** The keys one reading, or one call that names entities, has claimed under a resolver. */
+export interface IdentityClaims {
 	/** `place` is where in HQ's app the entity was read, in the finding's place vocabulary. */
 	claim(key: ExternalKey, place: string): IdentityClaim;
 	/** Every key claimed so far, ordered by `externalKeyText`. */
@@ -232,10 +243,12 @@ export function sortIdentityMapEntries(
 }
 
 /**
- * A resolver over `uuidOf`, which gives a key not claimed before its UUID.
- * A key claimed twice answers the second claim with the first one's place.
+ * New claims under `resolver`, which gives a key not claimed before its
+ * UUID. A key claimed twice answers the second claim with the first one's
+ * place. Each call starts with nothing claimed, so two readings under one
+ * resolver claim alike.
  */
-function resolver(uuidOf: (key: ExternalKey) => Uuid): IdentityResolver {
+export function claimsUnder(resolver: IdentityResolver): IdentityClaims {
 	const claimed = new Map<
 		string,
 		{ readonly entry: IdentityMapEntry; readonly place: string }
@@ -247,7 +260,7 @@ function resolver(uuidOf: (key: ExternalKey) => Uuid): IdentityResolver {
 			if (first !== undefined)
 				return { ok: false, key, firstPlace: first.place };
 			const parts = key.parts.map(copyPart);
-			const uuid = uuidOf({ kind: key.kind, parts });
+			const uuid = resolver.uuidOf({ kind: key.kind, parts });
 			claimed.set(text, { entry: { kind: key.kind, parts, uuid }, place });
 			return { ok: true, uuid };
 		},
@@ -261,7 +274,9 @@ function resolver(uuidOf: (key: ExternalKey) => Uuid): IdentityResolver {
 
 /** Mints every key: `mintEntityUuid(appId, key)`. A reading of an HQ app uses this. */
 export function mintingResolver(appId: string): IdentityResolver {
-	return resolver((key) => mintEntityUuid(appId, key));
+	return Object.freeze({
+		uuidOf: (key: ExternalKey) => mintEntityUuid(appId, key),
+	});
 }
 
 /**
@@ -298,7 +313,7 @@ export function matchingResolver(
 	appId: string,
 	known: readonly IdentityMapEntry[],
 ): IdentityResolver {
-	return resolver(matchingUuidOf(appId, known));
+	return Object.freeze({ uuidOf: matchingUuidOf(appId, known) });
 }
 
 /** A map that names one key or one UUID at two entries, counted from 0. */

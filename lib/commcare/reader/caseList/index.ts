@@ -19,6 +19,7 @@ import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { columnFieldText, defaultSortBlanks } from "@/lib/domain/modules";
+import { recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -26,12 +27,13 @@ import {
 	projectCaseListForHq,
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
+import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
 import { dotInterpolate } from "../hqInterpolation";
-import { isJsonObject, sameJson } from "../jsonCursor";
+import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
 import { handedOff, type PendingExpression } from "../pendingExpressions";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { applyExpressionClaim, provisionalDocument } from "../provisional";
@@ -253,14 +255,14 @@ function printed(value: unknown): unknown {
 	if (value instanceof HqXPath) return hqXPathText(value);
 	if (Array.isArray(value)) return value.map(printed);
 	if (isJsonObject(value))
-		return Object.fromEntries(
+		return recordFromEntries(
 			Object.entries(value).map(([key, one]) => [key, printed(one)]),
 		);
 	return value;
 }
 
 function objects(value: unknown): JsonObject[] {
-	return Array.isArray(value) ? value.filter(isJsonObject) : [];
+	return [...(objectMembers(value) ?? [])];
 }
 
 /** A column's `field` as what HQ's build reads: the property it names, the child element it
@@ -946,7 +948,8 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 				reading,
 				ownerExclusionRefused(ctx, module.uuid) ? module : undefined,
 			);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			ctx.accounting.defect(
 				place,
 				"schema:Module.case_details",

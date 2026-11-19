@@ -59,6 +59,7 @@
  * which Nova's gate admits in no app text, under its own entry too.
  */
 
+import { recordFromEntries } from "@/lib/domain/records";
 import {
 	type TranslationUnitRole,
 	translationRoleRequiresNonblank,
@@ -69,6 +70,7 @@ import {
 	hqLocaleFileValue,
 	isPythonSpace,
 	localeFileIssue,
+	readLocaleLineAsCore,
 } from "../localeFile";
 import { xmlTextIssue } from "../xmlText";
 import { type Claim, defineClaims, refuse } from "./claims";
@@ -137,44 +139,6 @@ function javaTrim(text: string): string {
 	return text.slice(start, end);
 }
 
-/** Core's `LocalizationUtils.replace`: every occurrence, left to right, none overlapping. */
-function coreReplace(text: string, pattern: string, by: string): string {
-	return text.split(pattern).join(by);
-}
-
-/**
- * The app string one line of a locale file defines, as CommCare Core's
- * `LocalizationUtils.parseAndAdd` reads it: the line trimmed, a `#` no
- * backslash precedes and what follows it dropped, then the key before the
- * first `=` and the value after it, `\#` read as `#` and then `\n` as a line
- * break (`parseValue`). Undefined where the line defines nothing: no `=`, or
- * nothing after it.
- */
-function coreLocaleLine(
-	text: string,
-): { readonly key: string; readonly value: string } | undefined {
-	let line = javaTrim(text);
-	let dec = line.length;
-	for (;;) {
-		const at = line.slice(0, dec).lastIndexOf("#");
-		if (at === -1) break;
-		if (at === 0 || line[at - 1] !== "\\") {
-			line = line.slice(0, at);
-			dec = line.length;
-		} else dec = at;
-	}
-	const equal = line.indexOf("=");
-	if (equal === -1 || equal === line.length - 1) return undefined;
-	return {
-		key: line.slice(0, equal),
-		value: coreReplace(
-			coreReplace(line.slice(equal + 1), "\\#", "#"),
-			"\\n",
-			"\n",
-		),
-	};
-}
-
 /** The lines Core reads of the one line HQ's build writes for `text` under a key: `dumps`'
  *  spelling of it, split where `BufferedReader.readLine` ends a line. */
 function writtenLines(text: string): readonly string[] {
@@ -192,7 +156,7 @@ const SOME_KEY = "k";
  * as `\n` and a `#` no backslash precedes as `\#` (`localeFile.ts::hqLocaleFileValue`);
  * Core reads the line HQ writes up to a carriage return, trims it, so the
  * characters up to U+0020 at its end are gone, and then reads `\#` as `#` and
- * `\n` as a line break (`coreLocaleLine`). A line break at a text's end is
+ * `\n` as a line break (`localeFile.ts::readLocaleLineAsCore`). A line break at a text's end is
  * therefore shown, and a text's start keeps its spaces. Where the line holds
  * nothing after its key, the language's file defines no string, which this
  * gives as `""` and `holdText` holds no spelling of.
@@ -200,21 +164,21 @@ const SOME_KEY = "k";
 export function hqDeviceText(text: string): string {
 	if (pythonBlank(text)) return "";
 	const first = writtenLines(text)[0] ?? "";
-	return coreLocaleLine(`${SOME_KEY}=${first}`)?.value ?? "";
+	return readLocaleLineAsCore(`${SOME_KEY}=${first}`)?.value ?? "";
 }
 
 /**
  * The app string the rest of `text` defines in the locale file HQ's build
  * writes it into, or undefined where it defines none: HQ's build leaves a
  * carriage return as it is (`dumps`), Core ends a line there, and reads each
- * line after it as a line of its own (`coreLocaleLine`), so a rest that holds
+ * line after it as a line of its own (`localeFile.ts::readLocaleLineAsCore`), so a rest that holds
  * `=` with text after it sets the string its key names. A rest whose key is
  * empty sets no string a runtime asks for, and is none.
  */
 export function keyDefinedAfterLineEnd(text: string): string | undefined {
 	if (pythonBlank(text)) return undefined;
 	for (const line of writtenLines(text).slice(1)) {
-		const defined = coreLocaleLine(line);
+		const defined = readLocaleLineAsCore(line);
 		if (defined !== undefined && defined.key !== "") return defined.key;
 	}
 	return undefined;
@@ -274,7 +238,7 @@ function holdOrCause(
 	if (!blankLooking(text)) {
 		if (pythonBlank(text)) held = javaTrim(text.split("\r")[0] ?? "");
 		else {
-			const shown = coreLocaleLine(
+			const shown = readLocaleLineAsCore(
 				`${SOME_KEY}=${writtenLines(text)[0] ?? ""}`,
 			);
 			// Nothing but characters up to U+0020 before the line's end: a carriage return, or a
@@ -391,7 +355,7 @@ function readHeldText(
 	if (typeof held !== "string") return held;
 	const nonblank = translationRoleRequiresNonblank(role);
 	const translations = new Map<string, string>();
-	const printed: Record<string, string> = {};
+	const printed = recordFromEntries<string>([]);
 	for (const code of codes) {
 		const text = shownIn(code);
 		if (text === undefined) continue;

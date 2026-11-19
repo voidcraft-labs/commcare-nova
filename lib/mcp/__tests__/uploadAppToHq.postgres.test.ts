@@ -8,10 +8,10 @@ import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
+import { isSaveCounterPath } from "@/__tests__/helpers/hqSaveCounter";
 import {
 	readHttpRequestBody,
 	readMultipartRequest,
-	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
@@ -19,6 +19,7 @@ import {
 	type RetainedHqAnswer,
 	replyRetained,
 	retainedBodyJson,
+	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -31,14 +32,18 @@ import {
 	heldPlacementApp,
 	holdOperation,
 } from "@/lib/db/__tests__/heldPlacementApp";
+import { restoreApp, softDeleteApp } from "@/lib/db/apps";
+import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import {
 	acceptImport,
+	hqSaves,
 	makeManagedCopy,
 	readerOf as managedReader,
 	type ServedTable,
 	serveRows,
 	serveSource,
 	serveTableList,
+	withManagedPeer,
 } from "@/lib/deployment/__tests__/managedFixtures";
 import {
 	clinicVisitsDocument as document,
@@ -46,12 +51,17 @@ import {
 	TARGET_OWNED_PROFILE,
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
+import {
+	accessLostWhilePublishing,
+	appDeletedWhilePublishing,
+} from "@/lib/deployment/errors";
 import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
 import {
 	readDeployment,
 	readDeploymentNovaRevisions,
+	recordWorkerLevelConfirmations,
 } from "@/lib/deployment/store";
 import {
 	asUuid,
@@ -101,6 +111,7 @@ vi.mock("@/lib/deployment/store", async (original) => {
 	};
 });
 beforeEach(() => {
+	hqSaves.reset();
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
 	vi.mocked(downloadAssetBytes).mockReset();
@@ -174,7 +185,7 @@ it.each(["parent-multiple", "same-smaller"] as const)(
 	"refuses the admitted %s HQ selection loss through persisted SDK publishing before remote writes",
 	async (scenario) => {
 		await seed(nestedMenuWireFixture(scenario));
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			await asUser(async (client) => {
 				const refusal = body(await call(client), true);
 				expect(refusal.error_type).toBe("invalid_input");
@@ -243,10 +254,12 @@ function shellSource(peer: MockAgent, appId = "working-app") {
 }
 /** A first publish's shell create, accepted, and HQ's read of that empty app. */
 function shellCreated(peer: MockAgent, appId = "working-app") {
-	request(peer, IMPORT, "POST").reply(201, {
-		success: true,
-		app_id: appId,
-		version: 1,
+	request(peer, IMPORT, "POST").reply(() => {
+		hqSaves.create(appId);
+		return {
+			statusCode: 201,
+			data: JSON.stringify({ success: true, app_id: appId }),
+		};
 	});
 	shellSource(peer, appId);
 }
@@ -254,19 +267,27 @@ function shellCreated(peer: MockAgent, appId = "working-app") {
  * An in-place update, accepted, and HQ's read of the app after it, which
  * the next publish compares its own read with.
  */
-function imported(peer: MockAgent, appId = "working-app", version = 2) {
-	request(peer, IMPORT, "POST").reply(200, {
-		success: true,
-		app_id: appId,
-		version,
-	});
+function imported(peer: MockAgent, appId = "working-app") {
+	request(peer, IMPORT, "POST").reply(() => ({
+		statusCode: 200,
+		data: JSON.stringify({
+			success: true,
+			app_id: appId,
+			version: hqSaves.save(appId),
+		}),
+	}));
 	source(peer, undefined, appId);
 }
+/**
+ * Every request the upload sent, in order, but the save counter's reads,
+ * which `lib/deployment/__tests__/publishSequence.postgres.test.ts` holds.
+ */
 function requests(peer: MockAgent) {
 	return (
 		peer
 			.getCallHistory()
 			?.calls()
+			.filter(({ path }) => !isSaveCounterPath(path))
 			.map(({ method, fullUrl }) => `${method} ${fullUrl}`) ?? []
 	);
 }
@@ -293,16 +314,17 @@ async function snapshot() {
 it("publishes a co-member's actual compiled app, then updates the same remote app while preserving its complete profile", async () => {
 	await seed();
 	const uploads: FormData[] = [];
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		const accept = (version: number) =>
 			request(peer, IMPORT, "POST").reply(async (opts) => {
 				uploads.push(await readMultipartRequest(opts));
+				if (version === 1) hqSaves.create("working-app");
 				return {
 					statusCode: version === 1 ? 201 : 200,
 					data: JSON.stringify({
 						success: true,
 						app_id: "working-app",
-						version,
+						...(version > 1 && { version: hqSaves.save("working-app") }),
 					}),
 				};
 			});
@@ -448,12 +470,12 @@ it("publishes a co-member's actual compiled app, then updates the same remote ap
 
 it("refuses an unreadable update source without replacing the last published app, then resumes with a fresh source read", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		replyRetained(request(peer, SOURCE), liveSource(null));
 		source(peer);
-		imported(peer, "working-app", 3);
+		imported(peer, "working-app");
 		await asUser(async (client) => {
 			body(await call(client));
 			const initial = await state();
@@ -488,7 +510,7 @@ it.each(["source-missing", "source-deleted", "update-missing"] as const)(
 	"records HQ's %s answer as the app gone and creates a replacement only on the next publish",
 	async (answer) => {
 		await seed();
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			shellCreated(peer);
 			imported(peer);
 			if (answer === "update-missing") {
@@ -543,7 +565,7 @@ it.each(["source-missing", "source-deleted", "update-missing"] as const)(
 
 it("retains a refused shell create as resumable, then records the retry as one uploaded app", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		request(peer, IMPORT, "POST").reply(503, "unavailable");
 		shellCreated(peer);
 		imported(peer);
@@ -577,7 +599,7 @@ it("retains a refused shell create as resumable, then records the retry as one u
 
 it("checks the actual SDK, scope, Project membership and target settings before creating deployment state or decrypting credentials", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		await asUser(async (client) => {
 			expect(
 				(
@@ -645,6 +667,8 @@ it("checks the actual SDK, scope, Project membership and target settings before 
 });
 
 async function seedLookup() {
+	/* A lookup write is authorized against the writer's membership, in its own transaction. */
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 	const table = await createLookupTable(scope, {
 		name: "Facilities",
@@ -689,7 +713,7 @@ async function seedLookup() {
 	await seed(doc);
 	return table;
 }
-const TABLES = "/a/clinic/api/lookup_table/v1/?limit=100";
+const TABLES = "/a/clinic/api/lookup_table/v1/?limit=1000";
 const WORKBOOK = "/a/clinic/fixtures/fixapi/";
 const remoteTable = {
 	id: "hq-table",
@@ -702,21 +726,20 @@ function tables(peer: MockAgent, objects: object[] = []) {
 }
 const rowsPath = (tableId = "hq-table") =>
 	`/a/clinic/api/fixture/v1/?fixture_type_id=${tableId}`;
-/** The table's rows as HQ's filtered rows read lists them. */
+/** The table's rows as HQ's filtered rows read lists them (`FixtureResource`, each row naming its table's tag). */
 function rows(peer: MockAgent, tableId = "hq-table") {
-	const objects = [
-		{ id: "hq-row-1", fields: { code: "001", name: "École & Clinic" } },
-	];
-	request(peer, rowsPath(tableId)).reply(200, {
-		objects,
-		meta: { next: null, total_count: objects.length },
+	serveRows(peer, "clinic", {
+		id: tableId,
+		tag: remoteTable.tag,
+		fields: ["code", "name"],
+		rows: [{ code: "001", name: "École & Clinic" }],
 	});
 }
 
 it("requires explicit adoption of the named table, then ships its real workbook before the app and records the adopted dependency", async () => {
 	const table = await seedLookup();
 	const uploads: FormData[] = [];
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		tables(peer, [remoteTable]);
 		tables(peer, [remoteTable]);
 		request(peer, WORKBOOK, "POST").reply(async (opts) => {
@@ -745,7 +768,11 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 			uploads.push(await readMultipartRequest(opts));
 			return {
 				statusCode: 200,
-				data: JSON.stringify({ success: true, app_id: "working-app" }),
+				data: JSON.stringify({
+					success: true,
+					app_id: "working-app",
+					version: hqSaves.save("working-app"),
+				}),
 			};
 		});
 		await asUser(async (client) => {
@@ -862,7 +889,7 @@ it("requires explicit adoption of the named table, then ships its real workbook 
 
 it("records lookup data that survived a partial upload, refuses the app, and retries its own table without asking for adoption", async () => {
 	const table = await seedLookup();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		tables(peer);
 		shellCreated(peer);
 		request(peer, WORKBOOK, "POST").reply(200, {
@@ -947,7 +974,7 @@ it("records lookup data that survived a partial upload, refuses the app, and ret
 
 it("keeps the MCP response pending until the actual upload conversation event is stored", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -988,7 +1015,7 @@ it.each(
 	"refuses malformed lookup inventory before sending a workbook: %j",
 	async ({ inventory }) => {
 		await seedLookup();
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			request(peer, TABLES).reply(200, JSON.stringify(inventory));
 
 			await asUser(async (client) => {
@@ -1043,7 +1070,7 @@ it.each([
 			expect(requested).toBe(key);
 			return png;
 		});
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			shellCreated(peer);
 			imported(peer);
 			const media = "/a/clinic/apps/api/working-app/multimedia/";
@@ -1142,7 +1169,7 @@ it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in 
 		})
 		.execute();
 	vi.mocked(downloadAssetBytes).mockResolvedValue(png);
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -1170,7 +1197,7 @@ it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in 
 
 it("names what a person has to confirm structurally, and sends nothing until they do", async () => {
 	await seedLookup();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		await asUser(async (client) => {
 			const refused = body(
 				await call(client, {
@@ -1238,7 +1265,7 @@ it("names sync on form entry structurally for an app with a menu with Search who
 			],
 		}),
 	);
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		await asUser(async (client) => {
 			const refused = body(
 				await call(client, {
@@ -1318,7 +1345,7 @@ it("names CommCare Supply structurally for an advanced menu whose case list is i
 			},
 		),
 	);
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		await asUser(async (client) => {
 			const refused = body(
 				await call(client, { confirm_commtrack_off: false }),
@@ -1366,7 +1393,7 @@ function webAppsSource(peer: MockAgent, enabled: boolean, shell = false) {
 
 it("answers hq_web_apps_change structurally and lands with confirm_web_apps", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -1403,7 +1430,7 @@ it("answers hq_web_apps_change structurally and lands with confirm_web_apps", as
  * agent told it failed would upload again. */
 it("answers an upload whose app landed as landed when the revision read after it faults, leaving nova_revision out", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -1440,11 +1467,13 @@ it("answers an upload whose app landed as landed when the revision read after it
 
 it("answers hq_plan_lacks_web_apps with its message and keeps the empty app", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
-		request(peer, IMPORT, "POST").reply(201, {
-			success: true,
-			app_id: "working-app",
-			version: 1,
+	await withManagedPeer(async (peer) => {
+		request(peer, IMPORT, "POST").reply(() => {
+			hqSaves.create("working-app");
+			return {
+				statusCode: 201,
+				data: JSON.stringify({ success: true, app_id: "working-app" }),
+			};
 		});
 		webAppsSource(peer, false, true);
 		await asUser(async (client) => {
@@ -1476,7 +1505,7 @@ it("answers hq_plan_lacks_web_apps with its message and keeps the empty app", as
 
 it("refuses a target app below the CommCare version floor with its address", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -1500,7 +1529,7 @@ it("refuses a target app below the CommCare version floor with its address", asy
 
 it("refuses an app whose build profile names a language the app lacks, with each profile on a line and the app's address", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
@@ -1591,7 +1620,7 @@ it.each([
 				],
 			}),
 		);
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			const visible = {
 				meta: { total_count: 1 },
 				objects: [{ domain_name: "clinic", project_name: "Clinic" }],
@@ -1618,7 +1647,11 @@ it.each([
 					uploads.push(await readMultipartRequest(opts));
 					return {
 						statusCode: 200,
-						data: JSON.stringify({ success: true, app_id: "working-app" }),
+						data: JSON.stringify({
+							success: true,
+							app_id: "working-app",
+							version: hqSaves.save("working-app"),
+						}),
 					};
 				});
 				source(peer);
@@ -1688,7 +1721,7 @@ it("refuses a missing media reference before creating a deployment or recording 
 	const doc = document();
 	doc.logo = testMediaAssetId("deleted-image");
 	await seed(doc);
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		await asUser(async (client) => {
 			expect(body(await call(client), true)).toMatchObject({
 				error_type: "invalid_input",
@@ -1709,7 +1742,7 @@ const FACILITY = asUuid("33333333-3333-4333-8333-333333333333");
 const PHONE = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 const CLEAR = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
 const LEVELS = "/a/clinic/api/location_type/v1/?limit=1000";
-const PLACES = "/a/clinic/api/location/v2/?limit=1000";
+const PLACES = "/a/clinic/api/location/v2/?limit=5000";
 const PLACE_PUSH = "/a/clinic/api/location/v2/";
 const remoteLevels = [
 	{
@@ -1894,7 +1927,7 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 			location_data?: unknown;
 		}[];
 	}[] = [];
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		inventory(peer);
 		// The peer assigns ids from actual serialized site codes. Assertions
 		// below independently prove grouping and parent ids, not call spies.
@@ -1935,7 +1968,11 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 			]);
 			return {
 				statusCode: 200,
-				data: JSON.stringify({ success: true, app_id: "working-app" }),
+				data: JSON.stringify({
+					success: true,
+					app_id: "working-app",
+					version: hqSaves.save("working-app"),
+				}),
 			};
 		});
 		await asUser(async (client) => {
@@ -2005,7 +2042,7 @@ it("publishes a real three-level tree in bounded parent-first batches, then reli
 			placesReadBack(peer, kept);
 			source(peer);
 			source(peer);
-			imported(peer, "working-app", 3);
+			imported(peer, "working-app");
 			expect(body(await call(client))).toMatchObject({
 				deployment_state: "uploaded",
 				warnings: [],
@@ -2037,7 +2074,7 @@ it("requires exact adoption and preserves foreign JSON while applying and cleari
 		foreign_policy: { flags: [true, null] },
 	});
 	const payloads: unknown[] = [];
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		inventory(peer, [remote]);
 		inventory(peer, [remote]);
 		shellCreated(peer);
@@ -2099,7 +2136,7 @@ it.each(["refused", "lost response"] as const)(
 		const north = await place(REGION, "North", "north");
 		const central = await place(DISTRICT, "Central", "central", north.id);
 		const payloads: unknown[] = [];
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			inventory(peer);
 			shellCreated(peer);
 			acceptPlaces(peer, payloads, ["hq-north"]);
@@ -2198,7 +2235,7 @@ it.each([
 			await place(FACILITY, "Clinic", "clinic", north.id);
 		if (mode === "duplicate siblings")
 			await place(REGION, "North", "another_north");
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			if (mode === "unreadable") request(peer, LEVELS).reply(200, {});
 			else inventory(peer, [], mode === "missing level" ? [] : remoteLevels);
 			await asUser(async (client) => {
@@ -2225,7 +2262,7 @@ it.each([
 	"keeps lookup failure evidence and never sends the app's content after %s",
 	async (mode) => {
 		await seedLookup();
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			tables(peer);
 			shellCreated(peer);
 			if (mode === "lost acknowledgement")
@@ -2279,21 +2316,19 @@ it.each([
 
 it("keeps an actually runnable deployment intact when a later publish has a missing key or a stale target server", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		await asUser(async (client) => {
 			body(await call(client));
 		});
 		const { doc, app } = await loadAppBlueprint(APP, ACTOR, "edit");
-		request(peer, "/a/clinic/apps/view/working-app/current_version/").reply(
-			200,
-			{ currentVersion: 1, latestBuild: 1, latestReleasedBuild: 1 },
-		);
+		/* A person builds and releases the app as Nova's publish left it. */
+		const build = hqSaves.release("working-app");
 		replyRetained(
 			request(peer, "/a/clinic/api/application/v1/working-app/"),
 			applicationAnswer("working-app", [
-				{ id: "released-build", version: 1, is_released: true },
+				{ id: "released-build", version: build, is_released: true },
 			]),
 		);
 		request(peer, "/a/clinic/apps/download/released-build/profile.ccpr").reply(
@@ -2340,13 +2375,13 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 		});
 		expect(await snapshot()).toEqual(before);
 		/* The first publish's unanswered project-space read goes out twice. */
-		expect(requests(peer)).toHaveLength(9);
+		expect(requests(peer)).toHaveLength(8);
 	});
 });
 
 it("asks before recreating a table deleted in CommCare HQ, then records it as Nova-created while preserving the previous adoption evidence", async () => {
 	const table = await seedLookup();
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		tables(peer, [remoteTable]);
 		shellCreated(peer);
 		request(peer, WORKBOOK, "POST").reply(200, {
@@ -2412,7 +2447,7 @@ it("asks before recreating a table deleted in CommCare HQ, then records it as No
 			tables(peer, [{ ...remoteTable, id: "replacement-table" }]);
 			rows(peer, "replacement-table");
 			source(peer);
-			imported(peer, "working-app", 3);
+			imported(peer, "working-app");
 			expect(
 				body(
 					await call(client, {
@@ -2471,13 +2506,13 @@ it("lists a change to the app in CommCare HQ, refuses a discard of a state it ha
 		const live = liveSource();
 		return { ...live, body: { ...retainedBodyJson(live), name } };
 	};
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		shellCreated(peer);
 		imported(peer);
 		replyRetained(request(peer, SOURCE), renamed("Renamed in HQ"));
 		replyRetained(request(peer, SOURCE), renamed("Renamed again in HQ"));
 		replyRetained(request(peer, SOURCE), renamed("Renamed again in HQ"));
-		imported(peer, "working-app", 3);
+		imported(peer, "working-app");
 		await asUser(async (client) => {
 			body(await call(client));
 			const before = await snapshot();
@@ -2619,7 +2654,7 @@ describe("the placements an upload records", () => {
 			holdOperation(a, a.kid.uuid, a.kidSaveToCase);
 		});
 		await seed(app.doc);
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			await asUser(async (client) => {
 				const asked = body(
 					await call(client, { confirm_plan_features: BUT_SAVE_TO_CASE }),
@@ -2699,7 +2734,7 @@ describe("the placements an upload records", () => {
 
 	it("reads the head again where it moved, and records and sends the placements of the head it read", async () => {
 		await seed(heldPlacementApp().doc);
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			savedDuringPreflight(peer, 1);
 			shellCreated(peer);
 			imported(peer);
@@ -2718,7 +2753,7 @@ describe("the placements an upload records", () => {
 
 	it("answers app_changed_while_publishing where the app keeps changing, with nothing sent or recorded", async () => {
 		await seed(heldPlacementApp().doc);
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			savedDuringPreflight(peer, 3);
 			await asUser(async (client) => {
 				expect(body(await call(client), true)).toEqual({
@@ -2755,6 +2790,7 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 	const lookup = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 
 	it("answers hq_managed_data_changed with each change's sentence, not as CommCare HQ refusing the upload", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		const copy = await makeManagedCopy(h, lookup, facilities, TARGET);
 		await seed(managedReader([copy]));
 		const gone = {
@@ -2762,7 +2798,7 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 			fields: ["code"],
 			rows: [{ code: "001" }],
 		};
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			serveTableList(peer, "clinic", [gone]);
 			serveRows(peer, "clinic", gone);
 			await asUser(async (client) => {
@@ -2776,6 +2812,7 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 	});
 
 	it("answers managed_table_handed_back where the table was handed back while the upload got ready", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		const copy = await makeManagedCopy(h, lookup, facilities, TARGET);
 		await seed(managedReader([copy]));
 		await h
@@ -2787,7 +2824,7 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 			})
 			.where("id", "=", copy.tableId)
 			.execute();
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			serveTableList(peer, "clinic", [facilities]);
 			serveRows(peer, "clinic", facilities);
 			acceptImport(peer, "clinic", 201, {
@@ -2809,6 +2846,185 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 			expect(
 				requests(peer).some((line) => line.endsWith("/fixtures/fixapi/")),
 			).toBe(false);
+		});
+	});
+});
+
+/* The app goes to recently deleted, or its publisher is made a viewer or
+ * removed from its Project, while a publish runs. The writes it already let
+ * out are recorded on their admissions; the next one is refused; and the
+ * publisher is told the app was deleted where they may still edit it, and
+ * otherwise that what had gone was recorded. A publish whose import landed
+ * before that lands, answering the record only to a publisher who may still
+ * read it. */
+describe("an app that stops being the publisher's to publish while a publish runs", () => {
+	async function openWrites() {
+		return h
+			.db()
+			.selectFrom("hq_remote_writes")
+			.select("write_kind")
+			.where(openRemoteWrite)
+			.execute();
+	}
+
+	it.each([
+		["deleted", appDeletedWhilePublishing("clinic", true)],
+		[
+			"left to a publisher who can only view it",
+			accessLostWhilePublishing("clinic"),
+		],
+		[
+			"left to a publisher removed from its Project",
+			accessLostWhilePublishing("clinic"),
+		],
+	] as const)(
+		"records the empty app CommCare HQ made and sends no content once the app is %s meanwhile",
+		async (loss, message) => {
+			await seed();
+			await withManagedPeer(async (peer) => {
+				request(peer, IMPORT, "POST").reply(async () => {
+					if (loss === "deleted") await softDeleteApp(APP, "creator");
+					else if (loss.includes("removed"))
+						await h.removeProjectMember(ACTOR, PROJECT);
+					else await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+					hqSaves.create("working-app");
+					return {
+						statusCode: 201,
+						data: JSON.stringify({ success: true, app_id: "working-app" }),
+					};
+				});
+				shellSource(peer);
+				await asUser(async (client) => {
+					expect(body(await call(client), true)).toMatchObject({
+						error_type: "not_found",
+						message,
+					});
+				});
+				expect(
+					requests(peer).filter((line) => line.startsWith("POST ")),
+				).toEqual([`POST ${HOST}${IMPORT}`]);
+			});
+			expect(await openWrites()).toEqual([]);
+			if (loss === "deleted") await restoreApp(APP, "creator");
+			else await h.seedProjectMember(ACTOR, PROJECT, "editor");
+			/* The attempt folds nothing past its passed preflight: the next
+			 * publish fills the empty app the record names. */
+			const record = await state();
+			expect(record?.deployment.state).not.toBe("incomplete");
+			expect(record?.deployment.resumePhase).toBeNull();
+			expect(activeRemoteApp(record ?? fail())?.remoteId).toBe("working-app");
+		},
+	);
+
+	it.each([
+		["made a viewer", true],
+		["removed from the Project", false],
+	] as const)(
+		"lands an update whose publisher was %s while CommCare HQ took it, answering the record only where they may still read it",
+		async (_loss, mayRead) => {
+			await seed();
+			const colleague = "colleague-who-confirmed";
+			await h.seedProjectMember(colleague, PROJECT, "editor");
+			await withManagedPeer(async (peer) => {
+				shellCreated(peer);
+				imported(peer);
+				await asUser(async (client) => {
+					body(await call(client));
+				});
+				await recordWorkerLevelConfirmations(
+					{ ...SCOPE, actorUserId: colleague, role: "editor" },
+					TARGET,
+					["district"],
+					{ expectedEndings: 0 },
+				);
+				source(peer);
+				request(peer, IMPORT, "POST").reply(async () => {
+					if (mayRead) await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+					else await h.removeProjectMember(ACTOR, PROJECT);
+					return {
+						statusCode: 200,
+						data: JSON.stringify({
+							success: true,
+							app_id: "working-app",
+							version: hqSaves.save("working-app"),
+						}),
+					};
+				});
+				source(peer);
+				await asUser(async (client) => {
+					const result = await call(client);
+					const landed = body(result);
+					expect(landed.stage).toBe("upload_complete");
+					expect(landed.hq_app_id).toBe("working-app");
+					if (mayRead) {
+						expect(landed.deployment.confirmations).toContainEqual(
+							expect.objectContaining({ subject: "district" }),
+						);
+					} else {
+						expect(landed.deployment).toBeNull();
+						expect(landed.deployment_state).toBeUndefined();
+						expect(landed.sent).toEqual([
+							{
+								kind: "app",
+								nova_id: APP,
+								hq_id: "working-app",
+								hq_name: null,
+							},
+						]);
+						expect(JSON.stringify(result)).not.toContain(colleague);
+					}
+				});
+			});
+			/* The record is whole for whoever may read it. */
+			const theirs = await readDeployment(
+				{ ...SCOPE, actorUserId: colleague, role: "editor" },
+				TARGET,
+			);
+			expect(activeRemoteApp(theirs ?? fail())?.remoteId).toBe("working-app");
+			expect(theirs?.confirmations).toContainEqual(
+				expect.objectContaining({ confirmedByName: colleague }),
+			);
+			expect(theirs?.deployment.state).toBe("uploaded");
+		},
+	);
+
+	it("sends nothing once the app is deleted while preflight reads the app there", async () => {
+		await seed();
+		await withManagedPeer(async (peer) => {
+			shellCreated(peer);
+			imported(peer);
+			await asUser(async (client) => {
+				body(await call(client));
+			});
+			const posted = requests(peer).filter((line) =>
+				line.startsWith("POST "),
+			).length;
+			const writes = await h
+				.db()
+				.selectFrom("hq_remote_writes")
+				.select("id")
+				.execute();
+			const live = liveSource();
+			request(peer, SOURCE).reply(async () => {
+				await softDeleteApp(APP, "creator");
+				return {
+					statusCode: live.status,
+					data: retainedBodyText(live),
+					responseOptions: { headers: { ...live.headers } },
+				};
+			});
+			await asUser(async (client) => {
+				expect(body(await call(client), true)).toMatchObject({
+					error_type: "not_found",
+					message: appDeletedWhilePublishing("clinic", false),
+				});
+			});
+			expect(
+				requests(peer).filter((line) => line.startsWith("POST ")),
+			).toHaveLength(posted);
+			expect(
+				await h.db().selectFrom("hq_remote_writes").select("id").execute(),
+			).toEqual(writes);
 		});
 	});
 });

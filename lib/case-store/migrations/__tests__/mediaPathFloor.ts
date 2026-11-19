@@ -40,5 +40,21 @@ export const MEDIA_PATH_FLOOR_CASES: readonly {
 	{ path: "commcare/lo\u0085go.png", floorAdmits: false },
 	{ path: "commcare/lo\u009fgo.png", floorAdmits: false },
 	{ path: "commcare/lo\u00a0go.png", floorAdmits: true },
+	/* The names a `.ccz` gives its own files, and names under them, in any
+	 * letter case; and the near names that are no file of its own. */
+	{ path: "default/app_strings.txt", floorAdmits: false },
+	{ path: "FRA/App_Strings.TXT", floorAdmits: false },
+	{ path: "en/app_strings.txt/x.png", floorAdmits: false },
+	{ path: "modules-0/forms-0.xml", floorAdmits: false },
+	{ path: "Modules-12/Forms-3.XML", floorAdmits: false },
+	{ path: "modules-0/forms-0.xml/x.png", floorAdmits: false },
+	{ path: "suite.xml/x.png", floorAdmits: false },
+	{ path: "PROFILE.ccpr/a.png", floorAdmits: false },
+	{ path: "media_suite.xml/a.png", floorAdmits: false },
+	{ path: "default/logo.png", floorAdmits: true },
+	{ path: "a/b/app_strings.txt", floorAdmits: true },
+	{ path: "modules-0/x.png", floorAdmits: true },
+	{ path: "modules-0/forms-0.xml.png", floorAdmits: true },
+	{ path: "modules-x/forms-0.xml", floorAdmits: true },
 	{ path: "commcare/logo.png ", floorAdmits: true },
 ];

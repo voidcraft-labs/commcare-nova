@@ -21,6 +21,11 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
+import {
+	APP_DELETED_WRITE,
+	appDeletedWhilePublishing,
+	DeploymentAppDeletedError,
+} from "@/lib/deployment/errors";
 import { previewDeploymentAnswerFor } from "@/lib/deployment/previewSpace";
 import {
 	currentResourceIdentities,
@@ -838,6 +843,20 @@ it("refuses inaccessible apps before credentials or publishing", async () => {
 	});
 	expect(getCommCareSettings).not.toHaveBeenCalled();
 	expect(publishAppToHq).not.toHaveBeenCalled();
+});
+
+it("tells a publisher whose app was deleted while it published that it was, and that much of the publish", async () => {
+	const message = appDeletedWhilePublishing(DOMAIN, true);
+	vi.mocked(publishAppToHq).mockRejectedValueOnce(
+		new DeploymentAppDeletedError(APP_DELETED_WRITE).restated(message),
+	);
+	const response = await POST(
+		req({ domain: DOMAIN, appName: "App", appId: "app-1" }),
+	);
+	expect(await read(response)).toEqual({
+		status: 404,
+		body: { error: message },
+	});
 });
 
 it("reads acceptPlacementMoves as a reason and digest or absent, refuses anything else with 400, and hands it to the publish", async () => {

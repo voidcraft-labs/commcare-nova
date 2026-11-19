@@ -17,6 +17,7 @@ import {
 	type HqMediaFileRead,
 	readHqMediaFile,
 } from "@/lib/commcare/hq/media";
+import { giveBackHeld } from "@/lib/commcare/hq/memoryMeter";
 import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain";
 import type { HqMediaPath, HqMediaRecord, HqMediaStanding } from "./hqMedia";
 
@@ -122,6 +123,7 @@ export async function settleHqMedia(
 			stop.abort();
 			return;
 		}
+		let retained = false;
 		if (options.retain === true) {
 			if (read.kind === "missing")
 				reads.set(request.multimediaId, { kind: "missing" });
@@ -131,6 +133,7 @@ export async function settleHqMedia(
 			) {
 				retainedBytes += read.bytes.byteLength;
 				reads.set(request.multimediaId, { kind: "read", bytes: read.bytes });
+				retained = true;
 			}
 		}
 		verdicts.set(
@@ -142,6 +145,10 @@ export async function settleHqMedia(
 					}
 				: { kind: read.kind },
 		);
+		/* A file hashed and not retained is let go here, and given back to the
+		 * request's lease where it runs under one. */
+		if (read.kind === "read" && !retained)
+			giveBackHeld("bytes", read.bytes.byteLength);
 	};
 
 	const queue = [...requests.values()];

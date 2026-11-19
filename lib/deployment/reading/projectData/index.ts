@@ -13,7 +13,10 @@ import type { HqFailure } from "@/lib/commcare/hq/failure";
 import type { HqLocation, HqLocationType } from "@/lib/commcare/hq/locations";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
-import type { IdentityResolver } from "@/lib/commcare/reader/identity";
+import {
+	claimsUnder,
+	type IdentityResolver,
+} from "@/lib/commcare/reader/identity";
 import type {
 	ReaderLookupCatalog,
 	ReaderOrganization,
@@ -28,6 +31,11 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, orderedLocationProperties } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	NO_ENTRIES,
+	ownRecordValue,
+	recordFromEntries,
+} from "@/lib/domain/records";
 import type { LookupRowsMeasure } from "@/lib/lookup/managedRules";
 import type {
 	LookupFixtureDataSnapshot,
@@ -144,7 +152,7 @@ export interface ReadingProjectData {
 		readonly hqLevels: readonly HqLocationType[];
 		readonly hqPlaces: readonly HqLocation[];
 		/** Set where the place list stopped past Nova's limit: CommCare HQ's total, or null where
-		 *  no page named one. `hqPlaces` is then empty. */
+		 *  the list passed its byte bound. `hqPlaces` is then empty. */
 		readonly placesPastLimit: { readonly totalCount: number | null } | null;
 	};
 }
@@ -338,7 +346,7 @@ export function assembleReadingProjectData(input: {
 		}
 		const [binding] = resolveLookupBindings(
 			[read],
-			{ [tag]: standing },
+			recordFromEntries([[tag, standing]]),
 			null,
 			ids,
 		);
@@ -388,7 +396,7 @@ export function keptColumnsOf(
 	keptColumns: Readonly<Record<string, readonly string[]>>,
 	table: LookupTableDefinition,
 ): readonly string[] {
-	return Object.hasOwn(keptColumns, table.id) ? keptColumns[table.id] : [];
+	return ownRecordValue(keptColumns, table.id) ?? [];
 }
 
 function rowsOf(
@@ -445,7 +453,7 @@ export function underTableChoices(
 		}
 		const [binding] = resolveLookupBindings(
 			[table.read],
-			{ [tag]: table.standing },
+			recordFromEntries([[tag, table.standing]]),
 			choices,
 			ids,
 		);
@@ -489,7 +497,7 @@ export function projectDataReadsOf(
 ): ReaderProjectDataReads {
 	if (outcome.kind === "account") {
 		return {
-			lookupFields: {},
+			lookupFields: NO_ENTRIES,
 			...tablesOf(outcome.unreadTables),
 			readsPlaces: outcome.readsLocations,
 		};
@@ -531,7 +539,7 @@ export function projectDataReadsOf(
 		fields.set(binding.tag, set);
 	}
 	return {
-		lookupFields: Object.fromEntries(
+		lookupFields: recordFromEntries(
 			[...fields.entries()]
 				.sort(([left], [right]) => compareCodeUnits(left, right))
 				.map(([tag, read]) => [tag, [...read].sort(compareCodeUnits)]),
@@ -612,9 +620,6 @@ const UNSERVED_DECLARATION_ENTRY =
  * otherwise the levels Nova cannot hold, the places it cannot, and, with a
  * document, an owner rule the copy would refuse. A value of a place is judged
  * only with a document, once the rest of the app can come in.
- *
- * `resolver` is this call's own: `levelsFromHq` claims each level's key, and a
- * resolver answers a key once.
  */
 export function readingProjectDataFindingsFor(
 	data: ReadingProjectData,
@@ -669,7 +674,10 @@ export function readingProjectDataFindingsFor(
 		if (placesPastLimit !== null) {
 			findings.push(placesOverNovaLimitFinding(placesPastLimit.totalCount));
 		} else {
-			const levels = levelsFromHq(data.gathered.hqLevels, resolver);
+			const levels = levelsFromHq(
+				data.gathered.hqLevels,
+				claimsUnder(resolver),
+			);
 			const plan = planManagedPlaces({
 				hqPlaces: data.gathered.hqPlaces,
 				levels: levels.levels,
@@ -776,7 +784,7 @@ export interface ReadingProjectDataWrite {
  * places, the plan of Nova's copy of them over CommCare HQ's levels and the
  * document's location properties. Called on a read with no finding, so a
  * table it cannot bind, a `choice` with no answer, or places that cannot come
- * in is a caller's mistake and throws. `resolver` is this call's own. Pure.
+ * in is a caller's mistake and throws. Pure.
  */
 export function readingProjectDataWrite(
 	data: ReadingProjectData,
@@ -848,7 +856,7 @@ export function bornPlaces(
 	}
 	const plan = planManagedPlaces({
 		hqPlaces: data.gathered.hqPlaces,
-		levels: levelsFromHq(data.gathered.hqLevels, resolver).levels,
+		levels: levelsFromHq(data.gathered.hqLevels, claimsUnder(resolver)).levels,
 		properties: orderedLocationProperties(doc),
 		mode: "birth",
 	});

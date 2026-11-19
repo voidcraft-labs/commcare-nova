@@ -288,6 +288,24 @@ describe("comparing two reads", () => {
 		]);
 	});
 
+	/* HQ's build writes a key stripped and on one line, so a key with a space
+	 * before a generated string's name, or one that splits its line, sets
+	 * another string there: no publish carries it, and one added is a change. */
+	it("reads a key that sets another string than its own name as Nova's part", () => {
+		const needed = { ...ownership, addOns: ["display_conditions"] };
+		for (const key of [" modules.m0", "x=y\nmodules.m0", "a#b"]) {
+			const smuggled = edited((app) => {
+				(app.translations as Record<string, Record<string, string>>).en[key] =
+					"Smuggled";
+			});
+			for (const languageNames of ["nova", "target"] as const)
+				expect(
+					diff(base, smuggled, needed, { languageNames }),
+					JSON.stringify(key),
+				).toEqual([{ kind: "text" }]);
+		}
+	});
+
 	it("reads add-ons and profile keys only under the baseline's ownership", () => {
 		const properties = (app: Source) =>
 			(app.profile as { properties: Record<string, string> }).properties;

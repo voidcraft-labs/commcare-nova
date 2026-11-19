@@ -37,6 +37,7 @@ import {
 	HQ_CHANGES_HEADING,
 	hqChangesBroughtInToast,
 	hqChangesLead,
+	NEXT_PUBLISH_GOES_AHEAD,
 	NOVA_CHANGES_HEADING,
 	NOVA_CHANGES_LEAD,
 	nextPublishChangesLine,
@@ -52,6 +53,7 @@ import {
 	sincePhrase,
 	USE_HQ_VERSION_ACTION,
 	USE_HQ_VERSION_HELPER,
+	whereHqKeepsLines,
 } from "@/lib/publish/hqChangesCopy";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -163,7 +165,7 @@ function recordView(
 			server: "production",
 			domain: DOMAIN,
 			hqAppId: "hq-app",
-			locations: [],
+			organization: { locations: [] },
 		}),
 		leftBehind: [],
 		kept: null,
@@ -673,6 +675,7 @@ test("a save in CommCare HQ that changed nothing is recorded and the publish goe
 					kind: "nothing",
 					reason: "reads-the-same",
 					since: PUBLISHED,
+					hqChanges: [],
 					publishChanges: [],
 					readingId: READING_ID,
 					reviewDigest: REVIEW_DIGEST,
@@ -739,6 +742,7 @@ test("a save in CommCare HQ that changed nothing, where the next publish changes
 					kind: "nothing",
 					reason: "already-here",
 					since: PUBLISHED,
+					hqChanges: [],
 					publishChanges: sentences,
 					readingId: READING_ID,
 					reviewDigest: REVIEW_DIGEST,
@@ -1356,6 +1360,71 @@ test("on the card, a change Nova can't hold draws the two ways on its sentence n
 		await expect(
 			page.getByRole("dialog", { name: "Publish app" }),
 		).toBeVisible();
+	} finally {
+		await routes.removeAll();
+	}
+});
+
+test("on the card, a save in CommCare HQ that reads the same but moved a form's id and files' paths lists each move, records the read, and says the next publish goes ahead", async ({
+	page,
+}) => {
+	const moves = whereHqKeepsLines({
+		formIds: ["Visit"],
+		keyedPrefixes: [],
+		mediaPaths: 2,
+		columnFields: [],
+	});
+	const routes = removableRoutes(page);
+	try {
+		await answerNova(page, () => [recordView()]);
+		await recorded(routes, "/api/commcare/changes/review", (route) =>
+			fulfillStream(
+				route,
+				stream({
+					kind: "nothing",
+					reason: "reads-the-same",
+					since: PUBLISHED,
+					hqChanges: moves,
+					publishChanges: [],
+					readingId: READING_ID,
+					reviewDigest: REVIEW_DIGEST,
+				}),
+			),
+		);
+		const bringIns = await recorded(
+			routes,
+			"/api/commcare/changes/bring-in",
+			(route) =>
+				fulfillStream(
+					route,
+					stream({ kind: "recorded", deployment: recordView() }),
+				),
+		);
+		await page.goto(`${peer.origin}/?role=admin`);
+		await page
+			.getByRole("button", { name: "See what changed", exact: true })
+			.click();
+		const card = cardDialog(page);
+		const line = nothingToBringInLine("reads-the-same", SINCE);
+		await expect(card.getByRole("status").filter({ hasText: line })).toHaveText(
+			`${line} ${NEXT_PUBLISH_GOES_AHEAD}`,
+		);
+		await expect(panel(page).getByRole("listitem")).toHaveText([...moves]);
+		/* The read is recorded once, with nothing to answer and nothing to
+		 * bring in. */
+		expect(bringIns).toEqual([
+			{
+				appId: APP_ID,
+				server: "production",
+				domain: DOMAIN,
+				readingId: READING_ID,
+				reviewDigest: REVIEW_DIGEST,
+				tableChoices: {},
+			},
+		]);
+		await expect(
+			card.getByRole("button", { name: BRING_IN_CHANGES_ACTION, exact: true }),
+		).toHaveCount(0);
 	} finally {
 		await routes.removeAll();
 	}

@@ -38,9 +38,19 @@ name: Upstream pins
 # (python3 -m proof.matrix.adopt), which the report job commits only beside
 # the lock, since the trees answer the new image.
 #
+# What a container or another job wrote is data. proof/run.mjs seals each
+# run's output before any step uploads it (plain files and directories only;
+# one holding anything else is moved aside and the run fails), and reads the
+# extraction's surface without following a link, within a bound and as JSON;
+# the retained trees move only through the retained layout
+# (proof/matrix/layout.py, by python3 -m proof.matrix.place), which refuses
+# every name, type and size it does not declare, and the adopt report only
+# where every line is one of adopt's own sentences.
+#
 # The workflow never merges. The jobs that run upstream code (the surface
 # extraction, the retained trees, the prewarm, the readers' lane) hold only a
-# read token; the jobs that write run none.
+# read token; the jobs that write run none, and commit only files the
+# retained layout admits, read by main's own code in the job that commits.
 on:
   # Monday, just after midnight. The shared FIFO concurrency group waits for the weekly audit if it is still
   # running, and the image comparison waits for this run (proof/README.md, "The other workflows").
@@ -191,25 +201,39 @@ jobs:
             proof/editors/test_retained_reads.py || code=$?
           case $code in
             0|1) ;;
+            6)
+              echo "::error::The run that makes the retained trees wrote something other than plain files into its output, so nothing of it is adopted or uploaded; proof/run.mjs named each entry above and moved the output to retained-out.refused."
+              exit "$code"
+              ;;
             *)
               echo "::error::The run that makes the retained trees ended with exit $code before its tests finished; its output is above."
               exit "$code"
               ;;
           esac
+      # Adopting takes every output of one run and merges them by file, through the retained layout
+      # (proof/matrix/adopt.py). The run above is one run of the lane on this machine, which writes one output, so
+      # that one is every output of it; proof/ci/__tests__/laneWorkflow.test.ts holds each adopting step to the
+      # outputs its job's runs write.
       - name: Adopt what HQ made into the retained trees
         run: |
-          mkdir -p "$RUNNER_TEMP/upstream-retained"
+          mkdir -p "$RUNNER_TEMP/adopt"
           python3 -m proof.matrix.adopt "$RUNNER_TEMP/retained-out" --report --corpus "$RUNNER_TEMP/corpus" \
-            > "$RUNNER_TEMP/upstream-retained/adopt-report.txt"
-          cat "$RUNNER_TEMP/upstream-retained/adopt-report.txt"
-          node proof/ci/retained.mjs proof "$RUNNER_TEMP/upstream-retained"
+            > "$RUNNER_TEMP/adopt/adopt-report.txt"
+          cat "$RUNNER_TEMP/adopt/adopt-report.txt"
+          python3 -m proof.matrix.place pack proof "$RUNNER_TEMP/upstream-retained" \
+            --report "$RUNNER_TEMP/adopt/adopt-report.txt"
+      # A retained tree holds no hidden file (proof/matrix/retained-layout.json), so the upload carries none.
       - uses: actions/upload-artifact@v7
         with:
           name: upstream-retained
           path: ${{ runner.temp }}/upstream-retained/
           if-no-files-found: error
-          include-hidden-files: true
           retention-days: 7
+      # The run's output as proof/run.mjs sealed it, sealed again here in case the run ended before it could; one
+      # holding anything but plain files and directories is moved to retained-out.refused and is not uploaded.
+      - name: Seal the run's output
+        if: ${{ !cancelled() }}
+        run: node proof/run.mjs --seal "$RUNNER_TEMP/retained-out"
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:

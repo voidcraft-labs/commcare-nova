@@ -20,8 +20,13 @@
    (``instance('locations')/locations/location``, from
    ``jr://fixture/locations``): the name of the worker's place
    (``commcare_location_id`` of the worker's session data), the name of
-   its parent, and its ``region_code``. The form is then saved in HQ's form
-   builder (``vellum``).
+   its parent, and its ``region_code``. The same list is declared a second
+   time, as ``places``, which no expression reads: a declaration HQ's form
+   builder keeps once the question that named it is gone, and one Core loads
+   when the form opens, which stops the form where the project space serves
+   no such list (``CommCareInstanceInitializer.loadFixtureRoot``); here it
+   serves one. The form is then saved in HQ's form builder (``vellum``),
+   which writes every instance it parsed (``Vellum/src/writer.js``).
 
 The worker the lane makes for this base is assigned the village
 ``north-1`` (``Base.worker_location``). Its configuration is the lane's
@@ -116,7 +121,8 @@ def make_organization(authoring):
 
 
 def report_source(name):
-    """The report form, as HQ's ``XFormBuilder`` writes it, with the session and the location list declared."""
+    """The report form, as HQ's ``XFormBuilder`` writes it, with the session and the location list declared, the
+    list a second time as ``places``, which nothing reads."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
     xform = XFormBuilder(name)
@@ -126,6 +132,7 @@ def report_source(name):
     xform.new_question("my_region", None, None, calculate=f"{WORKER_PLACE_ROW}/location_data/region_code")
     declare_instance(xform, "commcaresession", "jr://instance/session")
     declare_instance(xform, "locations", "jr://fixture/locations")
+    declare_instance(xform, "places", "jr://fixture/locations")
     return xform.tostring(xml_declaration=True).decode("utf-8")
 
 
@@ -147,6 +154,7 @@ BASE = Base(
         "questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
         "questions/bind-calculate-on-a-hidden-value",
         "expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
+        "expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not",
         "menus-and-case-lists/module-with-case-type-survey-module",
     ),
     vellum=((0, 0),),

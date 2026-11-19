@@ -78,6 +78,7 @@ import type {
 } from "./types";
 import {
 	advanceLookupProjectRevision as advanceProjectRevision,
+	authorizeLookupWriteInTransaction,
 	lockLookupProjectState as lockProjectState,
 	lockLookupTableForUpdate as lockTable,
 	notifyCommittedLookupMutation,
@@ -91,9 +92,11 @@ type StoredRow = Selectable<LookupRowsTable>;
 
 /**
  * The service receives a scope only after a request boundary has authenticated
- * and authorized the exact Project. Role checks deliberately stay at that
- * boundary; this assertion catches an internal caller constructing a broken
- * scope without turning attribution into a second access gate.
+ * and authorized the exact Project, which is enough for a read. A write never
+ * trusts the scope's role: each one reads the member's role again in its own
+ * transaction (`authorizeLookupWriteInTransaction`), with the capability that
+ * write needs, before its first lock. This assertion catches an internal
+ * caller constructing a broken scope.
  */
 function assertScope(scope: LookupScope): void {
 	if (
@@ -788,7 +791,12 @@ export async function createLookupTable(
 	const orderKeys = balancedKeysBetween(null, null, parsed.columns.length);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			await lockProjectState(tx, authority);
 			const duplicate = await tx
 				.selectFrom("lookup_tables")
 				.select("id")
@@ -856,10 +864,15 @@ export async function updateLookupTableName(
 	const parsed = parseInput(updateLookupTableNameInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			const state = await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -891,10 +904,15 @@ export async function updateLookupTableTag(
 	const parsed = parseInput(updateLookupTableTagInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			const state = await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"delete",
+			);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -939,10 +957,15 @@ export async function addLookupColumn(
 	const parsed = parseInput(addLookupColumnInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -1028,10 +1051,15 @@ async function updateLookupColumnProjection(
 ): Promise<LookupMutationReceipt> {
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			const state = await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				field === "wire_name" ? "delete" : "edit",
+			);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				input.tableId,
 				input.expectedTableRevision,
 				"author",
@@ -1098,10 +1126,15 @@ export async function moveLookupColumn(
 	const parsed = parseInput(moveLookupColumnInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			const state = await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -1151,10 +1184,15 @@ export async function createLookupRow(
 	const parsed = parseInput(createLookupRowInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -1219,10 +1257,15 @@ export async function updateLookupRow(
 	const parsed = parseInput(updateLookupRowInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			const state = await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -1283,10 +1326,15 @@ export async function deleteLookupRow(
 	const parsed = parseInput(deleteLookupRowInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -1326,10 +1374,15 @@ export async function moveLookupRow(
 	const parsed = parseInput(moveLookupRowInputSchema, input);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			const state = await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",
@@ -1384,10 +1437,15 @@ export async function replaceLookupRows(
 	const orderKeys = balancedKeysBetween(null, null, parsed.rows.length);
 	return mutation(() =>
 		withAppTx(async (tx) => {
-			const state = await lockProjectState(tx, scope.projectId);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				scope,
+				"edit",
+			);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
-				scope.projectId,
+				authority,
 				parsed.tableId,
 				parsed.expectedTableRevision,
 				"author",

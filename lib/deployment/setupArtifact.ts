@@ -46,7 +46,7 @@ import {
 	organizationLevelsOf,
 	ownRecordValue,
 } from "@/lib/domain";
-import type { StoredLocation } from "@/lib/organization/types";
+import type { OrganizationSnapshot } from "@/lib/organization/types";
 import {
 	DISTANCE_SEARCH_SETUP_CAVEATS,
 	DISTANCE_SEARCH_SETUP_TITLE,
@@ -54,7 +54,10 @@ import {
 	distanceSearchSetupStep,
 	distanceSearchSetupSummary,
 } from "@/lib/publish/distanceSearchSetup";
-import { LOGO_UPLOAD_STEP_TEXT } from "@/lib/publish/planFeatures";
+import {
+	LOGO_UPLOAD_STEP_TEXT,
+	workerLevelConfirmationLabel,
+} from "@/lib/publish/planFeatures";
 import { workerRecordSetup } from "./workerRecordRequirements";
 
 type SetupArtifactSectionId =
@@ -125,8 +128,21 @@ export interface SetupArtifactInput {
 	readonly server: CommCareServer;
 	readonly domain: string;
 	readonly hqAppId: string | null;
-	/** App-scoped places, for naming the ones an automation refers to. */
-	readonly locations: readonly StoredLocation[];
+	/**
+	 * The app's places and, while CommCare HQ manages them, the project space
+	 * they are a copy of; null where they could not be read. Null leaves out
+	 * every section that depends on who makes the organization on the target
+	 * (its levels, place information and places), since the artifact cannot
+	 * tell whether that is Nova or CommCare HQ, and an automation names its
+	 * places by id.
+	 */
+	readonly organization: SetupArtifactOrganization | null;
+	/**
+	 * The codes of the levels a person confirmed take workers on the target
+	 * (the deployment's `worker-level` confirmations). Absent when the caller
+	 * has no deployment to speak for, which is none confirmed.
+	 */
+	readonly confirmedWorkerLevels?: ReadonlySet<string>;
 	/**
 	 * The lookup tables this app reads, and whether they are on the target
 	 * yet. Absent when the caller has no deployment to speak for — the
@@ -140,6 +156,38 @@ export interface SetupArtifactInput {
 	 * than what it has done.
 	 */
 	readonly pushedPlaces?: ReadonlyMap<string, { readonly adopted: boolean }>;
+}
+
+/**
+ * The app's places, and the project space they are a copy of while CommCare
+ * HQ manages them (`hq`, which only a refresh writes).
+ */
+export type SetupArtifactOrganization = Pick<
+	OrganizationSnapshot,
+	"locations" | "hq"
+>;
+
+/**
+ * Whether CommCare HQ manages the app's places on `target`. There the levels
+ * and places are that project space's own, and a publish sends no place.
+ * Anywhere else the places, a managed copy's included, go out as places Nova
+ * made, at levels a person makes by hand.
+ */
+export function placesManagedOn(
+	hq: OrganizationSnapshot["hq"],
+	target: { readonly server: string; readonly domain: string },
+): boolean {
+	return (
+		hq !== undefined &&
+		hq.server === target.server &&
+		hq.domain === target.domain
+	);
+}
+
+function managedHere(input: SetupArtifactInput): boolean {
+	return (
+		input.organization !== null && placesManagedOn(input.organization.hq, input)
+	);
 }
 
 function hqBase(server: CommCareServer): string {
@@ -297,7 +345,8 @@ function organizationSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
 	const ordered = setupLevels(input.doc);
-	if (ordered.length === 0) return null;
+	if (ordered.length === 0 || input.organization === null) return null;
+	if (managedHere(input)) return managedOrganizationSection(input, ordered);
 	const byUuid = organizationLevelsOf(input.doc);
 	const levelName = (uuid: string): string =>
 		ownRecordValue(byUuid, uuid)?.name ?? "the level with that id";
@@ -342,6 +391,56 @@ function organizationSection(
 			"This page is the only way to define levels. CommCare HQ's location API cannot write them, and reads back only the name, code, parent, and two of the settings below, so Nova can neither create these for you nor check that you got them right.",
 			"Saving this page replaces the whole list. A level you leave out is removed, and if that level still has places in it, CommCare HQ abandons the ENTIRE save with only a warning at the top of the page, so none of your other changes land either. Add to what is there rather than starting over.",
 			"If you cannot open this page, what CommCare HQ says tells you which thing to fix. A page-not-found means either the project space does not have the paid Locations feature (ask support@dimagi.com), or your account lacks the “edit apps” permission. A permission-denied means you have “edit apps” but not “edit locations”. Either way the address is right, so ask whoever administers the project space rather than hunting for the page.",
+		],
+	};
+}
+
+/**
+ * The levels of an organization CommCare HQ manages on the target: a record,
+ * not an instruction. They are that project space's own, so there is nothing
+ * to make, and the document's case flow for them is Preview's default, never
+ * a reading of CommCare HQ: `locations/resources/v0_5.py::LocationTypeResource`
+ * serves no `has_users`, and the worker API does not check it
+ * (`api/user_updates.py::_verify_location_ids`). So what each level says is
+ * whether a person confirmed it takes workers, which provisioning asks
+ * before it stands anyone there. A confirmation of a code no level holds now
+ * follows the levels, named as every surface names it
+ * (`workerLevelConfirmationLabel`), since it stays on record until someone
+ * withdraws it.
+ */
+function managedOrganizationSection(
+	input: SetupArtifactInput,
+	ordered: readonly OrganizationLevel[],
+): SetupArtifactSection {
+	const confirmed = input.confirmedWorkerLevels ?? new Set<string>();
+	const held = new Set(ordered.map((level) => level.code));
+	const confirmedGone = [...confirmed].filter((code) => !held.has(code));
+	return {
+		id: "organization",
+		title: "Organization levels",
+		summary: `CommCare HQ manages your organization on “${input.domain}”, so these are its levels as CommCare HQ holds them. Nova makes and changes none of them there.`,
+		url: `${hqBase(input.server)}/a/${input.domain}/settings/locations/location_types/`,
+		steps: [
+			...ordered.map((level) =>
+				step(level.uuid, `“${level.name}”, with “Type Code” “${level.code}”.`, [
+					confirmed.has(level.code)
+						? "A member of your Project confirmed that places at this level take workers here, so Nova makes workers who stand at them."
+						: "Nova asks you before it makes a worker who stands at a place at this level, because CommCare HQ doesn't tell Nova whether the level takes workers. Its Organization Levels page shows this as “Has Users”.",
+				]),
+			),
+			...confirmedGone.map((code) =>
+				step(
+					`worker-level:${code}`,
+					`${workerLevelConfirmationLabel(code, ordered)}.`,
+					[
+						"A member of your Project confirmed this, and it counts again if a level with this code comes back to the organization. You can withdraw it from this project space's card in Publishing.",
+					],
+				),
+			),
+		],
+		caveats: [
+			"You can add or change levels on this page in CommCare HQ. Nova never writes them.",
+			"A level confirmed to take workers stays confirmed until someone withdraws it from this project space's card in Publishing.",
 		],
 	};
 }
@@ -398,7 +497,7 @@ function automationsSection(
 		const guide = buildAutomationSetupGuide(
 			input.doc,
 			automation,
-			input.locations,
+			input.organization?.locations ?? [],
 		);
 		steps.push(
 			step(
@@ -617,12 +716,16 @@ function lookupTablesSection(
  * There is no REST resource for the definition — `LocationFieldsView` is
  * a session-authenticated page — so this stays an instruction however much
  * else Nova can drive.
+ *
+ * Where CommCare HQ manages the places on the target, Nova sends none of
+ * them, so there is nothing for these fields to receive and no section.
  */
 function placeDataSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
 	const properties = orderedLocationProperties(input.doc);
-	if (properties.length === 0) return null;
+	if (properties.length === 0 || input.organization === null) return null;
+	if (managedHere(input)) return null;
 	const steps = properties.map((property) =>
 		step(
 			property.uuid,
@@ -667,11 +770,13 @@ function placeDataSection(
  * Organization Levels page anyway.
  */
 function placesSection(input: SetupArtifactInput): SetupArtifactSection | null {
+	if (input.organization === null) return null;
 	const levels = organizationLevelsOf(input.doc);
-	const live = input.locations.filter(
+	const live = input.organization.locations.filter(
 		(location) => location.archivedAt === null,
 	);
 	if (live.length === 0) return null;
+	if (managedHere(input)) return managedPlacesSection(input, live);
 	const byLevel = new Map<string, { total: number; pushed: number }>();
 	let adopted = 0;
 	for (const place of live) {
@@ -684,24 +789,22 @@ function placesSection(input: SetupArtifactInput): SetupArtifactSection | null {
 		}
 		byLevel.set(place.levelUuid, tally);
 	}
-	const levelOrder = new Set([
-		...setupLevels(input.doc).map((level) => level.uuid),
-		...byLevel.keys(),
-	]);
-	const steps = [...levelOrder].flatMap((levelUuid) => {
-		const tally = byLevel.get(levelUuid);
-		if (tally === undefined) return [];
-		const levelName = ownRecordValue(levels, levelUuid)?.name ?? "Places";
-		return [
-			step(levelUuid, `${levelName}: ${countOf(tally.total, "place")}`, [
-				tally.pushed === tally.total
-					? `All of these are on “${input.domain}”.`
-					: tally.pushed === 0
-						? `Nova will put these on “${input.domain}” the next time you publish.`
-						: `${tally.pushed} of these are on “${input.domain}”; Nova sends the rest the next time you publish.`,
-			]),
-		];
-	});
+	const steps = levelsInSetupOrder(input.doc, byLevel.keys()).flatMap(
+		(levelUuid) => {
+			const tally = byLevel.get(levelUuid);
+			if (tally === undefined) return [];
+			const levelName = ownRecordValue(levels, levelUuid)?.name ?? "Places";
+			return [
+				step(levelUuid, `${levelName}: ${countOf(tally.total, "place")}`, [
+					tally.pushed === tally.total
+						? `All of these are on “${input.domain}”.`
+						: tally.pushed === 0
+							? `Nova will put these on “${input.domain}” the next time you publish.`
+							: `${tally.pushed} of these are on “${input.domain}”; Nova sends the rest the next time you publish.`,
+				]),
+			];
+		},
+	);
 	return {
 		id: "places",
 		title: "Places",
@@ -718,6 +821,49 @@ function placesSection(input: SetupArtifactInput): SetupArtifactSection | null {
 			"A place's site code is set once in Nova, because it is what CommCare HQ matches on. Renaming a place is free; the code follows it around.",
 		],
 	};
+}
+
+/**
+ * The places of an organization CommCare HQ manages on the target: Nova's
+ * copy of that project space's own places, counted by level. A publish sends
+ * none of them (the `organization` edge plans no place there), so this says
+ * where they live and how the copy follows them.
+ */
+function managedPlacesSection(
+	input: SetupArtifactInput,
+	live: OrganizationSnapshot["locations"],
+): SetupArtifactSection {
+	const levels = organizationLevelsOf(input.doc);
+	const totals = new Map<string, number>();
+	for (const place of live) {
+		totals.set(place.levelUuid, (totals.get(place.levelUuid) ?? 0) + 1);
+	}
+	return {
+		id: "places",
+		title: "Places",
+		summary: `These places live in “${input.domain}” on CommCare HQ. Nova keeps a copy so Preview can show them, and never sends or changes them there.`,
+		url: `${hqBase(input.server)}/a/${input.domain}/settings/locations/list/`,
+		steps: levelsInSetupOrder(input.doc, totals.keys()).map((levelUuid) =>
+			step(
+				levelUuid,
+				`${ownRecordValue(levels, levelUuid)?.name ?? "Places"}: ${countOf(totals.get(levelUuid) ?? 0, "place")}`,
+			),
+		),
+		caveats: [
+			"You can add or change places in CommCare HQ, then refresh Nova's copy in App setup, under Organization.",
+		],
+	};
+}
+
+/** The levels named in `present`, parents before children as the setup page fills them, then any the document no longer holds. */
+function levelsInSetupOrder(
+	doc: BlueprintDoc,
+	present: Iterable<string>,
+): string[] {
+	const named = new Set(present);
+	return [
+		...new Set([...setupLevels(doc).map((level) => level.uuid), ...named]),
+	].filter((uuid) => named.has(uuid));
 }
 
 function workerRecordSection(

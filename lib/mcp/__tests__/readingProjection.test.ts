@@ -85,11 +85,11 @@ import {
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
 import { BringInToolError } from "../errors";
+import { PAGE_LIMIT_CHARS } from "../paging";
 import {
 	accountDigest,
 	describeReading,
 	mapReadingRefusal,
-	PAGE_LIMIT_CHARS,
 	pageFor,
 	parseAccountPage,
 	type ReadingProjection,
@@ -584,6 +584,37 @@ describe("an account a page at a time", () => {
 		);
 	});
 
+	it("holds a first page under the limit where one finding's place is longer than a page, and within it the whole answer it goes out in", () => {
+		const huge = "M".repeat(200_000);
+		const answer = account([
+			manifest(
+				{
+					kind: "question",
+					menu: 0,
+					form: 0,
+					menuName: huge,
+					formName: huge,
+					path: huge,
+				},
+				huge,
+			),
+			longest(1),
+		]);
+		const envelope = (reading: unknown) => ({
+			status: "changed",
+			message: "x".repeat(20_000),
+			reading,
+		});
+		const projection = describeReading(answer, KEY, {
+			...FIRST_PAGE,
+			envelope,
+		});
+		expect(JSON.stringify(envelope(projection)).length).toBeLessThanOrEqual(
+			PAGE_LIMIT_CHARS,
+		);
+		expect(projection.account?.findings.length).toBeGreaterThan(0);
+	});
+
 	it("answers a page cut from another account from the fresh account's start, restarted", () => {
 		const before = account(
 			Array.from({ length: 300 }, (_, index) => longest(index)),
@@ -793,6 +824,7 @@ describe("mapReadingRefusal", () => {
 			choice_missing: "invalid_input",
 			project_changed: "bring_in_refused",
 			app_unavailable: "bring_in_refused",
+			publish_in_flight: "bring_in_refused",
 		});
 	});
 });

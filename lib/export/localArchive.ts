@@ -22,7 +22,9 @@ import type { PreparedExportBoundary } from "./boundaryValidation";
  *
  * The archive is made for one published project space: `runtimeTarget`
  * names its server, its project space and the HQ app that holds the app
- * there, and `identity` gives that deployment's menu and form ids. So no
+ * there, and `identity` gives that deployment's menu and form ids and the word
+ * each case list column's field keeps there, which names the column's app
+ * strings as HQ's build there names them. So no
  * archive is compiled without a target, and its profile tells a phone where
  * to sign in, sync and send forms. `deployment` gives the other facts of
  * that deployment the archive reads: whether the project space holds
@@ -74,6 +76,7 @@ export function compileLocalArchive(
 	});
 	return compileCcz(hqJson, doc.appName, doc, {
 		runtimeTarget,
+		identity,
 		assets,
 		compiledAtSeq,
 		earlierHqApps: deployment.earlierHqApps,

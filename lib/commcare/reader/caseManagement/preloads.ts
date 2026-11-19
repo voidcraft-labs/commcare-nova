@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain";
 import { term } from "@/lib/domain/expression/builders";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { caseTypeHopMap } from "../../caseTypeDepths";
@@ -335,12 +336,14 @@ export function readPreloads(
 
 	const casePreload = isJsonObject(actionsStored.case_preload)
 		? actionsStored.case_preload
-		: {};
-	const caseMap = isJsonObject(casePreload.preload) ? casePreload.preload : {};
+		: NO_ENTRIES;
+	const caseMap = isJsonObject(casePreload.preload)
+		? casePreload.preload
+		: NO_ENTRIES;
 	if (Object.keys(caseMap).length === 0) {
 		const updateCase = isJsonObject(actionsStored.update_case)
 			? actionsStored.update_case
-			: {};
+			: NO_ENTRIES;
 		if (
 			active.has("update_case") &&
 			isJsonObject(updateCase.update) &&
@@ -503,16 +506,16 @@ export function readPreloads(
 
 	const usercasePreload = isJsonObject(actionsStored.usercase_preload)
 		? actionsStored.usercase_preload
-		: {};
+		: NO_ENTRIES;
 	const usercaseMap = isJsonObject(usercasePreload.preload)
 		? usercasePreload.preload
-		: {};
+		: NO_ENTRIES;
 	if (Object.keys(usercaseMap).length === 0)
 		A.derived("usercase_preload", inactiveClaimOf(form, "usercase_preload"));
 	else {
 		const usercaseUpdate = isJsonObject(actionsStored.usercase_update)
 			? actionsStored.usercase_update
-			: {};
+			: NO_ENTRIES;
 		const writesWorker =
 			active.has("usercase_update") &&
 			isJsonObject(usercaseUpdate.update) &&
@@ -576,10 +579,10 @@ export function readPreloads(
 
 	const loadFromForm = isJsonObject(actionsStored.load_from_form)
 		? actionsStored.load_from_form
-		: {};
+		: NO_ENTRIES;
 	const loadMap = isJsonObject(loadFromForm.preload)
 		? loadFromForm.preload
-		: {};
+		: NO_ENTRIES;
 	if (Object.keys(loadMap).length === 0)
 		A.derived("load_from_form", inactiveClaimOf(form, "load_from_form"));
 	else {
@@ -802,7 +805,7 @@ function workerRecordRead(
 	if (matches.length > 0 || !holdsWorkerProperty(slug))
 		return { kind: "name", term: named };
 	const minted = ctx.accounting.identity(
-		ctx.resolver.claim(externalKey.userProperty(slug), whereText(appPlace())),
+		ctx.identities.claim(externalKey.userProperty(slug), whereText(appPlace())),
 		place,
 		"schema:PreloadAction.preload",
 	);
@@ -846,10 +849,10 @@ export function settlePreloads(ctx: ReadContext, form: DraftForm): void {
 				else {
 					const known = read.property;
 					if (draft.userProperties?.[known.uuid] === undefined) {
-						const properties = {
-							...(draft.userProperties ?? {}),
-							[known.uuid]: known,
-						};
+						const properties = recordFromEntries([
+							...Object.entries(draft.userProperties ?? NO_ENTRIES),
+							[known.uuid, known],
+						]);
 						draft.userProperties = properties;
 						// In the code-unit order of the slugs, as the properties the logic reads
 						// stand (`worldEntitiesFromReads`), so a re-read that meets this read in

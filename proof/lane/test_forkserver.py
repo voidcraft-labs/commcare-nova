@@ -662,8 +662,6 @@ def test_a_shard_claims_blocks_of_both_queues_skips_the_taken_and_runs_the_main_
             CLAIM,
             "--wait-for",
             f'cp "{main_source}" "$PROOF_LANE_QUEUE"',
-            "--command-env",
-            "CLAIMS",
         ],
         CLAIMS=str(claims),
         **_own_corpus(corpus),

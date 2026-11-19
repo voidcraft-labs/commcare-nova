@@ -19,6 +19,11 @@ Over the records of a document (``proof.checks.observations``):
   resource Core refused, at ``/problems/*/<stage>/<exception class>``; at
   ``/archive-refused`` where HQ's archive download refused the build, and
   ``/not_admitted`` where Core listed no problem);
+- each local archive Nova's download makes, or its refusal: a document that
+  declares Android carries D's local archive, or states the download's
+  refusal in its place where A's app keeps a custom base URL whose origin is
+  not the server's own (``workers-sent-elsewhere``), and never both
+  (``local@D`` and ``local@D'``, ``local_outcome``);
 - every soft assertion HQ noted while it published and built
   (``soft_assert:<operation>@<state>``, ``observations.soft_assertion_differences``):
   HQ notes them and goes on, as production does (``proof.hq.boot``), so each
@@ -32,6 +37,11 @@ and D's local archives, never A.
 
 from __future__ import annotations
 
+import json
+import zipfile
+from urllib.parse import urlsplit
+
+from proof.checks.corpus import ANDROID
 from proof.checks.differences import Difference, pointer_token
 
 
@@ -220,6 +230,120 @@ def local_bar(document, reports):
     return found
 
 
+def base_url_origin(value):
+    """Where a custom base URL sends a phone, as ``lib/commcare/targetFacts.ts::heldBaseUrl`` reads it: ``(host,
+    origin)``, ``host`` the netloc after its last ``@`` and ``origin`` the ``https`` origin of that host where the
+    base is ``https`` with no user information (else None, which is never a server's own); None for a value that is
+    no ``http`` or ``https`` URL with a netloc, which HQ's ``urljoin`` sends nowhere else."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
+        return None
+    host = parts.netloc.rpartition("@")[2]
+    if parts.scheme.lower() != "https" or "@" in parts.netloc:
+        return host, None
+    return host, server_origin(f"https://{host}/")
+
+
+def server_origin(url):
+    """The WHATWG origin of an ``https`` URL (its host in lower case, its default port dropped), or None."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme.lower() != "https" or not parts.hostname:
+        return None
+    hostname = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    return f"https://{hostname}" + ("" if port in (None, 443) else f":{port}")
+
+
+def held_base_url(document):
+    """The custom base URL A's app keeps: the stored app's (``authored/app.json``) on a document made in HQ, or the
+    one a person saved over A in HQ (``hq-side.json``'s ``appAttributes``), the save winning; None where neither
+    holds one."""
+    held = None
+    authored = document.authored
+    if authored is not None:
+        held = json.loads(authored.app.read_text(encoding="utf-8")).get("custom_base_url")
+    saved = ((document.hq_side or {}).get("appAttributes") or {}).get("custom_base_url")
+    return saved if saved is not None else held
+
+
+def archive_server(path):
+    """The origin of the server a local archive's profile signs a worker in on (its ``ota-restore-url``), or None
+    where it names none (an archive retained before archives named their project space)."""
+    from lxml import etree
+
+    with zipfile.ZipFile(path) as archive:
+        profile = etree.fromstring(archive.read("profile.ccpr"))
+    for element in profile.iter("{*}property"):
+        if element.get("key") == "ota-restore-url":
+            return server_origin(element.get("value") or "")
+    return None
+
+
+def local_outcome(document_id, *, android, archive_server_origin, has_archive, refusal, held_base, artifact):
+    """The bar over what Nova's download makes of one document for its project space: D's local archive, or the
+    refusal the document states in its place (``Document.local_refusal``). Nova makes no ``.ccz`` for a project
+    space whose app keeps a custom base URL whose origin is not the server's own
+    (``lib/deployment/runtimeTarget.ts::workersSentElsewhere``), and one for every other project space of an app
+    that declares Android. So: an app that declares Android carries an archive or states the refusal
+    (``/local-outcome/missing``), never both (``/local-outcome/archive-and-refusal``); a stated refusal is what A's
+    base calls for, its host the base's and its server's origin not the base's (``/local-outcome/refusal``, the
+    refusal at ``before`` and A's base at ``after``), and is stated only for an app that declares Android; and an
+    archive is made only where A's base is absent or on the archive's own server
+    (``/local-outcome/archive-for-workers-sent-elsewhere``)."""
+    found = []
+
+    def report(what, before, after):
+        path = f"/local-outcome/{what}"
+        found.append(Difference("bar", document_id, artifact, path, path, "refused", before, after))
+
+    base = base_url_origin(held_base)
+    if has_archive and refusal is not None:
+        report("archive-and-refusal", refusal, held_base)
+    if refusal is not None:
+        server = server_origin(refusal["server"])
+        called_for = android and base is not None and base[0] == refusal["host"] and base[1] != server
+        if not called_for:
+            report("refusal", refusal, held_base)
+    elif android and not has_archive:
+        report("missing", None, held_base)
+    if has_archive and base is not None and archive_server_origin is not None and base[1] != archive_server_origin:
+        report("archive-for-workers-sent-elsewhere", archive_server_origin, held_base)
+    return found
+
+
+def document_local_outcome(document):
+    """``local_outcome`` over D and, where the document holds an edit, D', each with the platforms it declares. A
+    control retains only the archives its registers' checks read (``proof.checks.controls``), so the outcome is held
+    on a corpus document alone."""
+    if document.kind == "control":
+        return []
+    held_base = held_base_url(document)
+    found = []
+    parts = [(document, False, "local@D")]
+    if document.edit is not None:
+        parts.append((document.edit, True, "local@D'"))
+    for part, edit, artifact in parts:
+        archive = part.local_ccz
+        found += local_outcome(
+            document.id,
+            android=ANDROID in document.platforms(edit=edit),
+            archive_server_origin=archive_server(archive) if archive is not None else None,
+            has_archive=archive is not None,
+            refusal=part.local_refusal,
+            held_base=held_base,
+            artifact=artifact,
+        )
+    return found
+
+
 def document_bar(document, records):
     """The bar's differences on one document, judged from its records: every publish, build and local archive, but a
     migration witness's A."""
@@ -233,4 +357,5 @@ def document_bar(document, records):
         for name in document.edit.exports:
             found += edit_bar(document.id, observations.edit_view(records, name))
     found += local_bar(document.id, observations.local_reports(records))
+    found += document_local_outcome(document)
     return found + observations.soft_assertion_differences(records, "bar", states=observations.judged_states(document))

@@ -88,8 +88,14 @@ def _script(name, producer):
     return Family(name, (*NODE, f"proof/native/producers/{producer}"))
 
 
+# Vitest's options for a writer (proof/corpus/emissionProcess.ts::VITEST_WRITER_OPTIONS says why each): the config
+# loaded by Node's own import rather than bundled into node_modules/.vite-temp, and neither Vitest's results cache
+# nor its module cache, so a producer writes nothing under node_modules, which the harness mounts read-only.
+VITEST_WRITER_OPTIONS = ("--configLoader", "native", "--no-cache", "--fsModuleCache=false")
+
+
 def _vitest(name, test_file, variable):
-    return Family(name, (VITEST, "run", test_file, "--project", "unit"), variable)
+    return Family(name, (VITEST, "run", test_file, "--project", "unit", *VITEST_WRITER_OPTIONS), variable)
 
 
 FAMILIES = {

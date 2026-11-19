@@ -489,6 +489,46 @@ describe("a protected validation message in each language Core shows it in", () 
 		expect(findings).toContain("unrecognized xform:bind@jr:constraintMsg");
 	});
 
+	// Each stored form is compared by its text, so it is held only where it is the value the
+	// composition writes for that text whole: `form` its only attribute, its text its content.
+	it.each([
+		[
+			"an attribute Nova does not write",
+			(value: Element) => {
+				value.attribs.note = "kept";
+			},
+		],
+		[
+			"an element inside it",
+			(value: Element) => {
+				const output = parseXml(
+					'<output value="/data/value"/>',
+				).children.filter(isTag)[0] as Element;
+				output.parent = value;
+				value.children = [...value.children, output];
+			},
+		],
+	])(
+		"leaves the message unclaimed where a form of it holds %s",
+		async (_, change) => {
+			const edit = editMessage((root) => {
+				const text = messageText(root, "en");
+				if (text === null) throw new Error("No English text of the message.");
+				const locale = findAll(
+					(value) => value.attribs.form === "__nova_locale",
+					[text],
+				)[0];
+				if (locale === undefined) throw new Error("No __nova_locale form.");
+				change(locale);
+			});
+			const findings = questionFindings(
+				await reading(englishApp(), ["en"], edit.xml),
+			);
+			expect(edit.edits()).toBeGreaterThan(0);
+			expect(findings).toContain("unrecognized xform:bind@jr:constraintMsg");
+		},
+	);
+
 	it("leaves the message unclaimed where the default language lacks one of its forms", async () => {
 		const edit = englishLocaleRemoved();
 		const findings = questionFindings(

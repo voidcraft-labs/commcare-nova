@@ -9,7 +9,8 @@
  * that does not list the project space, and an account CommCare HQ turned
  * away) share `domain_not_authorized`, each with its own message.
  *
- * Scope: `nova.hq.read`, checked before any read. Kept off the Solutions
+ * Scope: `nova.hq.import`, checked by its registration before anything runs:
+ * its answer is a project space's apps and who in Nova manages each. Kept off the Solutions
  * Architect, as every tool about CommCare HQ's apps is.
  */
 
@@ -30,7 +31,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import {
 	circumstanceContextFor,
@@ -110,10 +111,11 @@ async function stopError(
 }
 
 export function registerListHqApps(server: McpServer, ctx: ToolContext): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"list_hq_apps",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
 				"List the apps in one CommCare HQ project space that can be brought in to Nova. Call `get_hq_connection` first and pass the exact `domain` the user chose; never choose a project space for them. Each app has its `hq_app_id` and `name`. `in_nova` is null where the app is free to bring in. Otherwise it says a Nova app already manages it, since one CommCare HQ app is managed by one Nova app: `open` with the Nova `app_id` where the user can open it, or `elsewhere` with `next`, a sentence that says who to ask and the two ways forward. Relay `next` as written. Reads CommCare HQ with the user's own key and changes nothing.",
 			inputSchema: z.strictObject({
@@ -128,7 +130,6 @@ export function registerListHqApps(server: McpServer, ctx: ToolContext): void {
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqRead, "list_hq_apps");
 				const picker = await listHqAppsForPicker(
 					{ userId: ctx.userId },
 					{ domain: args.domain },

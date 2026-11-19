@@ -401,8 +401,13 @@ export async function POST(req: NextRequest) {
 				}),
 				/* Null when the app has never reached this target: a refused
 				 * first publish leaves nothing durable behind, and the refusal
-				 * below is the whole answer. */
+				 * below is the whole answer. Null on a landed publish too, where
+				 * the publisher was removed from the app's Project, or the app
+				 * was deleted, after the import went: the app is there and
+				 * recorded, and `sent` is what the publish put there. */
 				deployment: outcome.deployment,
+				...(outcome.landed &&
+					outcome.deployment === null && { sent: outcome.sent }),
 				/* Never inferred from `deployment.superseded` by the client:
 				 * a table recreated after being deleted on CommCare HQ
 				 * supersedes its mapping and leaves nothing there. The one

@@ -18,8 +18,10 @@ import {
 	type SortDirection,
 	sortBlanks,
 } from "@/lib/domain/modules";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import { caseListOrderOptions } from "../../suite/case-list/orderPlanOptions";
+import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
 import {
 	type Claim,
@@ -488,7 +490,7 @@ export function readSortElements(
 			cursor.refuse(
 				"field",
 				fieldClass(text, relation) ?? O.fieldInvalid,
-				text === "" ? undefined : { name: text.slice(0, 200) },
+				text === "" ? undefined : { name: text },
 			);
 			ok = false;
 		} else {
@@ -583,8 +585,8 @@ export function readSortElements(
 					joined.columns.push({
 						proposal: {
 							column: { kind: "plain", ...read, header: "" },
-							header: {},
-							texts: {},
+							header: NO_ENTRIES,
+							texts: NO_ENTRIES,
 							invisible: false,
 							json: cursor,
 						},
@@ -622,7 +624,7 @@ export function readSortElements(
 			if (pythonBlank(text)) return false;
 			// A name is never blank in a language: HQ's build fills a blank one from another
 			// language's (`clean_trans`), and the name's translation takes the source's there.
-			const texts = Object.fromEntries(
+			const texts = recordFromEntries(
 				Object.entries(shown).map(([code, one]) => [
 					code,
 					pythonBlank(one) ? text : one,
@@ -826,7 +828,8 @@ export function dateSortDeclarations(
 			properties,
 			caseListOrderOptions(mod, doc, mediaOn),
 		);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return [];
 	}
 	// The written rules in their elements' order, with what each orders by.
@@ -929,7 +932,8 @@ export function implicitRuleColumn(
 				properties,
 				caseListOrderOptions(mod, doc, mediaOn),
 			);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			return undefined;
 		}
 	};
@@ -1024,7 +1028,8 @@ export function rulesOnTheColumnsTheyLandOn(doc: BlueprintDoc): BlueprintDoc {
 				properties,
 				caseListOrderOptions(mod, doc, true),
 			);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			continue;
 		}
 		for (const rule of plan.authored) {

@@ -23,19 +23,26 @@ import type { AuthKind } from "./types";
  *      passing `permissions` to the plugin lets us emit a distinct
  *      "missing scope" error instead of the indistinguishable
  *      "key invalid" the plugin would otherwise return.
- *   2. **Per-tool.** `nova.hq.read` / `nova.hq.write`
+ *   2. **Per-tool.** `nova.hq.read` / `nova.hq.write` / `nova.hq.import`
  *      and `nova.projects.read` / `nova.projects.write` are *orthogonal*
- *      to read/write. The HQ pair gates access to a separate third-party
- *      system (CommCare HQ); the Projects pair gates Project membership
- *      and sharing (member lists, invitations, role changes,
+ *      to read/write. The HQ scopes gate access to a separate third-party
+ *      system (CommCare HQ): its connection and publishing (read, write),
+ *      and reading its apps and data with the person's key and bringing
+ *      them into a Project (import); the Projects pair gates Project
+ *      membership and sharing (member lists, invitations, role changes,
  *      cross-Project app moves) — outward-facing acts that grant other
  *      people access, a materially different power than editing the
- *      caller's own apps. OAuth HTTP calls first use the SDK scope challenge to request incremental
- *      consent before execution. API keys keep the actionable tool error.
- *      Tools in either family also call `assertScope`
- *      before any protected data read; a token lacking the scope
- *      produces a structured `scope_missing` envelope through the shared
- *      error serializer, but can still call the app tools.
+ *      caller's own apps. `TOOL_SCOPES` below names every tool that needs
+ *      one, and `scopedTool.ts::registerScopedTool` is the one way such a
+ *      tool registers: it declares the SDK scope challenge, so an OAuth
+ *      client is asked for incremental consent before execution, and
+ *      checks every scope before the handler runs, so a credential lacking
+ *      one gets a structured `scope_missing` envelope (an API key's owner
+ *      is told to edit the key) and nothing behind the gate is reached.
+ *
+ * A scope string never means more than the consent row it was granted
+ * under (`lib/oauth/capabilities.ts`): new authority is a new scope, which a
+ * standing grant or key lacks until a person approves it.
  *
  * The orthogonal split is why these scopes can't live at the verify
  * layer: adding them there would mandate HQ or Projects access for
@@ -70,12 +77,50 @@ export const SCOPES = {
 	write: "nova.write",
 	hqRead: "nova.hq.read",
 	hqWrite: "nova.hq.write",
+	hqImport: "nova.hq.import",
 	projectsRead: "nova.projects.read",
 	projectsWrite: "nova.projects.write",
 } as const;
 
 /** Union of the scope literals derived from `SCOPES`. */
 export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
+
+/**
+ * Every MCP tool that needs a scope beyond the floor, and each scope it needs.
+ * A tool's scopes follow what its answers carry, never only where its writes
+ * land: every tool whose answer (a stop, a refusal and a changed review
+ * included) can carry what CommCare HQ holds of an app or its data needs
+ * `nova.hq.import`, so no other combination of scopes reaches HQ's content.
+ * `set_lookup_table_management` needs both HQ scopes: managing a table in
+ * Nova decides what later publishes write there, and handing it back copies
+ * CommCare HQ's rows in.
+ */
+export const TOOL_SCOPES = {
+	get_hq_connection: [SCOPES.hqRead],
+	check_project_space_compatibility: [SCOPES.hqRead],
+	get_deployment: [SCOPES.hqRead],
+	upload_app_to_hq: [SCOPES.hqWrite],
+	refresh_deployment: [SCOPES.hqWrite],
+	withdraw_deployment_confirmation: [SCOPES.hqWrite],
+	get_entry_point_link: [SCOPES.hqWrite],
+	provision_workers: [SCOPES.hqWrite],
+	stop_publishing: [SCOPES.hqWrite],
+	list_hq_apps: [SCOPES.hqImport],
+	read_hq_app: [SCOPES.hqImport],
+	bring_in_hq_app: [SCOPES.hqImport],
+	read_hq_changes: [SCOPES.hqImport],
+	bring_in_hq_changes: [SCOPES.hqImport],
+	refresh_managed_data: [SCOPES.hqImport],
+	set_lookup_table_management: [SCOPES.hqWrite, SCOPES.hqImport],
+	list_members: [SCOPES.projectsRead],
+	create_project: [SCOPES.projectsWrite],
+	invite_member: [SCOPES.projectsWrite],
+	update_member_role: [SCOPES.projectsWrite],
+	move_app: [SCOPES.projectsWrite],
+} as const satisfies Record<string, readonly [Scope, ...Scope[]]>;
+
+/** A tool `TOOL_SCOPES` names. */
+export type ScopedToolName = keyof typeof TOOL_SCOPES;
 
 /**
  * Parse a space-delimited OAuth `scope` claim into an array of tokens.
@@ -128,11 +173,8 @@ export function parseScopes(scope: string | undefined): string[] {
  * for programmatic consumers; only the human-readable `message`
  * field uses the friendly label.
  *
- * `app_id` is uniformly stamped onto the wire envelope by the error
- * serializer (via `ctx.appId`), so callers don't need to thread it
- * through this throw — they just call `assertScope(ctx,
- * SCOPES.hqWrite, "upload_app_to_hq")` from inside their `try`
- * block.
+ * `registerScopedTool` throws nothing: it hands this error to the shared
+ * serializer and answers its envelope before the handler runs.
  */
 export class McpScopeError extends Error {
 	constructor(
@@ -165,13 +207,9 @@ export class McpScopeError extends Error {
  * stays the same shape across both paths; only the human-readable
  * message branches.
  *
- * Pattern at the call site:
- *
- *   assertScope(ctx, SCOPES.hqRead, "get_hq_connection");
- *
- * The check should run BEFORE any data read so a missing-scope
- * credential can't probe whether a record exists — same defensive
- * ordering as the ownership pre-gate in `upload_app_to_hq`.
+ * A tool never calls it: `scopedTool.ts::registerScopedTool` checks a
+ * tool's scopes before its handler runs, so a missing-scope credential
+ * can't probe whether a record exists.
  */
 export function assertScope(
 	ctx: { scopes: readonly string[]; authKind: AuthKind },
@@ -183,18 +221,22 @@ export function assertScope(
 	}
 }
 
-/** OAuth clients can request the missing grant before a handler runs. Preserve
+/** OAuth clients can request the missing grants before a handler runs. Preserve
  * existing grants in the challenge so incremental consent never narrows access.
  * Static API keys retain the tool error directing their owner to settings.
- * Handler guards also remain authoritative for non-HTTP SDK consumers. */
+ * The handler's own check (`scopedTool.ts`) stays authoritative for non-HTTP
+ * SDK consumers. */
 export function oauthScopeChallenge(
 	ctx: { scopes: readonly string[]; authKind: AuthKind },
-	required: Scope,
+	required: readonly [Scope, ...Scope[]],
 ): ScopeChallengeHandler | undefined {
-	return ctx.authKind === "oauth"
-		? requireScopes(
-				required,
-				...ctx.scopes.filter((scope) => scope !== required),
-			)
-		: undefined;
+	if (ctx.authKind !== "oauth") return undefined;
+	const [first, ...rest] = required;
+	return requireScopes(
+		first,
+		...rest,
+		...ctx.scopes.filter(
+			(scope) => !(required as readonly string[]).includes(scope),
+		),
+	);
 }

@@ -22,6 +22,7 @@ import {
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchInputLookupOptions,
 } from "@/lib/domain/modules";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { SearchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import {
@@ -482,7 +483,7 @@ function readPrompt(
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
-	const named = { name: name.slice(0, 200) };
+	const named = { name: name };
 	// A group's own entry is no field: HQ's build makes it a group of the search screen
 	// (`remote_requests.py::build_query_prompt_groups`), which Nova holds no slot for. It is one
 	// finding, naming the group's key, as each member's `group_key` names it, and covers every key
@@ -490,7 +491,7 @@ function readPrompt(
 	if (prompt.peek("is_group") === true) {
 		const groupKey = prompt.peek("group_key");
 		prompt.refuseWhole(P.group, {
-			name: (typeof groupKey === "string" ? groupKey : name).slice(0, 200),
+			name: typeof groupKey === "string" ? groupKey : name,
 		});
 		return undefined;
 	}
@@ -595,7 +596,10 @@ function readPrompt(
 				isJsonObject(storedRequired) ? storedRequired.text : undefined,
 				"search-input-required-message",
 			)
-		: { held: { texts: {}, workersSeeAnother: false }, texts: {} };
+		: {
+				held: { texts: NO_ENTRIES, workersSeeAnother: false },
+				texts: NO_ENTRIES,
+			};
 	const label = labelRead.texts;
 	const hintMap = hintRead.texts;
 	const requiredMap = requiredRead.texts;
@@ -617,7 +621,7 @@ function readPrompt(
 		const groupKey = prompt.peek("group_key");
 		if (prompt.used("group_key"))
 			refuseWith("group_key", P.groupKey, prompt, {
-				name: String(groupKey).slice(0, 200),
+				name: String(groupKey),
 			});
 		else refuseWith("group_key", P.groupMissing);
 	}
@@ -703,7 +707,7 @@ function readPrompt(
 	const validation = readValidation(
 		ctx,
 		storedValidation,
-		validationRead?.texts ?? {},
+		validationRead?.texts ?? NO_ENTRIES,
 	);
 	if (
 		!hiddenRefused &&
@@ -922,7 +926,7 @@ function readPrompt(
 		refuseWith("default_value", P.defaultOnRange);
 
 	const uuid = ctx.accounting.identity(
-		ctx.resolver.claim(
+		ctx.identities.claim(
 			externalKey.searchInput(module.uniqueId, name),
 			`${module.uniqueId}/search/${name}`,
 		),
@@ -1239,11 +1243,11 @@ function promptText(
 	role: TranslationUnitRole,
 ): PromptText {
 	const source = sourceCode(ctx);
-	const held = heldTextsIn(stored ?? {}, codes, source, role);
+	const held = heldTextsIn(stored ?? NO_ENTRIES, codes, source, role);
 	if (held !== undefined) return { held, texts: held.texts };
-	const unheld = unheldTextsIn(stored ?? {}, codes, source, role);
+	const unheld = unheldTextsIn(stored ?? NO_ENTRIES, codes, source, role);
 	return {
-		texts: shownTexts(stored ?? {}, codes) ?? {},
+		texts: shownTexts(stored ?? NO_ENTRIES, codes) ?? NO_ENTRIES,
 		...(unheld !== undefined && { unheld }),
 	};
 }
@@ -1313,8 +1317,8 @@ function readValidation(
 	// (`heldText.ts::holdText`): a message whose end meets the guard's text with a space of its
 	// own loses it, so Nova's join, one space between, shows one space fewer there.
 	let workersSeeAnother = false;
-	const messages: Record<string, string> = { ...text };
-	const held: Record<string, string> = { ...text };
+	const messages = recordFromEntries(Object.entries(text));
+	const held = recordFromEntries(Object.entries(text));
 	if (authored.kind === "split")
 		for (const [code, one] of Object.entries(text)) {
 			const suffix = ` ${guarded?.get(code) ?? authored.guard.message}`;
@@ -1347,7 +1351,7 @@ function validationTexts(
 	codes: readonly string[],
 ): HeldTexts | undefined {
 	return heldTextsIn(
-		stored ?? {},
+		stored ?? NO_ENTRIES,
 		codes,
 		sourceCode(ctx),
 		"search-input-validation-message",
@@ -1445,7 +1449,7 @@ function guardTexts(
 		ctx.translations.set(
 			makeTranslationUnitId("system", "search-validation", key),
 			"text",
-			translatedTexts(ctx, Object.fromEntries(byCode)),
+			translatedTexts(ctx, recordFromEntries(byCode)),
 		);
 	}
 	GUARD_TEXTS.set(ctx, out);
@@ -1481,7 +1485,7 @@ function requiredDefaultTexts(
 					.map((prompt) =>
 						isJsonObject(prompt.required)
 							? heldTextsIn(
-									prompt.required.text ?? {},
+									prompt.required.text ?? NO_ENTRIES,
 									appCodes(ctx),
 									source,
 									"search-input-required-message",
@@ -1502,7 +1506,7 @@ function requiredDefaultTexts(
 	ctx.translations.set(
 		makeTranslationUnitId("system", "search-required", "default"),
 		"text",
-		translatedTexts(ctx, Object.fromEntries(out)),
+		translatedTexts(ctx, recordFromEntries(out)),
 	);
 	return out;
 }

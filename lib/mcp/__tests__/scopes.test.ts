@@ -16,12 +16,13 @@ it("preserves external and repeated claims while removing empty whitespace token
 	for (const input of [undefined, "", " \r\n\t "])
 		expect(parseScopes(input)).toEqual([]);
 });
-it("preserves all six issued credential scope names", () => {
+it("preserves every issued credential scope name", () => {
 	expect(SCOPES).toEqual({
 		read: "nova.read",
 		write: "nova.write",
 		hqRead: "nova.hq.read",
 		hqWrite: "nova.hq.write",
+		hqImport: "nova.hq.import",
 		projectsRead: "nova.projects.read",
 		projectsWrite: "nova.projects.write",
 	});
@@ -76,3 +77,14 @@ it.each([
 		);
 	},
 );
+it("names every API key scope in a scope missing message by its settings label", () => {
+	expect(() =>
+		assertScope(
+			{ scopes: ["nova.read", "nova.write"], authKind: "api-key" },
+			"nova.hq.import",
+			"read_hq_app",
+		),
+	).toThrow(
+		'Tool "read_hq_app" requires the "HQ Import" permission, which isn\'t granted on this credential. Edit the API key\'s scopes in Nova settings to grant it.',
+	);
+});

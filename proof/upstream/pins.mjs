@@ -15,9 +15,18 @@
 //     Adds the image lock and the regenerated surface to that one commit when
 //     both succeeded (the pins alone otherwise), and beside them the retained
 //     trees made again at the new pins (proof/hq-apps/ and proof/hq-reads/,
-//     from the artifact `--retained` names, proof/ci/retained.mjs) when that
-//     job succeeded too: the trees answer the new image, so they are never
-//     committed without its lock. It opens the pull request or updates the
+//     from the artifact `--retained` names) when that job succeeded too: the
+//     trees answer the new image, so they are never committed without its
+//     lock. Both artifacts are data another job wrote, and this job holds
+//     the write token, so the surface is read without following a link,
+//     within a bound and as JSON (proof/ci/untrusted.mjs::readSurface), and
+//     the trees and the adopt report are read whole through the retained
+//     layout by main's own code (python3 -m proof.matrix.place unpack) before
+//     anything is staged: a surface it refuses is handled as a failed
+//     extraction and trees it refuses as a failed retained job, the
+//     description says which was refused (never what the artifact named,
+//     which this job's log holds), and the stage exits non-zero once the
+//     pull request is updated. It opens the pull request or updates the
 //     open one, and requests the reviewer's review. GitHub holds CI on a pull
 //     request the workflow's own token opened until a person approves its
 //     run or updates the branch, and a run dispatched on the branch does not
@@ -33,14 +42,10 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import {
-	ADOPT_REPORT,
-	placeRetained,
-	RETAINED_TREES,
-} from "../ci/retained.mjs";
+import { readSurface } from "../ci/untrusted.mjs";
 
 const execute = promisify(execFile);
 
@@ -51,6 +56,14 @@ const SURFACE = "lib/commcare/surface/surface.json";
 const ENTRIES = "lib/commcare/surface/entries";
 const IMAGE = "ghcr.io/voidcraft-labs/commcare-nova-proof";
 const TITLE = "Move the upstream pins";
+/** The retained trees, by their directory under proof/. */
+const RETAINED_TREES = ["hq-apps", "hq-reads"];
+/** The checkout this script is part of: `python3 -m proof.matrix.place` runs from it, main's own code. */
+const OWN_CHECKOUT = resolve(
+	dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+);
 
 async function run(command, args, cwd) {
 	const { stdout } = await execute(command, args, {
@@ -227,18 +240,23 @@ function describeEntries(entries) {
 function describeRetained(retained) {
 	if (retained === null) return [];
 	const heading = "## Retained HQ answers and apps";
+	if (retained.refused) {
+		return [
+			heading,
+			"",
+			"The retained trees this run made were not committed, because the artifact that carried them holds something a retained tree does not (`proof/matrix/retained-layout.json`). The branch carries main's, so CI holds them to the new pins. The report job's log names each entry `python3 -m proof.matrix.place` refused.",
+			"",
+		];
+	}
 	if (!retained.committed) {
 		return [
 			heading,
 			"",
-			`The job that makes \`proof/hq-apps/\` and \`proof/hq-reads/\` again at the new pins did not succeed (its result: ${retained.result}), so the branch carries main's, and \`proof/matrix/test_retained.py\` and the retained reads hold them to the new pins. The job's log in the run says why. Once a run makes them, \`python3 -m proof.matrix.adopt <its output> --report\` adopts them on this branch.`,
+			`The job that makes \`proof/hq-apps/\` and \`proof/hq-reads/\` again at the new pins did not succeed (its result: ${retained.result}), so the branch carries main's, and \`proof/matrix/test_retained.py\` and the retained reads hold them to the new pins. The job's log in the run says why. Once a run makes them, \`python3 -m proof.matrix.adopt <every output of that run> --report --corpus <a corpus made on your machine>\` adopts them on this branch.`,
 			"",
 		];
 	}
-	const report = retained.report
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean);
+	const report = retained.report ?? [];
 	return [
 		heading,
 		"",
@@ -321,12 +339,18 @@ function describe({
 const CI_STARTS =
 	"starts when you approve its run on this pull request or update the branch";
 
-function outcomeOf(options) {
+function outcomeOf(options, refusals) {
 	if (options.imageResult !== "success") {
 		return `the image build did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the harness builds at them`;
 	}
+	if (refusals.surface) {
+		return `the surface the extraction made was refused (the report job's log says why), so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the extractor runs at them`;
+	}
 	if (options.surfaceResult !== "success") {
 		return `the surface extraction did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the extractor runs at them`;
+	}
+	if (refusals.retained) {
+		return `the image, the lock and the surface are updated, and the retained HQ answers and apps this run made were refused, so CI, which ${CI_STARTS}, holds main's to the new pins`;
 	}
 	if (options.retainedResult !== "success") {
 		return `the image, the lock and the surface are updated, and the retained HQ answers and apps were not made again, so CI, which ${CI_STARTS}, holds main's to the new pins`;
@@ -334,14 +358,43 @@ function outcomeOf(options) {
 	return `the image, the lock, the surface and the retained HQ answers and apps are updated, and CI ${CI_STARTS}`;
 }
 
-/** The retained trees and the adopt report from the artifact at `directory`, put in the checkout; the paths to stage. */
+/** An artifact `place` refused; its message names each entry, for this job's log and never the description. */
+class Refused extends Error {}
+
+/**
+ * The retained trees from the artifact at `directory` read whole through the
+ * retained layout and put in the checkout by main's own code
+ * (`python3 -m proof.matrix.place unpack`), with the adopt report's lines it
+ * read; the paths to stage. A refusal changes nothing in the checkout.
+ */
 async function adoptRetained(cwd, directory) {
 	if (!directory) {
 		throw new Error(
 			"The retained job succeeded, and no --retained names the directory its artifact was downloaded into, so there are no trees to commit. Pass --retained <dir>.",
 		);
 	}
-	await placeRetained(directory, join(cwd, "proof"));
+	let placed;
+	try {
+		const { stdout } = await execute(
+			"python3",
+			[
+				"-m",
+				"proof.matrix.place",
+				"unpack",
+				resolve(directory),
+				join(cwd, "proof"),
+			],
+			{ cwd: OWN_CHECKOUT, maxBuffer: 1024 * 1024 },
+		);
+		placed = JSON.parse(stdout);
+	} catch (error) {
+		if (error.code === 1) {
+			throw new Refused(
+				`${error.stderr ?? ""}`.trim() || "place refused the artifact.",
+			);
+		}
+		throw error;
+	}
 	const staged = [];
 	for (const tree of RETAINED_TREES) {
 		const path = `proof/${tree}`;
@@ -353,13 +406,7 @@ async function adoptRetained(cwd, directory) {
 			staged.push(path);
 		}
 	}
-	let report;
-	try {
-		report = await readFile(join(directory, ADOPT_REPORT), "utf8");
-	} catch (error) {
-		report = `The adopt report could not be read from the artifact (${error.code ?? error.message}).`;
-	}
-	return { staged, report };
+	return { staged, report: placed.report ?? [] };
 }
 
 export async function report(cwd, options) {
@@ -368,16 +415,24 @@ export async function report(cwd, options) {
 	await git(cwd, "fetch", "--quiet", "origin", BRANCH);
 	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "FETCH_HEAD");
 	const after = JSON.parse(await readFile(join(cwd, PINS), "utf8"));
-	let classified = null;
-	let retained = null;
+	const refusals = {};
+	let afterSurface;
 	if (
 		options.imageResult === "success" &&
 		options.surfaceResult === "success"
 	) {
+		try {
+			afterSurface = await readSurface(options.surface);
+		} catch (error) {
+			refusals.surface = error.message;
+		}
+	}
+	let classified = null;
+	let retained = null;
+	if (afterSurface) {
 		const beforeSurface = JSON.parse(
 			await git(cwd, "show", `origin/main:${SURFACE}`),
 		);
-		const afterSurface = JSON.parse(await readFile(options.surface, "utf8"));
 		await writeFile(
 			join(cwd, LOCK),
 			formatted({
@@ -387,22 +442,28 @@ export async function report(cwd, options) {
 				),
 			}),
 		);
-		await writeFile(join(cwd, SURFACE), await readFile(options.surface));
+		await writeFile(join(cwd, SURFACE), afterSurface.bytes);
 		const staged = [LOCK, SURFACE];
 		retained = { committed: false, result: options.retainedResult ?? "none" };
 		if (options.retainedResult === "success") {
-			const adopted = await adoptRetained(cwd, options.retained);
-			staged.push(...adopted.staged);
-			retained = { ...retained, committed: true, report: adopted.report };
+			try {
+				const adopted = await adoptRetained(cwd, options.retained);
+				staged.push(...adopted.staged);
+				retained = { ...retained, committed: true, report: adopted.report };
+			} catch (error) {
+				if (!(error instanceof Refused)) throw error;
+				refusals.retained = error.message;
+				retained = { ...retained, refused: true };
+			}
 		}
 		await git(cwd, "add", "--all", "--", ...staged);
 		await git(cwd, "commit", "--quiet", "--amend", "--no-edit");
 		await git(cwd, "push", "--quiet", "--force", "origin", BRANCH);
-		classified = await classify(cwd, beforeSurface, afterSurface);
+		classified = await classify(cwd, beforeSurface, afterSurface.value);
 	}
 	const body = describe({
 		date,
-		outcome: outcomeOf(options),
+		outcome: outcomeOf(options, refusals),
 		runUrl: options.runUrl,
 		before,
 		after,
@@ -434,6 +495,12 @@ export async function report(cwd, options) {
 	}
 	if (options.reviewer) {
 		await gh(cwd, "pr", "edit", number, "--add-reviewer", options.reviewer);
+	}
+	const refused = Object.values(refusals);
+	if (refused.length > 0) {
+		throw new Error(
+			`Pull request #${number} is updated with main's trees where this run's were refused, and the run ends red so a person reads why:\n${refused.join("\n")}`,
+		);
 	}
 	return { number, classified, retained: retained?.committed === true };
 }

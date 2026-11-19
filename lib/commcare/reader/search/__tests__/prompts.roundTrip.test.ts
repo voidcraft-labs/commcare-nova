@@ -695,7 +695,7 @@ describe("a stored validation that carries Nova's runtime guard under a message 
 	// (`searchPrompts.ts::buildValidation`). A message an author edited in HQ so no language ends
 	// with the guard's text tells nothing of the guard, so the check is registered whole and its
 	// refusal waits for the settle, which finds the stored test ending with the guard Nova's
-	// projection joins to the field (`settings.ts::runtimeGuardEnding`). Nova prints the guard's
+	// projection joins to the field (`settings.ts::runtimeGuardEndings`). Nova prints the guard's
 	// sentence after the field's message in the source language, so what keeps the field out is
 	// the message. The failure it catches: a check whose reads no whole level prints, ending in
 	// `expression-not-written-back`; and the field refused as a check outside what Nova types,

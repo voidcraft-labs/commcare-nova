@@ -1,5 +1,6 @@
 import type { ColumnVia } from "@/lib/domain/modules";
 import { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
+import { type SourceTable, tableOf } from "../sourceKeys";
 import { w } from "../xpath/wire/builders";
 import { buildAncestorJoinNodeset } from "../xpath/wire/rowScope";
 import type { WireExpr, WirePath } from "../xpath/wire/tree";
@@ -14,32 +15,69 @@ export function casePropertyPath(property: string): WirePath {
 }
 
 /**
- * CommCare HQ's words for two case properties in a case list column's `field`
- * and a sort element's: `name` for the case's name and `date-opened` for the
- * date it was opened. HQ's Case List page offers both under these words
- * (`views/modules.py::_setup_case_property_builder`'s defaults), every new
- * menu's column names the case's name so (`models/modules.py::Module.new_module`),
- * and HQ's build reads each as the case's own value
- * (`detail_screen.py::CASE_PROPERTY_MAP`), so either word reads the same
- * value. The app string ids the build gives a column follow the stored word
- * (`id_strings.py::detail_column_header_locale`), so Nova writes HQ's word and
- * an app made in CommCare HQ keeps its ids.
+ * The words a case list column's `field` and a sort element's can name three
+ * case properties by, the word Nova writes first. HQ's build reads `name`,
+ * `date-opened` and `external-id` as the case's own `case_name`,
+ * `date_opened` and `external_id` (`detail_screen.py::CASE_PROPERTY_MAP`), so
+ * either word of a property reads the same value. HQ's Case List page offers
+ * `name` and `date-opened` (`views/modules.py::_setup_case_property_builder`'s
+ * defaults) and every new menu's column names the case's name so
+ * (`models/modules.py::Module.new_module`), so Nova writes those two words and
+ * the property's own name for the external id. The app string ids the build
+ * gives a column follow the word it stores
+ * (`id_strings.py::detail_column_header_locale`), so where CommCare HQ keeps a
+ * column under the other word, a deployment holds that word
+ * (`wireIdentity.ts::WireIdentity.columnFieldWord`) and every export to it
+ * writes the column so.
  */
-const HQ_COLUMN_PROPERTY_WORDS: Readonly<Record<string, string>> = {
-	case_name: "name",
-	date_opened: "date-opened",
-};
+const HQ_COLUMN_PROPERTY_WORDS: SourceTable<readonly [string, string]> =
+	tableOf({
+		case_name: ["name", "case_name"],
+		date_opened: ["date-opened", "date_opened"],
+		external_id: ["external_id", "external-id"],
+	});
 
 /**
  * A property column's `field` as CommCare HQ stores it: the walk's indices as
- * they are, joined by `/`, and the property in HQ's word
- * (`HQ_COLUMN_PROPERTY_WORDS`). `fieldText` is the domain's text
- * (`lib/domain/modules.ts::columnFieldText`).
+ * they are, joined by `/`, and the property in HQ's word: `held`, the word
+ * the deployment holds for the column on this screen, where it is one of the
+ * property's words, else the word Nova writes (`HQ_COLUMN_PROPERTY_WORDS`).
+ * `fieldText` is the domain's text (`lib/domain/modules.ts::columnFieldText`).
  */
-export function hqColumnFieldText(fieldText: string): string {
+export function hqColumnFieldText(fieldText: string, held?: string): string {
 	const steps = fieldText.split("/");
 	const property = steps.pop() as string;
-	return [...steps, HQ_COLUMN_PROPERTY_WORDS[property] ?? property].join("/");
+	const words = HQ_COLUMN_PROPERTY_WORDS.get(property);
+	const word =
+		words === undefined
+			? property
+			: held !== undefined && words.includes(held)
+				? held
+				: words[0];
+	return [...steps, word].join("/");
+}
+
+/**
+ * The property a stored column `field`'s last word names and that word, where
+ * it is a word of one of the three properties HQ names by two
+ * (`HQ_COLUMN_PROPERTY_WORDS`); undefined for every other field.
+ */
+export function columnFieldWordOf(
+	field: string,
+): { readonly property: string; readonly word: string } | undefined {
+	const word = field.split("/").pop() as string;
+	for (const [property, words] of HQ_COLUMN_PROPERTY_WORDS)
+		if (words.includes(word)) return { property, word };
+	return undefined;
+}
+
+/** Whether `word` is the word Nova writes for the property it names, where it names one. */
+export function isWrittenColumnFieldWord(word: string): boolean {
+	const named = columnFieldWordOf(word);
+	return (
+		named === undefined ||
+		HQ_COLUMN_PROPERTY_WORDS.get(named.property)?.[0] === word
+	);
 }
 
 /** One word of CommCare HQ's case list field grammar. */

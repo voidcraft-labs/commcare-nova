@@ -1119,9 +1119,11 @@ def test_a_document_that_declares_no_android_is_compared_on_hqs_builds_and_never
 ):
     """Nova hands a local archive only to an app that declares Android, so a document that declares Web Apps only is
     compared on HQ's builds alone: its sessions record holds A's baseline and no local side, and nothing reports a
-    missing archive. The same copy declaring nothing (both) and holding no archive is missing one. The plausible
-    failures: a Web Apps-only document losing proof 3's B comparison and the CSQL compiles with its archive, and a
-    document that declares Android whose lost archive goes unreported."""
+    missing archive. The same copy declaring nothing (both) and holding no archive is missing one, unless it states
+    the download's refusal in the archive's place, when its A is still observed and compared. The plausible
+    failures: a Web Apps-only document losing proof 3's B comparison and the CSQL compiles with its archive, a
+    document that declares Android whose lost archive goes unreported, and one whose stated refusal leaves A and B
+    unobserved (the base ``hq-kept-settings``)."""
     source = cases.load_corpus().document("case-list-inline")
     name = "minimum"
     web_apps = _declaring(source, tmp_path / "web-apps" / source.id, "web-apps")
@@ -1151,6 +1153,23 @@ def test_a_document_that_declares_no_android_is_compared_on_hqs_builds_and_never
         platforms=both.platforms(),
     )
     assert [d.path for d in missing] == ["/no-local-archive"], missing
+
+    # Where the document states the download's refusal in the archive's place (a project space whose app keeps a
+    # custom base URL elsewhere, Document.local_refusal, which the bar holds to A), its sessions still run A's
+    # baseline with no local side, and proof 3 compares A's and B's and reports no missing archive.
+    both_records = _observed_without_hooks(both, core_runner, [name])
+    both_recorded = observations.sessions_record(both_records, name)
+    assert both_recorded is not None and both_recorded["baseline"]["trace"] and "local" not in both_recorded
+    refused = proof3.behavioral_equivalence(
+        both.id,
+        observations.republish_view(both_records, name),
+        both_recorded,
+        both_records.blobs,
+        has_local=False,
+        platforms=both.platforms(),
+        local_refused=True,
+    )
+    assert not [d for d in refused if d.path == "/no-local-archive" or d.artifact.endswith("@local.ccz")], refused
 
 
 # Lookup tables ---------------------------------------------------------------
@@ -1925,7 +1944,9 @@ def test_a_forms_title_is_compared_only_where_android_runs_both_builds():
         )
 
     blank, named = trace(None, "Patients"), trace("Followup Form", "Patients")
-    assert paths(blank, named, {corpus.ANDROID, corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]
-    assert paths(blank, named, {corpus.ANDROID}) == ["/runs/*/trace/*/title"]
+    assert paths(blank, named, {corpus.ANDROID, corpus.WEB_APPS}) == ["/runs/*/trace/*/title/form"]
+    assert paths(blank, named, {corpus.ANDROID}) == ["/runs/*/trace/*/title/form"]
     assert paths(blank, named, {corpus.WEB_APPS}) == []
-    assert paths(trace(None, "Patients"), trace(None, "Clients"), {corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]
+    assert paths(trace(None, "Patients"), trace(None, "Clients"), {corpus.WEB_APPS}) == [
+        "/runs/*/trace/*/title/case-list"
+    ]

@@ -11,6 +11,8 @@ import {
 	type HqAppSourceRead,
 	readHqAppSource,
 } from "@/lib/commcare/hq/appSource";
+import { readHqAppSaveCounter } from "@/lib/commcare/hq/appSourceAtVersion";
+import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
 import {
 	classifyHqFailure,
 	type HqFailure,
@@ -55,13 +57,10 @@ import {
 } from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { getLookupDefinitions } from "@/lib/lookup/service";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganization } from "@/lib/organization/service";
-import type {
-	OrganizationSnapshot,
-	StoredLocation,
-} from "@/lib/organization/types";
 import {
 	type DriftDateOptions,
 	type DriftReference,
@@ -111,6 +110,7 @@ import {
 	lookupDefinitionChange,
 	lookupDefinitionDigest,
 	lookupIdentityChange,
+	lookupPastLimitDigest,
 	lookupRowsChange,
 	placeChange,
 } from "./hqResourceBaseline";
@@ -151,13 +151,19 @@ import {
 	hqChangesNoneDetail,
 	LOOKUP_DISCARD_NOTE,
 } from "./remoteChanges";
+import { settleFinishedMediaJobs } from "./remoteWrites";
+import {
+	placesManagedOn,
+	type SetupArtifactOrganization,
+} from "./setupArtifact";
 import {
 	type DeploymentTargetKey,
 	readAppBaseline,
-	readDeploymentMediaPaths,
 	readResourceBaselines,
 	readSiblingLookupMappings,
+	readTargetIdentity,
 } from "./store";
+import { exportIdentityOf } from "./targetIdentity";
 import type {
 	AppBaseline,
 	CanonicalLookupTable,
@@ -295,11 +301,12 @@ export type PreflightResult =
 				 */
 				readonly locationPush: LocationPushPlan | null;
 				/**
-				 * The app's places, read once. Handed back so the caller can
-				 * build the setup artifact from the same snapshot this ran
-				 * against rather than reading the organization a second time.
+				 * The app's places and where CommCare HQ manages them, read
+				 * once. Handed back so the caller can build the setup artifact
+				 * from the same snapshot this ran against rather than reading
+				 * the organization a second time.
 				 */
-				readonly locations: readonly StoredLocation[];
+				readonly organization: SetupArtifactOrganization;
 				/**
 				 * The `target-app` read of the app this publish updates in
 				 * place, or null when it creates one.
@@ -309,6 +316,12 @@ export type PreflightResult =
 					readonly source: HqAppSource;
 					/** The same read, normalized (`hqSourceBaseline.ts::normalizeHqAppSource`). */
 					readonly normalized: unknown;
+					/**
+					 * HQ's save counter, read just before the source: an import
+					 * built over this read and acknowledged at one more replaced
+					 * exactly the app this read showed.
+					 */
+					readonly saveCounter: number;
 				} | null;
 				/**
 				 * The stored baseline of the app `target-app` read, as the
@@ -490,7 +503,7 @@ export async function publishConfirmationNeeds(
 	lookupNaming: LookupWireNaming | undefined,
 	managedTableIds: ReadonlySet<string>,
 ): Promise<{
-	readonly locations: readonly StoredLocation[];
+	readonly organization: SetupArtifactOrganization;
 	readonly places: readonly PlannedPlace[];
 	/** Whether the app has levels and CommCare HQ manages its places from the target. */
 	readonly placesManagedHere: boolean;
@@ -499,17 +512,14 @@ export async function publishConfirmationNeeds(
 	const organized = Object.keys(organizationLevelsOf(doc)).length > 0;
 	const organization = organized
 		? await readAppOrganization(access)
-		: { locations: [], hq: undefined };
-	const placesManagedHere =
-		organization.hq !== undefined &&
-		organization.hq.server === target.server &&
-		organization.hq.domain === target.domain;
+		: { locations: [] };
+	const placesManagedHere = placesManagedOn(organization.hq, target);
 	const places =
 		organized && !placesManagedHere
 			? plannedPlacesFor(doc, organization.locations)
 			: [];
 	return {
-		locations: organization.locations,
+		organization,
 		places,
 		placesManagedHere,
 		needed: requiredConfirmations(
@@ -532,10 +542,9 @@ export async function publishConfirmationNeeds(
  * access withdrawn since the caller authorized it) is an expected rejection,
  * said as one; any other failure is operational and stays as it is.
  */
-async function readAppOrganization(access: PreflightInput["access"]): Promise<{
-	readonly locations: readonly StoredLocation[];
-	readonly hq: OrganizationSnapshot["hq"];
-}> {
+async function readAppOrganization(
+	access: PreflightInput["access"],
+): Promise<SetupArtifactOrganization> {
 	try {
 		const snapshot = await readOrganization({
 			appId: access.appId,
@@ -543,7 +552,7 @@ async function readAppOrganization(access: PreflightInput["access"]): Promise<{
 			role: access.role,
 			actorUserId: access.actorUserId,
 		});
-		return { locations: snapshot.locations, hq: snapshot.hq };
+		return snapshot;
 	} catch (error) {
 		if (error instanceof OrganizationError && error.code === "not_found") {
 			throw new DeploymentError("not_found", error.message, { cause: error });
@@ -794,7 +803,10 @@ export async function runDeploymentPreflight(
 		/* The paths CommCare HQ keeps this target's files under, for an app
 		 * brought in from it: the bulk upload's entries and every reference
 		 * of the body name them. Empty everywhere else. */
-		heldMediaPaths: await readDeploymentMediaPaths(input.access, target),
+		heldMediaPaths: exportIdentityOf(
+			input.doc,
+			await readTargetIdentity(input.access, target),
+		).heldMediaPaths,
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the
 		// download paths fall back on — the record describes where the app
@@ -837,7 +849,7 @@ export async function runDeploymentPreflight(
 	/* The app's places and what this publish asks a person to confirm, read
 	 * before anything is asked of CommCare HQ, by the helper the pre-publish
 	 * check reads too. */
-	const { locations, places, placesManagedHere, needed } =
+	const { organization, places, placesManagedHere, needed } =
 		await publishConfirmationNeeds(
 			input.access,
 			boundary.prepared.doc,
@@ -1427,6 +1439,7 @@ export async function runDeploymentPreflight(
 		readonly appId: string;
 		readonly source: HqAppSource;
 		readonly normalized: unknown;
+		readonly saveCounter: number;
 	} | null = null;
 	let appBaseline: AppBaseline | null = null;
 	let media: {
@@ -1435,6 +1448,16 @@ export async function runDeploymentPreflight(
 	} | null = null;
 	if (input.inPlaceUpdate !== null) {
 		const appId = input.inPlaceUpdate.remoteId;
+		/* The save counter just before the source, so the import's
+		 * acknowledgement says whether a save fell between this read and the
+		 * import. A media job of an earlier publish that HQ has finished is
+		 * settled first, so its save is not taken for one. */
+		await settleFinishedMediaJobs(creds, {
+			server: input.server,
+			domain,
+			remoteAppId: appId,
+		});
+		const saveCounter = await readHqAppSaveCounter(creds, domain, appId);
 		const read = await readHqAppSource(creds, domain, appId);
 		if ("success" in read || read.kind !== "source") {
 			const gone = !("success" in read) && read.kind === "gone";
@@ -1511,10 +1534,28 @@ export async function runDeploymentPreflight(
 				conflicts: [],
 			};
 		}
+		if (typeof saveCounter !== "number") {
+			const failure = hqAppSourceReadFailure(saveCounter, domain, false);
+			checks.push({
+				id: "target-app",
+				title: "App on CommCare HQ",
+				status: "blocked",
+				detail: failure.message,
+				items: [],
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, failure.code, failure.message),
+				ready: null,
+				projectSpaceCompatibility,
+				conflicts: [],
+			};
+		}
 		targetApp = {
 			appId,
 			source: read.source,
 			normalized: normalized.normalized,
+			saveCounter,
 		};
 
 		/* A baseline of another HQ app than the one mapped now says nothing
@@ -1813,7 +1854,7 @@ export async function runDeploymentPreflight(
 			prepared: boundary.prepared,
 			lookupPush,
 			locationPush,
-			locations,
+			organization,
 			targetApp,
 			appBaseline,
 			confirmedChanges: verdict.confirmed,
@@ -2121,12 +2162,20 @@ async function lookupRemoteChange(input: {
 			true,
 		);
 	}
-	const rows = await readHqLookupTableRows(
-		input.creds,
-		input.domain,
-		current.id,
-	);
+	const rows = await readHqLookupTableRows(input.creds, input.domain, current, {
+		maxRows: LOOKUP_MAX_ROWS,
+		maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+	});
 	if ("success" in rows) return "unreadable";
+	/* A table past what Nova reads holds more than any push of Nova's wrote,
+	 * so its rows changed, and nothing past the first page that says so is
+	 * read. */
+	if ("kind" in rows)
+		return change(
+			withHandBack([describe({ kind: "rows" })]),
+			lookupPastLimitDigest(current, rows),
+			true,
+		);
 	const changed = lookupRowsChange(canonical, rows);
 	return changed.length === 0
 		? null
@@ -2278,6 +2327,28 @@ export function hqAppSourceReadFailure(
 		message: permissions
 			? `Nova couldn't read the current app on “${domain}”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
 			: `Nova couldn't safely read the current app on “${domain}”, so it left that app unchanged. Check that the app still opens in CommCare HQ, then publish again.`,
+		details: [],
+	};
+}
+
+/**
+ * The refusal for an app CommCare HQ saved again between Nova's two reads of
+ * it, the save counter and the source, so the source Nova holds is no proof
+ * of the app it would build over. Nothing of the app's content was sent.
+ */
+export function hqAppMovedWhileReadFailure(
+	domain: string,
+	createdApp: boolean,
+): {
+	readonly code: "hq_app_state_unknown";
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	return {
+		code: "hq_app_state_unknown",
+		message: createdApp
+			? `The new app on “${domain}” changed in CommCare HQ while Nova was reading it, so Nova stopped before sending the app's content. ${CREATED_APP_IS_EMPTY} You can publish again, and Nova asks before it writes over that change.`
+			: `The app on “${domain}” changed in CommCare HQ while Nova was reading it, so Nova left it unchanged. You can publish again in a moment.`,
 		details: [],
 	};
 }

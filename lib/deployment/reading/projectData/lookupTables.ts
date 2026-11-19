@@ -32,6 +32,7 @@ import { xmlTextIssue } from "@/lib/commcare/xmlText";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import {
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
@@ -147,6 +148,12 @@ export type HqLookupTableRead =
 			readonly table: HqLookupTable;
 			readonly totalCount: number;
 	  }
+	/**
+	 * The table's rows passed `bounds.ts::HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` on
+	 * CommCare HQ's wire, which no table within Nova's caps does: the read
+	 * stopped there and kept nothing.
+	 */
+	| { readonly kind: "over-byte-limit"; readonly table: HqLookupTable }
 	| { readonly kind: "rows-unreadable"; readonly table: HqLookupTable };
 
 // ---------------------------------------------------------------------------
@@ -187,7 +194,7 @@ export function managedLookupContentOf(
 	return {
 		fields: table.fields,
 		rows: rows.map((row) =>
-			Object.fromEntries(
+			recordFromEntries(
 				table.fields.flatMap((field) => {
 					if (!Object.hasOwn(row.fields, field)) return [];
 					const value = hqCell(row, field);
@@ -346,6 +353,14 @@ export function lookupTableFindings(
 				CAPS_ENTRY,
 				place,
 				`${tag}: ${count(read.totalCount)} rows (Nova takes ${count(LOOKUP_MAX_ROWS)})`,
+			),
+		);
+	} else if (read.kind === "over-byte-limit") {
+		findings.push(
+			manifestFinding(
+				CAPS_ENTRY,
+				place,
+				`${tag}: more data than Nova reads for one table`,
 			),
 		);
 	} else if (read.kind === "read") {
@@ -846,7 +861,7 @@ function projectTableBinding(
 	return {
 		tag: read.table.tag,
 		tableId: table.id,
-		columns: Object.fromEntries(
+		columns: recordFromEntries(
 			read.table.fields.map((field) => [
 				field,
 				byWireName.get(field) ??
@@ -869,7 +884,7 @@ function asItStandsBinding(
 	return {
 		tag,
 		tableId: table.id,
-		columns: Object.fromEntries(
+		columns: recordFromEntries(
 			table.columns.map((column) => [column.wireName, column.id]),
 		),
 	};
@@ -894,19 +909,19 @@ export function resolveLookupBindings(
 ): readonly LookupTableBinding[] {
 	return reads.map((read, index) => {
 		const tag = read.table.tag;
-		if (!Object.hasOwn(standings, tag)) {
+		const standing = ownRecordValue(standings, tag);
+		if (standing === undefined) {
 			/* Named by its place among the reads, never its tag: this reaches the route's
 			 * failed line and Sentry (layer 7's small edit, kept for the rebase). */
 			throw new Error(
 				`A lookup table was bound with no standing (read ${index + 1} of ${reads.length}).`,
 			);
 		}
-		const standing = standings[tag];
 		if (standing.kind === "new") {
 			return {
 				tag,
 				tableId: broughtInLookupTableId(ids.appId, ids.readingId, tag),
-				columns: Object.fromEntries(
+				columns: recordFromEntries(
 					read.table.fields.map((field) => [
 						field,
 						broughtInLookupColumnId(ids.appId, ids.readingId, tag, field),
@@ -918,10 +933,8 @@ export function resolveLookupBindings(
 			return asItStandsBinding(tag, standing.table);
 		}
 		const choice =
-			standing.kind === "choice" &&
-			choices !== null &&
-			Object.hasOwn(choices, tag)
-				? choices[tag]
+			standing.kind === "choice"
+				? (ownRecordValue(choices ?? undefined, tag) ?? null)
 				: null;
 		return choice === "use-project"
 			? asItStandsBinding(tag, standing.table)
@@ -972,7 +985,7 @@ export function resolveTableChoices(
 	if (missing.length > 0 || notOffered.length > 0 || unknown.length > 0) {
 		return { ok: false, missing, notOffered, unknown };
 	}
-	return { ok: true, choices: Object.fromEntries(choices) };
+	return { ok: true, choices: recordFromEntries(choices) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,7 +1077,7 @@ export function readingLookupSnapshot(
 			binding.tableId,
 			read.rows.map((row) => ({
 				id: row.id as LookupRowId,
-				values: Object.fromEntries(
+				values: recordFromEntries(
 					read.table.fields.flatMap((field) => {
 						if (!Object.hasOwn(row.fields, field)) return [];
 						const cell = hqCell(row, field);

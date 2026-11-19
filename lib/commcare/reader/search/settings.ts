@@ -13,6 +13,7 @@ import {
 	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -22,6 +23,7 @@ import {
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { excludedOwnerClauseWritten } from "../../suite/case-list/nodesetFilter";
 import { normalizeSpace } from "../../suite/wire";
+import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
@@ -65,6 +67,7 @@ import {
 import {
 	isJsonObject,
 	type JsonCursor,
+	objectMembers,
 	registerUndeclaredKeys,
 	sameJson,
 } from "../jsonCursor";
@@ -883,7 +886,7 @@ export function readSearchSettings(
 	} else if (blank.length === codes.length) {
 		cursor.take("title_label", T.titleBlank, languageMap).value;
 		config.searchScreenTitle = NO_SEARCH_SCREEN_TITLE;
-		const shell = Object.fromEntries(codes.map((code) => [code, ""]));
+		const shell = recordFromEntries(codes.map((code) => [code, ""]));
 		if (!spelledAsShown(storedTitle, shell, codes))
 			sameState(
 				ctx,
@@ -942,7 +945,7 @@ export function readSearchSettings(
 	// app string is (`caseList/columns.ts::heldTextsIn`): no space at either end, and a language
 	// blank-looking beside the source's text takes the source's text there.
 	const heldDescription = heldTextsIn(
-		storedDescription ?? {},
+		storedDescription ?? NO_ENTRIES,
 		codes,
 		sourceCode(ctx),
 		"search-screen-subtitle",
@@ -953,7 +956,7 @@ export function readSearchSettings(
 		// spelling of a text, else `unrecognized`.
 		const refusal = unheldRefusal(
 			unheldTextsIn(
-				storedDescription ?? {},
+				storedDescription ?? NO_ENTRIES,
 				codes,
 				sourceCode(ctx),
 				"search-screen-subtitle",
@@ -1144,9 +1147,9 @@ function shownTitles(
 	stored: unknown,
 	codes: readonly string[],
 ): Record<string, string> | undefined {
-	const map = stored === undefined ? {} : stored;
+	const map = stored === undefined ? NO_ENTRIES : stored;
 	if (!isJsonObject(map)) return undefined;
-	const files: Record<string, string> = {};
+	const files = recordFromEntries<string>([]);
 	for (const code of codes) {
 		const value = map[code];
 		// Python's `or ''`: every falsy value is the blank.
@@ -1155,7 +1158,7 @@ function shownTitles(
 		else return undefined;
 	}
 	const first = codes.length === 0 ? "" : files[codes[0]];
-	return Object.fromEntries(
+	return recordFromEntries(
 		codes.map((code) => [code, files[code] !== "" ? files[code] : first]),
 	);
 }
@@ -1196,7 +1199,7 @@ function printed(value: unknown): unknown {
 	if (value instanceof HqXPath) return hqXPathText(value);
 	if (Array.isArray(value)) return value.map(printed);
 	if (isJsonObject(value))
-		return Object.fromEntries(
+		return recordFromEntries(
 			Object.entries(value).map(([key, one]) => [key, printed(one)]),
 		);
 	return value;
@@ -1220,7 +1223,7 @@ function sameTexts(
 	a: unknown,
 	b: unknown,
 ): boolean {
-	return sameHeldTexts(codes, source, role, a ?? {}, b ?? {});
+	return sameHeldTexts(codes, source, role, a ?? NO_ENTRIES, b ?? NO_ENTRIES);
 }
 
 /** A title each app language shows (`shownTitles`) as a reading holds it
@@ -1307,8 +1310,8 @@ function promptDifference(
 			return `schema:CaseSearchProperty.${key}`;
 	if (!sameXPathValue(stored.default_value, ours.default_value))
 		return "schema:CaseSearchProperty.default_value";
-	const itemA = isJsonObject(stored.itemset) ? stored.itemset : {};
-	const itemB = isJsonObject(ours.itemset) ? ours.itemset : {};
+	const itemA = isJsonObject(stored.itemset) ? stored.itemset : NO_ENTRIES;
+	const itemB = isJsonObject(ours.itemset) ? ours.itemset : NO_ENTRIES;
 	if ((itemA.instance_id ?? null) !== (itemB.instance_id ?? null))
 		return "schema:Itemset.instance_id";
 	for (const key of ["nodeset", "label", "value", "sort"] as const)
@@ -1334,9 +1337,7 @@ function promptDifference(
 		)
 			return "schema:Assertion.text";
 	}
-	const valA = Array.isArray(stored.validations)
-		? stored.validations.filter(isJsonObject)
-		: [];
+	const valA = objectMembers(stored.validations) ?? [];
 	const valB = Array.isArray(ours.validations)
 		? ours.validations.filter(isJsonObject)
 		: [];
@@ -1353,7 +1354,7 @@ function promptDifference(
 			held === undefined
 				? undefined
 				: heldTextsIn(
-						other.text ?? {},
+						other.text ?? NO_ENTRIES,
 						codes,
 						source,
 						"search-input-validation-message",
@@ -1463,7 +1464,9 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
  *  check of its own, stored with none, is the field the projection prints with Nova's runtime
  *  guard as its check (`searchPrompts.ts::buildValidation`) where the menu's rows were read up to
  *  `search-value-guards` (`rows.ts::classifySearchRows`, at `place`): the guard is that rewrite's,
- *  which the first publish sends and the reading reports. */
+ *  which the first publish sends and the reading reports. Given `fields`, it compares
+ *  every stored Search field once the settings before them agree, and sets each field's
+ *  difference (undefined where its property prints as stored) by its pointer. */
 function searchDifference(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -1471,6 +1474,7 @@ function searchDifference(
 	stored: JsonCursor,
 	prompts: readonly PromptReading[],
 	place: HqPlace,
+	fields?: Map<string, string | undefined>,
 ): string | undefined {
 	const inputs = readProjectionInputs(ctx);
 	const ours = printed(
@@ -1553,6 +1557,7 @@ function searchDifference(
 			(input.kind === "hidden" || input.validation === undefined)
 		);
 	};
+	let firstField: string | undefined;
 	for (const [index, prompt] of promptsA.entries()) {
 		const projected = promptsB[index] as JsonObject;
 		const key = promptDifference(
@@ -1564,8 +1569,11 @@ function searchDifference(
 				: projected,
 			validationTexts.get(prompt.pointer),
 		);
-		if (key !== undefined) return key;
+		fields?.set(prompt.pointer, key);
+		if (key !== undefined && fields === undefined) return key;
+		firstField ??= key;
 	}
+	if (firstField !== undefined) return firstField;
 	if (
 		(stored.peek("include_all_related_cases") === true) !==
 		(ours.include_all_related_cases === true)
@@ -1575,36 +1583,45 @@ function searchDifference(
 }
 
 /**
- * Where the stored test of `prompt`'s first validation is Nova's runtime guard, or ends with it as
- * its last top-level conjuncts, the field's own rule before it: the guard is the one the
- * projection joins to the field's check (`searchPrompts.ts::buildValidation`), printed by the
- * production projection of `mod` with the field holding no check of its own, compared conjunct by
- * conjunct as parsed trees. `rule` is the source's text of the conjuncts before the guard, where
- * one node of the stored test holds them all (`a and b and G`, `(a or b) and G`); it is absent
- * where the guard is the whole test, or where the guard's conjuncts and the rule's share a group
- * (`a and (b and G)`), whose rule no text of the source spells alone. Undefined where the test does
- * not end with the guard. The guard reads the menu's rows, so it is asked once they are placed.
+ * For each of `prompts`, where the stored test of its first validation is Nova's runtime guard, or
+ * ends with it as its last top-level conjuncts, the field's own rule before it: the guard is the
+ * one the projection joins to the field's check (`searchPrompts.ts::buildValidation`), printed by
+ * the production projection of `mod` with the fields holding no check of their own, compared
+ * conjunct by conjunct as parsed trees. `rule` is the source's text of the conjuncts before the
+ * guard, where one node of the stored test holds them all (`a and b and G`, `(a or b) and G`); it
+ * is absent where the guard is the whole test, or where the guard's conjuncts and the rule's share
+ * a group (`a and (b and G)`), whose rule no text of the source spells alone. Undefined where the
+ * test does not end with the guard. A field's check prints into its own property alone, so the
+ * menu is printed once for every field asked, with all of their checks taken off. The guard reads
+ * the menu's rows, so it is asked once they are placed.
  */
-export function runtimeGuardEnding(
+export function runtimeGuardEndings(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	mod: Module,
-	prompt: PromptReading,
-): { readonly rule?: string } | undefined {
-	const validations = prompt.cursor.peek("validations");
-	const first = Array.isArray(validations) ? validations[0] : undefined;
-	const stored = isJsonObject(first) ? first.test : undefined;
-	if (typeof stored !== "string") return undefined;
+	prompts: readonly PromptReading[],
+): ReadonlyMap<PromptReading, { readonly rule?: string } | undefined> {
+	const endings = new Map<
+		PromptReading,
+		{ readonly rule?: string } | undefined
+	>();
+	const asked = prompts.flatMap((prompt) => {
+		const validations = prompt.cursor.peek("validations");
+		const first = Array.isArray(validations) ? validations[0] : undefined;
+		const stored = isJsonObject(first) ? first.test : undefined;
+		return typeof stored === "string" ? [{ prompt, stored }] : [];
+	});
+	if (asked.length === 0) return endings;
+	const uuids = new Set(asked.map(({ prompt }) => prompt.uuid));
 	const unchecked = withCandidate(doc, (draft) => {
-		const one = draft.modules[mod.uuid]?.caseListConfig?.searchInputs.find(
-			(input) => input.uuid === prompt.uuid,
-		);
-		if (one !== undefined && one.kind !== "hidden") delete one.validation;
+		for (const one of draft.modules[mod.uuid]?.caseListConfig?.searchInputs ??
+			[])
+			if (uuids.has(one.uuid) && one.kind !== "hidden") delete one.validation;
 	});
 	const without = unchecked.modules[mod.uuid];
-	if (without === undefined) return undefined;
+	if (without === undefined) return endings;
 	const inputs = readProjectionInputs(ctx);
-	let guard: unknown;
+	let properties: readonly unknown[];
 	try {
 		const ours = printed(
 			projectCaseListForHq(
@@ -1614,18 +1631,34 @@ export function runtimeGuardEnding(
 				inputs.lookupNaming,
 			).searchConfig,
 		) as JsonObject;
-		const property = (
-			Array.isArray(ours.properties) ? ours.properties : []
-		).find((one) => isJsonObject(one) && one.name === prompt.name);
+		properties = Array.isArray(ours.properties) ? ours.properties : [];
+	} catch (error) {
+		rethrowWorkStop(error);
+		return endings;
+	}
+	for (const { prompt, stored } of asked) {
+		const property = properties.find(
+			(one) => isJsonObject(one) && one.name === prompt.name,
+		);
 		const printedChecks = isJsonObject(property)
 			? property.validations
 			: undefined;
 		const check = Array.isArray(printedChecks) ? printedChecks[0] : undefined;
-		guard = isJsonObject(check) ? check.test : undefined;
-	} catch {
-		return undefined;
+		const guard = isJsonObject(check) ? check.test : undefined;
+		endings.set(
+			prompt,
+			typeof guard === "string" ? guardEnding(stored, guard) : undefined,
+		);
 	}
-	if (typeof guard !== "string") return undefined;
+	return endings;
+}
+
+/** Where `stored` ends with `guard` as its last top-level conjuncts, the rule before it (see
+ *  `runtimeGuardEndings`); undefined where it does not. */
+function guardEnding(
+	stored: string,
+	guard: string,
+): { readonly rule?: string } | undefined {
 	const storedSyntax = readFormSyntax(stored);
 	const guardSyntax = readFormSyntax(guard);
 	if (
@@ -1667,24 +1700,41 @@ function topLevel(expression: Expression): Expression[] {
 	return expression.kind === "and" ? [...expression.clauses] : [expression];
 }
 
-/** The candidates of one validation rule: as read, then without the runtime guard Nova conjoins
- *  (its first or last top-level conjunct). */
-function ruleCandidates(rule: Expression): Expression[] {
+/** The variants of one validation rule, by their place in `RULE_VARIANTS`: as read, without its
+ *  last top-level conjunct, without its first (the runtime guard Nova conjoins is one of those
+ *  two, where the rule has two or more), and no rule at all, where the stored check is Nova's
+ *  guard alone. A variant a rule has none of is undefined. */
+function ruleVariants(
+	rule: Expression,
+): readonly ({ readonly rule: Expression | undefined } | undefined)[] {
 	const clauses = topLevel(rule);
-	if (clauses.length < 2) return [rule];
 	const without = (drop: number): Expression => {
 		const rest = clauses.filter((_, index) => index !== drop);
 		return rest.length === 1
 			? (rest[0] as Expression)
 			: { kind: "and", clauses: rest as [Expression, ...Expression[]] };
 	};
-	return [rule, without(clauses.length - 1), without(0)];
+	return [
+		{ rule },
+		clauses.length < 2 ? undefined : { rule: without(clauses.length - 1) },
+		clauses.length < 2 ? undefined : { rule: without(0) },
+		{ rule: undefined },
+	];
 }
+
+/** The four places of a rule's variants, in the order a field's are tried. */
+const RULE_VARIANTS = [0, 1, 2, 3] as const;
 
 /**
  * The whole menu's search accepted: the projection's `search_config` equal to the stored one,
- * each validation rule tried as read and then without Nova's runtime guard. The settled
- * document is kept in `ctx.doc`.
+ * each Search field's validation rule chosen on that field's own evidence. A field's rule prints
+ * into that field's property alone, so the search is printed once a variant, each variant of
+ * `ruleVariants` applied to every field at once, and each field takes the first variant whose
+ * property prints as the stored one (the rule as read where none does). The document of those
+ * choices is then compared whole, once: where it agrees it is the reading, kept in `ctx.doc`;
+ * where it does not, the difference reported is that of the rules as read. So the work is at
+ * most five projections of the menu whatever the number of fields, and a reading that held its
+ * fields' choices only together would be the comparison's finding, never a wrong reading.
  */
 export function settleSearchSettings(
 	ctx: ReadContext,
@@ -1695,63 +1745,97 @@ export function settleSearchSettings(
 	const place = searchPlace(module);
 	const start = ctx.doc;
 	if (start === undefined || start.modules[module.uuid] === undefined) return;
-	const guarded = prompts.filter(
-		(prompt) => prompt.validationRule !== undefined,
-	);
-	let candidates: BlueprintDoc[] = [start];
-	for (const prompt of guarded)
-		candidates = candidates.flatMap((doc) => {
-			const entry = doc.modules[module.uuid]?.caseListConfig?.searchInputs.find(
-				(one) => one.uuid === prompt.uuid,
-			);
-			if (
-				entry === undefined ||
-				entry.kind === "hidden" ||
-				entry.validation === undefined
-			)
-				return [doc];
-			const validation = entry.validation;
-			const edited = (rule: Expression | undefined) =>
-				withCandidate(doc, (draft) => {
-					const one = draft.modules[
-						module.uuid
-					]?.caseListConfig?.searchInputs.find(
-						(input) => input.uuid === prompt.uuid,
-					);
-					if (
-						one === undefined ||
-						one.kind === "hidden" ||
-						one.validation === undefined
-					)
-						return;
-					if (rule === undefined) delete one.validation;
-					else one.validation.rule = rule as never;
-				});
-			// The rule as read; without the guard Nova conjoins; and, where the stored check is
-			// Nova's guard alone, no authored rule at all.
-			return [
-				doc,
-				...ruleCandidates(validation.rule)
-					.slice(1)
-					.map((rule) => edited(rule)),
-				edited(undefined),
-			];
+	const ruled = prompts.flatMap((prompt) => {
+		const entry = start.modules[module.uuid]?.caseListConfig?.searchInputs.find(
+			(one) => one.uuid === prompt.uuid,
+		);
+		return prompt.validationRule === undefined ||
+			entry === undefined ||
+			entry.kind === "hidden" ||
+			entry.validation === undefined
+			? []
+			: [{ prompt, variants: ruleVariants(entry.validation.rule) }];
+	});
+	/** `doc` with each field's rule at the variant `variantOf` names, where it names one. */
+	const withRules = (
+		doc: BlueprintDoc,
+		variantOf: (field: (typeof ruled)[number]) => number | undefined,
+	): BlueprintDoc => {
+		const changes = ruled.flatMap((field) => {
+			const at = variantOf(field);
+			const variant = at === undefined ? undefined : field.variants[at];
+			return at === undefined || at === 0 || variant === undefined
+				? []
+				: [{ uuid: field.prompt.uuid, rule: variant.rule }];
 		});
-	let first: string | undefined;
-	for (const doc of candidates) {
-		const mod = doc.modules[module.uuid] as Module;
-		let difference: string | undefined;
+		if (changes.length === 0) return doc;
+		return withCandidate(doc, (draft) => {
+			const inputs = draft.modules[module.uuid]?.caseListConfig?.searchInputs;
+			for (const change of changes) {
+				const one = inputs?.find((input) => input.uuid === change.uuid);
+				if (
+					one === undefined ||
+					one.kind === "hidden" ||
+					one.validation === undefined
+				)
+					continue;
+				if (change.rule === undefined) delete one.validation;
+				else one.validation.rule = change.rule as never;
+			}
+		});
+	};
+	const compared = (
+		doc: BlueprintDoc,
+		fields?: Map<string, string | undefined>,
+	): string | undefined => {
 		try {
-			difference = searchDifference(ctx, doc, mod, cursor, prompts, place);
-		} catch {
-			difference = EMITTER_THREW;
+			return searchDifference(
+				ctx,
+				doc,
+				doc.modules[module.uuid] as Module,
+				cursor,
+				prompts,
+				place,
+				fields,
+			);
+		} catch (error) {
+			rethrowWorkStop(error);
+			return EMITTER_THREW;
 		}
-		if (difference === undefined) {
-			ctx.doc = doc;
-			return;
+	};
+	const chosen = new Map<string, number>();
+	let asRead: string | undefined;
+	for (const variant of RULE_VARIANTS) {
+		const open = ruled.filter(
+			(field) =>
+				!chosen.has(field.prompt.uuid) && field.variants[variant] !== undefined,
+		);
+		if (variant > 0 && open.length === 0) continue;
+		const fields = new Map<string, string | undefined>();
+		const difference = compared(
+			withRules(start, () => variant),
+			fields,
+		);
+		if (variant === 0) {
+			asRead = difference;
+			if (difference === undefined) {
+				ctx.doc = start;
+				return;
+			}
 		}
-		first ??= difference;
+		for (const field of open)
+			if (
+				fields.has(field.prompt.cursor.pointer) &&
+				fields.get(field.prompt.cursor.pointer) === undefined
+			)
+				chosen.set(field.prompt.uuid, variant);
 	}
+	const settled = withRules(start, (field) => chosen.get(field.prompt.uuid));
+	if (settled !== start && compared(settled) === undefined) {
+		ctx.doc = settled;
+		return;
+	}
+	const first = asRead;
 	if (first === "schema:CaseSearch.include_all_related_cases") {
 		ctx.accounting.finding(
 			cursor.peek("include_all_related_cases") === true

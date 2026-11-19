@@ -18,6 +18,7 @@
 import type { Client } from "@modelcontextprotocol/client";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { HqSaveCounter, withHqPeer } from "@/__tests__/helpers/hqSaveCounter";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedHqAnswer,
@@ -136,7 +137,14 @@ const h = setupAppStateTestDb("mcp_hq_changes_", {
 const PROJECT = "hq-changes-project";
 const MEMBER = "hq-changes-member";
 const VIEWER = "hq-changes-viewer";
-const SCOPES = ["nova.read", "nova.write", "nova.hq.read", "nova.hq.write"];
+/* Every scope these tools need: reading and bringing in from CommCare HQ is `nova.hq.import`. */
+const SCOPES = [
+	"nova.read",
+	"nova.write",
+	"nova.hq.read",
+	"nova.hq.write",
+	"nova.hq.import",
+];
 const RENAMED = "Survey, renamed in CommCare HQ";
 const UUID_V7 =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -359,6 +367,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 						"unchanged",
 						sincePhrase({ kind: "changes-brought-in" }, FIXTURE_DOMAIN),
 					),
+					hq_changes: [],
 					publish_changes: [],
 					publish_changes_lead: null,
 					reading_id: null,
@@ -562,7 +571,8 @@ describe("a publish over a change made in CommCare HQ", () => {
 	it("stops with hq_changed whose app change can be brought in, sending nothing", async () => {
 		const appId = await broughtIn();
 		const before = await head(appId);
-		await withHttpPeer(async (peer) => {
+		/* The publish reads HQ's save counter before the app's source. */
+		await withHqPeer(new HqSaveCounter(), FIXTURE_HOST, async (peer) => {
 			serveAnswer(peer, FIXTURE_PATHS.source, renamed());
 			serveFixtureTables(peer);
 			await withTools(async (client) => {

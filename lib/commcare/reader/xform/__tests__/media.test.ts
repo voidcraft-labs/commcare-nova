@@ -139,6 +139,36 @@ describe("media on a text", () => {
 		expect(unclaimedMedia(reading)).toEqual([]);
 	});
 
+	// Core reads a media value's content whole, an `<output>` in it making the path, while the
+	// path is read from its text; and the value Nova writes holds `form` alone. A value holding
+	// more is no media Nova holds.
+	it.each([
+		[
+			"an output inside its path",
+			'<value form="image">jr://file/commcare/q<output value="/data/q"/>.png</value>',
+		],
+		[
+			"an attribute Nova does not write",
+			'<value form="image" note="kept">jr://file/commcare/q.png</value>',
+		],
+	])(
+		"fills no slot from a media value holding %s, and reports it",
+		async (_, value) => {
+			const label = texts({ label: "jr://file/commcare/q.png" }).replace(
+				'<value form="image">jr://file/commcare/q.png</value>',
+				value,
+			);
+			const reading = await readForm(source({ en: label }), {
+				langs: ["en"],
+				media: index,
+			});
+			expect(field(reading, "q").label_media).toBeUndefined();
+			expect(reading.closed.findings.map((finding) => finding.code)).toContain(
+				"unrecognized",
+			);
+		},
+	);
+
 	it("hands a path with no file off, with a record of its node, and fills no slot", async () => {
 		const reading = await readForm(
 			source({

@@ -12,17 +12,24 @@
  * here renders author HTML. The temporary render markers
  * below exist solely inside this render call; they are never authored, parsed
  * into domain state, or persisted.
+ *
+ * The running preview's text is the label with its values already
+ * substituted (`lib/preview/engine/labelRefs.ts`), formatted whole, as Core
+ * substitutes before Web Apps or Android formats the label; edit mode shows
+ * the template, a value as its chip. Both render through `PreviewMarkdown`,
+ * so the one label policy (`lib/markdown.tsx::labelMarkdownOptions`) holds
+ * whoever wrote the text.
  */
 
 "use client";
-import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
+import { RuleType } from "markdown-to-jsx";
 import { Fragment, type ReactNode, useMemo } from "react";
 import type { ProseAtomPart, ProseTemplate } from "@/lib/domain";
 import type { ProseSlotRef } from "@/lib/domain/expression/types";
 import {
 	type LabelMarkdownRendering,
-	previewOptionsFor,
-	withChipInjection,
+	PreviewMarkdown,
+	type RenderRule,
 } from "@/lib/markdown";
 import {
 	type ReferenceProvider,
@@ -41,10 +48,10 @@ interface LabelContentProps {
 	resolvedLabel?: string;
 	isEditMode: boolean;
 	className: string;
-	/** How the runtime the running preview plays renders a label's markdown
-	 *  (`lib/preview/platform.ts`, `labelMarkdown`). Edit mode always shows
-	 *  the default rendering. */
-	rendering?: LabelMarkdownRendering;
+	/** How the runtime the text is shown for renders a label's markdown
+	 *  (`lib/preview/platform.ts`, `labelMarkdown`): the running preview
+	 *  passes the platform's, edit mode `PREVIEW_LABEL_RENDERING`. */
+	rendering: LabelMarkdownRendering;
 	/** The text shows as written (`lib/domain/plainText.ts`), which the
 	 *  caller decides for its platform and mode. */
 	plainLabel?: boolean;
@@ -151,7 +158,7 @@ function chipRule(
 	refs: ReadonlyMap<string, ProseAtomPart>,
 	provider: ReferenceProvider | null,
 	formUuid: string | undefined,
-): NonNullable<MarkdownToJSX.Options["renderRule"]> {
+): RenderRule {
 	return (next, node, _renderChildren, state) => {
 		if (
 			node.type === RuleType.text &&
@@ -179,14 +186,9 @@ export function LabelContent({
 	const provider = useReferenceProvider();
 	const formUuid = useCurrentFormUuid();
 	const rendered = useMemo(() => makeRenderTemplate(label), [label]);
-	const baseOptions = previewOptionsFor(isEditMode ? undefined : rendering);
-	const options = useMemo(
-		() =>
-			withChipInjection(
-				baseOptions,
-				chipRule(rendered.refs, provider, formUuid),
-			),
-		[baseOptions, rendered, provider, formUuid],
+	const chips = useMemo(
+		() => chipRule(rendered.refs, provider, formUuid),
+		[rendered, provider, formUuid],
 	);
 	const wrapperCls = `preview-markdown ${className}`;
 	const scoped = (content: ReactNode) =>
@@ -211,14 +213,18 @@ export function LabelContent({
 	if (!isEditMode && resolvedLabel !== undefined) {
 		return (
 			<div className={wrapperCls}>
-				<Markdown options={baseOptions}>{resolvedLabel}</Markdown>
+				<PreviewMarkdown rendering={rendering}>{resolvedLabel}</PreviewMarkdown>
 			</div>
 		);
 	}
 
 	return (
 		<div className={wrapperCls}>
-			{scoped(<Markdown options={options}>{rendered.markdown}</Markdown>)}
+			{scoped(
+				<PreviewMarkdown rendering={rendering} textRule={chips}>
+					{rendered.markdown}
+				</PreviewMarkdown>,
+			)}
 		</div>
 	);
 }

@@ -28,7 +28,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { requireProjectAccess } from "../ownership";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
 const listMembersInputSchema = z.strictObject({
@@ -61,21 +61,17 @@ interface PendingInvitationBody {
  * Register the `list_members` tool on an `McpServer`.
  */
 export function registerListMembers(server: McpServer, ctx: ToolContext): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"list_members",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsRead),
 			description:
 				"List a Nova Project's members (member_id, name, email, role, join date) and its pending invitations (email, role, expiry). Any member of the Project can call this. member_id is the handle update_member_role takes. An invitation past its expires_at can no longer be accepted; re-invite with invite_member if it lapsed.",
 			inputSchema: listMembersInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				/* Per-tool scope gate — before any data read, so a
-				 * missing-scope credential can't probe whether the Project
-				 * exists. */
-				assertScope(ctx, SCOPES.projectsRead, "list_members");
-
 				/* Any member can view — every role holds `view`, so the only
 				 * reachable denials are the not-found collapse. */
 				await requireProjectAccess(ctx.userId, args.project_id, "view");

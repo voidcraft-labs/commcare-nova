@@ -503,10 +503,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 *  menu leaves, as CommCare's does
 	 *  (`menuProjection.ts::previewCaseListHeldChoices`,
 	 *  `lib/routing/previewHeldMenu.ts`). */
-	const heldMenu = usePreviewHeldMenu();
-	/* The worker's Preview session: a menu another session held (another
-	 * worker, platform or Preview run) holds nothing here. */
+	/* The worker's Preview session, whose records hold the menu: a menu
+	 * another session held (another worker, platform or Preview run) is not
+	 * among them. */
 	const previewSessionId = usePreviewSessionId();
+	const heldMenu = usePreviewHeldMenu(previewSessionId);
 	const heldChoices = useMemo(
 		() =>
 			moduleUuid === undefined
@@ -514,9 +515,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				: previewCaseListHeldChoices(heldMenu, {
 						moduleUuid,
 						continuation,
-						session: previewSessionId,
 					}),
-		[continuation, heldMenu, moduleUuid, previewSessionId],
+		[continuation, heldMenu, moduleUuid],
 	);
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
@@ -552,13 +552,18 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			navigate.replace(back.location);
 			return;
 		}
-		navigate.stepBackTo(back.location, () => {
-			setPreviewParentCaseRequest(undefined);
-			setPreviewCaseTarget(undefined);
-		});
+		navigate.stepBackTo(
+			back.location,
+			() => {
+				setPreviewParentCaseRequest(undefined);
+				setPreviewCaseTarget(undefined);
+			},
+			previewSessionId,
+		);
 	}, [
 		navigate,
 		previewParentCaseRequest,
+		previewSessionId,
 		selectsForParentRequest,
 		setPreviewCaseTarget,
 		setPreviewMenuCaseSelection,
@@ -1940,8 +1945,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		if (routeCaseId !== undefined) explicitRouteCloseRef.current = routeCaseId;
 		setOpenCase(null);
 		navigate.holdPreviewMenu(
-			{ moduleUuid, cases, session: previewSessionId },
-			{ replace: routeCaseId !== undefined },
+			{ moduleUuid, cases },
+			{ replace: routeCaseId !== undefined, session: previewSessionId },
 		);
 	};
 	/* The cases this screen's session holds, in the order they were chosen:
@@ -2881,7 +2886,9 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					)}
 					{subtitle !== undefined && (
 						<div className="preview-markdown mt-1 text-sm text-nova-text-secondary">
-							<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+							<PreviewMarkdown rendering={platformRules.labelMarkdown}>
+								{subtitle}
+							</PreviewMarkdown>
 						</div>
 					)}
 				</div>
@@ -3127,7 +3134,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				ref={formMenuBackRef}
 				type="button"
 				variant="ghost"
-				onClick={stepBackOffPreviewHeldMenu}
+				onClick={() => stepBackOffPreviewHeldMenu(previewSessionId)}
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
@@ -3223,7 +3230,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				ref={formMenuBackRef}
 				type="button"
 				variant="ghost"
-				onClick={stepBackOffPreviewHeldMenu}
+				onClick={() => stepBackOffPreviewHeldMenu(previewSessionId)}
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />

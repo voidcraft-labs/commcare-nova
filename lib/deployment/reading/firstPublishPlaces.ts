@@ -39,6 +39,7 @@ import {
 } from "@/lib/commcare/appStringKeys";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { generatedKeyOwner } from "@/lib/commcare/reader/generatedTranslationKeys";
+import { type SourceTable, tableOf } from "@/lib/commcare/sourceKeys";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 
 /** Every kind of place, by the tree's first step and, in a form, by its XForm part. */
@@ -477,12 +478,12 @@ export function foldedTextSlotsOf(key: string): FoldedTextSlots | undefined {
 /** HQ's detail types by the word a key spells them with (`id_strings.py::detail_column_header_locale`,
  *  `ModuleBase.get_details`): a search's details are copies of the case list's
  *  (`Module.search_detail`). */
-const DETAIL_OF_KEY: Readonly<Record<string, string>> = {
+const DETAIL_OF_KEY: SourceTable<string> = tableOf({
 	case_short: "short",
 	case_long: "long",
 	search_short: "short",
 	search_long: "long",
-};
+});
 
 /**
  * The position in its detail's `columns` of the column a detail key names,
@@ -517,7 +518,7 @@ function slotStepsOf(key: string, slot: readonly SlotStep[]): string[] {
 		else if (step.spelled === "form")
 			at = owner.kind === "form" ? String(owner.form) : undefined;
 		else if (step.spelled === "detail")
-			at = DETAIL_OF_KEY[key.split(".")[1] ?? ""];
+			at = DETAIL_OF_KEY.get(key.split(".")[1] ?? "");
 		else {
 			const column = detailColumnIndex(key);
 			at = column === undefined ? undefined : String(column);

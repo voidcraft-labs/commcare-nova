@@ -11,6 +11,8 @@
  * rule maps each entry to a standing.
  */
 
+import { cutShown, type ShownTextBounds } from "./shownText";
+
 // ---------------------------------------------------------------------------
 // Standings
 // ---------------------------------------------------------------------------
@@ -252,24 +254,59 @@ export type CircumstanceFinding = {
 
 export type Finding = ManifestFinding | CircumstanceFinding;
 
-/** The most characters a finding's name holds. */
+/** The most characters (grapheme clusters) a finding's name holds. */
 export const FINDING_NAME_MAX_LENGTH = 200;
 
-const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+/**
+ * The most UTF-16 code units a finding's name holds: four for each character,
+ * so a name of ordinary letters, accented ones and most emoji is cut by its
+ * characters alone, and one character of a thousand combining marks cannot
+ * make it long.
+ */
+export const FINDING_NAME_MAX_UNITS = 4 * FINDING_NAME_MAX_LENGTH;
+
+/** The bounds a name an app supplies is shown within, in a finding and in a place. */
+export const SHOWN_NAME_BOUNDS: ShownTextBounds = {
+	graphemes: FINDING_NAME_MAX_LENGTH,
+	units: FINDING_NAME_MAX_UNITS,
+};
 
 /**
- * `name` cut to the bound, its last character `…` where it was cut. A
- * character is what a person reads as one, a grapheme cluster (a letter with
- * its combining marks, an emoji sequence joined by a zero-width joiner), so a
- * cut never splits one.
+ * `name` cut to the bounds, its last character `…` where it was cut
+ * (`shownText.ts::cutShown`). Every finding's name is cut here, by the
+ * finding's constructor, so a caller never cuts one first.
  */
 export function cutFindingName(name: string): string {
-	const characters = Array.from(
-		GRAPHEMES.segment(name),
-		(part) => part.segment,
-	);
-	if (characters.length <= FINDING_NAME_MAX_LENGTH) return name;
-	return `${characters.slice(0, FINDING_NAME_MAX_LENGTH - 1).join("")}…`;
+	return cutShown(name, SHOWN_NAME_BOUNDS);
+}
+
+/**
+ * `place` with every name an app gives it cut as a finding's name is: a
+ * menu's, a form's and the names a question's place repeats. A path, a
+ * table's tag and a file's path are keys a caller joins on, never cut.
+ */
+export function shownPlace(place: HqPlace): HqPlace {
+	switch (place.kind) {
+		case "menu":
+		case "case-list":
+		case "case-detail":
+		case "search":
+			return { ...place, name: cutFindingName(place.name) };
+		case "form":
+			return {
+				...place,
+				menuName: cutFindingName(place.menuName),
+				name: cutFindingName(place.name),
+			};
+		case "question":
+			return {
+				...place,
+				menuName: cutFindingName(place.menuName),
+				formName: cutFindingName(place.formName),
+			};
+		default:
+			return place;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +337,10 @@ export const READ_CIRCUMSTANCES = [
 	"browser-only",
 	"changed-while-reading",
 	"already-in-nova",
+	"nova-busy",
 	"too-large",
+	"too-intricate",
+	"lookup-data-too-large",
 	"menu-unreadable-in-hq",
 	"app-unreadable-in-hq",
 	"shadow-disagrees",
@@ -347,7 +387,10 @@ export const CIRCUMSTANCE_STANDINGS = {
 	"browser-only": { standing: "stop" },
 	"changed-while-reading": { standing: "stop" },
 	"already-in-nova": { standing: "stop" },
+	"nova-busy": { standing: "stop" },
 	"too-large": { standing: "not-yet" },
+	"too-intricate": { standing: "not-yet" },
+	"lookup-data-too-large": { standing: "not-yet" },
 	"menu-unreadable-in-hq": { standing: "fix-in-hq" },
 	"app-unreadable-in-hq": { standing: "fix-in-hq" },
 	"shadow-disagrees": { standing: "fix-in-hq", name: "line" },
@@ -422,7 +465,8 @@ export type CircumstanceDetail<C extends ReadCircumstance> =
 			? { readonly claim?: HqAppClaimDetail }
 			: { readonly claim?: never });
 
-/** The one way a circumstance finding is made. `standing` is the row's, and the name is cut. */
+/** The one way a circumstance finding is made. `standing` is the row's, and the name and the
+ *  place's names are cut. */
 export function circumstanceFinding<C extends ReadCircumstance>(
 	code: C,
 	place: HqPlace,
@@ -432,7 +476,7 @@ export function circumstanceFinding<C extends ReadCircumstance>(
 	return {
 		code,
 		standing: CIRCUMSTANCE_STANDINGS[code].standing,
-		place,
+		place: shownPlace(place),
 		subject: null,
 		detail: {
 			...(name === undefined ? {} : { name: cutFindingName(name) }),

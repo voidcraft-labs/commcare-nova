@@ -24,6 +24,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { readHqApp } from "@/lib/commcare/reader";
 import {
 	hydrated,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/commcare/reader/__tests__/publishedDocuments";
 import { retainedSourceBody } from "@/lib/commcare/reader/__tests__/readerInput";
 import { canonDocument } from "@/lib/commcare/reader/canon";
+import { printSlotUnder } from "@/lib/commcare/reader/expressions/readExpression";
 import {
 	matchingResolver,
 	mintingResolver,
@@ -40,6 +42,7 @@ import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { documentDifferences } from "@/lib/doc/documentDifferences";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -47,6 +50,8 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { Automation, BlueprintDoc, FieldKind, Uuid } from "@/lib/domain";
 import { formField, isBlank, not } from "@/lib/domain/expression/builders";
+import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
+import type { Expression } from "@/lib/domain/expression/types";
 import {
 	makeTranslationUnitId,
 	translationSourceFingerprint,
@@ -1309,6 +1314,18 @@ describe("a menu or form whose spelling no longer fits the change", () => {
 		expect(plan.respelled).toContain(id(SCREEN));
 	});
 
+	it("writes no spelling into a respelled form that prints otherwise there", async () => {
+		const { near, print, holding } = nearLowering(dormant(), "a");
+		const ref = holding(near);
+		const theirs = committed(await readingOf(ref, ref), [
+			{ kind: "updateForm", uuid: id(SCREEN), patch: { plainText: null } },
+		] as unknown as Mutation[]);
+		const plan = changesOf(await planOf(ref, theirs));
+		expect(plan.respelled).toContain(id(SCREEN));
+		// The form takes the reader's spelling, and the condition keeps what it prints.
+		expect(print(plan.target)).toBe(print(ref));
+	});
+
 	it("takes a form added to a menu whose offered registration stands first, keeping its place", async () => {
 		const plan = await respelledBy([
 			{
@@ -1341,6 +1358,86 @@ describe("a menu or form whose spelling no longer fits the change", () => {
 		const order = plan.target.formOrder[id(CLIENTS)] ?? [];
 		expect(order[0]).toBe(id(SIGN_UP));
 		expect(order).toHaveLength(3);
+	});
+});
+
+// ── A slot that prints near a lowering ───────────────────────────────
+
+/** The field of `doc` whose question id is `fieldId`. */
+function fieldOf(doc: BlueprintDoc, fieldId: string): Uuid {
+	const found = (Object.keys(doc.fields) as Uuid[]).find(
+		(uuid) => doc.fields[uuid]?.id === fieldId,
+	);
+	if (found === undefined) throw new Error(`No question ${fieldId}.`);
+	return found;
+}
+
+/**
+ * A comparison of two dates and times in the display condition of `fieldId`, which a device
+ * lowers to arithmetic over microseconds, and that arithmetic with the day count's constant one
+ * off: what a person writes by editing the long formula HQ's form builder shows. The canonical
+ * form's `instant` row reads the comparison from a fragment of the lowering, so it would take
+ * the second for the first, which prints otherwise.
+ */
+function nearLowering(doc: BlueprintDoc, fieldId: string) {
+	const slot = {
+		entity: "field",
+		uuid: fieldOf(doc, fieldId),
+		slot: "relevant",
+	} as const;
+	const parse = (text: string) => {
+		const parsed = parseFormExpressionForSlot(doc, slot, text, "unavailable");
+		if (!parsed.ok || parsed.expression === undefined)
+			throw new Error(`The text does not bind: ${text}`);
+		return parsed.expression;
+	};
+	const naming = identityLookupWireNaming();
+	const comparison = parse("now() > '2026-01-01T00:00:00.000Z'");
+	const lowering = printSlotUnder(doc, slot, comparison, naming);
+	if (lowering === undefined) throw new Error("The comparison has no print.");
+	let edited = false;
+	const near = mapExpressionAst(parse(lowering), {
+		mapTerm: (one) => {
+			if (edited || one.kind !== "literal" || one.value !== 719468)
+				return undefined;
+			edited = true;
+			return { ...one, value: 719469 };
+		},
+	});
+	expect(edited).toBe(true);
+	const print = (held: BlueprintDoc) =>
+		printSlotUnder(
+			held,
+			slot,
+			(held.fields[slot.uuid] as { relevant?: Expression })
+				.relevant as Expression,
+			naming,
+		);
+	const holding = (expression: Expression) =>
+		committed(
+			produce(doc, (draft) => {
+				(draft.fields[slot.uuid] as { relevant?: Expression }).relevant =
+					expression;
+			}),
+			[],
+		);
+	return { comparison, near, print, holding };
+}
+
+describe("a condition that prints near a lowering", () => {
+	it("is an unpublished change of Nova's against the comparison it was published as", async () => {
+		const base = visits();
+		const { comparison, near, holding } = nearLowering(base, "comment");
+		const ref = holding(comparison);
+		const now = holding(near);
+		const theirs = committed(ref, [
+			{ kind: "renameForm", uuid: id(VISIT), newId: "Home visit" },
+		] as unknown as Mutation[]);
+		const plan = changesOf(await planOf(ref, theirs, { now }));
+		// The head holds arithmetic that prints otherwise than what was published, so the change
+		// is applied to the published document and the head's edit is listed, never taken over.
+		expect(plan.appliedTo).toBe("published");
+		expect(plan.novaChanges.count).toBeGreaterThan(0);
 	});
 });
 

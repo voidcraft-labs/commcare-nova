@@ -26,6 +26,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { FormLinkDatumName } from "@/lib/domain/expression/types";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { emissionPlan } from "../../emissionPlan";
 import {
 	entryDatumIds,
@@ -40,6 +41,7 @@ import {
 	targetFrameChildren,
 } from "../../formLinkProjection";
 import { entryPlanContext, runFormRules } from "../../validator/rules/form";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { caseById } from "../../xpath/wire/rowScope";
@@ -55,9 +57,9 @@ import {
 } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { syntaxOf } from "../hqInterpolation";
-import { HQ_PAGE_LABELS } from "../hqPageLabels";
+import { WORKFLOW_LABELS } from "../hqPageLabels";
 import { externalKey, type FormLinkTargetKey } from "../identity";
-import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { isJsonObject, type JsonCursor, objectMembers } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
@@ -84,7 +86,7 @@ function perClass<U extends Claim["use"]>(
 	entry: string,
 	field: string,
 ): Readonly<Record<FormClass, Claim<U>>> {
-	return Object.fromEntries(
+	return recordFromEntries(
 		FORM_CLASSES.map((cls) => [
 			cls,
 			make(`${F}/${entry}`, `schema:${cls}.${field}`),
@@ -239,7 +241,7 @@ const AFTER_SUBMIT = {
 
 defineClaims(
 	"menus.afterSubmit",
-	Object.fromEntries(
+	recordFromEntries(
 		Object.entries(AFTER_SUBMIT).flatMap(([name, one]) =>
 			"use" in one
 				? [[name, one as Claim]]
@@ -380,7 +382,7 @@ export function readAfterSubmit(ctx: ReadContext, app: DraftApp): void {
 			const { json } = form;
 			const cls = form.docType;
 			const word = json.peek("post_form_workflow");
-			const menu = stored[form.menu] ?? {};
+			const menu = stored[form.menu] ?? NO_ENTRIES;
 			let read: Word | "form" | undefined;
 			const links = json.peek("form_links");
 			if (word === "form") {
@@ -402,16 +404,19 @@ export function readAfterSubmit(ctx: ReadContext, app: DraftApp): void {
 				}
 				read = "form";
 			} else if (!isWord(word)) {
-				const label = (HQ_PAGE_LABELS.workflow as Record<string, string>)[
-					textOf(word)
-				];
+				const label = WORKFLOW_LABELS.get(textOf(word));
 				json.refuse(
 					"post_form_workflow",
 					AFTER_SUBMIT.wordNotOffered[cls],
 					label === undefined ? undefined : { name: label },
 				);
 			} else if (
-				refusedByBuild(ctx, menu, rawForms(menu)[form.index] ?? {}, word)
+				refusedByBuild(
+					ctx,
+					menu,
+					rawForms(menu)[form.index] ?? NO_ENTRIES,
+					word,
+				)
 			)
 				json.refuse("post_form_workflow", AFTER_SUBMIT.wordRefusedByBuild[cls]);
 			else read = word;
@@ -684,9 +689,7 @@ function readLinkTarget(
 		target = { type: "module", moduleUuid: named.uuid };
 		key = ["module", named.uniqueId];
 	}
-	const stored = Array.isArray(value.datums)
-		? value.datums.filter(isJsonObject)
-		: [];
+	const stored = objectMembers(value.datums) ?? [];
 	if (stored.length === 0) return { cursor, value, target, key, datums: [] };
 	if (target.type === "module") {
 		cursor.refuseWhole(AFTER_SUBMIT.datumsOther);
@@ -957,11 +960,12 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 		const stored: StoredLink[] = [];
 		let whole = true;
 		cursors.forEach((cursor, index) => {
-			const value = values.filter(isJsonObject)[index] ?? {};
+			const value = (objectMembers(values) ?? [])[index] ?? NO_ENTRIES;
 			let read: StoredLink | undefined;
 			try {
 				read = readLinkTarget(ctx, snapshot, datumIds, reading, cursor, value);
-			} catch {
+			} catch (error) {
+				rethrowWorkStop(error);
 				ctx.accounting.circumstance("unrecognized", form.place, {
 					name: "schema:FormLink.datums",
 				});
@@ -978,7 +982,8 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 						reading,
 						read,
 					);
-				} catch {
+				} catch (error) {
+					rethrowWorkStop(error);
 					// A frame the projection cannot walk is proposed nothing; the
 					// one expansion of the settle reports what it cannot print.
 					collapsed = undefined;
@@ -1095,7 +1100,7 @@ function readOtherwiseAndLinks(
 		const n = counts.get(target) ?? 0;
 		counts.set(target, n + 1);
 		return ctx.accounting.identity(
-			ctx.resolver.claim(
+			ctx.identities.claim(
 				externalKey.formLink(form.xmlns, link.key, n),
 				whereText(form.place),
 			),
@@ -1406,7 +1411,8 @@ function leavesTargetCaseEmpty(ctx: ReadContext, form: DraftForm): boolean {
 		return runFormRules(doc, form.uuid, moduleUuid, entryPlanContext(doc)).some(
 			(error) => error.code === "FORM_LINK_DATUMS_INCOMPLETE",
 		);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		// A form the rules cannot project is the expansion's to report.
 		return false;
 	}
@@ -1484,7 +1490,7 @@ function settleWord(
 			form.place,
 			wordAt,
 			{
-				name: HQ_PAGE_LABELS.workflow[word],
+				name: WORKFLOW_LABELS.get(word) ?? word,
 			},
 		);
 		return;
@@ -1645,61 +1651,87 @@ function compareLinks(
 	}
 }
 
-/** A form's links as Nova's emission projects them: each link's target, `xpath` and carried
- *  values, printed as `expander.ts::toHqFormLink` prints them, and the fallback. */
-function printedLinks(doc: BlueprintDoc, formUuid: Uuid): string {
+/** A document's emission plan and the link projection over it, made once a document and shared
+ *  by every form a print of it reads. */
+interface LinkPrinting {
+	readonly plan: ReturnType<typeof emissionPlan>;
+	readonly projection: FormLinkProjectionContext;
+}
+
+function linkPrinting(doc: BlueprintDoc): LinkPrinting {
 	const plan = emissionPlan(doc);
-	const projection = formLinkProjectionContext(plan.doc, {
-		expressionDoc: doc,
-	});
-	const projected = projectAfterSubmit(plan.doc, projection, formUuid);
+	return {
+		plan,
+		projection: formLinkProjectionContext(plan.doc, { expressionDoc: doc }),
+	};
+}
+
+/** A form's links as Nova's emission projects them: each link's target, `xpath` and carried
+ *  values, printed as `expander.ts::toHqFormLink` prints them, and the fallback (`whole`), with
+ *  each link's printed `xpath` by its identity. */
+function printedLinks(
+	printing: LinkPrinting,
+	formUuid: Uuid,
+): {
+	readonly whole: string;
+	readonly xpathOf: ReadonlyMap<Uuid, string>;
+} {
+	const projected = projectAfterSubmit(
+		printing.plan.doc,
+		printing.projection,
+		formUuid,
+	);
 	const print = (wire: Parameters<typeof serializeWire>[0] | undefined) =>
 		wire === undefined
 			? ""
 			: serializeWire(wire, { target: "hq-json", interpolation: "none" }).text;
-	return JSON.stringify({
-		links: (projected?.links ?? []).map((link) => ({
-			target: link.target,
-			xpath: print(link.xpath),
-			datums: link.datums.map((datum) => [datum.name, print(datum.xpath)]),
-		})),
-		fallback:
-			projected?.fallback.kind === "built-in"
-				? [projected.fallback.destination, print(projected.fallback.xpath)]
-				: null,
-	});
+	const links = (projected?.links ?? []).map((link) => ({
+		uuid: link.uuid,
+		target: link.target,
+		xpath: print(link.xpath),
+		datums: link.datums.map((datum) => [datum.name, print(datum.xpath)]),
+	}));
+	return {
+		whole: JSON.stringify({
+			links: links.map(({ target, xpath, datums }) => ({
+				target,
+				xpath,
+				datums,
+			})),
+			fallback:
+				projected?.fallback.kind === "built-in"
+					? [projected.fallback.destination, print(projected.fallback.xpath)]
+					: null,
+		}),
+		xpathOf: new Map(links.map((link) => [link.uuid, link.xpath])),
+	};
 }
 
-/** Every order of `items`. */
-function orders<T>(items: readonly T[]): T[][] {
-	if (items.length <= 1) return [[...items]];
-	return items.flatMap((item, at) =>
-		orders([...items.slice(0, at), ...items.slice(at + 1)]).map((rest) => [
-			item,
-			...rest,
-		]),
-	);
+/** One link that may carry by hand the values automatic matching gives it, in place of its
+ *  condition's last clauses: what it would carry, in the target's order, and the clauses
+ *  before them. */
+interface CarryProposal {
+	readonly formUuid: Uuid;
+	readonly linkUuid: Uuid;
+	readonly carried: readonly FormLinkDatum[];
+	readonly rest: readonly Expression[];
 }
 
-/** The document with the link at `index` of `formUuid` carrying its guarded values by hand
- *  in place of its condition's last clauses, where Nova's emission of the two is one; undefined
- *  where no such reading prints the same. */
-function carriedFromGuards(
+/** The proposal of the link `link` of `formUuid`, against the document `printing` was made of;
+ *  undefined where the link carries nothing automatic matching fills. */
+function carryProposal(
 	doc: BlueprintDoc,
+	printing: LinkPrinting,
 	formUuid: Uuid,
-	index: number,
-): BlueprintDoc | undefined {
-	const link = doc.forms[formUuid]?.formLinks?.[index];
-	const condition = link?.condition;
-	if (link === undefined || condition === undefined) return undefined;
+	link: FormLink,
+): CarryProposal | undefined {
+	const condition = link.condition;
+	if (condition === undefined) return undefined;
 	const moduleUuid = doc.moduleOrder.find((uuid) =>
 		(doc.formOrder[uuid] ?? []).includes(formUuid),
 	);
 	if (moduleUuid === undefined) return undefined;
-	const plan = emissionPlan(doc);
-	const projection = formLinkProjectionContext(plan.doc, {
-		expressionDoc: doc,
-	});
+	const { plan, projection } = printing;
 	const selections = automaticSearchSelections(
 		plan.doc,
 		projection,
@@ -1710,7 +1742,6 @@ function carriedFromGuards(
 	if (selections === undefined) return undefined;
 	const clauses = condition.kind === "and" ? condition.clauses : [condition];
 	if (clauses.length < selections.length) return undefined;
-	const rest = clauses.slice(0, clauses.length - selections.length);
 	const sourceRows = entryDatumIds(
 		plan.doc,
 		projection,
@@ -1729,11 +1760,28 @@ function carriedFromGuards(
 			},
 		});
 	}
-	const printed = printedLinks(doc, formUuid);
-	for (const order of orders(carried)) {
-		const candidate = withCandidate(doc, (draft) => {
-			const one = draft.forms[formUuid]?.formLinks?.[index];
-			if (one === undefined) return;
+	return {
+		formUuid,
+		linkUuid: link.uuid,
+		carried,
+		rest: clauses.slice(0, clauses.length - selections.length),
+	};
+}
+
+/** `doc` with each proposal's link carrying its values, in the order `orderOf` gives, in place
+ *  of its condition's last clauses. */
+function withCarried(
+	doc: BlueprintDoc,
+	proposals: readonly CarryProposal[],
+	orderOf: (proposal: CarryProposal) => readonly FormLinkDatum[],
+): BlueprintDoc {
+	return withCandidate(doc, (draft) => {
+		for (const proposal of proposals) {
+			const one = draft.forms[proposal.formUuid]?.formLinks?.find(
+				(link) => link.uuid === proposal.linkUuid,
+			);
+			if (one === undefined) continue;
+			const rest = proposal.rest;
 			if (rest.length === 0) delete one.condition;
 			else
 				one.condition = (
@@ -1741,11 +1789,51 @@ function carriedFromGuards(
 						? rest[0]
 						: { kind: "and", clauses: rest as [Expression, ...Expression[]] }
 				) as typeof one.condition;
-			one.datums = order as typeof one.datums;
-		});
-		if (printedLinks(candidate, formUuid) === printed) return candidate;
+			one.datums = [...orderOf(proposal)] as typeof one.datums;
+		}
+	});
+}
+
+/** The carried values of `proposal` in the order its condition names their guards: each of the
+ *  condition's last clauses as printed (`before`) matched to the one guard of the print carrying
+ *  them in the target's order (`carrying`) that is the same tree, each guard used once; undefined
+ *  where a clause matches none. */
+function guardOrder(
+	proposal: CarryProposal,
+	before: string | undefined,
+	carrying: string | undefined,
+): readonly FormLinkDatum[] | undefined {
+	if (before === undefined || carrying === undefined) return undefined;
+	const n = proposal.carried.length;
+	const a = syntaxOf(before, undefined);
+	const b = syntaxOf(carrying, undefined);
+	if (!a.ok || !b.ok) return undefined;
+	const clauses = conjuncts(a.syntax);
+	const guards = conjuncts(b.syntax);
+	if (clauses.length < n || guards.length < n) return undefined;
+	const left = guards.slice(guards.length - n).map((guard, at) => ({
+		guard,
+		datum: proposal.carried[at] as FormLinkDatum,
+	}));
+	const ordered: FormLinkDatum[] = [];
+	for (const clause of clauses.slice(clauses.length - n)) {
+		const at = left.findIndex(({ guard }) => sameSyntax(clause, guard));
+		const [one] = at < 0 ? [] : left.splice(at, 1);
+		if (one === undefined) return undefined;
+		ordered.push(one.datum);
 	}
-	return undefined;
+	return ordered;
+}
+
+/** `run`'s answer, or undefined where Nova's emission cannot project the document it reads:
+ *  such a document prints no links to compare. */
+function projecting<T>(run: () => T): T | undefined {
+	try {
+		return run();
+	} catch (error) {
+		rethrowWorkStop(error);
+		return undefined;
+	}
 }
 
 /**
@@ -1755,26 +1843,93 @@ function carriedFromGuards(
  * that carries those values by hand, which Nova writes as no carried values and their guards
  * (`collapsedDatums`). The reader returns the link that carries them. A condition's last clauses
  * are taken for the guards only where Nova's emission of the two links is one.
+ *
+ * The row derives and never searches. Every link's proposal is made against the document as
+ * given; the document carrying every proposal's values in the target's order is printed once,
+ * and each link's order is read off that print, each trailing clause of its condition matched
+ * to the one guard that is the same tree (as `collapsedDatums` reads a stored link); the
+ * document carrying every link's values in that order is then printed once, and each form whose
+ * links print as they did keeps its links' rewrite. A form's links read one another's targets
+ * only, so where a form does not, the others are printed once more without it, and the row
+ * applies only where they all still print as they did. At most four prints of the document,
+ * whatever the number of links or of the values each carries.
  */
 export function searchLinkGuardsAreCarriedValues(
 	doc: BlueprintDoc,
 ): BlueprintDoc {
-	let current = doc;
-	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
-		const links = doc.forms[formUuid]?.formLinks ?? [];
-		for (const [index, link] of links.entries()) {
+	const given = projecting(() => linkPrinting(doc));
+	if (given === undefined) return doc;
+	const proposals: CarryProposal[] = [];
+	for (const formUuid of Object.keys(doc.forms) as Uuid[])
+		for (const link of doc.forms[formUuid]?.formLinks ?? []) {
 			if (link.datums !== undefined || link.condition === undefined) continue;
-			let next: BlueprintDoc | undefined;
-			try {
-				next = carriedFromGuards(current, formUuid, index);
-			} catch {
-				// A document Nova's emission cannot project prints no links to compare.
-				next = undefined;
-			}
-			if (next !== undefined) current = next;
+			const proposal = projecting(() =>
+				carryProposal(doc, given, formUuid, link),
+			);
+			if (proposal !== undefined) proposals.push(proposal);
 		}
-	}
-	return current;
+	if (proposals.length === 0) return doc;
+	const forms = [...new Set(proposals.map((one) => one.formUuid))];
+	const before = new Map(
+		forms.flatMap((formUuid) => {
+			const printed = projecting(() => printedLinks(given, formUuid));
+			return printed === undefined ? [] : [[formUuid, printed] as const];
+		}),
+	);
+	const printedFor = (candidate: BlueprintDoc, only: readonly Uuid[]) => {
+		const printing = projecting(() => linkPrinting(candidate));
+		return new Map(
+			only.flatMap((formUuid) => {
+				const printed =
+					printing === undefined
+						? undefined
+						: projecting(() => printedLinks(printing, formUuid));
+				return printed === undefined ? [] : [[formUuid, printed] as const];
+			}),
+		);
+	};
+	const proposed = proposals.filter((one) => before.has(one.formUuid));
+	const inTargetOrder = withCarried(doc, proposed, (one) => one.carried);
+	const carrying = printedFor(inTargetOrder, forms);
+	const ordered = proposed.flatMap((proposal) => {
+		const order = guardOrder(
+			proposal,
+			before.get(proposal.formUuid)?.xpathOf.get(proposal.linkUuid),
+			carrying.get(proposal.formUuid)?.xpathOf.get(proposal.linkUuid),
+		);
+		return order === undefined ? [] : [{ proposal, order }];
+	});
+	const settle = (
+		kept: readonly {
+			proposal: CarryProposal;
+			order: readonly FormLinkDatum[];
+		}[],
+	): { readonly doc: BlueprintDoc; readonly same: readonly Uuid[] } => {
+		const orderOf = new Map(kept.map((one) => [one.proposal, one.order]));
+		const candidate = withCarried(
+			doc,
+			kept.map((one) => one.proposal),
+			(proposal) => orderOf.get(proposal) ?? proposal.carried,
+		);
+		const touched = [...new Set(kept.map((one) => one.proposal.formUuid))];
+		const after = printedFor(candidate, touched);
+		return {
+			doc: candidate,
+			same: touched.filter(
+				(formUuid) =>
+					after.get(formUuid)?.whole === before.get(formUuid)?.whole,
+			),
+		};
+	};
+	if (ordered.length === 0) return doc;
+	const first = settle(ordered);
+	const touched = new Set(ordered.map((one) => one.proposal.formUuid));
+	if (first.same.length === touched.size) return first.doc;
+	const same = new Set(first.same);
+	const kept = ordered.filter((one) => same.has(one.proposal.formUuid));
+	if (kept.length === 0) return doc;
+	const second = settle(kept);
+	return second.same.length === same.size ? second.doc : doc;
 }
 
 /**

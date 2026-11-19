@@ -24,6 +24,7 @@ import type { FormScreenPage as SectionPageModel } from "@/lib/preview/engine/fo
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 import { SectionHeading, sectionKicker } from "./SectionHeading";
@@ -44,6 +45,10 @@ export function SectionPage({
 	takeFocusOnMount,
 }: SectionPageProps) {
 	const { language } = useBuilderLanguage();
+	/* The running label renders as the platform Preview plays renders it
+	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
+	const labelRendering = usePreviewPlatformRules().labelMarkdown;
+
 	const field = usePresentationField(page.uuid);
 	const state = useEngineState(page.uuid);
 	const textForm = useFieldTextForm(page.uuid);
@@ -94,6 +99,7 @@ export function SectionPage({
 									label={field.label}
 									resolvedLabel={state.resolvedLabel}
 									isEditMode={false}
+									rendering={labelRendering}
 									plainLabel={labelShowsAsTyped(textForm, field)}
 									className="text-lg font-semibold leading-7 text-nova-text"
 								/>

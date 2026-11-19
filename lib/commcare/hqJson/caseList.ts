@@ -58,6 +58,7 @@ import type {
 	CaseSearchConfig as DomainCaseSearchConfig,
 	Module,
 	SearchInputDef,
+	Uuid,
 } from "@/lib/domain";
 import {
 	caseListOrderPlan,
@@ -137,6 +138,7 @@ import type {
 	CaseSearchConfig as WireCaseSearchConfig,
 	DetailColumn as WireDetailColumn,
 } from "../types";
+import type { ColumnFieldWordOf, ColumnScreen } from "../wireIdentity";
 import { w } from "../xpath/wire/builders";
 import { toWire } from "../xpath/wire/fromExpression";
 import type { WireExpr } from "../xpath/wire/tree";
@@ -163,6 +165,8 @@ interface ColumnProjectionContext {
 	readonly lookupNaming?: LookupWireNaming;
 	/** The reader's control over each calculated column's print (`CaseListRewrites.column`). */
 	readonly columnRewrites?: ColumnRewrites;
+	/** The word each column's property is kept under on each screen, where the export's target holds one. */
+	readonly columnFieldWord?: ColumnFieldWordOf;
 }
 
 /**
@@ -228,11 +232,20 @@ function projectColumnToDetail(
 	// A column over `case_id` is the expression reading it, through the
 	// column's walk where it has one; any other property column is the field
 	// HQ's page stores, the walk's indices and the property joined by `/`, the
-	// property in HQ's word (`hqColumnFieldText`).
+	// property in HQ's word on this screen (`hqColumnFieldText`).
 	const attribute = columnStoredAsExpression(column);
 	const base = attribute
 		? detailColumn(hqXPath(columnPropertyPath(column)), headerRecord)
-		: detailColumn(hqColumnFieldText(columnFieldText(column)), headerRecord);
+		: detailColumn(
+				hqColumnFieldText(
+					columnFieldText(column),
+					ctx.columnFieldWord?.(
+						column.uuid,
+						screen === "results" ? "short" : "long",
+					),
+				),
+				headerRecord,
+			);
 	const propertyCaseType =
 		columnPropertyCaseType(column, mod.caseType, ctx.caseTypes) ??
 		mod.caseType ??
@@ -367,7 +380,7 @@ function projectColumnForShortDetail(
 	ctx: ColumnProjectionContext,
 ): WireDetailColumn<HqXPath> {
 	const { column } = field;
-	const joinText = hqJoinText(field);
+	const joinText = hqJoinText(field, ctx.columnFieldWord);
 	const projected: WireDetailColumn<HqXPath> = field.hidden
 		? {
 				...detailColumn(
@@ -414,12 +427,18 @@ function projectColumnForShortDetail(
 }
 
 /** A short field's join text as HQ stores it: a property column's in HQ's word
- *  (`hqColumnFieldText`), any other as the order plan prints it. */
-function hqJoinText(field: CaseListShortField): string {
+ *  on the list (`hqColumnFieldText`), any other as the order plan prints it. */
+function hqJoinText(
+	field: CaseListShortField,
+	columnFieldWord: ColumnFieldWordOf | undefined,
+): string {
 	const { column } = field;
 	return column.kind === "calculated" || columnStoredAsExpression(column)
 		? field.joinText
-		: hqColumnFieldText(field.joinText);
+		: hqColumnFieldText(
+				field.joinText,
+				columnFieldWord?.(column.uuid, "short"),
+			);
 }
 
 // ============================================================
@@ -434,7 +453,7 @@ function hqJoinText(field: CaseListShortField): string {
  * `views/modules.py::_update_sort_elements`).
  *
  *   - `field`: the property of a property element, in HQ's word
- *     (`hqColumnFieldText`), as the column it joins stores it, or
+ *     (`hqColumnFieldText`), as the field it joins stores it, or
  *     `_cc_calculated_<position>` of the field the rule is AUTHORED on, which
  *     HQ then gives to the first field with that field's text
  *     (`util.py::get_sort_and_sort_only_columns`).
@@ -465,16 +484,26 @@ function projectSortElements(
 		property: string,
 		via: ColumnVia | undefined,
 	) => CaseProperty["data_type"],
+	columnFieldWord: ColumnFieldWordOf | undefined,
 ): SortElement<HqXPath>[] {
 	const written: {
 		readonly rule: CaseListOrderRule;
 		readonly key?: CaseListSortKey;
 		readonly comparator: CaseListComparator;
+		/** The word the field the rule lands on keeps its property under. */
+		readonly word?: string;
 	}[] = [
 		...plan.fields.flatMap((field) =>
 			field.rule === undefined
 				? []
-				: [{ rule: field.rule, key: field.key, comparator: field.comparator }],
+				: [
+						{
+							rule: field.rule,
+							key: field.key,
+							comparator: field.comparator,
+							word: columnFieldWord?.(field.column.uuid, "short"),
+						},
+					],
 		),
 		...plan.carriers.map((carrier) => ({
 			rule: carrier.rule,
@@ -488,10 +517,10 @@ function projectSortElements(
 	].filter((entry) => entry.rule.written);
 	return written
 		.sort((a, b) => a.rule.order - b.rule.order)
-		.map(({ rule, key, comparator }) => ({
+		.map(({ rule, key, comparator, word }) => ({
 			field:
 				rule.element.kind === "property"
-					? hqColumnFieldText(rule.element.property)
+					? hqColumnFieldText(rule.element.property, word)
 					: `_cc_calculated_${rule.element.position}`,
 			type: sortElementType(rule, key, comparator, dataTypeOf),
 			direction: SORT_DIRECTION_WIRE_MAP[rule.direction],
@@ -1002,7 +1031,8 @@ function buildSearchConfigDocument(
 // Public surface
 // ============================================================
 
-const EMPTY_SHORT_LIST_FIELD = "name";
+/** The case's name, in the domain's word, which `hqColumnFieldText` writes in HQ's. */
+const EMPTY_SHORT_LIST_FIELD = "case_name";
 const EMPTY_SHORT_LIST_HEADER = "Name";
 
 /**
@@ -1014,10 +1044,11 @@ const EMPTY_SHORT_LIST_HEADER = "Name";
  */
 export function emptyShortListColumns(
 	languages: readonly string[],
+	word?: string,
 ): WireDetailColumn<HqXPath>[] {
 	return [
 		detailColumn(
-			EMPTY_SHORT_LIST_FIELD,
+			hqColumnFieldText(EMPTY_SHORT_LIST_FIELD, word),
 			repeatForLanguages(languages, EMPTY_SHORT_LIST_HEADER),
 		),
 	];
@@ -1030,14 +1061,21 @@ export function emptyShortListColumns(
  * writes a detail for each screen that holds a column
  * (`suite_xml/sections/details.py::DetailContributor`), which no entry of
  * such a menu names, so a menu made in HQ keeps its built details through a
- * publish.
+ * publish. `columnFieldWord` answers for `nameColumn`, the menu's own name
+ * column, which the reader of HQ's apps returns this pair as.
  */
 export function emptyListDetailPair(
 	languages: readonly string[],
+	nameColumn?: Uuid,
+	columnFieldWord?: ColumnFieldWordOf,
 ): DetailPair<HqXPath> {
+	const word = (screen: ColumnScreen) =>
+		nameColumn === undefined
+			? undefined
+			: columnFieldWord?.(nameColumn, screen);
 	return detailPair(
-		emptyShortListColumns(languages),
-		emptyShortListColumns(languages),
+		emptyShortListColumns(languages, word("short")),
+		emptyShortListColumns(languages, word("long")),
 	);
 }
 
@@ -1064,6 +1102,8 @@ export function emptyListDetailPair(
  * `searchRewrites` is the reader's control over the `searchConfig`'s
  * expression slots (`SearchConfigRewrites`), and `listRewrites` over the
  * `caseDetails`' (`CaseListRewrites`); an export passes neither.
+ * `columnFieldWord` is the word the export's target keeps each column's
+ * property under (`WireIdentity.columnFieldWord`), absent where it holds none.
  */
 export interface CaseListHqProjection {
 	readonly caseDetails: DetailPair<HqXPath>;
@@ -1077,6 +1117,7 @@ export function projectCaseListForHq(
 	lookupNaming?: LookupWireNaming,
 	searchRewrites?: SearchConfigRewrites,
 	listRewrites?: CaseListRewrites,
+	columnFieldWord?: ColumnFieldWordOf,
 ): CaseListHqProjection {
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
@@ -1098,6 +1139,7 @@ export function projectCaseListForHq(
 		...(listRewrites?.column !== undefined && {
 			columnRewrites: listRewrites.column,
 		}),
+		...(columnFieldWord !== undefined && { columnFieldWord }),
 	};
 	// The short detail's fields and order are the order plan's
 	// (`lib/domain/caseListOrder.ts`); the long detail reads its own Details
@@ -1163,6 +1205,7 @@ export function projectCaseListForHq(
 				mod,
 				caseTypes,
 			)?.data_type,
+		columnFieldWord,
 	);
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {

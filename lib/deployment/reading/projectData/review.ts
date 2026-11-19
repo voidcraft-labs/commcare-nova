@@ -17,6 +17,7 @@ import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import type { IdentityResolver } from "@/lib/commcare/reader/identity";
 import type { BlueprintDoc } from "@/lib/domain";
+import { recordFromEntries } from "@/lib/domain/records";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	bornPlaces,
@@ -77,7 +78,7 @@ function fixturesOf(
  * reads, each `choice` table at the larger of its two forms, must fit in one
  * `.ccz` together. An offer that fails either is `fails-a-project-space-rule`.
  *
- * Called on a read with no finding. `resolver` is this call's own.
+ * Called on a read with no finding.
  */
 export function projectDataReview(
 	data: ReadingProjectData,
@@ -127,7 +128,7 @@ export function projectDataReview(
 		let useProject = standing.options["use-project"];
 		if (useProject.offered) {
 			const asTheProjects = readingLookupSnapshot(
-				underTableChoices(data, { [tag]: "use-project" }),
+				underTableChoices(data, recordFromEntries([[tag, "use-project"]])),
 				reads,
 			);
 			const refused = lookupSelectSourceRowFindings(doc, asTheProjects).some(
@@ -147,7 +148,7 @@ export function projectDataReview(
 			readingLookupSnapshot(
 				underTableChoices(
 					data,
-					Object.fromEntries(
+					recordFromEntries(
 						choiceTags.map((tag) => [tag, "use-commcare-hq" as const]),
 					),
 				),
@@ -161,7 +162,7 @@ export function projectDataReview(
 			readingLookupSnapshot(
 				underTableChoices(
 					data,
-					Object.fromEntries(
+					recordFromEntries(
 						projectTags.map((tag) => [tag, "use-project" as const]),
 					),
 				),

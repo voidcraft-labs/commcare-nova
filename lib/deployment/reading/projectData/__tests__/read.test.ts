@@ -29,7 +29,7 @@ import { type ReadingProjectSide, readReadingProjectData } from "../read";
 
 const DOMAIN = "clinic";
 const HOST = "https://india.commcarehq.org";
-const LIST = `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`;
+const LIST = `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`;
 const LEVELS = `/a/${DOMAIN}/api/location_type/v1/?limit=1000`;
 const CAPS_ENTRY =
 	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";

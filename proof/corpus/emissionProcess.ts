@@ -32,6 +32,38 @@ export const NODE_EMISSION_ARGS: readonly string[] = [
 	"tsx",
 ];
 
+/**
+ * Vitest's options for a writer the emission or a native producer runs
+ * (`proof/native/families.py` gives its Vitest producers the same), so the
+ * run writes nothing under `node_modules`, which the lane's container
+ * mounts read-only:
+ *
+ * - `--configLoader native`: Vite loads `vitest.config.mts` with Node's own
+ *   import. Its default loader bundles the config into a temporary module
+ *   under the nearest `node_modules/.vite-temp` (vite's
+ *   `loadConfigFromBundledFile`), and on a read-only `node_modules` it fails
+ *   before Vitest starts. The native loader only resolves and imports.
+ * - `--no-cache`: no results cache (`node_modules/.vite/vitest/.../results.json`).
+ * - `--fsModuleCache=false`: no module cache (`node_modules/.vitest-cache`),
+ *   which the config turns on for the ordinary suite.
+ */
+export const VITEST_WRITER_OPTIONS: readonly string[] = [
+	"--configLoader",
+	"native",
+	"--no-cache",
+	"--fsModuleCache=false",
+];
+
+/** Vitest's arguments for the corpus's two writers, in one run: the admitted expander corpus and the fuzz sample. */
+export const VITEST_WRITERS: readonly string[] = [
+	"run",
+	"lib/commcare/__tests__/expander.test.ts",
+	"proof/corpus/__tests__/fuzzSample.test.ts",
+	"--project",
+	"unit",
+	...VITEST_WRITER_OPTIONS,
+];
+
 /** The environment variables a child inherits from the caller as they are. */
 const PASSED_THROUGH = [
 	"PATH",

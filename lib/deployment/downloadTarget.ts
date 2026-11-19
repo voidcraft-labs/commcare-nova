@@ -5,10 +5,7 @@ import { planLanguageWire } from "@/lib/commcare/languageWire";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
-import {
-	targetWireIdentity,
-	type WireIdentity,
-} from "@/lib/commcare/wireIdentity";
+import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
@@ -21,25 +18,31 @@ import type {
 	AttachmentTargetState,
 	KeptAdvisoryFacts,
 } from "@/lib/publish/exportAdvisories";
-import { keyedCaseIdPrefixesFor } from "./adoption";
 import {
 	type AttachmentUrlTarget,
 	attachmentUrlTarget,
 } from "./attachmentTarget";
 import {
+	type CczUnavailable,
+	cczUnavailableRefusal,
 	chooseDownloadTarget,
 	type DownloadTargetRefusal,
 	type ReachedDeploymentTarget,
+	workersSentElsewhere,
 } from "./runtimeTarget";
 import {
+	type DeploymentReadSnapshot,
 	type DeploymentScope,
-	readDeploymentIdentityOverrides,
-	readDeploymentKeyedCaseIds,
-	readDeploymentMediaPaths,
+	type DeploymentTargetKey,
+	type HeldTargetFacts,
+	holdTargetFacts,
 	readReachedDeploymentTargets,
-	readTargetFacts,
+	readTargetIdentity,
+	targetFactsOf,
+	withDeploymentReadSnapshot,
 } from "./store";
 import { keptAdvisoryFacts } from "./targetFacts";
+import { exportIdentityOf } from "./targetIdentity";
 
 /**
  * What a download is made for, read from the app's deployments.
@@ -105,6 +108,41 @@ export function selectionsHeldFromHq(doc: BlueprintDoc): string[] {
 	return hqNestedSelectionFindings(doc, "hq-upload").map(userFacingError);
 }
 
+/** Whether a `.ccz` can be made for one project space this app is published to. */
+export interface CczStanding {
+	/**
+	 * What that project space keeps of the values Nova leaves to CommCare HQ,
+	 * read from the deployment's baseline; null where there is none to read.
+	 */
+	readonly targetFacts: TargetFacts | null;
+	/** Why it has no `.ccz`; null where one can be made. */
+	readonly unavailable: CczUnavailable | null;
+}
+
+/**
+ * Whether a `.ccz` can be made for `target`, from what Nova holds of that
+ * project space and nothing it asks CommCare HQ: the facts its baseline
+ * keeps, read inside the caller's snapshot (`store.ts::holdTargetFacts`) and
+ * projected here, once that snapshot has given its connection back. The one
+ * answer both the download and the publish dialog's list read, so the list
+ * never offers a space the download refuses. Where the baseline is absent or
+ * unread there are no facts, the space is offered, and the download made
+ * from it reads the facts again when it is made.
+ */
+export function cczStandingOf(
+	target: DeploymentTargetKey,
+	held: HeldTargetFacts,
+): CczStanding {
+	const targetFacts = targetFactsOf(held);
+	return {
+		targetFacts,
+		unavailable: workersSentElsewhere(
+			target,
+			targetFacts?.customBaseUrl ?? null,
+		),
+	};
+}
+
 /**
  * Resolve the project space a download is made for.
  *
@@ -112,6 +150,15 @@ export function selectionsHeldFromHq(doc: BlueprintDoc): string[] {
  * that silently lost its target would send its forms nowhere and drop a
  * case write from its attachment links. An export is a deliberate action
  * the person can repeat, so failing it and saying so is the honest answer.
+ *
+ * Everything it reads of the app's deployments (the targets, the chosen
+ * one's identity record and its facts' bytes) comes from one authorized
+ * snapshot (`store.ts::withDeploymentReadSnapshot`), one statement after
+ * another on one connection: a stop or a Project move that commits during a
+ * download is wholly before it (not found, or no reached target) or wholly
+ * after it, never the old HQ app with derived ids or another Project's
+ * facts. The facts are projected from those bytes once the snapshot has
+ * given its connection back, which reads nothing more.
  */
 export async function resolveDownloadTarget(
 	scope: DeploymentScope,
@@ -122,8 +169,54 @@ export async function resolveDownloadTarget(
 		readonly doc: BlueprintDoc;
 	},
 ): Promise<DownloadTarget | DownloadTargetRefusal> {
+	const read = await withDeploymentReadSnapshot(scope, "view", (snapshot) =>
+		resolveDownloadTargetIn(snapshot, input),
+	);
+	if (!("held" in read)) return read;
+	const { target, reached, targetIdentity, held } = read;
+	const standing = cczStandingOf(target, held);
+	if (standing.unavailable !== null) {
+		return cczUnavailableRefusal(target, standing.unavailable, reached);
+	}
+	/* What the publish prints under for this project space, so the archive
+	 * names every form, keyed create and file as CommCare HQ keeps it there. */
+	const exported = exportIdentityOf(input.doc, targetIdentity);
+	return {
+		format: "ccz",
+		target,
+		runtimeTarget: {
+			server: target.server,
+			domain: target.domain,
+			appId: target.hqAppId,
+		},
+		identity: exported.identity,
+		mediaPaths: exported.heldMediaPaths,
+		keyedCaseIdPrefixes: exported.keyedCaseIdPrefixes,
+		attachmentTarget: attachmentUrlTarget(target),
+		reached,
+		targetFacts: standing.targetFacts,
+	};
+}
+
+/** A `.ccz`'s project space as the snapshot read it, its facts not yet projected. */
+interface HeldCczTarget {
+	readonly held: HeldTargetFacts;
+	readonly target: ReachedDeploymentTarget;
+	readonly reached: readonly ReachedDeploymentTarget[];
+	readonly targetIdentity: Awaited<ReturnType<typeof readTargetIdentity>>;
+}
+
+async function resolveDownloadTargetIn(
+	snapshot: DeploymentReadSnapshot,
+	input: {
+		readonly format: "ccz" | "json";
+		readonly server?: CommCareServer;
+		readonly domain?: string;
+		readonly doc: BlueprintDoc;
+	},
+): Promise<DownloadTarget | DownloadTargetRefusal | HeldCczTarget> {
 	const { format, server, domain, doc } = input;
-	const reached = await readReachedDeploymentTargets(scope);
+	const reached = await readReachedDeploymentTargets(snapshot);
 	const heldFromHq =
 		format === "ccz" && reached.length === 0 ? selectionsHeldFromHq(doc) : [];
 	const choice = chooseDownloadTarget(reached, {
@@ -152,33 +245,20 @@ export async function resolveDownloadTarget(
 		);
 	}
 	const { target } = choice;
-	const [overrides, targetFacts, mediaPaths, keyedCaseIds] = await Promise.all([
-		readDeploymentIdentityOverrides(scope, target),
-		readTargetFacts(scope, target),
-		readDeploymentMediaPaths(scope, target),
-		readDeploymentKeyedCaseIds(scope, target),
-	]);
 	return {
-		format,
+		held: await holdTargetFacts(snapshot, target),
 		target,
-		runtimeTarget: {
-			server: target.server,
-			domain: target.domain,
-			appId: target.hqAppId,
-		},
-		identity: targetWireIdentity(overrides),
-		mediaPaths,
-		keyedCaseIdPrefixes: keyedCaseIdPrefixesFor(doc, keyedCaseIds),
-		attachmentTarget: attachmentUrlTarget(target),
 		reached,
-		targetFacts,
+		targetIdentity: await readTargetIdentity(snapshot, target),
 	};
 }
 
 /**
  * What a download says it cannot follow of the values its project space
  * keeps: for a `.ccz` made for a project space whose baseline was read, its
- * facts over the app's languages, by the codes the archive writes; for a
+ * facts over the app's languages, by the codes the archive writes, with the
+ * wording and the settings the facts leave out because a file cannot carry
+ * them as they are stored; for a
  * `.ccz` with none, the language names alone where Nova brought the app in
  * (CommCare HQ names its languages there, and the archive writes Nova's
  * names, having read none of HQ's); for any other `.ccz` with none, and for
@@ -193,6 +273,8 @@ export function downloadKeptAdvisoryFacts(
 		return download.target.adopted
 			? {
 					uiTextFallsBack: false,
+					uiTextNotCarried: false,
+					profileNotCarried: false,
 					androidLogos: false,
 					practiceWorker: false,
 					languageNames: true,

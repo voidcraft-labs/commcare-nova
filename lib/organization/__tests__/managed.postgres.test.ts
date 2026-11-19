@@ -668,6 +668,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 		});
@@ -677,7 +678,7 @@ describe("a refresh of the copy", () => {
 		expect(after.hq?.refreshedAt).toBe("2026-11-02T10:00:00.000Z");
 	});
 
-	it("adds, updates, archives and restores, follows a code CommCare HQ re-made under a new id, and keeps a place a persona stands in until nothing names it", async () => {
+	it("adds, updates, archives and restores, takes a code CommCare HQ re-made under a new id as a new place, and keeps a place a persona stands in until nothing names it", async () => {
 		await seedApp();
 		await bringIn([
 			...BIRTH_PLACES,
@@ -697,8 +698,9 @@ describe("a refresh of the copy", () => {
 		const beforeRefresh = await readOrganization(scope());
 
 		// Riverside renamed (its latitude spelled differently, the same
-		// number), Mercy's CommCare HQ id changed, Lakeside new, Hilltop and
-		// Old Post gone from CommCare HQ.
+		// number), Mercy Clinic deleted and made again under its code (a new
+		// CommCare HQ id), Lakeside new, Hilltop and Old Post gone from
+		// CommCare HQ.
 		const first = [
 			place("north", "North", REGION, null),
 			place("riverside", "Riverside East", DISTRICT, "north", {
@@ -712,10 +714,11 @@ describe("a refresh of the copy", () => {
 			place("lakeside", "Lakeside", FACILITY, "riverside"),
 		];
 		expect(await refresh(first, { ward: 2 })).toEqual({
-			added: 1,
-			changed: 2,
-			archived: 1,
+			added: 2,
+			changed: 1,
+			archived: 2,
 			keptInUse: ["Old Post"],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: { ward: 2 },
 		});
@@ -730,7 +733,13 @@ describe("a refresh of the copy", () => {
 		expect(places.get("lakeside")?.parentId).toBe(born.get("riverside")?.id);
 		expect(places.get("hilltop")?.archivedAt).not.toBeNull();
 		expect(places.get("old-post")?.archivedAt).toBeNull();
+		// The new Mercy Clinic is a new row; the old one keeps its own CommCare
+		// HQ id under a numbered code, archived, since nothing names it.
+		expect(places.get("mercy")?.id).not.toBe(born.get("mercy")?.id);
+		expect(places.get("mercy2")?.id).toBe(born.get("mercy")?.id);
+		expect(places.get("mercy2")?.archivedAt).not.toBeNull();
 		expect((await hqLocationIds()).mercy).toBe("hq-mercy-2");
+		expect((await hqLocationIds()).mercy2).toBe("hq-mercy");
 		expect((await hqLocationIds()).lakeside).toBe("hq-lakeside");
 		// Old Post keeps CommCare HQ's id, marked gone for worker provisioning.
 		expect((await hqLocationIds())["old-post"]).toBe("hq-old-post");
@@ -744,6 +753,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: ["Old Post"],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: { ward: 2 },
 		});
@@ -775,6 +785,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 1,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: { ward: 2 },
 		});
@@ -826,6 +837,7 @@ describe("a refresh of the copy", () => {
 			changed: 3,
 			archived: 0,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 		});
@@ -875,6 +887,7 @@ describe("a refresh of the copy", () => {
 			changed: 1,
 			archived: 1,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 		});
@@ -911,8 +924,9 @@ describe("a refresh of the copy", () => {
 		).toMatchObject({ archived: 1 });
 
 		// Then deletes Riverside and makes a facility under Lake District with
-		// the code it freed. Nova's archived Mercy Clinic still stands under
-		// the row that code names, now a facility.
+		// the code it freed: a new place. Nova's archived Mercy Clinic still
+		// stands under the old Riverside, which is archived under a numbered
+		// code.
 		expect(
 			await refresh([
 				north,
@@ -922,16 +936,153 @@ describe("a refresh of the copy", () => {
 				}),
 			]),
 		).toEqual({
-			added: 0,
-			changed: 1,
-			archived: 0,
+			added: 1,
+			changed: 0,
+			archived: 1,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 		});
 		const places = bySiteCode((await readOrganization(scope())).locations);
 		expect(places.get("riverside")?.levelUuid).toBe(FACILITY);
+		expect(places.get("riverside2")?.archivedAt).not.toBeNull();
+		expect(places.get("mercy")?.parentId).toBe(places.get("riverside2")?.id);
 		expect(places.get("mercy")?.archivedAt).not.toBeNull();
+	});
+
+	it("never moves a place a persona stands in to a new CommCare HQ place made under its code: the old one is kept, marked gone, numbered and named as made again", async () => {
+		await seedApp();
+		await bringIn();
+		const born = bySiteCode((await readOrganization(scope())).locations);
+		const mercyId = born.get("mercy")?.id ?? "";
+		await standAsha("asha-at-mercy", mercyId);
+
+		// CommCare HQ deletes Mercy Clinic and makes another place under its
+		// code: another CommCare HQ id.
+		const remadeMercy = place("mercy", "Mercy Clinic", FACILITY, "riverside", {
+			hqLocationId: "hq-mercy-remade",
+			values: { [PROP_BEDS]: "40" },
+		});
+		expect(
+			await refresh([
+				place("north", "North", REGION, null),
+				place("riverside", "Riverside", DISTRICT, "north", {
+					latitude: "12.5",
+					longitude: "-3.25",
+				}),
+				remadeMercy,
+			]),
+		).toEqual({
+			added: 1,
+			changed: 0,
+			archived: 0,
+			keptInUse: [],
+			remade: ["Mercy Clinic"],
+			keptLeftOut: [],
+			leftOut: {},
+		});
+		const after = await readOrganization(scope());
+		const places = bySiteCode(after.locations);
+		// Asha's place keeps its Nova id and its own CommCare HQ id, gone.
+		expect(places.get("mercy2")?.id).toBe(mercyId);
+		expect(places.get("mercy2")?.archivedAt).toBeNull();
+		expect(places.get("mercy")?.id).not.toBe(mercyId);
+		expect(await hqLocationIds()).toMatchObject({
+			mercy: "hq-mercy-remade",
+			mercy2: "hq-mercy",
+		});
+		expect(await goneSiteCodes()).toEqual(["mercy2"]);
+		expect(after.hq?.goneIds).toEqual([mercyId]);
+		const asha = (await loadApp(APP_ID))?.blueprint.personas?.[PERSONA_ASHA]
+			?.locations?.primaryUuid;
+		expect(asha).toBe(mercyId);
+	});
+
+	it("never revives an archived place for a new CommCare HQ place made under its code", async () => {
+		await seedApp();
+		await bringIn([
+			...BIRTH_PLACES,
+			place("hilltop", "Hilltop", FACILITY, "riverside"),
+		]);
+		const born = bySiteCode((await readOrganization(scope())).locations);
+		const hilltopId = born.get("hilltop")?.id ?? "";
+		// CommCare HQ deletes Hilltop: archived.
+		expect(await refresh(BIRTH_PLACES)).toMatchObject({ archived: 1 });
+
+		// Then makes a new place under Hilltop's code.
+		expect(
+			await refresh([
+				...BIRTH_PLACES,
+				place("hilltop", "Hilltop", FACILITY, "riverside", {
+					hqLocationId: "hq-hilltop-new",
+				}),
+			]),
+		).toEqual({
+			added: 1,
+			changed: 0,
+			archived: 0,
+			keptInUse: [],
+			remade: [],
+			keptLeftOut: [],
+			leftOut: {},
+		});
+		const places = bySiteCode((await readOrganization(scope())).locations);
+		expect(places.get("hilltop")?.id).not.toBe(hilltopId);
+		expect(places.get("hilltop")?.archivedAt).toBeNull();
+		expect(places.get("hilltop2")?.id).toBe(hilltopId);
+		expect(places.get("hilltop2")?.archivedAt).not.toBeNull();
+		expect(await hqLocationIds()).toMatchObject({
+			hilltop: "hq-hilltop-new",
+			hilltop2: "hq-hilltop",
+		});
+	});
+
+	it("never moves a kept place CommCare HQ still holds at a level the app lacks to a new place made under its code", async () => {
+		await seedApp();
+		await bringIn();
+		const born = bySiteCode((await readOrganization(scope())).locations);
+		const mercyId = born.get("mercy")?.id ?? "";
+		await standAsha("asha-at-mercy", mercyId);
+		const north = place("north", "North", REGION, null);
+		const riverside = place("riverside", "Riverside", DISTRICT, "north", {
+			latitude: "12.5",
+			longitude: "-3.25",
+		});
+
+		// CommCare HQ moves Mercy Clinic to a level the app lacks (still there,
+		// left out), and a new facility takes its code.
+		expect(
+			await refresh(
+				[
+					north,
+					riverside,
+					place("mercy", "New Mercy", FACILITY, "riverside", {
+						hqLocationId: "hq-new-mercy",
+					}),
+				],
+				{ ward: 1 },
+				undefined,
+				["hq-mercy"],
+			),
+		).toEqual({
+			added: 1,
+			changed: 0,
+			archived: 0,
+			keptInUse: [],
+			remade: [],
+			keptLeftOut: ["Mercy Clinic"],
+			leftOut: { ward: 1 },
+		});
+		const places = bySiteCode((await readOrganization(scope())).locations);
+		expect(places.get("mercy2")?.id).toBe(mercyId);
+		expect(places.get("mercy")?.name).toBe("New Mercy");
+		expect(await hqLocationIds()).toMatchObject({
+			mercy: "hq-new-mercy",
+			mercy2: "hq-mercy",
+		});
+		// CommCare HQ still has it, so it is not marked gone.
+		expect(await goneSiteCodes()).toEqual([]);
 	});
 
 	it("keeps a gone place a persona stands in with its gone parent, naming only the place", async () => {
@@ -946,6 +1097,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: ["Mercy Clinic"],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 		});
@@ -984,6 +1136,7 @@ describe("a refresh of the copy", () => {
 		expect(await refresh([north, riverside], {}, undefined)).toMatchObject({
 			archived: 0,
 			keptInUse: ["Mercy Clinic"],
+			remade: [],
 			keptLeftOut: [],
 		});
 		expect(await goneSiteCodes()).toEqual(["mercy"]);
@@ -1003,6 +1156,7 @@ describe("a refresh of the copy", () => {
 			changed: 1,
 			archived: 0,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 		});
@@ -1044,6 +1198,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 1,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: ["Mercy Clinic"],
 			leftOut: { post: 2 },
 		});
@@ -1165,6 +1320,7 @@ describe("a refresh of the copy", () => {
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 		});
@@ -1403,6 +1559,7 @@ describe("a refresh whose read of CommCare HQ began before the copy's last refre
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: {},
 			superseded: true,

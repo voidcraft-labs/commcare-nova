@@ -7,6 +7,7 @@
 // copy. `downloadTarget.ts` applies it to the ledger.
 
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
+import type { HeldBaseUrl } from "@/lib/commcare/targetFacts";
 
 /** A project space this app's content is on, with the HQ app that holds it. */
 export interface ReachedDeploymentTarget {
@@ -55,7 +56,8 @@ export type DownloadTargetRefusalReason =
 	| "needs-published-project-space"
 	| "selection-held-from-hq"
 	| "domain-not-for-import-file"
-	| "not-declared-for-android";
+	| "not-declared-for-android"
+	| CczUnavailable["reason"];
 
 export type DownloadTargetChoice =
 	| {
@@ -115,6 +117,78 @@ function refused(
 	heldFromHq: readonly string[] = [],
 ): DownloadTargetRefusal {
 	return { kind: "refused", reason, message, reached, heldFromHq };
+}
+
+/**
+ * Whether a project space's app keeps a custom base URL that sends its
+ * phones to another address than the server it is published on: one that is
+ * not exactly that server's own origin (`https`, the same host, its default
+ * port, no user information). A base that is the server's own address sends
+ * a phone nowhere else and refuses nothing.
+ */
+function sendsWorkersElsewhere(
+	server: CommCareServer,
+	held: HeldBaseUrl | null,
+): held is HeldBaseUrl {
+	if (held === null) return false;
+	return held.origin !== new URL(COMMCARE_SERVERS[server].baseUrl).origin;
+}
+
+/**
+ * Why a project space this app is published to has no `.ccz`: its app in
+ * CommCare HQ keeps a custom base URL that sends phones to `host`. The one
+ * reason a published space has none, so the publish dialog's list and the
+ * download read the same value.
+ */
+export interface CczUnavailable {
+	readonly reason: "workers-sent-elsewhere";
+	/** The host the base names, never the user information before it. */
+	readonly host: string;
+}
+
+/**
+ * Whether a project space's app, in CommCare HQ, keeps a custom base URL
+ * elsewhere, or null where it keeps none or keeps the server's own. Such a
+ * setting is how CommCare HQ moves a project space's phones to another
+ * environment: HQ's own build then signs workers in and sends their forms at
+ * that address, while a `.ccz` from Nova always names the server the app is
+ * published on (`lib/commcare/runtimeTarget.ts::profileServerProperties`), so
+ * neither file is one Nova can stand behind and none is made.
+ */
+export function workersSentElsewhere(
+	target: { readonly server: CommCareServer },
+	held: HeldBaseUrl | null,
+): CczUnavailable | null {
+	if (!sendsWorkersElsewhere(target.server, held)) return null;
+	return { reason: "workers-sent-elsewhere", host: held.host };
+}
+
+/**
+ * A download's refusal of a `.ccz` for a project space that has none, as
+ * the compile routes and MCP answer it. The sentence names the host, never
+ * what is stored before it.
+ */
+export function cczUnavailableRefusal(
+	target: ReachedDeploymentTarget,
+	unavailable: CczUnavailable,
+	reached: readonly ReachedDeploymentTarget[],
+): DownloadTargetRefusal {
+	const server = COMMCARE_SERVERS[target.server].label;
+	return refused(
+		unavailable.reason,
+		`In CommCare HQ, this project space's app has a custom base URL, so phones that install it sign in and send forms at ${unavailable.host}. ` +
+			`A CCZ from Nova signs workers in on the ${server} server, where this app is published, so there isn't one for "${target.domain}" while that setting is there. ` +
+			"Workers can install the app from CommCare HQ. If the project space moved to another CommCare server, you can publish there and download its CCZ.",
+		reached,
+	);
+}
+
+/**
+ * Why a project space has no `.ccz`, as the publish dialog says it beside
+ * that space, before anyone chooses it.
+ */
+export function cczUnavailableLine(unavailable: CczUnavailable): string {
+	return `Its app in CommCare HQ has a custom base URL that sends phones to ${unavailable.host}, so Nova doesn't make a CCZ for this project space. Workers can install the app from CommCare HQ.`;
 }
 
 /**
@@ -203,6 +277,7 @@ export function downloadRefusalLines(refusal: DownloadTargetRefusal): string[] {
 		case "needs-published-project-space":
 		case "domain-not-for-import-file":
 		case "not-declared-for-android":
+		case "workers-sent-elsewhere":
 			return [];
 	}
 }

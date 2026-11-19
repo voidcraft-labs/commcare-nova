@@ -64,6 +64,23 @@ export function lookupDefinitionDigest(table: HqLookupTable): string {
 }
 
 /**
+ * The digest of a table whose rows passed what Nova reads: its definition
+ * and what the read stopped at, the total its first page named or the byte
+ * bound. No push of Nova's holds such a table, so it is always a change, and
+ * a discard of it names the table as the refusal showed it.
+ */
+export function lookupPastLimitDigest(
+	table: HqLookupTable,
+	past: { readonly by: "rows" | "bytes"; readonly totalCount: number | null },
+): string {
+	return canonicalJsonDigest({
+		definition: definitionOf(table),
+		pastLimit: past.by,
+		totalCount: past.totalCount,
+	});
+}
+
+/**
  * One row as the digest spells it: its field names sorted, each with its
  * value, or, for a multi-valued field, its ordered values each with its
  * properties as sorted pairs. The row's id

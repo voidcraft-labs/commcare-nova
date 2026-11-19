@@ -11,9 +11,10 @@
  * with the same arguments answers the app the first one made. Every answer is
  * the person's, so no input is optional and none has a default.
  *
- * Scope: `nova.hq.write`, checked before any read: the create records a
- * deployment that authorizes later writes to that HQ app. The create reads
- * the app again with the person's key and changes nothing in CommCare HQ.
+ * Scope: `nova.hq.import`, checked by its registration before anything runs:
+ * a `changed`, `check_failed` or `held` answer carries a fresh read of the
+ * app, and the create copies it into a Project. The create reads the app
+ * again with the person's key and changes nothing in CommCare HQ.
  *
  * A `changed` answer carries a fresh read's first page, up to the 80,000
  * characters an account page fills, so the tool declares the large-result
@@ -39,8 +40,9 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { toolText } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { bringInProgress, openBringInCall } from "./readHqApp";
 import {
@@ -115,12 +117,17 @@ function bodyOf(
 				message: broughtInToolMessage(receipt.blueprint.appName, key.domain),
 			};
 		}
-		case "changed":
+		case "changed": {
+			const message = changedLead(answer.now);
 			return {
 				status: "changed",
-				message: changedLead(answer.now),
-				reading: describeReading(answer.now, key, fresh),
+				message,
+				reading: describeReading(answer.now, key, {
+					...fresh,
+					envelope: (reading) => ({ status: "changed", message, reading }),
+				}),
 			};
+		}
 		case "read-again":
 			return {
 				status: "read_again",
@@ -130,11 +137,14 @@ function bodyOf(
 			return {
 				status: "check_failed",
 				message: CREATE_ANSWER_LEADS["check-failed"],
-				reading: describeReading(
-					accountOfOne(answer.finding, null),
-					key,
-					fresh,
-				),
+				reading: describeReading(accountOfOne(answer.finding, null), key, {
+					...fresh,
+					envelope: (reading) => ({
+						status: "check_failed",
+						message: CREATE_ANSWER_LEADS["check-failed"],
+						reading,
+					}),
+				}),
 			};
 		case "held":
 			return {
@@ -149,12 +159,13 @@ export function registerBringInHqApp(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"bring_in_hq_app",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Create a Nova app from a CommCare HQ app that `read_hq_app` answered a review for. Call it only after the user has seen the review and answered it. Every answer is theirs: never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them, and never default to the preselected choice without saying so and hearing yes. Send the `project_id`, `domain` and `hq_app_id` the read was given, the `reading_id` it returned, and `review_digest`, the review they answered. `runs_only_on` and `split_datetime` together must be one of `review.runs_on`. `table_choices` holds one answer for each table whose review entry has a `choice`, on every page of the review, by tag, and `{}` where none has. The result's `status` is `created` (the app exists, in that Project, and publishes back to the CommCare HQ app it came from); `changed` (something changed in CommCare HQ or the Project since the review, no app was created, and `reading` holds what stands now, to show the user again; where it is longer than one answer it is the first page, and `read_hq_app` with its `next_page` as `page` reads the rest); `read_again` (a lookup table the app reads changed in the Project while Nova was creating the app, and no app was created: call `read_hq_app` again and show the user the new review); `check_failed` (one of Nova's own checks stopped the create, no app was created, and `reading` holds what Nova reported); or `held` (no app was created and `stop` says why, such as a key CommCare HQ turned down). Creating changes nothing in CommCare HQ. If this call ends before you get an answer, call it again with the same arguments. It answers the app if it was created, and creates it if it was not. Before the first `upload_app_to_hq`, relay `first_publish`, from the chosen `review.runs_on` entry or from `check_project_space_compatibility`: `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`.",
+				"Create a Nova app from a CommCare HQ app that `read_hq_app` answered a review for. Call it only after the user has seen the review and answered it. Every answer is theirs: never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them, and never default to the preselected choice without saying so and hearing yes. Send the `project_id`, `domain` and `hq_app_id` the read was given, the `reading_id` it returned, and `review_digest`, the review they answered. `runs_only_on` and `split_datetime` together must be one of `review.runs_on`. `table_choices` holds one answer for each table whose review entry has a `choice`, on every page of the review, by tag, and `{}` where none has. The result's `status` is `created` (the app exists, in that Project, and publishes back to the CommCare HQ app it came from); `changed` (something changed in CommCare HQ or the Project since the review, no app was created, and `reading` holds what stands now, to show the user again; where it is longer than one answer it is the first page, and `read_hq_app` with its `next_page` as `page` reads the rest); `read_again` (a lookup table the app reads changed in the Project while Nova was creating the app, and no app was created: call `read_hq_app` again and show the user the new review); `check_failed` (one of Nova's own checks stopped the create, no app was created, and `reading` holds what Nova reported); or `held` (no app was created and `stop` says why, such as a key CommCare HQ turned down). Creating changes nothing in CommCare HQ. A `bring_in_refused` error whose `refusal` is `publish_in_flight` means another Nova app's publish to that HQ app is still finishing, after someone stopped publishing it there: no app was created, the review stands, and the same call can be made again in a few minutes. If this call ends before you get an answer, call it again with the same arguments. It answers the app if it was created, and creates it if it was not. Before the first `upload_app_to_hq`, relay `first_publish`, from the chosen `review.runs_on` entry or from `check_project_space_compatibility`: `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`.",
 			inputSchema: z.strictObject({
 				project_id: z
 					.string()
@@ -211,7 +222,6 @@ export function registerBringInHqApp(
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "bring_in_hq_app");
 				const call = await openBringInCall(
 					ctx.userId,
 					args.project_id,
@@ -244,7 +254,7 @@ export function registerBringInHqApp(
 					content: [
 						{
 							type: "text",
-							text: JSON.stringify(bodyOf(answer, key, call.project)),
+							text: toolText(bodyOf(answer, key, call.project)),
 						},
 					],
 				};

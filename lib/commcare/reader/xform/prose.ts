@@ -43,7 +43,10 @@ import {
 	translationValueIntegrityIssue,
 } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { parseHqJsonText } from "../../hq/jsonText";
 import { placedBasic } from "../../placement";
+import { type SourceTable, tableOf } from "../../sourceKeys";
+import { rethrowWorkStop } from "../../workMeter";
 import { buildLabelNodes } from "../../xform/builder";
 import { bindCarriesConstraint } from "../../xform/constraintMessage";
 import { isConsumerWhitespace } from "../../xform/consumerWhitespace";
@@ -61,6 +64,7 @@ import type { DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { pointerToken, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
+import { attributesByName, sameAttributeMaps } from "../sameElement";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { translationEntryFor } from "../translations";
@@ -112,8 +116,9 @@ export function literalOutputText(value: string): string | undefined {
 		return undefined;
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(node.args[0].value);
-	} catch {
+		parsed = parseHqJsonText(node.args[0].value);
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
@@ -593,12 +598,12 @@ export function blankOptionalTextAbsent(doc: BlueprintDoc): BlueprintDoc {
 }
 
 /** The slot of a question's text, by its translation role. */
-const FILL_SLOT_OF: Readonly<Record<string, TextSlot>> = {
+const FILL_SLOT_OF: SourceTable<TextSlot> = tableOf({
 	"field-label": "label",
 	"field-hint": "hint",
 	"field-help": "help",
 	"field-validation-message": "validate_msg",
-};
+});
 
 /** Writes a form text's source value into its slot: a question's label, hint, help text or
  *  validation message, or a choice's label. */
@@ -619,7 +624,7 @@ function writeSourceProse(
 		return;
 	}
 	if (owner.kind !== "field") return;
-	const slot = FILL_SLOT_OF[unit.role];
+	const slot = FILL_SLOT_OF.get(unit.role);
 	const field = draft.fields[owner.fieldUuid] as
 		| Record<string, unknown>
 		| undefined;
@@ -1680,6 +1685,20 @@ function claimMarkdown(
 		refuseAll(X.markdownDiffering);
 		return false;
 	}
+	// A held copy is the one the emitter writes, `form` its only attribute (`xform/builder.ts`,
+	// `addItext`), its content compared with the value's above; a copy holding more is left for
+	// the close to report.
+	const emitted = new Map([[" form", "markdown"]]);
+	if (
+		[...markdown.values()].some(
+			(value) =>
+				!sameAttributeMaps(
+					attributesByName(value, input.scope(value)),
+					emitted,
+				),
+		)
+	)
+		return false;
 	const claim =
 		lacking.length === 0 && bare.length === 0
 			? X.markdownEqual
@@ -1890,6 +1909,8 @@ export function finishText(ctx: ReadContext): void {
 		place: HqPlace;
 		role: ItextUnit["role"];
 	}[] = [];
+	/** Each unit's written texts by language, as `written` gains them. */
+	const writtenByUnit = new Map<string, Map<LanguageTag, ProseTemplate>>();
 	let changed = false;
 
 	for (const module of ctx.draft.modules)
@@ -2002,13 +2023,16 @@ export function finishText(ctx: ReadContext): void {
 						place: slot.place,
 						role: unit.role,
 					});
+					let ofUnit = writtenByUnit.get(unitId);
+					if (ofUnit === undefined) {
+						ofUnit = new Map();
+						writtenByUnit.set(unitId, ofUnit);
+					}
+					ofUnit.set(language, entry.value as ProseTemplate);
 				}
-				const byLanguage = new Map<LanguageTag, ProseTemplate>();
-				for (const entry of written)
-					if (entry.unit === unitId)
-						byLanguage.set(entry.language, entry.entry.value as ProseTemplate);
-				if (byLanguage.size > 0)
-					ctx.translations.set(unitId, "prose", byLanguage);
+				const byLanguage = writtenByUnit.get(unitId);
+				if (byLanguage !== undefined && byLanguage.size > 0)
+					ctx.translations.set(unitId, "prose", new Map(byLanguage));
 			}
 		}
 

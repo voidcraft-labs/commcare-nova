@@ -3,12 +3,15 @@
  * person gives to a lookup table whose tag meets a Project table, with their
  * schemas.
  *
- * Client-safe: the only run-time import is `zod`.
+ * Client-safe: the run-time imports are `zod` and the browser-safe canonical
+ * JSON text.
  */
 
 import { z } from "zod";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { recordFromEntries } from "@/lib/domain/records";
 import type { LookupReferencingAppSummary } from "@/lib/lookup/types";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 /** The two answers to a tag that meets a Project table. */
 export const LOOKUP_TABLE_CHOICES = ["use-commcare-hq", "use-project"] as const;
@@ -121,3 +124,39 @@ export const reviewPlacesSchema: z.ZodType<ReviewPlaces> = z.strictObject({
 	count: z.number().int().min(0),
 	digest: z.string().regex(/^[0-9a-f]{64}$/),
 });
+
+/**
+ * The answers to tables' choices that still hold for a review that came back:
+ * a table's answer is kept only where its entry in `now` is the very entry,
+ * as canonical JSON, it was given against in `before` (its standing, CommCare
+ * HQ's content, the Project table's revisions, what differs, the apps that
+ * read it and both offers), and that answer is still offered. Any other
+ * answer is dropped, `dropped` says so, and the table is asked again: a
+ * person answers a table's consequences, never its tag.
+ */
+export function keptTableChoices(
+	before: readonly ReviewTable[],
+	now: readonly ReviewTable[],
+	choices: Readonly<Record<string, LookupTableChoice>>,
+): {
+	readonly choices: Readonly<Record<string, LookupTableChoice>>;
+	readonly dropped: boolean;
+} {
+	const kept = recordFromEntries<LookupTableChoice>([]);
+	let dropped = false;
+	for (const [tag, choice] of Object.entries(choices)) {
+		const was = before.find((table) => table.tag === tag);
+		const is = now.find((table) => table.tag === tag);
+		if (
+			was !== undefined &&
+			is !== undefined &&
+			is.choice?.options[choice].offered === true &&
+			canonicalJsonText(was) === canonicalJsonText(is)
+		) {
+			kept[tag] = choice;
+		} else {
+			dropped = true;
+		}
+	}
+	return { choices: kept, dropped };
+}

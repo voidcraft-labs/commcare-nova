@@ -31,6 +31,7 @@ import { CASE_LOADING_FORM_TYPES, operationCaseType } from "@/lib/domain/forms";
 import { afterEmptySearchRegistrationFormOf } from "@/lib/domain/menuForms";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { NO_ENTRIES } from "@/lib/domain/records";
 import { userPropertySlugsByUuid } from "@/lib/domain/users";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
@@ -69,6 +70,7 @@ import {
 	emitFormDisplayConditionForHq,
 	emitModuleDisplayCondition,
 } from "../../suite/displayConditions";
+import { rethrowWorkStop } from "../../workMeter";
 import { fieldBindType } from "../../xform/bindType";
 import {
 	bindLookupFilterFieldPaths,
@@ -496,6 +498,7 @@ function proposeFold(
 		try {
 			proposal = fold.propose(node, context, api, env);
 		} catch (error) {
+			rethrowWorkStop(error);
 			if (error instanceof FormParseRefusal) continue;
 			throw error;
 		}
@@ -599,7 +602,7 @@ function formEmission(
 				: {}),
 		}),
 		userPropertySlugs: userPropertySlugsByUuid(doc),
-		organizationLevels: doc.organizationLevels ?? {},
+		organizationLevels: doc.organizationLevels ?? NO_ENTRIES,
 		lookup: { naming, instanceScope: "xform" },
 		...(searchAnswers === undefined
 			? {}
@@ -733,6 +736,7 @@ function caseOperationPlaces(
 			);
 			places = found;
 		} catch (error) {
+			rethrowWorkStop(error);
 			places = error instanceof Error ? error : new Error(String(error));
 		}
 		byForm.set(formUuid, places);
@@ -760,7 +764,8 @@ function operationPlaceReads(
 			naming,
 			formEmission(doc, formUuid, naming, {}).emission,
 		).get(caseOperationPlaceKey(ref));
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		// The emitter builds no block for this form, so nothing is printed
 		// from a block's node.
 		return undefined;
@@ -821,7 +826,8 @@ export function slotPrintUnder(
 			naming,
 			formEmission(doc, ref.uuid, naming, {}).emission,
 		).get(caseOperationPlaceKey(ref));
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		// The emitter builds no block for this form.
 		return {};
 	}
@@ -1004,7 +1010,48 @@ export function printSlot(
 		readonly rewrites?: RewriteControl;
 	} = {},
 ): string {
-	const naming = namingOf(env);
+	return printSlotWith(
+		doc,
+		ref,
+		expression,
+		namingOf(env),
+		env.operationIdPaths,
+		print,
+	);
+}
+
+/**
+ * `printSlot` under a lookup naming the caller holds and with no rewrite withheld, which reads
+ * nothing of a reading: the export's print of a document's own slot, as the canonical form asks
+ * it of every rewrite it makes (`canon.ts`). Undefined where the emitter refuses the tree.
+ */
+export function printSlotUnder(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	expression: Expression,
+	naming: LookupWireNaming,
+): string | undefined {
+	try {
+		return printSlotWith(doc, ref, expression, naming, NO_OPERATION_IDS, {});
+	} catch (error) {
+		rethrowWorkStop(error);
+		return undefined;
+	}
+}
+
+const NO_OPERATION_IDS: ExpressionReadEnv["operationIdPaths"] = new Map();
+
+function printSlotWith(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	expression: Expression,
+	naming: LookupWireNaming,
+	operationIdPaths: ExpressionReadEnv["operationIdPaths"],
+	print: {
+		readonly projection?: FormNodeProjection;
+		readonly rewrites?: RewriteControl;
+	},
+): string {
 	const mode = slotReadMode(doc, ref);
 	const text = (wire: WireExpr | undefined): string => {
 		if (wire === undefined) return "";
@@ -1190,7 +1237,7 @@ export function printSlot(
 										expression,
 										types,
 										place.operationIds,
-										env.operationIdPaths.get(formUuid),
+										operationIdPaths.get(formUuid),
 										print.rewrites,
 									),
 								},
@@ -1463,7 +1510,8 @@ export function printedSyntax(
 				: {}),
 			...(rewrites === undefined ? {} : { rewrites }),
 		});
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 	const mode = slotReadMode(doc, pending.ref);

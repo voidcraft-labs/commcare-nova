@@ -14,15 +14,19 @@
  * stands under is project data's rule.
  */
 
-import type { Element } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import type { LanguageTag, MediaKind } from "@/lib/domain";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { el, text as textNode } from "../../elementBuilders";
+import type { NamespaceScope } from "../../xmlNamespaces";
 import type { ClaimSite } from "../accounting";
 import { applicationReading } from "../appShell";
 import type { Claim } from "../claims";
 import type { ReadContext } from "../context";
 import { shownText } from "../hqText";
 import { pointerToken } from "../jsonCursor";
+import { builtScopes, sameElementWhole } from "../sameElement";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
@@ -67,6 +71,27 @@ function unheldClaim(slot: SlotText, kind: MediaKind): Claim<"account"> {
 	return X.groupMedia[kind];
 }
 
+/**
+ * Whether a stored media value is the one Nova's emitter writes for the path read from it
+ * (`multimedia/itextMedia.ts::itextMediaValues`): `form` naming its kind and no other attribute,
+ * and the path its only content. Core reads a value's content whole (an `<output>` in it makes
+ * the path), while the path is read from its text, so a value holding more is no media Nova
+ * holds, and is left for the close to report.
+ */
+function emitterMediaValue(
+	value: Element,
+	kind: MediaKind,
+	scope: (element: Element) => NamespaceScope,
+): boolean {
+	const built = el("value", { form: kind }, [textNode(ownText(value).trim())]);
+	const parent = value.parent;
+	const outer =
+		parent !== null && isTag(parent)
+			? scope(parent)
+			: new Map<string, string>();
+	return sameElementWhole(value, scope, built, builtScopes(built, outer));
+}
+
 /** Puts an asset in a slot's media on its draft. */
 function setMedia(slot: SlotText, kind: MediaKind, assetId: string): void {
 	const field = slot.owner.field.field;
@@ -75,14 +100,23 @@ function setMedia(slot: SlotText, kind: MediaKind, assetId: string): void {
 			field.optionsSource as { options?: Record<string, unknown>[] } | undefined
 		)?.options?.[slot.owner.option ?? -1];
 		if (option !== undefined)
-			option.media = {
-				...(option.media as object | undefined),
-				[kind]: assetId,
-			};
+			option.media = withMedia(option.media, kind, assetId);
 		return;
 	}
 	const key = slot.media === "help_media" ? "help_media" : "label_media";
-	field[key] = { ...(field[key] as object | undefined), [kind]: assetId };
+	field[key] = withMedia(field[key], kind, assetId);
+}
+
+/** A slot's media with `assetId` as its `kind`. */
+function withMedia(
+	media: unknown,
+	kind: MediaKind,
+	assetId: string,
+): Record<string, unknown> {
+	return recordFromEntries([
+		...Object.entries((media ?? NO_ENTRIES) as Record<string, unknown>),
+		[kind, assetId],
+	]);
 }
 
 /**
@@ -95,6 +129,7 @@ function readSlotMedia(
 	cursor: XmlCursor,
 	slot: SlotText,
 	defaultLanguage: LanguageTag | undefined,
+	scope: (element: Element) => NamespaceScope,
 ): void {
 	const place = slot.place;
 	const first = slot.first;
@@ -136,6 +171,12 @@ function readSlotMedia(
 			}
 			continue;
 		}
+		if (
+			[...values.values()].some(
+				(value) => !emitterMediaValue(value, kind, scope),
+			)
+		)
+			continue;
 		const paths = [
 			...new Set([...values.values()].map((value) => ownText(value).trim())),
 		];
@@ -219,7 +260,13 @@ export function readMediaForms(ctx: ReadContext, form: ReadXForm): void {
 	const text = formText(form);
 	if (text === undefined) return;
 	for (const slot of text.slots) {
-		readSlotMedia(ctx, text.cursor, slot, text.itext.defaultLanguage);
+		readSlotMedia(
+			ctx,
+			text.cursor,
+			slot,
+			text.itext.defaultLanguage,
+			form.parsed.scope,
+		);
 		if (emptyChoice(slot))
 			ctx.accounting.finding(
 				slot.owner.field.control?.tag === "select"

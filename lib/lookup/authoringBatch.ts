@@ -2,7 +2,6 @@ import "server-only";
 
 import { type Insertable, sql, type Transaction } from "kysely";
 import type { z } from "zod";
-import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { AppDatabase, LookupTablesTable } from "@/lib/db/pg";
 import {
 	type LookupColumnId,
@@ -45,10 +44,13 @@ import type {
 } from "./types";
 import {
 	advanceLookupProjectRevision,
+	LookupAuthorityError,
+	type LookupWriteAuthority,
 	lockLookupProjectState,
 	lockLookupTableForUpdate,
 	lookupTableRevisions,
 	notifyCommittedLookupMutation,
+	requireLookupCapability,
 	type StoredLookupTable,
 	updateLockedLookupTable,
 } from "./writerTransaction";
@@ -114,19 +116,6 @@ function referenced(
 	);
 }
 
-function assertScope(scope: LookupScope): void {
-	if (
-		typeof scope.projectId !== "string" ||
-		scope.projectId.length === 0 ||
-		typeof scope.actorId !== "string" ||
-		scope.actorId.length === 0 ||
-		typeof scope.role !== "string" ||
-		scope.role.length === 0
-	) {
-		throw new Error("Lookup authoring batch received an invalid scope.");
-	}
-}
-
 function needsDeleteCapability(input: LookupAuthoringBatchInput): boolean {
 	return (input.updateTables ?? []).some(
 		(table) =>
@@ -141,12 +130,22 @@ function needsDeleteCapability(input: LookupAuthoringBatchInput): boolean {
 	);
 }
 
+/** The batch's capability, held by the authority its transaction read. */
 function assertCapability(
-	scope: LookupScope,
+	tx: Transaction<AppDatabase>,
+	authority: LookupWriteAuthority,
 	input: LookupAuthoringBatchInput,
 ): void {
-	const capability = needsDeleteCapability(input) ? "delete" : "edit";
-	if (!roleAllowsApp(scope.role, capability)) notFound();
+	try {
+		requireLookupCapability(
+			tx,
+			authority,
+			needsDeleteCapability(input) ? "delete" : "edit",
+		);
+	} catch (error) {
+		if (error instanceof LookupAuthorityError) notFound();
+		throw error;
+	}
 }
 
 function assertKey(value: string, label: string): void {
@@ -610,12 +609,12 @@ async function assertColumnDestructiveChangeAllowed(
 
 async function loadWork(
 	tx: Transaction<AppDatabase>,
-	scope: LookupScope,
+	scope: LookupWriteAuthority,
 	input: LookupAuthoringExistingTable,
 ): Promise<TableWork> {
 	const table = await lockLookupTableForUpdate(
 		tx,
-		scope.projectId,
+		scope,
 		input.tableId,
 		input.expectedTableRevision,
 		/* A delete removes only Nova's copy, which is allowed in every state;
@@ -1153,7 +1152,7 @@ export type LookupTableOriginColumns = Pick<
  */
 export async function createTable(
 	tx: Transaction<AppDatabase>,
-	scope: LookupScope,
+	scope: LookupWriteAuthority,
 	revision: LookupRevision,
 	input: NonNullable<LookupAuthoringBatchInput["createTables"]>[number],
 	ids: LookupCreatedTableIds,
@@ -1238,20 +1237,21 @@ export async function createTable(
 
 /**
  * Atomic Project-data authoring core shared by accepted-design materialization
- * and the public SA/MCP tools. The caller owns the transaction and supplies a
- * freshly authorized scope. This function locks Project state once, locks
- * existing tables in UUID order, advances the Project revision at most once,
- * and emits one transactional invalidation notification.
+ * and the public SA/MCP tools. The caller owns the transaction and supplies the
+ * authority read on it (`authorizeLookupWriteInTransaction`); a batch that
+ * renames a tag or a wire name, retypes or removes a column, or removes a
+ * table needs that authority's `delete`. This function locks Project state
+ * once, locks existing tables in UUID order, advances the Project revision at
+ * most once, and emits one transactional invalidation notification.
  */
 export async function applyLookupAuthoringBatchInTransaction(
 	tx: Transaction<AppDatabase>,
-	scope: LookupScope,
+	scope: LookupWriteAuthority,
 	inputValue: LookupAuthoringBatchInput,
 ): Promise<LookupAuthoringBatchReceipt> {
-	assertScope(scope);
 	const input = parseBatch(inputValue);
-	assertCapability(scope, input);
-	const projectState = await lockLookupProjectState(tx, scope.projectId);
+	assertCapability(tx, scope, input);
+	const projectState = await lockLookupProjectState(tx, scope);
 	const nextRevision = parseLookupRevision(
 		(BigInt(projectState.revision) + BigInt(1)).toString(),
 	);

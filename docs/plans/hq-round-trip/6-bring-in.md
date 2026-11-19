@@ -254,7 +254,7 @@ test, and no billed call. **Unverified until the reader exists**, each with the 
 
 | What | Held by |
 |---|---|
-| The reader's and acceptance's time at the cap, and a review's of changes | `cap.test.ts` of parts 12 and 15, in ordinary CI: each synchronous piece under five seconds. A failure is fixed in the piece that is long, and the cap stands |
+| The reader's and acceptance's time at the cap, and a review's of changes | `cap.test.ts` of parts 12 and 15, in ordinary CI: each request's work, counted by the work meter, within a quarter of a reading's work limit of the source's size, and no synchronous piece doing more than its stated units; each piece's wall time logged, failing only at four times five seconds. A failure is fixed in the piece that is long, and the cap stands. `reader/__tests__/readWorkLimit.test.ts` holds every retained base and published document under a quarter of its limit |
 | That each starter app comes in whole | `lib/commcare/reader/__tests__/bases.retained.test.ts` in ordinary CI, then the dispatches over the bases (part 08, E6; part 14, P2) |
 | That reading Nova's own export gives the document back | `canonReadBack.fuzz.test.ts` (part 09) and proof 6 over the Nova-born corpus (part 14, P5) |
 | That the first-publish register is closed both ways | the lane's judge over every base (part 09, section 11.3; part 14, section 9) |

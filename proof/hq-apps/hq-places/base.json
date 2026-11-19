@@ -12,6 +12,7 @@
 	},
 	"declaration": "preselected",
 	"exhibits": [
+		"expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not",
 		"expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
 		"menus-and-case-lists/module-with-case-type-survey-module",
 		"questions/bind-calculate-on-a-hidden-value",

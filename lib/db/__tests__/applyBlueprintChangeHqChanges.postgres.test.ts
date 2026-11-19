@@ -11,12 +11,18 @@
  * batch refused as a moved head instead of answering its commit; and an
  * editor's batch allowed to commit at an expected head or with transaction
  * work, or a bring-in allowed without its head, any of which would reach the
- * database before being refused.
+ * database before being refused; and a caller the app has left, or who lost
+ * edit, told the head moved (which sends it to read who moved it) or that a
+ * batch id exists, before the kernel has authorized it.
  */
 
 import { sql, type Transaction } from "kysely";
 import { describe, expect, it } from "vitest";
-import { AppHeadMovedError } from "../commitGuard";
+import {
+	AppHeadMovedError,
+	AppProjectChangedError,
+	CommitReauthError,
+} from "../commitGuard";
 import type { AppDatabase } from "../pg";
 import {
 	type ApplyBlueprintChangeProposalArgs,
@@ -148,6 +154,30 @@ function autosave(appId: string, name: string) {
 }
 
 describe("applyBlueprintChange with hq-changes", () => {
+	it("refuses a caller the app has left, or who lost edit, before telling it the head moved", async () => {
+		const { appId, head: reviewedAt } = await seed();
+		await autosave(appId, "Edited in Nova");
+		/* Admitted against the Project the app was in before it moved. */
+		await expect(
+			bringIn(appId, {
+				name: "From CommCare HQ",
+				expectedProjectId: "the-project-it-left",
+				expectedHeadSeq: reviewedAt,
+			}),
+		).rejects.toBeInstanceOf(AppProjectChangedError);
+		/* Still in the Project, no longer an editor of it. */
+		await sql`
+			UPDATE auth_member SET role = 'viewer'
+			WHERE "userId" = ${MEMBER} AND "organizationId" = ${PROJECT}
+		`.execute(h.db());
+		const demoted = bringIn(appId, {
+			name: "From CommCare HQ",
+			expectedHeadSeq: reviewedAt,
+		});
+		await expect(demoted).rejects.toBeInstanceOf(CommitReauthError);
+		await expect(demoted).rejects.not.toBeInstanceOf(AppHeadMovedError);
+	});
+
 	it("commits only at expectedHeadSeq, as one hq-changes row with the member and no run", async () => {
 		await createProbe();
 		const { appId, head: reviewedAt } = await seed();
@@ -273,6 +303,109 @@ describe("applyBlueprintChange with hq-changes", () => {
 		expect(await headOf(appId)).toBe(head);
 		expect(await changeRows(appId, head)).toEqual([]);
 		expect(await appName(appId)).toBe("Held placements");
+	});
+
+	it("writes Project data once, on the commit's transaction before its record, rolls it back with the commit, and skips it on a retried batch", async () => {
+		await createProbe();
+		const { appId, head } = await seed();
+		const order: string[] = [];
+		const projectDataWrite = async ({
+			tx,
+			projectId,
+		}: {
+			readonly tx: Transaction<AppDatabase>;
+			readonly projectId: string;
+		}) => {
+			order.push(`project-data:${projectId}`);
+			/* The app row is this transaction's: the head test has passed, and the
+			 * row is locked for the commit. */
+			const row = await tx
+				.selectFrom("apps")
+				.select("mutation_seq")
+				.where("id", "=", appId)
+				.executeTakeFirstOrThrow();
+			await sql`INSERT INTO hq_changes_probe (app_id, seq) VALUES (${appId}, ${-Number(row.mutation_seq)})`.execute(
+				tx,
+			);
+		};
+		const work = recordingWork(appId);
+		const inTransaction = async (context: {
+			readonly tx: Transaction<AppDatabase>;
+			readonly seq: number;
+		}) => {
+			order.push("record");
+			await work.inTransaction(context);
+		};
+
+		/* Turned back after the Project data was written: none of it stays. */
+		await expect(
+			bringIn(appId, {
+				name: "From CommCare HQ",
+				expectedHeadSeq: head,
+				projectDataWrite,
+				inTransaction: async (context) => {
+					await inTransaction(context);
+					throw new Error("the record could not be written");
+				},
+			}),
+		).rejects.toThrow("the record could not be written");
+		expect(order).toEqual([`project-data:${PROJECT}`, "record"]);
+		expect(await probeRows(appId)).toEqual([]);
+
+		/* A moved head writes no Project data at all. */
+		await autosave(appId, "Edited in Nova");
+		order.length = 0;
+		await expect(
+			bringIn(appId, {
+				name: "From CommCare HQ",
+				expectedHeadSeq: head,
+				projectDataWrite,
+				inTransaction,
+			}),
+		).rejects.toBeInstanceOf(AppHeadMovedError);
+		expect(order).toEqual([]);
+
+		const moved = await headOf(appId);
+		const batchId = crypto.randomUUID();
+		const committed = await bringIn(appId, {
+			name: "From CommCare HQ",
+			batchId,
+			expectedHeadSeq: moved,
+			projectDataWrite,
+			inTransaction,
+		});
+		expect(order).toEqual([`project-data:${PROJECT}`, "record"]);
+		expect(await probeRows(appId)).toEqual([-moved, committed.seq]);
+		/* The same batch again answers its commit and writes nothing more. */
+		await bringIn(appId, {
+			name: "From CommCare HQ",
+			batchId,
+			expectedHeadSeq: moved,
+			projectDataWrite,
+			inTransaction,
+		});
+		expect(order).toHaveLength(2);
+		expect(await probeRows(appId)).toEqual([-moved, committed.seq]);
+	});
+
+	it("refuses Project data under an editor's kind before any write", async () => {
+		const { appId, head } = await seed();
+		let ran = false;
+		await expect(
+			applyBlueprintChangeProposal({
+				appId,
+				userId: MEMBER,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				projectDataWrite: async () => {
+					ran = true;
+				},
+				guard: { mutations: [{ kind: "setAppName", name: "Refused" }] },
+			}),
+		).rejects.toThrow(REFUSAL("autosave"));
+		expect(ran).toBe(false);
+		expect(await headOf(appId)).toBe(head);
 	});
 
 	it("refuses an expected head or transaction work under an editor's kind, and hq-changes with no head, before any write", async () => {

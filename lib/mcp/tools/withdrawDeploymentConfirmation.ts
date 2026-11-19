@@ -4,12 +4,13 @@
  *
  * A confirmation records that a project space has something no API key
  * reads: a plan feature, its flat location list, a Connect forwarder, sync
- * on form entry turned off. Nova
+ * on form entry turned off, CommCare Supply turned off, or that a level takes
+ * workers where CommCare HQ manages the app's places. Nova
  * cannot see a plan change in CommCare HQ, so a confirmation stands until
  * someone withdraws it, here or from the deployment's card in the builder.
  * The row is kept with who withdrew it and when.
  *
- * Scope: `nova.hq.write`, checked before any read: the deployment tools are
+ * Scope: `nova.hq.write`, checked by its registration before anything runs: the deployment tools are
  * gated as one family, and this changes what the next upload does. The app
  * capability is `edit`, as for every deployment write.
  */
@@ -25,7 +26,9 @@ import {
 	DEPLOYMENT_CONFIRMATION_KINDS,
 	type DeploymentConfirmationKey,
 	deploymentAppIdSchema,
+	organizationLevelCodeSchema,
 } from "@/lib/deployment/types";
+import { orderedOrganizationLevels } from "@/lib/domain";
 import { isPlanFeatureId, PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import {
 	McpInvalidInputError,
@@ -34,7 +37,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
 import {
@@ -48,6 +51,15 @@ function confirmationKey(
 	kind: (typeof DEPLOYMENT_CONFIRMATION_KINDS)[number],
 	subject: string | undefined,
 ): DeploymentConfirmationKey {
+	if (kind === "worker-level") {
+		const code = organizationLevelCodeSchema.safeParse(subject);
+		if (!code.success) {
+			throw new McpInvalidInputError(
+				"A worker level confirmation is withdrawn by the level's code, as `confirmations` names it in `subject`. Read the deployment's `confirmations` from get_deployment for the ones in force.",
+			);
+		}
+		return { kind, subject: code.data };
+	}
 	if (kind !== "plan-feature") return { kind };
 	if (!isPlanFeatureId(subject)) {
 		throw new McpInvalidInputError(
@@ -61,12 +73,13 @@ export function registerWithdrawDeploymentConfirmation(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"withdraw_deployment_confirmation",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Withdraw something a user confirmed about a CommCare HQ project space (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off, or CommCare Supply turned off), so the next `upload_app_to_hq` there asks about it again. Use it when the user says the project space no longer has it, for example after a plan change, which Nova cannot see. Read the confirmations in force from `get_deployment`'s `confirmations`. Withdrawing one that is not in force changes nothing. Returns the deployment.",
+				"Withdraw something a user confirmed about a CommCare HQ project space (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off, CommCare Supply turned off, or that a level takes workers), so the next `upload_app_to_hq` there asks about it again, or for a level, the next `provision_workers` that stands a worker there. Use it when the user says the project space no longer has it, for example after a plan change, which Nova cannot see. Read the confirmations in force from `get_deployment`'s `confirmations`. Withdrawing one that is not in force changes nothing. Returns the deployment.",
 			inputSchema: z.object({
 				app_id: deploymentAppIdSchema.describe(
 					"App id whose deployment holds the confirmation. Requires edit access in the app's Project.",
@@ -82,19 +95,18 @@ export function registerWithdrawDeploymentConfirmation(
 				kind: z
 					.enum(DEPLOYMENT_CONFIRMATION_KINDS)
 					.describe(
-						"`plan-feature`, `flat-location-fixture`, `connect-forwarder`, `form-entry-sync-off` or `commtrack-off`, as `get_deployment`'s `confirmations` names it.",
+						"`plan-feature`, `flat-location-fixture`, `connect-forwarder`, `form-entry-sync-off`, `commtrack-off` or `worker-level`, as `get_deployment`'s `confirmations` names it.",
 					),
 				subject: z
 					.string()
 					.optional()
 					.describe(
-						"For a `plan-feature`, the plan feature's id as `confirmations` names it. Omit for the other kinds.",
+						"For a `plan-feature`, the plan feature's id, and for a `worker-level`, the level's code, as `confirmations` names it. Omit for the other kinds.",
 					),
 			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "withdraw_deployment_confirmation");
 				const { doc, access } = await loadAppBlueprint(
 					args.app_id,
 					ctx.userId,
@@ -151,6 +163,7 @@ export function registerWithdrawDeploymentConfirmation(
 									identities,
 									kept,
 									novaRevisions,
+									orderedOrganizationLevels(doc),
 								),
 								setup_artifact: artifact,
 							}),

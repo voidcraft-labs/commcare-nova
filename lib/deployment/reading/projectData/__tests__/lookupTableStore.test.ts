@@ -20,7 +20,7 @@ const CREDS = {
 } as const;
 const HOST = "https://india.commcarehq.org";
 const READS = path.join(process.cwd(), "proof/hq-reads");
-const LIST = "/a/clinic/api/lookup_table/v1/?limit=100";
+const LIST = "/a/clinic/api/lookup_table/v1/?limit=1000";
 const PLAIN_ID = "09948f8373da4c86a86b7707a0e9fbcd";
 const RICH_ID = "9ea70d486f644cc4a2f22c063294e197";
 const LONG_ID = "a0a2cdc1f69941da848befc33ffc36be";

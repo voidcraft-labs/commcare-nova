@@ -16,6 +16,7 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { generatedAppStringPattern } from "../appStringKeys";
 import { instanceScanRead } from "../hqInstanceScan";
@@ -40,7 +41,7 @@ import {
 } from "./heldText";
 import { cleanTrans, shownText } from "./hqText";
 import { externalKey } from "./identity";
-import { isJsonObject, type JsonCursor } from "./jsonCursor";
+import { isJsonObject, type JsonCursor, objectMembers } from "./jsonCursor";
 import { formPlace, menuPlace, whereText } from "./place";
 import { levelsFromHq } from "./worldEntities";
 
@@ -60,7 +61,7 @@ function perClass<U extends ClaimUse, const N extends string, C extends string>(
 	entry: string,
 	field: string,
 ): Record<`${N}@${C}`, Claim<U>> {
-	return Object.fromEntries(
+	return recordFromEntries(
 		classes.map((cls) => [
 			`${name}@${cls}`,
 			make(entry, `schema:${cls}.${field}`),
@@ -438,7 +439,7 @@ function printedName(
 	source: string | undefined,
 	read: Pick<NameAsRead, "source" | "translations">,
 ): Record<string, string> {
-	return Object.fromEntries(
+	return recordFromEntries(
 		codes.map((code) => [
 			code,
 			code === source
@@ -513,7 +514,7 @@ export function nameAsRead(
 	codes: readonly string[],
 	source: string | undefined,
 ): NameAsRead | undefined {
-	const map = stored === undefined ? {} : stored;
+	const map = stored === undefined ? NO_ENTRIES : stored;
 	if (!isJsonObject(map)) return undefined;
 	const own = new Map<string, string>();
 	for (const code of codes) {
@@ -568,7 +569,7 @@ function unheldName(
 	codes: readonly string[],
 	source: string | undefined,
 ): UnheldText | undefined {
-	const map = stored === undefined ? {} : stored;
+	const map = stored === undefined ? NO_ENTRIES : stored;
 	if (source === undefined || !isJsonObject(map)) return undefined;
 	const shown = shownNames(map, codes, source);
 	return shown === undefined
@@ -955,12 +956,12 @@ export function readStructure(ctx: ReadContext): void {
 	ctx.writeDraft(() => {
 		ctx.draft.levels = levelsFromHq(
 			input.organization.levels,
-			ctx.resolver,
+			ctx.identities,
 		).levels;
 	});
 	const first = applicationReading(ctx)?.languages.first;
 	const rawMenus = ctx.app.peek("modules");
-	const menus = Array.isArray(rawMenus) ? rawMenus.filter(isJsonObject) : [];
+	const menus = objectMembers(rawMenus) ?? [];
 	const cursors = ctx.app.list(
 		"modules",
 		moduleClassOf,
@@ -1082,7 +1083,7 @@ export function readStructure(ctx: ReadContext): void {
 		const uniqueId = menu.uniqueId;
 		if (uniqueId === undefined) continue;
 		const uuid: Uuid | undefined = ctx.accounting.identity(
-			ctx.resolver.claim(externalKey.module(uniqueId), whereText(menu.place)),
+			ctx.identities.claim(externalKey.module(uniqueId), whereText(menu.place)),
 			menu.place,
 			`schema:${menu.cls}.unique_id`,
 		);
@@ -1105,7 +1106,7 @@ export function readStructure(ctx: ReadContext): void {
 			const xmlns = form.xmlns;
 			if (xmlns === undefined) continue;
 			const formUuid = ctx.accounting.identity(
-				ctx.resolver.claim(externalKey.form(xmlns), whereText(form.place)),
+				ctx.identities.claim(externalKey.form(xmlns), whereText(form.place)),
 				form.place,
 				`schema:${form.cls}.xmlns`,
 			);

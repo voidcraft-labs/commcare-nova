@@ -323,6 +323,18 @@ def declared_table_the_project_space_lacks(authoring, app_id):
     ops.set_form_source(authoring, app_id, 0, 0, edit, what="declared-table-the-project-space-lacks")
 
 
+def declared_report_fixture(authoring, app_id):
+    """The mobile reports fixture ``commcare:reports`` declared and read by nothing: Core loads it when the form
+    opens, and the form cannot open where the project space serves no mobile report (``loadFixtureRoot``), which no
+    export says."""
+
+    def edit(root, _held):
+        _declare(root, "commcare:reports", "jr://fixture/commcare:reports")
+        return None
+
+    ops.set_form_source(authoring, app_id, 0, 0, edit, what="declared-report-fixture")
+
+
 def reads_a_table_the_project_space_lacks(authoring, app_id):
     """``farmer_name`` shown where the table ``harvests`` holds a row: the form declares and reads a table the
     project space's table list does not hold."""

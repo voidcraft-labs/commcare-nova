@@ -145,9 +145,36 @@ export interface RetainedHqApp {
 
 const FIXTURE_ROWS_PREFIX = "fixture-rows-";
 
+/** A media file's path under its base, as the retained layout names it (`proof/matrix/retained-layout.json`). */
+const MEDIA_FILE = /^media\/(?:0|[1-9][0-9]*)\.[a-z0-9]+$/;
+
+/**
+ * The bytes of the media file a `media.json` row names. The row's `file` is
+ * looked up among the plain files of the base's own `media/` directory,
+ * never joined to a path, so a row naming anything else (`../app.json`, an
+ * absolute path, a link) stops the emission by name.
+ */
+function mediaBytes(directory: string, file: string): Uint8Array {
+	const media = join(directory, "media");
+	const held = existsSync(media)
+		? new Set(
+				readdirSync(media, { withFileTypes: true })
+					.filter((entry) => entry.isFile())
+					.map((entry) => `media/${entry.name}`),
+			)
+		: new Set<string>();
+	if (!MEDIA_FILE.test(file) || !held.has(file)) {
+		fail(
+			directory,
+			`holds a media.json row naming ${JSON.stringify(file)}, which is not one of its media files`,
+		);
+	}
+	return new Uint8Array(readFileSync(join(media, file.slice("media/".length))));
+}
+
 function fail(directory: string, what: string): never {
 	throw new Error(
-		`The retained base ${directory} ${what}. Everything under proof/hq-apps/ is written by the lane; make it again with python3 -m proof.matrix.adopt over a lane run's output.`,
+		`The retained base ${directory} ${what}. Everything under proof/hq-apps/ is written by the lane; make it again with python3 -m proof.matrix.adopt over every output of a lane run.`,
 	);
 }
 
@@ -248,7 +275,7 @@ export function loadRetainedHqApp(
 			flagged !== undefined && { projectSpaces: { all, flagged } }),
 		media: mediaRows.map((row) => ({
 			...row,
-			bytes: new Uint8Array(readFileSync(join(directory, row.file))),
+			bytes: mediaBytes(directory, row.file),
 		})),
 		lookupTables: answer(directory, "lookup-tables.json"),
 		...(Object.keys(fixtureRows).length > 0 && { fixtureRows }),
@@ -529,6 +556,7 @@ export async function hqAuthoredDocument(
 		declaration: reading.declaration,
 		mediaPaths,
 		keyedCaseIds: reading.keyedCaseIds,
+		columnWords: reading.columnWords,
 		retained: app.directory,
 		hand,
 	};

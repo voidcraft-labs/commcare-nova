@@ -21,6 +21,8 @@ import "server-only";
  */
 
 import { log } from "@/lib/logger";
+import { type HqAppsSeen, seenByHq } from "./appsSeen";
+import { HQ_API_ACCESS_PROBE_MAX_BYTES, HQ_APP_LIST_MAX_BYTES } from "./bounds";
 import { classifyHqFailure, type HqFailure } from "./failure";
 import {
 	baseUrl,
@@ -42,8 +44,14 @@ export interface HqAppListing {
 	readonly version: number;
 }
 
-/** The most bytes of the app list Nova reads: 4 MiB. */
-export const HQ_APP_LIST_MAX_BYTES = 4 * 1024 * 1024;
+export type { HqAppsSeen } from "./appsSeen";
+export { HQ_APP_LIST_MAX_BYTES } from "./bounds";
+
+/** The project space's working apps, and HQ's answer that the key reaches each of them. */
+export interface HqAppList {
+	readonly listings: readonly HqAppListing[];
+	readonly seen: HqAppsSeen;
+}
 
 /**
  * The list's envelope, checked and no further: `{status: "success", applications: [...]}`, with the
@@ -82,7 +90,7 @@ export async function listHqApps(
 	creds: CommCareCredentials,
 	domain: string,
 	options: { readonly cancel?: AbortSignal } = {},
-): Promise<readonly HqAppListing[] | CommCareApiError> {
+): Promise<HqAppList | CommCareApiError> {
 	const envelope = await readHqAppListEnvelope(creds, domain, options);
 	if ("success" in envelope) return envelope;
 	const listings: HqAppListing[] = [];
@@ -107,7 +115,14 @@ export async function listHqApps(
 		ids.add(row.app_id);
 		listings.push({ appId: row.app_id, name: row.name, version: row.version });
 	}
-	return listings;
+	return {
+		listings,
+		seen: seenByHq(
+			creds.server,
+			domain,
+			listings.map((listing) => listing.appId),
+		),
+	};
 }
 
 export type HqApiAccess =
@@ -116,8 +131,7 @@ export type HqApiAccess =
 	| { readonly kind: "account-lacks-access-apis" }
 	| { readonly kind: "failed"; readonly failure: HqFailure };
 
-/** The most bytes of the probe's one-row answer Nova reads: 1 MiB. */
-export const HQ_API_ACCESS_PROBE_MAX_BYTES = 1024 * 1024;
+export { HQ_API_ACCESS_PROBE_MAX_BYTES } from "./bounds";
 
 /**
  * Whether the project space's plan has API access and the account Access

@@ -740,6 +740,15 @@ export interface AppDeploymentResourcesTable {
 		Date | string | null | undefined,
 		Date | string | null
 	>;
+	/** CommCare HQ's save counter as the import that wrote the push fields
+	 * acknowledged it; null where no import acknowledged one. A push records
+	 * only where it is not below this, so two publishes of one app land in
+	 * HQ's save order. */
+	pushed_remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
 	superseded_at: ColumnType<
 		Date | null,
 		Date | string | null | undefined,
@@ -805,6 +814,21 @@ export interface AppDeploymentMediaPathsTable {
 }
 
 /**
+ * The word CommCare HQ keeps a case list column's property under on one
+ * screen (`short` or `long`) of one deployment, where it is not the word
+ * Nova writes (`lib/commcare/suite/wire.ts::hqColumnFieldText`). Inserted and
+ * deleted with the deployment's identity rows, never changed and never
+ * row-locked.
+ */
+export interface AppDeploymentColumnFieldWordsTable {
+	deployment_id: string;
+	nova_column_uuid: string;
+	screen: string;
+	field_word: string;
+	recorded_at: Timestamp;
+}
+
+/**
  * The id prefix a create keyed by an answer writes on the project space an
  * app was brought in from, by operation, with the case type it was derived
  * with. Inserted and deleted with the deployment's identity rows, never
@@ -819,13 +843,51 @@ export interface AppDeploymentKeyedCaseIdsTable {
 }
 
 /**
+ * One write Nova let out to CommCare HQ, open while `settled_at` is null and
+ * `held_until` is in the future (`openRemoteWrite.ts`): an app's create,
+ * import or media bundle, a lookup table workbook, a batch of places or a
+ * worker account. Inserted under the admission's locks, updated when it
+ * settles, never deleted and never row-locked.
+ */
+export interface HqRemoteWritesTable {
+	id: DefaultedUuidV7Column<string>;
+	deployment_id: string;
+	server: string;
+	domain: string;
+	app_id: string;
+	project_id: string;
+	actor_user_id: string;
+	/** 'app' | 'lookup-table' | 'location' | 'worker', reasserted on read. */
+	resource_kind: string;
+	/** The HQ app's id, the Nova table's, the Nova place's, or the persona's; null only on a create whose app is not recorded yet. */
+	resource_id: ColumnType<string | null, string | null, string | null>;
+	/** 'create' | 'import' | 'media' | 'workbook' | 'places' | 'worker', reasserted on read. */
+	write_kind: string;
+	opened_at: Timestamp;
+	/** When the write stops being open if its process never settles it. */
+	held_until: ColumnType<Date, Date | string, Date | string>;
+	/** When its process said CommCare HQ is done with it; null while it is not. */
+	settled_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	/** The media job CommCare HQ named, polled by this id. */
+	hq_job_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+}
+
+/**
  * What a person confirmed about one project space, for one app. Inserted on
  * confirm, withdrawn by update, never deleted and never row-locked.
  */
 export interface AppDeploymentConfirmationsTable {
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
-	/** 'plan-feature' | 'flat-location-fixture' | 'connect-forwarder' | 'form-entry-sync-off' | 'commtrack-off'. */
+	/** 'plan-feature' | 'flat-location-fixture' | 'connect-forwarder' | 'form-entry-sync-off' | 'commtrack-off' | 'worker-level'. */
 	kind: string;
 	subject: string;
 	confirmed_by: string;
@@ -1837,6 +1899,8 @@ export interface AppDatabase {
 	app_deployment_identities: AppDeploymentIdentitiesTable;
 	app_deployment_media_paths: AppDeploymentMediaPathsTable;
 	app_deployment_keyed_case_ids: AppDeploymentKeyedCaseIdsTable;
+	app_deployment_column_field_words: AppDeploymentColumnFieldWordsTable;
+	hq_remote_writes: HqRemoteWritesTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;
 	project_space_resource_baselines: ProjectSpaceResourceBaselinesTable;

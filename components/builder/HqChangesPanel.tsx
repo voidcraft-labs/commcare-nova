@@ -56,7 +56,10 @@ import {
 	createHqChangesRequester,
 	type HqChangesRequester,
 } from "@/components/builder/hqChangesRequester";
-import { StopPublishingDialog } from "@/components/builder/StopPublishingDialog";
+import {
+	StopPublishingDialog,
+	type StopPublishingTarget,
+} from "@/components/builder/StopPublishingDialog";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
@@ -374,7 +377,7 @@ export function HqChangesPanel({
 			{view.drawsItem ? item : null}
 			{view.waysOn ? (
 				<CardWaysOn
-					target={target}
+					target={stopTargetOf(target, remoteAppId)}
 					canStop={canStop}
 					onOpenPublish={onOpenPublish}
 					onStopped={onStopped}
@@ -390,6 +393,14 @@ export function HqChangesPanel({
  * which opens the Publish dialog on the project space, and stopping
  * publishing here (or, for a member who may not, who can).
  */
+/** The stop a surface offers: the deployment and the HQ app it maps, or none where it maps none. */
+function stopTargetOf(
+	target: HqChangesPanelProps["target"],
+	remoteAppId: string | null,
+): StopPublishingTarget | null {
+	return remoteAppId === null ? null : { ...target, hqAppId: remoteAppId };
+}
+
 function CardWaysOn({
 	target,
 	canStop,
@@ -397,7 +408,8 @@ function CardWaysOn({
 	onStopped,
 	onRecordsStale,
 }: {
-	readonly target: HqChangesPanelProps["target"];
+	/** Null where the deployment maps no HQ app, so there is nothing to stop. */
+	readonly target: StopPublishingTarget | null;
 	readonly canStop: boolean;
 	readonly onOpenPublish: (() => void) | undefined;
 	readonly onStopped: (next: StoppedPublishingView) => void;
@@ -417,7 +429,7 @@ function CardWaysOn({
 					{PUBLISH_OVER_HQ_ACTION}
 				</Button>
 			) : null}
-			{canStop ? (
+			{target === null ? null : canStop ? (
 				<div className="flex flex-col gap-1">
 					<Button
 						type="button"
@@ -576,6 +588,13 @@ function PanelBody(props: BodyProps): ReactNode {
 						{body.line}
 						{body.goesAhead ? ` ${NEXT_PUBLISH_GOES_AHEAD}` : ""}
 					</p>
+					{body.hqChanges.length > 0 ? (
+						<ul className="flex list-disc flex-col gap-1 pl-5 text-[13px] leading-relaxed text-nova-text-secondary">
+							{body.hqChanges.map((line) => (
+								<li key={line}>{line}</li>
+							))}
+						</ul>
+					) : null}
 					<NextPublish lines={body.publishChanges} />
 				</div>
 			);
@@ -647,6 +666,7 @@ function ListsBody({
 	lists,
 	state,
 	target,
+	remoteAppId,
 	canStop,
 	dispatch,
 	onCheckAgain,
@@ -755,7 +775,7 @@ function ListsBody({
 			{choices !== null ? (
 				<Choices
 					choices={choices}
-					target={target}
+					target={stopTargetOf(target, remoteAppId)}
 					canStop={canStop}
 					dispatch={dispatch}
 					onCheckAgain={onCheckAgain}
@@ -779,7 +799,8 @@ function Choices({
 	onRecordsStale,
 }: {
 	readonly choices: NonNullable<ListsView["choices"]>;
-	readonly target: HqChangesPanelProps["target"];
+	/** Null where the deployment maps no HQ app, so there is nothing to stop. */
+	readonly target: StopPublishingTarget | null;
 	readonly canStop: boolean;
 	readonly dispatch: BodyProps["dispatch"];
 	readonly onCheckAgain: () => void;
@@ -858,7 +879,7 @@ function Choices({
 					) : null}
 				</div>
 			) : null}
-			{choices.stop ? (
+			{choices.stop && target !== null ? (
 				canStop ? (
 					<div className="flex flex-col gap-1">
 						<Button

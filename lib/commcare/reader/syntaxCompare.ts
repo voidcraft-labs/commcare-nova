@@ -34,6 +34,7 @@
  * it before any expression is bound.
  */
 import type { RuleSet } from "@/lib/domain/expression/profiles";
+import { chargeWork, rethrowWorkStop } from "../workMeter";
 import type { FormSyntax } from "../xpath/formSyntax";
 import { readFormSyntax } from "./syntaxRead";
 
@@ -69,11 +70,18 @@ export function firstDifference(
 	print: FormSyntax,
 	options: CompareOptions,
 ): FormSyntax | undefined {
-	return difference(
+	const before = normalized;
+	const found = difference(
 		comparable(source, options, "source"),
 		comparable(print, options, "print"),
 	);
+	// The work meter's `compare` door: one unit a node of either tree normalized.
+	chargeWork("compare", normalized - before);
+	return found;
 }
+
+/** Nodes `comparable` has normalized, which a comparison charges the work meter by. */
+let normalized = 0;
 
 /** Two texts that parse to the same tree. Used by the list and menu readers.
  *  A text the syntax reader cannot read compares unlike anything, as
@@ -97,7 +105,8 @@ function readSyntax(
 ): ReturnType<typeof readFormSyntax> | undefined {
 	try {
 		return readFormSyntax(text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -112,6 +121,7 @@ function comparable(
 	side: "source" | "print",
 ): FormSyntax {
 	const normalize = (at: FormSyntax, position: Position): FormSyntax => {
+		normalized += 1;
 		switch (at.kind) {
 			case "group":
 				return normalize(at.value, position);

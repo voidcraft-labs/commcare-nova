@@ -576,6 +576,11 @@ def _effective_execution_args(
             else:
                 if plan:
                     return requested
+        if requested == ("hq-import-scope-scan.cjs",) or requested in (
+            ("hq-import-scope-repair.cjs",),
+            ("hq-import-scope-repair.cjs", "--execute"),
+        ):
+            return requested
         if requested == ("case-expression-index-scan.cjs",):
             return requested
         if (

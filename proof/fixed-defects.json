@@ -1956,7 +1956,7 @@
 		"part": "form renamed in HQ's editing language",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/title",
+		"path": "/runs/*/trace/*/title/form",
 		"control": "localization-bilingual"
 	},
 	{

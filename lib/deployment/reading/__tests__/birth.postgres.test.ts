@@ -28,7 +28,7 @@ import {
 } from "@/__tests__/helpers/retainedHqReads";
 import { decrypt } from "@/lib/commcare/encryption";
 import { sourceFromBody } from "@/lib/commcare/reader/__tests__/readerInput";
-import { mintingResolver } from "@/lib/commcare/reader/identity";
+import { claimsUnder, mintingResolver } from "@/lib/commcare/reader/identity";
 import { levelsFromHq } from "@/lib/commcare/reader/worldEntities";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { resolveAuthorizedAppSnapshot } from "@/lib/db/appAccess";
@@ -40,7 +40,6 @@ import { softDeleteApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { claimHqAppInTransaction } from "@/lib/db/hqAppClaims";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
-import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { readPlacementHolds } from "@/lib/doc/placementHolds";
@@ -52,7 +51,10 @@ import { LOOKUP_MAX_CELL_BYTES } from "@/lib/lookup/constants";
 import { LookupError } from "@/lib/lookup/errors";
 import { createLookupTable } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
-import { lockLookupProjectState } from "@/lib/lookup/writerTransaction";
+import {
+	authorizeLookupWriteInTransaction,
+	lockLookupProjectState,
+} from "@/lib/lookup/writerTransaction";
 import { publishReadyMedia } from "@/lib/media/publishReadyMedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
 import { extractLocationReferenceTargets } from "@/lib/organization/commitIntegrity";
@@ -199,7 +201,6 @@ async function preparedBirth(
 		chosen,
 		candidate,
 	});
-	if (!deployment.ok) throw new Error("no real ids");
 	return {
 		gathered,
 		birth: {
@@ -217,7 +218,7 @@ async function preparedBirth(
 				gathered.draft.doc,
 				mintingResolver(appId),
 			),
-			deployment: deployment.write,
+			deployment,
 			at: AT,
 		},
 	};
@@ -269,7 +270,7 @@ async function placesRead(): Promise<ReadingProjectData> {
 		});
 		serveAnswer(
 			peer,
-			`/a/${FIXTURE_DOMAIN}/api/location/v2/?limit=1000`,
+			`/a/${FIXTURE_DOMAIN}/api/location/v2/?limit=5000`,
 			places,
 		);
 		const appId = "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d";
@@ -303,7 +304,7 @@ function withPlaces(
 	const { appId } = birth.candidate;
 	const levels = levelsFromHq(
 		data.gathered.hqLevels,
-		mintingResolver(appId),
+		claimsUnder(mintingResolver(appId)),
 	).levels;
 	const doc: BlueprintDoc = {
 		...birth.candidate.prepared.nextDoc,
@@ -591,10 +592,13 @@ describe("adoptHqAppInTransaction", () => {
 					...birth,
 					deployment: {
 						...birth.deployment,
-						identities: [
-							...birth.deployment.identities,
-							...birth.deployment.identities,
-						],
+						targetIdentity: {
+							...birth.deployment.targetIdentity,
+							entities: [
+								...birth.deployment.targetIdentity.entities,
+								...birth.deployment.targetIdentity.entities,
+							],
+						},
 					},
 				}),
 			},
@@ -840,7 +844,16 @@ describe("adoptHqAppInTransaction", () => {
 		await h.seedProjectMember(OTHER, PROJECT, "viewer");
 		/* The Project's state row exists before anyone waits, so a birth that had taken it
 		 * would hold a lock another connection's NOWAIT meets. */
-		await withAppTx((tx) => lockLookupProjectState(tx, PROJECT));
+		await withAppTx(async (tx) =>
+			lockLookupProjectState(
+				tx,
+				await authorizeLookupWriteInTransaction(
+					tx,
+					{ projectId: PROJECT, actorId: ACTOR },
+					"edit",
+				),
+			),
+		);
 		const gated = Promise.withResolvers<void>();
 		const birthWaits = Promise.withResolvers<void>();
 		/* The lookup writer of the cycle: it holds the shared membership gate, and asks for
@@ -848,10 +861,14 @@ describe("adoptHqAppInTransaction", () => {
 		 * before the gate would close the cycle, and Postgres would end one transaction as
 		 * deadlocked. */
 		const writer = withAppTx(async (tx: Transaction<AppDatabase>) => {
-			await projectRoleForInTransaction(tx, ACTOR, PROJECT);
+			const authority = await authorizeLookupWriteInTransaction(
+				tx,
+				{ projectId: PROJECT, actorId: ACTOR },
+				"edit",
+			);
 			gated.resolve();
 			await birthWaits.promise;
-			await lockLookupProjectState(tx, PROJECT);
+			await lockLookupProjectState(tx, authority);
 		});
 		let membership: Promise<unknown> | null = null;
 		let born: Promise<unknown> | null = null;

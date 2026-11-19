@@ -28,7 +28,9 @@ capture of a download) is assembled by
 `lib/export/localArchive.ts::compileLocalArchive` from a `ccz`-mode prepared
 export and the one published project space the archive is made for
 (`compileLocalArchive(prepared, runtimeTarget, identity, deployment)`, the
-target, that deployment's ids, the reached target's `emptyCaseListText`,
+target, that deployment's ids and the word each case list column's field keeps
+there, which the archive's app string ids for the column follow, the reached
+target's `emptyCaseListText`,
 `earlierHqApps` and `adopted` (its live app mapping is one Nova brought in, so
 the archive seeds no profile setting there, read or not), and the deployment's `targetFacts`, what its project space
 keeps of the values Nova leaves to CommCare HQ or null where no baseline was
@@ -39,7 +41,13 @@ also hand the export boundary that deployment's held media paths
 (`DownloadTarget.mediaPaths`), so each file sits where CommCare HQ keeps it; change what an
 archive holds there. What a `.ccz` cannot follow of those kept values it says in
 its advisories (`lib/publish/exportAdvisories.ts`, the `kept_` ids, from
-`lib/deployment/downloadTarget.ts::downloadKeptAdvisoryFacts`).
+`lib/deployment/downloadTarget.ts::downloadKeptAdvisoryFacts`), wording and
+settings a file cannot carry as they are stored among them. A project space
+whose app holds a custom base URL elsewhere gets no `.ccz` at all: the
+resolver refuses it (`workers-sent-elsewhere`), because a `.ccz` names only
+the server the app is published on, and the publish dialog lists that space
+as one that cannot be chosen, from the same standing
+(`lib/deployment/downloadTarget.ts::readCczStanding`).
 
 A download records nothing: the HQ import file and the `.ccz` emit each case
 change's effective placement, held or else the simplest, and write no

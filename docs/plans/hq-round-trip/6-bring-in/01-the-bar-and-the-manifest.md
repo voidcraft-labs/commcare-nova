@@ -118,11 +118,14 @@ and a grouped observation only gains one field (6.4). So nothing here moves
     `readAppBaseline`, which keeps its `edit` gate.
 17. **The `.ccz` mirrors HQ's build of the kept values** (6.3): the fifteen settings and the detail-view
     log at the project space's value, its runtime UI text, `PostURL` on the secure receiver where the app
-    submits securely, the three profile URLs on its custom base URL's scheme and netloc, location capture where the
-    app captures it, and the worker activity credential where the project space issues one. Four
-    things it cannot follow it states in the download's advisories: runtime UI text a language has
-    none of, the Android logos, the practice mobile worker, and a language name CommCare HQ fills in
-    itself (7.2).
+    submits securely, location capture where the app captures it, and the worker activity credential
+    where the project space issues one. The three profile URLs always stand on the server the
+    deployment is on: a project space whose app holds a custom base URL elsewhere has no `.ccz`; the
+    publish dialog lists that space with the host as one no `.ccz` can be made for, which cannot be
+    chosen, and the download's refusal names the host too (`workers-sent-elsewhere`, 4.3, 6.3). What it cannot follow it
+    states in the download's advisories: runtime UI text a language has none of, the Android logos,
+    the practice mobile worker, a language name CommCare HQ fills in itself (7.2), wording stored in
+    a form a locale line cannot carry, and a setting XML cannot carry (6.1).
 18. **Preview's list filter follows the project space's fuzzy search** (6.4), by Core's own rule, with
     the three things each platform does around it: how it splits the typed text, whether closeness
     reorders the rows (Android) or the list's own order stands (Web Apps), and what an emptied box does
@@ -396,8 +399,13 @@ archive, and proof 2 over `profile.ccpr` and each `app_strings.txt`.
 
 `custom_base_url` is not in this document. It is shown on the base `hq-kept-settings` (part 14, section
 6.2), which posts it through the app settings page's save (`views/settings.py::edit_commcare_settings`,
-which stores it through `views/apps.py::edit_app_attr` with `all`; the attribute's own URL answers 400), and a Vitest over
-`profileServerProperties` holds the vectors, one of them a base URL with a path (section 10).
+which stores it through `views/apps.py::edit_app_attr` with `all`; the attribute's own URL answers 400).
+A `.ccz` for a project space that holds one elsewhere is refused, so nothing of it reaches an archive
+to compare: the Vitests over `profileServerProperties` (every URL on the server's own origin whatever
+the facts hold) and `workersSentElsewhere` (the decision's vectors, the host named and the user
+information never, in the refusal and in the dialog's line alike), the real-Postgres test that the
+dialog's list and the download read one standing from the stored baseline, and the dialog's Playwright
+case hold it (section 10).
 
 **Run 2: Core's fuzzy match, natively.** Where: the work's own CI, in the proof lane every pull
 request runs, native family `expression`. What: the vectors of
@@ -1275,7 +1283,21 @@ and a fragment on the base are dropped. The suite's own request URLs do not foll
 URLs are `absolute_reverse` (`remote_requests.py`, `entries.py`). Excluded from an update. Lifecycle:
 flag-gated (`CUSTOM_APP_BASE_URL`) on the Settings page; `views/apps.py::edit_app_attr` takes the key
 whatever the flag, under `all` (the page's save, `views/settings.py::edit_commcare_settings`), never at the
-attribute's own URL, which answers 400. Kept; the `.ccz` mirrors the three profile URLs on the base's scheme and netloc.
+attribute's own URL, which answers 400. Kept; no `.ccz` is made while it names another address than
+the deployment's server, which clause 3 meets by saying so before anyone chooses: the publish dialog
+lists that project space with the host as one no `.ccz` can be made for, and the download's refusal
+names the host too, both from one standing (`lib/deployment/downloadTarget.ts::readCczStanding`,
+`runtimeTarget.ts::workersSentElsewhere`, `workers-sent-elsewhere`). HQ describes the
+setting as "Use a different base URL for all app URLs. This makes the phone send forms, sync, and look
+for updates from a different URL. The main use case is to allow migrating project spaces to a new
+environment" (`static/app_manager/json/commcare-app-settings.yml`), and its toggle as internal, for
+moving projects to a new cluster (`toggles/__init__.py::CUSTOM_APP_BASE_URL`). Android sends the
+worker's name and password as HTTP Basic to `ota-restore-url` at sign-in and on every sync, and every
+form to `PostURL` with the same credential (`HttpUtils`, `FormSubmissionHelper`), and its guard against
+plain `http` is off unless the profile turns it on (`DeveloperPreferences.java`, `cc-enforce-secure-endpoint`).
+A file that follows the base sends those to an address Nova never read and holds no deployment for;
+one that ignores it pins new installs to the environment the project space is leaving. Neither is a
+file Nova stands behind, and HQ's own build stays available.
 
 **`build_spec`.** Excluded from an update and deleted on a create, so the server's default build stands
 and a person sets it in HQ. Nova reads its version at publish and stops below 2.57
@@ -1363,7 +1385,8 @@ over everything.
 | a key a runtime reads as its own UI text (the surface's `ui-string:` family) | `translationKeyOwner` gives `target` and `appStringKeys.ts::isRuntimeUiStringKey` holds (6.1) | kept | 3.6 |
 | HQ's catalog fill for such a key | follows from the row above | kept | 3.6 |
 | a key matching one of HQ's generated patterns (the surface's `app-string-id:` family, less `android.package.name.*`) | `translationKeyOwner` gives `generated` | inert, held or not-yet by value | 7.1 |
-| any other key | `target`, and `isRuntimeUiStringKey` does not hold | inert | `translations-key-no-runtime-reads` |
+| any other key that is one locale record under its own name (`localeFile.ts::isLocaleFileKey`) | `target`, and `isRuntimeUiStringKey` does not hold | inert | `translations-key-no-runtime-reads` |
+| a key that is no locale record under its own name: a space or a control character at either end, `=`, `#` or a line break in it | `not-its-own`: HQ's build writes the key stripped and on one line (`commcare_translations.py::dumps`), so ` modules.m0` sets `modules.m0` and `x=y\nmodules.m0` sets `x` and `modules.m0`; the ownership of a key is that of its stripped spelling where that is a locale record, else `not-its-own`, which no publish carries and the drift check reads as Nova's part | refused, at `translations`, under `application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name`, naming the key (`appShell.ts::readTranslations`); the proof lane's manifest check reads the same class (`manifest_value_classes.py::translation_key_not_its_own`) and its variants are three keys on `hq-kept-settings` (a space before, a line break, a `#`) | none |
 
 ---
 
@@ -1473,7 +1496,7 @@ alone is `why: "Nothing an archive holds derives from this value."`; `no-claim` 
 | `51-hq-persistent-menu` | setting | Persistent menu in Web Apps | n-i-a: only Web Apps reads it, from HQ's build | no-claim: Preview draws no persistent menu | default: off | `hq-kept-settings` |
 | `52-hq-show-breadcrumbs` | setting | Breadcrumbs in Web Apps | n-i-a: the same | no-claim: the trail above Preview is the builder's wayfinding, drawn whatever the setting holds, on Android as in Web Apps; it follows the running app's steps as Web Apps' trail reads them, and claims nothing of whether Web Apps draws its own | default: on | `hq-kept-settings` |
 | `43-hq-secure-submissions` | setting | Secure submissions | mirrors (`profileServerProperties`) | no-claim: Preview posts to no receiver | default: off (the import that makes Nova's app copies no project space setting) | `starter-health` |
-| `36-hq-custom-base-url` | setting | Custom base URL | mirrors (`profileServerProperties`) | no-claim: the same | default: none | `hq-kept-settings`, which holds a second origin with a path |
+| `36-hq-custom-base-url` | setting | Custom base URL | refuses (`lib/deployment/runtimeTarget.ts::workersSentElsewhere`, `workers-sent-elsewhere`): no `.ccz` for a project space whose base is not the server's own origin | no-claim: the same | default: none | `hq-kept-settings`, which holds a second origin with a path, so its expected download is the refusal |
 | `35-hq-practice-mobile-worker-id` | setting | Practice mobile worker | states (`kept_practice_worker_absent`) | no-claim: Preview has no practice mode | default: none | `hq-kept-settings` |
 | `34-hq-build-spec-at-or-above-nova-s-floor-2-57` | setting | (none: a version at or above the floor is no difference a person set against Nova) | own: the profile requires Nova's floor, 2.57 | no-claim: Preview runs Nova's own engine | default: the server's default build | `hq-new-app` |
 | `build-profiles-each-profile-s-name-langs-practice-mobile-worker` | setting | (none: empty) | n-i-a: an archive is one build | no-claim | default: none | `hq-new-app` |
@@ -1533,15 +1556,19 @@ export type AndroidLogoSlot = "home" | "login" | "demo";
 export interface TargetFacts {
 	/** When CommCare HQ was read: the baseline's `observed_at`. */
 	readonly observedAt: string;
-	/** Each kept setting the project space holds a value for, as HQ's build writes it. */
+	/** Each kept setting the project space holds a value for, as HQ's build writes it, where XML can carry it. */
 	readonly profileProperties: Readonly<Partial<Record<KeptProfilePropertyKey, string>>>;
-	/** Per HQ language code, each key the project space owns that holds text. */
+	/** A kept setting or the credential level holds a character XML 1.0 cannot carry, and is left out. */
+	readonly profileNotCarried: boolean;
+	/** Per HQ language code, each key the project space owns that holds text, where key and text are one locale record. */
 	readonly uiText: Readonly<Record<string, Readonly<Record<string, string>>>>;
 	/** Every runtime UI text key the project space owns in any language, blank ones included, sorted. */
 	readonly uiTextKeys: readonly string[];
+	/** The language codes whose stored text a locale line cannot carry as it is stored, sorted. */
+	readonly uiTextNotCarried: readonly string[];
 	readonly secureSubmissions: boolean;
-	/** The scheme and netloc HQ's build keeps of the project space's custom base URL, or null. */
-	readonly customBaseUrl: string | null;
+	/** Where HQ's build sends a phone for the custom base URL: the host to show and the origin, or null. */
+	readonly customBaseUrl: HeldBaseUrl | null;
 	/** Location captured with every form, on an app Nova does not set it on. */
 	readonly autoGpsCapture: boolean;
 	readonly androidLogos: readonly AndroidLogoSlot[];
@@ -1633,11 +1660,13 @@ an object:
 
 | Field | Read from | Rule |
 |---|---|---|
-| `profileProperties[key]` | `profile.properties[key]` for each of `KEPT_PROFILE_PROPERTY_KEYS` | `hqProfileValueText(value)`; the key is left out where that is `null` |
-| `uiText[lang][key]` | `translations[lang][key]` | kept where `translationKeyOwner(key, langs)` is `"target"` and the value is a non-empty string, with `langs` the source's own |
+| `profileProperties[key]` | `profile.properties[key]` for each of `KEPT_PROFILE_PROPERTY_KEYS` | `hqProfileValueText(value)`; the key is left out where that is `null`, and where the text holds a character XML 1.0 cannot carry (`xmlText.ts::xmlTextIssue`), which sets `profileNotCarried` |
+| `profileNotCarried` | the same walk and `credentialLevel` | true where a value was left out because XML cannot carry it: written into a `<property>` or `<credential>` attribute it would make every `.ccz` of the deployment throw at the serializer |
+| `uiText[lang][key]` | `translations[lang][key]` | kept where the key is one locale record under its own name (`localeFile.ts::isLocaleFileKey`), `translationKeyOwner(key, langs)` is `"target"`, and the value is a non-empty string a locale line carries as one record (`isLocaleFileValue`: no carriage return, not only control characters), with `langs` the source's own |
 | `uiTextKeys` | the same walk | every `target` key of every language for which `isRuntimeUiStringKey` holds, whatever its value |
+| `uiTextNotCarried` | the same walk | each language holding a non-empty text under a key that is no locale record of its own name, or a `target` text a locale line cannot carry |
 | `secureSubmissions` | `secure_submissions` | `=== true` |
-| `customBaseUrl` | `custom_base_url` | `hqUrlBase(value)`: the value read as `urllib.parse.urlsplit` reads it, `${scheme}://${netloc}` with the scheme lower-cased and the netloc exactly as stored, where the scheme is `http` or `https` and the netloc is non-empty and one `urlsplit` accepts, else `null` |
+| `customBaseUrl` | `custom_base_url` | `hqUrlBase(value)` reads the value as `urllib.parse.urlsplit` does (an `http` or `https` scheme and a netloc `urlsplit` accepts, else `null`); the fact is `{ host, origin }`: `host` the netloc after its last `@`, never the user information, and `origin` the WHATWG origin of `https://<host>` where the base is `https` with no user information, else `null`. It is shown and compared, never written into a file |
 | `autoGpsCapture` | `auto_gps_capture` | `=== true`, and `false` where `novaOwnsAutoGpsCapture` is true (Nova's own value on a Connect app is no kept fact) |
 | `credentialLevel` | `profile.features.credentials` | `hqProfileValueText(value)` |
 | `androidLogos` | `logo_refs` | each of `home`, `login`, `demo` whose `hq_logo_android_<slot>` entry holds a string `path` |
@@ -1657,19 +1686,19 @@ A generated key never enters `uiText`: `translationKeyOwner` gives it `generated
 it, so it is no fact of the target (7.1). A language's own code is `language-name` and never enters
 `uiText`: `languageNames` holds it on a deployment Nova brought in (7.2).
 
-`uiText` and `uiTextKeys` differ on purpose. `uiText` holds every `target` key with text, a key no
-runtime reads included, because the archive mirrors HQ's build and HQ's build writes every stored
-value (4.4). `uiTextKeys` holds only the keys a runtime reads, because it decides what a person is
+`uiText` and `uiTextKeys` differ on purpose. `uiText` holds every `target` key with text that a device
+reads under its own name, a key no runtime reads included, because the archive mirrors HQ's build and
+HQ's build writes every stored value (4.4); a key a device reads as another string, or a text that is
+no one record, is left out and said (`uiTextNotCarried`). `uiTextKeys` holds only the keys a runtime reads, because it decides what a person is
 told: the kept list's "CommCare's own screens, reworded" and the advisory `kept_ui_text_falls_back`
 (6.3). A key no runtime reads rewords no screen, and HQ's catalog fill never covers one
 (`SelectKnownAppStrings.app_strings_parts` fills a key only where its own catalog holds it).
 
-A `custom_base_url` that is no `http:` or `https:` URL with a netloc gives `null`, and the archive
-writes the server's own base URL: `urljoin` over a base with no scheme and netloc gives a path alone
-or `https:///a/…` (`absolute_url_property`), and one `urlsplit` refuses makes HQ's build raise, so HQ's
-build holds no address there for the archive to mirror. The netloc is not the WHATWG origin: a
-stored `https://relay:secret@Proxy.Example.org:443/hq/` gives HQ's build
-`https://relay:secret@Proxy.Example.org:443/a/…`, credentials, letters and port as stored.
+A `custom_base_url` that is no `http:` or `https:` URL with a netloc gives `null`: `urljoin` over a
+base with no scheme and netloc gives a path alone or `https:///a/…` (`absolute_url_property`), and one
+`urlsplit` refuses makes HQ's build raise, so HQ's build holds no address there. Any other base is a
+host to show, and a `.ccz` is refused for it unless its `origin` is exactly the deployment's server's
+(6.3); the user information it may hold is never kept, shown or written.
 
 `keptListFor` returns, in `KEPT_AT_HQ`'s order, the `label` of each labelled `setting` row for which:
 a seeded setting's `profileProperties` value is present and differs from Nova's seed;
@@ -1717,6 +1746,14 @@ row's ownership of `auto_gps_capture` and `adopted` (everything the projection r
 which each read applies from the row's `observed_at`, since a refresh rewrites the date over
 unchanged bytes), then answers a source it has projected before; only a miss selects `source_gzip`.
 The digest names the bytes, so an entry is never stale, and the cap bounds an instance's memory.
+Both statements run in one authorized read snapshot (`store.ts::holdTargetFacts(snapshot, target)`,
+in the caller's snapshot where it holds one, or in `readTargetFacts`' own), and both name the scope's
+app and Project, so the bytes are the row the first statement authorized: a Project move and a
+rewritten baseline that commit between them are never read. The snapshot answers the bytes, and the
+gunzip, the digest check and the parse of up to the largest source Nova reads run in
+`targetFactsOf(held)` once the snapshot has given its pooled connection back, so no connection of a
+pool of three waits on that work; the bytes were read in the snapshot, so the answer is still that
+one generation.
 
 ### 6.3 The `.ccz`
 
@@ -1725,7 +1762,7 @@ Today's path, and each change:
 | Where | Today | New |
 |---|---|---|
 | `lib/deployment/runtimeTarget.ts::ReachedDeploymentTarget` | `emptyCaseListText`, `earlierHqApps` | unchanged; the facts are not a column and do not ride the reached list |
-| `lib/deployment/downloadTarget.ts::resolveDownloadTarget`, the `ccz` arm | reads `readDeploymentIdentityOverrides` for the chosen target | also awaits `readTargetFacts(scope, target)`; `DownloadTarget`'s `ccz` arm gains `readonly targetFacts: TargetFacts \| null`. A fault throws, as the identity read's does. |
+| `lib/deployment/downloadTarget.ts::resolveDownloadTarget`, the `ccz` arm | reads `readDeploymentIdentityOverrides` for the chosen target | reads its targets, the chosen target's identity record and the facts' bytes (`holdTargetFacts(snapshot, target)`) one after another in one authorized read snapshot (`store.ts::withDeploymentReadSnapshot`), and projects the facts after it (`targetFactsOf`), so a stop or a Project move that commits during a download is wholly before it (no reached target, or not found) or wholly after it, never the old HQ app with derived ids; `DownloadTarget`'s `ccz` arm gains `readonly targetFacts: TargetFacts \| null`. A fault throws, as the identity read's does. |
 | `lib/export/localArchive.ts::compileLocalArchive` | `deployment: { emptyCaseListText, earlierHqApps }` | `deployment` gains `readonly targetFacts: TargetFacts \| null`, required, passed to `compileCcz` |
 | `lib/commcare/compiler.ts::CompileOptions` | no such option | `targetFacts?: TargetFacts \| null` (the type of `lib/commcare/targetFacts.ts`); absent or `null` reads Nova's constants, as today |
 | `compiler.ts::generateProfile` | `appProfileProperties(input.doc)` | `targetProfileProperties(input.doc, facts)` |
@@ -1746,11 +1783,23 @@ read from the other side: after any Nova publish the target holds exactly these 
 and HQ's build of the same project space state one profile. Both sides take the same second rule
 for a deployment Nova brought in (7.3).
 
-**`profileServerProperties(target, facts)`.** `base` is `facts.customBaseUrl` where it is set, else the
-server's base URL, for `ota-restore-url`, `PostURL` and `key_server`, as `ApplicationBase.url_base`
-moves all three. `customBaseUrl` is already what HQ's `urljoin` of the base with a root path keeps
-of it (6.1), its scheme and its netloc as stored: `https://example.org/hq/` and `https://example.org` both give
-`https://example.org/a/<domain>/…`. `PostURL` is
+**`profileServerProperties(target, facts)`.** `facts` is `Pick<TargetFacts, "secureSubmissions"> | null`,
+and `base` is always the server's base URL, for `ota-restore-url`, `PostURL` and `key_server`: no value
+CommCare HQ keeps is an input to where a phone sends a worker's password or a form, so the profile names
+the deployment's server by construction on every route a baseline comes by. A project space whose app
+holds a custom base URL whose origin is not the server's own gets no `.ccz` at all. Whether a
+published project space can have one is one read, `lib/deployment/downloadTarget.ts::readCczStanding`:
+the space's facts from its stored baseline (`store.ts::readTargetFacts`, nothing asked of CommCare HQ)
+and the one decision over them (`runtimeTarget.ts::workersSentElsewhere`, `{ reason, host }` or null).
+`resolveDownloadTarget` turns it into the refusal `workers-sent-elsewhere`
+(`runtimeTarget.ts::cczUnavailableRefusal`), whose sentence names the host, for the browser download
+and MCP `compile_app` alike; the publish dialog's list (`actions.ts::readDownloadTargetsAction`) carries
+it on each space as `unavailable`, and the dialog draws that space as a row that cannot be chosen,
+with the line `runtimeTarget.ts::cczUnavailableLine` ("Its app in CommCare HQ has a custom base URL that
+sends phones to {host}, so Nova doesn't make a CCZ for this project space. Workers can install the app
+from CommCare HQ."). A space whose baseline is absent or unread has no facts and is offered; its download
+reads the facts again when it is made, and a refused CCZ download returns the dialog to the destination
+step and reads the list again, which then shows the space as the download found it. `PostURL` is
 `${base}/a/${domain}/receiver/secure/${appId}/` where `facts.secureSubmissions` is true, else the plain
 `${base}/a/${domain}/receiver/${appId}/`. `cc_user_domain` is unchanged. Its comment's sentence "with
 the receiver URL in its plain form because every app Nova imports has `secure_submissions` off" becomes
@@ -1760,7 +1809,12 @@ submits securely, read from the deployment's `TargetFacts`, and the plain one ot
 not (4.3).
 
 **The app strings.** In `compileCcz`'s loop over `langDirs`, after Nova's own entries and the language
-names and before `lang.current`, `Object.assign(table, facts.uiText[language] ?? {})`. Most of
+names and before `lang.current`, `Object.assign(table, facts.uiText[language] ?? {})`, and each file is
+written by `localeFile.ts::localeFileText`, the only writer of a locale line, which throws for a key
+that is no locale record under its own name (`isLocaleFileKey`: empty, `=`, `#` or a line break in it,
+or a character Java's `trim()` or Python's `strip()` drops at either end) and for a value a line cannot
+carry as one record (`isLocaleFileValue`). A project space's key can therefore replace only the string
+of its own name: `targetFactsFromSource` admitted it to those rules (6.1). Most of
 Nova's own app-string ids match a generated pattern and so never enter `uiText`. A `target` key can
 still be one Nova writes: `case_autoload.usercase.case_missing`
 (`usercaseWire.ts::USERCASE_MISSING_LOCALE_ID`) matches no generated pattern. Where a project space
@@ -1790,7 +1844,9 @@ export type ExportAdvisoryId =
 	| "kept_ui_text_falls_back"
 	| "kept_android_logos_absent"
 	| "kept_practice_worker_absent"
-	| "kept_language_names_differ";
+	| "kept_language_names_differ"
+	| "kept_ui_text_not_carried"
+	| "kept_profile_values_not_carried";
 
 /** The advisories that say what a `.ccz` cannot follow of a kept value. */
 export type KeptExportAdvisoryId = Extract<ExportAdvisoryId, `kept_${string}`>;
@@ -1821,7 +1877,13 @@ keeps its place first. Copy is in section 9.
 
 `application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota`'s emission cell
 gains "the local `.ccz` writes `ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain` for its
-project space, on the custom base URL and the secure receiver where the project space holds them".
+project space, on the server the app is published on and the secure receiver where the project space
+holds it; a project space whose app holds a custom base URL elsewhere has no `.ccz`".
+
+Every member of the archive is written once, under a name no other member shares in any letter case
+and that names no other member's directory (`zipMembers.ts::zipMembers`, which the HQ import file uses
+too). The compiler names its own files only through `cczMembers.ts`, and a held media path is never of
+their shapes (part 10, 4.2), so the writer's check is an oracle, in the standing of the suite oracle.
 
 ### 6.4 Preview
 
@@ -2285,9 +2347,9 @@ keeps the origin and moves the date), so no sentence here names a publish or a b
 is the viewer's locale date, with the year where it is not the current year.
 
 **The refresh.** Nova reads a project space's kept values only when it reads the app's source, which
-today is at a publish. A person who turns fuzzy search or the asterisk on in CommCare HQ, rewords a
-screen or sets a custom base URL would otherwise wait for the next publish before Preview and a
-downloaded `.ccz` follow it, and publishing an app is the wrong way to read a setting. The refresh is
+today is at a publish. A person who turns fuzzy search or the asterisk on in CommCare HQ or rewords a
+screen would otherwise wait for the next publish before Preview and a downloaded `.ccz` follow it, and
+one who sets a custom base URL elsewhere would get a `.ccz` until then, and publishing an app is the wrong way to read a setting. The refresh is
 that read without a publish. `lib/deployment/service.ts` gains:
 
 ```ts
@@ -2320,9 +2382,10 @@ export async function refreshKeptValues(
 It authorizes `edit`, as Check status does: it writes the ledger and reads CommCare HQ with the acting
 member's own key. Every outcome but `refreshed` writes nothing. In order:
 
-1. Read the deployment (`readDeployment`) and the stored baseline (`readAppBaseline`). No live `app`
-   mapping, an absent, `unread` or `create` baseline, or a baseline whose `remoteAppId` is not the
-   live mapping's remote id answers `no-baseline`.
+1. Read the deployment (`readDeployment`). No live `app` mapping, or one another Nova app took,
+   answers `no-baseline` having read no baseline; only then is the stored baseline read
+   (`readAppBaseline`), and an absent, `unread` or `create` baseline, or one whose `remoteAppId` is
+   not the live mapping's remote id, answers `no-baseline` too.
 2. The caller's own connection, checked exactly as `refreshDeployment` checks it and raised the same
    way, as a `DeploymentError` that reaches no stored record: no key (`hq_not_connected`), a key that
    does not reach the project space (`domain_not_authorized`), a key on another server
@@ -2399,7 +2462,11 @@ takes `expectedEndings` as the other baseline writers do (part 10, `10-identity-
 section 8.5).
 
 **Why no stale read can land.** A publish writes its read-back baseline under the same row lock
-(`recordRemoteResource`), so the digest test and the write are one step against it: where a publish
+(`recordRemoteResource`), so the digest test and the write are one step against it. Two publishes of
+one app record in CommCare HQ's save order: `recordRemoteResource` writes nothing where the live
+mapping of that HQ app holds a push its import acknowledged at a higher counter
+(`pushed_remote_revision`, part 10, section 7.2), since HQ then holds the other publish's content.
+And: where a publish
 landed while HQ was answering the refresh, the stored digest is that publish's, the test fails, and
 the refresh's read, which may predate the publish's import, is dropped. `observedAt` is taken before
 the request for the second guard, the date test, which is also `writeAppBaseline`'s own
@@ -2548,7 +2615,9 @@ So on a deployment whose app mapping is `adopted` (part 10, `10-identity-and-the
   reading language names on an adopted deployment: they are the project space's there.
 - `TargetFacts.languageNames` (6.1) carries the names: `null` on a deployment Nova created, and on an
   adopted one, per language of the source, each language code that language's `translations` entry
-  holds a non-empty name for. `adopted` reaches `targetFactsFromSource` as its input, which
+  holds a non-empty name for that a locale line carries as one record (`localeFile.ts::isLocaleFileValue`:
+  a name holding a carriage return is not carried, and Nova's label stands there, which the advisory
+  below then says). `adopted` reaches `targetFactsFromSource` as its input, which
   `targetFactsFromBaseline` takes as its second argument from the live app mapping's ownership.
 - `compileCcz` writes `table[code] = facts.languageNames[language]?.[code] ??
   localization.languageName(code)` where `facts.languageNames` is not `null`. Where HQ holds no name,
@@ -3082,9 +3151,13 @@ export type CircumstanceFinding = {
 
 export type Finding = ManifestFinding | CircumstanceFinding;
 
-/** The most characters a finding's name holds. */
+/** The most characters (grapheme clusters) a finding's name holds. */
 export const FINDING_NAME_MAX_LENGTH = 200;
-/** `name` cut to the bound, its last character `…` where it was cut. */
+/** The most UTF-16 code units a finding's name holds: four a character. */
+export const FINDING_NAME_MAX_UNITS = 800;
+/** `name` cut to both bounds, its last character `…` where it was cut, through
+ *  `lib/publish/shownText.ts::cutShown`, whose work is bounded by the unit bound. Every finding's
+ *  constructor cuts its name and its place's names (`shownPlace`); no caller cuts one first. */
 export function cutFindingName(name: string): string;
 
 /** What `detail` holds for one code, read off its row of `CIRCUMSTANCE_STANDINGS`. */
@@ -3211,7 +3284,7 @@ The table holds 36 codes: the 19 stops, then the 17 an account can hold.
 | `browser-only` | stop | | | CommCare HQ answered a redirect or a page where data was asked | |
 | `changed-while-reading` | stop | | | the app's save counter moved during the read, and again when the request read the app once more | |
 | `already-in-nova` | stop | | | another Nova app manages this HQ app | `claim`, where the holder is known |
-| `too-large` | not-yet | | | a body of the app's read, the application resource's or the source's, is over the bring-in's byte bound (`HQ_BRING_IN_APP_MAX_BYTES`, 16 MiB) | none |
+| `too-large` | not-yet | | | a body of the app's read, the application resource's or the source's, is over the bring-in's byte bound (`HQ_BRING_IN_APP_MAX_BYTES`), or the source's forms hold more nodes together than one reading parses (`HQ_BRING_IN_READING_MAX_XML_NODES`) | none |
 | `menu-unreadable-in-hq` | fix-in-hq | | | CommCare HQ's own summary of a menu is an error, and no finding of the reading names a form of that menu, or one of its questions, that CommCare HQ will not save or build (fix cause `hq-refuses` or `either`), which is otherwise the menu's one cause | none: the place names the menu |
 | `app-unreadable-in-hq` | fix-in-hq | | | CommCare HQ's summary is an error for every menu it would summarize, and there are at least two | none |
 | `shadow-disagrees` | fix-in-hq | | line | an attribute and its `vellum:` shadow differ in meaning | `name`: the attribute |
@@ -3253,8 +3326,9 @@ their copy takes the blame, and each is logged at error (`log.error`, which mirr
 `read-back-differs` is one code for acceptance's failure and for the birth's own refusal of what
 acceptance passed: one situation for the person and one step. A developer tells the two apart by
 `detail.name`, where the birth's names take the prefix `birth-`, and by the two log lines.
-`too-large` has one cause, a body over the byte bound, and no owner: the bound is a plain limit
-(`lib/commcare/hq/appReading.ts::HQ_BRING_IN_APP_MAX_BYTES`, 16 MiB; part 05, section 3.3, holds it
+`too-large` has two causes, a body over the byte bound and forms that together hold more nodes
+than one reading parses (`HQ_BRING_IN_READING_MAX_XML_NODES`, part 05, section 3.3), and no owner: each bound is a plain limit
+(`lib/commcare/hq/appReading.ts::HQ_BRING_IN_APP_MAX_BYTES`, 12 MiB; part 05, section 3.3, holds it
 and why), never a size step 7 is asked to design for, and its block promises no update. A media
 file over Nova's size limit and a table over Nova's caps are no circumstances: they are content the
 manifest names (`expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
@@ -3850,6 +3924,8 @@ The labels. `KEPT_AT_HQ`'s rows name them by id (section 5), and `KEPT_LABELS` w
 | `kept_android_logos_absent` | This file has no Android logos | This project space's app has its own logos for the Android home, sign-in or practice screen. They live in CommCare HQ, so this CCZ shows CommCare's own. An app installed from CommCare HQ shows yours. |
 | `kept_practice_worker_absent` | Practice mode uses CommCare's sample worker in this file | This project space's app has a practice mobile worker. That worker's data lives in CommCare HQ, so practice mode in this CCZ opens CommCare's own sample worker. |
 | `kept_language_names_differ` | Some language names may differ in this file | CommCare HQ names a language itself where this app gives none, and this CCZ uses Nova's name for it. The language picker may show a different spelling than an app installed from CommCare HQ. |
+| `kept_ui_text_not_carried` | Some wording stored in CommCare HQ isn't in this file | This project space's app stores some wording in CommCare HQ in a form a CCZ can't carry. This file shows the app's own wording or the phone's built-in wording in those places, and an app installed from CommCare HQ may show the stored wording. |
+| `kept_profile_values_not_carried` | Some settings aren't in this file | This project space's app holds a setting in CommCare HQ in a form a CCZ can't carry. This file leaves that setting at the phone's own value, and an app installed from CommCare HQ uses the project space's. |
 
 ### 9.6 MCP
 
@@ -3923,13 +3999,19 @@ be holds `{app}`.
 | Test | Boundary | Catches |
 |---|---|---|
 | `lib/commcare/surface/__tests__/keptAtHq.test.ts` | pure, over the real manifest | the binding, both ways: every TARGET-OWNED entry has a `KEPT_AT_HQ` row and every row names a TARGET-OWNED entry; every `setting` row with a `label` is reached by `keptListFor` for some planted `TargetFacts`; every cell that names an advisory names an id `exportAdvisories` can return; every `mirrors` cell's `by` and every `reads` cell's `by` names an exported symbol; a planted TARGET-OWNED entry with no row fails. The base rule: every row names a base of part 14's 6.2, and part 14's `lib/commcare/surface/__tests__/entryCoverage.test.ts` (its section 7.5, rule 2) holds each `base` to a base whose `claimed` holds the entry |
-| `lib/commcare/__tests__/targetFacts.test.ts` | pure, over the retained read `proof/hq-reads/case-list-inline/app-source.json` and edits of it. The file is an HTTP envelope (`status`, `headers`, `body`), so the test takes `body` and normalizes it with `normalizeHqAppSource`, as a stored baseline is | `targetFactsFromSource`, each row of 6.1's table: a setting at another choice, the numeric `10`, a boolean `true` and `false`; a runtime UI text key, a `target` key no runtime reads (in `uiText`, not in `uiTextKeys`) and a generated key in `translations`; each logo slot; `auto_gps_capture` under each ownership; a custom base URL with a path, with a trailing slash, with no scheme, with credentials, an upper-case host and an explicit `:443` kept as stored, with an upper-case scheme lower-cased, and with no netloc; a credential level; `languageNames` null and `seeds` `"nova"` with `adopted` false, and a held language name and `seeds` `"target"` with it true; a source that is no object gives `null`. `isRuntimeUiStringKey`: a key the surface holds with a reader, a key under a `.*` item, a key of HQ's catalog no runtime reads, an unknown key |
+| `lib/commcare/__tests__/targetFacts.test.ts` | pure, over the retained read `proof/hq-reads/case-list-inline/app-source.json` and edits of it. The file is an HTTP envelope (`status`, `headers`, `body`), so the test takes `body` and normalizes it with `normalizeHqAppSource`, as a stored baseline is | `targetFactsFromSource`, each row of 6.1's table: a setting at another choice, the numeric `10`, a boolean `true` and `false`; a runtime UI text key, a `target` key no runtime reads (in `uiText`, not in `uiTextKeys`) and a generated key in `translations`; each logo slot; `auto_gps_capture` under each ownership; a custom base URL with a path, with no scheme, with credentials (a host and no origin, the user information nowhere in the facts), an upper-case host and an explicit `:443` (the same origin as the server's), plain `http` (no origin), and with no netloc; ` modules.m0`, `\tforms.m0f0`, `x=y\nmodules.m0`, `a#b` and a text holding `\r` left out with `uiTextNotCarried` naming the language, `home.start` kept; a setting and a credential level holding a control character left out with `profileNotCarried` true; a held language name holding `\r` left out; a credential level; `languageNames` null and `seeds` `"nova"` with `adopted` false, and a held language name and `seeds` `"target"` with it true; a source that is no object gives `null`. `isRuntimeUiStringKey`: a key the surface holds with a reader, a key under a `.*` item, a key of HQ's catalog no runtime reads, an unknown key |
 | `lib/deployment/__tests__/targetFacts.test.ts` | pure | `targetFactsFromBaseline`: `create` gives `null`; `push`, `cutover` and `read` give the source's facts with the baseline's `observedAt`, its ownership of `auto_gps_capture` and the mapping's `adopted`. `keptListFor` over planted facts: each label id under its predicate, none for facts at every default |
 | `lib/deployment/__tests__/targetFacts.postgres.test.ts` | real Postgres | `readTargetFacts` answers a viewer and refuses a non-member; returns `null` for no row, an `unread` row and a row whose digest does not verify; a second read of an unchanged row selects no `source_gzip` (the query log shows one statement); a rewritten baseline is read afresh |
 | `lib/deployment/__tests__/refreshKeptValues.postgres.test.ts` | real Postgres, HQ answered by the controlled client the publish tests use | `refreshed` rewrites source, digest and `observed_at` (the instant taken before the request) and keeps origin, a `cutover` one included, ownership and a stored discard, and notifies the deployment lane; `changed-in-hq` (a form edited in the answer) writes nothing; a recorded file whose id moved answers `changed-in-hq` with no file read, and a path with no record does not; `no-baseline` for no live mapping, for an `unread` and a `create` baseline and for a baseline of another remote app; `app-gone`; `unreadable` for a linked app's answer and for a malformed one; `key-not-accepted` for a 401; `no-permission` for a 403; `browser-only` for a page meant for a person; `unavailable` for a 500 and a timeout; each writes nothing. `superseded`: a publish's baseline written between the refresh's comparison and its write is kept, and the answer carries the deployment as that publish left it, and so is another refresh's that read something else. A refresh whose answer arrives after a publish's read-back, having been asked before it, does not replace it, and answers `refreshed` where that read-back is its own read. Two refreshes whose later-asked one lands first both answer `refreshed`, over an unchanged project space and over a kept setting turned on, and the later read's date stands. The three raised `DeploymentError`s (no key, a key that cannot reach the project space, a key on another server) write nothing. A viewer is refused |
 | `lib/commcare/__tests__/keptProfile.test.ts` | pure | `targetProfileProperties` with no facts equals `appProfileProperties`; with facts, each seeded key takes the target's value and keeps its `force`; the two owned settings never move; the log setting appears only when held; the first fifteen of `KEPT_PROFILE_PROPERTY_KEYS` equal `SEEDED_PROFILE_PROPERTIES`' keys in order; with `seeds: "target"` a seeded key the facts hold no value for is left out |
-| `lib/commcare/__tests__/runtimeTarget.test.ts` (extended) | pure | `PostURL` on the secure receiver; all three URLs on a custom base's scheme and netloc; `cc_user_domain` unmoved. The vectors are worked from `urljoin`: a base of `https://example.org`, of `https://example.org/`, of `https://example.org/hq/` and of `https://example.org:8443/x` give `https://example.org/a/<domain>/…` for the first three and `https://example.org:8443/a/<domain>/…` for the last; `https://relay:secret@proxy.example.org/hq/`, `https://Proxy.Example.org:443/` and `HTTPS://example.org` keep the credentials, the letters and the port, and give the scheme `https` |
-| `lib/commcare/__tests__/keptArchive.test.ts` | wire through an independent consumer: the archive is unzipped and its `profile.ccpr`, each `app_strings.txt` and one form are parsed with `xmlParse.ts` and the locale reader | a `.ccz` compiled with facts holds the target's settings, the UI text in each language and in `default` (a stored text for `case_autoload.usercase.case_missing` in place of Nova's message), a held language name in every table, `cc:location` with its sensor, the secure `PostURL`, and the `<credentials>` block as the last child of `<features>` with the level and `type="APP_ACTIVITY"`; compiled with `null` it is byte for byte today's archive (the existing fixture) |
+| `lib/commcare/__tests__/runtimeTarget.test.ts` (extended) | pure | `PostURL` on the secure receiver; on every server, all three URLs on that server's own origin whatever custom base URL the facts hold (`https://example.org/hq/`, one with credentials, `http://x`, another server's); `cc_user_domain` unmoved; the function's facts parameter holds `secureSubmissions` alone |
+| `lib/deployment/__tests__/runtimeTarget.test.ts` (extended) | pure | `workersSentElsewhere`: a base on another host, on plain `http`, on another port, or holding user information gives `workers-sent-elsewhere` with the host named and the user information never, in `cczUnavailableRefusal`'s sentence and `cczUnavailableLine`'s alike; none, the server's own origin in any letter case or with `:443`, give nothing; another server's own origin is elsewhere |
+| `lib/deployment/__tests__/downloadTargetsAction.postgres.test.ts` (extended) | real Postgres | three published spaces, one whose stored read-back holds a base elsewhere, one the server's own and one unread: the action lists the first with `{ reason, host }` and the others with none, asking CommCare HQ nothing, and `resolveDownloadTarget` refuses exactly the space the list marks and makes the others' |
+| `components/builder/__tests__/cczTargetsModel.test.ts` | pure state model | a space with no `.ccz` is listed with its line, never picked, never the download's target, and leaves the option nothing to choose when it is the only kind there is |
+| `e2e/tests/browser/publishing.spec.ts`, one case beside the CCZ download's | Playwright | the row names the reason, is `aria-disabled` and cannot be checked; beside a space that can have one, that one is chosen and the download goes there; a refused download returns to the destination step and the re-read list marks that space |
+| `lib/commcare/__tests__/keptArchive.test.ts` | wire through an independent consumer: the archive is unzipped and its `profile.ccpr`, each `app_strings.txt` and one form are parsed with `xmlParse.ts` and the locale reader | a `.ccz` compiled with facts holds the target's settings, the UI text in each language and in `default` (a stored text for `case_autoload.usercase.case_missing` in place of Nova's message), a held language name in every table, `cc:location` with its sensor, the secure `PostURL` on the deployment's own server whatever custom base URL is kept, and the `<credentials>` block as the last child of `<features>` with the level and `type="APP_ACTIVITY"`; compiled with `null` it is byte for byte today's archive (the existing fixture). Over a source holding ` modules.m0`, `\tforms.m0f0`, `x=y\nmodules.m0`, `a#b`, a value and a language name with a carriage return, and a setting and a credential level XML cannot carry: every key Nova writes holds the document's text in every file, every line is one record, and the profile is written without them |
+| `lib/commcare/__tests__/localeFile.test.ts` (extended) | pure, property | `readLocaleFileAsCore(localeFileText(table))` holds exactly the table's keys, each at the text a device shows, over tables of admitted keys and values; `localeFileText` throws for each key and value shape outside the rules; the reader ends a line at `\r\n` once and keeps a later key |
+| `lib/commcare/__tests__/cczMembers.test.ts` | wire, read back through the zip library | the reserved shapes in any letter case; the writer throws for a name shared in letter case or over another's directory; a `.ccz` with media at held paths in the compiler's own directories holds every generated member as the compiler writes it beside each media file and nothing else; a media file at a reserved name throws |
 | the same file, a property | pure | for any source profile whose kept settings hold values of their own choices or values HQ's build writes nothing for (`null`, `""`, `false`, `0`, a list), the seventeen keys of `projectProfileForTarget(appJson, sourceProfile, "not-needed")` equal what `targetProfileProperties` writes from that source's facts: the publish and the archive cannot state different settings for one project space. The property runs under `seeds: "nova"` and `seeds: "target"`, with the facts' `seeds` to match |
 | `lib/publish/__tests__/exportAdvisories.test.ts` (extended) | pure | each kept advisory appears exactly under its predicate; the attachment advisory stays first; `null` facts add none |
 | `lib/publish/__tests__/keptValues.test.ts` | pure | every member of `KEPT_LABEL_IDS` has a label and no two labels are equal; `keptRefreshSentence` answers for every one of the eleven `KeptRefreshKind`s under both values of `changed`, `too-large` and `browser-only` are never worded as a passing fault, `superseded` names no publish, `keptChanged` finds a value moved under the same labels and a label added, taken away or moved, and `keptLead` under both of `hasLabels`, with no `{` placeholder left in an answer; and the voice rules of `hqFindingCopy.test.ts` over every string of the file and over the title and message of each `kept_` advisory: no em dash, no ellipsis, no "import" as a word, sentence case at the start, a full stop at the end of a sentence (the lead with labels ends in its colon) and none at the end of a label or a title. The two button labels of 9.4 are the card's own strings |

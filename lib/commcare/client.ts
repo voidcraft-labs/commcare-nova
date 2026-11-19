@@ -37,25 +37,36 @@ import {
 } from "@/lib/publish/projectSpaceCompatibility";
 import { profileReferencesBuildSuite } from "./buildProfile";
 import { readHqAppListEnvelope } from "./hq/apps";
+import {
+	HQ_APP_VERSIONS_MAX_BYTES,
+	HQ_BUILD_RESOURCE_MAX_BYTES,
+	HQ_IMPORT_ACK_MAX_BYTES,
+	HQ_MEDIA_BUNDLE_ACK_MAX_BYTES,
+	HQ_PROJECT_SPACE_LIST_MAX_BYTES,
+	HQ_PROJECT_SPACE_LIST_MAX_ROWS,
+} from "./hq/bounds";
 import { type HqReadDeadline, withHqRequestDeadline } from "./hq/deadline";
 import { classifyHqFailure, type HqFailure } from "./hq/failure";
 import {
-	authHeader,
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
 	HQ_MALFORMED_ANSWER,
+	type HqAnswer,
 	hqTextFacts,
 	isEdgeRefusal,
 	isHqCount,
 	isValidDomainSlug,
 	logAndReturnError,
+	readAnswerJson,
+	readRefusedBody,
 	retryAfterMs,
+	sendHq,
 	WAF_PADDING,
 	warnAndReturnError,
 } from "./hq/http";
-import { isHqObject } from "./hq/readCollection";
+import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
 /** Private compatibility inputs stay behind the CommCare boundary: the probe
@@ -106,19 +117,6 @@ export interface ImportResult {
 /** Union result type for import operations. */
 export type ImportResponse = ImportResult | CommCareApiError;
 
-/** Raw response shape from CommCare HQ's user_domains endpoint. */
-interface UserDomainsResponse {
-	meta: {
-		total_count: number;
-		/** Current HQ uses `DoesNothingPaginator` and returns no paging fields.
-		 * Keep these optional for older compatible installations. */
-		limit?: number | null;
-		next?: string | null;
-		offset?: number;
-	};
-	objects: Array<{ domain_name: string; project_name: string | null }>;
-}
-
 // ── Client ─────────────────────────────────────────────────────────
 
 /**
@@ -128,9 +126,10 @@ interface UserDomainsResponse {
  * to domains where the user has membership. If the API key is domain-scoped,
  * only that single domain is returned.
  *
- * Current HQ returns the complete set through `DoesNothingPaginator`. Older
- * compatible installations may still include a `next` pointer, which the
- * shared reader follows without sending credentials to another origin.
+ * Current HQ returns the complete set in one page through
+ * `DoesNothingPaginator`, which names only `total_count`. The shared list
+ * reader asks any later page by its own offset on the same URL, so the
+ * `feature_flag` filter holds on every page.
  */
 export async function listDomains(
 	creds: CommCareCredentials,
@@ -149,100 +148,38 @@ async function listDomainsMatching(
 	featureFlag?: string,
 	within?: HqReadDeadline,
 ): Promise<CommCareDomain[] | CommCareApiError> {
-	if (within === undefined)
-		return withHqRequestDeadline((signal, deadline) =>
-			listDomainsMatching(creds, featureFlag, { signal, deadline }),
-		);
-	const domains: CommCareDomain[] = [];
-	const seen = new Set<string>();
 	const query = new URLSearchParams({ limit: "100" });
 	if (featureFlag) query.set("feature_flag", featureFlag);
-	const target = new URL(
-		`${baseUrl(creds)}/api/user_domains/v1/?${query.toString()}`,
-	);
-	let url = target.toString();
-	let total: number | undefined;
-	for (let page = 0; page < 50; page++) {
-		const result = await readHqJson(creds, url, "project space list", within);
-		if ("success" in result) return result;
-		const data = result.data;
-		if (
-			!isUserDomainsResponse(data) ||
-			(total !== undefined && total !== data.meta.total_count)
-		)
-			return HQ_MALFORMED_ANSWER;
-		total = data.meta.total_count;
-		for (const row of data.objects) {
-			if (seen.has(row.domain_name)) return HQ_MALFORMED_ANSWER;
-			seen.add(row.domain_name);
-			domains.push({
-				name: row.domain_name,
-				displayName: row.project_name || row.domain_name,
-			});
-		}
-		if (data.meta.next === null || data.meta.next === undefined)
-			return domains.length === total ? domains : HQ_MALFORMED_ANSWER;
-		let next: URL;
-		try {
-			next = new URL(data.meta.next, url);
-		} catch {
-			return HQ_MALFORMED_ANSWER;
-		}
-		if (
-			data.meta.next === "" ||
-			next.origin !== target.origin ||
-			next.pathname !== target.pathname ||
-			next.username ||
-			next.password ||
-			next.hash ||
-			JSON.stringify(next.searchParams.getAll("feature_flag")) !==
-				JSON.stringify(target.searchParams.getAll("feature_flag")) ||
-			[...next.searchParams.keys()].some(
-				(key) => key !== "limit" && key !== "offset" && key !== "feature_flag",
-			)
-		)
-			return HQ_MALFORMED_ANSWER;
-		url = next.toString();
-	}
-	return { success: false, status: 508, cause: "malformed" };
+	const list = await readHqCollection(creds, {
+		label: "project space list",
+		firstUrl: `${baseUrl(creds)}/api/user_domains/v1/?${query.toString()}`,
+		maxPages: 51,
+		maxRows: HQ_PROJECT_SPACE_LIST_MAX_ROWS,
+		maxBytes: HQ_PROJECT_SPACE_LIST_MAX_BYTES,
+		row: toCommCareDomain,
+		identity: (domain) => domain.name,
+		...(within !== undefined && { deadline: within }),
+	});
+	if ("success" in list) return list;
+	/* A list past Nova's bound cannot say a project space is absent. */
+	if ("kind" in list)
+		return { success: false, status: 502, cause: "too-large" };
+	return [...list.rows];
 }
 
-function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return false;
-	}
-	const candidate = value as Record<string, unknown>;
+/** One row of `UserDomainsResource`, or null where it is not one. */
+function toCommCareDomain(value: unknown): CommCareDomain | null {
 	if (
-		typeof candidate.meta !== "object" ||
-		candidate.meta === null ||
-		Array.isArray(candidate.meta) ||
-		!Array.isArray(candidate.objects)
-	) {
-		return false;
-	}
-	const meta = candidate.meta as Record<string, unknown>;
-	return (
-		isHqCount(meta.total_count) &&
-		(meta.limit === undefined ||
-			meta.limit === null ||
-			typeof meta.limit === "number") &&
-		(meta.next === undefined ||
-			meta.next === null ||
-			typeof meta.next === "string") &&
-		(meta.offset === undefined || typeof meta.offset === "number") &&
-		candidate.objects.every(
-			(item) =>
-				typeof item === "object" &&
-				item !== null &&
-				!Array.isArray(item) &&
-				typeof (item as Record<string, unknown>).domain_name === "string" &&
-				isValidDomainSlug(
-					(item as Record<string, unknown>).domain_name as string,
-				) &&
-				(typeof (item as Record<string, unknown>).project_name === "string" ||
-					(item as Record<string, unknown>).project_name === null),
-		)
-	);
+		!isHqObject(value) ||
+		typeof value.domain_name !== "string" ||
+		!isValidDomainSlug(value.domain_name) ||
+		(typeof value.project_name !== "string" && value.project_name !== null)
+	)
+		return null;
+	return {
+		name: value.domain_name,
+		displayName: value.project_name || value.domain_name,
+	};
 }
 
 export interface HqProjectSpaceCompatibilityProbeResult {
@@ -465,11 +402,11 @@ async function probePrivateFeatureFlag(
  * ended is no lost answer and goes out no more. Only a GET goes through here.
  */
 async function getResendingUnanswered(
-	send: () => Promise<Response>,
+	send: () => Promise<HqAnswer>,
 	signal: AbortSignal,
 	label: string,
 	domain: string,
-): Promise<Response> {
+): Promise<HqAnswer> {
 	try {
 		return await send();
 	} catch (error) {
@@ -496,26 +433,21 @@ async function probeCaseSearchRuntime(
 			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
 			const url = `${baseUrl(creds)}/a/${domain}/phone/search/?${query.toString()}`;
 			const response = await getResendingUnanswered(
-				() =>
-					fetch(url, {
-						headers: { Authorization: authHeader(creds) },
-						redirect: "manual",
-						signal,
-					}),
+				() => sendHq(creds, url, { signal }),
 				signal,
 				"Case search runtime probe",
 				domain,
 			);
-			if (response.status === 200 && response.redirected !== true) {
+			if (response.status === 200) {
 				// HQ emits a fixture as text/xml. Headers distinguish the runtime
 				// answer from a successful HTML login/proxy page without reading
 				// any case data. application/xml is the equivalent XML media type.
-				const mediaType = response.headers
-					.get("content-type")
+				const mediaType = response
+					.header("content-type")
 					?.split(";")[0]
 					.trim()
 					.toLowerCase();
-				await response.body?.cancel();
+				await response.discard();
 				return {
 					state:
 						mediaType === "text/xml" || mediaType === "application/xml"
@@ -524,10 +456,14 @@ async function probeCaseSearchRuntime(
 				};
 			}
 			if (response.status === 404) {
-				const body = await response.text();
+				const body = await readRefusedBody(response);
 				return {
 					state:
-						body === CASE_SEARCH_DISABLED_RESPONSE ? "missing" : "unverified",
+						body.kind === "text" &&
+						body.whole &&
+						body.text === CASE_SEARCH_DISABLED_RESPONSE
+							? "missing"
+							: "unverified",
 				};
 			}
 			if (response.status === 403) {
@@ -535,15 +471,15 @@ async function probeCaseSearchRuntime(
 				 * account may be allowed to edit/import apps while this separate
 				 * role permission is absent. Diagnose that recoverable distinction;
 				 * never reinterpret it as Case Search being disabled. */
-				const body = await response.text();
+				const body = await readRefusedBody(response);
 				return {
 					state: "unverified",
-					...(isEdgeRefusal(body)
+					...(body.kind === "unavailable" || isEdgeRefusal(body.text)
 						? {}
 						: { issue: "connected-account-permission" as const }),
 				};
 			}
-			await response.body?.cancel();
+			await response.discard();
 			return { state: "unverified" };
 		});
 	} catch (error) {
@@ -908,14 +844,12 @@ export async function importApp(
 	};
 
 	return withHqRequestDeadline(async (signal, deadline) => {
-		let res: Response;
+		let res: HqAnswer;
 		for (let sent = 1; ; sent++) {
 			try {
-				res = await fetch(url, {
+				res = await sendHq(creds, url, {
 					method: "POST",
-					headers: { Authorization: authHeader(creds) },
 					body: formData(),
-					redirect: "manual",
 					signal,
 				});
 			} catch (error) {
@@ -930,12 +864,12 @@ export async function importApp(
 			}
 			const wait =
 				res.status === 429 && sent < IMPORT_SENDS
-					? importRetryWaitMs(res.headers.get("retry-after"))
+					? importRetryWaitMs(res.header("retry-after"))
 					: null;
 			/* A resend the deadline would cut off is no resend: HQ's 429 is
 			 * the answer. */
 			if (wait === null || Date.now() + wait >= deadline) break;
-			await res.body?.cancel().catch(() => undefined);
+			await res.discard();
 			log.warn("[commcare] import rate limited, sending again", {
 				domain,
 				waitMs: wait,
@@ -955,15 +889,20 @@ export async function importApp(
 			return await logAndReturnError("import failed", res);
 		}
 
-		let data: unknown;
-		try {
-			data = await res.json();
-		} catch {
-			log.error("[commcare] import returned non-JSON", undefined, { domain });
+		/* An acknowledgement longer than Nova reads is one it cannot read: the
+		 * publish takes it as it takes any unreadable answer, as an import that
+		 * may have landed. */
+		const answer = await readAnswerJson(res, HQ_IMPORT_ACK_MAX_BYTES);
+		if (answer.kind === "unreadable") {
+			log.error("[commcare] import acknowledgement is unreadable", undefined, {
+				domain,
+				why: answer.why,
+			});
 			return signal.aborted
 				? { success: false, status: 503, cause: "timeout" }
 				: HQ_MALFORMED_ANSWER;
 		}
+		const data = answer.data;
 		if (typeof data !== "object" || data === null || Array.isArray(data)) {
 			return HQ_MALFORMED_ANSWER;
 		}
@@ -1118,6 +1057,14 @@ export async function uploadAppMediaBundle(
 	domain: string,
 	appId: string,
 	zipBytes: Buffer,
+	options: {
+		/**
+		 * Called once with the job id HQ named, the moment it accepted the
+		 * ZIP and before any status read: whatever the reads answer after it,
+		 * the job may run, and the caller holds the id it is polled by.
+		 */
+		readonly onAccepted?: (processingId: string) => void;
+	} = {},
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
@@ -1137,20 +1084,20 @@ export async function uploadAppMediaBundle(
 	);
 	let started: unknown;
 	try {
-		const response = await fetch(`${base}/`, {
+		const response = await sendHq(creds, `${base}/`, {
 			method: "POST",
-			headers: { Authorization: authHeader(creds) },
 			body: formData,
-			redirect: "manual",
 			signal: controller.signal,
 		});
 		if (!response.ok)
 			return await warnAndReturnError("media bundle upload refused", response);
-		try {
-			started = await response.json();
-		} catch {
+		const answer = await readAnswerJson(
+			response,
+			HQ_MEDIA_BUNDLE_ACK_MAX_BYTES,
+		);
+		if (answer.kind === "unreadable")
 			return { success: false, status: controller.signal.aborted ? 503 : 502 };
-		}
+		started = answer.data;
 	} catch (error) {
 		log.warn("[commcare] media bundle upload could not be confirmed", {
 			domain,
@@ -1169,7 +1116,48 @@ export async function uploadAppMediaBundle(
 		!/^[\w-]+$/.test(started.processing_id)
 	)
 		return { success: false, status: 502 };
-	return pollMediaBundleStatus(creds, domain, base, started.processing_id);
+	options.onAccepted?.(started.processing_id);
+	return pollMediaBundleStatus(
+		creds,
+		domain,
+		base,
+		started.processing_id,
+		MEDIA_BUNDLE_POLL_TIMEOUT_MS,
+	);
+}
+
+/** How long a later read of a media job's status watches it before it answers `running`. */
+const MEDIA_JOB_STATUS_READ_MS = 5_000;
+
+/**
+ * Whether a media job CommCare HQ accepted earlier has finished, read by the
+ * job id it named (`hqmedia/cache.py::BulkMultimediaStatusCache`, kept for an
+ * hour): `complete` where HQ reports it done, `running` where it reports it
+ * not done within a few seconds of watching, and `unknown` where no status
+ * could be read, an expired one among them.
+ */
+export async function readAppMediaBundleStatus(
+	creds: CommCareCredentials,
+	domain: string,
+	appId: string,
+	processingId: string,
+): Promise<"complete" | "running" | "unknown"> {
+	if (
+		!isValidDomainSlug(domain) ||
+		!/^[\w-]+$/.test(appId) ||
+		!/^[\w-]+$/.test(processingId)
+	)
+		return "unknown";
+	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
+	const status = await pollMediaBundleStatus(
+		creds,
+		domain,
+		base,
+		processingId,
+		MEDIA_JOB_STATUS_READ_MS,
+	);
+	if ("success" in status) return "unknown";
+	return status.timedOut ? "running" : "complete";
 }
 
 /** One deadline owns all status fetches, their bodies and the waits between
@@ -1184,21 +1172,18 @@ async function pollMediaBundleStatus(
 	domain: string,
 	base: string,
 	processingId: string,
+	watchMs: number,
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
 	return withHqRequestDeadline(async (signal) => {
-		const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
+		const deadline = Date.now() + watchMs;
 		while (!signal.aborted && Date.now() < deadline) {
-			let response: Response;
+			let response: HqAnswer;
 			try {
 				response = await getResendingUnanswered(
 					() =>
-						fetch(`${base}/status/${processingId}/`, {
-							headers: {
-								Authorization: authHeader(creds),
-								Accept: "application/json",
-							},
-							redirect: "manual",
-							cache: "no-store",
+						sendHq(creds, `${base}/status/${processingId}/`, {
+							accept: "application/json",
+							noStore: true,
 							signal,
 						}),
 					signal,
@@ -1215,13 +1200,15 @@ async function pollMediaBundleStatus(
 					response,
 				);
 			if (response.ok) {
-				let status: unknown;
-				try {
-					status = await response.json();
-				} catch {
+				const answer = await readAnswerJson(
+					response,
+					HQ_MEDIA_BUNDLE_ACK_MAX_BYTES,
+				);
+				if (answer.kind === "unreadable") {
 					if (signal.aborted) break;
 					return { success: false, status: 502 };
 				}
+				const status = answer.data;
 				if (
 					!isHqObject(status) ||
 					status.success !== true ||
@@ -1264,7 +1251,7 @@ async function pollMediaBundleStatus(
 				}
 			} else {
 				// Release even refused response bodies before another status request.
-				await response.body?.cancel();
+				await response.discard();
 			}
 			const remaining = deadline - Date.now();
 			if (signal.aborted || remaining <= 0) break;
@@ -1278,7 +1265,7 @@ async function pollMediaBundleStatus(
 			errors: [],
 			timedOut: true,
 		};
-	}, MEDIA_BUNDLE_POLL_TIMEOUT_MS);
+	}, watchMs);
 }
 
 // ── Reading what CommCare HQ has done with an app ──────────────────
@@ -1330,6 +1317,7 @@ export async function readAppVersions(
 		return { success: false, status: 400 };
 	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
 	const result = await readHqJson(creds, url, "app versions", {
+		maxBytes: HQ_APP_VERSIONS_MAX_BYTES,
 		cancel: options.cancel,
 	});
 	if ("success" in result) return result;
@@ -1425,17 +1413,10 @@ export async function readBuildXml(
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 30_000);
 	const send = () =>
-		fetch(
+		sendHq(
+			creds,
 			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
-			{
-				headers: {
-					Authorization: authHeader(creds),
-					Accept: "application/xml",
-				},
-				redirect: "manual",
-				cache: "no-store",
-				signal: controller.signal,
-			},
+			{ accept: "application/xml", noStore: true, signal: controller.signal },
 		);
 	try {
 		const response = await getResendingUnanswered(
@@ -1445,34 +1426,17 @@ export async function readBuildXml(
 			domain,
 		);
 		if (!response.ok) {
-			await response.body?.cancel();
+			await response.discard();
 			return { success: false, status: response.status };
 		}
-		if (!response.body) return { success: false, status: 502 };
-		const reader = response.body.getReader();
-		try {
-			const decoder = new TextDecoder();
-			const parts: string[] = [];
-			let bytes = 0;
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				bytes += value.byteLength;
-				// Fetch has already decompressed the HTTP body. Do not trust
-				// Content-Length or buffer the full resource before enforcing this.
-				if (bytes > 20_000_000) {
-					await reader.cancel();
-					return { success: false, status: 502 };
-				}
-				parts.push(decoder.decode(value, { stream: true }));
-			}
-			parts.push(decoder.decode());
-			const xml = parts.join("");
-			// The caller validates resource syntax and identity.
-			return xml.trim() ? { xml } : { success: false, status: 502 };
-		} finally {
-			reader.releaseLock();
-		}
+		// Fetch has already decompressed the HTTP body; the bound counts the
+		// stream, and no Content-Length bounds anything.
+		const body = await response.read(HQ_BUILD_RESOURCE_MAX_BYTES, "text");
+		if (body.kind === "too-long") return { success: false, status: 502 };
+		if (body.kind === "unavailable") return { success: false, status: 503 };
+		const xml = new TextDecoder().decode(body.bytes);
+		// The caller validates resource syntax and identity.
+		return xml.trim() ? { xml } : { success: false, status: 502 };
 	} catch {
 		return { success: false, status: 503 };
 	} finally {

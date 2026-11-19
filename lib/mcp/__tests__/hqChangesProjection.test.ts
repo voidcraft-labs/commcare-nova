@@ -11,7 +11,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { HqChangesReview } from "@/lib/deployment/hqChanges/types";
+import {
+	changedOutcome,
+	type HqChangesReview,
+} from "@/lib/deployment/hqChanges/types";
 import type { ReviewTable } from "@/lib/deployment/reading/types";
 import { madeByLine } from "@/lib/publish/documentChangeCopy";
 import type { DriftReference } from "@/lib/publish/driftReference";
@@ -39,6 +42,7 @@ import {
 	FINDING_NAME_MAX_LENGTH,
 	type Finding,
 } from "@/lib/publish/hqFindings";
+import { PAGE_LIMIT_CHARS } from "../paging";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import {
 	CHANGED_NOW_PAGED_NEXT,
@@ -56,7 +60,6 @@ import {
 import {
 	accountDigest,
 	circumstanceContextFor,
-	PAGE_LIMIT_CHARS,
 	parseAccountPage,
 	stopProjection,
 	tableProjection,
@@ -491,6 +494,7 @@ describe("a review of changes made in CommCare HQ", () => {
 						kind: "nothing",
 						reason,
 						since,
+						hqChanges: [],
 						publishChanges: recorded ? ["A next publish line."] : [],
 						readingId: recorded ? READING_ID : null,
 						reviewDigest: recorded ? DIGEST : null,
@@ -501,6 +505,7 @@ describe("a review of changes made in CommCare HQ", () => {
 					reason,
 					since,
 					message: nothingToBringInLine(reason, phrase),
+					hq_changes: [],
 					publish_changes: recorded ? ["A next publish line."] : [],
 					publish_changes_lead: recorded ? NEXT_PUBLISH_LEAD : null,
 					reading_id: recorded ? READING_ID : null,
@@ -684,6 +689,14 @@ describe("an account a page at a time", () => {
 		expect(lead([tooLarge], 1)).toMatchObject({
 			message: cannotBringInLead(2),
 		});
+		/* A reading that passed its work limit leads with its own line. */
+		expect(
+			lead([circumstanceFinding("too-intricate", { kind: "app" }, {})]),
+		).toMatchObject({
+			kind: "account",
+			message:
+				"CommCare HQ's version of this app takes more checking than Nova gives one app, so Nova brought nothing in.",
+		});
 	});
 
 	it("links no place into CommCare HQ where the deployment names no app there", () => {
@@ -713,8 +726,26 @@ describe("a bring-in's answers that name no deployment", () => {
 			kind: "gate",
 			message: HQ_CHANGES_GATE_LEAD,
 			findings: ["One.", "Two."],
+			findings_total: 2,
 			next: HQ_CHANGES_GATE_NEXT,
 		});
+	});
+
+	it("holds as many of a gate's findings as one answer holds, each fitted, and says how many there are", async () => {
+		const details = Array.from(
+			{ length: 30 },
+			(_, index) => `${index} ${"x".repeat(50_000)}`,
+		);
+		const answer = await describeHqChangesOutcome(
+			{ kind: "gate", findings: details, details },
+			CALL,
+		);
+		expect(answer.kind).toBe("gate");
+		if (answer.kind !== "gate") return;
+		expect(answer.findings_total).toBe(30);
+		expect(answer.findings.length).toBeGreaterThan(0);
+		expect(answer.findings.length).toBeLessThan(30);
+		expect(JSON.stringify(answer).length).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
 	});
 
 	it("relays a refusal's own sentence", async () => {
@@ -780,17 +811,13 @@ describe("a bring-in's answers that name no deployment", () => {
 			kind: "nothing",
 			reason: "unchanged",
 			since: { kind: "published" },
+			hqChanges: [],
 			publishChanges: [],
 			readingId: null,
 			reviewDigest: null,
 		};
 		expect(
-			(
-				await describeHqChangesOutcome(
-					{ kind: "changed", now: stood, editedBy: null },
-					CALL,
-				)
-			).message,
+			(await describeHqChangesOutcome(changedOutcome(stood), CALL)).message,
 		).toBe(hqChangesMovedLine(null));
 		const stopped: readonly HqChangesReview[] = [
 			{
@@ -805,15 +832,13 @@ describe("a bring-in's answers that name no deployment", () => {
 			{ kind: "held", reason: "languages-reordered", runs: null },
 		];
 		for (const now of stopped) {
+			/* No name rides a review the person can't act on here: one that is
+			 * unavailable because the app moved must not name who edits it now. */
 			expect(
-				await describeHqChangesOutcome(
-					{ kind: "changed", now, editedBy: null },
-					CALL,
-				),
+				await describeHqChangesOutcome(changedOutcome(now, "Ana"), CALL),
 			).toEqual({
 				kind: "changed",
 				message: HQ_CHANGES_NOTHING_TAKEN_LINE,
-				edited_by: null,
 				now: describeHqChangesReview(now, HEAD, {
 					...FIRST_PAGE,
 					remoteAppId: null,

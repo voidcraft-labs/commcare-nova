@@ -69,6 +69,7 @@ import { CASE_LOADING_FORM_TYPES } from "@/lib/domain/forms";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
 import { userPropertySlugVerdict } from "../../validator/userPropertySlug";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormNodeProjection } from "../../xpath/formNodeProjection";
 import { crossesSourceRepeatInRowPredicate } from "../../xpath/wire/formReads";
 import { mayHoldInstantText } from "../../xpath/wire/instant";
@@ -85,6 +86,21 @@ import { shapedLiteral as shapedLiteralText, untextualType } from "./folds";
  *  `readExpression.ts::slotPrintUnder`). */
 export interface SlotPrint {
 	readonly boundFields?: ReadonlySet<Uuid>;
+}
+
+/**
+ * The production print a caller holds of the slot whose tree is canonicalized, which holds the
+ * rows to their contract where they are applied: the slot keeps what it printed with the tree as
+ * given, the rows' whole result where it prints so, and otherwise each rewrite only where the
+ * slot, with the rewritten node in place, prints so (`canonicalExpression`). `print`
+ * is the slot's print with `expression` as its tree, undefined where the emitter refuses that
+ * tree; a slot whose own tree has no print holds the rows as they are. `withheld` is told the id of
+ * each row a print refused, a row whose two members print differently there, which is Nova's
+ * own defect.
+ */
+export interface RewriteGuard {
+	print(expression: Expression): string | undefined;
+	withheld(rowId: string): void;
 }
 
 /** One row: a tree shape and the canonical tree that prints the same bytes
@@ -966,7 +982,8 @@ export function readTypesGiven(
 				? context
 				: expressionContextAtPath(root, context, path);
 		type = scalarDataType(typeOf(node, at)?.data);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return new Set();
 	}
 	return type === "date" || type === "datetime" || type === "time"
@@ -1097,7 +1114,8 @@ function besideUntextualBranch(
 		let type: string | undefined;
 		try {
 			type = scalarDataType(typeOf(branch, context)?.data);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			return false;
 		}
 		return (
@@ -1124,7 +1142,8 @@ function comparedWithUntextual(
 	if (other === undefined) return false;
 	try {
 		return untextualType(scalarDataType(typeOf(other, context)?.data));
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return false;
 	}
 }
@@ -2288,7 +2307,8 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				let type: string | undefined;
 				try {
 					type = scalarDataType(typeOf(node.left, context)?.data);
-				} catch {
+				} catch (error) {
+					rethrowWorkStop(error);
 					return undefined;
 				}
 				if (type === undefined || type === "date" || type === "datetime")
@@ -2942,7 +2962,8 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 					...(rowType === undefined ? {} : { currentCaseType: rowType }),
 				});
 				return sameJson(normalized, node) ? undefined : normalized;
-			} catch {
+			} catch (error) {
+				rethrowWorkStop(error);
 				// A tree the normalizer refuses is the checker's to refuse.
 				return undefined;
 			}
@@ -2970,7 +2991,8 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 						...(origin === undefined ? {} : { currentCaseType: origin }),
 					}).via;
 					return sameJson(canonical, via) ? undefined : canonical;
-				} catch {
+				} catch (error) {
+					rethrowWorkStop(error);
 					// A path the catalog cannot resolve is the checker's to refuse.
 					return undefined;
 				}
@@ -3042,23 +3064,38 @@ function untypedStandardRead(
 	return rest;
 }
 
-/** Every collision applied bottom-up until none applies. It never parses and
- *  never prints. */
+/** Every collision applied bottom-up until none applies. It never parses; where `guard` is
+ *  given, the slot keeps its print: the rows' whole result is taken where it prints as the tree
+ *  as given, and otherwise each rewrite is taken only where it keeps that print
+ *  (`RewriteGuard`), so a slot no row moves, or whose rows all keep its print, is printed at most
+ *  twice. */
 export function canonicalExpression(
 	expression: Expression,
 	context: ExpressionContext,
 	print: SlotPrint = {},
+	guard?: RewriteGuard,
 ): Expression {
 	// A row that rewrites a node can give children another row rewrites,
 	// which one bottom-up pass has already passed, so the passes repeat until
 	// one changes nothing.
-	let current = expression;
-	for (let pass = 0; pass < 8; pass++) {
-		const next = settledBy(PRINT_COLLISIONS, current, context, print);
-		if (sameJson(next, current)) return next;
-		current = next;
-	}
-	return current;
+	const settled = (held?: Parameters<typeof settledBy>[4]): Expression => {
+		let current = expression;
+		for (let pass = 0; pass < 8; pass++) {
+			const next = settledBy(PRINT_COLLISIONS, current, context, print, held);
+			if (sameJson(next, current)) return next;
+			current = next;
+		}
+		return current;
+	};
+	const free = settled();
+	if (guard === undefined || sameJson(free, expression)) return free;
+	const given = guard.print(expression);
+	if (given === undefined || guard.print(free) === given) return free;
+	// Some rewrite changes what the slot prints: each is held to the print on its own.
+	return settled({
+		keeps: (candidate) => guard.print(candidate) === given,
+		withheld: (rowId) => guard.withheld(rowId),
+	});
 }
 
 /** The `relation-type` row alone, bottom-up: each relation path typed as the
@@ -3077,16 +3114,49 @@ export function typedRelations(
 	);
 }
 
+/** `tree` with the expression at `path` replaced by `node`. */
+function replacedAt(
+	tree: Expression,
+	path: CheckPath,
+	node: Expression,
+): Expression {
+	if (path.length === 0) return node;
+	const within = (at: CheckPath) =>
+		at.length <= path.length && at.every((step, i) => step === path[i]);
+	const descend = <T extends Expression | Term>(value: T, at: CheckPath): T =>
+		mapExpressionChildren(
+			value,
+			(child) => {
+				if (!within(child.path)) return child.value;
+				if (child.path.length === path.length)
+					return child.kind === "expression" ? node : child.value;
+				return child.kind === "expression" || child.kind === "term"
+					? descend(child.value, child.path)
+					: child.value;
+			},
+			at,
+		);
+	return descend(tree, []);
+}
+
 function settledBy(
 	rows: readonly PrintCollision[],
 	expression: Expression,
 	context: ExpressionContext,
 	print: SlotPrint,
+	guard?: {
+		readonly keeps: (candidate: Expression) => boolean;
+		readonly withheld: (rowId: string) => void;
+	},
 ): Expression {
 	const contextAt = (path: CheckPath): ExpressionContext =>
 		path.length === 0
 			? context
 			: expressionContextAtPath(expression, context, path);
+	// The slot's tree with every rewrite taken so far in place, which a guarded rewrite is
+	// printed in. A node is visited after every node under it and before any node above it, so
+	// the paths of the tree as given still name its nodes.
+	let whole = expression;
 	const settle = (
 		node: Expression,
 		at: ExpressionContext,
@@ -3094,19 +3164,37 @@ function settledBy(
 	): Expression => {
 		const root = path.length === 0;
 		let current = node;
+		// The rows a print refused at this node as it stands, which are not asked again until
+		// another rewrite changes it.
+		const refused = new Set<PrintCollision>();
 		for (let turn = 0; turn < rows.length * 4; turn++) {
 			let next: Expression | undefined;
+			let by: PrintCollision | undefined;
 			for (const row of rows) {
+				if (refused.has(row)) continue;
 				next = row.rewrite(current, at, {
 					root,
 					print,
 					path,
 					tree: expression,
 				});
-				if (next !== undefined && next !== current) break;
+				if (next !== undefined && next !== current) {
+					by = row;
+					break;
+				}
 				next = undefined;
 			}
-			if (next === undefined) return current;
+			if (next === undefined || by === undefined) return current;
+			if (guard !== undefined) {
+				const candidate = replacedAt(whole, path, next);
+				if (!guard.keeps(candidate)) {
+					refused.add(by);
+					guard.withheld(by.id);
+					continue;
+				}
+				whole = candidate;
+			}
+			refused.clear();
 			current = next;
 		}
 		return current;

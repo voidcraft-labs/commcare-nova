@@ -261,10 +261,9 @@ export type BringInErrorType =
  *     does.
  *   - `"scope_missing"` — the caller's access token lacks an OAuth
  *     scope a specific tool requires (orthogonal to the route-layer
- *     `nova.read` + `nova.write` floor). The HQ tools
- *     (`get_hq_connection`, `upload_app_to_hq`,
- *     `check_project_space_compatibility`) and the Project-management tools gate
- *     this way; see `assertScope` / `McpScopeError` in `./scopes`.
+ *     `nova.read` + `nova.write` floor). Every tool `TOOL_SCOPES` names
+ *     gates this way through `./scopedTool.ts::registerScopedTool`; see
+ *     `McpScopeError` in `./scopes`.
  *     Distinct from `HqToolErrorType` because scope failure is a
  *     token-shape problem, not a per-tool gate, and surfaces across
  *     multiple tools.
@@ -294,6 +293,12 @@ export type McpErrorType =
 	| "invalid_input"
 	| "scope_missing"
 	| "permission_denied"
+	/**
+	 * The call named a state of a deployment it no longer stands at, and
+	 * nothing was written: a stop naming an HQ app the deployment no longer
+	 * publishes to. The client reads the deployment again.
+	 */
+	| "deployment_changed"
 	| UploadErrorType
 	| BringInErrorType
 	| AgentErrorType;
@@ -630,7 +635,9 @@ export function toMcpErrorResult(
 							 * this to it; the message names who may. */
 							err.code === "not_permitted"
 							? "permission_denied"
-							: "invalid_input";
+							: err.code === "stale"
+								? "deployment_changed"
+								: "invalid_input";
 		log.warn("[mcp] deployment rejected", {
 			userId: ctx?.userId ?? null,
 			appId: ctx?.appId ?? null,
