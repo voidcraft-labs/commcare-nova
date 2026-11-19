@@ -147,7 +147,10 @@ reaches every node that reads it: `if(c, age, 3) = weight` types `age` by the `3
 again over what it found until it finds nothing new). A property of the case a menu above chose
 (`chosen-case-property`) is typed as a property of the row is, and a form's own slot (its display
 condition, its case changes) declares it on that case's type, by the datum the form's entry
-holds for it (`scanReads.ts::chosenCaseType`). A simple date range Search field over such a
+holds for it (`scanReads.ts::chosenCaseType`), as a value a device works out inside a search's
+row declares it by the datums the searched menu's entry holds (`scanReads.ts::searchRowHoleReads`,
+which the search stage declares before the rows bind, since `searchRowProperties` and
+`searchRowRelations` read only the searched case and the cases related to it). A simple date range Search field over such a
 property declares it `date` before any expression binds (`search/dateRangeGuesses.ts`), since its
 print is HQ's prompt alone, and a record slot's comparison overrides that guess (an ordering against
 a branch node whose values are all literals spelled as one of the two types orders that type).
@@ -155,7 +158,10 @@ A property a function's signature fixes the kind of (`format-date`'s and `date-a
 number a sum, a product, a negation or a distance reads, `quotient`'s whole numbers, and the value
 `datetime-coerce` reads, which tries text before a date and a date and time) takes the first type
 that position admits under which every slot reading it binds, passes its checker and prints the
-source (`comparedTypes.ts::requiredTypes`, `expressions/index.ts::withRequiredTypes`); two
+source (`comparedTypes.ts::requiredTypes`, `expressions/index.ts::withRequiredTypes`), every
+position that reads the property deciding the order together (`comparedTypes.ts::mergedCandidates`:
+the type a list's numeric sort tells first, then each position's own order, of the types every
+position admits); two
 untyped properties ordered against each other take one type in the same try, since the checker
 admits neither alone, and so do the properties of an ordering whose two sides, a branch node among
 them, give only untyped properties (`comparedTypes.ts::orderedProperties`, a date tried before a
@@ -217,16 +223,26 @@ does.
 comparisons alike, and so does a search's CSQL inside a parenthesized join; but each top-level
 conjunct of the filter is a row of the search of its own, so there the range prints one row,
 parenthesized, and the two comparisons two. The reading of the list's own filter keeps two
-top-level comparisons of the searched case apart in such a slot (`folds.ts::conjunctsPrintAsRows`),
-but a date and time's range from a value to itself, which is the row its equality prints; a row
-reads a parenthesized lower and upper bound's comparisons of one operand as the range
-(`csqlRead.ts::CsqlBinder.rangeJoin`, after a date and time's equality, which prints as the range
-from its value to itself), and `search/rows.ts` then takes the run of the list's clauses one row
-restates. The canonical row `range` folds the two comparisons only where the join prints as the
-range (`joinPrintsAsRange`).
+top-level comparisons apart in such a slot whatever they read (`folds.ts::conjunctsPrintAsRows`;
+a value a device works out inside a row is no slot's whole source, `ExpressionReadEnv.rowValues`,
+so a range there is read as one); a row reads a parenthesized lower and upper bound's comparisons
+of one operand as the range (`csqlRead.ts::CsqlBinder.rangeJoin`, after a date and time's
+equality, which prints as the range from its value to itself), and `search/rows.ts` takes the run
+of the list's clauses one row restates, in the row's spelling or as the range the run's own two
+comparisons make (the range from a value to itself, which the row reads as the equality), before
+one clause in another spelling. The canonical row `range` folds the two comparisons only where the
+join prints as the range (`joinPrintsAsRange`).
 In the same slot the canonical row `csql-anchor-left` touches only a comparison inside a Search
 field's presence test, the one part of the filter a device leaves out
 (`walk.ts::substituteUnansweredSearchInputs`), which the reader reads from the search's row.
+A clause that reads Search fields under their presence tests stands in the list filter or in an
+advanced field's condition by one test, `search/rows.ts::waitsForFields`, whether a device prints
+nothing for it in the list's own filter: the reader places a row on the list filter as such a
+clause only where it holds, and the canonical rows `search-filter-conditions-of-a-field-are-its-own`
+and `search-field-conditions-over-other-fields-are-the-filter-s` move only a clause it holds for,
+each where the search's rows come out the same.
+A clause a device prints (a presence test under a negation, which a device reads as never there)
+is a clause of the list the case list stage reads, which a row restates.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted

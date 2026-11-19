@@ -22,7 +22,11 @@
  * advanced Search field's condition that waits for another field, which the
  * list filter its search restates holds, read with the case property on the
  * left as the restating row spells it while the canonical form keeps the
- * literal there.
+ * literal there; and a list filter its search restates whose device reading
+ * folds two top-level comparisons into a range (of a value that reads no
+ * case, or of a date and time from a value to itself) where the search prints
+ * them as two rows, or keeps a range's two comparisons as two clauses the row
+ * restates one of in another spelling.
  */
 
 import { describe, expect, it } from "vitest";
@@ -113,6 +117,17 @@ const seen = term(prop("visit", "seen"));
 const lastSeen = term(prop("visit", "last_seen"));
 const day = term({ kind: "literal", value: "2026-01-01", data_type: "date" });
 const now: Expression = { kind: "now" };
+const today: Expression = { kind: "today" };
+const nextMonth = term({
+	kind: "literal",
+	value: "2026-02-01",
+	data_type: "date",
+});
+const moment = term({
+	kind: "literal",
+	value: "2026-01-01T00:00:00Z",
+	data_type: "datetime",
+});
 const notesX: Expression = {
 	kind: "eq",
 	left: term(prop("visit", "notes")),
@@ -263,6 +278,78 @@ const CASES: readonly { readonly name: string; readonly doc: BlueprintDoc }[] =
 					},
 					lowerInclusive: true,
 					upperInclusive: false,
+				},
+				searchInputs: [],
+			}),
+		},
+		{
+			// The row reads the range with the literal as the search spells it,
+			// where the device's reading folds it to its moment's text.
+			name: "a searched list's filter of a range from a moment to now, the upper bound left out",
+			doc: visitDoc({
+				filter: {
+					kind: "between",
+					left: lastSeen,
+					lower: moment,
+					upper: now,
+					lowerInclusive: true,
+					upperInclusive: false,
+				},
+				searchInputs: [],
+			}),
+		},
+		{
+			name: "a searched list's filter of a range from now to a moment, the upper bound left out",
+			doc: visitDoc({
+				filter: {
+					kind: "between",
+					left: lastSeen,
+					lower: now,
+					upper: moment,
+					lowerInclusive: true,
+					upperInclusive: false,
+				},
+				searchInputs: [],
+			}),
+		},
+		{
+			// Each top-level comparison is a row the device works out, though
+			// neither reads a case.
+			name: "a searched list's filter of two comparisons of today",
+			doc: visitDoc({
+				filter: {
+					kind: "and",
+					clauses: [
+						{ kind: "gte", left: today, right: day },
+						{ kind: "lt", left: today, right: nextMonth },
+					],
+				},
+				searchInputs: [],
+			}),
+		},
+		{
+			// Two rows, where the range from the moment to itself is one.
+			name: "a searched list's filter of a lower and an upper bound's comparisons of a date and time with one moment",
+			doc: visitDoc({
+				filter: {
+					kind: "and",
+					clauses: [
+						{ kind: "gte", left: lastSeen, right: moment },
+						{ kind: "lte", left: lastSeen, right: moment },
+					],
+				},
+				searchInputs: [],
+			}),
+		},
+		{
+			name: "a searched list's filter of a lower and an upper bound's comparisons of a date and time with now",
+			doc: visitDoc({
+				filter: {
+					kind: "and",
+					clauses: [
+						{ kind: "gte", left: lastSeen, right: now },
+						{ kind: "lte", left: lastSeen, right: now },
+					],
 				},
 				searchInputs: [],
 			}),

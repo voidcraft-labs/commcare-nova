@@ -310,6 +310,27 @@ export interface RequiredType {
 		readonly caseType: string;
 		readonly property: string;
 	}[];
+	/** The first candidate is the type a list's numeric sort tells the
+	 *  position, which the property's other positions only admit. */
+	readonly told?: true;
+}
+
+/** The order a property's candidates are tried in, from every position that
+ *  reads it: the types a list's sort tells first, then each position's own
+ *  order, and of those only the types every position admits where any is,
+ *  since one try judges every slot that reads the property. */
+export function mergedCandidates(
+	entries: readonly RequiredType[],
+): readonly CasePropertyDataType[] {
+	const ordered = [
+		...entries.filter((one) => one.told === true),
+		...entries.filter((one) => one.told !== true),
+	];
+	const all = [...new Set(ordered.flatMap((one) => one.candidates))];
+	const admitted = all.filter((type) =>
+		entries.every((one) => one.candidates.includes(type)),
+	);
+	return admitted.length > 0 ? admitted : all;
 }
 
 /** The types each signature position admits: `format-date`'s and

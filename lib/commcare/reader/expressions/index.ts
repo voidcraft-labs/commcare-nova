@@ -79,6 +79,7 @@ import {
 	agreedComparedTypes,
 	type ComparedType,
 	comparedTypes,
+	mergedCandidates,
 	type RequiredType,
 	requiredTypes,
 	valueProperties,
@@ -154,6 +155,10 @@ export interface ExpressionReadEnv {
 	 *  (`caseList/order.ts::SortReading.numericColumns`), by column: the type of the number the
 	 *  column gives. */
 	readonly numericSortColumns?: ReadonlyMap<Uuid, "int" | "double">;
+	/** Each registration is a value a device works out inside a search row's text
+	 *  (`csqlRead.ts::bindDevice`), never a slot's whole source, so none of its top-level
+	 *  conjuncts is a row of the search (`folds.ts::conjunctsPrintAsRows`). */
+	readonly rowValues?: true;
 }
 export interface GeneratedValue {
 	readonly purpose: "constraint-count";
@@ -1291,7 +1296,7 @@ function withComparedTypes(
 				[sortedType],
 				untyped,
 			))
-				required.push({ one, index });
+				required.push({ one: { ...one, told: true }, index });
 		for (const one of requiredTypes(bound.bound.candidate, context, untyped))
 			required.push({
 				one:
@@ -1302,6 +1307,7 @@ function withComparedTypes(
 									sortedType,
 									...one.candidates.filter((type) => type !== sortedType),
 								],
+								told: true,
 							}
 						: one,
 				index,
@@ -1379,7 +1385,8 @@ function withRequiredTypes(
 	const byProperty = new Map<
 		string,
 		{
-			readonly one: RequiredType;
+			one: RequiredType;
+			readonly entries: RequiredType[];
 			readonly slots: Set<number>;
 			readonly partners: Map<string, { caseType: string; property: string }>;
 		}
@@ -1388,9 +1395,11 @@ function withRequiredTypes(
 		const key = JSON.stringify([one.caseType, one.property]);
 		const entry = byProperty.get(key) ?? {
 			one,
+			entries: [] as RequiredType[],
 			slots: new Set<number>(),
 			partners: new Map(),
 		};
+		entry.entries.push(one);
 		entry.slots.add(index);
 		for (const partner of one.partners ?? [])
 			entry.partners.set(
@@ -1399,6 +1408,10 @@ function withRequiredTypes(
 			);
 		byProperty.set(key, entry);
 	}
+	// Each property's candidates, in the order every position reading it
+	// decides together.
+	for (const entry of byProperty.values())
+		entry.one = { ...entry.one, candidates: mergedCandidates(entry.entries) };
 	let current = doc;
 	const typed = new Set<string>();
 	const open = (caseType: string, property: string) =>
