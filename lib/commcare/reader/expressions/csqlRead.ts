@@ -2661,6 +2661,7 @@ function csqlRun(parts: readonly SkeletonPart[]):
 		if (part.kind === "choice") choices.set(marker, part);
 	}
 	return { csql: csql.node, holes, choices };
+}
 
 /** Core's limit on the texts one `concat()` gives (`Shapes.MAX_STRINGS`). */
 const SENT_TEXTS_LIMIT = 256;

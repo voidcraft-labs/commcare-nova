@@ -1275,16 +1275,18 @@ export function buildColumnField(args: {
 	if (column.kind === "calculated") {
 		return buildCalculatedField({ column, position, ctx, hidden, sortLabel });
 	}
-	// A plain column over one of the case's attributes is HQ's expression
-	// column over `@<name>` (`hqJson/caseList.ts`, `columnReadsCaseAttribute`),
-	// which HQ's build writes as a calculated column's field.
+	// A plain column over a case's attributes is HQ's expression column over
+	// `@<name>`, through the column's walk where it has one
+	// (`hqJson/caseList.ts`, `columnReadsCaseAttribute`), which HQ's build
+	// writes as a calculated column's field.
 	if (column.kind === "plain" && columnReadsCaseAttribute(column))
 		return buildExpressionField({
 			column,
 			position,
 			ctx,
 			hidden,
-			xpath: w.context([w.attr(column.field)]),
+			sortLabel,
+			xpath: columnPropertyPath(column),
 		});
 
 	if (hidden) {
@@ -1412,6 +1414,7 @@ function buildCalculatedField(args: {
 		position,
 		ctx,
 		hidden,
+		sortLabel,
 		xpath: calcXpath,
 	});
 }
@@ -1427,9 +1430,11 @@ function buildExpressionField(args: {
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
 	readonly hidden: boolean;
+	/** The name the hidden field's rule gives it in Sort by. */
+	readonly sortLabel?: CaseListSortLabel;
 	readonly xpath: WireExpr;
 }): CaseListFieldEmission {
-	const { column, position, ctx, hidden, xpath: calcXpath } = args;
+	const { column, position, ctx, hidden, sortLabel, xpath: calcXpath } = args;
 	const sortEl = resolveSortElement(column, ctx, () => ({
 		xpath: calcXpath,
 		variables: [],
