@@ -2755,7 +2755,9 @@ again and observes none.
 
 Part 09's section 13.3 states what the judge holds, and this part writes it:
 `proof/checks/source.py` (the new comparison), `proof/checks/changes.py::differences` and
-`proof/checks/test_first_publish_changes.py`, on each `hq-authored` document and no other.
+`proof/checks/test_first_publish_changes.py`, on each `hq-authored` document and no other; a run that
+holds none (a sample, documents named by hand, a self-test's private corpus) defines none of its items,
+as `test_parity.py` defines none, so an empty parametrization never fails collection.
 
 **The `source` comparison.** `proof/checks/source.py::differences(document, records)` compares A's
 stored app with B's as HQ's source read serves each: the parsed bodies of part `a`'s `authored`
