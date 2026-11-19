@@ -82,6 +82,7 @@ import {
 	mergedCandidates,
 	type RequiredType,
 	requiredTypes,
+	untypedOutputProperties,
 	valueProperties,
 } from "./comparedTypes";
 import {
@@ -1312,10 +1313,11 @@ function withComparedTypes(
 						: one,
 				index,
 			});
-		// Two properties the catalog holds untyped, compared, print as
-		// written; as dates and times a device compares them as moments. Where
-		// only that print is the source's, they are dates and times.
-		const pairs = untypedPairs(bound.bound.candidate, untyped);
+		// Two properties the catalog holds untyped, compared, each side itself
+		// or through a value-giving branch, print as written; as dates and
+		// times a device compares them as moments. Where only that print is the
+		// source's, they are dates and times.
+		const pairs = untypedPairs(bound.bound.candidate, untyped, false, true);
 		if (pairs.length === 0) return;
 		// Two such properties ordered against each other print bare as dates
 		// and as numbers alike: either is a type that orders, tried after
@@ -1499,11 +1501,13 @@ function withTypes(
 }
 
 /** The properties of each comparison whose two sides are properties the
- *  catalog holds untyped. */
+ *  catalog holds untyped, or, `throughBranches`, give only such properties,
+ *  each itself or through a value-giving branch. */
 function untypedPairs(
 	tree: Expression,
 	untyped: (caseType: string, property: string) => boolean,
 	orderingOnly = false,
+	throughBranches = false,
 ): { caseType: string; property: string }[] {
 	const out: { caseType: string; property: string }[] = [];
 	// A property of the row, or of the case a menu above chose.
@@ -1529,6 +1533,13 @@ function untypedPairs(
 			node.kind === "lt" ||
 			node.kind === "lte"
 		) {
+			if (throughBranches) {
+				const lefts = untypedOutputProperties(node.left, untyped);
+				const rights = untypedOutputProperties(node.right, untyped);
+				if (lefts !== undefined && rights !== undefined)
+					out.push(...lefts, ...rights);
+				return;
+			}
 			const left = property(node.left);
 			const right = property(node.right);
 			if (left !== undefined && right !== undefined) out.push(left, right);

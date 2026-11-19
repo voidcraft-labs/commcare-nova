@@ -165,7 +165,10 @@ position admits); two
 untyped properties ordered against each other take one type in the same try, since the checker
 admits neither alone, and so do the properties of an ordering whose two sides, a branch node among
 them, give only untyped properties (`comparedTypes.ts::orderedProperties`, a date tried before a
-number, `seen >= coalesce(seen)` among them), and where no type holds while the slots' other
+number, `seen >= coalesce(seen)` among them), two untyped properties compared, each side itself or
+through a value-giving branch, take a date and time first where only the print a device makes of
+two moments is the source's (`expressions/index.ts::withComparedTypes`), and where no type holds
+while the slots' other
 untyped properties stay text (a `date-add` of two of them), the try is made again with each of
 those at the first type its own position admits, typing only the property tried.
 

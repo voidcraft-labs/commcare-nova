@@ -28,7 +28,8 @@
  * them as two rows, or keeps a range's two comparisons as two clauses the row
  * restates one of in another spelling; and a switch on a value a device
  * works out, which a search's row prints as a chain of the device's choices,
- * read as that chain of `if`s.
+ * read as that chain of `if`s; and two untyped properties a device compares
+ * as moments, one side a branch node, left text by a first reading.
  */
 
 import { describe, expect, it } from "vitest";
@@ -412,6 +413,28 @@ const CASES: readonly { readonly name: string; readonly doc: BlueprintDoc }[] =
 					kind: "eq",
 					left: { kind: "coalesce", values: [seen, seen] },
 					right: term({ kind: "literal", value: null }),
+				},
+			}),
+		},
+		{
+			// A device compares two dates and times as moments, a branch node of
+			// one among them.
+			name: "an ordering of a date and time against a branch node of the same property",
+			doc: visitDoc({
+				display: {
+					kind: "lt",
+					left: { kind: "coalesce", values: [lastSeen] },
+					right: lastSeen,
+				},
+			}),
+		},
+		{
+			name: "an equality of a branch node of a date and time with the same property",
+			doc: visitDoc({
+				display: {
+					kind: "eq",
+					left: { kind: "coalesce", values: [lastSeen, lastSeen] },
+					right: lastSeen,
 				},
 			}),
 		},
