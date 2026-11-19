@@ -6,7 +6,7 @@
  */
 
 import type { Document, Element } from "domhandler";
-import { isTag } from "domhandler";
+import { isTag, isText } from "domhandler";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import surface from "../../surface/surface.json";
 import {
@@ -67,6 +67,9 @@ export interface ParsedXForm {
 	readonly binds: readonly Element[];
 	readonly setvalues: readonly Element[];
 	readonly itext: Element | undefined;
+	/** The text of `<h:title>`'s text children, as Core reads a form's title before it trims it
+	 *  (`XFormParser.parseTitle`, `getXMLText`); undefined where the head holds no title. */
+	readonly title: string | undefined;
 	/** `vellum:ignore`'s tokens. */
 	readonly ignore: readonly string[];
 	readonly hashtags: HashtagMetadata;
@@ -276,6 +279,13 @@ export function parseXFormSource(
 			isElement(child, scope(child), XFORMS_NS, "setvalue"),
 		),
 		itext,
+		title:
+			title === undefined
+				? undefined
+				: title.children
+						.filter(isText)
+						.map((child) => child.data)
+						.join(""),
 		ignore,
 		hashtags: readHashtagMetadata(head, scope(head)),
 		scope,

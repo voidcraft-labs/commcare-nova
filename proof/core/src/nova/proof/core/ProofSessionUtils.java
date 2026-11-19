@@ -31,8 +31,10 @@ import java.util.List;
  *   hands Core the body of every answer. Without "searchAnswers" it is answered
  *   with every case of the requested case types (the request's case_type
  *   values) from the case data as it stands, and none of the search's filters
- *   is applied, so a search there finds what HQ's would not (the sessions of
- *   proof 4 and of a Connect app).
+ *   is applied, so a search there finds what HQ's would not. Proofs 3 and 4
+ *   name "searchAnswers"; the sessions that do not are the Core package's own
+ *   tests and the Connect proofs' (proof/connect/conftest.py::_Paths), which
+ *   refuse a session that sends a search.
  * - A post (SyncScreen: the case claim) is recorded and answered 201, which is
  *   what makes Core follow it with a sync.
  * - A sync (restoreUserToSandbox) is answered with the same restore the session

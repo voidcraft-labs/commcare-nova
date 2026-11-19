@@ -30,9 +30,9 @@ each failing by base with what is missing:
 5. every first-publish id of the base whose entry holds a ``proof3`` row in
    ``proof/first-publish-changes.json`` has a ``<id>:before`` expectation run
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
-   differ, but for a row that names a media reference a trace read or a value
-   a search sent HQ, which no value Core's evaluate answers can show
-   (``_shows_a_value``);
+   differ, but for a row that names a media reference a trace read, a value
+   a search sent HQ, a form's title, a menu's entry or a case list's header,
+   which no value Core's evaluate answers on A can show (``_shows_a_value``);
 6. a multi-select question an expression tests has an expectation answering
    it with two choices;
 7. a base whose app holds more than one language is read under a declaration
@@ -83,18 +83,34 @@ MEDIA_REFERENCES = frozenset({"image", "audio", "video"})
 # The step of a trace path above a value a search sent HQ: one of its ``_xpath_query`` values, on the search's step
 # or one of its requests (``proof/checks/compare/trace.py::queries_as_multisets``).
 SEARCH_QUERY = "_xpath_query"
+# The last step of a trace path that names a form's title as Core read it from the form (``FormDef.getTitle``).
+FORM_TITLE = "title"
+# A trace step's own key that names a screen no expectation opens on A: a menu's entries (``choices``,
+# ``SessionOp.java``'s menu step), which Core's evaluate never shows, and a case list's headers (``headers``,
+# ``SessionOp.java::describeList``), which it shows only where an expectation opens a case list, on the local
+# archive alone (``proof/observe/intent.py``).
+SCREEN_ONLY = frozenset({"choices", "headers"})
 
 
 def _shows_a_value(row):
     """Whether a ``proof3`` row names something Core's evaluate can fix by hand: anything but a media reference a
-    trace read or a value a search sent HQ. Core's evaluate, which runs an expectation, answers expressions, answers
-    and a case list's rows, reads no question's or menu's media and sends no search
-    (``proof/core/src/nova/proof/core/Evaluate.java``), so a change whose behavior is a media reference moving or
-    going (``media-files-renamed``, ``broken-pictures-removed``), or a value a search sends HQ
-    (``search-today-device-day``, ``search-restates-list-filter``), is shown before and after by proof 3's own
-    comparison of A's trace with B's and the archive's, each side's reference or request."""
+    trace read, a value a search sent HQ or a form's title. Core's evaluate, which runs an expectation, answers
+    expressions, answers and a case list's rows, reads no question's or menu's media, no form's title and sends no
+    search (``proof/core/src/nova/proof/core/Evaluate.java``), so a change whose behavior is a media reference moving
+    or going (``media-files-renamed``, ``broken-pictures-removed``), a value a search sends HQ
+    (``search-today-device-day``, ``search-restates-list-filter``) or a form's title (``form-titles-written``), is
+    shown before and after by proof 3's own comparison of A's trace with B's and the archive's, each side's
+    reference, request or title. Nor does it show a menu's entries, or a case list's headers on A (``SCREEN_ONLY``),
+    so a change whose behavior is the text of a menu's entry (``text-spaces-dropped``) or of a list's header
+    (``sort-by-entry-with-a-blank-name-dropped``) is shown so too, each side's text."""
     steps = row.get("path", "").split("/")
-    return row.get("check") == "proof3" and steps[-1] not in MEDIA_REFERENCES and SEARCH_QUERY not in steps[-2:]
+    return (
+        row.get("check") == "proof3"
+        and steps[-1] not in MEDIA_REFERENCES
+        and steps[-1] != FORM_TITLE
+        and SEARCH_QUERY not in steps[-2:]
+        and not (steps[1:5] == ["runs", "*", "trace", "*"] and len(steps) > 5 and steps[5] in SCREEN_ONLY)
+    )
 
 
 def _proof3_changes():
@@ -424,7 +440,27 @@ def test_a_change_shown_only_by_what_a_trace_read_or_a_search_sent_needs_no_valu
     assert not _shows_a_value(row("/runs/*/trace/*/params/_xpath_query/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/_xpath_query/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/events/*/image"))
+    # A form's title, which Core's evaluate never reads (``form-titles-written``).
+    assert not _shows_a_value(row("/runs/*/trace/*/title"))
     assert _shows_a_value(row("/runs/*/trace/*/rows/*"))
     assert _shows_a_value(row("/runs/*/trace/*/params/case_type/*"))
     assert _shows_a_value(row("/runs/*/trace/*/submission/data/*[*]/text()"))
     assert not _shows_a_value({**row("/runs/*/trace/*/rows/*"), "check": "proof2"})
+
+
+def test_a_change_shown_only_on_a_menu_or_a_lists_headers_needs_no_value_pair():
+    """Rule 5 asks no value pair of a ``proof3`` row of a menu's entries or a case list's headers, which no
+    expectation shows on A: Core's evaluate opens no menu, and opens a case list only on the local archive
+    (``proof/observe/intent.py``). A question's own choices, inside a form's events, and a case detail's headers,
+    inside the step's case detail, still ask one. The plausible failure: ``text-spaces-dropped`` asking hq-languages
+    and ``sort-by-entry-with-a-blank-name-dropped`` asking hq-case-lists for a ``:before`` on A that no expectation can
+    hold, or the exemption reaching a question's choice text."""
+
+    def row(path):
+        return {"check": "proof3", "artifact": "trace@B", "path": path}
+
+    assert not _shows_a_value(row("/runs/*/trace/*/choices/*/text"))
+    assert not _shows_a_value(row("/runs/*/trace/*/headers/*"))
+    assert _shows_a_value(row("/runs/*/trace/*/events/*/choices/*/text"))
+    assert _shows_a_value(row("/runs/*/trace/*/caseDetail/tabs/*/headers/*"))
+    assert _shows_a_value(row("/runs/*/trace/*/rows/*/fields/*"))

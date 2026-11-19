@@ -537,7 +537,13 @@ and holds each to the effects as written.
    every submission is compared too, read as HQ applies it (case by case,
    each case's blocks where the form holds them, a block with an empty case id
    by the action HQ applies it at), and so is each language's app strings as
-   Core reads them (over the default file's). Formplayer's sessions are compared
+   Core reads them (over the default file's). What HQ holds that the local
+   archive cannot carry and its download says so is held both ways as the
+   statement holding: a profile setting a person saved in HQ outside the kept
+   ones (`hq-side.json`), and on an app made in HQ each Android logo its
+   stored `logo_refs` holds, whose `brand-banner-*` property HQ's trace holds
+   forced at the logo's path and the archive's profile lacks
+   (`proof3.py::stated_android_logos`, `kept_android_logos_absent`). Formplayer's sessions are compared
    the same way, each state served to it by HQ's own views ("Served
    states"): Nova's local archive against A always, and B's aligned build
    against A wherever proof 2 still finds a difference, with the Web Apps
@@ -2795,7 +2801,10 @@ Formplayer's own), `admit` (Core's archive installer over a `.ccz` or HQ's build
 archive, which only CommCare Android reads, over Android's own strings at the pin, registered as the
 default locale's first source before the app's files as `CommCareApplication.initializeDefaultLocalizerData`
 does on a device, so a key one language holds and the archive's default file lacks is refused only where
-Android's strings lack it too: `client.ANDROID_DEFAULT_STRINGS`, `Admission.java`), `session` (a
+Android's strings lack it too: `client.ANDROID_DEFAULT_STRINGS`, `Admission.java`; proof 3's sessions of
+every build of an app that declares Android, A's and B's as well as the archive's, run over the same strings,
+as a device installs HQ's build over them too, so a text Core localizes from the runtime's own strings, such as a
+missing lookup table's message, is one runtime's on each side: `proof/observe/sessions.py::observe`), `session` (a
 scripted session's trace: every screen, command, row, question with its
 prompt, answer, the submission, the case database after it and the stack;
 answers come from a fixed table per question type, `proof/core/answers.json`,
@@ -2824,8 +2833,8 @@ no property type; an untyped property stays text, and standard properties
 stay the case's own attributes. Custom
 worker-record reads seed the same user data as session reads, while the
 worker case keeps its managed identity even when session data uses one of
-those names. HQ's own code writes the restore. In proof 3's sessions a case
-search is answered by HQ: the runner asks the client for each answer
+those names. HQ's own code writes the restore. In proof 3's and proof 4's
+sessions a case search is answered by HQ: the runner asks the client for each answer
 (`Runner.java::ask`, a callback line the client answers with the handler the
 session request was sent with, `proof/core/client.py::search_answers`), and
 `proof/observe/sessions.py::HqSearches` posts Core's request, signed in as the
@@ -2834,9 +2843,41 @@ that worker and the document's cases were made through HQ's receiver and
 indexed by HQ's pillows, as a served state makes them, so a search finds what
 HQ's search finds. Where the unit holds B while A's sessions run, A's
 searches read A's menus, the one part of the app HQ's search reads
-(`sessions.py::_held_as`). Elsewhere (proof 4's sessions and a Connect app's)
-a remote search is still answered with every case of the requested type and
-no filter. A session's bounds (400 screens and 64
+(`sessions.py::_held_as`). Proof 4's sessions (B's, and each save's, which
+replay B's script) are answered in the same way, each in a fork of the state
+its build was made from, so HQ's search reads the menus of the app it built
+(`proof/observe/proof4.py::_Observation.sessions`). An answer of every case of
+the searched type, with no filter, would hide there what a save does to a
+search: a save that changes which cases a search finds would show only as
+the request's changed values, never as the cases and forms a worker then
+reaches. It would also show differences over cases HQ's search never returns,
+as proof 3 once showed a joined list filter dropping a case HQ would not have
+found. A session given no answers is answered that way still, and only the
+packages' own tests run one: the Core runner's, Formplayer's
+(`proof/formplayer/apps.py::core_sessions`, held beside Formplayer's walk) and
+the Connect proofs' (`proof/connect/conftest.py::_Paths`, whose submissions
+HQ's repeater forwards). Each compares nothing a search finds, and the last
+two refuse a session that sends a search (`sessions.py::searched`), so a
+document they name that comes to search fails by name rather than following
+cases HQ might never return.
+
+The lane keeps two clocks. The runtimes (Core here, Formplayer and Android
+through their own `ProofClock`) read one fixed instant,
+`proof/core/client.py::DEFAULT_CLOCK`, and HQ reads its pin's commit instant
+(`proof/hq/determinism.py::EPOCH`), so a search's `today()`, which HQ
+evaluates in the project space's zone, reads another day than the device's.
+HQ's clock follows its pin so its date-gated code runs as it does at that
+commit; the runtimes' stays fixed because their pins move apart from HQ's
+and Android's runtime is checked outside the image, so a runtime clock that
+followed HQ's pin would change every runtime record and hand-written
+expectation with each weekly HQ pin. Production reads one day on both sides,
+so the gap matters only where HQ's search compares a case's date with its
+clock. Once a query HQ has answered calls `today()` or `now()` (read with
+HQ's own parser), `HqSearches` refuses a case database holding a date on or
+between the two days, with a day more at each end for the project space's
+zone (`sessions.py::refuse_dates_between_the_clocks`,
+`proof/hq/test_search_clocks.py`): give such a case a date outside them. A
+session's bounds (400 screens and 64
 choices of a run, 5,000 derived runs) are safety nets no app the lane walks
 comes near: a run that reaches one fails the request by the bound's name,
 and is never handed back as a run that ended there.
@@ -3910,8 +3951,12 @@ loader and the gate hold eight rules:
 8. A fixed entry is repaired in exactly two ways, each named in its pull
    request with its citation. Where the check's vocabulary or the pinned
    upstream text moved (a renamed Vellum message, a moved HQ function, a
-   renamed value class) and the control shows the same symptom at a new
-   path, it is re-pathed from the control's evidence. Where upstream changed
+   renamed value class, a spelling rule that now writes the pinned values
+   in its own spelling) and the control shows the same symptom at a new
+   path or in new values, it is re-pathed or re-valued from the control's
+   evidence: the d20 supply-point entries' suite values took
+   `suite-xpath-lexemes`' spelling so, each the rule's own writing of the
+   old value. Where upstream changed
    the behavior so the bytes from before the fix are no longer a symptom,
    where a judge change deliberately stops reporting the class on the
    control too, or where a change to how the lane runs a control (the
@@ -4361,7 +4406,9 @@ The rules whose readers reach past HQ's build and Core:
   list filter into the suite as its author typed it, and Nova writes its own
   spelling. Each test publishes `case-list-local` with its calculated column
   written both ways, holds HQ's builds apart at that `xpath@function` alone,
-  Core's sessions, Formplayer's walk and the Web Apps client's screens alike,
+  Core's sessions (which show the list with its case and then launch its
+  search, opening no form, so the test holds them to a list that showed the
+  column), Formplayer's walk and the Web Apps client's screens alike,
   and another string or test still apart; Android's are
   `predicates.py::test_a_list_reads_a_suite_expression_alike_in_either_spelling`
   and `test_a_list_reads_a_cond_and_its_if_alike`.
@@ -4381,10 +4428,37 @@ The rules whose readers reach past HQ's build and Core:
   difference (`broken-pictures-removed`). Its test publishes `case-list-local`
   with its first menu's icon at a path the map does not hold and with none,
   holds HQ's builds apart only where the menu names its icon, Core's sessions
-  apart only at the item's image, erased given each build's admission and kept
+  (which list the menu and open no form) apart only at the item's image, erased given each build's admission and kept
   where the other build's media table installs the path, and the Web Apps
   client's screens alike; Android's is
   `predicates.py::test_a_menu_icon_no_media_resource_installs_draws_as_none`.
+
+- **`media-path-of-a-shared-file`** (`media_path_of_a_shared_file`): an image,
+  sound or video in Core's trace whose build installs the same file under
+  several paths, read as the first of those paths in code-unit order, the
+  path Nova keeps for the file (`adoption.ts::assignMediaPaths`,
+  `media-paths-joined`, which touches no worker). An app made in HQ can name
+  one multimedia document at two paths (`hq-media`'s menu and form icons).
+  HQ's build installs a media resource at each, fetched from HQ's media file
+  view for the one document (`SuiteGenerator.media_resources`), so a device
+  holds the same bytes at both and CommCare Android draws the file at the
+  path it is given; Formplayer hands the path on and the Web Apps client asks
+  HQ for `/hq/multimedia/file/<type>/<multimedia id>/<name>`
+  (`formplayer/app.js`, `resourceMap`), which `ViewMultimediaFile` answers
+  with the document's file whatever the name. The rule reads the trace
+  beside the file each media resource of its build installs, which proof 3
+  lays there from the build's own media suite (`proof3.media_files`,
+  `compare/trace.py::MEDIA_FILES`, never reported: the bytes where the build
+  carries them, else the address HQ serves the file from less its name), and
+  leaves a path no other path of its build shares a file with, so a renamed
+  file (`media-files-renamed`) and a picture with no file
+  (`broken-pictures-removed`) stay differences. Its test publishes
+  `media-only` with its menu's icon at its own path and at a second path the
+  map names with the same document, holds Core's sessions apart only at the
+  menu item's image, erased given each build's media suite and kept where the
+  second path names another document, Formplayer handing the path on and HQ
+  answering the client's address for either name with the same file;
+  Android's is `predicates.py::test_a_picture_two_paths_name_draws_alike`.
 
 - **`field-list-appearance-case`** (`field_list_appearance_case`): a group's
   appearance `field-list` in another letter case, read in lower case in Core's
@@ -4395,8 +4469,9 @@ The rules whose readers reach past HQ's build and Core:
   there (`FormController.indexIsInFieldList`), and the Web Apps client reads
   only its own tokens of a group's style (`form_entry/form_ui.js`). It reads no
   form source: HQ's form builder reads only the lower-case token as a Question
-  List (`Vellum/src/parser.js`). Its test publishes `case-list-local` with its
-  first form's last control in a group written `field-list`, `Field-List` and
+  List (`Vellum/src/parser.js`). Its test publishes `targeted-plain-help`,
+  whose first form Core's sessions open from its menu, with that form's last
+  control in a group written `field-list`, `Field-List` and
   `FIELD-LISTS`, holds HQ's builds apart at the group's `@appearance` alone,
   Core's sessions apart only at the event's appearance, erased for
   `Field-List` and kept for `FIELD-LISTS`, and Formplayer's walk and the

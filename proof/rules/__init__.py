@@ -103,6 +103,7 @@ from proof.rules import (  # noqa: E402
     inactive_parent_select,
     itext_value_order,
     lookup_fields_unshown,
+    media_path_of_a_shared_file,
     menu_image_without_media,
     model_order,
     open_action_blanks,
@@ -163,6 +164,7 @@ RULES: tuple[SpellingRule, ...] = (
     runtime_url_app_id.RULE,
     # What the runtimes hand on: Core's trace, beside the media its build installs, and Formplayer's answers.
     menu_image_without_media.RULE,
+    media_path_of_a_shared_file.RULE,
     field_list_appearance_case.RULE,
 )
 

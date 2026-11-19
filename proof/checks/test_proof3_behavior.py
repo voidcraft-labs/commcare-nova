@@ -343,8 +343,20 @@ def _assert_reaching_runs_differ(found, control, artifacts):
     for artifact in artifacts:
         runs = {int(d.at.split("/")[2]) for d in found if d.artifact == artifact}
         assert control.reaching <= runs <= control.opening, (artifact, runs, control.reaching, control.opening)
-    shown = [value for d in found for value in (d.before, d.after)]
-    assert control.altered_path in shown and control.original_path in shown
+    # The trace keys a form's events by where Core stepped to each (``compare.trace.event_keys``), so the question
+    # stored under another path is one event the baseline alone reached and one the altered build alone reached,
+    # in every run that answers it.
+    trace = next(artifact for artifact in artifacts if artifact.startswith("trace@"))
+    for run in control.reaching:
+        moved = {
+            (d.kind, (d.before if d.kind == "removed" else d.after).get("dataPath"))
+            for d in found
+            if d.artifact == trace
+            and d.path == "/runs/*/trace/*/events/*"
+            and d.kind in ("added", "removed")
+            and int(d.at.split("/")[2]) == run
+        }
+        assert ("removed", control.original_path) in moved and ("added", control.altered_path) in moved, (run, moved)
 
 
 def test_one_altered_answer_path_changes_the_trace_and_case_processing_of_the_runs_that_reach_it(
@@ -1756,3 +1768,84 @@ def test_a_value_saved_only_in_hq_is_held_both_ways_on_each_reader_that_ran():
     assert proof3.stated_hq_side_values("d", STATED, [*_stated_differences(), missing], EVERY_READER) == [missing]
     # A reader whose comparison did not run makes no claim.
     assert proof3.stated_hq_side_values("d", STATED, [], EVERY_READER - {"trace@local.ccz"}) == []
+
+
+HOME_LOGO = "jr://file/commcare/logo/data/hq_logo_android_home.png"
+HOME_BANNER = "/profile/properties/brand-banner-home"
+# An app made in CommCare HQ with a logo in its Android home slot, as HQ's uploader stores one, and a Web Apps logo,
+# which HQ's profile writes under a property no runtime reads and the trace leaves out.
+LOGOS = {
+    "logo_refs": {
+        "hq_logo_android_home": {"path": HOME_LOGO, "m_id": "dd49ce80"},
+        "hq_logo_web_apps": {"path": "jr://file/commcare/logo/data/hq_logo_web_apps.png", "m_id": "dd49ce81"},
+    }
+}
+
+
+def _banner(before, after):
+    return Difference("proof3", "d", "trace@local.ccz", HOME_BANNER, HOME_BANNER, "removed", before, after)
+
+
+def test_an_android_logo_of_an_app_made_in_hq_is_held_both_ways_on_the_local_archive():
+    """Contract: the local archive made for the project space an app made in HQ came from cannot carry the app's
+    Android logos (``kept_android_logos_absent``), so where its stored ``logo_refs`` holds an Android slot, HQ's
+    trace holding that slot's ``brand-banner-*`` property forced at the slot's path, and the archive's holding
+    none, is the statement holding. Failures it catches: every logo difference taken on any document, a banner at
+    another path or unforced taken as the logo, and a logo HQ's build did not write going unreported."""
+    stated = proof3.stated_android_logos(LOGOS)
+    assert [(value.save, value.artifact, value.path, value.kind) for value in stated] == [
+        ("hq_logo_android_home", "trace@local.ccz", HOME_BANNER, "removed")
+    ]
+    # A document Nova made holds no stored app, and a slot without a path is none HQ's profile writes.
+    assert proof3.stated_android_logos(None) == []
+    assert proof3.stated_android_logos({"logo_refs": {"hq_logo_android_home": {"m_id": "dd49ce80"}}}) == []
+
+    held = _banner({"force": True, "value": HOME_LOGO}, None)
+    assert proof3.stated_hq_side_values("d", None, [held], EVERY_READER, authored_app=LOGOS) == []
+    # Without the stored app's logo it is a difference like any other.
+    assert proof3.stated_hq_side_values("d", None, [held], EVERY_READER) == [held]
+    # A banner at another path, or one HQ's profile did not force, is not the logo HQ holds: it is kept, and so is
+    # the statement it did not meet.
+    for other in (
+        _banner({"force": True, "value": "jr://file/commcare/logo/data/other.png"}, None),
+        _banner({"force": False, "value": HOME_LOGO}, None),
+    ):
+        found = proof3.stated_hq_side_values("d", None, [other], EVERY_READER, authored_app=LOGOS)
+        assert sorted((d.path, d.kind) for d in found) == [
+            (HOME_BANNER, "removed"),
+            (f"/stated-hq-side/hq_logo_android_home{HOME_BANNER}", "removed"),
+        ]
+    # HQ's trace holding no banner for a logo its app holds is reported where the local comparison ran.
+    found = proof3.stated_hq_side_values("d", None, [], EVERY_READER, authored_app=LOGOS)
+    assert [d.path for d in found] == [f"/stated-hq-side/hq_logo_android_home{HOME_BANNER}"]
+    assert proof3.stated_hq_side_values("d", None, [], EVERY_READER - {"trace@local.ccz"}, authored_app=LOGOS) == []
+
+
+def test_a_forms_title_is_compared_only_where_android_runs_both_builds():
+    """Contract: a form step's title (``FormDef.getTitle``) is compared where CommCare Android runs both builds,
+    the one runtime that shows it, and left out where only Web Apps does, which titles a worker's form by its menu
+    entry's text. Failures it catches: a title no runtime of the app shows reported, and a title Android shows left
+    out, or a case list's title, which every runtime shows, left out with it."""
+
+    def trace(title, list_title):
+        return {
+            "runs": [
+                {
+                    "trace": [
+                        {"screen": "case-list", "title": list_title, "rows": []},
+                        {"screen": "form", "title": title, "events": []},
+                    ]
+                }
+            ]
+        }
+
+    def paths(before, after, runtimes):
+        return sorted(
+            d.path for d in proof3.compare_traces("d", "trace@B", before, after, runtimes=frozenset(runtimes))
+        )
+
+    blank, named = trace(None, "Patients"), trace("Followup Form", "Patients")
+    assert paths(blank, named, {corpus.ANDROID, corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]
+    assert paths(blank, named, {corpus.ANDROID}) == ["/runs/*/trace/*/title"]
+    assert paths(blank, named, {corpus.WEB_APPS}) == []
+    assert paths(trace(None, "Patients"), trace(None, "Clients"), {corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]

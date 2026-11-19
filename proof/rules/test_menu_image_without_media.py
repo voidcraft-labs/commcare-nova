@@ -18,8 +18,9 @@ and the media table compared as part of the trace.
 icon, and with an icon at a path the media map does not hold, as CommCare
 HQ's settings page stores one whose file was never uploaded. HQ builds both
 whole, the two builds differ only where the menu names its icon (its app
-string and its ``<display>``), Core's sessions over the two differ only at
-the menu item's image, which the rule erases given each build's admission,
+string and its ``<display>``), Core's sessions, which list that menu at the
+root and go on to the list's search with no form to open, differ only at the
+menu item's image, which the rule erases given each build's admission,
 and leaves where the other build's media table installs the path. Formplayer
 hands the path on, and the Web Apps client's screens of the two releases
 compare equal.
@@ -31,6 +32,8 @@ import copy
 import fnmatch
 import json
 from dataclasses import replace
+
+import pytest
 
 from proof.checks import proof3
 from proof.checks.compare.trace import INSTALLED_MEDIA, compare_traces
@@ -140,7 +143,7 @@ def test_hq_builds_a_menu_icon_with_no_media_and_core_runs_it_as_none(rule_docum
     with published(rule_documents[DOCUMENT], core_runner) as app:
         nova = app.spell(doc=edited(lambda doc: None))
         iconed = app.spell(doc=edited(_iconed))
-        first, second, alike = runs_alike(app, core_runner, nova.build, iconed.build)
+        first, second, alike = runs_alike(app, core_runner, nova.build, iconed.build, reads="menu")
 
     for spelled in (nova, iconed):
         assert spelled.build.files is not None and not spelled.build.raised, spelled.build.raised
@@ -159,9 +162,10 @@ def test_hq_builds_a_menu_icon_with_no_media_and_core_runs_it_as_none(rule_docum
     assert shown(planted) == [IMAGE], "the rule erased an icon a media resource installs"
 
 
-def test_web_apps_shows_a_menu_icon_with_no_media_as_none(rule_documents, hq, core_runner):
+@pytest.mark.reader("webapps")  # beside Formplayer, which its fixture starts: it reads the client's screens too
+def test_web_apps_shows_a_menu_icon_with_no_media_as_none(rule_documents, hq, core_runner, formplayer_runner):
     with published(rule_documents[DOCUMENT], core_runner) as app:
-        readings = served_readings(app, {"nova": None, "iconed": _iconed})
+        readings = served_readings(app, formplayer_runner, {"nova": None, "iconed": _iconed})
 
     nova, iconed = readings["nova"], readings["iconed"]
     # Formplayer hands the path on as it stands, and the client looks it up in a media map that does not hold it.

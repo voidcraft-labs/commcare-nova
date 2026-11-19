@@ -3,10 +3,13 @@
  * forms read the search (kind F) only where every case HQ's search returns for it is one the
  * device's list filter keeps (`joinReadsAlike`): a custom text property of the searched case
  * compared with a string literal by `=` or `!=` (a literal the exact field indexes), tested blank,
- * matched by `starts-with`, or compared by `=` with the worker's own information, and `and`, `or`,
- * `match-all` and `match-none` of those. Every other shape the audit read (a negation, a standard
- * property, a property through a related case, a number or a date, `today()`, a typed property, a
- * match of several values, a distance) is not admitted.
+ * matched by `starts-with`, or compared by `=` with the worker's own information, the case's type
+ * compared with a type, `and`, `or`, `match-all` and `match-none` of those, `not` of those whose
+ * negation HQ and the device read alike, and an `if` over the worker's own information whose
+ * branches are admitted. Every other shape the audit read (a negation of `starts-with`, another
+ * standard property, a property through a related case, a number or a date, `today()`, a typed
+ * property, a match of several values, a distance, a choice made over a session value that moves
+ * between the search and its list) is not admitted.
  *
  * The failure it catches: a join that changes the list a worker sees, which the reader would record
  * as a change no worker meets (`search-filter-joined-to-list`, `touchesWorkers: false`).
@@ -21,6 +24,7 @@ import {
 	eq,
 	exists,
 	gt,
+	ifExpr,
 	isBlank,
 	literal,
 	match,
@@ -32,8 +36,10 @@ import {
 	or,
 	prop,
 	relationStep,
+	sessionContext,
 	sessionUser,
 	subcasePath,
+	term,
 	today,
 	within,
 } from "@/lib/domain/expression/builders";
@@ -59,6 +65,15 @@ const doc = produce(
 	},
 );
 const notes = prop("patient", "notes");
+const caseRowType = term({ kind: "case-row-type" });
+const patientType = term({ kind: "case-type", caseType: "patient" });
+/** `if(<session value> = 'demo', match-none(), notes = 'north')`, the list a session value chooses. */
+const chosenBy = (field: "username" | "userid" | "drift" | "applanguage") =>
+	ifExpr(
+		eq(sessionContext(field), literal("demo")),
+		matchNone(),
+		eq(notes, literal("north")),
+	);
 const alike = (conjunct: Expression) =>
 	joinReadsAlike(conjunct, doc, "patient");
 
@@ -84,6 +99,35 @@ describe("a conjunct the reader may join to the list filter", () => {
 		["a disjunction", or(eq(notes, literal("a")), eq(notes, literal("b")))],
 		["every case", matchAll()],
 		["no case", matchNone()],
+		["a negation of an equality", not(eq(notes, literal("north")))],
+		["a negation of an inequality", not(neq(notes, literal("north")))],
+		["a negation of a blank test", not(isBlank(notes))],
+		[
+			"a negation of a disjunction",
+			not(or(eq(notes, literal("a")), isBlank(notes))),
+		],
+		[
+			"a double negation",
+			{
+				kind: "not",
+				clause: { kind: "not", clause: match(notes, "nor", "starts-with") },
+			},
+		],
+		["the case's type equal to a type", eq(caseRowType, patientType)],
+		[
+			"the case's type unequal to a literal",
+			neq(literal("visit"), caseRowType),
+		],
+		[
+			"a negation of a test of the case's type",
+			not(eq(caseRowType, patientType)),
+		],
+		[
+			"a text property equal to the worker's user name",
+			eq(notes, sessionContext("username")),
+		],
+		["a list chosen by the worker's user name", chosenBy("username")],
+		["a list chosen by the worker's id", chosenBy("userid")],
 	])("admits %s", (_, conjunct) => {
 		expect(alike(conjunct)).toBe(true);
 	});
@@ -92,7 +136,29 @@ describe("a conjunct the reader may join to the list filter", () => {
 describe("a conjunct the device's list reads otherwise than HQ's search", () => {
 	const household = ancestorPath(relationStep("parent", "household"));
 	it.each<[string, Expression]>([
-		["a negation", not(eq(notes, literal("north")))],
+		["a negation of starts-with", not(match(notes, "nor", "starts-with"))],
+		[
+			"a negation of an equality with a literal the exact field does not index",
+			not(eq(notes, literal("x".repeat(8192)))),
+		],
+		[
+			"a negation of an equality with the worker's information",
+			not(eq(notes, sessionUser("district"))),
+		],
+		["a list chosen by the clock's drift", chosenBy("drift")],
+		["a list chosen by the app's language", chosenBy("applanguage")],
+		[
+			"a text property equal to the app's language",
+			eq(notes, sessionContext("applanguage")),
+		],
+		[
+			"a choice whose branch is not admitted",
+			ifExpr(
+				eq(sessionContext("username"), literal("demo")),
+				matchNone(),
+				not(match(notes, "nor", "starts-with")),
+			),
+		],
 		["a standard property", eq(prop("patient", "case_name"), literal("Ana"))],
 		[
 			"a related case's property",
@@ -126,7 +192,7 @@ describe("a conjunct the device's list reads otherwise than HQ's search", () => 
 		],
 		[
 			"a conjunction with one shape not admitted",
-			and(eq(notes, literal("a")), not(eq(notes, literal("b")))),
+			and(eq(notes, literal("a")), gt(notes, literal(3))),
 		],
 		[
 			"a property of another menu's type",

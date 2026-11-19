@@ -52,6 +52,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"form-text-characters-written-as-outputs",
 	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
+	"form-titles-written",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
@@ -115,6 +116,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"form-text-characters-written-as-outputs": false,
 	"hidden-value-defaults-dropped": false,
 	"sort-by-entry-with-a-blank-name-dropped": true,
+	"form-titles-written": true,
 };
 
 /** Ids another entry's sentence says to a person. */
@@ -153,7 +155,10 @@ export function firstPublishSentenceId(
  * a person can make after the birth.
  */
 export const FIRST_PUBLISH_ANDROID_ONLY: ReadonlySet<FirstPublishChangeId> =
-	new Set<FirstPublishChangeId>(["sort-by-entry-with-a-blank-name-dropped"]);
+	new Set<FirstPublishChangeId>([
+		"sort-by-entry-with-a-blank-name-dropped",
+		"form-titles-written",
+	]);
 
 /** What a baseline keeps of a list. */
 export interface StoredFirstPublish {

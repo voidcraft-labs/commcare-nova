@@ -596,6 +596,18 @@
 				"artifact": "app_strings:*",
 				"path": "/m*.*.*_*_*.header",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1711,6 +1723,28 @@
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/headers/*",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "form-titles-written",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/title",
 				"kind": "changed"
 			}
 		]

@@ -209,13 +209,13 @@ def test_a_later_load_time_value_reads_a_default_its_calculate_replaces(core_run
 SEVERAL_FORM = (
     '<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">'
     "<h:head><h:title>Chosen</h:title><model>"
-    '<instance><data xmlns="http://example.org/chosen"><chosen/><last/></data></instance>'
+    '<instance><data xmlns="http://example.org/chosen"><chosen/><each/></data></instance>'
     '<instance id="selected_cases" src="jr://instance/selected-entities/selected_cases"/>'
     '<bind nodeset="/data/chosen" calculate="count(instance(\'selected_cases\')/results/value)"/>'
-    # The last value chosen, by its position: Core has no ``last()`` (``ASTNodeFunctionCall`` builds none), and a
-    # number in a predicate is the position it keeps (``EvaluationContext.expandReferenceAccumulator``).
-    '<bind nodeset="/data/last" calculate="instance(\'selected_cases\')/results/value'
-    "[count(instance('selected_cases')/results/value)]\"/>"
+    # Every value chosen, in the instance's order (``XPathJoinFunc`` joins a nodeset's values as it holds them). A
+    # predicate cannot pick the last by counting the same nodes: inside it the context is the value being tested, and
+    # ``TreeReference.contextualize`` gives the absolute path that position, so the count there is always 1.
+    "<bind nodeset=\"/data/each\" calculate=\"join(' ', instance('selected_cases')/results/value)\"/>"
     "</model></h:head><h:body/></h:html>"
 ).encode()
 
@@ -230,10 +230,10 @@ def test_a_several_case_datum_serves_the_cases_chosen_together(core_runner):
             restoreBase64=restore64(),
             formBase64=base64.b64encode(SEVERAL_FORM).decode(),
             session={"data": {"selected_cases": cases}},
-            expressions=["/data/chosen", "/data/last"],
+            expressions=["/data/chosen", "/data/each"],
         )
         chosen[len(cases)] = [value["value"] for value in result["values"]]
-    assert chosen == {1: ["1", "household-one"], 2: ["2", "household-two"]}
+    assert chosen == {1: ["1", "household-one"], 2: ["2", "household-one household-two"]}
     with pytest.raises(CoreRunnerError) as raised:
         core_runner.evaluate(
             restoreBase64=restore64(),

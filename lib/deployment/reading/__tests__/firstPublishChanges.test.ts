@@ -472,6 +472,19 @@ function withLiteralOutputsAsText(xml: string): string {
 	return serializeXml(parseXml(serializeXml(document)));
 }
 
+/** The form's `<h:title>` holding no text, as CommCare HQ's new form holds it. */
+function withBlankTitle(xml: string): string {
+	const document = parseXml(xml);
+	const title = findOne(
+		(element: Element) => element.name === "h:title",
+		document.children.filter(isTag),
+		true,
+	);
+	if (title === null) throw new Error("The export holds no <h:title>.");
+	title.children = [];
+	return serializeXml(document);
+}
+
 /** A survey whose Hidden Value `h` is calculated, beside a question `n` with a default. */
 function calculatedDoc(): BlueprintDoc {
 	return buildDoc({
@@ -736,6 +749,29 @@ describe("over CommCare HQ's retained sources", () => {
 			touchesWorkers: true,
 			of: "next-publish",
 		});
+	});
+
+	it("lists a form's title written anew only where the app runs on Android, and keeps it for a later declaration", {
+		timeout: 60_000,
+	}, async () => {
+		const id = "form-titles-written";
+		const recorded = await PAIRS[id].on();
+		const under = (runsOnlyOn: Platform | null): FirstPublishFacts => ({
+			...recorded,
+			choice: { ...recorded.choice, runsOnlyOn },
+		});
+		expect(applies(id, under(null))).toBe(true);
+		expect(applies(id, under("android"))).toBe(true);
+		// Web Apps titles a form by its menu entry's text, never by its title.
+		const webApps = firstPublishChangesFor(under("web-apps"));
+		expect(webApps.ids).not.toContain(id);
+		const list = firstPublishListToStore(webApps, recorded.facts);
+		expect(list.ids).toContain(id);
+		// Nova's own export writes the form's name there, so its reading records nothing.
+		const plain = await PAIRS[id].off();
+		expect(
+			plain.facts.sameStateRewrites.filter((record) => record.register === id),
+		).toEqual([]);
 	});
 
 	it("lists a Sort by entry left with a blank name only where the app runs on Android, and keeps it for a later declaration", {
@@ -1645,6 +1681,8 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 				if (element.field === "notes") element.display = { en: "Notes" };
 		}),
 	),
+	// A form whose title holds no text, as CommCare HQ's new form holds it.
+	"form-titles-written": editedPair(followUpDoc, { xml: withBlankTitle }),
 };
 
 /** A media map item as CommCare HQ stores one for an image. */

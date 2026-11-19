@@ -119,6 +119,10 @@ GENERATED_COUNT = "uuids"
 # read (``proof/rules/menu_image_without_media.py``). It is context and never compared: the build's media table is
 # proof 2's to compare, and the bar's to admit.
 INSTALLED_MEDIA = "installedMedia"
+# The file each of those media resources installs, by the identity the build gives it, keyed by its ``jr://file/``
+# path (``proof.checks.proof3.media_files``), which the same caller lays beside the trace for the spelling rules to
+# read (``proof/rules/media_path_of_a_shared_file.py``). Context as ``INSTALLED_MEDIA`` is, and never compared.
+MEDIA_FILES = "mediaFiles"
 # Objects in a trace whose keys are all the app's data: a search's prompt
 # errors, keyed by its prompts.
 TRACE_DATA_MAPS = frozenset({"/runs/*/trace/*/promptErrors"})
@@ -1085,8 +1089,8 @@ def compare_traces(before, after, *, check, document, rules, artifact="trace", x
     Each side's generated ids are named by the first place both sides hold
     one first (``relabelled``); ``labels`` is ``generated_labels(before,
     after)``, given by a caller that names HQ's processing of the same runs
-    with it too. A side's ``INSTALLED_MEDIA`` is read by the rules and then
-    left out of the comparison.
+    with it too. A side's ``INSTALLED_MEDIA`` and ``MEDIA_FILES`` are read by
+    the rules and then left out of the comparison.
     """
     xmlns = xmlns or {}
     before, after = relabelled(before, after, labels)
@@ -1095,6 +1099,7 @@ def compare_traces(before, after, *, check, document, rules, artifact="trace", x
     for side in (before, after):
         if isinstance(side, dict):
             side.pop(INSTALLED_MEDIA, None)
+            side.pop(MEDIA_FILES, None)
     stops = (_stops(before), _stops(after))
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(before, "", "", documents_before)

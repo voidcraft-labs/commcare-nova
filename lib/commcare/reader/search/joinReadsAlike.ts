@@ -27,18 +27,36 @@
  * - **`starts-with` of such a property and a string literal.** HQ's prefix on the exact field
  *   (`xpath_functions/query_functions.py::starts_with`, `es/case_search.py::case_property_starts_with`),
  *   case-sensitive; Core's `XPathStartsWithFunc` compares the two strings. Admitted.
- * - **Such a property compared by `=` with the worker's own information.** The device writes the
- *   value into the search's text and reads the same value in the list (a session value does not
- *   move between the search and its list), so it is the literal case. Admitted.
+ * - **Such a property compared by `=` with the worker's own information** (the worker's data, or
+ *   the session's `username` and `userid`, which `SessionInstanceBuilder.addMetadata` writes from
+ *   the signed-in worker). The device writes the value into the search's text and reads the same
+ *   value in the list (none of these moves between the search and its list), so it is the literal
+ *   case. Admitted.
  * - **`and`, `or`, `match-all` and `match-none` of admitted conjuncts.** HQ true of a conjunction
  *   is HQ true of each part, of a disjunction of some part. Admitted.
- * - **`not` of a conjunct.** Needs the converse too (device true implies HQ true), which fails
- *   where the exact field does not index a value (`ignore_above`) or the device reads a value the
- *   index does not. Not admitted.
- * - **A standard property** (a case's name, owner, status, dates): HQ reads its own indexed
+ * - **`not` of a conjunct.** HQ's `not` is the negation of its argument's filter
+ *   (`query_functions.py::not_`, `filters.NOT`), and its `!=` is the same negation of `=`
+ *   (`comparison.py::_create_query`), so a negation is read as its argument with each comparison
+ *   turned over, and admitted where that reading is: `not` of `=` is `!=` (for a literal the exact
+ *   field indexes), `not` of `!=` is `=`, `not` of `and` and `or` is `or` and `and` of the
+ *   negations, `not` of a blank test is a value HQ indexes as not blank (`case_property_missing`
+ *   is the property unset or exactly `''`, both of which a device reads as blank), and `not` of
+ *   `starts-with` is not admitted: a value longer than the exact field indexes matches no prefix in
+ *   HQ and may start with it on the device.
+ * - **The case's type compared by `=` or `!=` with a case type or a string literal.** HQ reads the
+ *   exact term of the type it indexes (`comparison.py::_create_system_query` over
+ *   `INDEXED_METADATA_BY_KEY['@case_type']`, `type.exact`), and the device the `@case_type` of the
+ *   case HQ answered, which is that type. Admitted, either way round and under `not`.
+ * - **Any other standard property** (a case's name, owner, status, dates): HQ reads its own indexed
  *   metadata (`comparison.py::property_comparison_query`, `INDEXED_METADATA_BY_KEY`), dates by the
  *   project space's time zone (`_create_system_datetime_query`), where the device reads the
  *   results' own elements. Not admitted.
+ * - **An `if` whose condition reads only literals and the worker's own information**, each branch
+ *   admitted. The device evaluates the condition when it sends the search and again in the list
+ *   over values that do not move between the two, so both take one branch. A condition over any
+ *   other session value is not admitted: `drift` is set again from every answer the device gets
+ *   (`CommCareNetworkServiceGenerator.driftInterceptor`), the search's own among them, and
+ *   `window_width` and `applanguage` change with the worker's window and language.
  * - **A property read through a related case** (`ancestor-exists`, `subcase-exists`,
  *   `subcase-count`, `parent/<property>`): HQ reads every case of the project space's index
  *   (`xpath_functions/ancestor_functions.py`, `subcase_functions.py`), the device only the related
@@ -116,39 +134,101 @@ export function joinReadsAlike(
 		operand.term.value.length <= longest;
 	const worker = (operand: Expression) =>
 		operand.kind === "term" && isWorkerValue(operand.term);
-	const alike = (node: Expression): boolean => {
+	const typeValue = (operand: Expression) =>
+		operand.kind === "term" &&
+		(operand.term.kind === "case-type" ||
+			(operand.term.kind === "literal" &&
+				operand.term.data_type === undefined &&
+				typeof operand.term.value === "string"));
+	const rowType = (operand: Expression) =>
+		operand.kind === "term" && operand.term.kind === "case-row-type";
+	const typeTest = (left: Expression, right: Expression) =>
+		(rowType(left) && typeValue(right)) || (rowType(right) && typeValue(left));
+	const equal = (left: Expression, right: Expression) =>
+		(ownText(left) && (text(right) || worker(right))) ||
+		(ownText(right) && (text(left) || worker(left))) ||
+		typeTest(left, right);
+	const unequal = (left: Expression, right: Expression) =>
+		(ownText(left) && text(right, EXACT_INDEXED_LENGTH)) ||
+		(ownText(right) && text(left, EXACT_INDEXED_LENGTH)) ||
+		typeTest(left, right);
+	/** Whether `node` reads alike, or, where `negated`, whether its negation does. */
+	const alike = (node: Expression, negated: boolean): boolean => {
 		switch (node.kind) {
 			case "match-all":
 			case "match-none":
 				return true;
 			case "and":
 			case "or":
-				return node.clauses.every(alike);
+				return node.clauses.every((clause) => alike(clause, negated));
+			case "not":
+				return alike(node.clause, !negated);
 			case "eq":
-				return (
-					(ownText(node.left) && (text(node.right) || worker(node.right))) ||
-					(ownText(node.right) && (text(node.left) || worker(node.left)))
-				);
+				return negated
+					? unequal(node.left, node.right)
+					: equal(node.left, node.right);
 			case "neq":
-				return (
-					(ownText(node.left) && text(node.right, EXACT_INDEXED_LENGTH)) ||
-					(ownText(node.right) && text(node.left, EXACT_INDEXED_LENGTH))
-				);
+				return negated
+					? equal(node.left, node.right)
+					: unequal(node.left, node.right);
 			case "is-blank":
 				return ownText(node.left);
 			case "match":
 				return (
+					!negated &&
 					node.mode === "starts-with" &&
 					ownText(node.property) &&
 					text(node.value)
+				);
+			case "if":
+				return (
+					steady(node.cond) &&
+					alike(node.then, negated) &&
+					alike(node.else, negated)
 				);
 			default:
 				return false;
 		}
 	};
-	return alike(conjunct);
+	return alike(conjunct, false);
 }
 
+/** The session's values that name the signed-in worker (`SessionInstanceBuilder.addMetadata`). */
+const WORKER_CONTEXT_FIELDS: ReadonlySet<string> = new Set([
+	"username",
+	"userid",
+]);
+
 function isWorkerValue(term: Term): boolean {
-	return term.kind === "session-user" || term.kind === "session-user-property";
+	return (
+		term.kind === "session-user" ||
+		term.kind === "session-user-property" ||
+		(term.kind === "session-context" && WORKER_CONTEXT_FIELDS.has(term.field))
+	);
+}
+
+/** Whether a device gives `condition` one value when it sends the search and in the list after:
+ *  a comparison, `and`, `or` or `not` of literals and the worker's own information. */
+function steady(condition: Expression): boolean {
+	switch (condition.kind) {
+		case "term":
+			return condition.term.kind === "literal" || isWorkerValue(condition.term);
+		case "match-all":
+		case "match-none":
+			return true;
+		case "and":
+		case "or":
+			return condition.clauses.every(steady);
+		case "not":
+			return steady(condition.clause);
+		case "eq":
+		case "neq":
+		case "lt":
+		case "lte":
+		case "gt":
+		case "gte":
+			return steady(condition.left) && steady(condition.right);
+		default:
+			return false;
+	}
 }

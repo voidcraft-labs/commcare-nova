@@ -112,8 +112,8 @@ def _admission(report, path):
 
 def run_sessions(core_runner, side, path, restore, script=None, *, runtime_defaults=None, searches=None):
     """The build's sessions over the restore: derived when ``script`` is None, else the script replayed.
-    ``runtime_defaults`` names the strings the runtime that alone reads the archive registers as its default locale
-    first (Nova's local export, which only CommCare Android reads: ``ANDROID_DEFAULT_STRINGS``); ``searches``
+    ``runtime_defaults`` names the strings the runtime the sessions model registers as its default locale first
+    (CommCare Android's, ``ANDROID_DEFAULT_STRINGS``, for every build of an app that declares Android); ``searches``
     answers each case search a session sends (``HqSearches``, ``proof.core.client.CoreRunner.session``)."""
     with admitted(core_runner, path, runtime_defaults) as report:
         admission = _admission(report, path)
@@ -124,6 +124,102 @@ def run_sessions(core_runner, side, path, restore, script=None, *, runtime_defau
 
 
 # Searches -------------------------------------------------------------------
+
+
+def searched(trace):
+    """Whether a session of ``trace`` sent a case search: a step's request of kind ``search``
+    (``ProofSessionUtils.java``). A session run with no ``searches`` is answered every case of the searched types and
+    no filter, so a caller that compares nothing a search finds refuses a trace where this holds."""
+    return any(
+        request.get("kind") == "search"
+        for run in trace.get("runs") or ()
+        for step in run.get("trace") or ()
+        for request in step.get("requests") or ()
+    )
+
+
+# The functions of a case search query with which HQ reads its own clock: ``today()`` in the project space's zone and
+# ``now()`` (``case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS``, ``value_functions.py::today``,
+# ``now``).
+HQ_CLOCK_FUNCTIONS = frozenset({"today", "now"})
+
+
+class ClocksApart(RuntimeError):
+    """A document's cases hold a date between the runtimes' day and HQ's, where a search has HQ read its clock."""
+
+
+def reads_hq_clock(query):
+    """Whether HQ's search reads its clock evaluating ``query`` (one ``_xpath_query`` value): a call of a function of
+    ``HQ_CLOCK_FUNCTIONS``, found in the tree HQ's own parser gives the query (``case_search/filter_dsl.py::
+    build_filter_from_xpath``'s ``parse_xpath``, eulxml's). Asked only of a query HQ has just parsed and answered."""
+    from eulxml.xpath import parse as parse_xpath
+    from eulxml.xpath.ast import FunctionCall
+
+    pending = [parse_xpath(query)]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, FunctionCall) and node.prefix is None and node.name in HQ_CLOCK_FUNCTIONS:
+            return True
+        if isinstance(node, (list, tuple)):
+            pending.extend(node)
+        elif hasattr(node, "__dict__"):
+            pending.extend(vars(node).values())
+    return False
+
+
+def clock_days():
+    """The days a date read against a clock can be read apart by the lane's two clocks, as ``(first, last)``.
+
+    The runtimes' clock (Core's, Formplayer's and Android's) is one fixed instant,
+    ``proof.core.client.DEFAULT_CLOCK``; HQ's is the commit instant of its pin (``proof.hq.determinism.EPOCH``),
+    so HQ's date-gated code runs as it did at the pin. In production both read one day. A case date at or between
+    those two days compares with ``today()`` one way on the device and the other in HQ's search, which no worker
+    meets; one day more at each end holds HQ's ``today()`` in a project space's own zone."""
+    import datetime as dt
+
+    from proof.core.client import DEFAULT_CLOCK
+    from proof.hq.determinism import EPOCH
+
+    runtime = dt.date.fromisoformat(DEFAULT_CLOCK[:10])
+    hq = EPOCH.astimezone(dt.UTC).date()
+    first, last = sorted((runtime, hq))
+    return first - dt.timedelta(days=1), last + dt.timedelta(days=1)
+
+
+def dates_between(database, first, last):
+    """Each ``(case id, field, value)`` of ``database`` whose value is a date, or a date and time, on a day from
+    ``first`` to ``last``: a case's own opened and modified stamps and each property."""
+    import datetime as dt
+
+    found = []
+    for case in database.cases:
+        fields = (("date_opened", case.opened_on), ("last_modified", case.modified_on), *case.properties)
+        for name, value in fields:
+            if not isinstance(value, str) or len(value) < 10:
+                continue
+            try:
+                day = dt.date.fromisoformat(value[:10])
+            except ValueError:
+                continue
+            if first <= day <= last:
+                found.append((case.case_id, name, value))
+    return found
+
+
+def refuse_dates_between_the_clocks(database, label):
+    """Refuse a case database that holds a date ``clock_days`` names, once a search of ``label``'s sessions has HQ
+    read its clock (``ClocksApart``)."""
+    first, last = clock_days()
+    found = dates_between(database, first, last)
+    if found:
+        listed = ", ".join(f"{case_id} {name} {value}" for case_id, name, value in found[:5])
+        raise ClocksApart(
+            f"A search of the {label} sessions asks CommCare HQ for today() or now(), and this document's cases"
+            f" hold dates from {first} to {last} ({listed}). Between those days the device's clock"
+            " (proof.core.client.DEFAULT_CLOCK) and HQ's (proof.hq.determinism.EPOCH) read such a date apart, so"
+            " HQ's answer would differ from what one day gives in production. Give the case a date outside those"
+            " days: the literal the document compares, or the base's seed."
+        )
 
 
 @dataclass
@@ -156,6 +252,7 @@ class HqSearches:
     stack: ExitStack = field(default_factory=ExitStack)
     _views: object = None
     _credentials: str = ""
+    _clocks_held: bool = False
 
     def __call__(self, url, params):
         from proof.formplayer.client import HqRequest
@@ -176,6 +273,12 @@ class HqSearches:
                 body,
             )
         )
+        # Read only once HQ has answered the query (its own parse of each value succeeded), so this second parse
+        # of it changes nothing of HQ's parser's state for the next.
+        if answer.status == 200 and not self._clocks_held:
+            if any(reads_hq_clock(query) for query in params.get(XPATH_QUERY_KEY) or ()):
+                self._clocks_held = True
+                refuse_dates_between_the_clocks(self.database, self.label)
         return answer.status, answer.body
 
     def _open(self):
@@ -652,6 +755,16 @@ def observe(
     baseline, its CSQL compiles and B's sessions run, and no ``local`` side is
     recorded. A document that declares Android and holds no archive runs
     none, as one A is missing or unbuildable for.
+
+    For a document that declares Android every side runs as Android runs it,
+    over Android's own strings registered as the default locale's first source
+    (``ANDROID_DEFAULT_STRINGS``): Android registers them before any app's
+    files, HQ's build as much as Nova's archive
+    (``CommCareApplication.initializeDefaultLocalizerData``), and a text Core
+    localizes from them (a missing lookup table's message,
+    ``CommCareInstanceInitializer.FixtureInitializationException``) is the
+    runtime's, so the local archive's sessions are compared with A's and B's
+    as one runtime reads each.
     """
     from proof.hq.operations import with_runtime_app_id
 
@@ -666,6 +779,7 @@ def observe(
     if restore_hq is None:
         return recorded
     restore_plain = local_restore(unit, database, operation) if archive is not None else None
+    runtime_strings = ANDROID_DEFAULT_STRINGS if android else None
     with tempfile.TemporaryDirectory(prefix="proof-observe-sessions-") as scratch:
         baseline, recorded["baseline"] = _side(
             core_runner,
@@ -676,6 +790,7 @@ def observe(
             restore_hq,
             blobs,
             operation=operation,
+            runtime_defaults=runtime_strings,
             app_id=app_id,
             app_doc=a_doc,
         )
@@ -699,7 +814,7 @@ def observe(
                 operation=operation,
                 script=script,
                 baseline=baseline,
-                runtime_defaults=ANDROID_DEFAULT_STRINGS,
+                runtime_defaults=runtime_strings,
                 app_id=app_id,
             )
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
@@ -722,6 +837,7 @@ def observe(
             blobs,
             operation=operation,
             script=script,
+            runtime_defaults=runtime_strings,
             app_id=app_id,
         )
     return recorded

@@ -19,7 +19,8 @@ The stored app is written with that column's expression wrapped as Nova
 spells it, ``concat(<expression>, ' / ', 'kept')``, and as an author typed
 it, with other whitespace and double quotes; HQ builds both whole, the two
 builds differ at the column's ``xpath@function`` alone, which the rule
-erases, Core's sessions over the two compare equal, and Formplayer's walk
+erases, Core's sessions over the two, whose list shows the column's text for
+its case, compare equal, and Formplayer's walk
 and the Web Apps client's screens of the two releases compare equal. A
 third spelling, with another string, is a difference the rule leaves.
 """
@@ -29,6 +30,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from lxml import etree
 
 from proof.rules._suite import XPATH_ATTRIBUTES, is_xpath
@@ -37,6 +39,7 @@ from proof.rules.conftest import (
     client_differences,
     edited,
     formplayer_differences,
+    listed,
     published,
     runs_alike,
     served_readings,
@@ -136,19 +139,23 @@ def test_hq_builds_either_spelling_and_core_runs_both_alike(rule_documents, hq, 
         nova = app.spell(doc=edited(_wrapped(NOVA)))
         typed = app.spell(doc=edited(_wrapped(TYPED)))
         other = app.spell(doc=edited(_wrapped(OTHER)))
-        _, _, alike = runs_alike(app, core_runner, nova.build, typed.build)
+        first, _, alike = runs_alike(app, core_runner, nova.build, typed.build, reads="case list")
 
     found = shown(build_differences(nova.build, typed.build))
     assert found, "the two spellings built the same suite, so the test shows nothing"
     assert all(path.endswith("/@function") for _, path, _ in found), found
     assert build_differences(nova.build, typed.build, rules=(RULE,)) == []
+    assert any(field.endswith(f" / {KEPT}") for field in listed(first)), "Core's list showed no row of the column"
     assert alike == [], shown(alike)
     assert shown(_suite_differences(nova, other, rules=(RULE,))), "the rule erased another string"
 
 
-def test_formplayer_walks_a_suite_expression_alike_in_either_spelling(rule_documents, hq, core_runner):
+@pytest.mark.reader("webapps")  # beside Formplayer, which its fixture starts: it reads the client's screens too
+def test_formplayer_walks_a_suite_expression_alike_in_either_spelling(
+    rule_documents, hq, core_runner, formplayer_runner
+):
     with published(rule_documents[DOCUMENT], core_runner) as app:
-        readings = served_readings(app, {"nova": _wrapped(NOVA), "typed": _wrapped(TYPED)})
+        readings = served_readings(app, formplayer_runner, {"nova": _wrapped(NOVA), "typed": _wrapped(TYPED)})
 
     nova, typed = readings["nova"], readings["typed"]
     assert _calculated(nova["doc"])["field"] != _calculated(typed["doc"])["field"]

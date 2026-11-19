@@ -868,6 +868,22 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			paths: ["/modules/*/case_details/short/sort_elements/*/display"],
 		},
 	),
+	/**
+	 * A form whose `<h:title>` holds other text than its name in the app's
+	 * first language, which Nova writes there (`formWireName`): CommCare HQ's
+	 * new form holds a blank title, and a rename through Bulk App Translations
+	 * leaves the old one. CommCare Android shows the title at the top of a form
+	 * a worker opens again from its saved forms with no menu's title to hand it
+	 * (`FormEntryActivity.getHeaderString`) and names the saved form by it
+	 * (`FormEntryInstanceState.getDefaultFormTitle`); Web Apps titles a form by
+	 * its menu entry's text (`FormSession.getLocalizedFormTitle`), so the
+	 * change is shown only where the app runs on Android. Recorded by
+	 * `reader/assemble.ts::recordTitleRewrites`.
+	 */
+	"form-titles-written": androidOnlyRecorded("form-titles-written", {
+		touchesWorkers: true,
+		paths: ["/_attachments/*"],
+	}),
 };
 
 /**

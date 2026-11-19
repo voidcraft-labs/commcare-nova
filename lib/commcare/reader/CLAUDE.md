@@ -506,8 +506,10 @@ apps shows as stored, so one holding `\n`, `\#` or a carriage return, which the 
 show otherwise, is refused at the app under
 `application-and-settings/app-name-holding-backslash-n-a-backslash-before-hash-or-a-carriage-return`
 (`appShell.ts::holdAppName`);
-a form's name read with a line break is written into its `<h:title>` and data node, which no screen
-a worker reads shows. A comparison of a stored text with Nova's print
+a form's name read with a line break is written into its `<h:title>` and data node. A form whose
+`<h:title>` Core reads as other text than that name (HQ's new form holds it blank) is recorded under
+`form-titles-written` (`assemble.ts::recordTitleRewrites`): CommCare Android shows the title at the
+top of a saved form a worker opens again. A comparison of a stored text with Nova's print
 compares both as held, and a text compared with HQ's default (a detail's empty-list and continue
 texts, the Search button's label) is the default where a device shows the default in every
 language, its map respelled by the first publish under `list-settings-respelled` where Nova writes

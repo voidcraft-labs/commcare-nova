@@ -1498,6 +1498,50 @@ class Predicates(unittest.TestCase):
             [{**item, "image": None} for item in iconed["items"]], [{**item, "image": None} for item in plain["items"]]
         )
 
+    def test_a_picture_two_paths_name_draws_alike(self):
+        """The spelling rule ``media-path-of-a-shared-file``. Contract: a menu whose icon names a second path to the
+        file its first path installs (a second media resource at that path, holding the same bytes, as HQ's build
+        installs one ``CommCareMultimedia`` at each path its media map names) installs as the archive whose menu
+        names the first path does, lists the same items with the same texts, and holds the file at the path its icon
+        names, which ``MediaUtil.inflateDisplayImage`` draws: the same bytes. Failure it catches: an install
+        refused, or no file held, for the second path, so a worker would see another picture or none."""
+        with zipfile.ZipFile(MEDIA_ONLY) as held:
+            strings = held.read("default/app_strings.txt").decode("utf-8")
+            (line,) = [each for each in strings.split("\n") if each.startswith("modules.m0.icon=")]
+            first = line.split("=", 1)[1]
+            picture = held.read(first[len("jr://file/") :])
+        second = "jr://file/commcare/image/module0_en.png"
+        # The rule reads the second path as the first, the first in code-unit order.
+        self.assertLess(first, second)
+        entry = second[len("jr://file/") :]
+        resource = (
+            '<media path="../../commcare/image"><resource id="media-shared-module0_en.png" version="1">'
+            f'<location authority="local">./{entry}</location></resource></media>'
+        )
+        named = with_entries(MEDIA_ONLY, self.work / "shared-file.ccz", {entry: picture})
+        named = edited(named, self.work / "shared-suite.ccz", "media_suite.xml", [("</suite>", resource + "</suite>")])
+        for language in ("default", "en"):
+            named = edited(
+                named,
+                self.work / f"shared-{language}.ccz",
+                f"{language}/app_strings.txt",
+                [(line, f"modules.m0.icon={second}")],
+            )
+        with zipfile.ZipFile(named) as held:
+            self.assertEqual(held.read(entry), held.read(first[len("jr://file/") :]))
+
+        def first_menu(archive):
+            menus = [step["menu"] for step in self.steps(self.walked(archive), "MenuActivity") if step.get("menu")]
+            self.assertTrue(menus and menus[0]["items"], f"{archive.name} shows no menu")
+            return menus[0]
+
+        one, two = first_menu(MEDIA_ONLY), first_menu(named)
+        self.assertEqual([item["image"] for item in one["items"]], [{"uri": first, "held": True}])
+        self.assertEqual([item["image"] for item in two["items"]], [{"uri": second, "held": True}])
+        self.assertEqual(
+            [{**item, "image": None} for item in two["items"]], [{**item, "image": None} for item in one["items"]]
+        )
+
     def test_a_device_reads_an_archive_alike_under_either_app_id(self):
         """The spelling rule ``runtime-url-app-id``. Contract: an archive whose search URL and server
         properties name one app id and the same archive naming another install alike, and every profile
