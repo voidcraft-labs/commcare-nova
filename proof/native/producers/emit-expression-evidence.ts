@@ -1138,7 +1138,7 @@ writeFileSync(
 	);
 }
 
-// ReaderSpellingRuntimeTest (run E1) reads each row of the reader's
+// ReaderSpellingRuntimeTest reads each row of the reader's
 // equivalence table (lib/commcare/reader/syntaxCompare.ts) through Core:
 // both spellings of a vector parsed and evaluated over one instance.
 writeFileSync(

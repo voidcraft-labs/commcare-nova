@@ -1,0 +1,106 @@
+[
+	{
+		"path": "jr://file/commcare/audio/data/animal-cow.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "e044bf00-c0a3-11f1-b9b3-ed9d8d089fe7",
+		"status": 200,
+		"sha256": "c5a792e423af760bbf58ee7fc99a24cd06b09cd6d1c96dffb33581812dbefda4",
+		"length": 496
+	},
+	{
+		"path": "jr://file/commcare/audio/data/animal_name.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "de7afb80-c0a3-11f1-bfde-13294274d081",
+		"status": 200,
+		"sha256": "6b7e8bc8d02cfa2ee5587abe023ac9ebbc61e5efa71dd94de783afdd42221b5f",
+		"length": 497
+	},
+	{
+		"path": "jr://file/commcare/audio/module0_en.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "e20e8280-c0a3-11f1-b605-2d6e122c1778",
+		"status": 200,
+		"sha256": "c4f4c42e9deac734824bbf5c9c58f1800503fb711567731aef737af2dbd308a7",
+		"length": 491
+	},
+	{
+		"path": "jr://file/commcare/audio/module0_form0_en.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "e2a71900-c0a3-11f1-92c4-8fce26e07d29",
+		"status": 200,
+		"sha256": "c02e5ee03e3df93519f9db7dd00ed0b5af114a7bb910d4e4383eda0453d5915e",
+		"length": 497
+	},
+	{
+		"path": "jr://file/commcare/b31db31dac56efe2a9e3fa26a868814b726d741c7f700863462a21638ee6dd3a.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "e5097300-c0a3-11f1-9fef-ab3550c03c9e",
+		"status": 200,
+		"sha256": "4edca6d582a91ef4f963b870bbc01a163d9bc02fde701ce5a84b5bb45f1a931d",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/data/Place.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "e33faf80-c0a3-11f1-9643-05d69c119178",
+		"status": 200,
+		"sha256": "35f362d8d435c421753bca91a54f86e02bf592bb98c9e251f097ae5b070aacea",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/data/animal-goat.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "dfac2880-c0a3-11f1-8906-4379985083fb",
+		"status": 200,
+		"sha256": "934d66cc1b1b742923d32f1dcf6b083dd3c2ce143adfe06bed22a73e4df77ca0",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/data/animal_name.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "dde26500-c0a3-11f1-bb07-d7f773f4df4f",
+		"status": 200,
+		"sha256": "cd0614ac931cf8e665c13a84b7cf540768fd35be0a66951c821bd2070659a248",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/data/place.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "e3d84600-c0a3-11f1-9830-e383e341b7ff",
+		"status": 200,
+		"sha256": "5d865afb42cc6de8a97d0f0f8d6cbac12f04ec1a8c7f0616c86db3950e489924",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/module0_en.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "e175ec00-c0a3-11f1-97ed-4f9029e253cb",
+		"status": 200,
+		"sha256": "577b50a7cdcd30ac25663ea9e6ddd4563ff3b7fcbb5d4308766ba5c93c45e9c1",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/video/data/animal-hen.mp4",
+		"mediaType": "CommCareVideo",
+		"multimediaId": "e0dd5580-c0a3-11f1-8cc1-95eac566fd48",
+		"status": 200,
+		"sha256": "23a8e5bf942e59f651a450ddb9a10b3e8e97b1715b8acc7b2b1c0ab8ad5a76ff",
+		"length": 659
+	},
+	{
+		"path": "jr://file/commcare/video/data/animal_name.mp4",
+		"mediaType": "CommCareVideo",
+		"multimediaId": "df139200-c0a3-11f1-ae80-ffca5134f4da",
+		"status": 200,
+		"sha256": "2695edcf78e46f743bd6c8bff5a87dacf3a2b188c714f9a0f60dd68df3275953",
+		"length": 660
+	},
+	{
+		"path": "jr://file/loose_picture.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "e470dc80-c0a3-11f1-9ca8-1dc51476fe1b",
+		"status": 200,
+		"sha256": "41619e6c61da4940ba810e3aae603b85c9e9c35a4ed7ca30f5a7b5b972e99fe2",
+		"length": 69
+	}
+]

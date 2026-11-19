@@ -14,6 +14,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
+import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import {
 	projectCaseListForHq,
 	type SearchConfigRewrites,
@@ -37,7 +38,14 @@ import {
 } from "../caseList/columns";
 import { caseListReadings, sameState } from "../caseList/details";
 import { withReadTexts } from "../caseList/readTexts";
-import { defineClaims, derived, drop, refuse, take } from "../claims";
+import {
+	type Claim,
+	defineClaims,
+	derived,
+	drop,
+	refuse,
+	take,
+} from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { clauses, core } from "../expressions/folds";
@@ -54,11 +62,17 @@ import {
 	unheldRefusal,
 	unheldText,
 } from "../heldText";
-import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
+import {
+	isJsonObject,
+	type JsonCursor,
+	registerUndeclaredKeys,
+	sameJson,
+} from "../jsonCursor";
 import {
 	type PendingExpression,
 	pendingPlaceholder,
 } from "../pendingExpressions";
+import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { sameSyntax, sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
@@ -195,9 +209,12 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 	blankInstance: drop(BLANK_IS_ABSENT, "schema:CaseSearch.instance_name"),
 	removed: drop(
 		`${S}removed-keys-dynamic-search-additional-relevant-search-filter`,
-		"schema:CaseSearch",
+		"schema:CaseSearch.<undeclared>",
 	),
-	unknown: drop(`${S}any-other-unknown-casesearch-key`, "schema:CaseSearch"),
+	unknown: drop(
+		`${S}any-other-unknown-casesearch-key`,
+		"schema:CaseSearch.<undeclared>",
+	),
 });
 
 const T = SETTING_CLAIMS;
@@ -283,12 +300,30 @@ function widensTheList(stored: unknown, module: DraftModule): boolean {
 	);
 }
 
-/** The keys HQ's model removed (`models/case_search.py::CaseSearch`). */
+/** The keys HQ's model removed, each its docstring's "Removed fields"
+ *  (`models/case_search.py::CaseSearch`). */
 const REMOVED_KEYS = new Set([
+	"again_label",
+	"search_again_label",
 	"dynamic_search",
+	"command_label",
+	"search_label",
 	"additional_relevant",
 	"search_filter",
 ]);
+
+/** A key `CaseSearch` does not declare, whether or not the menu offers its search: a key HQ's
+ *  model removed, or any other, which no build reads. */
+function undeclaredSearchKey(key: string): Claim<"drop"> {
+	return REMOVED_KEYS.has(key) ? T.removed : T.unknown;
+}
+registerUndeclaredKeys("CaseSearch", undeclaredSearchKey);
+
+/** Claims each key of a `search_config` its class does not declare. */
+export function claimUndeclaredSearchKeys(cursor: JsonCursor): void {
+	for (const key of cursor.undeclared())
+		cursor.drop(key, undeclaredSearchKey(key));
+}
 
 /** The words Core routes an instance source by before the search's own prefixes
  *  (`CommCareInstanceInitializer.generateRoot`). */
@@ -317,18 +352,20 @@ function usesInlineSearch(config: unknown): boolean {
  * the menu its parent selection names (`helpers/validators.py`, `validate_search_config` and
  * `validate_parent_select`, which compare whether or not the menu searches): `"inline"` where that
  * menu's search is inline, which HQ's build refuses, `"other"` where it is not, which no runtime
- * reads.
+ * reads. `withParent` false compares with the root menu alone.
  */
 function instanceClash(
 	ctx: ReadContext,
 	module: DraftModule,
+	withParent = true,
 ): "inline" | "other" | undefined {
 	const own = resultsInstance(module.json.peek("search_config"));
 	const root = module.json.peek("root_module_id");
 	const parent = module.json.peek("parent_select");
 	const ids = [
 		...(typeof root === "string" && root !== "" ? [root] : []),
-		...(isJsonObject(parent) &&
+		...(withParent &&
+		isJsonObject(parent) &&
 		parent.active === true &&
 		typeof parent.module_id === "string"
 			? [parent.module_id]
@@ -345,6 +382,53 @@ function instanceClash(
 	}
 	return clash;
 }
+
+/** Whether the menu's root menu, or the menu its parent selection names, searches inline: the
+ *  menus HQ's build compares its results instance with (`instanceClash`). */
+function underInlineSearch(ctx: ReadContext, module: DraftModule): boolean {
+	const root = module.json.peek("root_module_id");
+	const parent = module.json.peek("parent_select");
+	const ids = [
+		...(typeof root === "string" && root !== "" ? [root] : []),
+		...(isJsonObject(parent) &&
+		parent.active === true &&
+		typeof parent.module_id === "string"
+			? [parent.module_id]
+			: []),
+	];
+	return ids.some((id) => {
+		const other = ctx.draft.modules.find((one) => one.uniqueId === id);
+		return (
+			other !== undefined &&
+			other !== module &&
+			usesInlineSearch(other.json.peek("search_config"))
+		);
+	});
+}
+
+/**
+ * The menus' refusal of the menu's parent selection, where the menu it names searches inline
+ * under this menu's results instance and the root menu gives no such clash: that entry
+ * (`menus/modules.ts`, `parent-select-naming-a-module-that-searches-inline-under-the`) names the
+ * one cause, and the menu's instance name belongs to it.
+ */
+function parentSelectionClash(
+	ctx: ReadContext,
+	module: DraftModule,
+): Finding | undefined {
+	if (instanceClash(ctx, module, false) === "inline") return undefined;
+	const where = whereText(module.place);
+	return ctx.accounting
+		.findings()
+		.find(
+			(finding) =>
+				finding.code === PARENT_SELECTION_CLASH &&
+				whereText(finding.place) === where,
+		);
+}
+
+const PARENT_SELECTION_CLASH =
+	"menus-and-case-lists/parent-select-naming-a-module-that-searches-inline-under-the";
 
 /** HQ's model default for the search button's text. */
 const BUTTON_DEFAULT = "Search All Cases";
@@ -439,6 +523,21 @@ function ownerClauseOf(
 }
 
 /**
+ * Whether CommCare HQ reads a menu's case list as choosing its case by itself
+ * (`models/modules.py::Module.is_auto_select`): the short detail's `auto_select`, whether or not
+ * the list is multi-select, since the method tests `is_multi_select` itself, a bound method and so
+ * always true; never in an advanced menu (`AdvancedModule.is_auto_select`). HQ refuses
+ * `search_on_clear` beside it whether or not the menu offers search
+ * (`helpers/validators.py::validate_search_config`).
+ */
+export function hqAutoSelects(module: DraftModule): boolean {
+	if (module.docType === "AdvancedModule") return false;
+	const details = module.json.peek("case_details");
+	const short = isJsonObject(details) ? details.short : undefined;
+	return isJsonObject(short) && short.auto_select === true;
+}
+
+/**
  * The case list filter's text less the owner clause, where the menu holds an owner exclusion
  * (`ownerSource`) and the filter's last top-level conjunct is the clause Nova writes for it. The
  * rest is the authored filter, registered on its own; the projection of the whole menu then holds
@@ -523,6 +622,46 @@ function filterWithOwnerClause(module: DraftModule): string | undefined {
 	return ownerClauseOf(parse(filter)) === undefined ? undefined : filter;
 }
 
+/** Each results instance name a reading refused, with its refusal and the place it stands at. */
+const REFUSED_INSTANCE_NAMES = new WeakMap<
+	ReadContext,
+	Map<string, { readonly claim: Claim<"refuse">; readonly place: HqPlace }>
+>();
+
+function refuseInstanceName(
+	ctx: ReadContext,
+	cursor: JsonCursor,
+	claim: Claim<"refuse">,
+	place: HqPlace,
+): void {
+	cursor.refuse("instance_name", claim);
+	const name = cursor.peek("instance_name");
+	if (typeof name !== "string" || name === "") return;
+	let refused = REFUSED_INSTANCE_NAMES.get(ctx);
+	if (refused === undefined) {
+		refused = new Map();
+		REFUSED_INSTANCE_NAMES.set(ctx, refused);
+	}
+	if (!refused.has(name)) refused.set(name, { claim, place });
+}
+
+/**
+ * The refusal of the results instance name an instance id reads, where the reading refused that
+ * name: CommCare HQ's build declares a search's results under it as `results:<name>`, and the
+ * search's answers as `search-input:results:<name>` (`suite_xml/post_process/instances.py`), so a
+ * form's read of either stands under the name's one finding. Undefined for any other id.
+ */
+export function refusedInstanceNameOf(
+	ctx: ReadContext,
+	id: string,
+): { readonly claim: Claim<"refuse">; readonly place: HqPlace } | undefined {
+	const refused = REFUSED_INSTANCE_NAMES.get(ctx);
+	if (refused === undefined) return undefined;
+	for (const prefix of ["search-input:results:", "results:"])
+		if (id.startsWith(prefix)) return refused.get(id.slice(prefix.length));
+	return undefined;
+}
+
 /** What the settings pass keeps for the settle. */
 export interface SettingsReading {
 	readonly ok: boolean;
@@ -602,6 +741,8 @@ export function readSearchSettings(
 		);
 	};
 	const clash = instanceClash(ctx, module);
+	const selectionClash =
+		clash === "inline" ? parentSelectionClash(ctx, module) : undefined;
 	let owners: number | undefined;
 	const filter = filterWithOwnerClause(module);
 	let ownersWithoutClause = false;
@@ -634,10 +775,10 @@ export function readSearchSettings(
 		// use of the grammar is claimed twice at one node.
 		const short = caseListReadings(ctx).get(module.uuid)?.short;
 		const text = ownerListInFilter(filter);
-		const site =
-			listFilterWithoutOwnerClause(module, filter) === ""
-				? { json: short, key: "filter" }
-				: { json: module.json, key: "case_details" };
+		const whole = listFilterWithoutOwnerClause(module, filter) === "";
+		const site = whole
+			? { json: short, key: "filter" }
+			: { json: module.json, key: "case_details" };
 		if (short !== undefined && site.json !== undefined && text !== undefined) {
 			owners = ctx.pending.register(
 				{
@@ -650,6 +791,8 @@ export function readSearchSettings(
 					mode: { target: "hq-json", interpolation: "case" },
 					place,
 					key: "schema:CaseSearch.blacklisted_owner_ids_expression",
+					// HQ interpolates the filter whole, and the menu's `case_details` not at all.
+					slotText: whole ? filter : null,
 				},
 				{ json: site.json, key: site.key },
 			);
@@ -659,7 +802,28 @@ export function readSearchSettings(
 	if (!offers) {
 		// A menu that offers no search still loads its results instance by name.
 		if (clash === "inline") {
-			ctx.accounting.finding(T.instanceClash, place);
+			if (selectionClash === undefined)
+				ctx.accounting.finding(T.instanceClash, place);
+			ok = false;
+		} else if (
+			holdsText(cursor, "instance_name") &&
+			underInlineSearch(ctx, module)
+		) {
+			// Under a menu that searches inline, a menu that searches nothing keeps HQ's build
+			// only by a results instance name of its own (`validate_search_config` and
+			// `validate_parent_select` compare it with that menu's whether or not this one
+			// searches), and Nova holds no such name: its export would give both menus
+			// `results:inline`, which CommCare HQ refuses.
+			const instance = String(cursor.peek("instance_name"));
+			claimed.add("instance_name");
+			refuseInstanceName(
+				ctx,
+				cursor,
+				RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
+					? T.instanceReserved
+					: T.instanceUnreserved,
+				place,
+			);
 			ok = false;
 		}
 		return { ok, claimed, ...(owners !== undefined && { owners }) };
@@ -881,16 +1045,22 @@ export function readSearchSettings(
 		named &&
 		RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
 	) {
-		cursor.refuse("instance_name", T.instanceReserved);
+		refuseInstanceName(ctx, cursor, T.instanceReserved, place);
 		ok = false;
 	} else if (clash === "inline") {
-		if (named) cursor.refuse("instance_name", T.instanceClash);
+		if (selectionClash !== undefined) {
+			if (named)
+				ctx.accounting.cover(
+					{ json: cursor, key: "instance_name" },
+					selectionClash,
+				);
+		} else if (named) refuseInstanceName(ctx, cursor, T.instanceClash, place);
 		else ctx.accounting.finding(T.instanceClash, place);
 		ok = false;
 	} else if (named && clash === "other") {
 		cursor.drop("instance_name", T.instanceClashInert);
 	} else if (named) {
-		cursor.refuse("instance_name", T.instanceUnreserved);
+		refuseInstanceName(ctx, cursor, T.instanceUnreserved, place);
 		ok = false;
 	}
 	const findings: [string, typeof T.additionalTypes][] = [
@@ -905,19 +1075,14 @@ export function readSearchSettings(
 		}
 	if (!readRegistry(ctx, cursor, claimed)) ok = false;
 	if (cursor.used("search_on_clear")) {
-		const details = module.json.peek("case_details");
-		const short = isJsonObject(details) ? details.short : undefined;
 		cursor.refuse(
 			"search_on_clear",
-			isJsonObject(short) && short.auto_select === true
-				? T.searchOnClearAuto
-				: T.searchOnClear,
+			hqAutoSelects(module) ? T.searchOnClearAuto : T.searchOnClear,
 		);
 		ok = false;
 	}
 	cursor.derived("include_all_related_cases", T.includeDerived);
-	for (const key of cursor.undeclared())
-		cursor.drop(key, REMOVED_KEYS.has(key) ? T.removed : T.unknown);
+	claimUndeclaredSearchKeys(cursor);
 	return {
 		ok,
 		claimed,
@@ -1023,7 +1188,7 @@ export function spelledAsShown(
 	);
 }
 
-// ── The whole menu's (R2) ───────────────────────────────────────────────
+// ── The whole menu, as Nova's emission writes it back ───────────────────
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
@@ -1294,13 +1459,18 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 /** The surface key of the first difference between the stored search and the projection's,
  *  `default_properties` aside (the rows are held by `rows.ts`). Each expression slot prints at
  *  the level the reading held it (`heldSearchLevels`), so a slot held with a rewrite withheld is
- *  compared as its source spells it, and the reading records the rewrite. */
+ *  compared as its source spells it, and the reading records the rewrite. A Search field with no
+ *  check of its own, stored with none, is the field the projection prints with Nova's runtime
+ *  guard as its check (`searchPrompts.ts::buildValidation`) where the menu's rows were read up to
+ *  `search-value-guards` (`rows.ts::classifySearchRows`, at `place`): the guard is that rewrite's,
+ *  which the first publish sends and the reading reports. */
 function searchDifference(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	mod: Module,
 	stored: JsonCursor,
 	prompts: readonly PromptReading[],
+	place: HqPlace,
 ): string | undefined {
 	const inputs = readProjectionInputs(ctx);
 	const ours = printed(
@@ -1314,9 +1484,21 @@ function searchDifference(
 	) as JsonObject;
 	const codes = appCodes(ctx);
 	const source = sourceCode(ctx);
-	for (const key of ["auto_launch", "default_search", "inline_search"] as const)
+	for (const key of ["auto_launch", "default_search"] as const)
 		if ((stored.peek(key) === true) !== (ours[key] === true))
 			return `schema:CaseSearch.${key}`;
+	// Every reader of `inline_search` in HQ's build reads it beside `auto_launch`
+	// (`util.py::module_uses_inline_search`), so a stored `true` beside `auto_launch: false` is
+	// the state of the default.
+	const inline = (config: { readonly [key: string]: unknown }): boolean =>
+		config.inline_search === true && config.auto_launch === true;
+	if (
+		inline({
+			inline_search: stored.peek("inline_search"),
+			auto_launch: stored.peek("auto_launch"),
+		}) !== inline(ours)
+	)
+		return "schema:CaseSearch.inline_search";
 	if (!sameTitles(codes, source, stored.peek("title_label"), ours.title_label))
 		return "schema:CaseSearch.title_label";
 	if (
@@ -1351,12 +1533,35 @@ function searchDifference(
 	const validationTexts = new Map(
 		prompts.map((prompt) => [prompt.cursor.pointer, prompt.validationText]),
 	);
+	const guardsAdded = ctx.facts.rewrites.some(
+		(one) => one.id === "search-value-guards" && sameJson(one.place, place),
+	);
+	const uuidAt = new Map(
+		prompts.map((prompt) => [prompt.cursor.pointer, prompt.uuid]),
+	);
+	/** Whether the projection's check of the field stored at `pointer` is Nova's guard alone,
+	 *  added beside a stored field that holds no check. */
+	const guardAlone = (pointer: string, one: JsonObject): boolean => {
+		if (!guardsAdded) return false;
+		const storedChecks = one.validations;
+		if (Array.isArray(storedChecks) && storedChecks.length > 0) return false;
+		const input = mod.caseListConfig?.searchInputs.find(
+			(entry) => entry.uuid === uuidAt.get(pointer),
+		);
+		return (
+			input !== undefined &&
+			(input.kind === "hidden" || input.validation === undefined)
+		);
+	};
 	for (const [index, prompt] of promptsA.entries()) {
+		const projected = promptsB[index] as JsonObject;
 		const key = promptDifference(
 			codes,
 			source,
 			prompt.one,
-			promptsB[index] as JsonObject,
+			guardAlone(prompt.pointer, prompt.one)
+				? { ...projected, validations: [] }
+				: projected,
 			validationTexts.get(prompt.pointer),
 		);
 		if (key !== undefined) return key;
@@ -1537,7 +1742,7 @@ export function settleSearchSettings(
 		const mod = doc.modules[module.uuid] as Module;
 		let difference: string | undefined;
 		try {
-			difference = searchDifference(ctx, doc, mod, cursor, prompts);
+			difference = searchDifference(ctx, doc, mod, cursor, prompts, place);
 		} catch {
 			difference = EMITTER_THREW;
 		}

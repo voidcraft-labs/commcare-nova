@@ -23,20 +23,25 @@ import {
 	jrFileRef,
 	wirePathFor,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import type {
-	CaseListComparator,
-	CaseListOrderPlan,
-	CaseListShortField,
-	CaseListSortKey,
-	CaseProperty,
-	Column,
-	MediaAssetId,
-	Uuid,
+import {
+	type CaseListComparator,
+	type CaseListOrderPlan,
+	type CaseListShortField,
+	type CaseListSortKey,
+	type CaseProperty,
+	type Column,
+	caseListSingleFieldOrder,
+	type MediaAssetId,
+	type Uuid,
 } from "@/lib/domain";
+import {
+	type CaseListSortChoice,
+	LIST_ORDER,
+} from "@/lib/preview/caseListSortMenu";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
-	caseListRawText,
+	columnRawText,
 	mappingPositionText,
 	projectColumnDisplay,
 } from "@/lib/preview/columnDisplay";
@@ -173,7 +178,7 @@ export function caseListFilterFields(
 		const text =
 			!field.hidden || column.kind === "calculated"
 				? shownText(column)
-				: caseListRawText(row, column.field, context.reading);
+				: columnRawText(column, row, context.reading);
 		fields.push({
 			text,
 			sortText:
@@ -186,10 +191,38 @@ export function caseListFilterFields(
 		if (!named.has(column.uuid))
 			fields.push({ text: shownText(column), sortText: null });
 	for (const carrier of plan.carriers) {
-		const raw = caseListRawText(row, carrier.property, context.reading);
+		const raw = carrierRawText(carrier, row, context);
 		fields.push({ text: raw, sortText: raw });
 	}
 	return fields;
+}
+
+/** A property key's raw value: the field's own property, or, for a key read
+ *  through a relation, the related value projected under its column. */
+function keyRawText(
+	key: Extract<CaseListSortKey, { kind: "property" | "option-label" }>,
+	column: Column,
+	row: CaseRowWithCalculated,
+	context: ColumnDisplayContext,
+): string {
+	return columnRawText(
+		{ uuid: column.uuid, field: key.property, via: key.via },
+		row,
+		context.reading,
+	);
+}
+
+/** A carrier's raw value, through the walk of the column it carries. */
+function carrierRawText(
+	carrier: CaseListOrderPlan["carriers"][number],
+	row: CaseRowWithCalculated,
+	context: ColumnDisplayContext,
+): string {
+	return columnRawText(
+		{ uuid: carrier.column, field: carrier.field, via: carrier.via },
+		row,
+		context.reading,
+	);
 }
 
 /**
@@ -209,7 +242,7 @@ function sortKeyText(
 	const { column } = field;
 	switch (key.kind) {
 		case "property":
-			return caseListRawText(row, key.property, context.reading);
+			return keyRawText(key, column, row, context);
 		case "option-label":
 		case "interval-text":
 			return projectColumnDisplay(column, row, context).text;
@@ -241,24 +274,33 @@ interface OrderTerm {
 }
 
 /**
- * The terms a row's order compares, rule by rule in the plan's order, as the
- * case store builds its keys (`caseDataBindingHelpers.ts::buildCaseStoreSortKeys`):
- * a rule over a multi select's option labels is two terms, its known labels in
- * catalog order each followed by a space, then the raw value. The case id the
- * store orders by last is no rule and no term of it.
+ * The terms a row's order compares, as the case store builds its keys
+ * (`caseDataBindingHelpers.ts::buildCaseStoreSortKeys`): each of the worker's
+ * picks in the list's Sort by first, newest first, as the field alone orders
+ * the list (`caseListSingleFieldOrder`, rule 11); then the plan's rules in
+ * their order where there is no pick or the choice keeps the list's order
+ * after its picks. A rule over a multi select's option labels is two terms,
+ * its known labels in catalog order each followed by a space, then the raw
+ * value. The case id the store orders by last is no rule and no term of it,
+ * and a pick the plan no longer holds orders nothing.
  */
 export function caseListOrderTerms(
 	row: CaseRowWithCalculated,
 	context: ColumnDisplayContext,
 	plan: CaseListOrderPlan | undefined,
+	choice: CaseListSortChoice = LIST_ORDER,
 ): readonly OrderTerm[] {
 	if (plan === undefined) return [];
+	const picked = choice.picks.flatMap((pick) =>
+		pickOrderTerms(plan, pick.column, pick.reversed, row, context),
+	);
+	if (choice.picks.length > 0 && !choice.thenListOrder) return picked;
 	const rules: { order: number; terms: OrderTerm[] }[] = [];
 	for (const field of plan.fields) {
 		if (field.rule === undefined || field.key === undefined) continue;
 		rules.push({
 			order: field.rule.order,
-			terms: fieldOrderTerms(field.key, field, row, context),
+			terms: fieldOrderTerms(field.key, field.comparator, field, row, context),
 		});
 	}
 	for (const carrier of plan.carriers)
@@ -266,16 +308,48 @@ export function caseListOrderTerms(
 			order: carrier.rule.order,
 			terms: [
 				{
-					text: caseListRawText(row, carrier.property, context.reading),
+					text: carrierRawText(carrier, row, context),
 					comparator: carrier.comparator,
 				},
 			],
 		});
-	return rules.sort((a, b) => a.order - b.order).flatMap((rule) => rule.terms);
+	return [
+		...picked,
+		...rules.sort((a, b) => a.order - b.order).flatMap((rule) => rule.terms),
+	];
+}
+
+/** The terms of the order by one field or carrier alone. */
+function pickOrderTerms(
+	plan: CaseListOrderPlan,
+	column: string,
+	reversed: boolean,
+	row: CaseRowWithCalculated,
+	context: ColumnDisplayContext,
+): OrderTerm[] {
+	const order = caseListSingleFieldOrder(plan, column, reversed);
+	if (order === undefined) return [];
+	const carrier = plan.carriers.find(
+		(candidate) => candidate.column === column,
+	);
+	if (carrier !== undefined)
+		return [
+			{
+				text: carrierRawText(carrier, row, context),
+				comparator: order.comparator,
+			},
+		];
+	const field = plan.fields.find(
+		(candidate) => candidate.column.uuid === column,
+	);
+	return field === undefined
+		? []
+		: fieldOrderTerms(order.key, order.comparator, field, row, context);
 }
 
 function fieldOrderTerms(
 	key: CaseListSortKey,
+	comparator: CaseListComparator,
 	field: CaseListShortField,
 	row: CaseRowWithCalculated,
 	context: ColumnDisplayContext,
@@ -286,14 +360,17 @@ function fieldOrderTerms(
 				text: sortKeyText(key, field, row, context),
 				comparator:
 					key.kind === "property" || key.kind === "calculated"
-						? field.comparator
+						? comparator
 						: "text",
 			},
 		];
-	const raw = caseListRawText(row, key.property, context.reading);
-	const property = context.caseProperties.find(
-		(candidate) => candidate.name === key.property,
-	);
+	const raw = keyRawText(key, field.column, row, context);
+	const property =
+		key.via === undefined
+			? context.caseProperties.find(
+					(candidate) => candidate.name === key.property,
+				)
+			: context.relatedProperties?.get(field.column.uuid);
 	const options = property?.options ?? [];
 	if (property === undefined || options.length === 0)
 		return [{ text: raw, comparator: "text" }];

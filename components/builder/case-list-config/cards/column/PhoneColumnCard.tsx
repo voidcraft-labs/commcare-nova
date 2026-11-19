@@ -16,6 +16,7 @@
 import type { CaseProperty, Column } from "@/lib/domain";
 import { columnKindAcceptsPropertyType, phoneColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
+import { columnWithSource } from "../../columnSources";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
 /** The gate's own accept-set: unknown-typed properties are
@@ -41,6 +42,10 @@ export function PhoneColumnCard({
 		onChange(phoneColumn(value.uuid, value.field, next, slotsFrom(value)));
 	return (
 		<ColumnFieldRow
+			via={value.via}
+			onSourceChange={(via, field) =>
+				onChange(columnWithSource(value, via, field))
+			}
 			field={value.field}
 			onFieldChange={setField}
 			header={value.header}
@@ -59,6 +64,7 @@ function slotsFrom(value: Extract<Column, { kind: "phone" }>): {
 	visibleInDetail?: typeof value.visibleInDetail;
 	notOnList?: typeof value.notOnList;
 	tile?: typeof value.tile;
+	via?: typeof value.via;
 } {
 	return {
 		sort: value.sort,
@@ -66,5 +72,6 @@ function slotsFrom(value: Extract<Column, { kind: "phone" }>): {
 		visibleInDetail: value.visibleInDetail,
 		notOnList: value.notOnList,
 		tile: value.tile,
+		via: value.via,
 	};
 }

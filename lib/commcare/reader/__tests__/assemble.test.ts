@@ -824,7 +824,15 @@ describe("the reader's canonical choices", () => {
 				{
 					name: "Visits",
 					caseType: "visit",
-					forms: [{ name: "Review", type: "followup", fields: [] }],
+					// A form holding a question: CommCare HQ builds no form that holds none, and the
+					// reader refuses one whole.
+					forms: [
+						{
+							name: "Review",
+							type: "followup",
+							fields: [f({ kind: "text", id: "seen", label: "Seen" })],
+						},
+					],
 				},
 			],
 		});

@@ -1481,18 +1481,20 @@ alone is `why: "Nothing an archive holds derives from this value."`; `no-claim` 
 | `target-derived-profile-properties-posturl-posttesturl-ota` | setting | (none) | own: the four server properties and `cur_locale`, for the archive's project space | no-claim | its-own | `hq-new-app` |
 | `amplifies-workers-amplifies-project-minimum-use-threshold` | server-record | | n-i-a | no-claim | default | `hq-new-app` |
 | `rev-domain-copy-of-version` | server-record | | own: the archive's version is the app's sequence | no-claim | its-own | `hq-new-app` |
-| `short-odk-url-short-odk-media-url`, `built-with-build-signed-built-on-build-comment-comment-from-last`, `date-created-created-from-template-last-modified-has-submissions`, `copy-history-family-id`, `external-blobs`, `archived-media` | server-record | | n-i-a | no-claim | its-own | `hq-new-app` |
+| `built-with-build-signed-built-on-build-comment-comment-from-last`, `date-created-created-from-template-last-modified-has-submissions`, `copy-history-family-id`, `archived-media` | server-record | | n-i-a | no-claim | its-own | `hq-new-app` |
+| `short-odk-url-short-odk-media-url`, `external-blobs` | server-record | | n-i-a | no-claim | its-own | none: HQ's source read leaves both out (`Application.export_json`) |
 | `id` | identity | | own: `profileUniqueId`, Nova's id for the app on the project space | no-claim | its-own | `hq-new-app` |
 | `multimedia-map` | identity | | own: the archive bundles each file at the path its references name | reads (`useProjectMediaUrl`): Preview plays the Project's own copy | its-own | `starter-health` |
 | `menus-and-case-lists/modulebase-unique-id`, `forms-and-case-writes/unique-id` | identity | | own: the deployment's recorded ids (`targetWireIdentity`) | no-claim: Preview keys by Nova's UUIDs | its-own | `hq-new-app` |
 | `forms-and-case-writes/version` | server-record | | own: each form takes the app's sequence | no-claim | its-own | `hq-new-app` |
-| `expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table` | identity | | own: the archive embeds the Project's table | reads (`PreviewLookupDataProvider`): Preview reads the Project's table | its-own | `hq-new-app` |
-| `expressions-and-data/is-synced-last-modified` | server-record | | own: the archive embeds the Project's table | reads (`PreviewLookupDataProvider`): Preview reads the Project's table | its-own | `hq-new-app` |
-| `case-search/domain-casesearchconfig-sync-cases-on-form-entry`, `forms-and-case-writes/supply-point-id-datum-hq-injects-under-commtrack-enabled-into`, `forms-and-case-writes/data-dictionary-caseproperty-data-type`, `forms-and-case-writes/usercase-creation-and-sync-hq-user-id` | project-state | | n-i-a: the app's source holds none of it; publish asks a person where it matters | no-claim | its-own | `hq-new-app` |
+| `expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table` | identity | | own: the archive embeds the Project's table | reads (`PreviewLookupDataProvider`): Preview reads the Project's table | its-own | `hq-lookups`, which reads a table |
+| `expressions-and-data/is-synced-last-modified` | server-record | | own: the archive embeds the Project's table | reads (`PreviewLookupDataProvider`): Preview reads the Project's table | its-own | none: HQ's lookup table resource serves neither field |
+| `case-search/domain-casesearchconfig-sync-cases-on-form-entry`, `forms-and-case-writes/supply-point-id-datum-hq-injects-under-commtrack-enabled-into`, `forms-and-case-writes/data-dictionary-caseproperty-data-type`, `forms-and-case-writes/usercase-creation-and-sync-hq-user-id` | project-state | | n-i-a: the app's source holds none of it; publish asks a person where it matters | no-claim | its-own | none: no reading reads project space state |
 
 The table has 50 rows: one for each of the 26 entries that are TARGET-OWNED today, the 23 of 3.6 and
 the language display name's (7.2). Rows written here on one line for several ids are one row each in
-the file.
+the file. A row whose base is none names no base (`base: null`): no reading of any app meets its entry, and
+part 14's coverage exempts it under the reason its keys or HQ's answer make true (14-proof.md, 7.5, rule 2).
 
 `label` names what the kept list shows; a row without one is never listed (a person has no use for
 "the app's revision stays in CommCare HQ"). The kept list of one deployment is the labelled `setting`
@@ -3210,7 +3212,7 @@ The table holds 36 codes: the 19 stops, then the 17 an account can hold.
 | `changed-while-reading` | stop | | | the app's save counter moved during the read, and again when the request read the app once more | |
 | `already-in-nova` | stop | | | another Nova app manages this HQ app | `claim`, where the holder is known |
 | `too-large` | not-yet | | | a body of the app's read, the application resource's or the source's, is over the bring-in's byte bound (`HQ_BRING_IN_APP_MAX_BYTES`, 16 MiB) | none |
-| `menu-unreadable-in-hq` | fix-in-hq | | | CommCare HQ's own summary of a menu is an error | none: the place names the menu |
+| `menu-unreadable-in-hq` | fix-in-hq | | | CommCare HQ's own summary of a menu is an error, and no finding of the reading names a form of that menu, or one of its questions, that CommCare HQ will not save or build (fix cause `hq-refuses` or `either`), which is otherwise the menu's one cause | none: the place names the menu |
 | `app-unreadable-in-hq` | fix-in-hq | | | CommCare HQ's summary is an error for every menu it would summarize, and there are at least two | none |
 | `shadow-disagrees` | fix-in-hq | | line | an attribute and its `vellum:` shadow differ in meaning | `name`: the attribute |
 | `media-file-unreadable` | fix-in-hq | | body | CommCare HQ's media map holds an entry for the path and CommCare HQ serves no file for it, on a slot some platform the app runs on draws | `name`: the path |
@@ -3323,7 +3325,9 @@ might, and neither does:
   (`proof/matrix/exemptions.json`, reason `stated-by-its-part`; `14-proof.md`, section 7.5) with
   the note "no reading claims it: the HQ read stops first", and they take the subjects `app-document`
   and `hand-written-content`. No account shows their sentences, so `app-document`'s sentence is not
-  read against the two linked app entries.
+  read against the two linked app entries. `application-and-settings/38-hq-manage-urls` stands with
+  them: `manage_urls` is a setting of a remote app alone (`commcare-app-settings.yml` requires
+  `doc_type` `RemoteApp`), so no reading claims it either, and it takes the same exemption.
 - **A media reference with no file.** `media-file-unreadable` is about HQ's server, not the app's
   source: `multimedia_map` holds an entry for the path, and HQ has no file to serve for it. The
   manifest's entries are about the source: a reference with no `multimedia_map` entry at all

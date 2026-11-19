@@ -91,6 +91,11 @@
  * (`proof/observe/publish.py`), so a peer that models HQ wrongly refuses
  * the capture rather than standing in for HQ.
  *
+ * An app CommCare HQ's own pages made (an `hq-authored` document's A) is
+ * held as HQ's source read served it, with the media documents its map
+ * names (`holdSource`), and the lookup tables its project space holds as
+ * HQ's models made them (`holdTables`), before Nova's first publish over it.
+ *
  * Anything else is answered 404 and recorded as unexpected, so a capture
  * whose client asked for something the peer does not model fails rather
  * than decoding a refusal as an ordinary result.
@@ -987,6 +992,44 @@ export class TargetPeer {
 		this.holding = { ...this.holding, tables: structuredClone(tables) };
 	}
 
+	/**
+	 * Hold `source` as the app's, at the one id the peer answers for, as it
+	 * holds one after `applyRetained`: an app CommCare HQ's own pages made,
+	 * which no request of a capture sent. Every later answer is the peer's
+	 * own (`sourceAfterUpdate` over it). `files` are the media documents the
+	 * project space holds for the files the source maps, each under the id
+	 * its map names, so Nova's read of a mapped file is answered with its
+	 * bytes. The app's version is the one the source holds, which each import
+	 * then raises. Refused once the peer holds an app or has answered a
+	 * request.
+	 */
+	holdSource(
+		source: Readonly<Record<string, unknown>>,
+		files: readonly Omit<PeerMediaFile, "md5">[] = [],
+	): void {
+		if (this.holding.source !== undefined || this.requests.length > 0) {
+			throw new Error(
+				"The capture gave its peer an app's source to hold after the peer held an app or had answered a request. Give it before the first publish over that app.",
+			);
+		}
+		if (source.doc_type !== "Application") {
+			throw new Error(
+				`The capture gave its peer a source whose doc_type is ${JSON.stringify(source.doc_type)}; HQ's source read serves an Application.`,
+			);
+		}
+		const media: PeerMediaFile[] = [];
+		for (const file of files) {
+			if (media.some((held) => held.id === file.id)) continue;
+			media.push({ ...file, md5: md5(file.bytes) });
+		}
+		this.holding = {
+			...this.holding,
+			source: structuredClone(source) as Record<string, unknown>,
+			version: typeof source.version === "number" ? source.version : 1,
+			media: [...this.holding.media, ...media],
+		};
+	}
+
 	/** The requests received since `mark`, for one step of a capture. */
 	since(mark: number): readonly PeerRequest[] {
 		return this.requests.slice(mark);
@@ -1163,8 +1206,14 @@ export class TargetPeer {
 	 *   the page's save, `views/settings.py::edit_commcare_settings`:
 	 *   `edit_commcare_profile`, then `views/apps.py::edit_app_attr` over
 	 *   every attribute it names);
-	 * - `buildProfiles`: none of the peer's state, since an update never
-	 *   writes `build_profiles` and the drift comparison ignores it;
+	 * - `buildProfiles`: the app's `build_profiles` replaced whole by the
+	 *   profiles saved, each under its id as
+	 *   `views/releases.py::LanguageProfilesView.post` stores it, a
+	 *   `BuildProfile` with its languages, its name and no practice worker
+	 *   (`practice_mobile_worker_id` empty), in the key order HQ's source read
+	 *   serves it. An update leaves the map as it is, since no body Nova sends
+	 *   holds the key (`models/applications.py::_merge_source_into_app`), and
+	 *   a publish holds what the map names to the languages it writes;
 	 * - `addOns`: each slug set on or off over the app's map
 	 *   (`views/apps.py::edit_add_ons` stores each slug HQ lists that the
 	 *   save posts, and no other). The save posts every slug HQ lists, as
@@ -1215,6 +1264,22 @@ export class TargetPeer {
 		if (saves.appAttributes !== undefined) {
 			next = { ...next, ...structuredClone(saves.appAttributes) };
 			next = this.pageSaved(next);
+		}
+		if (saves.buildProfiles !== undefined) {
+			next = {
+				...next,
+				build_profiles: Object.fromEntries(
+					saves.buildProfiles.map((profile) => [
+						profile.id,
+						{
+							langs: [...profile.langs],
+							name: profile.name,
+							practice_mobile_worker_id: "",
+							doc_type: "BuildProfile",
+						},
+					]),
+				),
+			};
 		}
 		if (saves.addOns !== undefined) {
 			next = {

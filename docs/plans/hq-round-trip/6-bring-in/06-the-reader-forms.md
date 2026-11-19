@@ -1650,7 +1650,9 @@ lists have one length or the input is broken, 2.2).
 Each is one finding at the menu or the form, whatever the object holds, never one per key: a mirror
 menu is one finding under the subject `mirror-menus`, `not-yet` where it is a version 2 mirror (part
 01, section 2.2 and Appendix A.1). A menu part 05 marked `not-summarized` still gets its draft and its
-structural findings; part 12's `gatherReading` adds `menu-unreadable-in-hq` at that menu, and the
+structural findings; part 12's `gatherReading` adds `menu-unreadable-in-hq` at that menu unless the
+reading's own findings name a form of that menu, or one of its questions, that CommCare HQ will not save
+or build (fix cause `hq-refuses` or `either`), which is then the menu's cause and its one finding, and the
 reading ends as an account either way.
 
 ### 7.2 Identity, before any mint
@@ -1705,7 +1707,7 @@ Ids are under `forms-and-case-writes/`.
 
 | Keys | Claim |
 |---|---|
-| `doc_type`, `form_type` | 7.1; `take(form-type)` where `form_type` is not the class's default |
+| `doc_type`, `form_type` | 7.1; `form_type` at the class's default is no use, and `form-type` (value class `the-form-s-own-kind`) is recorded there; any other value is the finding `forms-and-case-writes/form-type-other-than-the-form-s-own-kind` at the form, since no page writes it and HQ's build chooses the form's session values and after-submit frames by it |
 | `unique_id`, `xmlns` | 7.2 |
 | `name` | `take(name-lang)`, as a menu's name; where `instanceScanRead` (`lib/commcare/hqInstanceScan.ts`; part 03, section 5.1) answers for the name in the app's first language as the form's source holds it once the generated keys are decided (below), the one `formWireName` writes into the form, also `refuse(form-name-read-as-an-instance)`, raised with `Accounting.finding` at the form, `detail.name` the text it answered |
 | `version` | `account(version)` |
@@ -1918,7 +1920,7 @@ The frame of the document, claimed here:
 | any other attribute of the data root | `refuse(data-root-attributes-other-than-uiversion-version-and-name-and)` |
 | a data root whose element is not named `data` | `refuse(data-root-element-named-other-than-data)`, the new entry of 8.8 |
 | `vellum:hashtags`, `vellum:hashtagTransforms` in the head | read by 14, then `dropSubtree(vellum-hashtags-vellum-hashtagtransforms)` |
-| `odkx:intent` in the head | where an input's appearance names its `id`: claimed with the question that names it, `refuseSubtree(android-app-callout-input-appearance-intent-id-bind-type-intent)` at a callout question that writes it (9.1), else `refuseSubtree(intent-id-naming-an-odkx-intent-that-no-callout-question-writes)` at the first input naming it, `detail.name` that input's appearance (9.2), so each joins its question's one finding; otherwise `dropSubtree(odkx-intent-that-no-question-references)` |
+| `odkx:intent` in the head | where an input's appearance names its `id`: claimed with the question that names it (a print callout's `cc:print_template_reference` extra, the one reference a print template has, with it, so `expressions-and-data/print-template-jr-file-commcare-text-id-html` is never a finding of its own and the template's map item is the map's, `multimedia-map`), `refuseSubtree(android-app-callout-input-appearance-intent-id-bind-type-intent)` at a callout question that writes it (9.1), else `refuseSubtree(intent-id-naming-an-odkx-intent-that-no-callout-question-writes)` at the first input naming it, `detail.name` that input's appearance (9.2), so each joins its question's one finding; otherwise `dropSubtree(odkx-intent-that-no-question-references)` |
 | any other head child | where its local name or a descendant's is one of `surface.json`'s `jr-control:` or `jr-action:` names, `refuseSubtree(other-h-head-children-whose-local-name-or-a-descendant-s-core-or)`; otherwise `dropSubtree(h-head-children-other-than-hq-s-own-h-title-model-odkx-intent)` |
 | a `submission` in the model | named by a `send`: `refuseSubtree(send-submission)` on both. Otherwise by Core's rule as the entry's `item` states it (an `id`, a `resource` and a `targetref`; `method` absent or `get`; `replace` absent or `text`; `mode` absent or `synchronous`; `targetref` and `ref` paths to nodes of the data tree): passing, `dropSubtree(a-submission-core-accepts-with-no-send-naming-it)`; failing, `refuseSubtree(a-submission-core-s-parser-refuses-missing-any-of-id-resource)` |
 | `orx:pollsensor` in the model | `refuseSubtree(authored-orx-pollsensor)`: HQ's build writes its own, and a stored source holds none |
@@ -3599,7 +3601,16 @@ source and needs no bound tree, stage 3 has judged every shadow before stage 7 b
 writes no comparison of its own.
 
 `shadow-disagrees` is part 01's circumstance (`fix-in-hq`), placed at the question, with the shadow
-attribute claimed `drop` so it is not also `unrecognized`. Opening the form in HQ's form builder and
+attribute claimed `drop` so it is not also `unrecognized`.
+
+A hashtag only a shadow spells names the read its real attribute makes, so the read is that one finding and
+the hashtag none of its own: `#registry_case/…`, which HQ's form designer gives the form builder for a menu
+whose search reads a data registry (`app_schemas/casedb_schema.py`), stands under the real attribute's
+`registry-jr-instance-remote-registry`, and a `#case/…` read through the datum of an unrelated parent
+selection, which only a parent selection of relationship Other gives (part 07, section 8.5, refuses it at the
+menu, `parent-select-relationship-null-other`), stands under that menu's finding. Neither
+`expressions-and-data/registry-case` nor `expressions-and-data/case-module-slug-unrelated-parent-select-case`
+is a finding of its own. Opening the form in HQ's form builder and
 saving it makes the two agree, which is what its next step says.
 
 Nova's own forms agree by construction: both spellings print from one wire tree
@@ -3609,6 +3620,10 @@ builder could not read the tree back.
 The head's two metadata elements are `dropSubtree(vellum-hashtags-vellum-hashtagtransforms)` after they
 are read. They say what HQ's form builder knew when it last saved, and Nova writes neither (8.2).
 A `vellum-plugin:caseManagement` mapping in the head is `dropSubtree(vellum-case-mappings-head)`.
+`questions/case-mapping-diff-vellum-hq`, the plugin's `case_mapping_diff`, is no part of any source:
+it is a parameter of the form builder's save (Vellum's `caseManagement.js` posts it, and
+`util.py::save_xform` merges it into the form's actions), which HQ stores nowhere, so no source read
+holds it and no reading claims it. It sits on part 14's exemption list as `stated-by-its-part`.
 
 ### 14.3 `requiredCondition`
 

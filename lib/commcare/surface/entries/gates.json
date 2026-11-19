@@ -2098,6 +2098,56 @@
 		}
 	},
 	{
+		"id": "toggle/DETAILED_TAGGING",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "detailed_tagging",
+		"namespaces": ["domain"],
+		"symbols": ["DETAILED_TAGGING"],
+		"surfaceKeys": ["toggle:DETAILED_TAGGING"],
+		"item": "DETAILED_TAGGING [internal]",
+		"class": {
+			"kind": "inert"
+		},
+		"content": "no content: it names the project space in the metrics of an Elasticsearch query (`util/metrics/__init__.py::limit_domains`), which a build makes where the multimedia map names a path no reference holds: the build drops the mapping and saves the app (`hqmedia/models.py::ApplicationMediaMixin.remove_unused_mappings`), and the save's refresh of the data dictionary lists the project space's case types (`reports/analytics/esaccessors.py::get_case_types_for_domain_es`)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 79
+		}
+	},
+	{
+		"id": "toggle/ES_QUERY_PREFERENCE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "es_query_preference",
+		"namespaces": ["domain"],
+		"symbols": ["ES_QUERY_PREFERENCE"],
+		"surfaceKeys": ["toggle:ES_QUERY_PREFERENCE"],
+		"item": "ES_QUERY_PREFERENCE [internal]",
+		"class": {
+			"kind": "inert"
+		},
+		"content": "no content: it routes that query to the same shards each time (`es/client.py::ElasticDocumentAdapter._search`), which changes no result",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 80
+		}
+	},
+	{
 		"id": "toggle/IS_CONTRACTOR",
 		"kind": "toggle",
 		"hqToggleClass": "StaticToggle",
@@ -2119,7 +2169,7 @@
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",
-			"line": 79
+			"line": 81
 		}
 	},
 	{
@@ -2164,7 +2214,7 @@
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",
-			"line": 80
+			"line": 82
 		}
 	},
 	{
@@ -2189,7 +2239,7 @@
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",
-			"line": 81
+			"line": 83
 		}
 	},
 	{
@@ -2224,7 +2274,7 @@
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",
-			"line": 82
+			"line": 84
 		}
 	},
 	{
@@ -2251,7 +2301,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "publish-checks",
-			"line": 84
+			"line": 86
 		}
 	},
 	{
@@ -2364,7 +2414,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "publish-checks",
-			"line": 84
+			"line": 86
 		}
 	},
 	{
@@ -2498,7 +2548,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "publish-checks",
-			"line": 84
+			"line": 86
 		}
 	},
 	{
@@ -2526,7 +2576,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "publish-checks",
-			"line": 84
+			"line": 86
 		}
 	},
 	{
@@ -2567,7 +2617,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "publish-checks",
-			"line": 84
+			"line": 86
 		}
 	},
 	{
@@ -2599,7 +2649,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 90
+			"line": 92
 		}
 	},
 	{
@@ -2630,7 +2680,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 91
+			"line": 93
 		}
 	},
 	{
@@ -2655,7 +2705,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 92
+			"line": 94
 		}
 	},
 	{
@@ -2678,7 +2728,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 93
+			"line": 95
 		}
 	},
 	{
@@ -2703,7 +2753,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 94
+			"line": 96
 		}
 	},
 	{
@@ -2726,7 +2776,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 95
+			"line": 97
 		}
 	},
 	{
@@ -2751,7 +2801,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 96
+			"line": 98
 		}
 	},
 	{
@@ -2772,7 +2822,7 @@
 		"source": {
 			"kind": "row",
 			"table": "removed-toggles",
-			"line": 97
+			"line": 99
 		}
 	},
 	{
@@ -2805,7 +2855,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 103
+			"line": 105
 		}
 	},
 	{
@@ -2850,7 +2900,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 104
+			"line": 106
 		}
 	},
 	{
@@ -2874,7 +2924,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 105
+			"line": 107
 		}
 	},
 	{
@@ -2903,7 +2953,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 106
+			"line": 108
 		}
 	},
 	{
@@ -2925,7 +2975,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 107
+			"line": 109
 		}
 	},
 	{
@@ -2949,7 +2999,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 108
+			"line": 110
 		}
 	},
 	{
@@ -2971,7 +3021,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 109
+			"line": 111
 		}
 	},
 	{
@@ -2995,7 +3045,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 110
+			"line": 112
 		}
 	},
 	{
@@ -3020,7 +3070,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 111
+			"line": 113
 		}
 	},
 	{
@@ -3045,7 +3095,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 112
+			"line": 114
 		}
 	},
 	{
@@ -3067,7 +3117,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 113
+			"line": 115
 		}
 	},
 	{
@@ -3089,7 +3139,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 114
+			"line": 116
 		}
 	},
 	{
@@ -3122,7 +3172,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 115
+			"line": 117
 		}
 	},
 	{
@@ -3147,7 +3197,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 116
+			"line": 118
 		}
 	},
 	{
@@ -3169,7 +3219,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 117
+			"line": 119
 		}
 	},
 	{
@@ -3207,7 +3257,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 118
+			"line": 120
 		}
 	},
 	{
@@ -3229,7 +3279,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 119
+			"line": 121
 		}
 	},
 	{
@@ -3260,7 +3310,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 120
+			"line": 122
 		}
 	},
 	{
@@ -3282,7 +3332,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 121
+			"line": 123
 		}
 	},
 	{
@@ -3316,7 +3366,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 122
+			"line": 124
 		}
 	},
 	{
@@ -3343,7 +3393,7 @@
 		"source": {
 			"kind": "row",
 			"table": "privileges",
-			"line": 123
+			"line": 125
 		}
 	},
 	{
@@ -3369,7 +3419,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3399,7 +3449,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3424,7 +3474,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3446,7 +3496,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3469,7 +3519,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3500,7 +3550,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3523,7 +3573,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3546,7 +3596,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3569,7 +3619,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3595,7 +3645,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3622,7 +3672,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3650,7 +3700,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3675,7 +3725,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3701,7 +3751,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3728,7 +3778,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3759,7 +3809,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3782,7 +3832,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3810,7 +3860,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3833,7 +3883,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3859,7 +3909,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3885,7 +3935,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3908,7 +3958,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3931,7 +3981,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3957,7 +4007,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -3980,7 +4030,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4005,7 +4055,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4028,7 +4078,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4055,7 +4105,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4078,7 +4128,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4101,7 +4151,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4124,7 +4174,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4147,7 +4197,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4174,7 +4224,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4199,7 +4249,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4222,7 +4272,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4247,7 +4297,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4274,7 +4324,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4297,7 +4347,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	},
 	{
@@ -4320,7 +4370,7 @@
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "build-versions",
-			"line": 127
+			"line": 129
 		}
 	}
 ]

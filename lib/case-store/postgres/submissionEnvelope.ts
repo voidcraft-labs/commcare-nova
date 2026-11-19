@@ -69,6 +69,7 @@ import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
+import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
@@ -89,6 +90,7 @@ import {
 import {
 	compileExpression,
 	compilePredicate,
+	compileSubmittedTextValue,
 	expressionContextFor,
 	type PredicateCompileContext,
 } from "../sql";
@@ -545,6 +547,9 @@ interface EvalRequest {
 	readonly instance: number;
 	readonly expression?: DomainExpression;
 	readonly predicate?: DomainExpression;
+	/** A value saved to a text property, whose number reads back as a
+	 * double (`compileSubmittedTextValue`). */
+	readonly savedAsText?: true;
 }
 
 /**
@@ -583,6 +588,9 @@ async function evaluateBatch(
 				...(session === undefined ? {} : { currentCaseType: session.caseType }),
 				caseTypeSchemas: program.caseTypeSchemas,
 				formFieldTypes: program.formFieldTypes,
+				...(program.formFieldHeld === undefined
+					? {}
+					: { formFieldHeld: program.formFieldHeld }),
 				...(program.organizationLevels === undefined
 					? {}
 					: { organizationLevels: program.organizationLevels }),
@@ -603,7 +611,12 @@ async function evaluateBatch(
 							.else(false)
 							.end()
 					: request.expression !== undefined
-						? compileExpression(request.expression, expressionContextFor(ctx))
+						? request.savedAsText === true
+							? compileSubmittedTextValue(
+									request.expression,
+									expressionContextFor(ctx),
+								)
+							: compileExpression(request.expression, expressionContextFor(ctx))
 						: undefined;
 			if (projection === undefined) {
 				throw new Error(
@@ -758,15 +771,7 @@ export function storageValueFromEvaluation(
 			return typeof value === "number" ? value : Number(String(value));
 		}
 		case "date": {
-			if (value instanceof Date) {
-				// node-postgres parses a `date` column in LOCAL time; read
-				// the local calendar parts back so the stored lexical day
-				// is the day Postgres emitted, whatever the process zone.
-				const y = value.getFullYear();
-				const m = `${value.getMonth() + 1}`.padStart(2, "0");
-				const d = `${value.getDate()}`.padStart(2, "0");
-				return `${y}-${m}-${d}`;
-			}
+			if (value instanceof Date) return localDayText(value);
 			return String(value);
 		}
 		case "datetime": {
@@ -790,7 +795,14 @@ export function storageValueFromEvaluation(
 		case "text":
 		case "single_select":
 		case "geopoint": {
-			if (value instanceof Date) return value.toISOString();
+			// A number or a date saved to text is the text a device submits for
+			// it (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`): a number read
+			// back as a double (`compileSubmittedTextValue`) as
+			// `Recalculate.wrapData` holds it, and a date, which a `date`
+			// column gives in the process's local time, as its day. A date and
+			// time never reaches text (`ruleSets.ts::isWriteAssignable`).
+			if (typeof value === "number") return submittedNumberText(value);
+			if (value instanceof Date) return localDayText(value);
 			if (Array.isArray(value)) return value.map(String).join(" ");
 			return String(value);
 		}
@@ -806,6 +818,49 @@ export function storageValueFromEvaluation(
 			);
 		}
 	}
+}
+
+/** node-postgres parses a `date` column in LOCAL time; read the local
+ * calendar parts back so the stored lexical day is the day Postgres
+ * emitted, whatever the process zone. */
+function localDayText(value: Date): string {
+	const y = value.getFullYear();
+	const m = `${value.getMonth() + 1}`.padStart(2, "0");
+	const d = `${value.getDate()}`.padStart(2, "0");
+	return `${y}-${m}-${d}`;
+}
+
+/** The text a device submits for a calculated number: `wrapData`'s data
+ * uncast (`numericAnswerText`), and `Double.toString` of an infinity. NaN
+ * is `wrapData`'s blank. */
+function submittedNumberText(value: number): string | undefined {
+	if (Number.isNaN(value)) return undefined;
+	if (!Number.isFinite(value)) return value > 0 ? "Infinity" : "-Infinity";
+	return numericAnswerText(value);
+}
+
+/** The data type of the property an operation's write saves to: the
+ * operation's result type (the retype destination when it retypes, since
+ * the wire applies the writes and the type change in one block), or the
+ * type a write's `via` chain reaches; text where the catalog holds no
+ * type. */
+function writeDataType(
+	program: CaseOperationProgram,
+	envelope: EnvelopeCaseOperation,
+	writeIndex: number,
+): CasePropertyDataType {
+	const operation = envelope.operation;
+	const write = operation.writes?.[writeIndex];
+	const caseType =
+		write?.via === undefined
+			? (operation.retype ?? operation.caseType)
+			: envelope.viaCaseTypes?.get(writeIndex);
+	const schema =
+		caseType === undefined ? undefined : program.caseTypeSchemas.get(caseType);
+	return (
+		schema?.properties?.find((property) => property.name === write?.property)
+			?.data_type ?? "text"
+	);
 }
 
 /** Coerce an evaluated scalar to the text the wire's calculate would
@@ -1307,7 +1362,11 @@ async function resolveOperationProgram(
 	const request = (
 		instance: number,
 		kind: ValueSlot["kind"],
-		content: { expression?: DomainExpression; predicate?: DomainExpression },
+		content: {
+			expression?: DomainExpression;
+			predicate?: DomainExpression;
+			savedAsText?: true;
+		},
 	) => {
 		valueSlots.push({ instance, kind });
 		const operation = instances[instance].envelope.operation;
@@ -1344,7 +1403,16 @@ async function resolveOperationProgram(
 		}
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (skippedWrites.get(index)?.has(writeIndex)) continue;
-			request(index, { write: writeIndex }, { expression: write.value });
+			request(
+				index,
+				{ write: writeIndex },
+				{
+					expression: write.value,
+					...(write.property !== "external_id" &&
+						writeDataType(program, instance.envelope, writeIndex) ===
+							"text" && { savedAsText: true as const }),
+				},
+			);
 		}
 		for (const [linkIndex, link] of (operation.links ?? []).entries()) {
 			if (link.target?.kind === "expression") {
@@ -1750,9 +1818,6 @@ async function resolveOperationProgram(
 			property: string;
 			value: JsonValue | undefined;
 		}> = [];
-		const declaredType = program.caseTypeSchemas.get(
-			operation.retype ?? operation.caseType,
-		);
 		const snapshots = new Map<string, StoredCaseValues | undefined>();
 		const storedValuesOf = async (
 			caseId: string,
@@ -1772,7 +1837,6 @@ async function resolveOperationProgram(
 			// the index's id, which is empty where no case is indexed, and case
 			// processing drops a block with an empty id, so nothing is saved.
 			let destinationCaseId = target.caseId;
-			let destinationType = declaredType;
 			if (write.via !== undefined) {
 				const reached = await ancestorCaseId(
 					trx,
@@ -1783,11 +1847,6 @@ async function resolveOperationProgram(
 				);
 				if (reached === undefined) continue;
 				destinationCaseId = reached;
-				const viaType = instance.envelope.viaCaseTypes?.get(writeIndex);
-				destinationType =
-					viaType === undefined
-						? undefined
-						: program.caseTypeSchemas.get(viaType);
 			}
 			let value: JsonValue | undefined;
 			if (write.property === "external_id") {
@@ -1805,13 +1864,9 @@ async function resolveOperationProgram(
 				}
 				value = prepared.value;
 			} else {
-				const dataType =
-					destinationType?.properties?.find(
-						(property) => property.name === write.property,
-					)?.data_type ?? "text";
 				value = storageValueFromEvaluation(
 					bag?.writes.get(writeIndex),
-					dataType,
+					writeDataType(program, instance.envelope, writeIndex),
 					program.viewerTimeZone ?? "UTC",
 				);
 			}

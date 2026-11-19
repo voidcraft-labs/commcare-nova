@@ -10,6 +10,7 @@ import {
 	type CaseProperty,
 	type Column,
 	hqInstantText,
+	type PropertyColumn,
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
 import type { ExpressionContext } from "@/lib/domain/expression";
@@ -44,6 +45,13 @@ export type ColumnDisplayContext = {
 	/** Worker platform labels; omitted by authoring callers. */
 	readonly language?: LanguageTag;
 	readonly caseProperties: readonly CaseProperty[];
+	/** The catalog entry of the property each column read through a relation
+	 *  shows, from the case type its walk reaches, by column. Absent or
+	 *  missing reads the property as untyped with no options. */
+	readonly relatedProperties?: ReadonlyMap<
+		Column["uuid"],
+		CaseProperty | undefined
+	>;
 	readonly calculatedTemporalTypes: ReadonlyMap<
 		Column["uuid"],
 		CalculatedTemporalType
@@ -88,23 +96,19 @@ export function projectColumnDisplay(
 	switch (column.kind) {
 		case "plain":
 			return projectPlainValue(
-				row,
-				column.field,
-				context.caseProperties.find(
-					(property) => property.name === column.field,
-				),
+				columnSourceValue(column, row, context.reading),
+				columnProperty(column, context),
 				context.projectProse,
-				context.reading,
 			);
 		case "phone":
 			return {
 				kind: "value",
-				text: caseListDisplayValue(row, column.field, context.reading),
+				text: columnDisplayText(column, row, context.reading),
 			};
 		case "link": {
 			// The cell: authored wording for a web link, the visible raw
 			// fallback otherwise, and nothing for blank data.
-			const value = caseListDisplayValue(row, column.field, context.reading);
+			const value = columnDisplayText(column, row, context.reading);
 			/* The column's display expression: blank in, blank out, else
 			 * `[text](value)` (`linkColumnDisplayXpath`). */
 			if (context.linkColumnInList === "raw-text")
@@ -120,30 +124,25 @@ export function projectColumnDisplay(
 		}
 		case "date":
 			return formatDateForPreview(
-				caseListDisplayValue(row, column.field, context.reading),
+				columnDisplayText(column, row, context.reading),
 				column.pattern,
 			);
 		case "interval":
 			return formatIntervalForPreview(
-				caseListDisplayValue(row, column.field, context.reading),
+				columnDisplayText(column, row, context.reading),
 				column,
 				context.today,
 			);
-		case "id-mapping": {
-			const source = caseListDisplaySourceValue(
-				row,
-				column.field,
-				context.reading,
+		case "id-mapping":
+			return projectMappedValue(
+				columnSourceValue(column, row, context.reading),
+				column.mapping,
 			);
-			return projectMappedValue(source, column.mapping);
-		}
 		case "image-map":
 			return projectImageMappedValue(
-				caseListDisplaySourceValue(row, column.field, context.reading),
+				columnSourceValue(column, row, context.reading),
 				column.mapping,
-				context.caseProperties.find(
-					(property) => property.name === column.field,
-				),
+				columnProperty(column, context),
 				context.projectProse,
 			);
 		case "calculated":
@@ -152,6 +151,65 @@ export function projectColumnDisplay(
 				context.calculatedTemporalTypes.get(column.uuid),
 			);
 	}
+}
+
+/** The catalog entry of the property a column shows: the list's own type's,
+ *  or for a column read through a relation the reached type's. */
+function columnProperty(
+	column: PropertyColumn,
+	context: ColumnDisplayContext,
+): CaseProperty | undefined {
+	if (column.via !== undefined)
+		return context.relatedProperties?.get(column.uuid);
+	return context.caseProperties.find(
+		(property) => property.name === column.field,
+	);
+}
+
+/**
+ * The value a property column reads for the row. A column read through a
+ * relation reads the related case's value as the device holds it, which the
+ * case store projects beside the row under the column's uuid
+ * (`QueryArgs.related`), blank where the walk reaches no case; any other
+ * reads the row's own (`caseListDisplaySourceValue`).
+ */
+function columnSourceValue(
+	column: PropertyColumn,
+	row: CaseRowWithCalculated,
+	reading?: Extract<CaseReading, "casedb" | "results">,
+): ReturnType<typeof caseRowDisplaySourceValue> {
+	if (column.via === undefined)
+		return caseListDisplaySourceValue(row, column.field, reading);
+	const related = row.calculated[column.uuid];
+	return related === undefined || related === null ? "" : String(related);
+}
+
+/** The text a property column reads for the row (`columnSourceValue`). */
+function columnDisplayText(
+	column: PropertyColumn,
+	row: CaseRowWithCalculated,
+	reading?: Extract<CaseReading, "casedb" | "results">,
+): string {
+	if (column.via === undefined)
+		return caseListDisplayValue(row, column.field, reading);
+	return String(columnSourceValue(column, row, reading) ?? "");
+}
+
+/**
+ * The raw text a device holds for a property column's value: the column's
+ * own property (`caseListRawText`), or the related case's value for a column
+ * read through a relation. A hidden field's template and HQ's appended order
+ * carrier both hold it.
+ */
+export function columnRawText(
+	column: Pick<PropertyColumn, "uuid" | "field" | "via">,
+	row: CaseRowWithCalculated,
+	reading?: Extract<CaseReading, "casedb" | "results">,
+): string {
+	if (column.via === undefined)
+		return caseListRawText(row, column.field, reading);
+	const related = row.calculated[column.uuid];
+	return related === undefined || related === null ? "" : String(related);
 }
 
 /** A column reads the value the device holds for the row. In a device's case
@@ -216,13 +274,10 @@ function caseListDisplayValue(
 }
 
 function projectPlainValue(
-	row: CaseRowWithCalculated,
-	field: string,
+	source: ReturnType<typeof caseRowDisplaySourceValue>,
 	property: CaseProperty | undefined,
 	projectProse: ProseProjector,
-	reading?: Extract<CaseReading, "casedb" | "results">,
 ): PreviewFormattedValue {
-	const source = caseListDisplaySourceValue(row, field, reading);
 	if (
 		property?.data_type === "multi_select" &&
 		(Array.isArray(source) || typeof source === "string")
@@ -327,9 +382,7 @@ export function mappingPositionText(
 	row: CaseRowWithCalculated,
 	reading?: Extract<CaseReading, "casedb" | "results">,
 ): string {
-	const selected = selectedTokens(
-		caseListDisplaySourceValue(row, column.field, reading),
-	);
+	const selected = selectedTokens(columnSourceValue(column, row, reading));
 	if (selected === undefined) return "";
 	const index = column.mapping.findIndex((entry) => selected.has(entry.value));
 	return index === -1 ? "" : String(index);

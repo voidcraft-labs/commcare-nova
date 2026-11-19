@@ -160,8 +160,11 @@ describe("the four Hidden-writer documents", () => {
 				}),
 			}),
 		]);
+		// The date question opens on the property's value, so text and a date
+		// are not saved as text there, and the message names it.
+		expect(errors[0].details?.castBy).toBe("visit_date");
 		expect(errors[0].message).toBe(
-			'Hidden value "stamp" in "Register" saves text to "visit_date" on "patient", which holds a date (saved by "visit_date" in "Visit"). A form that fills a question from "visit_date" would stop when it opens on a value that isn\'t a date. You can change the calculation so it gives a date, or save it to another property.',
+			'Hidden value "stamp" in "Register" saves text to "visit_date" on "patient", which holds a date (saved by "visit_date" in "Visit"). "visit_date" in "Visit" opens on its value as a date, and would stop on any other kind. You can change the calculation so it gives a date, or save it to another property.',
 		);
 	});
 
@@ -444,7 +447,10 @@ describe("one finding per writer, its consequence told by the property's type", 
 	// a case operation's write of it is judged.
 	it.each([
 		{ calculate: "1 + 1", type: "single_select", refused: "wrong-kind" },
-		{ calculate: "today()", type: "text", refused: "wrong-kind" },
+		// A date is saved to text as the day a device submits; a date and
+		// time is not.
+		{ calculate: "today()", type: "text", refused: undefined },
+		{ calculate: "now()", type: "text", refused: "wrong-kind" },
 		{ calculate: "#form/tags", type: "text", refused: "wrong-kind" },
 		{
 			calculate: "if(#form/flag = 'yes', 1, 'high')",
@@ -612,11 +618,19 @@ describe("Hidden Values that alone type a property", () => {
 		expect(validate(own)).toEqual([]);
 	});
 
-	it("reports each Hidden writer of a disagreement", () => {
+	it("reports each Hidden writer of a disagreement a question that opens on the property would stop on", () => {
 		const errors = validate(
 			doc({
 				register: [hidden("number", { calculate: "1" }, "score")],
 				followUp: [hidden("words", { calculate: "'high'" }, "score")],
+				checkIn: [
+					f({
+						kind: "int",
+						id: "score_seen",
+						label: "Score seen",
+						default_value: "#patient/score",
+					}),
+				],
 			}),
 		);
 		expect(
@@ -637,13 +651,49 @@ describe("Hidden Values that alone type a property", () => {
 				"hidden-disagreement",
 			],
 		]);
-		expect(errors[0].message).toContain(
-			'saves a whole number to "score" on "patient", and other hidden values save text there',
+		expect(errors[0].message).toBe(
+			'Hidden value "number" in "Register" saves a whole number to "score" on "patient", and other hidden values save text there, so the property has no one type. "score_seen" in "Check-in" opens on its value as a whole number, and would stop on the others. You can make every hidden value that saves there give the same kind of value, change "score_seen" so it starts another way, or save this one to another property.',
 		);
 		expect(errors.map(({ details }) => details?.disagreement)).toEqual([
 			"others",
 			"others",
 		]);
+		expect(errors.map(({ details }) => details?.castBy)).toEqual([
+			"score_seen",
+			"score_seen",
+		]);
+	});
+
+	it("saves Hidden writers that agree on no type as text where no question opens on the property, a whole number with text and a whole number with a date", () => {
+		const others = doc({
+			register: [hidden("number", { calculate: "1" }, "score")],
+			followUp: [hidden("words", { calculate: "'high'" }, "score")],
+		});
+		expect(validate(others)).toEqual([]);
+		const own = doc({
+			register: [
+				f({ kind: "int", id: "year", label: "Year" }),
+				hidden(
+					"harvest",
+					{
+						calculate:
+							"if(#form/flag = 'yes', #form/year, if(#form/flag = 'no', date(concat(#form/year, '-01-01')), ''))",
+					},
+					"harvest_date",
+				),
+			],
+		});
+		expect(validate(own)).toEqual([]);
+		const typeOf = (built: BlueprintDoc, name: string) =>
+			inferExpressionTypes(built).propertyTypes.get("patient")?.get(name);
+		expect(typeOf(others, "score")).toEqual({
+			type: "text",
+			origin: { kind: "joined", types: ["int", "text"] },
+		});
+		expect(typeOf(own, "harvest_date")).toEqual({
+			type: "text",
+			origin: { kind: "joined", types: ["date", "int"] },
+		});
 	});
 
 	it("leaves a property whose visible writers disagree to their own rule, not to a Hidden Value beside them", () => {
@@ -686,7 +736,7 @@ describe("Hidden Values that alone type a property", () => {
 				register: [
 					hidden(
 						"mixed",
-						{ calculate: "if(#form/flag = 'yes', 1, 'high')" },
+						{ calculate: "if(#form/flag = 'yes', 1, now())" },
 						"score",
 					),
 				],
@@ -707,7 +757,7 @@ describe("Hidden Values that alone type a property", () => {
 			}),
 		]);
 		expect(errors[0].message).toBe(
-			'Hidden value "mixed" in "Register" saves a whole number or text to "score" on "patient" from different results, so the property has no one type. A form that fills a question from "score" can\'t know what it holds. You can make every result of the calculation give the same kind of value, or save it to another property.',
+			'Hidden value "mixed" in "Register" saves a whole number or a date and time to "score" on "patient" from different results, so the property has no one type. A form that fills a question from "score" can\'t know what it holds. You can make every result of the calculation give the same kind of value, or save it to another property.',
 		);
 	});
 

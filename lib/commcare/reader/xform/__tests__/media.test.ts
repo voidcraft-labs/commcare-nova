@@ -305,6 +305,32 @@ describe("media on a text", () => {
 		expect(codes(reading)).toEqual([]);
 		expect(unclaimedMedia(reading)).toEqual([]);
 	});
+
+	it("lists a reference at the kind its slot plays, never the kind of the file its path names", async () => {
+		// An audio form naming a file the index files as a video: project data holds the file's
+		// class to the slot's kind, so the reference carries the slot's.
+		const asVideo = (path: string): ReaderMediaResolution => ({
+			kind: "asset",
+			assetId: `asset-${path.slice(path.lastIndexOf("/") + 1)}`,
+			mediaKind: "video",
+		});
+		const reading = await readForm(
+			source({
+				en: texts({}).replace(
+					'<text id="q-label"><value>Q</value>',
+					'<text id="q-label"><value>Q</value><value form="audio">jr://file/commcare/hen.mp4</value>',
+				),
+			}),
+			{ media: asVideo },
+		);
+		expect(field(reading, "q").label_media).toEqual({ audio: "asset-hen.mp4" });
+		expect(
+			reading.ctx.facts.mediaReferences.map((reference) => [
+				reference.path,
+				reference.mediaKind,
+			]),
+		).toEqual([["jr://file/commcare/hen.mp4", "audio"]]);
+	});
 });
 
 describe("a map of paths by language", () => {
@@ -377,6 +403,20 @@ describe("a map of paths by language", () => {
 				kind: "asset",
 				assetId: "asset-a.png",
 			});
+	});
+
+	it("lists a map's reference at the kind its slot plays, whatever the file is", async () => {
+		const ctx = await context(index);
+		expect(
+			readMediaMap(
+				ctx,
+				{ en: "jr://file/a.png", fr: "jr://file/a.png" },
+				{ ...at(ctx), mediaKind: "audio" },
+			),
+		).toEqual({ kind: "asset", assetId: "asset-a.png" });
+		expect(ctx.facts.mediaReferences.map((one) => one.mediaKind)).toEqual([
+			"audio",
+		]);
 	});
 
 	it("answers differs for a value whose printed text it cannot know", async () => {

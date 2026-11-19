@@ -41,7 +41,7 @@ this directory. What endures lives where it is read:
   readers, each scheduled night runs every reader over what changed, and each week runs
   it whole (`proof/README.md`, "The lane in CI").
   `proof/README.md` holds what it proves (the bar, the intent, manifest and
-  sensitivity checks, proofs 1 to 5, each judged over every reader), the
+  sensitivity checks, proofs 1 to 6, each judged over every reader), the
   corpus, the registers, the spelling rules, the defect rows of the plan's
   work item 12, and step 1's decisions; `proof/CLAUDE.md` holds the rules
   that bind changes to it; `docs/architecture/contracts.md` the delivery

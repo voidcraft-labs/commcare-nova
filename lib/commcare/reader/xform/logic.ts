@@ -17,13 +17,12 @@ import {
 	questionIdProblem,
 	RESERVED_QUESTION_IDS,
 } from "@/lib/domain/questionId";
-import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
+import type { HqPlace } from "@/lib/publish/hqFindings";
 import { questionScalarCheck } from "../../xform/builder";
 import { caseScalarTextValueCalculation } from "../../xform/caseOps";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { serializeWire } from "../../xpath/wire/serialize";
-import type { Claim } from "../claims";
 import type { DefaultEvent, ReadMode } from "../pendingExpressions";
 import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
@@ -37,6 +36,11 @@ import {
 	resolveContextPath,
 	type SetvalueFacts,
 } from "./model";
+import {
+	type FormRefusals,
+	refuseBindLogic,
+	type StandingRefusal,
+} from "./refusals";
 
 const XFORM: ReadMode = { target: "xform", constraint: false };
 const CONSTRAINT: ReadMode = { target: "xform", constraint: true };
@@ -47,14 +51,10 @@ const CONTAINER_KINDS: ReadonlySet<string> = new Set([
 	"section",
 ]);
 
-/** The refusal that covers what a stand-in's source holds: its kind's, or its id's. */
-export function standInRefusal(
-	field: DraftField,
-):
-	| { readonly claim: Claim<"refuse">; readonly detail?: FindingDetail }
-	| undefined {
+/** The refusal that covers what a stand-in's source holds: the one it got, or its id's. */
+export function standInRefusal(field: DraftField): StandingRefusal | undefined {
 	if (!field.standIn) return undefined;
-	if (field.standInClaim !== undefined) return { claim: field.standInClaim };
+	if (field.standInRefusal !== undefined) return field.standInRefusal;
 	const problem = questionIdProblem(field.id);
 	if (problem === undefined) return undefined;
 	const lowered = field.id.toLowerCase();
@@ -64,6 +64,7 @@ export function standInRefusal(
 		lowered !== "meta";
 	return {
 		claim: reservedAnyCase ? X.questionIdReserved : X.questionIdGrammar,
+		place: field.place,
 		detail: { name: field.id },
 	};
 }
@@ -84,6 +85,9 @@ export interface PendingLogicInput {
 	readonly nodes: ReadonlyMap<string, DataNode>;
 	readonly roles: ReadonlyMap<DataNode, NodeRole>;
 	readonly formPlace: HqPlace;
+	/** What the form's cursor has refused and claimed, so a stand-in's bind claims only what
+	 *  its refusal has not. */
+	readonly refusals: FormRefusals;
 }
 
 /** Pushes each field's logic as its draft expressions and reads every default's `setvalue`. */
@@ -224,19 +228,7 @@ function readBindLogic(
 	const standIn = standInRefusal(field);
 	if (field.standIn) {
 		if (standIn === undefined) return;
-		for (const name of [
-			"relevant",
-			"required",
-			"constraint",
-			"calculate",
-			"readonly",
-		])
-			cursor.refuse(
-				{ element, attribute: name },
-				standIn.claim,
-				place,
-				standIn.detail,
-			);
+		refuseBindLogic(cursor, input.refusals, element, standIn);
 		return;
 	}
 	const logic = bind.logic;
@@ -316,7 +308,12 @@ function readDefaults(input: PendingLogicInput): void {
 		// A setvalue on a node the data tree refused, or past one, stands under that refusal.
 		const refusal = setvalue.refusal;
 		if (refusal !== undefined) {
-			cursor.refuseSubtree(element, refusal.claim, formPlace, refusal.detail);
+			cursor.refuseSubtree(
+				element,
+				refusal.claim,
+				refusal.place ?? formPlace,
+				refusal.detail,
+			);
 			continue;
 		}
 		if (target === undefined) {
@@ -345,7 +342,12 @@ function readDefaults(input: PendingLogicInput): void {
 		if (field.standIn) {
 			const standIn = standInRefusal(field);
 			if (standIn !== undefined)
-				cursor.refuseSubtree(element, standIn.claim, place, standIn.detail);
+				cursor.refuseSubtree(
+					element,
+					standIn.claim,
+					standIn.place,
+					standIn.detail,
+				);
 			continue;
 		}
 		const expected: DefaultEvent = inRepeat(field)

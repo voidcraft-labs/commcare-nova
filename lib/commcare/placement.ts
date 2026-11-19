@@ -36,6 +36,7 @@ import {
 	formConnectIds,
 	type PlacementIneligibility,
 	type SaveToCasePlacement,
+	sameCasePlacement,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -378,7 +379,7 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 				placement: shared.placement,
 				held:
 					op.placement !== undefined &&
-					samePlacement(op.placement, shared.placement),
+					sameCasePlacement(op.placement, shared.placement),
 				sharesWith: createUuid,
 			});
 			continue;
@@ -438,10 +439,6 @@ function ownCloseReasons(
 	if (!f.closesOwn) return [{ reason: "no-close" }];
 	if (placement.kind !== "save-to-case") return [SUBJECT_CANNOT_HOLD];
 	return saveToCaseReasons(f, { kind: "own-close" }, placement);
-}
-
-function samePlacement(a: CasePlacement, b: CasePlacement): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /**
@@ -774,7 +771,8 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		placements.set(op.uuid, {
 			placement,
 			held:
-				op.placement !== undefined && samePlacement(op.placement, placement),
+				op.placement !== undefined &&
+				sameCasePlacement(op.placement, placement),
 			...(action.sharesWith !== undefined && {
 				sharesWith: action.sharesWith,
 			}),
@@ -1251,7 +1249,7 @@ function advancedPlacementReasons(
 		planned?.sharesWith === sharedCreate &&
 		planned.placement.kind === "advanced"
 	)
-		return samePlacement(planned.placement, placement)
+		return sameCasePlacement(planned.placement, placement)
 			? []
 			: [SUBJECT_CANNOT_HOLD];
 	const load = advancedLoadOf(f, operation);
@@ -1304,7 +1302,7 @@ function sharedCloseReasons(
 	}).placements.get(close.uuid);
 	if (
 		planned?.sharesWith !== undefined &&
-		samePlacement(planned.placement, placement)
+		sameCasePlacement(planned.placement, placement)
 	)
 		return [];
 	const target = close.target;

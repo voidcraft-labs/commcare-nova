@@ -148,6 +148,11 @@ describe("sourceMayReadPlaces", () => {
 		['<bind calculate="instance(&quot;locations&quot;)/locations"/>'],
 		// A form that reads places through an instance of another id.
 		['<instance id="places" src="jr://fixture/locations"/>'],
+		// The hierarchical fixture, whose read the reader counts as a read of
+		// places: a miss would have the reading read project data twice.
+		[
+			'<instance id="commtrack:locations" src="jr://fixture/commtrack:locations"/>',
+		],
 	])("is true of %s", (text) => {
 		expect(sourceMayReadPlaces(text)).toBe(true);
 	});
@@ -240,6 +245,7 @@ describe("unreadPlacesFailure", () => {
 				forms: [],
 				sameStateRewrites: [],
 				entryFactsRefused: [],
+				childCasesUnread: [],
 				rewrites: [],
 				expressionRounds: 0,
 			},
@@ -627,7 +633,7 @@ function placeFindings(
 			},
 			placesUnread: null,
 		}),
-		{ lookupFields: {}, unreadTables: [], readsPlaces },
+		{ lookupFields: {}, unreadTables: [], declaredTables: [], readsPlaces },
 		null,
 		mintingResolver(FINDINGS_APP_ID),
 	);

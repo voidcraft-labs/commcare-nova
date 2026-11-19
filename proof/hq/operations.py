@@ -47,7 +47,14 @@ runs.
   API access check) and project-space list, through ``api_request``;
   ``client_request``: a request behind HQ's own middleware, for the one read
   whose answer may depend on it (a superuser's key, ``seed_api_superuser``);
-  ``remote_app_through_hq``: a remote app saved by HQ's model.
+  ``remote_app_through_hq``: a remote app saved by HQ's model;
+- ``location_types_read`` and ``media_file_read``: the reads Nova's client
+  makes of HQ's level resource and of one mapped file, through
+  ``api_request`` (a file's answer keeps its bytes);
+- ``save_authored_app``, ``save_authored_tables``, ``save_authored_places``:
+  an app HQ's own pages and models made (``proof/hq-apps/<base>/``), and the
+  lookup tables and places it was made beside, made again by HQ's own models
+  from what was retained of them.
 """
 
 import json
@@ -554,6 +561,13 @@ def api_request(
     of it. Run it under ``proof.hq.seams.api_rate_limits`` or
     ``rate_counters``, which hold the rate limiter's counts.
     """
+    response = _api_response(state, method, path, credential=credential, body=body, content_type=content_type)
+    return response if isinstance(response, HqAnswer) else _answered(response)
+
+
+def _api_response(state, method, path, *, credential, body=b"", content_type="application/json"):
+    """The Django response HQ's view gives the request ``api_request`` describes, or the ``HqAnswer`` of a raised
+    ``Http404`` or ``PermissionDenied``."""
     from django.contrib.auth.models import AnonymousUser
     from django.core.exceptions import PermissionDenied
     from django.http import Http404
@@ -567,19 +581,22 @@ def api_request(
     if "domain" in match.kwargs:
         request.domain = match.kwargs["domain"]
     try:
-        response = match.func(request, *match.args, **match.kwargs)
+        return match.func(request, *match.args, **match.kwargs)
     except Http404:
         return HqAnswer(404, {}, "")
     except PermissionDenied:
         return HqAnswer(403, {}, "")
-    return _answered(response)
+
+
+def _content(response) -> bytes:
+    if hasattr(response, "render") and not getattr(response, "is_rendered", True):
+        response.render()
+    return b"".join(response.streaming_content) if response.streaming else response.content
 
 
 def _answered(response) -> HqAnswer:
     """A Django response as an ``HqAnswer``: its status, the headers Nova's client reads, and its body as text."""
-    if hasattr(response, "render") and not getattr(response, "is_rendered", True):
-        response.render()
-    content = b"".join(response.streaming_content) if response.streaming else response.content
+    content = _content(response)
     kept = {name: response[name] for name in _ANSWER_HEADERS if response.has_header(name)}
     return HqAnswer(response.status_code, kept, content.decode("utf-8"))
 
@@ -703,6 +720,60 @@ def fixture_rows_read(state, table_id, credential: ApiCredential, *, query="") -
 def locations_read(state, credential: ApiCredential) -> HqAnswer:
     """``locations/resources/v0_6.py::LocationResource``'s list, as Nova's ``listHqLocations`` reads it."""
     return api_request(state, "GET", f"/a/{state.domain}/api/location/v2/?limit=1000", credential=credential)
+
+
+@contextmanager
+def location_types_in_id_order():
+    """``LocationTypeResource``'s list, for the block, in the order of its levels' ids.
+
+    The resource's queryset is ``LocationType.objects.all()`` filtered by the
+    project space (``locations/resources/v0_5.py::LocationTypeResource.Meta``),
+    a model with no ordering of its own, so the list is in the order Postgres
+    hands the rows back in, as ``lookup_tables_in_id_order`` says of the
+    lookup table list. Every order is one HQ may give, and Nova reads the
+    levels by code (``lib/commcare/hq/locations.ts``); the harness gives the
+    one of their ids, which follow the order they were made in.
+    """
+    from unittest import mock
+
+    from corehq.apps.locations.resources.v0_5 import LocationTypeResource
+
+    held = LocationTypeResource.get_object_list
+
+    def get_object_list(self, request):
+        return held(self, request).order_by("id")
+
+    with mock.patch.object(LocationTypeResource, "get_object_list", get_object_list):
+        yield
+
+
+def location_types_read(state, credential: ApiCredential) -> HqAnswer:
+    """``locations/resources/v0_5.py::LocationTypeResource``'s list, as Nova's ``listHqLocationTypes`` reads it:
+    ``GET /a/<state.domain>/api/location_type/v1/?limit=1000`` through ``api_request``, in the order of the levels'
+    ids (``location_types_in_id_order``). The resource asks for Edit Locations
+    (``RequirePermissionAuthentication(HqPermissions.edit_locations)``)."""
+    with location_types_in_id_order():
+        return api_request(state, "GET", f"/a/{state.domain}/api/location_type/v1/?limit=1000", credential=credential)
+
+
+@dataclass(frozen=True)
+class MediaFileAnswer:
+    """HQ's answer to the read of one mapped file: its status, the headers Nova's client reads, and its bytes."""
+
+    status: int
+    headers: dict
+    data: bytes
+
+
+def media_file_read(state, url: str, credential: ApiCredential) -> MediaFileAnswer:
+    """The file at ``url``, the address HQ gives a map item (``hqmedia/models.py::HQMediaMapItem.url``,
+    ``/hq/multimedia/file/<media type>/<multimedia id>/``), as Nova's ``readHqMediaFile`` reads it, through the
+    request ``api_request`` makes. A file is bytes, so the answer keeps them as HQ sent them."""
+    response = _api_response(state, "GET", url, credential=credential)
+    if isinstance(response, HqAnswer):
+        return MediaFileAnswer(response.status, {}, b"")
+    kept = {name: response[name] for name in _ANSWER_HEADERS if response.has_header(name)}
+    return MediaFileAnswer(response.status_code, kept, _content(response))
 
 
 def location_patch(state, places, credential: ApiCredential) -> HqAnswer:
@@ -1224,3 +1295,168 @@ def hold_assumed_resources(state, assumed, what):
             " compare and push over other tables, so the harness does not apply the captured bytes. Model HQ's"
             " tables in the capture's peer as HQ holds them (proof/corpus/targetPeer.ts)."
         )
+
+
+# Apps made in HQ -------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AuthoredMedia:
+    """One mapped file of an authored app: a row of its media.json with the file's bytes."""
+
+    # The full path the app's references hold (media.json's ``path``).
+    path: str
+    data: bytes
+    # The path's last segment, as HQ's template loader passes it to ``attach_data``.
+    original_filename: str
+
+
+class AuthoredAppNotMade(HarnessRefusal):
+    """An authored app's retained files do not make the app they were retained from."""
+
+
+def save_authored_app(state, document: dict, media) -> str:
+    """An app HQ's own models made, saved again from its stored document: the same menu ids, form ids, xmlns and
+    content. Returns the id HQ gives it.
+
+    ``document`` is a base's ``app.json`` (the app as HQ stores it, with
+    ``_attachments`` as ``{"<form unique id>.xml": "<source text>"}``). Its
+    attachments are taken out, the rest made an app by the class its
+    ``doc_type`` names through ``from_source``, as
+    ``models/applications.py::_create_app_from_doc`` makes one
+    (``Application.from_source`` removes ``_meta_fields``, sets the domain and
+    wraps), and the forms stored by ``save_attachments``, whose
+    ``corehq/blobs/mixin.py::atomic_blobs`` saves the app as its block ends,
+    as ``_import_app``'s own call does. ``_import_app`` itself is not called:
+    its ``export_json`` runs ``scrub_source``, which mints a new id for every
+    form (``update_form_unique_ids(source, ids_map={})``), and A holds the ids
+    the emission read. Nor are ``_create_app_from_doc``'s three writes made
+    (``convert_build_to_app``, ``date_created``, ``cloudcare_enabled`` from the
+    plan): each would change a field the retained app holds as its author left
+    it.
+
+    Each of ``media`` (``AuthoredMedia``) is attached as
+    ``views/apps.py::load_app_from_slug`` attaches a template's file:
+    ``CommCareMultimedia.get_class_by_data``, ``get_by_data``, ``attach_data``,
+    ``add_domain(owner=True)`` and ``app.create_mapping`` at the full path
+    the app's map holds. A file the project space holds no document of yet is
+    given the id the retained map names for its path before ``attach_data``
+    gives it one, so A maps each path to the multimedia id HQ's answers named
+    when the app was read; ``create_mapping`` then writes the map item HQ wrote
+    then (its ``unique_id`` is ``HQMediaMapItem.gen_unique_id`` of that id and
+    the path).
+    """
+    from corehq.apps.app_manager.util import get_correct_app_class
+    from corehq.apps.hqmedia.models import CommCareMultimedia
+
+    source = json.loads(json.dumps(document))
+    attachments = source.pop("_attachments", None) or {}
+    app = get_correct_app_class(source).from_source(source, state.domain)
+    app.save_attachments(dict(sorted(attachments.items())))
+    for item in media:
+        held = app.multimedia_map.get(item.path)
+        if held is None:
+            raise AuthoredAppNotMade(
+                f"media.json names the file at {item.path}, and the app's multimedia_map holds no such path. The two"
+                " are written by one retain step (proof/matrix/retain.py); write them again from one run."
+            )
+        media_class = CommCareMultimedia.get_class_by_data(item.data)
+        if media_class is None:
+            raise AuthoredAppNotMade(
+                f"CommCare HQ reads the file retained for {item.path} as no image, audio or video"
+                " (CommCareMultimedia.get_class_by_data), so it cannot attach it."
+            )
+        multimedia = media_class.get_by_data(item.data)
+        if not multimedia._id:
+            multimedia._id = held.multimedia_id
+        elif multimedia._id != held.multimedia_id:
+            raise AuthoredAppNotMade(
+                f"The file retained for {item.path} is the document {multimedia._id} in this project space, and the"
+                f" app maps the path to {held.multimedia_id}: two retained files hold the same bytes under two ids."
+            )
+        multimedia.attach_data(item.data, original_filename=item.original_filename, username=state.web_user.username)
+        multimedia.add_domain(state.domain, owner=True)
+        app.create_mapping(multimedia, item.path)
+    return app._id
+
+
+def save_authored_tables(state, tables) -> None:
+    """Each lookup table of an authored base and its rows, made with HQ's own models
+    (``fixtures/models.py::LookupTable``, ``LookupTableRow``) from the base's ``tables.json``: one object a table,
+    ``{tag, is_global, description, fields: [{name, properties, is_indexed}], item_attributes, rows: [{fields:
+    {<name>: [{value, properties}]}, item_attributes}]}``, its rows in ``sort_key`` order."""
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, TypeField
+
+    for table in tables:
+        made = LookupTable.objects.create(
+            domain=state.domain,
+            tag=table["tag"],
+            is_global=table["is_global"],
+            description=table.get("description", ""),
+            fields=[
+                TypeField(name=field["name"], properties=list(field["properties"]), is_indexed=field["is_indexed"])
+                for field in table["fields"]
+            ],
+            item_attributes=list(table["item_attributes"]),
+        )
+        for sort_key, row in enumerate(table["rows"]):
+            LookupTableRow.objects.create(
+                domain=state.domain,
+                table=made,
+                fields={
+                    name: [Field(value=value["value"], properties=dict(value["properties"])) for value in values]
+                    for name, values in row["fields"].items()
+                },
+                item_attributes=dict(row["item_attributes"]),
+                sort_key=sort_key,
+            )
+
+
+def save_authored_places(state, places) -> None:
+    """Each level and place of an authored base, parents first, made with HQ's own models
+    (``locations/models.py::LocationType``, ``SQLLocation``) from the base's ``places.json``: ``{levels: [{name,
+    code, parent, shares_cases, view_descendants}], places: [{location_id, name, site_code, level, parent, metadata,
+    archived}], fields: [{slug, label}]}``, each ``parent`` its parent's code or site code. Each place keeps the
+    ``location_id`` HQ gave it when the base was made, which Nova's reading keys a place by
+    (``lib/commcare/hq/locations.ts``), and an archived place is archived by HQ's own ``SQLLocation.archive``.
+
+    The project space's location fields definition is made first, where ``fields`` names any, as the Locations
+    Fields page saves one (``custom_data_fields/edit_model.py::CustomDataModelMixin.save_custom_fields``:
+    ``CustomDataFieldsDefinition.set_fields`` and its ``save``, under ``locations/views.py::LocationFieldsView``'s
+    ``field_type``): HQ's flat location list writes a place's ``location_data`` only for the fields it defines
+    (``locations/fixtures.py::get_location_data_fields``)."""
+    from corehq.apps.custom_data_fields.models import CustomDataFieldsDefinition, Field
+    from corehq.apps.locations.models import LocationType, SQLLocation
+    from corehq.apps.locations.views import LocationFieldsView
+
+    fields = places.get("fields") or []
+    if fields:
+        definition = CustomDataFieldsDefinition.get_or_create(state.domain, LocationFieldsView.field_type)
+        definition.set_fields([Field(slug=field["slug"], label=field["label"]) for field in fields])
+        definition.save()
+    levels = {}
+    for level in places["levels"]:
+        levels[level["code"]] = LocationType.objects.create(
+            domain=state.domain,
+            name=level["name"],
+            code=level["code"],
+            parent_type=None if level["parent"] is None else levels[level["parent"]],
+            shares_cases=level.get("shares_cases", False),
+            view_descendants=level.get("view_descendants", False),
+        )
+    made = {}
+    for place in places["places"]:
+        location = SQLLocation(
+            domain=state.domain,
+            location_id=place["location_id"],
+            name=place["name"],
+            site_code=place["site_code"],
+            location_type=levels[place["level"]],
+            parent=None if place["parent"] is None else made[place["parent"]],
+            metadata=dict(place["metadata"]),
+        )
+        location.save()
+        made[place["site_code"]] = location
+    for place in places["places"]:
+        if place["archived"] and not made[place["site_code"]].is_archived:
+            made[place["site_code"]].archive()

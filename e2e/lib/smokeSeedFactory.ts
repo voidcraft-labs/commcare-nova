@@ -185,6 +185,7 @@ import {
 import { buildSessionStorageState } from "./session";
 
 import { SMOKE_TEXT } from "./smokeText";
+import { buildSortByBlueprint, SORT_BY_SEED, sortByRoute } from "./sortBySeed";
 
 /** One context per seed process, one actor/Project universe per scenario. */
 /** One form taking part in Connect Learn, in an app that runs on Android
@@ -1455,6 +1456,24 @@ export async function createSmokeBuilders(
 				},
 			});
 			return { hereColumn: { appId, route: hereColumnRoute(appId) } };
+		},
+		"sort-by": async () => {
+			const seed = SORT_BY_SEED;
+			const appId = await seedRuntimeApp(seed.appName, buildSortByBlueprint);
+			for (const patient of seed.patients)
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: seed.caseType,
+						case_name: patient.name,
+						status: "open",
+						properties: {
+							village: patient.village,
+							feeling_sick: patient.feelingSick,
+						},
+					},
+				});
+			return { sortBy: { appId, route: sortByRoute(appId) } };
 		},
 		"preview-android-media": async () => {
 			/* One ready AMR row in the seed's Project, written by the production

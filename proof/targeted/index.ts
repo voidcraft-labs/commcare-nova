@@ -124,6 +124,7 @@ import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
 } from "./documents/registerFromCaseList";
+import { relatedColumns } from "./documents/relatedColumns";
 import {
 	queryRepeatPlacements,
 	queryRepeatPlaces,
@@ -154,6 +155,7 @@ import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sortBlanks } from "./documents/sortBlanks";
 import { sharedPropertySort } from "./documents/sortKeys";
+import { sortLabels } from "./documents/sortLabels";
 import {
 	parentFormPreviousFrame,
 	parentFormSelectionFrame,
@@ -272,9 +274,11 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnHyphenIds,
 	numberKeypad,
 	detailOnlyColumn,
+	relatedColumns,
 	proseValue,
 	searchNoTitle,
 	sortBlanks,
+	sortLabels,
 	datetimeSaved,
 	formsInMenuAbove,
 	formsInMenuAboveNested,

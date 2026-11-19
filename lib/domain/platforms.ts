@@ -213,6 +213,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"tile-alignment",
 	"tile-border-and-shading",
 	"column-hidden-from-results",
+	"case-list-sort-label",
 	"link-column",
 	"search-screen-text",
 	"search-field-checks",
@@ -706,6 +707,15 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: {
 			reading: "different",
 			note: "workers can still search by it, and sort by it only from Sort by",
+		},
+		android: { reading: "runs" },
+	},
+	"case-list-sort-label": {
+		label: "Names in Sort by",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "only a case tile list's Sort By lists the column under its name",
 		},
 		android: { reading: "runs" },
 	},

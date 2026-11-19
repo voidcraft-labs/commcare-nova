@@ -1,0 +1,28 @@
+{
+	"id": "hq-advanced",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CHILD_CASES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"forms-and-case-writes/advancedform",
+		"forms-and-case-writes/load-update-cases-loadupdateaction",
+		"forms-and-case-writes/loadupdateaction-case-index-tag-reference-id-relationship",
+		"forms-and-case-writes/loadupdateaction-case-properties",
+		"forms-and-case-writes/loadupdateaction-case-tag-without",
+		"forms-and-case-writes/loadupdateaction-case-type",
+		"forms-and-case-writes/loadupdateaction-details-module",
+		"forms-and-case-writes/loadupdateaction-preload-question-property",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+		"forms-and-case-writes/update-case-update-property-question",
+		"forms-and-case-writes/update-mode-edit-in-a-project-space-that-saves-every-time"
+	]
+}

@@ -5,7 +5,12 @@ import { dirname, join, resolve } from "node:path";
 import { expect, it } from "vitest";
 import { copyShippedBiomeConfig } from "./shippedBiomeConfig";
 
-it("enforces the provider boundary through the shipped linter, without replacing other import boundaries", () => {
+// Each case is a fresh Biome process (twenty-three of them), about 150 ms
+// apiece on an idle machine and several times that on a busy runner, so the
+// test's budget is the work's rather than Vitest's default.
+it("enforces the provider boundary through the shipped linter, without replacing other import boundaries", {
+	timeout: 60_000,
+}, () => {
 	const directory = mkdtempSync(join(tmpdir(), "nova-provider-lint-"));
 	try {
 		copyShippedBiomeConfig(directory);

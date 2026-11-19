@@ -14,6 +14,10 @@
 //     `applicableForProperty` predicate. Surfaces an inline error
 //     when the resolved property's data type doesn't satisfy the
 //     kind: e.g. Late Flag on a text-typed property.
+//   - A "From" picker over the case the information is read from: this
+//     case, or a case above it through the catalog's parent chain (and the
+//     column's own walk, where it names another link). The property picker
+//     then lists that case type's properties.
 //   - Header text input via the shared `BlurCommitTextInput`
 //     primitive at `primitives/BlurCommitTextInput.tsx`. Plain
 //     text; commits on blur. CommCare allows any header string at
@@ -34,9 +38,17 @@ import { useEditorVocabulary } from "@/components/builder/shared/editorContext";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { CaseProperty } from "@/lib/domain";
+import { type CaseProperty, type ColumnVia, sameColumnVia } from "@/lib/domain";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
+import { columnSources } from "../../columnSources";
 
 interface ColumnFieldRowProps {
 	/** The column's selected, declared case-property name. */
@@ -57,6 +69,11 @@ interface ColumnFieldRowProps {
 	/** Inline error rows surfaced beneath the picker: typically
 	 *  the kind-vs-property-type applicability mismatch hint. */
 	readonly errors?: readonly string[];
+	/** The walk to the case the column reads; absent for this case. */
+	readonly via?: ColumnVia;
+	/** Fired when the author reads from another case: its walk, and the
+	 *  property kept where that case has one of the same name, else none. */
+	readonly onSourceChange?: (via: ColumnVia | undefined, field: string) => void;
 }
 
 /**
@@ -71,13 +88,27 @@ export function ColumnFieldRow({
 	onHeaderChange,
 	propertyFilter,
 	errors,
+	via,
+	onSourceChange,
 }: ColumnFieldRowProps) {
 	const fieldInvalid = errors !== undefined && errors.length > 0;
 	const { caseTypes, currentCaseType } = useEditorVocabulary();
 	const projectProse = useProseProjection();
+	const sources = columnSources(currentCaseType, caseTypes, via);
+	const source =
+		sources.find((one) => sameColumnVia(one.via, via)) ?? sources[0];
+	const readCaseType = source?.caseType ?? currentCaseType;
 	const properties =
-		caseTypes.find((caseType) => caseType.name === currentCaseType)
-			?.properties ?? [];
+		caseTypes.find((caseType) => caseType.name === readCaseType)?.properties ??
+		[];
+	const chooseSource = (key: string | null) => {
+		const next = sources.find((one) => one.key === key);
+		if (next === undefined || onSourceChange === undefined) return;
+		const keeps = caseTypes
+			.find((caseType) => caseType.name === next.caseType)
+			?.properties.some((property) => property.name === field);
+		onSourceChange(next.via, keeps === true ? field : "");
+	};
 	const inheritedHeader = propertyDisplayLabelForName(
 		field,
 		properties,
@@ -86,9 +117,34 @@ export function ColumnFieldRow({
 	const usesInheritedHeader = header.trim() === "";
 	return (
 		<div className="space-y-4 [&_button]:!text-[14px] [&_input]:!text-[14px]">
+			{onSourceChange !== undefined && sources.length > 1 ? (
+				<div>
+					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>From</div>
+					<Select value={source?.key ?? "self"} onValueChange={chooseSource}>
+						<SelectTrigger
+							className="min-h-11 w-full"
+							aria-label="Read information from"
+						>
+							<SelectValue>{source?.label ?? "This case"}</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							{sources.map((one) => (
+								<SelectItem key={one.key} value={one.key} wrap>
+									{one.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<p className="mt-1.5 text-[12px] leading-4 text-nova-text-muted">
+						Show information of a case above this one, such as the household a
+						member belongs to.
+					</p>
+				</div>
+			) : null}
 			<div>
 				<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Information from</div>
 				<PropertyPicker
+					caseType={readCaseType}
 					value={field === "" ? undefined : field}
 					onChange={onFieldChange}
 					filter={propertyFilter}

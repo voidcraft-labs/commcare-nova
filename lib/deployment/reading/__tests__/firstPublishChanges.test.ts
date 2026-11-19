@@ -27,8 +27,14 @@
  * parting ways.
  */
 
-import { type Element, isTag, Text } from "domhandler";
-import { findAll, findOne, removeElement, replaceElement } from "domutils";
+import { Element, isTag, Text } from "domhandler";
+import {
+	findAll,
+	findOne,
+	prepend,
+	removeElement,
+	replaceElement,
+} from "domutils";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -99,10 +105,12 @@ import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	type CaseListConfig,
 	type CaseSearchConfig,
+	columnSort,
 	plainColumn,
 } from "@/lib/domain/modules";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
+	FIRST_PUBLISH_ANDROID_ONLY,
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
@@ -123,11 +131,16 @@ import {
 	type FirstPublishFacts,
 	firstPublishChangesFor,
 	firstPublishFactsOf,
+	firstPublishListToStore,
 	GENERATED_NODE_CHANGE,
 	MEDIA_REFERENCE_PATHS,
 	pointerCovers,
 } from "../firstPublishChanges";
-import { HQ_MEDIA_SLOTS, type HqMediaSlot } from "../projectData/media";
+import {
+	HQ_MEDIA_SLOTS,
+	type HqMediaSlot,
+	type MediaLeftOut,
+} from "../projectData/media";
 import {
 	type RegisterReading,
 	readExport,
@@ -183,13 +196,15 @@ function docUnder(
 	).nextDoc;
 }
 
+const NONE_LEFT_OUT: MediaLeftOut = { undrawn: 0, brokenPictures: 0 };
+
 interface FactsChange {
 	readonly choice?: DeclarationChoice;
 	readonly source?: HqAppSource;
 	readonly doc?: BlueprintDoc;
 	readonly facts?: Partial<ReadFacts>;
 	readonly mediaFiles?: readonly AdoptedMediaFile[];
-	readonly mediaLeftOut?: number;
+	readonly mediaLeftOut?: MediaLeftOut;
 }
 
 /** The facts of `reading` under a choice, through the production builder, with `change` made to its input. */
@@ -205,7 +220,7 @@ function factsOf(
 		forms: readingForms(reading.draft),
 		attachmentTarget: reading.input.target,
 		mediaFiles: change.mediaFiles ?? [],
-		mediaLeftOut: change.mediaLeftOut ?? 0,
+		mediaLeftOut: change.mediaLeftOut ?? NONE_LEFT_OUT,
 		choice: { runsOnlyOn: choice.runsOnlyOn ?? null, split: choice.split },
 	});
 }
@@ -457,6 +472,50 @@ function withLiteralOutputsAsText(xml: string): string {
 	return serializeXml(parseXml(serializeXml(document)));
 }
 
+/** A survey whose Hidden Value `h` is calculated, beside a question `n` with a default. */
+function calculatedDoc(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Menu",
+				forms: [
+					{
+						name: "Form",
+						type: "survey",
+						fields: [
+							f({ kind: "hidden", id: "h", calculate: "2" }),
+							f({ kind: "text", id: "n", default_value: "'x'" }),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** A default of `h` before the default of `n`, which reads neither: a source whose
+ *  calculate replaces its default before anything reads it. */
+function withOverwrittenDefault(xml: string): string {
+	const document = parseXml(xml);
+	const anchor = findOne(
+		(element: Element) =>
+			element.name === "setvalue" && element.attribs.ref === "/data/n",
+		document.children.filter(isTag),
+		true,
+	);
+	if (anchor === null)
+		throw new Error("The export holds no setvalue that sets n.");
+	prepend(
+		anchor,
+		new Element("setvalue", {
+			event: "xforms-ready",
+			ref: "/data/h",
+			value: "1",
+		}),
+	);
+	return serializeXml(document);
+}
+
 // ── The register's columns ───────────────────────────────────────────────
 
 describe("the register", () => {
@@ -471,12 +530,24 @@ describe("the register", () => {
 			]);
 	});
 
-	it("works out exactly the two Web Apps lines from the declaration", () => {
+	it("works out the two Web Apps lines from the declaration, and each line a worker meets on Android alone from its reading", () => {
 		expect(
 			FIRST_PUBLISH_CHANGE_IDS.filter(
-				(id) => FIRST_PUBLISH_CHANGES[id].scope === "declaration",
+				(id) =>
+					FIRST_PUBLISH_CHANGES[id].scope === "declaration" &&
+					FIRST_PUBLISH_CHANGES[id].recorded === undefined,
 			),
 		).toEqual(["web-apps-turned-off", "web-apps-turned-on"]);
+		expect(
+			FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => FIRST_PUBLISH_CHANGES[id].recorded !== undefined,
+			),
+		).toEqual([...FIRST_PUBLISH_ANDROID_ONLY]);
+		for (const id of FIRST_PUBLISH_ANDROID_ONLY)
+			expect([id, FIRST_PUBLISH_CHANGES[id].scope]).toEqual([
+				id,
+				"declaration",
+			]);
 	});
 
 	it("maps every generated node's purpose to the entry that declares it, a guard to none", () => {
@@ -593,7 +664,7 @@ describe("over CommCare HQ's retained sources", () => {
 		expect(uncovered).toEqual([]);
 	});
 
-	it("gives each choice's list back from what the birth stores, and only the Web Apps lines move under another declaration", async () => {
+	it("gives each choice's list back from what the birth stores, and only the Web Apps lines and a line a worker meets on Android alone move under another declaration", async () => {
 		let choices = 0;
 		for (const reading of await retainedReadings()) {
 			const rows = adoptedIdentityRows(
@@ -614,7 +685,7 @@ describe("over CommCare HQ's retained sources", () => {
 					novaRevision: 1,
 					mediaFiles: {},
 					observedAt: "2026-11-15T00:00:00.000Z",
-					firstPublish: view,
+					firstPublish: firstPublishListToStore(view, reading.draft.facts),
 				});
 				if (
 					written.firstPublish.kind !== "set" ||
@@ -626,17 +697,23 @@ describe("over CommCare HQ's retained sources", () => {
 				expect(firstPublishViewFromStored(stored, choice.runsOnlyOn)).toEqual(
 					view,
 				);
-				const others = (["android", "web-apps", undefined] as const).map(
-					(runsOnlyOn) => firstPublishViewFromStored(stored, runsOnlyOn),
-				);
-				const webApps = new Set<string>([
+				const moving = new Set<FirstPublishChangeId>([
 					"web-apps-turned-off",
 					"web-apps-turned-on",
+					...FIRST_PUBLISH_ANDROID_ONLY,
 				]);
-				for (const other of others)
-					expect(other.ids.filter((id) => !webApps.has(id))).toEqual(
-						view.ids.filter((id) => !webApps.has(id)),
+				const recorded = [...FIRST_PUBLISH_ANDROID_ONLY].filter((id) =>
+					FIRST_PUBLISH_CHANGES[id].recorded?.(reading.draft.facts),
+				);
+				for (const runsOnlyOn of ["android", "web-apps", undefined] as const) {
+					const other = firstPublishViewFromStored(stored, runsOnlyOn);
+					expect(other.ids.filter((id) => !moving.has(id))).toEqual(
+						view.ids.filter((id) => !moving.has(id)),
 					);
+					expect(
+						other.ids.filter((id) => FIRST_PUBLISH_ANDROID_ONLY.has(id)),
+					).toEqual(runsOnlyOn === "web-apps" ? [] : recorded);
+				}
 				choices++;
 			}
 		}
@@ -659,6 +736,40 @@ describe("over CommCare HQ's retained sources", () => {
 			touchesWorkers: true,
 			of: "next-publish",
 		});
+	});
+
+	it("lists a Sort by entry left with a blank name only where the app runs on Android, and keeps it for a later declaration", {
+		timeout: 60_000,
+	}, async () => {
+		const id = "sort-by-entry-with-a-blank-name-dropped";
+		const recorded = await PAIRS[id].on();
+		const under = (runsOnlyOn: Platform | null): FirstPublishFacts => ({
+			...recorded,
+			choice: { ...recorded.choice, runsOnlyOn },
+		});
+		expect(applies(id, under(null))).toBe(true);
+		expect(applies(id, under("android"))).toBe(true);
+		// Web Apps shows no Sort by entry for an invisible column.
+		const webApps = firstPublishChangesFor(under("web-apps"));
+		expect(webApps.ids).not.toContain(id);
+		// A list stored under Web Apps alone keeps the reading's line, which shows once the app runs on Android.
+		const list = firstPublishListToStore(webApps, recorded.facts);
+		expect(list.ids).toContain(id);
+		const stored = {
+			ids: list.ids,
+			webAppsOnInHq: recorded.source.cloudcareEnabled,
+			of: "first-publish",
+		} as const;
+		expect(firstPublishViewFromStored(stored, "web-apps").ids).not.toContain(
+			id,
+		);
+		expect(firstPublishViewFromStored(stored, "android").ids).toContain(id);
+		expect(firstPublishViewFromStored(stored, undefined).ids).toContain(id);
+		// A reading that records no such rule stores no line.
+		const plain = await PAIRS[id].off();
+		expect(
+			firstPublishListToStore(firstPublishChangesFor(plain), plain.facts).ids,
+		).not.toContain(id);
 	});
 });
 
@@ -1429,8 +1540,26 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			}),
 	},
 	"media-references-with-no-file-removed": {
-		on: async () => factsOf(await baseReading(), { mediaLeftOut: 1 }),
-		off: async () => factsOf(await baseReading(), { mediaLeftOut: 0 }),
+		on: async () =>
+			factsOf(await baseReading(), {
+				mediaLeftOut: { undrawn: 1, brokenPictures: 0 },
+			}),
+		// An icon Web Apps showed broken is said by its own line.
+		off: async () =>
+			factsOf(await baseReading(), {
+				mediaLeftOut: { undrawn: 0, brokenPictures: 1 },
+			}),
+	},
+	"broken-pictures-removed": {
+		on: async () =>
+			factsOf(await baseReading(), {
+				mediaLeftOut: { undrawn: 0, brokenPictures: 1 },
+			}),
+		// A reference no worker saw anything for is said by another line.
+		off: async () =>
+			factsOf(await baseReading(), {
+				mediaLeftOut: { undrawn: 1, brokenPictures: 0 },
+			}),
 	},
 	"unused-media-entries-removed": {
 		on: async () => {
@@ -1495,6 +1624,27 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		labelledDoc("Weight\u00a0(kg)"),
 		{ xml: withLiteralOutputsAsText },
 	),
+	// A Hidden Value's default its calculate replaces before anything reads it.
+	"hidden-value-defaults-dropped": editedPair(calculatedDoc, {
+		xml: withOverwrittenDefault,
+	}),
+	// A label beside a column shown nowhere whose header is blank in every language, which
+	// CommCare HQ's build lists in Android's Sort by as an entry that shows blank.
+	"sort-by-entry-with-a-blank-name-dropped": editedPair(
+		() =>
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				plainColumn(uuid(2), "notes", "", {
+					visibleInList: false,
+					visibleInDetail: false,
+					sort: columnSort("asc", 0),
+				}),
+			]),
+		onMenu((menu) => {
+			for (const element of menu.case_details.short.sort_elements)
+				if (element.field === "notes") element.display = { en: "Notes" };
+		}),
+	),
 };
 
 /** A media map item as CommCare HQ stores one for an image. */
@@ -1512,7 +1662,8 @@ function mediaMapItem(id: string): Record<string, unknown> {
 const READER_RECORDED: readonly FirstPublishChangeId[] =
 	FIRST_PUBLISH_CHANGE_IDS.filter(
 		(id) =>
-			FIRST_PUBLISH_CHANGES[id].scope === "reading" &&
+			(FIRST_PUBLISH_CHANGES[id].scope === "reading" ||
+				FIRST_PUBLISH_CHANGES[id].recorded !== undefined) &&
 			![
 				"forms-and-settings-rewritten",
 				"connect-app-captures-location",
@@ -1521,6 +1672,7 @@ const READER_RECORDED: readonly FirstPublishChangeId[] =
 				"media-paths-joined",
 				"media-files-renamed",
 				"media-references-with-no-file-removed",
+				"broken-pictures-removed",
 				"unused-media-entries-removed",
 			].includes(id),
 	);

@@ -1,6 +1,7 @@
 {
 	"documents": [
-		"<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:j=\"http://openrosa.org/javarosa\" xmlns:v=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>T</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/ABC\" uiVersion=\"1\"><a/><!-- c --><b/><a/><x:a xmlns:x=\"http://openrosa.org/formdesigner/ABC\"/></data></instance><instance id=\"casedb\" src=\"jr://instance/casedb\"/><bind nodeset=\"/data/a\" j:count=\"3\" v:nodeset=\"#form/a\" xml:lang=\"en\"/><foo:thing xmlns:foo=\"urn:example:other\"/></model></h:head><h:body/></h:html>"
+		"<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:j=\"http://openrosa.org/javarosa\" xmlns:v=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>T</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/ABC\" uiVersion=\"1\"><a/><!-- c --><b/><a/><x:a xmlns:x=\"http://openrosa.org/formdesigner/ABC\"/></data></instance><instance id=\"casedb\" src=\"jr://instance/casedb\"/><bind nodeset=\"/data/a\" j:count=\"3\" v:nodeset=\"#form/a\" xml:lang=\"en\"/><foo:thing xmlns:foo=\"urn:example:other\"/></model></h:head><h:body/></h:html>",
+		"<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns=\"http://www.w3.org/2002/xforms\"><h:head><h:title>S</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/DEF\"><q/><save><case xmlns=\"http://commcarehq.org/case/transaction/v2\" case_id=\"\" date_modified=\"\" user_id=\"\"><update><status/></update></case></save></data></instance><bind nodeset=\"/data/q\" type=\"xsd:string\"/><bind nodeset=\"/data/save/case/@case_id\" calculate=\"uuid()\"/><bind nodeset=\"/data/save/case/update/status\" calculate=\"/data/q\"/></model></h:head><h:body><input ref=\"/data/q\"><label>Q</label></input></h:body></h:html>"
 	],
 	"nodes": [
 		{
@@ -128,6 +129,18 @@
 			"path": [1],
 			"attribute": null,
 			"where": "/h:html/h:body[1]"
+		},
+		{
+			"document": 1,
+			"path": [0, 1, 0, 0, 1, 0],
+			"attribute": null,
+			"where": "/h:html/h:head[1]/model[1]/instance[1]/{http://openrosa.org/formdesigner/DEF}data[1]/{http://openrosa.org/formdesigner/DEF}save[1]/{http://commcarehq.org/case/transaction/v2}case[1]"
+		},
+		{
+			"document": 1,
+			"path": [0, 1, 0, 0, 1, 0],
+			"attribute": "case_id",
+			"where": "/h:html/h:head[1]/model[1]/instance[1]/{http://openrosa.org/formdesigner/DEF}data[1]/{http://openrosa.org/formdesigner/DEF}save[1]/{http://commcarehq.org/case/transaction/v2}case[1]/@case_id"
 		}
 	],
 	"qualified": [
@@ -210,6 +223,67 @@
 		{
 			"key": "jr://file/commcare/logo.png",
 			"token": "jr:~1~1file~1commcare~1logo.png"
+		}
+	],
+	"jsonDocuments": [
+		{
+			"doc_type": "Application",
+			"modules": [
+				{
+					"doc_type": "Module",
+					"name": { "en": "M" },
+					"module_filter": "true()",
+					"forms": []
+				}
+			]
+		}
+	],
+	"jsonPlaces": [
+		{
+			"document": 0,
+			"key": "schema:Application",
+			"where": ""
+		},
+		{
+			"document": 0,
+			"key": "schema:Module",
+			"where": "/modules/0"
+		},
+		{
+			"document": 0,
+			"key": "schema:Module.name",
+			"where": "/modules/0/name"
+		},
+		{
+			"document": 0,
+			"key": "schema:Module.module_filter",
+			"where": "/modules/0/module_filter"
+		}
+	],
+	"questionPlaces": [
+		{
+			"document": 1,
+			"type": "Text",
+			"path": "/data/q",
+			"where": "/h:html/h:head[1]/model[1]/instance[1]/{http://openrosa.org/formdesigner/DEF}data[1]/{http://openrosa.org/formdesigner/DEF}q[1]"
+		},
+		{
+			"document": 1,
+			"type": "DataBindOnly",
+			"path": "/data/save/case/update/status",
+			"where": "/h:html/h:head[1]/model[1]/instance[1]/{http://openrosa.org/formdesigner/DEF}data[1]/{http://openrosa.org/formdesigner/DEF}save[1]/{http://commcarehq.org/case/transaction/v2}case[1]/{http://commcarehq.org/case/transaction/v2}update[1]/{http://commcarehq.org/case/transaction/v2}status[1]"
+		},
+		{
+			"document": 1,
+			"type": "DataBindOnly",
+			"path": "/data/save/case/@case_id",
+			"where": "/h:html/h:head[1]/model[1]/instance[1]/{http://openrosa.org/formdesigner/DEF}data[1]/{http://openrosa.org/formdesigner/DEF}save[1]/{http://commcarehq.org/case/transaction/v2}case[1]/@case_id"
+		},
+		{
+			"document": 1,
+			"type": "DataBindOnly",
+			"path": "/data/save/case/@user_id",
+			"where": "/h:html/h:head[1]/model[1]/instance[1]/{http://openrosa.org/formdesigner/DEF}data[1]/{http://openrosa.org/formdesigner/DEF}save[1]/{http://commcarehq.org/case/transaction/v2}case[1]/@user_id"
 		}
 	]
 }

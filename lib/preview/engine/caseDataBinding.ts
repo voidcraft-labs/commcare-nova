@@ -72,6 +72,10 @@ import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import {
+	type CaseListSortChoice,
+	caseListSortChoiceSchema,
+} from "../caseListSortMenu";
 import { previewPlatformRules } from "../platform";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
@@ -284,6 +288,7 @@ function caseStoreOrder(
 		readonly caseListConfig?: CaseListConfig;
 		readonly moduleUuid?: string;
 		readonly language?: string;
+		readonly sortChoice?: CaseListSortChoice;
 	},
 ): CaseStoreOrder | undefined {
 	if (
@@ -301,7 +306,16 @@ function caseStoreOrder(
 		doc,
 		args.caseListConfig,
 		args.language ?? effectiveAppLocalization(doc.localization).sourceLanguage,
+		sortChoiceOf(args.sortChoice),
 	);
+}
+
+/** The Sort by choice a read sends, where it is one; anything else keeps the
+ *  list's own order. */
+function sortChoiceOf(value: unknown): CaseListSortChoice | undefined {
+	if (value === undefined) return undefined;
+	const parsed = caseListSortChoiceSchema.safeParse(value);
+	return parsed.success ? parsed.data : undefined;
 }
 
 /**
@@ -412,6 +426,9 @@ type RunningCaseReadArgs = {
 	/** The case chosen in each menu before the list, by module UUID, which a
 	 *  browse list's filter reads (`entrySessionData.ts::caseListStepSession`). */
 	chosenCaseIds?: Readonly<Record<string, string>>;
+	/** The worker's picks in the list's Sort by
+	 *  (`lib/preview/caseListSortMenu.ts`), plain JSON. */
+	sortChoice?: CaseListSortChoice;
 };
 
 /** A running read made ready: the store bound to the worker and the read's

@@ -44,11 +44,14 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"media-paths-joined",
 	"media-files-renamed",
 	"media-references-with-no-file-removed",
+	"broken-pictures-removed",
 	"unused-media-entries-removed",
 	"names-respelled",
 	"media-maps-respelled",
 	"text-spaces-dropped",
 	"form-text-characters-written-as-outputs",
+	"hidden-value-defaults-dropped",
+	"sort-by-entry-with-a-blank-name-dropped",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
@@ -104,11 +107,14 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"media-paths-joined": false,
 	"media-files-renamed": true,
 	"media-references-with-no-file-removed": false,
+	"broken-pictures-removed": true,
 	"unused-media-entries-removed": false,
 	"names-respelled": false,
 	"media-maps-respelled": false,
 	"text-spaces-dropped": true,
 	"form-text-characters-written-as-outputs": false,
+	"hidden-value-defaults-dropped": false,
+	"sort-by-entry-with-a-blank-name-dropped": true,
 };
 
 /** Ids another entry's sentence says to a person. */
@@ -140,9 +146,22 @@ export function firstPublishSentenceId(
 	return isSaidByAnother(id) ? FIRST_PUBLISH_SAID_BY[id] : id;
 }
 
+/**
+ * The ids of a change a worker meets on Android alone. A list keeps such an
+ * id wherever the reading gives it, whatever the app then declared, and shows
+ * it only where the app runs on Android, since where the app runs is an edit
+ * a person can make after the birth.
+ */
+export const FIRST_PUBLISH_ANDROID_ONLY: ReadonlySet<FirstPublishChangeId> =
+	new Set<FirstPublishChangeId>(["sort-by-entry-with-a-blank-name-dropped"]);
+
 /** What a baseline keeps of a list. */
 export interface StoredFirstPublish {
-	/** The ids that applied under the chosen declaration, less the two Web Apps ids. */
+	/**
+	 * The ids that applied under the chosen declaration, less the two Web Apps
+	 * ids, and each id of `FIRST_PUBLISH_ANDROID_ONLY` the reading gives under
+	 * any declaration.
+	 */
 	readonly ids: readonly FirstPublishChangeId[];
 	/** CommCare HQ's Web App setting as the reading held it (`HqAppSource.cloudcareEnabled`). */
 	readonly webAppsOnInHq: boolean;
@@ -164,9 +183,11 @@ export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish> =
 /**
  * The list as it stands for an app that now declares `runsOnlyOn`: the
  * stored ids, with `web-apps-turned-off` where CommCare HQ held Web Apps on
- * and the app runs on Android only, and `web-apps-turned-on` where HQ held
- * it off and the app runs in Web Apps, all in registry order. Where the app
- * runs is the one edit that changes the list, so neither line is stored.
+ * and the app runs on Android only, `web-apps-turned-on` where HQ held it off
+ * and the app runs in Web Apps, and without an id of
+ * `FIRST_PUBLISH_ANDROID_ONLY` where the app runs in Web Apps only, all in
+ * registry order. Where the app runs is the one edit that changes the list,
+ * so neither Web Apps line is stored.
  */
 export function firstPublishViewFromStored(
 	stored: StoredFirstPublish,
@@ -180,6 +201,9 @@ export function firstPublishViewFromStored(
 	}
 	if (!stored.webAppsOnInHq && runsOnlyOn !== "android") {
 		present.add("web-apps-turned-on");
+	}
+	if (runsOnlyOn === "web-apps") {
+		for (const id of FIRST_PUBLISH_ANDROID_ONLY) present.delete(id);
 	}
 	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => present.has(id));
 	return {

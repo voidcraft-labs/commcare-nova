@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"long\", \"name\": \"Long rains\"}, \"fixture_type\": \"seasons\", \"id\": \"d968ca1356db462dbe9ef6bf662456f0\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"short\", \"name\": \"Short rains\"}, \"fixture_type\": \"seasons\", \"id\": \"a350f04e7f394391a614e13b47501e24\", \"resource_uri\": \"\"}]}"
+}

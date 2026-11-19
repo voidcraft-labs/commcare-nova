@@ -257,7 +257,7 @@ describe("a publish to the project space that manages the table", () => {
 			const { failure } = refusal(await publish(doc));
 			expect(failure.code).toBe("app_not_ready");
 			// Project data refuses every edit to the table, so the item sends
-			// the person where its rows are changed (Copy X3).
+			// the person where its rows are changed.
 			expect(failure.details).toHaveLength(1);
 			expect(failure.details[0]).toContain("which has no rows");
 			expect(

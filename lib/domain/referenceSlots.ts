@@ -673,6 +673,25 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_column_via",
+		path: "caseListConfig.columns[].via",
+		// The index steps a property column walks to the case whose property
+		// it shows, each the step a `prop` read's `ancestor` arm takes: a
+		// `throughCaseType` names a case type, and the walk decides which
+		// case type the column's `field` belongs to.
+		kind: "relation-path",
+		columnKinds: [
+			"plain",
+			"date",
+			"phone",
+			"id-mapping",
+			"image-map",
+			"interval",
+			"link",
+		],
+	},
+	{
+		entity: "module",
 		slot: "case_list_column_expression",
 		path: "caseListConfig.columns[].expression",
 		kind: "expression",
@@ -1626,6 +1645,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].sort.direction": "config",
 	"caseListConfig.columns[].sort.priority": "config",
 	"caseListConfig.columns[].sort.blanks": "config",
+	// The name a hidden column's sort rule gives it in Sort by.
+	"caseListConfig.columns[].sort.label": "display-text",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
 	"caseListConfig.columns[].notOnList": "config",

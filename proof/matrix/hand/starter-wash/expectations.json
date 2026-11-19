@@ -1,0 +1,711 @@
+[
+	{
+		"id": "client-registered",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/client_full_name",
+					"value": "Rehema Musa"
+				},
+				{
+					"path": "/data/number_of_household_members",
+					"value": "5"
+				},
+				{
+					"path": "/data/full_address",
+					"value": "Kibera Road"
+				},
+				{
+					"path": "/data/consumer_level",
+					"value": "2"
+				}
+			],
+			"expressions": [
+				"/data/client_status",
+				"/data/preferred_day_of_payment",
+				"/data/consumption"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/3/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Active"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "31"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"constraintChecks": [
+				{
+					"path": "/data/client_full_name",
+					"value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"constraintChecks": [
+				{
+					"path": "/data/client_full_name",
+					"value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "meter-read-from-the-case",
+		"entry": "forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/where_you_able_to_access_the_meter",
+					"value": "1"
+				},
+				{
+					"path": "/data/is_the_meter_in_good_condition",
+					"value": "3"
+				}
+			],
+			"expressions": [
+				"/data/last_reading",
+				"/data/client_name",
+				"/data/repairs",
+				"/data/reason_for_referral"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/is_the_meter_in_good_condition[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "120"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Rehema Musa"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "Reading is possible, but meter needs repair"
+			}
+		]
+	},
+	{
+		"id": "meter-read-from-the-case:case-prop-case-parent-prop-case-grandparent-prop",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/where_you_able_to_access_the_meter",
+					"value": "1"
+				},
+				{
+					"path": "/data/is_the_meter_in_good_condition",
+					"value": "3"
+				}
+			],
+			"expressions": [
+				"/data/last_reading",
+				"/data/client_name",
+				"/data/repairs",
+				"/data/reason_for_referral"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/is_the_meter_in_good_condition[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "120"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Rehema Musa"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "Reading is possible, but meter needs repair"
+			}
+		]
+	},
+	{
+		"id": "inspection-scored",
+		"entry": "forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+		"form": {
+			"menu": 1,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/where_you_able_to_access_the_housetap",
+					"value": "1"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/wash_hands",
+					"value": "1"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/drinking_water",
+					"value": "1"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/latrine",
+					"value": "2"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/landfill",
+					"value": "3"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/washing_items",
+					"value": "1"
+				}
+			],
+			"expressions": [
+				"/data/hygiene_water_sanitation/hygiene_score",
+				"/data/hygiene_water_sanitation/hygiene_possible",
+				"/data/hygene_referral",
+				"/data/client_name"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/hygiene_water_sanitation[1]/wash_hands[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "3"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "4"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": ""
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "Rehema Musa"
+			}
+		]
+	},
+	{
+		"id": "inspection-scored:case-prop-case-parent-prop-case-grandparent-prop",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 1,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/where_you_able_to_access_the_housetap",
+					"value": "1"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/wash_hands",
+					"value": "1"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/drinking_water",
+					"value": "1"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/latrine",
+					"value": "2"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/landfill",
+					"value": "3"
+				},
+				{
+					"path": "/data/hygiene_water_sanitation/washing_items",
+					"value": "1"
+				}
+			],
+			"expressions": [
+				"/data/hygiene_water_sanitation/hygiene_score",
+				"/data/hygiene_water_sanitation/hygiene_possible",
+				"/data/hygene_referral",
+				"/data/client_name"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/hygiene_water_sanitation[1]/wash_hands[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "3"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "4"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": ""
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "Rehema Musa"
+			}
+		]
+	},
+	{
+		"id": "water-cut-from-an-active-client",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/cut_water_group/cut_water",
+					"value": "1"
+				},
+				{
+					"path": "/data/cut_water_group/motive_to_cut_water_supply",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/client_status", "/data/reason_for_referral"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/path",
+				"value": "/data/cut_water_group[1]/cut_water[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Blocked"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Water not safe for use"
+			}
+		]
+	},
+	{
+		"id": "water-cut-from-an-active-client:case-prop-case-parent-prop-case-grandparent-prop",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/cut_water_group/cut_water",
+					"value": "1"
+				},
+				{
+					"path": "/data/cut_water_group/motive_to_cut_water_supply",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/client_status", "/data/reason_for_referral"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/path",
+				"value": "/data/cut_water_group[1]/cut_water[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Blocked"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Water not safe for use"
+			}
+		]
+	},
+	{
+		"id": "water-cut-from-an-active-client:subcases-child-case-relationship-child-type-a-module-case-type",
+		"entry": "forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/cut_water_group/cut_water",
+					"value": "1"
+				},
+				{
+					"path": "/data/cut_water_group/motive_to_cut_water_supply",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/client_status", "/data/reason_for_referral"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/path",
+				"value": "/data/cut_water_group[1]/cut_water[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Blocked"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Water not safe for use"
+			}
+		]
+	},
+	{
+		"id": "water-cut-from-an-active-client:hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
+		"entry": "questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/cut_water_group/cut_water",
+					"value": "1"
+				},
+				{
+					"path": "/data/cut_water_group/motive_to_cut_water_supply",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/client_status"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Blocked"
+			}
+		]
+	},
+	{
+		"id": "work-to-be-done-from-the-referral",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 3,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-referral-1"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/cut_water_referrals_group/have_you_referred_the_household",
+					"value": "1"
+				},
+				{
+					"path": "/data/repairs_referrals_group/have_you_repaired",
+					"value": "2"
+				}
+			],
+			"expressions": [
+				"/data/work_cut_water",
+				"/data/work_leakage",
+				"/data/cut_water_referrals_group/cut_water_referral_value",
+				"/data/repairs_referrals_group/repairs_referral_value"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/path",
+				"value": "/data/cut_water_referrals_group[1]/have_you_referred_the_household[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Cut water "
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": ""
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": ""
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "contract-terminated",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 4,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/confirm_termination",
+					"value": "1"
+				},
+				{
+					"path": "/data/reason_for_terminating_the_contract",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/reason_for_terminating_the_contract"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/reason_for_terminating_the_contract[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "client_wants_to_terminate"
+			}
+		]
+	},
+	{
+		"id": "contract-terminated:close-case-condition-if-operator-or-selected-on-a-select-hidden",
+		"entry": "forms-and-case-writes/close-case-condition-if-operator-or-selected-on-a-select-hidden",
+		"form": {
+			"menu": 4,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/confirm_termination",
+					"value": "1"
+				},
+				{
+					"path": "/data/reason_for_terminating_the_contract",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/reason_for_terminating_the_contract"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/reason_for_terminating_the_contract[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "client_wants_to_terminate"
+			}
+		]
+	},
+	{
+		"id": "clients-with-their-register-action",
+		"entry": "menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "wash-client-rehema"
+			},
+			{
+				"pointer": "/caseList/actions/0",
+				"value": "Register New Water Contract"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "clients-with-their-register-action:case-list-form-post-form-workflow-default-case-list",
+		"entry": "menus-and-case-lists/case-list-form-post-form-workflow-default-case-list",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "wash-client-rehema"
+			},
+			{
+				"pointer": "/caseList/actions/0",
+				"value": "Register New Water Contract"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "termination-names-the-client",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 4,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema"
+				}
+			},
+			"expressions": [
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/case_name"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Rehema Musa"
+			}
+		]
+	}
+]

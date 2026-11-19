@@ -1,0 +1,66 @@
+{
+	"about": [
+		"Core's answers to `value = <number>` and `value != <number>` over a node holding each text, and to `value = '<whole number>'` over a node holding the text of a whole number as CommCare writes one.",
+		"A row with no `value` lacks the node. `equal` names the rows whose `=` holds; `!=` holds for every other row, the missing one included.",
+		"proof/native/core/NumericCoercionRuntimeTest.java fails where Core answers otherwise; Nova's case store is held to the same file (lib/case-store/sql/__tests__/recordCoercions.postgres.test.ts)."
+	],
+	"texts": [
+		{ "case": "one", "value": "1" },
+		{ "case": "one-point-zero", "value": "1.0" },
+		{ "case": "leading-zero", "value": "01" },
+		{ "case": "spaces", "value": " 1 " },
+		{ "case": "controls", "value": "\t1\n" },
+		{ "case": "trailing-point", "value": "1." },
+		{ "case": "near-one", "value": "1.0000000000001" },
+		{ "case": "plus-one", "value": "+1" },
+		{ "case": "exponent", "value": "1e0" },
+		{ "case": "no-break-space", "value": " 1" },
+		{ "case": "half", "value": ".5" },
+		{ "case": "minus-one", "value": "-1" },
+		{ "case": "zero", "value": "0" },
+		{ "case": "minus-zero", "value": "-0" },
+		{ "case": "blank", "value": "" },
+		{ "case": "missing" },
+		{ "case": "word", "value": "yes" },
+		{ "case": "day-one", "value": "1970-01-02" },
+		{ "case": "day-one-unpadded", "value": "1970-1-2" },
+		{ "case": "day-one-trailing-dashes", "value": "1970-01-02--" },
+		{ "case": "epoch-day", "value": "1970-01-01" },
+		{ "case": "no-such-day", "value": "1970-02-30" },
+		{ "case": "lone-dash", "value": "-" }
+	],
+	"numbers": [
+		{
+			"number": 1,
+			"equal": [
+				"one",
+				"one-point-zero",
+				"leading-zero",
+				"spaces",
+				"controls",
+				"trailing-point",
+				"near-one",
+				"day-one",
+				"day-one-unpadded",
+				"day-one-trailing-dashes"
+			]
+		},
+		{ "number": 0, "equal": ["zero", "minus-zero", "epoch-day"] },
+		{ "number": 0.5, "equal": ["half"] },
+		{ "number": -1, "equal": ["minus-one"] },
+		{ "number": 2, "equal": [] }
+	],
+	"wholeNumbers": [
+		{ "case": "whole-one", "value": 1 },
+		{ "case": "whole-zero", "value": 0 },
+		{ "case": "whole-twelve", "value": 12 },
+		{ "case": "whole-minus-three", "value": -3 },
+		{ "case": "whole-missing" }
+	],
+	"wholeNumberTexts": [
+		{ "text": "1", "equal": ["whole-one"] },
+		{ "text": "0", "equal": ["whole-zero"] },
+		{ "text": "12", "equal": ["whole-twelve"] },
+		{ "text": "-3", "equal": ["whole-minus-three"] }
+	]
+}

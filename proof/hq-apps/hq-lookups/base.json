@@ -1,0 +1,24 @@
+{
+	"id": "hq-lookups",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user",
+		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
+		"expressions-and-data/table-tag-in-nova-s-grammar",
+		"menus-and-case-lists/module-with-case-type-survey-module",
+		"questions/itemset-filter-lifting-into-predicate",
+		"questions/itemset-label-value-refs-to-lookup-fields",
+		"questions/lookup-table-select-selectdynamic-mselectdynamic-itemset-nodeset",
+		"questions/text-input-xsd-string"
+	]
+}

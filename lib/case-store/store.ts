@@ -45,6 +45,7 @@ import type {
 import type {
 	Expression as DomainExpression,
 	RelationPath,
+	RelationStep,
 } from "@/lib/domain/expression/types";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { TermBindings } from "./sql/compileTerm";
@@ -70,6 +71,12 @@ import type {
  * `DomainExpression` the SQL emitter compiles into a projection.
  */
 export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
+
+/** One value a case list reads off another case (`QueryArgs.related`). */
+export interface RelatedRead {
+	readonly uuid: string;
+	readonly expression: DomainExpression;
+}
 
 // Row shapes derived from the Kysely Database type. `Selectable`
 // strips `ColumnType<S, I, U>` to the read shape; `Insertable`
@@ -213,6 +220,12 @@ export type SortKey =
 	| {
 			readonly kind: "interval-text";
 			readonly property: string;
+			/** The walk to the case whose property it reads, and that case's
+			 *  type; absent for the row's own. */
+			readonly relation?: {
+				readonly caseType: string;
+				readonly via: readonly [RelationStep, ...RelationStep[]];
+			};
 			readonly display: "always" | "flag";
 			readonly thresholdDays: number;
 			readonly divisorDays: number;
@@ -376,6 +389,16 @@ export interface QueryArgs {
 	predicate?: DomainExpression;
 	sort?: SortKey[];
 	calculated?: ReadonlyArray<CalculatedColumn>;
+	/**
+	 * Values a case list reads off another case, each the text a device holds
+	 * for its expression (`compileDeviceTextExpression`: a multi select's
+	 * tokens joined by one space), projected beside the row under its `uuid`
+	 * in `row.calculated`, as a calculated column's value is. A property
+	 * column read through a relation is one: the related case's property, `''`
+	 * or null where the walk reaches no case. Each walk applies the read's
+	 * restore at every hop, as a calculated column's does.
+	 */
+	related?: ReadonlyArray<RelatedRead>;
 	limit?: number;
 	offset?: number;
 	/**

@@ -16,6 +16,15 @@ checkout's root, and writes into DIR, which must be new or empty:
 - ``entry-point-ids/verdicts.json`` (``proof/hq/entryPointIdVerdicts.ts``):
   Nova's verdict on each deep link ID it draws, which
   ``proof/hq/test_endpoint_ids.py`` holds to HQ's own rule;
+- ``reader/``: ``reader.mjs``, the reader bundle (``proof/reader/build.mjs``:
+  Nova's reading of an app CommCare HQ holds, in one file the image's Node
+  runs with no checkout ``node_modules``), ``reader.json``, its digest and the
+  esbuild and Node it was built for, and beside them the one native addon the
+  bundle leaves out, sharp, the image reader Nova's media validation judges a
+  picture with: ``node_modules/``, every package sharp loads as this
+  checkout's install holds it (the binding and libvips npm installed for the
+  producing machine), and ``runtime.json``, what they are and each file's
+  digest. The judges that read an app run it (``proof/checks/readerbundle.py``);
 - ``produced.json``: each product's outcome, ``{"<name>": {"status": <its
   command's exit status, or null when it did not run to an end>, "error":
   <why it failed, or null>}}``;
@@ -66,6 +75,9 @@ CAPTURE_DOCUMENTS = "proof/hq/publishCaptureDocuments.ts"
 CAPTURE_WRITER = "proof/corpus/writePublishCaptures.ts"
 ENTRY_POINT_IDS = "entry-point-ids"
 ENTRY_POINT_VERDICTS = "proof/hq/entryPointIdVerdicts.ts"
+READER = "reader"
+READER_BUILD = "proof/reader/build.mjs"
+READER_FILES = ("reader.mjs", "reader.json", "runtime.json")
 
 
 def produced_directory() -> Path | None:
@@ -181,6 +193,24 @@ def produce_entry_point_ids(directory: Path, log: Path, *, timeout=PRODUCER_TIME
     return status, failure
 
 
+def produce_reader(directory: Path, log: Path, *, timeout=PRODUCER_TIMEOUT_SECONDS):
+    """Build the reader bundle into ``directory``, its output in ``log``: (exit status, why it failed or None)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    status, failure = _run(
+        ["node", READER_BUILD, "--out", str(directory)],
+        shown=["node", READER_BUILD, "--out", f"<DIR>/{READER}"],
+        log=log,
+        timeout=timeout,
+    )
+    if failure is None and status != 0:
+        failure = f"exited with status {status} building the bundle (`{READER_BUILD}`){_without_install()}"
+    if failure is None:
+        missing = [name for name in READER_FILES if not (directory / name).is_file()]
+        if missing:
+            failure = f"exited cleanly but wrote no {' and no '.join(missing)} (`{READER_BUILD}`)"
+    return status, failure
+
+
 def produce_all(
     out: Path, *, families=None, captures=True, jobs=PRODUCER_CONCURRENCY, timeout=PRODUCER_TIMEOUT_SECONDS
 ):
@@ -188,7 +218,8 @@ def produce_all(
 
     ``families`` defaults to ``families.FAMILIES``; ``captures`` adds the
     publish capture and the entry-point id verdicts, the two products the HQ
-    proofs read. Returns what ``produced.json`` holds.
+    proofs read, and the reader bundle, which the judges that read an app run.
+    Returns what ``produced.json`` holds.
     """
     families = FAMILIES if families is None else families
     out = Path(out)
@@ -211,12 +242,14 @@ def produce_all(
             status, failure = produce_publish_captures(out / name, log, timeout=timeout)
         elif name == ENTRY_POINT_IDS:
             status, failure = produce_entry_point_ids(out / name, log, timeout=timeout)
+        elif name == READER:
+            status, failure = produce_reader(out / name, log, timeout=timeout)
         else:
             status, failure = produce_family(families[name], out / name, log, vitest_lock=vitest_lock, timeout=timeout)
         timings[name] = round(time.perf_counter() - started, 3)
         outcomes[name] = {"status": status, "error": failure}
 
-    names = sorted(families) + ([PUBLISH_CAPTURE, ENTRY_POINT_IDS] if captures else [])
+    names = sorted(families) + ([PUBLISH_CAPTURE, ENTRY_POINT_IDS, READER] if captures else [])
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         list(pool.map(one, names))
     produced = {name: outcomes[name] for name in sorted(outcomes)}
@@ -242,8 +275,8 @@ def read_product(products: Path, name: str, destination: Path, log: Path):
     if outcome is None:
         return (
             f"has no record in the corpus's products ({products}), and `python3 -m proof.native.produce` records "
-            "every family, the publish capture and the entry-point id verdicts, so they were produced from another"
-            " checkout"
+            "every family, the publish capture, the entry-point id verdicts and the reader bundle, so they were"
+            " produced from another checkout"
         )
     if outcome.get("error"):
         return f"{outcome['error']} (where the corpus was produced)"

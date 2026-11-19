@@ -1,5 +1,5 @@
 /**
- * Test 4 of a Save to Case block's recognition: the block Nova's emitter
+ * Test 4 of a Save to Case block's recognition (`saveToCase.ts`, content): the block Nova's emitter
  * writes at the stored block's path, with the wrappers it stands under,
  * holds the same elements, attributes, binds and setvalues as the stored
  * one. Paths are read by the XPath grammar (`xform/model.ts::pathSteps`) and
@@ -279,6 +279,37 @@ function bindPathText(element: Element): string | undefined {
 	return element.attribs.nodeset ?? element.attribs.ref;
 }
 
+/**
+ * `binds` (the binds of `form` a comparison takes) less each one that does nothing: a bind with
+ * no attribute but its path and `vellum:` shadows, on a node no other bind of the form names.
+ * Core gives the node such a bind binds its defaults, no type, relevant, not required, enabled
+ * and no constraint (`XFormParser.java::processStandardBindAttributes`, `attachBind`), which a
+ * node with no bind holds; HQ's form builder writes one for every group and repeat it saves and
+ * for a close-only block's `case/close` (`saveToCase.js`, the close's `relevant` left blank).
+ * Beside another bind of its node it is no such thing: it sets the node's type back to none.
+ */
+function actingBinds(
+	form: FormSourceModel,
+	binds: readonly { element: Element; path: string[] }[],
+): { element: Element; path: string[] }[] {
+	return binds.filter(({ element, path }) => {
+		const scope = form.scope(element);
+		const own = attributesOf(
+			element,
+			scope,
+			(namespace) => namespace === VELLUM_NS,
+		);
+		own.delete(" nodeset");
+		own.delete(" ref");
+		if (own.size > 0) return true;
+		return (
+			modelElements(form, form.binds, bindPathText, (other) =>
+				samePath(other, path),
+			).length > 1
+		);
+	});
+}
+
 function setvalueRef(element: Element): string | undefined {
 	return element.attribs.ref;
 }
@@ -428,8 +459,11 @@ export function blockTreesEqual(
 		const under = (one: readonly string[]) => startsWith(one, path);
 		return (
 			sameLists(
-				modelElements(form, form.binds, bindPathText, under),
-				modelElements(emitted, emitted.binds, bindPathText, under),
+				actingBinds(form, modelElements(form, form.binds, bindPathText, under)),
+				actingBinds(
+					emitted,
+					modelElements(emitted, emitted.binds, bindPathText, under),
+				),
 				(a, b) => sameBind(a, form, b, emitted, heldPrint, earlier),
 			) &&
 			sameLists(
@@ -479,8 +513,11 @@ export function blockTreesEqual(
 				(path[path.length - 1] as string).startsWith("@"));
 		return (
 			sameLists(
-				modelElements(form, form.binds, bindPathText, at),
-				modelElements(emitted, emitted.binds, bindPathText, at),
+				actingBinds(form, modelElements(form, form.binds, bindPathText, at)),
+				actingBinds(
+					emitted,
+					modelElements(emitted, emitted.binds, bindPathText, at),
+				),
 				(a, b) => sameBind(a, form, b, emitted, heldPrint, earlier),
 			) &&
 			sameLists(

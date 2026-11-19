@@ -830,13 +830,14 @@ def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
 
 
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
-# Nova admits. Every pull request that adds or removes a document writes the count its sources then give.
-FIXED_DOCUMENTS = 435
+# Nova admits, and one a base CommCare HQ made (``proof/hq-apps/``). Every pull request that adds or removes a
+# document writes the count its sources then give.
+FIXED_DOCUMENTS = 459
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (475 with the default sample of 40). Catches a source that silently stops
+    the floor plus the sample's size (499 with the default sample of 40). Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)
@@ -845,3 +846,161 @@ def test_the_corpus_emits_every_document_its_sources_name():
         f" {emitted - int(corpus.sample)}, not the {FIXED_DOCUMENTS} its sources name. Find the document a source"
         " stopped emitting, or write the count a change of the sources gives."
     )
+
+
+# A document made in CommCare HQ -----------------------------------------------------------------------------------
+
+
+def _as_hq_authored(root, document_id):
+    """The copied corpus document laid out as a document made in CommCare HQ (``hq-authored:<base>``): A is the app its
+    first publish filled (``authored/app.json``), with no media, a case seed and its first-publish ids; its export
+    holds the republish over A and no first publish, under one configuration."""
+    directory = root / document_id
+    minimum = directory / "export" / "minimum"
+    create = configurations._two_imports(minimum)
+    app, _ = configurations._captured_app(minimum, "content" if create else "create")
+    for step in ("create", "content"):
+        for suffix in (".json", ".body"):
+            (minimum / f"{step}{suffix}").unlink(missing_ok=True)
+    for child in (directory / "export").iterdir():
+        if child.name != "minimum":
+            shutil.rmtree(child)
+    held = json.loads((directory / "configurations.json").read_text())
+    (directory / "configurations.json").write_text(
+        json.dumps({"minimum": held["minimum"], "maximum": held["minimum"], "singleFlag": {}})
+    )
+    _write_json(directory / "authored" / "app.json", app)
+    _write_json(directory / "authored" / "media.json", [])
+    _write_json(directory / "authored" / "seed.json", {"catalog": [], "values": {}, "userData": [], "worker": {}})
+    _write_json(directory / corpus.FIRST_PUBLISH, {"ids": ["forms-and-settings-rewritten"]})
+    (root / "index.json").write_text(
+        json.dumps({"seed": 1, "sample": 0, "documents": [{"id": document_id, "source": "hq-authored:planted"}]})
+    )
+    return app
+
+
+def test_an_hq_authored_document_is_read_with_no_first_publish(copied):
+    """A document made in HQ has no first publish: each export holds the republish over A and nothing in place of
+    ``create`` and ``content``, and ``authored`` gives the app HQ made, its media and its seed. The plausible failure:
+    every such document refused for its missing ``create.json``, or read with a first publish it never had."""
+    root, document_id = copied
+    app = _as_hq_authored(root, document_id)
+    document = corpus.load(root).document(document_id)
+    assert document.hq_authored and not document.migration_witness
+    (name, export), *rest = document.exports.items()
+    assert (name, rest) == ("minimum", [])
+    assert export.create is None and export.content is None and not export.two_imports
+    assert export.republish is not None or export.republish_stopped is not None
+    assert document.authored.app_json() == app
+    assert document.authored.media_rows() == [] and document.authored.tables is None
+    assert document.case_seed["catalog"] == []
+    assert document.first_publish == ("forms-and-settings-rewritten",)
+    # A base that maps no media holds no media.json (proof/matrix/retain.py writes it only for one that does).
+    (document.root / "authored" / "media.json").unlink()
+    unmapped = corpus.load(root).document(document_id).authored
+    assert unmapped.media is None and unmapped.media_rows() == []
+    (document.root / "authored" / "app.json").unlink()
+    with pytest.raises(corpus.CorpusLayoutError, match="authored/app.json"):
+        _ = corpus.load(root).document(document_id).authored
+    # Any other document has none of these.
+    other = corpus.Document(id="nova", source="producer:x", root=root / "nova")
+    assert other.authored is None and other.case_seed is None and other.first_publish == ()
+
+
+def test_an_hq_authored_document_s_part_a_is_keyed_by_the_app_hq_made(copied):
+    """Part ``a`` of a document made in HQ reads the app HQ made, its case seed and, where the base maps media, its
+    media rows, in place of a first publish's requests, and its privileges read that app (``unit.input_files``), so
+    a change to ``authored/app.json`` keys A anew. The plausible failure: a part key that does not name
+    ``authored/app.json``, so a base authored again is judged over the A observed before it."""
+    from proof.observe import unit
+
+    root, document_id = copied
+    _as_hq_authored(root, document_id)
+    document = corpus.load(root).document(document_id)
+    (name, parts), *rest = unit.input_files(document)["configurations"].items()
+    assert (name, rest) == ("minimum", [])
+    a = parts["a"]
+    assert a["authored.app"] == a["privileges.authored.app"] == "authored/app.json"
+    assert a["seed"] == "authored/seed.json" and a["authored.media"] == "authored/media.json"
+    assert not [
+        role for role in a if role.startswith(("create.", "content.", "privileges.create.", "privileges.content."))
+    ]
+    before = unit.computed_inputs(document)["configurations"]["minimum"]["a"]
+    path = document.root / "authored" / "app.json"
+    app = json.loads(path.read_text(encoding="utf-8"))
+    _write_json(path, {**app, "name": f"{app.get('name')} again"})
+    after = unit.computed_inputs(corpus.load(root).document(document_id))["configurations"]["minimum"]["a"]
+    assert sorted(role for role in before if before[role] != after[role]) == ["authored.app", "privileges.authored.app"]
+    # A base that maps no media holds no media.json, and part a names none.
+    (document.root / "authored" / "media.json").unlink()
+    unmapped = unit.input_files(corpus.load(root).document(document_id))["configurations"]["minimum"]["a"]
+    assert "authored.media" not in unmapped and unmapped["authored.app"] == "authored/app.json"
+
+
+def test_an_hq_authored_document_s_privileges_are_a_s_and_its_republish_s(hq, copied):
+    """The privileges of a document made in HQ are what the app HQ made needs and what Nova's republish over it needs,
+    since B can need what A does not (a D that declares Web Apps over an A with the setting off needs ``CLOUDCARE``).
+    The plausible failures: privileges derived from A alone, and a document refused for having no ``create.json``."""
+    root, document_id = copied
+    app = _as_hq_authored(root, document_id)
+    directory = root / document_id
+    sources, pushed = [app], False
+    for relative, name in configurations.AUTHORED_PRIVILEGE_CAPTURES:
+        if (directory / relative / f"{name}.json").exists():
+            sent, lookups = configurations._captured_app(directory / relative, name)
+            sources.append(sent)
+            pushed = pushed or lookups
+    assert len(sources) > 1, "the republish over A is among the apps the privileges are derived from"
+    expected = configurations.required_privileges(sources, lookup_push=pushed)
+    assert configurations.privileges_for(directory, "minimum") == expected
+    lost = root / "lost"
+    shutil.copytree(directory, lost)
+    for suffix in (".json", ".body"):
+        (lost / "export" / "minimum" / f"republish{suffix}").unlink()
+    with pytest.raises(configurations.PrivilegeInputError, match="republish.json"):
+        configurations.privileges_for(lost, "minimum")
+
+
+def test_the_manifest_check_at_a_reads_the_app_hq_made(copied):
+    """The manifest check reads A of a document made in HQ from the observation's ``authored`` upload, the app HQ
+    made as its source read serves it, and refuses records that hold none. The plausible failure: a manifest check
+    that judges B alone on such a document, so a base holding a refused value passes."""
+    from types import SimpleNamespace
+
+    from proof.checks import manifest_usage
+    from proof.observe import manifest as observed_manifest
+
+    root, document_id = copied
+    _as_hq_authored(root, document_id)
+    document = corpus.load(root).document(document_id)
+    # The observation keeps the app HQ made under ``authored`` and sends no first publish in its place, and its key
+    # names the file.
+    keys = [key for key, _, _ in observed_manifest.uploads_of(document)]
+    assert not [key for key in keys if key.endswith(("/create", "/content"))], keys
+    assert observed_manifest.inputs(document, "local")["authored"]["path"] == "authored/app.json"
+    records = SimpleNamespace(
+        local={"hooks": {"manifest": {"uploads": {"minimum/republish": "r"}, "archives": {}}}}, blobs=None
+    )
+    with pytest.raises(manifest_usage.ObservationMissing, match="authored"):
+        manifest_usage.export_uses(document, records, manifest_usage.load_manifest())
+    served = manifest_usage.as_served({"_id": "x", "_rev": "1", "domain": "d", "version": 3, "name": "App"})
+    assert served == {"name": "App"}
+
+
+def test_an_hq_authored_document_runs_every_check_but_sensitivity():
+    """``eligibility.eligible``: a document made in HQ runs every check but sensitivity, the checks of that source
+    alone run on it and nowhere else, and a witness runs none of them. The plausible failure: a check silently left
+    out of the hop, or parity, the stored-app comparison and the first-publish judge run on a Nova-born document."""
+    from proof.checks import eligibility
+    from proof.checks.differences import CHECKS
+
+    made_in_hq = "hq-authored:hq-plain"
+    assert {check for check in CHECKS if not eligibility.eligible(check, made_in_hq)} == {"sensitivity"}
+    assert {check for check in CHECKS if not eligibility.eligible(check, "producer:a")} == {
+        "parity",
+        "source",
+        "changes",
+    }
+    witness = {check for check in CHECKS if not eligibility.eligible(check, "targeted-migration:5, a migration")}
+    assert witness == {"proof2", "proof3", "proof5", "sensitivity", "parity", "source", "changes"}
+    assert eligibility.form_xml_unjudged(made_in_hq) and not eligibility.form_xml_unjudged("producer:a")

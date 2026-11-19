@@ -264,7 +264,12 @@ test("the dependency tree holds one sentry CLI, at the root", () => {
 
 // The stand-in above accepts anything. The installed CLI moves with the SDK,
 // so each command and flag the build sends is checked against the real one.
-test("the installed sentry CLI knows every command and flag the build sends", () => {
+// The test starts the build and then the CLI once per command the build sends
+// (four), each spawn bounded at 10 s, so its budget is the sum of those bounds
+// rather than Vitest's default, which a busy runner's CLI starts cross.
+test("the installed sentry CLI knows every command and flag the build sends", {
+	timeout: 50_000,
+}, () => {
 	const f = fixture();
 	try {
 		expect(f.run().status).toBe(0);

@@ -23,6 +23,11 @@
  *   create, in its one-row repeat) and closes it (a close). A keyed id may
  *   name a case that already exists, the chosen household's among them, so
  *   the keyed create stands in a form that loads no case of its own.
+ * - "Plan a round", a survey with no case change, validates a question with
+ *   a count of the stops whose place is the clinic, which Nova's emitter
+ *   lifts into a Hidden Value beside the question
+ *   (`xform/constraintCollections.ts::planConstraintCollections`), so the
+ *   form builder's save meets a lifted count with no Save to Case block.
  * - "Mark visited", in the menu that chooses several households, saves an
  *   answer to each chosen household (a several-case form).
  *
@@ -233,6 +238,29 @@ export function saveToCaseShapesApp(): BlueprintDoc {
 							fields: [
 								text("visit_key", "Visit key"),
 								text("visit_note", "Visit note"),
+							],
+						},
+						{
+							uuid: uuid("plan-round"),
+							name: "Plan a round",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									uuid: uuid("stops"),
+									id: "stops",
+									label: proseText("Stops"),
+									repeat_mode: "user_controlled",
+									children: [text("place", "Place")],
+								}),
+								f({
+									kind: "text",
+									uuid: uuid("clinic_check"),
+									id: "clinic_check",
+									label: proseText("Clinic stop confirmed"),
+									validate: "count(#form/stops/place[. = 'clinic']) > 0",
+									validate_msg: proseText("Add a stop at the clinic"),
+								}),
 							],
 						},
 					],

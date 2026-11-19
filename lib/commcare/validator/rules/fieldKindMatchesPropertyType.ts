@@ -17,7 +17,11 @@
  * can't open. Writers of an undeclared property agree on the one type of
  * theirs that holds them all (`ruleSets.ts::agreedStorageType`: `int` with
  * `decimal` on `decimal`, `text` with `single_select` on `text`), the type
- * inference gives the property.
+ * inference gives the property. Writers that agree on no one type are saved
+ * as text where text holds every one of them (a number, a date, text or a
+ * choice, `ruleSets.ts::joinsAsText`) and no question opens on the
+ * property's value through an answer class that casts it; such a question
+ * is named in the finding (`details.castBy`).
  *
  * App-scoped because the multi-writer disagreement check is by
  * definition cross-form: a `text` field and an `int` field that both
@@ -52,7 +56,10 @@ import {
 	isWritableStandardCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
+import { inferExpressionTypes } from "@/lib/domain/expression/inference";
 import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
+import { formOfField } from "@/lib/domain/fieldForm";
+import { valueKindPhrase } from "@/lib/domain/valueKindPhrases";
 import { type ValidationError, validationError } from "../errors";
 
 /** Whether a property declared `declared` holds the values a question of
@@ -192,11 +199,24 @@ export function fieldKindMatchesPropertyType(
 			const expected = expectedDataType(writer.kind);
 			if (expected !== undefined) expectedTypes.add(expected);
 		}
+		const agreement = inferExpressionTypes(doc)
+			.propertyTypes.get(caseType)
+			?.get(propertyName);
 		if (
 			expectedTypes.size > 1 &&
-			agreedStorageType(expectedTypes) === undefined
+			agreedStorageType(expectedTypes) === undefined &&
+			agreement?.origin?.kind !== "joined"
 		) {
 			const sortedTypes = [...expectedTypes].sort();
+			const castBy = agreement?.castBy;
+			const reader =
+				castBy === undefined ? undefined : doc.fields[castBy.field];
+			const readerForm =
+				castBy === undefined ? undefined : formOfField(doc, castBy.field);
+			const readerSentence =
+				castBy === undefined
+					? ""
+					: ` "${reader?.id ?? "A question"}" in "${(readerForm === undefined ? undefined : doc.forms[readerForm]?.name) ?? "another form"}" opens on its value as ${valueKindPhrase(castBy.type)}, so it can't be saved as text either.`;
 			for (const writer of writers) {
 				const expected = expectedDataType(writer.kind);
 				if (expected === undefined) continue;
@@ -204,7 +224,7 @@ export function fieldKindMatchesPropertyType(
 					validationError(
 						"FIELD_KIND_WRITERS_DISAGREE",
 						"field",
-						`Field "${writer.fieldId}" in "${writer.formName}" is of kind "${writer.kind}" and saves to case property "${propertyName}" on case type "${caseType}", but the fields in this app that save there give values no one type can hold (${sortedTypes.map((t) => `"${t}"`).join(" / ")}). You can give every field that saves to "${propertyName}" a kind one type holds, or change where the conflicting fields save.`,
+						`Field "${writer.fieldId}" in "${writer.formName}" is of kind "${writer.kind}" and saves to case property "${propertyName}" on case type "${caseType}", but the fields in this app that save there give values no one type can hold (${sortedTypes.map((t) => `"${t}"`).join(" / ")}).${readerSentence} You can give every field that saves to "${propertyName}" a kind one type holds, ${castBy === undefined ? "or change where the conflicting fields save." : `change where the conflicting fields save, or change "${reader?.id ?? "that question"}" so it starts another way.`}`,
 						{
 							moduleUuid: writer.moduleUuid,
 							moduleName: writer.moduleName,
@@ -219,6 +239,7 @@ export function fieldKindMatchesPropertyType(
 							fieldKind: writer.kind,
 							expectedDataType: expected,
 							conflictingDataTypes: sortedTypes.join(","),
+							...(castBy === undefined ? {} : { castBy: reader?.id ?? "" }),
 						},
 					),
 				);

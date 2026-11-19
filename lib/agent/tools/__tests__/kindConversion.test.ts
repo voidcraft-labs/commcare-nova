@@ -27,7 +27,7 @@ import {
 	proseTemplateText,
 	type SelectOption,
 } from "@/lib/domain";
-import { concat, literal, term, today } from "@/lib/domain/expression";
+import { concat, literal, now, term, today } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
@@ -1053,15 +1053,26 @@ describe("editField — demotions", () => {
 			conversion: { caseProperty: { declaredType: "text" } },
 		});
 
+		// A date saves to text as the day a device submits for it.
 		const dated = await h.runTool(editFieldTool, {
 			...address(doc, "visit_note"),
 			updates: { kind: "hidden", calculate: today() },
 		});
-		expect(dated.result).toHaveProperty("error");
-		if (!("error" in dated.result))
-			throw new Error("A date was saved over the pinned text property.");
-		expect(dated.result.error).toContain(
-			'saves a date to "visit_note" on "patient", which holds text',
+		if ("error" in dated.result) throw new Error(dated.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(declared()).toBe("text");
+		// A date and time does not: text keeps no moment.
+		const timed = await h.runTool(editFieldTool, {
+			...address(doc, "visit_note"),
+			updates: { kind: "hidden", calculate: now() },
+		});
+		expect(timed.result).toHaveProperty("error");
+		if (!("error" in timed.result))
+			throw new Error(
+				"A date and time was saved over the pinned text property.",
+			);
+		expect(timed.result.error).toContain(
+			'saves a date and time to "visit_note" on "patient", which holds text',
 		);
 		expect(declared()).toBe("text");
 		const texted = await h.runTool(editFieldTool, {

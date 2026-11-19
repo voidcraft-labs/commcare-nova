@@ -52,6 +52,24 @@
  * compares with `local.ccz`, and `edit/local.ccz` are compiled as
  * `local.ccz` is.
  *
+ * A document made in CommCare HQ (`hq-authored`) has no first publish: its
+ * A is its base's app, which the entry writer copies from the base's
+ * retained directory into `authored/` (`app.json`, `media.json` and
+ * `media/`, `seed.json`, and `tables.json` and `places.json` where the base
+ * holds them), so the document's key names every byte A is made of. Its one
+ * configuration is the base's (`base.json`'s `configuration`, as both
+ * `minimum` and `maximum`, with no single flag), and only `export/minimum/`
+ * is written: the republish Nova sends over A as over an app it brought in
+ * (`./publish.ts::PublishInput.hqAuthoredA`) and D′'s update. Beside them it
+ * writes the ids of the first-publish changes the reading predicts
+ * (`first-publish.json`), the base's hand-written value expectations as
+ * `expected.json`, one expectation for each state it runs at (HQ's A, Nova's
+ * B and, where the declaration D was read under includes Android, the local
+ * archive), each form named by HQ's positions resolved to D's form through
+ * the reading's identity rows, and the restore each runs over. Such a
+ * document carries no `hq-side.json`: its A is HQ's own app, and nothing is
+ * saved over it before Nova's first publish.
+ *
  * Every export is one seeded operation (`./entropy.mts`) of the corpus
  * seed: each update is captured once, in a stream of its own, the first
  * publish, the republish of D and the update to D′ each at its ordinal
@@ -60,8 +78,17 @@
  * another project space, under `local.ccz`'s own operation.
  */
 
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import {
+	copyFile,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import {
 	DERIVED_WIRE_IDENTITY,
@@ -80,12 +107,14 @@ import {
 	type ConfigurationFlags,
 	type CorpusConfiguration,
 	configurationFlags,
+	type DocumentConfigurations,
 	documentConfigurations,
 } from "./configurations";
 import {
 	type CorpusDocument,
 	type CorpusSource,
 	checkDocumentFileName,
+	type HqAuthoredFacts,
 	type HqSideSaves,
 	type ProjectSettings,
 } from "./documents";
@@ -126,6 +155,7 @@ import {
 	type StopConfirmation,
 	TWO_IMPORT_LAYOUT,
 } from "./publish";
+import type { PeerTable } from "./targetPeer";
 import { readDocuments } from "./writePublishCaptures";
 
 export interface IndexEntry {
@@ -183,7 +213,8 @@ export interface WrittenEntry {
  * A document's source as the index names it: `producer:<family>/<scenario>`,
  * `workforce:<base>`, `expander:<first test>`,
  * `fuzz:<generator>:<seed>:<index>`, `targeted:<rows, separated by "; ">`,
- * or for a migration witness `targeted-migration:<rows, separated by "; ">`.
+ * for a migration witness `targeted-migration:<rows, separated by "; ">`,
+ * or for an app made in CommCare HQ `hq-authored:<base>`.
  */
 export function sourceName(source: CorpusSource): string {
 	switch (source.kind) {
@@ -200,6 +231,8 @@ export function sourceName(source: CorpusSource): string {
 			return source.migrationWitness === true
 				? `targeted-migration:${source.rows.join("; ")}`
 				: `targeted:${source.rows.join("; ")}`;
+		case "hq-authored":
+			return `hq-authored:${source.base}`;
 	}
 }
 
@@ -243,17 +276,36 @@ function storedInputs(publish: PublishDocument) {
 }
 
 /**
+ * What `document.json` holds of a document made in CommCare HQ, under
+ * `hqAuthored`, as a read back of it reads it
+ * (`proof/reader/laneReading.ts::storedDocument`) and the judges read it:
+ * the reading's identity rows, the declaration D was read under, the ids of
+ * the first-publish changes it predicts, and the path HQ keeps each asset
+ * under, by asset id.
+ */
+function hqAuthoredJson(facts: HqAuthoredFacts) {
+	return {
+		identity: facts.identity,
+		declaration: facts.declaration,
+		firstPublish: facts.firstPublish,
+		mediaPaths: Object.fromEntries(facts.mediaPaths),
+	};
+}
+
+/**
  * A document as `document.json` holds it: the inputs `./publish.ts` takes,
- * its source, its effective materializable case catalog, and where its
+ * its source, its effective materializable case catalog, where its
  * modules, forms and languages sit on the wire (`wire.modules`,
- * `wire.languages`: `./footprint.ts`). Python consumes the catalog's derived
- * property types without interpreting the document's writers itself.
+ * `wire.languages`: `./footprint.ts`), and for a document made in CommCare
+ * HQ what its reading gave (`hqAuthored`). Python consumes the catalog's
+ * derived property types without interpreting the document's writers itself.
  */
 function documentJson(
 	id: string,
 	source: CorpusSource,
 	publish: PublishDocument,
 	doc: BlueprintDoc,
+	facts?: HqAuthoredFacts,
 ) {
 	return {
 		id,
@@ -272,6 +324,7 @@ function documentJson(
 				})),
 			}),
 		),
+		...(facts !== undefined && { hqAuthored: hqAuthoredJson(facts) }),
 	};
 }
 
@@ -606,6 +659,332 @@ function witnessConfigurations(
 	});
 }
 
+// ── A document made in CommCare HQ ───────────────────────────────────
+
+/** The files of a base's retained directory that A is made of, which every base holds. */
+const AUTHORED_FILES = ["app.json", "seed.json"] as const;
+/** The files of a base's retained directory that A is made of where the base holds them. */
+const AUTHORED_FILES_WHERE_HELD = [
+	"media.json",
+	"tables.json",
+	"places.json",
+] as const;
+
+/**
+ * Copy what the base's A is made of from its retained directory into the
+ * document's `authored/`, byte for byte, so the document's key names it and
+ * the unit makes A of exactly these bytes.
+ */
+async function writeAuthored(
+	root: string,
+	documentId: string,
+	retained: string,
+): Promise<void> {
+	const authored = join(root, "authored");
+	await mkdir(authored, { recursive: true });
+	for (const name of AUTHORED_FILES) {
+		if (!existsSync(join(retained, name))) {
+			throw new Error(
+				`The base of ${documentId} retains no ${name} in ${retained}, and the unit makes A of it. Everything under proof/hq-apps/ is written by the lane; make the base again with python3 -m proof.matrix.adopt over a lane run's output.`,
+			);
+		}
+		await copyFile(join(retained, name), join(authored, name));
+	}
+	for (const name of AUTHORED_FILES_WHERE_HELD) {
+		if (existsSync(join(retained, name))) {
+			await copyFile(join(retained, name), join(authored, name));
+		}
+	}
+	const media = join(retained, "media");
+	if (existsSync(media)) {
+		await mkdir(join(authored, "media"), { recursive: true });
+		for (const name of (await readdir(media)).sort()) {
+			await copyFile(join(media, name), join(authored, "media", name));
+		}
+	}
+}
+
+/** `base.json`'s `configuration`: one entry of a corpus document's `configurations.json`, key for key. */
+const baseConfigurationSchema = z.object({
+	configuration: z.strictObject({
+		flags: z.array(z.string()),
+		namedPrivileges: z.array(z.string()),
+		commcareVersion: z.string(),
+		commtrack: z.boolean(),
+		syncCasesOnFormEntry: z.boolean(),
+		caseSearchEnabled: z.boolean(),
+	}),
+});
+
+/** The one configuration a base was authored under, from its `base.json`. */
+async function baseConfiguration(
+	documentId: string,
+	retained: string,
+): Promise<CorpusConfiguration> {
+	const parsed = baseConfigurationSchema.safeParse(
+		JSON.parse(await readFile(join(retained, "base.json"), "utf8")),
+	);
+	if (!parsed.success) {
+		throw new Error(
+			`The base of ${documentId} retains a base.json whose configuration is not one of a corpus document's configurations.json (${parsed.error.message}). The lane writes it from proof/matrix/registry.py.`,
+		);
+	}
+	const { configuration } = parsed.data;
+	return {
+		flags: configuration.flags,
+		namedPrivileges: configuration.namedPrivileges,
+		commcareVersion: configuration.commcareVersion,
+		commtrack: configuration.commtrack,
+		syncCasesOnFormEntry: configuration.syncCasesOnFormEntry,
+		caseSearchEnabled: configuration.caseSearchEnabled,
+	};
+}
+
+/** One state a base's value expectation runs at: HQ's A, Nova's B, or Nova's local archive. */
+const EXPECTATION_STATES = ["A", "B", "local"] as const;
+
+/**
+ * One value expectation of a base's `expectations.json`, as a person writes
+ * it: `proof/targeted/expected.ts::Expectation` less `export`, its form by
+ * HQ's positions, with the entry it holds and the states it runs at.
+ */
+const handExpectationSchema = z.strictObject({
+	id: z.string().min(1),
+	entry: z.string().min(1),
+	form: z.strictObject({
+		menu: z.number().int().nonnegative(),
+		form: z.number().int().nonnegative(),
+	}),
+	restore: z.string().min(1),
+	request: z.record(z.string(), z.unknown()),
+	expect: z.array(z.strictObject({ pointer: z.string(), value: z.unknown() })),
+	exports: z.array(z.enum(EXPECTATION_STATES)).min(1).optional(),
+});
+
+/** The form of HQ's app at `place`, as the reading's identity rows name D's form for it. */
+function formAt(
+	documentId: string,
+	facts: HqAuthoredFacts,
+	place: { readonly menu: number; readonly form: number },
+): string {
+	const modules = (facts.source as { readonly modules?: unknown }).modules;
+	const form = Array.isArray(modules)
+		? (modules[place.menu] as { readonly forms?: unknown } | undefined)?.forms
+		: undefined;
+	const xmlns = Array.isArray(form)
+		? (form[place.form] as { readonly xmlns?: unknown } | undefined)?.xmlns
+		: undefined;
+	const row =
+		typeof xmlns === "string"
+			? facts.identity.find(
+					(one) => one.entityKind === "form" && one.xmlns === xmlns,
+				)
+			: undefined;
+	if (row === undefined) {
+		throw new Error(
+			`A value expectation of ${documentId} names the form at menu ${place.menu}, form ${place.form} of CommCare HQ's app, and ${typeof xmlns === "string" ? `the reading holds no form of its xmlns ${xmlns}` : "the app holds no form there"}. Look at the positions in proof/matrix/hand/${documentId}/expectations.json against the base's app.json.`,
+		);
+	}
+	return row.novaEntityUuid;
+}
+
+/**
+ * The base's hand-written value expectations as the document's
+ * `expected.json`: one expectation for each state it runs at (every state
+ * where it names none), less the local archive where the declaration D was
+ * read under leaves Android out, each named `<id>@<state>` and its form
+ * resolved to D's, with `entry` and `exports` left to the matrix's own
+ * tests. Returns the restores they name, by file name, with their text.
+ */
+async function handExpected(
+	documentId: string,
+	facts: HqAuthoredFacts,
+): Promise<{
+	readonly expected: unknown;
+	readonly files: Readonly<Record<string, string>>;
+}> {
+	const path = join(facts.hand, "expectations.json");
+	if (!existsSync(path)) {
+		throw new Error(
+			`${documentId} has no hand-written value expectations (${path}). Every base holds at least one a form, written by hand from what its builder authors.`,
+		);
+	}
+	const parsed = z
+		.array(handExpectationSchema)
+		.safeParse(JSON.parse(await readFile(path, "utf8")));
+	if (!parsed.success) {
+		throw new Error(
+			`${path} is not a list of value expectations ({id, entry, form: {menu, form}, restore, request, expect, exports?}): ${parsed.error.message}`,
+		);
+	}
+	const archive = facts.declaration.runsOnlyOn !== "web-apps";
+	const intent: unknown[] = [];
+	const files: Record<string, string> = {};
+	for (const expectation of parsed.data) {
+		checkDocumentFileName(documentId, expectation.restore);
+		if (files[expectation.restore] === undefined) {
+			const restore = join(facts.hand, expectation.restore);
+			if (!existsSync(restore)) {
+				throw new Error(
+					`The value expectation ${expectation.id} of ${documentId} runs over ${expectation.restore}, and ${facts.hand} holds no such file.`,
+				);
+			}
+			files[expectation.restore] = await readFile(restore, "utf8");
+		}
+		const form = formAt(documentId, facts, expectation.form);
+		const states = expectation.exports ?? EXPECTATION_STATES;
+		/* Core's evaluate opens a case list only on an installed archive, and
+		 * the local export is the one the lane installs
+		 * (`proof/observe/intent.py::expectations`). */
+		const listed = states.filter((state) => state !== "local");
+		if ("caseList" in expectation.request && listed.length > 0) {
+			throw new Error(
+				`The value expectation ${expectation.id} of ${documentId} opens a case list on ${listed.join(" and ")}, and a case list opens only on the local archive. Give it "exports": ["local"] in proof/matrix/hand/${documentId}/expectations.json.`,
+			);
+		}
+		for (const state of states) {
+			if (state === "local" && !archive) continue;
+			intent.push({
+				id: `${expectation.id}@${state}`,
+				export: state,
+				form,
+				restore: expectation.restore,
+				request: expectation.request,
+				expect: expectation.expect,
+			});
+		}
+	}
+	return { expected: { intent }, files };
+}
+
+/** One answer as `proof/hq/operations.py::HqAnswer.retained()` writes it, its body parsed. */
+async function retainedBody(path: string): Promise<unknown> {
+	const answer = JSON.parse(await readFile(path, "utf8")) as {
+		readonly body?: string;
+	};
+	return JSON.parse(answer.body ?? "null");
+}
+
+/** A field's value as `FixtureResource` serves it: one text, or each value with its properties. */
+type ServedFieldValue =
+	| string
+	| {
+			readonly field_list: readonly {
+				readonly field_value: string;
+				readonly properties: Readonly<Record<string, string>>;
+			}[];
+	  };
+
+/**
+ * The lookup tables the base's project space holds, as the capture's peer
+ * holds them before Nova's first publish over A (`PublishInput.hqTables`):
+ * each table HQ's table list answered (`lookup-tables.json`), under the id
+ * HQ gave it, with its rows as HQ's rows read answered them
+ * (`fixture-rows-<tag>.json`) where the base retains that read, and its
+ * description and each row's attributes as HQ's models hold them
+ * (`tables.json`). A table whose rows no reading asked for holds none here,
+ * and no publish over A reads them.
+ */
+async function retainedPeerTables(retained: string): Promise<PeerTable[]> {
+	const listPath = join(retained, "lookup-tables.json");
+	if (!existsSync(listPath)) return [];
+	const list = (await retainedBody(listPath)) as {
+		readonly objects?: readonly {
+			readonly id: string;
+			readonly tag: string;
+			readonly is_global: boolean;
+			readonly fields: readonly {
+				readonly field_name: string;
+				readonly properties: readonly string[];
+			}[];
+			readonly item_attributes: readonly string[];
+		}[];
+	};
+	const modelled = existsSync(join(retained, "tables.json"))
+		? (JSON.parse(await readFile(join(retained, "tables.json"), "utf8")) as {
+				readonly tag: string;
+				readonly description?: string;
+				readonly rows?: readonly {
+					readonly item_attributes?: Readonly<Record<string, string>>;
+				}[];
+			}[])
+		: [];
+	const tables: PeerTable[] = [];
+	for (const table of list.objects ?? []) {
+		const model = modelled.find((one) => one.tag === table.tag);
+		const rowsPath = join(retained, `fixture-rows-${table.tag}.json`);
+		const served = existsSync(rowsPath)
+			? ((
+					(await retainedBody(rowsPath)) as {
+						readonly objects?: readonly {
+							readonly id: string;
+							readonly fields: Readonly<Record<string, ServedFieldValue>>;
+						}[];
+					}
+				).objects ?? [])
+			: [];
+		tables.push({
+			id: table.id,
+			tag: table.tag,
+			isGlobal: table.is_global,
+			fields: table.fields.map((field) => ({
+				name: field.field_name,
+				properties: [...field.properties],
+			})),
+			itemAttributes: [...table.item_attributes],
+			description: model?.description ?? "",
+			rows: served.map((row, index) => ({
+				id: row.id,
+				fields: Object.fromEntries(
+					Object.entries(row.fields).map(([name, value]) => [
+						name,
+						typeof value === "string"
+							? [{ value, properties: {} }]
+							: value.field_list.map((item) => ({
+									value: item.field_value,
+									properties: item.properties,
+								})),
+					]),
+				),
+				itemAttributes: model?.rows?.[index]?.item_attributes ?? {},
+			})),
+		});
+	}
+	return tables;
+}
+
+/**
+ * The one configuration a document made in CommCare HQ is published under,
+ * as Nova's publish reads it, `minimum`, after refusing one Nova's publish
+ * of D or D′ would refuse: the base was authored under it, and A has no
+ * other configuration to be made again under.
+ */
+function baseConfigurations(
+	document: CorpusDocument,
+	configuration: CorpusConfiguration,
+	verdicts: readonly NovaPublishVerdict[],
+): [string, ConfigurationFlags][] {
+	const lacking = [
+		...new Set(
+			verdicts.flatMap((verdict) => verdictLacks(verdict, configuration)),
+		),
+	];
+	if (lacking.length > 0) {
+		throw new Error(
+			`${document.id} is an app CommCare HQ's own pages made under its base's configuration, and Nova's publish of its document would refuse that project space (it lacks ${lacking.join(", ")}). A base is authored under the flags, privileges and case search its content needs; look at its row of proof/matrix/registry.py.`,
+		);
+	}
+	return [
+		[
+			"minimum",
+			{
+				flags: configuration.flags,
+				caseSearchEnabled: configuration.caseSearchEnabled,
+			},
+		],
+	];
+}
+
 /**
  * Write one prepared document's directory under `out`, replacing whatever
  * was there, with every export seeded from the corpus seed `seed`.
@@ -666,6 +1045,17 @@ export async function writeEntry(
 		document.source.kind === "targeted" &&
 		document.source.migrationWitness === true;
 	const retained = witness ? await retainedMigrationA(document.id) : undefined;
+	/* A document made in CommCare HQ publishes over its base's own app, under
+	 * the one configuration the base was authored under. Its `document.json`
+	 * is written with the archives, of the document the republish sent
+	 * (`republishedDocument`): a document made in HQ states no saves, so
+	 * that is D. */
+	const authored = document.hqAuthored;
+	if (authored !== undefined && document.hqSide !== undefined) {
+		throw new Error(
+			`${document.id} is an app CommCare HQ's own pages made, and it names saves a person makes in HQ over A (hq-side.json). Its A is HQ's own app, so nothing is saved over it before Nova's first publish; show a save made in HQ on a targeted document.`,
+		);
+	}
 	await writeJson(join(root, "verdict.json"), verdictJson(verdict));
 	if (document.expected !== undefined) {
 		await writeJson(join(root, "expected.json"), document.expected);
@@ -676,6 +1066,21 @@ export async function writeEntry(
 	for (const [name, content] of Object.entries(document.files ?? {})) {
 		checkDocumentFileName(document.id, name);
 		await writeFile(join(root, name), content);
+	}
+	const authoredConfiguration =
+		authored === undefined
+			? undefined
+			: await baseConfiguration(document.id, authored.retained);
+	if (authored !== undefined) {
+		await writeAuthored(root, document.id, authored.retained);
+		await writeJson(join(root, "first-publish.json"), {
+			ids: authored.firstPublish,
+		});
+		const hand = await handExpected(document.id, authored);
+		await writeJson(join(root, "expected.json"), hand.expected);
+		for (const [name, content] of Object.entries(hand.files)) {
+			await writeFile(join(root, name), content);
+		}
 	}
 
 	const flags = {
@@ -688,6 +1093,13 @@ export async function writeEntry(
 			join(root, "configurations.json"),
 			retained.configurationsBytes,
 		);
+	} else if (authoredConfiguration !== undefined) {
+		const configurations: DocumentConfigurations = {
+			minimum: authoredConfiguration,
+			maximum: authoredConfiguration,
+			singleFlag: {},
+		};
+		await writeJson(join(root, "configurations.json"), configurations);
 	} else {
 		await writeJson(
 			join(root, "configurations.json"),
@@ -710,7 +1122,7 @@ export async function writeEntry(
 			(item) => item?.minimumConfiguration.flagsOff ?? [],
 		),
 	);
-	if (retained === undefined) {
+	if (retained === undefined && authoredConfiguration === undefined) {
 		for (const [name, configuration] of configurationFlags(flags)) {
 			const on = configuration.flags.filter((flag) => flagsOff.has(flag));
 			if (on.length > 0) {
@@ -721,13 +1133,34 @@ export async function writeEntry(
 		}
 	}
 	const named =
-		retained === undefined
-			? configurationFlags(flags)
-			: witnessConfigurations(
+		authoredConfiguration !== undefined
+			? baseConfigurations(
 					document,
-					retained,
+					authoredConfiguration,
 					editVerdict === undefined ? [verdict] : [verdict, editVerdict],
-				);
+				)
+			: retained === undefined
+				? configurationFlags(flags)
+				: witnessConfigurations(
+						document,
+						retained,
+						editVerdict === undefined ? [verdict] : [verdict, editVerdict],
+					);
+	const hqTables =
+		authored === undefined
+			? undefined
+			: await retainedPeerTables(authored.retained);
+	/* The deployment a publish over the base's app leaves is the one a
+	 * bring-in of it left: its ids, held paths and keyed create prefixes are
+	 * the target's. */
+	const adopted =
+		authored === undefined
+			? undefined
+			: {
+					identity: authored.identity,
+					mediaPaths: authored.mediaPaths,
+					keyedCaseIds: authored.keyedCaseIds,
+				};
 	const captures = new Map<string, PublishCapture | RepublishCapture>();
 	for (const [name, configuration] of named) {
 		const input = {
@@ -744,9 +1177,20 @@ export async function writeEntry(
 		};
 		const retainedA = retained?.exports.get(name)?.publish;
 		const capture =
-			retainedA === undefined
-				? await capturePublish(input)
-				: await capturePublish({ ...input, retainedA });
+			authored !== undefined
+				? await capturePublish({
+						...input,
+						hqAuthoredA: {
+							source: authored.source as Readonly<Record<string, unknown>>,
+							identity: authored.identity,
+							mediaPaths: authored.mediaPaths,
+							keyedCaseIds: authored.keyedCaseIds,
+						},
+						...(hqTables !== undefined && hqTables.length > 0 && { hqTables }),
+					})
+				: retainedA === undefined
+					? await capturePublish(input)
+					: await capturePublish({ ...input, retainedA });
 		const steps = [
 			...(capture.status === "republished" ? [] : [capture.create]),
 			...(capture.status === "refused" ? [] : Object.values(capture.updates)),
@@ -786,6 +1230,20 @@ export async function writeEntry(
 
 	for (const [name] of named) {
 		const capture = captures.get(name);
+		if (capture?.status === "republished" && authored !== undefined) {
+			/* A is the base's own app, under `authored/`: the export holds
+			 * Nova's republish over it alone. */
+			const directory = join(root, "export", name);
+			await mkdir(directory, { recursive: true });
+			const republish = capture.updates.republish;
+			if (republish?.status === "sent") {
+				await writeStep(directory, "republish", republish, new Map());
+			}
+			await writeJson(join(directory, "outcome.json"), {
+				republish: outcomeJson(republish),
+			});
+			continue;
+		}
 		if (capture?.status === "republished") {
 			const exported = retained?.exports.get(name);
 			if (exported === undefined) {
@@ -873,6 +1331,7 @@ export async function writeEntry(
 						republished.publish.doc,
 						`the document ${document.id}'s bring-in gave`,
 					),
+			authored,
 		),
 	);
 	/* A `.ccz` installs an app on Android and nothing else, so Nova's own
@@ -889,7 +1348,7 @@ export async function writeEntry(
 		republished.publish,
 		PROOF_DOMAIN,
 		local(OPERATION_ORDINALS.local),
-		{ targetFacts, identity },
+		{ targetFacts, identity, ...(adopted !== undefined && { adopted }) },
 	);
 	if (localArchive !== null) {
 		await writeFile(join(root, "local.ccz"), localArchive);
@@ -898,7 +1357,7 @@ export async function writeEntry(
 			await requiredLocalCcz(
 				republished.publish,
 				local(OPERATION_ORDINALS.localAgain),
-				{ targetFacts, identity },
+				{ targetFacts, identity, ...(adopted !== undefined && { adopted }) },
 			),
 		);
 		if (
@@ -911,7 +1370,12 @@ export async function writeEntry(
 				await requiredLocalCcz(
 					republished.publish,
 					local(OPERATION_ORDINALS.local),
-					{ emptyCaseListText: true, targetFacts, identity },
+					{
+						emptyCaseListText: true,
+						targetFacts,
+						identity,
+						...(adopted !== undefined && { adopted }),
+					},
 				),
 			);
 		}
@@ -936,7 +1400,13 @@ export async function writeEntry(
 		});
 		await writeJson(
 			join(editRoot, "document.json"),
-			documentJson(document.id, document.source, edit.publish, edit.nextDoc),
+			documentJson(
+				document.id,
+				document.source,
+				edit.publish,
+				edit.nextDoc,
+				authored,
+			),
 		);
 		await writeJson(join(editRoot, "verdict.json"), verdictJson(editVerdict));
 		for (const [name] of named) {
@@ -949,23 +1419,31 @@ export async function writeEntry(
 			const directory = join(editRoot, "export", name);
 			await mkdir(directory, { recursive: true });
 			await writeStep(directory, "update", update, new Map());
-			await writeJson(join(directory, "outcome.json"), {
-				create:
-					capture.status === "republished"
-						? {
-								status: "sent",
-								compatibility: retained?.exports.get(name)?.compatibility,
-							}
-						: outcomeJson(capture.create),
-				update: outcomeJson(update),
-			});
+			await writeJson(
+				join(directory, "outcome.json"),
+				authored !== undefined
+					? { update: outcomeJson(update) }
+					: {
+							create:
+								capture.status === "republished"
+									? {
+											status: "sent",
+											compatibility: retained?.exports.get(name)?.compatibility,
+										}
+									: outcomeJson(capture.create),
+							update: outcomeJson(update),
+						},
+			);
 		}
 		/* D′ may change the declaration, so its archive follows its own. */
 		const editArchive = await localCcz(
 			edit.publish,
 			PROOF_DOMAIN,
 			local(OPERATION_ORDINALS.editLocal),
-			{ targetFacts: archiveTargetFacts(document.id, captures, "update") },
+			{
+				targetFacts: archiveTargetFacts(document.id, captures, "update"),
+				...(adopted !== undefined && { adopted }),
+			},
 		);
 		if (editArchive !== null) {
 			await writeFile(join(editRoot, "local.ccz"), editArchive);
@@ -984,6 +1462,7 @@ export async function writeEntry(
 		source: document.source,
 		inputs: await writeDocumentInputs(root, document.id, configurations, {
 			migrationWitness: witness,
+			hqAuthored: authored !== undefined,
 		}),
 		milliseconds: performance.now() - started,
 	};
@@ -1013,6 +1492,12 @@ export function entryJob(entry: PreparedEntry): unknown {
 			projectSettings: document.projectSettings,
 		}),
 		...(document.hqSide !== undefined && { hqSide: document.hqSide }),
+		...(document.hqAuthored !== undefined && {
+			hqAuthored: {
+				...document.hqAuthored,
+				mediaPaths: [...document.hqAuthored.mediaPaths],
+			},
+		}),
 		...storedInputs(publish),
 		...(edit !== undefined && {
 			edited: storedInputs(edit.publish),
@@ -1051,6 +1536,9 @@ export function preparedFromJob(job: readonly unknown[]): PreparedEntry[] {
 			privileges?: readonly string[];
 			projectSettings?: ProjectSettings;
 			hqSide?: HqSideSaves;
+			hqAuthored?: Omit<HqAuthoredFacts, "mediaPaths"> & {
+				mediaPaths: [string, string][];
+			};
 			batch?: PreparedEdit["batch"] & { mutations: Mutation[] };
 			footprint?: Footprint;
 			placements: Mutation[];
@@ -1070,6 +1558,12 @@ export function preparedFromJob(job: readonly unknown[]): PreparedEntry[] {
 				projectSettings: raw.projectSettings,
 			}),
 			...(raw.hqSide !== undefined && { hqSide: raw.hqSide }),
+			...(raw.hqAuthored !== undefined && {
+				hqAuthored: {
+					...raw.hqAuthored,
+					mediaPaths: new Map(raw.hqAuthored.mediaPaths),
+				},
+			}),
 		};
 		const doc = hydrate(publish.doc, `the document ${publish.id}`);
 		const recorded = {

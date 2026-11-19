@@ -1062,6 +1062,7 @@ Value.
 | `condition: if` whose question exists | nothing, read as `always` (the build applies only activeness) | `update-case-condition-if-whose-question-exists` |
 | `condition: if` whose question is gone | finding | `update-case-condition-if-whose-question-is-gone` |
 | `condition: never` | by the four rows `update-case-condition-never-on-a-registration-form`, `update-case-condition-never-on-a-follow-up-with-any-other-entry`, `update-case-condition-never-on-a-follow-up-in-a-multi-select-or` (held: no writes are read from `update`) and `update-case-condition-never-on-a-follow-up-with-no-other-active` (finding) | those |
+| `update` holding properties beside `condition: never`, on the three held rows | nothing: HQ's build reads no action outside `Form.active_actions`, so it writes none of them | `update-case-update-map-under-condition-never` (INERT, new) |
 | `update[key]`, key with no `/` | a write `{ property: key, value }`; key `name` reads into `own.name` on a follow-up or close form and is `unrecognized` on a registration, whose name is `open_case`'s; key `owner_id` reads into `own.owner` | `update-case-update-property-question`, `update-key-name`, `update-key-owner-id` |
 | `update[key]`, each index segment `parent` or `host`, on a form that loads its case | a write with `via`: one `RelationStep` per segment, `identifier` the segment, `throughCaseType` the case type the step reaches, which `relationDestination.ts::resolveRelationDestination` holds it to: the catalog's parent type of the type the step starts from (section 7) | `update-key-whose-index-segments-are-each-parent-or-host-parent-p` |
 | the same whose last step is `name` or `owner_id` (`parent/name`, `host/owner_id`): HQ's build writes `name` as that case's `case_name` and `owner_id` as its owner (`xform.py::XFormCaseBlock.add_case_updates`), and `case-reserved-words.json` holds neither, while Nova renames and gives an owner only to an operation's own case (`FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`), so the write is no `via` write the gate admits | finding, `detail.name` the key (`basicActions.ts::readUpdateMap`) | `update-key-name-or-owner-id-through-an-index-segment` (new, section 14) |
@@ -1577,6 +1578,8 @@ it does, and by 4.4's open actions otherwise.
 | `case_indices[k]` naming a chosen load | a link `{ identifier: reference_id, targetType: <the load's type>, target: { kind: "session" } for the own load, else the selected-case expression of 4.4's third row, relationship }` | `advancedopencaseaction-case-indices-child-extension-one-or-many` |
 | `case_indices[k]` naming an earlier open action | the same with `target: { kind: "op", opUuid }` | the same; `an-advanced-open-action-indexed-to-an-open-action-that-has-a-equal` for the repeat case |
 | `relationship: "question"`, an index to its own or a later action, to a renamed datum, outside its parent's repeat | finding | `caseindex-relationship-question-relationship-question-the-index-naming-a`, `caseindex-relationship-question-inside-a-repeat`, `caseindex-relationship-question-relationship-question-the-index-naming-an`, `caseindex-relationship-question-on-an-index-to-a-load-that`, `relationship-question-without-relationship-question`, `advancedopencaseaction-case-indices-naming-its-own-or-a-later`, `an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames`, `an-advanced-open-action-indexed-to-an-open-action-that-has-a-neither` |
+| an open action's index under `parent` that gives its case type a parent of another type, or a relationship other than `child`, than the parent selection a menu of that type chooses through, which the catalog then leaves with no parent (section 7) | finding at each form holding one, judged over the final catalog, and the selection stands under it (`advancedActions.ts::refuseParentIndicesAgainstSelections`) | `an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection` (HELD-NEW, new) |
+| an open action's index naming a chosen load the reading refused | nothing of its own: the index stands under that load's finding | the load's row |
 | a case type no menu holds | finding | `open-case-type-not-any-module-s-case-type-and-not-commcare-user` |
 
 An open action's operation `id` is `ownCaseOperationId(case_type, takenIds)`, except where its
@@ -2259,7 +2262,9 @@ export interface HqEntryFacts {
 	readonly requires: "none" | "case" | "advanced";
 	readonly opensCase: boolean;
 	/** Child cases outside any repeat, in list order, each with its place in `subcases`, which
-	 *  its datum's id holds (`Form.session_var_for_action`). */
+	 *  its datum's id holds (`Form.session_var_for_action`); none on a form of a menu that selects
+	 *  several cases, opens none and links nowhere, whose child cases HQ writes into no source
+	 *  and whose `uuid()` datums nothing reads. */
 	readonly newChildCases: readonly { readonly caseType: string; readonly index: number }[];
 	readonly usesWorkerRecord: boolean;            // an active usercase update or preload
 	/** An advanced form's loads, in order. */
@@ -2588,7 +2593,22 @@ not read.
 | a form's non-empty `custom_assertions` (part 06, section 7.4 leaves the key to this part) | finding at the form | `forms-and-case-writes/custom-assertions-form-non-empty` |
 | a form's empty `custom_assertions` | nothing | (the schema default) |
 | `custom_icons[0]`, `display_style` under some grid menus, `show_case_list_optimization_options` | finding | `custom-icons-0-badge-localized-text-or-xpath`, `module-display-style-list-grid-read-when-grid-form-menus-some-on`, `module-show-case-list-optimization-options` |
-| `auto_select_case: true` on a basic menu | by its two rows | `auto-select-case-true-on-a-basic-module-an-advanced-form-s-load` (REFUSED), `auto-select-case-true-on-any-other-basic-module` (INERT) |
+| `auto_select_case: true` on a basic menu | by its two rows, the first where an advanced form's chosen load lists from the menu by `get_target_module`'s rule (its `details_module`, else its own menu of the type, else the first menu of the type: `hq/entryFacts.ts::advancedLoadListMenus`) | `auto-select-case-true-on-a-basic-module-an-advanced-form-s-load` (REFUSED), `auto-select-case-true-on-any-other-basic-module` (INERT) |
+
+The INERT row holds on every other basic menu, one whose forms choose a case included: a basic menu's
+`ModuleBase.is_auto_select` returns its case list's `auto_select`, since it tests the method
+`is_multi_select` without calling it (`models/modules.py::ModuleBase.is_auto_select`), so the case datum's
+`autoselect` reads `Detail.auto_select` and never `auto_select_case`. The entry facts read
+`auto_select_case` only on a menu such a load lists from, and a parent selection only on a menu whose
+step a build walks (`hq/entryFacts.ts::parentStepRead`: its case list menu item, a form of it that
+requires a case, a menu selecting through it), so neither value is compared where nothing reads it.
+
+`custom-icons-1` (INERT) names the badges after a menu's first, and a menu holds them only beside a
+first badge, which `custom-icons-0-badge-localized-text-or-xpath` refuses (HELD-NEW): every non-empty
+`custom_icons` is refused at its first badge, and the badges after it are counted beside that finding
+(`menus/modules.ts`, `customIconsLater`), never as a finding of their own. So no reading holds what
+the row names, and part 14's coverage exempts it under `stated-by-its-part` (its section 7.5), as it
+does the classes of 11.1 that stand only beside a refusal.
 
 `Module.id`, the menu's display slug, is `lib/domain/idSlug.ts::uniqueSlug` over the first language's
 name among the menus already read. A name blank in the first language takes the first language that
@@ -2613,6 +2633,7 @@ datum is known (part 08, sections 6.1 and 8.3). Part 08 binds `false()` to `matc
 |---|---|---|
 | a `module_filter` that is `match-none` | `hiddenFromMenu: true` and no condition (unless 8.7 folds the menu) | `module-filter-false-or-false-and-rest-menu-reached-only-by-links` |
 | a `module_filter` that is an `and` led by `match-none` | `hiddenFromMenu: true`, and `displayCondition` the `and` of its other operands | the same |
+| either, on a menu something opens: its entry point or its case list's, an after-submit link to it, or a form's return or otherwise that the menu's being off the menu leaves unoffered (`validator/rules/hiddenFromMenu.ts`) | finding at the menu, the menu read as shown, so what opens it stands under that one cause (`menus/modules.ts::refuseOpenedOffTheMenu`) | `module-filter-false-on-a-menu-something-opens` (REFUSED, new) |
 | any other `module_filter` | `displayCondition`, the tree | part 08 claims `module-filter-value-lifts-into-predicate` or its HELD-NEW pair, or the two REFUSED rows (`module-filter-referencing-case-parent-host-or-a-bare`, `module-filter-failing-hq-s-validate-xpath`) |
 | a `form_filter` that is `match-none` | `Form.hiddenFromMenu: true` and no condition | `form-filter-false-or-false-and-rest-form-reached-only-by-links` |
 | a `form_filter` that is an `and` led by `match-none` | `Form.hiddenFromMenu: true`, and `Form.displayCondition` the `and` of its other operands | the same |
@@ -2648,9 +2669,14 @@ before any slot is written:
 
 | Beside `put_in_root: true` | Finding |
 |---|---|
-| `session_endpoint_id`, inline search (`module_uses_inline_search`), a form of its own whose `post_form_workflow` is `module`, a form of a submenu of it whose workflow is `parent_module`, or a `form_links` entry naming it by `module_unique_id` | `put-in-root-session-endpoint-id-or-inline-search-or-an-end-of` |
+| `session_endpoint_id`, inline search (`module_uses_inline_search`), or a `form_links` entry naming it by `module_unique_id` | `put-in-root-session-endpoint-id-or-inline-search-or-an-end-of` |
 | `case_list_session_endpoint_id` | `case-list-session-endpoint-id-on-a-put-in-root-module` (REFUSED, section 14) |
 | a search it offers (`module_offers_search`) | `case-search/search-on-a-put-in-root-module` (HELD-NEW, section 14), raised by `search/workflow.ts::readSearchWorkflow` (12.1), which reads `search_config` |
+
+A form of its own whose `post_form_workflow` is `module`, or a form of a submenu of it whose workflow is
+`parent_module`, is one cause at the form, where the value sits:
+`forms-and-case-writes/post-form-workflow-hq-s-build-refuses-module-in-a-put-in-root`, never the first
+row's menu finding beside it.
 
 `put_in_root` on a form, under `forms-and-case-writes/put-in-root-on-a-form-dynamic-key` (INERT), is
 claimed by part 06 (its 7.1 to 7.4); read here from `ctx.draft` and claims nothing. Two
@@ -2788,7 +2814,8 @@ the default details); the host's forms read the search (`search_config.inline_se
 both true); `relevancy_expression` is the tree of
 `suite/case-search/noMatches.ts::NO_MATCHES_RELEVANCY`; `post_form_workflow` is `case_list`; and the
 block holds no `media_image` and no `media_audio` (Nova's `after-empty-search` arm holds no media, so
-a block with media is not this shape and reads by row 5). The filter is tested in pass 1 with
+a block with media is not this shape and reads by row 5). The block's `relevancy_expression` is part
+of the shape and claimed under its row, which names the key. The filter is tested in pass 1 with
 `syntaxCompare.ts::sameXPathText` against `false()`; a folded menu has no slot for it, so this
 reader claims it `derived` under `module-filter-false-or-false-and-rest-menu-reached-only-by-links`
 and registers nothing (8.3). Then
@@ -3111,9 +3138,18 @@ unless a row says otherwise) into `Module.caseListConfig`: `columns`, `listColum
 | `custom_variables` (legacy), `print_template` | nothing | `legacy-detail-custom-variables-key`, `detail-print-template` (INERT) |
 | `no_items_text`, `select_text` | nothing where every language shows HQ's default on a device (`heldText.ts::hqDeviceText`: spaces at a text's end and the text after a carriage return show nowhere), a map Nova writes another way (the case list's empty-list text in every app language, the case detail's and both continue texts as HQ's model default) recorded under `list-settings-respelled`; the carriage return entry where a text's rest after one defines an app string (`heldText.ts::keyDefinedAfterLineEnd`); finding otherwise | `detail-no-items-text-equal-to-hq-s-default`, `detail-select-text-default-en-continue` (INERT); `application-and-settings/app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`; `detail-no-items-text-other-than-hq-s-default-en-list-is-empty`, `detail-select-text-non-default` |
 | `tabs` non-empty | finding, by kind | `plain-tab-header-starting-index`, `tab-relevant-lifts-into-predicate-not`, `data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset`, `data-tab-over-a-custom-nodeset-xpath`, `columns-above-the-first-tab-when-tabs-exist`, `a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`, `a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced` |
-| `lookup_enabled: true` and its keys | finding | the seven HELD-NEW rows `lookup-enabled-lookup-action`, `lookup-name`, `lookup-image-jr`, `lookup-autolaunch`, `lookup-extras-key-value`, `lookup-responses-key`, `lookup-display-results-lookup-field-header-lookup-field-template`, and the two REFUSED rows `callout-with-no-extras-or-no-responses`, `lookup-on-the-long-detail-tabbed-or-not`, each tested before the HELD-NEW rows of its keys (2.3, rule 1) |
+| `lookup_enabled: true` and its keys | one finding for the callout, under its decisive cause: the REFUSED `lookup-on-the-long-detail-tabbed-or-not` on the case detail, else the REFUSED `callout-with-no-extras-or-no-responses`, else the HELD-NEW `lookup-enabled-lookup-action`. A callout is one thing a person adds, so every other key of it stands under that finding (`lookup-name`, `lookup-image-jr`, `lookup-autolaunch`, `lookup-extras-key-value`, `lookup-responses-key`, `lookup-display-results-lookup-field-header-lookup-field-template`), and none of those six is a finding of its own | the three rows named, and the six held under them |
 | `lookup_enabled: false` with whatever else; `lookup_enabled` on an `icon_text_grid` list | nothing | `lookup-enabled-false-with-stale-keys`, `lookup-enabled-on-an-icon-text-grid-case-list` (INERT) |
 | any key `Detail` or `DetailColumn` does not declare | finding | `any-other-undeclared-key` |
+
+Three allowing rows of 11.1 and 11.2 name a class that stands only beside a HELD-NEW refusal, so no reading
+holds what they name, and none is a variant of its own: `lookup-enabled-on-an-icon-text-grid-case-list`
+(INERT) exists only on an `icon_text_grid` list, which `detail-case-tile-template-icon-text-grid` refuses
+(11.5), and the reading counts it under the list's claims beside that finding;
+`a-stored-tab-without-istab` (HELD) is a tab, and every tab is refused by its kind (the `tabs` row above);
+and `a-geo-column-on-the-case-detail-beside-the-column-it-depends-on` (HELD, 11.2) needs an address
+column on the same detail, which `8-address` refuses, and the reading counts it beside that finding.
+Part 14's coverage exempts the three under `stated-by-its-part` (its section 7.5).
 
 ### 11.2 A column
 
@@ -3199,7 +3235,8 @@ By `format`:
 | a slug HQ registers no format for | a plain column | `unregistered-format-slug-incl-nova-s-own-calculate` |
 | `late-flag` | finding (below) | `6-late-flag-late-flag-1` (re-cut HELD-NEW, section 14), `6p-late-flag-late-flag-0` |
 | `time-ago` | finding | `3-time-ago-time-ago-interval-the-7-menu-values-years-months`, `3p-time-ago-other-interval` |
-| `address`, `distance`, the four geo formats on the list, `clickable-icon`, `conditional-enum`, `invisible` or `address` in a custom tile, `invisible` in a nodeset tab | finding | `8-address`, `9-distance`, `11-geo-boundary`, `12-geo-boundary-color-on-the-case-list-only-needs-an-address`, `13-geo-points-on-the-case-list-only`, `14-geo-points-colors-on-the-case-list-only-needs-an-address`, `16-clickable-icon-endpoint-action-id-on-the-case-list`, `20-conditional-enum`, `invisible-or-address-column-in-a-custom-tile`, `7pp-invisible-inside-a-data-tab-over-a-nodeset` |
+| `address`, `distance`, the four geo formats on the list, `clickable-icon`, `conditional-enum`, `invisible` or `address` in a custom tile | finding | `8-address`, `9-distance`, `11-geo-boundary`, `12-geo-boundary-color-on-the-case-list-only-needs-an-address`, `13-geo-points-on-the-case-list-only`, `14-geo-points-colors-on-the-case-list-only-needs-an-address`, `16-clickable-icon-endpoint-action-id-on-the-case-list`, `20-conditional-enum`, `invisible-or-address-column-in-a-custom-tile` |
+| `invisible` in a nodeset tab | nothing of its own: a column of a data tab stands under the tab's finding (11.1, `tabs`), which every nodeset tab raises | `7pp-invisible-inside-a-data-tab-over-a-nodeset`, held under the tab's row |
 | `address-popup`, `picture`, `audio`, `graph`, `image`, `filter` where it changes the build, a geo column without its dependency, the malformed `clickable-icon` shapes, several of one format | finding | their REFUSED rows (`15-address-popup`, `17-picture`, `18-audio`, `22-graph`, `23-image-cc-case-image`, `24p-filter-otherwise`, `a-geo-column-without-the-column-it-depends-on`, `16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case`, `16pp-clickable-icon-on-the-case-detail-whatever-its-endpoint`, `more-than-one-address-column-or-more-than-one-image-or-geo`, `more-than-one-image-or-geo-column-of-the-same-format-in-a-detail`; and the HELD-NEW `more-than-one-address-column-in-a-detail-of-an-advanced-module`) |
 | `filter` where it changes no build | nothing | `24-filter-other-than-the-first-column-of-a-short-detail-with-no` (INERT) |
 
@@ -3259,7 +3296,9 @@ the carriage return entry; with text on an image map or a clickable icon, part 0
 text on an ID mapping or a label projection, `mappingitem-alt-text-on-a-format-that-builds-no-image`
 (INERT: `detail_screen.py::EnumImage` alone builds an alt text). `case_tile_field` blank or off a template
 tile is part 01's `case-tile-field-blank-or-off-a-template-tile` (INERT); with text on a template tile,
-`case-tile-field-template-slot-on-icon-text-grid`. `graph_configuration: null` or on another format,
+`case-tile-field-template-slot-on-icon-text-grid`, which stands under the template's own finding (11.5:
+`detail-case-tile-template-icon-text-grid`, the one template whose slots it names) and is never a finding of
+its own. `graph_configuration: null` or on another format,
 `filter_xpath`, `advanced`, the bookkeeping keys (`hasAutocomplete`, `calc_xpath`, `isTab`,
 `hasNodeset`, `nodeset`, `relevant`), and the format extras the column editor saves on every column
 (`time_ago_interval` and `late_flag` on a column of another format, `date_format` on a column that is
@@ -3616,7 +3655,11 @@ search exactly where `properties` or `default_properties` is not empty
 (`util.py::module_offers_search`). Every HQ menu stores a `search_config` with the model's defaults;
 where the menu offers none, `readSearchWorkflow` claims the whole block
 `the-generated-search-round-trip-remote-request-query-results` and reads nothing, except
-`blacklisted_owner_ids_expression` (12.4).
+`blacklisted_owner_ids_expression` and `search_on_clear` beside the case list's auto select
+(12.4). `custom_sort_properties`, `search_on_clear` and `case_search_endpoint_id` are part of that
+block there: HQ's build reads each only on a search the menu offers
+(`post_process/remote_requests.py::RemoteRequestFactory`, which `RemoteRequestsHelper.update_suite`
+and the inline search's entry build only for such a menu; `util.py::module_uses_case_search_endpoint`).
 
 | `auto_launch`, `default_search`, `inline_search` | `caseSearchConfig` | Entry |
 |---|---|---|
@@ -3924,7 +3967,7 @@ workflow row with nothing read.
 | `data_registry_workflow` or `additional_registry_cases`, at any value, where `data_registry` is absent or `""` | nothing: HQ reads both only behind `util.py::module_offers_registry_search`, which tests the registry by truth, and its Case List page on a project space with the data registry stores `data_registry_workflow: "load_case"` beside a blank registry on every save (the hidden `<select>`'s `value` binding, `case_claim.js::searchConfigModel`); recorded under `list-settings-respelled` (`settings.ts::readRegistry`) | `the-registry-workflow-and-cases-where-no-registry-is-named` (INERT) |
 | `additional_case_types` naming only the menu's own `case_type` | nothing: every reader widens the list by `set(additional_case_types) - {case_type}` (`suite_xml/utils.py::get_ordered_case_types`); recorded under `list-settings-respelled` on a menu that searches | `additional-case-types-naming-only-the-menu-s-own-type` (INERT) |
 | `instance_name` | finding, by its rows | `instance-name-without-casedb-ledgerdb-fixture-or-session-in-it`, `instance-name-containing-casedb-ledgerdb-fixture-or-session`, `a-module-whose-effective-results-instance-results-instance-name`; `an-effective-results-instance-equal-to-a-module-s-that-does-not` (INERT) |
-| `additional_case_types` naming a type other than the menu's own, whether or not the menu offers search: HQ's build widens the menu's own list by it (`entries.py::EntriesHelper.get_datum_meta_module`, `additional_types`), so a menu that offers no search does not claim it inactive; `custom_related_case_property`, `custom_sort_properties`, `search_on_clear`, `case_search_endpoint_id`, a named `data_registry` (holding text) with its workflow and extra cases | finding | their rows (`additional-case-types`, `custom-related-case-property`, `custom-sort-properties-property-name-sort-type-exact-date`, `search-on-clear`, `search-on-clear-with-the-case-list-s-auto-select-checked-whether`, `case-search-endpoint-id`, `data-registry-data-registry-workflow-additional-registry-cases`) |
+| `additional_case_types` naming a type other than the menu's own, whether or not the menu offers search: HQ's build widens the menu's own list by it (`entries.py::EntriesHelper.get_datum_meta_module`, `additional_types`), so a menu that offers no search does not claim it inactive; `custom_related_case_property`, a named `data_registry` (holding text) with its workflow and extra cases; on a menu that offers search, `custom_sort_properties`, `search_on_clear` and `case_search_endpoint_id`, which HQ's build reads only there (12.1); `search_on_clear` beside the case list's auto select whether or not the menu offers search, which `validators.py::validate_search_config` refuses on every menu | finding | their rows (`additional-case-types`, `custom-related-case-property`, `custom-sort-properties-property-name-sort-type-exact-date`, `search-on-clear`, `search-on-clear-with-the-case-list-s-auto-select-checked-whether`, `case-search-endpoint-id`, `data-registry-data-registry-workflow-additional-registry-cases`) |
 | removed and unknown keys | nothing | `removed-keys-dynamic-search-additional-relevant-search-filter`, `any-other-unknown-casesearch-key` (INERT) |
 
 A menu with Search fields whose settings read as none of the rows above holds no `caseSearchConfig`:

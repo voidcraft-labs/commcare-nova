@@ -238,8 +238,31 @@ past it. Once the app is published to one project space, Preview follows that
 project space's setting. Preview's case list search follows its fuzzy search
 setting the same way: with it on, a near miss of four letters or more still
 finds its case, as it does for a worker. On Android the closest matches come
-first. In Web Apps the list keeps its own order, and closeness decides only
-between cases that order places equally.
+first. In Web Apps the list keeps the order it shows, its own or the item a
+worker picked in **Sort by**, and closeness decides only between cases that
+order places equally.
+
+A case list in Preview has the **Sort by** menu each platform gives it. On
+Android it lists every item Results shows and each hidden item you named in
+Sort by, numbered in the list's own order until a worker picks one. In Web Apps
+it lists the items the list's own order uses: in a list laid out as tiles all of
+them, named or not, and in a list of columns only the ones Results shows, which
+Web Apps sorts by when a worker clicks their heading. Picking an item orders
+the whole list by it, every page included, and picking it again turns it
+around. On Android, cases the pick places equally keep the order they had
+before it, and the first pick of a list's only sorted item turns it around at
+once, since the list already runs that way. In Web Apps typing in the list's
+filter goes back to the list's own order. Where a device shows no name for an
+item, Preview names it as Results does.
+
+Coming back to a list works the way each platform does it, too. Back from a
+case's details keeps the list as the worker left it. In Web Apps, Back from a
+form left unfinished keeps the page, the filter text and the pick, and
+searching again keeps the pick while the page and the filter text start over.
+On Android the list a worker steps back to is a new one, at the top and in the
+list's own order, holding the filter text it had when the worker opened the
+case. Submitting a form that lands on the list, or opening the list again from
+a menu, a crumb or home, starts it over on both.
 
 ## Name new records
 
@@ -560,7 +583,14 @@ the form opened starts with that case's value, a starting value Nova gives it an
 you can remove, so it carries the value through unchanged; anywhere else it
 saves the property blank, and the line under it says so. A hidden value that saves to a case property gives that property the
 kind of value its expression works out to, so it needs to fit the property's
-kind when the property or another question already sets it. When a choice
+kind when the property or another question already sets it. Values of
+different kinds saved to one property, from different questions or from the
+branches of one hidden value, are kept as text when each is text, a choice, a
+number or a date: a number is kept as its digits and a date as `2024-05-01`,
+exactly as a phone saves them. That doesn't work when one of them is a date
+and time, a time or a location, or when a question opens showing the property
+as a number, a date, a time or a location, since that question would stop on
+the other values; Nova names that question so you can change it. When a choice
 question opens showing a case property, a fixed value saved into that property
 needs to be one of the question's choices, so the question can show it.
 

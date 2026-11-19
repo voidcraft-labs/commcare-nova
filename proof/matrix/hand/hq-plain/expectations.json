@@ -1,0 +1,343 @@
+[
+	{
+		"id": "head-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "Amani"
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Amani"
+			}
+		]
+	},
+	{
+		"id": "members-entered",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/members",
+					"value": "4"
+				}
+			],
+			"expressions": ["/data/members"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "4"
+			}
+		]
+	},
+	{
+		"id": "village-chosen",
+		"entry": "questions/select-bind-type-xsd-string-or-a-choice-type-matching-the",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/village",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/village"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "south"
+			}
+		]
+	},
+	{
+		"id": "visit-date-entered",
+		"entry": "questions/date-xsd-date",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visit_date",
+					"value": "2026-03-02"
+				}
+			],
+			"expressions": ["/data/visit_date"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2026-03-02"
+			}
+		]
+	},
+	{
+		"id": "members-plus-one-held",
+		"entry": "questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/members",
+					"value": "4"
+				}
+			],
+			"expressions": ["/data/members_plus_one"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "5"
+			}
+		]
+	},
+	{
+		"id": "members-plus-one-calculated",
+		"entry": "questions/bind-calculate-on-a-hidden-value",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/members",
+					"value": "7"
+				}
+			],
+			"expressions": ["/data/members_plus_one"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "8"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "members-loaded-from-the-case",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"expressions": ["/data/members"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "10"
+			}
+		]
+	},
+	{
+		"id": "members-typed-over-the-default",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/members",
+					"value": "12"
+				}
+			],
+			"expressions": ["/data/members"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "12"
+			}
+		]
+	},
+	{
+		"id": "remark-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/remark",
+					"value": "Roof repaired"
+				}
+			],
+			"expressions": ["/data/remark"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Roof repaired"
+			}
+		]
+	},
+	{
+		"id": "remark-required-over-five-members",
+		"entry": "questions/bind-required-expr",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/members",
+					"value": "6"
+				},
+				{
+					"path": "/data/remark",
+					"value": ""
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/1/result",
+				"value": "required"
+			}
+		]
+	},
+	{
+		"id": "households-sorted-by-village",
+		"entry": "menus-and-case-lists/2-date-date-format-d-m-y-d-m-y-m-d-y-m-d-y-b-d-y",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "household-one"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/1",
+				"value": "north"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "household-two"
+			}
+		],
+		"exports": ["local"]
+	}
+]

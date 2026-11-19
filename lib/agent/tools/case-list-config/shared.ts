@@ -79,6 +79,10 @@ import {
 	expressionReferencesAnySearchInput,
 	valueSchema,
 } from "@/lib/domain/expression";
+import {
+	caseWriteViaInputSchema,
+	toCaseWriteVia,
+} from "../case-operations/shared";
 
 /**
  * The order a lookup-backed choice question lists its choices in. The option
@@ -213,14 +217,28 @@ const columnInputSlots = {
 	tile: columnTileInputSchema,
 };
 
+/** A property column's walk to the case whose property it shows, as an input:
+ *  the domain's `via` as a list, the spelling case operations take
+ *  (`caseWriteViaInputSchema`), which `stampColumnUuid` makes the domain's
+ *  non-empty tuple. */
+const columnViaInput = {
+	via: caseWriteViaInputSchema
+		.optional()
+		.describe(
+			'Show field of the case above this one instead of this case\'s own, one link per step from this case, nearest first. parent needs no type: [{"identifier":"parent"}] reaches this case type\'s parent. Any other link names the case type it reaches: [{"identifier":"host","throughCaseType":"household"}]. Leave it out for this case\'s own property. A menu that offers Search can\'t hold it; a calculated column can read the case above there.',
+		),
+};
+
 const plainColumnInputArm = plainColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
+	...columnViaInput,
 	sort: columnSortInput(
 		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows.",
 	),
 });
 const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
+	...columnViaInput,
 	sort: columnSortInput(
 		"This column's order rule. A date column orders by the saved date, whatever pattern shows it.",
 	),
@@ -230,6 +248,7 @@ const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots).extend({
 });
 const phoneColumnInputArm = phoneColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
+	...columnViaInput,
 	sort: columnSortInput(
 		"This column's order rule. A phone column orders by the saved value.",
 	),
@@ -238,6 +257,7 @@ const idMappingColumnInputArm = idMappingColumnArm
 	.omit(columnToolOwnedSlots)
 	.extend({
 		...columnInputSlots,
+		...columnViaInput,
 		sort: columnSortInput(
 			"This column's order rule. Shown on Results, an ID mapping orders by the order of its mapping entries, never by label: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
 		),
@@ -249,6 +269,7 @@ const imageMapColumnInputArm = imageMapColumnArm
 	.omit(columnToolOwnedSlots)
 	.extend({
 		...columnInputSlots,
+		...columnViaInput,
 		sort: columnSortInput(
 			"This column's order rule. Shown on Results, an image map orders by the order of its mapping entries: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
 		),
@@ -260,6 +281,7 @@ const intervalColumnInputArm = intervalColumnArm
 	.omit(columnToolOwnedSlots)
 	.extend({
 		...columnInputSlots,
+		...columnViaInput,
 		sort: columnSortInput(
 			"This column's order rule. Shown on Results, an interval column orders by the text it shows, compared as text, so 10 comes before 2.",
 		),
@@ -270,6 +292,7 @@ const intervalColumnInputArm = intervalColumnArm
  * tool schema on every call. */
 const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
+	...columnViaInput,
 	sort: columnSortInput(
 		"This column's order rule. A link column orders by the saved value, never by its link text.",
 	),
@@ -306,10 +329,10 @@ export const SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE =
  * `updateModule`'s `case_list_columns`, which holds the same arms. It states
  * the order plan (`lib/domain/caseListOrder.ts::caseListOrderPlan`) and the
  * rules that refuse an order rule (`CASE_LIST_SORT_PROPERTY_AMBIGUOUS`,
- * `CASE_TILE_HIDDEN_CALCULATED_SORT`).
+ * `CASE_TILE_HIDDEN_CALCULATED_SORT`, `CASE_LIST_SORT_LABEL_NOT_SHOWN`).
  */
 export const CASE_LIST_ORDER_GUIDANCE =
-	"Order: each column's sort is one rule, and the rule with the lowest priority decides first; the next breaks ties. Cases with no value come first when ascending and last when descending. A list keeps one rule for each value: a second rule over the same property, or over the same calculation, is refused. Where two columns read one property and order differently (a plain column and an ID mapping, say), the rule goes on whichever comes first in Results. With no rule at all, a list orders by its first column shown on Results, ascending. A column hidden from Results can carry a rule, and then orders by the saved value whatever its kind (a calculated column by its result); in a list with a case tile that holds for any column but a calculated one and one over case_id.";
+	"Order: each column's sort is one rule, and the rule with the lowest priority decides first; the next breaks ties. Cases with no value come first when ascending and last when descending. A list keeps one rule for each value: a second rule over the same property, or over the same calculation, is refused. Where two columns read one property and order differently (a plain column and an ID mapping, say), the rule goes on whichever comes first in Results. With no rule at all, a list orders by its first column shown on Results, ascending. A column hidden from Results can carry a rule, and then orders by the saved value whatever its kind (a calculated column by its result); in a list with a case tile that holds for any column but a calculated one and one over case_id. Workers can also reorder the list from its Sort by menu, which lists each column shown on Results under its header; a column hidden from Results is listed there only under its sort's label, and a label on a column shown on Results is refused.";
 
 export const columnInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm,
@@ -675,8 +698,10 @@ export function stampColumnUuid(
 	uuid: Uuid,
 ): Column {
 	const { columnUuid: _declaredUuid, ...body } = column as ColumnInput;
+	const via = "via" in body ? body.via : undefined;
 	return {
 		...body,
+		...(via !== undefined && { via: toCaseWriteVia(via) }),
 		/* A column off the list is hidden on Results too, so `notOnList`
 		 * writes `visibleInList: false` with it. One sent shown as well is
 		 * `columnListStateRefusal`'s, and left as sent for the gate. */
@@ -690,6 +715,7 @@ export function stampColumnUuid(
 				body.sort.direction,
 				body.sort.priority,
 				body.sort.blanks,
+				body.sort.label,
 			),
 		}),
 		uuid,

@@ -18,6 +18,7 @@ import type {
 	ReaderLookupCatalog,
 	ReaderOrganization,
 	ReadOutcome,
+	UnreadTable,
 } from "@/lib/commcare/reader/types";
 import { levelsFromHq } from "@/lib/commcare/reader/worldEntities";
 import { xmlTextIssue } from "@/lib/commcare/xmlText";
@@ -467,6 +468,10 @@ export interface ReaderProjectDataReads {
 	readonly lookupFields: Readonly<Record<string, readonly string[]>>;
 	/** Tags read that the catalog does not hold (`ReadFacts.unreadTables`). */
 	readonly unreadTables: readonly string[];
+	/** Tags a form declares that the catalog does not hold and nothing reads
+	 *  (`UnreadTable.declaredOnly`): no table comes in for one, and Core still
+	 *  loads it when the form opens. */
+	readonly declaredTables: readonly string[];
 	readonly readsPlaces: boolean;
 }
 
@@ -485,7 +490,7 @@ export function projectDataReadsOf(
 	if (outcome.kind === "account") {
 		return {
 			lookupFields: {},
-			unreadTables: distinctTags(outcome.unreadTables),
+			...tablesOf(outcome.unreadTables),
 			readsPlaces: outcome.readsLocations,
 		};
 	}
@@ -531,7 +536,7 @@ export function projectDataReadsOf(
 				.sort(([left], [right]) => compareCodeUnits(left, right))
 				.map(([tag, read]) => [tag, [...read].sort(compareCodeUnits)]),
 		),
-		unreadTables: distinctTags(facts.unreadTables),
+		...tablesOf(facts.unreadTables),
 		readsPlaces: documentReadsPlaces(doc),
 	};
 }
@@ -558,10 +563,24 @@ export function unreadPlacesFailure(
 	return documentReadsPlaces(outcome.draft.doc) ? data.placesUnread : null;
 }
 
-function distinctTags(
-	unread: readonly { readonly tag: string }[],
-): readonly string[] {
-	return [...new Set(unread.map((table) => table.tag))].sort(compareCodeUnits);
+/** The tags read, and the tags only declared: a tag something reads is read
+ *  wherever else a form only declares it. */
+function tablesOf(unread: readonly UnreadTable[]): {
+	readonly unreadTables: readonly string[];
+	readonly declaredTables: readonly string[];
+} {
+	const read = new Set(
+		unread
+			.filter((table) => table.declaredOnly !== true)
+			.map((table) => table.tag),
+	);
+	const declared = new Set(
+		unread.map((table) => table.tag).filter((tag) => !read.has(tag)),
+	);
+	return {
+		unreadTables: [...read].sort(compareCodeUnits),
+		declaredTables: [...declared].sort(compareCodeUnits),
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -572,13 +591,19 @@ function distinctTags(
 const MISSING_TABLE_ENTRY =
 	"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant";
 
+/** A table a form declares and nothing reads that the project space's list does not hold: Core
+ *  loads every declared instance when the form opens, and this one fails, so the form cannot open. */
+const UNSERVED_DECLARATION_ENTRY =
+	"expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-does";
+
 /**
  * Every finding of project data for this read. `doc` is null where the reader
  * gave an account.
  *
  * For each tag the reader read, bound or not: the table's own findings, or,
  * where CommCare HQ's list lacks the tag, a read of a table that is not
- * there. Then, over the tables the document reads as the birth will hold
+ * there. For each tag a form only declares that the list lacks: a form that
+ * cannot open; one the list holds raises nothing. Then, over the tables the document reads as the birth will hold
  * them (`readingLookupSnapshot`): a cell XML cannot carry, the tables
  * together over what one `.ccz` carries, and, with a document, one
  * `table-choices-unusable` a table whose rows cannot be the choices of a
@@ -619,6 +644,15 @@ export function readingProjectDataFindingsFor(
 		const table = byTag.get(tag);
 		if (table !== undefined) findings.push(...table.findings);
 	}
+	for (const tag of reads.declaredTables)
+		if (!listed.has(tag))
+			findings.push(
+				manifestFinding(
+					UNSERVED_DECLARATION_ENTRY,
+					{ kind: "lookup-table", tag },
+					tag,
+				),
+			);
 
 	const snapshot = readingLookupSnapshot(data, reads);
 	const unrepresentable = unrepresentableCellFindings(snapshot);

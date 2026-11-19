@@ -1,6 +1,7 @@
 /** Registry-driven case-property renames over the one Expression tree. */
 import {
 	type CaseType,
+	columnPropertyCaseType,
 	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
@@ -167,7 +168,15 @@ export function rewriteModuleCaseRefs(
 		if (slot.slot === "case_list_column_field" && mod.caseType !== undefined) {
 			for (const column of mod.caseListConfig?.columns ?? []) {
 				if (column.kind === "calculated") continue;
-				const next = resolveCaseProperty(mod.caseType, column.field);
+				// A column read through a relation names a property of the case
+				// its walk reaches, so a rename of that type's property renames it.
+				const caseType = columnPropertyCaseType(
+					column,
+					mod.caseType,
+					caseTypes,
+				);
+				if (caseType === undefined) continue;
+				const next = resolveCaseProperty(caseType, column.field);
 				if (next !== undefined && next !== column.field) {
 					column.field = next;
 					columnsRewritten++;

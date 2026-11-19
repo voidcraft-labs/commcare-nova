@@ -32,12 +32,15 @@ import {
 	dateLiteral,
 	eq,
 	gt,
+	ifExpr,
 	input,
 	literal,
 	multiSelectAll,
 	neq,
 	now,
 	prop,
+	sessionContext,
+	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -55,6 +58,7 @@ import { readerInput, sourceFromBody } from "../../__tests__/readerInput";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
+	closedCodes,
 	codes,
 	emittedApp,
 	listOf,
@@ -808,6 +812,74 @@ describe("a menu whose forms do not read the search", () => {
 		);
 	});
 
+	// The search holds its own rows, and the list gains a clause none of them restates: Nova would
+	// restate it as a row of its own, which the clause's one finding stands for.
+	it("raises a list clause no row restates beside rows the search holds as that one finding", async () => {
+		const reading = await readLists(doc(), {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (short === undefined) throw new Error("The menu lists patients.");
+				short.filter = `${String(short.filter)} and notes != 'closed'`;
+			},
+		});
+		expect(closedCodes(reading)).toEqual([
+			"case-search/case-list-filter-clause-the-search-does-not-restate",
+		]);
+	});
+
+	// HQ's search compares a system date by its own date rule alone and refuses any value that is no
+	// date (`comparison.py::_create_system_datetime_query`): that is the row's one cause, whatever
+	// else the row would have been refused for or wherever a conjunct of it could have stood.
+	it.each([
+		`"date_opened = 'abc'"`,
+		`"date_opened > 'abc'"`,
+		`"closed_on = 3"`,
+	])(
+		"raises a system date compared with no date, %s, as that one finding",
+		async (defaultValue) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					rowsOf(app).push({ property: "_xpath_query", defaultValue });
+				},
+			});
+			const closed = reading.ctx.close();
+			expect(closed.findings.map((finding) => finding.code)).toEqual([
+				"case-search/date-opened-closed-on-or-last-modified-compared-with-any",
+			]);
+			// The ordering is no range of a property's, so its right side is the system date's class.
+			const orderings = [...closed.claims.records()].filter(
+				(record) => record.key === "csql-op:>",
+			);
+			for (const record of orderings)
+				expect(record.entry).toBe(
+					"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v",
+				);
+		},
+	);
+
+	// HQ keeps no stored `None` for a default filter's value: a filter with none, or with a blank,
+	// is one finding at the search, and the search's other rows stand under it.
+	it.each([
+		["left out", {}],
+		["blank", { defaultValue: "" }],
+	])(
+		"raises a default filter whose value is %s as one finding",
+		async (_title, value) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					rowsOf(app).push({
+						property: "_xpath_query",
+						doc_type: "DefaultCaseSearchProperty",
+						...value,
+					});
+				},
+			});
+			expect(closedCodes(reading)).toEqual([
+				"case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty",
+			]);
+		},
+	);
+
 	it("gives each row of fields whose conditions read no field its own field", async () => {
 		const rule = (at: number, name: string, value: string): SearchInputDef => ({
 			uuid: uuid(at),
@@ -857,6 +929,48 @@ describe("a menu whose forms do not read the search", () => {
 		});
 	});
 
+	it("claims each class of what a held row works out on the device beside the row's own claim", async () => {
+		const visits = prop("patient", "visits");
+		const doc = typed(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [bare],
+				search: {},
+				list: {
+					filter: and(
+						ifExpr(
+							eq(term(sessionContext("username")), literal("demo")),
+							notesIs("a"),
+							notesIs("b"),
+						),
+						eq(prop("patient", "notes"), term(sessionContext("applanguage"))),
+						eq(visits, term(sessionContext("drift"))),
+						eq(visits, term(sessionContext("window_width"))),
+					),
+				},
+			}),
+			{ notes: "text", visits: "int" },
+		);
+		const reading = await readLists(doc);
+		expect(closedCodes(reading)).toEqual([]);
+		const entries = new Set(
+			[...reading.ctx.close().claims.records()].flatMap((record) =>
+				record.key === "schema:DefaultCaseSearchProperty.defaultValue" &&
+				record.where.startsWith("/modules/0/search_config/default_properties/")
+					? [record.entry]
+					: [],
+			),
+		);
+		for (const entry of [
+			"case-search/several-xpath-query-rows",
+			"case-search/clause-chosen-at-runtime-by-a-condition-over-session-worker",
+			"case-search/runtime-values-read-from-casedb-or-session-datums",
+			"case-search/runtime-values-read-from-the-session-context-drift",
+			"case-search/runtime-values-read-from-the-session-context-window-width",
+			"case-search/runtime-values-read-from-the-session-context-applanguage",
+		])
+			expect(entries).toContain(entry);
+	});
+
 	it("claims each use a row's CSQL makes, held or refused, under the entry whose value class takes it", async () => {
 		const typedRightSide =
 			"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v";
@@ -887,8 +1001,46 @@ describe("a menu whose forms do not read the search", () => {
 				// The refused row's comparison and the system date it reads.
 				{ key: "csql-op:>", entry: typedRightSide },
 				{ key: "csql-metadata:date_opened", entry: dateOnly },
+				// What a presence test sends with no answer and a row sends where it fails closed,
+				// which HQ's search parses as any other text the row can send.
+				{ key: "csql-fn:match-all", entry: "case-search/match-all-match-none" },
+				{
+					key: "csql-fn:match-none",
+					entry: "case-search/match-all-match-none",
+				},
 			]),
 		);
+	});
+
+	it("records a row's key where its value sits, and a presence test's class at the row's value", async () => {
+		let rows = 0;
+		const reading = await readLists(oneOfEach(), {
+			edit: (app) => {
+				rows = rowsOf(app).length;
+			},
+		});
+		expect(codes(reading)).toEqual([]);
+		const records = [...reading.ctx.close().claims.records()].filter((record) =>
+			record.where.startsWith("/modules/0/search_config/default_properties/"),
+		);
+		const at = (key: string) =>
+			records
+				.filter((record) => record.key === key)
+				.map((record) => record.where.replace(/^.*default_properties\//, ""));
+		// Each `_xpath_query` row's key is the `csql-key` item at `property`, never at its value.
+		expect(at("csql-key:_xpath_query")).toEqual(
+			Array.from({ length: rows }, (_, index) => `${index}/property`),
+		);
+		// A row chosen by a Search field's presence test is that class of its value.
+		expect(
+			records.some(
+				(record) =>
+					record.entry ===
+						"case-search/clause-chosen-at-runtime-by-input-presence" &&
+					record.key === "schema:DefaultCaseSearchProperty.defaultValue" &&
+					record.where.endsWith("/defaultValue"),
+			),
+		).toBe(true);
 	});
 });
 
@@ -987,6 +1139,27 @@ describe("a menu whose forms read the search", () => {
 			and(notesIs("open"), notesIs("other")),
 		);
 		expect(registers(reading)).toContain("search-filter-joined-to-list");
+	});
+
+	it("raises a conjunct with no field that only HQ's search runs as one finding, since the list filter a device runs cannot hold it", async () => {
+		const entry =
+			"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s";
+		for (const row of [
+			`"fuzzy-match(notes, 'nrth')"`,
+			`"phonetic-match(notes, 'nrth')"`,
+		]) {
+			const reading = await readLists(readingForms(), {
+				edit: (app) => {
+					rowsOf(app, PATIENTS).push({
+						property: "_xpath_query",
+						defaultValue: row,
+					});
+				},
+			});
+			expect(closedCodes(reading)).toEqual([entry]);
+			expect(placements().at(-1)).toEqual({ kind: "E", entry });
+			expect(listOf(reading, PATIENTS).filter).toEqual(notesIs("open"));
+		}
 	});
 
 	it("raises a conjunct with no field where an advanced form's load names the menu", async () => {

@@ -141,11 +141,24 @@ export function useSearchInputRunState(args: {
 		[read, args.scopeKey, args.session, args.environment],
 	);
 	const [stored, setStored] = useState(desired);
-	// Project the new scope before the synchronization effect can commit.
-	const current = reconcileSearchRunState(stored, desired);
+	/* The new scope or revision is projected before the synchronization
+	 * effect can commit, once per stored and desired state: a projection
+	 * rebuilds its draft and submission, so a render that projected again
+	 * would hand the screen a new query reference each time, and a screen
+	 * that adjusts its own state to a new query during render would never
+	 * settle. The effect then stores that same projection, so the reference
+	 * the screen rendered is the one it keeps. */
+	const current = useMemo(
+		() => reconcileSearchRunState(stored, desired),
+		[stored, desired],
+	);
 	useEffect(() => {
-		setStored((previous) => reconcileSearchRunState(previous, desired));
-	}, [desired]);
+		setStored((previous) =>
+			previous === stored
+				? current
+				: reconcileSearchRunState(previous, desired),
+		);
+	}, [stored, current, desired]);
 	// The query reload identity must remain stable during unrelated renders.
 	const submitted = useMemo(
 		() => withHiddenValues(current.submitted, current.submittedHidden),

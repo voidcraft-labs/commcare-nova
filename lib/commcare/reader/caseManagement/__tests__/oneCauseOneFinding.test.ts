@@ -35,6 +35,9 @@
  *   (`catalog.ts::carryRetypedProperties`), one its own writers type otherwise
  *   is the finding at the block, and a keyed create's
  *   case given another type is the type change's finding at the form.
+ * - A form that requires a referral (`formType.ts`): its one finding at the
+ *   form, its logic bound over the case it chooses as a follow-up's is, so a
+ *   read of that case is no second finding.
  * - A form's own open or close condition on a form type that takes none
  *   (`OPEN_CONDITION_WRONG_TYPE`, `CLOSE_CONDITION_WRONG_TYPE`): no reading
  *   holds one, since the form's type is read from the same actions
@@ -79,6 +82,10 @@ const AUTHORED_ID =
 	"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside";
 const TYPE_CHANGE =
 	"questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type";
+const LIVE_CREATE_ID =
+	"questions/create-case-id-live-calculate-outside-a-repeat";
+const HAND_WRITTEN =
+	"questions/hand-written-case-block-without-vellum-role-incl-a-root-data";
 const RETYPE_CONVERTS =
 	"questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type";
 
@@ -665,6 +672,23 @@ describe("a Save to Case change the gate refuses, as its one finding", () => {
 			`${RETYPE_CONVERTS} @question:nova_operations/again`,
 		],
 		[
+			"a root create's id calculated by a bind, which HQ's form builder writes as a setvalue",
+			() => app([own, visitCreate()]),
+			(xml) =>
+				replaceOnce(
+					xml,
+					'<setvalue event="xforms-ready" ref="/data/nova_operations/mk/case/@case_id" value="uuid()"/>',
+					'<bind nodeset="/data/nova_operations/mk/case/@case_id" calculate="uuid()"/>',
+				),
+			`${LIVE_CREATE_ID} @question:nova_operations/mk`,
+		],
+		[
+			"a create's block with no Save to Case role (its guard under it)",
+			() => app([own, visitCreate()]),
+			(xml) => replaceOnce(xml, '<mk vellum:role="SaveToCase"', "<mk"),
+			`${HAND_WRITTEN} @question:nova_operations/mk`,
+		],
+		[
 			"a change of the type of a survey's case keyed by an answer",
 			() =>
 				app(
@@ -881,5 +905,60 @@ describe("a form's own open or close condition where its type takes none", () =>
 		const form = Object.values(outcome.draft.doc.forms)[0];
 		expect(form?.type).toBe("close");
 		expect(form?.closeCondition).toBeDefined();
+	});
+});
+
+describe("a form that requires a referral", () => {
+	it("is its one finding, and its logic that reads the case it chooses stands under it", async () => {
+		const doc = buildDoc({
+			appId: "app-1",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "outcome", label: "Outcome" }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: "one-cause-referral-form",
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "seen",
+									uuid: testUuid("one-cause-referral-seen"),
+									default_value: {
+										kind: "term",
+										term: {
+											kind: "form-case",
+											caseType: "patient",
+											property: "outcome",
+										},
+									},
+								} as never),
+							],
+						},
+					],
+				},
+			],
+		});
+		const outcome = await readBack(doc, {
+			modules: (modules) =>
+				modules.map((module) => ({
+					...module,
+					forms: (module.forms as Record<string, unknown>[]).map((form) => ({
+						...form,
+						requires: "referral",
+					})),
+				})),
+		});
+		expect(account(outcome)).toEqual([
+			"forms-and-case-writes/form-requires-referral @form",
+		]);
 	});
 });

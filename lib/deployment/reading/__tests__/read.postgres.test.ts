@@ -460,6 +460,31 @@ function withMenuIcon(answer: RetainedHqAnswer, multimediaId: string) {
 	});
 }
 
+/** `answer` with its first menu's sound at a path whose map entry names `multimediaId`, in a
+ *  project space that checks no media at install (`cc-content-valid` `yes`). */
+function withMenuSound(answer: RetainedHqAnswer, multimediaId: string) {
+	const path = `jr://file/commcare/audio/${multimediaId}.mp3`;
+	return changed(answer, (body) => {
+		const [menu] = body.modules as Body[];
+		menu.media_audio = { en: path };
+		body.multimedia_map = {
+			[path]: {
+				doc_type: "HQMediaMapItem",
+				media_type: "CommCareAudio",
+				multimedia_id: multimediaId,
+				unique_id: `${multimediaId}-map`,
+				version: 1,
+			},
+		};
+		const profile = body.profile as Body;
+		profile.properties = {
+			...(profile.properties as Body),
+			"cc-content-valid": "yes",
+		};
+		return body;
+	});
+}
+
 describe("readHqAppForReview", () => {
 	beforeEach(seed);
 
@@ -766,12 +791,17 @@ describe("readHqAppForReview", () => {
 				},
 			},
 			{
+				/* A menu's sound whose file CommCare HQ does not serve: Web Apps offers it with
+				 * nothing to play. */
 				code: "media-file-unreadable",
 				serving: (peer) => {
-					serveApp(peer, { source: withMenuIcon(source(), "menuicon") });
+					serveApp(peer, { source: withMenuSound(source(), "menusound") });
 					peer
 						.get(HOST)
-						.intercept({ path: PATHS.media("menuicon"), method: "GET" })
+						.intercept({
+							path: "/hq/multimedia/file/CommCareAudio/menusound/",
+							method: "GET",
+						})
 						.reply(404, "")
 						.persist();
 				},
@@ -1110,6 +1140,24 @@ describe("readHqAppForReview", () => {
 		);
 	});
 
+	it("leaves out a menu's icon whose file CommCare HQ does not serve, and says the first publish removes it", async () => {
+		const { answer } = await read((peer) => {
+			serveApp(peer, { source: withMenuIcon(source(), "menuicon") });
+			peer
+				.get(HOST)
+				.intercept({ path: PATHS.media("menuicon"), method: "GET" })
+				.reply(404, "")
+				.persist();
+		});
+		/* Web Apps showed it as an empty picture and Android not at all. */
+		if (answer.kind !== "review") throw new Error(JSON.stringify(answer));
+		expect(answer.review.mediaLeftOut).toBe(0);
+		expect(answer.review.firstPublish.ids).toContain("broken-pictures-removed");
+		expect(answer.review.firstPublish.ids).not.toContain(
+			"media-references-with-no-file-removed",
+		);
+	});
+
 	it("answers a review of an app that references files only once every file is judged", async () => {
 		const { answer, events, requests } = await read((peer) => {
 			serveApp(peer, { source: withMenuIcon(source(), "menuicon") });
@@ -1133,10 +1181,11 @@ describe("readHqAppForReview", () => {
 		]);
 	});
 
-	it("names a menu CommCare HQ could not summarize beside the reader's other findings, in one account", async () => {
+	/** The source with a second menu, the one the retained error answer summarizes. */
+	const withAddedMenu = (answer: RetainedHqAnswer) => {
 		const resource = retainedReadingRead("application-error-module");
 		const [, whole] = retainedBodyJson(resource).modules as Body[];
-		const twoMenus = changed(withDoctype(), (body) => {
+		return changed(answer, (body) => {
 			const [first] = body.modules as Body[];
 			const [form] = first.forms as Body[];
 			const attachments = body._attachments as Record<string, string>;
@@ -1152,21 +1201,46 @@ describe("readHqAppForReview", () => {
 				.join(xmlns);
 			return body;
 		});
+	};
+	/** CommCare HQ's answer that it could not summarize the first menu. */
+	const errorAtFirstMenu = () =>
+		changed(retainedReadingRead("application-error-module"), (body) => ({
+			...body,
+			id: APP,
+		}));
+
+	it("names a menu CommCare HQ could not summarize where the reading names no cause of its own", async () => {
 		const { answer } = await read((peer) =>
 			serveApp(peer, {
-				resource: changed(resource, (body) => ({ ...body, id: APP })),
-				source: twoMenus,
+				resource: errorAtFirstMenu(),
+				source: withAddedMenu(source()),
 			}),
 		);
-		/* The menu's finding and the form's own, side by side. */
-		expect(codes(answer)).toContain("menu-unreadable-in-hq");
-		expect(codes(answer).length).toBeGreaterThanOrEqual(2);
 		if (answer.kind !== "account") throw new Error(answer.kind);
 		expect(
-			answer.findings.find(
-				(finding) => finding.code === "menu-unreadable-in-hq",
-			)?.place,
-		).toMatchObject({ kind: "menu", menu: 0 });
+			answer.findings.map((finding) => [finding.code, finding.place]),
+		).toEqual([
+			["menu-unreadable-in-hq", expect.objectContaining({ menu: 0 })],
+		]);
+	});
+
+	it("names only the form's own finding where a form of the menu is one CommCare HQ will not build", async () => {
+		const { answer } = await read((peer) =>
+			serveApp(peer, {
+				resource: errorAtFirstMenu(),
+				source: withAddedMenu(withDoctype()),
+			}),
+		);
+		/* One cause, one finding: the form's refusal covers HQ's failure to summarize its menu. */
+		expect(codes(answer)).toEqual([
+			"questions/dtd-declared-entity-references-predefined-ones-such-as-amp-are",
+		]);
+		if (answer.kind !== "account") throw new Error(answer.kind);
+		expect(answer.findings[0]?.place).toMatchObject({
+			kind: "form",
+			menu: 0,
+			form: 1,
+		});
 	});
 
 	it("lists two thousand of 2,500 findings, says how many more, and counts every one", async () => {

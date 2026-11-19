@@ -29,6 +29,7 @@ import type {
 	OrganizationLevel,
 	Uuid,
 } from "@/lib/domain";
+import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { DeviceCaseDatabase } from "./store";
@@ -196,6 +197,9 @@ export interface CaseOperationProgram {
 	 * caller's boundary). */
 	readonly caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	readonly formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
+	/** What CommCare holds each answer as (`TermCompileContext.formFieldHeld`):
+	 * the truth of an answer read where a condition belongs. */
+	readonly formFieldHeld?: ReadonlyMap<Uuid, ScalarHeld>;
 	/** Organization hierarchy used only by owner-location-at-level terms. */
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/** The places of the worker's `locations` fixture, by id, among which an

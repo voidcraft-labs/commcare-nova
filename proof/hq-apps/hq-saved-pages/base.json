@@ -1,0 +1,21 @@
+{
+	"id": "hq-saved-pages",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/12-properties-user-reg-server",
+		"application-and-settings/14-properties-restore-tolerance",
+		"application-and-settings/16-properties-loose-media",
+		"application-and-settings/3-properties-purge-freq",
+		"application-and-settings/6-properties-log-prop-weekly-within-its-choices",
+		"application-and-settings/7-properties-log-prop-daily-within-its-choices",
+		"menus-and-case-lists/tile-cell-keys-on-a-list-that-is-not-a-tile"
+	]
+}

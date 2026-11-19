@@ -27,6 +27,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
+	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
 	type FirstPublishView,
 } from "@/lib/publish/firstPublishChangeIds";
@@ -36,6 +37,7 @@ import {
 	type MediaPathAssignment,
 } from "../adoption";
 import { reviewMediaId } from "./mediaIds";
+import type { MediaLeftOut } from "./projectData/media";
 
 // ── The generated difference ────────────────────────────────────────────
 
@@ -199,8 +201,8 @@ export interface FirstPublishFacts {
 	readonly generated: GeneratedDifference;
 	/** `assignMediaPaths` over the held files, keyed by content. */
 	readonly media: MediaPathAssignment;
-	/** Media references that point at no file and are left out. */
-	readonly mediaLeftOut: number;
+	/** Media references that point at no file and are left out, by what a worker met before. */
+	readonly mediaLeftOut: MediaLeftOut;
 	readonly choice: {
 		readonly runsOnlyOn: Platform | null;
 		readonly split: boolean;
@@ -212,12 +214,20 @@ export interface FirstPublishChange {
 	readonly touchesWorkers: boolean;
 	/**
 	 * `declaration`: the predicate reads `choice.runsOnlyOn`, which a person can
-	 * change in the builder afterwards, so the id is never stored and is worked
-	 * out again from the stored Web App setting. `reading`: every other entry.
-	 * Its id is stored at the birth.
+	 * change in the builder afterwards, so the id is worked out again from what
+	 * a list stores: a Web Apps line from the stored Web App setting, and an id
+	 * a worker meets on Android alone from its `recorded` part, which the list
+	 * stores wherever the reading gives it. `reading`: every other entry. Its
+	 * id is stored at the birth.
 	 */
 	readonly scope: "reading" | "declaration";
 	applies(facts: FirstPublishFacts): boolean;
+	/**
+	 * For a `declaration` entry a worker meets on Android alone
+	 * (`FIRST_PUBLISH_ANDROID_ONLY`): whether the reading gives it, under any
+	 * declaration. It applies where that holds and the app runs on Android.
+	 */
+	readonly recorded?: (facts: ReadFacts) => boolean;
 	/**
 	 * JSON Pointers over CommCare HQ's stored app, `*` for a position or an
 	 * app's own key, under which the stored source may differ because of this
@@ -299,10 +309,37 @@ const rewriteReported =
 	(facts: FirstPublishFacts): boolean =>
 		facts.facts.rewrites.some((rewrite) => rewrite.id === id);
 
+const recordedIn =
+	(id: FirstPublishChangeId) =>
+	(facts: ReadFacts): boolean =>
+		facts.sameStateRewrites.some((record) => record.register === id);
+
 const sameStateRecorded =
 	(id: FirstPublishChangeId) =>
 	(facts: FirstPublishFacts): boolean =>
-		facts.facts.sameStateRewrites.some((record) => record.register === id);
+		recordedIn(id)(facts.facts);
+
+/**
+ * The entry of a change a worker meets on Android alone
+ * (`FIRST_PUBLISH_ANDROID_ONLY`) that a reading records under `id`: the
+ * reading gives it wherever it records a rewrite under the id, under any
+ * declaration (`recorded`), and it applies where it is given and the app runs
+ * on Android (`firstPublishViewFromStored` drops it under Web Apps alone by
+ * the same rule).
+ */
+function androidOnlyRecorded(
+	id: FirstPublishChangeId,
+	entry: Pick<FirstPublishChange, "touchesWorkers" | "paths">,
+): FirstPublishChange {
+	const recorded = recordedIn(id);
+	return {
+		...entry,
+		scope: "declaration",
+		applies: (facts) =>
+			facts.choice.runsOnlyOn !== "web-apps" && recorded(facts.facts),
+		recorded,
+	};
+}
 
 /** The path of each `logo_refs` entry that holds one. */
 function logoPaths(source: HqAppSource): Set<string> {
@@ -613,7 +650,18 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"media-references-with-no-file-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => facts.mediaLeftOut > 0,
+		applies: (facts) => facts.mediaLeftOut.undrawn > 0,
+		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
+	},
+	/**
+	 * An icon whose map entry names no file CommCare HQ serves, left out of the
+	 * document (`projectData/media.ts::noFileOutcome`): Web Apps showed it as a
+	 * broken picture and shows none after the publish; Android drew nothing.
+	 */
+	"broken-pictures-removed": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: (facts) => facts.mediaLeftOut.brokenPictures > 0,
 		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
 	},
 	/**
@@ -703,6 +751,39 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		applies: sameStateRecorded("form-text-characters-written-as-outputs"),
 		paths: ["/_attachments/*"],
 	},
+	/**
+	 * A Hidden Value whose source holds both a starting value and a
+	 * calculation, where no runtime can read the starting value before the
+	 * calculation replaces it: the reading holds the calculation alone, so the
+	 * form's load-time setvalue goes, and with it the form builder's case load
+	 * of it that HQ's app summary reads. Recorded by
+	 * `reader/xform/afterBinding.ts`.
+	 */
+	"hidden-value-defaults-dropped": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("hidden-value-defaults-dropped"),
+		paths: ["/_attachments/*", "/modules/*/forms/*/case_references_data/load"],
+	},
+	/**
+	 * A case list's `invisible` column whose sort element has display text, under
+	 * a header blank in every language: CommCare HQ's build gives the column a
+	 * header (`detail_screen.py::Invisible.header`) whose app string it writes as
+	 * a no-break space (`commcare_translations.py::dumps`), so Android's Sort by
+	 * lists an entry that shows blank (`EntitySelectActivity.getSortOptionsList`
+	 * lists every header that is not empty). Nova holds no name for the rule and
+	 * writes the element's display blank (`hqJson/caseList.ts::sortDisplay`), so
+	 * the entry leaves Sort by. Recorded by `caseList/order.ts::readSortElements`.
+	 * Web Apps shows no Sort by entry for an invisible column, so a worker meets
+	 * the change only where the app runs on Android.
+	 */
+	"sort-by-entry-with-a-blank-name-dropped": androidOnlyRecorded(
+		"sort-by-entry-with-a-blank-name-dropped",
+		{
+			touchesWorkers: true,
+			paths: ["/modules/*/case_details/short/sort_elements/*/display"],
+		},
+	),
 };
 
 /**
@@ -736,7 +817,7 @@ export function firstPublishFactsOf(input: {
 	readonly attachmentTarget: AttachmentUrlTarget;
 	/** The files the media path assignment is made over. */
 	readonly mediaFiles: readonly AdoptedMediaFile[];
-	readonly mediaLeftOut: number;
+	readonly mediaLeftOut: MediaLeftOut;
 	readonly choice: {
 		readonly runsOnlyOn: Platform | null;
 		readonly split: boolean;
@@ -761,6 +842,37 @@ export function firstPublishFactsOf(input: {
 		),
 		mediaLeftOut: input.mediaLeftOut,
 		choice: input.choice,
+	};
+}
+
+/** Whether a stored list keeps `id`: every id but the two Web Apps lines, which it works out again from
+ *  the stored Web App setting alone. */
+export function storedInAList(id: FirstPublishChangeId): boolean {
+	const entry = FIRST_PUBLISH_CHANGES[id];
+	return entry.scope === "reading" || entry.recorded !== undefined;
+}
+
+/**
+ * The list a baseline stores of a reading's list under the chosen
+ * declaration: its ids a list keeps (`storedInAList`), with each id a worker
+ * meets on Android alone taken from the reading itself (`recorded`), whatever
+ * the chosen declaration, so `firstPublishViewFromStored` can show it again
+ * once the app runs on Android. In registry order.
+ */
+export function firstPublishListToStore(
+	chosen: FirstPublishView,
+	facts: ReadFacts,
+): FirstPublishView {
+	const given = new Set(chosen.ids);
+	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => {
+		const recorded = FIRST_PUBLISH_CHANGES[id].recorded;
+		if (recorded !== undefined) return recorded(facts);
+		return given.has(id) && storedInAList(id);
+	});
+	return {
+		ids,
+		touchesWorkers: ids.some((id) => FIRST_PUBLISH_TOUCHES_WORKERS[id]),
+		of: chosen.of,
 	};
 }
 

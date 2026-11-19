@@ -1,0 +1,82 @@
+[
+	{
+		"id": "quiz-score-entered",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/quiz_score",
+					"value": "80"
+				}
+			],
+			"expressions": ["/data/quiz_score"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "80"
+			}
+		]
+	},
+	{
+		"id": "learn-module-fixed",
+		"entry": "questions/connect-learn-module",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": [
+				"/data/intro_module/module/@id",
+				"/data/intro_module/module/time_estimate"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "intro_module"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "5"
+			}
+		]
+	},
+	{
+		"id": "assessment-scored-from-the-quiz",
+		"entry": "questions/connect-assessment",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/quiz_score",
+					"value": "80"
+				}
+			],
+			"expressions": [
+				"/data/intro_check/assessment/@id",
+				"/data/intro_check/assessment/user_score"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "intro_check"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "80"
+			}
+		]
+	}
+]

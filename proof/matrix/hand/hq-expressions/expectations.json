@@ -1,0 +1,205 @@
+[
+	{
+		"id": "code-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/code",
+					"value": "home"
+				}
+			],
+			"expressions": ["/data/code"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "home"
+			}
+		]
+	},
+	{
+		"id": "kind-read-from-the-table",
+		"entry": "expressions-and-data/item-list-tag-read-in-any-other-expression",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/code",
+					"value": "home"
+				}
+			],
+			"expressions": ["/data/kind_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Home visit"
+			}
+		]
+	},
+	{
+		"id": "kind-name-held",
+		"entry": "questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/code",
+					"value": "clinic"
+				}
+			],
+			"expressions": ["/data/kind_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Clinic visit"
+			}
+		]
+	},
+	{
+		"id": "kind-name-calculated",
+		"entry": "questions/bind-calculate-on-a-hidden-value",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/code",
+					"value": "home"
+				}
+			],
+			"expressions": ["/data/kind_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Home visit"
+			}
+		]
+	},
+	{
+		"id": "visit-kind-read-in-its-row",
+		"entry": "questions/repeat-group-user-controlled",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"repeats": {
+				"/data/visits": 2
+			},
+			"answers": [
+				{
+					"path": "/data/visits/visit_code",
+					"value": "clinic"
+				}
+			],
+			"expressions": ["count(/data/visits)", "/data/visits[2]/visit_kind"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Clinic visit"
+			}
+		]
+	},
+	{
+		"id": "code-again-starts-from-code",
+		"entry": "questions/a-default-value-that-reads-form-nodes",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/code_again"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": ""
+			}
+		]
+	},
+	{
+		"id": "instant-comparison:before",
+		"entry": "questions/date-and-time-xsd-datetime",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/started_at",
+					"value": "2026-03-02T12:00:00.000Z"
+				},
+				{
+					"path": "/data/finished_at",
+					"value": "2026-03-02T13:00:00.000Z"
+				}
+			],
+			"expressions": ["/data/order"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "not after"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "instant-comparison:after",
+		"entry": "questions/date-and-time-xsd-datetime",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/started_at",
+					"value": "2026-03-02T12:00:00.000Z"
+				},
+				{
+					"path": "/data/finished_at",
+					"value": "2026-03-02T13:00:00.000Z"
+				}
+			],
+			"expressions": ["/data/order"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "after"
+			}
+		],
+		"exports": ["B", "local"]
+	}
+]

@@ -1,7 +1,11 @@
 import {
+	type CaseListConfig,
 	type CaseProperty,
+	type CaseType,
+	type Column,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
+	columnPropertyCaseType,
 	type LocalizedValue,
 	type TranslationUnitId,
 } from "@/lib/domain";
@@ -37,4 +41,32 @@ export function projectLocalizedCaseProperties(
 			}),
 		};
 	});
+}
+
+/**
+ * The catalog entry each property column read through a relation shows, by
+ * column: the property of the type its walk reaches, its option labels in
+ * the selected language. A column whose walk reaches no type, or whose type
+ * holds no such property, maps to undefined.
+ */
+export function relatedColumnProperties(
+	config: CaseListConfig | undefined,
+	listCaseType: string | undefined,
+	caseTypes: readonly CaseType[],
+	localizedValues: ReadonlyMap<TranslationUnitId, LocalizedValue>,
+): ReadonlyMap<Column["uuid"], CaseProperty | undefined> {
+	const out = new Map<Column["uuid"], CaseProperty | undefined>();
+	for (const column of config?.columns ?? []) {
+		if (column.kind === "calculated" || column.via === undefined) continue;
+		const reached = columnPropertyCaseType(column, listCaseType, caseTypes);
+		const properties =
+			caseTypes.find((type) => type.name === reached)?.properties ?? [];
+		out.set(
+			column.uuid,
+			projectLocalizedCaseProperties(reached, properties, localizedValues).find(
+				(property) => property.name === column.field,
+			),
+		);
+	}
+	return out;
 }

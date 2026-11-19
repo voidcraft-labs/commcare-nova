@@ -63,6 +63,9 @@ CHECKS = frozenset(
         "proof3",
         "proof4",
         "proof5",
+        "proof6",
+        "parity",
+        "source",
         "changes",
     }
 )

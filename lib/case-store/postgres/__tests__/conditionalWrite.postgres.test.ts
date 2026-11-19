@@ -14,6 +14,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { CaseType } from "@/lib/domain";
 import {
 	arith,
+	concat,
 	dateCoerce,
 	datetimeCoerce,
 	eq,
@@ -22,6 +23,7 @@ import {
 	ifExpr,
 	literal,
 	matchAll,
+	neq,
 	tableLookup,
 	term,
 } from "@/lib/domain/expression";
@@ -797,5 +799,355 @@ describe("numeric answer branches", () => {
 			if (!event) throw new Error("Submitted inspection event is missing.");
 			events.push(event);
 		}
+	});
+});
+
+describe("a yes or no answer as a case change's condition", () => {
+	// Core holds a Hidden Value calculated by a condition as `BooleanData`
+	// and reads it back as its truth (`Recalculate.wrapData`,
+	// `XPathPathExpr.unpackValue`), so the referral opens exactly when the
+	// calculation holds. Preview's form submits the answer's text, `false`
+	// included, which only the answer's held class keeps from reading true.
+	it.each([
+		["a note given", "needs work", 1],
+		["no note given", "", 0],
+	])("opens the referral by its truth (%s)", async (_, note, opened) => {
+		const noteField = testUuid("yes-no-note");
+		const flag = testUuid("yes-no-flag");
+		const doc = buildDoc({
+			appId: APP_ID,
+			caseTypes: [INSPECTION],
+			modules: [
+				{
+					name: "Inspection",
+					forms: [
+						{
+							uuid: FORM_UUID,
+							name: "Inspect",
+							type: "survey",
+							fields: [
+								f({
+									uuid: noteField,
+									id: "note",
+									kind: "text",
+									label: "Note",
+								}),
+								f({
+									uuid: flag,
+									id: "create_referral",
+									kind: "hidden",
+									calculate: neq(formField(noteField), literal("")),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.forms[FORM_UUID].caseOperations = [
+			{
+				uuid: OP_UUID,
+				id: "create_inspection",
+				action: "create",
+				caseType: INSPECTION.name,
+				target: { kind: "new" },
+				name: term(literal("Referral")),
+				condition: term(formField(flag)),
+			},
+		];
+		const engine = engineFor(doc, FORM_UUID);
+		engine.setValue("/data/note", note);
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [],
+			entryKey: "22222222-2222-4222-8222-222222222222",
+		});
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			identity: {
+				actorUserId: ACTOR,
+				ownerId: ACTOR,
+				session: {
+					context: { userid: ACTOR, username: "worker" },
+					user: {},
+					userPropertySlugs: {},
+				},
+				usercase: {},
+			},
+		});
+		if (!built.program) throw new Error("Expected a submission program");
+		expect(built.program.formFieldHeld?.get(flag)).toBe("boolean");
+		expect(built.program.scopes[0]?.iterations[0]?.formFields.get(flag)).toBe(
+			note === "" ? "false" : "true",
+		);
+		const store = makeStore();
+		await submit(store, built.program);
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: INSPECTION.name,
+		});
+		expect(rows).toHaveLength(opened);
+	});
+});
+
+describe("a number or a date saved to a text property", () => {
+	// A device computes a number as a Java double and submits the text
+	// `Recalculate.wrapData` holds for it: `IntegerData` for a whole number in
+	// `int`'s range, `LongData` past it, else `DecimalData`'s
+	// `Double.toString`; a date as `yyyy-MM-dd`
+	// (`XFormAnswerDataSerializer.serializeAnswerData`). The case store keeps
+	// that same text.
+	it.each([
+		["a whole number", arith("+", term(literal(3)), term(literal(4))), "7"],
+		["a whole double", arith("+", term(literal(1.5)), term(literal(1.5))), "3"],
+		[
+			"a double within a billionth of a whole number",
+			arith("*", term(literal(1.0000000001)), term(literal(1))),
+			"1",
+		],
+		[
+			"a whole number past int's range",
+			arith("*", term(literal(3000000000)), term(literal(1))),
+			"3000000000",
+		],
+		["a decimal", arith("*", term(literal(2.5)), term(literal(1))), "2.5"],
+		[
+			"a third",
+			arith("div", term(literal(1)), term(literal(3))),
+			"0.3333333333333333",
+		],
+		["a date", dateCoerce(term(literal("2024-05-01"))), "2024-05-01"],
+	])("keeps %s as the text a device submits", async (_, value, text) => {
+		const original = program("no", "1", "1");
+		const create = original.operations[0];
+		if (!create) throw new Error("Inspection program has no create operation.");
+		const store = makeStore();
+		await submit(store, {
+			...original,
+			operations: [
+				{
+					...create,
+					operation: {
+						...create.operation,
+						writes: [{ property: "note", value }],
+					},
+				},
+			],
+		});
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: INSPECTION.name,
+		});
+		expect(rows.map((row) => row.properties.note)).toEqual([text]);
+	});
+
+	// A Hidden Value whose results are a whole number in one branch and a date
+	// in another, as CommCare HQ's agriculture starter app writes its expected
+	// harvest date: each answer is saved as the text the device submits.
+	it.each([
+		["year", "2024"],
+		["day", "2024-05-01"],
+	])("saves a Hidden Value's %s result as its text", async (kind, text) => {
+		const kindField = testUuid("text-join-kind");
+		const yearField = testUuid("text-join-year");
+		const estimate = testUuid("text-join-estimate");
+		const doc = buildDoc({
+			appId: APP_ID,
+			caseTypes: [INSPECTION],
+			modules: [
+				{
+					name: "Inspection",
+					forms: [
+						{
+							uuid: FORM_UUID,
+							name: "Inspect",
+							type: "survey",
+							fields: [
+								f({
+									uuid: kindField,
+									id: "estimate_kind",
+									kind: "text",
+									label: "Kind",
+								}),
+								f({
+									uuid: yearField,
+									id: "year",
+									kind: "int",
+									label: "Year",
+								}),
+								f({
+									uuid: estimate,
+									id: "estimate",
+									kind: "hidden",
+									calculate: ifExpr(
+										eq(formField(kindField), literal("year")),
+										term(formField(yearField)),
+										ifExpr(
+											eq(formField(kindField), literal("day")),
+											dateCoerce(
+												concat(
+													term(formField(yearField)),
+													term(literal("-05-01")),
+												),
+											),
+											term(literal("")),
+										),
+									),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.forms[FORM_UUID].caseOperations = [
+			{
+				uuid: OP_UUID,
+				id: "create_inspection",
+				action: "create",
+				caseType: INSPECTION.name,
+				target: { kind: "new" },
+				name: term(literal("Inspection")),
+				writes: [{ property: "note", value: term(formField(estimate)) }],
+			},
+		];
+		const engine = engineFor(doc, FORM_UUID);
+		engine.setValue("/data/year", "2024");
+		engine.setValue("/data/estimate_kind", kind);
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [],
+			entryKey: "33333333-3333-4333-8333-333333333333",
+		});
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			identity: {
+				actorUserId: ACTOR,
+				ownerId: ACTOR,
+				session: {
+					context: { userid: ACTOR, username: "worker" },
+					user: {},
+					userPropertySlugs: {},
+				},
+				usercase: {},
+			},
+		});
+		if (!built.program) throw new Error("Expected a submission program");
+		const store = makeStore();
+		await submit(store, built.program);
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: INSPECTION.name,
+		});
+		expect(rows.map((row) => row.properties.note)).toEqual([text]);
+	});
+
+	// The same Hidden Value with a number branch the form works out: the
+	// form holds the number as `Recalculate.wrapData` does and submits that
+	// holding's text, which is not XPath's string of the double past `int`'s
+	// range or for a fraction within a billionth of a whole number.
+	it.each([
+		["3000000000", "3000000000"],
+		// Within a billionth of a whole number, Core holds the whole number.
+		["0.0000000001", "0"],
+		["0.000000002", "2.0E-9"],
+		["2.0000000001", "2"],
+		["-0.5", "-0.5"],
+		["1e21", "1.0E21"],
+		["0.001", "0.001"],
+	])("keeps the number %s as %s", async (amount, text) => {
+		const kindField = testUuid("text-join-number-kind");
+		const amountField = testUuid("text-join-number-amount");
+		const estimate = testUuid("text-join-number-estimate");
+		const doc = buildDoc({
+			appId: APP_ID,
+			caseTypes: [INSPECTION],
+			modules: [
+				{
+					name: "Inspection",
+					forms: [
+						{
+							uuid: FORM_UUID,
+							name: "Inspect",
+							type: "survey",
+							fields: [
+								f({
+									uuid: kindField,
+									id: "estimate_kind",
+									kind: "text",
+									label: "Kind",
+								}),
+								f({
+									uuid: amountField,
+									id: "amount",
+									kind: "decimal",
+									label: "Amount",
+								}),
+								f({
+									uuid: estimate,
+									id: "estimate",
+									kind: "hidden",
+									calculate: ifExpr(
+										eq(formField(kindField), literal("day")),
+										dateCoerce(term(literal("2024-05-01"))),
+										arith("*", term(formField(amountField)), term(literal(1))),
+									),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.forms[FORM_UUID].caseOperations = [
+			{
+				uuid: OP_UUID,
+				id: "create_inspection",
+				action: "create",
+				caseType: INSPECTION.name,
+				target: { kind: "new" },
+				name: term(literal("Inspection")),
+				writes: [{ property: "note", value: term(formField(estimate)) }],
+			},
+		];
+		const engine = engineFor(doc, FORM_UUID);
+		engine.setValue("/data/estimate_kind", "amount");
+		engine.setValue("/data/amount", amount);
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [],
+			entryKey: "44444444-4444-4444-8444-444444444444",
+		});
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			identity: {
+				actorUserId: ACTOR,
+				ownerId: ACTOR,
+				session: {
+					context: { userid: ACTOR, username: "worker" },
+					user: {},
+					userPropertySlugs: {},
+				},
+				usercase: {},
+			},
+		});
+		if (!built.program) throw new Error("Expected a submission program");
+		const store = makeStore();
+		await submit(store, built.program);
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: INSPECTION.name,
+		});
+		expect(rows.map((row) => row.properties.note)).toEqual([text]);
 	});
 });

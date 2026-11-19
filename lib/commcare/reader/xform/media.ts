@@ -25,7 +25,7 @@ import { shownText } from "../hqText";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
-import { formText, type SlotText, valueIsBlank } from "./prose";
+import { claimFormValue, formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
 
@@ -105,6 +105,9 @@ function readSlotMedia(
 		}
 		if (values.size === 0) continue;
 		const key = `itext-form:core/${kind}`;
+		if (first)
+			for (const value of values.values())
+				claimFormValue(ctx.accounting, value, place);
 		if (slot.media === "refused") {
 			if (first)
 				for (const value of values.values())
@@ -165,7 +168,7 @@ function readSlotMedia(
 				ctx.facts.mediaReferences.push({
 					path: one,
 					assetId: asset.assetId,
-					mediaKind: asset.mediaKind,
+					mediaKind: kind,
 					place,
 					slot: slotString(slot.media),
 				});
@@ -266,7 +269,7 @@ export function readMediaMap(
 			ctx.facts.mediaReferences.push({
 				path,
 				assetId: asset.assetId,
-				mediaKind: asset.mediaKind,
+				mediaKind: at.mediaKind,
 				place: at.place,
 				slot: at.slot,
 			});

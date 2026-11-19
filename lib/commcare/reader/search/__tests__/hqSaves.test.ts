@@ -15,7 +15,10 @@
  *   the case's name, is a finding at the search, never a document the schema refuses;
  * - Nova's zero-input row beside a list filter is the filter's clauses left unrestated;
  * - a search on a menu that shows its forms above is a finding whatever its three booleans hold;
- * - a row held up to a rewrite reports the rewrite in the reading;
+ * - a row held up to a rewrite reports the rewrite in the reading; a row that splices the device's
+ *   day between its own quote marks is Nova's row, with no rewrite; and a field a row matches with
+ *   neither Nova's quote checks nor its check of the answer's quotes is the field Nova's first
+ *   publish sends with both, under the one rewrite `search-value-guards`;
  * - a text a map holds in only some app languages reads as the build shows it in each, the search
  *   title by its own rule (a language with none of its own shows the first language's);
  * - a check whose message is blank in every language is a finding at the search.
@@ -338,6 +341,75 @@ describe("a row read up to a rewrite", () => {
 		expect(reading.ctx.facts.rewrites.map((one) => one.id)).toContain(
 			"search-today-device-day",
 		);
+	});
+});
+
+describe("a row an author wrote around the device's values", () => {
+	it("holds the device's day between other quote marks than Nova's, with no rewrite", async () => {
+		const filter = lte(prop("patient", "dob"), today());
+		const reading = await readLists(
+			patients(COLUMNS, { searchInputs: [NOTES], list: { filter } }),
+			{
+				edit: (app) => {
+					const rows = searchConfig(app).default_properties as Record<
+						string,
+						unknown
+					>[];
+					expect(rows).toHaveLength(1);
+					(rows[0] as Record<string, unknown>).defaultValue =
+						`concat("dob <= '", today(), "'")`;
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).filter).toEqual(filter);
+		expect(reading.ctx.facts.rewrites).toEqual([]);
+	});
+
+	it("holds a field matched with neither Nova's quote checks nor its check, under the guards' rewrite", async () => {
+		const answer =
+			"instance('search-input:results')/input/field[@name = 'phone']";
+		const phone: SearchInputDef = {
+			uuid: uuid(10),
+			name: "phone",
+			label: "Phone",
+			kind: "advanced",
+			type: "text",
+			predicate: whenInput(
+				input(uuid(10)),
+				eq(prop("patient", "phone"), input(uuid(10))),
+			),
+		};
+		const reading = await readLists(
+			patients(COLUMNS, { searchInputs: [NOTES, phone], search: {} }),
+			{
+				edit: (app) => {
+					const rows = searchConfig(app).default_properties as Record<
+						string,
+						unknown
+					>[];
+					expect(rows).toHaveLength(1);
+					(rows[0] as Record<string, unknown>).defaultValue =
+						`if(count(${answer}), concat("phone = '", ${answer}, "'"), 'match-all()')`;
+					// Nova's export checks the answer's quotes on the field; the author's field has no check.
+					expect(prompt(app, 1).validations).toHaveLength(1);
+					prompt(app, 1).validations = [];
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual([]);
+		// The reading mints the field's uuid, so its condition is compared by its shape.
+		const read = listOf(reading).searchInputs.find(
+			(one) => one.name === "phone",
+		);
+		expect(read).toMatchObject({
+			kind: "advanced",
+			predicate: { kind: "when-input-present" },
+		});
+		expect(read).not.toHaveProperty("validation");
+		expect(reading.ctx.facts.rewrites.map((one) => one.id)).toEqual([
+			"search-value-guards",
+		]);
 	});
 });
 

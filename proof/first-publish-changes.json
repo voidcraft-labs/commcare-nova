@@ -784,6 +784,71 @@
 		]
 	},
 	{
+		"change": "broken-pictures-removed",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/logo_refs/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*"
+			}
+		]
+	},
+	{
 		"change": "unused-media-entries-removed",
 		"rows": [
 			{
@@ -985,6 +1050,31 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "hidden-value-defaults-dropped",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/case_references_data/load"
+			}
+		]
+	},
+	{
+		"change": "sort-by-entry-with-a-blank-name-dropped",
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/sort_elements/*/display"
 			}
 		]
 	}

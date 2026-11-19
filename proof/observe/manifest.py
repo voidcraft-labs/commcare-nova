@@ -14,8 +14,9 @@ The record holds:
 
 - ``uploads``: the app JSON each of Nova's publishes sends (the ``app_file``
   field of the captured request), by ``<configuration>/create``,
-  ``<configuration>/republish`` and ``edit/<configuration>/update``, each a
-  blob;
+  ``<configuration>/republish`` and ``edit/<configuration>/update``, and on
+  a document made in CommCare HQ, which has no first publish, the app HQ
+  made (``authored/app.json``) by ``authored``, each a blob;
 - ``archives``: the entries of each local archive the manifest reads
   (``read_entry``: the suites, the profile, each language's app strings and
   each form), by archive and entry name, each a blob;
@@ -38,8 +39,11 @@ The record holds:
   of the form's hashtags stands for), by its text (``expression_tree``,
   ``structure_tables``); ``conditions``, that grammar's structure of each
   ``vellum:requiredCondition``, its hashtags read as Vellum's parser reads
-  them (``hashtag_tree``); and ``media``, what each media file a local
-  archive holds is, by its path in the archive (``media_facts``);
+  them (``hashtag_tree``); ``media``, what each media file a local
+  archive holds is, by its path in the archive (``media_facts``); and
+  ``authoredMedia``, on a document made in CommCare HQ, what each file HQ
+  holds for the app it made is (``authored/media.json`` and the files it
+  names), by the path its multimedia map gives it (``media_facts``);
 - ``softAssertions``: every note HQ made while it read them, where it made
   any.
 
@@ -48,7 +52,8 @@ attribute value is read through Core's parser (its error, where it is no
 expression, is recorded by the exception's class alone: Core's messages
 hold JVM identity hashes), and the judge reads the ones the surface names.
 What this reads beyond the local part's own archives is what ``inputs``
-declares: each captured publish request.
+declares: each captured publish request, and the app HQ made and the media
+files HQ holds for it where the document is one made in CommCare HQ.
 """
 
 from __future__ import annotations
@@ -78,6 +83,9 @@ PATH_OPERATORS = frozenset({"/", "//"})
 # The argument of HQ's within-distance that names its unit (query_functions.py::within_distance).
 DISTANCE_FUNCTION, DISTANCE_UNIT_ARGUMENT = "within-distance", 3
 RUNTIME_FILES = ("suite.xml", "media_suite.xml", "profile.ccpr")
+# The upload a document made in CommCare HQ's A is kept under: the app HQ's own pages and models made
+# (``authored/app.json``), which stands where a first publish stood.
+AUTHORED_UPLOAD = "authored"
 XFORMS = "http://www.w3.org/2002/xforms"
 XHTML = "http://www.w3.org/1999/xhtml"
 JAVAROSA = "http://openrosa.org/javarosa"
@@ -94,10 +102,12 @@ def uploads_of(document):
     """Each captured publish request of the document: ``[(key, Captured, its sidecar's path)]``, in key order.
 
     A first publish in the two-import layout is two of them, ``<configuration>/create`` (the shell) and
-    ``<configuration>/content``, so the shell is read as every app Nova sends is."""
+    ``<configuration>/content``, so the shell is read as every app Nova sends is. A document made in CommCare HQ
+    has no first publish: what stands in its place is the app HQ made (``authored_app``), and its uploads are its
+    republishes and its edit's updates."""
     found = []
     for name, export in sorted(document.exports.items()):
-        steps = [("create", export.create)]
+        steps = [] if document.authored is not None else [("create", export.create)]
         if export.two_imports:
             steps.append(("content", export.content))
         if export.republish is not None:
@@ -117,10 +127,36 @@ def _file(document, path):
     }
 
 
+def authored_app(document):
+    """The app HQ's own pages and models made, on a document made in CommCare HQ (``authored/app.json``,
+    ``Document.authored``): it stands where a first publish stood, and the observation keeps it as the upload
+    ``AUTHORED_UPLOAD``. None on any other document."""
+    authored = document.authored
+    return None if authored is None else authored.app
+
+
+def authored_media(document):
+    """The media files HQ holds for the app it made, on a document made in CommCare HQ: ``[(path, file)]``, each
+    path its multimedia map names with the retained file of its row (``authored/media.json``), in the rows'
+    order; none on any other document, or where the base maps no media."""
+    authored = document.authored
+    if authored is None:
+        return []
+    return [(row["path"], authored.media_file(row)) for row in authored.media_rows()]
+
+
 def inputs(document, state):
     """What this observation reads beyond the local part's archives: each captured publish request (its body
-    and the sidecar naming its content type)."""
+    and the sidecar naming its content type), and on a document made in CommCare HQ the app HQ made
+    (``authored``) and each media file HQ holds for it (``authored.media``, and each file by its path)."""
     found = {}
+    authored = authored_app(document)
+    if authored is not None:
+        found[AUTHORED_UPLOAD] = _file(document, authored)
+        if document.authored.media is not None:
+            found[f"{AUTHORED_UPLOAD}.media"] = _file(document, document.authored.media)
+        for path, file in authored_media(document):
+            found[f"{AUTHORED_UPLOAD}.media:{path}"] = _file(document, file)
     for key, captured, sidecar in uploads_of(document):
         found[f"{key}.body"] = _file(document, captured.body_path)
         found[f"{key}.json"] = _file(document, sidecar)
@@ -716,8 +752,9 @@ def _iso_tracks(data):
 
 # The app JSON's expression slots, by schema class: each holds XPath an HQ build or runtime parses, which the
 # judge reads through Core's parser like a form's or suite's (Form.form_filter, Module.module_filter,
-# Detail.filter, a calculated DetailColumn.field, FormLink.xpath, FormDatum.xpath and a default search
-# property's defaultValue).
+# Detail.filter, a calculated DetailColumn.field, FormLink.xpath, FormDatum.xpath, a default search
+# property's defaultValue, a detail tab's nodeset_filter and an Assertion's test, a Search field's required and
+# validation conditions among them).
 APP_EXPRESSION_SLOTS = (
     ("form_filter", None),
     ("module_filter", None),
@@ -725,6 +762,8 @@ APP_EXPRESSION_SLOTS = (
     ("field", "useXpathExpression"),
     ("xpath", None),
     ("defaultValue", None),
+    ("nodeset_filter", None),
+    ("test", None),
 )
 
 
@@ -758,10 +797,11 @@ def _runner_reading(core_runner, op, texts, **args):
     return {text: _settled(result) for text, result in zip(texts, results, strict=True)}
 
 
-def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=()):
+def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_media=()):
     """What HQ and Core make of the given artifacts: ``forms`` (XForm bytes), ``runtimes`` (suite and profile
-    bytes), ``apps`` (app JSON values, whose forms are among ``forms``) and ``media`` (``{path: bytes}``, each
-    local archive's media files). HQ is booted for its readers."""
+    bytes), ``apps`` (app JSON values, whose forms are among ``forms``), ``media`` (``{path: bytes}``, each
+    local archive's media files) and ``authored_media`` (``{path: bytes}``, the files HQ holds for the app it
+    made, by the path its multimedia map gives each). HQ is booted for its readers."""
     from proof.hq.boot import boot
 
     boot()
@@ -794,6 +834,9 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=()):
         "trees": trees,
         "conditions": conditions,
         "media": {name: media_facts(data, name.rsplit("/", 1)[-1]) for name, data in sorted(dict(media).items())},
+        "authoredMedia": {
+            path: media_facts(data, path.rsplit("/", 1)[-1]) for path, data in sorted(dict(authored_media).items())
+        },
     }
 
 
@@ -822,8 +865,13 @@ def observe_local(ctx) -> dict:
     from proof.hq.operations import upload_field
 
     uploads, apps, forms, runtimes = {}, [], [], []
-    for key, captured, _ in uploads_of(ctx.document):
-        body = upload_field(captured.upload(), "app_file")
+    sent = []
+    authored = authored_app(ctx.document)
+    if authored is not None:
+        # The app HQ made is read as an upload is, so its forms and expressions are among the readings.
+        sent.append((AUTHORED_UPLOAD, authored.read_bytes()))
+    sent += [(key, upload_field(captured.upload(), "app_file")) for key, captured, _ in uploads_of(ctx.document)]
+    for key, body in sent:
         uploads[key] = ctx.blobs.put(body)
         try:
             app = json.loads(body)
@@ -841,8 +889,9 @@ def observe_local(ctx) -> dict:
         archives[name] = {entry: ctx.blobs.put(content) for entry, content in entries.items()}
         forms += [content for entry, content in entries.items() if FORM_FILE.fullmatch(entry)]
         runtimes += [content for entry, content in entries.items() if entry in RUNTIME_FILES]
+    held = {path: file.read_bytes() for path, file in authored_media(ctx.document)}
     with soft_assertions() as notes:
-        table = readings(ctx.core_runner, forms=forms, runtimes=runtimes, apps=apps, media=media)
+        table = readings(ctx.core_runner, forms=forms, runtimes=runtimes, apps=apps, media=media, authored_media=held)
     record = {"uploads": uploads, "archives": archives, "readings": ctx.blobs.put_json(table)}
     if notes:
         record["softAssertions"] = [

@@ -10,9 +10,13 @@
  *
  * It would catch an `Application` key left unclaimed, a setting accounted
  * under the wrong value class, a custom profile property Nova derives read
- * as a finding (or another one read past), a logo entry with no `m_id`
+ * as a finding (or another one read past), a root key naming a read-only
+ * member refused under the read-only entry where its setting has an entry of
+ * its own (or under that entry where it has none), a logo entry with no `m_id`
  * admitted, a slot of another name the uploader wrote refused, one node of
- * `logo_refs` both handed off and claimed, and a display name raised as a
+ * `logo_refs` both handed off and claimed, a refusal of a profile setting or a
+ * logo slot recorded anywhere but where the key it names sits (the lane's
+ * parity joins the two there), and a display name raised as a
  * finding where the manifest keeps it (or kept where the manifest refuses
  * it), a first-language `app.display.name` other than `name` taken as the
  * source where a later language stores none, a source-language one HQ's build
@@ -83,9 +87,11 @@ describe("readApplication over CommCare HQ's own apps", () => {
 		expect(entriesAt(closed, "/profile/features/users")).toEqual([
 			`${A}/15-features-users`,
 		]);
-		expect(entriesAt(closed, "/translations/en/en")).toEqual([
+		/* A language's key is claimed under `translations`, recorded where that key's value sits. */
+		expect(entriesAt(closed, "/translations/en/en")).toEqual([]);
+		expect(entriesAt(closed, "/translations")).toContain(
 			`${A}/translations-lang-code-language-display-names-equal-to-the-label`,
-		]);
+		);
 		expect(ctx.draft.appSettings).toEqual({
 			showSavedForms: false,
 			showIncompleteForms: false,
@@ -169,11 +175,14 @@ describe("readApplication over CommCare HQ's own apps", () => {
 		).toEqual([
 			`${A}/profile-custom-properties-cc-index-case-search-results-equal-to`,
 		]);
+		/* The refusal names `schema:Application.profile`, whose value is the whole profile: it is
+		 * recorded there, beside the profile's own claim, and nothing is recorded at the property. */
 		expect(
 			entriesAt(closed, "/profile/custom_properties/cc-auto-purge"),
-		).toEqual([
+		).toEqual([]);
+		expect(entriesAt(closed, "/profile")).toContain(
 			`${A}/profile-custom-properties-any-other-entry-incl-formplayer-keys`,
-		]);
+		);
 		expect(
 			closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
 		).toMatchObject([
@@ -183,6 +192,65 @@ describe("readApplication over CommCare HQ's own apps", () => {
 				detail: { name: "cc-auto-purge" },
 			},
 		]);
+	});
+
+	it("records a profile setting refused under the profile's own key at the profile, and its bags there too", async () => {
+		const body = retainedSourceBody("shell/app-source-after-app-settings-save");
+		const profile = body.profile as {
+			features?: Record<string, string>;
+		};
+		const { closed } = await readShell({
+			...body,
+			profile: { ...profile, features: { ...profile.features, sense: "true" } },
+		});
+		const refusal = `${A}/profile-features-sense-true-or-profile-properties-cc-entry-mode`;
+		expect(entriesAt(closed, "/profile")).toContain(refusal);
+		expect(entriesAt(closed, "/profile/features/sense")).toEqual([]);
+		/* Every record naming the profile's key stands where its value sits. */
+		expect(
+			[...closed.claims.records()]
+				.filter((record) => record.key === "schema:Application.profile")
+				.map((record) => record.where),
+		).toEqual(expect.arrayContaining(["/profile"]));
+		expect(
+			[...closed.claims.records()].filter(
+				(record) =>
+					record.key === "schema:Application.profile" &&
+					record.where !== "/profile",
+			),
+		).toEqual([]);
+		expect(
+			closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
+		).toMatchObject([
+			{ code: refusal, place: { kind: "app" }, detail: { name: "sense" } },
+		]);
+	});
+
+	it("refuses a root key naming a read-only member under the entry its setting has, else under the read-only entry, by its name", async () => {
+		const body = retainedSourceBody("shell/app-source");
+		for (const [name, entry] of [
+			["profile_url", `${A}/37-hq-profile-url-on-an-application`],
+			[
+				"post_url",
+				`${A}/an-unknown-top-level-key-naming-an-application-read-only`,
+			],
+		] as const) {
+			const { closed } = await readShell({
+				...body,
+				[name]: "https://example.org/x",
+			});
+			expect(entriesAt(closed, `/${name}`)).toEqual([entry]);
+			expect(
+				closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
+			).toMatchObject([
+				{
+					code: entry,
+					standing: "fix-in-hq",
+					place: { kind: "app" },
+					detail: { name },
+				},
+			]);
+		}
 	});
 
 	it("refuses a build below Nova's floor at the app's settings, with the version HQ holds", async () => {
@@ -281,6 +349,46 @@ describe("readApplication's logos", () => {
 		]);
 	});
 
+	it("lists the Web Apps logo at the kind its slot plays, a picture, whatever file its path names", async () => {
+		const path = "jr://file/commcare/logo/data/hq_logo_web_apps.png";
+		const ctx = readContext(
+			readerInput(await sourceFromBody(webApps({ path, m_id: "m1" })), {
+				media: () => ({ kind: "asset", assetId: ASSET, mediaKind: "video" }),
+			}),
+		);
+		readApplication(ctx);
+		expect(ctx.facts.mediaReferences.map((one) => one.mediaKind)).toEqual([
+			"image",
+		]);
+	});
+
+	it("refuses a slot the uploader did not write at `logo_refs`, beside the Android logo kept there", async () => {
+		const { closed } = await readShell({
+			...retainedSourceBody("shell/app-source"),
+			logo_refs: {
+				hq_logo_android_home: {
+					path: "jr://file/commcare/logo/data/hq_logo_android_home.png",
+				},
+				hq_logo_android_login: {
+					path: "jr://file/commcare/logo/data/hq_logo_android_login.png",
+					m_id: "m1",
+				},
+			},
+		});
+		expect(entriesAt(closed, "/logo_refs").sort()).toEqual([
+			`${A}/logo-refs-hq-logo-android-home-login-demo`,
+			`${A}/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare`,
+		]);
+		expect(closed.findings).toMatchObject([
+			{
+				code: `${A}/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare`,
+				place: { kind: "app" },
+				detail: { name: "hq_logo_android_home" },
+			},
+		]);
+		expect(closed.defects).toEqual([]);
+	});
+
 	it("reads past a slot of another name the uploader wrote, beside an Android logo", async () => {
 		const { closed } = await readShell({
 			...retainedSourceBody("shell/app-source"),
@@ -353,7 +461,7 @@ describe("readApplication's language names", () => {
 			entry?.standing === "not-yet" ||
 			entry?.standing === "never" ||
 			entry?.standing === "fix-in-hq";
-		expect(entriesAt(closed, "/translations/en/en")).toEqual([entry?.id]);
+		expect(entriesAt(closed, "/translations")).toContain(entry?.id);
 		expect(closed.findings.some((finding) => finding.code === entry?.id)).toBe(
 			makesFinding,
 		);
@@ -386,6 +494,91 @@ describe("readApplication's language names", () => {
 			translations: { fra: {} },
 			wireCodes: { eng: "en", fra: "fra" },
 		});
+	});
+});
+
+describe("readApplication's runtime UI text in a language that holds none of its own", () => {
+	const KEPT = `${A}/translations-key-in-a-runtime-s-ui-string-catalog-core-android`;
+	const FILLED = `${A}/translations-catalog-key-hq-fills-with-its-own-text-in-a`;
+
+	/** English and French, each named by Nova's label, with `strings` over each language's. */
+	async function readTexts(
+		strings: Readonly<Record<string, Readonly<Record<string, string>>>>,
+	) {
+		const body = retainedSourceBody("shell/app-source");
+		const names = {
+			en: resolvedLanguageDisplayLabel({ language: "eng" }) ?? "",
+			fra: resolvedLanguageDisplayLabel({ language: "fra" }) ?? "",
+		};
+		return readShell({
+			...body,
+			langs: ["en", "fra"],
+			translations: {
+				en: { ...names, ...strings.en },
+				fra: { ...names, ...strings.fra },
+			},
+		});
+	}
+
+	// HQ's build fills a key some language holds from each other language's own catalog
+	// (`app_strings.py::SelectKnownAppStrings.app_strings_parts`): English has one
+	// (`commcare-translations/messages_en-2.txt`), French none.
+	it("keeps the text HQ's catalog gives a language that leaves the key out or blank, at `translations`", async () => {
+		const englishes: Readonly<Record<string, string>>[] = [
+			{},
+			{ "home.sync": "" },
+		];
+		for (const english of englishes) {
+			const { closed } = await readTexts({
+				en: english,
+				fra: { "home.sync": "Envoyer la tournée" },
+			});
+			expect(entriesAt(closed, "/translations/fra/home.sync")).toEqual([KEPT]);
+			expect(entriesAt(closed, "/translations")).toContain(FILLED);
+			expect(closed.findings.filter((one) => one.code === FILLED)).toEqual([]);
+		}
+	});
+
+	it("claims no fill for a language whose own text stands, or that HQ holds no catalog for", async () => {
+		const { closed } = await readTexts({
+			en: { "home.sync": "Send the round" },
+			fra: {},
+		});
+		expect(entriesAt(closed, "/translations/en/home.sync")).toEqual([KEPT]);
+		expect(entriesAt(closed, "/translations")).not.toContain(FILLED);
+	});
+
+	// A key a runtime reads as one of its own UI strings is that item, not data of the map: its
+	// claim names the `ui-string:` item, by the key or by the prefix a runtime reads it under, and
+	// stands at the key, where the lane's manifest check reads the same item.
+	it("keys a runtime UI string's claim by the item it overrides, recorded at the language's key", async () => {
+		const { closed } = await readTexts({
+			en: {
+				"home.sync": "Send the round",
+				"android.package.name.org.example.scanner": "Scanner",
+			},
+			fra: {},
+		});
+		const at = (where: string) =>
+			[...closed.claims.records()]
+				.filter((record) => record.where === where)
+				.map((record) => [record.key, record.entry, record.standing]);
+		expect(at("/translations/en/home.sync")).toEqual([
+			["ui-string:home.sync", KEPT, "kept"],
+		]);
+		expect(
+			at("/translations/en/android.package.name.org.example.scanner"),
+		).toEqual([["ui-string:android.package.name.*", KEPT, "kept"]]);
+		expect(
+			[...closed.claims.records()].filter(
+				(record) =>
+					record.entry === KEPT &&
+					record.key === "schema:Application.translations",
+			),
+		).toEqual([]);
+		expect(
+			closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
+		).toEqual([]);
 	});
 });
 

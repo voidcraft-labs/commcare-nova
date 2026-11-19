@@ -45,6 +45,7 @@ import {
 	SEARCH_RESULTS_SEED,
 	SEARCH_START_REFUSED_SEED,
 } from "./previewRuntimeSeeds";
+import { buildSortByBlueprint } from "./sortBySeed";
 
 const APP_ID = "5f3c1d2e-8a4b-4c6d-9e0f-1a2b3c4d5e6f";
 
@@ -58,6 +59,7 @@ describe("Preview runtime smoke seeds", () => {
 		["search-choice", buildSearchChoiceBlueprint],
 		["search-value-list", buildSearchValueListBlueprint],
 		["register-from-list", buildRegisterFromListBlueprint],
+		["sort-by", buildSortByBlueprint],
 	])("%s is a persistable app with no validator findings", (_name, build) => {
 		const doc = build(APP_ID);
 		const persistable = toPersistableDoc(doc);

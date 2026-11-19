@@ -35,6 +35,7 @@ import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import type { Uuid } from "@/lib/domain/uuid";
 import { inventoryIndex } from "../../surface/inventory";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
+import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
@@ -1152,6 +1153,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/suite-variable-references",
 		"xpath-token:VAR",
 	),
+	"case-prop-case-parent-prop-case-grandparent-prop@hashtag:#case": take(
+		"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"hashtag:#case",
+	),
 	"case-prop-case-parent-prop-case-grandparent-prop@hashtag:#case/": take(
 		"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
 		"hashtag:#case/",
@@ -1165,6 +1170,18 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 			"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
 			"hashtag:#case/grandparent",
 		),
+	"case-prop-case-parent-prop-case-grandparent-prop@hashtag:#parent": take(
+		"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"hashtag:#parent",
+	),
+	"case-prop-case-parent-prop-case-grandparent-prop@hashtag:#host": take(
+		"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"hashtag:#host",
+	),
+	"user-prop-in-xform-expressions@hashtag:#user": take(
+		"forms-and-case-writes/user-prop-in-xform-expressions",
+		"hashtag:#user",
+	),
 	"session-hq-shorthand-in-navigation-slots-for-the-context-and": take(
 		"expressions-and-data/session-hq-shorthand-in-navigation-slots-for-the-context-and",
 		"hashtag:#session/",
@@ -1197,12 +1214,37 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"forms-and-case-writes/form-filter-referencing-the-case-database-other-than-through",
 		"schema:Form.form_filter",
 	),
+	"a-display-condition-reading-case-user-casedb-with-no-non-auto": refuse(
+		"forms-and-case-writes/a-display-condition-reading-case-user-casedb-with-no-non-auto",
+		"schema:AdvancedForm.form_filter",
+	),
 	"form-filter-using-fixture-value": refuse(
 		"forms-and-case-writes/form-filter-using-fixture-value",
 		"schema:Form.form_filter",
 	),
+	/** The pattern HQ's build replaces in a form's condition where its menu's lookup table
+	 *  selection is active (`menus.py`, `fixture_xpath`), a use of the condition's text. */
+	"form-filter-using-fixture-value@hashtag:$fixture_value": refuse(
+		"forms-and-case-writes/form-filter-using-fixture-value",
+		"hashtag:$fixture_value",
+	),
+	/** HQ's `#case` shorthand in a slot its build interpolates whose text names a menu's case by
+	 *  its slug (`#case:<slug>/…`), which the replacement leaves after the case's path, a use of the
+	 *  slot's text (`surfaceUses.ts::shorthandUses`). */
+	"case-module-slug@hashtag:#case": refuse(
+		"expressions-and-data/case-module-slug-unrelated-parent-select-case",
+		"hashtag:#case",
+	),
 	"form-links-xpath": take(
 		"forms-and-case-writes/form-links-xpath",
+		"schema:Form.form_links",
+	),
+	"form-links-datums-on-a-form-target-names-among-the-target-s": take(
+		"forms-and-case-writes/form-links-datums-on-a-form-target-names-among-the-target-s",
+		"schema:FormDatum.xpath",
+	),
+	"two-or-more-form-links-conditions-true-at-once": take(
+		"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once",
 		"schema:Form.form_links",
 	),
 	"update-key-holding-a-non-ascii-core-name-character": refuse(
@@ -1216,6 +1258,14 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"module-filter-value-lifts-into-predicate": take(
 		"menus-and-case-lists/module-filter-value-lifts-into-predicate",
 		"parser:MenuParser/menu@relevant",
+	),
+	"module-filter-false-or-false-and-rest-menu-reached-only-by-links": take(
+		"menus-and-case-lists/module-filter-false-or-false-and-rest-menu-reached-only-by-links",
+		"parser:MenuParser/menu@relevant",
+	),
+	"form-filter-false-or-false-and-rest-form-reached-only-by-links": take(
+		"menus-and-case-lists/form-filter-false-or-false-and-rest-form-reached-only-by-links",
+		"schema:Form.form_filter",
 	),
 	"module-filter-value-outside-predicate-any-xpath-hq-s-validator": refuse(
 		"menus-and-case-lists/module-filter-value-outside-predicate-any-xpath-hq-s-validator",
@@ -1402,6 +1452,25 @@ type SlotRow = {
 function fixed(held: string | undefined, refused: string): SlotRow {
 	return { held: () => held, refused: () => refused };
 }
+/**
+ * A menu's or form's display condition: `false()`, alone or first of an `and`, is the
+ * condition that keeps it off its menu (`menus/modules.ts::displaySlots` holds it as
+ * `hiddenFromMenu`, the rest as its condition), any other the condition itself.
+ */
+function displayCondition(
+	held: string,
+	offTheMenu: string,
+	refused: string,
+): SlotRow {
+	return {
+		held: (_doc, _ref, bound) =>
+			bound.kind === "match-none" ||
+			(bound.kind === "and" && bound.clauses[0]?.kind === "match-none")
+				? offTheMenu
+				: held,
+		refused: () => refused,
+	};
+}
 /** A form slot: a refusal takes M2 or M3 by its code. */
 function formSlot(held: string | undefined): SlotRow {
 	return { held: () => held, refused: () => "form-default" };
@@ -1507,11 +1576,11 @@ const SAVE_TO_CASE_ROWS =
  *  answering its own claim. */
 export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
 
-/** The "Held" and "Refused, by default" columns, by slot name. `held` and
+/** Each slot's held entry and its refusal's default entry, by slot name. `held` and
  *  `refused` take the document because a row can choose by the slot's owner
  *  (a repeat's placement, a question in a repeat, an operation's action) or by
  *  the bound tree. `held` answers undefined for a row that has no slot entry;
- *  `refused` answers `"form-default"` where the column reads "M2 or M3". */
+ *  `refused` answers `"form-default"` where a refusal takes M2 or M3 by its code. */
 export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	relevant: formSlot(C["bind-relevant"].entry),
 	validate: formSlot(C["bind-constraint"].entry),
@@ -1545,8 +1614,9 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	help: PROSE,
 	validate_msg: PROSE,
 	option_label: PROSE,
-	form_display_condition: fixed(
+	form_display_condition: displayCondition(
 		C["form-filter-lifting-into-predicate-a-direct-own-case-property-in"].entry,
+		C["form-filter-false-or-false-and-rest-form-reached-only-by-links"].entry,
 		C["form-filter-outside-predicate-parent-host-user-usercase-reads"].entry,
 	),
 	// Part of the case reader's structured actions: no text is registered.
@@ -1560,8 +1630,21 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	assessment_user_score: formSlot(C["connect-assessment"].entry),
 	deliver_entity_id: formSlot(C["connect-deliver-unit"].entry),
 	deliver_entity_name: formSlot(C["connect-deliver-unit"].entry),
-	form_link_condition: formSlot(C["form-links-xpath"].entry),
-	form_link_datum_xpath: formSlot(C["form-links-xpath"].entry),
+	// A form whose destinations hold two or more conditions, any two of which may hold together:
+	// every destination whose condition holds runs, in author order.
+	form_link_condition: {
+		held(doc, ref) {
+			const links = doc.forms[ref.uuid]?.formLinks ?? [];
+			return links.filter((link) => link.condition !== undefined).length >= 2
+				? C["two-or-more-form-links-conditions-true-at-once"].entry
+				: C["form-links-xpath"].entry;
+		},
+		refused: () => "form-default",
+	},
+	// A carried value is a datum's, whose entry names `FormDatum.xpath`.
+	form_link_datum_xpath: formSlot(
+		C["form-links-datums-on-a-form-target-names-among-the-target-s"].entry,
+	),
 	case_operation_name: fixed(
 		C["savetocase-create-case-type-literal-case-name-owner-id-uuid-case"].entry,
 		SAVE_TO_CASE_REFUSED,
@@ -1598,8 +1681,9 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["savetocase-link-index-name-child-extension-and-unlink-empty"].entry,
 		SAVE_TO_CASE_REFUSED,
 	),
-	module_display_condition: fixed(
+	module_display_condition: displayCondition(
 		C["module-filter-value-lifts-into-predicate"].entry,
+		C["module-filter-false-or-false-and-rest-menu-reached-only-by-links"].entry,
 		C["module-filter-value-outside-predicate-any-xpath-hq-s-validator"].entry,
 	),
 	case_list_filter: fixed(
@@ -1830,12 +1914,37 @@ function instanceEntry(
 	);
 }
 
+const TABLE_ID = "item-list:";
+
+/** The tag of the table an `instance-unknown` issue's read names: by the
+ *  source the slot's form declares for the id read
+ *  (`jr://fixture/item-list:<tag>`), or, for an id the form does not declare,
+ *  by its `item-list:<tag>` id, which HQ's build declares from that source
+ *  (`xform.py::add_missing_instances`); undefined for a read of any other
+ *  instance. */
+export function tableReadTag(
+	issue: FormParseIssue,
+	pending: PendingExpression,
+	form: FormDeclarations,
+): string | undefined {
+	if (issue.code !== "instance-unknown") return undefined;
+	const id = namesIn(spannedSyntax(pending, issue)).strings[0];
+	if (id === undefined) return undefined;
+	const src = form.instanceSources.get(id);
+	const read = src === undefined ? id : canonicalInstanceId(src);
+	return read?.startsWith(TABLE_ID) && read.length > TABLE_ID.length
+		? read.slice(TABLE_ID.length)
+		: undefined;
+}
+
 /** The id a declared source names an instance by, as CommCare HQ's build
  *  writes each scheme's source (`suite_xml/post_process/instances.py`): the
  *  fixture id of `jr://fixture/<id>`, the remote id of
- *  `jr://instance/remote/<id>`, and `ledgerdb` for the ledger's source. */
+ *  `jr://instance/remote/<id>`, `ledgerdb` for the ledger's source, and the
+ *  legacy `search-input` for `jr://instance/search-input`. */
 function sourceSchemeId(src: string): string | undefined {
 	if (src === "jr://instance/ledgerdb") return "ledgerdb";
+	if (src === LEGACY_SEARCH_INPUT_SOURCE) return "search-input";
 	for (const prefix of ["jr://fixture/", "jr://instance/remote/"])
 		if (src.startsWith(prefix) && src.length > prefix.length)
 			return src.slice(prefix.length);
@@ -1871,24 +1980,50 @@ function schemeEntry(id: string | undefined): string | undefined {
 			return C["indicators-call-center-indicators"].entry;
 		case "case-search-fixture":
 			return C["case-search-fixture"].entry;
+		case "search-input":
+			// The legacy id, which HQ's build declares from
+			// `jr://instance/search-input` (`instances.py::search_input_instances`)
+			// and leaves out of every entry (`InstancesHelper.IGNORED_INSTANCES`):
+			// Core provides it only while a query is built, so a read anywhere
+			// but a Search field's own slots (`parseIssueEntry`) is one after
+			// the query.
+			return id === "search-input" ? LEGACY_SEARCH_INPUT : undefined;
 		default:
 			return undefined;
 	}
 }
 
+/** The source HQ's build declares the legacy `search-input` instance from. */
+const LEGACY_SEARCH_INPUT_SOURCE = "jr://instance/search-input";
+const LEGACY_SEARCH_INPUT =
+	C["legacy-search-input-read-after-the-query-in-the-results-detail"].entry;
+
+/** The root HQ's form builder gives every form's data, under which HQ's
+ *  build adds its blocks. */
+const FORM_DATA_ROOT = "data";
+
 /** Whether a path the parser could not bind reads a block HQ's build adds to
  *  a form: `meta`, the case block, the worker's record block or a basic
- *  subcase. */
-function readsBuildBlock(node: FormSyntax | undefined): boolean {
-	const { names } = namesIn(node);
-	const second = names[1];
+ *  subcase. The parser refuses the path at its first step no question takes,
+ *  so the path read is the longest plain path around the issue's span
+ *  (`pathAroundSpan`), absolute or read from the question the slot evaluates
+ *  at, and its step under the form's root names the block. */
+function readsBuildBlock(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	issue: { readonly from?: number; readonly to?: number },
+): boolean {
+	const path = pathAroundSpan(doc, pending, issue, FORM_DATA_ROOT);
+	if (path === undefined) return false;
+	const [empty, root, block] = path.split("/");
 	return (
-		names[0] === "data" &&
-		second !== undefined &&
-		(second === "meta" ||
-			second === "case" ||
-			second === "commcare_usercase" ||
-			second.startsWith("subcase_"))
+		empty === "" &&
+		root === FORM_DATA_ROOT &&
+		block !== undefined &&
+		(block === "meta" ||
+			block === "case" ||
+			block === "commcare_usercase" ||
+			block.startsWith("subcase_"))
 	);
 }
 
@@ -1946,24 +2081,37 @@ function readsOperationId(
 	issue: { readonly from?: number; readonly to?: number },
 	form: FormDeclarations,
 ): boolean {
+	// Every create's id path in the form starts with the form's root.
+	const [first] = form.operationIdPaths.keys();
+	const root = first?.split("/")[1];
+	if (root === undefined) return false;
+	const path = pathAroundSpan(doc, pending, issue, root);
+	return path !== undefined && form.operationIdPaths.has(path);
+}
+
+/** The longest plain path of the slot's text that holds the issue's span, as
+ *  absolute text: an absolute path as written, or a relative or `current()`
+ *  path read from the question a question's slot evaluates at
+ *  (`folds.ts::contextPathText`), the form's root named `root`. Undefined
+ *  where no such path holds the span. */
+function pathAroundSpan(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	issue: { readonly from?: number; readonly to?: number },
+	root: string,
+): string | undefined {
 	const { from, to } = issue;
-	if (
-		form.operationIdPaths.size === 0 ||
-		from === undefined ||
-		to === undefined
-	)
-		return false;
+	if (from === undefined || to === undefined) return undefined;
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(pending.text);
 	} catch {
-		return false;
+		return undefined;
 	}
-	if (!read.ok || read.node === undefined) return false;
-	const whole = read.node;
-	const context = questionContext(doc, pending, form);
+	if (!read.ok || read.node === undefined) return undefined;
+	const context = questionContext(doc, pending, root);
 	let longest: { readonly text: string; readonly length: number } | undefined;
-	visitSyntax(whole, (node) => {
+	visitSyntax(read.node, (node) => {
 		if (node.from > from || node.to < to) return;
 		const text =
 			absolutePathText(node) ??
@@ -1971,16 +2119,15 @@ function readsOperationId(
 		if (text !== undefined && (longest?.length ?? -1) < node.to - node.from)
 			longest = { text, length: node.to - node.from };
 	});
-	return longest !== undefined && form.operationIdPaths.has(longest.text);
+	return longest?.text;
 }
 
-/** The names from the form's root down to the question a question's slot
- *  evaluates at, the context Core reads a relative path from; the root's name
- *  is the one every create's id path in the form starts with. */
+/** The names from the form's root, named `root`, down to the question a
+ *  question's slot evaluates at: the context Core reads a relative path from. */
 function questionContext(
 	doc: BlueprintDoc,
 	pending: PendingExpression,
-	form: FormDeclarations,
+	root: string,
 ): readonly string[] | undefined {
 	const ref = pending.ref;
 	if (ref.entity !== "field") return undefined;
@@ -1989,9 +2136,7 @@ function questionContext(
 		formUuid === undefined ? undefined : formStructure(doc, formUuid);
 	const path =
 		structure === undefined ? undefined : formFieldPath(structure, ref.uuid);
-	const [first] = form.operationIdPaths.keys();
-	const root = first?.split("/")[1];
-	return path === undefined || root === undefined ? undefined : [root, ...path];
+	return path === undefined ? undefined : [root, ...path];
 }
 
 /** "By parse issue", from its second row down: the entry, `"unrecognized"`,
@@ -2021,6 +2166,17 @@ export function parseIssueEntry(
 			if (ref.slot === "module_display_condition")
 				return answer(
 					C["module-filter-referencing-case-parent-host-or-a-bare"].entry,
+				);
+			// An advanced form's filter reads with no case only where every load
+			// auto-selects (`menus/modules.ts::formChoosesCase`), which HQ's
+			// `AdvancedFormValidator` refuses as "filtering without case".
+			if (
+				ref.slot === "form_display_condition" &&
+				pending.key === "schema:AdvancedForm.form_filter"
+			)
+				return answer(
+					C["a-display-condition-reading-case-user-casedb-with-no-non-auto"]
+						.entry,
 				);
 			if (ref.slot === "form_display_condition")
 				return answer(
@@ -2101,10 +2257,15 @@ export function parseIssueEntry(
 		case "groups-held":
 			return answer(C["groups-jr-fixture-user-groups"].entry);
 		case "search-results-remote":
-			return answer(
-				C["results-read-in-form-expressions-reached-through-a-search-that"]
-					.entry,
-			);
+			// A form opened after a search that is not inline finds no results;
+			// any other slot that reads them is a setting Nova's record rule
+			// holds no query in, the slot's own refusal.
+			return ref.entity === "form" || ref.entity === "field"
+				? answer(
+						C["results-read-in-form-expressions-reached-through-a-search-that"]
+							.entry,
+					)
+				: answer("slot-default");
 		case "unknown-datum":
 		case "placeholder-datum":
 		case "multi-select-datum-value": {
@@ -2133,7 +2294,17 @@ export function parseIssueEntry(
 				: answer("slot-default");
 		case "instance-unknown": {
 			const { strings } = namesIn(spanned());
-			return answer(instanceEntry(strings[0], form.instanceSources));
+			const entry = instanceEntry(strings[0], form.instanceSources);
+			// A Search field's own slots run while the query is built, where
+			// the legacy id reads: Nova holds no such read, for a reason of its
+			// own.
+			const queryBuild =
+				ref.entity === "module" &&
+				(ref.slot.startsWith("search_input_") ||
+					ref.slot === "excluded_owner_ids");
+			return entry === LEGACY_SEARCH_INPUT && queryBuild
+				? answer("slot-default")
+				: answer(entry);
 		}
 		case "unknown-table":
 		case "lookup-unavailable":
@@ -2142,7 +2313,7 @@ export function parseIssueEntry(
 		case "relative-unknown": {
 			if (readsOperationId(doc, pending, issue, form))
 				return { entryId: M3, reason: "operation-id-outside-case-operation" };
-			return readsBuildBlock(spanned()) ? answer(M3) : answer(M2);
+			return readsBuildBlock(doc, pending, issue) ? answer(M3) : answer(M2);
 		}
 		case "unknown-location-property": {
 			// A reading declares a location property for every name a
@@ -2280,6 +2451,35 @@ function formScreenChoosesCaseFirst(doc: BlueprintDoc, form: Uuid): boolean {
 		moduleUuid === undefined ||
 		doc.modules[moduleUuid] === undefined ||
 		screenChoosesCaseFirst(doc, menuScreenOf(doc, moduleUuid))
+	);
+}
+
+/**
+ * Whether HQ's build refuses a display condition of the form that reads the
+ * case (`suite_xml/sections/menus.py::MenuContributor`, `CaseXPathValidationError`):
+ * not every form of its menu requires a case, or the menu shows its forms
+ * above under a root that is not of its case type or holds a form that requires
+ * none (`ModuleBase.root_requires_same_case`). That is the form's own entry;
+ * the screen's wider class is the rest.
+ */
+function hqRefusesCaseFilter(doc: BlueprintDoc, form: Uuid): boolean {
+	const requiresCase = (moduleUuid: Uuid) =>
+		(doc.formOrder[moduleUuid] ?? []).every((one) => {
+			const type = doc.forms[one]?.type;
+			return type === "followup" || type === "close";
+		});
+	const moduleUuid = moduleUuidOfForm(doc, form);
+	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (moduleUuid === undefined || mod === undefined) return false;
+	if (!requiresCase(moduleUuid)) return true;
+	if (mod.formsInMenuAbove !== true) return false;
+	const rootUuid = mod.parentModuleUuid;
+	const root = rootUuid === undefined ? undefined : doc.modules[rootUuid];
+	return (
+		rootUuid === undefined ||
+		root === undefined ||
+		root.caseType !== mod.caseType ||
+		!requiresCase(rootUuid)
 	);
 }
 
@@ -2423,8 +2623,12 @@ export function checkErrorEntry(
 		!formScreenChoosesCaseFirst(doc, ref.uuid)
 	)
 		return answer(
-			C["form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first"]
-				.entry,
+			hqRefusesCaseFilter(doc, ref.uuid)
+				? C["form-filter-referencing-the-case-database-other-than-through"]
+						.entry
+				: C[
+						"form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first"
+					].entry,
 		);
 	if (
 		searchRow &&

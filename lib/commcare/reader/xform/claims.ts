@@ -68,6 +68,10 @@ const Q = (id: string) => `questions/${id}`;
  *  and the bind's `type`. */
 export interface KindSites {
 	readonly node: Claim<"take">;
+	/** The data node's claim under each other type CommCare HQ's question reader gives a question
+	 *  of the row (`hqQuestionType.ts`), by that type: a typed input whose bind's `type` is spelled
+	 *  other than as HQ's index holds it is a Text there. */
+	readonly nodeAs?: Readonly<Record<string, Claim<"take">>>;
 	readonly control?: Claim<"take">;
 	readonly ref?: Claim<"take">;
 	readonly type?: Claim<"take">;
@@ -87,12 +91,34 @@ function kind(
 		readonly mediatype?: string;
 		readonly appearance?: string;
 	},
+	nodeAs: readonly string[] = [],
 ): KindSites {
 	const present = Object.fromEntries(
 		Object.entries(keys).filter(([, key]) => key !== undefined),
 	) as Record<string, string>;
-	return under("take", Q(id), present) as unknown as KindSites;
+	const sites = under("take", Q(id), present) as unknown as KindSites;
+	return nodeAs.length === 0
+		? sites
+		: { ...sites, nodeAs: nodeTypes("take", Q(id), nodeAs) };
 }
+
+/** An entry's claims of a question's data node under each of `types`, CommCare HQ's question
+ *  types (`mug:<type>`), by type. */
+function nodeTypes<U extends ClaimUse>(
+	use: U,
+	entry: string,
+	types: readonly string[],
+): Readonly<Record<string, Claim<U>>> {
+	return under(
+		use,
+		entry,
+		Object.fromEntries(types.map((type) => [type, `mug:${type}`])),
+	);
+}
+
+/** What HQ's question reader makes of a typed input whose bind's `type` is spelled other than
+ *  as its index holds it (`int` for `xsd:int`, `xsd:geopoint` for `geopoint`): a Text. */
+const RESPELLED_TYPE = ["Text"] as const;
 
 /** The controls that hold a label, a hint, a help text and an alert. */
 export const TEXT_CONTROLS = [
@@ -158,6 +184,10 @@ export const X = {
 		{
 			model: "jr-control:model",
 			dataRoot: "xform:model/instance/*",
+			/** An instance's element: the main instance's, and a secondary instance's beside the
+			 *  claims of its source. */
+			instance: "xform:model/instance",
+			itext: "xform:model/itext",
 		},
 	),
 	blankSource: one(
@@ -231,6 +261,27 @@ export const X = {
 		hashtags: "vellum-markup:h:head/vellum:hashtags",
 		transforms: "vellum-markup:h:head/vellum:hashtagTransforms",
 	}),
+	/** A hashtag the head's map names (a key of `vellum:hashtags`, a prefix of
+	 *  `vellum:hashtagTransforms`), by the surface's hashtag it starts with, where
+	 *  one allowing entry holds that hashtag: the element is claimed once under it
+	 *  beside the map's own claim. */
+	headHashtag: {
+		...under(
+			"take",
+			"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+			{
+				"#case/": "hashtag:#case/",
+				"#case/parent": "hashtag:#case/parent",
+				"#case/grandparent": "hashtag:#case/grandparent",
+			},
+		),
+		...under("take", "expressions-and-data/form", {
+			"#form/": "hashtag:#form/",
+		}),
+		...under("take", "forms-and-case-writes/user-prop-in-xform-expressions", {
+			"#user": "hashtag:#user",
+		}),
+	} as Readonly<Record<string, Claim<"take">>>,
 	odkxIntentUnreferenced: one(
 		"drop",
 		Q("odkx-intent-that-no-question-references"),
@@ -309,6 +360,12 @@ export const X = {
 		Q("question-id-case-registration-script"),
 		"xform:model/instance//*",
 	),
+	/** A question's data node whose id passes the grammar: a child of the data root, or one
+	 *  deeper, as the form's instance spells each. */
+	questionId: under("take", Q("question-id-matching-xml-a-za-z-w"), {
+		top: "xform:model/instance/*/*",
+		nested: "xform:model/instance//*",
+	}),
 	vellumComment: one(
 		"drop",
 		Q("vellum-comment"),
@@ -444,19 +501,33 @@ export const X = {
 			"an-input-whose-bind-has-no-type-any-appearance-but-numeric-or",
 			{ node: "mug:Text", control: INPUT.control, ref: INPUT.ref },
 		),
-		int: kind("integer-xsd-int-xsd-integer-read-as-the-same", {
-			node: "mug:Int",
-			...INPUT,
-		}),
-		decimal: kind("decimal-xsd-double", { node: "mug:Double", ...INPUT }),
-		date: kind("date-xsd-date", { node: "mug:Date", ...INPUT }),
-		time: kind("time-xsd-time", { node: "mug:Time", ...INPUT }),
-		datetime: kind("date-and-time-xsd-datetime", {
-			node: "mug:DateTime",
-			...INPUT,
-		}),
-		geopoint: kind("gps-geopoint", { node: "mug:Geopoint", ...INPUT }),
-		barcode: kind("barcode-barcode", { node: "mug:Barcode", ...INPUT }),
+		int: kind(
+			"integer-xsd-int-xsd-integer-read-as-the-same",
+			{ node: "mug:Int", ...INPUT },
+			RESPELLED_TYPE,
+		),
+		decimal: kind(
+			"decimal-xsd-double",
+			{ node: "mug:Double", ...INPUT },
+			RESPELLED_TYPE,
+		),
+		date: kind("date-xsd-date", { node: "mug:Date", ...INPUT }, RESPELLED_TYPE),
+		time: kind("time-xsd-time", { node: "mug:Time", ...INPUT }, RESPELLED_TYPE),
+		datetime: kind(
+			"date-and-time-xsd-datetime",
+			{ node: "mug:DateTime", ...INPUT },
+			RESPELLED_TYPE,
+		),
+		geopoint: kind(
+			"gps-geopoint",
+			{ node: "mug:Geopoint", ...INPUT },
+			RESPELLED_TYPE,
+		),
+		barcode: kind(
+			"barcode-barcode",
+			{ node: "mug:Barcode", ...INPUT },
+			RESPELLED_TYPE,
+		),
 		secret: kind("password-secret-xsd-string", {
 			node: "mug:Secret",
 			control: "xform:secret",
@@ -489,8 +560,10 @@ export const X = {
 			ref: "xform:upload@ref",
 			mediatype: "xform:upload@mediatype",
 		}),
+		/** HQ's question reader holds no Signature: an image upload is an Image whatever its
+		 *  appearance (`xform.py::VELLUM_TYPES`). */
 		signature: kind("signature-image-signature", {
-			node: "mug:Signature",
+			node: "mug:Image",
 			control: "xform:upload",
 			ref: "xform:upload@ref",
 			mediatype: "xform:upload@mediatype",
@@ -516,12 +589,19 @@ export const X = {
 		}),
 		hiddenOneSource: kind(
 			"hidden-value-data-node-bind-no-control-with-calculate-or-default",
-			{ node: "mug:DataBindOnly", type: "mug:DataBindOnly" },
+			{ node: "mug:DataBindOnly", type: "xform:model/bind@type" },
 		),
 		hiddenNeither: kind("hidden-value-with-neither", {
 			node: "mug:DataBindOnly",
-			type: "mug:DataBindOnly",
+			type: "xform:model/bind@type",
 		}),
+		/** Both a calculate and a default outside every repeat: its node and its type are
+		 *  claimed once the bound document says whether a runtime reads the default
+		 *  (`afterBinding.ts::settleBothSources`), under this or `refusedKind.hiddenBoth`. */
+		hiddenBothUnread: kind(
+			"hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
+			{ node: "mug:DataBindOnly", type: "xform:model/bind@type" },
+		),
 	},
 	selectType: one(
 		"take",
@@ -560,6 +640,19 @@ export const X = {
 			"refuse",
 			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
 			"mug:AndroidIntent",
+		),
+		/** A callout whose intent names the print action, which the form builder reads as its
+		 *  print question (`intentManager.js::syncMugWithIntent`). */
+		printCallout: one(
+			"refuse",
+			Q("print-callout-class-org-commcare-dalvik-action-print-extra-cc"),
+			"mug:PrintIntent",
+		),
+		/** A callout whose intent carries `appearance="quick"`, which no editor writes. */
+		quickCallout: one(
+			"refuse",
+			Q("odkx-intent-appearance-quick"),
+			"appearance:android-IntentExtensionParser/quick",
 		),
 		inputOtherType: one(
 			"refuse",
@@ -719,6 +812,9 @@ export const X = {
 	),
 
 	// ── Groups, Question Lists and sections ───────────────────────
+	// A Question List's data node is claimed as a Group (`nodeAsGroup`) where its appearance is
+	// `field-list` in another letter case, which CommCare HQ's question reader holds as a Group
+	// (`hqQuestionType.ts`).
 	group: under("take", Q("group-group-ref-label-no-appearance"), {
 		node: "mug:Group",
 		control: "xform:group",
@@ -734,6 +830,7 @@ export const X = {
 		Q("question-list-group-appearance-field-list-labelled"),
 		{
 			node: "mug:FieldList",
+			nodeAsGroup: "mug:Group",
 			control: "xform:group",
 			ref: "xform:group@ref",
 			appearance: "xform:group@appearance",
@@ -744,6 +841,7 @@ export const X = {
 		Q("question-list-unlabelled-anywhere-else"),
 		{
 			node: "mug:FieldList",
+			nodeAsGroup: "mug:Group",
 			control: "xform:group",
 			ref: "xform:group@ref",
 			appearance: "xform:group@appearance",
@@ -754,6 +852,7 @@ export const X = {
 		Q("question-list-unlabelled-when-every-root-field-is-a-section-and"),
 		{
 			node: "mug:FieldList",
+			nodeAsGroup: "mug:Group",
 			control: "xform:group",
 			ref: "xform:group@ref",
 			appearance: "xform:group@appearance",
@@ -784,6 +883,7 @@ export const X = {
 		control: "xform:repeat",
 		nodeset: "xform:repeat@nodeset",
 		template: "xform:model/instance//*@jr:template",
+		templateTop: "xform:model/instance/*/*@jr:template",
 	}),
 	countFromInteger: under(
 		"take",
@@ -794,6 +894,7 @@ export const X = {
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
+			templateTop: "xform:model/instance/*/*@jr:template",
 		},
 	),
 	countFromHidden: under(
@@ -805,6 +906,7 @@ export const X = {
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
+			templateTop: "xform:model/instance/*/*@jr:template",
 		},
 	),
 	countFromSelect: under(
@@ -816,6 +918,7 @@ export const X = {
 			nodeset: "xform:repeat@nodeset",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
+			templateTop: "xform:model/instance/*/*@jr:template",
 		},
 	),
 	countFromQuery: under(
@@ -828,12 +931,14 @@ export const X = {
 			count: "xform:repeat@jr:count",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
+			templateTop: "xform:model/instance/*/*@jr:template",
 		},
 	),
 	modelIteration: under(
 		"take",
 		Q("repeat-model-iteration-vellum-role-repeat-ids-count-current"),
 		{
+			/** The row, which the repeat's control names: the question HQ's reader reads. */
 			node: "mug:Repeat",
 			role: "vellum-markup:model/instance//*@vellum:role",
 			control: "xform:repeat",
@@ -841,6 +946,7 @@ export const X = {
 			count: "xform:repeat@jr:count",
 			noAddRemove: "xform:repeat@jr:noAddRemove",
 			template: "xform:model/instance//*@jr:template",
+			templateTop: "xform:model/instance/*/*@jr:template",
 			setvalue: "xform:setvalue",
 			event: "xform:setvalue@event",
 			setvalueRef: "xform:setvalue@ref",
@@ -1003,6 +1109,40 @@ export const X = {
 		"xform:setvalue",
 	),
 
+	// ── Nodes CommCare HQ's build or a plugin of the form builder owns ──
+	/** A root question `case` where HQ's build appends the form's own case block. */
+	rootQuestionCase: one(
+		"refuse",
+		Q("a-root-question-case-in-a-form-where-hq-writes-the-primary-case"),
+		"xform:model/instance/*/*",
+	),
+	/** A root question `commcare_usercase` where HQ's build appends its own block of that name. */
+	rootQuestionUsercase: one(
+		"refuse",
+		Q("a-root-question-commcare-usercase-in-a-form-with-usercase"),
+		"xform:model/instance/*/*",
+	),
+	/** A case block in the case transaction namespace that no Save to Case role marks. */
+	handWrittenCaseBlock: under(
+		"refuse",
+		Q("hand-written-case-block-without-vellum-role-incl-a-root-data"),
+		{
+			root: "xform:model/instance/*/*",
+			nested: "xform:model/instance//*",
+		},
+	),
+	/** A ledger block of the form builder's CommTrack plugin, by its role. */
+	ledgerBlock: under(
+		"refuse",
+		Q("balance-transfer-dispense-receive-ledger-blocks"),
+		{
+			Balance: "mug:Balance",
+			Transfer: "mug:Transfer",
+			Dispense: "mug:Dispense",
+			Receive: "mug:Receive",
+		},
+	),
+
 	// ── Itext, by reference ───────────────────────────────────────
 	translationElement: one(
 		"derived",
@@ -1130,6 +1270,12 @@ export const X = {
 		Q("label-with-no-markdown-form"),
 		"xform:model/itext/translation/text",
 	),
+	/** A plain label's value whose text Web Apps reads as markup (`prose.ts::holdsHtmlText`). */
+	htmlLabel: one(
+		"take",
+		Q("plain-label-containing-html-text"),
+		"xform:model/itext/translation/text/value",
+	),
 	helpPlain: one(
 		"take",
 		Q("help-text-with-no-markdown-form"),
@@ -1225,6 +1371,13 @@ export const X = {
 		Q("output-value-of-a-question-case-or-user-reference"),
 		"xform:model/itext/translation/text/value/output",
 	),
+	/** An output's namespace, which Core reads of every element a value holds
+	 *  (`XFormParser.getLabel` tests it against XHTML's). */
+	outputNamespace: under(
+		"derived",
+		Q("output-value-of-a-question-case-or-user-reference"),
+		{ namespace: "xform:model/itext/translation/text/value/*@xmlns" },
+	).namespace,
 	literalOutput: one(
 		"derived",
 		Q("output-value-any-other-expression"),

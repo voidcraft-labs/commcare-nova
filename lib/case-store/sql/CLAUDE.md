@@ -133,6 +133,30 @@ cases that lack the property.
 `is-blank` is `coalesce(text, '') = ''`, so absent, JSON `null` and empty text
 all read blank.
 
+A read standing where a condition belongs is Core's `toBoolean` of the value it
+unpacks to (`compilePredicate.ts::compileBareRead`): a form answer's truth is
+decided in JavaScript from its binding and what CommCare holds it as
+(`TermCompileContext.formFieldHeld`, else its type), so the text `false` of a
+yes or no is false while the same text typed as an answer is true, a number is
+true where it is not zero, and a blank, which an answer left out of the form
+binds, is false; a read the row holds is true where its text is not blank. The
+record rule set admits only the yes or no; a form's own open and close
+conditions take Core's coercions and admit any read.
+
+Two equalities of types the checker otherwise keeps apart lower as Core
+compares them (`compilePredicate.ts::coercedEqualityOf`, over the domain's
+`coercedEquality`). A whole number against the text of one compiles as the
+number comparison, the literal read as its number. Text against a number
+literal compiles `compileTextAsNumberEquality`: the device text trimmed as
+Java trims, read as a `float8` where it has `toNumeric`'s plain decimal shape
+and equal within `1e-12`, else, for a whole-number literal in `int` range, as
+a `year-month-day` text whose fields are those of the day `date(n)` gives
+under the reading (`coreDayNumber.ts`), else no number, which equals nothing.
+Every cast sits behind its shape guard, so no text fails the query.
+`__tests__/recordCoercions.postgres.test.ts` holds both to the control
+`proof/native/core/resources/numeric-coercion/comparisons.json` that
+`NumericCoercionRuntimeTest` holds Core to.
+
 ## Day numbers
 
 `coreDayNumber.ts::compileCoreDayNumber` compiles `date-coerce` of a number by
@@ -145,8 +169,11 @@ does. Under `search` it is HQ's calendar arithmetic,
 `date '1970-01-01' + trunc(n)::integer`. The two agree except in the five Pacific
 zones whose offset moved by more than twelve hours after 1970, where a device's
 list and HQ's search differ by a day and Preview shows each as its runtime does.
-The compiler has no formula for a date read as a number: no slot with a
-Postgres target reaches one.
+A date read as a number is reached once, by text compared with a whole
+number (above), which compares the text's fields with the day `date(n)` gives
+rather than counting the text's day; it parts from Core only before
+1582-10-15, which Java counts in the Julian calendar, and, in Web Apps, in a
+zone twelve or more hours from UTC, where Formplayer counts from UTC's 1970.
 
 ## CSQL slots arrive folded
 

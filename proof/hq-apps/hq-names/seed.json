@@ -1,0 +1,32 @@
+{
+	"catalog": [
+		{
+			"name": "plot",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "category",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "soil-type",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "state",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

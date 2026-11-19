@@ -40,6 +40,7 @@ import {
 } from "../store";
 import type { AcceptedDeclaration } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
+import { firstPublishListToStore } from "./firstPublishChanges";
 import type { Gathered } from "./gather";
 import type { ReadingProjectDataWrite } from "./projectData";
 import { writeBroughtInLookupTablesInTransaction } from "./projectData/lookupTableStore";
@@ -94,7 +95,7 @@ export function adoptedDeploymentWrite(input: {
 			fetched.source.multimediaMap ?? [],
 		),
 		observedAt: fetched.readAt,
-		firstPublish: chosen.firstPublish,
+		firstPublish: firstPublishListToStore(chosen.firstPublish, draft.facts),
 	});
 	return {
 		ok: true,

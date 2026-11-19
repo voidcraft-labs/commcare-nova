@@ -51,6 +51,7 @@ const BASE: FieldKindFacts = {
 	appearance: undefined,
 	hasCalculate: false,
 	hasDefault: false,
+	inRepeat: false,
 };
 
 const facts = (patch: Partial<FieldKindFacts>): FieldKindFacts => ({
@@ -217,10 +218,19 @@ const CASES: readonly RowCase[] = [
 		facts: facts({ control: "none", bindType: undefined }),
 	},
 	{
+		entry: Q("hidden-value-with-both-calculate-and-a-default-no-runtime-reads"),
+		facts: facts({ control: "none", hasCalculate: true, hasDefault: true }),
+	},
+	{
 		entry: Q(
 			"hidden-value-with-both-calculate-and-a-default-by-any-expression",
 		),
-		facts: facts({ control: "none", hasCalculate: true, hasDefault: true }),
+		facts: facts({
+			control: "none",
+			hasCalculate: true,
+			hasDefault: true,
+			inRepeat: true,
+		}),
 	},
 	{
 		entry: Q(
@@ -233,6 +243,15 @@ const CASES: readonly RowCase[] = [
 		facts: facts({ control: "none", bindType: "dateTime" }),
 	},
 	{
+		entry: Q("hidden-value-with-both-calculate-and-a-default-no-runtime-reads"),
+		facts: facts({
+			control: "none",
+			bindType: "dateTime",
+			hasCalculate: true,
+			hasDefault: true,
+		}),
+	},
+	{
 		entry: Q(
 			"hidden-value-with-both-calculate-and-a-default-by-any-expression",
 		),
@@ -241,6 +260,7 @@ const CASES: readonly RowCase[] = [
 			bindType: "dateTime",
 			hasCalculate: true,
 			hasDefault: true,
+			inRepeat: true,
 		}),
 	},
 	{
@@ -269,8 +289,10 @@ describe("FIELD_KIND_ROWS", () => {
 	});
 });
 
-/** The source of one question from a row's facts: its node, its bind and its control. */
+/** The source of one question from a row's facts: its node, its bind and its control, in a
+ *  repeat `r` where the facts say so. */
 function sourceOf(one: FieldKindFacts): string {
+	const at = one.inRepeat ? "/data/r/q" : "/data/q";
 	const type =
 		one.bindType === undefined
 			? ""
@@ -284,17 +306,20 @@ function sourceOf(one: FieldKindFacts): string {
 		one.control === "select1" || one.control === "select"
 			? `<item><label>A</label><value>a</value></item>`
 			: "";
+	const control =
+		one.control === "none"
+			? ""
+			: `<${one.control} ref="${at}"${appearance}${mediatype}>${choices}</${one.control}>`;
 	return xformSource({
-		data: "<q/>",
-		model: `<bind nodeset="/data/q"${type}${calculate}/>${
+		data: one.inRepeat ? `<r jr:template=""><q/></r>` : "<q/>",
+		model: `${one.inRepeat ? `<bind nodeset="/data/r"/>` : ""}<bind nodeset="${at}"${type}${calculate}/>${
 			one.hasDefault
-				? `<setvalue event="xforms-ready" ref="/data/q" value="'d'"/>`
+				? `<setvalue event="${one.inRepeat ? "jr-insert" : "xforms-ready"}" ref="${at}" value="'d'"/>`
 				: ""
 		}`,
-		body:
-			one.control === "none"
-				? ""
-				: `<${one.control} ref="/data/q"${appearance}${mediatype}>${choices}</${one.control}>`,
+		body: one.inRepeat
+			? `<group><repeat nodeset="/data/r">${control}</repeat></group>`
+			: control,
 	});
 }
 
@@ -305,9 +330,11 @@ describe("a row read from a source written for it", () => {
 			const reading = await readForm(sourceOf(one));
 			const xform = reading.xform;
 			expect(xform).not.toBeNull();
-			const [field] = readFields(xform ?? ({} as never));
+			const field = readFields(xform ?? ({} as never)).find(
+				(one) => one.id === "q",
+			);
 			expect(field?.id).toBe("q");
-			const codes = codesAt(reading, "q");
+			const codes = codesAt(reading, one.inRepeat ? "r/q" : "q");
 			if (row?.kind === undefined) {
 				expect(field?.standIn).toBe(true);
 				expect(codes).toContain(entry);
@@ -604,6 +631,7 @@ describe("a select's choices", () => {
 						]),
 					},
 				}),
+				{ claims: "full" },
 			);
 		}
 
@@ -611,6 +639,43 @@ describe("a select's choices", () => {
 			const outcome = await read();
 			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 			expect(outcome.defects).toEqual([]);
+		});
+
+		// The itemset is a read of the table: the read and the table's declaration stand under
+		// Nova's typed lookup carrier, never as a declaration nothing reads.
+		it("claims the table the itemset reads, and its declaration, under the typed lookup carrier", async () => {
+			const outcome = await read();
+			const records = [...outcome.claims.records()].filter((record) =>
+				record.artifact.startsWith("form:"),
+			);
+			const carrier =
+				"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers";
+			expect(
+				records
+					.filter((record) => record.entry === carrier)
+					.map((record) => [record.where, record.key]),
+			).toEqual([
+				[
+					"/h:html/h:body[1]/select1[1]/itemset[1]/@nodeset",
+					"instance-scheme:item-list",
+				],
+				// A declaration's source sits at its `src`, and its id is its own key's.
+				[
+					"/h:html/h:head[1]/model[1]/instance[2]/@id",
+					"xform:model/instance@id",
+				],
+				[
+					"/h:html/h:head[1]/model[1]/instance[2]/@src",
+					"instance-source:fixture",
+				],
+			]);
+			expect(
+				records.some(
+					(record) =>
+						record.entry ===
+						"expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user",
+				),
+			).toBe(false);
 		});
 
 		it.each([

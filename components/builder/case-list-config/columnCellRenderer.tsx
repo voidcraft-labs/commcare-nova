@@ -32,6 +32,7 @@ import type { LanguageTag } from "@/lib/domain/localization";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
+	columnRawText,
 	isOpenableAddress,
 	type PreviewFormattedValue,
 	projectCalculatedValue,
@@ -74,7 +75,11 @@ export function renderColumnCell(
 		// which is the label. An empty property renders an empty cell rather
 		// than a link to nowhere, matching what the emitted `if(… = '', '', …)`
 		// guard does on the device.
-		const address = caseRowDisplayValue(row, column.field).trim();
+		const address = (
+			column.via === undefined
+				? caseRowDisplayValue(row, column.field)
+				: columnRawText(column, row, context.reading)
+		).trim();
 		return isOpenableAddress(address) ? (
 			<a
 				href={address}

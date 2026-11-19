@@ -1,0 +1,106 @@
+[
+	{
+		"path": "jr://file/commcare/image/module0_en.png",
+		"file": "media/0.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module0_form0_en.png",
+		"file": "media/1.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_en.png",
+		"file": "media/2.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form0_en.png",
+		"file": "media/3.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form2_en.png",
+		"file": "media/4.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form3_en.png",
+		"file": "media/5.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_en.png",
+		"file": "media/6.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form0_en.png",
+		"file": "media/7.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form1_en.png",
+		"file": "media/8.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form2_en.png",
+		"file": "media/9.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form3_en.png",
+		"file": "media/10.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module3_en.png",
+		"file": "media/11.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module3_form0_en.png",
+		"file": "media/12.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	}
+]

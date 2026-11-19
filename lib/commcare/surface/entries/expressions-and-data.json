@@ -510,7 +510,12 @@
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
 		"item": "`item-list:<tag>` read in any other expression",
-		"surfaceKeys": ["instance-scheme:item-list", "instance-source:fixture"],
+		"surfaceKeys": [
+			"instance-scheme:item-list",
+			"instance-source:fixture",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
 		"valueClass": "other-expression",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `table-lookup`, `table-rows` and `table-column` bound to the Project table and its columns, in form logic, Connect and form links; a form prints the bare tag and a suite `item-list:<tag>`",
@@ -1216,7 +1221,9 @@
 			"instance-source:jr://instance/remote",
 			"instance-source:jr://instance/search-input",
 			"instance-source:jr://instance/selected-entities",
-			"instance-source:(none)"
+			"instance-source:(none)",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
 		],
 		"valueClass": "declared-unreferenced",
 		"disposition": "INERT",
@@ -1236,7 +1243,11 @@
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
 		"item": "declared, unreferenced fixture instance (`item-list:*`, `locations`, `user-groups`) the project space serves",
-		"surfaceKeys": ["instance-source:fixture"],
+		"surfaceKeys": [
+			"instance-source:fixture",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
 		"valueClass": "declared-unreferenced-served",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: Core initializes every declared instance when the form opens (`ExternalDataInstance.initialize` → `CommCareInstanceInitializer.generateRoot`), which succeeds here, and nothing reads it",
@@ -3929,11 +3940,14 @@
 		"id": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
 		"area": "expressions-and-data",
 		"section": "XPath functions and structure",
-		"item": "`#case/<prop>`, `#case/parent/<prop>`, `#case/grandparent/<prop>`",
+		"item": "`#case/<prop>`, `#case/parent/<prop>`, `#case/grandparent/<prop>`, and HQ's `#case`, `#parent` and `#host` shorthand in a slot its build interpolates",
 		"surfaceKeys": [
 			"hashtag:#case/",
 			"hashtag:#case/parent",
-			"hashtag:#case/grandparent"
+			"hashtag:#case/grandparent",
+			"hashtag:#case",
+			"hashtag:#parent",
+			"hashtag:#host"
 		],
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `#<type>/<prop>` identity leaves for the module, parent and grandparent types",
@@ -3960,6 +3974,7 @@
 		"section": "XPath functions and structure",
 		"item": "`#case:<module-slug>/…` (unrelated parent-select case)",
 		"surfaceKeys": ["hashtag:#case"],
+		"valueClass": "case-of-a-menu-named-by-its-slug",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (NON_PARENT_MENU_SELECTION: only \"Other\" parent selection produces it)",
 		"subject": "parent-selection",
@@ -4646,11 +4661,11 @@
 		"id": "expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map",
 		"area": "expressions-and-data",
 		"section": "Media",
-		"item": "a media reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file: on Android a menu's, a form's, a case list menu item's or the Register action's icon or audio label; in Web Apps every picture but a case list image column's, and every sound or video that is not a question's label or help",
+		"item": "a media reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file: on Android a menu's, a form's, a case list menu item's or the Register action's icon or audio label; in Web Apps every picture but a case list image column's, and every sound or video that is not a question's label or help; and a menu's, a form's, a case list menu item's or the Register action's icon, or the Web Apps logo, whose entry names no file the project space serves, which Web Apps alone draws, as an empty or broken picture",
 		"surfaceKeys": ["schema:Application.multimedia_map"],
 		"valueClass": "path-without-entry-nothing-draws",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: Web Apps resolves a picture's path through the map and shows nothing without an entry (`formplayer/app.js`, the `resourceMap` reply; `multimedia.html`, the `<img>`'s `visible: mediaSrc`; `menus/views.js`, a menu's and a form's `imageUrl`), and offers the Register action by its label alone (`case_list/list.html`); Android's menu list draws no bitmap and hides the audio button (`MenuAdapter.setupImageView`, `setupAudioButton`), and so does the Register action (`EntityActionViewUtils.setupActionImage`, `setupActionAudio`); the reader leaves the reference out and the review lists it",
+		"dispositionCell": "**INERT**: Web Apps resolves a picture's path through the map and shows nothing without an entry (`formplayer/app.js`, the `resourceMap` reply; `multimedia.html`, the `<img>`'s `visible: mediaSrc`; `menus/views.js`, a menu's and a form's `imageUrl`), and offers the Register action by its label alone (`case_list/list.html`); Android's menu list draws no bitmap and hides the audio button (`MenuAdapter.setupImageView`, `setupAudioButton`), and so does the Register action (`EntityActionViewUtils.setupActionImage`, `setupActionAudio`); an icon whose entry names no file gets its address from the entry's multimedia id (`formplayer/app.js`, the `resourceMap` reply) and Web Apps draws its `background-image` or `<img>` with nothing behind it (`menu/row.html`, `grid_item.html`), while Android draws nothing for it; the reader leaves the reference out, the review lists one no worker sees, and the first publish says that the empty icon goes (`broken-pictures-removed`)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

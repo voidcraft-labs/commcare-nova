@@ -440,6 +440,8 @@ describe("authored rules", () => {
 		expect(result.carriers).toEqual([
 			{
 				property: "site",
+				column: id("link"),
+				field: "site",
 				comparator: "text",
 				rule: expect.objectContaining({
 					order: 1,
@@ -611,6 +613,53 @@ describe("a tile list", () => {
 		expect(result.carriers).toEqual([]);
 		// With no rule left the list takes the implicit rule.
 		expect(result.fields[0].rule).toMatchObject({ implicit: true });
+	});
+});
+
+describe("a rule's name in Sort by", () => {
+	const named = (text: string) => columnSort("asc", 0, undefined, text);
+
+	it("rides the rule of a hidden field and of a tile list's carrier, naming its column", () => {
+		const listed = plan([
+			plainColumn(id("name"), "case_name", "Name"),
+			plainColumn(id("age"), "age", "Age", { ...HIDDEN, sort: named("Age") }),
+		]);
+		expect(listed.fields[1].rule?.label).toEqual({
+			column: id("age"),
+			text: "Age",
+		});
+		const tiled = plan(
+			[
+				plainColumn(id("name"), "case_name", "Name"),
+				plainColumn(id("age"), "age", "Age", {
+					...HIDDEN,
+					visibleInDetail: false,
+					sort: named("Age"),
+				}),
+			],
+			{ tile: {} },
+		);
+		expect(tiled.carriers.map((carrier) => carrier.rule.label)).toEqual([
+			{ column: id("age"), text: "Age" },
+		]);
+	});
+
+	it("is carried by no rule that lands on a shown field, which Sort by lists under its own header", () => {
+		// The hidden column's rule joins the earlier shown column over age.
+		const landed = plan([
+			plainColumn(id("shown-age"), "age", "Age"),
+			plainColumn(id("age"), "age", "Age again", {
+				...HIDDEN,
+				sort: named("Oldest"),
+			}),
+		]);
+		expect(landed.fields[0].rule).toBeDefined();
+		expect(landed.fields[0].rule?.label).toBeUndefined();
+		// A name on a shown column is the gate's to refuse; the plan carries none.
+		const shown = plan([
+			plainColumn(id("age"), "age", "Age", { sort: named("Oldest") }),
+		]);
+		expect(shown.fields[0].rule?.label).toBeUndefined();
 	});
 });
 

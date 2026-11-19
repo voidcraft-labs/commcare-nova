@@ -73,9 +73,9 @@ import type {
 	acceptReading,
 } from "../reading/acceptance";
 import {
-	FIRST_PUBLISH_CHANGES,
 	firstPublishChangesFor,
 	firstPublishFactsOf,
+	firstPublishListToStore,
 } from "../reading/firstPublishChanges";
 import {
 	KEYS_WITH_NO_EXTERNAL_KEY,
@@ -1299,23 +1299,28 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 	const T = under(nowReading.draft.doc, nowChoice.mutations);
 	yield;
 
-	/* 13. What the next publish changes that it would not have changed before. */
+	/* 13. What the next publish changes that it would not have changed before,
+	 * each list as a baseline stores it: an id a worker meets on Android alone
+	 * by its reading, whatever the declaration, and no Web Apps line. */
 	let baseIds: readonly FirstPublishChangeId[];
 	try {
-		baseIds = firstPublishChangesFor(
-			firstPublishFactsOf({
-				source: readings.inputs.base.source,
-				doc: B,
-				facts: baseDraft.facts,
-				forms: formsOf(baseDraft),
-				attachmentTarget: readings.inputs.base.target,
-				mediaFiles: [],
-				mediaLeftOut: readings.baseMediaLeftOut,
-				choice: {
-					runsOnlyOn: baseChoice.runsOnlyOn ?? null,
-					split: baseChoice.split,
-				},
-			}),
+		baseIds = firstPublishListToStore(
+			firstPublishChangesFor(
+				firstPublishFactsOf({
+					source: readings.inputs.base.source,
+					doc: B,
+					facts: baseDraft.facts,
+					forms: formsOf(baseDraft),
+					attachmentTarget: readings.inputs.base.target,
+					mediaFiles: [],
+					mediaLeftOut: readings.baseMediaLeftOut,
+					choice: {
+						runsOnlyOn: baseChoice.runsOnlyOn ?? null,
+						split: baseChoice.split,
+					},
+				}),
+			),
+			baseDraft.facts,
 		).ids;
 	} catch {
 		return differs({
@@ -1323,11 +1328,11 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 			segments: ["threw", "firstPublishChangesFor"],
 		});
 	}
-	const publishChanges = nowChoice.firstPublish.ids.filter(
-		(id) =>
-			!baseIds.includes(id) &&
-			FIRST_PUBLISH_CHANGES[id].scope !== "declaration" &&
-			id !== "forms-and-settings-rewritten",
+	const publishChanges = firstPublishListToStore(
+		nowChoice.firstPublish,
+		nowReading.draft.facts,
+	).ids.filter(
+		(id) => !baseIds.includes(id) && id !== "forms-and-settings-rewritten",
 	);
 
 	yield;

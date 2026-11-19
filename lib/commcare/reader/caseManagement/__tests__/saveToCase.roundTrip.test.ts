@@ -132,11 +132,15 @@ function caseChanges(doc: BlueprintDoc) {
 }
 
 /** Every text registered for the expression stage, by slot and member. */
+/** The texts registered for the expression stage to read into an operation's slots; a text of
+ *  the emitter's own, registered for the uses its syntax makes alone, is read into none. */
 function registered(
 	reading: CaseReading,
 ): { slot: string; member: unknown; text: string }[] {
 	return reading.ctx.pending.list().flatMap((one) =>
-		one.ref.entity === "form" && one.ref.slot.startsWith("case_operation_")
+		one.usesOnly !== true &&
+		one.ref.entity === "form" &&
+		one.ref.slot.startsWith("case_operation_")
 			? [
 					{
 						slot: one.ref.slot,

@@ -1,0 +1,49 @@
+{
+	"id": "hq-questions",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": {
+		"runsOnlyOn": null,
+		"splitDatetime": true
+	},
+	"exhibits": [
+		"questions/audio-capture-audio",
+		"questions/barcode-barcode",
+		"questions/bind-constraint",
+		"questions/checkbox-select-item",
+		"questions/date-and-time-xsd-datetime",
+		"questions/date-xsd-date",
+		"questions/decimal-xsd-double",
+		"questions/document-upload-application-text",
+		"questions/gps-geopoint",
+		"questions/help-text-markdown-form",
+		"questions/help-text-with-no-markdown-form",
+		"questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"questions/hint-text",
+		"questions/image-capture-upload-image",
+		"questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"questions/jr-count-naming-a-hidden-value-whose-calculate-is-an-integer-in",
+		"questions/label-trigger-whose-appearance-is-exactly-minimal",
+		"questions/multiple-choice-select1-item",
+		"questions/output-value-any-other-expression",
+		"questions/password-secret-xsd-string",
+		"questions/phone-number-xsd-string-appearance-numeric",
+		"questions/question-list-group-appearance-field-list-labelled",
+		"questions/repeat-model-iteration-vellum-role-repeat-ids-count-current",
+		"questions/repeat-with-jr-count-naming-an-integer-question-of-the-form-s",
+		"questions/signature-image-signature",
+		"questions/text-input-xsd-string",
+		"questions/time-xsd-time",
+		"questions/validation-message-text",
+		"questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable",
+		"questions/video-capture-video"
+	]
+}

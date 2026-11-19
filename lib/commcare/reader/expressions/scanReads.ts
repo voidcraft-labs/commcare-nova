@@ -45,7 +45,13 @@ export interface ScannedReads {
 		readonly property: string;
 	}[];
 	readonly locationDataSlugs: readonly string[];
+	/** The tags of the tables the expressions read: by an `item-list:<tag>`
+	 *  id, or by an id a form declares from `jr://fixture/item-list:<tag>`. */
 	readonly lookupTags: readonly string[];
+	/** The tags of the tables a form declares from
+	 *  `jr://fixture/item-list:<tag>` that no expression of that form reads and
+	 *  no expression reads by its `item-list:<tag>` id. */
+	readonly declaredLookupTags: readonly string[];
 	/** Each case type an ancestor walk reaches through `index/parent` from a
 	 *  case type the syntax fixes, by the type test the walk's hop writes. */
 	readonly parentLinks: readonly {
@@ -554,13 +560,9 @@ function readsScanner(
 			property,
 		});
 	};
-	for (const sources of env.instanceSources.values())
-		for (const source of sources.values())
-			if (
-				source.startsWith(TABLE_SOURCE) &&
-				source.length > TABLE_SOURCE.length
-			)
-				tags.add(source.slice(TABLE_SOURCE.length));
+	// The instance ids each form's expressions read, so a declaration of a
+	// table is a read only where an expression of its form reads its id.
+	const readIds = new Map<Uuid, Set<string>>();
 	const scan = (
 		syntax: FormSyntax,
 		ref: PendingExpression["ref"],
@@ -589,8 +591,15 @@ function readsScanner(
 				for (const inside of nodesOf(at.where)) inPredicate.add(core(inside));
 			if (at.kind === "call" && at.name === "instance") {
 				const id = at.args[0];
-				if (id?.kind === "string" && id.value.startsWith(TABLE_ID))
-					tags.add(id.value.slice(TABLE_ID.length));
+				if (id?.kind === "string") {
+					if (form !== undefined) {
+						const read = readIds.get(form) ?? new Set<string>();
+						readIds.set(form, read);
+						read.add(id.value);
+					}
+					if (id.value.startsWith(TABLE_ID))
+						tags.add(id.value.slice(TABLE_ID.length));
+				}
 			}
 			if (inner) continue;
 			noteWalk(rowType ?? moduleType, at);
@@ -716,11 +725,23 @@ function readsScanner(
 			}
 	};
 	const finish = (): ScannedReads => {
+		const declared = new Set<string>();
+		for (const [form, sources] of env.instanceSources)
+			for (const [id, source] of sources) {
+				if (
+					!source.startsWith(TABLE_SOURCE) ||
+					source.length === TABLE_SOURCE.length
+				)
+					continue;
+				const tag = source.slice(TABLE_SOURCE.length);
+				if (readIds.get(form)?.has(id) === true) tags.add(tag);
+				else declared.add(tag);
+			}
 		// Each property an untyped query reads that no case type declares, and
 		// no read types, belongs to the slot's own case type: Nova's binder
 		// types it by the one type that declares it, and the print, which tests
 		// no type, is the same whichever type that is.
-		const declared = new Set([
+		const declaredNames = new Set([
 			...effectiveCaseTypes(doc).flatMap((type) =>
 				type.properties.map((one) => one.name),
 			),
@@ -728,7 +749,7 @@ function readsScanner(
 		]);
 		for (const read of untypedReads)
 			if (
-				!declared.has(read.property) &&
+				!declaredNames.has(read.property) &&
 				!isStandardCaseListProperty(read.property)
 			)
 				note(read.caseType, read.property);
@@ -746,6 +767,9 @@ function readsScanner(
 			),
 			locationDataSlugs: sortedDistinct(slugs),
 			lookupTags: sortedDistinct(tags),
+			declaredLookupTags: sortedDistinct(
+				[...declared].filter((tag) => !tags.has(tag)),
+			),
 			parentLinks: [...links.values()],
 		};
 	};

@@ -524,7 +524,7 @@ function fixedOwnerTargets(doc: BlueprintDoc): readonly string[] {
  *
  * Where CommCare HQ manages the places, the place a refusal asks for (one
  * more, or one fewer) is made in CommCare HQ, so the sentence says so
- * (Copy O24, O25); the origin is read only once a rule would refuse.
+ * (`lib/publish/managedData.ts::managedOrganizationCommitRefusal`); the origin is read only once a rule would refuse.
  */
 export async function assertReverseHopTargetsUnambiguous(
 	tx: Transaction<AppDatabase>,

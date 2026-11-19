@@ -1002,7 +1002,10 @@ describe("a form slot read by the whole expression stage", () => {
 			expect(reading.bound[0]).toBeDefined();
 		});
 
-		it("refuses a read of the case on a screen that chooses no case first as broken in CommCare HQ", () => {
+		it("refuses a read of the case in a menu not every form of which requires a case under HQ's own build error", () => {
+			// HQ's build refuses it (`suite_xml/sections/menus.py`,
+			// `CaseXPathValidationError`), the form's own entry; the screen's
+			// wider entry is for what HQ builds.
 			const doc = formsFirstDoc();
 			const reading = readExpressions(
 				doc,
@@ -1011,7 +1014,7 @@ describe("a form slot read by the whole expression stage", () => {
 			);
 			expect(reading.bound[0]).toBeUndefined();
 			expect(refusalOf(reading).map((claim) => claim.entryId)).toEqual([
-				"menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first",
+				"forms-and-case-writes/form-filter-referencing-the-case-database-other-than-through",
 			]);
 		});
 	});

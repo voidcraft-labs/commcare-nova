@@ -141,17 +141,13 @@ async function readWithMedia(
 }
 
 /** The entries the reading accounted each `translations` key under, by key. */
-function translationEntries(
-	outcome: ReturnType<typeof readHqApp>,
-): Record<string, string> {
-	return Object.fromEntries(
-		[...outcome.claims.records()]
-			.filter((record) => record.where.includes("/translations/"))
-			.map((record) => [
-				record.where.slice(record.where.lastIndexOf("/") + 1),
-				record.entry.slice(record.entry.indexOf("/") + 1),
-			]),
-	);
+function translationEntries(outcome: ReturnType<typeof readHqApp>): string[] {
+	return [...outcome.claims.records()]
+		.filter(
+			(record) =>
+				record.artifact === "app.json" && record.where === "/translations",
+		)
+		.map((record) => record.entry.slice(record.entry.indexOf("/") + 1));
 }
 
 /** HQ's `translations` with `overrides` added in English. */
@@ -401,7 +397,7 @@ describe("an override of a generated media key in `translations`", () => {
 			overriding(json, { "modules.m0.icon": MENU_ICON });
 		});
 		expect(findings(outcome)).toEqual([]);
-		expect(translationEntries(outcome)["modules.m0.icon"]).toBe(
+		expect(translationEntries(outcome)).toContain(
 			"translations-generated-key-with-no-effect",
 		);
 	});
@@ -445,11 +441,11 @@ describe("an override of a generated media key in `translations`", () => {
 			});
 		});
 		expect(findings(outcome)).toEqual([]);
-		expect(translationEntries(outcome)).toMatchObject({
-			"modules.m0.icon": "translations-generated-key-with-no-effect",
-			"forms.m0f0.audio": "translations-generated-key-with-no-effect",
-			"m0.case_short.case_photo_1.alt_text.kyes":
-				"translations-generated-key-with-no-effect",
-		});
+		/* One record a key, each at `translations`, where the key its claim names sits. */
+		expect(
+			translationEntries(outcome).filter(
+				(entry) => entry === "translations-generated-key-with-no-effect",
+			),
+		).toHaveLength(3);
 	});
 });

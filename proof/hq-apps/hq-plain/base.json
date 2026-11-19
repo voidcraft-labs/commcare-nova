@@ -1,0 +1,29 @@
+{
+	"id": "hq-plain",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/40-hq-cloudcare-enabled",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/update-case-condition-always",
+		"forms-and-case-writes/update-case-update-property-question",
+		"menus-and-case-lists/2-date-date-format-d-m-y-d-m-y-m-d-y-m-d-y-b-d-y",
+		"menus-and-case-lists/module-with-case-type-case-list-module",
+		"questions/bind-calculate-on-a-hidden-value",
+		"questions/bind-required-expr",
+		"questions/date-xsd-date",
+		"questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"questions/text-input-xsd-string"
+	]
+}

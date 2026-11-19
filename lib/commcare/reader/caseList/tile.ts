@@ -8,6 +8,7 @@
 import {
 	type BlueprintDoc,
 	type Column,
+	makeTranslationUnitId,
 	orderedColumns,
 	plainColumn,
 	type Uuid,
@@ -23,12 +24,13 @@ import {
 import { TILE_VERTICAL_ALIGN_WIRE } from "../../suite/case-list/tileStyle";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { withCandidate } from "../candidate";
-import { defineClaims, drop, refuse, take } from "../claims";
+import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { reReadUuidOf } from "../identityMap";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import type { JoinedDetails } from "./details";
+import { claimRestUnderFinding } from "./refusedWhole";
 
 const A = "menus-and-case-lists/";
 
@@ -171,14 +173,37 @@ function dropCells(column: JsonCursor): void {
 	for (const key of CELL_KEYS) column.drop(key, OFF_TILE[key]);
 }
 
-/** One placed column's cell, or a finding. A word outside the page's three is `unrecognized`. */
-function readCell(ctx: ReadContext, column: JsonCursor): TileCell | "finding" {
+/** Whether a column's key is one of its tile cell's. */
+function isCellKey(key: string): boolean {
+	return (CELL_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * One placed column's cell, or a finding. A word outside the page's three is `unrecognized`. A
+ * cell that is a finding is refused whole: each of its keys is claimed under that finding. The
+ * refusal is a class of the column and of the custom tile it stands in, so it stands at the
+ * column's keys and at the detail's `case_tile_template` (`template`) too.
+ */
+function readCell(
+	ctx: ReadContext,
+	column: JsonCursor,
+	template: string,
+): TileCell | "finding" {
+	const refused = (claim: Claim<"refuse">): "finding" => {
+		ctx.accounting.findingAt(claim, column.place, column.pointer);
+		ctx.accounting.findingAt(claim, column.place, template);
+		claimRestUnderFinding(
+			ctx,
+			column,
+			{ code: claim.entry, place: column.place },
+			isCellKey,
+		);
+		return "finding";
+	};
 	const x = column.peek("grid_x");
 	const y = column.peek("grid_y");
-	if (typeof x !== "number" || typeof y !== "number") {
-		ctx.accounting.finding(T.unplaced, column.place);
-		return "finding";
-	}
+	if (typeof x !== "number" || typeof y !== "number")
+		return refused(T.unplaced);
 	const horizontal = column.peek("horizontal_align");
 	const vertical = column.peek("vertical_align");
 	const font = column.peek("font_size");
@@ -187,14 +212,9 @@ function readCell(ctx: ReadContext, column: JsonCursor): TileCell | "finding" {
 		horizontal === undefined ||
 		vertical === null ||
 		vertical === undefined
-	) {
-		ctx.accounting.finding(T.alignNull, column.place);
-		return "finding";
-	}
-	if (font === null || font === undefined) {
-		ctx.accounting.finding(T.fontNull, column.place);
-		return "finding";
-	}
+	)
+		return refused(T.alignNull);
+	if (font === null || font === undefined) return refused(T.fontNull);
 	const verticalWord =
 		typeof vertical === "string" ? VERTICAL_FROM_WIRE.get(vertical) : undefined;
 	if (
@@ -202,13 +222,20 @@ function readCell(ctx: ReadContext, column: JsonCursor): TileCell | "finding" {
 		verticalWord === undefined ||
 		!(TILE_FONT_SIZES as readonly unknown[]).includes(font)
 	) {
-		ctx.accounting.circumstance("unrecognized", column.place, {
-			name: !(TILE_HORIZONTAL_ALIGNS as readonly unknown[]).includes(horizontal)
-				? "schema:DetailColumn.horizontal_align"
-				: verticalWord === undefined
-					? "schema:DetailColumn.vertical_align"
-					: "schema:DetailColumn.font_size",
-		});
+		const name = !(TILE_HORIZONTAL_ALIGNS as readonly unknown[]).includes(
+			horizontal,
+		)
+			? "schema:DetailColumn.horizontal_align"
+			: verticalWord === undefined
+				? "schema:DetailColumn.vertical_align"
+				: "schema:DetailColumn.font_size";
+		ctx.accounting.circumstance("unrecognized", column.place, { name });
+		claimRestUnderFinding(
+			ctx,
+			column,
+			{ code: "unrecognized", place: column.place, name },
+			isCellKey,
+		);
 		return "finding";
 	}
 	column.take("vertical_align", T.vertical, String).value;
@@ -313,7 +340,7 @@ export function readTile(
 			dropCells(cursor);
 			return;
 		}
-		const cell = readCell(ctx, cursor);
+		const cell = readCell(ctx, cursor, `${short.pointer}/case_tile_template`);
 		if (cell === "finding") ok = false;
 		else cells.set(index, cell);
 	});
@@ -329,7 +356,8 @@ export function readTile(
  * The reader's canonical choice `tile-columns-shown-nowhere-are-as-read`. In a tile list a column
  * hidden from Results and from Details is no field of either detail (`caseListOrder.ts`, rule 2),
  * so nothing of it is in any export but the order rule it holds: a plain column's header, and its
- * place in the list's order, are written nowhere, and a column whose rule is written nowhere (an
+ * place in the list's order, are written nowhere (the rule's name in Sort by, where it holds one,
+ * is the header the reader returns), and a column whose rule is written nowhere (an
  * unsorted one, a calculated one, one over `case_id`) leaves no trace at all. The reader returns a
  * plain such column with no header, after the list's other columns in the order of its rule
  * (`order.ts::readSortElements` adds it there), and no column for one that leaves no trace. A
@@ -370,8 +398,10 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 			const carried = config.columns
 				.filter((column) => shownNowhere(column))
 				.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
+			// A rule that names its column in Sort by prints that name, the appended column's header
+			// (`util.py::create_temp_sort_column`), so the reader returns it as the header.
 			for (const column of carried)
-				if (column.kind === "plain") column.header = "";
+				if (column.kind === "plain") column.header = column.sort?.label ?? "";
 			const last = new Set(carried.map((column) => column.uuid));
 			config.listColumnOrder = [
 				...config.listColumnOrder.filter(
@@ -380,8 +410,11 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 				...carried.map((column) => column.uuid),
 			];
 			const source = doc.modules[uuid]?.caseListConfig;
-			if (source !== undefined)
-				carriersAsPlainColumns(config, plainColumnKeys(source), (field, n) =>
+			if (source === undefined) continue;
+			const renamed = carriersAsPlainColumns(
+				config,
+				plainColumnKeys(source),
+				(field, n) =>
 					reRead(
 						externalKey.caseListColumn(
 							DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
@@ -390,7 +423,18 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 							n,
 						),
 					),
-				);
+			);
+			// A renamed column's name in Sort by keeps its translations under its new identity.
+			for (const entries of Object.values(
+				draft.localization?.translations ?? {},
+			))
+				for (const [from, to] of renamed) {
+					const was = makeTranslationUnitId("column", from, "sort-label");
+					const entry = entries[was];
+					if (entry === undefined) continue;
+					delete entries[was];
+					entries[makeTranslationUnitId("column", to, "sort-label")] = entry;
+				}
 		}
 	});
 }
@@ -419,7 +463,7 @@ function carriersAsPlainColumns(
 	config: CaseListConfig,
 	known: ReadonlyMap<string, Uuid>,
 	mint: (field: string, n: number) => Uuid,
-): void {
+): ReadonlyMap<Uuid, Uuid> {
 	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
 	const counts = new Map<string, number>();
 	const renamed = new Map<Uuid, Uuid>();
@@ -437,12 +481,12 @@ function carriersAsPlainColumns(
 			held !== undefined && !byUuid.has(held) ? held : mint(column.field, n),
 		);
 	}
-	if (renamed.size === 0) return;
+	if (renamed.size === 0) return renamed;
 	config.columns = config.columns.map((column) => {
 		const next = renamed.get(column.uuid);
 		if (next === undefined || column.kind === "calculated") return column;
 		return {
-			...plainColumn(next, column.field, ""),
+			...plainColumn(next, column.field, column.sort?.label ?? ""),
 			visibleInList: false,
 			visibleInDetail: false,
 			...(column.sort !== undefined && { sort: column.sort }),
@@ -451,6 +495,7 @@ function carriersAsPlainColumns(
 	const rename = (one: Uuid) => renamed.get(one) ?? one;
 	config.listColumnOrder = config.listColumnOrder.map(rename);
 	config.detailColumnOrder = config.detailColumnOrder.map(rename);
+	return renamed;
 }
 
 /** A column hidden from Results and from Details. */

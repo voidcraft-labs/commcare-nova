@@ -639,7 +639,8 @@ entry.
    observed ones (part 14, section 9).
 5. **A round trip through CommCare HQ loses nothing**: part 15's ten documents hold what each
    states in the night: the eight that state `brings-in` their five checks, and the two that state
-   `proceeds` that outcome.
+   `records` (the resaved form and the location list) that outcome: the stop, a review that finds
+   nothing to bring in for the reason each states, the record, and the publish that goes through.
 6. **The manifest states no widen**: `rg -n '"direction": "widen"' lib/commcare/surface/entries`
    prints nothing (forty-five lines at the baseline).
 7. **The deploy is live**, its migration Job applied the four migrations, and the runtime probe

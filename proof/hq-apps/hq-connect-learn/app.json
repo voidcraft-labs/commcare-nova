@@ -1,0 +1,552 @@
+{
+	"domain": "nova-proof",
+	"modules": [
+		{
+			"name": {
+				"en": "Training"
+			},
+			"forms": [
+				{
+					"name": {
+						"en": "Hand washing"
+					},
+					"form_type": "module_form",
+					"requires": "none",
+					"actions": {
+						"open_case": {
+							"name_update": {
+								"question_path": null,
+								"update_mode": "always",
+								"doc_type": "ConditionalCaseUpdate"
+							},
+							"conflicts": [],
+							"external_id": null,
+							"doc_type": "OpenCaseAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"update_case": {
+							"update": {},
+							"conflicts": {},
+							"doc_type": "UpdateCaseAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"close_case": {
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							},
+							"doc_type": "FormAction"
+						},
+						"open_referral": {
+							"name_path": null,
+							"doc_type": "OpenReferralAction",
+							"followup_date": null,
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"update_referral": {
+							"followup_date": null,
+							"doc_type": "UpdateReferralAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"close_referral": {
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							},
+							"doc_type": "FormAction"
+						},
+						"case_preload": {
+							"preload": {},
+							"doc_type": "PreloadAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"referral_preload": {
+							"preload": {},
+							"doc_type": "PreloadAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"load_from_form": {
+							"preload": {},
+							"doc_type": "PreloadAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"usercase_update": {
+							"update": {},
+							"conflicts": {},
+							"doc_type": "UpdateCaseAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"usercase_preload": {
+							"preload": {},
+							"doc_type": "PreloadAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": "=",
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"subcases": [],
+						"doc_type": "FormActions"
+					},
+					"doc_type": "Form",
+					"unique_id": "e866d8f964694b44bdfe7d7c5bc0735c",
+					"show_count": false,
+					"xmlns": "http://openrosa.org/formdesigner/85363225-5ad8-4405-a9a6-cba7647ec188",
+					"version": null,
+					"post_form_workflow": "default",
+					"post_form_workflow_fallback": null,
+					"auto_gps_capture": false,
+					"form_links": [],
+					"custom_assertions": [],
+					"custom_instances": [],
+					"case_references_data": {
+						"load": {},
+						"save": {},
+						"doc_type": "CaseReferences"
+					},
+					"is_release_notes_form": false,
+					"enable_release_notes": false,
+					"respect_relevancy": true,
+					"function_datum_endpoints": [],
+					"submit_label": {},
+					"submit_notification_label": {},
+					"comment": "",
+					"media_image": {},
+					"media_audio": {},
+					"custom_icons": [],
+					"use_default_image_for_all": false,
+					"use_default_audio_for_all": false
+				}
+			],
+			"case_type": "",
+			"case_details": {
+				"short": {
+					"columns": [
+						{
+							"format": "plain",
+							"header": {
+								"en": "Name"
+							},
+							"field": "name",
+							"model": "case",
+							"hasAutocomplete": true,
+							"useXpathExpression": false,
+							"grid_x": null,
+							"grid_y": null,
+							"enum": [],
+							"graph_configuration": {
+								"config": {},
+								"locale_specific_config": {},
+								"annotations": [],
+								"series": [],
+								"doc_type": "GraphConfiguration"
+							},
+							"late_flag": 30,
+							"time_ago_interval": 365.25,
+							"date_format": "%d/%m/%y",
+							"doc_type": "DetailColumn"
+						}
+					],
+					"display": "short",
+					"tabs": [],
+					"sort_elements": [],
+					"instance_name": "casedb",
+					"persist_case_context": null,
+					"persistent_case_context_xml": "case_name",
+					"multi_select": false,
+					"auto_select": false,
+					"max_select_value": 100,
+					"persist_tile_on_forms": null,
+					"pull_down_tile": null,
+					"case_tile_group": {
+						"index_identifier": null,
+						"header_rows": 2,
+						"doc_type": "CaseTileGroupConfig"
+					},
+					"no_items_text": {
+						"en": "List is empty."
+					},
+					"select_text": {
+						"en": "Continue"
+					},
+					"doc_type": "Detail",
+					"lookup_enabled": false,
+					"lookup_autolaunch": false,
+					"lookup_image": null,
+					"lookup_extras": [],
+					"lookup_responses": [],
+					"lookup_display_results": false,
+					"lookup_field_header": {}
+				},
+				"long": {
+					"columns": [
+						{
+							"format": "plain",
+							"header": {
+								"en": "Name"
+							},
+							"field": "name",
+							"model": "case",
+							"hasAutocomplete": true,
+							"useXpathExpression": false,
+							"grid_x": null,
+							"grid_y": null,
+							"enum": [],
+							"graph_configuration": {
+								"config": {},
+								"locale_specific_config": {},
+								"annotations": [],
+								"series": [],
+								"doc_type": "GraphConfiguration"
+							},
+							"late_flag": 30,
+							"time_ago_interval": 365.25,
+							"date_format": "%d/%m/%y",
+							"doc_type": "DetailColumn"
+						}
+					],
+					"display": "long",
+					"tabs": [],
+					"sort_elements": [],
+					"instance_name": "casedb",
+					"persist_case_context": null,
+					"persistent_case_context_xml": "case_name",
+					"multi_select": false,
+					"auto_select": false,
+					"max_select_value": 100,
+					"persist_tile_on_forms": null,
+					"pull_down_tile": null,
+					"case_tile_group": {
+						"index_identifier": null,
+						"header_rows": 2,
+						"doc_type": "CaseTileGroupConfig"
+					},
+					"no_items_text": {
+						"en": "List is empty."
+					},
+					"select_text": {
+						"en": "Continue"
+					},
+					"doc_type": "Detail",
+					"lookup_enabled": false,
+					"lookup_autolaunch": false,
+					"lookup_image": null,
+					"lookup_extras": [],
+					"lookup_responses": [],
+					"lookup_display_results": false,
+					"lookup_field_header": {}
+				},
+				"doc_type": "DetailPair"
+			},
+			"module_type": "basic",
+			"ref_details": {
+				"short": {
+					"display": "short",
+					"columns": [],
+					"tabs": [],
+					"sort_elements": [],
+					"instance_name": "casedb",
+					"persist_case_context": null,
+					"persistent_case_context_xml": "case_name",
+					"multi_select": false,
+					"auto_select": false,
+					"max_select_value": 100,
+					"persist_tile_on_forms": null,
+					"pull_down_tile": null,
+					"case_tile_group": {
+						"index_identifier": null,
+						"header_rows": 2,
+						"doc_type": "CaseTileGroupConfig"
+					},
+					"no_items_text": {
+						"en": "List is empty."
+					},
+					"select_text": {
+						"en": "Continue"
+					},
+					"doc_type": "Detail",
+					"lookup_enabled": false,
+					"lookup_autolaunch": false,
+					"lookup_image": null,
+					"lookup_extras": [],
+					"lookup_responses": [],
+					"lookup_display_results": false,
+					"lookup_field_header": {}
+				},
+				"long": {
+					"display": "long",
+					"columns": [],
+					"tabs": [],
+					"sort_elements": [],
+					"instance_name": "casedb",
+					"persist_case_context": null,
+					"persistent_case_context_xml": "case_name",
+					"multi_select": false,
+					"auto_select": false,
+					"max_select_value": 100,
+					"persist_tile_on_forms": null,
+					"pull_down_tile": null,
+					"case_tile_group": {
+						"index_identifier": null,
+						"header_rows": 2,
+						"doc_type": "CaseTileGroupConfig"
+					},
+					"no_items_text": {
+						"en": "List is empty."
+					},
+					"select_text": {
+						"en": "Continue"
+					},
+					"doc_type": "Detail",
+					"lookup_enabled": false,
+					"lookup_autolaunch": false,
+					"lookup_image": null,
+					"lookup_extras": [],
+					"lookup_responses": [],
+					"lookup_display_results": false,
+					"lookup_field_header": {}
+				},
+				"doc_type": "DetailPair"
+			},
+			"case_list": {
+				"label": {},
+				"show": false,
+				"doc_type": "CaseList",
+				"media_image": {},
+				"media_audio": {},
+				"custom_icons": [],
+				"use_default_image_for_all": false,
+				"use_default_audio_for_all": false
+			},
+			"referral_list": {
+				"label": {},
+				"show": false,
+				"doc_type": "CaseList",
+				"media_image": {},
+				"media_audio": {},
+				"custom_icons": [],
+				"use_default_image_for_all": false,
+				"use_default_audio_for_all": false
+			},
+			"task_list": {
+				"label": {},
+				"show": false,
+				"doc_type": "CaseList",
+				"media_image": {},
+				"media_audio": {},
+				"custom_icons": [],
+				"use_default_image_for_all": false,
+				"use_default_audio_for_all": false
+			},
+			"parent_select": {
+				"active": false,
+				"relationship": "parent",
+				"module_id": null,
+				"doc_type": "ParentSelect"
+			},
+			"search_config": {
+				"search_button_label": {
+					"en": "Search All Cases"
+				},
+				"properties": [],
+				"auto_launch": false,
+				"default_search": false,
+				"default_properties": [],
+				"custom_sort_properties": [],
+				"additional_case_types": [],
+				"additional_registry_cases": [],
+				"title_label": {},
+				"description": {},
+				"include_all_related_cases": false,
+				"search_on_clear": false,
+				"inline_search": false,
+				"doc_type": "CaseSearch"
+			},
+			"display_style": "list",
+			"lazy_load_case_list_fields": false,
+			"show_case_list_optimization_options": false,
+			"doc_type": "Module",
+			"unique_id": "e7b1ba6a8fcc430191539bb155d52995",
+			"case_list_form": {
+				"form_id": null,
+				"label": {},
+				"post_form_workflow": "default",
+				"doc_type": "CaseListForm",
+				"media_image": {},
+				"media_audio": {},
+				"custom_icons": [],
+				"use_default_image_for_all": false,
+				"use_default_audio_for_all": false
+			},
+			"put_in_root": false,
+			"fixture_select": {
+				"active": false,
+				"localize": false,
+				"doc_type": "FixtureSelect"
+			},
+			"report_context_tile": false,
+			"auto_select_case": false,
+			"is_training_module": false,
+			"custom_assertions": [],
+			"media_image": {},
+			"media_audio": {},
+			"custom_icons": [],
+			"use_default_image_for_all": false,
+			"use_default_audio_for_all": false,
+			"comment": ""
+		}
+	],
+	"name": "Hygiene training",
+	"langs": [
+		"en"
+	],
+	"date_created": "2026-10-05T10:02:15.000000Z",
+	"profile": {},
+	"use_custom_suite": false,
+	"custom_base_url": null,
+	"cloudcare_enabled": false,
+	"translations": {},
+	"translation_strategy": "select-known",
+	"auto_gps_capture": false,
+	"created_from_template": null,
+	"use_grid_menus": false,
+	"grid_form_menus": "none",
+	"add_ons": {
+		"advanced_itemsets": false,
+		"calc_xpaths": false,
+		"case_detail_overwrite": false,
+		"case_list_menu_item": false,
+		"conditional_enum": false,
+		"conditional_form_actions": false,
+		"display_conditions": false,
+		"enum_image": false,
+		"menu_mode": false,
+		"register_from_case_list": false,
+		"subcases": false,
+		"submenus": false,
+		"empty_case_lists": false
+	},
+	"smart_lang_display": null,
+	"custom_assertions": [],
+	"family_id": null,
+	"doc_type": "Application",
+	"recipients": "",
+	"copy_of": null,
+	"version": 7,
+	"short_odk_url": null,
+	"short_odk_media_url": null,
+	"build_spec": {
+		"version": "2.57.0",
+		"build_number": null,
+		"latest": true,
+		"doc_type": "BuildSpec"
+	},
+	"built_with": {
+		"signed": true,
+		"datetime": null,
+		"doc_type": "BuildRecord",
+		"version": null,
+		"build_number": null,
+		"latest": null
+	},
+	"build_signed": true,
+	"built_on": null,
+	"build_comment": null,
+	"comment_from": null,
+	"last_released": null,
+	"build_broken": false,
+	"is_auto_generated": false,
+	"build_broken_reason": null,
+	"is_released": false,
+	"admin_password": null,
+	"admin_password_charset": "n",
+	"secure_submissions": false,
+	"amplifies_workers": "not_set",
+	"amplifies_project": "not_set",
+	"minimum_use_threshold": "15",
+	"experienced_threshold": "3",
+	"cached_properties": {},
+	"description": null,
+	"deployment_date": null,
+	"phone_model": null,
+	"user_type": null,
+	"attribution_notes": null,
+	"case_sharing": false,
+	"vellum_case_management": true,
+	"application_version": "2.0",
+	"last_modified": "2026-10-05T10:02:21.000000Z",
+	"build_profiles": {},
+	"practice_mobile_worker_id": null,
+	"target_commcare_flavor": "none",
+	"has_submissions": false,
+	"mobile_ucr_restore_version": "2.0",
+	"location_fixture_restore": "project_default",
+	"persistent_menu": false,
+	"show_breadcrumbs": true,
+	"copy_history": [],
+	"comment": "",
+	"multimedia_map": {},
+	"logo_refs": {},
+	"archived_media": {},
+	"_id": "d753ed80-c0a3-11f1-abc7-4511abd62393",
+	"_rev": "7-dae77480-c0a3-11f1-8178-b9632f986867",
+	"_attachments": {
+		"e866d8f964694b44bdfe7d7c5bc0735c.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\">\n\t<h:head>\n\t\t<h:title>Hand washing</h:title>\n\t\t<model>\n\t\t\t<instance>\n\t\t\t\t<data xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" xmlns=\"http://openrosa.org/formdesigner/85363225-5ad8-4405-a9a6-cba7647ec188\" uiVersion=\"1\" version=\"3\" name=\"Hand washing\">\n\t\t\t\t\t<quiz_score />\n\t\t\t\t\t<intro_module xmlns:vellum=\"http://commcarehq.org/xforms/vellum\" vellum:role=\"ConnectLearnModule\">\n\t\t\t\t\t\t<module xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"intro_module\">\n\t\t\t\t\t\t\t<name>Hand washing</name>\n\t\t\t\t\t\t\t<description>Why and when to wash hands</description>\n\t\t\t\t\t\t\t<time_estimate>5</time_estimate>\n\t\t\t\t\t\t</module>\n\t\t\t\t\t</intro_module>\n\t\t\t\t\t<intro_check xmlns:vellum=\"http://commcarehq.org/xforms/vellum\" vellum:role=\"ConnectAssessment\">\n\t\t\t\t\t\t<assessment xmlns=\"http://commcareconnect.com/data/v1/learn\" id=\"intro_check\">\n\t\t\t\t\t\t\t<user_score />\n\t\t\t\t\t\t</assessment>\n\t\t\t\t\t</intro_check>\n\t\t\t\t</data>\n\t\t\t</instance>\n\t\t\t<bind vellum:nodeset=\"#form/quiz_score\" nodeset=\"/data/quiz_score\" type=\"xsd:int\" />\n\t\t\t<bind vellum:nodeset=\"#form/intro_module\" nodeset=\"/data/intro_module\" />\n\t\t\t<bind vellum:nodeset=\"#form/intro_check\" nodeset=\"/data/intro_check\" />\n\t\t\t<bind nodeset=\"/data/intro_check/assessment/user_score\" vellum:calculate=\"#form/quiz_score\" calculate=\"/data/quiz_score\" />\n\t\t\t<itext>\n\t\t\t\t<translation lang=\"en\" default=\"\">\n\t\t\t\t\t<text id=\"quiz_score-label\">\n\t\t\t\t\t\t<value>Quiz score</value>\n\t\t\t\t\t</text>\n\t\t\t\t</translation>\n\t\t\t</itext>\n\t\t</model>\n\t</h:head>\n\t<h:body>\n\t\t<input vellum:ref=\"#form/quiz_score\" ref=\"/data/quiz_score\">\n\t\t\t<label ref=\"jr:itext('quiz_score-label')\" />\n\t\t</input>\n\t</h:body>\n</h:html>"
+	}
+}

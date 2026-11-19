@@ -1,11 +1,11 @@
 /**
  * Save to Case blocks (`vellum:role="SaveToCase"`) read into case operations,
  * in the one shape Nova's emitter writes them. A block is Nova's own exactly
- * where four tests hold: it stands under Nova's wrappers alone (position);
- * its content gives one operation whose block shape has its path's segments
- * (shape); every guard beside it belongs to an operation read here (guards);
- * and the emitter, given the document, writes the same block (content,
- * `settleSaveToCase`). Every other block is one finding at its place.
+ * where four tests hold: 1, it stands under Nova's wrappers alone
+ * (position); 2, its content gives one operation whose block shape has its
+ * path's segments (shape); 3, every guard beside it belongs to an operation
+ * read here (guards); and 4, the emitter, given the document, writes the same
+ * block (content, `settleSaveToCase`). Every other block is one finding at its place.
  *
  * Each value is read through the wrapper the emitter writes around it, taken
  * off by syntax (`matchesTemplate` over the emitter's own builders), and what
@@ -74,6 +74,7 @@ import {
 	generatedBaseName,
 	operationGuardKinds,
 } from "../../xform/generatedNodes";
+import { attributeNamespace, VELLUM_NS } from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import {
@@ -110,6 +111,8 @@ import {
 import { X } from "../xform/claims";
 import { HOLE, isAllocatedName, matchesTemplate } from "../xform/generated";
 import { type DataNode, pathSteps, resolveContextPath } from "../xform/model";
+import type { StandingRefusal } from "../xform/refusals";
+import { qualifiedAttribute, type XmlNode } from "../xmlCursor";
 import {
 	advancedCaseReading,
 	nameAdvancedOperationsPast,
@@ -119,6 +122,7 @@ import {
 	dropCreateNameRequired,
 	isServerDivertedKey,
 	nameBasicOperationsPast,
+	refusedCaseManagement,
 } from "./basicActions";
 import {
 	blockTreesEqual,
@@ -158,6 +162,12 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	blankCreateId: refuse(
 		`${Q}/savetocase-create-at-the-form-root-whose-authored-case-id-xpath`,
 		"jr-action:setvalue",
+	),
+	/** A create outside a repeat whose id a bind calculates, which HQ's form builder writes
+	 *  again as an `xforms-ready` setvalue on its next save (`saveToCase.js`). */
+	liveCreateId: refuse(
+		`${Q}/create-case-id-live-calculate-outside-a-repeat`,
+		"xform:model/bind@calculate",
 	),
 	ownerCondition: refuse(`${Q}/savetocase-owner-id-condition`, MUG),
 	closeOnlyCondition: refuse(
@@ -261,10 +271,6 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		MUG,
 	),
 
-	create: take(
-		`${Q}/savetocase-create-case-type-literal-case-name-owner-id-uuid-case`,
-		MUG,
-	),
 	createBind: derived(
 		`${Q}/savetocase-create-case-type-literal-case-name-owner-id-uuid-case`,
 		"xform:model/bind@calculate",
@@ -273,7 +279,6 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-create-case-type-literal-case-name-owner-id-uuid-case`,
 		"xform:setvalue",
 	),
-	update: take(`${Q}/savetocase-update-case-id-xpath`, MUG),
 	updateBind: derived(
 		`${Q}/savetocase-update-case-id-xpath`,
 		"xform:model/bind@calculate",
@@ -282,16 +287,6 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-property-rows-calculation-condition-lifting-into`,
 		MUG,
 	),
-	hyphenated: take(
-		`${Q}/savetocase-property-names-with-hyphens-a-z-w-case-insensitive`,
-		MUG,
-	),
-	owner: derived(`${Q}/savetocase-owner`, MUG),
-	link: derived(
-		`${Q}/savetocase-link-index-name-child-extension-and-unlink-empty`,
-		MUG,
-	),
-	inRepeat: take(`${Q}/savetocase-inside-a-repeat`, MUG),
 	conditionGroup: derived(
 		`${Q}/savetocase-inside-a-group-whose-display-condition-gates-it`,
 		MUG,
@@ -306,6 +301,282 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		"schema:CaseReferences.save",
 	),
 });
+
+// ── Where a region's claims are recorded ──────────────────────────────────
+
+/** An element of an instance's content that is a child of the data root, as the lane names it. */
+const TOP = "xform:model/instance/*/*";
+/** An element of an instance's content one deeper or more. */
+const NESTED = "xform:model/instance//*";
+
+/** The surface keys a Save to Case region's nodes are recorded under, as the lane names each
+ *  (`proof/checks/manifest_usage.py::xform_vocabulary`): a data node by its depth, its
+ *  `jr:template` and its form builder role and case type; a bind and the attributes the region
+ *  writes on one; a setvalue and its three; a body group and repeat and theirs; and the type HQ's
+ *  question reader gives a node of the region (`xform.py::XForm.get_questions`: a group or a
+ *  repeat its control names, a leaf no control names a Hidden Value). */
+const REGION_KEYS = [
+	TOP,
+	NESTED,
+	`${TOP}@jr:template`,
+	`${NESTED}@jr:template`,
+	"vellum-markup:model/instance//*@vellum:role",
+	"vellum-markup:model/instance//*@vellum:case_type",
+	"xform:model/bind",
+	"xform:model/bind@nodeset",
+	"xform:model/bind@calculate",
+	"xform:model/bind@relevant",
+	"xform:model/bind@type",
+	"xform:setvalue",
+	"xform:setvalue@event",
+	"xform:setvalue@ref",
+	"xform:setvalue@value",
+	"xform:group",
+	"xform:group@ref",
+	"xform:repeat",
+	"xform:repeat@nodeset",
+	"xform:repeat@jr:count",
+	"xform:repeat@jr:noAddRemove",
+	"mug:Group",
+	"mug:Repeat",
+	"mug:DataBindOnly",
+] as const;
+type RegionKey = (typeof REGION_KEYS)[number];
+
+/** One entry's claims of a use under each surface key of `keys`, registered as
+ *  `<entry less its area>@<key>`. */
+function regionClaims<U extends "take" | "derived">(
+	use: U,
+	entry: string,
+	keys: readonly RegionKey[],
+): ReadonlyMap<RegionKey, Claim<U>> {
+	const short = entry.slice(entry.indexOf("/") + 1);
+	const claims = new Map<RegionKey, Claim<U>>();
+	const named: Record<string, Claim> = {};
+	for (const key of keys) {
+		const claim = (
+			use === "take" ? take(entry, key) : derived(entry, key)
+		) as Claim<U>;
+		claims.set(key, claim);
+		named[`${short}@${key}`] = claim;
+	}
+	defineClaims("caseManagement.saveToCase", named);
+	return claims;
+}
+
+/** A block's own keys: its data node, the form builder's role and case type on it, and the
+ *  Hidden Value HQ's question reader reads each leaf of it as. */
+const BLOCK_KEYS: readonly RegionKey[] = [
+	TOP,
+	NESTED,
+	"vellum-markup:model/instance//*@vellum:role",
+	"vellum-markup:model/instance//*@vellum:case_type",
+	"mug:DataBindOnly",
+];
+/** The keys of a block's binds and setvalues: the bind and the attributes the region writes on
+ *  one, and a setvalue and its three. */
+const BIND_KEYS: readonly RegionKey[] = [
+	"xform:model/bind",
+	"xform:model/bind@nodeset",
+	"xform:model/bind@calculate",
+	"xform:model/bind@relevant",
+	"xform:model/bind@type",
+	"xform:setvalue",
+	"xform:setvalue@event",
+	"xform:setvalue@ref",
+	"xform:setvalue@value",
+];
+
+/** The claims of a region's held nodes, by the entry each is claimed under and the key it is
+ *  recorded at. */
+const REGION = {
+	create: regionClaims(
+		"take",
+		`${Q}/savetocase-create-case-type-literal-case-name-owner-id-uuid-case`,
+		BLOCK_KEYS,
+	),
+	update: regionClaims(
+		"take",
+		`${Q}/savetocase-update-case-id-xpath`,
+		BLOCK_KEYS,
+	),
+	inRepeat: regionClaims("take", `${Q}/savetocase-inside-a-repeat`, BLOCK_KEYS),
+	hyphenated: regionClaims(
+		"take",
+		`${Q}/savetocase-property-names-with-hyphens-a-z-w-case-insensitive`,
+		BLOCK_KEYS,
+	),
+	createBind: regionClaims(
+		"derived",
+		`${Q}/savetocase-create-case-type-literal-case-name-owner-id-uuid-case`,
+		BIND_KEYS,
+	),
+	updateBind: regionClaims(
+		"derived",
+		`${Q}/savetocase-update-case-id-xpath`,
+		BIND_KEYS,
+	),
+	link: regionClaims(
+		"derived",
+		`${Q}/savetocase-link-index-name-child-extension-and-unlink-empty`,
+		[NESTED],
+	),
+	rows: regionClaims(
+		"derived",
+		`${Q}/savetocase-property-rows-calculation-condition-lifting-into`,
+		REGION_KEYS,
+	),
+	conditionGroup: regionClaims(
+		"derived",
+		`${Q}/savetocase-inside-a-group-whose-display-condition-gates-it`,
+		[
+			TOP,
+			NESTED,
+			"xform:group",
+			"xform:group@ref",
+			"xform:model/bind@relevant",
+			"mug:Group",
+		],
+	),
+};
+
+/** The surface key the lane names a node of a form's case region by, with the claims at hand;
+ *  null for an attribute of an instance's content that Core copies as answer data, which no
+ *  surface item holds; undefined where the lane names none of `REGION_KEYS` there. */
+function regionKey(
+	xform: ReadXForm,
+	node: XmlNode,
+): RegionKey | null | undefined {
+	const { element, attribute } = node;
+	const local = localName(element);
+	const content = inInstanceContent(element);
+	const top = element.parent === xform.parsed.dataRoot;
+	if (attribute === undefined) {
+		if (content) return top ? TOP : NESTED;
+		if (local === "bind") return "xform:model/bind";
+		if (local === "setvalue") return "xform:setvalue";
+		if (local === "group") return "xform:group";
+		if (local === "repeat") return "xform:repeat";
+		return undefined;
+	}
+	const scope = xform.parsed.scope(element);
+	const named = qualifiedAttribute(attribute, scope);
+	if (content) {
+		if (named === "jr:template")
+			return top ? `${TOP}@jr:template` : `${NESTED}@jr:template`;
+		if (named === "vellum:role")
+			return "vellum-markup:model/instance//*@vellum:role";
+		if (named === "vellum:case_type")
+			return "vellum-markup:model/instance//*@vellum:case_type";
+		return attributeNamespace(attribute, scope) === VELLUM_NS
+			? undefined
+			: null;
+	}
+	const key = `xform:${local === "bind" ? "model/bind" : local}@${named}`;
+	return (REGION_KEYS as readonly string[]).includes(key)
+		? (key as RegionKey)
+		: undefined;
+}
+
+/** Whether an element is inside an instance, as answer data or an inline instance's rows. */
+function inInstanceContent(element: Element): boolean {
+	for (let at = element.parent; at !== null && isTag(at); at = at.parent)
+		if (localName(at) === "instance") return true;
+	return false;
+}
+
+/** The type HQ's question reader gives a data node of the region: a group or a repeat its body
+ *  control names, else a leaf, which no control names, a Hidden Value; undefined for any other. */
+function regionQuestion(
+	node: Element,
+	controls: ReadonlyMap<Element, "group" | "repeat">,
+): RegionKey | undefined {
+	const control = controls.get(node);
+	if (control === "group") return "mug:Group";
+	if (control === "repeat") return "mug:Repeat";
+	return children(node).length === 0 ? "mug:DataBindOnly" : undefined;
+}
+
+/** Claims a node of the region under the claim of `claims` keyed by where it sits
+ *  (`regionKey`): an attribute Core copies as answer data as part of the element's claim, and
+ *  a node no key names under `fallback`. */
+function claimRegionNode(
+	xform: ReadXForm,
+	node: XmlNode,
+	claims: ReadonlyMap<RegionKey, Claim<"derived">>,
+	fallback: Claim<"derived">,
+): void {
+	const key = regionKey(xform, node);
+	if (key === null) {
+		xform.cursor.partOf(node, fallback);
+		return;
+	}
+	const claim = key === undefined ? undefined : claims.get(key);
+	xform.cursor.derived(node, claim ?? fallback);
+	const type = bindType(node);
+	if (type !== undefined) xform.cursor.within(node, claim ?? fallback, [type]);
+}
+
+/** The `jr-type:` item a bind's `type` names, as Core reads it (`XFormParser.getDataType`: the
+ *  part after the prefix); undefined for any other node. */
+function bindType(node: XmlNode): string | undefined {
+	if (node.attribute !== "type" || localName(node.element) !== "bind")
+		return undefined;
+	if (inInstanceContent(node.element)) return undefined;
+	const text = node.element.attribs.type;
+	if (text === undefined) return undefined;
+	const colon = text.indexOf(":");
+	return `jr-type:${colon < 0 ? text : text.slice(colon + 1)}`;
+}
+
+/** A block's case's attributes HQ's question reader reads as questions. */
+const CASE_ATTRIBUTE_QUESTIONS: ReadonlySet<string> = new Set([
+	"case_id",
+	"user_id",
+	"date_modified",
+]);
+
+/** Records, under the claim that covers a subtree, each element and attribute inside it at the
+ *  key the lane names it by (`regionKey`), and the type HQ's question reader gives each data node
+ *  of it (`regionQuestion`). */
+function recordWithin(
+	xform: ReadXForm,
+	root: Element,
+	claim: Claim,
+	controls: ReadonlyMap<Element, "group" | "repeat">,
+): void {
+	for (const element of [root, ...descendants(root)]) {
+		if (element !== root) {
+			const key = regionKey(xform, { element });
+			if (key !== undefined && key !== null)
+				xform.cursor.within({ element }, claim, [key]);
+		}
+		if (inInstanceContent(element)) {
+			const question = regionQuestion(element, controls);
+			if (question !== undefined)
+				xform.cursor.within({ element }, claim, [question]);
+		}
+		for (const attribute of Object.keys(element.attribs)) {
+			if (attribute === "xmlns" || attribute.startsWith("xmlns:")) continue;
+			const key = regionKey(xform, { element, attribute });
+			if (key !== undefined && key !== null)
+				xform.cursor.within({ element, attribute }, claim, [key]);
+			// HQ's question reader reads each of a block's case's own attributes as a Hidden Value
+			// (`xform.py::XForm.get_questions`, `<case>/@case_id`, `@user_id`, `@date_modified`).
+			if (
+				localName(element) === "case" &&
+				inInstanceContent(element) &&
+				CASE_ATTRIBUTE_QUESTIONS.has(attribute)
+			)
+				xform.cursor.within({ element, attribute }, claim, [
+					"mug:DataBindOnly",
+				]);
+			const type = bindType({ element, attribute });
+			if (type !== undefined)
+				xform.cursor.within({ element, attribute }, claim, [type]);
+		}
+	}
+}
 
 /** The register row a date and time saved in the spelling Nova wrote before falls under. */
 const DATETIME_REGISTER = "date-and-time-saved-as-hq-stores-it";
@@ -507,6 +778,9 @@ interface FormBlocks {
 		readonly place: HqPlace;
 		readonly claim: Claim<"refuse">;
 		readonly detail?: FindingDetail;
+		/** The node in the block whose value makes the class, where the refusal's record stands,
+		 *  where that is not the block's own node (an attachment, a reserved row). */
+		readonly at?: XmlNode;
 	}[];
 	/** Each registration index by the operation and member it fills. */
 	readonly registrations: Map<string, Registered>;
@@ -685,6 +959,8 @@ interface BlockRead {
 	/** The entry a failing block is, where the manifest names its class; else the block-shape entry. */
 	readonly claim?: Claim<"refuse">;
 	readonly detail?: FindingDetail;
+	/** The node whose value makes a failing block's class, where that is not the block's own. */
+	readonly at?: XmlNode;
 	readonly proposal?: Omit<ProposedBlock, "uuid" | "id" | "action"> & {
 		readonly kind: "create" | "update" | "close";
 	};
@@ -1138,10 +1414,15 @@ function readBlock(
 	earlierCreates: ReadonlyMap<string, true>,
 ): BlockRead {
 	const root = xform.parsed.dataRoot.name;
-	const fail = (claim: Claim<"refuse">, detail?: FindingDetail): BlockRead => ({
+	const fail = (
+		claim: Claim<"refuse">,
+		detail?: FindingDetail,
+		at?: Element,
+	): BlockRead => ({
 		ok: false,
 		claim,
 		...(detail !== undefined && { detail }),
+		...(at !== undefined && { at: { element: at } }),
 	});
 	// An element HQ's form builder cannot open a form holding, at any depth
 	// (`questionId.ts::stopsFormBuilder`): the block's own name, which is the
@@ -1189,7 +1470,9 @@ function readBlock(
 		if (key !== "" && key !== "case" && bind.attribs.type !== undefined)
 			return fail(SAVE_TO_CASE_CLAIMS.leafType);
 	}
-	if (parts.has("attachment")) return fail(SAVE_TO_CASE_CLAIMS.attachment);
+	const attachment = parts.get("attachment");
+	if (attachment !== undefined)
+		return fail(SAVE_TO_CASE_CLAIMS.attachment, undefined, attachment);
 	for (const name of parts.keys())
 		if (!["create", "update", "close", "index"].includes(name))
 			return { ok: false };
@@ -1260,7 +1543,13 @@ function readBlock(
 			)
 				return fail(SAVE_TO_CASE_CLAIMS.authoredCreateId);
 			target = { kind: "new", idFrom: field, idPrefix: keyedId.prefix };
-		} else if (rootSetvalue !== undefined) {
+		} else if (
+			rootSetvalue === undefined &&
+			idCalculate !== undefined &&
+			!standsInRepeat(xform, block)
+		)
+			return fail(SAVE_TO_CASE_CLAIMS.liveCreateId);
+		else if (rootSetvalue !== undefined) {
 			if (!isCall(rootSetvalue.value, "uuid"))
 				return fail(
 					blankOnOpening(xform, rootSetvalue, idPath)
@@ -1399,7 +1688,8 @@ function readBlock(
 			}
 			const keyClaim = refusedRowKey(property, target.kind === "worker-record");
 			if (keyClaim === "outside") return { ok: false };
-			if (keyClaim !== undefined) return fail(keyClaim, { name: property });
+			if (keyClaim !== undefined)
+				return fail(keyClaim, { name: property }, row);
 			const rowPath = [...casePath, "update", property];
 			if (sharedShape) {
 				const split = presenceSplit(bind.attribs.relevant, text);
@@ -1874,6 +2164,36 @@ function keptName(
 	return undefined;
 }
 
+/** Whether a block stands in any repeat's row, an authored repeat's or one Nova's scaffolding
+ *  makes (a keyed create's, the selected cases'): a node above it is a repeat's template or a
+ *  model-iteration wrapper. */
+function standsInRepeat(xform: ReadXForm, block: ReadSaveToCaseBlock): boolean {
+	for (
+		let at = xform.nodes.get(block.path.join("/"))?.parent ?? null;
+		at !== null;
+		at = at.parent
+	)
+		if (at.template || at.role === "Repeat") return true;
+	return false;
+}
+
+/** The refusal of a sibling node the form stage refused whole that a guard named `name` guards,
+ *  where one stands beside the guard. */
+function refusedGuardOwner(
+	xform: ReadXForm,
+	guard: ReadSaveToCaseBlock,
+	name: string,
+): StandingRefusal | undefined {
+	const scope = guard.path.slice(0, -1).join("/");
+	for (const node of xform.nodes.values()) {
+		if (node.path.slice(0, -1).join("/") !== scope) continue;
+		if (!guardOf(name, new Set([node.name]))) continue;
+		const refusal = xform.refusals.over({ element: node.element });
+		if (refusal !== undefined) return refusal;
+	}
+	return undefined;
+}
+
 /** The kinds of the guards that stand beside `block` under its operation's
  *  name (`guardOf`'s names), in `GUARD_KINDS` order. */
 function guardKindsBeside(
@@ -2044,7 +2364,7 @@ export function readSaveToCaseBlocks(
 		if (block.refusal !== undefined) {
 			reading.failed.push({
 				block,
-				place: form.place,
+				place: block.refusal.place ?? form.place,
 				claim: block.refusal.claim,
 				...(block.refusal.detail === undefined
 					? {}
@@ -2091,6 +2411,7 @@ export function readSaveToCaseBlocks(
 					? SAVE_TO_CASE_CLAIMS.outsideShape
 					: (read.claim ?? SAVE_TO_CASE_CLAIMS.outsideShape),
 				...(!kept && read.detail !== undefined && { detail: read.detail }),
+				...(!kept && read.at !== undefined && { at: read.at }),
 			});
 			continue;
 		}
@@ -2136,7 +2457,21 @@ export function readSaveToCaseBlocks(
 					!ids.has(blockName(one.block)) ||
 					one.block === nearest),
 		);
+		// A guard of a block the form stage refused whole (a case block that no Save to Case
+		// role marks) belongs to that block, and stands under its refusal.
+		const refusedOwner =
+			owner === undefined ? refusedGuardOwner(xform, guard, name) : undefined;
 		if (owner !== undefined) reading.failed.push({ ...owner, block: guard });
+		else if (refusedOwner !== undefined)
+			reading.failed.push({
+				block: guard,
+				place: refusedOwner.place,
+				claim: refusedOwner.claim,
+				...(refusedOwner.detail === undefined
+					? {}
+					: { detail: refusedOwner.detail }),
+				...(refusedOwner.at === undefined ? {} : { at: refusedOwner.at }),
+			});
 		else if (!scopeOk(xform, guard) || !guardOf(name, ids))
 			reading.failed.push({
 				block: guard,
@@ -2440,7 +2775,7 @@ export function readSaveToCaseBlocks(
 		}),
 	);
 	for (const failed of reading.failed) refuseBlock(xform, failed);
-	claimAccepted(ctx, xform, reading);
+	claimAccepted(ctx, xform, reading, form);
 	registerTexts(ctx, form, reading);
 	READINGS.set(form, reading);
 }
@@ -2485,12 +2820,15 @@ function refuseBlock(
 	xform: ReadXForm,
 	failed: FormBlocks["failed"][number],
 ): void {
-	const { block, place, claim, detail } = failed;
+	const { block, place, claim, detail, at } = failed;
 	if (block.refusal !== undefined) return;
-	xform.cursor.refuseSubtree(block.element, claim, place, detail);
+	// The refusal's record stands where its class is, where that is not the block's own node; a
+	// guard of a refused block takes its block's.
+	if (at === undefined)
+		xform.cursor.refuseSubtree(block.element, claim, place, detail);
+	else xform.cursor.refuseSubtreeAt(block.element, at, claim, place, detail);
 	for (const [key, bind] of bindsUnder(xform, block.path)) {
-		if (key.includes("@"))
-			xform.cursor.refuseSubtree(bind, claim, place, detail);
+		if (key.includes("@")) reachElement(xform, bind, claim);
 		else
 			for (const attribute of Object.keys(bind.attribs))
 				if (
@@ -2503,26 +2841,53 @@ function refuseBlock(
 						"readonly",
 					].includes(attribute)
 				)
-					xform.cursor.refuse(
-						{ element: bind, attribute },
-						claim,
-						place,
-						detail,
-					);
+					reachNode(xform, { element: bind, attribute }, claim);
 	}
 	for (const bind of laterBindsUnder(xform, block.path))
-		xform.cursor.refuseSubtree(bind, claim, place, detail);
+		reachElement(xform, bind, claim);
 	for (const setvalue of setvaluesUnder(xform, block.path))
-		xform.cursor.refuseSubtree(setvalue, claim, place, detail);
+		reachElement(xform, setvalue, claim);
+}
+
+/** A node a refused block reaches outside its own element (a bind, a setvalue, a wrapper the
+ *  block stands in): part of the block's refusal, with no finding of its own, and recorded under
+ *  the refusal's entry only at each key the lane names the node by (`regionKey`, a bind's other
+ *  attributes by their own name, a bind's `type` also by the type Core reads, `bindType`) where
+ *  that entry names it, so no record names a key another node holds. */
+function reachNode(xform: ReadXForm, node: XmlNode, claim: Claim): void {
+	xform.cursor.partOf(node, claim);
+	const region = regionKey(xform, node);
+	const key =
+		region === undefined &&
+		node.attribute !== undefined &&
+		localName(node.element) === "bind" &&
+		!inInstanceContent(node.element)
+			? `xform:model/bind@${qualifiedAttribute(node.attribute, xform.parsed.scope(node.element))}`
+			: region;
+	if (key !== undefined && key !== null)
+		xform.cursor.within(node, claim, [key]);
+	const type = bindType(node);
+	if (type !== undefined) xform.cursor.within(node, claim, [type]);
+}
+
+/** `reachNode` of an element and each attribute it holds. */
+function reachElement(xform: ReadXForm, element: Element, claim: Claim): void {
+	reachNode(xform, { element }, claim);
+	for (const attribute of Object.keys(element.attribs))
+		if (!attribute.startsWith("xmlns:"))
+			reachNode(xform, { element, attribute }, claim);
 }
 
 /** Claims every accepted block, the binds and setvalues under it, and each
  *  wrapper it stands under, leaving each attribute a text is registered
- *  from to the expression stage. */
+ *  from to the expression stage, and registering each other text the region
+ *  holds (the emitter's own: a block's case id, its clock, a generated row's
+ *  value) for the uses its syntax makes (`PendingExpression.usesOnly`). */
 function claimAccepted(
 	ctx: ReadContext,
 	xform: ReadXForm,
 	reading: FormBlocks,
+	form: DraftForm,
 ): void {
 	const registeredAttributes = new Map<Element, Set<string>>();
 	const note = (site: ClaimSite | undefined) => {
@@ -2553,10 +2918,72 @@ function claimAccepted(
 	if (reading.ownClose?.condition !== undefined)
 		note(reading.ownClose.condition.site);
 	const wrappers = new Set<DataNode>();
-	const claimBinds = (prefix: readonly string[], claim: Claim<"derived">) => {
+	const controls = regionControls(xform);
+	// The emitter's texts are read in the form's logic: under its first operation, or the own
+	// close's condition where the form's only block is that close.
+	const first = reading.proposals[0]?.uuid;
+	const usesRef: SlotContextRef | undefined =
+		first !== undefined
+			? caseSlot(form.uuid, "case_operation_condition", first)
+			: reading.ownClose !== undefined
+				? ({
+						entity: "form",
+						uuid: form.uuid,
+						slot: "form_close_condition",
+					} as SlotContextRef)
+				: undefined;
+	const pendingSites = new Set(
+		ctx.pending.list().map((_, index) => {
+			const at = ctx.pending.site(index).at;
+			return "element" in at ? at : undefined;
+		}),
+	);
+	const registeredAt = (element: Element, attribute: string) =>
+		registeredAttributes.get(element)?.has(attribute) === true ||
+		[...pendingSites].some(
+			(at) => at?.element === element && at.attribute === attribute,
+		);
+	const registerUses = (element: Element) => {
+		if (usesRef === undefined) return;
+		for (const attribute of ["calculate", "relevant", "value"]) {
+			const text = element.attribs[attribute];
+			if (text === undefined || registeredAt(element, attribute)) continue;
+			ctx.pending.register(
+				{
+					ref: usesRef,
+					text,
+					mode: { target: "xform", constraint: false },
+					place: form.place,
+					key: `${regionKey(xform, { element }) ?? "xform:model/bind"}@${attribute}`,
+					usesOnly: true,
+				},
+				{ element, attribute },
+			);
+		}
+	};
+	/** A bind on an attribute, or a setvalue: claimed whole at its element, each attribute
+	 *  recorded where it sits. */
+	const claimWhole = (
+		element: Element,
+		claims: ReadonlyMap<RegionKey, Claim<"derived">>,
+		fallback: Claim<"derived">,
+	) => {
+		const key = regionKey(xform, { element });
+		const claim =
+			(key === undefined || key === null ? undefined : claims.get(key)) ??
+			fallback;
+		xform.cursor.derivedSubtree(element, claim);
+		recordWithin(xform, element, claim, controls);
+		registerUses(element);
+	};
+	const claimBinds = (
+		prefix: readonly string[],
+		binds: ReadonlyMap<RegionKey, Claim<"derived">>,
+		fallback: Claim<"derived">,
+	) => {
 		for (const [key, bind] of bindsUnder(xform, prefix)) {
 			if (key.includes("@")) {
-				xform.cursor.derivedSubtree(bind, claim);
+				claimWhole(bind, binds, fallback);
 				continue;
 			}
 			const skip = registeredAttributes.get(bind);
@@ -2565,30 +2992,35 @@ function claimAccepted(
 					bind.attribs[attribute] !== undefined &&
 					skip?.has(attribute) !== true
 				)
-					xform.cursor.derived({ element: bind, attribute }, claim);
+					claimRegionNode(xform, { element: bind, attribute }, binds, fallback);
+			registerUses(bind);
 		}
 		for (const setvalue of setvaluesUnder(xform, prefix))
-			xform.cursor.derivedSubtree(setvalue, claim);
+			claimWhole(setvalue, binds, fallback);
 	};
 	const blocks: {
 		block: ReadSaveToCaseBlock;
-		claim: Claim<"take">;
-		binds: Claim<"derived">;
+		claim: ReadonlyMap<RegionKey, Claim<"take">>;
+		binds: ReadonlyMap<RegionKey, Claim<"derived">>;
+		bindFallback: Claim<"derived">;
+		links?: readonly ProposedLink[];
 	}[] = [
 		...reading.proposals.map((one) => ({
 			block: one.block,
+			links: one.links,
 			// A block is claimed under the entry its own class names: one in a
 			// repeat under the repeat's, one writing a property whose name holds a
 			// hyphen under that one's, any other under its action's.
 			claim:
 				one.block.repeat !== null
-					? SAVE_TO_CASE_CLAIMS.inRepeat
+					? REGION.inRepeat
 					: one.writes.some((row) => row.property.includes("-"))
-						? SAVE_TO_CASE_CLAIMS.hyphenated
+						? REGION.hyphenated
 						: one.action === "create" || one.action === "own"
-							? SAVE_TO_CASE_CLAIMS.create
-							: SAVE_TO_CASE_CLAIMS.update,
-			binds:
+							? REGION.create
+							: REGION.update,
+			binds: one.action === "create" ? REGION.createBind : REGION.updateBind,
+			bindFallback:
 				one.action === "create"
 					? SAVE_TO_CASE_CLAIMS.createBind
 					: SAVE_TO_CASE_CLAIMS.updateBind,
@@ -2602,12 +3034,28 @@ function claimAccepted(
 	for (const block of guardBlocks)
 		blocks.push({
 			block,
-			claim: SAVE_TO_CASE_CLAIMS.update,
-			binds: SAVE_TO_CASE_CLAIMS.updateBind,
+			claim: REGION.update,
+			binds: REGION.updateBind,
+			bindFallback: SAVE_TO_CASE_CLAIMS.updateBind,
 		});
-	for (const { block, claim, binds } of blocks) {
-		void xform.cursor.takeSubtree(block.element, claim).value;
-		claimBinds(block.path, binds);
+	for (const { block, claim, binds, bindFallback, links } of blocks) {
+		// The block's data node, recorded at its own depth, and each node it holds where the
+		// lane reads it (`recordWithin`).
+		const own = claim.get(
+			block.element.parent === xform.parsed.dataRoot ? TOP : NESTED,
+		) as Claim<"take">;
+		void xform.cursor.takeSubtree(block.element, own).value;
+		recordWithin(xform, block.element, own, controls);
+		// Each link and unlink, whatever its target, at its `index/<name>`.
+		for (const link of links ?? []) {
+			const at = linkElement(block.element, link.identifier);
+			if (at !== undefined)
+				xform.cursor.derived(
+					{ element: at },
+					REGION.link.get(NESTED) as Claim<"derived">,
+				);
+		}
+		claimBinds(block.path, binds, bindFallback);
 		for (const wrapper of block.wrappers) wrappers.add(wrapper);
 	}
 	// The wrappers, the nodes of the region that stand beside the blocks (a
@@ -2629,48 +3077,61 @@ function claimAccepted(
 				? undefined
 				: reading.failed.find((one) => one.block.wrappers.includes(node));
 		if (failedIn !== undefined) {
-			const { claim, place, detail } = failedIn;
+			const { claim } = failedIn;
 			if (container === "selected-cases" || container === "selected-case") {
 				for (const [key, attributeBind] of bindsUnder(xform, node.path))
 					if (key.startsWith("@") && !key.includes("/"))
-						xform.cursor.refuseSubtree(attributeBind, claim, place, detail);
+						reachElement(xform, attributeBind, claim);
 				for (const one of iterationSetvalues(xform, node))
-					xform.cursor.refuseSubtree(one.element, claim, place, detail);
+					reachElement(xform, one.element, claim);
 			}
-			xform.cursor.refuse({ element: node.element }, claim, place, detail);
+			reachNode(xform, { element: node.element }, claim);
 			for (const attribute of Object.keys(node.element.attribs))
 				if (!attribute.startsWith("xmlns"))
-					xform.cursor.refuse(
-						{ element: node.element, attribute },
-						claim,
-						place,
-						detail,
-					);
+					reachNode(xform, { element: node.element, attribute }, claim);
 			const bind = xform.binds.get(node);
 			if (bind?.logic.relevant !== undefined)
-				xform.cursor.refuse(
+				reachNode(
+					xform,
 					{ element: bind.element, attribute: "relevant" },
 					claim,
-					place,
-					detail,
 				);
 			continue;
 		}
 		if (wrappers.has(node)) {
-			const claim =
+			const [claims, fallback] =
 				container === "condition"
-					? SAVE_TO_CASE_CLAIMS.conditionGroup
-					: SAVE_TO_CASE_CLAIMS.rows;
-			xform.cursor.derived({ element: node.element }, claim);
+					? [REGION.conditionGroup, SAVE_TO_CASE_CLAIMS.conditionGroup]
+					: [REGION.rows, SAVE_TO_CASE_CLAIMS.rows];
+			claimRegionNode(xform, { element: node.element }, claims, fallback);
+			const question = regionQuestion(node.element, controls);
+			const questionClaim =
+				question === undefined ? undefined : claims.get(question);
+			if (question !== undefined && questionClaim !== undefined)
+				xform.cursor.within({ element: node.element }, questionClaim, [
+					question,
+				]);
 			for (const attribute of Object.keys(node.element.attribs))
 				if (!attribute.startsWith("xmlns"))
-					xform.cursor.derived({ element: node.element, attribute }, claim);
+					claimRegionNode(
+						xform,
+						{ element: node.element, attribute },
+						claims,
+						fallback,
+					);
+			// A condition the expression stage reads is its to claim.
 			const bind = xform.binds.get(node);
-			if (bind?.logic.relevant !== undefined)
-				xform.cursor.derived(
+			if (
+				bind?.logic.relevant !== undefined &&
+				registeredAttributes.get(bind.element)?.has("relevant") !== true
+			)
+				claimRegionNode(
+					xform,
 					{ element: bind.element, attribute: "relevant" },
-					claim,
+					claims,
+					fallback,
 				);
+			if (bind !== undefined) registerUses(bind.element);
 			// A selected-cases repeat's own iteration: the binds and setvalues
 			// on its attributes and its row's (`@current_index`, `@ids`,
 			// `@count`, `item/@index`, `item/@id`), which test 4 holds to the
@@ -2678,9 +3139,9 @@ function claimAccepted(
 			if (container === "selected-cases" || container === "selected-case") {
 				for (const [key, attributeBind] of bindsUnder(xform, node.path))
 					if (key.startsWith("@") && !key.includes("/"))
-						xform.cursor.derivedSubtree(attributeBind, claim);
+						claimWhole(attributeBind, REGION.rows, fallback);
 				for (const one of iterationSetvalues(xform, node))
-					xform.cursor.derivedSubtree(one.element, claim);
+					claimWhole(one.element, REGION.rows, fallback);
 			}
 			continue;
 		}
@@ -2690,19 +3151,60 @@ function claimAccepted(
 			parentWrapper ||
 			(node.parent !== null && xform.caseRegion.includes(node.parent));
 		if (!inRegion) continue;
-		xform.cursor.derivedSubtree(node.element, SAVE_TO_CASE_CLAIMS.rows);
+		claimWhole(node.element, REGION.rows, SAVE_TO_CASE_CLAIMS.rows);
 		const bind = xform.binds.get(node);
 		if (bind !== undefined)
 			for (const attribute of ["calculate", "relevant", "type"])
 				if (bind.element.attribs[attribute] !== undefined)
-					xform.cursor.derived(
+					claimRegionNode(
+						xform,
 						{ element: bind.element, attribute },
+						REGION.rows,
 						SAVE_TO_CASE_CLAIMS.rows,
 					);
+		if (bind !== undefined) registerUses(bind.element);
 		for (const setvalue of setvaluesUnder(xform, node.path))
-			xform.cursor.derivedSubtree(setvalue, SAVE_TO_CASE_CLAIMS.rows);
+			claimWhole(setvalue, REGION.rows, SAVE_TO_CASE_CLAIMS.rows);
 	}
 	claimControls(ctx, xform);
+}
+
+/** Each data node of the case region a body group or repeat names, with the control's kind:
+ *  what HQ's question reader types the node by. */
+function regionControls(
+	xform: ReadXForm,
+): ReadonlyMap<Element, "group" | "repeat"> {
+	const root = xform.parsed.dataRoot.name;
+	const byPath = new Map(
+		xform.caseRegion.map((node) => [node.path.join("/"), node.element]),
+	);
+	const found = new Map<Element, "group" | "repeat">();
+	const walk = (element: Element) => {
+		for (const child of children(element)) {
+			const local = localName(child);
+			const ref = child.attribs.ref ?? child.attribs.nodeset;
+			if ((local === "group" || local === "repeat") && ref !== undefined) {
+				const steps = pathSteps(ref);
+				const node =
+					steps !== undefined && steps[0] === "/" && steps[1] === root
+						? byPath.get(steps.slice(2).join("/"))
+						: undefined;
+				if (node !== undefined) found.set(node, local);
+			}
+			walk(child);
+		}
+	};
+	walk(xform.parsed.body);
+	return found;
+}
+
+/** A block's `case/index/<identifier>` element. */
+function linkElement(block: Element, identifier: string): Element | undefined {
+	const step = (from: Element | undefined, name: string) =>
+		from === undefined
+			? undefined
+			: children(from).find((child) => localName(child) === name);
+	return step(step(step(block, "case"), "index"), identifier);
 }
 
 /** The setvalues on an attribute of `node` itself: a repeat's iteration. */
@@ -2727,7 +3229,10 @@ function isInsideBlock(node: DataNode): boolean {
 
 /** The body controls that name a node of the case region: each group or
  *  repeat with no label, and a `<group>` with no `ref` whose one control
- *  is such a repeat. */
+ *  is such a repeat. A `vellum:` shadow on one (the `vellum:ref` and
+ *  `vellum:nodeset` HQ's form builder writes on every control it saves, a
+ *  count-bound repeat's `vellum:jr__count`) is the shadow reader's, which
+ *  holds it to its real attribute (`xform/shadow.ts::judgeShadows`). */
 function claimControls(ctx: ReadContext, xform: ReadXForm): void {
 	void ctx;
 	const root = xform.parsed.dataRoot.name;
@@ -2744,12 +3249,21 @@ function claimControls(ctx: ReadContext, xform: ReadXForm): void {
 						? steps.slice(2)
 						: undefined;
 				if (path !== undefined && region.has(path.join("/"))) {
-					xform.cursor.derived({ element: child }, SAVE_TO_CASE_CLAIMS.rows);
+					claimRegionNode(
+						xform,
+						{ element: child },
+						REGION.rows,
+						SAVE_TO_CASE_CLAIMS.rows,
+					);
+					const scope = xform.parsed.scope(child);
 					for (const attribute of Object.keys(child.attribs))
-						xform.cursor.derived(
-							{ element: child, attribute },
-							SAVE_TO_CASE_CLAIMS.rows,
-						);
+						if (attributeNamespace(attribute, scope) !== VELLUM_NS)
+							claimRegionNode(
+								xform,
+								{ element: child, attribute },
+								REGION.rows,
+								SAVE_TO_CASE_CLAIMS.rows,
+							);
 					claimed.add(child);
 				}
 			}
@@ -2760,7 +3274,12 @@ function claimControls(ctx: ReadContext, xform: ReadXForm): void {
 				children(child).length === 1 &&
 				claimed.has(children(child)[0] as Element)
 			)
-				xform.cursor.derived({ element: child }, SAVE_TO_CASE_CLAIMS.rows);
+				claimRegionNode(
+					xform,
+					{ element: child },
+					REGION.rows,
+					SAVE_TO_CASE_CLAIMS.rows,
+				);
 		}
 	};
 	walk(xform.parsed.body);
@@ -3827,11 +4346,15 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 			ctx.pending.outcome(condition.index).expression !== undefined) &&
 		!ownCloseHolds(ctx, ctx.doc ?? doc, form, reading)
 	) {
-		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, ownClose.place);
+		// Where the form's case management is refused, the own case's close belongs to that
+		// refusal: its one finding at the form is the cause, and no own close is read.
+		const refused = refusedCaseManagement(form);
+		if (refused === undefined)
+			ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, ownClose.place);
 		failed.push({
 			block: ownClose.block,
-			place: ownClose.place,
-			claim: SAVE_TO_CASE_CLAIMS.outsideShape,
+			place: refused === undefined ? ownClose.place : form.place,
+			claim: refused ?? SAVE_TO_CASE_CLAIMS.outsideShape,
 		});
 	}
 	REFUSED_BLOCKS.set(

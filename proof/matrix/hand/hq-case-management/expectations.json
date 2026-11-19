@@ -1,0 +1,334 @@
+[
+	{
+		"id": "head-name-entered",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "Zawadi"
+				},
+				{
+					"path": "/data/household_ref",
+					"value": "HH-17"
+				},
+				{
+					"path": "/data/first_member",
+					"value": "Imani"
+				}
+			],
+			"expressions": [
+				"/data/head_name",
+				"/data/household_ref",
+				"/data/first_member"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Zawadi"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "HH-17"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "Imani"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "village-loaded-from-the-case",
+		"entry": "forms-and-case-writes/case-preload-question-property-into-a-question-outside-any",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"expressions": ["/data/village_seen"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "south"
+			}
+		]
+	},
+	{
+		"id": "district-loaded-from-the-worker",
+		"entry": "forms-and-case-writes/usercase-preload-into-a-question-outside-any-repeat-on-a-form",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"expressions": ["/data/district"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Kilifi"
+			}
+		]
+	},
+	{
+		"id": "members-entered",
+		"entry": "forms-and-case-writes/conditionalcaseupdate-update-mode-edit",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/members",
+					"value": "11"
+				}
+			],
+			"expressions": ["/data/members"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "11"
+			}
+		]
+	},
+	{
+		"id": "visited-chosen",
+		"entry": "forms-and-case-writes/update-case-condition-if-whose-question-exists",
+		"form": {
+			"menu": 0,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visited",
+					"value": "1"
+				},
+				{
+					"path": "/data/visit_note",
+					"value": "Roof repaired"
+				}
+			],
+			"expressions": ["/data/visited", "/data/visit_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "yes"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Roof repaired"
+			}
+		]
+	},
+	{
+		"id": "member-left-chosen",
+		"entry": "forms-and-case-writes/subcases-close-condition-active",
+		"form": {
+			"menu": 0,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/new_member",
+					"value": "Juma"
+				},
+				{
+					"path": "/data/member_left",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/new_member", "/data/member_left"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "no"
+			}
+		]
+	},
+	{
+		"id": "date-and-time-saved-as-hq-stores-it:before",
+		"entry": "forms-and-case-writes/update-from-a-date-and-time-question-through-a-hidden-sibling",
+		"form": {
+			"menu": 0,
+			"form": 3
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/seen_at",
+					"value": "2026-03-02T12:00:00.000Z"
+				}
+			],
+			"expressions": ["substr(/data/nova_datetime_seen_at, 23, 24) = '0'"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "false"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "date-and-time-saved-as-hq-stores-it:after",
+		"entry": "forms-and-case-writes/update-from-a-date-and-time-question-through-a-hidden-sibling",
+		"form": {
+			"menu": 0,
+			"form": 3
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/seen_at",
+					"value": "2026-03-02T12:00:00.000Z"
+				}
+			],
+			"expressions": ["substr(/data/nova_datetime_seen_at, 23, 24) = '0'"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "status-note-entered",
+		"entry": "forms-and-case-writes/update-case-update-property-question",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "member-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/status_note",
+					"value": "moved to town"
+				}
+			],
+			"expressions": ["/data/status_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "moved to town"
+			}
+		]
+	}
+]

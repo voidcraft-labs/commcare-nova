@@ -64,7 +64,7 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { translationEntryFor } from "../translations";
-import { ownText, type XmlCursor } from "../xmlCursor";
+import { ownText, type XmlCursor, type XmlNode } from "../xmlCursor";
 import type { ControlNode } from "./body";
 import { TEXT_CONTROLS, type TextControl, X } from "./claims";
 import { carrierTextId } from "./generated";
@@ -80,6 +80,7 @@ import {
 } from "./itext";
 import { standInRefusal } from "./logic";
 import type { BindFacts, DataNode } from "./model";
+import type { FormRefusals, StandingRefusal } from "./refusals";
 
 /** The surface key a source output's value is registered under. */
 export const OUTPUT_VALUE_KEY =
@@ -254,6 +255,46 @@ export function valueIsBlank(value: ReadValue): boolean {
 	);
 }
 
+/**
+ * Whether a value's text holds what Web Apps reads as markup. Web Apps writes a
+ * plain label into the page as HTML (`cloudcare/js/form_entry/form_ui.js`, the
+ * `caption` sanitized by DOMPurify, then knockout's `html` binding), where the
+ * HTML tokenizer's data state opens a tag or a comment at a `<` before an ASCII
+ * letter, `/`, `!` or `?`, and reads a character reference at `&#` before a
+ * digit or `x`, or at `&` before a name ended by `;`. Android shows the text as
+ * written.
+ */
+export function holdsHtmlText(value: ReadValue): boolean {
+	const text = value.parts
+		.map((part) => (part.kind === "output" ? "" : part.text))
+		.join("");
+	const letter = (at: string | undefined) =>
+		at !== undefined && /^[A-Za-z]$/.test(at);
+	const digit = (at: string | undefined) =>
+		at !== undefined && at >= "0" && at <= "9";
+	for (let index = 0; index < text.length; index++) {
+		const next = text[index + 1];
+		if (
+			text[index] === "<" &&
+			(letter(next) || next === "/" || next === "!" || next === "?")
+		)
+			return true;
+		if (text[index] !== "&") continue;
+		if (
+			next === "#" &&
+			(digit(text[index + 2]) ||
+				text[index + 2] === "x" ||
+				text[index + 2] === "X")
+		)
+			return true;
+		let end = index + 1;
+		while (end < text.length && (letter(text[end]) || digit(text[end])))
+			end += 1;
+		if (end > index + 1 && letter(next) && text[end] === ";") return true;
+	}
+	return false;
+}
+
 /** The template a value's parts make, each output that is no literal a placeholder value. */
 export function placeholderTemplate(
 	parts: readonly ValuePart[],
@@ -342,8 +383,15 @@ function readValue(
 	return { element: value, parts: read.parts };
 }
 
+/** Claims an output element and its namespace, which Core reads of every element a value
+ *  holds. */
+function claimOutputElement(cursor: XmlCursor, element: Element): void {
+	cursor.derived({ element }, X.output);
+	cursor.derived({ element, attribute: "xmlns" }, X.outputNamespace);
+}
+
 function claimLiteral(cursor: XmlCursor, output: SourceOutput): void {
-	cursor.derived({ element: output.element }, X.output);
+	claimOutputElement(cursor, output.element);
 	if (output.attribute === "ref")
 		cursor.take({ element: output.element, attribute: "ref" }, X.outputRef)
 			.value;
@@ -357,7 +405,7 @@ function claimLiteral(cursor: XmlCursor, output: SourceOutput): void {
 /** Claims an output of the source language registered for the expression stage: its element,
  *  and a `ref` it is written with. The value is the expression stage's to claim. */
 function claimSourceOutput(cursor: XmlCursor, output: SourceOutput): void {
-	cursor.derived({ element: output.element }, X.output);
+	claimOutputElement(cursor, output.element);
 	if (output.attribute === "ref")
 		cursor.take({ element: output.element, attribute: "ref" }, X.outputRef)
 			.value;
@@ -392,6 +440,9 @@ export interface SlotText {
 	readonly forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>;
 	/** Set where the text holds a finding that leaves its translations unread. */
 	readonly refused: boolean;
+	/** Each markdown copy that stands beside its language's value, read into parts: each output
+	 *  it holds is claimed as its value's twin is, once the expression stage bound the source's. */
+	readonly copies: readonly ReadValue[];
 }
 
 /** A validation message Nova composes in its question's bind: the question, the text its
@@ -661,6 +712,8 @@ export interface ReadTextInput {
 	/** The control of the generated carrier that owns a question's protected validation
 	 *  message, by the question's node. */
 	readonly carrierOf: (owner: DataNode) => ControlNode | undefined;
+	/** The refusals the form's reading made, which a text a refused control names stands under. */
+	readonly refusals: FormRefusals;
 }
 
 /** A reference a slot makes: the element that holds it and, where it is one, its `ref`. */
@@ -735,9 +788,15 @@ function isProtectedMessage(text: string): boolean {
 	return [...ids].some((id) => id.includes(";__nova_"));
 }
 
-/** The ids every control and every `jr:constraintMsg` of the form references. */
-function idsReferencedAnywhere(input: ReadTextInput): Set<string> {
-	const ids = new Set<string>();
+/** The ids every control and every `jr:constraintMsg` of the form references, each with the
+ *  nodes that reference it. */
+function referencesAnywhere(input: ReadTextInput): Map<string, XmlNode[]> {
+	const sites = new Map<string, XmlNode[]>();
+	const add = (id: string, node: XmlNode) => {
+		const known = sites.get(id);
+		if (known === undefined) sites.set(id, [node]);
+		else known.push(node);
+	};
 	const walk = (element: Element) => {
 		const ref = element.attribs.ref;
 		const local = splitName(element.name).local;
@@ -749,7 +808,8 @@ function idsReferencedAnywhere(input: ReadTextInput): Set<string> {
 				local === "alert")
 		) {
 			const reference = itextReference(ref);
-			if (reference.kind !== "other") ids.add(reference.id);
+			if (reference.kind !== "other")
+				add(reference.id, { element, attribute: "ref" });
 		}
 		for (const child of element.children) if (isTag(child)) walk(child);
 	};
@@ -758,10 +818,37 @@ function idsReferencedAnywhere(input: ReadTextInput): Set<string> {
 		for (const [name, value] of Object.entries(bind.attribs))
 			if (splitName(name).local === "constraintMsg") {
 				const reference = itextReference(value);
-				if (reference.kind !== "other") ids.add(reference.id);
-				else itextIdsRead(value, ids);
+				if (reference.kind !== "other")
+					add(reference.id, { element: bind, attribute: name });
+				else {
+					const read = new Set<string>();
+					itextIdsRead(value, read);
+					for (const id of read) add(id, { element: bind, attribute: name });
+				}
 			}
-	return ids;
+	return sites;
+}
+
+/**
+ * The refusal a text no slot owns stands under: the one over every node that references it,
+ * where each does stand under one, since a text a refused control or message names belongs to
+ * what was refused. Undefined where some reference stands under none (a node Nova generates,
+ * whose reader claims the text).
+ */
+function refusedReferences(
+	input: ReadTextInput,
+	sites: ReadonlyMap<string, readonly XmlNode[]>,
+): (id: string) => StandingRefusal | undefined {
+	return (id) => {
+		const nodes = sites.get(id) ?? [];
+		let first: StandingRefusal | undefined;
+		for (const node of nodes) {
+			const refusal = input.refusals.over(node);
+			if (refusal === undefined) return undefined;
+			first ??= refusal;
+		}
+		return first;
+	};
 }
 
 function controlTag(field: DraftField): TextControl | undefined {
@@ -843,7 +930,17 @@ export function readText(input: ReadTextInput): FormText {
 					);
 				} else if (child.local === "help") {
 					if (!fieldKindDeclaresKey(field.kind, "help")) {
-						cursor.refuseSubtree(child.element, X.helpOnCapture[tag], place);
+						// A help that shows no text in any language and holds media is help media,
+						// the one thing it carries; any other is help text. Its text stands under the
+						// same refusal (`itext.ts::settleItext`).
+						const media = helpMediaOnly(input, child.element);
+						cursor.refuseSubtree(
+							child.element,
+							media === undefined
+								? X.helpOnCapture[tag]
+								: X.helpMediaOnCapture[media],
+							place,
+						);
 						continue;
 					}
 					// A help text that holds its own content and no `ref` is the text Core shows
@@ -930,12 +1027,14 @@ export function readText(input: ReadTextInput): FormText {
 		if (read.slot !== undefined) slots.push(read.slot);
 	}
 
+	const elsewhere = referencesAnywhere(input);
 	settleItext(itext, {
 		cursor,
 		formPlace: input.formPlace,
 		placeOf: (owner) => owner.field.place,
 		readByExpressions: idsReadByExpressions(input),
-		elsewhere: idsReferencedAnywhere(input),
+		elsewhere: new Set(elsewhere.keys()),
+		refusedReferences: refusedReferences(input, elsewhere),
 	});
 
 	return { slots, protectedMessages, itext, blankTranslations, cursor };
@@ -1057,28 +1156,32 @@ function readValidationMessage(
 		c.take({ element: held }, X.alert[tag]).value;
 		claimRef(c, held, X.alert[`${tag}Ref`]);
 	};
+	// A refused message is refused whole: the bind's message and the control's alert, and the
+	// text they name (`itext.ts::settleItext`), stand under one finding.
+	const refuseMessage = (
+		claim:
+			| typeof X.messageOnCapture
+			| typeof X.messageWithoutConstraint
+			| typeof X.literalConstraintMsg,
+	) => {
+		if (messageNode !== undefined) cursor.refuse(messageNode, claim, place);
+		if (held !== undefined) cursor.refuseSubtree(held, claim, place);
+	};
 	if (!fieldKindDeclaresKey(field.kind, "validate_msg")) {
-		if (messageNode !== undefined)
-			cursor.refuse(messageNode, X.messageOnCapture, place);
-		else if (held !== undefined) accounting.finding(X.messageOnCapture, place);
-		claimAlert(cursor);
+		refuseMessage(X.messageOnCapture);
 		return;
 	}
-	if (bind?.logic.constraint === undefined) {
-		if (messageNode !== undefined)
-			cursor.refuse(messageNode, X.messageWithoutConstraint, place);
-		else if (held !== undefined)
-			accounting.finding(X.messageWithoutConstraint, place);
-		if (messageNode !== undefined || held !== undefined) {
-			claimAlert(cursor);
-			return;
-		}
+	if (
+		bind?.logic.constraint === undefined &&
+		(messageNode !== undefined || held !== undefined)
+	) {
+		refuseMessage(X.messageWithoutConstraint);
+		return;
 	}
 	const messageRef =
 		message === undefined ? undefined : itextReference(message);
 	if (messageRef?.kind === "other" && messageNode !== undefined) {
-		cursor.refuse(messageNode, X.literalConstraintMsg, place);
-		claimAlert(cursor);
+		refuseMessage(X.literalConstraintMsg);
 		return;
 	}
 	const alertRef =
@@ -1107,6 +1210,29 @@ function readValidationMessage(
 	});
 }
 
+/** The first media kind a help element's text holds where the text shows nothing in any
+ *  language (each language's default value blank, holding no output); undefined where it shows
+ *  a text, holds no media or names no text. */
+function helpMediaOnly(
+	input: ReadTextInput,
+	help: Element,
+): "image" | "audio" | "video" | undefined {
+	const ref = help.attribs.ref;
+	if (ref === undefined) return undefined;
+	const reference = itextReference(ref);
+	if (reference.kind === "other") return undefined;
+	const values = input.itext.values(reference.id);
+	if (values === undefined) return undefined;
+	let media: "image" | "audio" | "video" | undefined;
+	for (const forms of values.values()) {
+		const value = forms.get("default");
+		if (value !== undefined && holdsContent(value)) return undefined;
+		for (const kind of ["image", "audio", "video"] as const)
+			if (media === undefined && forms.has(kind)) media = kind;
+	}
+	return media;
+}
+
 /** Whether an element holds content Core reads as its text: a child element, or a text node
  *  Core keeps (`XFormParser.getXMLDocument` removes one that is whitespace only). */
 function holdsContent(element: Element): boolean {
@@ -1117,29 +1243,46 @@ function holdsContent(element: Element): boolean {
 	);
 }
 
-/** A stand-in's text and its validation message, covered by the stand-in's finding. */
+/** A stand-in's text and its validation message, covered by the stand-in's finding: the texts
+ *  of its control and, for a refused repeat, its wrapper group's label, each that its refusal
+ *  has not already claimed. The itext they name stands under the same refusal
+ *  (`itext.ts::settleItext`). */
 function coverStandIn(input: ReadTextInput, field: DraftField): void {
 	const refusal = standInRefusal(field);
 	if (refusal === undefined) return;
 	const { cursor, scope } = input;
 	const control = field.control;
-	if (control !== undefined)
-		for (const child of xformsChildren(control.element, scope))
-			if (["label", "hint", "help", "alert"].includes(child.local))
+	const holders =
+		control === undefined
+			? []
+			: control.tag === "repeat" &&
+					control.parent !== null &&
+					control.parent !== undefined
+				? [control.element, control.parent.element]
+				: [control.element];
+	for (const holder of holders)
+		for (const child of xformsChildren(holder, scope))
+			if (
+				["label", "hint", "help", "alert"].includes(child.local) &&
+				!input.refusals.claimed({ element: child.element })
+			)
 				cursor.refuseSubtree(
 					child.element,
 					refusal.claim,
-					field.place,
+					refusal.place,
 					refusal.detail,
 				);
 	const bind = input.binds.get(field.node);
 	if (bind !== undefined)
 		for (const name of Object.keys(bind.element.attribs))
-			if (splitName(name).local === "constraintMsg")
+			if (
+				splitName(name).local === "constraintMsg" &&
+				!input.refusals.claimed({ element: bind.element, attribute: name })
+			)
 				cursor.refuse(
 					{ element: bind.element, attribute: name },
 					refusal.claim,
-					field.place,
+					refusal.place,
 					refusal.detail,
 				);
 }
@@ -1226,6 +1369,34 @@ function registerOutputs(
 		});
 }
 
+/** Pushes each output a text holds in a language the app does not hold as an expression whose
+ *  uses alone are claimed (`PendingExpression.usesOnly`): its translation is dropped, and Core
+ *  parses each output's value as the form opens. */
+function registerOtherLanguageOutputs(
+	owner: ItextOwner,
+	texts: readonly Element[],
+	scope: (element: Element) => NamespaceScope,
+): void {
+	for (const text of texts)
+		for (const value of text.children.filter(isTag)) {
+			if (splitName(value.name).local !== "value") continue;
+			for (const part of valueChildren(value, scope).parts)
+				if (part.kind === "output" || part.kind === "literal")
+					owner.field.expressions.push({
+						slot: owner.slot,
+						...(owner.option === undefined ? {} : { option: owner.option }),
+						text: part.output.text,
+						at: {
+							element: part.output.element,
+							attribute: part.output.attribute,
+						},
+						key: OUTPUT_VALUE_KEY,
+						mode: XFORM_MODE,
+						usesOnly: true,
+					});
+		}
+}
+
 /** Reads one slot's text: its claims (made once, by the first slot of an id), its template and
  *  its outputs. */
 function readSlotText(
@@ -1278,13 +1449,20 @@ function readSlotText(
 	// form lacks), the source language among them.
 	const defaultForms =
 		defaultLanguage === undefined ? undefined : values?.get(defaultLanguage);
-	if (
-		source === undefined ||
-		defaultLanguage === undefined ||
-		defaultForms === undefined
-	) {
+	// Where the reading holds no language (each the app names got a finding), no text is read,
+	// and the languages' finding stands for every one.
+	if (source === undefined || defaultLanguage === undefined) {
 		ref.claim(cursor, false, false);
-		accounting.finding(X.duplicateTextId, place);
+		return none;
+	}
+	if (defaultForms === undefined) {
+		ref.claim(cursor, false, false);
+		// A text a translation holds twice is refused at the form, and a reference to it stands
+		// under that one finding.
+		accounting.finding(
+			X.duplicateTextId,
+			itext.duplicated(id) ? input.formPlace : place,
+		);
 		if (first)
 			for (const text of itext.texts(id).values())
 				cursor.refuseSubtree(text, X.duplicateTextId, place);
@@ -1344,6 +1522,7 @@ function readSlotText(
 	const blankEverywhere = [...read.values()].every(valueIsBlank);
 	let blanks = 0;
 	let refused = false;
+	const copies: ReadValue[] = [];
 
 	if (first) {
 		const textClaim =
@@ -1364,10 +1543,24 @@ function readSlotText(
 			else if (language !== defaultLanguage && blank && !defaultBlank) {
 				cursor.take({ element: value.element }, X.blankTranslation).value;
 				blanks += 1;
-			} else cursor.take({ element: value.element }, X.itext.value).value;
+			} else
+				cursor.take(
+					{ element: value.element },
+					plain && owner.slot === "label" && holdsHtmlText(value)
+						? X.htmlLabel
+						: X.itext.value,
+				).value;
 		}
 
-		claimMarkdown(input, owner, place, read, markdown, defaultLanguage);
+		if (claimMarkdown(input, owner, place, read, markdown, defaultLanguage))
+			for (const copy of markdown.values()) {
+				const parts = valueChildren(copy, scope).parts;
+				copies.push({ element: copy, parts });
+				// A literal output needs no twin, so it is claimed here, before the expression stage
+				// opens, which registers the uses its value makes (`attributeUses.ts`).
+				for (const part of parts)
+					if (part.kind === "literal") claimLiteral(cursor, part.output);
+			}
 		for (const values of itext.allValues(id).values())
 			for (const value of values) claimOtherForm(input, owner, place, value);
 	}
@@ -1391,6 +1584,7 @@ function readSlotText(
 	if (first) {
 		for (const output of registered) claimSourceOutput(cursor, output);
 		registerOutputs(owner, registered);
+		registerOtherLanguageOutputs(owner, itext.otherLanguageTexts(id), scope);
 	}
 	return {
 		slot: {
@@ -1404,13 +1598,16 @@ function readSlotText(
 			media: mediaHolding(owner),
 			forms,
 			refused,
+			copies,
 		},
 		blanks,
 	};
 }
 
 /**
- * The markdown copy of a text, held or refused by what each language shows of it.
+ * The markdown copy of a text, held or refused by what each language shows of it; whether the
+ * copies stand, held or read past (a hint's and a validation message's, which no runtime reads),
+ * so each output in them, which Core parses as the form opens, is claimed as its twin is.
  *
  * Core shows a language the default language's copy where the language's own text holds none
  * (`Localizer.getLocaleData` lays the language's keys over the default locale's, and
@@ -1435,18 +1632,20 @@ function claimMarkdown(
 	read: ReadonlyMap<LanguageTag, ReadValue>,
 	markdown: ReadonlyMap<LanguageTag, Element>,
 	defaultLanguage: LanguageTag,
-): void {
+): boolean {
 	const { cursor } = input;
-	if (markdown.size === 0) return;
+	if (markdown.size === 0) return false;
+	for (const value of markdown.values())
+		claimFormValue(input.accounting, value, place);
 	if (owner.slot === "hint") {
 		for (const value of markdown.values())
 			cursor.dropSubtree(value, X.hintMarkdown);
-		return;
+		return true;
 	}
 	if (owner.slot === "validate_msg") {
 		for (const value of markdown.values())
 			cursor.dropSubtree(value, X.validationMarkdown);
-		return;
+		return true;
 	}
 	const refuseAll = (claim: Parameters<XmlCursor["refuseSubtree"]>[1]) => {
 		for (const value of markdown.values())
@@ -1454,7 +1653,7 @@ function claimMarkdown(
 	};
 	if (input.plainText) {
 		refuseAll(X.markdownFormattingOff);
-		return;
+		return false;
 	}
 	const defaultCopy = markdown.get(defaultLanguage);
 	const defaultValue = read.get(defaultLanguage);
@@ -1471,7 +1670,7 @@ function claimMarkdown(
 		);
 	if (!showsOneText) {
 		refuseAll(X.markdownSomeLanguages);
-		return;
+		return false;
 	}
 	const equal = [...markdown].every(([language, value]) => {
 		const own = read.get(language);
@@ -1479,13 +1678,14 @@ function claimMarkdown(
 	});
 	if (!equal) {
 		refuseAll(X.markdownDiffering);
-		return;
+		return false;
 	}
 	const claim =
 		lacking.length === 0 && bare.length === 0
 			? X.markdownEqual
 			: X.markdownSomeLanguagesOneText;
 	for (const value of markdown.values()) cursor.takeSubtree(value, claim).value;
+	return true;
 }
 
 /** A value of a form other than the default, markdown and media, claimed by the form it names. */
@@ -1505,6 +1705,7 @@ function claimOtherForm(
 	)
 		return;
 	if (form.startsWith("__nova_")) return;
+	claimFormValue(input.accounting, value, place);
 	if (form === "video-inline")
 		cursor.refuseSubtree(value, X.videoInline, place);
 	else if (form === "long") cursor.refuseSubtree(value, X.longForm, place);
@@ -1518,6 +1719,27 @@ function claimOtherForm(
 	else if (form === "qrcode") cursor.refuseSubtree(value, X.qrcode, place);
 	else if (form === "tts") cursor.refuseSubtree(value, X.tts, place);
 	else cursor.accountSubtree(value, X.customForm, place);
+}
+
+/** The surface key of a text's `<value>` element. */
+const VALUE_KEY = "xform:model/itext/translation/text/value";
+
+/**
+ * A `<value>` that names a form is one of its text's values whatever form it names: the element
+ * itself is claimed under the text value's claim, beside the form's claim its subtree stands
+ * under, which is recorded at its `form` (`xmlCursor.ts::recordedNode`).
+ */
+export function claimFormValue(
+	accounting: Accounting,
+	value: Element,
+	place: HqPlace,
+): void {
+	accounting.claimEntry(
+		{ element: value },
+		X.itext.value.entry,
+		VALUE_KEY,
+		place,
+	);
 }
 
 // ── Stage 9: translations ─────────────────────────────────────────────────
@@ -1679,6 +1901,7 @@ export function finishText(ctx: ReadContext): void {
 			recordTextOutputs(ctx, form, text.slots);
 			const firstOf = new Map<string, { slot: SlotText; unit: ItextUnit }>();
 			for (const slot of text.slots) {
+				if (slot.first) claimCopyOutputs(ctx, text.cursor, slot, indexOf);
 				const unit = unitOf(slot.owner);
 				if (unit === undefined) continue;
 				if (slot.id !== undefined && slot.first)
@@ -1826,8 +2049,10 @@ export function finishText(ctx: ReadContext): void {
 	ctx.doc = deepFreeze(next);
 }
 
-/** Claims another language's output as its twin was claimed: the element, a `ref`, and its value
- *  under the twin's entry. */
+/** Claims an output another language or a markdown copy holds as its twin was claimed: the
+ *  element, its namespace, a `ref`, and its value under each claim the expression stage made of
+ *  the twin, the value's own and each use its text makes, since Core parses the one as it parses
+ *  the other. A refusal a claim carries beside its own key stands at this output too. */
 function claimTwin(
 	ctx: ReadContext,
 	cursor: XmlCursor,
@@ -1836,18 +2061,53 @@ function claimTwin(
 	indexOf: ReadonlyMap<Element, number>,
 	place: HqPlace,
 ): void {
-	cursor.derived({ element: output.element }, X.output);
+	claimOutputElement(cursor, output.element);
 	if (output.attribute === "ref")
 		cursor.take({ element: output.element, attribute: "ref" }, X.outputRef)
 			.value;
 	const index = indexOf.get(twin.element);
-	const claim =
-		index === undefined ? undefined : ctx.pending.outcome(index).claim;
-	if (claim === undefined) return;
-	ctx.accounting.claimEntry(
-		{ element: output.element, attribute: output.attribute },
-		claim.entryId,
-		OUTPUT_VALUE_KEY,
-		place,
-	);
+	if (index === undefined) return;
+	const site = { element: output.element, attribute: output.attribute };
+	for (const claim of ctx.pending.outcome(index).claims) {
+		ctx.accounting.claimEntry(site, claim.entryId, claim.key, place);
+		if (claim.refusal !== undefined)
+			ctx.accounting.claimEntry(
+				site,
+				claim.refusal.entryId,
+				claim.refusal.key,
+				place,
+			);
+	}
+}
+
+/** Claims the outputs of each markdown copy a slot holds that are no literal (the form stage
+ *  claims a literal as the text it spells), each as its twin among the source's outputs, each
+ *  twin used once. */
+function claimCopyOutputs(
+	ctx: ReadContext,
+	cursor: XmlCursor,
+	slot: SlotText,
+	indexOf: ReadonlyMap<Element, number>,
+): void {
+	for (const copy of slot.copies) {
+		const used = new Set<number>();
+		for (const part of copy.parts) {
+			if (part.kind !== "output") continue;
+			const twin = slot.registered.findIndex(
+				(candidate, index) =>
+					!used.has(index) &&
+					sameXPathText(part.output.text, candidate.text, { ruleSet: "form" }),
+			);
+			if (twin < 0) continue;
+			used.add(twin);
+			claimTwin(
+				ctx,
+				cursor,
+				part.output,
+				slot.registered[twin] as SourceOutput,
+				indexOf,
+				slot.place,
+			);
+		}
+	}
 }

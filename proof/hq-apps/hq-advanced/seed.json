@@ -1,0 +1,45 @@
+{
+	"catalog": [
+		{
+			"name": "household",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "last_member_visit",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "village",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		},
+		{
+			"name": "member",
+			"parent_type": "household",
+			"relationship": "child",
+			"index_identifier": "parent",
+			"properties": [
+				{
+					"name": "notes",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "review_note",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

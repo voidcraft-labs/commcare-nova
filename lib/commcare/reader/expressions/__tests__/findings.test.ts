@@ -474,7 +474,7 @@ describe("a name outside a grammar Nova keeps unchanged", () => {
 			term: { kind: "prop", caseType: "patient", property },
 		}) as never;
 
-	it("refuses a case property name outside the authored grammar, under N7 where it holds a character past ASCII", () => {
+	it("refuses a case property name outside the authored grammar, under the non-ASCII entry where it holds a character past ASCII", () => {
 		expect(nameGrammarEntry(prop("prénom"))).toEqual({
 			entryId:
 				"forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",

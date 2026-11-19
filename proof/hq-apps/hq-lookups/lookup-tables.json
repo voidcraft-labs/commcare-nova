@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 100, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 4}, \"objects\": [{\"fields\": [{\"field_name\": \"id\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}, {\"field_name\": \"district\", \"properties\": []}], \"id\": \"2c9de4f7cd55482c94df883a48e71041\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"villages\"}, {\"fields\": [{\"field_name\": \"id\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"64dd050fb14947da89f17991e38f21f2\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"seasons\"}, {\"fields\": [{\"field_name\": \"id\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"bfa36b7da7904afdbffca0133dd4cd6a\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"crop-types\"}, {\"fields\": [{\"field_name\": \"id\", \"properties\": []}, {\"field_name\": \"name\", \"properties\": []}], \"id\": \"e24b4b4c53a9453286819dbd2b368a21\", \"is_global\": true, \"item_attributes\": [], \"resource_uri\": \"\", \"tag\": \"districts\"}]}"
+}

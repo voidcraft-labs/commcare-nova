@@ -2036,12 +2036,14 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 27 | `blank-translations-filled` | some `f.facts.forms[i].blankTranslations` is above zero (part 06, sections 12.2 and 17.3) | `/_attachments/*` | yes |
 | 28 | `media-paths-joined` | `f.media.collapsed` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | no |
 | 29 | `media-files-renamed` | `f.media.rederived` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | yes |
-| 30 | `media-references-with-no-file-removed` | `f.mediaLeftOut` is above zero (part 11, section 3.2) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | no |
+| 30 | `media-references-with-no-file-removed` | `f.mediaLeftOut.undrawn` is above zero (part 11, section 3.2, row 4) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | no |
+| 30b | `broken-pictures-removed` | `f.mediaLeftOut.brokenPictures` is above zero (part 11, section 3.2, row 2b) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | yes |
 | 31 | `unused-media-entries-removed` | some path of `f.source.multimediaMap` is the `path` of no entry of `f.facts.mediaReferences` and of no entry of `f.source.logoRefs` | `/multimedia_map/*` | no |
 | 32 | `names-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/app.display.name` | no |
 | 33 | `media-maps-respelled` | the same | `/modules/*/media_image`; `/modules/*/media_audio`; `/modules/*/use_default_image_for_all`; `/modules/*/use_default_audio_for_all`; the same four under `/modules/*/forms/*`, `/modules/*/case_list` and `/modules/*/case_list_form` | no |
 | 34 | `text-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/*`; `/modules/*/case_list/label`; `/modules/*/case_list_form/label`; `/modules/*/case_details/*/columns/*/header`; `/modules/*/case_details/*/columns/*/enum/*/value`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description`; `/modules/*/search_config/properties/*/label`; `/modules/*/search_config/properties/*/hint`; `/modules/*/search_config/properties/*/required/text`; `/modules/*/search_config/properties/*/validations/*/text` | yes |
 | 35 | `form-text-characters-written-as-outputs` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/_attachments/*` | no |
+| 36 | `hidden-value-defaults-dropped` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the form stage, so also in `FIRST_PUBLISH_READING_RECORDS`) | `/_attachments/*`; `/modules/*/forms/*/case_references_data/load` | no |
 
 `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`. Every other entry has
 `reading`. `date-and-time-questions-split` reads what the chosen declaration did to the document at
@@ -2919,9 +2921,11 @@ register is their home.
 | `media-paths-joined` | Where CommCare HQ holds one picture, sound or video under several names, the app now uses one of them. Workers see and hear the same files. |
 | `media-files-renamed` | Some pictures, sounds and videos get new names in CommCare HQ, because Nova can't keep the names they had. Phones download them again with the next version of the app. |
 | `media-references-with-no-file-removed` | References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there. |
+| `broken-pictures-removed` | Icons that have no file in CommCare HQ are removed. Web Apps showed an empty or broken picture in their place, and Android showed nothing. You can choose a new icon in Nova. |
 | `unused-media-entries-removed` | CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ. |
 | `text-spaces-dropped` | A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks. |
 | `form-text-characters-written-as-outputs` | Where a question's text holds a no-break space, or words CommCare HQ would take as a request for data, Nova writes those characters as fixed values. CommCare HQ's form builder shows each one as a small reference inside the text. Workers read the same words. |
+| `hidden-value-defaults-dropped` | A hidden value that held both a starting value and a calculation keeps only its calculation. CommCare always replaced the starting value before anything read it. |
 
 **C3. `read-back-differs`.** The block is part 01's (01-the-bar-and-the-manifest.md, section 9.3).
 This part writes no title, body or next step for it (section 14.4).

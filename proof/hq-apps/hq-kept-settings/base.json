@@ -1,0 +1,48 @@
+{
+	"id": "hq-kept-settings",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"COMMCARE_LOGO_UPLOADER"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/1-properties-cc-autoup-freq",
+		"application-and-settings/13-properties-cc-autosync-freq",
+		"application-and-settings/17-properties-cc-content-valid",
+		"application-and-settings/18-properties-unsent-number-limit",
+		"application-and-settings/19-properties-unsent-time-limit",
+		"application-and-settings/22-properties-cc-resize-images",
+		"application-and-settings/23-properties-cc-fuzzy-search-enabled",
+		"application-and-settings/24-properties-cc-log-entity-detail-enabled",
+		"application-and-settings/25-properties-cc-login-duration-seconds",
+		"application-and-settings/26-properties-cc-inflation-target-density",
+		"application-and-settings/27-properties-cc-gps-auto-capture-accuracy",
+		"application-and-settings/28-properties-cc-maps-default-layer",
+		"application-and-settings/29-properties-cc-enable-tts",
+		"application-and-settings/30-properties-cc-label-required-questions-with-asterisk",
+		"application-and-settings/32-features-credentials",
+		"application-and-settings/35-hq-practice-mobile-worker-id",
+		"application-and-settings/36-hq-custom-base-url",
+		"application-and-settings/4-properties-cc-days-form-retain",
+		"application-and-settings/40-hq-cloudcare-enabled",
+		"application-and-settings/43-hq-secure-submissions",
+		"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
+		"application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5",
+		"application-and-settings/5-properties-logenabled",
+		"application-and-settings/50p-hq-location-fixture-restore-both-fixtures-only-flat-fixture",
+		"application-and-settings/51-hq-persistent-menu",
+		"application-and-settings/52-hq-show-breadcrumbs",
+		"application-and-settings/logo-refs-hq-logo-android-home-login-demo",
+		"application-and-settings/translations-catalog-key-hq-fills-with-its-own-text-in-a",
+		"application-and-settings/translations-key-in-a-runtime-s-ui-string-catalog-core-android",
+		"application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s",
+		"questions/text-input-xsd-string"
+	]
+}

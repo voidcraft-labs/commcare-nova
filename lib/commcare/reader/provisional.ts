@@ -29,6 +29,7 @@ import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import {
 	circumstanceFinding,
 	type Finding,
+	type FindingDetail,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
 import { inventoryIndex } from "../surface/inventory";
@@ -47,14 +48,17 @@ import {
 	instanceIdsRead,
 	unreadDeclarationUse,
 } from "./expressions/surfaceUses";
+import { manifestFindingOf } from "./languages";
 import {
 	type PendingExpression,
 	pendingPlaceholder,
 } from "./pendingExpressions";
 import { appPlace, whereText } from "./place";
 import { searchRowUserFields } from "./search";
+import { refusedInstanceNameOf } from "./search/settings";
 import { worldEntitiesFromReads } from "./worldEntities";
 import { type DraftField, expressionEnvOf, type ReadXForm } from "./xform";
+import { registerAttributeUses } from "./xform/attributeUses";
 
 // ── The provisional document ─────────────────────────────────────────────
 
@@ -417,15 +421,24 @@ function findingAtOrAbove(
 	return undefined;
 }
 
-/** The three nodes of an `<instance>` declaration a claim of it covers: the element, its `id`
- *  and its `src`. */
+/** The entry a table's declaration is claimed under where a choice list's
+ *  itemset alone reads it. */
+const TYPED_CARRIER =
+	"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers";
+
+/** The surface key of a declaration's `id`. */
+const DECLARATION_ID_KEY = "xform:model/instance@id";
+
+/** The nodes of an `<instance>` declaration a claim of it covers, each with the surface key whose
+ *  value sits there: its `id`, and its `src`, under the source's key (`key`). The element is the
+ *  frame's (`xform/model.ts::readInstances`). */
 function declarationSites(
 	element: ReadXForm["parsed"]["instances"][number]["element"],
-): ClaimSite[] {
+	key: string,
+): { readonly site: ClaimSite; readonly key: string }[] {
 	return [
-		{ element },
-		{ element, attribute: "id" },
-		{ element, attribute: "src" },
+		{ site: { element, attribute: "id" }, key: DECLARATION_ID_KEY },
+		{ site: { element, attribute: "src" }, key },
 	];
 }
 
@@ -452,13 +465,14 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 	/* Each form's held registrations and the positions of their claims,
 	 * grouped once for every form rather than found again per form. */
 	const heldByForm = new Map<string, number[]>();
+	const refusedByForm = new Map<string, number[]>();
 	pending.forEach((registration, at) => {
-		if (reading.bound[at] === undefined) return;
 		const owner = slotForm(reading.doc, registration.ref);
 		if (owner === undefined) return;
-		const held = heldByForm.get(owner);
-		if (held === undefined) heldByForm.set(owner, [at]);
-		else held.push(at);
+		const byForm = reading.bound[at] === undefined ? refusedByForm : heldByForm;
+		const known = byForm.get(owner);
+		if (known === undefined) byForm.set(owner, [at]);
+		else known.push(at);
 	});
 	const claimsBySource = new Map<number, number[]>();
 	reading.claims.forEach((claim, position) => {
@@ -466,6 +480,25 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 		if (positions === undefined) claimsBySource.set(claim.source, [position]);
 		else positions.push(position);
 	});
+	/** The finding of a refused registration of the form that reads instance `id`: the first such
+	 *  registration whose claims a finding stands for. */
+	const refusedReadOf = (id: string, formUuid: string): Finding | undefined => {
+		for (const at of refusedByForm.get(formUuid) ?? []) {
+			if (!instanceIdsRead(pending[at]?.text ?? "").includes(id)) continue;
+			for (const position of claimsBySource.get(at) ?? []) {
+				const claim = reading.claims[position] as ExpressionClaim;
+				const finding = ctx.accounting
+					.findings()
+					.find(
+						(one) =>
+							one.code === claim.entryId &&
+							whereText(one.place) === whereText(claim.place),
+					);
+				if (finding !== undefined) return finding;
+			}
+		}
+		return undefined;
+	};
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
 			const xform = form.xform;
@@ -485,14 +518,35 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				);
 				if (declaration === undefined) continue;
 				const key = unreadDeclarationUse(src).key;
+				// A table only a choice list's itemset reads is that carrier's read.
+				if (!ids.has(id) && xform.carrierInstances.has(id)) {
+					for (const one of declarationSites(declaration.element, key))
+						claimExpressionEntry(
+							ctx,
+							one.site,
+							TYPED_CARRIER,
+							one.key,
+							form.place,
+						);
+					continue;
+				}
 				if (!ids.has(id)) {
 					const claim = unreadAt.get(JSON.stringify([key, where]))?.shift();
+					// A declaration only a refused expression of the form reads belongs to that
+					// expression's refusal, and stands under its finding.
+					const refusal = refusedReadOf(id, form.uuid);
+					if (refusal !== undefined) {
+						for (const one of declarationSites(declaration.element, key))
+							ctx.accounting.cover(one.site, refusal);
+						continue;
+					}
 					if (claim === undefined) continue;
-					for (const site of declarationSites(declaration.element))
-						ctx.accounting.claimEntry(
-							site,
+					for (const one of declarationSites(declaration.element, key))
+						claimExpressionEntry(
+							ctx,
+							one.site,
 							claim.entryId,
-							key,
+							one.key,
 							form.place,
 							claim.detail,
 						);
@@ -509,8 +563,14 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 					standing === "inert" ||
 					standing === "kept"
 				) {
-					for (const site of declarationSites(declaration.element))
-						ctx.accounting.claimEntry(site, read.entryId, key, form.place);
+					for (const one of declarationSites(declaration.element, key))
+						claimExpressionEntry(
+							ctx,
+							one.site,
+							read.entryId,
+							one.key,
+							form.place,
+						);
 					continue;
 				}
 				const finding = ctx.accounting
@@ -521,13 +581,13 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 							whereText(one.place) === whereText(read.place),
 					);
 				if (finding === undefined) continue;
-				for (const site of declarationSites(declaration.element))
-					ctx.accounting.cover(site, finding);
+				for (const one of declarationSites(declaration.element, key))
+					ctx.accounting.cover(one.site, finding);
 			}
 		}
 }
 
-/** The slot a registration names and its owner's identity, for the invariant C10. */
+/** The slot a registration names and its owner's identity, for the throw over a registration whose slot the document lacks. */
 function slotWords(ref: {
 	readonly slot: string;
 	readonly entity: string;
@@ -581,19 +641,144 @@ export function settleDeferredRefusals(ctx: ReadContext): void {
 		settleDeferredRefusal(ctx, index);
 }
 
-/** One claim of an expression reading, applied to the node `at` its registration was read from. */
+/** One claim of an expression reading, applied to the node `at` its registration was read from:
+ *  handed to project data where its rules settle it (`ExpressionClaim.handOff`), and with the
+ *  refusal it carries claimed beside it under its own key (`ExpressionClaim.refusal`). */
 export function applyExpressionClaim(
 	ctx: ReadContext,
 	claim: ExpressionReading["claims"][number],
 	at: ClaimSite,
 ): void {
-	ctx.accounting.claimEntry(
+	if (claim.refusal !== undefined) {
+		const { refusal, ...own } = claim;
+		applyExpressionClaim(ctx, own, at);
+		const { handOff, ...beside } = refusal;
+		applyExpressionClaim(
+			ctx,
+			{
+				source: claim.source,
+				place: claim.place,
+				...beside,
+				...(handOff !== undefined && { handOff }),
+			},
+			at,
+		);
+		return;
+	}
+	if (claim.handOff !== undefined) {
+		ctx.accounting.handOffAt(
+			at,
+			claim.handOff.to,
+			claim.handOff.subject,
+			claim.key,
+		);
+		return;
+	}
+	const instanceName = refusedInstanceRead(ctx, claim);
+	if (instanceName !== undefined) {
+		ctx.accounting.cover(
+			at,
+			manifestFindingOf(instanceName.claim, instanceName.place, {}),
+		);
+		return;
+	}
+	const textRefusal = formTextRefusal(ctx, claim);
+	if (textRefusal !== undefined) {
+		claimExpressionEntry(ctx, at, claim.entryId, claim.key, textRefusal, {});
+		return;
+	}
+	// A text registered for its uses alone claims each use no other claim at its node names
+	// (`xform/attributeUses.ts`: a whole value beside the slot that reads a part of it).
+	claimExpressionEntry(
+		ctx,
 		at,
 		claim.entryId,
 		claim.key,
 		claim.place,
 		claim.detail,
+		ctx.pending.list()[claim.source]?.usesOnly === true
+			? { unlessClaimed: true }
+			: undefined,
 	);
+}
+
+/**
+ * `Accounting.claimEntry` of a claim the expression stage decided: under `key` where the entry
+ * names it, and otherwise with no key. A refusal whose entry names neither the slot's own key nor
+ * the key of a use the text makes (a read of an instance by an unknown scheme refused in a
+ * calculate, a search filter's class refused at its default value), with no allowing entry of the
+ * slot to stand beside (`expressions/index.ts::allowingEntryBeside`), and a declaration whose `id`
+ * the entry of the read that holds it does not name, stand at the node with no record of a key, as
+ * an entry that names no key does: the lane's parity reads no class of that key there.
+ */
+function claimExpressionEntry(
+	ctx: ReadContext,
+	at: ClaimSite,
+	entryId: string,
+	key: string,
+	place: HqPlace,
+	detail?: FindingDetail,
+	options?: { readonly unlessClaimed?: true },
+): void {
+	const named = inventoryIndex().entry(entryId)?.surfaceKeys.includes(key);
+	ctx.accounting.claimEntry(at, entryId, key, place, detail, {
+		...options,
+		...(named === false && { keyless: true }),
+	});
+}
+
+/** The entry a read of an instance the form declares from a source Nova does not read takes. */
+const UNRECOGNIZED_INSTANCE_SOURCE =
+	"expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src";
+
+/**
+ * The refusal of a results instance name the reading refused, where the claim is the slot's read
+ * of an instance under that name (`search/settings.ts::refusedInstanceNameOf`): Nova holds no such
+ * name, so the read is that one refusal, claimed under it with no second finding. Undefined for
+ * any other claim.
+ */
+function refusedInstanceRead(
+	ctx: ReadContext,
+	claim: ExpressionReading["claims"][number],
+): ReturnType<typeof refusedInstanceNameOf> {
+	if (claim.entryId !== UNRECOGNIZED_INSTANCE_SOURCE || claim.source < 0)
+		return undefined;
+	const registration = ctx.pending.list()[claim.source];
+	if (registration === undefined) return undefined;
+	for (const id of instanceIdsRead(registration.text)) {
+		const refused = refusedInstanceNameOf(ctx, id);
+		if (refused !== undefined) return refused;
+	}
+	return undefined;
+}
+
+/** The entry a form's text is refused under where only an expression names its itext id. */
+const EXPRESSION_ONLY_TEXT =
+	"questions/itext-entry-referenced-only-from-jr-itext-in-an-expression";
+
+/**
+ * The form's place, where the form reader refused a text only an expression names
+ * (`xform/itext.ts`, under the entry the expression's read of it takes): the read is that one
+ * refusal and is claimed under it at the form, so one text is one finding however many slots
+ * read it. Undefined for any other claim, and where the form holds no such text (the id names
+ * nothing), which is the read's own finding.
+ */
+function formTextRefusal(
+	ctx: ReadContext,
+	claim: ExpressionReading["claims"][number],
+): HqPlace | undefined {
+	const place = claim.place;
+	if (claim.entryId !== EXPRESSION_ONLY_TEXT || !("form" in place))
+		return undefined;
+	return ctx.accounting
+		.findings()
+		.find(
+			(finding) =>
+				finding.code === EXPRESSION_ONLY_TEXT &&
+				finding.place.kind === "form" &&
+				finding.place.menu === place.menu &&
+				finding.place.form === place.form,
+		)?.place;
 }
 
 /** One `unrecognized` row of an expression reading: the finding, the defect that says the reader
@@ -624,6 +809,57 @@ export function applyExpressionCircumstance(
 		);
 }
 
+/** The entry a form's secondary instance with inline content and no `src` is refused under, by
+ *  the form reader. */
+const INLINE_INSTANCE_ENTRY =
+	"expressions-and-data/inline-instance-content-inside-instance-no-src";
+
+/**
+ * By registration, the finding a form raised for an instance with inline content that the
+ * registration's refused expression reads: the read stands under that refusal, one cause, and
+ * raises nothing of its own (the expression stage, which sees only declared sources, takes the
+ * id for an undeclared one).
+ */
+function readsOfRefusedInlineInstances(
+	ctx: ReadContext,
+	reading: ExpressionReading,
+): ReadonlyMap<number, Finding> {
+	const refusedByForm = new Map<string, Map<string, Finding>>();
+	const findings = ctx.accounting.findings();
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms) {
+			if (form.xform === null) continue;
+			const where = whereText(form.place);
+			const refused = new Map<string, Finding>();
+			for (const instance of form.xform.parsed.instances) {
+				if (instance.src !== undefined) continue;
+				const finding = findings.find(
+					(one) =>
+						one.code === INLINE_INSTANCE_ENTRY &&
+						one.detail.name === instance.id &&
+						whereText(one.place) === where,
+				);
+				if (finding !== undefined) refused.set(instance.id, finding);
+			}
+			if (refused.size > 0) refusedByForm.set(form.uuid, refused);
+		}
+	const under = new Map<number, Finding>();
+	if (refusedByForm.size === 0) return under;
+	ctx.pending.list().forEach((registration, index) => {
+		if (reading.bound[index] !== undefined) return;
+		const owner = slotForm(reading.doc, registration.ref);
+		const refused = owner === undefined ? undefined : refusedByForm.get(owner);
+		if (refused === undefined) return;
+		for (const id of instanceIdsRead(registration.text)) {
+			const finding = refused.get(id);
+			if (finding === undefined) continue;
+			under.set(index, finding);
+			return;
+		}
+	});
+	return under;
+}
+
 /**
  * Applies the expression stage's answer: the bound document becomes `ctx.doc`, each held tree and
  * the level it was held at become its registration's outcome, each claim is applied to the node its
@@ -640,9 +876,11 @@ export function applyExpressionReading(
 	ctx.doc = freeze(reading.doc, true);
 	ctx.pending.answer(reading.bound, reading.claims, reading.levels);
 	const pending = ctx.pending.list();
+	const underInline = readsOfRefusedInlineInstances(ctx, reading);
 	// A refusal its registrar settles waits for it (`PendingExpression.deferRefusal`).
 	const deferred = new Map<number, (() => void)[]>();
 	const apply = (source: number, step: () => void) => {
+		if (underInline.has(source)) return;
 		if (
 			source < 0 ||
 			pending[source]?.deferRefusal !== true ||
@@ -668,6 +906,8 @@ export function applyExpressionReading(
 				row.source >= 0 ? ctx.pending.site(row.source).at : undefined,
 			),
 		);
+	for (const [source, finding] of underInline)
+		ctx.accounting.cover(ctx.pending.site(source).at, finding);
 	DEFERRED.set(ctx, deferred);
 	for (const at of reading.ownerless) {
 		const registration = pending[at];
@@ -683,10 +923,21 @@ export function applyExpressionReading(
 		ctx.accounting.cover(ctx.pending.site(at).at, finding);
 	}
 	for (const tag of reading.unreadTables)
+		if (
+			!ctx.facts.unreadTables.some(
+				(table) => table.tag === tag && table.declaredOnly !== true,
+			)
+		)
+			ctx.facts.unreadTables.push({
+				tag,
+				place: { kind: "lookup-table", tag },
+			});
+	for (const tag of reading.declaredTables)
 		if (!ctx.facts.unreadTables.some((table) => table.tag === tag))
 			ctx.facts.unreadTables.push({
 				tag,
 				place: { kind: "lookup-table", tag },
+				declaredOnly: true,
 			});
 	ctx.facts.rewrites.push(...reading.rewrites);
 	ctx.facts.expressionRounds = reading.rounds;
@@ -708,7 +959,9 @@ export function applyExpressionReading(
 }
 
 /**
- * Stage 7: every pending expression bound against the provisional document. The first run of
+ * Stage 7: every pending expression bound against the provisional document, each attribute a
+ * form reader claimed that Core parses as XPath and no slot holds whole registered first for its
+ * uses (`xform/attributeUses.ts::registerAttributeUses`). The first run of
  * the expression reader is kept only for what it learns the app reads of the worker and of
  * places, which the drafts then hold, together with the worker properties the searches' filter
  * rows read, which the search stage names (`searchRowUserFields`), and the worker properties
@@ -726,6 +979,7 @@ export function bindExpressions(ctx: ReadContext): void {
 export function* bindExpressionsSteps(
 	ctx: ReadContext,
 ): Generator<void, void, void> {
+	registerAttributeUses(ctx);
 	const env = expressionEnvOf(ctx);
 	const pending = ctx.pending.list();
 	const firstDoc = provisionalDocument(ctx);

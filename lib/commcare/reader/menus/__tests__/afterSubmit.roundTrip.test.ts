@@ -68,5 +68,7 @@ describe("after-submit links read back from Nova's emission", () => {
 			}),
 			{ numRuns: 30 },
 		);
-	});
+		// Thirty whole apps emitted and read back: past the default on a shared
+		// runner, where the draws take over three seconds alone.
+	}, 60_000);
 });

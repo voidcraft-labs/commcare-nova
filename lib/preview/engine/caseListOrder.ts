@@ -31,6 +31,7 @@ import {
 	resolveTranslationUnitValue,
 	type TranslationUnitId,
 } from "@/lib/domain";
+import type { CaseListSortChoice } from "../caseListSortMenu";
 import type { CaseStoreOrder } from "./caseDataBindingHelpers";
 
 /**
@@ -61,7 +62,9 @@ export function previewCaseListOrderPlan(
  * committed) reads its stored text.
  */
 export interface CaseListOrderLocale {
-	optionLabel(property: CaseProperty, index: number): string;
+	/** `caseType` is the type whose catalog holds the property, the list's own
+	 *  where absent. */
+	optionLabel(property: CaseProperty, index: number, caseType?: string): string;
 	intervalText(column: Extract<Column, { kind: "interval" }>): string;
 }
 
@@ -80,13 +83,13 @@ export function previewCaseListOrderLocale(
 		}
 	};
 	return {
-		optionLabel: (property, index) => {
+		optionLabel: (property, index, optionType = caseType) => {
 			const options = property.options ?? [];
 			const option = options[index];
 			if (option === undefined) return "";
 			return translated(
 				casePropertyOptionTranslationUnitId(
-					caseType,
+					optionType,
 					property.name,
 					option.value,
 					casePropertyOptionOccurrence(options, index),
@@ -106,19 +109,23 @@ export function previewCaseListOrderLocale(
  * The order a case store read of `mod`'s list takes: the plan over the live
  * `caseListConfig`, the case type's catalog, and the text its sort keys read
  * in `language`. The Results list's server read and the app test runtime
- * both read their cases in this order.
+ * both read their cases in this order, the Results list with the worker's
+ * picks in its Sort by (`choice`) first.
  */
 export function previewCaseStoreOrder(
 	mod: Module & { readonly caseType: string },
 	doc: BlueprintDoc,
 	caseListConfig: CaseListConfig,
 	language: LanguageTag,
+	choice?: CaseListSortChoice,
 ): CaseStoreOrder {
+	const caseTypes = effectiveCaseTypes(doc);
 	return {
 		plan: previewCaseListOrderPlan(mod, doc, caseListConfig),
 		caseProperties:
-			effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
-				?.properties ?? [],
+			caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
+		caseTypes,
 		locale: previewCaseListOrderLocale(doc, mod.caseType, language),
+		...(choice !== undefined && { choice }),
 	};
 }

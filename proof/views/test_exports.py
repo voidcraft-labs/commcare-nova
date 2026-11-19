@@ -25,6 +25,13 @@ column present but never filled, which a count's value or an empty
 subcase's emptiness tells apart; and a save that changes nothing of the
 export, which the saved app's own export shows.
 
+And for an app made in CommCare HQ (the base ``hq-plain``): Nova's first
+publish over it adds Hidden Values its forms did not hold (the trimmed case
+name among them), and HQ's form export of B holds a column for each of them,
+which is what the first-publish register's ``hidden-values-added`` tells the
+person. The plausible failure: a sentence that says a column is added where
+HQ's export adds none, or a generated node HQ's export leaves out.
+
 Both defects are fixed in step 5, so no corpus document holds either shape; each
 is read on the retained control that keeps the export from before its fix, as
 its fixed register entries are. Each control is published as Nova publishes it and released as HQ's
@@ -152,3 +159,58 @@ def test_an_extension_case_exports_empty_inert_subcase_columns_whose_index_path_
     assert any(path.endswith("/@relationship") for path in nova_index), nova_index
     assert not any(path.endswith("/@relationship") for path in saved_index), saved_index
     assert nova_index != saved_index, (nova_index, saved_index)
+
+
+def _generated_paths(source):
+    """Each question of a form's main instance Nova generated (a leaf named ``nova_...``), as HQ's export names an
+    item's path (``form/<step>/...``)."""
+    from lxml import etree
+
+    root = etree.fromstring(source.encode("utf-8"))
+    instance = next(element for element in root.iter() if etree.QName(element).localname == "instance")
+    data = instance[0]
+    found = set()
+    for node in data.iter():
+        if not isinstance(node.tag, str) or not etree.QName(node).localname.startswith("nova_"):
+            continue
+        if any(isinstance(child.tag, str) for child in node):
+            continue  # a group Nova generated is no column; its questions are
+        steps = [etree.QName(node).localname]
+        for ancestor in node.iterancestors():
+            if ancestor is data:
+                break
+            steps.append(etree.QName(ancestor).localname)
+        found.add("/".join(["form", *reversed(steps)]))
+    return found
+
+
+def test_hq_s_export_of_nova_s_publish_over_an_app_made_in_hq_holds_a_column_for_each_generated_node(
+    hq, formplayer_runner, view_documents, tmp_path
+):
+    from proof.hq import operations
+    from proof.hq.check import hq_check
+    from proof.observe import publish
+    from proof.webapps import hq as webapps_hq
+
+    document = view_documents["hq-plain"]
+    assert "hidden-values-added" in document.first_publish, document.first_publish
+    export = document.exports["minimum"]
+    assert export.republish is not None, f"{document.id} holds no republish over A"
+    found = {}
+    with hq_check(export.configuration.hq()) as (unit, _):
+        with unit.operation("exports:a", document.id.encode()):
+            app_id, _, _ = publish.create_authored(unit, document)
+        with unit.operation("exports:b", document.id.encode()):
+            refusal, _ = publish.update(unit, app_id, export.republish, "B")
+            assert refusal is None, refusal
+        project = webapps_hq.Project(document, export, unit, app_id)
+        with project.released(formplayer_runner, label="hq-plain") as served:
+            for form in operations.held_app(served.unit, served.app_id).get_forms():
+                generated = _generated_paths(form.source)
+                if generated:
+                    _, paths = _export(served.unit, served.app_id, form.xmlns, tmp_path, f"b-{len(found)}")
+                    found[form.xmlns] = (generated, set(paths))
+    assert found, f"Nova's publish over {document.id} added no Hidden Value to any form"
+    for xmlns, (generated, paths) in found.items():
+        missing = sorted(path for path in generated if path not in paths)
+        assert not missing, f"HQ's export of {xmlns} offers no column for {missing}; it offers {sorted(paths)}."

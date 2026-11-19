@@ -1,0 +1,115 @@
+[
+	{
+		"id": "household-id-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/household_id",
+					"value": "hh-7"
+				}
+			],
+			"expressions": ["/data/household_id"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "hh-7"
+			}
+		]
+	},
+	{
+		"id": "deliver-entity-from-the-answers",
+		"entry": "questions/connect-deliver-unit",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/household_id",
+					"value": "hh-7"
+				},
+				{
+					"path": "/data/household_name",
+					"value": "Otieno family"
+				}
+			],
+			"expressions": [
+				"/data/visit_unit/deliver/entity_id",
+				"/data/visit_unit/deliver/entity_name",
+				"/data/visit_unit/deliver/@id"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "hh-7"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Otieno family"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "visit_unit"
+			}
+		]
+	},
+	{
+		"id": "task-named",
+		"entry": "questions/connect-task",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": [
+				"/data/follow_up_task/task/@id",
+				"/data/follow_up_task/task/name"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "follow_up_task"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Return visit"
+			}
+		]
+	},
+	{
+		"id": "task-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/task_note",
+					"value": "Bring seeds"
+				}
+			],
+			"expressions": ["/data/task_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Bring seeds"
+			}
+		]
+	}
+]

@@ -36,13 +36,18 @@ import {
 } from "../../reading/__tests__/novaReading";
 import { inStoredKeyOrder } from "../baselineSource";
 
-/** The reading of `doc`'s export through `mapOf`'s identities, under `mapOf`'s declaration. */
+/**
+ * The reading of `doc`'s export through `mapOf`'s identities, under `mapOf`'s
+ * declaration, the served body changed by `edit` where given, as a save in
+ * CommCare HQ changes it.
+ */
 export async function readingOf(
 	doc: BlueprintDoc,
 	mapOf: BlueprintDoc,
 	identity: WireIdentity = DERIVED_WIRE_IDENTITY,
+	edit?: (body: Record<string, unknown>) => void,
 ): Promise<BlueprintDoc> {
-	return (await readingWithIds(doc, mapOf, identity)).doc;
+	return (await readingWithIds(doc, mapOf, identity, edit)).doc;
 }
 
 /**
@@ -54,11 +59,13 @@ export async function readingWithIds(
 	doc: BlueprintDoc,
 	mapOf: BlueprintDoc,
 	identity: WireIdentity = DERIVED_WIRE_IDENTITY,
+	edit?: (body: Record<string, unknown>) => void,
 ): Promise<{
 	readonly doc: BlueprintDoc;
 	readonly identity: WireIdentity;
 }> {
 	const served = servedExport(doc, { identity });
+	edit?.(served.body);
 	const input = await readBackInput(doc, served);
 	const outcome = readHqApp({
 		...input,

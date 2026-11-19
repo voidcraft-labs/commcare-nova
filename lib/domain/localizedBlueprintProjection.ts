@@ -101,6 +101,15 @@ export function projectLocalizedModule(
 						column.header,
 					),
 				};
+				if (next.sort?.label !== undefined) {
+					next.sort = {
+						...next.sort,
+						label: text(
+							makeTranslationUnitId("column", column.uuid, "sort-label"),
+							next.sort.label,
+						),
+					};
+				}
 				if (next.kind === "id-mapping") {
 					next.mapping = next.mapping.map((mapping) => ({
 						...mapping,

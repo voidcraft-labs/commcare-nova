@@ -245,6 +245,66 @@ describe("hqEntryFacts", () => {
 		);
 	});
 
+	it("reads a parent selection only on a menu whose selection a build walks", () => {
+		const hq = source();
+		// A selection on a menu whose forms choose no case, which shows no case list and which no
+		// menu selects through: no entry HQ builds walks it.
+		const browse = moduleOf(hq, BROWSE);
+		browse.case_list = { ...(browse.case_list as Json), show: false };
+		browse.parent_select = {
+			active: true,
+			relationship: "parent",
+			module_id: derivedUniqueId(HOUSEHOLDS),
+		};
+		const facts = hqEntryFacts(hq);
+		expect(menuFacts(facts, BROWSE).parentSelect).toBe(null);
+		// A form that requires a case walks it, and its menu's record holds it.
+		expect(formFacts(facts, MEMBER_VISIT).parentSelect).toBe(
+			derivedUniqueId(HOUSEHOLDS),
+		);
+		expect(menuFacts(facts, MEMBERS).parentSelect).toBe(
+			derivedUniqueId(HOUSEHOLDS),
+		);
+		// Shown as its case list menu item, the menu's selection is walked again.
+		browse.case_list = { ...(browse.case_list as Json), show: true };
+		expect(menuFacts(hqEntryFacts(hq), BROWSE).parentSelect).toBe(
+			derivedUniqueId(HOUSEHOLDS),
+		);
+	});
+
+	it("reads auto_select_case only on a menu an advanced form's chosen load lists from", () => {
+		const hq = source();
+		// A basic menu's case datum reads its case list's `auto_select`
+		// (`ModuleBase.is_auto_select` tests `is_multi_select` without calling it).
+		moduleOf(hq, HOUSEHOLDS).auto_select_case = true;
+		const unread = hqEntryFacts(hq);
+		expect(menuFacts(unread, HOUSEHOLDS).autoSelectCase).toBe(false);
+		expect(formFacts(unread, VISIT).autoSelectCase).toBe(false);
+		// A load naming the menu as its list reads it.
+		const members = moduleOf(hq, MEMBERS);
+		members.doc_type = "AdvancedModule";
+		const form = (members.forms as Json[])[0] as Json;
+		form.doc_type = "AdvancedForm";
+		form.actions = {
+			doc_type: "AdvancedFormActions",
+			load_update_cases: [
+				{
+					case_type: "household",
+					case_tag: "load_household0",
+					details_module: derivedUniqueId(HOUSEHOLDS),
+					case_properties: {},
+				},
+			],
+			open_cases: [],
+		};
+		expect(menuFacts(hqEntryFacts(hq), HOUSEHOLDS).autoSelectCase).toBe(true);
+		// So does a load with no list of its own, of a type its own menu does not hold: the first
+		// menu of the type.
+		delete ((form.actions as Json).load_update_cases as Json[])[0]
+			?.details_module;
+		expect(menuFacts(hqEntryFacts(hq), HOUSEHOLDS).autoSelectCase).toBe(true);
+	});
+
 	it("reads a list's selection settings as HQ's model holds them", () => {
 		const hq = source();
 		const short = (moduleOf(hq, HOUSEHOLDS).case_details as Json).short as Json;
@@ -301,6 +361,23 @@ describe("hqEntryFacts", () => {
 			searchInstance: "households",
 			additionalCaseTypes: ["member"],
 		});
+		// Every reader in HQ's build takes the list less the menu's own type,
+		// once each and sorted (`suite_xml/utils.py::get_ordered_case_types`),
+		// so a list naming only that type adds none.
+		(module.search_config as Json).additional_case_types = ["household"];
+		expect(menuFacts(hqEntryFacts(hq), HOUSEHOLDS).additionalCaseTypes).toEqual(
+			[],
+		);
+		(module.search_config as Json).additional_case_types = [
+			"member",
+			"household",
+			"child",
+			"member",
+		];
+		expect(formFacts(hqEntryFacts(hq), VISIT).additionalCaseTypes).toEqual([
+			"child",
+			"member",
+		]);
 		// A search that does not launch on its own is no inline search, and
 		// its instance name is read nowhere.
 		(module.search_config as Json).auto_launch = false;
@@ -633,7 +710,7 @@ describe("datumIdsFromFacts", () => {
 	});
 });
 
-describe("compareEntryFacts at the end of step 4", () => {
+describe("compareEntryFacts in its place among the reader's stages", () => {
 	it("finds no difference over an app with a basic parent selection and a search", async () => {
 		const members = caseListConfig([{ field: "case_name", header: "Name" }]);
 		const doc = buildDoc({
@@ -706,7 +783,7 @@ describe("compareEntryFacts at the end of step 4", () => {
 			...readerInput(await sourceFromBody(app)),
 			recordDialect: () => undefined,
 		});
-		// Every stage up to the binding: the comparison runs at the end of step 4.
+		// Every stage up to the binding, the comparison of entry facts among them.
 		for (const stage of STAGES) {
 			if (stage === bindExpressions) break;
 			stage(ctx);

@@ -144,6 +144,7 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 		forms: [],
 		sameStateRewrites: [],
 		entryFactsRefused: [],
+		childCasesUnread: [],
 		rewrites: [],
 		expressionRounds: 0,
 	};

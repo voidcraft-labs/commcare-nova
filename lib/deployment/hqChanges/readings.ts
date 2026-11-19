@@ -55,6 +55,8 @@ import {
 } from "../reading/projectData";
 import {
 	hqMediaReferencesOf,
+	type MediaLeftOut,
+	mediaLeftOutOf,
 	planReadingMedia,
 	type ReadingMediaPlan,
 	readingMediaIndex,
@@ -74,9 +76,9 @@ export interface HqChangeReadings {
 	/** The reader's input of each reading, for acceptance of the reading now and for the
 	 *  first-publish register over each. */
 	readonly inputs: { readonly base: ReaderInput; readonly now: ReaderInput };
-	/** Media references the base reading leaves out because nothing draws them where the app
-	 *  runs: the base's side of the register's `mediaLeftOut`. */
-	readonly baseMediaLeftOut: number;
+	/** Media references with no file the base reading leaves out where the app runs: the
+	 *  base's side of the register's `mediaLeftOut`. */
+	readonly baseMediaLeftOut: MediaLeftOut;
 }
 
 /** Why there is no base: the Project's data changed under the base source (it reads a table,
@@ -337,12 +339,14 @@ export function* makeHqChangeReadingsSteps(
 		};
 	const now = yield* readHqAppSteps(nowInput, options);
 	yield;
-	const baseMediaLeftOut = planReadingMedia({
-		source: baseSource,
-		appId,
-		references: hqMediaReferencesOf(base.draft.facts),
-		runsOn: declaredBy(reference.doc.appSettings.runsOnlyOn),
-	}).media.inert.length;
+	const baseMediaLeftOut = mediaLeftOutOf(
+		planReadingMedia({
+			source: baseSource,
+			appId,
+			references: hqMediaReferencesOf(base.draft.facts),
+			runsOn: declaredBy(reference.doc.appSettings.runsOnlyOn),
+		}).media.claims,
+	);
 	return {
 		kind: "readings",
 		readings: {

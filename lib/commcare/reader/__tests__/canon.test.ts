@@ -1357,6 +1357,37 @@ const PAIRS: readonly Pair[] = [
 			),
 	},
 	{
+		id: "columns-joined-as-read",
+		name: "a column hidden from Results and named in Sort by, before another over its property whose other header Details shows first",
+		other: () =>
+			patients(
+				[
+					plainColumn(uuid(1), "phone", "Phone"),
+					plainColumn(uuid(2), "phone", "Telephone", {
+						visibleInList: false,
+						sort: columnSort("asc", 0, undefined, "Phone number"),
+					}),
+				],
+				{
+					listOrder: [uuid(2), uuid(1)],
+					detailOrder: [uuid(1), uuid(2)],
+				},
+			),
+	},
+	{
+		id: "sort-named-hidden-column-header-is-its-name",
+		name: "a column hidden from both screens whose rule names it in Sort by under another header",
+		other: () =>
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				plainColumn(uuid(2), "feeling_sick", "Unused header", {
+					visibleInList: false,
+					visibleInDetail: false,
+					sort: columnSort("asc", 0, undefined, "Feeling sick"),
+				}),
+			]),
+	},
+	{
 		id: "columns-in-list-order",
 		name: "a list whose columns array is in neither screen's order",
 		afterEarlierRows: true,

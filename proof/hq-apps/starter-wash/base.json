@@ -1,0 +1,27 @@
+{
+	"id": "starter-wash",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CHILD_CASES",
+			"CLOUDCARE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/date-created-created-from-template-last-modified-has-submissions",
+		"application-and-settings/multimedia-map",
+		"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+		"menus-and-case-lists/case-list-form-fields-beside-a-blank-form-id",
+		"menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module",
+		"menus-and-case-lists/case-list-form-post-form-workflow-default-case-list",
+		"menus-and-case-lists/put-in-root-display-only-forms",
+		"questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
+		"questions/setvalue-event-xforms-ready-default-on-a-question-outside"
+	]
+}

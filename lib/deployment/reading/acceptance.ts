@@ -98,6 +98,7 @@ import {
 	identityDifferencesSteps,
 	sourceApplication,
 } from "./identityAgreement";
+import type { MediaLeftOut } from "./projectData/media";
 import type { HandOffSettlement } from "./projectData/settlements";
 import { differenceSignature, documentPathKinds } from "./signature";
 import { sourcePlaces } from "./sourcePlaces";
@@ -154,8 +155,8 @@ export interface AcceptReadingInput {
 	 * document reads no table.
 	 */
 	readonly lookup: LookupFixtureDataSnapshot;
-	/** Media references with no file, left out. */
-	readonly mediaLeftOut: number;
+	/** Media references with no file, left out (`mediaLeftOutOf`). */
+	readonly mediaLeftOut: MediaLeftOut;
 	/**
 	 * Every referenced file, held and judged before acceptance is called.
 	 * `rows` is the map `exportReadinessFindings` takes as its third argument
@@ -539,6 +540,9 @@ export function* acceptReadingSteps(
 				emission,
 				draft,
 				attachmentTarget: input.reader.target,
+				...(input.reader.saveOnlyEditedApplied !== undefined && {
+					saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
+				}),
 			}),
 		);
 	} catch (error) {
@@ -744,12 +748,32 @@ function accountingDifferences(
 }
 
 /**
+ * `doc` declaring where the app runs as `runsOnlyOn` says, its other slots as
+ * they are. Nova writes the declaration into an export (`cloudcare_enabled`),
+ * and a reading reads a list-first search by it, so a document is printed
+ * for the fixed point under a declaration a review offers it, while the
+ * reader writes none into the document it compares.
+ */
+function underDeclaration(
+	doc: BlueprintDoc,
+	runsOnlyOn: Platform | undefined,
+): BlueprintDoc {
+	const { runsOnlyOn: _declared, ...settings } = doc.appSettings;
+	return {
+		...doc,
+		appSettings:
+			runsOnlyOn === undefined ? settings : { ...settings, runsOnlyOn },
+	};
+}
+
+/**
  * Check 3. D's emission is re-read and must give D; where a choice offers
  * the split, the split document (the reading's document under that
  * choice's mutations, with no declaration, since the reader writes none
  * into the document) is emitted and re-read under a resolver matching its own
  * identities, so the questions the split made keep their uuids. D first: a
- * difference there ends the check.
+ * difference there ends the check. Each is printed under its choice's
+ * declaration, D under the proposed choice's (`underDeclaration`).
  */
 function* fixedPointCheck(
 	input: AcceptReadingInput,
@@ -818,9 +842,13 @@ function* fixedPointCheck(
 
 	let emission: ReturnType<typeof readingEmission>;
 	try {
+		const proposed =
+			gated.find((one) => one.index === input.choices.proposed) ?? gated[0];
 		emission = yield* callingSteps(
 			"readingEmission",
-			readingEmissionSteps(emitted(draft.doc)),
+			readingEmissionSteps(
+				emitted(underDeclaration(draft.doc, proposed?.choice.runsOnlyOn)),
+			),
 		);
 		// The reading's own identities: a first reading's are the mint's, and a re-read of an
 		// app Nova holds (a review of changes made in CommCare HQ) gives that app's UUIDs back.
@@ -848,14 +876,15 @@ function* fixedPointCheck(
 			);
 			const { runsOnlyOn: _declared, ...settings } = under.appSettings;
 			const expected: BlueprintDoc = { ...under, appSettings: settings };
+			const printed = underDeclaration(expected, split.choice.runsOnlyOn);
 			const options = calling("readingEmissionOptions", () =>
-				readingEmissionOptions(emitted(expected)),
+				readingEmissionOptions(emitted(printed)),
 			);
 			const identity = options.identity as WireIdentity;
 			yield;
 			const splitEmission = yield* callingSteps(
 				"readingEmission",
-				readingEmissionSteps(emitted(expected)),
+				readingEmissionSteps(emitted(printed)),
 			);
 			yield;
 			const again = yield* reRead(

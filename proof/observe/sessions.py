@@ -10,6 +10,9 @@ and of B aligned to A differ, on that build. HQ's builds read the restore
 HQ writes over the unit's state (``proof.observe.casedata.restore``, with the
 lookup tables Nova's push uploaded: A's restore is made over A, B's over B);
 the local archive reads a restore with no tables, since it carries its own.
+An app made in CommCare HQ uploads no workbook: its restores serve the tables
+its A was made with (``AuthoredTables``), and B's sessions run whether or not
+the raw builds differ (``proof.observe.unit._Unit.observe_b_aligned``).
 
 Every session's submission is given to HQ's case processing
 (``proof.hq.operations.process_case_blocks``) over the same cases, with the
@@ -48,6 +51,7 @@ from __future__ import annotations
 import tempfile
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from proof.checks.compare.trace import renamespace
@@ -278,19 +282,40 @@ def _workbook_digest(captured):
     return bytes_digest(captured.body_path.read_bytes()).encode() if captured is not None else b"none"
 
 
-def hq_restore(unit, database, captured, label, operation=None):
-    """HQ's restore over the unit's state, serving the tables ``captured`` uploads, in a fork; or the refusal.
+@dataclass(frozen=True)
+class AuthoredTables:
+    """The lookup tables an app made in CommCare HQ was made again with: its document's ``authored/tables.json``
+    (``path``, which a base that holds no table lacks). A holds them already, with HQ's own models
+    (``proof/hq/operations.py::save_authored_tables``), so a restore uploads nothing and serves the tables HQ
+    holds."""
+
+    path: Path
+
+    def digest(self) -> bytes:
+        """What a restore over them is keyed by: the file's digest, or ``none`` for a base that holds no table."""
+        held = bytes_digest(self.path.read_bytes()).encode() if self.path.is_file() else b"none"
+        return b"authored:" + held
+
+
+def hq_restore(unit, database, tables, label, operation=None):
+    """HQ's restore over the unit's state, in a fork: serving the tables the workbook ``tables`` uploads (a lookup
+    workbook capture, or None for none), or, for an app made in CommCare HQ (``AuthoredTables``), the tables its A
+    holds, uploading nothing (``casedata.served_fixtures``); or the refusal.
 
     Returns ``({"served": True}, restore bytes)`` or ``({"refused": reason}, None)``. ``operation`` is the
     unit's operation (``unit.operation`` by default, or the part's logged one).
     """
     operation = operation or unit.operation
-    with unit.fork(), operation(label, _workbook_digest(captured)):
+    authored = isinstance(tables, AuthoredTables)
+    with unit.fork(), operation(label, tables.digest() if authored else _workbook_digest(tables)):
         try:
-            tables = casedata.lookup_fixtures(unit, captured) if captured is not None else []
+            if authored:
+                served = casedata.served_fixtures(unit) if tables.path.is_file() else []
+            else:
+                served = casedata.lookup_fixtures(unit, tables) if tables is not None else []
         except casedata.LookupTablesNotServed as refused:
             return {"refused": refused.reason}, None
-        return {"served": True}, casedata.restore(database, unit.domain, tables)
+        return {"served": True}, casedata.restore(database, unit.domain, served)
 
 
 def local_restore(unit, database, operation=None):
@@ -505,7 +530,8 @@ def observe(
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
             return recorded
         restore_b = restore_hq
-        if export.republish is not None and export.republish.lookups is not None:
+        # An app made in CommCare HQ is served the tables its A holds at B too: Nova uploads none over them.
+        if not document.hq_authored and export.republish is not None and export.republish.lookups is not None:
             recorded["lookupsB"], restore_b = hq_restore(
                 unit, database, export.republish.lookups, "restore-b", operation
             )

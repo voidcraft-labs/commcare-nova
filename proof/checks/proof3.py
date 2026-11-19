@@ -194,6 +194,7 @@ from proof.checks.compare.trace import compare_traces as compare_trace_documents
 from proof.checks.compare.trace import generated_labels, relabel_generated
 from proof.checks.corpus import ANDROID, BOTH, WEB_APPS
 from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
+from proof.checks.eligibility import hq_authored
 from proof.observe.runs import Run as Run
 from proof.observe.runs import script_of as script_of
 from proof.observe.runs import submission_of as submission_of
@@ -886,7 +887,16 @@ class _FilesOnly:
 
 
 def behavioral_equivalence(
-    document, observed, sessions, blobs, *, has_local, local_admission=None, local_files=None, platforms=BOTH
+    document,
+    observed,
+    sessions,
+    blobs,
+    *,
+    has_local,
+    local_admission=None,
+    local_files=None,
+    platforms=BOTH,
+    always_b=False,
 ):
     """Proof 3's differences for one document under one configuration.
 
@@ -899,7 +909,8 @@ def behavioral_equivalence(
     forms' declared versions a submission's are mapped by (``declared_versions``). ``platforms`` are the
     platforms the document declares (``Document.platforms``): Nova hands a local archive only to an app that
     declares Android, so for one that declares none no local run is compared and none is missed, and B's
-    comparison goes on from A's baseline.
+    comparison goes on from A's baseline. ``always_b`` compares B's sessions whether or not proof 2 finds a
+    difference: on an app made in HQ, whose forms proof 2 leaves out.
     """
     android = ANDROID in platforms
     if observed.a is None:
@@ -948,7 +959,7 @@ def behavioral_equivalence(
             platforms=platforms,
         )
     if observed.b_aligned is not None and observed.b_aligned.files is not None:
-        if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
+        if always_b or [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
             if unbuildable(observed.b_aligned) is not None:
                 return [*found, *unbuildable_refusals(document, "trace@B", observed.b_aligned)]
             if sessions.get("lookupsB") and "refused" in sessions["lookupsB"]:
@@ -1029,7 +1040,7 @@ def _archive_forms(path) -> dict:
         }
 
 
-def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None):
+def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False):
     """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
 
     Where A is served (``proof.observe.served``): every request HQ's own
@@ -1040,7 +1051,9 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     (``formplayer@local.ccz``, the forms' namespaces mapped as Core's are);
     and, wherever proof 2 still finds a difference between A's build and
     the build of B aligned to A, Formplayer's sessions and the client's
-    screens on that build against A's (``formplayer@B``, ``webapps@B``).
+    screens on that build against A's (``formplayer@B``, ``webapps@B``); with
+    ``always_b`` (an app made in HQ, whose forms proof 2 leaves out) whether
+    or not it does.
 
     For a Connect app (``proof.observe.connect``), what CommCare Connect made of each state's submissions
     (``proof.checks.connect``): what stands on its own at A (``connect@A``), and the local archive's and B's
@@ -1121,7 +1134,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             )
     b = aligned.get("B")
     if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
-        if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
+        if always_b or [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
             if b.get("releaseDiffers"):
                 found += _refused(document, f"{RELEASE}@B", "/release-differs", b["releaseDiffers"])
             from proof.checks.proof4 import content_versions
@@ -1173,6 +1186,7 @@ def document_behavior(document, records):
             local_admission=reports.get(local_ccz.name) if local_ccz is not None else None,
             local_files=local_files,
             platforms=platforms,
+            always_b=hq_authored(document.source),
         )
         if (sessions or {}).get("local", {}).get("trace") is not None:
             compared.add("trace@local.ccz")
@@ -1184,6 +1198,7 @@ def document_behavior(document, records):
             sessions,
             has_local=local_ccz is not None and ANDROID in platforms,
             local_ccz=local_ccz,
+            always_b=hq_authored(document.source),
         )
         if _served_a(records, name) is not None and (
             (records.configurations[name].b_aligned or {}).get("served") or {}

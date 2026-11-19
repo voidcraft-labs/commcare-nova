@@ -11,12 +11,17 @@
  * answer is applied to the nodes it was read from: each registration's
  * outcome is its bound tree and its slot's own claim, the second run's over
  * the worker information the first found the app reads, an ownerless
- * registration stands under the finding at or above its place or is the
- * invariant C10, and a table the catalog lacks is listed once.
+ * registration stands under the finding at or above its place or throws,
+ * naming the slot, and a table the catalog lacks is listed once, as read or as
+ * only declared. One cause is one finding: a read of a table the catalog lacks
+ * is handed to project data, a read of an inline instance stands under the
+ * instance's refusal, and a read of a Search field's answer or the legacy
+ * search input is its instance's one entry.
  *
  * Plausible failures: a stale document served after a draft changed, a
  * stand-in missing so a second false finding appears, a surface use's claim
- * given as the slot's, a tag listed twice.
+ * given as the slot's, a tag listed twice, a declaration taken for a read, one
+ * read reported twice.
  */
 
 import { describe, expect, it } from "vitest";
@@ -300,6 +305,134 @@ function heldClaims(): readonly string[] {
 		.filter((entry) => index.entry(entry)?.standing === "held");
 }
 
+/** `q2`'s condition, in place of the one Nova's export writes, with each instance of
+ *  `instances` declared in the form's model after its main instance. */
+function q2ShownWhen(condition: string, instances = "") {
+	return (xml: string) =>
+		xml
+			.replace("</instance>", `</instance>${instances}`)
+			.replace(
+				`vellum:relevant="#form/q1 = &apos;x&apos;" relevant="/data/q1 = &apos;x&apos;"`,
+				`relevant="${condition}"`,
+			);
+}
+
+/** The findings of `survey()` read with `edit`, through the expression stage, and its
+ *  context. */
+async function bound(edit: (xml: string) => string) {
+	const ctx = await readUpToBinding(survey(), edit);
+	bindExpressions(ctx);
+	return { ctx, closed: ctx.close() };
+}
+
+const Q2 = {
+	kind: "question",
+	menu: 0,
+	form: 0,
+	menuName: "Survey",
+	formName: "Visit",
+	path: "q2",
+} as const;
+
+describe("one cause, one finding, for a read the expressions cannot hold", () => {
+	it("hands a read of a table the catalog lacks to project data, whose one finding is the table's", async () => {
+		for (const declared of [
+			`<instance id="item-list:harvests" src="jr://fixture/item-list:harvests"/>`,
+			"",
+		]) {
+			const { ctx, closed } = await bound(
+				q2ShownWhen(
+					"count(instance(&apos;item-list:harvests&apos;)/harvests_list/harvests) &gt; 0",
+					declared,
+				),
+			);
+			expect(closed.findings).toEqual([]);
+			expect(
+				closed.claims.handOffs.map((one) => [one.to, one.subject, one.key]),
+			).toEqual([
+				["lookup-table-read", "harvests", "xform:model/bind@relevant"],
+			]);
+			expect(ctx.facts.unreadTables).toEqual([
+				{ tag: "harvests", place: { kind: "lookup-table", tag: "harvests" } },
+			]);
+		}
+	});
+
+	it("lists a table a form only declares as declared, and claims the declaration", async () => {
+		const { ctx, closed } = await bound(
+			q2ShownWhen(
+				"/data/q1 = &apos;x&apos;",
+				`<instance id="item-list:harvests" src="jr://fixture/item-list:harvests"/>`,
+			),
+		);
+		expect(closed.findings).toEqual([]);
+		expect(closed.claims.handOffs).toEqual([]);
+		expect(ctx.facts.unreadTables).toEqual([
+			{
+				tag: "harvests",
+				place: { kind: "lookup-table", tag: "harvests" },
+				declaredOnly: true,
+			},
+		]);
+	});
+
+	it("puts a read of an instance refused for its inline content under that refusal", async () => {
+		const { closed } = await bound(
+			q2ShownWhen(
+				"instance(&apos;choices&apos;)/root/item = &apos;a&apos;",
+				`<instance id="choices"><root><item>a</item></root></instance>`,
+			),
+		);
+		expect(
+			closed.findings.map((one) => [one.code, one.place, one.detail.name]),
+		).toEqual([
+			[
+				"expressions-and-data/inline-instance-content-inside-instance-no-src",
+				{ kind: "form", menu: 0, form: 0, menuName: "Survey", name: "Visit" },
+				"choices",
+			],
+		]);
+	});
+
+	it.each([
+		["an absolute path", "/data/meta/userID = &apos;u&apos;"],
+		["a path from the question", "../meta/instanceID = &apos;u&apos;"],
+		["the case block's id", "/data/case/@case_id = &apos;c&apos;"],
+		[
+			"a path inside a call",
+			"concat(/data/meta/userID, /data/q1) = &apos;u&apos;",
+		],
+	])(
+		"reads %s into a block HQ's build adds as a form expression outside what Nova types",
+		async (_, condition) => {
+			const { closed } = await bound(q2ShownWhen(condition));
+			expect(closed.findings.map((one) => [one.code, one.place])).toEqual([
+				["expressions-and-data/a-form-expression-outside-what-nova-types", Q2],
+			]);
+		},
+	);
+
+	it.each([
+		[
+			"a Search field's answer in a form no search reaches",
+			"instance(&apos;search-input:results&apos;)/input/field[@name = &apos;v&apos;] = &apos;n&apos;",
+			`<instance id="search-input:results" src="jr://instance/search-input/results"/>`,
+			"expressions-and-data/search-input-read-in-form-expressions-reached-through-a-search",
+		],
+		[
+			"the legacy search input, declared from its source",
+			"instance(&apos;search-input&apos;)/input/field[@name = &apos;v&apos;] = &apos;n&apos;",
+			`<instance id="search-input" src="jr://instance/search-input"/>`,
+			"expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail",
+		],
+	])("reads %s as one finding", async (_, condition, declared, entry) => {
+		const { closed } = await bound(q2ShownWhen(condition, declared));
+		expect(closed.findings.map((one) => [one.code, one.place])).toEqual([
+			[entry, Q2],
+		]);
+	});
+});
+
 describe("applying the expression stage's answer", () => {
 	it("gives each registration its tree and its slot's own claim", async () => {
 		const ctx = await readUpToBinding(survey());
@@ -337,14 +470,20 @@ describe("applying the expression stage's answer", () => {
 				locationDataSlugs: [],
 			},
 			unreadTables: ["clinics", "clinics"],
+			declaredTables: ["clinics", "spare"],
 			ownerless: [],
 			rounds: 1,
 		});
 		expect(ctx.pending.outcome(at).expression).toBe(tree);
 		expect(ctx.pending.outcome(at).claim?.key).toBe(pending[at]?.key);
 		expect(ctx.pending.outcome(at).claim?.entryId).toBe(own);
-		expect(ctx.facts.unreadTables.map((table) => table.tag)).toEqual([
-			"clinics",
+		expect(ctx.facts.unreadTables).toEqual([
+			{ tag: "clinics", place: { kind: "lookup-table", tag: "clinics" } },
+			{
+				tag: "spare",
+				place: { kind: "lookup-table", tag: "spare" },
+				declaredOnly: true,
+			},
 		]);
 		expect(Object.isFrozen(ctx.doc)).toBe(true);
 	});
@@ -374,6 +513,7 @@ describe("applying the expression stage's answer", () => {
 					locationDataSlugs: [],
 				},
 				unreadTables: [],
+				declaredTables: [],
 				ownerless: [],
 				rounds: 1,
 			});
@@ -464,6 +604,7 @@ describe("applying the expression stage's answer", () => {
 				locationDataSlugs: [],
 			},
 			unreadTables: [],
+			declaredTables: [],
 			ownerless: [ownerless],
 			rounds: 1,
 		});

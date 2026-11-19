@@ -67,6 +67,49 @@ it("keeps the query reference stable across draft renders and masks an old scope
 	).toBe(true);
 });
 
+it("hands a new revision of the screen one query reference, from its first render through the commit that stores it", () => {
+	/* A screen that adjusts its own state during render when the query
+	 * reference moves (the case list's place on a search run again) settles
+	 * only if each render of one revision reads one reference. */
+	const environment = runEnvironment(searchInputs);
+	const revised = [
+		...searchInputs,
+		simpleSearchInputDef(
+			testUuid("00000000-0000-4000-8000-000000000203"),
+			"village",
+			"Village",
+			"text",
+			"village",
+		),
+	];
+	const observed: {
+		inputs: readonly SearchInputDef[];
+		submitted: ReadonlyMap<string, string>;
+	}[] = [];
+	const { result, rerender } = renderHook(
+		({ inputs }) => {
+			const state = useSearchInputRunState({
+				scopeKey: "module",
+				searchInputs: inputs,
+				session,
+				environment,
+			});
+			observed.push({ inputs, submitted: state.submitted });
+			return state;
+		},
+		{ initialProps: { inputs: searchInputs as readonly SearchInputDef[] } },
+	);
+	act(() => result.current.submit(new Map([["name", "Alice"]])));
+	rerender({ inputs: revised });
+	const references = new Set(
+		observed
+			.filter((item) => item.inputs === revised)
+			.map((item) => item.submitted),
+	);
+	expect(references.size).toBe(1);
+	expect(result.current.submitted.get("name")).toBe("Alice");
+});
+
 it("validates a prospective search with the latest identity while preserving the standing search", () => {
 	const inputs = [
 		...searchInputs,

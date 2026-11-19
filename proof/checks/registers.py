@@ -117,13 +117,18 @@ HELD_CHECKS = frozenset(
         "proof4",
         "proof5",
         "sensitivity",
+        "proof6",
+        "parity",
+        "source",
         "changes",
     }
 )
-# The checks no register entry may name: a difference of the judge of the changes Nova's review lists
-# (``proof.checks.changes``) means the review's list or the register's rows are wrong, and is fixed where it is
-# found.
-UNREGISTERED_CHECKS = frozenset({"changes"})
+# The checks no register entry may name: a difference of proof 6, parity, the stored-app comparison or the changes
+# judge (``proof.checks.changes``: the first-publish register's rows on an app made in HQ, and the rows of a change
+# a review lists for the next publish on a document whose saves in CommCare HQ are brought in) means Nova's reader,
+# its manifest, the review's list or the register's rows are wrong, and is fixed where it is found. The stored-app
+# comparison's declared changes are the first-publish register's, never a known defect.
+UNREGISTERED_CHECKS = frozenset({"proof6", "parity", "source", "changes"})
 
 # Each defect the known-defect register may hold, mapped to the later step that owns its fix: steps 2 to 5 fixed
 # every numbered defect and finding they registered, so an entry of any of them is a regression or a fix left listed
@@ -336,9 +341,10 @@ def _field_problems(raw, where, keys, *, controls):
         )
     if raw.get("check") in UNREGISTERED_CHECKS:
         problems.append(
-            f"The register entry {raw.get('id')} names the check {raw['check']}. A difference of the judge of the"
-            " changes Nova's review lists is never a known defect: it means the review's list or the rows of"
-            " proof/first-publish-changes.json are wrong, and it is fixed where it is found."
+            f"The register entry {raw.get('id')} names the check {raw['check']}. A difference of proof 6, parity, the"
+            " stored-app comparison or the changes judge is never a known defect: it means Nova's reader, its"
+            " manifest, the review's list or the rows of proof/first-publish-changes.json are wrong, and it is fixed"
+            " where it is found."
         )
     if isinstance(raw.get("path"), str) and not raw["path"].startswith("/"):
         problems.append(f"{where}: path {raw['path']!r} is a structural path from the artifact's root (/…).")

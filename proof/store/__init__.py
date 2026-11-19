@@ -11,14 +11,16 @@ result are kept, each under its own key (``keys``):
   in their own keys);
 - judgments, each check's evidence on one document, by the document's
   files, the observation's and the browser's code, the platform, every
-  record part it was judged from, and the judge's code;
+  record part it was judged from, the judge's code and, for a corpus
+  document, the reader bundle the corpus carries (``keys.judged_under``);
 - browser transcripts (``proof.editors.transcripts``), by the observation's
   and the browser's code (which start the browser, hand it what HQ does not
   answer, and record what it did), the platform, the environment and the
   run's spec and first answer, and replayed only where HQ, really run again,
   answers every recorded request byte for byte;
 - package groups' outcomes and the surface extraction, by every file of the
-  harness, the image, the environment and the corpus data each group reads.
+  harness, the image, the environment and the corpus data each group reads
+  (the reader bundle among it, for a package whose tests run it).
 
 Modules:
 

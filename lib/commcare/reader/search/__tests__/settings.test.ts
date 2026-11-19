@@ -179,6 +179,129 @@ describe("a search's settings", () => {
 		]);
 	});
 
+	it("refuses `search_on_clear` beside the case list's own auto select, as HQ reads it, and by its own row otherwise", async () => {
+		// HQ's `Module.is_auto_select` reads the short detail's `auto_select` whether or not the list
+		// is multi-select, and never `auto_select_case`.
+		const read = (
+			offered: boolean,
+			edit: (module: {
+				auto_select_case?: boolean;
+				case_details: { short: { auto_select?: boolean } };
+				search_config: Record<string, unknown>;
+			}) => void,
+		) =>
+			readLists(
+				offered ? doc() : patients([plainColumn(uuid(1), "case_name", "Name")]),
+				{
+					edit: (app) => {
+						const module = app.modules[0] as Parameters<typeof edit>[0];
+						module.search_config.search_on_clear = true;
+						edit(module);
+					},
+				},
+			);
+		const auto =
+			"case-search/search-on-clear-with-the-case-list-s-auto-select-checked-whether";
+		const own = "case-search/search-on-clear";
+		const listAuto = await read(true, (module) => {
+			module.case_details.short.auto_select = true;
+		});
+		expect(closedCodes(listAuto)).toContain(auto);
+		expect(closedCodes(listAuto)).not.toContain(own);
+		const caseAuto = await read(true, (module) => {
+			module.auto_select_case = true;
+		});
+		expect(closedCodes(caseAuto)).toContain(own);
+		expect(closedCodes(caseAuto)).not.toContain(auto);
+		// HQ refuses it beside the list's auto select on a menu that offers no search too.
+		const inactive = await read(false, (module) => {
+			module.case_details.short.auto_select = true;
+		});
+		expect(closedCodes(inactive)).toContain(auto);
+	});
+
+	it("counts a text field with no `input_`, HQ's own default, under the text field's entry", async () => {
+		const reading = await readLists(doc(), {
+			edit: (app) => {
+				const properties = app.modules[0]?.search_config.properties as
+					| Record<string, unknown>[]
+					| undefined;
+				const prompt = properties?.[0];
+				if (prompt === undefined) throw new Error("The search holds a field.");
+				// HQ's source read leaves out an `input_` of `None` (`excludeIfNone`).
+				delete prompt.input_;
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const text = [...reading.ctx.close().claims.records()].filter(
+			(one) => one.entry === "case-search/text-prompt-no-input",
+		);
+		expect(text.map(({ where, key }) => ({ where, key }))).toEqual([
+			{ where: "/modules/0/search_config/properties/0/input_", key: null },
+		]);
+	});
+
+	it("counts each key HQ's model removed under the removed keys' entry, and any other undeclared key under its own", async () => {
+		const removed = [
+			"again_label",
+			"search_again_label",
+			"dynamic_search",
+			"command_label",
+			"search_label",
+			"additional_relevant",
+			"search_filter",
+		];
+		const reading = await readLists(doc(), {
+			edit: (app) => {
+				const config = app.modules[0]?.search_config as Record<string, unknown>;
+				for (const key of removed) config[key] = { en: "Search" };
+				config.no_such_key = true;
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const entryAt = new Map(
+			[...reading.ctx.close().claims.records()].map((one) => [
+				one.where,
+				one.entry,
+			]),
+		);
+		for (const key of removed)
+			expect(entryAt.get(`/modules/0/search_config/${key}`)).toBe(
+				"case-search/removed-keys-dynamic-search-additional-relevant-search-filter",
+			);
+		expect(entryAt.get("/modules/0/search_config/no_such_key")).toBe(
+			"case-search/any-other-unknown-casesearch-key",
+		);
+	});
+
+	it("reads the list filter's owner clause of a refused exclusion as that refusal's, one finding", async () => {
+		// An exclusion over an ordered comparison of text, which Nova's value vocabulary does not
+		// hold: the search's refusal is the one cause, and the clause Nova's print would write for
+		// a held exclusion is no difference of the list's.
+		const outside =
+			"if(instance('commcaresession')/session/context/username > 'm', 'a', 'b')";
+		const reading = await readLists(
+			doc({ excludedOwnerIds: term(literal("abc")) }),
+			{
+				edit: (app) => {
+					const menu = app.modules[0] as {
+						case_details: { short: { filter?: unknown } };
+						search_config: { blacklisted_owner_ids_expression?: unknown };
+					};
+					const swap = (text: unknown) =>
+						typeof text === "string" ? text.replaceAll("'abc'", outside) : text;
+					menu.case_details.short.filter = swap(menu.case_details.short.filter);
+					menu.search_config.blacklisted_owner_ids_expression = swap(
+						menu.search_config.blacklisted_owner_ids_expression,
+					);
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual([
+			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
+		]);
+	});
+
 	it("reads the owner exclusion of a menu that offers no search from the list filter's clause alone", async () => {
 		const filter = neq(term(prop("patient", "notes")), term(literal("none")));
 		const owners = term(sessionContext("userid"));
@@ -420,6 +543,14 @@ describe("a search's settings", () => {
 		for (const module of app.modules) module.search_config.instance_name = name;
 	};
 
+	/** The one finding of each link's clash: a parent selection's is the menus' refusal of the
+	 *  selection at the menu, which names it (`menus/modules.ts`), and the root menu's is the
+	 *  search's. */
+	const clashOf = (how: string) =>
+		how === "its root menu"
+			? clash
+			: "menus-and-case-lists/parent-select-naming-a-module-that-searches-inline-under-the";
+
 	for (const [how, link] of links) {
 		it(`raises a results instance equal to the inline search of ${how}, with no name`, async () => {
 			const reading = await readLists(twoMenus(), {
@@ -429,7 +560,10 @@ describe("a search's settings", () => {
 				},
 				firstPassOnly: true,
 			});
-			expect(codes(reading)).toContain(clash);
+			expect(reading.findings.map((one) => one.code)).toContain(clashOf(how));
+			expect(codes(reading).filter((code) => code === clash).length).toBe(
+				clashOf(how) === clash ? 1 : 0,
+			);
 		});
 
 		it(`raises a named results instance equal to the inline search of ${how}`, async () => {
@@ -441,7 +575,10 @@ describe("a search's settings", () => {
 				},
 				firstPassOnly: true,
 			});
-			expect(codes(reading)).toContain(clash);
+			expect(reading.findings.map((one) => one.code)).toContain(clashOf(how));
+			expect(codes(reading).filter((code) => code === clash).length).toBe(
+				clashOf(how) === clash ? 1 : 0,
+			);
 		});
 
 		it(`raises the clash with ${how} on a menu that offers no search`, async () => {
@@ -457,7 +594,10 @@ describe("a search's settings", () => {
 				},
 				firstPassOnly: true,
 			});
-			expect(codes(reading)).toContain(clash);
+			expect(reading.findings.map((one) => one.code)).toContain(clashOf(how));
+			expect(codes(reading).filter((code) => code === clash).length).toBe(
+				clashOf(how) === clash ? 1 : 0,
+			);
 		});
 
 		it(`claims a named results instance equal to the search of ${how} that is not inline, and raises nothing for it`, async () => {
@@ -493,6 +633,49 @@ describe("a search's settings", () => {
 			);
 		});
 	}
+
+	for (const src of [
+		"jr://instance/remote/results:visits",
+		"jr://instance/search-input/results:visits",
+	])
+		it(`reads a form's read of a results instance under a refused name as that refusal's (${src})`, async () => {
+			const id = src.includes("search-input")
+				? "search-input:results:visits"
+				: "results:visits";
+			const reading = await readLists(twoMenus(), {
+				edit: (app) => {
+					inline(app);
+					app.modules[0].search_config.instance_name = "visits";
+					const attachments = app._attachments as Record<string, string>;
+					const [name] = Object.keys(attachments).filter((key) =>
+						(attachments[key] as string).includes('nodeset="/data/notes"'),
+					);
+					if (name === undefined) throw new Error("The menu holds a visit.");
+					let xml = attachments[name] as string;
+					const declared = xml.indexOf("</instance>") + "</instance>".length;
+					xml = `${xml.slice(0, declared)}<instance id="${id}" src="${src}"/>${xml.slice(declared)}`;
+					xml = xml.replace("<notes/>", "<notes/><seen/>");
+					xml = xml.replace(
+						"</model>",
+						`<bind nodeset="/data/seen" calculate="instance('${id}')/results/case[1]/case_name"/></model>`,
+					);
+					attachments[name] = xml;
+				},
+			});
+			const all = reading.ctx
+				.close()
+				.findings.map((one) =>
+					one.code === "unrecognized"
+						? `unrecognized:${(one.detail as { name?: string }).name ?? ""}`
+						: one.code,
+				);
+			expect(all).toContain(
+				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			);
+			expect(all).not.toContain(
+				"expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src",
+			);
+		});
 });
 
 describe("a search's default filters", () => {

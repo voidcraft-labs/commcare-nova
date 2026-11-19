@@ -73,8 +73,10 @@ reuse it. Where the groups are reordered, the first of them still builds it.
   display condition and a parent menu of another case type each meet. A preload or a case write
   through an index whose case type the app does not state (part 07, section 3.7). And a child case
   type under more than one parent (the research's "Also held" list), since every walk through an
-  index resolves through that one `parent_type`. `case-list-and-detail` builds it, and `menus` and
-  `forms-and-case-management` reuse it.
+  index resolves through that one `parent_type`. Step 6 built it for a list's property columns
+  (`lib/domain/columnRelation.ts`, a column's `via`), which read through `parent` and through any
+  other index the column names the case type of; `case-list-and-detail` builds the rest, and `menus`
+  and `forms-and-case-management` reuse it.
 - *Functions in a record slot.* A function the record rule set gives no arm of its own waits, by the
   slot's own entry: `case-list-and-detail` for a list's filter, a calculated column and a sort
   calculation, `menus` for the two display conditions, `case-search` for the search slots and `xform`
@@ -127,8 +129,8 @@ platform row, proof), with its reading. The rules below bind every group.
   `case-search`: `search-today-device-day`, `search-filter-joined-to-list` and
   `search-restates-list-filter`. One stays through its group: `sort-rule-kept-as-hidden-column`
   changes no behavior, and a sort rule is the `sort` slot of its column (part 10, section 2.2), so
-  `case-list-and-detail` holds a sort's label on the hidden column that entry keeps; the entry leaves
-  only if that group's plan gives a sort rule a place apart from any column. A group's full plan reads
+  step 6 holds a sort's label on the hidden column that entry keeps; the entry leaves only if
+  `case-list-and-detail`'s plan gives a sort rule a place apart from any column. A group's full plan reads
   section 11.2 whole and names every other entry its concepts make exact.
 - **Coverage.** Every manifest entry is in exactly one of the lane's sets (base-exhibited,
   variant-exhibited, exempt; part 14, section 7.5). An entry a group holds moves from its variant to a
@@ -354,16 +356,19 @@ lookup from the case list into another Android app, with the `fingerprintquery` 
 remaining column kinds: address, distance, the map layers, a clickable icon, conditional text, an image
 map keyed by plain values or by conditions, the wider interval column and the flag with no list header,
 a plain column that shows a select's raw value, the owner's name, a column over the worker's record, a
-property column read through a relation, a markdown column outside the link shape, an authored
-translated expression, authored alt text. Sort settings: an authored comparator, distance, a sort's
-label, a sort calculation. A list's own wording (empty-list text, the select button). The speed
+property column read through a relation in a menu that offers Search, a markdown column outside the link shape, an authored
+translated expression, authored alt text. Sort settings: an authored comparator, distance, a sort
+calculation. A list's own wording (empty-list text, the select button). The speed
 settings. Auto-select on a multi-select list and a selection maximum above 100. A filter, a calculated
-column or a sort calculation beyond what the record rule set types.
+column or a sort calculation beyond what the record rule set types (which takes a whole number
+compared with its text and a text or choice compared with a number, as CommCare compares them, outside a
+condition CommCare HQ's search reads).
 
 **What step 6 builds toward it.** The reader of case lists and details: one set of columns from the two
 details, the order plan, tiles, and a column the case detail alone shows, read exactly as a column
 that is not on the list (part 07, section 11). A sort rule's blanks first or last (part 03, section 7).
-The record rule reader, under which a slot the checker refuses claims that slot's HELD-NEW entry with
+A sort rule's name in Sort by on a column hidden from Results, which CommCare HQ's health starter app
+holds, and the running list's Sort by in Preview as each platform offers it. The record rule reader, under which a slot the checker refuses claims that slot's HELD-NEW entry with
 the checker's reason (part 08, sections 8 and 9). Part 08's table of every function in a record slot,
 with what each needs built (section 8.1).
 
@@ -391,8 +396,7 @@ with what each needs built (section 8.1).
   `menus-and-case-lists/enum-mappingitem-alt-text-lang` off the ambient list; the address column
   (different on Web Apps, which hides it in the list and shows plain text on the detail); an image map
   keyed by plain values or by conditions (different on Android, which prints the raw path in an
-  `icon_text_grid` tile); a sort's label on a sort-only element or beside an invisible column
-  (different on Web Apps, where only a tile's sort menu lists it); the select button's text (different
+  `icon_text_grid` tile); the select button's text (different
   on Web Apps, which words only the multi-select button with it, and ignored on Android); an invisible
   or address column in a custom tile (different on Android, which draws it at its stored cell);
   several address columns in an advanced menu's detail (different on Android, where a blank first
@@ -565,8 +569,11 @@ does not give (part 07, section 4 and Departure 5). This group takes:
   write or a load through an index whose case type the app does not state does, on the relation the
   groups share ("Work that groups share", above).
 
-Beside these: the writer-type joins (decimal, multi-select, text) and a date-and-time question saved
-straight to a date property; a preload from any other index path, a preload held at the end of the load,
+Beside these: a child case's or advanced action's condition that reads, alone, a question whose answer is
+no yes or no (`boolean_true` over a select, a label or a Hidden Value calculated as text), which CommCare
+reads as true wherever the answer is not empty; the writer-type joins (decimal, multi-select, and text
+for writers that include a date and time, a time or a location, or for a property a question opens on
+through an answer class that casts it) and a date-and-time question saved straight to a date property; a preload from any other index path, a preload held at the end of the load,
 and a preload into a question that holds no default; saving only a changed answer beyond a follow-up
 form's own update; a write or a load through an index whose case type the app does not state; a write to
 `location_id` or `hq_user_id`; a case property name with a letter outside ASCII; a write through an
@@ -577,7 +584,10 @@ reads a session value the dialect cannot spell.
 session values an entry holds (`publishedCaseBlocks` extended, `hqEntryFacts`; part 07, sections 3 to
 7). An advanced load's preload read as the question's default wherever nothing later in the load reads
 the question, and an update through the date-and-time join, both held (part 07, sections 3.7 and 14).
-Hyphens in a case write's property and the keys `category` and `state` (part 04, section 6). A fuzz
+Hyphens in a case write's property and the keys `category` and `state` (part 04, section 6). Writers
+that agree on no one type, one Hidden Value's results among them, saved as text where each is text, a
+choice, a number or a date and no question opens on the property through an answer class that casts it
+(`ruleSets.ts::joinsAsText`), as CommCare HQ's agriculture starter app writes its expected harvest date. A fuzz
 family in the lane that draws advanced menus and step 5's link shapes (part 14, section 11.2).
 
 **What it decides.** Each shape above, and:
@@ -612,7 +622,9 @@ The rest of what CommCare HQ's form builder writes into a form.
 not, so it is a kind as signature is; part 03, section 2.4), face capture, and an Android app callout,
 with a reference to a callout from another input. An image's maximum size. A repeat's add captions. A
 question's data under another group than its control (`Field.dataParent`). A question locked in
-CommCare HQ (`Field.lockedInHq`). A Hidden Value's default beside its calculate, its own bind type, and
+CommCare HQ (`Field.lockedInHq`). A Hidden Value's default beside its calculate where a runtime can read
+it (a later load-time setvalue reads it, or it stands in a repeat; the reader already holds one no runtime
+reads as its calculate alone), its own bind type, and
 its data node's namespace. Choices from a query: a sort column, a filter beyond what the record rule
 set types, and a source other than Nova's case-choices shape. A choice value holding both quote marks.
 The form's pragma settings held as text (auto-submit, the saved-form descriptor). Logic and text on

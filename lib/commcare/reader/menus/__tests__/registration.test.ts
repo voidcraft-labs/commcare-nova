@@ -141,6 +141,22 @@ describe("the hidden registration menu", () => {
 		expect(identities).toHaveLength(2);
 	});
 
+	it("folds a hidden menu holding the keys Nova's shell leaves out as a read of CommCare HQ serves them", async () => {
+		// HQ serves every declared property, and a detail pair it wrapped names its
+		// details' `display` (`models/modules.py::DetailPair.wrap`), never the `null`
+		// the class declares.
+		const reading = await readMenusOf(afterEmptySearch(), (app) => {
+			hiddenMenu(app).ref_details = {
+				doc_type: "DetailPair",
+				short: { doc_type: "Detail", display: "short", columns: [] },
+				long: { doc_type: "Detail", display: "long", columns: [] },
+			};
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const host = moduleNamed(reading.doc as BlueprintDoc, "Patients");
+		expect(host.caseListRegistrationForm?.kind).toBe("after-empty-search");
+	});
+
 	it("rejoins its host last, from wherever the form stood (registration-form-last)", async () => {
 		const reading = await readMenusOf(
 			afterEmptySearch(undefined, "register-first"),
@@ -187,6 +203,20 @@ describe("the hidden registration menu", () => {
 			(app: AppJson) => {
 				const details = hiddenMenu(app).case_details as JsonObject;
 				(details.short as JsonObject).columns = [];
+			},
+		],
+		[
+			"reference details other than the default",
+			(app: AppJson) => {
+				hiddenMenu(app).ref_details = {
+					doc_type: "DetailPair",
+					short: {
+						doc_type: "Detail",
+						display: "short",
+						columns: [{ doc_type: "DetailColumn", field: "name" }],
+					},
+					long: { doc_type: "Detail", display: "long", columns: [] },
+				};
 			},
 		],
 		[

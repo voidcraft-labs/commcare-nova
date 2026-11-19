@@ -6,7 +6,7 @@
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
-import type { HqPlace } from "@/lib/publish/hqFindings";
+import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import {
 	elementNamespace,
 	JAVAROSA_NS,
@@ -14,11 +14,13 @@ import {
 	XFORMS_NS,
 } from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
+import type { Claim } from "../claims";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { BindFacts, DataNode, DataTree } from "./model";
 import { readNodePath, refusalOf } from "./model";
 import type { ParsedXForm } from "./parse";
+import type { StandingRefusal } from "./refusals";
 
 export interface ControlNode {
 	readonly element: Element;
@@ -49,6 +51,10 @@ export interface ReadControls {
 	readonly all: readonly ControlNode[];
 	/** The one control of each data node. */
 	readonly byNode: ReadonlyMap<DataNode, ControlNode>;
+	/** The data node each control refused whole names (an unknown control, a repeat with no
+	 *  group around it, a read-only input), with that refusal: the node, what it holds, its bind
+	 *  and its setvalues belong to the refused control and stand under the same finding. */
+	readonly refusedNodes: ReadonlyMap<DataNode, StandingRefusal>;
 }
 
 const CONTROL_TAGS = new Set<ControlNode["tag"]>([
@@ -133,6 +139,33 @@ export function readControls(input: ReadControlsInput): ReadControls {
 	const { parsed, tree, cursor, formPlace } = input;
 	const all: ControlNode[] = [];
 	const byNode = new Map<DataNode, ControlNode>();
+	const refusedNodes = new Map<DataNode, StandingRefusal>();
+	/** Refuses a control whole, and the data node its `ref` or `nodeset` names, where it names
+	 *  one no other refusal of the data tree covers. */
+	const refuseControl = (
+		element: Element,
+		base: DataNode | null,
+		claim: Claim<"refuse">,
+		detail?: FindingDetail,
+	) => {
+		cursor.refuseSubtree(element, claim, formPlace, detail);
+		const ref = plain(element, "ref") ?? plain(element, "nodeset");
+		if (ref === undefined) return;
+		const read = readNodePath(ref, tree, base);
+		if (
+			read.kind !== "node" ||
+			read.attribute !== undefined ||
+			refusalOf(read, tree) !== undefined ||
+			refusedNodes.has(read.node)
+		)
+			return;
+		refusedNodes.set(
+			read.node,
+			detail === undefined
+				? { claim, place: formPlace }
+				: { claim, place: formPlace, detail },
+		);
+	};
 	const bindNodes = new Map<string, { node: DataNode; bind: Element }>();
 	for (const [node, facts] of input.binds) {
 		const id = plain(facts.element, "id");
@@ -163,7 +196,12 @@ export function readControls(input: ReadControlsInput): ReadControls {
 			// A control on a node the data tree refused, or past one, stands under that refusal.
 			const refusal = refusalOf(read, tree);
 			if (refusal !== undefined) {
-				cursor.refuseSubtree(element, refusal.claim, formPlace, refusal.detail);
+				cursor.refuseSubtree(
+					element,
+					refusal.claim,
+					refusal.place ?? formPlace,
+					refusal.detail,
+				);
 				return "refused";
 			}
 			if (read.kind !== "node" || read.attribute !== undefined) {
@@ -242,9 +280,7 @@ export function readControls(input: ReadControlsInput): ReadControls {
 				continue;
 			}
 			if (tag === undefined) {
-				cursor.refuseSubtree(element, X.unknownControl, formPlace, {
-					name: local,
-				});
+				refuseControl(element, base, X.unknownControl, { name: local });
 				continue;
 			}
 			if (isRepeat) {
@@ -257,12 +293,12 @@ export function readControls(input: ReadControlsInput): ReadControls {
 					isFieldListAppearance(parent.appearance) ||
 					!holdsOnlyARepeat(parent.element)
 				) {
-					cursor.refuseSubtree(element, X.bareRepeat, formPlace);
+					refuseControl(element, base, X.bareRepeat);
 					continue;
 				}
 			}
 			if (tag === "input" && plain(element, "readonly")?.trim() === "true()") {
-				cursor.refuseSubtree(element, X.readonlyInput, formPlace);
+				refuseControl(element, base, X.readonlyInput);
 				continue;
 			}
 			if (
@@ -279,7 +315,12 @@ export function readControls(input: ReadControlsInput): ReadControls {
 			let node = resolved.node;
 			const refused = node === undefined ? undefined : tree.refused.get(node);
 			if (refused !== undefined) {
-				cursor.refuseSubtree(element, refused.claim, formPlace, refused.detail);
+				cursor.refuseSubtree(
+					element,
+					refused.claim,
+					refused.place ?? formPlace,
+					refused.detail,
+				);
 				continue;
 			}
 			if (node !== undefined && byNode.has(node)) node = undefined;
@@ -303,5 +344,5 @@ export function readControls(input: ReadControlsInput): ReadControls {
 		return made;
 	};
 	const roots = walk(parsed.body, null, null);
-	return { roots, all, byNode };
+	return { roots, all, byNode, refusedNodes };
 }

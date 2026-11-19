@@ -237,7 +237,10 @@ class shares its key with no other entry unless only HQ's build refuses it,
 every HELD-NEW and REFUSED entry names a subject, every subject is used, every
 HELD-NEW entry names an owner and carries a value class where it shares a key
 with an allowing entry) and prints the coverage, "N of M entries held; N kept,
-N inert, N not yet, N never, N to change in CommCare HQ". The proof lane's manifest
+N inert, N not yet, N never, N to change in CommCare HQ". Every entry is shown by an app
+made in CommCare HQ that comes in, by a variant of one with its expected finding, or exempted
+with a reason (`lib/commcare/surface/__tests__/entryCoverage.test.ts`, over the proof lane's
+`proof/hq-apps/`, `proof/matrix/variants.json` and `proof/matrix/exemptions.json`). The proof lane's manifest
 check holds Nova's own exports to the entries: every item an export uses must
 be held by the entry whose value class takes it, where holding is a HELD,
 TARGET-OWNED or INERT entry's, so a use whose key only HELD-NEW entries name
@@ -245,7 +248,9 @@ is a difference (`/<key>/held-new`); and every flag HQ reads while building it
 must have a gate entry (`proof/README.md`, "Manifest checks"). Server code
 reads the manifest through `surface/gates.ts` (a gate's identity),
 `surface/schemaDefaults.ts` (a declared property's default, from
-`surface.json`), `appStringKeys.ts` (HQ's generated app string patterns, from
+`surface.json`, and, through `servedSchemaPropertyDefault`, that default as a later read of a stored
+app serves it, which a comparison of a served app with a value Nova writes without the key reads),
+`appStringKeys.ts` (HQ's generated app string patterns, from
 `surface.json`) and `surface/inventory.ts` (every inventory entry with its
 standing, for the reader). `inventory.ts` is `server-only`. The reader also
 reads `surface.json`'s items itself, for what CommCare's own code reads:
@@ -291,11 +296,34 @@ attribute must be claimed against a manifest entry
 value is read, dropped or a finding, and whatever is left unclaimed is the
 circumstance `unrecognized`. A claim is data, held to the manifest by
 `reader/__tests__/claimsBindManifest.test.ts`, so a manifest edit and the
-reader cannot drift. A reader stage reads nothing it does not claim. Two uses
+reader cannot drift. A key the source holds at HQ's default is no use: a claim on one under a
+kept entry is recorded with no surface key, and so is a claim that takes the
+value whole under an allowing entry with a value class, which the stage chose
+by the value it read (`no-sort-elements` for a list holding `sort_elements:
+[]`), so a stage claims under such an entry only a value of its class; any
+other claim at a default records nothing (`accounting.ts::claimAtDefault`). A reading also settles, with no surface key but a file's class, what it met that
+no key of the source holds: the app's id and save counter, its project space's
+profile properties, each table it holds (its tag and HQ's ids), each held file
+(its format, the media suite resource HQ's build writes for it and its `jr://file/`
+paths, and, under its key at each map item's `media_type`, the class HQ files it under; an item
+no held file holds stands under the map's kept entry, `keptMediaClassClaims`), a Connect app, and what HQ's build of the document writes of its own: the
+default app strings, the profile's `<checkoff>`, a form's meta block, a GPS
+question's `orx:pollsensor` and the parent query of an inline search under a parent
+selection (`lib/deployment/reading/gather.ts::settledClaims`).
+Where a file is judged missing the reader runs once more over the verdicts, and that
+run's claim log, whose hand-offs the files' claims are counted at, is the reading's; each
+such claim is recorded at the app's `multimedia_map`, the value its entry names, with no
+surface key where the map is empty. A reader stage reads nothing it does not claim. Two uses
 are handed off instead of claimed, a media path with no file and an itemset
-over a table the catalog lacks, because project data's rules name their entry;
-the caller settles each and acceptance holds none is left. The stages run in
-the order of `reader/index.ts::STAGES`: structure and forms, menus, case
+or an expression over a table the catalog lacks, because project data's rules
+name their entry, so one table is one finding whichever slot read it; the
+caller settles each and acceptance holds none is left. A table a form only
+declares is no read: nothing of it comes in, and project data refuses it only
+where the project space's list lacks it, since Core loads every declared
+instance when the form opens. A table a choice list's itemset reads is a
+read: the read and the table's declaration are claimed under Nova's typed
+lookup carrier (`xform/options.ts`, `provisional.ts::claimDeclarations`). The
+stages run in the order of `reader/index.ts::STAGES`: structure and forms, menus, case
 management, lists and search, then every expression bound against a
 provisional document that is built whether or not a finding stands, then the
 settle passes and assembly. An `unrecognized` finding names a surface key, or
@@ -628,7 +656,12 @@ stores one and by each form's `xmlns`, a shadow form by its parent's; any disagr
 `xmlns` and `shadow_parent_form_id`, and a menu may store no `unique_id`. Only a bring-in admits
 the three (`admit: "any"`); a publish's read refuses them as before. A menu HQ returns as an
 error is `not-summarized`; `notSummarizedMenus` says whether that is a finding at each menu or
-one at the app. HQ's text there quotes the app (a form's name, a choice's label), so the reader
+one at the app. HQ summarizes a menu by reading each of its forms inside one `try`
+(`api/resources/v0_4.py::ApplicationResource.dehydrate_module`), so where the reading's own
+findings name a form of that menu, or one of its questions, that HQ will not save or build (fix
+cause `hq-refuses` or `either`), that finding is the cause and the menu's is left out
+(`lib/deployment/reading/unsummarizedMenus.ts::unsummarizedBeside`); otherwise the menu's finding
+stands alone. HQ's text there quotes the app (a form's name, a choice's label), so the reader
 keeps its shape alone (`HqSummaryErrorShape`), and the log line names the menu's position, its
 `docType` and that shape. A 401 holding the plan sentence asks the list first, as a 403 does: a
 project space that is gone answers it too, and only a member's is the plan. A deleted document
@@ -697,7 +730,13 @@ the field ends with; a later load-time setvalue can still read the default
 before that (run on Core: a hidden value with the default `'D'` and the
 calculate `'C'` ends as `C`, and a second value whose own default reads the
 first holds `D`). Nova does not yet write a Hidden Value's default beside its
-calculate (`lib/domain/fields/hidden.ts::HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). A
+calculate (`lib/domain/fields/hidden.ts::HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). The
+reader of CommCare HQ's apps holds such a Hidden Value as its calculate alone
+where no runtime can read the default: outside every repeat, with no later
+`xforms-ready` setvalue reading the node, directly or through the calculates of
+what it reads (`reader/xform/afterBinding.ts::settleBothSources`, which records
+the form under the first-publish register's `hidden-value-defaults-dropped`);
+it refuses one in a repeat, or one a later setvalue reads. A
 hidden field with neither slot is admitted and opens blank; the shared
 recognizer is `lib/domain/fields/hidden.ts`. The same
 ordering is why a `calculate` on a hidden writer beats its default.
@@ -707,7 +746,8 @@ A Hidden Value that saves to a case property is a typed writer
 `lib/domain/expression/inference.ts::hiddenWriterVerdicts`): its value must be
 write-assignable to the property's agreed type
 (`lib/domain/expression/ruleSets.ts::isWriteAssignable`: storage assignability,
-plus a `format-date` fixed to `%Y-%m-%d` into a date property): every value it
+plus a `format-date` fixed to `%Y-%m-%d` into a date property and a number or a
+date into a text property): every value it
 can end with where that type is one a loading question casts, so text it can't
 read stops the form (`lib/domain/casePropertyTypes.ts::CASTING_PROPERTY_TYPES`:
 dates, times, numbers, locations), or several choices, which a case keeps as a
@@ -715,7 +755,14 @@ list; the whole value where it is text or a single choice, which take whatever
 text one branch gives, as a case operation's write is judged. A date and time whose clock
 may be gone cannot write a date-and-time property, and Hidden Values that alone
 type a property must agree (`int` with `decimal` on `decimal`, `text` with
-`single_select` on `text`) where one of them names a type a question casts. Each disagreeing writer is
+`single_select` on `text`) where one of them names a type a question casts.
+Writers that agree on no one type, one Hidden Value's results among them, are
+saved as text where each is text, a choice, a number or a date and no question
+opens on the property's value through an answer class that casts it
+(`ruleSets.ts::joinsAsText`); where one does, the finding names it
+(`details.castBy`), as `FIELD_KIND_WRITERS_DISAGREE` does for visible
+writers. The reader raises the manifest's mixed-writer row wherever the gate
+refuses such a writer (`reader/caseManagement/catalog.ts::settleWriterTypes`). Each disagreeing writer is
 `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the field. A blank `''` fits every
 property, and a starting value that reads the case's own value of the
 property (a preload) types as that property, so it holds no opinion.
@@ -1369,7 +1416,7 @@ The operation export corpus starts from strictly admitted documents and emits ac
 
 A condition has two spellings, by what HQ's form builder keeps. A conditional create carries it as `relevant` on `<block>/case`, the builder's Open Case Condition. A conditional update or close sits inside the group `nova_condition_<operation id>`, whose bind carries `relevant`, because the builder writes no bind for a block's own node. Every guard of a conditional operation, a create's included, sits inside that group: a guard that ran while its create did not would update a case that does not exist. Write conditions stay child relevance. A consumer of an earlier conditional create automatically inherits that create's relevance (transitively): if the producer does not execute, no target/link/value may leak its preallocated UUID into an update-only block or dangling index. Conditional retypes participate in the same shared guard analysis: a later operation/link that requires the destination type inherits the transition condition, while a source-type consumer after the transition is rejected. The preview's operation-program fold (`lib/preview/engine/caseDataBindingHelpers.ts`) must use `caseOperationConditionalGuardUuids`, not treat an allocated id or declared retype as proof that the producer effect ran. The validator dry-runs these same emitters after type checking so a schema-valid but nonportable expression cannot reach compilation.
 
-Operation assignment typing follows storage direction, not the symmetric comparison table: exact representations, integer-to-decimal, and text/single-select strings are portable; decimal-to-int, scalar-to-multi-select, null-as-clear, and any incompatible branch are not. A direct multi-select form answer may write a multi-select property, but concat/coercion cannot turn its Nova JSON array into CommCare's token string implicitly. `concat` is the explicit boolean-to-text boundary; boolean primitives hidden under numeric/date coercion remain rejected. Generic writes admit the standard `external_id` scalar and route it outside JSONB; `case_name` stays owned by the dedicated name/rename facets. Retype has a second parity gate: only `planCaseRetype(...).wirePortable` plans emit, meaning every existing JSON property retains the exact same type and no value needs conversion or parking. CommCare's wire changes only `case_type`; source-only or converted values would otherwise remain lexically present on device while Nova changed its active projection. Scalar case metadata such as `case_name` and `external_id` is outside that JSON plan and survives normally.
+Operation assignment typing follows storage direction, not the symmetric comparison table: exact representations, integer-to-decimal, text/single-select strings, and a number or a date into a text property (a case block leaf has no `type`, so Core submits the text `Recalculate.wrapData` holds) are portable; decimal-to-int, scalar-to-multi-select, null-as-clear, and any incompatible branch are not. A direct multi-select form answer may write a multi-select property, but concat/coercion cannot turn its Nova JSON array into CommCare's token string implicitly. `concat` is the explicit boolean-to-text boundary; boolean primitives hidden under numeric/date coercion remain rejected. Generic writes admit the standard `external_id` scalar and route it outside JSONB; `case_name` stays owned by the dedicated name/rename facets. Retype has a second parity gate: only `planCaseRetype(...).wirePortable` plans emit, meaning every existing JSON property retains the exact same type and no value needs conversion or parking. CommCare's wire changes only `case_type`; source-only or converted values would otherwise remain lexically present on device while Nova changed its active projection. Scalar case metadata such as `case_name` and `external_id` is outside that JSON plan and survives normally.
 
 These case-operation wire facts were verified against `commcare-core`
 `CaseXmlParser.java` at `130df00962a289381a8e0936c3ea5d3f53d96f73`, Vellum

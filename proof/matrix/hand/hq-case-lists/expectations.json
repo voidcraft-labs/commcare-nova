@@ -1,0 +1,619 @@
+[
+	{
+		"id": "patient-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/patient_name",
+					"value": "Amina Odhiambo"
+				}
+			],
+			"expressions": ["/data/patient_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Amina Odhiambo"
+			}
+		]
+	},
+	{
+		"id": "dob-entered",
+		"entry": "questions/date-xsd-date",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/dob",
+					"value": "2001-03-04"
+				}
+			],
+			"expressions": ["/data/dob"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2001-03-04"
+			}
+		]
+	},
+	{
+		"id": "visits-entered",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visits",
+					"value": "3"
+				}
+			],
+			"expressions": ["/data/visits"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "3"
+			}
+		]
+	},
+	{
+		"id": "weight-entered",
+		"entry": "questions/decimal-xsd-double",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/weight",
+					"value": "61.5"
+				}
+			],
+			"expressions": ["/data/weight"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "61.5"
+			}
+		]
+	},
+	{
+		"id": "village-chosen",
+		"entry": "questions/multiple-choice-select1-item",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/village",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/village"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "south"
+			}
+		]
+	},
+	{
+		"id": "notes-saved-to-the-case",
+		"entry": "forms-and-case-writes/update-case-update-property-question",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/notes",
+					"value": "Allergic to penicillin"
+				}
+			],
+			"expressions": ["/data/notes"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Allergic to penicillin"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/patient_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/patient_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/patient_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/patient_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "visit-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "patient-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visit_note",
+					"value": "Feeling better"
+				}
+			],
+			"expressions": ["/data/visit_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Feeling better"
+			}
+		]
+	},
+	{
+		"id": "follow-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "patient-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/follow_note",
+					"value": "Bring the test results"
+				}
+			],
+			"expressions": ["/data/follow_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Bring the test results"
+			}
+		]
+	},
+	{
+		"id": "patients-born-after-2000",
+		"entry": "menus-and-case-lists/detail-filter-value-lifts-into-predicate",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "patient-five"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "patient-three"
+			},
+			{
+				"pointer": "/caseList/rows/2/caseId",
+				"value": "patient-four"
+			},
+			{
+				"pointer": "/caseList/rows/3/caseId",
+				"value": "patient-two"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patients-by-visits-most-first",
+		"entry": "menus-and-case-lists/direction",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "patient-five"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "patient-three"
+			},
+			{
+				"pointer": "/caseList/rows/2/caseId",
+				"value": "patient-four"
+			},
+			{
+				"pointer": "/caseList/rows/3/caseId",
+				"value": "patient-two"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patients-sort-types",
+		"entry": "menus-and-case-lists/type-plain-date-int-double-equal-to-the-type-nova-derives",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "patient-five"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "patient-three"
+			},
+			{
+				"pointer": "/caseList/rows/2/caseId",
+				"value": "patient-four"
+			},
+			{
+				"pointer": "/caseList/rows/3/caseId",
+				"value": "patient-two"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patients-by-weight-not-shown",
+		"entry": "menus-and-case-lists/field-naming-a-property-not-displayed-hq-appends-a-hidden-column",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "patient-five"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "patient-three"
+			},
+			{
+				"pointer": "/caseList/rows/2/caseId",
+				"value": "patient-four"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patients-without-weight-first",
+		"entry": "menus-and-case-lists/blanks-first-last",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "patient-five"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "patient-three"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-born-shown-as-a-date",
+		"entry": "menus-and-case-lists/2-date-date-format-d-m-y-d-m-y-m-d-y-m-d-y-b-d-y",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/1/fields/1",
+				"value": "09/07/04"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-phone-shown",
+		"entry": "menus-and-case-lists/4-phone",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/1/fields/2",
+				"value": "5550102"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-village-mapped",
+		"entry": "menus-and-case-lists/5-enum-id-mapping",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/1/fields/3",
+				"value": "South"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/3",
+				"value": "North"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "patient-next-visit-calculated",
+		"entry": "menus-and-case-lists/usexpathexpression-field-xpath-lifting-into-valueexpression",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/1/fields/4",
+				"value": "6"
+			},
+			{
+				"pointer": "/caseList/rows/3/fields/4",
+				"value": "4"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "follow-ups-by-hidden-village",
+		"entry": "menus-and-case-lists/7-invisible-search-only-on-the-case-list-outside-a-custom-tile",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "north"
+			},
+			{
+				"pointer": "/caseList/rows/2/fields/0",
+				"value": "north"
+			},
+			{
+				"pointer": "/caseList/rows/3/fields/0",
+				"value": "south"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "follow-ups-in-hq-s-own-order",
+		"entry": "menus-and-case-lists/no-sort-elements",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "north"
+			},
+			{
+				"pointer": "/caseList/rows/4/fields/0",
+				"value": "south"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "due-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "patient-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/due_note",
+					"value": "Weigh the patient"
+				}
+			],
+			"expressions": ["/data/due_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Weigh the patient"
+			}
+		]
+	},
+	{
+		"id": "visits-due-by-visit-count",
+		"entry": "menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m2-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/3/caseId",
+				"value": "patient-two"
+			},
+			{
+				"pointer": "/caseList/rows/4/caseId",
+				"value": "patient-one"
+			}
+		],
+		"exports": ["local"]
+	}
+]

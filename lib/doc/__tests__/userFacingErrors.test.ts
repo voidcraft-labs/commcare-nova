@@ -884,11 +884,11 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 			{
 				reason: "type",
 				property: "stage_note",
-				valueType: "date",
+				valueType: "datetime",
 				propertyType: "text",
 				consequence: "wrong-kind",
 			},
-			'"visit_check" saves a date to "stage_note", which holds text. Forms and case lists that read it would get the wrong kind of value. You can change its calculation to give text, or save it somewhere else.',
+			'"visit_check" saves a date and time to "stage_note", which holds text. Forms and case lists that read it would get the wrong kind of value. You can change its calculation to give text, or save it somewhere else.',
 		],
 		[
 			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
@@ -927,6 +927,23 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				valueTypes: "int,text",
 			},
 			'"visit_check" saves a whole number or text to "score" from different results, so the property has no one kind of value. You can have every result of its calculation give the same kind.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "hidden-disagreement",
+				disagreement: "own",
+				property: "score",
+				valueType: "int",
+				valueTypes: "int,text",
+				castBy: "score_seen",
+			},
+			'"visit_check" saves a whole number or text to "score" from different results, so the property has no one kind of value. "score_seen" opens on its value and would stop on the others. You can have every result of its calculation give the same kind.',
+		],
+		[
+			"FIELD_KIND_WRITERS_DISAGREE",
+			{ property: "score", castBy: "score_seen" },
+			'"visit_check" in "Register Client" saves to "score" a kind of value that can\'t sit beside what the other fields that save there give, because "score_seen" opens on its value and would stop on the others. You can change this one to match them, change how "score_seen" starts, or save it somewhere else.',
 		],
 		[
 			"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",

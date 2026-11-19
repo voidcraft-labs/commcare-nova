@@ -1,0 +1,233 @@
+"""Parity's join sees what it must, over planted uses and claim logs, with no HQ.
+
+Contract (``proof.checks.parity.join``, ``unseen``): a claim naming an allowing
+entry whose keys lack the use's key is one ``entry`` difference; a ``held``
+claim on a use the lane calls refused is one ``standing``; a use with no record
+at its place is one ``unclaimed``; a record with no use at its place is one
+``unseen``; an agreeing pair is none; and a variant's added use the lane calls
+refused whose claim names another refused entry of its key is one ``entry``.
+A variant is judged by its row's own uses (``row_uses``): a use refused under
+the row's entry with no record fails, a use the lane holds where the reader
+refuses the row's class fails, and a held use beneath a thing the reader
+refuses whole is not judged, nor is a held use whose record names only a class
+the lane leaves to the bar beside the classes it reads. A session read is decided against the suite HQ
+built of the app, as the manifest check decides it (``source_uses``).
+The plausible failures: a join that reports nothing, which would pass every
+base and every variant whatever the two classifiers say; and a variant judge
+that holds every structural use beneath a refusal to the log, which fails a
+reader for refusing a thing whole. The join's manifest
+is planted too, so a join control names the class it plants and no live entry;
+the session read is decided by the live class of the session's data that the
+manifest check reads it with. A third plausible failure: parity over a base
+with no suite beside the app, where a read no entry supplies stays undecided.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+
+from lxml import etree
+
+from proof.checks import manifest_usage, parity
+from proof.checks.manifest_usage import HELD, REFUSED, Entry, Manifest, Use
+
+KEY = "schema:Module.case_type"
+OTHER_KEY = "schema:Module.name"
+HELD_ENTRY = Entry("planted/held-case-type", "HELD")
+OTHER_HELD = Entry("planted/held-name", "HELD")
+REFUSED_ENTRY = Entry("planted/refused-case-type", "REFUSED", "planted-class", ("hq-refuses",))
+OTHER_REFUSED = Entry("planted/other-refused-case-type", "REFUSED", "other-class", ("hq-refuses",))
+# Refused only because HQ's build refuses its state: beside the others of KEY, the lane leaves its class to the bar.
+BAR_ENTRY = Entry("planted/bar-case-type", "REFUSED", "bar-class", ("not-hq-buildable",))
+# A key every entry naming is the bar's, which the lane reads as the bar's.
+BAR_KEY = "schema:Module.module_filter"
+ONLY_BAR = Entry("planted/bar-filter", "REFUSED", None, ("not-hq-buildable",))
+MANIFEST = Manifest(
+    items={},
+    gated=frozenset(),
+    entries={
+        KEY: (HELD_ENTRY, OTHER_REFUSED, REFUSED_ENTRY, BAR_ENTRY),
+        OTHER_KEY: (OTHER_HELD,),
+        BAR_KEY: (ONLY_BAR,),
+    },
+    readers={},
+)
+WHERE = "/modules/0/case_type"
+
+
+def _use(standing=HELD, entries=()):
+    return parity.Decided(Use(KEY, "app.json", WHERE), standing, tuple(entries))
+
+
+def _log(*records):
+    return "".join(
+        json.dumps({"artifact": "app.json", "where": WHERE, "key": KEY, "entry": entry, "standing": standing}) + "\n"
+        for entry, standing in records
+    )
+
+
+def _whats(found):
+    return [difference.path.rpartition("/")[2] for difference in found]
+
+
+def test_an_agreeing_pair_is_no_difference():
+    assert parity.join([_use()], _log((HELD_ENTRY.id, "held")), held=MANIFEST) == []
+    assert parity.unseen([_use().use], _log((HELD_ENTRY.id, "held"))) == []
+
+
+def test_a_claim_naming_an_allowing_entry_whose_keys_lack_the_use_s_key_is_entry():
+    assert _whats(parity.join([_use()], _log((OTHER_HELD.id, "held")), held=MANIFEST)) == ["entry"]
+
+
+def test_a_held_claim_on_a_use_the_lane_refuses_is_standing():
+    use = _use(REFUSED, (REFUSED_ENTRY,))
+    assert _whats(parity.join([use], _log((REFUSED_ENTRY.id, "held")), held=MANIFEST)) == ["standing"]
+
+
+def test_a_use_with_no_record_at_its_place_is_unclaimed():
+    found = parity.join([_use()], "", held=MANIFEST)
+    assert [(d.artifact, d.path) for d in found] == [("claims@A", f"/{KEY}/unclaimed")]
+
+
+def test_a_record_with_no_use_at_its_place_is_unseen():
+    found = parity.unseen([], _log((HELD_ENTRY.id, "held")))
+    assert [(d.artifact, d.path) for d in found] == [("claims@A", f"/{KEY}/unseen")]
+
+
+PARENT = "/modules/0"
+CHILD_KEY = "schema:Module.case_details"
+
+
+def _record(entry, standing, where=WHERE, key=KEY):
+    return json.dumps({"artifact": "app.json", "where": where, "key": key, "entry": entry, "standing": standing})
+
+
+def _judged(uses, log, entries):
+    """A variant judged as the lane judges one: its row's own uses (``row_uses``) joined to its claim log."""
+    return parity.join(parity.row_uses(uses, log, entries, held=MANIFEST), log, held=MANIFEST)
+
+
+def test_a_variant_s_use_refused_under_its_row_s_entry_with_no_record_fails():
+    use = _use(REFUSED, (REFUSED_ENTRY,))
+    assert parity.row_uses([use], "", [REFUSED_ENTRY.id]) == [use]
+    assert _whats(_judged([use], "", [REFUSED_ENTRY.id])) == ["unclaimed"]
+    # A composed finding's entry is the row's too.
+    assert _whats(_judged([use], "", ["planted/first-finding", REFUSED_ENTRY.id])) == ["unclaimed"]
+    assert _judged([use], _record(REFUSED_ENTRY.id, "fix-in-hq") + "\n", [REFUSED_ENTRY.id]) == []
+
+
+def test_a_held_use_beneath_a_thing_the_reader_refuses_whole_is_not_judged_on_a_variant():
+    # The refusal stands at the thing; the held structural use beneath it has no record of its own.
+    beneath = parity.Decided(Use(CHILD_KEY, "app.json", f"{PARENT}/case_details"), HELD, ())
+    log = _record(REFUSED_ENTRY.id, "fix-in-hq", where=PARENT) + "\n"
+    assert parity.row_uses([beneath], log, [REFUSED_ENTRY.id]) == []
+    assert _judged([beneath], log, [REFUSED_ENTRY.id]) == []
+    # Joined as a base's use is, it would be unclaimed: that is what a variant leaves out.
+    assert _whats(parity.join([beneath], log, held=MANIFEST)) == ["unclaimed"]
+
+
+def test_a_use_the_lane_holds_where_the_reader_refuses_the_row_s_class_is_judged():
+    use = _use()
+    log = _record(REFUSED_ENTRY.id, "fix-in-hq") + "\n"
+    assert parity.row_uses([use], log, [REFUSED_ENTRY.id]) == [use]
+    assert _whats(_judged([use], log, [REFUSED_ENTRY.id])) == ["standing"]
+    # A use refused under another row's entry is that row's to judge.
+    other = _use(REFUSED, (OTHER_REFUSED,))
+    assert parity.row_uses([other], "", [REFUSED_ENTRY.id]) == []
+
+
+def test_a_held_use_whose_record_names_a_class_the_lane_leaves_to_the_bar_is_not_judged():
+    # The lane's held is no verdict on a class it never reads; the row's own finding holds the variant.
+    use = _use()
+    log = _record(BAR_ENTRY.id, "fix-in-hq") + "\n"
+    assert parity.left_to_the_bar(MANIFEST, BAR_ENTRY.id, KEY)
+    assert parity.row_uses([use], log, [BAR_ENTRY.id], held=MANIFEST) == []
+    # A class the lane reads is judged there, and a key every entry naming is the bar's is the bar's own.
+    assert not parity.left_to_the_bar(MANIFEST, REFUSED_ENTRY.id, KEY)
+    assert not parity.left_to_the_bar(MANIFEST, ONLY_BAR.id, BAR_KEY)
+    bar_use = parity.Decided(Use(BAR_KEY, "app.json", "/modules/0/module_filter"), manifest_usage.BAR, (ONLY_BAR,))
+    assert parity.row_uses([bar_use], "", [ONLY_BAR.id], held=MANIFEST) == [bar_use]
+
+
+def test_a_variant_s_refused_use_claimed_under_another_entry_is_entry():
+    use = _use(REFUSED, (REFUSED_ENTRY,))
+    assert _whats(parity.join([use], _log((OTHER_REFUSED.id, "fix-in-hq")), held=MANIFEST)) == ["entry"]
+    # Claimed under the entry the lane's standing rests on, it agrees.
+    assert parity.join([use], _log((REFUSED_ENTRY.id, "fix-in-hq")), held=MANIFEST) == []
+
+
+SESSION_READ = "instance('commcaresession')/session/data/case_id != ''"
+FORM_XML = (
+    '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><h:title>F</h:title>'
+    '<model><instance><data xmlns="http://openrosa.org/formdesigner/F"/></instance></model></h:head><h:body/></h:html>'
+)
+LINKING_APP = {
+    "doc_type": "Application",
+    "langs": ["en"],
+    "_attachments": {"f.xml": FORM_XML},
+    "modules": [
+        {
+            "doc_type": "Module",
+            "unique_id": "m",
+            "case_type": "patient",
+            "forms": [
+                {
+                    "doc_type": "Form",
+                    "unique_id": "f",
+                    "form_links": [{"doc_type": "FormLink", "xpath": SESSION_READ, "form_id": "f"}],
+                }
+            ],
+        }
+    ],
+}
+SESSION_PARSE = {
+    "functions": [],
+    "custom": [],
+    "roots": ["instance"],
+    "instancePaths": [{"instance": "commcaresession", "steps": ["session", "data", "case_id"]}],
+    "expressions": [],
+    "axes": [],
+    "tests": [],
+    "tokens": [],
+}
+
+
+def _built(datum_id):
+    """A suite HQ built of the app: the form's entry, writing ``datum_id`` before it opens the form."""
+    return etree.fromstring(
+        '<suite><entry><form>http://openrosa.org/formdesigner/F</form><command id="m0-f0"/><session>'
+        f'<datum id="{datum_id}" nodeset="x" value="./@case_id"/></session></entry></suite>'
+    )
+
+
+def _session_read(entry_suites):
+    readings = manifest_usage.Readings(
+        questions={hashlib.sha256(FORM_XML.encode("utf-8")).hexdigest(): {"questions": []}},
+        expressions={SESSION_READ: SESSION_PARSE},
+        strings={},
+        csql={},
+        trees={},
+        conditions={},
+        media={},
+    )
+    found = parity.source_uses(LINKING_APP, readings=readings, entry_suites=entry_suites)
+    where = "/modules/0/forms/0/form_links/0/xpath"
+    [use] = [use for use in found.uses if use.where == where and use.key.startswith("session-path:")]
+    standing, entries = manifest_usage.standing(parity.manifest(), use)
+    decided, _ = parity.decided_uses(found)
+    return standing, {entry.id for entry in entries}, any(one.use is use for one in decided)
+
+
+def test_a_session_read_is_decided_against_the_suite_hq_built_as_the_manifest_check_decides_it():
+    """Contract: parity reads a form link's session read with the suite HQ built of A beside the app's forms
+    (``source_uses``' ``entry_suites``), as the manifest check reads A (``manifest_usage.export_uses``): a read the
+    form's entry does not supply is refused and judged, one it supplies is held, and only with no suite beside the
+    app is the read undecided. A held read stays unjudged, since a HELD-NEW class of its key has no reader
+    (``parity.decides``). The plausible failure: parity over a base with no suite beside the app, where
+    ``datum_not_supplied`` cannot say, so a read no entry supplies is never held to the reader's record of it."""
+    assert _session_read(())[0] == manifest_usage.UNDECIDED
+    assert _session_read((_built("case_id"),))[0] == HELD
+    standing, entries, decided = _session_read((_built("other_id"),))
+    assert (standing, decided) == (REFUSED, True)
+    assert "expressions-and-data/session-data-datum-the-entry-does-not-supply" in entries

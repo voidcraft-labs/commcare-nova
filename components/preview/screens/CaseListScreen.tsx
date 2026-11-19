@@ -62,6 +62,7 @@ import {
 	previewParentCaseStepBack,
 	previewTargetKeptForParentCase,
 } from "@/components/preview/screens/moduleScreenNavigation";
+import { CaseListSortMenu } from "@/components/preview/shared/CaseListSortMenu";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
@@ -140,6 +141,18 @@ import {
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
 import { previewRegisterAction } from "@/lib/preview/caseListRegistration";
+import {
+	type CaseListPlace,
+	caseListPlaceOnReturn,
+	caseListPlaceOnSearch,
+} from "@/lib/preview/caseListReturn";
+import {
+	type CaseListSortChoice,
+	caseListSortAfterFilterText,
+	caseListSortOptions,
+	LIST_ORDER,
+	pickCaseListSort,
+} from "@/lib/preview/caseListSortMenu";
 import {
 	caseSelectionRouteCaseAction,
 	caseSelectionRowAction,
@@ -261,6 +274,7 @@ import {
 	usePreviewHeldMenu,
 } from "@/lib/routing/hooks";
 import {
+	readBuilderHistoryArrival,
 	readBuilderHistoryMove,
 	stepBackOffPreviewHeldMenu,
 } from "@/lib/routing/useClientPath";
@@ -946,6 +960,115 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		}),
 		[requestedPageIndex],
 	);
+	/* The worker's picks in the list's Sort by belong to the list's query
+	 * identity and to the platform Preview plays: an authored list or
+	 * platform starts from the list's own order. A search run again keeps or
+	 * lets go the pick as the platform does (below). A pick keeps the page,
+	 * as both platforms keep the worker's place. */
+	const [sortSelection, setSortSelection] = useState<{
+		readonly scope: typeof pageSelection;
+		readonly platform: typeof platform;
+		readonly choice: CaseListSortChoice;
+	}>({ scope: pageSelection, platform, choice: LIST_ORDER });
+	const sortScopeMatches =
+		sortSelection.platform === platform &&
+		sortSelection.scope.scopeEpoch === scopeEpoch &&
+		sortSelection.scope.moduleUuid === moduleUuid &&
+		sortSelection.scope.caseTypeName === caseType?.name &&
+		sortSelection.scope.config === config &&
+		sortSelection.scope.excludedOwnerIdsExpression ===
+			excludedOwnerIdsExpression &&
+		sortSelection.scope.replacementRevision === replacementRevision;
+	const sortChoice = sortScopeMatches ? sortSelection.choice : LIST_ORDER;
+	const chooseSort = useCallback(
+		(choice: CaseListSortChoice) => {
+			setSortSelection({
+				scope: {
+					scopeEpoch,
+					moduleUuid,
+					caseTypeName: caseType?.name,
+					config,
+					submitted: activeSearchInputValues,
+					excludedOwnerIdsExpression,
+					replacementRevision,
+					index: 0,
+				},
+				platform,
+				choice,
+			});
+		},
+		[
+			caseType?.name,
+			config,
+			excludedOwnerIdsExpression,
+			moduleUuid,
+			platform,
+			replacementRevision,
+			scopeEpoch,
+			activeSearchInputValues,
+		],
+	);
+	/* The worker's place in the list (its page, filter text and pick) as
+	 * they come back to it, and as a search runs again, is the platform's
+	 * (`lib/preview/caseListReturn.ts`, `PreviewPlatformRules.caseListReturn`).
+	 * The list is on show while its location is current and it holds no form
+	 * menu; its own case details are part of it, so going to them and back
+	 * moves nothing. A step back keeps the place in Web Apps and shows a new
+	 * list on Android; a forward step (a submission landing here, a menu, a
+	 * crumb, Home) starts it afresh on both. */
+	const listShown = current && heldChoices === undefined;
+	const [textAtDetails, setTextAtDetails] = useState<string | undefined>(
+		undefined,
+	);
+	const [placeSeen, setPlaceSeen] = useState<{
+		readonly shown: boolean;
+		readonly search: typeof activeSearchInputValues;
+	}>({ shown: listShown, search: activeSearchInputValues });
+	if (
+		placeSeen.shown !== listShown ||
+		placeSeen.search !== activeSearchInputValues
+	) {
+		setPlaceSeen({ shown: listShown, search: activeSearchInputValues });
+		const place: CaseListPlace = {
+			page: requestedPageIndex,
+			filter: filterBox,
+			sort: sortChoice,
+		};
+		let next = place;
+		if (placeSeen.search !== activeSearchInputValues)
+			next =
+				activeSearchInputValues === undefined
+					? { ...next, sort: LIST_ORDER }
+					: caseListPlaceOnSearch(next, platformRules.caseListReturn);
+		if (listShown && !placeSeen.shown) {
+			const how = readBuilderHistoryArrival();
+			next = caseListPlaceOnReturn(
+				next,
+				textAtDetails,
+				how,
+				platformRules.caseListReturn,
+			);
+			if (how === "forward") setTextAtDetails(undefined);
+		}
+		if (next.filter !== filterBox) setFilterBox(next.filter);
+		const scopeNow = {
+			scopeEpoch,
+			moduleUuid,
+			caseTypeName: caseType?.name,
+			config,
+			submitted: activeSearchInputValues,
+			excludedOwnerIdsExpression,
+			replacementRevision,
+		};
+		if (next.page !== requestedPageIndex)
+			setPageSelection({ ...scopeNow, index: next.page });
+		if (next.sort !== sortChoice)
+			setSortSelection({
+				scope: { ...scopeNow, index: 0 },
+				platform,
+				choice: next.sort,
+			});
+	}
 	const deferFocus = useDeferredFocus();
 	const choosePage = useCallback(
 		(index: number) => {
@@ -1402,6 +1525,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		search: readsSearchResults,
 		...(csqlRuntime !== undefined && { csqlRuntime }),
 		chosenCaseIds: stepSession.chosenCaseIds,
+		sortChoice,
 	});
 	/* A phone stays on the search screen after a search that found nothing,
 	 * with a toast (`QueryRequestActivity.java::processSuccess`). */
@@ -1585,6 +1709,36 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * text, the hidden fields and the order plan's carriers included, an
 	 * image map's field by the path a device holds for its image. */
 	const orderPlan = useCaseListOrderPlan(moduleUuid, config);
+	/* The list's Sort by, as the platform Preview plays lists it, over the
+	 * plan in the language Preview shows. */
+	const sortOptions = useMemo(
+		() =>
+			orderPlan === undefined || config === undefined
+				? []
+				: caseListSortOptions({
+						plan: orderPlan,
+						columns: config.columns,
+						rules: platformRules.sortMenu,
+						tiled: config.tile !== undefined,
+						choice: sortChoice,
+					}),
+		[config, orderPlan, platformRules.sortMenu, sortChoice],
+	);
+	const pickSort = useCallback(
+		(column: string) => {
+			if (orderPlan === undefined || config === undefined) return;
+			chooseSort(
+				pickCaseListSort(
+					sortChoice,
+					column,
+					orderPlan,
+					config.columns,
+					platformRules.sortMenu,
+				),
+			);
+		},
+		[chooseSort, config, orderPlan, platformRules.sortMenu, sortChoice],
+	);
 	const imageReference = useImageReference(visibleColumns);
 	/* A tile carries the columns the short detail emits: the visible ones
 	 * PLUS any hidden column that still orders the list. The hidden one holds
@@ -1736,6 +1890,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		: stateBelongsToModule && !routeDrivenExit
 			? openCase
 			: null;
+	/* The filter text the list held when it last opened a case's details,
+	 * which a new list on Android shows again after a step back
+	 * (`caseListReturn.ts`). */
+	const detailsOpen = displayedOpenCase !== null;
+	const [detailsWereOpen, setDetailsWereOpen] = useState(detailsOpen);
+	if (detailsOpen !== detailsWereOpen) {
+		setDetailsWereOpen(detailsOpen);
+		if (detailsOpen) setTextAtDetails(filterText);
+	}
 	/* The case the menu holds, on the history entry choosing it opened and
 	 * each time the worker steps back to that entry off a form chosen there. */
 	const heldFormMenuCase = useMemo<FormMenuCase | null>(() => {
@@ -1878,11 +2041,13 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					rules: platformRules.listFilter,
 					edited: filterBox.edited,
 					imageReference,
+					sortChoice,
 				},
 			),
 		[
 			fuzzyListSearch,
 			imageReference,
+			sortChoice,
 			groupedRows,
 			loadedRows,
 			visibleColumns,
@@ -3256,9 +3421,32 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				)}
 			{state.kind === "rows" && loadedRows.length > 0 && (
 				<div className="mb-3">
+					{sortOptions.length > 0 && (
+						<div className="mb-2 flex justify-end">
+							<CaseListSortMenu
+								options={sortOptions}
+								nameOf={(option) =>
+									caseColumnLabel(
+										option.column,
+										caseType.properties,
+										projectProse,
+									)
+								}
+								onPick={pickSort}
+							/>
+						</div>
+					)}
 					<ListFilterBox
 						value={filterText}
-						onChange={(text) => setFilterBox({ text, edited: true })}
+						onChange={(text) => {
+							setFilterBox({ text, edited: true });
+							const sortAfter = caseListSortAfterFilterText(
+								sortChoice,
+								platformRules.sortMenu,
+							);
+							if (text !== filterText && sortAfter !== sortChoice)
+								chooseSort(sortAfter);
+						}}
 						resultCount={filterActive ? filteredRows.length : undefined}
 						scope={pageLocalFilter ? "page" : "results"}
 					/>

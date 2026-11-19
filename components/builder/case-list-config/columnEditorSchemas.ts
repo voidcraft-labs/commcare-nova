@@ -32,8 +32,10 @@ import type { CaseProperty, CaseType, UserProperty, Uuid } from "@/lib/domain";
 import {
 	type Column,
 	type ColumnKind,
+	type ColumnVia,
 	calculatedColumn,
 	columnKindAcceptsPropertyType,
+	columnPropertyCaseType,
 	DATE_FORMAT_PRESET_DEFINITIONS,
 	dateColumn,
 	effectiveDataType,
@@ -385,9 +387,17 @@ export function resolveColumnPropertyDataType(
 export function resolveColumnProperty(
 	ctx: ColumnEditContext,
 	field: string,
+	via?: ColumnVia,
 ): CaseProperty | undefined {
 	if (field === "") return undefined;
-	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
+	// A column read through a relation reads a property of the case its walk
+	// reaches.
+	const caseType = columnPropertyCaseType(
+		{ via },
+		ctx.currentCaseType,
+		ctx.caseTypes,
+	);
+	const ct = ctx.caseTypes.find((c) => c.name === caseType);
 	if (ct === undefined) return undefined;
 	return ct.properties.find((p) => p.name === field);
 }

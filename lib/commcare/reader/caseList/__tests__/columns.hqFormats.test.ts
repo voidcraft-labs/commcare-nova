@@ -183,7 +183,7 @@ describe("CommCare HQ's column formats", () => {
 		[
 			"a relation path",
 			{ field: "parent/notes" },
-			`${M}idx-prop-parent-host-any-index-names-other-than-a-first-step`,
+			`${M}idx-prop-in-a-menu-that-offers-search-or-through-an-index`,
 		],
 		["the owner's name", { field: "#owner_name" }, `${M}owner-name`],
 		[
@@ -197,6 +197,45 @@ describe("CommCare HQ's column formats", () => {
 			const reading = await readFormat(change);
 			expect(codes(reading)).toContain(entry);
 		});
+
+	// HQ's build writes no `max-select-value` for a null, and Core then takes 100
+	// (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`); a text HQ's model refuses as it wraps the app.
+	it("reads a null maximum of a multi-select list as 100, and a text maximum as no entry's", async () => {
+		const zero = `${M}detail-max-select-value-of-0-or-below-1-on-a-multi-select-basic`;
+		const unnamed = "unrecognized:schema:Detail.max_select_value";
+		const read = (max: unknown) =>
+			readDetails((short) => {
+				Object.assign(short, { multi_select: true, max_select_value: max });
+			});
+		const held = closedCodes(await read(null));
+		expect(held).not.toContain(zero);
+		expect(held).not.toContain(unnamed);
+		const text = closedCodes(await read("150"));
+		expect(text).not.toContain(zero);
+		expect(text).toContain(unnamed);
+	});
+
+	// A translatable-enum column refused for its keys still claims its field and its format: the
+	// field outside Nova's grammar is a finding of its own, and nothing is left for the close.
+	it("claims the field and format of a translatable-enum column refused for its keys", async () => {
+		for (const field of ["notes", "#x"]) {
+			const reading = await readFormat(
+				{
+					format: "translatable-enum",
+					field,
+					enum: [{ key: "a.b", value: { en: "A" } }],
+				},
+				["short"],
+			);
+			const closed = closedCodes(reading);
+			expect(closed).toContain(
+				`${M}21p-translatable-enum-key-outside-a-za-z0-9`,
+			);
+			expect(closed.filter((code) => code.startsWith("unrecognized:"))).toEqual(
+				[],
+			);
+		}
+	});
 
 	it("reads a plain column over a property a select question saves as its values, the property keeping no choices", async () => {
 		const doc = buildDoc({
@@ -515,6 +554,28 @@ describe("every column's other keys", () => {
 		expect(closedCodes(reading)).toEqual([]);
 	});
 
+	it("drops every key HQ's column editor gives a column that no model declares", async () => {
+		// `details/bootstrap5/column.js` writes these on every column it saves.
+		const reading = await readFormat({
+			hasAutocomplete: true,
+			calc_xpath: ".",
+			isTab: false,
+			hasNodeset: false,
+			nodeset: "",
+			nodesetCaseType: "",
+			nodesetFilter: "",
+			relevant: "",
+		});
+		expect(closedCodes(reading)).toEqual([]);
+	});
+
+	it("claims the plain format of a column refused for its field, so its one finding is the field's", async () => {
+		const reading = await readFormat({ field: "parent/name" }, ["long"]);
+		expect(closedCodes(reading)).toEqual([
+			`${M}idx-prop-in-a-menu-that-offers-search-or-through-an-index`,
+		]);
+	});
+
 	it("raises a key no model declares, naming nothing", async () => {
 		const reading = await readFormat({ planted_key: 1 }, ["short"]);
 		const finding = reading.findings.find(
@@ -525,8 +586,38 @@ describe("every column's other keys", () => {
 	});
 });
 
+describe("a detail's persistence switches", () => {
+	it("drops the three switches HQ's Case List page writes false on every save", async () => {
+		// `views/modules.py::_update_short_details`, over the page's own `false`.
+		const reading = await readDetails((short) => {
+			Object.assign(short, {
+				persist_case_context: false,
+				persistent_case_context_xml: "case_name",
+				persist_tile_on_forms: false,
+				pull_down_tile: false,
+			});
+		}, false);
+		expect(closedCodes(reading)).toEqual([]);
+	});
+
+	it("raises each switch turned on where no tile persists", async () => {
+		const reading = await readDetails((short) => {
+			Object.assign(short, {
+				persist_case_context: true,
+				pull_down_tile: true,
+			});
+		});
+		expect(codes(reading)).toEqual(
+			expect.arrayContaining([
+				`${M}detail-persist-case-context-persistent-case-context-xml`,
+				`${M}detail-pull-down-tile`,
+			]),
+		);
+	});
+});
+
 describe("a detail's callout and tabs", () => {
-	it("raises each key of a callout on the list by its own row", async () => {
+	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {
 				lookup_enabled: true,
@@ -536,17 +627,10 @@ describe("a detail's callout and tabs", () => {
 				lookup_responses: [{ key: "r" }],
 			});
 		});
-		const found = codes(reading);
-		expect(found).toContain(`${M}lookup-enabled-lookup-action`);
-		expect(found).toContain(`${M}lookup-name`);
-		expect(found).toContain(`${M}lookup-extras-key-value`);
-		expect(found).toContain(`${M}lookup-responses-key`);
-		expect(
-			closedCodes(reading).filter((one) => one.startsWith("unrecognized")),
-		).toEqual([]);
+		expect(closedCodes(reading)).toEqual([`${M}lookup-enabled-lookup-action`]);
 	});
 
-	it("raises a callout with no responses before the rows of its keys", async () => {
+	it("raises a callout with no responses as HQ's own refusal alone", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {
 				lookup_enabled: true,
@@ -554,10 +638,9 @@ describe("a detail's callout and tabs", () => {
 				lookup_extras: [{ key: "k", value: "v" }],
 			});
 		});
-		const found = codes(reading);
-		expect(found).toContain(`${M}callout-with-no-extras-or-no-responses`);
-		expect(found).not.toContain(`${M}lookup-extras-key-value`);
-		expect(found).toContain(`${M}lookup-enabled-lookup-action`);
+		expect(closedCodes(reading)).toEqual([
+			`${M}callout-with-no-extras-or-no-responses`,
+		]);
 	});
 
 	it("drops a callout on an icon_text_grid list", async () => {

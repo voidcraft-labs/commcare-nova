@@ -16,9 +16,17 @@
  *   <out>/<id>/configurations.json    {minimum, maximum, singleFlag}, without
  *                                     the privileges HQ derives (`./configurations.ts`)
  *   <out>/<id>/verdict.json           Nova's publish verdict for D
- *   <out>/<id>/expected.json          a targeted document's intent values
+ *   <out>/<id>/expected.json          a targeted document's intent values,
+ *                                     or a base's hand-written ones, one a
+ *                                     state each runs at
  *   <out>/<id>/<name>.xml|.json       a targeted document's own files its
- *                                     expectations read (restores)
+ *                                     expectations read (restores), or a
+ *                                     base's hand-written restore
+ *   <out>/<id>/first-publish.json     a base's predicted first-publish ids
+ *   <out>/<id>/authored/              a base's retained app, media, seed,
+ *                                     tables and places, which A is made of
+ *                                     (no `create` or `content` under
+ *                                     `export/`, and `minimum` alone)
  *   <out>/<id>/export/<config>/       create (the empty shell), content (the
  *                                     update that fills it), republish,
  *                                     lookups and media (.body + .json), and
@@ -150,7 +158,7 @@ export interface EmitInput {
 	readonly seed: number;
 	/** The size of the fuzz sample the caller drew. */
 	readonly sample: number;
-	/** The fixed floor: the producers', workforce, expander and targeted documents. */
+	/** The fixed floor: the producers', workforce, expander, targeted and HQ-authored documents. */
 	readonly fixed: readonly CorpusDocument[];
 	/** The fuzz sample. */
 	readonly sampled: readonly CorpusDocument[];
@@ -199,7 +207,7 @@ export interface RefusedDocument {
 export interface PartCensus {
 	readonly documents: number;
 	readonly emitted: number;
-	/** Emitted documents by source (`producer:<family>`, `workforce`, `expander`, `fuzz:<generator>`, `targeted`). */
+	/** Emitted documents by source (`producer:<family>`, `workforce`, `expander`, `fuzz:<generator>`, `targeted`, `hq-authored`). */
 	readonly bySource: Readonly<Record<string, number>>;
 	readonly refused: readonly RefusedDocument[];
 	/** Documents whose edit batch Nova's publish or local export refuses, so they carry none. */
@@ -802,6 +810,16 @@ async function writeEntries(
 
 // ── The corpus ───────────────────────────────────────────────────────
 
+/**
+ * Whether a document of this source carries only the edit written for it
+ * (`CorpusDocument.edit`) and is left out of the generated batches: a
+ * targeted document, and a document made in CommCare HQ, whose edit is the
+ * one its base states.
+ */
+function carriesWrittenEditOnly(source: CorpusSource): boolean {
+	return source.kind === "targeted" || source.kind === "hq-authored";
+}
+
 function sourceKey(source: CorpusSource): string {
 	switch (source.kind) {
 		case "producer":
@@ -814,6 +832,8 @@ function sourceKey(source: CorpusSource): string {
 			return `fuzz:${source.generator}`;
 		case "targeted":
 			return "targeted";
+		case "hq-authored":
+			return "hq-authored";
 	}
 }
 
@@ -846,11 +866,12 @@ async function emitPart(
 		perDocument.set(authored.id, performance.now() - t);
 	}
 
-	// A targeted document's symptom is fixed by what it holds, so it carries
-	// no generated edit (only the one written for it, `targetedBatch`), and
-	// the floor's batches are balanced without it.
+	// A targeted document's symptom is fixed by what it holds, and a document
+	// made in CommCare HQ is its base's reading, so neither carries a
+	// generated edit (only the one written for it, `targetedBatch`), and the
+	// floor's batches are balanced without them.
 	const editInputs = admitted
-		.filter(({ document }) => document.source.kind !== "targeted")
+		.filter(({ document }) => !carriesWrittenEditOnly(document.source))
 		.map(({ document }) => ({
 			id: document.id,
 			doc: document.doc,
@@ -882,7 +903,8 @@ async function emitPart(
 			targetedBatch(document, doc, placements, input.seed);
 		let edit: PreparedEdit | undefined;
 		if (batch === undefined) {
-			if (document.source.kind !== "targeted") withoutEdit.push(document.id);
+			if (!carriesWrittenEditOnly(document.source))
+				withoutEdit.push(document.id);
 		} else {
 			const judged = await judgedEdit(document, batch);
 			if ("refused" in judged) {

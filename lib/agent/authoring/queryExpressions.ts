@@ -542,6 +542,10 @@ function compiler(bindings: QueryBindings) {
 				};
 			}
 		}
+		// A read stands as a condition where its slot's checker finds it holds a
+		// yes or no, such as a Hidden Value calculated by a condition.
+		if (node.kind === "reference" || isCall(node, "field"))
+			return { kind: "term", term: term(node) };
 		if (node.kind !== "call")
 			throw new AuthoringInputError(
 				"This slot needs a condition, such as #case/age >= 18.",

@@ -19,24 +19,24 @@ function tree(text: string): FormSyntax {
 
 describe("the closed table of spellings Core reads alike", () => {
 	it.each([
-		["L1", "1+1", "1 + 1"],
-		["L1", "a  =\n'x'", "a = 'x'"],
-		["L1", "a\t=\f'x'", "a = 'x'"],
-		["L1", "selected( a ,'x' )", "selected(a, 'x')"],
-		["L2", "(1 + 2) * 3", "(1 + 2) * 3"],
-		["L2", "((a))", "a"],
-		["L2", "(a = b)", "a = b"],
-		["L3", `"a"`, "'a'"],
-		["L3", `"it's"`, `"it's"`],
-		["L4", "1", "1.0"],
-		["L4", "01", "1"],
-		["L4", ".5", "0.5"],
-		["L4", "1.", "1"],
-		["L5", "child::a", "a"],
-		["L5", "x/self::node()", "x/."],
-		["L5", "x/parent::node()", "x/.."],
-		["L5", "attribute::a", "@a"],
-		["L6", "x[./. = 'a']", "x[. = 'a']"],
+		["whitespace", "1+1", "1 + 1"],
+		["whitespace", "a  =\n'x'", "a = 'x'"],
+		["whitespace", "a\t=\f'x'", "a = 'x'"],
+		["whitespace", "selected( a ,'x' )", "selected(a, 'x')"],
+		["grouping", "(1 + 2) * 3", "(1 + 2) * 3"],
+		["grouping", "((a))", "a"],
+		["grouping", "(a = b)", "a = b"],
+		["quotes", `"a"`, "'a'"],
+		["quotes", `"it's"`, `"it's"`],
+		["numbers", "1", "1.0"],
+		["numbers", "01", "1"],
+		["numbers", ".5", "0.5"],
+		["numbers", "1.", "1"],
+		["axes", "child::a", "a"],
+		["axes", "x/self::node()", "x/."],
+		["axes", "x/parent::node()", "x/.."],
+		["axes", "attribute::a", "@a"],
+		["predicate-node", "x[./. = 'a']", "x[. = 'a']"],
 	])("%s holds %s as %s", (_row, source, print) => {
 		expect(sameXPathText(source, print, FORM)).toBe(true);
 		expect(sameXPathText(source, print, RECORD)).toBe(true);
@@ -80,7 +80,7 @@ describe("the closed table of spellings Core reads alike", () => {
 		expect(sameXPathText("x[./. = 'a']", "x[. = 'a']", FORM)).toBe(true);
 	});
 
-	it("reads cond as nested if in a record slot and nowhere else (S1)", () => {
+	it("reads cond as nested if in a record slot and nowhere else", () => {
 		const cond = "cond(a = 1, 'x', b = 2, 'y', 'z')";
 		const nested = "if(a = 1, 'x', if(b = 2, 'y', 'z'))";
 		expect(sameXPathText(cond, nested, RECORD)).toBe(true);
@@ -92,6 +92,23 @@ describe("the closed table of spellings Core reads alike", () => {
 		expect(sameXPathText("cond(a, 'x')", "if(a, 'x')", RECORD)).toBe(false);
 		// The print side never holds `cond`, so it is compared as written.
 		expect(sameXPathText(nested, cond, RECORD)).toBe(false);
+	});
+
+	it("reads is-selected as selected in every slot, on the source side alone", () => {
+		// Core builds one function for either name
+		// (`ASTNodeFunctionCall.java`, `XPathSelectedFunc`).
+		for (const options of [FORM, RECORD])
+			expect(
+				sameXPathText(
+					"is-selected(/data/code, 'a')",
+					"selected(/data/code, 'a')",
+					options,
+				),
+			).toBe(true);
+		// Nova's print never holds `is-selected`, so it is compared as written.
+		expect(
+			sameXPathText("selected(a, 'x')", "is-selected(a, 'x')", RECORD),
+		).toBe(false);
 	});
 
 	it("holds a case row's name step apart from case_name", () => {
