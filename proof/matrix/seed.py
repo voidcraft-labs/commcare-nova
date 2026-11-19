@@ -57,6 +57,18 @@ from it). It is written as ``proof/hq-apps/<base>/seed.json``:
   ``get_usercase_properties`` gives.
 - ``worker``: ``{"location": <the site code of the place the base names as
   the worker's, or null>}``.
+- ``cases``, only where the base names some (``Base.cases``): each case the
+  base names beside the generated ones, ``{"type": <type>, "properties":
+  {<property>: <value>}}``, holding together values ``values`` or a
+  property's ``options`` already give it one by one (``stated_cases``). The
+  generation gives case ``n`` of a type each property's ``n``-th value, so two
+  literals that one menu's filters ask of one case (a list filter and the
+  search beside it) can sit on no case together; a base names such a case
+  where the worker's walk past its search needs one. It combines only what
+  A gives, so a reader still cannot empty both walks; a value A neither
+  compares the property with nor offers for it, a property the catalog does
+  not give the type, or a type the catalog lacks is refused by name. A base
+  that names none writes no ``cases``, so its seed is the one it always was.
 """
 
 from __future__ import annotations
@@ -358,8 +370,41 @@ def _ordered(catalog):
     return ordered
 
 
-def case_seed(state, app, core_runner, *, worker_location=None) -> dict:
-    """The seed of A's case database, read from the app HQ holds (the module's docstring)."""
+def stated_cases(catalog, values, cases):
+    """``cases`` (``Base.cases``: ``(case type, ((property, value), ...))`` each) as the seed's ``cases`` writes
+    them, each value one ``values`` (by ``<type>/<property>``) or the property's ``options`` in ``catalog`` give it;
+    a case naming a type the catalog lacks, a property it does not give the type, or a value A gives the property
+    nowhere is refused by name (the module's docstring)."""
+    types = {entry["name"]: {prop["name"]: prop for prop in entry["properties"]} for entry in catalog}
+    written = []
+    for case_type, pairs in cases:
+        if case_type not in types:
+            raise SeedRefused(
+                f"The base names a case of the type {case_type}, which A's case types {sorted(types)} do not hold."
+            )
+        properties = {}
+        for name, value in pairs:
+            prop = types[case_type].get(name)
+            if prop is None:
+                raise SeedRefused(
+                    f"The base names a {case_type} case holding {name}, which is no property A gives {case_type}"
+                    f" (it gives {sorted(types[case_type])})."
+                )
+            given = [*(values.get(f"{case_type}/{name}") or []), *prop["options"]]
+            if value not in given:
+                raise SeedRefused(
+                    f"The base names a {case_type} case whose {name} is {value!r}, which A neither compares"
+                    f" {name} with nor offers for it (A gives {sorted(given)}); a named case only puts together"
+                    " values A gives one by one."
+                )
+            properties[name] = value
+        written.append({"type": case_type, "properties": dict(sorted(properties.items()))})
+    return written
+
+
+def case_seed(state, app, core_runner, *, worker_location=None, cases=()) -> dict:
+    """The seed of A's case database, read from the app HQ holds, with the cases the base names (the module's
+    docstring)."""
     from corehq.apps.app_manager.app_schemas.case_properties import (
         get_all_case_properties,
         get_parent_type_map,
@@ -458,9 +503,17 @@ def case_seed(state, app, core_runner, *, worker_location=None) -> dict:
                     found.append(literal)
     user_data.update(get_usercase_properties(app).get(USERCASE_TYPE, []))
 
-    return {
+    read = {
         "catalog": _ordered(catalog),
         "values": {key: sorted(found) for key, found in sorted(values.items())},
         "userData": sorted(user_data),
         "worker": {"location": worker_location},
     }
+    return with_stated_cases(read, cases)
+
+
+def with_stated_cases(read, cases):
+    """The seed ``read`` from A with the cases the base names under ``cases``, written only where it names some, so
+    a base that names none keeps the seed it always had."""
+    stated = stated_cases(read["catalog"], read["values"], cases)
+    return {**read, "cases": stated} if stated else read

@@ -59,7 +59,19 @@
    not restate, which Nova's publish sends with the search
    (``search-restates-list-filter``), and its one row reads no field and
    restates no clause of the list's filter, which Nova keeps as one with the
-   list's filter (``search-filter-joined-to-list``).
+   list's filter (``search-filter-joined-to-list``). Its case database names a
+   client both ``open`` and in ``north`` (``Base.cases``,
+   ``proof/matrix/seed.py::stated_cases``) beside the generated ones, of
+   which one is in ``north`` and ``active`` and one ``open`` elsewhere: the
+   generation gives each property its values one by one, so without it no
+   case passes both filters, the list is empty on A and B, and no walk
+   reaches the menu's form after its search. HQ's search answers A's request
+   with the two clients in ``north`` and the list keeps the ``open`` one
+   (HQ's build filters the inline search's results with the list's filter,
+   ``suite_xml/sections/entries.py::EntriesHelper.get_datum_meta_module``);
+   on B, whose search restates the list's filter, HQ answers with that one
+   client alone and the joined filter keeps it, so a worker picks the same
+   client on both and fills the same form.
 
 Its configuration is the lane's floor with case search on,
 ``SYNC_SEARCH_CASE_CLAIM``, the flag HQ's Search options stand under,
@@ -102,6 +114,8 @@ ACTIVE_FILTER = "standing = 'active' and district = 'd1'"
 RECUT_ROW = f'"{ACTIVE_FILTER}"'
 LIST_FILTER = "standing = 'open'"
 JOINED_ROW = "\"village = 'north'\""
+# A client both filters of the inline search's menu keep, which no generated case is (``Base.cases``).
+OPEN_IN_NORTH = (CASE_TYPE, (("standing", "open"), ("village", "north")))
 # Two dates and times compared bare, as a person writes the comparison in a calculated column.
 REGISTERED_COLUMN = "if(registered_at < now(), 'Registered', 'Not yet')"
 
@@ -278,6 +292,7 @@ BASE = Base(
         privileges=frozenset({"LOOKUP_TABLES"}),
         case_search_enabled=True,
     ),
+    cases=(OPEN_IN_NORTH,),
     exhibits=(
         "questions/text-input-xsd-string",
         "questions/date-xsd-date",

@@ -322,7 +322,8 @@ def seeded_case_database(seed) -> CaseDatabase:
     """The case database of an app made in CommCare HQ, from its case seed (``proof/matrix/seed.py::case_seed``):
     the generation ``case_database`` runs, over the seed's ``catalog`` (each property's ``options`` its values),
     its ``values`` (by ``<type>/<property>``) and its ``userData``, each child indexed under the seed's
-    ``index_identifier``, and the worker at the seed's ``worker.location``. The document Nova read is never read."""
+    ``index_identifier``, the worker at the seed's ``worker.location``, and after each type's generated cases each
+    case the seed's ``cases`` names of it. The document Nova read is never read."""
     declared = {}
     for entry in seed["catalog"]:
         declared[entry["name"]] = {
@@ -343,7 +344,10 @@ def seeded_case_database(seed) -> CaseDatabase:
         given[(case_type, prop)] = list(values)
     user_data = {name: f"proof {name}" for name in sorted(seed.get("userData") or [])}
     location = (seed.get("worker") or {}).get("location")
-    return _generated(types, given, user_data, location=location, unwritten=CASE_BLOCK_FIELDS)
+    named = {}
+    for case in seed.get("cases") or []:
+        named.setdefault(case["type"], []).append(dict(case["properties"]))
+    return _generated(types, given, user_data, location=location, unwritten=CASE_BLOCK_FIELDS, named=named)
 
 
 # What a case block writes as the case's own fields, never as a property of its ``update``: HQ's ``CaseBlock``
@@ -357,10 +361,14 @@ CASE_BLOCK_FIELDS = frozenset(
 )
 
 
-def _generated(types, given, user_data, *, location=None, unwritten=STANDARD_PROPERTIES) -> CaseDatabase:
+def _generated(types, given, user_data, *, location=None, unwritten=STANDARD_PROPERTIES, named=None) -> CaseDatabase:
     """The database generated over ``types`` (``[(name, case type)]``, parents first), the values each
     ``(type, property)`` is ``given`` beside its type's own, and the worker's ``user_data``; a property ``unwritten``
-    names is the case's own field and no property of it (Nova's standard properties for a document's catalog)."""
+    names is the case's own field and no property of it (Nova's standard properties for a document's catalog).
+    ``named`` (``{type: [{property: value}]}``, an app made in HQ's seed's ``cases``) adds a case after a type's
+    generated ones for each it names: the case at that place generates, with the values it names in place of its
+    own, so it holds values the generated cases already hold one by one, together."""
+    named = named or {}
     values_of = {}
     for name, case_type in types:
         declared = [prop for prop in case_type.get("properties") or [] if isinstance(prop.get("name"), str)]
@@ -370,12 +378,13 @@ def _generated(types, given, user_data, *, location=None, unwritten=STANDARD_PRO
             if owner == name and prop in properties:
                 properties[prop] = list(dict.fromkeys([*properties[prop], *values]))
         values_of[name] = (declared, properties)
-    ids = {
-        name: [
-            f"{name}-{n + 1}"
-            for n in range(min(MAX_CASES_PER_TYPE, max(CASES_PER_TYPE, *map(len, properties.values()))))
-        ]
+    generated = {
+        name: min(MAX_CASES_PER_TYPE, max(CASES_PER_TYPE, *map(len, properties.values())))
         for name, (_, properties) in values_of.items()
+    }
+    ids = {
+        name: [f"{name}-{n + 1}" for n in range(count + len(named.get(name) or []))]
+        for name, count in generated.items()
     }
     cases, stamp = [], 0
     for name, case_type in types:
@@ -387,6 +396,8 @@ def _generated(types, given, user_data, *, location=None, unwritten=STANDARD_PRO
         identifier = case_type.get("index_identifier") or INDEX_IDENTIFIER
         for n in range(len(ids[name])):
             values = {prop: options[n % len(options)] for prop, options in properties.items()}
+            if n >= generated[name]:
+                values.update(named[name][n - generated[name]])
             case_name = values["case_name"]
             indices = ()
             if parent == name:

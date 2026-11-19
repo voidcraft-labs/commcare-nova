@@ -10,13 +10,21 @@ document Nova read holds. The plausible failures: a seed that reads D, so a
 reader that drops a literal empties both walks' lists; a compared literal
 missed; ``parent/<property>`` or ``name`` written as a case property;
 ``commcare-user`` or a survey menu's empty type seeded as a type; a child indexed under ``parent`` where its
-form names another identifier. The tests of ``compared_literals`` run on the
-standard library; the others build planted apps with HQ's own models.
+form names another identifier; a case a base names (``Base.cases``) holding a
+value A never gives, moving a generated case, or written into the seed of a
+base that names none. The tests of ``compared_literals`` and of the cases a
+base names run on the standard library; the others build planted apps with
+HQ's own models.
 """
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from proof.matrix import seed
+from proof.matrix.registry import BASES, HQ_APPS
 
 
 def test_a_literal_beside_a_comparison_is_its_propertys_value():
@@ -67,6 +75,95 @@ def test_a_session_users_data_names_are_read_from_cores_instance_paths():
         ]
     }
     assert seed.session_user_data(parsed) == ["district"]
+
+
+# The cases a base names --------------------------------------------------------------------------------------------
+
+CATALOG = [
+    {
+        "name": "client",
+        "parent_type": None,
+        "relationship": None,
+        "index_identifier": None,
+        "properties": [
+            {"name": "district", "data_type": "single_select", "options": ["d1", "d2"]},
+            {"name": "standing", "data_type": "text", "options": []},
+            {"name": "village", "data_type": "text", "options": []},
+        ],
+    }
+]
+VALUES = {"client/standing": ["active", "open"], "client/village": ["north"]}
+READ = {"catalog": CATALOG, "values": VALUES, "userData": [], "worker": {"location": None}}
+
+
+def test_a_named_case_puts_together_values_a_gives_one_by_one():
+    """A base names a case holding values A compares or offers (``stated_cases``), and the seed writes it under
+    ``cases``. The plausible failure: a named case holding a value A never gives, so the seed carries a value of the
+    base's own rather than A's, or a type or property A lacks, which no case of A's could hold."""
+    named = [("client", (("village", "north"), ("standing", "open"), ("district", "d2")))]
+    assert seed.stated_cases(CATALOG, VALUES, named) == [
+        {"type": "client", "properties": {"district": "d2", "standing": "open", "village": "north"}}
+    ]
+    refused = {
+        "a type A lacks": [("household", (("village", "north"),))],
+        "a property A does not give the type": [("client", (("age", "7"),))],
+        "a value A neither compares nor offers": [("client", (("village", "south"),))],
+    }
+    for why, cases in refused.items():
+        with pytest.raises(seed.SeedRefused):
+            seed.stated_cases(CATALOG, VALUES, cases)
+            raise AssertionError(f"stated_cases wrote a case naming {why}")
+
+
+def test_a_base_that_names_no_case_keeps_its_seed_and_its_database():
+    """A base that names no case writes no ``cases``, so every other base's ``seed.json`` and the database made from it
+    stay as they were. The plausible failure: an empty ``cases`` written into every seed, which moves every retained
+    base, or a generation that moves a case where none is named."""
+    from proof.observe import casedata
+
+    assert seed.with_stated_cases(READ, ()) == READ and "cases" not in seed.with_stated_cases(READ, ())
+    assert casedata.seeded_case_database(READ) == casedata.seeded_case_database({**READ, "cases": []})
+
+
+def test_a_named_case_follows_its_types_generated_cases_and_moves_none():
+    """The named case comes after its type's generated cases and generates as the case at its place would, with the
+    values it names in their place. The plausible failure: a generated case moved or renumbered, so every walk of the
+    base reads other cases, or a named case holding none of its type's values where it names none."""
+    from proof.observe import casedata
+
+    named = seed.with_stated_cases(READ, [("client", (("standing", "open"), ("village", "north")))])
+    plain = [case for case in casedata.seeded_case_database(READ).cases if case.case_type == "client"]
+    clients = [case for case in casedata.seeded_case_database(named).cases if case.case_type == "client"]
+    assert clients[:-1] == plain
+    added = clients[-1]
+    assert added.case_id == f"client-{len(clients)}" and added.name in casedata.VALUES["text"]
+    properties = dict(added.properties)
+    assert (properties["standing"], properties["village"]) == ("open", "north")
+    assert properties["district"] in {"d1", "d2", *casedata.VALUES["single_select"]}
+
+
+def test_hq_searchs_inline_search_lists_a_client_its_two_filters_keep():
+    """hq-search's ``Visits`` menu lists the results of a search for ``village = 'north'`` under the list filter
+    ``standing = 'open'``. Its database (the retained seed with the case the base names) holds a client both keep, so
+    a walk past the search reaches the menu's form on A and on B, and a client each filter alone drops, so neither
+    keeps every case. The plausible failure: each property's values given one by one, so no client is both and the
+    list is empty on A and B alike."""
+    from proof.matrix.bases import search
+    from proof.observe import casedata
+
+    (base,) = [base for base in BASES if base.id == "hq-search"]
+    read = json.loads((HQ_APPS / base.id / "seed.json").read_text(encoding="utf-8"))
+    database = casedata.seeded_case_database(seed.with_stated_cases(read, base.cases))
+    ((listed, listed_value),) = seed.compared_literals(search.LIST_FILTER)
+    ((searched, searched_value),) = [
+        pair for text in seed._sent_query(search.JOINED_ROW) for pair in seed.compared_literals(text)
+    ]
+    kept = [
+        (dict(case.properties)[listed] == listed_value, dict(case.properties)[searched] == searched_value)
+        for case in database.cases
+        if case.case_type == search.CASE_TYPE
+    ]
+    assert (True, True) in kept and (False, True) in kept and (True, False) in kept, kept
 
 
 # Over planted apps HQ's own models make --------------------------------------------------------------------------
