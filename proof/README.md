@@ -2828,7 +2828,10 @@ instead: `proof/matrix/seed.py` reads A's case types, properties, their types
 and the literals A's expressions compare into the base's `seed.json`, and
 `casedata.py::seeded_case_database` generates the database from it, so a
 reader that drops something cannot empty both walks; its worker is placed
-where the base names (`proof/formplayer/hq.py::create_worker`). Python infers
+where the base names (`proof/formplayer/hq.py::create_worker`), and a case
+the base names (`Base.cases`) puts together literals A gives one by one,
+where a walk needs one case that holds two (`hq-search`'s client both `open`
+and in `north`, which its inline search's list keeps). Python infers
 no property type; an untyped property stays text, and standard properties
 stay the case's own attributes. Custom
 worker-record reads seed the same user data as session reads, while the

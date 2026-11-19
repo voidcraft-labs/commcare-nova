@@ -798,6 +798,12 @@
 				"artifact": "trace@B",
 				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
 				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/answered",
+				"kind": "changed"
 			}
 		]
 	},

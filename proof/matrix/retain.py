@@ -504,7 +504,10 @@ def retain(authoring, base, app_id, credential, core_runner) -> Retained:
             workers = practice_workers_of(state)
             if workers is not None:
                 retained.keep("practice-workers", workers)
-            retained.keep("seed", seed.case_seed(state, app, core_runner, worker_location=base.worker_location))
+            retained.keep(
+                "seed",
+                seed.case_seed(state, app, core_runner, worker_location=base.worker_location, cases=base.cases),
+            )
         answers = app_reads(authoring, app_id, credential)
         project_answers, media = project_data_reads(authoring, app_id, credential)
 

@@ -84,7 +84,10 @@ class Base:
     names each ``(menu, form)`` position saved once in HQ's form builder
     after ``build``. ``declaration`` is the one it is read under, or None for
     the reading's preselected one. ``worker_location`` is the site code of the
-    place its builder names as the worker's, or None.
+    place its builder names as the worker's, or None. ``cases`` names each
+    case its case database holds beside the generated ones, as ``(case type,
+    ((property, value), ...))``, putting together values A gives one by one
+    (``proof/matrix/seed.py::stated_cases``).
     """
 
     id: str
@@ -95,6 +98,8 @@ class Base:
     declaration: Declaration | None = None
     # The site code of the place the base names as its worker's, which the case seed records.
     worker_location: str | None = None
+    # The cases the base names beside the generated ones, which the case seed records.
+    cases: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
 
     def as_json(self):
         """The base as ``base.json`` records it: its configuration as one entry of a corpus document's
