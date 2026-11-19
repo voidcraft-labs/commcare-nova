@@ -224,9 +224,53 @@ def build_sites(files):
     return changes.Sites(builds=built, media=media)
 
 
+# A sort element's field CommCare HQ reads as the column it names (``const.py::CALCULATED_SORT_FIELD_RX``).
+CALCULATED_SORT_FIELD = "_cc_calculated_"
+
+
+def header_sites(doc):
+    """What one stored app says of where each app string its key does not place stands (``changes.Sites.builds``
+    under ``("app_strings", key)``): the header of each sort-only element of a case list. HQ's build writes a
+    sort element whose field no column of the list shows as a column of its own, after the list's columns
+    (``suite_xml/sections/details.py::get_detail_column_infos``, ``util.py::get_sort_and_sort_only_columns``, the
+    last element of a field standing for it), whose header is the element's ``display`` and whose position is its
+    order among the sort elements, from 1 (``util.py::create_temp_sort_column``), so its header's key,
+    ``m<m>.case_short.case_<field>_<order + 1>.header`` (``id_strings.py::detail_column_header_locale``), spells
+    no column's index: it stands at the sort element."""
+    from proof.checks import changes
+
+    built = {}
+    for m, module in enumerate((doc or {}).get("modules") or []):
+        short = ((module or {}).get("case_details") or {}).get("short") or {}
+        by_field = {}
+        for index, element in enumerate(short.get("sort_elements") or []):
+            field = (element or {}).get("field")
+            if field:
+                by_field[field] = index
+        for column in short.get("columns") or []:
+            by_field.pop((column or {}).get("field"), None)
+        for field, index in by_field.items():
+            calculated = field.removeprefix(CALCULATED_SORT_FIELD)
+            if field.startswith(CALCULATED_SORT_FIELD) and calculated.isdigit():
+                continue
+            mobile = field.replace("#", "").replace("=", "")
+            key = f"m{m}.case_short.case_{mobile}_{index + 2}.header"
+            built[(changes.APP_STRINGS, key)] = (
+                "menu",
+                str(m),
+                "case_details",
+                "short",
+                "sort_elements",
+                str(index),
+                changes.BELOW,
+            )
+    return changes.Sites(builds=built)
+
+
 def document_sites(document, records):
     """``build_sites`` of each build proof 2 compares on one document, A's and B's aligned to A under each
-    configuration, as one (``changes.merged_sites``: an element two builds place apart is no place)."""
+    configuration, and ``header_sites`` of the two stored apps they are built from, as one
+    (``changes.merged_sites``: an element two builds place apart is no place)."""
     from proof.checks import changes, observations
 
     found = []
@@ -234,6 +278,9 @@ def document_sites(document, records):
         observed = observations.republish_view(records, name)
         if observed.a is not None and observed.a.build is not None:
             found.append(build_sites(observed.a.build.files))
+            found.append(header_sites(observed.a.doc))
         if observed.b_aligned is not None:
             found.append(build_sites(observed.b_aligned.files))
+        if observed.b is not None:
+            found.append(header_sites(observed.b.doc))
     return changes.merged_sites(*found)

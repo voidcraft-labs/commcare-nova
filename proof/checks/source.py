@@ -14,7 +14,12 @@ by its parts, each at the data node it is about (``proof.checks.xform_parts``):
 ``/_attachments/*/data/*/:bind/@calculate`` at
 ``/_attachments/form:0.1.xml/data/visit/when/:bind/@calculate``, so a change Nova's
 review lists meets a difference at the node it stands at; a form only one side
-holds is one difference at ``/_attachments/*``.
+holds is one difference at ``/_attachments/*``. The parts are read with the
+app's languages (both apps' ``langs``), so a translation in a language neither
+holds is one part, and a slot's expression written another way is its own part
+apart from a change of it (``xform_parts``, ``:respelled``). A language's
+strings only one app holds are compared key by key, each key the app string
+of HQ's build it names, so a change of one key stands where that key does.
 
 Two things are compared another way, each for its reason at source:
 
@@ -79,6 +84,8 @@ CLOCKED = frozenset({"last_modified"})
 # The maps keyed by the app's own names beside the attachments and the media map, each compared apart: a language's
 # translations and a build profile's id.
 OWN_PATHS = frozenset({"/translations", "/build_profiles"})
+# A language's strings, compared key by key even where only one app holds the language (``_Walk.strings``).
+TRANSLATIONS = "/translations/*"
 MEDIA_PREFIX = "jr://file/"
 
 
@@ -184,7 +191,9 @@ class _Walk:
                     continue  # compared above, by what the column shows
                 step = "*" if starred else pointer_token(key)
                 child_path, child_at = f"{path}/{step}", f"{at}/{pointer_token(key)}"
-                if key not in b:
+                if child_path == TRANSLATIONS and (key not in a or key not in b):
+                    self.strings(a.get(key), b.get(key), child_path, child_at)
+                elif key not in b:
                     self.add(child_path, child_at, "removed", a[key], None)
                 elif key not in a:
                     self.add(child_path, child_at, "added", None, b[key])
@@ -204,6 +213,16 @@ class _Walk:
         if not _same(a, b):
             self.add(path or "/", at or "/", "changed", a, b)
 
+    def strings(self, a, b, path, at):
+        """A language's strings only one app holds, key by key: each key is one app string of HQ's build
+        (``app_strings.py``), and a change stands at the key it names."""
+        held = a if a is not None else b
+        if not isinstance(held, dict) or not held:
+            kind = "removed" if b is None else "added"
+            self.add(path, at, kind, a, b)
+            return
+        self.compare(a if a is not None else {}, b if b is not None else {}, path, at)
+
     def attachments(self, a: dict, b: dict):
         for name in sorted(set(a) | set(b)):
             at = f"/_attachments/{pointer_token(name)}"
@@ -214,7 +233,7 @@ class _Walk:
                 kind = "removed" if after is None else "added" if before is None else "changed"
                 self.add("/_attachments/*", at, kind, _digest(before), _digest(after))
                 continue
-            for kind, part_at, part_path, was, now in xform_parts.compare(before, after):
+            for kind, part_at, part_path, was, now in xform_parts.compare(before, after, self.langs or None):
                 self.add(f"/_attachments/*{part_path}", f"{at}{part_at}", kind, was, now)
 
     def media_map(self, a: dict, b: dict):

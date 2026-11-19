@@ -36921,11 +36921,27 @@
 	{
 		"id": "hq-search/search-row-negated",
 		"base": "hq-search",
-		"entry": "case-search/not-q",
+		"entry": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 2,
+			"name": "Visits"
+		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
 			"value": "\"not(village = 'south')\""
+		}
+	},
+	{
+		"id": "hq-search/search-row-negating-an-inequality",
+		"base": "hq-search",
+		"entry": "case-search/not-q",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/search_config/default_properties/0/defaultValue",
+			"value": "\"not(village != 'south')\""
 		},
 		"holds": [
 			{
@@ -36939,7 +36955,7 @@
 				"value": {
 					"kind": "not",
 					"clause": {
-						"kind": "eq",
+						"kind": "neq",
 						"left": {
 							"kind": "term",
 							"term": {

@@ -16,6 +16,19 @@ is still reported. The plausible failures: two reads' re-minted ids reported
 as a change on every base, a link that moved hidden by that same allowance,
 a kept key absorbed, a column's property changed under a calculation's
 pointer, and a stored difference a rule erased unseen.
+
+A form's source is compared as its readers read it: no whitespace that only
+stands between elements or that Core drops inside a text, attributes in name
+order, the form builder's copy inside a text (an output's ``vellum:value``) a
+part of its own, an order holding only what both forms hold, a translation in
+a language the app does not hold one part, an itemset by its attributes and
+references, and the form builder's escaped copies of an attribute as one class
+however often it saved the form; and a language's strings only one app holds
+are compared key by key. The plausible failures: a re-indented instance or a
+dropped trailing space reported as a change, a label held by the class of a
+shadow beside it, a question added reported again as its form's whole order,
+a language no reader reads held by a row that also holds a listed language's
+text, and a structural path that names how often a form was saved.
 """
 
 from __future__ import annotations
@@ -82,7 +95,7 @@ def test_a_changed_kept_key_is_reported_at_its_own_pointer():
 def test_a_changed_form_source_is_a_difference_at_each_part_it_changed_under_the_node_it_is_about():
     a = _app("a", "b", link_to="b")
     b = _app("c", "d", link_to="d")
-    b["_attachments"]["c.xml"] = _xform(calculate="/data/age*2", label="Age in years")
+    b["_attachments"]["c.xml"] = _xform(calculate="/data/age * 3", label="Age in years")
     found = compare_sources("doc", a, b, HELD)
     assert [(d.path, d.at, d.kind, d.before, d.after) for d in found] == [
         (
@@ -97,8 +110,16 @@ def test_a_changed_form_source_is_a_difference_at_each_part_it_changed_under_the
             "/_attachments/form:0.0.xml/data/double/:bind/@calculate",
             "changed",
             "/data/age * 2",
-            "/data/age*2",
+            "/data/age * 3",
         ),
+    ]
+    # The same expression written another way is reported under the slot's respelling, apart from a change.
+    b["_attachments"]["c.xml"] = _xform(calculate="(/data/age)*2.")
+    assert [(d.path, d.at) for d in compare_sources("doc", a, b, HELD)] == [
+        (
+            "/_attachments/*/data/*/:bind/@calculate/:respelled",
+            "/_attachments/form:0.0.xml/data/double/:bind/@calculate/:respelled",
+        )
     ]
 
 
@@ -196,3 +217,158 @@ def test_the_stored_app_is_compared_as_stored_with_no_spelling_rule():
     assert [(d.path, d.before, d.after) for d in found] == [
         ("/modules/*/forms/*/actions/close_case/condition/operator", None, "=")
     ]
+
+
+VELLUM = "http://commcarehq.org/xforms/vellum"
+
+
+def _form(model="", body="", head="", itext=""):
+    """A form with one question ``q`` and whatever ``model``, ``body``, ``head`` and ``itext`` add."""
+    return f"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
+ xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="{VELLUM}">
+<h:head><h:title>F</h:title>{head}
+<model><instance><data xmlns="http://openrosa.org/formdesigner/f1"><q/><r/></data></instance>{model}
+<itext><translation lang="en" default="">{itext}</translation></itext>
+</model></h:head>
+<h:body>{body}</h:body></h:html>"""
+
+
+def _parts(a, b, languages=None):
+    from proof.checks import xform_parts
+
+    return [(kind, path, at) for kind, at, path, _, _ in xform_parts.compare(a, b, languages)]
+
+
+def test_whitespace_between_elements_and_attribute_order_are_no_difference_and_a_text_s_change_is():
+    spaced = _form(model='\n\t<instance id="casedb" src="jr://instance/casedb" />\n\t')
+    tight = _form(model='<instance src="jr://instance/casedb" id="casedb"/>')
+    assert _parts(spaced, tight) == []
+    # Core drops a run of a text that Java's trim leaves empty, and keeps any other.
+    label = '<text id="q-label"><value>Hello <output value="/data/r"/>{}</value></text>'
+    body = '<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>'
+    trailing = _form(body=body, itext=label.format("\n\t"))
+    bare = _form(body=body, itext=label.format(""))
+    assert _parts(trailing, bare) == []
+    worded = _form(body=body, itext=label.format("!"))
+    assert _parts(bare, worded) == [("changed", "/data/*/:itext/label/*/default", "/data/q/:itext/label/en/default")]
+
+
+def test_an_output_s_form_builder_copy_is_a_part_of_its_own_beside_the_text():
+    body = '<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>'
+    shadowed = _form(
+        body=body, itext='<text id="q-label"><value>See <output value="/data/r" vellum:value="#form/r"/></value></text>'
+    )
+    plain = _form(body=body, itext='<text id="q-label"><value>See <output value="/data/r"/></value></text>')
+    assert _parts(shadowed, plain) == [
+        (
+            "removed",
+            "/data/*/:itext/label/*/default/output/*/@vellum:value",
+            "/data/q/:itext/label/en/default/output/1/@vellum:value",
+        )
+    ]
+
+
+def test_an_order_moves_only_where_what_both_forms_hold_moved():
+    q, r = '<input ref="/data/q"/>', '<input ref="/data/r"/>'
+    assert ("changed", "/:body/order()", "/:body/order()") not in _parts(_form(body=q), _form(body=q + r))
+    assert ("added", "/data/*/:control", "/data/r/:control") in _parts(_form(body=q), _form(body=q + r))
+    assert _parts(_form(body=q + r), _form(body=r + q)) == [("changed", "/:body/order()", "/:body/order()")]
+
+
+def test_a_translation_in_a_language_the_app_does_not_hold_is_one_part():
+    body = '<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>'
+    text = '<text id="q-label"><value>Q</value></text>'
+    other = '</translation><translation lang="hin">' + text
+    both = _form(body=body, itext=text + other)
+    one = _form(body=body, itext=text)
+    assert _parts(both, one, ["en"]) == [("removed", "/:unlisted-translation/*", "/:unlisted-translation/hin")]
+    # A language the app holds keeps its texts at what reads them.
+    assert _parts(both, one, ["en", "hin"]) == [
+        ("removed", "/data/*/:itext/label/*/default", "/data/q/:itext/label/hin/default")
+    ]
+
+
+def test_an_itemset_is_compared_by_its_attributes_and_references():
+    itemset = '<select1 ref="/data/q"><itemset nodeset="{}"><label ref="{}"/><value ref="id"/></itemset></select1>'
+    declared = '<instance id="{}" src="jr://fixture/item-list:t"/>'
+    a = _form(model=declared.format("item-list:t"), body=itemset.format("instance('item-list:t')/t_list/t", "name"))
+    b = _form(model=declared.format("t"), body=itemset.format("instance('t')/t_list/t", "title"))
+    # The rows read under the id each form declares for one source are one expression; the label is another.
+    assert _parts(a, b) == [
+        ("removed", "/:instance/*", "/:instance/item-list:t"),
+        ("added", "/:instance/*", "/:instance/t"),
+        (
+            "changed",
+            "/data/*/:control/itemset/@nodeset/:respelled",
+            "/data/q/:control/itemset/@nodeset/:respelled",
+        ),
+        ("changed", "/data/*/:control/itemset/label/@ref", "/data/q/:control/itemset/label/@ref"),
+    ]
+    other = _form(model=declared.format("t"), body=itemset.format("instance('t')/t_list/t[x = 1]", "name"))
+    assert ("changed", "/data/*/:control/itemset/@nodeset", "/data/q/:control/itemset/@nodeset") in _parts(a, other)
+
+
+def test_the_form_builder_s_escaped_copies_are_one_class_however_often_it_saved():
+    saved = _form(model='<bind nodeset="/data/q" vellum:vellum__required="a" vellum:vellum__vellum__required="b"/>')
+    assert sorted(_parts(saved, _form())) == [
+        ("removed", "/data/*/:bind/@vellum:vellum__*", "/data/q/:bind/@vellum:vellum__required"),
+        ("removed", "/data/*/:bind/@vellum:vellum__*", "/data/q/:bind/@vellum:vellum__vellum__required"),
+    ]
+
+
+def test_a_language_s_strings_only_one_app_holds_are_compared_key_by_key():
+    a = _app("a", "b", link_to="b")
+    b = _app("c", "d", link_to="d")
+    a["translations"] = {"en": {"forms.m0f0": "Visit", "modules.m0": "Homes"}}
+    b["translations"] = {}
+    found = compare_sources("doc", a, b, HELD)
+    assert [(d.path, d.at, d.kind) for d in found] == [
+        ("/translations/*/forms.m0f0", "/translations/en/forms.m0f0", "removed"),
+        ("/translations/*/modules.m0", "/translations/en/modules.m0", "removed"),
+    ]
+
+
+def test_a_string_type_added_where_every_reader_reads_the_node_as_text_is_apart_from_any_other_type_change():
+    # Contract: only `xsd:string` added to a select's or an unasked node's bind is the implied string; the plausible
+    # failure is a date read as text, or a type dropped, held as a re-spelling on every base made in HQ.
+    select = '<select1 ref="/data/q"><item><label>A</label><value>a</value></item></select1>'
+    typed = '<bind nodeset="/data/q" type="{}"/><bind nodeset="/data/r" type="{}"/>'
+    untyped = '<bind nodeset="/data/q"/><bind nodeset="/data/r"/>'
+    implied = "/data/*/:bind/@type/:implied-string"
+    a = _form(model=untyped, body=select)
+    b = _form(model=typed.format("xsd:string", "xsd:string"), body=select)
+    assert _parts(a, b) == [
+        ("added", implied, "/data/q/:bind/@type/:implied-string"),
+        ("added", implied, "/data/r/:bind/@type/:implied-string"),
+    ]
+    # Another type added, a type dropped or changed, and a string added to an input stay at `@type`.
+    dated = _form(model=typed.format("xsd:date", "xsd:int"), body=select)
+    assert _parts(a, dated) == [
+        ("added", "/data/*/:bind/@type", "/data/q/:bind/@type"),
+        ("added", "/data/*/:bind/@type", "/data/r/:bind/@type"),
+    ]
+    assert ("removed", "/data/*/:bind/@type", "/data/q/:bind/@type") in _parts(b, a)
+    assert ("changed", "/data/*/:bind/@type", "/data/q/:bind/@type") in _parts(dated, b)
+    # A node only the after form holds is a change of its own, bind and all.
+    added = _form(model='<bind nodeset="/data/s" type="xsd:string"/>').replace("<r/>", "<r/><s/>")
+    assert ("added", "/data/*/:bind/@type", "/data/s/:bind/@type") in _parts(_form(), added)
+    text = '<input ref="/data/q"/>'
+    assert ("added", "/data/*/:bind/@type", "/data/q/:bind/@type") in _parts(
+        _form(model=untyped, body=text), _form(model=typed.format("xsd:string", "xsd:string"), body=text)
+    )
+
+
+def test_a_row_filter_reading_current_is_no_respelling_of_one_reading_every_entry():
+    # Contract: inside a row predicate, `/data/visits/case_ref` (every entry's answer) and `current()/../case_ref`
+    # (this entry's) are two expressions, so the slot stays at `@calculate`, where row-predicate-current's place
+    # stands; the plausible failure is that change held by the change that stands everywhere.
+    calculate = "instance('casedb')/casedb/case[@case_id = {}]/case_name"
+    form = (
+        '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><h:title>F'
+        "</h:title><model><instance><data><visits><case_ref/><total/></visits></data></instance>"
+        '<instance id="casedb" src="jr://instance/casedb"/>'
+        '<bind nodeset="/data/visits/total" calculate="{}"/></model></h:head><h:body/></h:html>'
+    )
+    a = form.format(calculate.format("/data/visits/case_ref"))
+    b = form.format(calculate.format("current()/../case_ref"))
+    assert _parts(a, b) == [("changed", "/data/*/:bind/@calculate", "/data/visits/total/:bind/@calculate")]

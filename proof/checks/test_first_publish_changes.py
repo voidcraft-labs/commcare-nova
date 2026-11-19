@@ -11,7 +11,11 @@ is closed: nothing changed that Nova's review would not have said (hold 1,
 ``/<id>/unsaid``), and nothing it would say failed to show (hold 2,
 ``/<id>/unseen``; with no served reader observed, an entry every
 row of which names a served reader's artifact is left to the run that
-observes it). The plausible failures: a first publish that rewrites what a
+observes it). What the judge read (every difference of the four checks, the
+places, the claims, the sites, the readers) is written beside its differences
+(``changes.evidence``), so the judgment is made again from a run's output alone
+(``python3 -m proof.checks.changes replay``) and each row a base needs is
+written from it (``rows``). The plausible failures: a first publish that rewrites what a
 person kept, a register entry whose rule fires where nothing changes, and a
 change the review would never mention. No register entry names ``source`` or
 ``changes``. A document whose saves in CommCare HQ are brought in is held to
@@ -71,21 +75,17 @@ if CHANGES:
             "proof3": proof3.document_behavior(document, records),
         }
         sites = changes.merged_sites(proof2.document_sites(document, records), proof3.document_sites(document, records))
-        found = changes.differences(
-            document,
-            checked,
-            places=parity.claim_places_of(document, records),
-            sites=sites,
-            readers=readers.named(),
-        )
+        places = parity.claim_places_of(document, records)
+        observed = readers.named()
+        found = changes.differences(document, checked, places=places, sites=sites, readers=observed)
+        applying = changes.placed(document, changes.load())
         try:
             cases.hold(
                 "changes",
                 document,
                 found,
                 cases.load_register(),
-                applying=sorted(document.first_publish),
-                sites=sites.as_json(),
+                **changes.evidence(applying, checked, places=places, sites=sites, readers=observed),
             )
         except AssertionError as error:
             lines = [

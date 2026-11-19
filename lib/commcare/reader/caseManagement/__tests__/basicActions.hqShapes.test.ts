@@ -584,7 +584,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		// recorded at the map, where the map's held claim stands too, and where the
 		// lane's manifest check reads the key's use; and at each key above it the
 		// entry names, which its class is a fact about too (`Accounting.findingAt`'s
-		// `#recordAround`).
+		// `#recordAround`). The refusal's own record also names the key it reads.
 		const refusal = [...reading.ctx.close().claims.records()].filter(
 			(one) => one.entry === `${F}/update-keys-location-id-hq-user-id`,
 		);
@@ -598,7 +598,10 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(refusal).toEqual([
 			at("actions", "schema:Form.actions"),
 			at("actions/update_case", "schema:FormActions.update_case"),
-			at("actions/update_case/update", "schema:UpdateCaseAction.update"),
+			{
+				...at("actions/update_case/update", "schema:UpdateCaseAction.update"),
+				at: "/modules/0/forms/0/actions/update_case/update/location_id",
+			},
 		]);
 	});
 

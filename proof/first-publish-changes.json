@@ -69,6 +69,131 @@
 				"path": "/modules/*/case_details/*/columns/*/graph_configuration"
 			},
 			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/@version"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:head/vellum:hashtags"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:head/vellum:hashtagTransforms"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:instance/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:unlisted-translation/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@type/:implied-string"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@calculate/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@constraint/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@requiredCondition"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:nodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:calculate"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:relevant"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:constraint"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:requiredCondition"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:required"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:vellum__*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:setvalue/xforms-ready/@value/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/@vellum:ref"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/@vellum:nodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/@vellum:jr__count"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/itemset/@nodeset/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/itemset/@vellum:nodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:itext/hint/*/markdown"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:itext/label/*/default/output/*/@vellum:value"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:itext/label/*/markdown/output/*/@vellum:value"
+			},
+			{
 				"check": "proof1",
 				"artifact": "app.json",
 				"path": "/modules/*/forms/*/case_references_data/load/*",
@@ -577,6 +702,30 @@
 				"check": "proof2",
 				"artifact": "suite.xml",
 				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
 				"kind": "removed"
 			}
 		]
@@ -1198,6 +1347,30 @@
 				"artifact": "app_strings:en",
 				"path": "/forms.m*f*.icon",
 				"kind": "changed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "media_suite.xml",
+				"path": "/suite/media[resource/@id=*]",
+				"kind": "removed"
 			}
 		]
 	},

@@ -349,7 +349,13 @@ harness keeps, each with its reason.
   `lib/deployment/reading/firstPublishPlaces.ts`), the most exact place
   holding a difference, so `forms-and-settings-rewritten`, the one change
   that stands everywhere, keeps only what no other change's place holds, and
-  never a form's whole source, only the part classes a run's evidence writes;
+  never a form's whole source, only the part classes a run's evidence writes
+  and the register types with the function of Nova's builder that writes each
+  again (`firstPublishChanges.ts::RESPELLED_FORM_PARTS`), a slot's expression
+  only where both texts are one expression (`:respelled`, a path from
+  `current()` only outside a predicate; a bind type only as the
+  `xsd:string` every reader reads the node as, `:implied-string`;
+  `proof/checks/xpath_tree.py`);
   a difference of proofs 2 and 3 is placed by what the document's records say
   of where its build element, run, step or case stands (`changes.Sites`), and
   one no record places stands nowhere a change's own place is; on a
@@ -357,7 +363,12 @@ harness keeps, each with its reason.
   lists for the next publish (the statement's `publishChanges`), on proofs 1
   to 3, everywhere, since the review names no place. The `changes` check
   holds each list strict both ways (a change no difference shows at its
-  places is unseen) and reads it on no other document; an entry declares the
+  places is unseen, and a difference no applying change holds is unsaid once,
+  of the one entry whose own row names it, never of every entry a shared row
+  of which matches it: the check that reports it says it) and reads it on no
+  other document; it writes beside its differences everything it read
+  (`changes.evidence`), so a run's judgment is made again from its output
+  alone (`python3 -m proof.checks.changes replay`); an entry declares the
   kinds of place it stands at, and one that declares none of its own is
   refused, since it could never be seen apart; rows other than `source`'s are
   written from the document's evidence (`python3 -m proof.checks.changes

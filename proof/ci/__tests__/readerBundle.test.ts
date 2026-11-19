@@ -381,6 +381,7 @@ it(
 			.filter((line) => line !== "")
 			.map((line) => JSON.parse(line) as Record<string, unknown>);
 		expect(lines.length).toBeGreaterThan(0);
+		// A record carries `at` last, and only where the value it reads sits elsewhere than `where`.
 		for (const line of lines)
 			expect(Object.keys(line)).toEqual([
 				"artifact",
@@ -388,7 +389,10 @@ it(
 				"key",
 				"entry",
 				"standing",
+				...("at" in line ? ["at"] : []),
 			]);
+		for (const line of lines)
+			if ("at" in line) expect(line.at).not.toBe(line.where);
 		// A first reading of the same answers into a Project that holds nothing: production's
 		// gather, every answer asked once, the table list among them.
 		expect(answers?.[2]).toMatchObject({

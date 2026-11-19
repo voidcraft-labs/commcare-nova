@@ -102,10 +102,16 @@ export type ClaimSite =
 export interface ClaimRecord {
 	/** `app.json` or `form:<m>.<f>`. */
 	readonly artifact: string;
+	/** Where the value the record's key names sits (a key above the claimed value, where the claim
+	 *  names that key's schema item), which is where the lane's use of the key stands. */
 	readonly where: string;
 	readonly key: string | null;
 	readonly entry: string;
 	readonly standing: ReadStanding;
+	/** Where the value the claim reads sits, present only where that is not `where`: a key of a
+	 *  map, or an object read whole, whose claim names the schema item of a key above it (a
+	 *  language's strings under `schema:Application.translations`). */
+	readonly at?: string;
 }
 
 /** A use handed to project data: a place and a key, and no entry yet. */
@@ -127,7 +133,8 @@ export interface ClaimLog {
 	records(): IterableIterator<ClaimRecord>;
 }
 
-/** One JSON object per line, keys in `ClaimRecord`'s order, in `records()` order, `\n` ended. */
+/** One JSON object per line, keys in `ClaimRecord`'s order, `at` only where a record holds one, in
+ *  `records()` order, `\n` ended. */
 export function serializeClaimLog(log: ClaimLog): string {
 	let text = "";
 	for (const record of log.records())
@@ -137,6 +144,7 @@ export function serializeClaimLog(log: ClaimLog): string {
 			key: record.key,
 			entry: record.entry,
 			standing: record.standing,
+			...(record.at === undefined ? {} : { at: record.at }),
 		})}\n`;
 	return text;
 }
@@ -149,6 +157,8 @@ export interface LedgerSite {
 	readonly sub: string;
 	readonly artifact: string;
 	readonly where: () => string;
+	/** Where the value a claim here reads sits, where it is not `where` (`ClaimRecord.at`). */
+	readonly at?: () => string;
 	/** The surface name an `unrecognized` finding here takes. */
 	readonly name: string;
 	/** Where in the app's JSON the value a finding here reads sits, where it is not `where`: the
@@ -240,6 +250,7 @@ interface NodeState {
 interface PendingRecord {
 	readonly artifact: string;
 	readonly where: () => string;
+	readonly at?: () => string;
 	readonly key: string | null;
 	readonly entry: string;
 	readonly standing: ReadStanding;
@@ -478,6 +489,7 @@ export class Accounting implements ClaimLedger {
 		this.#records.push({
 			artifact: site.artifact,
 			where: site.where,
+			...(site.at === undefined ? {} : { at: site.at }),
 			key,
 			entry,
 			standing,
@@ -1251,13 +1263,18 @@ export class Accounting implements ClaimLedger {
 					throw new Error(
 						'This reading kept claim counts alone. Pass `claims: "full"` to `readHqApp` to keep every claim.',
 					);
-				const records: ClaimRecord[] = pending.map((record) => ({
-					artifact: record.artifact,
-					where: record.where(),
-					key: record.key,
-					entry: record.entry,
-					standing: record.standing,
-				}));
+				const records: ClaimRecord[] = pending.map((record) => {
+					const where = record.where();
+					const at = record.at?.();
+					return {
+						artifact: record.artifact,
+						where,
+						key: record.key,
+						entry: record.entry,
+						standing: record.standing,
+						...(at === undefined || at === where ? {} : { at }),
+					};
+				});
 				records.sort(
 					(a, b) =>
 						compareText(a.artifact, b.artifact) ||

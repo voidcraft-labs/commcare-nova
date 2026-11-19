@@ -55,7 +55,9 @@ the build holds there (a suite entry's command); a session's step by the form
 or the menu its run's script opened, a submission's or an event's node in
 that form, a menu's choice at the menu or form it opens, a case at its type.
 A difference no record places stands nowhere (``NOWHERE``), where only the
-change that stands everywhere stands. A change holds a difference where a row
+change that stands everywhere stands. A text HQ's build writes from two names
+stands at both (``locations``: a form's suite descriptor at its form's name and
+its menu's). A change holds a difference where a row
 of it names the difference's class and one of its places lies at the
 difference's location or above it; the most exact such place (the most steps
 it matches the location by name) is the one that holds it, so
@@ -75,10 +77,13 @@ An entry applies in two places, and on no other document and no control:
 A document made in HQ states no saves (``proof/corpus/entryWriter.ts`` refuses
 both), so a document has one list or none. The judge is strict both ways
 (``differences``): a difference no applying entry holds is held to the
-spelling rules and the known-defect register like any other, and one a row of
-an entry that does not apply matches is reported as ``/<id>/unsaid``; an
-applying entry that holds no difference, or none it holds more exactly than
-every other applying change, is ``/<id>/unseen``.
+spelling rules and the known-defect register like any other, by the check that
+reports it, and it is also ``/<id>/unsaid`` once, of the one entry that names
+it as a change of its own where that entry does not apply (``naming``: of the
+rows that match it and that no other entry holds too, the most exact are that
+entry's alone), so a class many entries share (every form's whole source)
+names no one; an applying entry that holds no difference, or none it holds
+more exactly than every other applying change, is ``/<id>/unseen``.
 
 A difference at a place the stored-app comparison holds Nova to keep
 (``HELD_PATHS``: a media path the document holds, the property a case list
@@ -96,13 +101,22 @@ profile key HQ's settings do not list at ``/profile``), and where a kept or
 held claim shares that place the log does not tell which key under it is the
 inert one.
 
+The ``changes`` check writes beside its differences everything the judge read
+(``evidence``: the applying changes with their places, the claim places, the
+sites, the served readers the run observes, every difference of each check it
+was handed), so over a lane run's output, or a directory holding a sharded
+run's outputs, one a shard,
+
     python3 -m proof.checks.changes rows <output> <document>
 
-prints, for each difference of the document's evidence in a lane run's output
-that no applying change holds, the row that names its class and the changes
-whose places stand there most exactly (located by the sites the run's
-``changes`` check wrote), the change a person writes the row under where its
-change shows there.
+prints, for each difference that no applying change holds, the row that names
+its class and the changes whose places stand there most exactly, the change a
+person writes the row under where its change shows there, and
+
+    python3 -m proof.checks.changes replay <output> <document>
+
+makes the judgment again with this tree's register and judge (``replayed``):
+the differences held, those left undeclared, the unsaid and the unseen.
 
 Standard library only (``proof/CLAUDE.md``, "What runs with no image").
 """
@@ -300,7 +314,9 @@ class Sites:
     - ``choices``: each choice a menu step shows, ``(run, step, choice)``, by the menu or form it opens;
     - ``cases``: each case's type by its id, as a difference writes the id (a generated id by its label);
     - ``builds``: an element of a build file a difference names only by its position, ``(artifact, step)``
-      (``("suite.xml", "entry[7]")``), by the menu or form it is of;
+      (``("suite.xml", "entry[7]")``), by the menu or form it is of, and an app string whose key does not say
+      what it is of, ``("app_strings", key)`` in every language's file, by where it stands (a sort-only
+      element's header, whose key's number is its order among the sort elements and no column's);
     - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``).
     """
 
@@ -561,7 +577,7 @@ def _app_strings_location(key: str) -> tuple[str, ...]:
     """Where an app string of CommCare HQ's build stands, by the key HQ writes it under (``id_strings``): a
     menu's or a form's name and media, a case list item's or Register button's label, a detail's column or
     texts, a search's texts; the app's name; nothing else."""
-    if key == "app.display.name":
+    if key in APP_NAME_KEYS:
         return ("app", "name")
     parts = key.split(".")
     head = parts[0]
@@ -599,6 +615,10 @@ def _app_strings_location(key: str) -> tuple[str, ...]:
 
 
 MEDIA_SUFFIXES = {("icon",): ("media_image",), ("audio",): ("media_audio",)}
+# The app strings CommCare HQ's build writes from the app's name (``app_strings.py::_create_custom_app_strings``).
+APP_NAME_KEYS = frozenset({"app.display.name", "homescreen.title"})
+# The artifact ``Sites.builds`` keys an app string under, in every language's file alike.
+APP_STRINGS = "app_strings"
 
 
 def _build_location(difference, sites: Sites) -> tuple[str, ...]:
@@ -613,7 +633,11 @@ def _build_location(difference, sites: Sites) -> tuple[str, ...]:
         return ("form", artifact[5:], "xform", BELOW)
     if artifact.startswith("app_strings:"):
         steps = unescaped(difference.at)
-        return _app_strings_location(steps[0]) if len(steps) == 1 else NOWHERE
+        if len(steps) != 1:
+            return NOWHERE
+        if (APP_STRINGS, steps[0]) in sites.builds:
+            return _site(sites.builds, (APP_STRINGS, steps[0]))
+        return _app_strings_location(steps[0])
     steps = _xml_steps(difference.at)
     if artifact == "suite.xml":
         return _suite_location(artifact, steps, sites)
@@ -622,7 +646,9 @@ def _build_location(difference, sites: Sites) -> tuple[str, ...]:
         path = None if resource is None else sites.media.get(resource)
         return ("app", "multimedia_map", path) if path else NOWHERE
     if artifact in ("profile.ccpr", "profile.xml"):
-        return ("app", "profile", BELOW)
+        # The profile's name is the app's (``models/applications.py::Application.create_profile``); the rest is
+        # the app's settings.
+        return ("app", "name") if steps == ["profile", "@name"] else ("app", "profile", BELOW)
     return NOWHERE
 
 
@@ -657,6 +683,31 @@ def locate(difference, sites: Sites = NO_SITES) -> tuple[str, ...]:
     return NOWHERE
 
 
+def locations(difference, sites: Sites = NO_SITES) -> tuple[tuple[str, ...], ...]:
+    """Every location ``difference`` stands at: ``locate``'s, and where CommCare HQ's build writes one text from
+    two names, the other name's too. A suite's XForm resource's descriptor, ``Form: (Module <menu's name>) -
+    <form's name>`` (``suite_xml/sections/resources.py::FormResourceContributor``), stands at its form's name and
+    at its menu's."""
+    location = locate(difference, sites)
+    if _form_descriptor(difference) and len(location) == 3 and location[0] == "form" and location[2] == "name":
+        return (location, ("menu", location[1].partition(".")[0], "name"))
+    return (location,)
+
+
+def _form_descriptor(difference) -> bool:
+    """Whether ``difference`` is proof 2's at a suite's XForm resource's ``descriptor``."""
+    if difference.check != "proof2" or difference.artifact.rpartition("/")[2] != "suite.xml":
+        return False
+    steps = _xml_steps(difference.at)
+    return (
+        len(steps) == 4
+        and steps[0] == "suite"
+        and _without_position(steps[1]) == "xform"
+        and _without_position(steps[2]) == "resource"
+        and steps[3] == "@descriptor"
+    )
+
+
 def exactness(place: str, location: tuple[str, ...]) -> int | None:
     """How exactly ``place`` stands at ``location``: None where the location is not at the place or under it,
     else the count of the place's steps the location names alike (a ``**`` of the place and the steps a location's
@@ -689,8 +740,12 @@ def exactness(place: str, location: tuple[str, ...]) -> int | None:
     return go(0, 0)
 
 
-def _most_exact(places, location) -> int | None:
-    found = [score for score in (exactness(place, location) for place in places) if score is not None]
+def _most_exact(places, located) -> int | None:
+    """How exactly the most exact of ``places`` stands at any of the locations ``located``, None where none
+    does."""
+    found = [
+        score for location in located for score in (exactness(place, location) for place in places) if score is not None
+    ]
     return max(found) if found else None
 
 
@@ -908,13 +963,13 @@ def holders(
     """The applying changes that hold ``difference`` and stand most exactly where it is: of the changes in
     ``applying`` a row of which names its class and a place of which stands at its location, those whose most exact
     place there is the most exact of all (``exactness``). Empty where no applying change holds it."""
-    location = locate(difference, sites)
+    located = locations(difference, sites)
     scored = []
     for change in changes:
         where = applying.get(change.change)
         if where is None or not _held_by(difference, change, places):
             continue
-        score = _most_exact(where, location)
+        score = _most_exact(where, located)
         if score is not None:
             scored.append((change.change, score))
     if not scored:
@@ -988,11 +1043,60 @@ def differences(
     document not made in HQ; ``sites`` is what the document's records say of where proof 2's and proof 3's
     differences stand (``Sites``); ``readers`` is the set of served readers the run observes
     (``proof.lane.readers.named``). Answers the ``changes`` differences ``/<id>/unsaid`` (a difference no applying
-    change holds at one of its places, which a row of an entry that does not apply names) and ``/<id>/unseen`` (an
-    applying entry that holds no difference most exactly, but where every row of it names a served reader the run
-    does not observe, or a check the judge was not handed)."""
+    change holds at one of its places, which an entry that does not apply names, ``naming``: at most one a
+    difference) and ``/<id>/unseen`` (an applying entry that holds no difference most exactly, but where every row
+    of it names a served reader the run does not observe, or a check the judge was not handed)."""
     changes = list(load() if register is None else register)
     applying = placed(document, changes)
+    return judged(document.id, applying, checked, places=places, sites=sites, readers=readers, register=changes)
+
+
+def _row_exactness(row: Row) -> tuple[int, bool]:
+    """How exactly a row names a class: the steps of its path, then whether it names a kind."""
+    return len(tokens(row.path)), row.kind is not None
+
+
+def naming(difference, changes, applying) -> str | None:
+    """The one entry that names ``difference`` as a change of its own, where it does not apply: of the rows of the
+    register that match the difference (``Row.matches``) and that no other entry holds too (a class two entries
+    share names neither), the most exact (``_row_exactness``) belong to one entry, and that entry does not apply.
+    None where no such row matches, where the most exact belong to several entries, or where they are an applying
+    entry's, whose places miss the difference: the check that reports the difference says what it is, once, and
+    the changes judge names no change for it."""
+    holders_of: dict[Row, set[str]] = {}
+    for change in changes:
+        for row in change.rows:
+            holders_of.setdefault(row, set()).add(change.change)
+    matching = [
+        (row, change.change)
+        for change in changes
+        for row in change.rows
+        if len(holders_of[row]) == 1 and row.matches(difference)
+    ]
+    if not matching:
+        return None
+    best = max(_row_exactness(row) for row, _ in matching)
+    named = {change_id for row, change_id in matching if _row_exactness(row) == best}
+    if len(named) != 1:
+        return None
+    (change_id,) = named
+    return None if change_id in applying else change_id
+
+
+def judged(
+    document_id,
+    applying: Mapping[str, tuple[str, ...]],
+    checked: Mapping[str, Sequence[Difference]],
+    *,
+    places: ClaimPlaces = NO_CLAIMS,
+    sites: Sites = NO_SITES,
+    readers,
+    register=None,
+) -> list[Difference]:
+    """``differences`` over the applying changes and their places as given (``placed``), which is all the judge
+    reads of a document: what the ``changes`` check's evidence holds, so a run's judgment can be made again from
+    it alone (``replay``)."""
+    changes = list(load() if register is None else register)
     readers = frozenset(readers or ())
     found, seen = [], set()
     for check in ROW_CHECKS:
@@ -1003,15 +1107,14 @@ def differences(
             if holding:
                 seen.update(holding)
                 continue
-            for change in changes:
-                if change.change in applying or not _held_by(difference, change, places):
-                    continue
+            change_id = naming(difference, changes, applying)
+            if change_id is not None:
                 found.append(
                     _changes_difference(
-                        document.id,
-                        change.change,
+                        document_id,
+                        change_id,
                         "unsaid",
-                        f"/{change.change}/unsaid/{check}/{difference.artifact}{difference.at}",
+                        f"/{change_id}/unsaid/{check}/{difference.artifact}{difference.at}",
                         None,
                         difference.as_json(),
                     )
@@ -1021,7 +1124,7 @@ def differences(
         change = by_id.get(change_id)
         if change is not None and (_served_only(change, readers) or _unjudged(change, checked)):
             continue
-        found.append(_changes_difference(document.id, change_id, "unseen", f"/{change_id}/unseen"))
+        found.append(_changes_difference(document_id, change_id, "unseen", f"/{change_id}/unseen"))
     return found
 
 
@@ -1046,7 +1149,118 @@ def unseen_message(document_id, difference: Difference) -> str:
     )
 
 
+# The evidence and its replay ---------------------------------------------------------
+
+
+def evidence(applying, checked, *, places: ClaimPlaces = NO_CLAIMS, sites: Sites = NO_SITES, readers=()) -> dict:
+    """Everything ``judged`` reads of one document, as the ``changes`` check writes it beside its differences: the
+    applying changes with their places, where the claim log holds its claims, what the records say of where each
+    difference stands, the served readers the run observes, and every difference of each check it was handed. A
+    run's judgment is made again from it alone (``replay``), and each row a document needs is written from it
+    (``rows``)."""
+    return {
+        "applying": [{"id": change_id, "places": list(where)} for change_id, where in applying.items()],
+        "claims": {"inert": sorted(places.inert), "other": sorted(places.other)},
+        "sites": sites.as_json(),
+        "readers": sorted(readers or ()),
+        "checked": {check: [difference.as_json() for difference in found] for check, found in checked.items()},
+    }
+
+
+@dataclass(frozen=True)
+class Recorded:
+    """What the ``changes`` check's evidence of one document says the judge read (``evidence``)."""
+
+    document: str
+    applying: Mapping[str, tuple[str, ...]]
+    checked: Mapping[str, tuple[Difference, ...]]
+    places: ClaimPlaces = NO_CLAIMS
+    sites: Sites = NO_SITES
+    readers: frozenset = frozenset()
+
+
+DIFFERENCE_FIELDS = ("check", "document", "artifact", "path", "at", "kind", "before", "after")
+
+
+def recorded(record) -> Recorded:
+    """The judge's inputs from the ``changes`` check's evidence of one document, refused by name where the record
+    predates ``evidence`` (it holds no ``checked``)."""
+    if not isinstance(record, dict) or not isinstance(record.get("checked"), dict):
+        raise ChangesError(
+            "This changes evidence holds no checked differences, so the judgment cannot be made again from it: the"
+            " changes check writes them beside its differences (changes.evidence) from layer 9 on. Run the lane again"
+            " to write evidence the replay reads."
+        )
+    claims = record.get("claims") or {}
+    return Recorded(
+        document=record.get("document", ""),
+        applying={one["id"]: tuple(one.get("places") or ()) for one in record.get("applying") or ()},
+        checked={
+            check: tuple(Difference(**{name: one.get(name) for name in DIFFERENCE_FIELDS}) for one in found)
+            for check, found in record["checked"].items()
+        },
+        places=ClaimPlaces(frozenset(claims.get("inert") or ()), frozenset(claims.get("other") or ())),
+        sites=Sites.from_json(record.get("sites")),
+        readers=frozenset(record.get("readers") or ()),
+    )
+
+
+def replay(record, register=None) -> list[Difference]:
+    """The ``changes`` differences ``judged`` gives over a document's evidence (``recorded``), with ``register``
+    (the file's entries where None): the run's judgment again, or what it would be with this tree's register and
+    judge."""
+    found = recorded(record)
+    return judged(
+        found.document,
+        found.applying,
+        found.checked,
+        places=found.places,
+        sites=found.sites,
+        readers=found.readers,
+        register=register,
+    )
+
+
+def replayed(record, register=None) -> dict:
+    """A document's judgment made again from its evidence, counted: the differences an applying change holds
+    (``held``), those it holds not and no spelling of the register's would (``undeclared``, which the check that
+    reports each holds to the known-defect register), the ``unsaid`` and the ``unseen``. A base is done where the
+    last three are none."""
+    changes = list(load() if register is None else register)
+    found = recorded(record)
+    held_count, undeclared_count = 0, 0
+    for check in ROW_CHECKS:
+        for difference in found.checked.get(check, ()):
+            if not held(difference) and holders(difference, changes, found.applying, found.places, found.sites):
+                held_count += 1
+            else:
+                undeclared_count += 1
+    judgment = replay(record, changes)
+    return {
+        "document": found.document,
+        "held": held_count,
+        "undeclared": undeclared_count,
+        "unsaid": sum(1 for difference in judgment if difference.path.endswith("/unsaid")),
+        "unseen": sorted(
+            difference.path.split("/")[1] for difference in judgment if difference.path.endswith("/unseen")
+        ),
+    }
+
+
 # The rows command ------------------------------------------------------------------
+
+
+def _records(output: Path, check: str, document: str) -> list[Path]:
+    """Each record of ``check`` on ``document`` under ``output``: one lane run's output, or a directory holding a
+    sharded run's outputs, one a shard (``proof-out-*``)."""
+    name = f"checks/{check}/corpus-{document}.json"
+    return sorted([*output.glob(f"blocks/*/{name}"), *output.glob(f"*/blocks/*/{name}")])
+
+
+def _changes_record(output: Path, document: str):
+    for path in _records(output, "changes", document):
+        return json.loads(path.read_text(encoding="utf-8"))
+    return None
 
 
 @dataclass(frozen=True)
@@ -1059,9 +1273,10 @@ class _Evidence:
 
 
 def _evidence(output: Path, document: str):
+    """Each difference a check reported on the document, from each check's own record: those no change held."""
     found = []
     for check in ROW_CHECKS:
-        for path in sorted(output.glob(f"blocks/*/checks/{check}/corpus-{document}.json")):
+        for path in _records(output, check, document):
             record = json.loads(path.read_text(encoding="utf-8"))
             for difference in record.get("differences") or []:
                 found.append(
@@ -1097,26 +1312,31 @@ def _placed_in(output: Path, document: str) -> dict[str, tuple[str, ...]]:
     return applying
 
 
-def _sites_in(output: Path, document: str) -> Sites:
-    """The sites the run's ``changes`` check wrote for the document (``Sites.as_json``), none where it wrote none."""
-    for path in sorted(output.glob(f"blocks/*/checks/changes/corpus-{document}.json")):
-        record = json.loads(path.read_text(encoding="utf-8"))
-        return Sites.from_json(record.get("sites"))
-    return NO_SITES
-
-
 def rows(output: Path, document: str, register=None) -> list[dict]:
     """For each difference of the document's evidence under ``output`` that no applying change holds at one of its
     places, ``{"row", "at"}``: the row that names its class (``source`` by its structural path, the others by
     check, artifact, path and kind) and the applying changes whose places stand most exactly where it is, which a
     person writes the row under where its change shows there; each row once, in the order of the evidence. A
-    difference at a place Nova keeps (``held``) gets none: no row may name it."""
+    difference at a place Nova keeps (``held``) gets none: no row may name it.
+
+    The judge's own inputs are read from the ``changes`` check's evidence (``evidence``): every difference it was
+    handed, the places, the claims for the inert allowance and the sites. Evidence written before it held them is
+    read as each check's own record of what no change held, with the places of the ``first-publish.json`` the
+    output holds of the document and no claims."""
     changes = list(load() if register is None else register)
-    applying = _placed_in(output, document)
-    sites = _sites_in(output, document)
+    record = _changes_record(output, document)
+    if isinstance(record, dict) and isinstance(record.get("checked"), dict):
+        found = recorded(record)
+        applying, sites, places = found.applying, found.sites, found.places
+        candidates = [difference for check in ROW_CHECKS for difference in found.checked.get(check, ())]
+    else:
+        applying = _placed_in(output, document)
+        sites = Sites.from_json((record or {}).get("sites"))
+        places = NO_CLAIMS
+        candidates = _evidence(output, document)
     printed, seen = [], set()
-    for evidence in _evidence(output, document):
-        if held(evidence) or holders(evidence, changes, applying, sites=sites):
+    for evidence in candidates:
+        if held(evidence) or holders(evidence, changes, applying, places, sites):
             continue
         row = Row(
             evidence.check, evidence.artifact, evidence.path, None if evidence.check == "source" else evidence.kind
@@ -1124,11 +1344,11 @@ def rows(output: Path, document: str, register=None) -> list[dict]:
         if row in seen:
             continue
         seen.add(row)
-        location = locate(evidence, sites)
+        located = locations(evidence, sites)
         scored = [
             (change_id, score)
             for change_id, where in applying.items()
-            if (score := _most_exact(where, location)) is not None
+            if (score := _most_exact(where, located)) is not None
         ]
         best = max((score for _, score in scored), default=None)
         printed.append(
@@ -1140,20 +1360,35 @@ def rows(output: Path, document: str, register=None) -> list[dict]:
     return printed
 
 
+USAGE = (
+    "Name a lane run's output (or a directory holding a sharded run's outputs) and a document:"
+    " python3 -m proof.checks.changes rows <output> <document> prints the rows its unheld differences need;"
+    " python3 -m proof.checks.changes replay <output> <document> makes the changes judgment again from its evidence."
+)
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 3 or argv[0] != "rows":
-        print(
-            "Name a lane run's output and a document: python3 -m proof.checks.changes rows <output> <document>.",
-            file=sys.stderr,
-        )
+    if len(argv) != 3 or argv[0] not in ("rows", "replay"):
+        print(USAGE, file=sys.stderr)
         return 2
-    output, document = Path(argv[1]), argv[2]
+    command, output, document = argv[0], Path(argv[1]), argv[2]
     if not output.is_dir():
         print(f"{output} is no directory a lane run wrote.", file=sys.stderr)
         return 2
-    for row in rows(output, document):
-        print(json.dumps(row, ensure_ascii=False))
+    if command == "rows":
+        for row in rows(output, document):
+            print(json.dumps(row, ensure_ascii=False))
+        return 0
+    record = _changes_record(output, document)
+    if record is None:
+        print(f"{output} holds no changes evidence of {document}.", file=sys.stderr)
+        return 2
+    try:
+        print(json.dumps(replayed(record), ensure_ascii=False))
+    except ChangesError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     return 0
 
 

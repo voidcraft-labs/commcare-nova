@@ -69,6 +69,9 @@ const CONDITION_KEYS = new Set([
 	"open_condition",
 ]);
 
+/** The keys of a case action a stored null of which Nova writes as a new action holds them. */
+const NULL_RESPELLED = new Set(["name_update", "product_program"]);
+
 /** A basic form's `PreloadAction`s, each of which Nova writes with its condition `never`
  *  (`hqShells.ts::emptyFormActions`). */
 const PRELOAD_ACTIONS = ["case_preload", "usercase_preload", "load_from_form"];
@@ -91,7 +94,17 @@ const PRELOAD_CONDITION_ENTRY = `${F}/preload-action-condition`;
  *   serves no null for a condition Nova leaves out;
  * - a preload action's condition stored other than `never` (the Case
  *   Management page saves `case_preload` as `always` with or without a preload),
- *   which Nova writes as `never`, recorded at the condition whole.
+ *   which Nova writes as `never`, recorded at the condition whole;
+ * - a value of an action stored null where Nova writes the value a new action
+ *   holds, which every reader reads alike: a `name_update` (Nova writes a
+ *   `ConditionalCaseUpdate`, `casePlacementPlan.ts::planFormCaseWire`, whose
+ *   `question_path` HQ reads only where the action opens a case,
+ *   `xform.py::XFormCaseBlock.add_create_block`), an advanced action's
+ *   `product_program` (Nova writes `""`, which
+ *   `suite_xml/sections/entries.py::EntriesHelper` reads as it reads null, by
+ *   its truth) and its `case_index`'s `tag` (Nova writes `""`, which
+ *   `models/form_actions.py::LoadUpdateAction.case_indices` reads as it reads
+ *   null, by its truth), each recorded at its key.
  *
  * `actions` is the stored value at `pointer`; `entry` is the entry the form's
  * actions are claimed under.
@@ -126,6 +139,18 @@ export function recordRespelledConditions(
 		if (!isObject(value)) return;
 		for (const [key, inner] of Object.entries(value)) {
 			const child = `${at}/${pointerToken(key)}`;
+			const respelled =
+				inner === null && NULL_RESPELLED.has(key)
+					? child
+					: key === "case_index" && isObject(inner) && inner.tag === null
+						? `${child}/tag`
+						: undefined;
+			if (respelled !== undefined)
+				ctx.facts.sameStateRewrites.push({
+					entry,
+					path: respelled,
+					register: "case-settings-respelled",
+				});
 			if (!CONDITION_KEYS.has(key) || !isObject(inner)) {
 				visit(inner, child);
 				continue;

@@ -2911,18 +2911,34 @@ A `source` row is one of the entry's `paths`, and each object's `placeKinds` its
 (`firstPublishChanges.ts::firstPublishPlaceKindsOf`), which part 09's Vitest holds
 (`proof/ci/__tests__/firstPublishChanges.test.ts`, its section 13.2: the file's ids are the
 register's in order, each object's `source` rows are exactly the entry's `paths`, its place kinds
-the entry's, and a `proof3` row stands only under an entry whose `touchesWorkers` is true). One
+the entry's, and a `proof3` row stands only under an entry whose `touchesWorkers` is true, but a
+row of a value a search sends CommCare HQ, a step of `_xpath_query`, which HQ ANDs as one more filter
+each, so `search-filter-rows-recut` cuts them anew with no worker meeting it). One
 exception: `forms-and-settings-rewritten`, which stands everywhere, never names a form's whole
 source (`/_attachments/*`, which the loader refuses for it), and holds a form's source only by the
 part classes (`/_attachments/*/data/*/:bind/@vellum:nodeset`) a run's evidence writes, so a change
-of a question no change makes is never held there. Every
+of a question no change makes is never held there. Those part classes are typed too, each with the
+function of Nova's builder that writes it again on every first publish and why no reader reads the
+two spellings apart (`firstPublishChanges.ts::RESPELLED_FORM_PARTS`), and the Vitest holds the
+file's part rows to that list: the version the source holds, the form builder's hashtag maps and its
+`vellum:` copies (HQ's build strips them, `xform.py::XForm.strip_vellum_ns_attributes`), the
+instances a form declares, a translation in a language the app does not hold, a select's and a
+Hidden Value's bind type, a hint's markdown form, the bare `requiredCondition`, and a slot's
+expression where it is the same expression written another way (`.../@calculate/:respelled`, never
+`.../@calculate`, which a changed calculation stands at). Layer 9's seventh run wrote them
+(section 9.3). Every
 other row is written from a run's evidence: `python3 -m proof.checks.changes rows <output> <base>`
 prints, for each difference of the base's evidence no applying change holds at one of its places,
 `{"row", "at"}`: the row that names its class and the applying changes whose places stand most
 exactly where it is. The session writes the row under the change `at` names where the entry's
 sentence in part 09 says its change shows there, and under none where the difference is a defect.
-No row's path is typed. The command runs on a hosted runner's `python3`, on the standard library
-(`proof/CLAUDE.md`, "What runs with no image").
+No row's path is typed. The `changes` check writes beside its differences everything the judge
+read (`changes.evidence`: the applying changes with their places, the claim places, the sites, the
+readers, every difference of the four checks), so the command reads a run's output alone, or a
+directory holding a sharded run's outputs, and `python3 -m proof.checks.changes replay <output>
+<base>` makes the judgment again with the tree's register and judge (held, undeclared, unsaid,
+unseen). Both run on a hosted runner's `python3`, on the standard library (`proof/CLAUDE.md`, "What
+runs with no image").
 
 ### 9.2 The hold
 
@@ -3014,8 +3030,30 @@ control of the body by its node (its element, attributes, inline texts, choices,
 order of what it holds); and each itext text by what reads it (a control's label, hint, help or
 alert, a choice's label, a bind's `jr:constraintMsg`), by language and form, so a text Nova keeps
 under another id is the same part (`/_attachments/*/data/*/:itext/label/*/default` at
-`/_attachments/form:0.0.xml/data/age/:itext/label/en/default`). A form only one side holds is one
-difference at `/_attachments/*`, and a source that does not parse is refused at its attachment.
+`/_attachments/form:0.0.xml/data/age/:itext/label/en/default`). Each part is compared as its
+readers read it: no whitespace that only stands between elements, and inside a text no run Java's
+`trim` leaves empty (Core drops it, `XFormParser.getXMLDocument`); attributes in name order; an
+attribute of the form builder's namespace inside a text (an output's `vellum:value`) a part of its
+own beside the text; an order holding only what both forms hold, so a question added is reported at
+its own node and not again as its form's order; a translation in a language the app does not hold
+one part (`/:unlisted-translation/<lang>`: HQ's build leaves it out, `XForm.exclude_languages`, and
+the form builder drops it on load); an itemset by its attributes and references; the form builder's
+escaped copies of an attribute (`vellum:vellum__required` and its longer runs, one more `vellum__` each save, `Vellum/src/util.js::
+writeHashtags`) as one class, `@vellum:vellum__*`; and a slot's expression (a bind's conditions
+and calculation, a setvalue's value, an itemset's rows) under `:respelled` where both texts are one
+expression to Core's parser (`proof/checks/xpath_tree.py`, over Core's own tokens: a string or a
+number by its value, parentheses the operators' order gives, a run of `and` or `or` regrouped,
+`instance('<id>')` by the source its form declares, a path from `current()` outside every predicate
+by the node the slot is about: inside one, Core reads an absolute path of the main instance against
+the row the predicate tests, or unbound where the predicate filters another instance, so
+`current()/../a` there is another expression, `row-predicate-current`'s, never `:respelled`); and a
+bind's `type` the first publish adds as `xsd:string` where the node is a select on both sides or no
+control's, under `:implied-string` (`xform_parts.py::_implied_string`: Core reads an untyped and a
+string node alike there, `XFormParser.applyControlProperties`, `Recalculate.wrapData`), while any
+other type added, changed or dropped stays at `@type`, where no change holds it. A language's strings
+only one app holds are compared key by key. A form only one side holds
+is one difference at `/_attachments/*`, and a source that does not parse is refused at its
+attachment.
 One thing is compared another way, for its reason at source: a form's
 `unique_id` and every reference to one (`case_list_form.form_id`, a form link's `form_id`,
 `shadow_parent_form_id`). Every source read re-mints them (`Application.scrub_source`,
@@ -3067,19 +3105,27 @@ build file but a form's XML, proof 3 always: section 4); the entries that apply 
 `source` difference whose pointer the log holds under an entry of standing `inert`, or under such a
 place, is matched by that entry, which is how it covers "the settings no runtime reads" without a
 row for each, but not where the log holds a claim of another standing at that inert place or under
-it on the difference's branch (`parity.claim_places_of`, `changes.inert_holds`): the log records
-some claims at the container whose value they read (a key of a language's strings at
-`/translations`, a profile key HQ's settings do not list at `/profile`, a media reference with no
-file at `/multimedia_map`), and there it does not tell the inert key from a kept one.
+it on the difference's branch (`parity.claim_places_of`, `changes.inert_holds`). A record whose key
+names a key above the value it reads (a key of a language's strings under
+`schema:Application.translations`, a language read past whole, a profile key HQ's settings do not
+list) stands where that key's value sits, as parity's join reads it, and also names the value it
+reads (`ClaimRecord.at`), which is the place the allowance reads, so an inert key is told from a
+kept key beside it.
 
 **The three holds.**
 
 1. **Nothing undeclared.** Every difference of the four checks is held by an applying change at one
    of its places (or by the inert allowance), or erased by a spelling rule. Any other is reported as
-   the difference it is, and with the known register empty it fails the base. Where such a
-   difference matches a row of an entry that does not apply on the base, the judge adds
-   `Difference(check="changes", artifact="register", path="/<id>/unsaid")`: the first publish
-   changed something Nova's review would not have said (Copy L9).
+   the difference it is, by the check that reports it, and with the known register empty it fails
+   the base. Where one entry that does not apply on the base names such a difference as a change of
+   its own, the judge adds one `Difference(check="changes", artifact="register",
+   path="/<id>/unsaid")` for it: the first publish changed something Nova's review would not have
+   said (Copy L9). An entry names a difference where, of the rows that match it and that no other
+   entry holds too, the most exact are that entry's alone (`changes.naming`); a class several
+   entries share (every form's whole source, which twenty entries name) names none, and a
+   difference whose most exact row is an applying entry's is that change off its places, which the
+   reporting check says. Layer 9's seventh run reported one unheld difference fifteen times on
+   `hq-questions`, once for each entry that did not apply; each is now one difference.
 2. **Nothing declared in vain.** Every entry that applies on the base sees at least one difference
    at its places, held there more exactly than by any other applying change, or `/<id>/unseen`:
    Nova would tell the person of a change that did not happen (L10). A difference
@@ -3091,14 +3137,30 @@ file at `/multimedia_map`), and there it does not tell the inert key from a kept
    the known register), and from no list of ids.
 3. **Behavior only where behavior is declared.** A `proof3` difference is matched only by a `proof3`
    row, and part 09's Vitest admits a `proof3` row only under an entry whose `touchesWorkers` is
-   true. The other half is 6.4's rule: each such entry on a base has a before and after pair of
+   true, but a row of a value a search sends HQ (`_xpath_query`), whose cut no worker meets. The other half is 6.4's rule: each such entry on a base has a before and after pair of
    value expectations that shows it.
 
 What the places leave open: a list's header and a search's request name no column and no Search
-field, so they stand at the list or the search and any change placed in it holds them; and
-`forms-and-settings-rewritten`'s part classes of a form's source are written only from a hosted
-run's evidence (`changes rows` over the next whole run), so until they are, every form source
-difference no other change's place holds fails the stored-app comparison by name.
+field, so they stand at the list or the search and any change placed in it holds them.
+
+`forms-and-settings-rewritten`'s part classes of a form's source were written from layer 9's
+seventh run, whose 22 bases failed the stored-app comparison when the whole-form row went: its
+records judged again with the tree's comparison, register and judge, each base's places emitted
+again from the tree's reading. The rows command over that evidence printed the part classes above
+and four differences of other changes their places missed, each fixed at its producer: a stored
+`name_update`, `product_program` and `case_index.tag` HQ held null, which the case readers now
+record under `case-settings-respelled` (`caseManagement/conditions.ts::recordRespelledConditions`);
+and the guard `search-value-guards` writes as a Search field's check, which its places now name
+(`firstPublishChanges.ts::guardedSearchFieldPlaces`, each field a guard of the menu's search names,
+from the emitter's own `buildRuntimeCsqlPromptValidations`, and no other field of the menu). Two
+more were keys of a language's strings the claim log recorded only at `/translations`, beside
+claims of other standings, so the inert allowance could not hold them: on `hq-languages`,
+`/translations/en/forms.m0f0` ("Survey", the form's own name, removed), and on
+`starter-agriculture`, `/translations/fra/cchq.case` ("Cas", in a language the app does not hold,
+removed). Each record now names the value it reads (`ClaimRecord.at`), and the allowance holds both.
+Two classes were narrowed after a review of that classification: a bind type at `:implied-string`
+alone (an added `xsd:string`, where every reader reads the node as text, never another type), and a
+path from `current()` respelled only outside a predicate.
 
 So the register is closed three ways: the typed list (part 09), the lane's file (9.1), and this
 judge between what the reader predicts for an app, where it says the change stands, and what HQ,

@@ -3,8 +3,9 @@
 Contract (``proof.checks.changes``): on a document whose saves in CommCare HQ
 are brought in, proofs 1 to 3 accept exactly the differences a row of a change
 the review listed names, by check, artifact, structural path and kind; a
-difference only a row of a change the review did not list matches is
-``/<id>/unsaid``; a listed change that matches nothing is ``/<id>/unseen``,
+difference no listed change holds is ``/<id>/unsaid`` once, of the change
+whose own row names it most exactly where that change is not listed, and of
+none where a class it matches is several changes' rows; a listed change that matches nothing is ``/<id>/unseen``,
 but where every row of it names a served reader's artifact and the run
 observes no served reader, or names a check the judge was not handed; nothing
 applies on a document that brings nothing in, or on a control. The register's
@@ -208,13 +209,15 @@ def test_the_same_move_where_the_review_lists_nothing_is_held_by_nothing_and_rep
         assert changes.declared(document, check, found, register=register) == ([], frozenset())
         assert changes.undeclared(document, check, found, register=register) == found
     found = changes.differences(document, checked, readers=frozenset(), register=register)
-    # Each difference is unsaid of every change a row of which names it: the rename's of each, and a picture
-    # taken out of the map and the media suite is also what broken-pictures-removed's rows name.
-    assert {difference.path for difference in found} == {
-        "/media-files-renamed/unsaid",
-        "/broken-pictures-removed/unsaid",
-    }
-    assert len([d for d in found if d.path == "/media-files-renamed/unsaid"]) == len(_all(checked))
+    # Each difference is unsaid at most once, of the one change whose own row names it most exactly: the rename's.
+    # A class the rows of several media entries name (a picture taken out of the map or the media suite) names
+    # none of them, and stays with the check that reports it.
+    assert {difference.path for difference in found} == {"/media-files-renamed/unsaid"}
+    named = [difference for difference in _all(checked) if changes.naming(difference, register, {})]
+    assert 0 < len(named) < len(_all(checked))
+    assert sorted(difference.at for difference in found) == sorted(
+        f"/media-files-renamed/unsaid/{difference.check}/{difference.artifact}{difference.at}" for difference in named
+    )
 
 
 def test_a_listed_change_that_shows_nothing_is_unseen():

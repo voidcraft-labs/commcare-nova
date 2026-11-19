@@ -50,6 +50,7 @@ import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { EMISSION_REWRITES } from "@/lib/commcare/emissionRewrites";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	type ExportEdits,
 	exportedBody,
@@ -754,9 +755,10 @@ describe("where each change stands", () => {
 		).not.toEqual([]);
 	});
 
-	it("places a case list icon's picture at the value that names it and among its menu's media", async () => {
+	it("places a case list icon's picture at the value that names it and among its menu's media, at the path HQ held and at the one it goes out at", async () => {
 		// A short list's icon column whose picture CommCare HQ keeps at a path Nova cannot hold
-		// (`assignMediaPaths` derives another): the first publish renames it there.
+		// (`assignMediaPaths` derives another): the first publish renames it there, so the map
+		// and the menu's media listing lose the old path and gain the file's derivation.
 		const held = `jr://file/commcare/${HASH_B}.png`;
 		const iconFile = file(held, HASH_A, "first-publish-list-icon");
 		const doc = patients([
@@ -796,13 +798,30 @@ describe("where each change stands", () => {
 		expect(applies("media-files-renamed", facts)).toBe(true);
 		const [placed] = firstPublishChangePlaces(facts, ["media-files-renamed"]);
 		const pointer = held.replaceAll("~", "~0").replaceAll("/", "~1");
+		const derived = `jr://file/${wirePathFor(HASH_A, ".png")}`
+			.replaceAll("~", "~0")
+			.replaceAll("/", "~1");
 		expect(placed?.places).toEqual(
 			expect.arrayContaining([
 				`/app/multimedia_map/${pointer}`,
+				`/app/multimedia_map/${derived}`,
 				"/menu/0/case_details/short/columns/1/enum/0/value",
 				`/menu/0/media/${pointer}`,
+				`/menu/0/media/${derived}`,
 			]),
 		);
+	});
+
+	it("places a search's guard at the Search field a value it guards comes from, never at another field of the menu", async () => {
+		// The menu's `region` field reaches the search as quoted text, so Nova's search guards it; its
+		// `dob` field holds no check either and reaches no guard, so a check added there would be a
+		// change no entry declares, not this one.
+		const facts = await PAIRS["search-value-guards"].on();
+		const [placed] = firstPublishChangePlaces(facts, ["search-value-guards"]);
+		const fields = (placed?.places ?? []).filter((place) =>
+			place.includes("/search_config/properties/"),
+		);
+		expect(fields).toEqual(["/menu/0/search_config/properties/0/validations"]);
 	});
 
 	it("names a stored pointer's place by the form or menu at its position", async () => {
