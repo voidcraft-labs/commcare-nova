@@ -26,7 +26,9 @@
  * folds two top-level comparisons into a range (of a value that reads no
  * case, or of a date and time from a value to itself) where the search prints
  * them as two rows, or keeps a range's two comparisons as two clauses the row
- * restates one of in another spelling.
+ * restates one of in another spelling; and a switch on a value a device
+ * works out, which a search's row prints as a chain of the device's choices,
+ * read as that chain of `if`s.
  */
 
 import { describe, expect, it } from "vitest";
@@ -141,6 +143,34 @@ const daySpan: Expression = {
 	lowerInclusive: true,
 	upperInclusive: true,
 };
+
+/** A switch on a number the device works out, a case for each of `whens`,
+ *  each but the first a test of the case, falling back to a test of the
+ *  case's notes. */
+function deviceSwitch(whens: readonly number[]): Expression {
+	const [first, ...rest] = whens.map((when, index) => ({
+		when: { kind: "literal" as const, value: when },
+		// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+		then:
+			index === 0
+				? ({ kind: "match-all" } as Expression)
+				: ({
+						kind: "eq",
+						left: term(prop("visit", "notes")),
+						right: term({ kind: "literal", value: `n${index}` }),
+					} as Expression),
+	}));
+	if (first === undefined) throw new Error("A switch needs a case.");
+	return {
+		kind: "switch",
+		on: {
+			kind: "negate",
+			value: term({ kind: "literal", value: -2 }),
+		},
+		cases: [first, ...rest],
+		fallback: notesX,
+	};
+}
 
 const CASES: readonly { readonly name: string; readonly doc: BlueprintDoc }[] =
 	[
@@ -353,6 +383,16 @@ const CASES: readonly { readonly name: string; readonly doc: BlueprintDoc }[] =
 				},
 				searchInputs: [],
 			}),
+		},
+		{
+			// The device chooses between the cases, each the `if` of its test,
+			// as a chain of `if`s prints.
+			name: "a searched list's filter of a switch on a value the device works out",
+			doc: visitDoc({ filter: deviceSwitch([0, 3]), searchInputs: [] }),
+		},
+		{
+			name: "a searched list's filter of a switch of three cases on a value the device works out",
+			doc: visitDoc({ filter: deviceSwitch([0, 3, 4]), searchInputs: [] }),
 		},
 		{
 			// Inside an `or` the search prints a range and its two comparisons
