@@ -31,7 +31,6 @@ import {
 	type UpdateResult,
 } from "kysely";
 import type { ErrorType } from "@/lib/agent";
-import { getAuthDb } from "@/lib/auth/db";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { retenantAppCasesOn } from "@/lib/case-store/retenant";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
@@ -133,6 +132,7 @@ import {
 	type StaleRunReapOutcome,
 } from "./credits";
 import {
+	appHasOpenRemoteWriteInTransaction,
 	isHqAppClaimIndexViolation,
 	lockReleasedClaimsInTransaction,
 	remapDeploymentMediaPathsInTransaction,
@@ -965,6 +965,23 @@ export async function repairLookupReferenceEdges(
 	});
 }
 
+/**
+ * A write Nova let out to CommCare HQ for this app, a publish's or a worker
+ * account's, is recorded under the app row, which the move holds, so one
+ * admitted before the move is seen here and one after it finds the app in its
+ * new Project and sends nothing.
+ */
+async function refuseMoveWhilePublishing(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
+	if (await appHasOpenRemoteWriteInTransaction(tx, appId)) {
+		throw new BlueprintCommitRejectedError(
+			"Nova is publishing this app or making its workers in CommCare HQ right now, so it can't move to another Project yet. You can try again in a few minutes.",
+		);
+	}
+}
+
 /** Production-capability wrapper. */
 export async function prepareAppProjectMove(
 	args: ProjectMoveCoreArgs,
@@ -1001,6 +1018,7 @@ export async function prepareAppProjectMoveInTransaction(
 			"Restore this app before moving it to another Project.",
 		);
 	}
+	await refuseMoveWhilePublishing(tx, args.appId);
 	await authorizeProjectMoveGovernance(tx, args);
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
@@ -1148,6 +1166,7 @@ export async function commitAppProjectMoveInTransaction(
 			"Restore this app before moving it to another Project.",
 		);
 	}
+	await refuseMoveWhilePublishing(tx, args.appId);
 	await authorizeProjectMoveGovernance(tx, args);
 	const runDisposition = projectMoveRunDisposition(fresh);
 	if (runDisposition) return runDisposition;
@@ -2352,7 +2371,9 @@ const RESTORE_CLAIM_TRIES = 3;
  * untouched and `updated_at` deliberately not bumped, and settle each CommCare
  * HQ app it gave up while it was deleted (`hqAppClaims.ts`). It takes each
  * back, from a holder in recently deleted too, or ends that deployment where a
- * live Nova app holds it, and answers which project spaces it ended.
+ * live Nova app holds it, and answers which project spaces it ended. A claim
+ * whose HQ app another app's write has not settled on stays released, and the
+ * app's next publish there settles it.
  *
  * The settle's locks are the transaction's only lock-taking before the
  * capability check. Where what it read before them no longer holds under them,
@@ -2380,12 +2401,15 @@ export async function restoreApp(
 					"delete",
 					"You no longer have permission to restore this app.",
 				);
-				const stoppedPublishing = await settleReleasedClaimsInTransaction(tx, {
-					appId,
-					actorUserId,
-					at: new Date(),
-					locks,
-				});
+				/* A claim another app's write to that HQ app still holds stays
+				 * released; the app's next publish there settles it again. */
+				const { stopped: stoppedPublishing } =
+					await settleReleasedClaimsInTransaction(tx, {
+						appId,
+						actorUserId,
+						at: new Date(),
+						locks,
+					});
 				await tx
 					.updateTable("apps")
 					.set({ deleted_at: null, recoverable_until: null })
@@ -2500,28 +2524,53 @@ export interface AppHolder {
  * requester blocked by their OWN other request the truth ("your previous
  * request") instead of naming them to themselves; best-effort `"someone"`
  * name fallback.
+ *
+ * A name is told only to a viewer who is still a member of the Project the
+ * request was authorized in, while the app is still in it: the app row, the
+ * viewer's membership and the holder's name are read in one read-only
+ * repeatable-read snapshot, so a Project move that lands while the request
+ * waits never names a member of the Project the app moved to. Otherwise the
+ * answer is `"someone"` with no id.
  */
-export async function loadAppHolder(appId: string): Promise<AppHolder> {
-	const db = await getAppDb();
-	const row = await db
-		.selectFrom("apps")
-		.select(["lock_actor_user_id", "res_user_id", "owner"])
-		.where("id", "=", appId)
-		.executeTakeFirst();
-	if (!row) return { name: "someone", userId: undefined };
-	const holderId = row.lock_actor_user_id ?? row.res_user_id ?? row.owner;
-	if (!holderId) return { name: "someone", userId: undefined };
+export async function loadAppHolder(
+	appId: string,
+	authorized: {
+		readonly projectId: string | undefined;
+		readonly viewerUserId: string;
+	},
+): Promise<AppHolder> {
+	const anonymous: AppHolder = { name: "someone", userId: undefined };
+	const { projectId, viewerUserId } = authorized;
+	if (projectId === undefined) return anonymous;
 	try {
-		const authDb = await getAuthDb();
-		const user = await authDb
-			.selectFrom("auth_user")
-			.select(["name"])
-			.where("id", "=", holderId)
-			.executeTakeFirst();
-		return { name: user?.name || "someone", userId: holderId };
+		return await withAppTx(
+			async (tx) => {
+				await sql`SET TRANSACTION READ ONLY`.execute(tx);
+				const row = await tx
+					.selectFrom("apps")
+					.select(["lock_actor_user_id", "res_user_id", "owner"])
+					.where("id", "=", appId)
+					.where("project_id", "=", projectId)
+					.where("deleted_at", "is", null)
+					.executeTakeFirst();
+				if (!row) return anonymous;
+				const viewer = await sql<{ one: number }>`
+					SELECT 1 AS one FROM auth_member
+					WHERE "userId" = ${viewerUserId} AND "organizationId" = ${projectId}
+				`.execute(tx);
+				if (viewer.rows.length === 0) return anonymous;
+				const holderId = row.lock_actor_user_id ?? row.res_user_id ?? row.owner;
+				if (!holderId) return anonymous;
+				const user = await sql<{ name: string }>`
+					SELECT name FROM auth_user WHERE id = ${holderId}
+				`.execute(tx);
+				return { name: user.rows[0]?.name || "someone", userId: holderId };
+			},
+			{ isolationLevel: "repeatable read" },
+		);
 	} catch (err) {
-		log.error("[loadAppHolder] auth_user lookup failed", err, { appId });
-		return { name: "someone", userId: holderId };
+		log.error("[loadAppHolder] holder lookup failed", err, { appId });
+		return anonymous;
 	}
 }
 

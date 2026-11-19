@@ -118,6 +118,58 @@ def key_path(key):
     return f"/{pointer_token(family.replace('%s', '*').replace('%d', '*').replace('%%', '%'))}"
 
 
+# The one family HQ registers that a runtime's own catalog names too (``android_translatable_strings.txt``), so a
+# stored key of it is the target's (``lib/commcare/appStringKeys.ts``, ``TARGET_OWNED_PATTERN``).
+TARGET_OWNED_FAMILY = "android.package.name.%s"
+# The characters a locale line's key cannot hold and still be one record of its own name: the line's key ends at the
+# first ``=``, a comment starts at ``#``, and the line ends at a line feed or a carriage return.
+NOT_IN_A_KEY = frozenset("=#\n\r")
+
+
+def is_locale_file_key(key):
+    """Whether ``key`` is one record of a locale file under its own name (``lib/commcare/localeFile.ts::
+    isLocaleFileKey``): not empty, no ``=``, ``#``, line feed or carriage return in it, and no character at either
+    end that Java's ``String.trim()`` (every one up to U+0020) or Python's ``str.strip()`` (``str.isspace``)
+    removes, so HQ's build (``commcare_translations.dumps``, then ``load``) and Core
+    (``LocalizationUtils.parseAndAdd``) both read the line ``key=...`` as defining ``key`` and nothing else."""
+    if not key or not NOT_IN_A_KEY.isdisjoint(key):
+        return False
+    return not any(ord(end) <= 0x20 or end.isspace() for end in (key[0], key[-1]))
+
+
+def written_key(key):
+    """The string a stored ``translations`` key sets in HQ's build, or None where it sets no one string of its own
+    name (``lib/commcare/appStringKeys.ts::writtenTranslationKey``): ``dumps`` writes ``key.strip()``, and the line
+    is one record under that name only where it is a locale file key (``is_locale_file_key``)."""
+    written = key.strip()
+    return written if is_locale_file_key(written) else None
+
+
+def translation_key_owner(key, codes):
+    """Who owns one key of an app's ``translations``, by the rule Nova's publish and archive follow
+    (``lib/commcare/appStringKeys.ts::translationKeyOwner``), judged on the key as HQ's build writes it, stripped
+    (``written_key``): ``not-its-own`` where it sets no one string of its own name; ``generated`` where HQ's
+    ``id_strings`` registers a family that matches it at its start, as HQ's ``re.match`` reads one, the package
+    name's family aside (``TARGET_OWNED_FAMILY``); ``language-name`` where it is one of ``codes``, the app's
+    language codes; ``target`` otherwise."""
+    written = written_key(key)
+    if written is None:
+        return "not-its-own"
+    if any(expression.match(written) for format_, expression in key_families() if format_ != TARGET_OWNED_FAMILY):
+        return "generated"
+    return "language-name" if written in codes else "target"
+
+
+def is_locale_file_value(value):
+    """Whether a locale line carries ``value`` as one record (``lib/commcare/localeFile.ts::isLocaleFileValue``): no
+    carriage return, which ends the line in Core's reader while ``dumps`` leaves it, and a spelling ``dumps`` writes
+    (a Python-blank text as a non-breaking space, a line break as ``\\n``) that is not only characters Java's
+    ``String.trim()`` drops."""
+    if "\r" in value:
+        return False
+    return not value.strip() or any(ord(character) > 0x20 for character in value.replace("\n", "\\n"))
+
+
 def _reader():
     """HQ's app strings reader (``commcare_translations``), from HQ's checkout where HQ has not put it on the path."""
     try:

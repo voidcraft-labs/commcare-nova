@@ -103,6 +103,8 @@ const DEFAULTS: TargetFacts = {
 	},
 	uiText: {},
 	uiTextKeys: [],
+	uiTextNotCarried: [],
+	profileNotCarried: false,
 	secureSubmissions: false,
 	customBaseUrl: null,
 	autoGpsCapture: false,
@@ -153,7 +155,9 @@ const PLANTED: Readonly<Record<KeptLabelId, Partial<TargetFacts>>> = {
 	"persistent-menu": { persistentMenu: true },
 	"web-apps-breadcrumbs": { breadcrumbs: false },
 	"secure-submissions": { secureSubmissions: true },
-	"custom-base-url": { customBaseUrl: "https://example.org" },
+	"custom-base-url": {
+		customBaseUrl: { host: "example.org", origin: "https://example.org" },
+	},
 	"practice-mobile-worker": { practiceWorker: true },
 	"worker-activity-credential": { credentialLevel: "3MON_ACTIVE" },
 };
@@ -231,6 +235,8 @@ describe("keptAdvisoryFacts", () => {
 	it("says nothing for a project space that holds every default", () => {
 		expect(keptAdvisoryFacts(DEFAULTS, ["en", "fra"])).toEqual({
 			uiTextFallsBack: false,
+			uiTextNotCarried: false,
+			profileNotCarried: false,
 			androidLogos: false,
 			practiceWorker: false,
 			languageNames: false,
@@ -251,6 +257,18 @@ describe("keptAdvisoryFacts", () => {
 		expect(keptAdvisoryFacts(facts, ["en", "fra", "hin"]).uiTextFallsBack).toBe(
 			true,
 		);
+	});
+
+	it("says wording is not carried only where a language of the archive left some out, and a setting where one was", () => {
+		const facts: TargetFacts = { ...DEFAULTS, uiTextNotCarried: ["hin"] };
+		expect(keptAdvisoryFacts(facts, ["en", "fra"]).uiTextNotCarried).toBe(
+			false,
+		);
+		expect(keptAdvisoryFacts(facts, ["en", "hin"]).uiTextNotCarried).toBe(true);
+		expect(
+			keptAdvisoryFacts({ ...DEFAULTS, profileNotCarried: true }, ["en"])
+				.profileNotCarried,
+		).toBe(true);
 	});
 
 	it("carries the logos and the practice worker as held", () => {

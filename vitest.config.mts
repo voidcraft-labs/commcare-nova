@@ -12,6 +12,13 @@ import {
 // would read a `.ts` config as CommonJS.
 const configDir = import.meta.dirname;
 
+/** Where the proof lane keeps data a container or HQ wrote, which no runner discovers tests in. */
+export const PROOF_DATA = [
+	".proof/**",
+	"proof/hq-apps/**",
+	"proof/hq-reads/**",
+];
+
 export default defineConfig({
 	test: {
 		globals: true,
@@ -97,11 +104,16 @@ export default defineConfig({
 		// `@playwright/test` and would throw under Vitest, so exclude them. The
 		// `e2e/lib/**` helpers stay in (Vitest runs tests there, for example
 		// e2e/lib/caseWorkspaceSeed.test.ts covers its sibling seed module).
+		// The proof lane's run output (`.proof/`, written by a container that
+		// runs upstream code) and its retained trees (`proof/hq-apps/`,
+		// `proof/hq-reads/`, data HQ made) are data, never code: a file there
+		// named like a test is never run, whatever wrote it.
 		exclude: [
 			...vitestConfigDefaults.exclude,
 			"**/.claude/worktrees/**",
 			"e2e/tests/**",
 			"e2e/react-profile/**",
+			...PROOF_DATA,
 		],
 	},
 	resolve: {

@@ -37,7 +37,6 @@
 // can't drift in format or in what they tell a person. It is pure assembly
 // over already-resolved inputs: no Postgres and no expand.
 
-import AdmZip from "adm-zip";
 import { type BlueprintDoc, declaresWebApps } from "@/lib/domain";
 import { carriesViaBulkUpload, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { driftDate } from "@/lib/publish/driftReference";
@@ -65,6 +64,7 @@ import { COMMCARE_SERVERS, isCommCareServer } from "../servers";
 import type { HqApplication } from "../types";
 import { COMMCARE_VERSION_FLOOR } from "../versionFloor";
 import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
+import { type ArchiveMember, zipMembers } from "../zipMembers";
 import type { AssetManifest } from "./assetWirePath";
 import { buildMediaBulkUploadZip } from "./bulkUploadZip";
 
@@ -318,14 +318,18 @@ export function buildHqJsonExportArchive(
 	managedLookupWorkbooks: readonly HqImportFileManagedWorkbook[],
 	readme: string,
 ): Buffer {
-	const bundle = new AdmZip();
-	bundle.addFile(
-		`${appFileName(appName)}.json`,
-		Buffer.from(JSON.stringify(hqJson, null, 2), "utf-8"),
-	);
+	const members: ArchiveMember[] = [
+		{
+			path: `${appFileName(appName)}.json`,
+			bytes: Buffer.from(JSON.stringify(hqJson, null, 2), "utf-8"),
+		},
+	];
 	const bulk = bulkUploadAssets(doc, assets);
 	if (bulk.size > 0) {
-		bundle.addFile(MANUAL_IMPORT_MEDIA_ZIP, buildMediaBulkUploadZip(bulk));
+		members.push({
+			path: MANUAL_IMPORT_MEDIA_ZIP,
+			bytes: buildMediaBulkUploadZip(bulk),
+		});
 	}
 	const logo = logoMember(doc, assets);
 	if (logo !== undefined) {
@@ -335,17 +339,20 @@ export function buildHqJsonExportArchive(
 					"Resolve the manifest with `withBytes: true` before building the import file.",
 			);
 		}
-		bundle.addFile(logo.name, logo.bytes);
+		members.push({ path: logo.name, bytes: logo.bytes });
 	}
 	if (lookupWorkbook !== undefined) {
-		bundle.addFile(
-			MANUAL_IMPORT_LOOKUP_WORKBOOK,
-			Buffer.from(lookupWorkbook.bytes),
-		);
+		members.push({
+			path: MANUAL_IMPORT_LOOKUP_WORKBOOK,
+			bytes: Buffer.from(lookupWorkbook.bytes),
+		});
 	}
 	for (const member of managedWorkbookMembers(managedLookupWorkbooks)) {
-		bundle.addFile(member.fileName, Buffer.from(member.bytes));
+		members.push({
+			path: member.fileName,
+			bytes: Buffer.from(member.bytes),
+		});
 	}
-	bundle.addFile("README.txt", Buffer.from(readme, "utf-8"));
-	return bundle.toBuffer();
+	members.push({ path: "README.txt", bytes: Buffer.from(readme, "utf-8") });
+	return zipMembers(members, "buildHqJsonExportArchive");
 }

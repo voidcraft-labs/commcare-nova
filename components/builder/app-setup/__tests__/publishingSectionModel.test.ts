@@ -22,6 +22,7 @@ import {
 	FORM_ENTRY_SYNC_OFF,
 	PLAN_FEATURES,
 	PROJECT_SPACE_SETTINGS,
+	workerLevelConfirmationLabel,
 } from "@/lib/publish/planFeatures";
 import {
 	endedLine,
@@ -832,27 +833,67 @@ describe("the confirmations a card lists", () => {
 		confirmedAt: "2026-10-01T00:00:00Z",
 	});
 
+	/* The app's levels: CommCare HQ's code for one of them differs from the
+	 * name the Workers panel asked by. */
+	const levels = [
+		{ code: "Region", name: "Region" },
+		{ code: "District_Level", name: "District" },
+	];
+
 	it("names each by the row that asked for it, in every surface's order", () => {
 		expect(
-			liveConfirmationRows([
-				confirmed("commtrack-off", "commtrack-off"),
-				confirmed("form-entry-sync-off", "form-entry-sync-off"),
-				confirmed("connect-forwarder", "connect-forwarder"),
-				confirmed("plan-feature", "data-forwarding"),
-				confirmed("flat-location-fixture", "flat-location-fixture"),
-			]).map((row) => row.label),
+			liveConfirmationRows(
+				[
+					confirmed("worker-level", "District_Level"),
+					confirmed("commtrack-off", "commtrack-off"),
+					confirmed("form-entry-sync-off", "form-entry-sync-off"),
+					confirmed("connect-forwarder", "connect-forwarder"),
+					confirmed("plan-feature", "data-forwarding"),
+					confirmed("flat-location-fixture", "flat-location-fixture"),
+				],
+				levels,
+			).map((row) => row.label),
 		).toStrictEqual([
 			PLAN_FEATURES["data-forwarding"].label,
 			PROJECT_SPACE_SETTINGS["flat-location-fixture"].label,
 			PROJECT_SPACE_SETTINGS["connect-forwarder"].label,
 			PROJECT_SPACE_SETTINGS["form-entry-sync-off"].label,
 			PROJECT_SPACE_SETTINGS["commtrack-off"].label,
+			workerLevelConfirmationLabel("District_Level", levels),
+		]);
+	});
+
+	it("names a worker level by the level's name the panel asked by, keeps the code it withdraws by, and says where the level left the organization", () => {
+		const rows = liveConfirmationRows(
+			[
+				confirmed("worker-level", "District_Level"),
+				confirmed("worker-level", "Region"),
+				confirmed("worker-level", "Block"),
+			],
+			levels,
+		);
+		expect(rows.map((row) => [row.key, row.label])).toStrictEqual([
+			[
+				{ kind: "worker-level", subject: "District_Level" },
+				"Places at the level “District” (code “District_Level”) take workers",
+			],
+			[
+				{ kind: "worker-level", subject: "Region" },
+				"Places at the level “Region” take workers",
+			],
+			[
+				{ kind: "worker-level", subject: "Block" },
+				"Places at the level with code “Block” take workers (the level is no longer in the organization)",
+			],
 		]);
 	});
 
 	it("leaves out a plan feature Nova no longer knows, which nothing asks for", () => {
 		expect(
-			liveConfirmationRows([confirmed("plan-feature", "retired-feature")]),
+			liveConfirmationRows(
+				[confirmed("plan-feature", "retired-feature")],
+				levels,
+			),
 		).toStrictEqual([]);
 	});
 
@@ -866,7 +907,7 @@ describe("the confirmations a card lists", () => {
 		const held = upsertDeploymentViews([before], after);
 		expect(held).toHaveLength(1);
 		expect(
-			liveConfirmationRows(held[0].deployment.confirmations),
+			liveConfirmationRows(held[0].deployment.confirmations, levels),
 		).toStrictEqual([]);
 	});
 });

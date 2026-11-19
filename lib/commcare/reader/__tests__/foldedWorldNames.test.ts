@@ -43,7 +43,7 @@ import { term } from "@/lib/domain/expression";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { expandDoc } from "../../expander";
 import type { HqLocationType } from "../../hq/locations";
-import { mintingResolver } from "../identity";
+import { claimsUnder, mintingResolver } from "../identity";
 import { knownCaseTypesOf, knownLanguageCodesOf, readHqApp } from "../index";
 import {
 	levelsFromHq,
@@ -264,7 +264,7 @@ describe("location data names that differ only in capitalization", () => {
 				userFields: [],
 				locationDataSlugs: ["zone", "Zone", "name", "commcare_x"],
 			},
-			mintingResolver("app-1"),
+			claimsUnder(mintingResolver("app-1")),
 		);
 		expect(locationProperties.map((one) => one.slug)).toEqual(["Zone"]);
 	});
@@ -278,7 +278,7 @@ describe("worker names a write and a read spell in other letters", () => {
 				writtenUserFields: ["region", "zz_region"],
 				locationDataSlugs: [],
 			},
-			mintingResolver("app-1"),
+			claimsUnder(mintingResolver("app-1")),
 		);
 		expect(userProperties.map((one) => one.slug)).toEqual([
 			"district",
@@ -297,7 +297,7 @@ describe("levels whose names differ only in capitalization", () => {
 				level("site", "clinic", "state"),
 				level("ward", "Ward", "site"),
 			],
-			mintingResolver("app-1"),
+			claimsUnder(mintingResolver("app-1")),
 		);
 		expect(levels.map((one) => one.code)).toEqual(["state", "clinic"]);
 		expect(findings).toEqual([
@@ -341,7 +341,7 @@ describe("levels whose names differ only in capitalization", () => {
 		it(`refuses none by the name of a level left out ${why}`, () => {
 			const { levels, findings } = levelsFromHq(
 				listed,
-				mintingResolver("app-1"),
+				claimsUnder(mintingResolver("app-1")),
 			);
 			expect(levels.map((one) => one.code)).toEqual(["site"]);
 			expect(findings).toEqual([

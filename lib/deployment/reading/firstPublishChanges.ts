@@ -43,6 +43,7 @@ import { operationCaseType } from "@/lib/domain/forms";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
@@ -838,7 +839,7 @@ function caseSettingPlaces(facts: FirstPublishFacts): string[] {
 function asRecord(value: unknown): Readonly<Record<string, unknown>> {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
 		? (value as Record<string, unknown>)
-		: {};
+		: NO_ENTRIES;
 }
 
 /** The value of the stored app at `pointer`, or undefined. */
@@ -846,7 +847,7 @@ function storedAt(root: unknown, pointer: string): unknown {
 	let value = root;
 	for (const step of placeSteps(pointer)) {
 		if (Array.isArray(value)) value = value[Number(step)];
-		else value = asRecord(value)[step];
+		else value = ownRecordValue(asRecord(value), step);
 		if (value === undefined) return undefined;
 	}
 	return value;
@@ -1797,6 +1798,30 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/_attachments/*"],
 	}),
+	/**
+	 * A form whose source declares a fixture no expression reads that the
+	 * project space may not serve (`locations`, `commcare:reports`, any but a
+	 * lookup table and `user-groups`): Core initializes every declared
+	 * instance when the form opens (`FormDef.initialize`), and one whose
+	 * fixture the device does not hold throws
+	 * (`CommCareInstanceInitializer.loadFixtureRoot`), so the form cannot open
+	 * there, on Android and Web Apps alike. Nova writes a form's declarations
+	 * from what it reads, so the declaration goes and the form opens wherever
+	 * it could not. Recorded by `reader/provisional.ts::claimDeclarations`.
+	 */
+	"unread-fixture-declarations-dropped": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: sameStateRecorded("unread-fixture-declarations-dropped"),
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				recordedForms(facts, "unread-fixture-declarations-dropped").map(
+					(position) => placeOf("form", position, "xform", ":instance"),
+				),
+		},
+		paths: ["/_attachments/*"],
+	},
 };
 
 /**

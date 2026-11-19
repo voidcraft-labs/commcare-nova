@@ -49,6 +49,7 @@ import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
@@ -215,9 +216,9 @@ function proseByLanguage(
 	doc: BlueprintDoc,
 	unitId: ReturnType<typeof makeTranslationUnitId>,
 ): Readonly<Record<string, SummaryText>> {
-	if (!snapshotTranslationUnits(doc).has(unitId)) return {};
+	const out = recordFromEntries<SummaryText>([]);
+	if (!snapshotTranslationUnits(doc).has(unitId)) return out;
 	const localization = commCareLocalization(doc);
-	const out: Record<string, SummaryText> = {};
 	for (const language of localization.languages) {
 		const text = summaryTextOf(localization.prose(language, unitId));
 		if (text.length > 0) out[language] = text;
@@ -288,7 +289,7 @@ export function documentSummary(
 			hasConstraint: slot(field, "validate") !== undefined,
 			hasCalculate: hidden && slot(field, "calculate") !== undefined,
 			label: hidden
-				? {}
+				? NO_ENTRIES
 				: proseByLanguage(
 						doc,
 						makeTranslationUnitId("field", field.uuid, "label"),
@@ -334,7 +335,7 @@ export function documentSummary(
 export function hqText(
 	translations: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
-	const out: Record<string, string> = {};
+	const out = recordFromEntries<string>([]);
 	for (const [language, text] of Object.entries(translations)) {
 		const normalized = normalizedText(text);
 		if (normalized !== "") out[language] = normalized;

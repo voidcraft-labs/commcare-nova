@@ -9,12 +9,15 @@
 
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
+import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import {
 	hqCatalogMayHold,
 	isRuntimeUiStringKey,
 	translationKeyOwner,
 } from "../appStringKeys";
 import type { NovaOwnedDerivedProfilePropertyKey } from "../derivedProfile";
+import { isLocaleFileKey } from "../localeFile";
+import { type SourceTable, tableOf } from "../sourceKeys";
 import { inventoryIndex } from "../surface/inventory";
 import surface from "../surface/surface.json";
 import { compareToVersionFloor } from "../versionFloor";
@@ -133,7 +136,7 @@ const ACCOUNTED: readonly AccountedKeys[] = [
 
 const ACCOUNTED_CLAIMS = defineClaims(
 	"appShell.accounted",
-	Object.fromEntries(
+	recordFromEntries(
 		ACCOUNTED.flatMap(([entry, keys]) =>
 			keys.map((name) => [name, account(`${A}/${entry}`, key(name))]),
 		),
@@ -288,6 +291,13 @@ const TRANSLATION_CLAIMS = defineClaims("appShell.translations", {
 		TRANSLATIONS,
 	),
 	unread: account(`${A}/translations-key-no-runtime-reads`, TRANSLATIONS),
+	/** A key of an app language's strings that is no locale record under its own name
+	 *  (`localeFile.ts::isLocaleFileKey`), which HQ's build writes stripped and on one line, so
+	 *  it sets another string or none. */
+	notItsOwn: refuse(
+		`${A}/translations-key-that-is-no-locale-record-under-its-own-name`,
+		TRANSLATIONS,
+	),
 });
 
 interface SurfaceItem {
@@ -297,23 +307,23 @@ interface SurfaceItem {
 	/** The runtimes that read a `ui-string:` item as one of their own UI strings. */
 	readonly readBy?: readonly string[];
 }
-const ITEMS = (
-	surface as { readonly items: Readonly<Record<string, SurfaceItem>> }
-).items;
+const ITEMS: SourceTable<SurfaceItem> = tableOf(
+	(surface as { readonly items: Readonly<Record<string, SurfaceItem>> }).items,
+);
 
 function surfaceItem(id: string): SurfaceItem | undefined {
-	return Object.hasOwn(ITEMS, id) ? ITEMS[id] : undefined;
+	return ITEMS.get(id);
 }
 
 const UI_STRING = "ui-string:";
 
 /** Each `ui-string:` item a runtime reads, by the id or by a `<prefix>.*` it reads ids under,
  *  but `app.display.name`, whose key is the app name's translation. */
-const RUNTIME_UI_STRING_ITEMS: readonly string[] = Object.keys(ITEMS).filter(
+const RUNTIME_UI_STRING_ITEMS: readonly string[] = [...ITEMS.keys()].filter(
 	(id) =>
 		id.startsWith(UI_STRING) &&
 		id !== "ui-string:app.display.name" &&
-		(ITEMS[id]?.readBy?.length ?? 0) > 0,
+		(ITEMS.get(id)?.readBy?.length ?? 0) > 0,
 );
 
 /** A language's key a runtime reads as one of its own UI strings, kept as the project space holds
@@ -322,7 +332,7 @@ const RUNTIME_UI_STRING_ITEMS: readonly string[] = Object.keys(ITEMS).filter(
 const UI_STRING_CLAIMS: Readonly<Record<string, Claim<"account">>> =
 	defineClaims(
 		"appShell.uiStrings",
-		Object.fromEntries(
+		recordFromEntries(
 			RUNTIME_UI_STRING_ITEMS.map((id) => [
 				id,
 				account(
@@ -357,7 +367,7 @@ const INDEX_CASE_SEARCH_RESULTS: NovaOwnedDerivedProfilePropertyKey =
 const OUTSIDE_CHOICES = `${A}/profile-properties-or-features-dependencies-value-outside-its`;
 
 /** Each profile setting's `setting:` key: every `properties` and `features` key HQ's settings name. */
-const SETTING_KEYS: readonly string[] = Object.keys(ITEMS).filter(
+const SETTING_KEYS: readonly string[] = [...ITEMS.keys()].filter(
 	(id) =>
 		id.startsWith("setting:properties.") || id.startsWith("setting:features."),
 );
@@ -376,7 +386,7 @@ interface SettingAccount {
  * `cc-show-incomplete`, the Web Apps logo) has a reader of its own.
  */
 const SETTING_ACCOUNTS = new Map<string, readonly SettingAccount[]>();
-const OUTSIDE_CHOICES_CLAIMS: Record<string, Claim<"refuse">> = {};
+const OUTSIDE_CHOICES_CLAIMS = recordFromEntries<Claim<"refuse">>([]);
 for (const setting of SETTING_KEYS) {
 	const accounts: SettingAccount[] = [];
 	for (const entry of inventoryIndex().naming(setting)) {
@@ -392,7 +402,7 @@ for (const setting of SETTING_KEYS) {
 }
 defineClaims(
 	"appShell.setting",
-	Object.fromEntries(
+	recordFromEntries(
 		[...SETTING_ACCOUNTS].flatMap(([setting, accounts]) =>
 			accounts.map(
 				(one) => [`${setting}@${one.valueClass ?? "any"}`, one.claim] as const,
@@ -474,8 +484,8 @@ function namesReadOnlyApplicationMember(name: string): boolean {
  * setting (`commcare-app-settings.yml`), which `Application` holds as a read-only property, so
  * jsonobject refuses the key (`WrappingAttributeError`).
  */
-const ROOT_SETTING_REFUSALS: Record<string, Claim<"refuse">> = {};
-for (const id of Object.keys(ITEMS)) {
+const ROOT_SETTING_REFUSALS = recordFromEntries<Claim<"refuse">>([]);
+for (const id of ITEMS.keys()) {
 	const prefix = "setting:hq.";
 	if (!id.startsWith(prefix)) continue;
 	const name = id.slice(prefix.length);
@@ -497,14 +507,14 @@ defineClaims("appShell.rootSetting", ROOT_SETTING_REFUSALS);
 const ADD_ON_CLAIMS = defineClaims("appShell.addOns", {
 	/** The map, and each key of it that turns nothing on or that names no add-on HQ reads. */
 	map: account(`${A}/add-ons`, key("add_ons")),
-	...Object.fromEntries(
-		Object.keys(ITEMS).flatMap((id) => {
+	...recordFromEntries<Claim<"account">>(
+		[...ITEMS.keys()].flatMap((id) => {
 			if (!id.startsWith("add-on:")) return [];
 			const [entry, ...others] = inventoryIndex().naming(id);
 			return entry !== undefined &&
 				others.length === 0 &&
 				claimPermits("account", entry.standing)
-				? [[id, account(entry.id, id)]]
+				? [[id, account(entry.id, id)] as const]
 				: [];
 		}),
 	),
@@ -531,9 +541,7 @@ function readAddOns(ctx: ReadContext): void {
 	);
 	for (const slug of keysOf(map)) {
 		const named = `add-on:${slug}`;
-		const claim = Object.hasOwn(ADD_ON_CLAIMS, named)
-			? ADD_ON_CLAIMS[named as keyof typeof ADD_ON_CLAIMS]
-			: undefined;
+		const claim = ownRecordValue<Claim<"account">>(ADD_ON_CLAIMS, named);
 		map.account(
 			slug,
 			claim !== undefined && turnedOn(map.peek(slug))
@@ -751,8 +759,8 @@ function surfaceKeyName(text: string): string {
  *  profile holds that HQ's settings do not list is read under that entry. */
 const PROFILE_PROPERTY_CLAIMS = defineClaims(
 	"appShell.profileProperty",
-	Object.fromEntries(
-		Object.keys(ITEMS).flatMap((id) => {
+	recordFromEntries(
+		[...ITEMS.keys()].flatMap((id) => {
 			if (!id.startsWith("profile-property:")) return [];
 			const [entry, ...others] = inventoryIndex().naming(id);
 			return entry !== undefined &&
@@ -767,9 +775,7 @@ const PROFILE_PROPERTY_CLAIMS = defineClaims(
 /** The claim of a profile property HQ's settings do not list, where the surface names it. */
 function profilePropertyClaim(name: string): Claim<"account"> | undefined {
 	const id = `profile-property:${surfaceKeyName(name)}`;
-	return Object.hasOwn(PROFILE_PROPERTY_CLAIMS, id)
-		? PROFILE_PROPERTY_CLAIMS[id]
-		: undefined;
+	return PROFILE_PROPERTY_CLAIMS[id];
 }
 
 /** `cc-show-saved` and `cc-show-incomplete`, by `appProfileSettings.ts`'s values read backwards. */
@@ -876,16 +882,17 @@ type TranslationKeyKind =
 	| "generated"
 	| "unread";
 
+/** What `name` is among an app language's strings; `codes` is the app's codes as a set, built
+ *  once for every key. */
 function translationKeyKind(
 	name: string,
-	languages: HqLanguages,
+	codes: ReadonlySet<string>,
 ): TranslationKeyKind {
-	if (languages.codes.includes(name)) return "language-name";
+	if (codes.has(name)) return "language-name";
 	if (name === "app.display.name") return "app-display-name";
 	if (name === "homescreen.title") return "homescreen-title";
 	if (isRuntimeUiStringKey(name)) return "runtime-ui-string";
-	if (translationKeyOwner(name, languages.codes) === "generated")
-		return "generated";
+	if (translationKeyOwner(name, codes) === "generated") return "generated";
 	return "unread";
 }
 
@@ -955,7 +962,18 @@ function readTranslations(
 				strings.refuse(key, LINE_END_DEFINES_KEY, { name: lineEnd });
 				continue;
 			}
-			const kind = translationKeyKind(key, languages);
+			// HQ's build writes a key stripped and on one line (`commcare_translations.py::dumps`), so a
+			// key that is no locale record under its own name (` home.start`, a key holding `=`, `#`
+			// or a line break) sets another string there, or none, which no document holds and a
+			// publish never carries (`appStringKeys.ts::translationKeyOwner`, `not-its-own`). It is
+			// refused at its key, naming the key as CommCare HQ holds it.
+			if (!isLocaleFileKey(key)) {
+				if (refusedLanguage !== undefined)
+					ctx.accounting.cover({ json: strings, key }, refusedLanguage);
+				else strings.refuse(key, TRANSLATION_CLAIMS.notItsOwn, { name: key });
+				continue;
+			}
+			const kind = translationKeyKind(key, codes);
 			if (kind === "generated") {
 				held.push({ language, key, value, json: strings });
 				continue;
@@ -1169,9 +1187,7 @@ function holdAppName(
  *  by its own entry, a read-only member's name, or any other. */
 function readUndeclared(ctx: ReadContext): void {
 	for (const name of ctx.app.undeclared()) {
-		const setting = Object.hasOwn(ROOT_SETTING_REFUSALS, name)
-			? ROOT_SETTING_REFUSALS[name]
-			: undefined;
+		const setting = ROOT_SETTING_REFUSALS[name];
 		if (DYNAMIC_KEYS.has(name)) ctx.app.account(name, CLAIMS.dynamicKey);
 		else if (setting !== undefined) ctx.app.refuse(name, setting, { name });
 		else if (namesReadOnlyApplicationMember(name))

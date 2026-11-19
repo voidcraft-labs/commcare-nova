@@ -26,6 +26,10 @@ import {
 	type DeploymentTargetKey,
 	recordAdoptedDeploymentInTransaction,
 } from "../store";
+import {
+	canonicalTargetIdentity,
+	type TargetIdentity,
+} from "../targetIdentity";
 import type {
 	AppOwnership,
 	DeploymentConfirmationKey,
@@ -37,6 +41,8 @@ export const READ_AT = "2026-11-10T09:29:00.000Z";
 export const HELD_PATH = "commcare/image/logo.png";
 export const HELD_FILE_ID = "hq-file-1";
 export const MEDIA_FILES: HqMediaRecord = { [HELD_PATH]: HELD_FILE_ID };
+/** The name column CommCare HQ keeps under `case_name` on the list, where Nova writes `name`. */
+export const HELD_COLUMN = testUuid("adopted-birth-name-column");
 export const OWNERSHIP: AppOwnership = {
 	addOns: ["display_conditions"],
 	profileProperties: ["cc-content-valid", "cc-gps-auto-capture"],
@@ -61,6 +67,8 @@ export interface AdoptedBirth {
 	readonly prefix: string;
 	readonly assetId: MediaAssetId;
 	readonly deployment: DeploymentWithResources;
+	/** The target-identity record the birth wrote. */
+	readonly targetIdentity: TargetIdentity;
 }
 
 /** A ready media asset of the Project, which a held path names. */
@@ -154,23 +162,28 @@ export async function birthAdoptedApp(
 				},
 			},
 		},
-		identities: [
-			{
-				entityKind: "form",
-				novaEntityUuid: genesis.formUuid,
-				uniqueId: "b".repeat(32),
-				xmlns:
-					"http://openrosa.org/formdesigner/5A2C1F0E-0000-4000-8000-000000000001",
-			},
-			{
-				entityKind: "module",
-				novaEntityUuid: genesis.moduleUuid,
-				uniqueId: "a".repeat(32),
-				xmlns: null,
-			},
-		],
-		mediaPaths: [{ assetId, wirePath: HELD_PATH }],
-		keyedCaseIds: [{ operationUuid, caseType: "patient", prefix }],
+		targetIdentity: canonicalTargetIdentity({
+			entities: [
+				{
+					entityKind: "form",
+					novaEntityUuid: genesis.formUuid,
+					uniqueId: "b".repeat(32),
+					xmlns:
+						"http://openrosa.org/formdesigner/5A2C1F0E-0000-4000-8000-000000000001",
+				},
+				{
+					entityKind: "module",
+					novaEntityUuid: genesis.moduleUuid,
+					uniqueId: "a".repeat(32),
+					xmlns: null,
+				},
+			],
+			mediaPaths: [{ assetId, wirePath: HELD_PATH }],
+			keyedCaseIds: [{ operationUuid, caseType: "patient", prefix }],
+			columnWords: [
+				{ columnUuid: HELD_COLUMN, screen: "short", word: "case_name" },
+			],
+		}),
 		confirmations: CONFIRMATIONS,
 		at: BIRTH_AT,
 		...input.writeOverrides,
@@ -208,5 +221,6 @@ export async function birthAdoptedApp(
 		prefix,
 		assetId,
 		deployment,
+		targetIdentity: write.targetIdentity,
 	};
 }

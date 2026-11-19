@@ -22,6 +22,7 @@ import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
+import type { OrganizationLevel } from "@/lib/domain";
 import { asUuid } from "@/lib/domain/uuid";
 import {
 	decodeManualImportGuide,
@@ -35,8 +36,21 @@ import {
 const appId = "native-publishing";
 const params = new URLSearchParams(location.search);
 /* One persona, so the Publishing section's Workers panel has someone to make
- * an account for. */
+ * an account for, and one organization level whose CommCare HQ code differs
+ * from its name, which a worker-level confirmation on the card is named by. */
 const PERSONA_UUID = asUuid("0199a000-0000-7000-8000-00000000a001");
+const LEVEL_UUID = asUuid("0199a000-0000-7000-8000-00000000b001");
+const LEVEL: OrganizationLevel = {
+	uuid: LEVEL_UUID,
+	code: "District_Level",
+	name: "District",
+	caseFlow: {
+		workers: "assigned",
+		ownsCases: true,
+		descendantCases: { kind: "none" },
+	},
+	addressBook: { reach: "own-branch" },
+};
 const fixture = endpointWireFixture("multiple");
 const doc =
 	params.get("persona") === "true"
@@ -46,6 +60,8 @@ const doc =
 					[PERSONA_UUID]: { uuid: PERSONA_UUID, name: "Nurse" },
 				},
 				personaOrder: [PERSONA_UUID],
+				organizationLevels: { [LEVEL_UUID]: LEVEL },
+				organizationLevelOrder: [LEVEL_UUID],
 			}
 		: fixture;
 const viewer = params.get("viewer") === "true";
@@ -93,7 +109,7 @@ const view: DeploymentView = {
 		server: "india",
 		domain: "alpha",
 		hqAppId: null,
-		locations: [],
+		organization: { locations: [] },
 	}),
 	leftBehind: [],
 	kept: null,

@@ -9,11 +9,18 @@
  *
  * This avoids Next.js's `useSearchParams`/`useRouter`, which trigger
  * server-side RSC re-renders on every navigation.
+ *
+ * It is also the only writer of the builder's history entries, and every
+ * write goes through `writeHistory`, which keeps in the entry only what
+ * `builderHistoryState.ts` names: identifiers and topology. What a Preview
+ * entry was shown with is filed in the running Preview session's records
+ * (`previewEntryRecords.ts`) under the entry's id.
  */
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { PreviewHeldCaseListMenu } from "@/lib/preview/menuProjection";
+import { sealedBuilderHistoryState } from "./builderHistoryState";
 import {
 	type BuilderHistoryScope,
 	builderNavigationUrl,
@@ -21,19 +28,29 @@ import {
 	scopedBuilderHistoryState,
 } from "./historyPolicy";
 import {
+	heldPreviewEntryRecords,
+	newPreviewEntry,
+	PREVIEW_ENTRY_STATE_KEY,
+	type PreviewEntryRecord,
+	type PreviewEntryRecordOf,
+	type PreviewHistoryEntry,
+	previewEntryOf,
+	previewEntryRecordReader,
+	previewEntryRecordsToRead,
+	previewEntryRecordsToWrite,
+	type RecordedPreviewSearch,
+} from "./previewEntryRecords";
+import {
 	type BuilderHistoryWrite,
 	builderEntryState,
 	previewHeldMenuBack,
 	previewHeldMenuIsPrevious,
-	previewHeldMenuOf,
 	previewHeldMenuStands,
 	readPreviewHeldMenu,
 	stepsBackToPrevious,
 } from "./previewHeldMenu";
 import {
-	previewSearchesCarriedOn,
 	previewSearchHistoryWrite,
-	type RecordedPreviewSearch,
 	readPreviewSearchContexts,
 	readPreviewStandingSearches,
 	withoutPreviewSearchesEnd,
@@ -43,10 +60,26 @@ import {
 } from "./previewSearchHistory";
 import {
 	type RecordedPreviewSelections,
-	readPreviewSelections,
 	samePreviewSelections,
-	withPreviewSelections,
 } from "./previewSelectionsHistory";
+
+/** The one write of a builder history entry: whatever state a writer
+ *  computed, the browser keeps only the identifiers and topology
+ *  `builderHistoryState.ts` names, beside the framework's own keys. */
+function writeHistory(
+	method: "push" | "replace",
+	state: unknown,
+	url: string,
+): void {
+	const sealed = sealedBuilderHistoryState(state);
+	if (method === "push") window.history.pushState(sealed, "", url);
+	else window.history.replaceState(sealed, "", url);
+}
+
+/** The records of the running Preview session `session`, to read. */
+function recordsToRead(session: string): PreviewEntryRecordOf {
+	return previewEntryRecordReader(previewEntryRecordsToRead(session));
+}
 
 /** Module-level listener set for notifying subscribers of programmatic
  *  `pushState`/`replaceState` calls (which don't fire `popstate`). */
@@ -90,7 +123,7 @@ function reconcileHistory(event: "activate" | "pop"): boolean {
 	);
 	if (!replacement) return false;
 	builderHistoryMoves += 1;
-	window.history.replaceState(replacement.state, "", replacement.url);
+	writeHistory("replace", replacement.state, replacement.url);
 	return replacement.url !== `${pathname}${search}`;
 }
 
@@ -241,48 +274,77 @@ export function deactivateBuilderHistoryScope(scopeId: string): void {
 	if (activeProjectScope?.scopeId === scopeId) activeProjectScope = null;
 }
 
-/** A builder history write from the current entry: the new entry's state
- * (`previewHeldMenu.ts::builderEntryState`), scoped to the active Project,
- * with the searches the write carries on, and whether a push consumes a
- * submission's end on the entry it leaves
- * (`previewSearchHistory.ts::previewSearchHistoryWrite`). */
-function writtenState(
-	write: (relative: string) => BuilderHistoryWrite,
-	relative: string,
-): { readonly state: Record<string, unknown>; readonly consumesEnd: boolean } {
-	const current = scopedBuilderHistoryState(
+/** A case list's held form menu a write opens, with the Preview session
+ *  that holds it, whose records the entry's record is filed in. */
+export interface PreviewHeldMenuWrite {
+	readonly menu: PreviewHeldCaseListMenu;
+	readonly session: string;
+}
+
+/** The current entry as the builder writes from it: its state, scoped to
+ *  the active Project, and its record in `records`. */
+function currentEntry(
+	records: ReadonlyMap<string, PreviewEntryRecord>,
+): PreviewHistoryEntry {
+	const state = scopedBuilderHistoryState(
 		window.history.state,
 		activeProjectScope,
 	);
+	return {
+		state,
+		record: previewEntryRecordReader(records)(previewEntryOf(state)),
+	};
+}
+
+/** A builder history write from the current entry: the new entry
+ * (`previewHeldMenu.ts::builderEntryState`) with the searches the write
+ * carries on, its record filed under its new id, and whether a push consumes
+ * a submission's end on the entry it leaves
+ * (`previewSearchHistory.ts::previewSearchHistoryWrite`). A write that opens
+ * a held menu reads and files records in that menu's session; any other
+ * carries the current entry's record on in the session it belongs to. */
+function writtenState(
+	write: (relative: string) => BuilderHistoryWrite,
+	relative: string,
+	session: string | undefined,
+): { readonly state: Record<string, unknown>; readonly consumesEnd: boolean } {
+	const records =
+		session === undefined
+			? heldPreviewEntryRecords()
+			: previewEntryRecordsToWrite(session);
+	const current = currentEntry(records);
 	const written = write(new URL(relative, window.location.href).pathname);
 	const searches = previewSearchHistoryWrite(
 		current,
 		builderEntryState(
-			{ pathname: window.location.pathname, state: current },
+			{ pathname: window.location.pathname, ...current },
 			written,
+			previewEntryRecordReader(records),
 		),
 		"lens" in written ? "lens" : written.replace ? "replace" : "push",
 	);
-	return { state: searches.written, consumesEnd: searches.consumesEnd };
+	const entry = previewEntryOf(searches.written.state);
+	if (entry !== undefined) records.set(entry, searches.written.record);
+	return { state: searches.written.state, consumesEnd: searches.consumesEnd };
 }
 
 /** The entry a push leaves keeps its searches for Back and Forward, and its
  *  next step after them carries them on again. */
 function consumePreviewSearchesEnd(): void {
-	window.history.replaceState(
+	writeHistory(
+		"replace",
 		withoutPreviewSearchesEnd(window.history.state),
-		"",
 		window.location.href,
 	);
 }
 
-/** The only write path for intra-builder screen history. An entry carries a
- * Preview case list's held form menu only where the write names one
- * (`previewHeldMenu.ts`); every other entry drops it. */
+/** The only write path for intra-builder screen history. An entry's record
+ * holds a Preview case list's held form menu only where the write names one
+ * (`previewHeldMenu.ts`); every other entry's holds none. */
 export function pushBuilderHistory(
 	url: string,
 	replace = false,
-	heldMenu?: PreviewHeldCaseListMenu,
+	heldMenu?: PreviewHeldMenuWrite,
 ): void {
 	writeBuilderHistory(url, replace, heldMenu, "forward");
 }
@@ -290,50 +352,56 @@ export function pushBuilderHistory(
 function writeBuilderHistory(
 	url: string,
 	replace: boolean,
-	heldMenu: PreviewHeldCaseListMenu | undefined,
+	heldMenu: PreviewHeldMenuWrite | undefined,
 	arrival: "back" | "forward",
 ): void {
 	takeInPendingPop();
 	const relative = builderNavigationUrl(url, window.location.href);
 	const { state, consumesEnd } = writtenState(
-		(pathname) => ({ pathname, replace, held: heldMenu }),
+		(pathname) => ({ pathname, replace, held: heldMenu?.menu }),
 		relative,
+		heldMenu?.session,
 	);
 	builderHistoryMoves += 1;
 	builderHistoryArrival = arrival;
-	if (replace) window.history.replaceState(state, "", relative);
+	if (replace) writeHistory("replace", state, relative);
 	else {
 		if (consumesEnd) consumePreviewSearchesEnd();
-		window.history.pushState(state, "", relative);
+		writeHistory("push", state, relative);
 	}
 	notifyPathChange();
 }
 
 /** A write that keeps the screen on show and changes only its lens (a
- * language): a new entry that keeps the held form menu the current entry
- * carries, one lens deeper (`previewHeldMenu.ts`). */
+ * language): a new entry whose record keeps the held form menu the current
+ * entry's holds, one lens deeper (`previewHeldMenu.ts`). */
 export function pushBuilderLensHistory(url: string): void {
 	takeInPendingPop();
 	const relative = builderNavigationUrl(url, window.location.href);
 	const { state } = writtenState(
 		(pathname) => ({ pathname, lens: true }),
 		relative,
+		undefined,
 	);
-	window.history.pushState(state, "", relative);
+	writeHistory("push", state, relative);
 	notifyPathChange();
 }
 
 /** A device's Back off a Preview case list's held form menu
- * (`previewHeldMenu.ts::previewHeldMenuBack`): back past every entry of the
- * menu's one step, its language changes included, to its list's entry before
- * it, which takes the menu's language as it lands, since a device's Back keeps
- * the language the worker reads; or, where no list entry is behind the menu
- * (a menu a crumb opened again from a form, a deep-linked case's details with
- * nothing before them), the menu's entry becomes the list's. */
-export function stepBackOffPreviewHeldMenu(): void {
+ * (`previewHeldMenu.ts::previewHeldMenuBack`), in the Preview session
+ * `session` running now: back past every entry of the menu's one step, its
+ * language changes included, to its list's entry before it, which takes the
+ * menu's language as it lands, since a device's Back keeps the language the
+ * worker reads; or, where no list entry is behind the menu (a menu a crumb
+ * opened again from a form, a deep-linked case's details with nothing before
+ * them), the menu's entry becomes the list's. */
+export function stepBackOffPreviewHeldMenu(session: string): void {
 	takeInPendingPop();
 	const { pathname, search } = window.location;
-	const back = previewHeldMenuBack(window.history.state);
+	const back = previewHeldMenuBack(
+		window.history.state,
+		recordsToRead(session),
+	);
 	if (back.kind === "show-list") {
 		writeBuilderHistory(`${pathname}${search}`, true, undefined, "back");
 		return;
@@ -347,9 +415,9 @@ export function stepBackOffPreviewHeldMenu(): void {
 			window.location.search === search
 		)
 			return;
-		window.history.replaceState(
+		writeHistory(
+			"replace",
 			window.history.state,
-			"",
 			`${pathname}${search}${window.location.hash}`,
 		);
 		notifyPathChange();
@@ -358,16 +426,24 @@ export function stepBackOffPreviewHeldMenu(): void {
 	window.history.go(-back.steps);
 }
 
-/** The crumb of the case a Preview case list's form menu holds: where the
- * entry before this one is that menu's own (a form opened from it), a step
- * back onto it, as a device's step back off the form lands there; otherwise
- * the menu on an entry of its own (`previewHeldMenu.ts`). */
+/** The crumb of the case a Preview case list's form menu holds, in the
+ * Preview session `session` running now: where the entry before this one is
+ * that menu's own (a form opened from it), a step back onto it, as a device's
+ * step back off the form lands there; otherwise the menu on an entry of its
+ * own (`previewHeldMenu.ts`). */
 export function reopenPreviewHeldMenu(
 	url: string,
 	held: PreviewHeldCaseListMenu,
+	session: string,
 ): void {
 	takeInPendingPop();
-	if (previewHeldMenuIsPrevious(window.history.state, held)) {
+	if (
+		previewHeldMenuIsPrevious(
+			window.history.state,
+			held,
+			recordsToRead(session),
+		)
+	) {
 		/* The entry behind can have changed since the form was pushed (the
 		 * menu's own Back showed the list in it, and Forward came back here):
 		 * where the step lands on an entry that no longer holds the menu, the
@@ -375,32 +451,46 @@ export function reopenPreviewHeldMenu(
 		 * popstate, after the path listener's. */
 		const checkLanding = () => {
 			window.removeEventListener("popstate", checkLanding);
-			if (!previewHeldMenuStands(window.history.state, held))
-				pushBuilderHistory(url, false, held);
+			if (
+				!previewHeldMenuStands(
+					window.history.state,
+					held,
+					recordsToRead(session),
+				)
+			)
+				pushBuilderHistory(url, false, { menu: held, session });
 		};
 		window.addEventListener("popstate", checkLanding);
 		window.history.back();
 		return;
 	}
-	pushBuilderHistory(url, false, held);
+	pushBuilderHistory(url, false, { menu: held, session });
 }
 
-/** A screen's own Back to the screen it was opened from, at `url`: where
- * the entry this screen was pushed after is that screen
- * (`previewHeldMenu.ts::stepsBackToPrevious`), a step back onto it, so
- * history holds the screen once and the browser's next Back goes on past it,
- * as a device's next step back does; otherwise `url` in place of this entry.
- * `leave` lets go of what the screen held as the move happens: before the
- * replace, or on the step's popstate before any screen renders the entry it
- * lands on. Where that entry is no longer the screen at `url` (it was
- * replaced since), `url` opens after it; where it shows the screen under an
- * earlier language, it takes the language the worker reads now, as a
- * device's Back keeps it. */
-export function stepBackToBuilderEntry(url: string, leave: () => void): void {
+/** A screen's own Back to the screen it was opened from, at `url`, in the
+ * Preview session `session` running now: where the entry this screen was
+ * pushed after is that screen (`previewHeldMenu.ts::stepsBackToPrevious`), a
+ * step back onto it, so history holds the screen once and the browser's next
+ * Back goes on past it, as a device's next step back does; otherwise `url` in
+ * place of this entry. `leave` lets go of what the screen held as the move
+ * happens: before the replace, or on the step's popstate before any screen
+ * renders the entry it lands on. Where that entry is no longer the screen at
+ * `url` (it was replaced since), `url` opens after it; where it shows the
+ * screen under an earlier language, it takes the language the worker reads
+ * now, as a device's Back keeps it. */
+export function stepBackToBuilderEntry(
+	url: string,
+	leave: () => void,
+	session: string,
+): void {
 	takeInPendingPop();
 	const relative = builderNavigationUrl(url, window.location.href);
 	const target = new URL(relative, window.location.href);
-	const steps = stepsBackToPrevious(window.history.state, target.pathname);
+	const steps = stepsBackToPrevious(
+		window.history.state,
+		target.pathname,
+		recordsToRead(session),
+	);
 	if (steps === undefined) {
 		leave();
 		writeBuilderHistory(relative, true, undefined, "back");
@@ -416,9 +506,9 @@ export function stepBackToBuilderEntry(url: string, leave: () => void): void {
 			return;
 		}
 		if (window.location.search !== target.search)
-			window.history.replaceState(
+			writeHistory(
+				"replace",
 				window.history.state,
-				"",
 				`${target.pathname}${target.search}${window.location.hash}`,
 			);
 	};
@@ -426,66 +516,116 @@ export function stepBackToBuilderEntry(url: string, leave: () => void): void {
 	window.history.go(-steps);
 }
 
-function heldMenuSnapshot(): string {
-	const held = readPreviewHeldMenu(viewedEntry().state);
-	return held === undefined ? "" : JSON.stringify(held);
+/** The record of the entry on show in the Preview session `session`. */
+function viewedRecord(session: string): PreviewEntryRecord {
+	return recordsToRead(session)(previewEntryOf(viewedEntry().state));
 }
 
-/** The Preview case list's held form menu the current history entry carries
- * (`previewHeldMenu.ts`). It changes with the entry, on a write and on Back
- * and Forward, whose URL stays the list's, so it subscribes to the same
- * notification channel as the path. */
-export function usePreviewHeldMenu(): PreviewHeldCaseListMenu | undefined {
-	const snapshot = useSyncExternalStore(subscribe, heldMenuSnapshot, () => "");
+/** The Preview case list's held form menu the current history entry shows
+ * in the Preview session `session` running now (`previewHeldMenu.ts`). It
+ * changes with the entry, on a write and on Back and Forward, whose URL
+ * stays the list's, so it subscribes to the same notification channel as the
+ * path. */
+export function usePreviewHeldMenu(
+	session: string,
+): PreviewHeldCaseListMenu | undefined {
+	const snapshot = useCallback(() => {
+		const held = readPreviewHeldMenu(
+			viewedEntry().state,
+			recordsToRead(session),
+		);
+		return held === undefined ? "" : JSON.stringify(held);
+	}, [session]);
+	const shown = useSyncExternalStore(subscribe, snapshot, () => "");
 	return useMemo(
 		() =>
-			snapshot === "" ? undefined : previewHeldMenuOf(JSON.parse(snapshot)),
-		[snapshot],
+			shown === "" ? undefined : (JSON.parse(shown) as PreviewHeldCaseListMenu),
+		[shown],
 	);
+}
+
+/** The current entry, its id minted where it has none (an entry the page
+ * loaded on, or one another writer made), so its record has a key. Minting
+ * one rewrites only the entry's id: it is no screen write and no move. */
+function currentEntryId(): string {
+	const named = previewEntryOf(window.history.state);
+	if (named !== undefined) return named;
+	const entry = newPreviewEntry();
+	writeHistory(
+		"replace",
+		{
+			...(typeof window.history.state === "object" &&
+			window.history.state !== null
+				? (window.history.state as Record<string, unknown>)
+				: {}),
+			[PREVIEW_ENTRY_STATE_KEY]: entry,
+		},
+		window.location.href,
+	);
+	return entry;
+}
+
+/** Rewrite the current entry in place, as the records of standing searches
+ * do: its state where the names it carries change, and its record in the
+ * Preview session `session`. It keeps the entry's address, id, held form
+ * menu and the entry it was pushed after, so it is no screen write and does
+ * not go through `builderEntryState`. Whether anything changed. */
+function rewriteCurrentEntry(
+	session: string,
+	next: (entry: PreviewHistoryEntry) => PreviewHistoryEntry,
+): boolean {
+	const entry = currentEntryId();
+	const records = previewEntryRecordsToWrite(session);
+	const state = window.history.state as Record<string, unknown>;
+	const current: PreviewHistoryEntry = {
+		state,
+		record: previewEntryRecordReader(records)(entry),
+	};
+	const written = next(current);
+	const stateChanged =
+		JSON.stringify(sealedBuilderHistoryState(written.state)) !==
+		JSON.stringify(sealedBuilderHistoryState(current.state));
+	const recordChanged =
+		JSON.stringify(written.record) !== JSON.stringify(current.record);
+	if (recordChanged) records.set(entry, written.record);
+	if (stateChanged)
+		writeHistory("replace", written.state, window.location.href);
+	return stateChanged || recordChanged;
 }
 
 /** Record which of Preview's searches stand on the current history entry
- * (`previewSearchHistory.ts`). It rewrites only that record: the entry's
- * address, held form menu and the entry it was pushed after stay, so this is
- * no screen write and does not go through `builderEntryState`. */
+ * (`previewSearchHistory.ts`), and prune its record's contexts in the
+ * Preview session `session` to them. */
 export function recordPreviewStandingSearches(
 	submissions: readonly string[],
+	session: string,
 ): void {
 	takeInPendingPop();
-	const current = readPreviewStandingSearches(window.history.state);
 	if (
-		current.length === submissions.length &&
-		current.every((submission, i) => submission === submissions[i])
+		rewriteCurrentEntry(session, (entry) =>
+			withPreviewStandingSearches(entry, submissions),
+		)
 	)
-		return;
-	window.history.replaceState(
-		withPreviewStandingSearches(window.history.state, submissions),
-		"",
-		window.location.href,
-	);
-	notifyPathChange();
+		notifyPathChange();
 }
 
 /** A search begun on the current entry: it stands there beside those of
- * `standing` (the entry's searches still live), and the entry's next step
- * carries it on, after a submission's end too
+ * `standing` (the entry's searches still live), with its context in the
+ * entry's record in the Preview session `session`, and the entry's next
+ * step carries it on, after a submission's end too
  * (`previewSearchHistory.ts::withPreviewSearchBegun`). */
 export function beginPreviewStandingSearch(
 	standing: readonly string[],
 	search: RecordedPreviewSearch,
+	session: string,
 ): void {
 	takeInPendingPop();
-	const current = window.history.state;
-	const next = withPreviewSearchBegun(current, standing, search);
-	const record = (state: unknown) =>
-		JSON.stringify([
-			readPreviewStandingSearches(state),
-			previewSearchesCarriedOn(state),
-			readPreviewSearchContexts(state),
-		]);
-	if (record(current) === record(next)) return;
-	window.history.replaceState(next, "", window.location.href);
-	notifyPathChange();
+	if (
+		rewriteCurrentEntry(session, (entry) =>
+			withPreviewSearchBegun(entry, standing, search),
+		)
+	)
+		notifyPathChange();
 }
 
 /** A form submitted on the current entry ends the searches it was opened
@@ -493,14 +633,14 @@ export function beginPreviewStandingSearch(
  * (`previewSearchHistory.ts::withPreviewSearchesEnded`). */
 export function endPreviewStandingSearches(): void {
 	takeInPendingPop();
-	window.history.replaceState(
+	writeHistory(
+		"replace",
 		withPreviewSearchesEnded(window.history.state),
-		"",
 		window.location.href,
 	);
 }
 
-/** The searches the current history entry records as standing on it,
+/** The searches the current history entry names as standing on it,
  * imperatively, for an event handler. */
 export function readCurrentPreviewStandingSearches(): string[] {
 	return readPreviewStandingSearches(viewedEntry().state);
@@ -510,36 +650,42 @@ function standingSearchesSnapshot(): string {
 	return readPreviewStandingSearches(viewedEntry().state).join(" ");
 }
 
-function searchContextsSnapshot(): string {
-	return JSON.stringify(readPreviewSearchContexts(viewedEntry().state));
+/** The contexts the current history entry's record holds, in the Preview
+ * session `session`, of the searches standing on it. */
+function currentSearchContexts(
+	session: string,
+): Readonly<Record<string, RecordedPreviewSearch>> {
+	return readPreviewSearchContexts({
+		state: viewedEntry().state,
+		record: viewedRecord(session),
+	});
 }
 
-/** The contexts the current history entry records of the searches standing
- * on it (`previewSearchHistory.ts::readPreviewSearchContexts`), on writes and
- * on Back and Forward. */
-export function usePreviewSearchContexts(): Readonly<
-	Record<string, RecordedPreviewSearch>
-> {
-	const snapshot = useSyncExternalStore(
-		subscribe,
-		searchContextsSnapshot,
-		() => "{}",
+/** The contexts the current history entry's record holds of the searches
+ * standing on it (`previewSearchHistory.ts::readPreviewSearchContexts`), in
+ * the Preview session `session`, on writes and on Back and Forward. */
+export function usePreviewSearchContexts(
+	session: string,
+): Readonly<Record<string, RecordedPreviewSearch>> {
+	const snapshot = useCallback(
+		() => JSON.stringify(currentSearchContexts(session)),
+		[session],
 	);
+	const shown = useSyncExternalStore(subscribe, snapshot, () => "{}");
 	return useMemo(
-		() =>
-			JSON.parse(snapshot) as Readonly<Record<string, RecordedPreviewSearch>>,
-		[snapshot],
+		() => JSON.parse(shown) as Readonly<Record<string, RecordedPreviewSearch>>,
+		[shown],
 	);
 }
 
-/** The contexts the current history entry records, imperatively. */
-export function readCurrentPreviewSearchContexts(): Readonly<
-	Record<string, RecordedPreviewSearch>
-> {
-	return readPreviewSearchContexts(viewedEntry().state);
+/** The contexts the current history entry's record holds, imperatively. */
+export function readCurrentPreviewSearchContexts(
+	session: string,
+): Readonly<Record<string, RecordedPreviewSearch>> {
+	return currentSearchContexts(session);
 }
 
-/** The searches the current history entry records as standing on it. It
+/** The searches the current history entry names as standing on it. It
  * changes with the entry, on a write and on Back and Forward, so it
  * subscribes to the same notification channel as the path. */
 export function usePreviewStandingSearches(): ReadonlySet<string> {
@@ -555,43 +701,47 @@ export function usePreviewStandingSearches(): ReadonlySet<string> {
 }
 
 /** Record the case selections the current history entry is shown with
- * (`previewSelectionsHistory.ts`). Like a record of standing searches it
- * rewrites only that record, so it is no screen write and no move. `read`
- * reads the session once a pending Back or Forward has been taken in, so the
- * record is of the session the entry shows. */
+ * (`previewSelectionsHistory.ts`), in its record in the session `read`
+ * names. A record in place, like that of standing searches: no screen write
+ * and no move. `read` reads the session once a pending Back or Forward has
+ * been taken in, so the record is of the session the entry shows. */
 export function recordPreviewSelections(
-	read: () => RecordedPreviewSelections,
+	read: () => {
+		readonly session: string;
+		readonly selections: RecordedPreviewSelections;
+	},
 ): void {
 	takeInPendingPop();
-	const recorded = read();
-	if (
-		samePreviewSelections(readPreviewSelections(window.history.state), recorded)
-	)
-		return;
-	window.history.replaceState(
-		withPreviewSelections(window.history.state, recorded),
-		"",
-		window.location.href,
-	);
+	const { session, selections } = read();
+	const entry = currentEntryId();
+	const records = previewEntryRecordsToWrite(session);
+	const record = previewEntryRecordReader(records)(entry);
+	if (samePreviewSelections(record.selections, selections)) return;
+	records.set(entry, { ...record, selections });
 	notifyPathChange();
 }
 
-/** The case selections the current history entry records, imperatively. */
-export function readCurrentPreviewSelections():
-	| RecordedPreviewSelections
-	| undefined {
-	return readPreviewSelections(viewedEntry().state);
+/** The case selections the current history entry's record holds in the
+ *  Preview session `session`, imperatively. */
+export function readCurrentPreviewSelections(
+	session: string,
+): RecordedPreviewSelections | undefined {
+	return viewedRecord(session).selections;
 }
 
-function selectionsSnapshot(): string {
-	return JSON.stringify(readPreviewSelections(viewedEntry().state) ?? null);
-}
-
-/** The current history entry's record of its case selections, as a string
- *  that changes with the entry (a write, Back and Forward) and with the
- *  record, for an effect that runs on each arrival. */
-export function usePreviewSelectionsSnapshot(): string {
-	return useSyncExternalStore(subscribe, selectionsSnapshot, () => "null");
+/** The current history entry's record of its case selections in the
+ *  Preview session `session`, as a string that changes with the entry (a
+ *  write, Back and Forward) and with the record, for an effect that runs on
+ *  each arrival. */
+export function usePreviewSelectionsSnapshot(session: string): string {
+	const snapshot = useCallback(
+		() =>
+			`${previewEntryOf(viewedEntry().state) ?? ""} ${JSON.stringify(
+				viewedRecord(session).selections ?? null,
+			)}`,
+		[session],
+	);
+	return useSyncExternalStore(subscribe, snapshot, () => "null");
 }
 
 /** URL-owned builder query state. Uses the same history notification channel

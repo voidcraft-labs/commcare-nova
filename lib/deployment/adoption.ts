@@ -33,6 +33,7 @@ import {
 	isHoldableWirePath,
 	nextHqMediaRecord,
 	publishedMediaFiles,
+	wirePathKey,
 } from "./hqMedia";
 import {
 	normalizedHqAppSource,
@@ -137,32 +138,6 @@ export interface AdoptedKeyedCaseId {
 }
 
 /**
- * One row per keyed create the document keeps, with the prefix the source's
- * cases stand under and the type it was derived with, sorted by operation.
- */
-export function adoptedKeyedCaseIdRows(
-	read: Pick<ReadMenuAndFormIdentities, "keyedCreates">,
-): readonly AdoptedKeyedCaseId[] {
-	const rows = new Map<Uuid, AdoptedKeyedCaseId>();
-	for (const create of read.keyedCreates) {
-		if (rows.has(create.operationUuid)) {
-			throw new Error(
-				`Nova was given two keyed creates for the case operation ${create.operationUuid}. ` +
-					"A reading lists each operation it keeps once, so whatever built this list has a mistake to fix.",
-			);
-		}
-		rows.set(create.operationUuid, {
-			operationUuid: create.operationUuid,
-			caseType: create.caseType,
-			prefix: create.prefix,
-		});
-	}
-	return [...rows.values()].sort((a, b) =>
-		codeUnitOrder(a.operationUuid, b.operationUuid),
-	);
-}
-
-/**
  * The prefixes a publish to the adopted deployment prints keyed creates
  * under (`ExpandOptions.keyedCaseIdPrefixes`): each row whose operation the
  * document still holds and still creates the row's case type. An operation
@@ -226,7 +201,10 @@ export interface MediaPathAssignment {
 }
 
 export type MediaPathRederivedReason =
-	/** HQ's upload cannot address it, or it is no safe archive entry (`isHoldableWirePath`). */
+	/**
+	 * HQ's upload cannot address it, or it is no safe archive entry: a name a
+	 * `.ccz` gives its own files among them (`isHoldableWirePath`).
+	 */
 	| "not-holdable"
 	/** It is in Nova's derived shape and is not this file's own derived path. */
 	| "names-another-file"
@@ -310,7 +288,7 @@ export function assignMediaPaths(
 	const folded = new Map<string, Set<MediaAssetId>>();
 	for (const [assetId, paths] of candidates) {
 		for (const path of paths) {
-			const key = path.toLowerCase();
+			const key = wirePathKey(path);
 			const owners = folded.get(key) ?? new Set<MediaAssetId>();
 			owners.add(assetId);
 			folded.set(key, owners);
@@ -327,7 +305,7 @@ export function assignMediaPaths(
 	for (const [assetId, paths] of candidates) {
 		const remaining: string[] = [];
 		for (const path of paths) {
-			if ((folded.get(path.toLowerCase())?.size ?? 0) > 1) {
+			if ((folded.get(wirePathKey(path))?.size ?? 0) > 1) {
 				notHeld(assetId, path, "differs-only-by-case");
 			} else {
 				remaining.push(path);
@@ -360,6 +338,31 @@ export function assignMediaPaths(
 			codeUnitOrder(a.from, b.from) || codeUnitOrder(a.assetId, b.assetId),
 	);
 	return { rows, collapsed, rederived };
+}
+
+/**
+ * The held paths of a deployment's stored rows: each row whose path the rule
+ * holds (`isHoldableWirePath`), and the assets whose row it does not, which
+ * is a defect of whatever wrote the row; such a file takes its derived path.
+ * Every read of the rows goes through it, so a path a `.ccz` would write over
+ * one of its own files never reaches an archive whatever wrote it.
+ */
+export function heldMediaPathRows(
+	rows: readonly {
+		readonly assetId: MediaAssetId;
+		readonly wirePath: string;
+	}[],
+): {
+	readonly held: ReadonlyMap<MediaAssetId, string>;
+	readonly notHoldable: readonly MediaAssetId[];
+} {
+	const held = new Map<MediaAssetId, string>();
+	const notHoldable: MediaAssetId[] = [];
+	for (const row of rows) {
+		if (isHoldableWirePath(row.wirePath)) held.set(row.assetId, row.wirePath);
+		else notHoldable.push(row.assetId);
+	}
+	return { held, notHoldable };
 }
 
 // ── The `read` baseline ──────────────────────────────────────────────────

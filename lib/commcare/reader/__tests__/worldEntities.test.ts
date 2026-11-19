@@ -20,6 +20,7 @@ import {
 import { term } from "@/lib/domain/expression";
 import type { HqLocationType } from "../../hq/locations";
 import {
+	claimsUnder,
 	externalKey,
 	matchingResolver,
 	mintEntityUuid,
@@ -56,7 +57,7 @@ describe("levelsFromHq", () => {
 				level("district", "state"),
 				level("state", null),
 			],
-			mintingResolver("app-1"),
+			claimsUnder(mintingResolver("app-1")),
 		);
 		expect(findings).toEqual([]);
 		expect(levels.map((one) => one.code)).toEqual([
@@ -92,7 +93,7 @@ describe("levelsFromHq", () => {
 							administrative,
 						}),
 					],
-					mintingResolver("app-1"),
+					claimsUnder(mintingResolver("app-1")),
 				);
 				expect(levels[0]).toMatchObject({
 					caseFlow: {
@@ -115,7 +116,7 @@ describe("levelsFromHq", () => {
 				level("ward", "clinic"),
 				level("region", "state"),
 			],
-			mintingResolver("app-1"),
+			claimsUnder(mintingResolver("app-1")),
 		);
 		expect(levels.map((one) => one.code)).toEqual(["state", "region"]);
 		expect(findings).toEqual([
@@ -132,7 +133,7 @@ describe("levelsFromHq", () => {
 	it("gives a level whose parent is not listed a finding of its own", () => {
 		const { levels, findings } = levelsFromHq(
 			[level("clinic", "district")],
-			mintingResolver("app-1"),
+			claimsUnder(mintingResolver("app-1")),
 		);
 		expect(levels).toEqual([]);
 		expect(findings).toMatchObject([
@@ -143,7 +144,7 @@ describe("levelsFromHq", () => {
 
 describe("worldEntitiesFromReads", () => {
 	it("mints a property for each slug in the grammar, labelled with it, by the resolver's UUID", () => {
-		const resolver = mintingResolver("app-1");
+		const resolver = claimsUnder(mintingResolver("app-1"));
 		const { userProperties, locationProperties } = worldEntitiesFromReads(
 			{
 				userFields: ["district_name", "rank", "district_name"],
@@ -186,7 +187,7 @@ describe("worldEntitiesFromReads", () => {
 
 	it("mints no worker property for a slug CommCare supplies, or one outside the grammar", () => {
 		const [builtIn] = [...BUILT_IN_USER_PROPERTY_SLUGS];
-		const resolver = mintingResolver("app-1");
+		const resolver = claimsUnder(mintingResolver("app-1"));
 		const { userProperties, locationProperties } = worldEntitiesFromReads(
 			{
 				userFields: [
@@ -232,9 +233,11 @@ describe("namedWorkerReadsAreProperties", () => {
 			draft.userPropertyOrder = [kept];
 		});
 		const chosen = namedWorkerReadsAreProperties(doc);
-		const reread = matchingResolver(doc.appId, [
-			{ ...externalKey.userProperty("position"), uuid: kept },
-		]).claim(externalKey.userProperty("role"), "app");
+		const reread = claimsUnder(
+			matchingResolver(doc.appId, [
+				{ ...externalKey.userProperty("position"), uuid: kept },
+			]),
+		).claim(externalKey.userProperty("role"), "app");
 		if (!reread.ok) throw new Error("The read slug was claimed once.");
 		expect(reread.uuid).not.toBe(kept);
 		expect(

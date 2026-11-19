@@ -32,7 +32,10 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
-import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import type {
+	ColumnFieldWordRow,
+	WireIdentityOverride,
+} from "@/lib/commcare/wireIdentity";
 import type { AdoptedKeyedCaseId } from "@/lib/deployment/adoption";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -116,11 +119,18 @@ export interface HqAuthoredFacts {
 	/**
 	 * Each create keyed by an answer D keeps, with the prefix its cases stand
 	 * under in A: the rows a bring-in of A records
-	 * (`lib/deployment/adoption.ts::adoptedKeyedCaseIdRows`), which every
+	 * (`lib/deployment/targetIdentity.ts::resolveTargetIdentity`'s keyed creates), which every
 	 * publish over A and its local archive print the create under. Empty
 	 * where D keeps none.
 	 */
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
+	/**
+	 * Each case list column D keeps whose field A stores under the word Nova
+	 * does not write, by screen: the rows a bring-in of A records
+	 * (`resolveTargetIdentity`'s column words), which every publish over A and
+	 * its local archive print the column under. Empty where A holds none.
+	 */
+	readonly columnWords: readonly ColumnFieldWordRow[];
 	/**
 	 * Absolute path of the base's retained directory (`proof/hq-apps/<base>/`),
 	 * whose files the entry writer copies into the document's `authored/` and

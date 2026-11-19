@@ -71,12 +71,14 @@ import {
  * standard set clients expect for refresh-token flows. The Nova scopes
  * split into three layers: `nova.read` / `nova.write` cover Nova-internal
  * (database-backed) operations and are enforced at the MCP route's
- * verify layer; `nova.hq.read` / `nova.hq.write` cover delegated access
- * to CommCare HQ via the user's stored API key; and `nova.projects.read`
+ * verify layer; `nova.hq.read` / `nova.hq.write` / `nova.hq.import` cover
+ * delegated access to CommCare HQ via the user's stored API key (its
+ * connection, publishing, and reading its apps and data to bring them into a
+ * Project); and `nova.projects.read`
  * / `nova.projects.write` cover Project membership and sharing (member
  * lists, invitations, role changes, cross-Project app moves). The HQ and
- * Projects pairs are enforced per-tool inside their handlers (see
- * `lib/mcp/scopes.ts`'s `assertScope`) and are *orthogonal* to
+ * Projects scopes are enforced per tool (`lib/mcp/scopes.ts::TOOL_SCOPES`,
+ * through `lib/mcp/scopedTool.ts::registerScopedTool`) and are *orthogonal* to
  * read/write — a client that only needs Nova-internal access can omit
  * them at `/oauth2/authorize` and still call the app tools.
  */
@@ -89,6 +91,7 @@ const NOVA_OAUTH_SCOPES = [
 	"nova.write",
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.hq.import",
 	"nova.projects.read",
 	"nova.projects.write",
 ] as const;
@@ -106,6 +109,7 @@ export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
 	...NOVA_OAUTH_DEFAULT_CLIENT_SCOPES,
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.hq.import",
 	"nova.projects.read",
 	"nova.projects.write",
 ] as const;

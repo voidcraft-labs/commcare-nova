@@ -807,10 +807,9 @@ describe("the form a case list holds for the case chosen on it", () => {
 	const ownList = {
 		moduleUuid: menu,
 		continuation: "form-menu",
-		session: "worker-a",
 	} as const;
 	/** The history entry choosing Ana on the list opened. */
-	const heldMenu = { moduleUuid: menu, cases: [ana], session: "worker-a" };
+	const heldMenu = { moduleUuid: menu, cases: [ana] };
 	const chosenOnOwnMenu = {
 		formUuid: visit,
 		cases: [ana],
@@ -849,18 +848,7 @@ describe("the form a case list holds for the case chosen on it", () => {
 			}),
 		).toBeUndefined();
 		expect(
-			previewCaseListHeldChoices(
-				{ moduleUuid: menu, cases: [], session: "worker-a" },
-				ownList,
-			),
-		).toBeUndefined();
-	});
-
-	it("holds nothing for a step another Preview session took", () => {
-		// A worker, platform or Preview run change starts a new session; Back
-		// onto the menu's entry shows the list, not the last worker's case.
-		expect(
-			previewCaseListHeldChoices(heldMenu, { ...ownList, session: "worker-b" }),
+			previewCaseListHeldChoices({ moduleUuid: menu, cases: [] }, ownList),
 		).toBeUndefined();
 	});
 

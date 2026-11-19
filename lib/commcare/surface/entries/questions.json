@@ -4321,11 +4321,11 @@
 		"id": "questions/connect-deliver-unit-work-area-id-expression",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Connect Deliver Unit with a `work_area_id` expression",
+		"item": "Connect Deliver Unit with a `work_area_id` expression or a fixed id",
 		"surfaceKeys": ["mug:ConnectDeliverUnit", "vellum-plugin:commcareConnect"],
 		"valueClass": "work-area-id-expression",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `work_area_id` expression",
+		"dispositionCell": "**HELD-NEW**: a `work_area_id` expression or a fixed id",
 		"subject": "connect-blocks",
 		"owner": "xform",
 		"platforms": {
@@ -5676,7 +5676,7 @@
 		"id": "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "`<setvalue event=\"xforms-value-changed\">`, authored `xforms-revalidate`, or a setvalue on a non-question ref",
+		"item": "`<setvalue event=\"xforms-value-changed\">`, authored `xforms-revalidate`, a setvalue on a non-question ref, or one Core reads otherwise than an absolute `ref` and a `value` (a `bind`, a relative `ref`, no `value`)",
 		"surfaceKeys": [
 			"jr-action:setvalue",
 			"jr-event:jr-insert",

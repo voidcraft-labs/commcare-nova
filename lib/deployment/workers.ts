@@ -30,10 +30,7 @@ import "server-only";
  */
 
 import type { CommCareCredentials } from "@/lib/commcare/client";
-import type {
-	HqMobileWorkerRefusal,
-	HqMobileWorkerUpdate,
-} from "@/lib/commcare/hq/workers";
+import type { HqMobileWorkerRefusal } from "@/lib/commcare/hq/workers";
 import {
 	createHqMobileWorker,
 	findHqMobileWorkers,
@@ -46,22 +43,31 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { organizationLevelsOf, personasOf } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { StoredLocation } from "@/lib/organization/types";
-import { DeploymentEndedError } from "./errors";
+import { namesInWords } from "@/lib/publish/planFeatures";
+import {
+	DeploymentAppDeletedError,
+	DeploymentEndedError,
+	DeploymentError,
+} from "./errors";
 import { readManagedPlaceIds } from "./managedData";
 import { deploymentEnding, publishedRemoteApp } from "./resources";
 import {
+	admitWorkerWrite,
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	type RecordRemoteResourceInput,
 	readDeployment,
-	recordPushedResources,
+	recordProvisionedWorkers,
+	recordWorkerLevelConfirmations,
 } from "./store";
 import type { DeploymentWithResources } from "./types";
 import { generateWorkerPassword } from "./workerCredentials";
 import type {
+	ManagedPlaceForWorkers,
 	PlannedWorkerPush,
 	UnconfirmedWorker,
 	WorkerConflict,
+	WorkerLevelToConfirm,
 	WorkerProvisionProblem,
 } from "./workerProvisionPlan";
 import {
@@ -70,6 +76,7 @@ import {
 	plannedWorkersFor,
 	planWorkerProvisioning,
 	requiredWorkerDataGaps,
+	workerLevelsToConfirm,
 	workerProvisionProblems,
 } from "./workerProvisionPlan";
 
@@ -96,6 +103,13 @@ export const WORKER_REFUSAL_CODES = [
 	/** Something about the app or the request makes these workers unmakeable. */
 	"workers_not_provisionable",
 	/**
+	 * A persona stands in a place CommCare HQ manages for the app there, at a
+	 * level nobody has confirmed takes workers in that project space. The
+	 * refusal's `levels` names each one; the caller comes back naming the
+	 * levels a person confirmed in `confirmWorkerLevels`.
+	 */
+	"worker_levels_unconfirmed",
+	/**
 	 * One of the usernames belongs to an account Nova did not create. Nova
 	 * never takes one over on its own.
 	 */
@@ -109,6 +123,13 @@ export const WORKER_REFUSAL_CODES = [
 	 * copy that will ever exist.
 	 */
 	"hq_worker_may_exist",
+	/**
+	 * The app went to recently deleted, or the caller can no longer make
+	 * workers for it, after this call made some accounts: it made no more.
+	 * The accounts it made are in `workers` with their passwords, and are
+	 * recorded as Nova's.
+	 */
+	"app_not_available",
 ] as const;
 export type WorkerRefusalCode = (typeof WORKER_REFUSAL_CODES)[number];
 
@@ -123,6 +144,12 @@ export interface WorkerProvisionRefusal {
 	 * to take over. Empty unless the refusal WAS a name clash.
 	 */
 	readonly conflicts: readonly WorkerConflict[];
+	/**
+	 * The levels a person may confirm take workers in the project space, to
+	 * name back through `confirmWorkerLevels`. Empty unless a persona stands
+	 * at one nobody has confirmed.
+	 */
+	readonly levels: readonly WorkerLevelToConfirm[];
 }
 
 /** One account that now exists, as the caller needs to see it once. */
@@ -174,6 +201,11 @@ export interface ProvisionWorkersInput {
 	 * by taking the existing account over. Absent means adopt nothing.
 	 */
 	readonly adoptPersonaUuids?: readonly string[];
+	/**
+	 * The codes of the levels a person confirmed take workers in this project
+	 * space, after a refusal named them. Absent means confirm nothing.
+	 */
+	readonly confirmWorkerLevels?: readonly string[];
 }
 
 /**
@@ -194,9 +226,12 @@ export interface ProvisionWorkersOutcome {
 	 */
 	readonly unconfirmed: readonly UnconfirmedWorker[];
 	/**
-	 * The record as it stands now. Null when nothing was written, and also
-	 * when the write itself failed — the accounts and their passwords are
-	 * never held back for it.
+	 * The record as it stands now. Null when nothing was written, when the
+	 * write itself failed — the accounts and their passwords are never held
+	 * back for it — and when the caller may no longer read the deployment
+	 * (removed from the app's Project, or the app deleted, during the call):
+	 * the accounts they made are recorded all the same, and they are told of
+	 * those and nothing else of the record (`store.ts::RecordAnswer`).
 	 */
 	readonly deployment: DeploymentWithResources | null;
 }
@@ -217,15 +252,17 @@ export async function provisionWorkers(
 	 * persona's assignment points at, and an account that can sign in to an
 	 * app the project space does not hold, or holds only as the empty app a
 	 * first publish makes, is an account with nothing to do. */
-	const deployment = await readDeployment(input.scope, target);
+	const deployment = await readDeployment(input.scope, target).catch(
+		(error: unknown) => {
+			if (error instanceof DeploymentAppDeletedError)
+				throw error.restated(appDeletedBeforeAccounts(domain));
+			throw error;
+		},
+	);
 	/* Someone stopped publishing this app there: the app the project space
 	 * still holds is no longer this one's, so no account is made for it. */
 	if (deployment !== null && deploymentEnding(deployment) !== null) {
-		return refused({
-			code: "app_not_published",
-			message: `Nova stopped publishing this app to “${domain}”, so there's no app there for a worker to sign in to. You can publish it there again and then add workers.`,
-			details: [],
-		});
+		return refused(publishingStoppedRefusal(domain));
 	}
 	if (deployment === null || publishedRemoteApp(deployment) === null) {
 		return refused({
@@ -261,15 +298,22 @@ export async function provisionWorkers(
 
 	/* The places CommCare HQ manages for the app here were never pushed, so
 	 * a persona standing in one stands in CommCare HQ's own place, unless a
-	 * refresh found it gone there. */
+	 * refresh found it gone there, and only at a level a person confirmed
+	 * takes workers there. */
 	const managedPlaces = await readManagedPlaceIds(input.scope, target);
+	const storedLevels = deployment.confirmations
+		.filter((confirmation) => confirmation.kind === "worker-level")
+		.map((confirmation) => confirmation.subject);
+	const sentLevels = input.confirmWorkerLevels ?? [];
 	const planInput = {
 		workers,
 		mappings: deployment.active,
-		managedPlaceIds: managedPlaces.ids,
+		managedPlaces: managedPlacesFor(input.doc, managedPlaces.ids),
+		confirmedWorkerLevels: new Set([...storedLevels, ...sentLevels]),
 		goneManagedPlaceIds: managedPlaces.gone,
 		workerDataGaps: requiredWorkerDataGaps(input.doc),
 		domain,
+		appHasOrganization: Object.keys(organizationLevelsOf(input.doc)).length > 0,
 	} as const;
 
 	/* Before the search, not after it. A username reaches CommCare HQ as
@@ -280,6 +324,33 @@ export async function provisionWorkers(
 	const problems = workerProvisionProblems(planInput);
 	if (problems.length > 0) {
 		return refused(unprovisionable(problems, domain, input.locations));
+	}
+	/* The levels this call's confirmations answer: the ones a call naming
+	 * none would be refused for. A confirmation naming a level no worker here
+	 * stands at answers nothing and is never stored. */
+	const answered = new Set(sentLevels);
+	const levelsToRecord = workerLevelsToConfirm(
+		workerProvisionProblems({
+			...planInput,
+			confirmedWorkerLevels: new Set(storedLevels),
+		}),
+	)
+		.map((level) => level.code)
+		.filter((code) => answered.has(code));
+	/* Recorded once every problem Nova can know of has passed, before CommCare
+	 * HQ is asked anything: a call refused here stores none, so the caller
+	 * sends them again, and a call that meets a username clash after this
+	 * does not ask the person about the levels a second time. */
+	try {
+		await recordWorkerLevelConfirmations(input.scope, target, levelsToRecord, {
+			expectedEndings: deployment.deployment.endings,
+		});
+	} catch (error) {
+		if (error instanceof DeploymentEndedError)
+			return refused(publishingStoppedRefusal(domain));
+		if (error instanceof DeploymentAppDeletedError)
+			throw error.restated(appDeletedBeforeAccounts(domain));
+		throw error;
 	}
 
 	const found = await findHqMobileWorkers(
@@ -305,7 +376,7 @@ export async function provisionWorkers(
 			? refused(
 					{
 						code: "hq_worker_conflict",
-						message: `“${domain}” already has an account under ${plan.conflicts.length === 1 ? "this username" : "these usernames"}, and Nova didn't create ${plan.conflicts.length === 1 ? "it" : "them"}. Name the personas to take over, or pick different usernames.`,
+						message: `“${domain}” already has an account under ${plan.conflicts.length === 1 ? "this username" : "these usernames"}, and Nova didn't create ${plan.conflicts.length === 1 ? "it" : "them"}. You can name the personas to take over, or pick different usernames. Taking an account over changes only the worker information and the places its persona names, and leaves the rest as CommCare HQ holds it.`,
 						details: plan.conflicts.map(
 							(conflict) => `${conflict.personaName}: ${conflict.username}`,
 						),
@@ -315,35 +386,60 @@ export async function provisionWorkers(
 			: refused(unprovisionable(plan.problems, domain, input.locations));
 	}
 
-	/* Nova only speaks about a worker's places when the app HAS places to
-	 * speak about. An app with no organization has no opinion on where
-	 * anybody stands, and an adopted account may well be assigned by hand
-	 * on CommCare HQ — sending an empty list would clear that
-	 * (`api/user_updates.py::CommcareUserUpdates._update_location` →
-	 * `::_remove_all_locations`) on the strength of Nova having nothing to
-	 * say. */
-	const speaksAboutPlaces =
-		Object.keys(organizationLevelsOf(input.doc)).length > 0;
-
+	const expectedEndings = deployment.deployment.endings;
 	const provisioned: ProvisionedWorker[] = [];
 	const unconfirmed: UnconfirmedWorker[] = [];
 	const landed: RecordRemoteResourceInput[] = [];
+	const writeIds: string[] = [];
 	const stopped = async (
 		refusal: WorkerProvisionRefusal,
 	): Promise<ProvisionWorkersOutcome> => ({
 		refusal,
 		workers: provisioned,
 		unconfirmed,
-		deployment: await recordLanded(
-			input,
-			target,
-			landed,
-			deployment.deployment.endings,
-		),
+		deployment: await recordLanded(input, target, landed, writeIds),
 	});
 
 	for (const push of plan.pushes) {
-		const written = await writeWorker(creds, domain, push, speaksAboutPlaces);
+		/* Admitted under the fence immediately before it goes: an ending
+		 * since sends nothing more, and what landed before it is recorded. */
+		try {
+			writeIds.push(
+				await admitWorkerWrite(input.scope, target, {
+					expectedEndings,
+					personaUuid: push.personaUuid,
+				}),
+			);
+		} catch (error) {
+			if (error instanceof DeploymentEndedError)
+				return stopped({
+					...publishingStoppedRefusal(domain),
+					conflicts: [],
+					levels: [],
+				});
+			/* The app was deleted, or the caller lost the right to make its
+			 * workers, since the last account went. Before any account that is
+			 * the call's whole answer; after one, the accounts made are real and
+			 * their passwords exist only in this answer, so they are recorded on
+			 * their admissions and answered beside the refusal. A member who
+			 * may still make them is told the app was deleted; anyone else gets
+			 * the not-found as it stands. */
+			if (!(error instanceof DeploymentError && error.code === "not_found"))
+				throw error;
+			const deleted = error instanceof DeploymentAppDeletedError;
+			if (writeIds.length === 0)
+				throw deleted
+					? error.restated(appDeletedBeforeAccounts(domain))
+					: error;
+			return stopped({
+				code: "app_not_available",
+				message: deleted ? appDeletedBetweenAccounts(domain) : error.message,
+				details: [],
+				conflicts: [],
+				levels: [],
+			});
+		}
+		const written = await writeWorker(creds, domain, push);
 		/* Recorded FIRST, and independently of the refusal. A create whose
 		 * follow-up assignment is refused answers with both: the account is
 		 * real, its password is in this answer and nowhere else, and a
@@ -396,6 +492,7 @@ export async function provisionWorkers(
 				message: written.refusal.message,
 				details: written.refusal.details,
 				conflicts: [],
+				levels: [],
 			});
 		}
 	}
@@ -410,13 +507,61 @@ export async function provisionWorkers(
 		refusal: null,
 		workers: provisioned,
 		unconfirmed,
-		deployment: await recordLanded(
-			input,
-			target,
-			landed,
-			deployment.deployment.endings,
-		),
+		deployment: await recordLanded(input, target, landed, writeIds),
 	};
+}
+
+/** Provisioning on a deployment someone stopped publishing. */
+function publishingStoppedRefusal(domain: string): {
+	readonly code: WorkerRefusalCode;
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	return {
+		code: "app_not_published",
+		message: `Nova stopped publishing this app to “${domain}”, so there's no app there for a worker to sign in to. You can publish it there again and then add workers.`,
+		details: [],
+	};
+}
+
+/** What a member is told of an app deleted before this call made any account. */
+export function appDeletedBeforeAccounts(domain: string): string {
+	return `This app was deleted, so Nova made no workers' accounts on “${domain}”. You can restore it from Recently deleted in your apps.`;
+}
+
+/** What a member is told of an app deleted after this call made some accounts. */
+export function appDeletedBetweenAccounts(domain: string): string {
+	return `This app was deleted while Nova was making workers' accounts on “${domain}”, so it made no more. The accounts it made are listed here with their passwords, and Nova kept a record of them. You can restore the app from Recently deleted in your apps.`;
+}
+
+/**
+ * Each place CommCare HQ manages for the app, with the level the copy stands
+ * it at as the document names it. The copy's level is always one the
+ * document holds, since a commit that removes a level a place stands at is
+ * refused.
+ */
+function managedPlacesFor(
+	doc: BlueprintDoc,
+	ids: ReadonlyMap<
+		string,
+		{ readonly hqLocationId: string; readonly levelUuid: string }
+	>,
+): ReadonlyMap<string, ManagedPlaceForWorkers> {
+	const levels = organizationLevelsOf(doc);
+	const places = new Map<string, ManagedPlaceForWorkers>();
+	for (const [placeId, place] of ids) {
+		const level = levels[place.levelUuid];
+		if (level === undefined) {
+			throw new Error(
+				`Nova's copy of CommCare HQ's places stands place ${placeId} at level ${place.levelUuid}, which this app doesn't have. A commit that removes a level a place stands at is refused, so check what wrote the copy.`,
+			);
+		}
+		places.set(placeId, {
+			hqLocationId: place.hqLocationId,
+			level: { code: level.code, name: level.name },
+		});
+	}
+	return places;
 }
 
 /**
@@ -468,16 +613,8 @@ async function writeWorker(
 	creds: CommCareCredentials,
 	domain: string,
 	push: PlannedWorkerPush,
-	speaksAboutPlaces: boolean,
 ): Promise<WorkerWriteResult> {
-	const places: HqMobileWorkerUpdate["locations"] = !speaksAboutPlaces
-		? undefined
-		: push.locationIds.length === 0
-			? null
-			: {
-					primaryLocationId: push.locationIds[0] as string,
-					locationIds: push.locationIds,
-				};
+	const places = push.locations;
 
 	if (push.remoteId === null) {
 		const password = generateWorkerPassword();
@@ -539,7 +676,9 @@ async function writeWorker(
 	}
 
 	const updated = await updateHqMobileWorker(creds, domain, push.remoteId, {
-		userData: push.userData,
+		...(Object.keys(push.userData).length === 0
+			? {}
+			: { userData: push.userData }),
 		...(places === undefined ? {} : { locations: places }),
 	});
 	if ("success" in updated) {
@@ -635,8 +774,11 @@ function unresolvedCreate(
 }
 
 /**
- * Write what landed, and reconcile the ledger against the personas the
- * app still has.
+ * Write what landed, reconcile the ledger against the personas the app
+ * still has, and settle the call's admitted writes
+ * (`store.ts::recordProvisionedWorkers`). Under no fence: an ending keeps
+ * worker mappings, so an account made while someone stopped publishing is
+ * recorded like any other.
  *
  * The reconciliation is keyed on the DOCUMENT rather than on this call:
  * naming three personas says nothing about the other twelve, but a
@@ -665,36 +807,16 @@ async function recordLanded(
 	input: ProvisionWorkersInput,
 	target: DeploymentTargetKey,
 	landed: readonly RecordRemoteResourceInput[],
-	/** The count of endings this call read with the deployment. */
-	expectedEndings: number,
+	writeIds: readonly string[],
 ): Promise<DeploymentWithResources | null> {
 	try {
-		return await recordPushedResources(
-			input.scope,
-			target,
+		const recorded = await recordProvisionedWorkers(input.scope, target, {
 			landed,
-			{
-				status: "reconciled",
-				kind: "worker",
-				stillUsed: Object.keys(personasOf(input.doc)),
-			},
-			{ expectedEndings },
-		);
+			stillUsed: Object.keys(personasOf(input.doc)),
+			writeIds,
+		});
+		return recorded.deployment;
 	} catch (error) {
-		/* Someone stopped publishing here while the accounts were made: a
-		 * person's act, not a fault, and the ended deployment takes no worker
-		 * mapping. */
-		if (error instanceof DeploymentEndedError) {
-			log.warn(
-				"[deployment] worker mappings not recorded: publishing stopped",
-				{
-					domain: input.domain,
-					appId: input.scope.appId,
-					workers: landed.length,
-				},
-			);
-			return null;
-		}
 		log.error("[deployment] worker mappings could not be recorded", error, {
 			domain: input.domain,
 			appId: input.scope.appId,
@@ -766,6 +888,8 @@ function describeProblem(
 			return `${problem.personaName}: stands in ${places.get(problem.locationUuid) ?? "a place this app no longer has"}, which isn't on this project space yet. Publish the app there first.`;
 		case "place-gone-from-hq":
 			return `${problem.personaName}: stands in ${places.get(problem.locationUuid) ?? "a place this app no longer has"}, which CommCare HQ no longer has in this project space. You can stand them in another place, then provision them again.`;
+		case "level-unconfirmed":
+			return `${problem.personaName}: stands in ${places.get(problem.locationUuid) ?? "a place this app no longer has"}, at the level ${problem.level.name} (${problem.level.code}), and nobody has confirmed that this level takes workers in this project space.`;
 	}
 }
 
@@ -796,18 +920,44 @@ function unprovisionable(
 	problems: readonly WorkerProvisionProblem[],
 	domain: string,
 	locations: readonly StoredLocation[],
-): {
-	readonly code: WorkerRefusalCode;
-	readonly message: string;
-	readonly details: readonly string[];
-} {
+): Omit<WorkerProvisionRefusal, "conflicts"> {
+	const levels = workerLevelsToConfirm(problems);
+	/* Only levels to confirm: the refusal asks that question alone, naming
+	 * each level once with who would stand there. Beside other problems the
+	 * levels ride along, so one answer settles everything. */
+	if (problems.every((problem) => problem.kind === "level-unconfirmed")) {
+		return {
+			code: "worker_levels_unconfirmed",
+			message: workerLevelsUnconfirmedMessage(domain, levels),
+			details: levels.map(
+				(level) =>
+					`${level.name} (${level.code}): ${level.personaNames.join(", ")}`,
+			),
+			levels,
+		};
+	}
 	return {
 		code: "workers_not_provisionable",
 		message: `Nova can't make ${problems.length === 1 ? "one of these workers" : "these workers"} on “${domain}” yet, so it hasn't made any of them.`,
 		details: problems.map((problem) =>
 			describeProblem(problem, placeNames(locations)),
 		),
+		levels,
 	};
+}
+
+/**
+ * The question a refusal for levels nobody confirmed asks: CommCare HQ's level
+ * API does not say which levels take workers, and its own pages refuse a
+ * worker at one that doesn't.
+ */
+function workerLevelsUnconfirmedMessage(
+	domain: string,
+	levels: readonly WorkerLevelToConfirm[],
+): string {
+	const one = levels.length === 1;
+	const people = [...new Set(levels.flatMap((level) => level.personaNames))];
+	return `CommCare HQ doesn't tell Nova which levels take workers in “${domain}”. ${namesInWords(people)} would stand at ${one ? "a place at the level" : "places at the levels"} ${namesInWords(levels.map((level) => level.name))}. You can check Organization Levels in CommCare HQ, then confirm ${one ? "that level takes" : "those levels take"} workers and provision again.`;
 }
 
 /** Every place's current name, for the one refusal that names one. */
@@ -822,11 +972,12 @@ function refused(
 		readonly code: WorkerRefusalCode;
 		readonly message: string;
 		readonly details: readonly string[];
+		readonly levels?: readonly WorkerLevelToConfirm[];
 	},
 	conflicts: readonly WorkerConflict[] = [],
 ): ProvisionWorkersOutcome {
 	return {
-		refusal: { ...refusal, conflicts },
+		refusal: { ...refusal, conflicts, levels: refusal.levels ?? [] },
 		workers: [],
 		unconfirmed: [],
 		deployment: null,

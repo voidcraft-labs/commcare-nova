@@ -51,7 +51,11 @@ A run's ``end`` names how the runner left it (``SessionOp.java``,
 ``FormRun.java``: ``submitted``, ``form-error``, ``submission-refused``...),
 the runner's own vocabulary, so a changed end is reported at
 ``/runs/*/end/<before>/<after>``: a run that no longer submits and one that
-now errs are two classes.
+now errs are two classes. A step's title is a form's, a case list's or a
+search's, each a text a worker reads in its own place, so where both sides'
+steps are of one screen it is reported at ``/runs/*/trace/*/title/<screen>``
+(``titles_by_screen``): a form's changed title and a case list's are two
+classes.
 
 A step that stopped short names its cause in its path (``stops_by_cause``).
 Core's refusal of the step's submission (``processing``, the exception
@@ -811,6 +815,31 @@ def ends_as_vocabulary(differences):
     return found
 
 
+# A step's title, which the runner records on a form (``FormDef.getTitle``, ``FormRun.java::run``), a case list and
+# a search (``getScreenTitle``, ``SessionOp.java``): three texts a worker reads in three places, under one field.
+TITLE = "/runs/*/trace/*/title"
+
+
+def titles_by_screen(differences, before, after):
+    """The differences with a step's title written ``/runs/*/trace/*/title/<screen>`` (the runner's screen names),
+    where both sides' steps are of one screen: a form's title apart from a case list's and a search's, so a change
+    held for one is never held for another. Where the two steps are of two screens the title stays at
+    ``/runs/*/trace/*/title``: the step's own screen changed (``/runs/*/trace/*/screen``), and that is the class."""
+    found = []
+    for difference in differences:
+        tokens = difference.at.split("/")
+        if difference.path == TITLE and len(tokens) == 6 and tokens[1] == "runs" and tokens[3] == "trace":
+            run, step = int(tokens[2]), int(tokens[4])
+            screens = {_step(side, run, step).get("screen") for side in (before, after)}
+            if len(screens) == 1:
+                (screen,) = screens
+                if isinstance(screen, str):
+                    token = f"/{pointer_token(screen)}"
+                    difference = replace(difference, path=difference.path + token, at=difference.at + token)
+        found.append(difference)
+    return found
+
+
 # What each row of a case list holds beside the case it selects (``SessionOp.java::describeList``): the text each
 # field shows and each field's sort key.
 ROW_FIELDS = ("fields", "sortFields")
@@ -1142,6 +1171,7 @@ def compare_traces(before, after, *, check, document, rules, artifact="trace", x
         document=document,
         artifact=artifact,
     )
+    found = titles_by_screen(found, before, after)
     for pointer in sorted(set(documents_before) & set(documents_after)):
         structural, text_before, naming = documents_before[pointer]
         _, text_after, _ = documents_after[pointer]

@@ -65,26 +65,33 @@ export interface NavigateActions {
 	 * Show a Preview case list's own form menu holding its chosen cases, as an
 	 * entry of its own at the list's URL (`previewHeldMenu.ts`): pushed after
 	 * the list, or in place of the case's details the choice went through,
-	 * which a device leaves behind once the case is chosen.
+	 * which a device leaves behind once the case is chosen. `session` is the
+	 * worker's Preview session holding the menu, whose records keep it.
 	 */
 	holdPreviewMenu: (
 		held: PreviewHeldCaseListMenu,
-		opts?: { replace?: boolean },
+		opts: { readonly replace?: boolean; readonly session: string },
 	) => void;
 	/**
 	 * Reach a Preview case list's own form menu holding these cases again, from
 	 * the crumb of its case on a form chosen there: a step back where the
 	 * entry before is that menu's (the form was opened from it), otherwise the
-	 * menu on an entry of its own (`previewHeldMenu.ts`).
+	 * menu on an entry of its own (`previewHeldMenu.ts`), in the worker's
+	 * Preview session `session`.
 	 */
-	reopenPreviewHeldMenu: (held: PreviewHeldCaseListMenu) => void;
+	reopenPreviewHeldMenu: (
+		held: PreviewHeldCaseListMenu,
+		session: string,
+	) => void;
 	/**
 	 * A screen's own Back to the screen it was opened from: a step back onto
 	 * that screen's entry where it is the one behind this, otherwise `next`
 	 * in place of this entry (`useClientPath.ts::stepBackToBuilderEntry`).
-	 * `leave` lets go of what the screen held, as the move happens.
+	 * `leave` lets go of what the screen held, as the move happens; `session`
+	 * is the worker's Preview session, whose records say what the entry behind
+	 * shows.
 	 */
-	stepBackTo: (next: Location, leave: () => void) => void;
+	stepBackTo: (next: Location, leave: () => void, session: string) => void;
 	back: () => void;
 	up: () => void;
 }
@@ -105,10 +112,17 @@ export interface NavigationPort {
 	write(
 		url: string,
 		replace?: boolean,
-		heldMenu?: PreviewHeldCaseListMenu,
+		heldMenu?: {
+			readonly menu: PreviewHeldCaseListMenu;
+			readonly session: string;
+		},
 	): void;
-	reopenHeldMenu(url: string, heldMenu: PreviewHeldCaseListMenu): void;
-	stepBackTo(url: string, leave: () => void): void;
+	reopenHeldMenu(
+		url: string,
+		heldMenu: PreviewHeldCaseListMenu,
+		session: string,
+	): void;
+	stepBackTo(url: string, leave: () => void, session: string): void;
 	back(): void;
 }
 
@@ -193,19 +207,20 @@ export function createNavigateActions(port: NavigationPort): NavigateActions {
 					kind: "cases",
 					moduleUuid: held.moduleUuid,
 				}),
-				opts?.replace,
-				held,
+				opts.replace,
+				{ menu: held, session: opts.session },
 			),
-		reopenPreviewHeldMenu: (held) =>
+		reopenPreviewHeldMenu: (held, session) =>
 			port.reopenHeldMenu(
 				buildUrl(getBasePath(), {
 					kind: "cases",
 					moduleUuid: held.moduleUuid,
 				}),
 				held,
+				session,
 			),
-		stepBackTo: (next, leave) =>
-			port.stepBackTo(buildUrl(getBasePath(), next), leave),
+		stepBackTo: (next, leave, session) =>
+			port.stepBackTo(buildUrl(getBasePath(), next), leave, session),
 		back: () => port.back(),
 		up: () => {
 			const current = parsePathToLocation(port.getSegments(), port.getDoc());

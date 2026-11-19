@@ -20,6 +20,7 @@
  * button's condition in HQ's JSON and in the suite, and a Search field's
  * condition.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -27,6 +28,7 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
 import { chosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { slotContext } from "@/lib/domain/expression/context";
+import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import type {
 	Expression,
 	SlotContextRef,
@@ -48,6 +50,7 @@ import { xpathQueryRequestValues } from "../../../suite/case-search/xpathQuery";
 import { parseFormExpression } from "../../../xpath/expressionAst";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { canonDocument, type WithheldRewrite } from "../../canon";
 import { readHqApp } from "../../index";
 import { canonicalExpression } from "../canonical";
 import type { ExpressionReadEnv } from "../index";
@@ -1085,6 +1088,24 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			canonical: usernameIsA,
 		},
 	];
+	/** A guard over `slot`'s production print, and the rows it withheld. */
+	const guardOf = (slot: SlotContextRef) => {
+		const withheld: string[] = [];
+		const readEnvironment = env();
+		return {
+			withheld,
+			guard: {
+				print: (expression: Expression) => {
+					try {
+						return printSlot(app, slot, expression, readEnvironment);
+					} catch {
+						return undefined;
+					}
+				},
+				withheld: (rowId: string) => withheld.push(rowId),
+			},
+		};
+	};
 	for (const row of rows)
 		it(`${row.id} in ${row.slot.slot}`, () => {
 			const readEnvironment = env();
@@ -1097,7 +1118,92 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			expect(canonicalExpression(row.canonical, context)).toEqual(
 				row.canonical,
 			);
+			// The guard over the slot's print takes the row's rewrite, which keeps that print.
+			const { guard, withheld } = guardOf(row.slot);
+			expect(
+				canonicalExpression(
+					other,
+					context,
+					slotPrint(app, row.slot, readEnvironment),
+					guard,
+				),
+			).toEqual(row.canonical);
+			expect(withheld).toEqual([]);
 		});
+
+	// The `instant` row reads a lowering from a fragment of it, so arithmetic that differs from
+	// the lowering where the row does not look (here the day count's constant, one off) is
+	// rewritten to the comparison when no print holds the row. Under the slot's print the
+	// rewrite changes what the slot prints, so it is withheld and the slot keeps its print.
+	for (const [slot, comparison] of [
+		[relevant, startBeforeEnd],
+		[filter, seenAfter],
+	] as const)
+		it(`instant takes no arithmetic that differs from the lowering in ${slot.slot}`, () => {
+			const readEnvironment = env();
+			let edited = false;
+			const near = mapExpressionAst(
+				plainBind(app, slot, printSlot(app, slot, comparison, readEnvironment)),
+				{
+					mapTerm: (one) => {
+						if (edited || one.kind !== "literal" || one.value !== 719468)
+							return undefined;
+						edited = true;
+						return { ...one, value: 719469 };
+					},
+				},
+			);
+			expect(edited).toBe(true);
+			const context = contextOf(app, slot);
+			expect(printSlot(app, slot, near, readEnvironment)).not.toBe(
+				printSlot(app, slot, comparison, readEnvironment),
+			);
+			// What the row does with no print to hold it to: the defect the guard closes.
+			expect(canonicalExpression(near, context)).toEqual(comparison);
+			const { guard, withheld } = guardOf(slot);
+			const held = canonicalExpression(
+				near,
+				context,
+				slotPrint(app, slot, readEnvironment),
+				guard,
+			);
+			// Rows whose rewrite keeps the print still apply inside it (a read's spelling).
+			expect(held).not.toEqual(comparison);
+			expect(printSlot(app, slot, held, readEnvironment)).toBe(
+				printSlot(app, slot, near, readEnvironment),
+			);
+			expect(withheld).toContain("instant");
+		});
+
+	it("instant in a document's canonical form keeps arithmetic that differs from the lowering", () => {
+		const readEnvironment = env();
+		const near = mapExpressionAst(
+			plainBind(
+				app,
+				relevant,
+				printSlot(app, relevant, startBeforeEnd, readEnvironment),
+			),
+			{
+				mapTerm: (one) =>
+					one.kind === "literal" && one.value === 719468
+						? { ...one, value: 719469 }
+						: undefined,
+			},
+		);
+		const holding = produce(app, (draft) => {
+			(draft.fields[relevant.uuid] as { relevant?: Expression }).relevant =
+				near;
+		});
+		const told: WithheldRewrite[] = [];
+		const canon = canonDocument(holding, (rewrite) => told.push(rewrite));
+		const kept = (canon.fields[relevant.uuid] as { relevant?: Expression })
+			.relevant;
+		expect(kept).not.toEqual(startBeforeEnd);
+		expect(
+			printSlot(canon, relevant, kept as Expression, readEnvironment),
+		).toBe(printSlot(holding, relevant, near, readEnvironment));
+		expect(told).toContainEqual({ rowId: "instant", slot: "relevant" });
+	});
 
 	it("membership leaves an `or` of equalities in a list filter the search restates, whose CSQL prints it without the parentheses of an `in`", () => {
 		const either: Expression = {

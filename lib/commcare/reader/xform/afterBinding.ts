@@ -15,7 +15,7 @@
  * the default, and refused where one can.
  */
 
-import type { Element } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -44,9 +44,12 @@ import {
 	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
 	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
 } from "../../connectDefaults";
+import { el, text as textNode } from "../../elementBuilders";
 import { planLanguageWire } from "../../languageWire";
 import { commCareLocalization } from "../../localization";
 import { inertLookupWireNaming } from "../../lookup/naming";
+import { type SourceTable, tableOf } from "../../sourceKeys";
+import { rethrowWorkStop } from "../../workMeter";
 import { fieldBindType } from "../../xform/bindType";
 import { protectConstraintMessage } from "../../xform/constraintMessage";
 import { questionDatetimeCaseValue } from "../../xform/datetimeCaseValue";
@@ -59,6 +62,7 @@ import type { DraftForm, ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
 import { pointerToken, sameJson } from "../jsonCursor";
 import { manifestFindingOf } from "../languages";
+import { builtScopes, sameElementWhole } from "../sameElement";
 import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { ownText } from "../xmlCursor";
@@ -99,14 +103,14 @@ function documentOrder(doc: BlueprintDoc, formUuid: Uuid): Map<Uuid, number> {
  * the repeat itself), then the row, then the row's id and index (model iteration's `@id` and
  * `@index` on the row), as `builder.ts::buildQueryRepeat` and `countPlacementRow.ts` write them.
  */
-const QUERY_NODE_OFFSET: Readonly<Record<string, number>> = {
+const QUERY_NODE_OFFSET: SourceTable<number> = tableOf({
 	"query-ids": 0.1,
 	"query-count": 0.2,
 	"query-position": 0.3,
 	"query-row": 0.5,
 	"query-id": 0.6,
 	"query-index": 0.7,
-};
+});
 
 /** A setvalue target's place in Nova's data tree, as `builder.ts::inDataTreeOrder` places the
  *  setvalue that sets it, from each field's place in the document; `end` where the document
@@ -125,13 +129,13 @@ function loadPosition(
 	const node = names.at([names.root, ...steps]);
 	if (node?.kind === "field") return at(node.uuid);
 	if (node?.kind === "query-row")
-		return at(node.repeat, QUERY_NODE_OFFSET["query-row"]);
+		return at(node.repeat, QUERY_NODE_OFFSET.get("query-row"));
 	if (node?.kind === "repeat-attribute")
 		return node.attribute === "id" || node.attribute === "index"
-			? at(node.repeat, QUERY_NODE_OFFSET["query-row"])
+			? at(node.repeat, QUERY_NODE_OFFSET.get("query-row"))
 			: at(node.repeat);
 	if (node?.kind === "generated") {
-		const offset = QUERY_NODE_OFFSET[node.purpose];
+		const offset = QUERY_NODE_OFFSET.get(node.purpose);
 		return offset === undefined ? end : at(node.owner, offset);
 	}
 	if (steps.at(-1)?.startsWith("@") === true) {
@@ -549,7 +553,8 @@ function checkDatetimeSiblings(
 		let expected: ReturnType<typeof questionDatetimeCaseValue>;
 		try {
 			expected = questionDatetimeCaseValue(uuid, ownerPath, context);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			ctx.accounting.circumstance("unrecognized", field.place, {
 				name: "xform:model/bind@calculate",
 			});
@@ -628,14 +633,7 @@ function settleChoices(
 					formNodeProjection(doc, form, { surface: "wire" }),
 				),
 			);
-		settleCaseChoices(
-			xform.cursor,
-			xform.parsed,
-			proposal,
-			field.place,
-			same,
-			filtered,
-		);
+		settleCaseChoices(xform.cursor, proposal, field.place, same, filtered);
 	}
 }
 
@@ -896,6 +894,24 @@ function settleProtectedMessage(
 		);
 	});
 	if (!sameForms) return;
+	// Each stored form is the value the composition writes for its text, whole: `form` its only
+	// attribute and its text its only content (`xform/constraintMessage.ts`), since the forms
+	// were compared by their text alone.
+	const scope = xform.parsed.scope;
+	const asWritten = owned.every(({ values }) =>
+		values.every((value) => {
+			const built = el("value", { form: value.attribs.form ?? "" }, [
+				textNode(ownText(value)),
+			]);
+			const parent = value.parent;
+			const outer =
+				parent !== null && isTag(parent)
+					? scope(parent)
+					: new Map<string, string>();
+			return sameElementWhole(value, scope, built, builtScopes(built, outer));
+		}),
+	);
+	if (!asWritten) return;
 	xform.cursor.derived(
 		{ element: message.bind, attribute: message.attribute },
 		G.messageExpression,

@@ -8,10 +8,16 @@
  * the Project's apps do it, and an editor who reaches it anyway reads the
  * refusal's own sentence here.
  *
+ * The stop names the HQ app the surface drew it over when it opened, so it
+ * ends publishing to that app or to nothing: where the deployment publishes
+ * to another HQ app by the time it lands, the server stops nothing and says
+ * so, and the dialog keeps naming the app it opened over.
+ *
  * A stop that did not answer with a stopped record tells its surface to read
  * the records again (`onRecordsStale`): an answer lost on the way may follow
- * a stop that landed, and a refusal that there is nothing to stop means the
- * record on screen is older than the deployment.
+ * a stop that landed, and a refusal that there is nothing to stop, or that the
+ * deployment publishes elsewhere now, means the record on screen is older
+ * than the deployment.
  */
 "use client";
 
@@ -41,6 +47,15 @@ import {
 	stopPublishingConfirmTitle,
 } from "@/lib/publish/stopPublishing";
 
+/** The deployment a stop names, and the HQ app the surface drew it over. */
+export interface StopPublishingTarget {
+	readonly appId: string;
+	readonly server: CommCareServer;
+	readonly domain: string;
+	/** The HQ app the deployment's live mapping named when the surface read it. */
+	readonly hqAppId: string;
+}
+
 export function StopPublishingDialog({
 	open,
 	onOpenChange,
@@ -50,12 +65,8 @@ export function StopPublishingDialog({
 }: {
 	readonly open: boolean;
 	readonly onOpenChange: (open: boolean) => void;
-	/** The deployment to stop: the three fields `stopPublishingAction` takes. */
-	readonly target: {
-		readonly appId: string;
-		readonly server: CommCareServer;
-		readonly domain: string;
-	};
+	/** The deployment to stop: the four fields `stopPublishingAction` takes. */
+	readonly target: StopPublishingTarget;
 	/** Called once with the action's answer when the stop succeeds, before the dialog closes. */
 	readonly onStopped: (next: StoppedPublishingView) => void;
 	/**
@@ -66,7 +77,17 @@ export function StopPublishingDialog({
 }): ReactElement {
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const { appId, server, domain } = target;
+	/* The HQ app a stop names is the one the dialog opened over. A surface
+	 * that reads its records again while the dialog is open (as a refusal
+	 * asks it to) never moves it, so pressing Stop publishing again can't
+	 * stop an app the person never looked at; closing and opening again
+	 * names the one the surface shows then. */
+	const [opened, setOpened] = useState<StopPublishingTarget | null>(
+		open ? target : null,
+	);
+	if (open && opened === null) setOpened(target);
+	if (!open && opened !== null) setOpened(null);
+	const { appId, server, domain, hqAppId } = opened ?? target;
 
 	const handleOpenChange = useCallback(
 		(next: boolean) => {
@@ -84,7 +105,12 @@ export function StopPublishingDialog({
 		setPending(true);
 		setError(null);
 		try {
-			const result = await stopPublishingAction({ appId, server, domain });
+			const result = await stopPublishingAction({
+				appId,
+				server,
+				domain,
+				hqAppId,
+			});
 			if (result.success) {
 				onStopped(result.data);
 				setPending(false);
@@ -97,7 +123,7 @@ export function StopPublishingDialog({
 		}
 		setPending(false);
 		onRecordsStale();
-	}, [appId, server, domain, onStopped, onOpenChange, onRecordsStale]);
+	}, [appId, server, domain, hqAppId, onStopped, onOpenChange, onRecordsStale]);
 
 	return (
 		<AlertDialog open={open} onOpenChange={handleOpenChange}>

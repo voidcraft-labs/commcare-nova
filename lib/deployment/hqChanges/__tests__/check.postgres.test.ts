@@ -8,14 +8,18 @@
  * of the app changed in something Nova publishes, a file whose recorded id
  * moved included, among the deployments with a usable pair the member's own
  * key reaches; it reads each with no write of any kind, and a failed read
- * lists nothing and is logged at warn with the app's id alone.
+ * lists nothing and is logged at warn with the app's id alone. It asks about
+ * one deployment at a time, reads each baseline once, and asks nothing more
+ * once the request is cancelled.
  *
  * Plausible failures: a deployment listed that did not change, or one that
  * did left out; a deployment with no usable pair asked about, so the button
  * offers a review that can only answer `unavailable`; a key on another
  * server sent to this one; a failure thrown into the builder; a path with no
  * record read as a change; a baseline, a fold or a notification written by a
- * check that promises to write nothing.
+ * check that promises to write nothing; every deployment read at once on a
+ * pool of three, each baseline unzipped twice, and reads that go on after the
+ * tab that asked closed.
  */
 
 import { createHash } from "node:crypto";
@@ -42,14 +46,29 @@ import {
 } from "../../__tests__/adoptedBirth";
 import type { HqMediaRecord } from "../../hqMedia";
 import { normalizeHqAppSource } from "../../hqSourceBaseline";
+import { peekReadDeploymentChanged } from "../../service";
 import {
 	type AdoptedDeploymentWrite,
 	type DeploymentScope,
+	readAppBaseline,
 	recordAdoptedDeploymentInTransaction,
 } from "../../store";
+import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import { checkHqChangesForApp } from "../check";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
+/* The comparison and the baseline read run as they are; the spies only record when each ran. */
+vi.mock("../../service", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../service")>();
+	return {
+		...actual,
+		peekReadDeploymentChanged: vi.fn(actual.peekReadDeploymentChanged),
+	};
+});
+vi.mock("../../store", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../store")>();
+	return { ...actual, readAppBaseline: vi.fn(actual.readAppBaseline) };
+});
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
@@ -158,9 +177,7 @@ async function seed(
 		remoteAppId: HQ_APP,
 		writeOverrides: {
 			baseline: baselines.changed ?? baselineOf(HQ_APP),
-			identities: [],
-			mediaPaths: [],
-			keyedCaseIds: [],
+			targetIdentity: EMPTY_TARGET_IDENTITY,
 		},
 	});
 	if (baselines.quiet !== null)
@@ -179,9 +196,7 @@ async function seed(
 				remoteRevision: 7,
 				pushedRevision: 1,
 				baseline: baselines.quiet ?? baselineOf(QUIET_HQ_APP),
-				identities: [],
-				mediaPaths: [],
-				keyedCaseIds: [],
+				targetIdentity: EMPTY_TARGET_IDENTITY,
 				confirmations: CONFIRMATIONS,
 				at: new Date(READ_AT),
 			});
@@ -342,5 +357,69 @@ describe("checkHqChangesForApp", () => {
 			return checkHqChangesForApp(scope, {});
 		});
 		expect(changed).toEqual([CHANGED]);
+	});
+
+	it("asks about one deployment at a time and reads each baseline once", async () => {
+		const scope = await seed();
+		await connect();
+		const timeline: string[] = [];
+		const actual = vi.mocked(peekReadDeploymentChanged).getMockImplementation();
+		if (actual === undefined)
+			throw new Error("The spy holds no implementation.");
+		vi.mocked(peekReadDeploymentChanged).mockImplementation(async (...call) => {
+			const domain = call[1].deployment.domain;
+			timeline.push(`start ${domain}`);
+			try {
+				return await actual(...call);
+			} finally {
+				timeline.push(`end ${domain}`);
+			}
+		});
+		vi.mocked(readAppBaseline).mockClear();
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, CHANGED, HQ_APP, sourceAnswer());
+			serveSource(peer, QUIET, QUIET_HQ_APP, sourceAnswer());
+			await checkHqChangesForApp(scope, {});
+		});
+		expect(timeline).toHaveLength(4);
+		expect(timeline[0]?.startsWith("start")).toBe(true);
+		expect(timeline[1]).toBe(timeline[0]?.replace("start", "end"));
+		expect(timeline[2]?.startsWith("start")).toBe(true);
+		expect(timeline[3]).toBe(timeline[2]?.replace("start", "end"));
+		expect(vi.mocked(readAppBaseline)).toHaveBeenCalledTimes(2);
+	});
+
+	it("asks CommCare HQ nothing more once the request is cancelled", async () => {
+		const scope = await seed();
+		await connect();
+		const cancel = new AbortController();
+		const actual = vi.mocked(peekReadDeploymentChanged).getMockImplementation();
+		if (actual === undefined)
+			throw new Error("The spy holds no implementation.");
+		let compared = 0;
+		await withHttpPeer(async (peer) => {
+			/* Each deployment's source is served as its comparison starts, and the
+			 * tab closes once CommCare HQ has answered the first. */
+			vi.mocked(peekReadDeploymentChanged).mockImplementation(
+				async (...call) => {
+					compared += 1;
+					const { domain } = call[1].deployment;
+					serveSource(
+						peer,
+						{ domain },
+						domain === CHANGED.domain ? HQ_APP : QUIET_HQ_APP,
+						sourceAnswer(),
+					);
+					const answer = await actual(...call);
+					cancel.abort();
+					return answer;
+				},
+			);
+			expect(
+				await checkHqChangesForApp(scope, { cancel: cancel.signal }),
+			).toEqual([]);
+			expect(requested(peer)).toHaveLength(1);
+		});
+		expect(compared).toBe(1);
 	});
 });

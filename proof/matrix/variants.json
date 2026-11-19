@@ -10623,6 +10623,28 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/name-column-kept-as-case-name-on-the-detail",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/name-date-opened-external-id-status-owner-id-hq-renames-to-case",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/case_details/long/columns/0/field",
+			"value": "case_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/field",
+				"value": "case_name"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/name-column-with-a-filter-xpath",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/filter-xpath",
@@ -14693,6 +14715,23 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/null-among-the-columns",
+		"base": "hq-case-lists",
+		"entry": "unrecognized",
+		"key": "schema:Detail.columns",
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/columns/5",
+			"value": null
+		}
+	},
+	{
 		"id": "hq-case-lists/undeclared-column-key",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/any-other-undeclared-key",
@@ -18248,6 +18287,23 @@
 		}
 	},
 	{
+		"id": "hq-connect-deliver/deliver-work-area-fixed-id",
+		"base": "hq-connect-deliver",
+		"entry": "questions/connect-deliver-unit-work-area-id-expression",
+		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Household visits",
+			"name": "Deliver visit"
+		},
+		"change": {
+			"op": "named",
+			"name": "deliver_work_area_fixed_id"
+		}
+	},
+	{
 		"id": "hq-connect-learn/connect-learn-and-deliver",
 		"base": "hq-connect-learn",
 		"entry": "questions/connect-learn-and-deliver-blocks-in-one-app",
@@ -20996,6 +21052,17 @@
 		}
 	},
 	{
+		"id": "hq-kept-settings/custom-base-url-on-the-server-s-own-origin",
+		"base": "hq-kept-settings",
+		"entry": "application-and-settings/36-hq-custom-base-url",
+		"change": {
+			"op": "set-json",
+			"pointer": "/custom_base_url",
+			"value": "https://www.commcarehq.org/"
+		},
+		"holds": []
+	},
+	{
 		"id": "hq-kept-settings/custom-property",
 		"base": "hq-kept-settings",
 		"entry": "application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys",
@@ -21237,6 +21304,48 @@
 		}
 	},
 	{
+		"id": "hq-kept-settings/translation-key-holding-a-hash",
+		"base": "hq-kept-settings",
+		"entry": "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/translations/fra/tourn#e",
+			"value": "Tournée"
+		}
+	},
+	{
+		"id": "hq-kept-settings/translation-key-holding-a-line-break",
+		"base": "hq-kept-settings",
+		"entry": "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/translations/en/home.sync\nmodules.m0",
+			"value": "Rounds"
+		}
+	},
+	{
+		"id": "hq-kept-settings/translation-key-with-a-leading-space",
+		"base": "hq-kept-settings",
+		"entry": "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/translations/en/ home.start",
+			"value": "Begin the visit"
+		}
+	},
+	{
 		"id": "hq-kept-settings/web-apps-logo",
 		"base": "hq-kept-settings",
 		"entry": "application-and-settings/logo-refs-hq-logo-web-apps",
@@ -21277,6 +21386,16 @@
 			"op": "named",
 			"name": "declared_table_the_project_space_lacks"
 		}
+	},
+	{
+		"id": "hq-lookups/declared-report-fixture",
+		"base": "hq-lookups",
+		"entry": "expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not",
+		"change": {
+			"op": "named",
+			"name": "declared_report_fixture"
+		},
+		"holds": []
 	},
 	{
 		"id": "hq-lookups/itemset-attribute-ref",
@@ -30284,6 +30403,23 @@
 		"change": {
 			"op": "named",
 			"name": "form_level_setvalue"
+		}
+	},
+	{
+		"id": "hq-questions/setvalue-bind-redirected",
+		"base": "hq-questions",
+		"entry": "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate",
+		"standing": "never",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "named",
+			"name": "setvalue_bind_redirected"
 		}
 	},
 	{

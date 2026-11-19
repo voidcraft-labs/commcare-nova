@@ -12,7 +12,7 @@ import "server-only";
  *
  * Each read owns its own deadline and none is shared: the two whose body is
  * the app have `HQ_APP_BODY_DEADLINE_MS` each and are bounded at
- * `HQ_BRING_IN_APP_MAX_BYTES`, the counter and the app list the default. The
+ * `HQ_BRING_IN_APP_MAX_BYTES`, the counter and the app list at theirs. The
  * caller's `cancel` is handed to every read. The attempt is never retried
  * here: `changed` is one attempt's answer, and how many attempts a bring-in
  * makes is its caller's rule.
@@ -34,6 +34,8 @@ import {
 	readHqAppSource,
 } from "./appSource";
 import { listHqApps } from "./apps";
+import { type HqAppsSeen, seenByHq } from "./appsSeen";
+import { HQ_BRING_IN_APP_MAX_BYTES } from "./bounds";
 import {
 	classifyHqFailure,
 	type HqFailure,
@@ -48,8 +50,7 @@ import {
 
 /** The deadline of each of the two reads of a bring-in whose body is the app. */
 export const HQ_APP_BODY_DEADLINE_MS = 60_000;
-/** The most bytes of an app body a bring-in reads: 16 MiB. A longer one is refused unparsed. */
-export const HQ_BRING_IN_APP_MAX_BYTES = 16 * 1024 * 1024;
+export { HQ_BRING_IN_APP_MAX_BYTES } from "./bounds";
 
 export interface HqAlignedForm {
 	/** The form's real `unique_id`, from the application resource. */
@@ -215,6 +216,8 @@ export type HqAppReading =
 			readonly application: HqApplication;
 			readonly source: HqAppSource;
 			readonly modules: readonly HqAlignedModule[];
+			/** HQ's answer that the key reaches this app: it returned the app's document. */
+			readonly seen: HqAppsSeen;
 	  }
 	/** The app was saved between the first read and the last. */
 	| { readonly kind: "changed" }
@@ -287,7 +290,7 @@ export async function readHqAppForReading(
 		if (application.status === 404 && hqOwn) {
 			const listed = await listHqApps(creds, domain, { cancel });
 			if ("success" in listed) return failed(listed, "app-list");
-			if (listed.some((listing) => listing.appId === appId))
+			if (listed.listings.some((listing) => listing.appId === appId))
 				return { kind: "remote" };
 			/* No working app of this project space: ask only whether HQ holds
 			 * it as deleted. Every other answer adds nothing to what the
@@ -372,5 +375,6 @@ export async function readHqAppForReading(
 		application,
 		source,
 		modules: alignment.modules,
+		seen: seenByHq(creds.server, domain, [appId]),
 	};
 }

@@ -8,8 +8,10 @@ import {
 } from "./previewTarget";
 import {
 	type DeploymentScope,
+	holdTargetFacts,
 	readDeploymentPreviewRecords,
-	readTargetFacts,
+	targetFactsOf,
+	withDeploymentReadSnapshot,
 } from "./store";
 import type { PreviewDeploymentAnswer } from "./types";
 
@@ -53,13 +55,27 @@ export async function previewProjectSpaceFor(
 export async function readPreviewDeploymentAnswer(
 	scope: DeploymentScope,
 ): Promise<PreviewDeploymentAnswer> {
-	const deployments = await readDeploymentPreviewRecords(scope);
-	const projectSpace = previewProjectSpace(
-		resolvePreviewDeploymentTarget(deployments),
+	/* The records and the facts of one moment, for a caller allowed to see
+	 * them then; the facts' bytes are read in the snapshot and projected once
+	 * it has given its connection back. */
+	const { projectSpace, target, held } = await withDeploymentReadSnapshot(
+		scope,
+		"view",
+		async (snapshot) => {
+			const deployments = await readDeploymentPreviewRecords(snapshot);
+			const target = resolvePreviewFactsTarget(deployments);
+			return {
+				projectSpace: previewProjectSpace(
+					resolvePreviewDeploymentTarget(deployments),
+				),
+				target,
+				held: target === null ? null : await holdTargetFacts(snapshot, target),
+			};
+		},
 	);
-	const target = resolvePreviewFactsTarget(deployments);
-	if (target === null) return { projectSpace, targetFacts: null };
-	const facts = await readTargetFacts(scope, target);
+	if (target === null || held === null)
+		return { projectSpace, targetFacts: null };
+	const facts = targetFactsOf(held);
 	return {
 		projectSpace,
 		targetFacts:

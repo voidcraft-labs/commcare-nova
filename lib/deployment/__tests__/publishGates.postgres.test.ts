@@ -20,9 +20,11 @@ import { produce } from "immer";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	readMultipartRequest,
-	withHttpPeer,
-} from "@/__tests__/helpers/httpPeer";
+	HqSaveCounter,
+	isSaveCounterPath,
+	withHqPeer,
+} from "@/__tests__/helpers/hqSaveCounter";
+import { readMultipartRequest } from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedPublishRead,
 	replyRetained,
@@ -101,6 +103,13 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 const h = setupAppStateTestDb("publish_gates_", { authSchema: "migrated" });
+
+/** HQ's save counter for the apps the peer stands for, which each accepted import moves. */
+const saves = new HqSaveCounter();
+beforeEach(() => saves.reset());
+function withPeer<T>(run: (peer: MockAgent) => Promise<T>): Promise<T> {
+	return withHqPeer(saves, HOST, run);
+}
 const APP = "gates-app",
 	PROJECT = "program",
 	ACTOR = "editor";
@@ -115,7 +124,7 @@ const HOST = "https://india.commcarehq.org";
 const IMPORT = "/a/clinic/apps/api/import_app/";
 const HQ_APP = "working-app";
 const SOURCE = `/a/clinic/apps/source/${HQ_APP}/`;
-const TABLES = "/a/clinic/api/lookup_table/v1/?limit=100";
+const TABLES = "/a/clinic/api/lookup_table/v1/?limit=1000";
 const WORKBOOK = "/a/clinic/fixtures/fixapi/";
 const ROWS = "/a/clinic/api/fixture/v1/?fixture_type_id=hq-table";
 const MEDIA = `/a/clinic/apps/api/${HQ_APP}/multimedia/`;
@@ -244,12 +253,13 @@ function accepted(peer: MockAgent, status: 200 | 201, bodies?: ImportBody[]) {
 				app: JSON.parse(await file.text()),
 			});
 		}
+		if (status === 201) saves.create(HQ_APP);
 		return {
 			statusCode: status,
 			data: JSON.stringify({
 				success: true,
 				app_id: HQ_APP,
-				version: status === 201 ? 1 : 2,
+				...(status === 200 && { version: saves.save(HQ_APP) }),
 			}),
 		};
 	});
@@ -258,7 +268,9 @@ function accepted(peer: MockAgent, status: 200 | 201, bodies?: ImportBody[]) {
 /** Every request but the project-space list reads of the compatibility check. */
 function requests(peer: MockAgent): string[] {
 	return allRequests(peer).filter(
-		(line) => !line.startsWith(`GET ${PROJECT_SPACES}`),
+		(line) =>
+			!line.startsWith(`GET ${PROJECT_SPACES}`) &&
+			!isSaveCounterPath(line.slice("GET ".length)),
 	);
 }
 function allRequests(peer: MockAgent): string[] {
@@ -337,6 +349,8 @@ const remoteTable = {
 };
 async function lookupDocument(): Promise<BlueprintDoc> {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	/* A lookup writer reads its member's role on its own transaction. */
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const table = await createLookupTable(scope, {
 		name: "Facilities",
 		tag: "facilities",
@@ -406,7 +420,7 @@ function workbookTaken(peer: MockAgent) {
 // ── Documents with a place ──────────────────────────────────────────────
 
 const LEVELS = "/a/clinic/api/location_type/v1/?limit=1000";
-const PLACES = "/a/clinic/api/location/v2/?limit=1000";
+const PLACES = "/a/clinic/api/location/v2/?limit=5000";
 const PLACE_PUSH = "/a/clinic/api/location/v2/";
 const REGION = asUuid("11111111-1111-4111-8111-111111111111");
 const remoteLevels = [
@@ -529,7 +543,7 @@ describe("the lookup table list", () => {
 
 	it("stops at project-data with couldn't ask, and sends nothing, where HQ serves a field with no name", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			request(peer, TABLES).reply(200, {
 				objects: [{ ...remoteTable, fields: [{ properties: [] }] }],
 				meta: { next: null },
@@ -547,7 +561,7 @@ describe("the lookup table list", () => {
 
 	it("prints the same where the edge refuses the read, never naming a plan or a permission", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			request(peer, TABLES).reply(
 				403,
 				"<html><head><title>403 Forbidden</title></head><body><center><h1>403 Forbidden</h1></center></body></html>",
@@ -569,7 +583,7 @@ describe("the lookup table list", () => {
 describe("the version floor", () => {
 	it("refuses an app that is there below 2.57 before any write, with the app's address", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			const before = requests(peer).length;
 			serve(peer, "source-live", version("2.53.0"));
@@ -594,7 +608,7 @@ describe("the version floor", () => {
 		"refuses a source with %s as an app Nova cannot read",
 		async (_, value) => {
 			const doc = await seed();
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				await firstPublish(peer, doc);
 				serve(peer, "source-live", version(value));
 				expect(refusal(await publish(doc))).toMatchObject({
@@ -610,7 +624,7 @@ describe("the version floor", () => {
 		await seedPlace();
 		const confirm = [LOOKUP, ORGANIZATION];
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			inventory(peer, false);
 			accepted(peer, 201, bodies);
@@ -706,7 +720,7 @@ describe("the version floor", () => {
 	it("stops the next publish to a raised shell that someone gave a menu in HQ", async () => {
 		const doc = await seed(await lookupDocument());
 		const { modules } = retainedBodyJson(retainedPublishRead("source-live"));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, "source-shell", version("2.53.0"));
@@ -729,7 +743,7 @@ describe("the version floor", () => {
 
 	it("keeps the mapping of a new app whose version is unreadable, and sends no table", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, "source-shell", version("latest"));
@@ -746,7 +760,7 @@ describe("the version floor", () => {
 
 	it("reads the publish's first read alone: a version lowered during the push lands, and the next publish stops", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstLookupPublish(peer, doc);
 			republishLookup(peer, { target: () => {}, second: version("2.53.0") });
 			expect(landed(await publish(doc, [LOOKUP])).hqAppAction).toBe("updated");
@@ -770,7 +784,7 @@ describe("the version floor", () => {
 describe("confirmations", () => {
 	it("refuse a publish that needs one before any request, store nothing, and land once it is sent", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const asked = await publish(doc);
 			expect(refusal(asked)).toMatchObject({
 				phase: "preflight",
@@ -800,7 +814,7 @@ describe("confirmations", () => {
 
 	it("keep only what the app needs", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, "source-shell");
@@ -833,7 +847,7 @@ describe("confirmations", () => {
 		)?.doc;
 		if (connect === undefined) throw new Error("No Connect fixture");
 		await seed(connect);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const needed = refusal(await publish(connect)).confirmationsNeeded;
 			expect(needed.map(({ kind, subject }) => ({ kind, subject }))).toEqual([
 				{ kind: "plan-feature", subject: "worker-records" },
@@ -859,7 +873,7 @@ describe("confirmations", () => {
 			(fixture) => fixture.name === "absent",
 		)?.doc;
 		if (plain === undefined) throw new Error("No plain fixture");
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, "source-shell");
 			accepted(peer, 200);
@@ -961,7 +975,7 @@ describe("sync on form entry", () => {
 			...both,
 			appSettings: { ...both.appSettings, runsOnlyOn: "web-apps" },
 		};
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			/* A Web-Apps-only app is asked only for Web Apps itself. */
 			expect(
 				refusal(
@@ -1065,7 +1079,7 @@ const COMMTRACK_OFF_KEY: DeploymentConfirmationKey = { kind: "commtrack-off" };
 describe("CommCare Supply turned off", () => {
 	it("asks commtrack-off, stores it once a publish passes, and withdraws it", async () => {
 		const doc = await seed(supplyDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			expect(refusal(await publish(doc)).confirmationsNeeded).toEqual([
 				{
 					kind: "commtrack-off",
@@ -1114,7 +1128,7 @@ describe("CommCare Supply turned off", () => {
 			(await projectSpaceConfirmations(SCOPE, doc, TARGET)).commtrack_off,
 		).toMatchObject({ state: "needs_confirmation" });
 		/* The next publish asks again, before any request. */
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const asked = refusal(await publish(doc));
 			expect(asked.failure.code).toBe("hq_confirmation_needed");
 			expect(asked.confirmationsNeeded.map((need) => need.kind)).toEqual([
@@ -1227,7 +1241,7 @@ describe("links between cases of the same type", () => {
 		const doc = await seed(sameTypeDocument());
 		const offer = placementMoveOffer(doc, "same-type-child-links");
 		if (offer === null) throw new Error("Expected a same-type offer.");
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const confirm = await sameTypeConfirmations(doc);
 			sameTypeFlag(peer, "on");
 			const outcome = await publish(doc, confirm);
@@ -1255,7 +1269,7 @@ describe("links between cases of the same type", () => {
 
 	it("passes where it is off", async () => {
 		const doc = await seed(sameTypeDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const confirm = await sameTypeConfirmations(doc);
 			sameTypeFlag(peer, "off");
 			const outcome = await firstPublishConfirming(peer, doc, confirm);
@@ -1267,7 +1281,7 @@ describe("links between cases of the same type", () => {
 		const doc = await seed(sameTypeDocument());
 		const offer = placementMoveOffer(doc, "same-type-child-links");
 		if (offer === null) throw new Error("Expected a same-type offer.");
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const confirm = await sameTypeConfirmations(doc);
 			sameTypeFlag(peer, "unreadable");
 			const outcome = await publish(doc, confirm);
@@ -1283,7 +1297,7 @@ describe("links between cases of the same type", () => {
 	it("an accepted same-type offer records, then asks Save to Case where it is not confirmed", async () => {
 		const doc = await seed(sameTypeDocument());
 		const reloadHead = reloadHeadFor(APP, ACTOR);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const confirm = await sameTypeConfirmations(doc);
 			sameTypeFlag(peer, "on");
 			const offered = refusal(await publish(doc, confirm)).placementMoves;
@@ -1369,7 +1383,7 @@ describe("links between cases of the same type", () => {
 describe("the flat location list", () => {
 	it("is asked for an app whose form sets an owner from a place, and lands once confirmed", async () => {
 		const doc = await seed(locationOwnerFixture("direct"));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const needed = refusal(await publish(doc)).confirmationsNeeded;
 			expect(needed).toContainEqual({
 				kind: "flat-location-fixture",
@@ -1398,7 +1412,7 @@ describe("the flat location list", () => {
 
 	it("is not asked for an app whose owners come from no place", async () => {
 		const doc = await seed(locationOwnerFixture("plain"));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const needed = refusal(await publish(doc)).confirmationsNeeded;
 			expect(needed.map((need) => need.kind)).not.toContain(
 				"flat-location-fixture",
@@ -1435,7 +1449,7 @@ describe("the Web Apps question", () => {
 	it("asks before turning Web Apps on for an app that holds content, sends nothing, and lands once the person answers with the declaration", async () => {
 		const doc = await seed();
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			/* The last push read the setting off, so it is the declaration that
 			 * moved, not a save in HQ. */
 			await firstPublish(peer, doc, webApps(false));
@@ -1472,7 +1486,7 @@ describe("the Web Apps question", () => {
 
 	it("says someone changed it in CommCare HQ when the baseline held the other value", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			serve(peer, "source-live", webApps(false));
 			const asked = refusal(await publish(doc));
@@ -1491,7 +1505,7 @@ describe("the Web Apps question", () => {
 	it("never asks over the empty app an earlier try made", async () => {
 		const doc = await seed();
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201, bodies);
 			serve(peer, "source-shell", version("2.53.0"));
 			expect(refusal(await publish(doc)).failure.code).toBe(
@@ -1521,7 +1535,7 @@ describe("the Web Apps question", () => {
 
 	it("asks again on the next publish whose read differs, storing no answer", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			serve(peer, "source-live", webApps(false));
 			accepted(peer, 200);
@@ -1540,7 +1554,7 @@ describe("the Web Apps question", () => {
 
 	it("answers for the value it agreed to: an answer for the old value still asks", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			serve(peer, "source-live", webApps(false));
 			expect(
@@ -1551,7 +1565,7 @@ describe("the Web Apps question", () => {
 
 	it("stops at the upload with hq_changed when the setting moved while a table was pushed", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstLookupPublish(peer, doc);
 			const before = requests(peer).length;
 			tablesWithOurs(peer);
@@ -1577,7 +1591,7 @@ describe("the Web Apps question", () => {
 describe("a first publish to a plan without Web Apps", () => {
 	it("stops at resources when the new app reads Web Apps off, keeps the mapping, sends no table, and withdraws the web-apps confirmation in the same fold", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, "source-shell", webApps(false));
@@ -1620,7 +1634,7 @@ describe("a first publish to a plan without Web Apps", () => {
 	it("fills the same app on the retry once the person narrows the app to Android only, writing the setting off", async () => {
 		const doc = await seed();
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201, bodies);
 			serve(peer, "source-shell", webApps(false));
 			expect(refusal(await publish(doc)).failure.code).toBe(
@@ -1639,7 +1653,7 @@ describe("a first publish to a plan without Web Apps", () => {
 	it("fills the same app on the retry once the person confirms the plan again, writing the setting on", async () => {
 		const doc = await seed();
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201, bodies);
 			serve(peer, "source-shell", webApps(false));
 			refusal(await publish(doc));
@@ -1655,7 +1669,7 @@ describe("a first publish to a plan without Web Apps", () => {
 	it("does not stop an Android-only app whose new app reads Web Apps on", async () => {
 		const doc = androidOnly(await seed());
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201, bodies);
 			serve(peer, "source-shell");
 			accepted(peer, 200, bodies);
@@ -1741,7 +1755,7 @@ describe("logos", () => {
 				? first
 				: second,
 		);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const offered = await firstPublish(peer, doc);
 			expect(offered.logoStep).toEqual({
 				assetId: logo,
@@ -1781,7 +1795,7 @@ describe("logos", () => {
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 		await seedImage(logo, "public/nova-icons/household.png");
 		await seedImage(moved, "public/nova-icons/household.png", DESTINATION);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			expect((await firstPublish(peer, doc)).logoStep?.changed).toBe(true);
 			const result = await h
 				.db()
@@ -1825,7 +1839,7 @@ describe("logos", () => {
 
 	it("refuse a source whose logo_refs is not an object, and publish one with no logo_refs key", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			serve(peer, "source-live", logoRefs(["hq_logo_web_apps"]));
 			expect(refusal(await publish(doc)).failure.code).toBe(
@@ -1857,7 +1871,7 @@ describe("logos", () => {
 			assets.delete(logo);
 			return { ...result, prepared: { ...result.prepared, assets } };
 		});
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await expect(publish(doc)).rejects.toThrow(
 				/is not among the assets this publish resolved/,
 			);
@@ -1869,7 +1883,7 @@ describe("logos", () => {
 	it("build the cleanup on the last read before the import, and stop for neither difference", async () => {
 		const doc = await seed(await lookupDocument());
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstLookupPublish(peer, doc);
 
 			republishLookup(
@@ -1963,7 +1977,7 @@ describe("a build profile that names a language the app no longer has", () => {
 	it("lets an update over a profile naming a language the app has land, and sends no build_profiles", async () => {
 		const doc = await seed(bilingualDocument());
 		const bodies: ImportBody[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			serve(peer, "source-live", withProfile("Field team", ["fra"]));
 			accepted(peer, 200, bodies);
@@ -1980,7 +1994,7 @@ describe("a build profile that names a language the app no longer has", () => {
 			{ kind: "removeLanguage", code: "fra" },
 		]);
 		const bilingual = listing(["en", "fra"]);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc, bilingual);
 			const record = await readDeployment(SCOPE, TARGET);
 			const before = requests(peer).length;
@@ -2033,7 +2047,7 @@ describe("a build profile that names a language the app no longer has", () => {
 				wireCode: "fra",
 			},
 		]);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			const before = requests(peer).length;
 			serve(peer, "source-live", withProfile("English phones", ["en"]));
@@ -2053,7 +2067,7 @@ describe("a build profile that names a language the app no longer has", () => {
 
 	it("stops at the upload where a profile saved while a table was pushed names a language the app lacks", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstLookupPublish(peer, doc);
 			const before = requests(peer).length;
 			tablesWithOurs(peer);
@@ -2085,7 +2099,7 @@ describe("a build profile that names a language the app no longer has", () => {
 			listing([...(source.langs as string[]), "fra"])(source);
 			withProfile("Francophone", ["fra"])(source);
 		};
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			const before = requests(peer).length;
 			serve(peer, "source-live", addedInHq);
@@ -2136,7 +2150,7 @@ describe("a build profile that names a language the app no longer has", () => {
 
 	it("stops the retry that fills an empty app an earlier try made, where the app now holds such a profile", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, "source-shell", version("2.53.0"));
 			expect(refusal(await publish(doc)).phase).toBe("resources");
@@ -2160,7 +2174,7 @@ describe("a build profile that names a language the app no longer has", () => {
 
 	it("refuses a source with no build_profiles as an app Nova cannot read, and sends nothing", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
 			const before = requests(peer).length;
 			serve(peer, "source-live", (source) => {

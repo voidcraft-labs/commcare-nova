@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DeploymentView, KeptRefreshView } from "@/lib/deployment/actions";
-import type {
-	HqChangesOutcome,
-	HqChangesReview,
+import {
+	changedOutcome,
+	type HqChangesOutcome,
+	type HqChangesReview,
 } from "@/lib/deployment/hqChanges/types";
 import type { ReviewTable } from "@/lib/deployment/reading/projectData/reviewTypes";
 import {
@@ -93,6 +94,7 @@ function nothing(
 		kind: "nothing",
 		reason,
 		since: { kind: "published" },
+		hqChanges: [],
 		publishChanges: [],
 		readingId: recorded ? "reading-2" : null,
 		reviewDigest: recorded ? "r".repeat(64) : null,
@@ -470,6 +472,65 @@ describe("a table that asks its choice", () => {
 		});
 		expect(pressed.needsChoice).toBeNull();
 	});
+
+	it("asks again for a table whose entry changed in the review the bring-in came back with, and keeps the answer of one that did not", () => {
+		const choiceOf = (
+			apps: NonNullable<ReviewTable["choice"]>["apps"],
+		): ReviewTable =>
+			({
+				tag: "districts",
+				standing: "choice",
+				hqDigest: "d".repeat(64),
+				projectTable: null,
+				choice: {
+					differs: ["rows"],
+					apps,
+					options: {
+						"use-commcare-hq": {
+							offered: true,
+							goneColumns: [],
+							retypedColumns: [],
+						},
+						"use-project": {
+							offered: true,
+							goneColumns: [],
+							retypedColumns: [],
+						},
+					},
+				},
+			}) as ReviewTable;
+		const crops = { ...choiceOf([]), tag: "crops" } as ReviewTable;
+		const before = changes({ tables: [choiceOf([]), crops] });
+		const sent = run(
+			[
+				{ type: "table-chosen", tag: "districts", choice: "use-commcare-hq" },
+				{ type: "table-chosen", tag: "crops", choice: "use-project" },
+				{ type: "bring-in-pressed", discard: false, at: AT },
+				{ type: "sent", id: 2 },
+			],
+			answered(before),
+		);
+		/* Another app began reading districts while the bring-in ran. */
+		const now = changes({
+			reviewDigest: "e".repeat(64),
+			tables: [
+				choiceOf([{ appId: "stock", appName: "Stock counts", deleted: false }]),
+				crops,
+			],
+		});
+		const moved = reduceHqChangesPanel(sent, {
+			type: "bring-in-answered",
+			outcome: { kind: "changed", now, editedBy: null },
+		});
+		expect(moved.tableChoices).toEqual({ crops: "use-project" });
+		const pressed = reduceHqChangesPanel(moved, {
+			type: "bring-in-pressed",
+			discard: false,
+			at: AT,
+		});
+		expect(pressed.needsChoice).toEqual({ nonce: 1 });
+		expect(nextRequest(pressed)).toBeNull();
+	});
 });
 
 describe("after the bring-in", () => {
@@ -649,6 +710,7 @@ describe("nothing to bring in", () => {
 		expect(panelView(sent, CARD).body).toEqual({
 			kind: "nothing",
 			line: nothingToBringInLine("reads-the-same", SINCE),
+			hqChanges: [],
 			publishChanges: [],
 			goesAhead: false,
 		});
@@ -749,6 +811,7 @@ describe("nothing to bring in", () => {
 		expect(panelView(state, CARD).body).toEqual({
 			kind: "nothing",
 			line: nothingToBringInLine("already-here", SINCE),
+			hqChanges: [],
 			publishChanges: ["A sentence."],
 			goesAhead: true,
 		});
@@ -832,11 +895,29 @@ describe("something Nova can't hold, and the stops", () => {
 		});
 	});
 
+	it("says CommCare HQ's version takes more checking than Nova gives one app, with the finding's block and no Check again", () => {
+		const tooIntricate = finding("too-intricate");
+		const view = panelView(
+			answered({
+				kind: "account",
+				findings: [tooIntricate],
+				more: 0,
+				counts: { notYet: 1, never: 0, fixInHq: 0 },
+			}),
+			PUBLISH,
+		);
+		expect(view.body).toMatchObject({
+			lead: "CommCare HQ's version of this app takes more checking than Nova gives one app, so Nova brought nothing in.",
+			tooLarge: tooIntricate,
+		});
+	});
+
 	it("words each unavailable reason against the review's own reference, with Check again only for Nova's defect", () => {
 		for (const reason of [
 			"not-published",
 			"publishing-stopped",
 			"app-deleted",
+			"hq-app-taken",
 			"no-reference",
 			"baseline-unread",
 			"base-needs-project-data",
@@ -1133,7 +1214,7 @@ describe("the moved line over what the bring-in found", () => {
 				{ type: "sent", id: 2 },
 				{
 					type: "bring-in-answered",
-					outcome: { kind: "changed", now, editedBy: "Grace" },
+					outcome: changedOutcome(now, "Grace"),
 				},
 			],
 			answered(changes()),

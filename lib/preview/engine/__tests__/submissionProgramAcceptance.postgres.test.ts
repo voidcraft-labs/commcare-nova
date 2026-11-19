@@ -36,6 +36,7 @@ import {
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
@@ -705,10 +706,29 @@ describe("engine → builder → executor acceptance", () => {
 
 	it("a lookup-backed false condition skips its operation while the own case's write commits", async () => {
 		const appDb = dbHandle.db as Kysely<AppDatabase>;
-		const seeded = await appDb.transaction().execute((tx) =>
+		/* A lookup writer reads its member's role on its own transaction, so the
+		 * table below is written by a member of the Project. */
+		await sql`
+			CREATE TABLE auth_member (
+				id text PRIMARY KEY,
+				"userId" text NOT NULL,
+				"organizationId" text NOT NULL,
+				role text NOT NULL,
+				UNIQUE ("organizationId", "userId")
+			)
+		`.execute(appDb);
+		await sql`
+			INSERT INTO auth_member (id, "userId", "organizationId", role)
+			VALUES ('program-acceptance-member', ${ACTOR}, ${PROJECT}, 'owner')
+		`.execute(appDb);
+		const seeded = await appDb.transaction().execute(async (tx) =>
 			applyLookupAuthoringBatchInTransaction(
 				tx,
-				{ projectId: PROJECT, actorId: ACTOR, role: "owner" },
+				await authorizeLookupWriteInTransaction(
+					tx,
+					{ projectId: PROJECT, actorId: ACTOR },
+					"edit",
+				),
 				{
 					createTables: [
 						{

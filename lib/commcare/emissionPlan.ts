@@ -33,6 +33,7 @@ import {
 } from "@/lib/domain";
 import { isDeeplySettled, isSettled } from "@/lib/domain/settled";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "./suite/case-search/noMatches";
+import { chargeWork, metering } from "./workMeter";
 
 /** Namespace for synthetic module uuids; changing it re-ids every export. */
 const SYNTHETIC_MODULE_NAMESPACE = "6f1a9d0e-4b8c-4f0a-9c2d-3e5b7a1c8d2f";
@@ -114,6 +115,16 @@ function planInputsSettled(doc: BlueprintDoc): boolean {
 export function emissionPlan(doc: BlueprintDoc): EmissionPlan {
 	const known = plans.get(doc);
 	if (known !== undefined) return known;
+	// The work meter's `print` door (`workMeter.ts`): a plan reads every menu, form and field of
+	// the document, one unit each, in a metered reading only.
+	if (metering())
+		chargeWork(
+			"print",
+			1 +
+				doc.moduleOrder.length +
+				Object.keys(doc.forms).length +
+				Object.keys(doc.fields).length,
+		);
 	const plan = derivePlan(doc);
 	if (!planInputsSettled(doc)) return plan;
 	/* A remembered plan is shared by every caller, so nothing of it may

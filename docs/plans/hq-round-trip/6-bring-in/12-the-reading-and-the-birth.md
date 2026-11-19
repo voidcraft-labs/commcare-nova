@@ -63,15 +63,20 @@ table, no migration and no `scripts/test-schema.ts` entry.
 6. **Acceptance runs once in a read, whole, and judges every document a choice can make** (3.3).
    It takes no choice of the person's: a split the review offers has already been read back.
 7. **Each call to CommCare HQ has its own deadline, and no number is added to another** (3.2).
-   A closed tab stops a read at its next call. A create is never stopped by its caller.
-8. **Two plain limits bound the work** (3.4, 3.6). An app body over part 05's byte cap is refused
+   A closed tab stops a read at its next call, and its processing at its next step: the request's
+   signal reaches every piece (`gather.ts::Pieces`) and every charge of the reader's work meter.
+   A create is never stopped by its caller.
+8. **Three plain limits bound the work** (3.4, 3.6). An app body over part 05's byte cap is refused
    unparsed, as the circumstance `too-large`. An app with more files, or more bytes of them, than
-   one publish can carry is a finding, by the export ceiling Nova already has.
+   one publish can carry is a finding, by the export ceiling Nova already has. A reading whose work
+   passes the work limit of its source's size (part 06, 2.2) is the account of one `too-intricate`
+   finding: an app that is intricate rather than large, which no byte cap catches.
 9. **Progress is the response itself** (4.3). Both routes answer a stream of NDJSON lines: the
    stage that is running, a file count that moves, then one last line with the answer.
 10. **The review digest is the SHA-256 of everything the person was shown and everything the birth
     would write that they were not** (5.2): the review, the document with each media file named by
-    its content, the identity rows and the media paths. The date of the read is left out. No answer
+    its content, and the target-identity record the birth writes (menu and form ids, keyed-create
+    prefixes, media paths; part 10, section 3.3). The date of the read is left out. No answer
     the review offers changes the digested document.
 11. **The create trusts nothing the client sends about CommCare HQ** (5.3). It reads again, checks
     again, and creates only where its own digest is the one sent. The person's answers are then
@@ -254,7 +259,7 @@ Eight things are unmeasured. None is a run, and each has its decision here:
 | What is unmeasured | What is done about it |
 |---|---|
 | The reader's and acceptance's own time on an app at the byte cap | Part 05 sets the cap from Nova's parsers' measured rate with ten times that allowed (its section 3.3). `cap.test.ts` holds each synchronous piece of a read at the cap under five seconds, in ordinary CI. A failure is a defect in the reader or in acceptance and is fixed there, never a reason to lower the cap. Every answered read logs `checkMs` and `sourceBytes` (10), so the rate real apps show is on record |
-| What the reader holds in memory beside a body (3.6) | No test, and nothing divided. Three bounds are enforced, so every input of a request is bounded before it is held. What the reader makes of the two bodies at the cap, 32 MiB of text, is unmeasured, and 3.6 claims no margin for it: 200 MiB of kept files is about six times that text |
+| What the reader holds in memory beside a body (3.6) | Measured once by hand, with `--expose-gc` and a full collection every 2 seconds, over a source of 15.99 MiB built as the cap tests build theirs: a read held 576 MiB of live heap at its peak (647 MiB before the reader let go of what it no longer reads), a changes review over two such sources 615 MiB and its bring-in 605 MiB. The process meters what its bring-ins hold by those rates (`lib/commcare/hq/memoryMeter.ts`, `reading/room.ts`) against half the heap V8 sizes from the instance and a quarter of its memory, about 512 MiB each on the 2 GiB instance, and the cap is set so that one request at it fits that share (part 05, section 3.3). What one parse builds and what the forms of a reading build together are bounded and tested (`xmlParseKind.test.ts`, `reading/__tests__/formsTooLarge.test.ts`) |
 | CommCare HQ's time to answer, its throughput for files, and its time to serve an app near the cap | No run. The deadlines of 3.2 stand, each one constant. One that proves short shows as `[commcare] <label> unavailable` with the read's name |
 | Storage's time to take a file | No run. It is inside the count the person watches |
 | Whether stream lines arrive unbuffered in production | No run. `app/api/media/[assetId]/extract/route.ts` already depends on it. Where a line is late the answer still arrives whole and only the count stands still |
@@ -680,10 +685,9 @@ show.
    space is not among the stored `approved_domains`): `stop`, `key-cannot-reach-space`. No request
    is sent for either. `ambiguous` cannot be answered where a project space is named, and is thrown
    as an invariant failure ("Copy", C8).
-2. **The claim, as advice.** `lib/deployment/store.ts::readHqAppClaims({ viewerUserId, server, domain,
-   remoteAppIds: [remoteAppId] })` (part 10, section 5.5). A view: `stop`, `already-in-nova`, with
-   the view, less its `remoteAppId`, as `detail.claim`. This read decides nothing; the claim
-   inside the birth does (6.3).
+2. (No step: who already holds the app in Nova is asked only once CommCare HQ has answered with
+   it, at the end of step 3. The connection of step 1 is Nova's stored list of the project spaces
+   the key reached when it was saved, which proves nothing of the key now.)
 3. **The app** (`reading-app`). `lib/commcare/hq/appReading.ts::readHqAppForReading(creds, domain,
    remoteAppId, { cancel })`, one bracketed attempt (part 05, section 8.2).
 
@@ -693,6 +697,15 @@ show.
    | `changed` | the attempt is made once more, in this same request. A second `changed` is `stop`, `changed-while-reading` |
    | `linked`, `remote`, `deleted`, `gone` | `stop`: `linked-app`, `remote-app`, `app-deleted`, `app-gone` |
    | `failed` | `hqReadCircumstance(failure)` (part 05, section 4.3): `stop` where part 01's `CIRCUMSTANCE_STANDINGS` says `stop`, else an account of that one finding, which is `too-large` (3.6), with `appName` null: part 05's `failed` answer carries no name, whichever of the two bodies was over the bound |
+
+   **The claim, as advice**, once the answer is `read`: `lib/deployment/store.ts::readHqAppClaims({
+   viewerUserId, seen })` (part 10, section 5.5), `seen` the `HqAppsSeen` the `read` answer carries,
+   through `gather.ts::GatherSources.claimOf` (absent in the proof lane, whose reading has no Nova
+   store). A view: `stop`, `already-in-nova`, with the view, less its `remoteAppId`, as
+   `detail.claim`, before any table, place or file is read, so its advice still finds a holder
+   before anything is fetched. Every other answer of the table above is CommCare HQ's own stop or
+   failure, the same for an app a Nova app holds and one it does not. This read decides nothing;
+   the claim inside the birth does (6.3).
 
    Then, only where part 07's `publishedCaseBlocks.ts::sourceHoldsEditMode` says the source holds a
    write saved only if the worker changed it (`07-the-reader-cases-menus-lists.md`, section 6.1),
@@ -822,8 +835,8 @@ show.
 9. **A clean read's values.** Where there is no finding: `projectDataReview(data, reads, doc,
    mintingResolver(appId))` (the review's `tables` and `places`), the `lookup` snapshot and the
    `adoptedMediaFiles(plan)` of step 8.3, then the review and its digest (5.1, 5.2).
-   Each call of part 11's takes a resolver of its own, as step 6.2's does: a resolver answers a key
-   once (part 10, 2.3), each of part 11's functions claims the levels' keys, and every
+   Each call of part 11's opens its own claims under the resolver it is given (part 10, 2.3), since
+   each claims the levels' keys and claims answer a key once; a resolver holds no claim, and every
    `mintingResolver(appId)` mints the same UUIDs.
 
    The digest covers the identity rows the birth would write, `adoptedIdentityRows(draft.identities,
@@ -943,7 +956,7 @@ request holds of project data is at most what the caps admit.
 
 ### 3.6 The size cap
 
-`lib/commcare/hq/appReading.ts::HQ_BRING_IN_APP_MAX_BYTES` is 16 MiB, and part 05 holds the number,
+`lib/commcare/hq/appReading.ts::HQ_BRING_IN_APP_MAX_BYTES` is 12 MiB, and part 05 holds the number,
 the measurement it is set from and the bounded read that enforces it (its section 3.3): a body over
 it is never parsed and never held. It is a refusal threshold, never a size anything is designed
 for. What follows is what the cap means to this part's two requests.
@@ -969,32 +982,56 @@ parsed once for every reader of it (`lib/commcare/xmlParse.ts::heldXmlParse`), a
 point's re-read is answered with the first reading's emissions where it emits the same settled
 document under the same inputs (`lib/commcare/reader/heldExpansions.ts`). A piece that runs longer
 is a defect in the reader or in acceptance, fixed there by cutting the piece where it is long, and
-never a reason to lower the cap.
+never a reason to lower the cap. Every piece runs under the request's work meter, so the cap test
+holds a count no machine moves: the request's work within a quarter of a reading's limit of the
+source's size, and no piece doing more than its stated units between two turns of the event loop;
+its wall time is logged and fails only at four times five seconds. The request's `cancel` reaches
+every piece: once it aborts, the next piece, or the next charge inside a running one, stops the
+request, so a closed tab stops a read's processing as well as its calls.
 
-**Memory at the cap.** Three bounds are real, because each is enforced: a body is at most 16 MiB,
-so the two bodies of one read, the application resource and the source, are at most 32 MiB of
-text; the files in flight are at most 64 MiB and in a create the kept files at most 200 MiB (3.4);
-and the table rows are at most what part 11's caps admit (3.5). What the reader makes of a body is
-not a bound from the body's size and is written here as none: the size of a parsed JSON value
-beside its text, of the Nova document and its batch, of one form's XML as a tree, of acceptance's
-emission and re-read, and of the first reading's two emissions, which the request holds until its
-re-read. The parsed form texts the process holds are bounded by their characters
-(`PARSED_FORM_TEXTS_HELD_CHARACTERS`, 8 Mi characters, some eight bytes of tree each). There is no wide margin to lean on either. The 200 MiB that one publish of
-an app at Nova's media ceiling already holds in this process is about six times the two bodies at
-the cap, and nothing measured says the reader's own values stay under six times their text. So
-this part does not say that an app at the cap costs less memory than its files do.
+**Memory at the cap.** The bounds are real because each is enforced: a body is at most 12 MiB,
+so the two bodies of one read, the application resource and the source, are at most 24 MiB of
+text; what the forms' XML builds is bounded apart from their bytes, one parse at most
+`XML_DOCUMENT_MAX_NODES` nodes, `XML_DOCUMENT_MAX_DEPTH` deep and
+`XML_DOCUMENT_MAX_NAMESPACE_DECLARATIONS` declarations, and a reading's forms together at most
+`HQ_BRING_IN_READING_MAX_XML_NODES` nodes, counted before the reader reads any
+(`gather.ts::formsWithinReading`); the parsed form texts the process holds between requests are
+weighed by those nodes (`PARSED_FORM_NODES_HELD`, about 25 MiB of trees at 160 bytes a node,
+measured); the files in flight are at most 64 MiB and in a create the kept files at most 200 MiB
+(3.4), one buffer per distinct content, the very entry the media budget counts, and the read's own
+bytes rather than a copy, while a file in flight is held once where its answer names its length and
+at most twice (its chunks and their join) where it does not; and the table rows are at most
+`HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` of CommCare HQ's answer a table and
+`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES` a request (3.5), read before part 11's caps judge them. Every
+one of these is per request; the process meters what the bring-ins it runs hold together
+(`lib/commcare/hq/memoryMeter.ts`, run by `reading/room.ts`): each request is charged for what it
+reads and keeps as it keeps it, and one whose charge would pass the bound stops, writing nothing,
+with `nova-busy`. What the reader makes of a body the meter charges by measured rate. Measured once
+at a source of 15.99 MiB, a reading held 576 MiB of live heap at its peak, 36 times its source, and
+a changes review over two such sources 615 MiB. The peak is acceptance's fixed point, which reads
+Nova's emission of the document again while the first reading's document, the gate's candidates
+and the parsed sources stand. Before this part's cuts it was 647 MiB: a claim's map of entries is
+made only at a node's first entry (`accounting.ts::NodeState`), the gate's admitted batch and the
+construction's candidate are let go before the fixed point (`acceptance.ts`), and the parse cache
+holds one app's forms rather than two, the source's trees going once the first reading, which keeps
+its own, is done. The heap is the scarcer of the two pools: V8 sizes it at about 1 GiB on the
+2 GiB instance, and serving holds its own share of it.
 
-What the decision rests on is the three bounds themselves. Every input of a request is bounded
-before it is held, so what a request holds is some multiple of bounded inputs and never follows an
-app past them. The cap is a refusal threshold thirty-two times HQ's largest starter app (part 05,
-section 3.3), and the ordinary app's source is half a megabyte or less ("Executed during
-planning"). So nothing is divided: the service's memory is not divided, pinned or named anywhere.
-And no test is written: the ordinary test run cannot force a collection to measure what the
-reader holds (`vitest.config.mts` passes no `--expose-gc`).
+What the decision rests on is the bounds themselves. Every input of a request is bounded before it
+is held, so what a request holds is some multiple of bounded inputs and never follows an app past
+them. The cap is a refusal threshold twenty-four times HQ's largest starter app (part 05, section
+3.3), and the ordinary app's source is half a megabyte or less ("Executed during planning"). What
+is divided is the process's heap and memory between its bring-ins, by a meter of what each holds
+(`memoryMeter.ts::processMemoryBounds`, which says its arithmetic), so an ordinary app costs what
+it holds and many run at once, and the cap is set so that the largest request at it, a changes
+review charged 40 bytes a byte of its source, fits the bring-ins' share (480 of about 512 MiB). The
+measurement is not a test: the ordinary test run cannot force a collection (`vitest.config.mts`
+passes no `--expose-gc`), so it was made once, by hand, over the two cap tests, and its numbers
+stand in the meter's constants.
 
-**What the person reads.** The circumstance `too-large` (part 01, sections 8.3 and 9.3) has one
-cause, a body over the bound, and carries no `detail.name`. It is answered as an account of that
-one finding. Part 01's block promises no update, because nothing plans one, and offers a step the
+**What the person reads.** The circumstance `too-large` (part 01, sections 8.3 and 9.3) has two
+causes, a body over the bound and forms that hold more than one reading parses, and carries no
+`detail.name`. It is answered as an account of that one finding. Part 01's block promises no update, because nothing plans one, and offers a step the
 person can take today. Where the app's name is not known, because a body of the app was over the bound (part 05's
 `failed` answer carries no name, whichever body it was), the account's `appName` is null and the block's `{app}` reads "This app" (part
 01's `circumstanceBlock`, its section 8.4).
@@ -1119,17 +1156,18 @@ is 200 with its deployment. Anything thrown inside the stream that is no answer 
 and a log (10).
 
 One table gives a refusal its status, for the two refusals a route can meet before its stream and
-for the five that only ever ride a `CreateAnswer`:
+for the six that only ever ride a `CreateAnswer`:
 
 ```ts
 // lib/deployment/reading/types.ts
 export const READING_REFUSALS = ["no_project_access", "invalid_input", "name_missing",
-	"choice_not_offered", "choice_missing", "project_changed", "app_unavailable"] as const;
+	"choice_not_offered", "choice_missing", "project_changed", "app_unavailable",
+	"publish_in_flight"] as const;
 export type ReadingRefusal = (typeof READING_REFUSALS)[number];
 export const READING_REFUSAL_STATUS = {
 	no_project_access: 403, invalid_input: 400,
 	name_missing: 200, choice_not_offered: 200, choice_missing: 200, project_changed: 200,
-	app_unavailable: 200,
+	app_unavailable: 200, publish_in_flight: 200,
 } as const satisfies Record<ReadingRefusal, 200 | 400 | 403>;
 ```
 
@@ -1353,7 +1391,7 @@ Where each field comes from, in `gather.ts`, after acceptance:
 | `webAppsOnInHq` | `draft.facts.webAppsOnInHq` (part 06, section 17.3) |
 | `datetimeQuestions` | the count of date-and-time questions a splitting choice changes: `splits.length` of a choice of `AcceptReadingInput.choices` whose `split` is true (every such choice splits the same questions); 0 where no choice splits |
 | `platformsOut` | one entry per platform no offered choice declares, in `PLATFORMS`' order: `features` the distinct features of `platformUses.ts::unavailableUses(doc, [platform])` in table order, and `media` true where `readingMediaFindings().playsOn` leaves the platform out: `playsOn` is answered over every platform, offered or not, so it says this for a platform no choice of the draft offers |
-| `kept` | `keptListFor(facts)` (part 01, section 6.1), `facts` being `targetFactsFromSource` over the source as the adopted baseline will store it, with `observedAt` the read's `readAt`, `adopted: true` and `novaOwnsAutoGpsCapture` the `autoGpsCapture` of the ownership part 10's `adoptedAppBaselineWrite` gives that baseline (its 6.3); the empty list where the answer is null |
+| `kept` | `keptListFor(facts)` (part 01, section 6.1), `facts` being `targetFactsFromSource` over the source as the adopted baseline will store it, with `observedAt` the read's `readAt`, `adopted: true` and `novaOwnsAutoGpsCapture` the `autoGpsCapture` of the ownership part 10's `adoptedAppBaselineWrite` gives that baseline (its 6.3); the empty list where the answer is null. The digest holds the labels and not the values, and needs no more: no kept value can name a device destination (a `.ccz` names only its server, and a base elsewhere refuses the `.ccz`), an archive member (a held media path is never a name the archive gives its own files) or another key's text (a kept text is carried only where its key is one locale record of its own name), part 01 sections 4.3 and 6.1, part 10 section 4.2 |
 | `tables`, `places` | `projectDataReview(data, reads, doc, mintingResolver(appId))` (part 11, 14.1) |
 | `mediaLeftOut` | `HqMediaPlan.inert.length` and `readingMediaFindings().inert.length` together (3.3, step 8.3) |
 | `firstPublish` | `AcceptedReading.firstPublish`, the preselected declaration's |
@@ -1367,15 +1405,16 @@ whole (5.2) and sends it, so a field added to the type is in the digest by const
 ```ts
 // lib/deployment/reading/digest.ts
 export interface ReviewDigestInput {
-	readonly v: 1;
+	readonly v: 2;
 	/** The review without `readAt`. */
 	readonly review: Omit<ReadingReview, "readAt">;
 	/** `canonicalJsonDigest` of the persistable document with every media asset id replaced. */
 	readonly document: string;
-	/** `adoptedIdentityRows(...)`, as written: kind, Nova UUID, HQ id, `xmlns`. */
-	readonly identities: readonly DeploymentIdentityOverride[];
-	/** `assignMediaPaths(...)` over the files with each `assetId` set to `reviewMediaId(contentHash)`. */
-	readonly mediaPaths: MediaPathAssignment;
+	/**
+	 * The target-identity record the birth writes, `resolveTargetIdentity(empty, observed)` over the
+	 * reading with each file's asset id set to `reviewMediaId(contentHash)`, in canonical order.
+	 */
+	readonly targetIdentity: TargetIdentity;
 }
 /** `lib/utils/canonicalJson.ts::canonicalJsonDigest(input)`: 64 lower-case hex characters. */
 export function reviewDigestOf(input: ReviewDigestInput): string;
@@ -1388,15 +1427,19 @@ export function reviewDigestOf(input: ReviewDigestInput): string;
 | `review` | every value the review screen shows: the name, the counts, the declaration choices and which is preselected, why it is the one proposed, whether Web Apps is on in CommCare HQ, the date-and-time questions a split changes, the platforms no choice declares and why, the kept list, each table's and the places' entry, the features recorded and the first-publish changes under each choice | a kept setting appearing; a table that now meets a Project table; a new first-publish change; Web Apps turned off in CommCare HQ |
 | `review.tables`, `review.places` | each table's canonical digest of CommCare HQ's columns and rows, the met Project table's two revisions, each offered answer with what it does; the places' digest (part 11 asks the digest to cover exactly these) | a row edited in CommCare HQ since the review; a Project table edited in Nova since; an answer that is no longer offered |
 | `document` | the reader's whole document, which is what a birth saves but for the name and the chosen declaration's mutations: every menu, form, question, expression, case write, hold and translation | a label edited in CommCare HQ since the review, which no count shows |
-| `identities` | the HQ ids and `xmlns` the adopted deployment would record | a form deleted and re-made in CommCare HQ with the same content |
-| `mediaPaths` | which path each file keeps | a file moved to another path |
+| `targetIdentity` | the record the birth writes: the HQ ids and `xmlns` of every menu and form, the prefix each keyed create's cases stand under, the path each file keeps; the same observation through the same rule the birth writes, so what is digested and what is written cannot drift when a kind of observation is added | a form deleted and re-made in CommCare HQ with the same content; a keyed create's prefix edited in CommCare HQ since the review; a file moved to another path |
 
 **What it leaves out.** `readAt`, so the same app read a minute later has the same digest. CommCare
 HQ's save counter, so a save that changed nothing Nova reads does not send the person back to the
 review. The person's choices, which are made after it and validated against `review.runsOn` and
 `review.tables`; what each choice would do is in the digest, as the option it answers. And the
 surface manifest's revision (Departure 21): a deploy between the two requests changes the digest
-only where it changes what this app's review or document holds.
+only where it changes what this app's review or document holds. Two things the birth writes are
+left out, each because the review shows nothing they change and the birth records CommCare HQ's
+state as it stands: the baseline's stored source (a save that changes nothing Nova reads must not
+send the person back) and its media-file record, the CommCare HQ document at each held path (a file
+replaced in CommCare HQ under the same path with the same bytes changes only that id, which the
+birth records as it is).
 
 **Why it is the same number in both requests when nothing changed.** The ids are derived from the
 same `readingId` (2.3). A file is named by the SHA-256 of its bytes, which the create computes from
@@ -1518,8 +1561,10 @@ holds. And it adds nothing to the Project until it knows it will create. Before 
    no read of CommCare HQ, so it comes before one.
 4. **The read, again.** `gatherReading` with `keepMedia: true`: the steps of 3.3 exactly as a read
    runs them, with the same provisional media ids, the same stages and the same results. The one
-   difference is that the bytes of each held file stay in the request's media plan (6.1). Nothing
-   is published here.
+   difference is that the bytes of each held content stay in the request's media plan (6.1), once
+   however many files hold them. Nothing is published here. Its table digests, compared with the
+   reviewed ones through the review digest, are what make a torn read at either request a refusal
+   as `changed`: both reads would have to tear the same way.
 5. **By its result:**
 
    | The fresh read gives | The create answers |
@@ -1715,7 +1760,7 @@ Every field of part 10's type (its 6.2), and where it comes from:
 | `appId`, `projectId`, `actorUserId` | `appId`, `key.projectId`, the person |
 | `target` | `{ server: key.server, domain: key.domain }` |
 | `remoteAppId` | `key.remoteAppId` |
-| `remoteRevision` | `gathered.fetched.hqVersion`: the save counter this create's own bracketed read held, never one the review was made at. The digest leaves the counter out (5.2), so a save in CommCare HQ that changed nothing Nova reads lets the review stand; recording an earlier counter beside the create's baseline would then make the first publish's drift check see a change since the baseline and stop for nothing |
+| `remoteRevision` | `gathered.fetched.hqVersion`: the save counter this create's own bracketed read held, never one the review was made at; a publish's read-back holds the same bracket since (part 10, section 7.2), and the birth's mapping keeps it as `pushed_remote_revision` too, so the first publish's record orders after it. The digest leaves the counter out (5.2), so a save in CommCare HQ that changed nothing Nova reads lets the review stand; recording an earlier counter beside the create's baseline would then make the first publish's drift check see a change since the baseline and stop for nothing |
 | `pushedRevision` | 1, the birth's sequence |
 | `identities` | `adoptedIdentityRows(gathered.draft.identities, gathered.fetched.modules)`'s `rows` (part 10, 3.1), the rows the digest covered (3.3, step 9) |
 | `baseline` | `adoptedAppBaselineWrite({ remoteAppId, source, prepared, target, identity, novaRevision, mediaFiles, observedAt, firstPublish })` (part 10, 6.3; `firstPublish` is part 09's input, its 12.3): `source` is `gathered.fetched.source`, `identity` `targetWireIdentity(rows)`, `novaRevision` 1, the birth's sequence, `mediaFiles` part 15's `hqMediaRecordFromSource` over the wire paths of the `mediaPaths` rows below and `gathered.fetched.source.multimediaMap` (`15-changes-made-in-commcare-hq.md`, section 7.8), `observedAt` `gathered.fetched.readAt`, and `firstPublish` `chosen.firstPublish`, from this create's own acceptance. `prepared` is part 09's `adoptionExportBoundary(doc, lookup.definitions, mediaFiles, target)` (its 15.2): `doc` the candidate's document, `lookup` `gathered.lookup`, `mediaFiles` `gathered.mediaFiles`, and `target` the server's origin and the project space, as the reader takes it |
@@ -1814,7 +1859,7 @@ In order, with the lock each statement takes:
 | 2 | `writePreparedGenesisInTransaction(tx, { candidate, actorUserId, runId, status: "complete", afterAppInsert })`: | |
 | 2a | `assertProjectCapabilityInTransaction(…, "edit")` | the shared membership gate; the member row is read |
 | 2b | `INSERT apps` at sequence 1, `status` `complete`, no holder and no reservation columns | a new row |
-| 2c | `afterAppInsert`, with `write` being `birth.projectData` and `origin` `write.origin`: part 11's `writeBroughtInLookupTablesInTransaction(tx, { projectId, actorUserId, appId }, { origin, tables: write.tables, readAt: write.tablesReadAt })` (`appId`, the new app, whose own mappings are no sibling's) (its 7.4), which derives each standing again under the lock, with the columns apps read now, and throws `BroughtInTableChangedError` where one is no longer the standing its binding was made for, where an answered offer is no longer offered, and where a table it would write was refreshed from a read later than the reading's own (`hq_refreshed_at` past `readAt`); it stamps every table it writes with the reading's read date, never the birth's | `lookup_project_state FOR UPDATE`, then each table it creates or refreshes |
+| 2c | `afterAppInsert`, with `write` being `birth.projectData` and `origin` `write.origin`: part 11's `writeBroughtInLookupTablesInTransaction(tx, { projectId, actorUserId, appId }, { origin, tables: write.tables, readAt: write.tablesReadAt })` (`appId`, the new app, whose own mappings are no sibling's) (its 7.4), which reads the member's role on the birth's transaction (`authorizeLookupWriteInTransaction`), derives each standing again under the lock, with the columns apps read now, and throws `BroughtInTableChangedError` where one is no longer the standing its binding was made for or an answered offer is no longer offered; it hands each refresh and adoption the reviewed state it is held to under the table's own lock (`ManagedTableReviewed`: the `projectTable` revisions the reading saw and, for an adoption, the ids of the apps the choice named), so an app that began reading the table since, a revision that moved, or a table refreshed from a read later than the reading's own (`hq_refreshed_at` past `readAt`) is `LookupReviewMovedError`, a `conflict` the create answers `read-again`; it stamps every table it writes with the reading's read date, never the birth's | the membership gate and member row, `lookup_project_state FOR UPDATE`, then each table it creates or refreshes |
 | 2d | `afterAppInsert`, after 2c: part 11's `writeBroughtInPlacesInTransaction(tx, { appId, projectId, actorUserId }, { origin, places: write.places, at })` (its 11.4), which takes a null `places` and then writes nothing; otherwise it reaches `lib/organization/managed.ts::writeManagedPlacesInTransaction` | new rows: the new app's `app_organization_state` and its `app_locations` |
 | 2e | lookup context; the absolute gate; `getAssetsInTransaction` over the referenced assets; export readiness | the candidate's tables `FOR KEY SHARE` (those 2c wrote are already held); each referenced asset `FOR SHARE`, in id order |
 | 2f | organization integrity, which reads the places 2d wrote; `admitExactMediaReferences`; lookup edges | the same assets, already held |
@@ -1887,6 +1932,7 @@ been.
 | `adoptedDeploymentWrite` answers `ok: false` (6.2) | a form with no real id reached a birth. The same call answered rows for this run's digest (3.3, step 9), so nothing reaches this arm in production; it guards the birth against a change to either | `check-failed`, `birth-identity`; no transaction opens |
 | `replay` | another call of this reading's create committed first | `created`, with the receipt read back (6.6) |
 | `HqAppAlreadyClaimedError` with any other holder, the null holder of part 10's index floor included | a live Nova app publishes to this HQ app | by 6.6's rule: `created` where this reading's own app exists; otherwise `changed` with the stop `already-in-nova`, its `detail.claim` from a fresh `readHqAppClaims` |
+| `HqAppWriteInFlightError` | a write another Nova app let out to this HQ app has not settled: it stopped publishing there while an import or a media job of its publish could still land (part 10, section 8.5). Before the transaction, the create reads each media job of that HQ app still open by its job id with the person's key, and settles one CommCare HQ reports done (`remoteWrites.ts::settleFinishedMediaJobs`), so the claim waits only for what may still land | by 6.6's rule: `created` where this reading's own app exists; otherwise `refused: publish_in_flight`. The answer names no Project and no person |
 | a primary-key conflict on `apps` | this reading's app exists and is in recently deleted: only a delete racing a replay gives it | as `replay` |
 | `GenesisGateRejectedError`, every published asset still a ready file of the Project | the tail's gate or export readiness refused a document acceptance had just passed | `check-failed`, `birth-` and the error's `check`: `birth-gate` or `birth-export` |
 | part 11's `BroughtInTableChangedError`; its `LookupError` with code `tag_taken` or `conflict` | a table the app reads changed in the Project between this create's read and the birth's lock: a table of that tag was created, edited, or taken over with Manage in Nova | `read-again`. The caller reads the app again, and the fresh review shows the table as it now stands, with its choice where it asks one |
@@ -2353,6 +2399,7 @@ export const READING_FAILED_COPY: Readonly<Record<"read" | "create", {          
 | `choice_missing` | the create (5.3, step 6) | `refused` | A lookup table this app reads needs your choice before Nova can create the app. You can choose what to do with it in the review. |
 | `project_changed` | the birth (6.5) | `refused` | A file this app uses was removed from your Project while Nova was creating the app, so Nova stopped before creating it. You can bring it in again, and Nova adds the file back. |
 | `app_unavailable` | a repeated create (6.6) | `refused` | This app was brought in already, and you can't open it from here. If it's in recently deleted, you can restore it from your apps. If you've left its Project, one of its admins can add you back. |
+| `publish_in_flight` | the birth's claim (6.5) | `refused`, shown above the review's footer, which stands | Nova is still finishing a publish to this app in CommCare HQ, so it can't be brought in just yet. You can try again in a few minutes. |
 
 The Zod issue of an `invalid_input` goes to the log (`[reading] request refused`, section 10) and
 not to the person: a path and a parser's message are Nova's own words for its own mistake. A
@@ -2532,7 +2579,7 @@ the create tests control with `vi.mock`.
 | an app with two files of the same bytes is created: its document names one asset for both, the Project holds one ready file of that content, and the digest was equal | an app born from a document acceptance never judged; a digest that sees asset ids |
 | a file the Project already held (a ready file of the same bytes, under another id): the digest is equal and the app is born naming that file | a second copy of a file the Project holds |
 | the same create sent twice in turn: one app, the same receipt, no request to CommCare HQ and no `app_changes` row from the second, and its receipt passes `parseAppMaterializationReceipt` | a lost response making a second app |
-| an app that reads no table: create B is held where its stored key is decrypted, which is after its own first read of `apps` and before its claim advice read (3.3, steps 1 and 2); create A of the same reading commits; B is released: B's claim advice names A's app as the holder, B answers `created` with A's receipt, and one app exists | the overlap that meets the claim advice (6.6): the stop `already-in-nova` shown for the person's own new app |
+| an app that reads no table: create B is held at the HQ peer's answer for the app, which is after its own first read of `apps` and before its claim advice read (3.3, step 3); create A of the same reading commits; B is released: B's claim advice names A's app as the holder, B answers `created` with A's receipt, and one app exists | the overlap that meets the claim advice (6.6): the stop `already-in-nova` shown for the person's own new app |
 | an app that reads no table: create B is held at the HQ peer's first media answer, create A of the same reading commits, B is released: B answers `created` with A's receipt, and one app exists | the overlap that meets the birth's lock: a second app, or an error for the person's own app |
 | an app that reads one lookup table: B is held at the HQ peer's answer for the app, A commits, B is released: B's own read now meets A's table, and B still answers `created` with A's receipt | 6.6's rule on the path where the digest differs: `changed` or `already-in-nova` shown for the person's own app |
 | two reads and two creates of one HQ app, by two people: one app is born, the other create answers `changed` with `already-in-nova`, and the loser left no table, no deployment and no app | two Nova apps publishing over one HQ app |
@@ -2573,7 +2620,7 @@ the create tests control with `vi.mock`.
 
 | File | Tests | Catches |
 |---|---|---|
-| `lib/deployment/reading/__tests__/cap.test.ts`, over `gatherFromHq` with a Project side that holds nothing and the HQ peer controlled; its own timeout of 60 seconds | an application resource one byte over `HQ_BRING_IN_APP_MAX_BYTES`, and then a source one byte over it, each answer an account of one `too-large` with `appName` null, and the peer's stream was cancelled at the bound each time. A source and its resource just under the cap, built by repeating one retained menu under fresh ids, read to a review, with `GatherFacts.longestPieceMs` under 5,000 | a body held or parsed past the bound; a synchronous piece long enough to fail another request's timer on the same instance (3.6). A failure of the second case is fixed in the reader or in acceptance, by cutting the piece where it is long, and the cap stands |
+| `lib/deployment/reading/__tests__/cap.test.ts`, over `gatherFromHq` with a Project side that holds nothing and the HQ peer controlled; its own timeout of 60 seconds, 600 for the read at the cap | an application resource one byte over `HQ_BRING_IN_APP_MAX_BYTES`, and then a source one byte over it, each answer an account of one `too-large` with `appName` null, and the peer's stream was cancelled at the bound each time. A source and its resource just under the cap, built by repeating one retained menu under fresh ids, read to a review, with `GatherFacts.workUnits` within a quarter of `readWorkLimit` of the source's characters and `longestPieceUnits` at most 4,000,000 (four times what the read's most piece did when the meter was set); `longestPieceMs` is logged and fails only at 20,000 | a body held or parsed past the bound; a synchronous piece long enough to fail another request's timer on the same instance (3.6). A failure of the second case is fixed in the reader or in acceptance, by cutting the piece where it is long, and the cap stands |
 | `lib/deployment/reading/__tests__/create.test.ts` | `movedBindingCount` over two lists of part 11's gathered tables the test builds by hand: equal bindings under the answers answer 0; a `choice` table whose binding the test moves to another column for a field the reader read answers 1, and so does one whose binding it moves to another table id; a column moved for a field the reader did not read answers 0 | an answer that moves a binding the reader read going on to a birth unseen (5.3, step 6), so an app born from a document its digest never covered; `use-project` refused for a column the app never reads |
 | `lib/deployment/reading/__tests__/appId.test.ts` | `broughtInAppId` is stable, passes `lib/domain/uuid.ts::CANONICAL_UUID_PATTERN`, and differs when any one of its six inputs does | an app id two people, two Projects or two readings share |
 | `lib/deployment/reading/__tests__/digest.test.ts` | changing each of `review`'s fields, `document`, one identity row or one media path changes the digest; changing `readAt` cannot (it is not in the input type); two asset ids of one content give one digest | a part of the review the digest forgot |

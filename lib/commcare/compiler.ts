@@ -10,6 +10,7 @@ import { basicActionsWriteWorker } from "./session";
 import type { TargetFacts } from "./targetFacts";
 import type { TargetFill } from "./targetOverlay";
 import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
+import type { WireIdentity } from "./wireIdentity";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
 //
@@ -44,7 +45,6 @@ import { assertXml } from "./xmlParse";
 // only literal — `serializeXml` does not emit XML declarations, so
 // the compiler prepends one before each rendered tree.
 
-import AdmZip from "adm-zip";
 import type { Element } from "domhandler";
 import {
 	emptyFormActions,
@@ -56,6 +56,13 @@ import {
 	type FormCaseWirePlan,
 	planFormCaseWire,
 } from "@/lib/commcare/casePlacementPlan";
+import {
+	appStringsMemberPath,
+	formMemberPath,
+	MEDIA_SUITE_MEMBER,
+	PROFILE_MEMBER,
+	SUITE_MEMBER,
+} from "@/lib/commcare/cczMembers";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { el, text, xel } from "@/lib/commcare/elementBuilders";
 import {
@@ -88,7 +95,7 @@ import {
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
-import { hqLocaleFileValue } from "@/lib/commcare/localeFile";
+import { localeFileText } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type {
 	CompiledLookupFixtureSet,
@@ -145,6 +152,7 @@ import { stripVellumAttributesFrom } from "@/lib/commcare/xform/deviceForm";
 import { parseXForm, serializeXForm } from "@/lib/commcare/xform/domSplice";
 import { setFormVersionOn } from "@/lib/commcare/xform/formVersion";
 import { addMetaBlockTo } from "@/lib/commcare/xform/metaBlock";
+import { zipMembers } from "@/lib/commcare/zipMembers";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	alwaysOfferedRegistrationOf,
@@ -224,6 +232,14 @@ export interface CompileOptions {
 	 * false.
 	 */
 	adopted?: boolean;
+	/**
+	 * The identity the HQ JSON was expanded under (`ExpandOptions.identity`).
+	 * The menu and form ids come in the HQ JSON; the archive reads the word
+	 * the target keeps each case list column's property under from it, which
+	 * names the column's app strings as HQ's build there names them. Absent
+	 * reads the derivation.
+	 */
+	identity?: WireIdentity;
 }
 
 /** The entry's new-case datum for `caseType`, which a form offered after an
@@ -362,9 +378,7 @@ export function compileCcz(
 	});
 	const files: Record<string, string> = { ...parts.files };
 	for (const [dir, table] of Object.entries(parts.tables)) {
-		files[`${dir}/app_strings.txt`] = [...table]
-			.map(([key, value]) => `${key}=${hqLocaleFileValue(value)}`)
-			.join("\n");
+		files[appStringsMemberPath(dir)] = localeFileText(table);
 	}
 	return packageCcz(files, parts.mediaEntries);
 }
@@ -395,6 +409,7 @@ export function compileCczParts(
 	const archiveVersion = sequence + (opts.earlierHqApps ?? 0);
 	const emptyCaseListText = opts.emptyCaseListText === true;
 	const facts = opts.targetFacts ?? null;
+	const columnFieldWord = opts.identity?.columnFieldWord;
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
@@ -414,7 +429,7 @@ export function compileCczParts(
 		mediaBundle.cczEntries.map((entry) => entry.path),
 	);
 
-	files["profile.ccpr"] = generateProfile({
+	files[PROFILE_MEMBER] = generateProfile({
 		doc: authoredDoc,
 		appName,
 		runtimeTarget: opts.runtimeTarget,
@@ -426,8 +441,8 @@ export function compileCczParts(
 		logoProperty: buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
 		derivedProperties: derivedProfileProperties(doc),
 	});
-	assertXml(files["profile.ccpr"]);
-	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
+	assertXml(files[PROFILE_MEMBER]);
+	files[MEDIA_SUITE_MEMBER] = mediaBundle.mediaSuiteXml;
 
 	// `appStrings` is populated as we walk modules/forms; flushed once
 	// per language at the end.
@@ -690,6 +705,7 @@ export function compileCczParts(
 							...(assets && { assets }),
 							...(lookupNaming && { lookupNaming }),
 							...(registerAction !== undefined && { registerAction }),
+							...(columnFieldWord !== undefined && { columnFieldWord }),
 						})
 					: undefined;
 			const searchLong =
@@ -701,6 +717,7 @@ export function compileCczParts(
 							target: "search",
 							...(assets && { assets }),
 							...(lookupNaming && { lookupNaming }),
+							...(columnFieldWord !== undefined && { columnFieldWord }),
 						})
 					: undefined;
 
@@ -753,6 +770,7 @@ export function compileCczParts(
 				...(assets && { assets }),
 				...(lookupNaming && { lookupNaming }),
 				...(registerAction !== undefined && { registerAction }),
+				...(columnFieldWord !== undefined && { columnFieldWord }),
 				emptyCaseListText,
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
@@ -775,6 +793,7 @@ export function compileCczParts(
 				...(caseSource !== undefined && { caseSource }),
 				...(assets && { assets }),
 				...(lookupNaming && { lookupNaming }),
+				...(columnFieldWord !== undefined && { columnFieldWord }),
 			});
 			rememberDetail(longEmission);
 			suiteDetails.push(longEmission.element);
@@ -841,7 +860,7 @@ export function compileCczParts(
 			const xmlns = hqForm.xmlns;
 			const uniqueId = hqForm.unique_id;
 			const cmdId = `m${mIdx}-f${fIdx}`;
-			const filePath = `modules-${mIdx}/forms-${fIdx}.xml`;
+			const filePath = formMemberPath(mIdx, fIdx);
 
 			appStrings[`forms.m${mIdx}f${fIdx}`] = formName;
 			appStringUnits[`forms.m${mIdx}f${fIdx}`] = makeTranslationUnitId(
@@ -1291,7 +1310,7 @@ export function compileCczParts(
 		el("locale", { language: dir }, [
 			el("resource", { id: `app_strings_${dir}`, version: String(sequence) }, [
 				el("location", { authority: "local" }, [
-					text(`./${dir}/app_strings.txt`),
+					text(`./${appStringsMemberPath(dir)}`),
 				]),
 			]),
 		]),
@@ -1389,7 +1408,7 @@ export function compileCczParts(
 		);
 	}
 
-	files["suite.xml"] = suiteXml;
+	files[SUITE_MEMBER] = suiteXml;
 
 	// Materialize every runtime table from the one canonical source registry.
 	// A linked value resolves through the domain translation unit (including
@@ -1583,7 +1602,7 @@ function generateProfile(input: {
 						version: archiveVersion,
 						descriptor: "Suite Definition",
 					},
-					[el("location", { authority: "local" }, [text("./suite.xml")])],
+					[el("location", { authority: "local" }, [text(`./${SUITE_MEMBER}`)])],
 				),
 			]),
 			el("suite", {}, [
@@ -1594,7 +1613,11 @@ function generateProfile(input: {
 						version: archiveVersion,
 						descriptor: "Media Suite Definition",
 					},
-					[el("location", { authority: "local" }, [text("./media_suite.xml")])],
+					[
+						el("location", { authority: "local" }, [
+							text(`./${MEDIA_SUITE_MEMBER}`),
+						]),
+					],
 				),
 			]),
 		],
@@ -1605,21 +1628,27 @@ function generateProfile(input: {
 /**
  * Pack the collected files into a ZIP archive and return the in-memory
  * buffer. Text files (`files`) are UTF-8 encoded; media files
- * (`mediaEntries`) are added as their raw bytes — routing binary media
- * through the UTF-8 text map would corrupt it.
+ * (`mediaEntries`) are added as their raw bytes, since routing binary media
+ * through the UTF-8 text map would corrupt it. Every member is written once
+ * (`zipMembers.ts::zipMembers`): a media file never takes a name the
+ * compiler gives its own files (`cczMembers.ts::isGeneratedMemberPath`,
+ * which the rule for a held path applies), so two members meeting in one
+ * name is a compiler defect and throws, in the standing of the suite oracle.
  */
 function packageCcz(
 	files: Record<string, string>,
 	mediaEntries: readonly { path: string; bytes: Buffer }[] = [],
 ): Buffer {
-	const zip = new AdmZip();
-	for (const [filePath, content] of Object.entries(files)) {
-		zip.addFile(filePath, Buffer.from(content, "utf-8"));
-	}
-	for (const entry of mediaEntries) {
-		zip.addFile(entry.path, entry.bytes);
-	}
-	return zip.toBuffer();
+	return zipMembers(
+		[
+			...Object.entries(files).map(([path, content]) => ({
+				path,
+				bytes: Buffer.from(content, "utf-8"),
+			})),
+			...mediaEntries,
+		],
+		"compileCcz",
+	);
 }
 
 /**

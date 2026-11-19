@@ -211,7 +211,8 @@ export const ImagePopover = forwardRef<HTMLButtonElement, ImagePopoverProps>(
 				<ToolbarPopoverContent>
 					<PopoverTitle className="sr-only">Insert image</PopoverTitle>
 					<PopoverDescription className="sr-only">
-						You can add an image address and a description.
+						You can add an image address and a description. Web Apps shows the
+						image, and Preview shows its description.
 					</PopoverDescription>
 					<ImageMain
 						url={url}

@@ -32,6 +32,18 @@ content import landed (``lib/deployment/service.ts::uploadMediaBytes``), when
 the captured import names one; the unit runs it as an operation of its own,
 after the import's, as Nova sends it in a request of its own.
 
+A publish binds its baseline to HQ's save counter
+(``lib/commcare/hq/appSourceAtVersion.ts``), and the capture's peer models
+that counter (``proof/corpus/targetPeer.ts``), so each write here is held to
+the peer's count of the same write, where the capture recorded one (the
+sidecar's ``saveCounter`` and ``mediaSaveCounter``): the create by where it
+leaves the counter, an import and a media upload by how far each moves it,
+and an import's acknowledged version to the counter right after it
+(``operations.hold_save_counter``, ``CapturedCounterNotHeld``). A person's saves
+in HQ between two publishes the peer counts as one save, the one fact Nova's
+comparison within a publish reads, so they are held through the imports'
+moves on either side of them, never by their number.
+
 An app made in CommCare HQ (an ``hq-authored`` document) has no first
 publish: ``create_authored`` makes its A again from the files the document
 carries under ``authored/`` (``authored_files``), with HQ's own models, as
@@ -157,6 +169,7 @@ def create(unit, export, *, plan_without_web_apps: bool = False):
     if refusal:
         return None, refusal, None
     app_id = shell.response["app_id"]
+    operations.hold_save_counter(unit, app_id, export.create.save_counter, None, "the captured create")
     refusal, lookups = update(unit, app_id, export.content, "content", plan_without_web_apps=plan_without_web_apps)
     return (None if refusal else app_id), refusal, lookups
 
@@ -240,8 +253,19 @@ def update(unit, app_id, captured, name, *, plan_without_web_apps: bool = False)
     lookups = upload_lookups(unit, captured.lookups)
     upload = operations.with_app_id(captured.upload(), app_id)
     upload = operations.with_held_ids(upload, held_ids(unit, app_id, captured.brought_in))
+    before = operations.save_counter(unit, app_id)
     result = operations.apply_upload(unit, upload)
-    return _refusal(result), lookups
+    refusal = _refusal(result)
+    if refusal is None:
+        operations.hold_save_counter(
+            unit,
+            app_id,
+            captured.save_counter,
+            before,
+            f"the captured {name}",
+            acknowledged=result.response.get("version"),
+        )
+    return refusal, lookups
 
 
 def held_ids(unit, app_id, brought_in):
@@ -393,8 +417,12 @@ def _unmatched(unit, app_id, upload, unmatched_files):
         ]
 
 
-def upload_media(unit, app_id, captured):
+def upload_media(unit, app_id, captured, *, counter=None):
     """Nova's media upload after an import HQ accepted, applied to the app HQ holds (``operations.apply_media_upload``).
+
+    ``counter`` is the capture peer's save counter around the same upload (the import's sidecar's
+    ``mediaSaveCounter``, ``Captured.media_save_counter``): HQ's counter's move over the processing is held to it
+    (``operations.hold_save_counter``), where the capture recorded one.
 
     Every path the processing reports it matched is held to the app's map first
     (``hold_report_maps``), the report being what Nova records the file at each
@@ -407,6 +435,7 @@ def upload_media(unit, app_id, captured):
     from proof.hq import operations
 
     upload = captured.upload()
+    before = operations.save_counter(unit, app_id)
     result = operations.apply_media_upload(unit, app_id, upload)
     if result.processing is None:
         return {"refused": {"status": result.status, "response": _json(result.response)}}
@@ -418,6 +447,7 @@ def upload_media(unit, app_id, captured):
             " inline in the harness (CELERY_TASK_ALWAYS_EAGER), so an unfinished one never reached the task."
         )
     hold_report_maps(unit, app_id, processing)
+    operations.hold_save_counter(unit, app_id, counter, before, "the captured media upload")
     return _json(
         {
             "refused": None,

@@ -216,10 +216,20 @@ copy. Where a persona, an owner rule or an automation uses such a place, Nova
 keeps it as it stood before, and says so after the refresh, until you add the
 level or change what uses it.
 
+Nova follows each place by CommCare HQ's own id, so renaming a place or giving it
+a new site code there keeps everything that uses it. A place deleted in CommCare
+HQ and made again, even under the same site code, is a new place to Nova. Where a
+persona, an owner rule or an automation used the old one, Nova keeps it and says
+so after the refresh, and you can move what uses it to the new place. Nova never
+moves them for you, since the cases CommCare HQ holds for the old place didn't
+move either.
+
 CommCare HQ doesn't tell Nova which levels hold workers or how far a worker's
 phone carries places. Nova assumes every level holds workers and each worker
 carries their own branch. If your project space is set up differently, you can
-match it in Organization so Preview shows what workers see.
+match it in Organization so Preview shows what workers see. Before Nova stands a
+worker at one of these places in CommCare HQ, it asks you to confirm the level
+takes workers there.
 
 ## Assigning a persona
 

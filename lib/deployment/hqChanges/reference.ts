@@ -35,6 +35,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, PersistableDoc, Uuid } from "@/lib/domain";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { CasePropertyRename } from "@/lib/publish/hqChangesKinds";
 import type { AppBaseline, DeploymentResource } from "../types";
 
@@ -199,7 +200,7 @@ function foldServerRows(
 function recordOf<T>(
 	record: Readonly<Record<string, T>> | undefined,
 ): Record<string, T> {
-	return { ...(record ?? {}) };
+	return recordFromEntries(Object.entries(record ?? NO_ENTRIES));
 }
 
 /**
@@ -217,7 +218,7 @@ function headThenPublished<T extends { readonly uuid: Uuid }>(input: {
 }): { readonly record: Record<string, T>; readonly order: Uuid[] } | null {
 	const head = recordOf(input.head);
 	const published = recordOf(input.published);
-	const record: Record<string, T> = {};
+	const record = recordFromEntries<T>([]);
 	const order: Uuid[] = [];
 	for (const uuid of input.headOrder ?? []) {
 		const own = head[uuid];
@@ -251,7 +252,9 @@ export function withHeadUnsent(
 	folded: BlueprintDoc,
 	head: BlueprintDoc,
 ): BlueprintDoc {
-	const next: Record<string, unknown> = { ...toPersistableDoc(folded) };
+	const next: Partial<Record<keyof PersistableDoc, unknown>> = {
+		...toPersistableDoc(folded),
+	};
 	const set = (key: keyof PersistableDoc, value: unknown) => {
 		if (value === undefined) delete next[key];
 		else next[key] = value;
@@ -332,15 +335,19 @@ function withoutSecondOfASlug(
 	const users = second(doc.userProperties, published.userProperties);
 	const places = second(doc.locationProperties, published.locationProperties);
 	if (users.size === 0 && places.size === 0) return doc;
-	const next: Record<string, unknown> = { ...toPersistableDoc(doc) };
+	const next: Partial<Record<keyof PersistableDoc, unknown>> = {
+		...toPersistableDoc(doc),
+	};
 	const drop = (
 		recordKey: "userProperties" | "locationProperties",
 		orderKey: "userPropertyOrder" | "locationPropertyOrder",
 		out: ReadonlySet<string>,
 	) => {
 		if (out.size === 0) return;
-		next[recordKey] = Object.fromEntries(
-			Object.entries(doc[recordKey] ?? {}).filter(([uuid]) => !out.has(uuid)),
+		next[recordKey] = recordFromEntries(
+			Object.entries(doc[recordKey] ?? NO_ENTRIES).filter(
+				([uuid]) => !out.has(uuid),
+			),
 		);
 		next[orderKey] = (doc[orderKey] ?? []).filter((uuid) => !out.has(uuid));
 	};

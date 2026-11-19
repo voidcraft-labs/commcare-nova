@@ -16,8 +16,12 @@
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { parseHqJsonText } from "../../hq/jsonText";
+import type { SourceTable } from "../../sourceKeys";
 import surface from "../../surface/surface.json";
+import { rethrowWorkStop } from "../../workMeter";
 import {
 	isElement,
 	JAVAROSA_NS,
@@ -37,12 +41,13 @@ import type { HashtagMetadata, ParsedXForm } from "./parse";
 
 function jsonObject(text: string): Readonly<Record<string, unknown>> {
 	try {
-		const value: unknown = JSON.parse(text);
+		const value = parseHqJsonText(text);
 		return typeof value === "object" && value !== null && !Array.isArray(value)
 			? (value as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
+			: NO_ENTRIES;
+	} catch (error) {
+		rethrowWorkStop(error);
+		return NO_ENTRIES;
 	}
 }
 
@@ -51,8 +56,8 @@ export function readHashtagMetadata(
 	head: Element,
 	scope: NamespaceScope,
 ): HashtagMetadata {
-	const hashtags: Record<string, string | null> = {};
-	const transforms: Record<string, string> = {};
+	const hashtags = recordFromEntries<string | null>([]);
+	const transforms = recordFromEntries<string>([]);
 	for (const child of head.children) {
 		if (!isTag(child)) continue;
 		const own = scopeOf(child, scope);
@@ -141,14 +146,14 @@ const KEYS = shadowKeys();
 /** By element local name: each real attribute that has a shadow, with the shadow's name. The
  *  shadow's name is Vellum's spelling of the real one, a `:` written `__` (`jr:count` is
  *  `vellum:jr__count`). */
-export const SHADOWED_ATTRIBUTES: Readonly<
-	Record<string, readonly { readonly real: string; readonly shadow: string }[]>
+export const SHADOWED_ATTRIBUTES: SourceTable<
+	readonly { readonly real: string; readonly shadow: string }[]
 > = (() => {
-	const table: Record<string, { real: string; shadow: string }[]> = {};
+	const table = new Map<string, { real: string; shadow: string }[]>();
 	for (const { element, shadow } of KEYS) {
-		const list = table[element] ?? [];
+		const list = table.get(element) ?? [];
 		list.push({ real: shadow.replaceAll("__", ":"), shadow });
-		table[element] = list;
+		table.set(element, list);
 	}
 	return table;
 })();
@@ -157,7 +162,7 @@ export const SHADOWED_ATTRIBUTES: Readonly<
 const SHADOW_CLAIMS: ReadonlyMap<string, Claim<"drop">> = (() => {
 	const entry = "questions/vellum-hashtag-shadow-attributes";
 	const claims = new Map<string, Claim<"drop">>();
-	const named: Record<string, Claim<"drop">> = {};
+	const named = recordFromEntries<Claim<"drop">>([]);
 	for (const { key } of KEYS) {
 		const claim = drop(entry, key);
 		claims.set(key, claim);
@@ -521,7 +526,7 @@ export function judgeShadows(input: JudgeShadowsInput): void {
 	const visit = (element: Element) => {
 		const scope = parsed.scope(element);
 		const { local } = splitName(element.name);
-		const pairs = SHADOWED_ATTRIBUTES[local];
+		const pairs = SHADOWED_ATTRIBUTES.get(local);
 		const inXForms = scope.get(splitName(element.name).prefix) === XFORMS_NS;
 		if (pairs !== undefined && inXForms) {
 			for (const pair of pairs) {

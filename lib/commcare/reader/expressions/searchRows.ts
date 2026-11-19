@@ -26,6 +26,7 @@ import {
 	type XPathQueryClause,
 	xpathQueryRequestValues,
 } from "../../suite/case-search/xpathQuery";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
@@ -44,7 +45,8 @@ function parsed(text: string): FormSyntax | undefined {
 	try {
 		const read = readFormSyntax(text);
 		return read.ok ? read.node : undefined;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }

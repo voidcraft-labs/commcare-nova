@@ -24,6 +24,7 @@ import type {
 	HqAppSourceForm,
 	HqAppSourceModule,
 } from "@/lib/commcare/hq/appSource";
+import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
 	AssetManifest,
@@ -39,6 +40,7 @@ import {
 	type WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import type { AdoptedMediaFile } from "../adoption";
 
@@ -136,8 +138,9 @@ export function* readingEmissionSteps(
  * source was read from; each bound table under the names CommCare HQ holds,
  * none where the reading bound none; each asset at the path the source
  * spells (`emissionAssets`); each keyed create under the id prefix its cases
- * stand under in the source; and no runtime target, the neutral template the
- * HQ JSON path always prints.
+ * stand under in the source; each case list column under the word its source
+ * keeps its property under (`ReadMenuAndFormIdentities.columnFieldWords`); and
+ * no runtime target, the neutral template the HQ JSON path always prints.
  */
 export function readingEmissionOptions(
 	input: ReadingEmissionInput,
@@ -165,7 +168,7 @@ export function readingEmissionOptions(
 		});
 	}
 	return {
-		identity: targetWireIdentity(overrides),
+		identity: targetWireIdentity(overrides, identities.columnFieldWords),
 		attachmentTarget: {
 			origin: input.reader.target.origin,
 			domain: input.reader.target.domain,
@@ -203,7 +206,10 @@ export function servedEmission(
 ): Record<string, unknown> {
 	const known = servedEmissions.get(emission);
 	if (known !== undefined) return known;
-	const body = JSON.parse(JSON.stringify(emission)) as Record<string, unknown>;
+	const body = parseHqJsonText(JSON.stringify(emission)) as Record<
+		string,
+		unknown
+	>;
 	servedEmissions.set(emission, body);
 	return body;
 }
@@ -214,7 +220,9 @@ const served = servedEmission;
 function servedModules(
 	body: Readonly<Record<string, unknown>>,
 ): HqAppSourceModule[] {
-	const attachments = isRecord(body._attachments) ? body._attachments : {};
+	const attachments = isRecord(body._attachments)
+		? body._attachments
+		: NO_ENTRIES;
 	const modules = Array.isArray(body.modules) ? body.modules : [];
 	return modules.filter(isRecord).map((module) => ({
 		uniqueId: text(module.unique_id),
@@ -274,7 +282,7 @@ function sourceFromServed(
 	body: Record<string, unknown>,
 	source: HqAppSource,
 ): HqAppSource {
-	const raw: Record<string, unknown> = { ...body };
+	const raw = recordFromEntries(Object.entries(body));
 	for (const key of ["build_spec", "multimedia_map", "logo_refs"] as const) {
 		const value = source.raw[key];
 		if (value === undefined) delete raw[key];
@@ -287,14 +295,14 @@ function sourceFromServed(
 		logoRefs: source.logoRefs,
 		profile: (isRecord(body.profile)
 			? body.profile
-			: {}) as HqAppSource["profile"],
+			: NO_ENTRIES) as HqAppSource["profile"],
 		langs: Array.isArray(body.langs)
 			? body.langs.filter((lang): lang is string => typeof lang === "string")
 			: [],
 		translations: (isRecord(body.translations)
 			? body.translations
-			: {}) as HqAppSource["translations"],
-		addOns: (isRecord(body.add_ons) ? body.add_ons : {}) as Record<
+			: NO_ENTRIES) as HqAppSource["translations"],
+		addOns: (isRecord(body.add_ons) ? body.add_ons : NO_ENTRIES) as Record<
 			string,
 			boolean
 		>,

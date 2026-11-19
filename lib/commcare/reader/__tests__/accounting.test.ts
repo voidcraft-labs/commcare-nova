@@ -312,6 +312,60 @@ describe("the JSON cursor", () => {
 		]);
 	});
 
+	it("reads a list holding a member that is not an object as no list: no cursor, the key left unclaimed", () => {
+		const books = accounting();
+		const root = books.json(
+			{ modules: [null, { doc_type: "Module", name: { en: "Visits" } }] },
+			APP,
+		);
+		expect(root.list("modules", "Module", CLAIMS.container)).toEqual([]);
+		expect(root.coveredList("modules", "Module")).toEqual([]);
+		expect(unrecognized(books.close().findings)).toEqual([
+			"schema:Application.modules",
+		]);
+	});
+
+	it("gives a list of objects one cursor a member, each at its stored position", () => {
+		const books = accounting();
+		const root = books.json(
+			{
+				modules: [
+					{ doc_type: "Module", case_type: "a" },
+					{ doc_type: "Module", case_type: "b" },
+				],
+			},
+			APP,
+		);
+		const cursors = root.list("modules", "Module", CLAIMS.container);
+		expect(cursors.map((cursor) => cursor.pointer)).toEqual([
+			"/modules/0",
+			"/modules/1",
+		]);
+		expect(cursors.map((cursor) => cursor.peek("case_type"))).toEqual([
+			"a",
+			"b",
+		]);
+	});
+
+	it("reads a map holding a value that is not an object as no map: no cursor, the key left unclaimed", () => {
+		const books = accounting();
+		const root = books.json(
+			{
+				update: {
+					seen: { doc_type: "ConditionalCaseUpdate", question_path: "/data/q" },
+					legacy: null,
+				},
+			},
+			APP,
+		);
+		expect(
+			root.map("update", "ConditionalCaseUpdate", CLAIMS.container).size,
+		).toBe(0);
+		expect(unrecognized(books.close().findings)).toEqual([
+			"Application.update",
+		]);
+	});
+
 	it("lists a hand-off and reports nothing for it", () => {
 		const books = accounting();
 		books

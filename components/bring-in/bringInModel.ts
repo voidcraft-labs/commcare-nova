@@ -28,7 +28,10 @@ import type {
 	ReviewTable,
 } from "@/lib/deployment";
 import { accountOfOne } from "@/lib/deployment/reading/answers";
-import { bringInInputSchema } from "@/lib/deployment/reading/types";
+import {
+	bringInInputSchema,
+	keptTableChoices,
+} from "@/lib/deployment/reading/types";
 import {
 	PLATFORM_DECLARATION_LABELS,
 	PLATFORM_DECLARATION_LINES,
@@ -947,10 +950,12 @@ export function chosenDeclaration(
  * name is kept where the person had changed it from `before.appName`, and is
  * `now.appName` otherwise. The pair `(runsOnlyOn, splitDatetime)` is kept
  * where it is still a member of `now.runsOn`, and is the preselected entry's
- * otherwise. Each table answer is kept where `now.tables` still asks a choice
- * for that tag and still offers that answer, and the tag is left unanswered
- * otherwise. `dropped` is true where a declaration or a table answer could
- * not be kept.
+ * otherwise. Each table answer is kept only where the table's entry in
+ * `now.tables` is the entry it was given against in `before.tables` and still
+ * offers that answer (`keptTableChoices`), so a table whose consequences
+ * moved (another app reading it, other columns going empty) is asked again;
+ * the tag is left unanswered otherwise. `dropped` is true where a declaration
+ * or a table answer could not be kept.
  */
 export function carryAnswers(
 	previous: ReviewAnswers,
@@ -961,13 +966,13 @@ export function carryAnswers(
 	const kept = now.runsOn.find((entry) => sameDeclaration(entry, previous));
 	let dropped = kept === undefined;
 	const declaration = kept ?? preselectedOf(now);
-	const tableChoices: Record<string, LookupTableChoice> = {};
-	for (const [tag, choice] of Object.entries(previous.tableChoices)) {
-		const offer = now.tables.find((table) => table.tag === tag)?.choice
-			?.options[choice];
-		if (offer?.offered === true) tableChoices[tag] = choice;
-		else dropped = true;
-	}
+	const tables = keptTableChoices(
+		before.tables,
+		now.tables,
+		previous.tableChoices,
+	);
+	if (tables.dropped) dropped = true;
+	const tableChoices = { ...tables.choices };
 	return {
 		answers: {
 			reviewDigest: digest,
@@ -1117,6 +1122,7 @@ export const STOP_ACTIONS = {
 	"hq-unavailable": checkThenApps,
 	"hq-gateway-refused": checkThenApps,
 	"changed-while-reading": checkThenApps,
+	"nova-busy": checkThenApps,
 	"app-gone": chooseThenApps,
 	"linked-app": chooseThenApps,
 	"remote-app": chooseThenApps,
@@ -1803,6 +1809,7 @@ const REVIEW_REFUSAL_AT = {
 	no_project_access: null,
 	invalid_input: null,
 	app_unavailable: null,
+	publish_in_flight: "footer",
 } as const satisfies Record<ReadingRefusal, "name" | "footer" | null>;
 
 /**

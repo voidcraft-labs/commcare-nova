@@ -27,9 +27,11 @@ import {
 	type TimeSinceUnit,
 } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
+import { type SourceTable, tableOf } from "../../sourceKeys";
 import {
 	imageMapEnumKey,
 	intervalColumnDisplayXpath,
@@ -64,7 +66,7 @@ import {
 	unheldText,
 } from "../heldText";
 import { dotInterpolate } from "../hqInterpolation";
-import { HQ_PAGE_LABELS } from "../hqPageLabels";
+import { COLUMN_FORMAT_LABELS } from "../hqPageLabels";
 import { shownText } from "../hqText";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder, type ReadMode } from "../pendingExpressions";
@@ -433,20 +435,20 @@ const C = COLUMN_CLAIMS;
 
 /** HQ's build reads these column fields as other properties
  *  (`detail_screen.py::CASE_PROPERTY_MAP`); Nova names each by its own name. */
-export const HQ_PROPERTY_RENAMES: Readonly<Record<string, string>> = {
+export const HQ_PROPERTY_RENAMES: SourceTable<string> = tableOf({
 	"external-id": "external_id",
 	"date-opened": "date_opened",
 	status: "status",
 	name: "case_name",
 	owner_id: "owner_id",
-};
+});
 
 /** A property column's field as HQ's build reads it: its last word renamed by `CASE_PROPERTY_MAP`
  *  (`HQ_PROPERTY_RENAMES`), every index before it as written. */
 export function renamedField(field: string): string {
 	const parts = field.split("/");
 	const last = parts.pop() as string;
-	return [...parts, HQ_PROPERTY_RENAMES[last] ?? last].join("/");
+	return [...parts, HQ_PROPERTY_RENAMES.get(last) ?? last].join("/");
 }
 
 /** The text of a property field of indices and a property, as HQ's build substitutes it into
@@ -580,12 +582,12 @@ const TIME_AGO_MENU: readonly number[] = [
 
 /** The formats a geo format needs beside it in its detail
  *  (`static/app_manager/js/details/utils.js::COLUMN_FORMAT_DEPENDENCIES`). */
-const GEO_DEPENDENCIES: Readonly<Record<string, readonly string[]>> = {
+const GEO_DEPENDENCIES: SourceTable<readonly string[]> = tableOf({
 	"geo-boundary": ["address"],
 	"geo-points": ["address"],
 	"geo-boundary-color": ["address", "geo-boundary"],
 	"geo-points-colors": ["address", "geo-points"],
-};
+});
 
 /** The formats whose column HQ's build reads `enum` for (`detail_screen.py::Enum` and its
  *  subclasses; `app_strings.py::_create_module_details_app_strings`). */
@@ -616,14 +618,14 @@ export function columnFormatAsRead(
 	if (!REGISTERED_FORMATS.has(format)) return "plain";
 	if (
 		screen === "long" &&
-		(format === "invisible" || GEO_DEPENDENCIES[format] !== undefined)
+		(format === "invisible" || GEO_DEPENDENCIES.has(format))
 	)
 		return "plain";
 	return format;
 }
 
 /** The formats HQ's Case List and Case Detail saves admit once per detail (`screen.js::save`). */
-const ONCE_PER_DETAIL = new Set(["image", ...Object.keys(GEO_DEPENDENCIES)]);
+const ONCE_PER_DETAIL = new Set(["image", ...GEO_DEPENDENCIES.keys()]);
 
 /** Keys every column's reading takes or drops by its own row. */
 const CELL_KEYS = [
@@ -690,8 +692,8 @@ export interface SelectChoices {
 
 /** A `{lang: text}` map, every value a string. */
 export function languageMap(value: unknown): Record<string, string> {
-	if (!isJsonObject(value)) return {};
-	const out: Record<string, string> = {};
+	const out = recordFromEntries<string>([]);
+	if (!isJsonObject(value)) return out;
 	for (const [lang, text] of Object.entries(value))
 		if (typeof text === "string") out[lang] = text;
 	return out;
@@ -709,7 +711,7 @@ export function shownTexts(
 	stored: unknown,
 	codes: readonly string[],
 ): Record<string, string> | undefined {
-	const out: Record<string, string> = {};
+	const out = recordFromEntries<string>([]);
 	for (const code of codes) {
 		const shown = shownText(stored, code, codes);
 		if (!shown.ok) return undefined;
@@ -947,7 +949,7 @@ export function classifyField(field: string): FieldClass {
 		return { kind: "finding", claim: C.fieldInvalid };
 	// HQ's page accepts a `#` before the last word and a name of any length;
 	// Nova's property grammar takes neither.
-	const renamed = HQ_PROPERTY_RENAMES[field] ?? field;
+	const renamed = HQ_PROPERTY_RENAMES.get(field) ?? field;
 	// HQ's build reads a property field through `CASE_PROPERTY_MAP`, which maps `status` and
 	// `owner_id` to their attributes and has no entry for `case_id`, so it reads the child element
 	// `case_id`, which no case holds (Core holds the id as the attribute alone,
@@ -994,7 +996,7 @@ const REGISTERED_FORMATS = new Set([
 	"filter",
 ]);
 
-const FORMAT_FINDING: Readonly<Record<string, Claim<"refuse">>> = {
+const FORMAT_FINDING: SourceTable<Claim<"refuse">> = tableOf({
 	address: C.address,
 	distance: C.distance,
 	"address-popup": C.addressPopup,
@@ -1007,12 +1009,11 @@ const FORMAT_FINDING: Readonly<Record<string, Claim<"refuse">>> = {
 	"geo-boundary-color": C.geoBoundaryColor,
 	"geo-points": C.geoPoints,
 	"geo-points-colors": C.geoPointsColors,
-};
+});
 
-/** What `HQ_PAGE_LABELS` shows for a column's format, where HQ's page has a label for it. */
+/** What `COLUMN_FORMAT_LABELS` shows for a column's format, where HQ's page has a label for it. */
 function formatName(format: string): { name: string } | undefined {
-	const labels: Readonly<Record<string, string>> = HQ_PAGE_LABELS.columnFormat;
-	const label = labels[format];
+	const label = COLUMN_FORMAT_LABELS.get(format);
 	return label === undefined ? undefined : { name: label };
 }
 
@@ -1045,7 +1046,7 @@ function enumEntriesOf(
 	return stored.map((entry) => ({
 		key: isJsonObject(entry) ? entry.key : undefined,
 		value: heldTextsIn(
-			isJsonObject(entry) ? entry.value : {},
+			isJsonObject(entry) ? entry.value : NO_ENTRIES,
 			codes,
 			source,
 			"case-list-mapping-label",
@@ -1299,7 +1300,7 @@ export function readRelationField(
 	const parts = field.split("/");
 	const last = parts.pop() as string;
 	if (parts.some((step) => !RELATION_STEP.test(step))) return finding;
-	const name = HQ_PROPERTY_RENAMES[last] ?? last;
+	const name = HQ_PROPERTY_RENAMES.get(last) ?? last;
 	if (
 		ATTRIBUTE_PROPERTIES.has(name) ||
 		!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(name) ||
@@ -1335,7 +1336,7 @@ function readOwnTranslatableEnum(
 	field: string,
 	offersSearch: boolean,
 ): undefined {
-	const named = field === "" ? undefined : { name: field.slice(0, 200) };
+	const named = field === "" ? undefined : { name: field };
 	const classified = isRelationPath(field) ? undefined : classifyField(field);
 	if (classified?.kind === "finding")
 		column.refuse(
@@ -1439,7 +1440,7 @@ function readColumn(
 			: "plain";
 	const others = claimOtherKeys(column, format, screen) && header !== undefined;
 	const field = fieldOf(column);
-	const base = { header: sourceText(ctx, header ?? {}) };
+	const base = { header: sourceText(ctx, header ?? NO_ENTRIES) };
 	// The walk of a property column read through a relation, once its field is read.
 	let via: ColumnVia | undefined;
 	const proposal = (
@@ -1454,8 +1455,8 @@ function readColumn(
 						via === undefined || kind.kind === "calculated"
 							? kind
 							: ({ ...kind, via } as ColumnProposal["column"]),
-					header: header ?? {},
-					texts: extra.texts ?? {},
+					header: header ?? NO_ENTRIES,
+					texts: extra.texts ?? NO_ENTRIES,
 					...(extra.expression !== undefined && {
 						expression: extra.expression,
 					}),
@@ -1525,7 +1526,7 @@ function readColumn(
 				column,
 				format,
 				field.text,
-				header ?? {},
+				header ?? NO_ENTRIES,
 				base,
 				others,
 				options,
@@ -1559,7 +1560,7 @@ function readColumn(
 		column.refuse(
 			"field",
 			classified.claim,
-			named ? { name: field.text.slice(0, 200) } : undefined,
+			named ? { name: field.text } : undefined,
 		);
 		claimPlainFormat(column, format, screen);
 		return undefined;
@@ -1717,7 +1718,7 @@ function readColumn(
 		);
 		return undefined;
 	}
-	const dependencies = GEO_DEPENDENCIES[format];
+	const dependencies = GEO_DEPENDENCIES.get(format);
 	if (dependencies !== undefined) {
 		if (dependencies.some((one) => (options.formats.get(one) ?? 0) === 0)) {
 			column.refuse("format", C.geoWithout, formatName(format));
@@ -1736,7 +1737,7 @@ function readColumn(
 		column.refuse("format", C.invisibleInTile, formatName(format));
 		return undefined;
 	}
-	const finding = FORMAT_FINDING[format];
+	const finding = FORMAT_FINDING.get(format);
 	if (finding !== undefined) {
 		column.refuse("format", finding, formatName(format));
 		return undefined;
@@ -1805,8 +1806,9 @@ function readIdMapping(
 	}
 	column.take("format", C.enumFormat, String).value;
 	if (!claimAltTexts(ctx, column, codes)) return undefined;
-	const texts: Record<string, Readonly<Record<string, string>>> = {};
-	for (const entry of entries) texts[entry.key as string] = entry.value ?? {};
+	const texts = recordFromEntries<Readonly<Record<string, string>>>([]);
+	for (const entry of entries)
+		texts[entry.key as string] = entry.value ?? NO_ENTRIES;
 	return proposal(
 		{
 			kind: "id-mapping",
@@ -1814,7 +1816,7 @@ function readIdMapping(
 			...base,
 			mapping: entries.map((entry) => ({
 				value: entry.key as string,
-				label: sourceText(ctx, entry.value ?? {}),
+				label: sourceText(ctx, entry.value ?? NO_ENTRIES),
 			})),
 		} as ColumnProposal["column"],
 		{ texts },
@@ -2206,7 +2208,7 @@ function readProjection(
 	const entries = enumEntries(column, codes, sourceCode(ctx));
 	let candidate: ArmOmit<ColumnBody, "header"> | undefined;
 	let choices: SelectChoices | undefined;
-	const texts: Record<string, Readonly<Record<string, string>>> = {};
+	const texts = recordFromEntries<Readonly<Record<string, string>>>([]);
 	if (format === "markdown") candidate = linkCandidate(text, options);
 	else {
 		if (
@@ -2239,7 +2241,7 @@ function readProjection(
 					dataType: select.dataType,
 					options: select.values.map((value, index) => ({
 						value,
-						labels: entries[index]?.value ?? {},
+						labels: entries[index]?.value ?? NO_ENTRIES,
 					})),
 				};
 			}

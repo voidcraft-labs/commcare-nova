@@ -95,7 +95,8 @@ def test_an_authored_app_is_remade_with_its_ids(hq, base):
     if not (directory / "app.json").is_file():
         pytest.fail(
             f"proof/hq-apps/{base.id}/ holds no app.json, so no A can be made of it. Author the base"
-            " (proof/matrix/test_retained.py) and adopt what it wrote (python3 -m proof.matrix.adopt <output>)."
+            " (proof/matrix/test_retained.py) and adopt what it wrote (python3 -m proof.matrix.adopt <every output of"
+            " that run>)."
         )
     document = json.loads((directory / "app.json").read_text(encoding="utf-8"))
     places = (

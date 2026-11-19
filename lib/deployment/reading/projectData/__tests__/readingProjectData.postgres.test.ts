@@ -22,13 +22,16 @@ import {
 	retainedSourceBody,
 	sourceFromBody,
 } from "@/lib/commcare/reader/__tests__/readerInput";
-import { mintingResolver } from "@/lib/commcare/reader/identity";
+import { claimsUnder, mintingResolver } from "@/lib/commcare/reader/identity";
 import { levelsFromHq } from "@/lib/commcare/reader/worldEntities";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { lookupContextForAuthoritativeWrite } from "@/lib/db/canonicalCommitKernel";
+import { AppHeadMovedError } from "@/lib/db/commitGuard";
 import { replaceLookupReferenceEdges } from "@/lib/db/lookupReferenceEdges";
 import { withAppTx } from "@/lib/db/pg";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
 import {
 	type LookupColumnId,
@@ -38,11 +41,13 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import {
 	createManagedLookupTablesInTransaction,
+	LookupReviewMovedError,
 	readKeptLookupColumnIds,
 	refreshManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
 import {
 	createLookupTable,
+	getLookupManifest,
 	getLookupTable,
 	replaceLookupRows,
 	updateLookupColumnLabel,
@@ -52,6 +57,7 @@ import type {
 	LookupScope,
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import {
 	type ReaderProjectDataReads,
@@ -117,9 +123,9 @@ const CREDS = {
 } as const;
 const HOST = "https://india.commcarehq.org";
 const READS = path.join(process.cwd(), "proof/hq-reads");
-const LIST = `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`;
+const LIST = `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`;
 const LEVELS = `/a/${DOMAIN}/api/location_type/v1/?limit=1000`;
-const PLACES = `/a/${DOMAIN}/api/location/v2/?limit=1000`;
+const PLACES = `/a/${DOMAIN}/api/location/v2/?limit=5000`;
 const PLAIN_ID = "09948f8373da4c86a86b7707a0e9fbcd";
 const RICH_ID = "9ea70d486f644cc4a2f22c063294e197";
 
@@ -702,7 +708,7 @@ describe("readReadingProjectData over Postgres", () => {
 			meta: Record<string, unknown>;
 		};
 		page.meta.total_count = 10_001;
-		page.meta.next = `/a/${DOMAIN}/api/location/v2/?limit=1000&offset=1000`;
+		page.meta.next = `/a/${DOMAIN}/api/location/v2/?limit=5000&offset=1000`;
 		await withHttpPeer(async (peer) => {
 			serveTables(peer);
 			serveJson(peer, LEVELS, levelAnswer(true));
@@ -815,7 +821,7 @@ describe("the birth's two writers, in a birth's order", () => {
 		const binding = bindingOf(data, "plain");
 		const levels = levelsFromHq(
 			data.gathered.hqLevels,
-			mintingResolver(APP_ID),
+			claimsUnder(mintingResolver(APP_ID)),
 		);
 		const doc = bornDoc(binding, levels.levels);
 		const reads = { ...PLAIN_READS, readsPlaces: true };
@@ -995,6 +1001,137 @@ describe("the birth's two writers, in a birth's order", () => {
 			remoteId: PLAIN_ID,
 			managedBy: "commcare-hq",
 		});
+	});
+
+	it("refuses an adoption answered over a list of apps that read the table, once another app began reading it, and leaves the table as it was", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const project = await seedProjectPlain();
+		const source = await namingSource();
+		const data = underTableChoices(
+			await withHttpPeer(async (peer) => {
+				serveTables(peer);
+				return readData(source);
+			}),
+			{ plain: "use-commcare-hq" },
+		);
+		const standing = data.gathered.tables[0].standing;
+		expect(standing?.kind === "choice" && standing.apps).toEqual([]);
+		/* Another app of the Project starts reading the table after the read: no
+		 * revision of the table moves. */
+		const reader = await h.seedApp({
+			id: "stock-counts",
+			project_id: PROJECT,
+		});
+		await withAppTx((tx) =>
+			replaceLookupReferenceEdges(tx, {
+				appId: reader,
+				projectId: PROJECT,
+				targets: { tableIds: [project.id], columnTargets: [] },
+			}),
+		);
+		const before = await rowCounts();
+		await expect(
+			birth(data, PLAIN_READS, bornDoc(bindingOf(data, "plain"))),
+		).rejects.toBeInstanceOf(LookupReviewMovedError);
+		expect(await rowCounts()).toEqual(before);
+		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
+	});
+
+	it("commits a change's adoption with the change or not at all", async () => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		const project = await seedProjectPlain();
+		const changing = await h.seedApp({
+			id: "changing-app",
+			owner: ACTOR,
+			project_id: PROJECT,
+		});
+		const head = Number(
+			(
+				await h
+					.db()
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", changing)
+					.executeTakeFirstOrThrow()
+			).mutation_seq,
+		);
+		const source = await namingSource();
+		const data = underTableChoices(
+			await withHttpPeer(async (peer) => {
+				serveTables(peer);
+				return readData(source);
+			}),
+			{ plain: "use-commcare-hq" },
+		);
+		const write = readingProjectDataWrite(
+			data,
+			PLAIN_READS,
+			bornDoc(bindingOf(data, "plain")),
+			mintingResolver(APP_ID),
+		);
+		const projectRevision = async () =>
+			(await getLookupManifest(SCOPE)).projectRevision;
+		const change = (
+			expectedHeadSeq: number,
+			name: string,
+			inTransaction?: () => Promise<void>,
+		) =>
+			applyBlueprintChange({
+				appId: changing,
+				userId: ACTOR,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				kind: "hq-changes",
+				expectedHeadSeq,
+				guard: {
+					mutations: admitMutationBatch([{ kind: "setAppName", name }]),
+				},
+				projectDataWrite: ({ tx, projectId }) =>
+					writeBroughtInLookupTablesInTransaction(
+						tx,
+						{ projectId, actorUserId: ACTOR, appId: changing },
+						{
+							origin: write.origin,
+							tables: write.tables,
+							readAt: write.tablesReadAt,
+						},
+					),
+				...(inTransaction !== undefined && { inTransaction }),
+			});
+
+		/* Turned back at a moved head: the shared table is as it was. */
+		const revisionBefore = await projectRevision();
+		await expect(change(head + 1, "From CommCare HQ")).rejects.toBeInstanceOf(
+			AppHeadMovedError,
+		);
+		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
+		expect(await projectRevision()).toBe(revisionBefore);
+
+		/* Turned back by a failure after the table's write (the deployment's
+		 * record): still as it was. */
+		await expect(
+			change(head, "From CommCare HQ", async () => {
+				throw new Error("the record could not be written");
+			}),
+		).rejects.toThrow("the record could not be written");
+		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
+		expect(await projectRevision()).toBe(revisionBefore);
+
+		/* Taken: the adoption, the change and one advance of the Project, at one commit. */
+		const committed = await change(head, "From CommCare HQ");
+		expect(committed.seq).toBe(head + 1);
+		const adopted = await getLookupTable(SCOPE, project.id);
+		expect(adopted.hq).toMatchObject({
+			domain: DOMAIN,
+			managedBy: "commcare-hq",
+		});
+		expect(adopted.rows.map((row) => Object.values(row.values))).toEqual([
+			["001", "Clinic"],
+			["002", "Hospital"],
+		]);
+		expect(BigInt(await projectRevision())).toBe(
+			BigInt(revisionBefore) + BigInt(1),
+		);
 	});
 
 	it("writes nothing to a Project table answered use-project", async () => {
@@ -1274,20 +1411,24 @@ describe("a birth that would write over what the Project holds now", () => {
 		if (read.kind !== "read") throw new Error("plain was not read");
 		/* A Refresh whose read began after the reading's finds CommCare HQ's table as it was:
 		 * it stamps its date and moves no revision. */
-		const receipt = await withAppTx((tx) =>
-			refreshManagedLookupTableInTransaction(tx, SCOPE, {
-				tableId: managed.tableId,
-				content: managedLookupContentOf(read.table, read.rows),
-				origin: {
-					server: SERVER,
-					domain: DOMAIN,
-					remoteId: PLAIN_ID,
-					canonical: { ...read.canonical },
+		const receipt = await withAppTx(async (tx) =>
+			refreshManagedLookupTableInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, SCOPE, "edit"),
+				{
+					tableId: managed.tableId,
+					content: managedLookupContentOf(read.table, read.rows),
+					origin: {
+						server: SERVER,
+						domain: DOMAIN,
+						remoteId: PLAIN_ID,
+						canonical: { ...read.canonical },
+					},
+					at: new Date(second.gathered.tablesReadAt.getTime() + 1_000),
+					mode: "refresh",
+					olderReadYields: true,
 				},
-				at: new Date(second.gathered.tablesReadAt.getTime() + 1_000),
-				mode: "refresh",
-				olderReadYields: true,
-			}),
+			),
 		);
 		expect(receipt.changed).toBe("nothing");
 		const stamped = await getLookupTable(SCOPE, managed.tableId);
@@ -1296,13 +1437,14 @@ describe("a birth that would write over what the Project holds now", () => {
 		expect(stamped.hq?.refreshedAt).not.toBe(born.hq?.refreshedAt);
 
 		const before = await rowCounts();
+		/* The refresh's own writer refuses it, under the table's lock. */
 		await expect(
 			birth(
 				second,
 				PLAIN_READS,
 				bornDoc(bindingOf(second, "plain"), [], SECOND.appId),
 			),
-		).rejects.toBeInstanceOf(BroughtInTableChangedError);
+		).rejects.toBeInstanceOf(LookupReviewMovedError);
 		expect(await rowCounts()).toEqual(before);
 		expect(await getLookupTable(SCOPE, managed.tableId)).toEqual(stamped);
 	});
@@ -1338,21 +1480,25 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 
 		const read = data.gathered.tables[0].read;
 		if (read.kind !== "read") throw new Error("plain was not read");
-		const receipt = await withAppTx((tx) =>
-			refreshManagedLookupTableInTransaction(tx, SCOPE, {
-				tableId,
-				content: { fields: ["code"], rows: [{ code: "001" }] },
-				origin: {
-					server: SERVER,
-					domain: DOMAIN,
-					remoteId: PLAIN_ID,
-					canonical: { ...read.canonical, digest: "f".repeat(64) },
+		const receipt = await withAppTx(async (tx) =>
+			refreshManagedLookupTableInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, SCOPE, "edit"),
+				{
+					tableId,
+					content: { fields: ["code"], rows: [{ code: "001" }] },
+					origin: {
+						server: SERVER,
+						domain: DOMAIN,
+						remoteId: PLAIN_ID,
+						canonical: { ...read.canonical, digest: "f".repeat(64) },
+					},
+					/* Read after the birth, whose write is dated by its own read. */
+					at: new Date(),
+					mode: "refresh",
+					olderReadYields: true,
 				},
-				/* Read after the birth, whose write is dated by its own read. */
-				at: new Date(),
-				mode: "refresh",
-				olderReadYields: true,
-			}),
+			),
 		);
 		expect(receipt.keptGoneColumns.map((column) => column.id)).toEqual([
 			columns.name,
@@ -1405,21 +1551,25 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 				.execute();
 		/** CommCare HQ's `plain` with `code` alone, as a refresh writes it. */
 		const refreshToCode = (digest: string) =>
-			withAppTx((tx) =>
-				refreshManagedLookupTableInTransaction(tx, SCOPE, {
-					tableId,
-					content: { fields: ["code"], rows: [{ code: "001" }] },
-					origin: {
-						server: SERVER,
-						domain: DOMAIN,
-						remoteId: PLAIN_ID,
-						canonical: { ...read.canonical, digest },
+			withAppTx(async (tx) =>
+				refreshManagedLookupTableInTransaction(
+					tx,
+					await authorizeLookupWriteInTransaction(tx, SCOPE, "edit"),
+					{
+						tableId,
+						content: { fields: ["code"], rows: [{ code: "001" }] },
+						origin: {
+							server: SERVER,
+							domain: DOMAIN,
+							remoteId: PLAIN_ID,
+							canonical: { ...read.canonical, digest },
+						},
+						/* Read after the birth, whose write is dated by its own read. */
+						at: new Date(),
+						mode: "refresh",
+						olderReadYields: true,
 					},
-					/* Read after the birth, whose write is dated by its own read. */
-					at: new Date(),
-					mode: "refresh",
-					olderReadYields: true,
-				}),
+				),
 			);
 
 		await protect(columns.name);
@@ -1475,10 +1625,10 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 			if ("success" in answer) throw new Error("the tables did not read");
 			return answer.tables;
 		});
-		await withAppTx((tx) =>
+		await withAppTx(async (tx) =>
 			createManagedLookupTablesInTransaction(
 				tx,
-				SCOPE,
+				await authorizeLookupWriteInTransaction(tx, SCOPE, "edit"),
 				reads.map((read, at) => {
 					if (read.kind !== "read") throw new Error("a table was not read");
 					const tag = read.table.tag;

@@ -34,17 +34,15 @@ import {
 	type HqFailure,
 	hqReadCircumstance,
 } from "@/lib/commcare/hq/failure";
-import {
-	publishedCaseBlocks,
-	sourceHoldsEditMode,
-} from "@/lib/commcare/hq/publishedCaseBlocks";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import type { ReadDraft } from "@/lib/commcare/reader";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
+import { readWorkLimit, sourceCharacters } from "@/lib/commcare/reader/work";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { WorkCancelled, WorkLimitReached } from "@/lib/commcare/workMeter";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
 import { getHqCredentials } from "@/lib/db/settings";
@@ -55,7 +53,7 @@ import type {
 import { type BlueprintDoc, PLATFORMS, type Platform } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
-import { ownRecordValue } from "@/lib/domain/records";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import {
 	builtinAssetRows,
@@ -67,7 +65,11 @@ import { documentChangeLines } from "@/lib/publish/documentChangeCopy";
 import type { DriftReference } from "@/lib/publish/driftReference";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import { firstPublishLines } from "@/lib/publish/firstPublishCopy";
-import { caseDataLine, caseTypesLine } from "@/lib/publish/hqChangesCopy";
+import {
+	caseDataLine,
+	caseTypesLine,
+	whereHqKeepsLines,
+} from "@/lib/publish/hqChangesCopy";
 import {
 	type CircumstanceDetail,
 	type CircumstanceFinding,
@@ -77,7 +79,7 @@ import {
 	type ReadCircumstance,
 } from "@/lib/publish/hqFindings";
 import type { AdoptedMediaFile } from "../adoption";
-import { deploymentNotFound } from "../errors";
+import { DeploymentAppDeletedError, deploymentNotFound } from "../errors";
 import {
 	type HqMediaPath,
 	type HqMediaRecord,
@@ -93,7 +95,7 @@ import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
 } from "../reading/acceptance";
-import { Pieces } from "../reading/gather";
+import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
 import {
 	projectDataReadsOf,
 	type ReaderProjectDataReads,
@@ -118,6 +120,11 @@ import {
 } from "../reading/projectData/read";
 import { projectDataReview } from "../reading/projectData/review";
 import { handOffSettlements } from "../reading/projectData/settlements";
+import {
+	holdChangesReadings,
+	noRoomFinding,
+	withBringInRoom,
+} from "../reading/room";
 import { READING_MAX_LISTED_FINDINGS } from "../reading/types";
 import { driftReferenceOf } from "../remoteChanges";
 import { activeRemoteApp, deploymentEnding } from "../resources";
@@ -126,16 +133,20 @@ import {
 	type DeploymentTargetKey,
 	readAppBaseline,
 	readDeployment,
-	readDeploymentIdentityOverrides,
-	readDeploymentMediaPaths,
 	readMemberNames,
 	readProjectName,
+	readTargetIdentity,
+	withDeploymentReadSnapshot,
 } from "../store";
-import type {
-	AppBaseline,
-	DeploymentIdentityOverride,
-	DeploymentResource,
-} from "../types";
+import {
+	exportIdentityOf,
+	formIdsAgree,
+	observedTargetIdentity,
+	resolveTargetIdentity,
+	type TargetIdentity,
+	targetIdentityChanges,
+} from "../targetIdentity";
+import type { AppBaseline, DeploymentResource } from "../types";
 import { sourceFromBaseline } from "./baselineSource";
 import { contentNamedDocument, hqChangesReviewDigest } from "./digest";
 import { type HqChangePlan, planHqChangesSteps } from "./plan";
@@ -178,6 +189,11 @@ export interface HqChangesFacts {
 	readonly longestPieceMs: number;
 	/** What the longest piece was part of (`Pieces.at`). */
 	readonly longestPieceAt: string;
+	/** The work meter's units over every piece, the most one piece did, and what that one was
+	 *  part of (`Pieces`). */
+	readonly workUnits: number;
+	readonly longestPieceUnits: number;
+	readonly longestPieceUnitsAt: string;
 }
 
 /**
@@ -197,7 +213,12 @@ export interface HqChangesBasis {
 	readonly projectName: string;
 	readonly head: { readonly doc: BlueprintDoc; readonly seq: number };
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
-	readonly overrides: readonly DeploymentIdentityOverride[];
+	/**
+	 * Where the deployment records CommCare HQ keeps what the document doesn't
+	 * hold (`store.ts::readTargetIdentity`), which a take resolves the reading
+	 * over.
+	 */
+	readonly targetIdentity: TargetIdentity;
 	/** Taken before CommCare HQ was asked. */
 	readonly observedAt: string;
 	readonly source: HqAppSource;
@@ -244,6 +265,63 @@ export interface CheckedHqChanges {
 	};
 	/** The data the readings were bound under. */
 	readonly data: ReadingProjectData;
+	/**
+	 * The deployment's target-identity record as read (`read`) and as this
+	 * reading resolves it (`next`): what a take records and computes its
+	 * export over.
+	 */
+	readonly targetIdentity: {
+		readonly read: TargetIdentity;
+		readonly next: TargetIdentity;
+	};
+}
+
+/**
+ * The deployment's target-identity record once the reading now is recorded:
+ * what it observed of every menu and form `doc` holds, every keyed create,
+ * and every file of the reading `doc` shows
+ * (`targetIdentity.ts::observedTargetIdentity`), resolved over the stored
+ * record by the one rule (`resolveTargetIdentity`). Null where a form of the
+ * reading has no real id in CommCare HQ's application resource, which
+ * acceptance refuses before a reading is clean.
+ */
+export function takenTargetIdentity(input: {
+	readonly fetched: HqChangesBasis;
+	readonly draft: ReadDraft;
+	readonly mediaNow: ReadingMediaPlan;
+	readonly doc: BlueprintDoc;
+}): {
+	readonly read: TargetIdentity;
+	readonly next: TargetIdentity;
+} | null {
+	const shown = collectAssetRefs(input.doc);
+	const observed = observedTargetIdentity({
+		read: input.draft.identities,
+		aligned: input.fetched.modules,
+		mediaFiles: adoptedMediaFiles(input.mediaNow).filter((file) =>
+			shown.has(file.assetId),
+		),
+		mediaMap: input.fetched.source.multimediaMap ?? [],
+		doc: input.doc,
+	});
+	if (!observed.ok) return null;
+	return {
+		read: input.fetched.targetIdentity,
+		next: resolveTargetIdentity(
+			input.fetched.targetIdentity,
+			observed.observed,
+			input.doc,
+		),
+	};
+}
+
+/** A clean reading that named a form with no real id: Nova's own defect. */
+function identityRowsDefect(fetched: HqChangesBasis): CheckResult {
+	return {
+		kind: "answer",
+		review: unavailable("nova-defect", fetched.since),
+		defect: { check: "identity-rows", signature: "form-with-no-real-id" },
+	};
 }
 
 /** One computation's answer, and what a bring-in acts on. */
@@ -339,6 +417,7 @@ function unchanged(since: DriftReference): HqChangesReview {
 		kind: "nothing",
 		reason: "unchanged",
 		since,
+		hqChanges: [],
 		publishChanges: [],
 		readingId: null,
 		reviewDigest: null,
@@ -408,6 +487,7 @@ function logUnavailable(
 			);
 			return;
 		case "base-too-large":
+		case "comparison-too-intricate":
 		case "app-moved":
 			log.warn(`[hq-changes] unavailable: ${reason}`, context);
 			return;
@@ -517,9 +597,9 @@ function unionPlan(
 		if (!files.has(file.key)) files.set(file.key, file);
 	return {
 		files: [...files.values()].sort((a, b) => compareText(a.key, b.key)),
-		verdicts: {},
+		verdicts: NO_ENTRIES,
 		kept: new Map(),
-		published: {},
+		published: NO_ENTRIES,
 	};
 }
 
@@ -609,22 +689,31 @@ async function standingOf(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 ): Promise<Standing> {
+	/* An app deleted since the request was authorized, for a member who may
+	 * still edit it: the snapshot says so rather than not-found. */
+	let existing: Awaited<ReturnType<typeof readDeployment>>;
+	try {
+		existing = await readDeployment(scope, target);
+	} catch (error) {
+		if (error instanceof DeploymentAppDeletedError)
+			return { kind: "answer", review: unavailable("app-deleted", null) };
+		throw error;
+	}
 	/* No deployment, or one whose publish never made the app there: nothing
 	 * in that project space is this app's. */
-	const existing = await readDeployment(scope, target);
 	if (existing === null)
 		return { kind: "answer", review: unavailable("not-published", null) };
 	if (deploymentEnding(existing) !== null) return { kind: "ended" };
 	const live = activeRemoteApp(existing);
 	if (live === null)
 		return { kind: "answer", review: unavailable("not-published", null) };
-	/* A mapping is released only while its app is in recently deleted, and a
-	 * restore settles every released mapping in the transaction that restores
-	 * the app (`lib/db/apps.ts::restoreApp`), so a released mapping read here
-	 * means the app was deleted after this request was authorized and another
-	 * app's birth took its HQ app since. */
+	/* The app is live, so a released mapping is one its restore left released
+	 * while another app's write to that HQ app was still open
+	 * (`SettledClaims.waiting`): another app took the HQ app while this one was
+	 * in recently deleted, and only this app's next publish there takes it
+	 * back. */
 	if (live.releasedAt !== null)
-		return { kind: "answer", review: unavailable("app-deleted", null) };
+		return { kind: "answer", review: unavailable("hq-app-taken", null) };
 	const baseline = await readAppBaseline(scope, target);
 	if (baseline === null || baseline.remoteAppId !== live.remoteId)
 		return { kind: "answer", review: unavailable("no-reference", null) };
@@ -667,8 +756,46 @@ export async function computeHqChanges(
 	operation: HqChangesOperation,
 ): Promise<HqChangesComputation> {
 	if (!roleAllowsApp(scope.role, "edit")) throw deploymentNotFound();
+	const pieces = options.pieces ?? new Pieces(options.cancel);
+	try {
+		return await computeWith(scope, target, options, operation, pieces);
+	} catch (error) {
+		/* A review whose caller cancelled it stops at its next step, and answers as a read of
+		 * CommCare HQ the same signal cut off answers. An app that went to recently deleted
+		 * while it read, for a member who may still edit it, answers as its first read does. */
+		const review: HqChangesReview | null =
+			error instanceof WorkCancelled
+				? { kind: "stop", finding: atApp("hq-unavailable") }
+				: error instanceof DeploymentAppDeletedError
+					? unavailable("app-deleted", null)
+					: null;
+		if (review === null) throw error;
+		return {
+			review,
+			facts: {
+				sourceBytes: null,
+				checkMs: pieces.total,
+				longestPieceMs: pieces.longest,
+				longestPieceAt: pieces.longestAt,
+				workUnits: pieces.units,
+				longestPieceUnits: pieces.longestUnits,
+				longestPieceUnitsAt: pieces.longestUnitsAt,
+			},
+			basis: null,
+			checked: null,
+			ended: false,
+		};
+	}
+}
+
+async function computeWith(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	options: HqChangesComputeOptions,
+	operation: HqChangesOperation,
+	pieces: Pieces,
+): Promise<HqChangesComputation> {
 	const { onEvent, cancel } = options;
-	const pieces = options.pieces ?? new Pieces();
 	let sourceBytes: number | null = null;
 	const answer = (
 		review: HqChangesReview,
@@ -681,6 +808,9 @@ export async function computeHqChanges(
 			checkMs: pieces.total,
 			longestPieceMs: pieces.longest,
 			longestPieceAt: pieces.longestAt,
+			workUnits: pieces.units,
+			longestPieceUnits: pieces.longestUnits,
+			longestPieceUnitsAt: pieces.longestUnitsAt,
 		},
 		basis,
 		checked,
@@ -704,6 +834,9 @@ export async function computeHqChanges(
 		logUnavailable(scope, operation, "base-too-large");
 		return answer(unavailable("base-too-large", since));
 	}
+	/* The base reading's room, before anything is read as it. */
+	if (!holdChangesReadings(baseline.sourceBytes, 0))
+		return answer({ kind: "stop", finding: noRoomFinding() });
 
 	/* 3. The head. */
 	const snapshot = await readOrganizationAuthoringSnapshot({
@@ -756,7 +889,12 @@ export async function computeHqChanges(
 			break;
 	}
 	const { source, modules } = reading;
-	sourceBytes = Buffer.byteLength(JSON.stringify(source.raw));
+	sourceBytes = await pieces
+		.at("the source's size")
+		.run(() => Buffer.byteLength(JSON.stringify(source.raw)));
+	/* The reading now's room, before the source is read as one. */
+	if (!holdChangesReadings(baseline.sourceBytes, sourceBytes))
+		return answer({ kind: "stop", finding: noRoomFinding() });
 	const normalized = await pieces
 		.at("the source's normalization")
 		.run(() => normalizeHqAppSource(source.raw));
@@ -770,6 +908,7 @@ export async function computeHqChanges(
 		novaRevision: baseline.novaRevision,
 		head,
 	});
+	const targetIdentity = await readTargetIdentity(scope, target);
 	if (reference.kind !== "ok") {
 		/* With no reference there are no files to settle: only a recorded id
 		 * that moved says a file changed, as Refresh reads it. */
@@ -786,7 +925,8 @@ export async function computeHqChanges(
 				),
 			}),
 		);
-		if (parts.length === 0) return answer(unchanged(since));
+		if (parts.length === 0 && formIdsAgree(head.doc, targetIdentity, modules))
+			return answer(unchanged(since));
 		logUnavailable(scope, operation, reference.kind);
 		return answer(unavailable(reference.kind, since));
 	}
@@ -794,7 +934,7 @@ export async function computeHqChanges(
 	/* 6. The files the reference publishes, settled by content. */
 	const manifest = await resolveMediaManifest(reference.doc, scope.projectId, {
 		withBytes: false,
-		heldPaths: await readDeploymentMediaPaths(scope, target),
+		heldPaths: exportIdentityOf(reference.doc, targetIdentity).heldMediaPaths,
 	});
 	const standings = hqMediaStandings({
 		published: publishedMediaFiles(bulkUploadAssets(reference.doc, manifest)),
@@ -802,7 +942,7 @@ export async function computeHqChanges(
 		now: source.multimediaMap ?? [],
 	});
 	let published: readonly HqMediaPath[] = standings;
-	let learned: HqMediaRecord = {};
+	let learned: HqMediaRecord = NO_ENTRIES;
 	/* What settling read of each file, so step 11 asks CommCare HQ for none
 	 * of them again: a file at a published path is one the reading now names. */
 	let settledReads: ReadonlyMap<string, SettledHqMediaRead> = new Map();
@@ -847,7 +987,7 @@ export async function computeHqChanges(
 		projectName: await readProjectName(scope),
 		head,
 		reference,
-		overrides: await readDeploymentIdentityOverrides(scope, target),
+		targetIdentity,
 		observedAt,
 		source,
 		modules,
@@ -856,12 +996,18 @@ export async function computeHqChanges(
 		learned,
 		ownRows: await ownAssetRows(published, scope.projectId),
 	};
-	if (parts.length === 0) {
+	/* A save that moves nothing but a form's id normalizes to the same
+	 * source, so the application resource's ids are what tell it from no
+	 * save: such a save is read, and its review names the new id. */
+	if (
+		parts.length === 0 &&
+		formIdsAgree(reference.doc, targetIdentity, modules)
+	) {
 		const nextRecord = nextHqMediaRecord({
 			published,
 			previous: baseline.mediaFiles,
 			learned,
-			reported: {},
+			reported: NO_ENTRIES,
 			settled: published,
 		});
 		if (!hqMediaRecordMoves(baseline.mediaFiles, nextRecord))
@@ -875,6 +1021,7 @@ export async function computeHqChanges(
 				kind: "nothing",
 				reason: "reads-the-same",
 				since,
+				hqChanges: [],
 				publishChanges: [],
 				readingId: options.readingId,
 				reviewDigest: hqChangesReviewDigest({
@@ -895,14 +1042,23 @@ export async function computeHqChanges(
 	const baseSource = await pieces
 		.at("the base source")
 		.run(() => sourceFromBaseline(baseline.source));
+	/* Each source's forms, parsed once each before anything reads them, held
+	 * to what one reading parses as each source's bytes are to the cap. */
+	if (!(await formsWithinReading(pieces, source)))
+		return answer(accountReview([atApp("too-large")]));
+	if (!(await formsWithinReading(pieces, baseSource))) {
+		logUnavailable(scope, operation, "base-too-large");
+		return answer(unavailable("base-too-large", since));
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
-	const holdsEditMode = await pieces
-		.at("the edit mode test")
-		.run(
-			() =>
-				sourceHoldsEditMode(publishedCaseBlocks(source.raw)) ||
-				sourceHoldsEditMode(publishedCaseBlocks(baseSource.raw)),
-		);
+	const holdsEditMode = await editModeTest(pieces, [source, baseSource]);
+	if (holdsEditMode === "fault") {
+		logUnavailable(scope, operation, "nova-defect", {
+			check: "reader",
+			signature: "contract",
+		});
+		return answer(unavailable("nova-defect", since));
+	}
 	if (holdsEditMode) {
 		const flag = await readHqSaveOnlyEditedAnswers(creds, target.domain, {
 			cancel,
@@ -1053,7 +1209,6 @@ export async function computeHqChanges(
 	return answer(review, fetched, result.checked);
 }
 
-/** A fresh resolver over the reference's identities under the deployment's ids. */
 /**
  * What the Project's data the reading now reads holds that Nova can't hold:
  * the findings a review adds to the reading's own before it judges any file,
@@ -1074,12 +1229,13 @@ export function projectDataFindingsNow(
 	);
 }
 
+/** The resolver over the reference's identities under the deployment's ids. */
 function resolverOf(fetched: HqChangesBasis) {
 	return matchingResolver(
 		fetched.scope.appId,
 		externalIdentityMap(
 			fetched.reference.identityDoc,
-			targetWireIdentity(fetched.overrides),
+			targetWireIdentity(fetched.targetIdentity.entities),
 		),
 	);
 }
@@ -1122,13 +1278,14 @@ function readingsWith(
 			saveOnlyEditedApplied: fetched.saveOnlyEditedApplied,
 		}),
 		reference: fetched.reference,
-		overrides: fetched.overrides,
+		overrides: fetched.targetIdentity.entities,
 		media: { published: fetched.published, base, now },
 		heldExpansions: pieces.expansions,
 	});
 }
 
-/** The names of the members other than the reader who changed the app since the reference. */
+/** The names of the members other than the reader who changed the app since the reference, read
+ *  in a snapshot that proves the reader may still see the app. */
 async function madeByNames(
 	fetched: HqChangesBasis,
 ): Promise<readonly string[]> {
@@ -1136,7 +1293,11 @@ async function madeByNames(
 		(actor) => actor !== fetched.scope.actorUserId,
 	);
 	if (others.length === 0) return [];
-	const names = await readMemberNames(others);
+	const names = await withDeploymentReadSnapshot(
+		fetched.scope,
+		"view",
+		(snapshot) => readMemberNames(snapshot, others),
+	);
 	return others.flatMap((actor) => {
 		const name = names.get(actor);
 		return name === undefined ? [] : [name];
@@ -1320,15 +1481,30 @@ export async function checkHqChanges(
 		}),
 	);
 
-	/* The plan. */
-	const plan = await pieces.at("the plan").steps(
-		planHqChangesSteps({
-			reference,
-			now: fetched.head.doc,
-			readings,
-			accepted,
-		}),
-	);
+	/* The plan, under the work a reading of both sources is given (`reader/work.ts`): its
+	 * canonical rows and diffs run over four documents of the app, and one that would take
+	 * more is a comparison Nova does not make. */
+	let plan: HqChangePlan;
+	try {
+		plan = await pieces.at("the plan").steps(
+			planHqChangesSteps({
+				reference,
+				now: fetched.head.doc,
+				readings,
+				accepted,
+			}),
+			readWorkLimit(
+				sourceCharacters(readerNow.source.raw) +
+					sourceCharacters(readings.inputs.base.source.raw),
+			),
+		);
+	} catch (error) {
+		if (!(error instanceof WorkLimitReached)) throw error;
+		return {
+			kind: "answer",
+			review: unavailable("comparison-too-intricate", fetched.since),
+		};
+	}
 	switch (plan.kind) {
 		case "account":
 			return { kind: "answer", review: accountReview(plan.findings) };
@@ -1395,6 +1571,17 @@ export async function checkHqChanges(
 		});
 		return { newTags, tables, reviewDigest };
 	});
+	/* The record a take writes, and the lines naming where it moved, each its
+	 * own piece: a document at the cap walks its media references. */
+	const recorded = await pieces.at("the target identity").run(() =>
+		takenTargetIdentity({
+			fetched,
+			draft,
+			mediaNow: media.now,
+			doc: plan.kind === "changes" ? plan.target : fetched.head.doc,
+		}),
+	);
+	if (recorded === null) return identityRowsDefect(fetched);
 	const checked: CheckedHqChanges = {
 		fetched,
 		plan,
@@ -1405,8 +1592,21 @@ export async function checkHqChanges(
 		newTags: built.newTags,
 		media,
 		data,
+		targetIdentity: recorded,
 	};
 	const publishChanges = publishChangeSentences(plan.publishChanges);
+	const whereHqKeeps = await pieces
+		.at("where HQ keeps")
+		.run(() =>
+			whereHqKeepsLines(
+				targetIdentityChanges(
+					recorded.read,
+					recorded.next,
+					plan.kind === "changes" ? plan.target : fetched.head.doc,
+					fetched.head.doc,
+				),
+			),
+		);
 	if (
 		plan.kind === "nothing" ||
 		(plan.batch.length === 0 && plan.renamedInNova.length === 0)
@@ -1417,6 +1617,7 @@ export async function checkHqChanges(
 				kind: "nothing",
 				reason: plan.kind === "nothing" ? "reads-the-same" : "already-here",
 				since: fetched.since,
+				hqChanges: whereHqKeeps,
 				publishChanges,
 				readingId: fetched.readingId,
 				reviewDigest: built.reviewDigest,
@@ -1428,7 +1629,10 @@ export async function checkHqChanges(
 		review: {
 			kind: "changes",
 			since: fetched.since,
-			hqChanges: documentChangeLines(plan.hqChanges, "hq"),
+			hqChanges: [
+				...documentChangeLines(plan.hqChanges, "hq"),
+				...whereHqKeeps,
+			],
 			novaChanges: documentChangeLines(plan.novaChanges, "nova"),
 			madeBy: [],
 			caseData: [
@@ -1458,9 +1662,32 @@ export async function checkHqChanges(
 /**
  * One review: mints a reading's id, computes, logs the answer with the time
  * its synchronous pieces took and the source's size, and answers. Writes
- * nothing.
+ * nothing. Where the process has no room for what it reads
+ * (`reading/room.ts`), it stops reading and answers `nova-busy`.
  */
-export async function reviewHqChanges(
+export function reviewHqChanges(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	options: {
+		readonly onEvent: (event: HqChangesProgress) => void;
+		readonly cancel?: AbortSignal;
+	},
+): Promise<HqChangesReview> {
+	return withBringInRoom(
+		"changes-review",
+		(room) =>
+			reviewInRoom(scope, target, {
+				onEvent: options.onEvent,
+				cancel:
+					options.cancel === undefined
+						? room.signal
+						: AbortSignal.any([options.cancel, room.signal]),
+			}),
+		() => ({ kind: "stop", finding: noRoomFinding() }),
+	);
+}
+
+async function reviewInRoom(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	options: {
@@ -1514,6 +1741,9 @@ export function logAnswered(
 		checkMs: Math.round(facts.checkMs),
 		longestPieceMs: Math.round(facts.longestPieceMs),
 		longestPieceAt: facts.longestPieceAt,
+		workUnits: facts.workUnits,
+		longestPieceUnits: facts.longestPieceUnits,
+		longestPieceUnitsAt: facts.longestPieceUnitsAt,
 		sourceBytes: facts.sourceBytes,
 	});
 }

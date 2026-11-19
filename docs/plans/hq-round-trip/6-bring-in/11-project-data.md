@@ -112,7 +112,9 @@ part adds, and this part adds no document slot.
     A publish to that project space sends no place; a publish to another creates them from the copy.
     Every level comes in, read or not, because a place stands at one (Departure 16).
 17. **Level settings no API returns take Nova's defaults, said where they matter** (11.3): every
-    level holds workers and a worker's phone carries their own branch.
+    level holds workers and a worker's phone carries their own branch, for Preview and the document
+    only. Provisioning never assigns a worker at a level of places CommCare HQ manages until a
+    person confirms that level takes workers in that project space (`worker-level`, 11.3).
 18. **A location property and a worker property come in one per slug the app reads** (11.5), with
     the slug as its label, not required, no choices. Neither has a type in Nova, so nothing is typed
     from use. The reader's expression pass runs twice, the first time to learn the slugs, because a
@@ -660,9 +662,16 @@ where fewer than four are in flight and the caps of those in flight plus its own
 MiB, a file being in flight from its start until its verdict is in.
 
 **What one request holds.** In a read, the files in flight and nothing more: an app with 500 files
-holds four at a time. In a create, the held files as well, until each is published: at most
-`MAX_MEDIA_EXPORT_BYTES`, because 4.3 starts no file once the held files pass it, plus what was in
-flight at that moment. That is what a publish of the same app already holds in this process
+holds four at a time. In a create, the held files as well, until each is published, one buffer per
+distinct content in the very entry the budget counts it by (`judgeReadingMedia`'s map keyed by
+content hash holds both the budget's row and the bytes), so two of CommCare HQ's files that hold the
+same bytes are held once: at most `MAX_MEDIA_EXPORT_BYTES`, because 4.3 starts no file once the
+held files pass it, plus what was in flight at that moment. The bytes held are the read's own,
+never a copy, and a file an earlier step of the request read (`settleHqMedia`'s `retain`) is held
+as that read's buffer. The process bounds what bring-ins hold together by a meter (`reading/room.ts`,
+part 05, section 3.3): each file's bytes are charged to the request's lease as they are read, a
+file judged and not kept, or kept once already by its content, is given back as its verdict is
+in, and what a create keeps stays charged until the request ends. That is what a publish of the same app already holds in this process
 (`lib/media/exportBudget.ts`: every export path loads every referenced ready asset's bytes into
 memory at once, under that same ceiling), so a bring-in never asks more of the process than
 publishing the same app does.
@@ -721,8 +730,12 @@ author gave the file in CommCare HQ.
 
 ### 2.4 Verdicts to findings
 
-`mediaFindings` is pure. `readingMediaFindings` (14.2) calls it, and part 12 calls that in both
-requests once the files are judged:
+`mediaFindings` is pure but for its log, as `planHqMedia` (2.1) is. Each logs what it meets that no
+manifest entry names (a file of another kind, a format no entry names) once a reason, after its
+loop, with the count and the first five cases, never a line per reference or per file: the loop's
+length is an app author's, and each error-level line is a Sentry event. The findings are each still
+listed. `readingMediaFindings` (14.2) calls it, and part 12 calls that in both requests once the
+files are judged:
 
 ```ts
 export function mediaFindings(input: {
@@ -950,10 +963,10 @@ every member of `ValidatedMediaMetadata`) and its `originalFilename`, and `asset
 `asMediaAssetId(randomUUID())`, which is how MCP's upload mints the id a new row takes. The
 answer's `assetId` is recorded in `plan.published` under the file's key, and the file's bytes
 leave the plan. That id is the new row's, or the ready file's the Project already held with those
-bytes, which may be one a person uploaded long before. Two files of CommCare HQ's that hold the
-same bytes are two keys and one asset: the second finds the first by Project and hash.
-`onProgress` is called as each file is recorded, with the count of `plan.published` and the count
-of held files.
+bytes, which may be one a person uploaded long before. Each content is published once: two files of
+CommCare HQ's that hold the same bytes are one publication, recorded under both keys.
+`onProgress` is called as each content is recorded, with the count of file keys in
+`plan.published` and the count of held files.
 
 Two is the bound publication already has: it runs under
 `lib/storage/mediaObjectKeyLock.ts::withMediaObjectKeyLock`, whose session locks are held to one
@@ -1014,8 +1027,9 @@ The same two limits bound what one request fetches, so no new number is made:
   finish, and it answers `done` with the plan as it then stands. `readingMediaFindings` (14.2)
   answers `complete: false` for such a plan, with the budget finding among its findings.
 
-So no request fetches more than 200 MB plus what was in flight, and the account that carries the
-finding says the files were not all checked (part 12's `mediaChecked: false`).
+So no request fetches more than 200 MB of distinct content plus what was in flight, and the
+account that carries the finding says the files were not all checked (part 12's `mediaChecked:
+false`). Files of several ids that hold the same bytes are each fetched, and kept once.
 
 The birth's own readiness check then never fails on media, which is the bar's clause (a): no finding
 is discovered as a gate refusal.
@@ -1095,11 +1109,21 @@ export type HqLookupReadFailure = CommCareApiError & {
 	readonly request: "lookup-tables" | "lookup-rows" };
 ```
 
-**A row read stops once the finding is certain.** Each table's rows are read with `stopPast:
+**A row read stops once the finding is certain.** Each table's rows are read with `maxRows:
 LOOKUP_MAX_ROWS` (part 05, section 10.2). A table over that limit is a `not-yet` finding whatever
 its rows hold (5.3), so where the first page names a total over it the answer is `past-limit`, no
-further page is asked for, and the read is `over-row-limit` with that total. So what one request
-holds of a table is at most what the caps admit.
+further page is asked for, and the read is `over-row-limit` with that total. The caps are judged
+after the rows are read, so they bound nothing that is read; what bounds it is the bytes. One
+table's rows are read at most `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` (64 MiB) of CommCare HQ's answer,
+past which the read is `over-byte-limit`, a caps finding of that table, and the other tables are
+still read. The rows of every table one request reads are bounded together by
+`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES` (128 MiB): each table is read at most as far as what remains,
+and a table that passes what remains, where that is less than one table's bound, ends the read with
+a failure of cause `too-large` for `lookup-rows`, the circumstance `lookup-data-too-large`
+("This app reads more lookup data than Nova brings in. That limit is Nova's, not the app's."). The
+number of candidate tables is bounded by that total, not by a count. A table of more than one page
+is read twice and taken only where both passes agree (part 05, section 10.1); one that moves under
+every pass answers `moved`, `hq-unavailable`.
 
 **Which failed row read is the table's own fault.** A read of a table's rows that answers a
 non-edge status of 500 or more, or fails with `cause: "network"`, is sent once more.
@@ -1156,7 +1180,7 @@ of the table. Each finding is at `{ kind: "lookup-table", tag }`:
 | a field holding other than one value | `rowsHoldOtherThanOneValue` | the same | `"<tag>: a field with more than one value"` |
 | a row attribute | `unsupportedLookupContent` | `expressions-and-data/item-attributes-and-per-row-attribute-values` | `"<tag>: row attributes"` |
 | rows that go only to their owners | `unsupportedLookupContent` | `expressions-and-data/is-global-false-row-owners-user-group-location` | `"<tag>: rows limited to certain users"` |
-| over a cap (below) | `lookupCapExcess`; or the read is `over-row-limit` (5.1) | `expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64` | `"<tag>: "` and the cap's own phrase, one finding per cap. An `over-row-limit` read gives the rows cap's alone, `<n>` being CommCare HQ's total, since no row was read past the first page |
+| over a cap (below) | `lookupCapExcess`; or the read is `over-row-limit` or `over-byte-limit` (5.1) | `expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64` | `"<tag>: "` and the cap's own phrase, one finding per cap. An `over-row-limit` read gives the rows cap's alone, `<n>` being CommCare HQ's total, since no row was read past the first page; an `over-byte-limit` read gives `"<tag>: more data than Nova reads for one table"` |
 | the tag `types`, any case | the tag | `expressions-and-data/tag-types` | `"types"` |
 | a tag holding `casedb` or `ledgerdb` | `reservedInstanceTagCause` | `expressions-and-data/tag-containing-casedb-or-ledgerdb` (REFUSED) | the tag |
 | a tag or a field name outside part 04's grammar | `lookupTagSchema`, `lookupWireNameSchema` | part 04's section 11.2: N4 (a non-ASCII letter), N24 (a period), N5 (a tag equal to an instance name CommCare owns); any other failure is `unrecognized` | the name |
@@ -1709,19 +1733,30 @@ export function refreshManagedLookupTableInTransaction(
 after the review, which the birth answers as 7.4 says); `createTable` per table with the binding's
 ids, every column `text` with its label `columnLabelFor(wireName)` (5.2), the table's name `name`
 (the tag, see 7.3), then the eight origin columns in the same statement as the insert; one
-`advanceLookupProjectRevision`; one notice. The scope needs `edit`. Part 15 is the create arm's
-second caller: a bring-in of changes that reads a table the Project does not hold creates it as a
-copy managed in CommCare HQ, in a short transaction of its own before its commit, under the ids of
-5.5 derived from that review's `readingId` (its section 5.3).
+`advanceLookupProjectRevision`; one notice. Every writer of a copy takes a `LookupWriteAuthority`,
+the member's role read on the write's own transaction under the membership gate
+(`lib/lookup/writerTransaction.ts::authorizeLookupWriteInTransaction`), never a role a request
+captured: the create arm and the refresh arm's `refresh` mode need its `edit`, the `adopt` mode and a
+takeover its `delete`, which `lockLookupTableForUpdate` holds each purpose to. Part 15 is the create
+arm's second caller: a bring-in of changes that reads a table the Project does not hold creates it
+as a copy managed in CommCare HQ, inside its commit's transaction before the gate (part 15, 5.3),
+under the ids of 5.5 derived from that review's `readingId` (its section 5.3).
 
 `refreshManagedLookupTableInTransaction`, in order:
 
 1. `lockLookupProjectState`, then `lockLookupTableForUpdate(..., null, mode === "refresh" ?
-   "hq-refresh" : "hq-management")`. In `refresh` mode a table that is not managed in CommCare HQ
-   from `origin.server` and `origin.domain` throws `LookupError("conflict", ...)`: someone chose
-   Manage in Nova in the meantime, and the caller reports that the table is now Nova's. In `adopt`
-   mode a table CommCare HQ manages from another server or domain throws the same `conflict`: one
-   copy holds one origin.
+   "hq-refresh" : "hq-management")`, each with the authority. In `refresh` mode a table that is not
+   managed in CommCare HQ from `origin.server` and `origin.domain` throws
+   `LookupError("conflict", ...)`: someone chose Manage in Nova in the meantime, and the caller
+   reports that the table is now Nova's. In `adopt` mode a table CommCare HQ manages from another
+   server or domain throws the same `conflict`: one copy holds one origin. Then the reviewed state,
+   under that lock: `adopt` takes `ManagedTableReviewed` (`definitionRevision`, `rowsRevision`,
+   and `readerAppIds`, the Project's apps whose reference edges name the table), and a `refresh`
+   may take the two revisions a reading saw; where the locked table or the edges read on this
+   transaction differ, `LookupReviewMovedError` (a `conflict`) and nothing is written. Only Refresh
+   and a publish's re-read pass no reviewed state: they confirm nothing, and a copy CommCare HQ
+   manages takes no author's edit. An app's commit takes the table `FOR KEY SHARE`, which waits
+   behind this lock, so no reader appears between the compare and the commit.
 2. In `refresh` mode, where the stored `hq_canonical.digest` equals `origin.canonical.digest` and
    `hq_remote_id` equals `origin.remoteId`: write `hq_refreshed_at` and `hq_refreshed_by`, advance
    nothing, notify nothing, return `changed: "nothing"`. A refresh that changed no value must not
@@ -1908,7 +1943,7 @@ Equality alone is not enough, for three cases read at source:
 |---|---|---|
 | The binding | the Project table's id; its columns by name; derived ids (5.5) for fields it lacks | the Project table as it is |
 | What creation writes | `refreshManagedLookupTableInTransaction`, mode `adopt`: the table takes CommCare HQ's columns and rows and becomes managed in CommCare HQ from this project space | nothing |
-| The other apps that read it | read CommCare HQ's rows from then on. A column one of them reads that CommCare HQ's table lacks stays, with no values (`goneColumns`, named in the choice). Every column becomes text (6.4, step 3), so a column that was a number or a date is compared as text from then on. Nova keeps the table read-only until someone chooses Manage in Nova | unchanged |
+| The other apps that read it | read CommCare HQ's rows from then on. A column one of them reads that CommCare HQ's table lacks stays, with no values (`goneColumns`, named in the choice). Every column becomes text (6.4, step 3), so a column that was a number or a date is compared as text from then on. Nova keeps the table read-only until someone chooses Manage in Nova. The list named here is the one the adoption is held to when it is written: an app that began reading the table since stops it (7.4) | unchanged |
 | This app | Preview shows CommCare HQ's rows | Preview shows the Project's rows |
 | The table in the project space | never written | stays as it is until a publish. That publish finds the tag there with no mapping Nova can account for and asks before replacing it, with `LOOKUP_ADOPTION_NOTE`, as it does today |
 | Not offered when, first match | the Project's table is managed in CommCare HQ from another project space (`managed-elsewhere`, `name` that project space): one copy cannot follow two; or the person lacks the Project's `delete` capability (`needs-admin`): turning a table every app shares into a read-only copy is an identity change, the capability `lib/lookup` already asks for a tag or a destructive schema change; or CommCare HQ's fields and the Project's columns apps still read come to more than 250 (`too-many-columns`, `name` that count with a thousands separator; 5.3) | the app reads a field the Project's table has no column for (`app-reads-a-missing-column`, `name` the first such field); or the app could not be born on the Project's table as it stands (`fails-a-project-space-rule`, `name` null; below), whether or not the table is equal |
@@ -2037,10 +2072,16 @@ for, or an answered offer is no longer offered, or a `same-managed` table would 
 250 columns, or a Project table's `definition_revision` or
 `rows_revision` is no longer the one `projectTable` holds (7.2's offers were judged for the table
 as it then stood), it throws `BroughtInTableChangedError(tag)` and the birth rolls back whole.
-The standing is derived again with `apps: []` and `appReads: []`: its kind reads neither, the
-`use-commcare-hq` offer reads the role and who manages the table, and the one offer that reads the
-fields, `use-project`'s missing column, reads the table's definition, whose revision is held; the
-revision check covers the rest of what `projectDataReview` judged. Otherwise: one `createManagedLookupTablesInTransaction` for the `new`
+These reads stand: every writer of a table's content takes Project state first. The standing is
+derived again with `apps: []` and `appReads: []`: its kind reads neither, the `use-commcare-hq`
+offer reads the role (read on this transaction) and who manages the table, and the one offer that
+reads the fields, `use-project`'s missing column, reads the table's definition, whose revision is
+held. The apps the choice named are held separately, since an app's reference moves no revision and
+app commits take no Project state: each refresh and adoption is handed what the reading saw
+(`ManagedTableReviewed`, the `projectTable` revisions and, for an adoption, the ids of
+`standing.apps`), and the refresh arm compares it under the table's own lock (6.4, step 1); a list
+that moved answers as a moved revision does (`LookupReviewMovedError`, a `conflict`, which a birth
+answers `read-again`). Otherwise: one `createManagedLookupTablesInTransaction` for the `new`
 tables; then `refreshManagedLookupTableInTransaction` in `refresh` mode for each `same-managed`, in
 `adopt` mode for each `use-commcare-hq`, in table id order, since each takes its table `FOR UPDATE`
 until the birth commits and every other writer that locks several of the Project's tables takes them
@@ -2158,8 +2199,12 @@ In order: the Project's definitions of the tables the app reads (`getLookupDefin
 managed in CommCare HQ split into `here` (origin equals the target) and `elsewhere`.
 
 - **`here`.** `listHqLookupTables(creds, domain)` once; its failure is the returned `unreadable`.
-  Rows per table, `LOOKUP_ROWS_READ_CONCURRENCY` at a time; a failure is `unreadable` with that
-  table's name. If any table has a stopping change, nothing is refreshed and every stopping change
+  Rows per table, `LOOKUP_ROWS_READ_CONCURRENCY` at a time, each with `maxRows: LOOKUP_MAX_ROWS`
+  and `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`: a table past either is over a cap after its first page past
+  it, with nothing more read. The rows are a read the list reader confirmed (part 05, section 10.1):
+  a table of several pages is read twice, and one that changes while it is read answers `moved`,
+  which is `unreadable` (`hq-unavailable`) and leaves the copy as it was, so a torn set is never
+  written; a failure is `unreadable` with that table's name. If any table has a stopping change, nothing is refreshed and every stopping change
   of every table is returned, so the person reads them all at once. Otherwise each table whose
   digest moved is refreshed in its own short transaction with the publisher as `hq_refreshed_by`.
 - **`elsewhere`.** Grouped by origin. A person stores one CommCare HQ connection: one server, one
@@ -2334,8 +2379,10 @@ file (`proof/corpus/publish.ts::importFile`). `hqImportFileGuide` takes the boun
 
 `lib/deployment/managedData.ts` holds the three services; `lib/deployment/managedDataActions.ts`
 (new, `"use server"`) holds their Server Actions. Arguments are plain JSON (a Project id, a table
-id); each action authenticates, resolves the Project freshly from the id it was given, and never
-falls back to the active Project.
+id, and for the two changes of who manages a table the `reviewDigest` the table's view answered);
+each action authenticates, resolves the Project freshly from the id it was given, and never falls
+back to the active Project. Each service's capability is read again on the transaction that writes,
+after any read of CommCare HQ, so a member demoted or removed during that read changes nothing.
 
 ```ts
 export type ManagedTableOutcome =
@@ -2344,12 +2391,12 @@ export type ManagedTableOutcome =
 	| { readonly ok: false; readonly reason:
 		| "not-found" | "not-permitted" | "not-connected" | "cannot-read" | "unavailable"
 		| "table-gone" | "unsupported" | "over-cap" | "name" | "unrepresentable-text"
-		| "state-changed";
+		| "state-changed" | "review-moved";
 	    readonly message: string };
 
 export function refreshManagedLookupTable(scope: LookupScope, tableId: LookupTableId): Promise<ManagedTableOutcome>;
-export function manageLookupTableInNova(scope: LookupScope, tableId: LookupTableId): Promise<ManagedTableOutcome>;
-export function letHqManageLookupTable(scope: LookupScope, tableId: LookupTableId): Promise<ManagedTableOutcome>;
+export function manageLookupTableInNova(scope: LookupScope, tableId: LookupTableId, reviewDigest: string): Promise<ManagedTableOutcome>;
+export function letHqManageLookupTable(scope: LookupScope, tableId: LookupTableId, reviewDigest: string): Promise<ManagedTableOutcome>;
 /** What the table page shows of a table that came from CommCare HQ. `view`. */
 export function readManagedLookupTableView(scope: LookupScope, tableId: LookupTableId): Promise<{
 	readonly origin: LookupHqOrigin; readonly serverLabel: string; readonly hqUrl: string;
@@ -2402,6 +2449,7 @@ Every `reason` has its sentence, which is the outcome's `message`:
 | `name` | `name` | Copy T6, `{holds}` being "a column named {name}" |
 | `unrepresentable-text` | `unrepresentable-text` | Copy T21 |
 | `state-changed` | the refresh arm's `conflict` (6.4, step 1) | Copy T20 |
+| `review-moved` | Manage in Nova or the hand-back, where `reviewDigest` is no longer the table's review (who manages it, its two revisions, the apps that read it), checked before anything is read, or where the table or its readers moved by the time the write locks the table (`LookupReviewMovedError`) | "This table, or the apps that read it, changed while you were deciding, so Nova changed nothing. Here is how it stands now." (`MANAGEMENT_REVIEW_MOVED`); the browser reads the view again beside it, and MCP answers the preview again |
 
 A refresh from the table page never meets `column-gone`: a column an app reads is kept, and said
 (Copy T16). Where several changes stop one refresh, the outcome is the first in the order of 8.1's
@@ -2410,11 +2458,11 @@ table.
 | | Refresh from CommCare HQ | Manage in Nova | Let CommCare HQ manage it again |
 |---|---|---|---|
 | Offered when | the table is managed in CommCare HQ | the same | the table is managed in Nova and came from CommCare HQ |
-| Needs | the Project's `edit`; the actor's connection on the origin's server | the Project's `delete` | the Project's `delete`; the actor's connection |
+| Needs | the Project's `edit`, read on the write's own transaction under the membership gate; the actor's connection on the origin's server | the Project's `delete`, read the same way; the `reviewDigest` of the view the confirmation showed | the Project's `delete`, read the same way; the `reviewDigest`; the actor's connection |
 | Reads CommCare HQ | the list, then the table's rows, with the actor's key | no | the same two reads |
 | Confirmation | none: it replaces nobody's work | Copy T9, naming the apps that read the table | Copy T11, naming the apps |
-| Writes | `refreshManagedLookupTableInTransaction`, mode `refresh` | under Project state and the table lock (`hq-management`): `hq_taken_over_at = now`, `hq_taken_over_by = actor`, and `definition_revision` stamped. No row changes; the Project revision advances once and notifies | `refreshManagedLookupTableInTransaction`, mode `adopt`: CommCare HQ's columns and rows, every column text, the takeover pair set to null, and `definition_revision` stamped whether or not a column changed (6.4, step 5) |
-| Refuses when | the table is gone from CommCare HQ, or now holds what Nova cannot hold, or is over a cap, or holds a character CommCare can't carry in a value: the copy stays as it was and the page says which (Copy T5 to T7, T21) | never, once permitted | the same as Refresh |
+| Writes | `refreshManagedLookupTableInTransaction`, mode `refresh` | under Project state and the table lock (`hq-management`), held to the reviewed revisions and reader apps: `hq_taken_over_at = now`, `hq_taken_over_by = actor`, and `definition_revision` stamped. No row changes; the Project revision advances once and notifies | `refreshManagedLookupTableInTransaction`, mode `adopt`, held to the reviewed revisions and reader apps under the table lock: CommCare HQ's columns and rows, every column text, the takeover pair set to null, and `definition_revision` stamped whether or not a column changed (6.4, step 5) |
+| Refuses when | the table is gone from CommCare HQ, or now holds what Nova cannot hold, or is over a cap (read from the first page that says so: more rows than `LOOKUP_MAX_ROWS` by its total, or more bytes than `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`), or holds a character CommCare can't carry in a value, or changed under every pass of its read (`moved`, "CommCare HQ didn't answer"): the copy stays as it was and the page says which (Copy T5 to T7, T21); the member was removed (`not-found`) or lost `edit` (`not-permitted`) by the time the copy is written | the member was removed or lost `delete` (`not-permitted`), or the review moved (`review-moved`) | the same as Refresh, and the review moved, or the member lost `delete`, by the time it writes |
 
 **Why a change of who manages a table stamps `definition_revision`.** The table page reads its
 snapshot (`LookupTableSnapshot`, which carries `hq`, 6.2) through
@@ -2607,12 +2655,25 @@ trips (`lib/deployment/CLAUDE.md`). So:
   the latest, the rule `store.ts::recordRefreshedAppBaseline` keeps for an app's baseline. A
   birth's writer passes `olderReadYields: false`: the app it births binds the column ids the
   reading gave, so it writes what the reading read. It passes its reading's own read date as `at`
-  and, under the table lock, refuses a table whose stored `hq_refreshed_at` is later
-  (`BroughtInTableChangedError`, 7.4), so it never writes an older read over a newer one either.
-- A publish reads the managed fact again in one statement before its workbook goes (8.2). What stays
-  open is one request wide: a table handed back to CommCare HQ after that statement and before the
-  upload is written once more. `lib/deployment/CLAUDE.md`'s "What the check cannot close" gains the
-  sentence (Contracts).
+  and the refresh arm, under the table lock, refuses a table whose stored `hq_refreshed_at` is
+  later (`LookupReviewMovedError`, a `conflict`, 7.4), so it never writes an older read over a newer
+  one either. These dates order reads of CommCare HQ; they never stand in for the member's
+  authority, read on the write's own transaction, or for the table's revisions and readers, which a
+  change of who manages a table is held to under the same lock.
+- A publish admits its workbook immediately before it goes (8.2; `store.ts::admitWorkbookWrite`),
+  in one transaction under the app row, the deployment row, then the Project's lookup state and
+  each table it carries in the lookup writers' order
+  (`lib/lookup/managed.ts::lockLookupTablesForPublishInTransaction`): a table handed back to
+  CommCare HQ from the target by then refuses it with `managed_table_handed_back` (P18), nothing
+  sent; otherwise each table's write is recorded in `hq_remote_writes` (part 10, section 8.5) and
+  settled in the transaction that records the tables it made (or, where CommCare HQ took none, once
+  it answers), and five minutes after an answer that never arrived. The record rests on the
+  workbook's admission, so an app deleted, or a publisher who lost edit, meanwhile keeps it. A hand-back
+  takes the same table row and refuses while a workbook carrying the table is open (`conflict`,
+  Copy T25: "Nova is publishing this table to “{domain}” right now, so it stays managed in Nova for
+  the moment. You can try again once that publish finishes."). So no table is handed back while
+  Nova's copy of it may still be written over CommCare HQ's; this replaces the unlocked read the
+  window was once one request wide around.
 
 ---
 
@@ -2735,8 +2796,31 @@ and down a worker's phone carries places. It takes its own defaults, which are C
 for a new level (`has_users` true, no expand settings): `workers: "assigned"` and `reach:
 "own-branch"`.
 
-What that changes: nothing in CommCare HQ, since Nova writes no level (`LocationTypeResource` is GET
-only) and, for this app in its own project space, no place. It changes Preview: a persona's
+What that changes in CommCare HQ: Nova writes no level (`LocationTypeResource` is GET only) and,
+for this app in its own project space, no place, but provisioning writes worker assignments at those
+levels. HQ's worker API does not check `has_users` (`api/user_updates.py::_verify_location_ids`
+checks only that the ids are active places of the project space), while HQ's own pages refuse such
+an assignment (`users/validation.py::validate_assigned_locations_allow_users`). So the default is
+never sent as a fact: provisioning refuses a persona standing in a managed place, before CommCare HQ
+is asked anything, until a person confirms its level takes workers there (the problem
+`level-unconfirmed`, the refusal `worker_levels_unconfirmed` naming each level by name and code with
+the personas that would stand there, the input `confirmWorkerLevels` and MCP's
+`confirm_worker_levels`, recorded as the deployment's `worker-level` confirmation of the level's
+code, which stands until withdrawn). The setup artifact says the same where CommCare HQ manages
+the places on the target (`setupArtifact.ts::managedOrganizationSection`): its Organization levels
+section lists the levels as CommCare HQ's own, which Nova makes and changes none of, and says for
+each whether a person confirmed it takes workers or that Nova asks before it makes a worker who
+stands there, never "Leave Has Users ticked" from the default; its Places section says the places
+live in CommCare HQ and a publish sends none; and it has no Place information section, since Nova
+sends no place there. Another project space still gets the levels to make by hand, since the copy
+goes there as places Nova made. Every surface that names a `worker-level` confirmation (the
+Publishing card's row and its Withdraw control, MCP's `confirmations`, the setup artifact) names it
+through one function, `lib/publish/planFeatures.ts::workerLevelConfirmationLabel`: by the level's
+name, as the refusal asked, with CommCare HQ's code beside it where the two differ, resolving the
+stored code through the app's levels, which are the project space's own where CommCare HQ manages
+its places. A code no level holds now is said as the code, with the words that the level is no
+longer in the organization, and the setup artifact lists such a confirmation after the levels,
+since it stands until someone withdraws it. It changes Preview: a persona's
 `locations` instance is built from the levels' settings (`footprint.ts::locationFixtureRows`), so
 where the project space carries more or less of the tree than the default, Preview's place lists
 differ from a worker's. The levels stay editable for exactly this reason, and Organization says so
@@ -2954,11 +3038,14 @@ each planned place is matched to a row by `hq_location_id` first, because CommCa
 `locations/forms.py::LocationForm.clean_site_code`, and the v0.6 API makes a new one whenever a
 request renames a place without sending its code, `locations/resources/v0_6.py::LocationResource._update`),
 so a re-coded place keeps its Nova id, which a case's owner and every persona assignment name.
-A planned place no row holds by that id takes the row holding its site code that no planned place
-holds by id (a place CommCare HQ deleted and made again under the same code); where two rows hold
-one id, the live one is that place. A place CommCare HQ has
-and the copy lacks is inserted; one whose site code, name, level,
-parent, coordinates, values or `hq_location_id` differ, or that holds `hq_gone_at`, is updated
+It is matched by that id alone: a row is one CommCare HQ place for its whole life, and only the
+insert writes `hq_location_id`. A place CommCare HQ lists under an id no row holds is a new place
+with a new Nova id, whatever its site code, and the row that held the code is gone from CommCare HQ
+and is archived or kept as any gone place is, never rebound, so nothing that names it (a persona, an
+owner rule, an automation, a saved case's owner) moves to another CommCare HQ place, and an archived
+row is never revived for a new place. Where two rows hold one id, the live one is that place. A
+place CommCare HQ has and the copy lacks is inserted; one whose site code, name, level,
+parent, coordinates or values differ, or that holds `hq_gone_at`, is updated
 (`hq_gone_at` cleared; a re-coded place counts in `changed`, not as added and gone). A row CommCare
 HQ no longer lists whose site code CommCare HQ now gives another place takes a numbered code (the
 code and the first number from 2 that no row and no planned place holds), and every re-coded row
@@ -3076,7 +3163,16 @@ leaves empty otherwise, and puts in the one `planInput` it builds. That file bui
   the plan ran.
 - `planWorkerProvisioning`, which sends the ids.
 
-So a persona standing in a managed place gets that very place in CommCare HQ.
+So a persona standing in a managed place gets that very place in CommCare HQ, once a person has
+confirmed its level takes workers there (11.3): `managedPlaceIds` carries each place's level, the
+plan input gains `confirmedWorkerLevels` (the deployment's `worker-level` confirmations with the
+call's), and `workerProvisionProblems` raises `level-unconfirmed` for each persona at a managed
+place whose level is not among them, so no unconfirmed id reaches a push. A place a publish pushed
+asks nothing: its level is one a person authored. A write sends what the persona states, by who
+owns the account: an account Nova made gets every declared property (empty where the persona holds
+none) and its places cleared where the persona stands nowhere; an account Nova took over gets only
+the properties the persona or its role holds a value for and its places only where it stands
+somewhere, so taking a worker over never clears their places or blanks their worker information.
 
 A refresh that keeps a place CommCare HQ no longer has (a persona, an owner rule or an automation
 names it, an `app_location_references` edge) leaves it live with `hq_gone_at` set and its
@@ -3222,8 +3318,8 @@ files reads the member that was its capability before.
   (`.../a/<domain>/settings/locations/list/`, the address `setupArtifact.ts` gives). Copy O5
   follows, then Copy O8 where the snapshot's `hq.leftOut` is not empty. Copy O6 (`keptInUse`) is no
   stored fact: the banner shows it from the answer of a refresh pressed in this tab
-  (`ManagedPlacesOutcome.refresh`, 11.4) until the tab's next refresh or reload, and so is Copy O27
-  (`keptLeftOut`), which follows it. Without a
+  (`ManagedPlacesOutcome.refresh`, 11.4) until the tab's next refresh or reload, and so are Copy O6b
+  (`remade`) and Copy O27 (`keptLeftOut`), which follow it. Without a
   connection on that server, Refresh is replaced by Copy O17, a link to the CommCare HQ settings.
 - `PlacesSubsection.tsx`: no add, edit, move or archive control while places are managed.
 - `LevelsSubsection.tsx`: Copy O3 above the levels, while places are managed.
@@ -3321,7 +3417,7 @@ files will be there (Copy R4), so nobody is surprised by pictures they did not u
 | Tool | Input (strict) | Does |
 |---|---|---|
 | `refresh_managed_data` | `{ project_id: string, table_id?: string, app_id?: string }`, exactly one of `table_id` and `app_id` | `refreshManagedLookupTable`, or `refreshManagedPlaces` for the app; answers the outcome's sentence |
-| `set_lookup_table_management` | `{ project_id: string, table_id: string, managed_by: "nova" \| "commcare-hq", confirmed: boolean }` | with `confirmed: false`, answers what the change does and the apps that read the table, and writes nothing; with `true`, `manageLookupTableInNova` or `letHqManageLookupTable`. A tool never chooses for the person: the description says to show the first answer and ask |
+| `set_lookup_table_management` | `{ project_id: string, table_id: string, managed_by: "nova" \| "commcare-hq", review_digest?: string }` | without `review_digest`, answers what the change does, the apps that read the table and a `review_digest`, and writes nothing; with it, `manageLookupTableInNova` or `letHqManageLookupTable` under that digest, which act only while it is the table's; a moved review answers `reason: "review-moved"` with the preview as it now stands and a new `review_digest`. A tool never chooses for the person: the description says to show the first answer and ask |
 
 The SA is given neither: a deployment is not authored vocabulary (`lib/deployment/CLAUDE.md`,
 "Surfaces").
@@ -3816,7 +3912,7 @@ export interface ReadingMediaPlan {
 		 *  document names the file by until the file is published. It never reaches storage. */
 		readonly provisionalId: MediaAssetId }[];
 	readonly verdicts: Readonly<Record<string, HqMediaVerdict>>;
-	/** In a create: the bytes of each held file, by file key, from its verdict to its publication. */
+	/** In a create: the bytes of each held content, by content hash, one buffer however many files hold it, from its verdict to its publication. */
 	readonly kept: ReadonlyMap<string, Buffer>;
 	/** In a create, after the publish: the asset each held file became, by file key. */
 	readonly published: Readonly<Record<string, MediaAssetId>>;
@@ -4005,6 +4101,7 @@ the UTC day (8.3).
 | T20 | the table became Nova's meanwhile | Someone chose Manage in Nova for this table a moment ago, so there was nothing to refresh. |
 | T23 | refresh or hand-back, a newer refresh or hand-back landed while this one read CommCare HQ (receipt `superseded`, 10.3) | Nova's copy was refreshed again while this one was reading CommCare HQ, so it already holds the newer read. |
 | T24 | hand-back, someone chose Manage in Nova while this one read CommCare HQ (10.3) | Someone chose Manage in Nova for this table while CommCare HQ was being read, so Nova kept it as they left it. |
+| T25 | hand-back of a table a publish's workbook is sending (reason `state-changed`) | Nova is publishing this table to “{domain}” right now, so it stays managed in Nova for the moment. You can try again once that publish finishes. |
 | T22 | refresh or hand-back, a table with no columns (reason `unsupported`) | This table now has no columns in CommCare HQ, and Nova holds a lookup table only with at least one. Nova kept its copy as it was. You can add a column there, then refresh. |
 | T21 | refresh, a character CommCare can't carry | The column {column} now holds a character CommCare can't carry in a value. Nova kept its copy as it was. You can take that character out in CommCare HQ, then refresh. |
 
@@ -4020,10 +4117,12 @@ authenticates with `RequirePermissionAuthentication(HqPermissions.edit_apps)`, w
 | O1 | banner label | Places managed in CommCare HQ |
 | O2 | banner | These places live in {domain} on CommCare HQ. Nova keeps a copy so Preview can show them, and never changes them there. You can add or change places in CommCare HQ, then refresh. Nova's copy was refreshed on {date}. |
 | | buttons | Refresh from CommCare HQ · Open in CommCare HQ |
-| O3 | above the levels | CommCare HQ doesn't tell Nova which levels hold workers or how far a worker's phone carries places. Nova assumed every level holds workers and each worker carries their own branch. If {domain} is set up differently, you can match it here so Preview shows what workers see. |
+| O3 | above the levels | CommCare HQ doesn't tell Nova which levels hold workers or how far a worker's phone carries places. Nova assumed every level holds workers and each worker carries their own branch. If {domain} is set up differently, you can match it here so Preview shows what workers see. Nova asks before it stands a worker at a level in CommCare HQ. |
 | O4 | personas, none yet | Preview shows a worker's places through a persona. You can add a persona and stand them in a place to see this app's place lists. |
 | O5 | banner, small | CommCare HQ doesn't send external IDs for places, so Nova's copy has none. |
 | O6 | after a refresh, places in use | {count} places are gone from CommCare HQ, and a persona, an owner rule or an automation still uses them: {names}. Nova kept them. You can move or change what uses them, then refresh again. |
+| O6b | after a refresh, places made again (`remade`) | CommCare HQ made {names} again as new places. A persona, an owner rule or an automation still uses the old ones, so Nova kept them. You can move what uses them to the new places, then refresh again. |
+| W1 | provisioning, a level of managed places nobody confirmed (`worker_levels_unconfirmed`) | CommCare HQ doesn't tell Nova which levels take workers in “{domain}”. {personas} would stand at places at the levels {levels}. You can check Organization Levels in CommCare HQ, then confirm those levels take workers and provision again. |
 | O7 | every refused write (`organizationManagedRefusal`) | This app's places are managed in CommCare HQ ({domain}), so Nova can't change them here. You can change them in CommCare HQ, then refresh Nova's copy in Organization. |
 | O8 | banner, left out | {count} places in CommCare HQ sit at a level this app doesn't have ({codes}), so Nova's copy leaves them out. Where this app uses one of them, Nova keeps that place as it stood before. You can add a level with that code, then refresh. One place: "...leaves it out. Where this app uses it, Nova keeps it as it stood before." |
 | O9 | refresh, changed | Nova's copy now matches CommCare HQ: {added} added, {changed} changed, {archived} archived. |
@@ -4174,7 +4273,7 @@ sentences are in `lib/publish/managedData.ts`.
 | R2 | the same, an equal table that is accounted for (`same-equal`) | {tag} is already in {Project} with the same columns and rows, so this app will use that table. Your other apps publish it to {domain} already, so nothing changes there. |
 | R3 | what Nova leaves out | {count} media references point at no file, and no worker sees anything for them. Nova leaves them out. |
 | R4 | what will be created | {count} pictures, sounds and videos, added to {Project}'s files. |
-| R5 | managed in CommCare HQ, places | {count} places from {domain}, managed in CommCare HQ. Nova copies them so Preview can show them, and never changes them there. CommCare HQ doesn't tell Nova which levels hold workers or how far a worker's phone reaches, so Nova assumed its defaults. You can change them in Organization. |
+| R5 | managed in CommCare HQ, places | {count} places from {domain}, managed in CommCare HQ. Nova copies them so Preview can show them, and never changes them there. CommCare HQ doesn't tell Nova which levels hold workers or how far a worker's phone reaches, so Nova assumed its defaults, and asks before it stands a worker at a level there. You can change them in Organization. |
 | R6 | the choice, title, where the tables differ | {tag} is already in {Project}, and it's different |
 | | the choice, title, where they are equal | {tag} is already in {Project} |
 | R7 | the choice, body, where the tables differ | This app reads the lookup table {tag} from {domain}. {Project} already has a table by that name with different {columns, rows, or columns and rows}, read by {apps}. |
@@ -4257,7 +4356,7 @@ sections 5.1 and 7.5).
 | `lib/export/__tests__/boundaryManagedTables.test.ts` | `hq-upload` with a `lookupTarget`: a table managed there is in no sheet of the workbook and in `managedLookupTables`; the same table for another target is in the workbook; all tables managed gives no workbook. A managed table left out, holding a cell with trailing white space, raises no `LOOKUP_CELL_TEXT_CHANGED_BY_HQ`; the same table sent to another target raises it with Copy X2's ending, and a plain table raises it with today's. `hq-json`: the first workbook and one per project space that manages a table (tables of two spaces give two managed workbooks), each table in exactly one. `ccz`: every table's fixture | a managed table written in its own project space; an export refused with a remedy Nova refuses |
 | `lib/publish/__tests__/manualImportGuide.test.ts` (extended) | one managed step per file, present exactly when a table is managed; one project space keeps the single-space wording; two give two steps, each naming its own space and file and none of the other's tables; with no first workbook the first managed step says how to upload and the next points above | a guide that tells a person to replace a table CommCare HQ manages, or to leave out tables the space they import into lacks |
 | `lib/commcare/multimedia/__tests__/hqJsonExportArchive.test.ts` (extended) | `hqImportFileGuide` with only a managed workbook still lists the `lookup-tables` plan feature and the managed step; `buildHqJsonExportArchive` writes the first workbook and one per project space, each under a name that carries its space; two spaces sharing a domain on two servers, and two domains that spell alike once made safe, get two names, whatever order the workbooks come in | the plan feature dropped from the guide of an app whose every table is managed; two workbooks under one ZIP member |
-| `lib/deployment/__tests__/workerProvisionPlan.test.ts` (extended) | `workerProvisionProblems` reports no problem for a persona standing in a place `managedPlaceIds` holds, and still reports one for a place neither it nor the mappings hold; a place in `goneManagedPlaceIds` gives `place-gone-from-hq`; `planWorkerProvisioning` sends the `hq_location_id` | a worker refused for standing in a place CommCare HQ manages; an account made standing in a place CommCare HQ then refuses |
+| `lib/deployment/__tests__/workerProvisionPlan.test.ts` (extended) | `workerProvisionProblems` reports `level-unconfirmed` for a persona standing in a place `managedPlaceIds` holds whose level nobody confirmed and no problem once it is, and still reports one for a place neither it nor the mappings hold; a place a publish pushed asks nothing; an adopted account is sent only what its persona states (no `locations` where it stands nowhere, no empty property it holds no value of) and an account Nova made all of it; a place in `goneManagedPlaceIds` gives `place-gone-from-hq`; `planWorkerProvisioning` sends the `hq_location_id` | a worker refused for standing in a place CommCare HQ manages; an account made standing in a place CommCare HQ then refuses |
 | `lib/organization/__tests__/ownerTargetVerdicts.test.ts` and `levelUpdateVerdicts.test.ts` (extended) | `reverseLocationOwnerRefusal` with no managed context gives the author's sentence; with one, a source with none below gives O24 and two below give O25, each in its kept form where `goneIds` holds the source or one of the two; `organizationLevelPatchIssue` with `{ domain, goneIds }` gives O15, its kept form for a place in `goneIds`, and passes over archived places | a managed copy told to add a place in the same create request, or to keep one live there; a place CommCare HQ no longer has sent to CommCare HQ |
 | `components/builder/app-setup/__tests__/organizationUi.test.ts` (extended) | `managedPlacesContext` reads `{ domain, goneIds }` from the snapshot's `hq` and nothing without it; an archived place at Facility occupies it without a managed context and not with one, so Remove level gives no refusal there; a level whose every live place is in `goneIds` is `kept`, and one with a listed place is not; `levelRemovalRefusal` gives O14, its kept form, today's sentence without a context, and the plan's own for a refusal that is not about places; `placeValueRefusal` gives O16, its kept form, and today's sentence; `placeInformationChangeRefusal` passes over an archived place's missing required value in a managed copy and refuses on it without one | a level a refresh emptied that the builder still calls occupied; an archived place in a managed copy sent to CommCare HQ, which has nothing to move; a level change or property change refused in the builder with a step Nova refuses |
 | `components/builder/project-data/__tests__/projectDataModel.test.ts` (extended) | `tableEditability` for each of the three states under each of view, edit and delete | an edit control offered on a managed table (the state model; the page is Playwright's) |
@@ -4269,7 +4368,7 @@ sections 5.1 and 7.5).
 
 | File | Holds | Would catch |
 |---|---|---|
-| `.../__tests__/mediaStore.test.ts` | `judgeReadingMedia`. The peer holds its answers open and counts: never more than four requests at once, never more than 64 MiB of the kinds' limits in flight, a video beside at most one sound. With `keep` false the answered plan holds no bytes; with `keep` true it holds each held file's and no other's; in neither does the storage module see a call. Over 500 files: no request at all. Once the held files pass 200 MB: no file is started after, those in flight finish, and the answer is `done`. A 5xx and then the file: one resend, and the verdict stands. Two 5xx: `failed` with the classified failure, and the requests in flight are aborted. `cancel` aborted part way: the requests in flight are aborted and the promise settles. A 404 is `missing`, a body past its kind's cap `over-limit` | a window that lets memory follow the app; a read that stores; bytes kept for a file that will not come in; an unbounded fetch; a wrong retry rule; work that outlives its request |
+| `.../__tests__/mediaStore.test.ts` | `judgeReadingMedia`. The peer holds its answers open and counts: never more than four requests at once, never more than 64 MiB of the kinds' limits in flight, a video beside at most one sound. With `keep` false the answered plan holds no bytes; with `keep` true it holds each held content's and no other's, keyed by content hash: three ids that serve the same bytes keep one buffer, whose bytes are what the budget counts, and a file an earlier step read is kept as that read's own buffer; in neither does the storage module see a call. Over 500 files: no request at all. Once the held files pass 200 MB: no file is started after, those in flight finish, and the answer is `done`. A 5xx and then the file: one resend, and the verdict stands. Two 5xx: `failed` with the classified failure, and the requests in flight are aborted. `cancel` aborted part way: the requests in flight are aborted and the promise settles. A 404 is `missing`, a body past its kind's cap `over-limit` | a window that lets memory follow the app; a read that stores; bytes kept for a file that will not come in; an unbounded fetch; a wrong retry rule; work that outlives its request |
 | `.../__tests__/lookupTableStore.test.ts` | `readHqLookupTablesForReading`. Rows are asked for the candidates alone, one table at a time. A first page whose total is over `LOOKUP_MAX_ROWS` is `over-row-limit` with that total after one request for that table. The row read's resend (5.1), over part 05's retained `reading/fixture-rows-empty-field.json`: a 503 and then the rows, and the rows are read; a 500 and then a 500, and the table is `rows-unreadable`; a 500 and then a 503, and the call answers the second failure, which part 05 classifies `hq-unavailable`. A failed list read is returned as the error | one outage telling a person to fix a row that may be fine; a million rows read to say a table is too long; a table no form reads fetched |
 
 **Real Postgres (`*.postgres.test.ts`, one invocation per package).**
@@ -4280,14 +4379,14 @@ sections 5.1 and 7.5).
 | the same file | **The create arm**: tables are created with the table and column ids they are given, every column `text`, the origin columns set; a field whose name is 200 characters long is created, its wire name whole and its label 120 characters; a tag already taken rolls the whole call back with rows written before the failure gone; one revision advance and one notice for three tables; the manifest entry's `hq` carries no `refreshedAt` and no `goneColumnIds`; a cell of 65,537 bytes is refused `storage_limit` with its phrase and nothing is created | a document naming an id the table does not have; a half-created set; a label that fails its CHECK inside the birth |
 | the same file | **The refresh arm**: an equal digest advances nothing, stamps the two columns and leaves the manifest's JSON byte for byte as it was, and so does a moved digest over equal columns and rows, which stores the new digest; on a table with no rows, a field CommCare HQ drops whose last column an app's `lookup_column_references` edge names stamps `definition_revision`, advances the Project and notifies once, and the field's return stamps it again, `goneColumnIds` moving from none to that column and back; a new field named `constructor`, `toString` or `__proto__` with no `newColumnIds` gets a minted column; a cell of 65,537 bytes is refused `storage_limit` with "a value of 64.1 KB (Nova takes 64 KB in one cell)" and the table is unchanged; a table taken over, with a column added and one renamed in Nova, has no gone column; changed rows advance `rows_revision` alone; a new field adds a column with the given id; a field gone with no reference removes its column; a field gone that an app's `lookup_column_references` edge names stays, empty, and is returned with the app; `adopt` mode on a plain table sets the origin and clears a takeover; `adopt` mode on a table holding an `int`, a `decimal` and a `date` column, each matched by a field of CommCare HQ's, leaves all three `text`, holds CommCare HQ's strings as they stand (`007` stays `007`), keeps the `lookup_column_references` edges of an app that reads them, and the table's fixture then builds (`buildLookupFixtures` does not throw); `adopt` mode with equal columns and rows still stamps `definition_revision`; `refresh` mode on a table taken over meanwhile throws `conflict`. A real concurrent `updateLookupRow` held at its lock runs after the refresh commits and is refused | a refresh that drops a column an app reads; a lost update between a refresh and an edit; CommCare HQ's text stored under a number column; a manifest whose bytes change at an unchanged revision, which every open page reads as a corrupt frame; a field name an object inherits read as a supplied id; a cell over the cap refused as a value Nova can't store; a column made in Nova reported gone from CommCare HQ; a gone set that moves at an unchanged revision, which leaves another open page's gone badge missing or stale until a reload |
 | the same file | the two CHECKs: a row with half the origin columns, and a takeover with no origin, are each refused by the database | a writer leaving a table in no state |
-| `lib/organization/__tests__/managed.postgres.test.ts` | `writeManagedPlacesInTransaction` writes a three-level tree with parents resolved and `hq_location_id` set, and `applyOrganizationCommitIntegrity` run after it on the same transaction, over a document holding those levels and an owner rule with one place at its level, passes; each of `createLocation`, `updateLocation`, `moveLocation`, `setLocationArchived` is refused `managed-in-hq` with no row and no revision changed, and `describeArchiveImpact` on the same app answers its counts; a blueprint commit on a managed app that removes an occupied level, re-parents a level over its places, and makes a location property required over places with no value is refused with Copy O14, O15 and O16 in turn, and the same three commits on an app with no managed copy give today's sentences, while on a managed app a refresh that archived the only facility leaves Facility removable and a property required at it admissible, and a live place still refuses with O15; `refreshManagedPlacesInTransaction` adds, updates, archives and restores, follows a code re-made under a new CommCare HQ id by its site code, keeps a place an `app_location_references` row names and reports it, marked `hq_gone_at` with its CommCare HQ id kept (the snapshot's `hq.goneIds` names it), and advances nothing on an equal digest; a refresh whose `at` is earlier than a refresh committed before it writes nothing, keeps the later `hq_refreshed_at` and answers `superseded` (10.3); a place re-coded in CommCare HQ (same `hqLocationId`, new `siteCode`) that a persona stands in and an owner rule counts keeps its Nova id, counts in `changed`, and two districts swapping codes pass; a code CommCare HQ passes from a deleted place to another gives the deleted place's row a numbered code, with a place moved under, and a place added under, a new parent; an archived place under a row CommCare HQ re-made at another level does not refuse the refresh; a kept facility whose district is gone too keeps both live, both marked and holding their ids, names only the facility, and leaves no live place under an archived one; a kept place CommCare HQ lists again under a new code (same `hqLocationId`) is matched by that id, keeps its Nova id, counts in `changed`, loses its mark, and makes no second row; a kept place the plan leaves out (`leftOutHqLocationIds`) is not marked and not named; a listed place at a level the levels refuse (O18) and a listed value the place information refuses (O19) answer `rejected` with revision, rows, ids and digest unchanged; a refresh past `MAX_LOCATIONS_PER_APP` (the maintained count set at the bound) deletes the archived rows nothing names, the longest archived first and a parent after the row under it, leaving the count at the bound, and where only kept places stand beyond it answers `limit` with its sentence and nothing written; on a managed app a property narrowed over a kept place gives O16's kept form and removing its level O14's; an owner rule committed over a source with no place below it gives O24; an owner rule a refresh would break answers O21 for a new source with none below, O22 for two below a source, and O22's kept form where a persona keeps the replaced place | a place edit that would be pushed nowhere and shown in Preview; a refresh orphaning a persona; a locked read refused as a write; a level edit refused with a remedy Nova refuses; a re-coded place archived and re-made under a new Nova id; a place deleted in CommCare HQ that refuses every later refresh or level edit; a refresh refused with a remedy Nova refuses; a kept place made again under a new Nova id when CommCare HQ lists it again; a place CommCare HQ still has called gone; a copy that refuses every refresh once CommCare HQ has replaced enough places; a commit telling the person to move a place CommCare HQ no longer has |
+| `lib/organization/__tests__/managed.postgres.test.ts` | `writeManagedPlacesInTransaction` writes a three-level tree with parents resolved and `hq_location_id` set, and `applyOrganizationCommitIntegrity` run after it on the same transaction, over a document holding those levels and an owner rule with one place at its level, passes; each of `createLocation`, `updateLocation`, `moveLocation`, `setLocationArchived` is refused `managed-in-hq` with no row and no revision changed, and `describeArchiveImpact` on the same app answers its counts; a blueprint commit on a managed app that removes an occupied level, re-parents a level over its places, and makes a location property required over places with no value is refused with Copy O14, O15 and O16 in turn, and the same three commits on an app with no managed copy give today's sentences, while on a managed app a refresh that archived the only facility leaves Facility removable and a property required at it admissible, and a live place still refuses with O15; `refreshManagedPlacesInTransaction` adds, updates, archives and restores, takes a code re-made under a new CommCare HQ id as a new place (a new row, the old row archived under a numbered code), keeps a place an `app_location_references` row names and reports it, marked `hq_gone_at` with its CommCare HQ id kept (the snapshot's `hq.goneIds` names it), and advances nothing on an equal digest; a refresh whose `at` is earlier than a refresh committed before it writes nothing, keeps the later `hq_refreshed_at` and answers `superseded` (10.3); a place re-coded in CommCare HQ (same `hqLocationId`, new `siteCode`) that a persona stands in and an owner rule counts keeps its Nova id, counts in `changed`, and two districts swapping codes pass; a code CommCare HQ passes from a deleted place to another gives the deleted place's row a numbered code, with a place moved under, and a place added under, a new parent; a place a persona stands in that CommCare HQ deleted and made again under its code keeps its Nova id and its own CommCare HQ id, marked gone under a numbered code beside the new row, and is named in `remade`; an archived row is not revived for a new place made under its code; a kept place the plan leaves out is not rebound when a new place takes its code; an archived place under a row CommCare HQ re-made at another level does not refuse the refresh; a kept facility whose district is gone too keeps both live, both marked and holding their ids, names only the facility, and leaves no live place under an archived one; a kept place CommCare HQ lists again under a new code (same `hqLocationId`) is matched by that id, keeps its Nova id, counts in `changed`, loses its mark, and makes no second row; a kept place the plan leaves out (`leftOutHqLocationIds`) is not marked and not named; a listed place at a level the levels refuse (O18) and a listed value the place information refuses (O19) answer `rejected` with revision, rows, ids and digest unchanged; a refresh past `MAX_LOCATIONS_PER_APP` (the maintained count set at the bound) deletes the archived rows nothing names, the longest archived first and a parent after the row under it, leaving the count at the bound, and where only kept places stand beyond it answers `limit` with its sentence and nothing written; on a managed app a property narrowed over a kept place gives O16's kept form and removing its level O14's; an owner rule committed over a source with no place below it gives O24; an owner rule a refresh would break answers O21 for a new source with none below, O22 for two below a source, and O22's kept form where a persona keeps the replaced place | a place edit that would be pushed nowhere and shown in Preview; a refresh orphaning a persona; a locked read refused as a write; a level edit refused with a remedy Nova refuses; a re-coded place archived and re-made under a new Nova id; a place deleted in CommCare HQ that refuses every later refresh or level edit; a refresh refused with a remedy Nova refuses; a kept place made again under a new Nova id when CommCare HQ lists it again; a place CommCare HQ still has called gone; a copy that refuses every refresh once CommCare HQ has replaced enough places; a commit telling the person to move a place CommCare HQ no longer has |
 | `lib/deployment/__tests__/projectLookupStanding.postgres.test.ts` | **Derived ownership**, through `publishAppToHq` with the HQ client's transport answering as CommCare HQ would: app A publishes table T to a project space, then app B of the same Project publishes: B is not refused, pushes, and records its own mapping `nova-created`; where A adopted T, B's mapping is `adopted` with A's pair; an app of another Project with the same tag is still refused; A in recently deleted still counts; after A is deleted for good B is asked; B's drift check stops on a change made in CommCare HQ after A's push (the shared baseline) | the refusal that asks an app to take over Nova's own table; ownership leaking across Projects |
-| `lib/deployment/__tests__/managedTables.postgres.test.ts` | a publish to the managing project space with every table managed sends no workbook and writes no `lookup-table` mapping; with a changed row in CommCare HQ the copy is refreshed before the boundary reads it, so an app whose copy held no row (a choice list the boundary refuses) publishes over CommCare HQ's rows, and is refused where CommCare HQ's table holds none either; a refused rows read stops it with Copy P3; with a column the app reads gone it stops `hq_managed_data_changed`, the copy untouched; `manageLookupTableInNova` stamps the table's `definition_revision`, so its `tableRevision` in the next manifest moves, and writes no row; a publish after it records an `adopted` mapping attributed to the person who took it over, and stops `hq_changed` first where CommCare HQ's rows moved since the last refresh; `letHqManageLookupTable` takes CommCare HQ's rows and the next publish leaves the table out; a table handed back between preflight and the upload stops the publish `managed_table_handed_back` with Copy P18 and nothing sent; a drift stop on a table taken over from the target that CommCare HQ deleted, and on one taken over from another project space, carries no P14; a table another project space manages, unreadable to the publisher, passes with P1's form for none managed in the target and its P12 item, and goes in the workbook. **Refresh, through its service**: `refreshManagedLookupTable` with CommCare HQ answering through undici's `MockAgent`, as `publishSequence.postgres.test.ts` answers a publish's reads: changed rows give `changed: "rows"` and the copy holds them; a table gone, a field property, a table over a cap, a table with no columns and a cell holding a character XML cannot carry each leave the copy as it was with their outcome; a hand-back of a table with no columns refuses with T22; a table removed while CommCare HQ was read answers `not-found`; a refused rows read gives `cannot-read`; an actor whose stored connection is on another server gives `cannot-read`, and one with none `not-connected` | a managed table written; a takeover that silently replaces a colleague's later upload; an open page left with a stale managed snapshot |
+| `lib/deployment/__tests__/managedTables.postgres.test.ts` | a publish to the managing project space with every table managed sends no workbook and writes no `lookup-table` mapping; with a changed row in CommCare HQ the copy is refreshed before the boundary reads it, so an app whose copy held no row (a choice list the boundary refuses) publishes over CommCare HQ's rows, and is refused where CommCare HQ's table holds none either; a refused rows read stops it with Copy P3; with a column the app reads gone it stops `hq_managed_data_changed`, the copy untouched; `manageLookupTableInNova` stamps the table's `definition_revision`, so its `tableRevision` in the next manifest moves, and writes no row; a publish after it records an `adopted` mapping attributed to the person who took it over, and stops `hq_changed` first where CommCare HQ's rows moved since the last refresh; `letHqManageLookupTable` takes CommCare HQ's rows and the next publish leaves the table out; a table handed back between preflight and the upload stops the publish `managed_table_handed_back` with Copy P18 and nothing sent; a drift stop on a table taken over from the target that CommCare HQ deleted, and on one taken over from another project space, carries no P14; a table another project space manages, unreadable to the publisher, passes with P1's form for none managed in the target and its P12 item, and goes in the workbook. **Refresh, through its service**: `refreshManagedLookupTable` with CommCare HQ answering through undici's `MockAgent`, as `publishSequence.postgres.test.ts` answers a publish's reads: changed rows give `changed: "rows"` and the copy holds them; a table gone, a field property, a table over a cap, a table with no columns and a cell holding a character XML cannot carry each leave the copy as it was with their outcome; a hand-back of a table with no columns refuses with T22; a table CommCare HQ grew past `LOOKUP_MAX_ROWS` is over a cap after one page request and the copy is as it was; a table whose first pass tore (a row replaced between its pages) takes the rows a later pass agrees on, never the torn set; a table removed while CommCare HQ was read answers `not-found`; a refused rows read gives `cannot-read`; an actor whose stored connection is on another server gives `cannot-read`, and one with none `not-connected` | a managed table written; a takeover that silently replaces a colleague's later upload; an open page left with a stale managed snapshot |
 | `lib/deployment/__tests__/managedReRead.postgres.test.ts` | `reReadManagedTablesForPublish` over real Postgres (the copy's stored canonical value decides what changed, its caps are Postgres's own measure, and "nothing refreshed" is about the rows it holds) and CommCare HQ answering through `MockAgent`: each row of 8.1's table, the character row among them; two stopping tables are both returned and nothing is refreshed, a third that only changed rows included; a table of another project space the publisher cannot read, or whose server is not the publisher's connection's, is `stale`, asks nothing and never stops; one it can read is refreshed; a refused rows read is classified `permission` with the table named (its P3 is `managedTables.postgres.test.ts`'s) | a publish that sends content reading a column that is gone; a refresh half applied before a stop |
 | `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`, two cases | the tool over `managedTables.postgres.test.ts`'s fixtures | `error_type` `hq_managed_data_changed` with each item's sentence in `message`, and `managed_table_handed_back` with Copy P18. Catches either refusal falling to `hq_upload_failed` |
-| `lib/deployment/__tests__/managedPlaces.postgres.test.ts` | a publish to the managing project space sends no place batch, refreshes the copy from its read, and gives the `organization` plan feature no push reason (the app's own reads of places still ask it); a publish to another plans the copy; `provisionWorkers` for a persona standing in a managed place is not refused by `workerProvisionProblems` and sends that place's `hq_location_id`; one standing in a managed place a refresh marked `hq_gone_at` is refused with `place-gone-from-hq` and asks CommCare HQ nothing | places patched in the space that manages them; a worker made standing nowhere, or refused |
+| `lib/deployment/__tests__/managedPlaces.postgres.test.ts` | a publish to the managing project space sends no place batch, refreshes the copy from its read, and gives the `organization` plan feature no push reason (the app's own reads of places still ask it); a publish to another plans the copy; `provisionWorkers` for a persona standing in a managed place is refused `worker_levels_unconfirmed` with no CommCare HQ request and no confirmation stored, a confirmation naming another level answers nothing, the resend with `confirmWorkerLevels` records one `worker-level` row and sends that place's `hq_location_id`, and a withdrawn confirmation makes the next call refuse again; one standing in a managed place a refresh marked `hq_gone_at` is refused with `place-gone-from-hq` and asks CommCare HQ nothing | places patched in the space that manages them; a worker made standing nowhere, or refused |
 | `lib/deployment/reading/projectData/__tests__/readingProjectData.postgres.test.ts` | section 14.1 through `readReadingProjectData` over `postgresProjectSide`, CommCare HQ answering through `MockAgent`: two calls with one `appId` and `readingId` give the same table and column ids, and nothing is written by either (every table's row count is as it was); a `choice` tag binds the Project table's id; a failed list read is `failed` with part 05's kind; `places: "always"` reads places for a source the test says reads none; a place list past the limit sets `placesPastLimit` and reads no further page; a place list naming a level code the level list lacks reads both lists once more and then answers `failed` with `hq-unavailable`; a tag that meets a Project table carries that table's id and two revisions in `gathered.tables`, and `projectDataReview` copies them. The same function over a hand-made `ReadingProjectSide` that holds nothing answers every table `new`, which is the proof lane's binding. `readingProjectDataFindingsFor`: a table Nova cannot hold raises its finding only where the reader read it; a tag in `unreadTables` that CommCare HQ's list lacks raises part 08's entry. `writeBroughtInLookupTablesInTransaction` and `writeBroughtInPlacesInTransaction`, in the order and at the point the seam calls them: the case inserts an app row on its own transaction, calls the two writers, then `lookupContextForAuthoritativeWrite` and `applyOrganizationCommitIntegrity`. The lookup context finds the tables, the integrity step passes, a table created under the derived ids holds them, and a Project table whose standing or either revision moved after the read throws `BroughtInTableChangedError` and leaves no row. Over a met, unmoved Project table: `use-commcare-hq` takes CommCare HQ's rows under the Project's column ids with every column text and the origin set; `use-project`, and `same-equal` over a sibling's live mapping, write nothing; `same-managed` gives a field the table lacks the binding's derived id; a member demoted from admin between the review and the birth, and a sibling mapping superseded, each throw with both revisions unmoved. `readKeptLookupColumnIds` names the columns a refresh then keeps. Two `same-managed` tables whose tag order is the reverse of their id order are refreshed while another transaction holds the lower id `FOR KEY SHARE` and then asks for the higher, and neither meets a deadlock. A Project table of 250 columns whose own 248 columns an app begins to read between the read and the birth, under CommCare HQ's three fields, throws `BroughtInTableChangedError` for the `use-commcare-hq` answer given before it with no revision moved, and a read after it offers no `use-commcare-hq` (`too-many-columns`, `251`, which `projectDataReview` copies). A `same-managed` table a Refresh stamped after the reading's read, finding CommCare HQ's table as it was and moving no revision, throws `BroughtInTableChangedError` and is left as the Refresh left it; a table a birth writes holds the reading's read date as its last refresh. The seam itself, `writePreparedGenesisInTransaction`'s `afterAppInsert`, is part 12's, and its `birth.postgres.test.ts` holds the two writers running through it | the read and the create disagreeing on an id; a read that leaves a row; a table found after the gate looked for it; an app born on a Project table that changed after its offer was judged; a choice offered that every retry refuses; an older read of CommCare HQ written over a newer one |
-| `lib/deployment/reading/projectData/__tests__/mediaStore.postgres.test.ts` (`@/lib/storage/media` replaced with `vi.mock`, as `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` replaces it: the package has no fake bucket) | `publishKeptReadingMedia`: each held file is uploaded once and inserted as one ready row with the judged facts and the name of 2.3, never more than two at once, and the answered plan holds every held file in `published` and no bytes; a file with another verdict is not published; two files of the same bytes become one asset under two keys; bytes the Project already holds return the existing asset's id and upload nothing; a second run over a fresh plan of the same bytes uploads nothing and inserts no row; the caller losing `edit` before publication throws `MediaPublishPermissionError` and inserts nothing; a storage failure rejects the call, and the files published before it are found by hash on the next run | a file in Files twice; a duplicate row on a retry; bytes held past their use; a file added for a person who may no longer add one |
+| `lib/deployment/reading/projectData/__tests__/mediaStore.postgres.test.ts` (`@/lib/storage/media` replaced with `vi.mock`, as `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` replaces it: the package has no fake bucket) | `publishKeptReadingMedia`: each held file is uploaded once and inserted as one ready row with the judged facts and the name of 2.3, never more than two at once, and the answered plan holds every held file in `published` and no bytes; a file with another verdict is not published; two files of the same bytes are one publication and one asset under both keys; bytes the Project already holds return the existing asset's id and upload nothing; a second run over a fresh plan of the same bytes uploads nothing and inserts no row; the caller losing `edit` before publication throws `MediaPublishPermissionError` and inserts nothing; a storage failure rejects the call, and the files published before it are found by hash on the next run | a file in Files twice; a duplicate row on a retry; bytes held past their use; a file added for a person who may no longer add one |
 | `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` (existing, unchanged assertions) | the extraction changed no behavior of MCP's upload, its two permission errors among them | a regression in the path it was lifted from |
 | `lib/case-store/migrations/__tests__/hqBringInProjectData.postgres.test.ts` | `up` on a database holding plain tables, places and state rows leaves every row valid; `up` run a second time over its own result, with the ledger row erased, raises nothing; an insert and an update that name none of the new columns (the previous revision's statements) pass on a plain row, and the same update passes on a row whose `hq_*` columns are set; each origin CHECK refuses an origin with any one of its columns null, a blank or unknown value, a canonical value with no `digest`, and a takeover with no person or no origin, and `hq_location_id` refuses a blank id; `hq_gone_at` is among the twenty columns; `down` restores the columns' absence; `lock_timeout` is 0 after `up`; with a second connection holding `ACCESS SHARE` on `app_locations` in an open transaction, `up`, run in one transaction as the migrator runs it, is refused with SQLSTATE `55P03` after five seconds and before ten, the rolled-back transaction leaves no column added, a write to `lookup_tables` and `app_organization_state` passes while it waits, and once the second connection's transaction ends `up` succeeds (the second connection is released in a `finally`); with the batch's transaction holding `lookup_tables` and the serving revision's `nova_create_app_test_namespace` holding `app_locations` and waiting for it, `up` is refused with `55P03`, never `40P01`, and the App Test start then succeeds | a migration that fails over existing rows or on a replay; a CHECK the revision still serving can break; a CHECK whose second arm answers NULL and so admits half an origin; a lock request that waits with no bound behind a reader of the serving revision; a wait for one table while the batch holds another, which deadlocks with the App Test start |
 
@@ -4446,7 +4545,7 @@ say what section 9 does and what T9 and T11 ask.
 | the `get_lookup_tables` row | gains "A table with `managed_in_commcare_hq` (`project_space`, `refreshed_at`) is a copy of a table that lives in CommCare HQ: read it freely. Its rows and columns change in CommCare HQ, and changing them here is refused." |
 | the `get_organization` row | gains "`places_managed_in_commcare_hq` (`project_space`, `refreshed_at`) says the places are a copy of CommCare HQ's: levels and place information can still be changed, places cannot." |
 | a new row, `refresh_managed_data` | "Read a lookup table (`table_id`) or an app's places (`app_id`) of the Project (`project_id`) again from the project space that manages them, and answer what changed. Give exactly one of `table_id` and `app_id`. Requires `nova.hq.write`." |
-| a new row, `set_lookup_table_management` | "Hand a lookup table (`table_id`) of the Project (`project_id`) to Nova (`managed_by: \"nova\"`) or back to CommCare HQ (`\"commcare-hq\"`). With `confirmed: false` it answers what the change does and which apps read the table, and writes nothing; show that to the user and ask before sending `confirmed: true`. Requires `nova.hq.write`." |
+| a new row, `set_lookup_table_management` | "Hand a lookup table (`table_id`) of the Project (`project_id`) to Nova (`managed_by: \"nova\"`) or back to CommCare HQ (`\"commcare-hq\"`). Without `review_digest` it answers what the change does, which apps read the table and a `review_digest`, and writes nothing; show that to the user and ask, then send the same call again with that `review_digest`. Where the table or the apps that read it moved since, nothing changes and the answer is the preview as it now stands. Requires `nova.hq.write`." |
 
 ---
 
@@ -4601,7 +4700,7 @@ browser call of this part is a Server Action.
 | `lib/lookup/managed.ts` | `measureLookupRows` and `readKeptLookupColumnIds`, the one read of the columns a refresh keeps (5.3), `ManagedOriginWrite`, the create and refresh arms, `ManagedRefreshReceipt` (6.4), the refresh arm's `olderReadYields` date guard and its `superseded` receipt (10.3) |
 | `lib/organization/writerTransaction.ts` | `LockedOrganization.hq.refreshedAt`, read under the organization lock for the places refresh's date guard (10.3) |
 | `lib/lookup/managedRules.ts` | pure: `LookupRowsMeasure`, `lookupCapExcess` (5.3), `ManagedLookupContent` (6.4), `managedCanonicalSchema` (6.2), `columnLabelFor` (5.2), `lookupHqOriginOf` (the stored origin columns as `LookupHqOrigin`, 6.2) |
-| `lib/organization/managed.ts` | `ManagedPlaceWrite`, `ManagedPlacePlan`, `writeManagedPlacesInTransaction`, `refreshManagedPlacesInTransaction` (matched by CommCare HQ's id, then site code; kept places marked `hq_gone_at` with their id kept; archived rows nothing names deleted past the bound), `ManagedPlacesRefresh` (11.4) |
+| `lib/organization/managed.ts` | `ManagedPlaceWrite`, `ManagedPlacePlan`, `writeManagedPlacesInTransaction`, `refreshManagedPlacesInTransaction` (matched by CommCare HQ's id alone, `hq_location_id` written only at insert; kept places marked `hq_gone_at` with their id kept; archived rows nothing names deleted past the bound), `ManagedPlacesRefresh` with `remade` (11.4) |
 | `lib/commcare/reader/worldEntities.ts` | pure: `worldEntitiesFromReads` (11.5), `levelsFromHq` (11.2) |
 | `lib/deployment/managedData.ts` | the re-read before a publish (8.1), `baselineFromTableOrigin` (10.2), the three table services and the table view (9), `refreshManagedPlaces` (11.4), `readManagedPlacesView` (12.2) |
 | `lib/deployment/managedDataActions.ts` | the six Server Actions (9) |

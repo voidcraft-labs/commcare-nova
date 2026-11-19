@@ -30,6 +30,7 @@ import type {
 	LookupRowsPage,
 	LookupRowsPageInput,
 } from "./types";
+import { authorizeLookupWriteInTransaction } from "./writerTransaction";
 
 interface DatabaseErrorShape {
 	code?: unknown;
@@ -211,13 +212,16 @@ async function applyAuthorized(
 				);
 			return prior.receipt;
 		}
+		/* The role was read just above on this transaction, under the app row;
+		 * the lookup authority reads the same locked member row. */
+		const authority = await authorizeLookupWriteInTransaction(
+			tx,
+			{ projectId: authorized.projectId, actorId: scope.actorId },
+			"edit",
+		);
 		const receipt = await applyLookupAuthoringBatchInTransaction(
 			tx,
-			{
-				projectId: authorized.projectId,
-				actorId: scope.actorId,
-				role: authorized.role,
-			},
+			authority,
 			input,
 		);
 		await tx

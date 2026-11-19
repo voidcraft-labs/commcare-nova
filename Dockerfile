@@ -135,6 +135,15 @@ RUN npx esbuild scripts/migrate-conversation-sources.ts \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=conversation-source-cutover.cjs
 
+RUN npx esbuild scripts/scan-hq-import-scope.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=hq-import-scope-scan.cjs
+RUN npx esbuild scripts/migrate-hq-import-scope.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=hq-import-scope-repair.cjs
+
 FROM ${NODE_IMAGE} AS maintenance
 WORKDIR /app
 ENV NODE_ENV=production

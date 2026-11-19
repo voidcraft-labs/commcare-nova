@@ -131,8 +131,10 @@ def _got(answer):
     return "; ".join(finding_line(finding) for finding in findings) or f"{answer.get('kind')} with no finding"
 
 
-def _finding_key(code, standing, place):
-    return (code, standing, json.dumps(place, sort_keys=True))
+def _finding_key(code, standing, place, key=None):
+    """A finding as a row expects it: its code, standing and place, and, for the circumstance ``unrecognized``, the
+    surface key it names (its ``detail.name``), so a row expecting one key unclaimed is not met by another."""
+    return (code, standing, json.dumps(place, sort_keys=True), key if code == registry.UNRECOGNIZED else None)
 
 
 @pytest.fixture(scope="module", params=BASES, ids=[base.id for base in BASES])
@@ -176,10 +178,15 @@ def _hold_variant(outcome):
     answer = outcome.answer
     if variant.refusing:
         expected = sorted(
-            _finding_key(refusal.entry, refusal.standing, refusal.place) for refusal in variant.refusals()
+            _finding_key(refusal.entry, refusal.standing, refusal.place, refusal.key) for refusal in variant.refusals()
         )
         found = sorted(
-            _finding_key(finding.get("code"), finding.get("standing"), finding.get("place"))
+            _finding_key(
+                finding.get("code"),
+                finding.get("standing"),
+                finding.get("place"),
+                (finding.get("detail") or {}).get("name"),
+            )
             for finding in answer.get("findings") or []
         )
         if answer.get("kind") == "account" and found == expected:

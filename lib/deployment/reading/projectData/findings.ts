@@ -14,6 +14,7 @@ import {
 	type HqPlace,
 	type ManifestFinding,
 	type Subject,
+	shownPlace,
 } from "@/lib/publish/hqFindings";
 
 /**
@@ -51,7 +52,7 @@ export function manifestFinding(
 		...(standing === "fix-in-hq" && entry.cause !== null
 			? { cause: entry.cause }
 			: {}),
-		place,
+		place: shownPlace(place),
 		subject: entry.subject as Subject,
 		detail: { name: cutFindingName(name) },
 	};

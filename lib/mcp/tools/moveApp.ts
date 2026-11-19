@@ -53,7 +53,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { requireProjectAccess, rethrowAsMcpAccess } from "../ownership";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
 const moveAppInputSchema = z.strictObject({
@@ -68,26 +68,22 @@ const moveAppInputSchema = z.strictObject({
  * Register the `move_app` tool on an `McpServer`.
  */
 export function registerMoveApp(server: McpServer, ctx: ToolContext): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"move_app",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsWrite),
 			description:
 				"Move an app into another Nova Project, re-tenanting its case data, media, and chat history with it in one transaction. Requires an admin or owner role in both the source and destination Projects, and unless a source owner performs the move themselves, every owner of the source Project must already be a member of the destination. An app that references lookup tables or has captured form submissions can't move, so the primary flow is birth in the right Project via begin_work's new_app.project_id; moving is the recovery path for apps born elsewhere (for example in the personal Project). Targeting the Project the app is already in moves nothing — it verifies and repairs the app's case-data tenancy and reports `already_in_project`.",
 			inputSchema: moveAppInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
-			/* Phase 1 — scope gate + source resolution. The error context here
+			/* Phase 1 — source resolution, after the registration's scope check. The error context here
 			 * deliberately omits `to_project_id`: a denial in this phase is
 			 * about the caller's credential or the app, and stamping the
 			 * destination id would mislabel the audit log's probe target. */
 			let scope: ProjectAccess;
 			try {
-				/* Per-tool scope gate — before any data read, so a
-				 * missing-scope credential can't probe whether the app
-				 * exists. */
-				assertScope(ctx, SCOPES.projectsWrite, "move_app");
-
 				/* Resolve the app's current Project at the `delete`
 				 * capability (moving OUT is destructive for the source
 				 * tenant). Denials collapse to the app-flavored not-found

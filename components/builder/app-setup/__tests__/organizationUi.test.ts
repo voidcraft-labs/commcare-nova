@@ -17,6 +17,7 @@ import {
 	managedPlacesKeptLeftOut,
 	managedPlacesOutcomeLines,
 	managedPlacesRefreshed,
+	managedPlacesRemade,
 } from "@/lib/publish/managedData";
 import {
 	flattenRequiredReverseHopDescendants,
@@ -267,11 +268,18 @@ describe("a refresh of places CommCare HQ manages", () => {
 		counts: { added: number; changed: number; archived: number },
 		keptInUse: readonly string[] = [],
 		keptLeftOut: readonly string[] = [],
+		remade: readonly string[] = [],
 	) =>
 		({
 			ok: true,
 			refreshedAt: "2026-11-03T09:00:00.000Z",
-			refresh: { ...counts, keptInUse, keptLeftOut, leftOut: { ward: 2 } },
+			refresh: {
+				...counts,
+				keptInUse,
+				remade,
+				keptLeftOut,
+				leftOut: { ward: 2 },
+			},
 		}) as const;
 
 	it("says the copy already matched where nothing was added, changed or archived", () => {
@@ -318,6 +326,29 @@ describe("a refresh of places CommCare HQ manages", () => {
 				managedPlacesKeptLeftOut(["Mercy Clinic"]),
 			],
 		});
+	});
+
+	it("names the places CommCare HQ made again as new places that something still uses, after the gone ones", () => {
+		expect(
+			managedPlacesOutcomeLines(
+				landed(
+					{ added: 1, changed: 0, archived: 0 },
+					["North clinic"],
+					[],
+					["Mercy Clinic"],
+				),
+			),
+		).toEqual({
+			tone: "status",
+			lines: [
+				managedPlacesRefreshed(1, 0, 0),
+				managedPlacesKeptInUse(["North clinic"]),
+				managedPlacesRemade(["Mercy Clinic"]),
+			],
+		});
+		expect(managedPlacesRemade(["Mercy Clinic"])).toBe(
+			"CommCare HQ made Mercy Clinic again as a new place. A persona, an owner rule or an automation still uses the old one, so Nova kept it. You can move what uses it to the new place, then refresh again.",
+		);
 	});
 
 	it("says a refusal's own sentence", () => {

@@ -4,50 +4,46 @@
  * the list and the form: the menu with the case held. A device steps back
  * off a form chosen there onto that menu, and off the menu onto the list with
  * the case let go (`CommCareSession.stepBack`), so the menu has a place of its
- * own in the browser's history: an entry at the list's URL that carries the
- * held cases in its history state. Back, Forward and the strip's Go back then
- * walk the same steps a device does, and the list shows its menu exactly on
- * the entries that hold one, in the Preview session that took the step
- * (`menuProjection.ts::previewCaseListHeldChoices`).
+ * own in the browser's history: an entry at the list's URL whose record
+ * (`previewEntryRecords.ts`, the running Preview session's, by the entry's
+ * id) holds the cases. Back, Forward and the strip's Go back then walk the
+ * same steps a device does, and the list shows its menu exactly on the
+ * entries whose record holds one in the session running now
+ * (`menuProjection.ts::previewCaseListHeldChoices`): an entry an earlier
+ * session wrote holds nothing that session's worker chose.
  *
- * `builderEntryState` decides every builder history write's state
- * (`useClientPath.ts` applies it): the mark is written only where the write
- * names a held menu, and every other write drops it, so no entry inherits a
- * menu it did not open. A language change is a lens on the screen on show, so
- * its entry keeps the mark. Each entry a write pushes also records the entry
- * it was pushed after (`previous`); a replace, and a language change's copy
- * of the screen, keep the entry before the screen they stand for, with how
- * many entries lie between (`gapOf`). That is how the menu knows whether the
- * entry before it is its list's (`afterList`), whether it was pushed from the
- * list or replaced a case's details, or a copy of them under another
- * language, so its own Back can step back past every entry of the one step
- * at once, as a device, which has no language history, steps back once
- * (`previewHeldMenuBack`), and how a form opened from the menu knows the menu
- * is the entry before it, so the crumb of the menu's case steps back onto it
- * (`previewHeldMenuIsPrevious`), opening it again where the entry it lands on
- * no longer holds it (`previewHeldMenuStands`).
+ * `builderEntryState` decides every builder history write's entry
+ * (`useClientPath.ts` applies it): each write is a new entry, with an id of
+ * its own and a record holding a menu only where the write names one, so no
+ * entry inherits a menu it did not open. A language change is a lens on the
+ * screen on show, so its entry keeps the menu. Each entry a write pushes also
+ * records the entry it was pushed after (`previous`: its path and its id); a
+ * replace, and a language change's copy of the screen, keep the entry before
+ * the screen they stand for, with how many entries lie between (`gapOf`).
+ * That is how the menu knows whether the entry before it is its list's
+ * (`afterList`), whether it was pushed from the list or replaced a case's
+ * details, or a copy of them under another language, so its own Back can step
+ * back past every entry of the one step at once, as a device, which has no
+ * language history, steps back once (`previewHeldMenuBack`), and how a form
+ * opened from the menu knows the menu is the entry before it, so the crumb of
+ * the menu's case steps back onto it (`previewHeldMenuIsPrevious`), opening it
+ * again where the entry it lands on no longer holds it
+ * (`previewHeldMenuStands`).
  */
-import type { Uuid } from "@/lib/doc/types";
 import type { PreviewHeldCaseListMenu } from "@/lib/preview/menuProjection";
-import type { PreviewCaseChoice } from "@/lib/session/types";
-import { withoutPreviewSelections } from "./previewSelectionsHistory";
-
-const HELD_MENU_STATE_KEY = "__novaPreviewHeldMenu";
-const PREVIOUS_ENTRY_STATE_KEY = "__novaPreviousEntry";
-const PREVIOUS_GAP_STATE_KEY = "__novaPreviousGap";
-
-function caseChoiceOf(value: unknown): PreviewCaseChoice | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
-	const { caseId, caseName, claimable } = value as Record<string, unknown>;
-	if (typeof caseId !== "string") return undefined;
-	if (caseName !== undefined && typeof caseName !== "string") return undefined;
-	if (claimable !== undefined && claimable !== true) return undefined;
-	return {
-		caseId,
-		...(caseName !== undefined && { caseName }),
-		...(claimable === true && { claimable }),
-	};
-}
+import {
+	PREVIOUS_ENTRY_STATE_KEY,
+	PREVIOUS_GAP_STATE_KEY,
+} from "./builderHistoryState";
+import {
+	newPreviewEntry,
+	PREVIEW_ENTRY_STATE_KEY,
+	type PreviewEntryHeldMenu,
+	type PreviewEntryRecord,
+	type PreviewEntryRecordOf,
+	type PreviewHistoryEntry,
+	previewEntryOf,
+} from "./previewEntryRecords";
 
 function recordOf(value: unknown): Record<string, unknown> | undefined {
 	return typeof value === "object" && value !== null
@@ -55,35 +51,25 @@ function recordOf(value: unknown): Record<string, unknown> | undefined {
 		: undefined;
 }
 
-/** A held menu read from its stored value, or none where the value is not
- *  one: a state is anything a page wrote into history. */
-export function previewHeldMenuOf(
-	held: unknown,
-): PreviewHeldCaseListMenu | undefined {
-	const record = recordOf(held);
-	if (record === undefined) return undefined;
-	const { moduleUuid, cases, session } = record;
-	if (
-		typeof moduleUuid !== "string" ||
-		typeof session !== "string" ||
-		!Array.isArray(cases)
-	)
-		return undefined;
-	const choices = cases.map(caseChoiceOf);
-	if (choices.length === 0 || choices.some((choice) => choice === undefined))
-		return undefined;
-	return {
-		moduleUuid: moduleUuid as Uuid,
-		cases: choices as PreviewCaseChoice[],
-		session,
-	};
+function heldMenuOf(
+	state: unknown,
+	records: PreviewEntryRecordOf,
+): PreviewEntryHeldMenu | undefined {
+	return records(previewEntryOf(state)).heldMenu;
 }
 
-/** The held menu a history entry's state carries, or none. */
+function menuOf(held: PreviewEntryHeldMenu): PreviewHeldCaseListMenu {
+	return { moduleUuid: held.moduleUuid, cases: held.cases };
+}
+
+/** The held menu a history entry shows in the session `records` belong to,
+ *  or none. */
 export function readPreviewHeldMenu(
 	state: unknown,
+	records: PreviewEntryRecordOf,
 ): PreviewHeldCaseListMenu | undefined {
-	return previewHeldMenuOf(recordOf(state)?.[HELD_MENU_STATE_KEY]);
+	const held = heldMenuOf(state, records);
+	return held === undefined ? undefined : menuOf(held);
 }
 
 /** How many entries lie between an entry and the one it records as the
@@ -96,56 +82,47 @@ function gapOf(state: unknown): number {
 		: 0;
 }
 
-/** Whether the entry before the menu's own entry is its list's. */
-function afterListOf(state: unknown): boolean {
-	return recordOf(recordOf(state)?.[HELD_MENU_STATE_KEY])?.afterList === true;
-}
-
-/** How many history entries a step back off the held menu of this state
+/** How many history entries a step back off the held menu of this entry
  * passes to reach the entry before it: its own, one for each language
  * change made on it, and one for each entry of the screen the menu replaced
  * still behind it (a case's details, and their copies under another
  * language). None without a held menu. */
-export function stepsOfPreviewHeldMenu(state: unknown): number {
-	return readPreviewHeldMenu(state) === undefined ? 0 : gapOf(state) + 1;
+export function stepsOfPreviewHeldMenu(
+	state: unknown,
+	records: PreviewEntryRecordOf,
+): number {
+	return heldMenuOf(state, records) === undefined ? 0 : gapOf(state) + 1;
 }
 
-/** The entry a history entry was pushed after: its path and the held menu
- *  it carried. */
+/** The entry a history entry was pushed after: its path and its id. */
 interface PreviousEntry {
 	readonly path: string;
-	readonly held: PreviewHeldCaseListMenu | undefined;
+	readonly entry: string | undefined;
 }
 
 function previousEntryOf(state: unknown): PreviousEntry | undefined {
 	const previous = recordOf(recordOf(state)?.[PREVIOUS_ENTRY_STATE_KEY]);
 	if (previous === undefined || typeof previous.path !== "string")
 		return undefined;
-	return { path: previous.path, held: previewHeldMenuOf(previous.held) };
-}
-
-function storedHeldMenu(held: PreviewHeldCaseListMenu) {
 	return {
-		moduleUuid: held.moduleUuid,
-		cases: held.cases.map((choice) => ({ ...choice })),
-		session: held.session,
+		path: previous.path,
+		entry: typeof previous.entry === "string" ? previous.entry : undefined,
 	};
 }
 
-/** The state without the held menu, the entry before it or the case
- *  selections it was shown with (`previewSelectionsHistory.ts`): a state
- *  another generation of the Project wrote names its cases, and a write's new
- *  entry records the selections it is shown with itself. */
+/** The state without the entry's id, the entry before it and the gap
+ *  between: a write's new entry names its own, and an entry another
+ *  generation of the Project wrote keeps nothing the session holds for it. */
 export function withoutPreviewHistorySteps(
 	state: Record<string, unknown>,
 ): Record<string, unknown> {
 	const {
-		[HELD_MENU_STATE_KEY]: _held,
+		[PREVIEW_ENTRY_STATE_KEY]: _entry,
 		[PREVIOUS_ENTRY_STATE_KEY]: _previous,
 		[PREVIOUS_GAP_STATE_KEY]: _gap,
 		...rest
 	} = state;
-	return withoutPreviewSelections(rest);
+	return rest;
 }
 
 const RESULTS_SEGMENT = "/results";
@@ -175,27 +152,34 @@ export type BuilderHistoryWrite =
 	| { readonly pathname: string; readonly lens: true };
 
 /**
- * The state of the entry a builder history write leaves: the current entry's
- * state, less its held menu unless the write names one or keeps it as a lens,
- * with the entry it was pushed after (a replace and a lens copy keep the
- * replaced or copied entry's). A held menu is after its list where that
- * entry is the list's own (at a URL of its module Preview shows the list at:
- * Results, Search, Details or data review), holding nothing in the session taking the
- * step: pushed from the list, or in place of a case's details pushed from
- * it (or their copy under another language), where that entry holds no menu or
- * one an earlier Preview session held, which shows the list now
- * (`menuProjection.ts::previewCaseListHeldChoices`). A menu opened anywhere
- * else (a crumb's from a form, a deep-linked case's details with nothing
- * before them) is not.
+ * The entry a builder history write leaves: a new id, the current entry's
+ * state less its steps, and the entry it was pushed after (a replace and a
+ * lens copy keep the replaced or copied entry's), with a record holding the
+ * held menu the write names, or for a lens the screen's own, and the
+ * current record's search contexts, which the search history prunes
+ * (`previewSearchHistory.ts::previewSearchHistoryWrite`). The case
+ * selections the screen shows are recorded as it shows them. `records`
+ * reads the session the write belongs to.
+ *
+ * A held menu is after its list where the entry before it is the list's own
+ * (at a URL of its module Preview shows the list at: Results, Search, Details
+ * or data review), holding no menu in that session: pushed from the list,
+ * or in place of a case's details pushed from it (or their copy under
+ * another language), where that entry holds no menu, as one an earlier
+ * Preview session held shows the list now. A menu opened anywhere else (a
+ * crumb's from a form, a deep-linked case's details with nothing before
+ * them) is not.
  */
 export function builderEntryState(
 	current: {
 		readonly pathname: string;
 		readonly state: Record<string, unknown>;
+		readonly record: PreviewEntryRecord;
 	},
 	write: BuilderHistoryWrite,
-): Record<string, unknown> {
-	const rest = withoutPreviewHistorySteps(current.state);
+	records: PreviewEntryRecordOf,
+	entry: string = newPreviewEntry(),
+): PreviewHistoryEntry {
 	const lens = "lens" in write;
 	/* A push records the entry it was pushed after. A replace, and a lens
 	 * copy of the screen, keep the entry before the screen they stand for,
@@ -205,38 +189,38 @@ export function builderEntryState(
 	const carries = lens || write.replace;
 	const previous: PreviousEntry | undefined = carries
 		? previousEntryOf(current.state)
-		: {
-				path: current.pathname,
-				held: readPreviewHeldMenu(current.state),
-			};
+		: { path: current.pathname, entry: previewEntryOf(current.state) };
 	const gap = carries ? gapOf(current.state) + (lens ? 1 : 0) : 0;
-	const kept = lens ? readPreviewHeldMenu(current.state) : undefined;
-	const held = lens ? kept : write.held;
-	const stored =
-		held === undefined
+	const heldMenu: PreviewEntryHeldMenu | undefined = lens
+		? current.record.heldMenu
+		: write.held === undefined
 			? undefined
 			: {
-					...storedHeldMenu(held),
-					...((lens
-						? afterListOf(current.state)
-						: previous !== undefined &&
-							showsListIn(previous, held.session) &&
-							isListPath(previous.path, write.pathname)) && {
-						afterList: true,
-					}),
+					...menuOf(write.held),
+					...(previous !== undefined &&
+						records(previous.entry).heldMenu === undefined &&
+						isListPath(previous.path, write.pathname) && {
+							afterList: true as const,
+						}),
 				};
 	return {
-		...rest,
-		...(previous !== undefined && {
-			[PREVIOUS_ENTRY_STATE_KEY]: {
-				path: previous.path,
-				...(previous.held !== undefined && {
-					held: storedHeldMenu(previous.held),
-				}),
-			},
-			...(gap > 0 && { [PREVIOUS_GAP_STATE_KEY]: gap }),
-		}),
-		...(stored !== undefined && { [HELD_MENU_STATE_KEY]: stored }),
+		state: {
+			...withoutPreviewHistorySteps(current.state),
+			[PREVIEW_ENTRY_STATE_KEY]: entry,
+			...(previous !== undefined && {
+				[PREVIOUS_ENTRY_STATE_KEY]: {
+					path: previous.path,
+					...(previous.entry !== undefined && { entry: previous.entry }),
+				},
+				...(gap > 0 && { [PREVIOUS_GAP_STATE_KEY]: gap }),
+			}),
+		},
+		record: {
+			...(current.record.searches !== undefined && {
+				searches: current.record.searches,
+			}),
+			...(heldMenu !== undefined && { heldMenu }),
+		},
 	};
 }
 
@@ -252,51 +236,49 @@ export type PreviewHeldMenuBack =
 	| { readonly kind: "step-back"; readonly steps: number }
 	| { readonly kind: "show-list" };
 
-export function previewHeldMenuBack(state: unknown): PreviewHeldMenuBack {
-	if (readPreviewHeldMenu(state) === undefined)
-		return { kind: "step-back", steps: 1 };
-	return afterListOf(state)
-		? { kind: "step-back", steps: stepsOfPreviewHeldMenu(state) }
+export function previewHeldMenuBack(
+	state: unknown,
+	records: PreviewEntryRecordOf,
+): PreviewHeldMenuBack {
+	const held = heldMenuOf(state, records);
+	if (held === undefined) return { kind: "step-back", steps: 1 };
+	return held.afterList === true
+		? { kind: "step-back", steps: gapOf(state) + 1 }
 		: { kind: "show-list" };
 }
 
 /** How many history entries a step back from this entry passes to reach
  *  the entry its screen was pushed after, where that entry is the plain
- *  screen at `pathname` (it holds no form menu): its own, and one for each
- *  entry between them (`gapOf`, a language change's copies of the screen).
- *  None where the entry before is any other screen, or is not recorded. A
- *  screen whose own Back reaches the screen it was opened from (a parent
- *  case's list going back over the command that asked for it,
- *  `CommCareSession.stepBack`) steps back by this count rather than writing
- *  a copy of that screen after itself, which would leave the screen twice
- *  in history and make the browser's next Back land on it again. The entry
- *  behind can have changed since it was recorded, so the step is checked
- *  where it lands (`useClientPath.ts::stepBackToBuilderEntry`). */
+ *  screen at `pathname` (it holds no form menu in the session `records`
+ *  belong to): its own, and one for each entry between them (`gapOf`, a
+ *  language change's copies of the screen). None where the entry before is
+ *  any other screen, or is not recorded. A screen whose own Back reaches the
+ *  screen it was opened from (a parent case's list going back over the
+ *  command that asked for it, `CommCareSession.stepBack`) steps back by this
+ *  count rather than writing a copy of that screen after itself, which would
+ *  leave the screen twice in history and make the browser's next Back land
+ *  on it again. The entry behind can have changed since it was recorded, so
+ *  the step is checked where it lands
+ *  (`useClientPath.ts::stepBackToBuilderEntry`). */
 export function stepsBackToPrevious(
 	state: unknown,
 	pathname: string,
+	records: PreviewEntryRecordOf,
 ): number | undefined {
 	const previous = previousEntryOf(state);
 	return previous !== undefined &&
-		previous.held === undefined &&
+		records(previous.entry).heldMenu === undefined &&
 		previous.path === pathname
 		? gapOf(state) + 1
 		: undefined;
 }
 
-/** Whether an entry shows its list in a Preview session: it holds no menu,
- *  or holds one another session took, which that list ignores. */
-function showsListIn(entry: PreviousEntry, session: string): boolean {
-	return entry.held === undefined || entry.held.session !== session;
-}
-
 function sameHeldMenu(
-	a: PreviewHeldCaseListMenu,
+	a: PreviewEntryHeldMenu | PreviewHeldCaseListMenu,
 	b: PreviewHeldCaseListMenu,
 ): boolean {
 	return (
 		a.moduleUuid === b.moduleUuid &&
-		a.session === b.session &&
 		a.cases.length === b.cases.length &&
 		a.cases.every((choice, i) => choice.caseId === b.cases[i]?.caseId)
 	);
@@ -312,11 +294,14 @@ function sameHeldMenu(
 export function previewHeldMenuIsPrevious(
 	state: unknown,
 	held: PreviewHeldCaseListMenu,
+	records: PreviewEntryRecordOf,
 ): boolean {
-	if (readPreviewHeldMenu(state) !== undefined || gapOf(state) > 0)
+	if (heldMenuOf(state, records) !== undefined || gapOf(state) > 0)
 		return false;
-	const previous = previousEntryOf(state)?.held;
-	return previous !== undefined && sameHeldMenu(previous, held);
+	const previous = previousEntryOf(state);
+	const before =
+		previous === undefined ? undefined : records(previous.entry).heldMenu;
+	return before !== undefined && sameHeldMenu(before, held);
 }
 
 /** Whether an entry holds this held menu: where a step back onto the menu
@@ -325,7 +310,8 @@ export function previewHeldMenuIsPrevious(
 export function previewHeldMenuStands(
 	state: unknown,
 	held: PreviewHeldCaseListMenu,
+	records: PreviewEntryRecordOf,
 ): boolean {
-	const current = readPreviewHeldMenu(state);
+	const current = heldMenuOf(state, records);
 	return current !== undefined && sameHeldMenu(current, held);
 }

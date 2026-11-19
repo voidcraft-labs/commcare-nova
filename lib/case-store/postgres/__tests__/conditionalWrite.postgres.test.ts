@@ -30,6 +30,7 @@ import {
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { seedAppTest } from "@/lib/preview/app-tests/seed";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { engineFor } from "@/lib/preview/engine/__tests__/fixtures/submissionProgram";
@@ -46,6 +47,7 @@ import { PostgresCaseStore } from "../store";
 const APP_ID = "conditional-write-app";
 const PROJECT_ID = "conditional-write-project";
 const ACTOR = "worker-1";
+const WRITER = { projectId: PROJECT_ID, actorId: ACTOR } as const;
 const FORM_UUID = testUuid("conditional-write-form");
 const OP_UUID = testUuid("conditional-write-create");
 const FLAG_FIELD = testUuid("conditional-write-flag");
@@ -69,6 +71,21 @@ const fixture = setupPerTestDatabase({
 		await sql`
 			INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 			VALUES (${APP_ID}, ${ACTOR}, ${PROJECT_ID}, 'Inspection', 'inspection')
+		`.execute(db);
+		/* Every lookup writer reads its member's role on its own transaction,
+		 * so the lookup data below is written by a member of the Project. */
+		await sql`
+			CREATE TABLE auth_member (
+				id text PRIMARY KEY,
+				"userId" text NOT NULL,
+				"organizationId" text NOT NULL,
+				role text NOT NULL,
+				UNIQUE ("organizationId", "userId")
+			)
+		`.execute(db);
+		await sql`
+			INSERT INTO auth_member (id, "userId", "organizationId", role)
+			VALUES ('conditional-write-member', ${ACTOR}, ${PROJECT_ID}, 'owner')
 		`.execute(db);
 		await makeStore(db as Kysely<Database>).applySchemaChange({
 			appId: APP_ID,
@@ -165,10 +182,10 @@ function submit(
 describe("conditional numeric writes", () => {
 	it("submits from captured lookup rows while a live writer holds the table lock", async () => {
 		const appDb = fixture.db as Kysely<AppDatabase>;
-		const seeded = await appDb.transaction().execute((tx) =>
+		const seeded = await appDb.transaction().execute(async (tx) =>
 			applyLookupAuthoringBatchInTransaction(
 				tx,
-				{ projectId: PROJECT_ID, actorId: ACTOR, role: "owner" },
+				await authorizeLookupWriteInTransaction(tx, WRITER, "delete"),
 				{
 					createTables: [
 						{
@@ -354,32 +371,31 @@ describe("conditional numeric writes", () => {
 
 	it("keeps lookup guards and values consistent while a lookup writer is waiting", async () => {
 		const appDb = fixture.db as Kysely<AppDatabase>;
-		const scope = {
-			projectId: PROJECT_ID,
-			actorId: ACTOR,
-			role: "owner" as const,
-		};
-		const seed = await appDb.transaction().execute((tx) =>
-			applyLookupAuthoringBatchInTransaction(tx, scope, {
-				createTables: [
-					{
-						key: "divisor",
-						name: "Divisor",
-						tag: "divisor",
-						columns: [
-							{
-								key: "amount",
-								wireName: "amount",
-								label: "Amount",
-								dataType: "decimal",
-							},
-						],
-						rows: [
-							{ key: "initial", cells: [{ columnKey: "amount", value: 2 }] },
-						],
-					},
-				],
-			}),
+		const seed = await appDb.transaction().execute(async (tx) =>
+			applyLookupAuthoringBatchInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, WRITER, "delete"),
+				{
+					createTables: [
+						{
+							key: "divisor",
+							name: "Divisor",
+							tag: "divisor",
+							columns: [
+								{
+									key: "amount",
+									wireName: "amount",
+									label: "Amount",
+									dataType: "decimal",
+								},
+							],
+							rows: [
+								{ key: "initial", cells: [{ columnKey: "amount", value: 2 }] },
+							],
+						},
+					],
+				},
+			),
 		);
 		const table = seed.tables[0];
 		const columnId = table?.columnIds[0]?.id;
@@ -452,17 +468,21 @@ describe("conditional numeric writes", () => {
 						pid: number;
 					}>`SELECT pg_backend_pid() AS pid`.execute(tx);
 					writerPid = backend.rows[0]?.pid ?? 0;
-					return applyLookupAuthoringBatchInTransaction(tx, scope, {
-						updateTables: [
-							{
-								tableId: table.tableId,
-								expectedTableRevision: seed.projectRevision,
-								rowOperations: [
-									{ kind: "update", rowId, cells: [{ columnId, value: 0 }] },
-								],
-							},
-						],
-					});
+					return applyLookupAuthoringBatchInTransaction(
+						tx,
+						await authorizeLookupWriteInTransaction(tx, WRITER, "delete"),
+						{
+							updateTables: [
+								{
+									tableId: table.tableId,
+									expectedTableRevision: seed.projectRevision,
+									rowOperations: [
+										{ kind: "update", rowId, cells: [{ columnId, value: 0 }] },
+									],
+								},
+							],
+						},
+					);
 				}),
 			]).then((result) => {
 				writerFinished = true;

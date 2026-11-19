@@ -204,7 +204,14 @@ describe("unreadPlacesFailure", () => {
 			places: null,
 			placesUnread,
 		});
-	const work = { nodes: 0, syntaxReads: 0, rebuilds: 0 };
+	const work = {
+		nodes: 0,
+		syntaxReads: 0,
+		rebuilds: 0,
+		units: 0,
+		byKind: { parse: 0, propose: 0, print: 0, compare: 0, visit: 0 },
+		limit: 0,
+	};
 	const claims = {
 		counts: {},
 		handOffs: [],
@@ -234,7 +241,13 @@ describe("unreadPlacesFailure", () => {
 		kind: "read",
 		draft: {
 			doc,
-			identities: { modules: [], forms: [], keyedCreates: [], entries: [] },
+			identities: {
+				modules: [],
+				forms: [],
+				keyedCreates: [],
+				columnFieldWords: [],
+				entries: [],
+			},
 			declaration: { kind: "none", blocking: [] },
 			facts: {
 				webAppsOnInHq: false,
@@ -661,10 +674,10 @@ describe("readingProjectDataFindingsFor, places past Nova's limit", () => {
 		]);
 	});
 
-	it("names Nova's limit where no page named a total", () => {
+	it("names the byte bound where the list passed it", () => {
 		expect(findingsPast(null)).toEqual([
 			circumstanceFinding("places-over-nova-limit", ORGANIZATION, {
-				name: "more than 10,000 places",
+				name: "more place information than Nova reads",
 			}),
 		]);
 	});

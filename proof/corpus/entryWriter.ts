@@ -15,7 +15,10 @@
  * source they were built over (`assumedSource`), with what the peer answered
  * for the lookup tables they push (`assumedResources`) and, for a document a
  * person saved in HQ over, the stops Nova's preflight made and what the
- * resend confirmed (`confirmed`). Beside the two imports of the first
+ * resend confirmed (`confirmed`). Every import's sidecar names the capture
+ * peer's save counter around it (`saveCounter`, and `mediaSaveCounter`
+ * around the media upload after it), which the HQ side holds HQ's own
+ * counter's move to (`proof/observe/publish.py`). Beside the two imports of the first
  * publish, `create.ownership.json` and `content.ownership.json` hold the
  * overlay keys each body writes. Beside the exports the directory holds the
  * HQ import file (`import-file.zip`).
@@ -29,7 +32,8 @@
  * `edit/document.json` is it with the batch. Where a person's saves in HQ
  * over A are brought in before the republish (`hq-side.json` states
  * `brings-in`), the republish sends the document the bring-in gave, under
- * the ids the bring-in read of the app, and A after the saves and B both
+ * the target-identity record the bring-in left (the menu and form ids it read
+ * of the app and each keyed create's prefix), and A after the saves and B both
  * hold it: `document.json`, the local archives and the import file are of
  * that document (`republishedDocument`), and D is what the first publish's
  * captured requests send.
@@ -50,7 +54,11 @@
  * space that holds the flag, where any
  * configuration holds it. `local-again.ccz`, the second export proof 1
  * compares with `local.ccz`, and `edit/local.ccz` are compiled as
- * `local.ccz` is.
+ * `local.ccz` is. Where the project space's app keeps a custom base URL
+ * that sends phones elsewhere than the server, Nova's download makes no
+ * `.ccz` (`workers-sent-elsewhere`), and the document carries none: it
+ * states the refusal in their place (`./inputs.ts::LOCAL_REFUSED`), and a
+ * base's value expectations at the local archive are left out.
  *
  * A document made in CommCare HQ (`hq-authored`) has no first publish: its
  * A is its base's app, which the entry writer copies from the base's
@@ -89,12 +97,13 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import {
-	DERIVED_WIRE_IDENTITY,
-	targetWireIdentity,
-	type WireIdentity,
-} from "@/lib/commcare/wireIdentity";
+	canonicalTargetIdentity,
+	EMPTY_TARGET_IDENTITY,
+	type TargetIdentity,
+} from "@/lib/deployment/targetIdentity";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -128,6 +137,7 @@ import { type Footprint, wireLanguages, wireLayout } from "./footprint";
 import {
 	EMPTY_LIST_TEXT_ARCHIVE,
 	EMPTY_LIST_TEXT_FLAG,
+	LOCAL_REFUSED,
 	type RetainedMigrationA,
 	retainedConfigurations,
 	retainedMigrationA,
@@ -140,12 +150,14 @@ import {
 	capturedTargetFacts,
 	capturePublish,
 	importFile,
+	type LocalCczRefused,
 	localCcz,
 	minimumConfiguration,
 	type NovaPublishVerdict,
 	novaPublishVerdict,
 	PLACEHOLDER_APP_ID,
 	PROOF_DOMAIN,
+	PROOF_SERVER,
 	type PublishCapture,
 	type PublishConfiguration,
 	type PublishDocument,
@@ -418,7 +430,8 @@ async function writeStep(
 }
 
 /**
- * What an update's sidecar names beside its request: the fields of HQ's
+ * What an update's sidecar names beside its request: the capture peer's
+ * save counter around it and around its media upload, the fields of HQ's
  * source and the resources it was built over, where Nova's preflight
  * stopped it, the stop and what the resend confirmed, and where it was sent
  * after a review of changes made in CommCare HQ, the review and what the
@@ -437,6 +450,10 @@ function updateSidecar(
 	return {
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
+		saveCounter: step.saveCounter,
+		...(step.mediaSaveCounter !== undefined && {
+			mediaSaveCounter: step.mediaSaveCounter,
+		}),
 		assumedSource: step.assumedSource,
 		...(step.assumedResources !== undefined && {
 			assumedResources: step.assumedResources,
@@ -497,19 +514,22 @@ function archiveTargetFacts(
 }
 
 /**
- * The document the republish sent over A and the ids it sent it under,
- * which A after a person's saves and B both hold: where every
+ * The document the republish sent over A and the target-identity record it
+ * sent it under, which A after a person's saves and B both hold: where every
  * configuration's republish was sent after a bring-in of those saves
- * (`SentImport`'s `sent`, `broughtIn.identities`), the document the
- * bring-in gave, with the placements its emission records, under the ids
- * the bring-in read of the app; otherwise D under the derived ids.
+ * (`SentImport`'s `sent` and `sentUnder`), the document the bring-in gave,
+ * with the placements its emission records, under the record the bring-in
+ * left; otherwise D under the empty record, every id derived.
  * Configurations that disagree stop the emission rather than choose one.
  */
 function republishedDocument(
 	documentId: string,
 	captures: ReadonlyMap<string, PublishCapture | RepublishCapture>,
 	publish: PublishDocument,
-): { readonly publish: PublishDocument; readonly identity: WireIdentity } {
+): {
+	readonly publish: PublishDocument;
+	readonly targetIdentity: TargetIdentity;
+} {
 	const sent = [...captures].map(([name, capture]) => {
 		const step =
 			capture.status === "refused" ? undefined : capture.updates.republish;
@@ -518,19 +538,22 @@ function republishedDocument(
 			taken:
 				step?.status === "sent" &&
 				step.broughtIn?.taken === "brought-in" &&
-				step.sent !== undefined
-					? { document: step.sent, overrides: step.broughtIn.identities }
+				step.sent !== undefined &&
+				step.sentUnder !== undefined
+					? { document: step.sent, record: step.sentUnder }
 					: undefined,
 		};
 	});
 	const brought = sent.filter((each) => each.taken !== undefined);
-	if (brought.length === 0) return { publish, identity: DERIVED_WIRE_IDENTITY };
+	if (brought.length === 0)
+		return { publish, targetIdentity: EMPTY_TARGET_IDENTITY };
 	const [first] = brought;
 	const key = (taken: (typeof sent)[number]["taken"]) =>
 		JSON.stringify({
 			doc: taken?.document.doc,
 			compiledAtSeq: taken?.document.compiledAtSeq,
-			overrides: taken?.overrides,
+			record:
+				taken === undefined ? undefined : canonicalTargetIdentity(taken.record),
 		});
 	const other = sent.find((each) => key(each.taken) !== key(first?.taken));
 	if (first?.taken === undefined || other !== undefined) {
@@ -540,7 +563,7 @@ function republishedDocument(
 	}
 	return {
 		publish: first.taken.document,
-		identity: targetWireIdentity(first.taken.overrides),
+		targetIdentity: first.taken.record,
 	};
 }
 
@@ -554,12 +577,33 @@ async function requiredLocalCcz(
 	options: Parameters<typeof localCcz>[3],
 ): Promise<Buffer> {
 	const archive = await localCcz(source, PROOF_DOMAIN, operation, options);
-	if (archive === null) {
+	if (!Buffer.isBuffer(archive)) {
 		throw new Error(
-			`The download rule refused a second local archive of ${source.id}, whose first it made: both read the same declaration.`,
+			`The download rule refused a second local archive of ${source.id}, whose first it made: both read the same declaration and the same project space.`,
 		);
 	}
 	return archive;
+}
+
+/** Whether `localCcz` answered the download's refusal of a project space that has no `.ccz`. */
+function isLocalCczRefused(
+	archive: Awaited<ReturnType<typeof localCcz>>,
+): archive is LocalCczRefused {
+	return archive !== null && !Buffer.isBuffer(archive);
+}
+
+/**
+ * The refusal a document states in place of its local archive
+ * (`./inputs.ts::LOCAL_REFUSED`): the download's reason, the host the
+ * project space's app sends phones to, and the server the archive would
+ * have named, whose origin the judge holds A's custom base URL against.
+ */
+function localRefusalJson(archive: LocalCczRefused) {
+	return {
+		reason: archive.refused.reason,
+		host: archive.refused.host,
+		server: COMMCARE_SERVERS[PROOF_SERVER].baseUrl,
+	};
 }
 
 function publishConfiguration(
@@ -686,7 +730,7 @@ async function writeAuthored(
 	for (const name of AUTHORED_FILES) {
 		if (!existsSync(join(retained, name))) {
 			throw new Error(
-				`The base of ${documentId} retains no ${name} in ${retained}, and the unit makes A of it. Everything under proof/hq-apps/ is written by the lane; make the base again with python3 -m proof.matrix.adopt over a lane run's output.`,
+				`The base of ${documentId} retains no ${name} in ${retained}, and the unit makes A of it. Everything under proof/hq-apps/ is written by the lane; make the base again with python3 -m proof.matrix.adopt over every output of a lane run.`,
 			);
 		}
 		await copyFile(join(retained, name), join(authored, name));
@@ -789,6 +833,19 @@ function formAt(
 	return row.novaEntityUuid;
 }
 
+/** One value expectation of a base's `expected.json`, at one state. */
+interface HandIntent {
+	readonly id: string;
+	readonly export: (typeof EXPECTATION_STATES)[number];
+	readonly form: string;
+	readonly restore: string;
+	readonly request: Readonly<Record<string, unknown>>;
+	readonly expect: readonly {
+		readonly pointer: string;
+		readonly value?: unknown;
+	}[];
+}
+
 /**
  * The base's hand-written value expectations as the document's
  * `expected.json`: one expectation for each state it runs at (every state
@@ -801,7 +858,7 @@ async function handExpected(
 	documentId: string,
 	facts: HqAuthoredFacts,
 ): Promise<{
-	readonly expected: unknown;
+	readonly expected: { readonly intent: readonly HandIntent[] };
 	readonly files: Readonly<Record<string, string>>;
 }> {
 	const path = join(facts.hand, "expectations.json");
@@ -819,7 +876,7 @@ async function handExpected(
 		);
 	}
 	const archive = facts.declaration.runsOnlyOn !== "web-apps";
-	const intent: unknown[] = [];
+	const intent: HandIntent[] = [];
 	const files: Record<string, string> = {};
 	for (const expectation of parsed.data) {
 		checkDocumentFileName(documentId, expectation.restore);
@@ -1072,6 +1129,9 @@ export async function writeEntry(
 		authored === undefined
 			? undefined
 			: await baseConfiguration(document.id, authored.retained);
+	/* A base's value expectations, written once its local archive is made or
+	 * refused: an expectation at the local archive runs only where one is. */
+	let hand: Awaited<ReturnType<typeof handExpected>> | undefined;
 	if (authored !== undefined) {
 		await writeAuthored(root, document.id, authored.retained);
 		await writeJson(join(root, "first-publish.json"), {
@@ -1080,8 +1140,7 @@ export async function writeEntry(
 				places,
 			})),
 		});
-		const hand = await handExpected(document.id, authored);
-		await writeJson(join(root, "expected.json"), hand.expected);
+		hand = await handExpected(document.id, authored);
 		for (const [name, content] of Object.entries(hand.files)) {
 			await writeFile(join(root, name), content);
 		}
@@ -1164,6 +1223,7 @@ export async function writeEntry(
 					identity: authored.identity,
 					mediaPaths: authored.mediaPaths,
 					keyedCaseIds: authored.keyedCaseIds,
+					columnWords: authored.columnWords,
 				};
 	const captures = new Map<string, PublishCapture | RepublishCapture>();
 	for (const [name, configuration] of named) {
@@ -1189,6 +1249,7 @@ export async function writeEntry(
 							identity: authored.identity,
 							mediaPaths: authored.mediaPaths,
 							keyedCaseIds: authored.keyedCaseIds,
+							columnWords: authored.columnWords,
 						},
 						...(hqTables !== undefined && hqTables.length > 0 && { hqTables }),
 					})
@@ -1292,6 +1353,7 @@ export async function writeEntry(
 		await writeRequest(directory, "create", create.importApp, {
 			compatibility,
 			layout: TWO_IMPORT_LAYOUT,
+			saveCounter: create.saveCounter,
 		});
 		await writeJson(join(directory, "create.ownership.json"), create.ownership);
 		await writeStep(
@@ -1343,25 +1405,44 @@ export async function writeEntry(
 	 * (`not-declared-for-android`), and the corpus writes no local archive
 	 * of it: a Web Apps worker meets HQ's build. */
 	/* Each archive is made for the project space as the publish before it
-	 * left it: the republished document's for the republish, under the ids it
-	 * was sent under, and D′'s for its update, each with what the project
+	 * left it: the republished document's for the republish, under the record
+	 * it was sent under, and D′'s for its update, each with what the project
 	 * space keeps (`SentImport.targetFacts`). */
 	const targetFacts = archiveTargetFacts(document.id, captures, "republish");
-	const { identity } = republished;
+	const { targetIdentity } = republished;
 	const localArchive = await localCcz(
 		republished.publish,
 		PROOF_DOMAIN,
 		local(OPERATION_ORDINALS.local),
-		{ targetFacts, identity, ...(adopted !== undefined && { adopted }) },
+		{ targetFacts, targetIdentity, ...(adopted !== undefined && { adopted }) },
 	);
-	if (localArchive !== null) {
+	/* A project space whose app keeps a custom base URL elsewhere has no
+	 * `.ccz` (`workers-sent-elsewhere`): the document states the download's
+	 * refusal in place of the archive, which the bar holds to A
+	 * (`proof/checks/bar.py::local_outcome`). */
+	const localRefused = isLocalCczRefused(localArchive);
+	if (localRefused) {
+		await writeJson(join(root, LOCAL_REFUSED), localRefusalJson(localArchive));
+	}
+	if (hand !== undefined) {
+		await writeJson(join(root, "expected.json"), {
+			intent: localRefused
+				? hand.expected.intent.filter((one) => one.export !== "local")
+				: hand.expected.intent,
+		});
+	}
+	if (Buffer.isBuffer(localArchive)) {
 		await writeFile(join(root, "local.ccz"), localArchive);
 		await writeFile(
 			join(root, "local-again.ccz"),
 			await requiredLocalCcz(
 				republished.publish,
 				local(OPERATION_ORDINALS.localAgain),
-				{ targetFacts, identity, ...(adopted !== undefined && { adopted }) },
+				{
+					targetFacts,
+					targetIdentity,
+					...(adopted !== undefined && { adopted }),
+				},
 			),
 		);
 		if (
@@ -1377,7 +1458,7 @@ export async function writeEntry(
 					{
 						emptyCaseListText: true,
 						targetFacts,
-						identity,
+						targetIdentity,
 						...(adopted !== undefined && { adopted }),
 					},
 				),
@@ -1449,7 +1530,12 @@ export async function writeEntry(
 				...(adopted !== undefined && { adopted }),
 			},
 		);
-		if (editArchive !== null) {
+		if (isLocalCczRefused(editArchive)) {
+			await writeJson(
+				join(editRoot, LOCAL_REFUSED),
+				localRefusalJson(editArchive),
+			);
+		} else if (editArchive !== null) {
 			await writeFile(join(editRoot, "local.ccz"), editArchive);
 		}
 	}

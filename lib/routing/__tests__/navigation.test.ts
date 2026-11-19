@@ -33,9 +33,13 @@ function fixture() {
 	const writes: {
 		url: string;
 		replace: boolean;
-		heldMenu?: PreviewHeldCaseListMenu;
+		heldMenu?: { menu: PreviewHeldCaseListMenu; session: string };
 	}[] = [];
-	const reopened: { url: string; heldMenu: PreviewHeldCaseListMenu }[] = [];
+	const reopened: {
+		url: string;
+		heldMenu: PreviewHeldCaseListMenu;
+		session: string;
+	}[] = [];
 	let back = 0;
 	const port: NavigationPort = {
 		getDoc: () => doc,
@@ -45,8 +49,8 @@ function fixture() {
 			writes.push({ url, replace, ...(heldMenu && { heldMenu }) });
 			pathname = url;
 		},
-		reopenHeldMenu: (url, heldMenu) => {
-			reopened.push({ url, heldMenu });
+		reopenHeldMenu: (url, heldMenu, session) => {
+			reopened.push({ url, heldMenu, session });
 		},
 		stepBackTo: () => {
 			throw new Error("No navigation action under test steps back");
@@ -121,26 +125,30 @@ describe("navigation actions", () => {
 		const held = {
 			moduleUuid: h.moduleUuid,
 			cases: [{ caseId: "ana" }],
-			session: "worker",
 		};
-		nav.holdPreviewMenu(held);
-		nav.holdPreviewMenu(held, { replace: true });
-		nav.reopenPreviewHeldMenu(held);
+		nav.holdPreviewMenu(held, { session: "worker" });
+		nav.holdPreviewMenu(held, { replace: true, session: "worker" });
+		nav.reopenPreviewHeldMenu(held, "worker");
 		// Reopening reaches the same list's URL, through the port's own
 		// history decision (`previewHeldMenu.ts::previewHeldMenuIsPrevious`).
 		expect(h.reopened).toEqual([
-			{ url: `/build/new/${h.moduleUuid}/results`, heldMenu: held },
+			{
+				url: `/build/new/${h.moduleUuid}/results`,
+				heldMenu: held,
+				session: "worker",
+			},
 		]);
+		// The session holding the menu rides with it, whose records keep it.
 		expect(h.writes).toEqual([
 			{
 				url: `/build/new/${h.moduleUuid}/results`,
 				replace: false,
-				heldMenu: held,
+				heldMenu: { menu: held, session: "worker" },
 			},
 			{
 				url: `/build/new/${h.moduleUuid}/results`,
 				replace: true,
-				heldMenu: held,
+				heldMenu: { menu: held, session: "worker" },
 			},
 		]);
 	});

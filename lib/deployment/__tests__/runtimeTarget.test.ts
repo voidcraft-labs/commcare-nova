@@ -1,9 +1,13 @@
 /** Pure: which reached deployment a download is made for, and each refusal's copy. */
 import { describe, expect, it } from "vitest";
+import { targetFactsFromSource } from "@/lib/commcare/targetFacts";
 import {
+	cczUnavailableLine,
+	cczUnavailableRefusal,
 	chooseDownloadTarget,
 	downloadRefusalLines,
 	type ReachedDeploymentTarget,
+	workersSentElsewhere,
 } from "../runtimeTarget";
 
 const US_ACME: ReachedDeploymentTarget = {
@@ -283,5 +287,93 @@ describe("chooseDownloadTarget for the import file", () => {
 				declaresAndroid: false,
 			}),
 		).toEqual({ kind: "project-space", target: US_ACME });
+	});
+});
+
+/** A stored `custom_base_url` as `targetFactsFromSource` reads it. */
+function heldBase(stored: unknown) {
+	return (
+		targetFactsFromSource(
+			{ custom_base_url: stored },
+			{
+				observedAt: "2026-11-01T00:00:00.000Z",
+				novaOwnsAutoGpsCapture: false,
+				adopted: false,
+			},
+		)?.customBaseUrl ?? null
+	);
+}
+
+describe("workersSentElsewhere", () => {
+	/* A custom base URL sends a phone's sign-in, sync and forms to its
+	 * address in HQ's own build, and a CCZ names only the server the app is
+	 * published on: a project space holding one elsewhere gets no CCZ. */
+	it("gives a project space whose app sends its phones to another address no CCZ, naming the host and never the user information", () => {
+		for (const stored of [
+			"https://example.org/hq/",
+			"http://x",
+			"https://u:p@www.commcarehq.org",
+			"https://relay:s3cret@proxy.example.org/hq/",
+			"https://www.commcarehq.org:8443/",
+			"http://www.commcarehq.org/",
+		]) {
+			const unavailable = workersSentElsewhere(US_ACME, heldBase(stored));
+			expect(unavailable, stored).toMatchObject({
+				reason: "workers-sent-elsewhere",
+			});
+			if (unavailable === null) continue;
+			const refusal = cczUnavailableRefusal(US_ACME, unavailable, REACHED);
+			expect(refusal, stored).toMatchObject({
+				kind: "refused",
+				reason: "workers-sent-elsewhere",
+				reached: REACHED,
+				heldFromHq: [],
+			});
+			for (const text of [refusal.message, cczUnavailableLine(unavailable)]) {
+				expect(text).not.toContain("s3cret");
+				expect(text).not.toContain("u:p");
+			}
+			expect(downloadRefusalLines(refusal)).toEqual([]);
+		}
+		const relayed = workersSentElsewhere(
+			US_ACME,
+			heldBase("https://relay:s3cret@proxy.example.org/hq/"),
+		);
+		expect(relayed).toEqual({
+			reason: "workers-sent-elsewhere",
+			host: "proxy.example.org",
+		});
+		if (relayed === null) throw new Error("Expected no CCZ");
+		expect(cczUnavailableRefusal(US_ACME, relayed, REACHED).message).toBe(
+			"In CommCare HQ, this project space's app has a custom base URL, so phones that install it sign in and send forms at proxy.example.org. " +
+				'A CCZ from Nova signs workers in on the US server, where this app is published, so there isn\'t one for "acme" while that setting is there. ' +
+				"Workers can install the app from CommCare HQ. If the project space moved to another CommCare server, you can publish there and download its CCZ.",
+		);
+		expect(cczUnavailableLine(relayed)).toBe(
+			"Its app in CommCare HQ has a custom base URL that sends phones to proxy.example.org, so Nova doesn't make a CCZ for this project space. Workers can install the app from CommCare HQ.",
+		);
+	});
+
+	it("gives a CCZ to a project space that keeps no base or the server's own", () => {
+		expect(workersSentElsewhere(US_ACME, null)).toBeNull();
+		for (const stored of [
+			"https://www.commcarehq.org",
+			"https://www.commcarehq.org/a/acme/",
+			"HTTPS://WWW.CommCareHQ.org:443/",
+		])
+			expect(
+				workersSentElsewhere(US_ACME, heldBase(stored)),
+				stored,
+			).toBeNull();
+		/* Another server's own address is elsewhere for this one. */
+		expect(
+			workersSentElsewhere(INDIA_ACME, heldBase("https://www.commcarehq.org")),
+		).toMatchObject({ reason: "workers-sent-elsewhere" });
+		expect(
+			workersSentElsewhere(
+				INDIA_ACME,
+				heldBase("https://india.commcarehq.org/hq/"),
+			),
+		).toBeNull();
 	});
 });

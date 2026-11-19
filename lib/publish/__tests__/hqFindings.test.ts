@@ -12,6 +12,7 @@ import {
 	circumstanceFinding,
 	cutFindingName,
 	FINDING_NAME_MAX_LENGTH,
+	FINDING_NAME_MAX_UNITS,
 	type HqAppClaimDetail,
 	type HqPlace,
 	NOVA_FAULT_CIRCUMSTANCES,
@@ -76,6 +77,51 @@ describe("circumstanceFinding", () => {
 	});
 });
 
+describe("a finding's place", () => {
+	it("holds the names an app gives it cut as a finding's name is, and its path and tag whole", () => {
+		const long = "m".repeat(FINDING_NAME_MAX_LENGTH + 10);
+		const cut = `${"m".repeat(FINDING_NAME_MAX_LENGTH - 1)}…`;
+		const question = circumstanceFinding(
+			"unrecognized",
+			{
+				kind: "question",
+				menu: 0,
+				form: 0,
+				menuName: long,
+				formName: long,
+				path: long,
+			},
+			{ name: "x" },
+		);
+		expect(question.place).toEqual({
+			kind: "question",
+			menu: 0,
+			form: 0,
+			menuName: cut,
+			formName: cut,
+			path: long,
+		});
+		expect(
+			circumstanceFinding(
+				"unrecognized",
+				{ kind: "lookup-table", tag: long },
+				{
+					name: "x",
+				},
+			).place,
+		).toEqual({ kind: "lookup-table", tag: long });
+		expect(
+			circumstanceFinding(
+				"unrecognized",
+				{ kind: "menu", menu: 1, name: long },
+				{
+					name: "x",
+				},
+			).place,
+		).toEqual({ kind: "menu", menu: 1, name: cut });
+	});
+});
+
 describe("cutFindingName", () => {
 	it("returns a name of 200 characters or fewer unchanged", () => {
 		const name = "n".repeat(FINDING_NAME_MAX_LENGTH);
@@ -119,14 +165,21 @@ describe("cutFindingName", () => {
 	});
 
 	it("counts an emoji sequence joined by a zero-width joiner as one character, and never parts it", () => {
-		// Woman, ZWJ, laptop: three code points, one character.
+		// Woman, ZWJ, laptop: three code points, five code units, one character.
 		const technologist = "\u{1F469}\u200D\u{1F4BB}";
-		expect(cutFindingName(technologist.repeat(FINDING_NAME_MAX_LENGTH))).toBe(
-			technologist.repeat(FINDING_NAME_MAX_LENGTH),
+		const fits = FINDING_NAME_MAX_UNITS / technologist.length;
+		expect(cutFindingName(technologist.repeat(fits))).toBe(
+			technologist.repeat(fits),
 		);
-		expect(
-			cutFindingName(technologist.repeat(FINDING_NAME_MAX_LENGTH + 1)),
-		).toBe(`${technologist.repeat(FINDING_NAME_MAX_LENGTH - 1)}…`);
+		expect(cutFindingName(technologist.repeat(fits + 1))).toBe(
+			`${technologist.repeat(fits - 1)}…`,
+		);
+	});
+
+	it("holds a name of long characters to its code units as well as its characters", () => {
+		const cut = cutFindingName(`e${"\u0301".repeat(100_000)}`);
+		expect(cut.length).toBeLessThanOrEqual(FINDING_NAME_MAX_UNITS);
+		expect(cut).toBe("…");
 	});
 });
 
@@ -161,6 +214,7 @@ describe("the circumstance table", () => {
 			"browser-only": true,
 			"changed-while-reading": true,
 			"already-in-nova": true,
+			"nova-busy": true,
 		};
 		expect(
 			READ_CIRCUMSTANCES.filter(

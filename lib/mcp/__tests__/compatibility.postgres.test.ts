@@ -20,6 +20,7 @@ import {
 	birthAdoptedApp,
 	OWNERSHIP,
 } from "@/lib/deployment/__tests__/adoptedBirth";
+import { stopHere } from "@/lib/deployment/__tests__/stopHere";
 import { narrowingTo } from "@/lib/deployment/platformNarrowing";
 import {
 	createInputFor,
@@ -34,7 +35,6 @@ import {
 	readHqAppForReview,
 } from "@/lib/deployment/reading/read";
 import {
-	endDeployment,
 	foldDeploymentAttempt,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
@@ -1024,7 +1024,7 @@ describe("first_publish", () => {
 			await asUser(async (client) => {
 				/* Publishing there goes on: the next upload updates that app. */
 				expect((await payload(client)).new_app_beside).toBeNull();
-				await endDeployment(publisher, TARGET);
+				await stopHere(publisher, TARGET);
 				const stopped = await payload(client);
 				expect(stopped.new_app_beside).toBe(PUBLISH_PLAN_CREATES_BESIDE);
 				expect(stopped.first_publish).toBeNull();

@@ -46,6 +46,7 @@ import {
 	proseTemplateIsEmpty,
 	type Uuid,
 } from "@/lib/domain";
+import { PREVIEW_LABEL_RENDERING } from "@/lib/markdown";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
@@ -185,6 +186,7 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 											label={shownLabel}
 											resolvedLabel={state.resolvedLabel}
 											isEditMode
+											rendering={PREVIEW_LABEL_RENDERING}
 											plainLabel={labelFormatText?.plain === true}
 											className="text-lg font-semibold leading-7 text-nova-text"
 											proseSlot={{ entity: "field", uuid, slot: "label" }}

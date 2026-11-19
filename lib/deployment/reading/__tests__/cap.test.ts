@@ -2,10 +2,15 @@
  * A bring-in's read at the byte cap, over `gatherFromHq` with a Project side
  * that holds nothing and CommCare HQ answering on a loopback socket.
  *
- * A body held or parsed past the bound, and a synchronous piece of the read
- * long enough to fail another request's timer on the same instance, are what
- * these cases catch. A failure of the last case is fixed in the reader or in
- * acceptance, by cutting the piece where it is long; the cap stands.
+ * A body held or parsed past the bound, a read whose work passes the work
+ * meter's limit of its size, and a synchronous piece that does more of the
+ * read than its share between two turns of the event loop are what these
+ * cases catch. The work is counted by the meter (`workMeter.ts`), the same
+ * on every machine; the wall time of the longest piece is logged, so a
+ * hosted runner's log shows it, and fails the case only at four times the
+ * five seconds a piece is meant to take. A failure of the last case is fixed
+ * in the reader or in acceptance, by cutting the piece where it is long; the
+ * cap stands.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -19,6 +24,7 @@ import {
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { HQ_BRING_IN_APP_MAX_BYTES } from "@/lib/commcare/hq/appReading";
+import { readWorkLimit, sourceCharacters } from "@/lib/commcare/reader/work";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { type GatherResult, gatherFromHq } from "../gather";
 import type { ReadingProjectSide } from "../projectData/read";
@@ -41,7 +47,7 @@ const PATHS = {
 	application: `/a/${DOMAIN}/api/application/v1/${APP}/`,
 	source: `/a/${DOMAIN}/apps/source/${APP}/`,
 	version: `/a/${DOMAIN}/apps/view/${APP}/current_version/`,
-	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`,
+	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`,
 };
 
 /** A Project that holds no table, as the proof lane's reading binds it. */
@@ -206,6 +212,15 @@ function nearTheCap(): {
 	};
 }
 
+/**
+ * The most units of work one synchronous piece of a read at the cap does: four times the
+ * 911,157 units the read's most piece did, part of the reading, when the work meter was set,
+ * rounded up (683,566 since a reading answered with a held emission counts its work toward its
+ * own limit alone). A change that does more of the reading in one piece fails here, whatever
+ * the machine.
+ */
+const PIECE_UNITS_AT_MOST = 4_000_000;
+
 describe("a bring-in's read at the byte cap", () => {
 	it("answers an account of one too-large for an application resource one byte over, with no app name, and cancels the peer's stream at the bound", async () => {
 		let stream: Promise<{ ended: boolean }> | undefined;
@@ -293,7 +308,10 @@ describe("a bring-in's read at the byte cap", () => {
 		);
 	}, 60_000);
 
-	it("reads a source and resource just under the cap to a review, each synchronous piece under five seconds", async () => {
+	it("reads a source and resource just under the cap to a review within its work limit, no piece doing more than its share", {
+		// A whole reading, acceptance and review at the cap: tens of seconds on a shared machine.
+		timeout: 600_000,
+	}, async () => {
 		const built = nearTheCap();
 		expect(built.menus).toBeGreaterThan(100);
 		await withSocketHttpPeer(
@@ -326,8 +344,26 @@ describe("a bring-in's read at the byte cap", () => {
 				expect(facts.sourceBytes).toBeGreaterThan(
 					HQ_BRING_IN_APP_MAX_BYTES * 0.9,
 				);
-				expect(facts.longestPieceMs).toBeLessThan(5_000);
+				/* The contract is the work meter's, which no machine moves: the request's work
+				 * within a quarter of one reading's limit of the source's size, and no piece
+				 * doing more than `PIECE_UNITS_AT_MOST` between two turns of the event loop. */
+				const characters = sourceCharacters(retainedBodyJson(built.source));
+				const limit = readWorkLimit(characters);
+				console.info(
+					`The read at the cap: ${facts.workUnits} units over ${characters} characters (its limit ${limit}), the most in one piece ${facts.longestPieceUnits} units, part of ${facts.longestPieceUnitsAt}; ${Math.round(facts.checkMs)} ms of pieces, the longest ${Math.round(facts.longestPieceMs)} ms, part of ${facts.longestPieceAt}.`,
+				);
+				expect(facts.workUnits).toBeLessThanOrEqual(limit / 4);
+				expect(
+					facts.longestPieceUnits,
+					`The piece that did the most, part of ${facts.longestPieceUnitsAt}, did ${facts.longestPieceUnits} units.`,
+				).toBeLessThanOrEqual(PIECE_UNITS_AT_MOST);
+				/* Wall time on a shared machine is no contract: one observation, failing only
+				 * at four times the five seconds a piece is meant to stay under. */
+				expect(
+					facts.longestPieceMs,
+					`The longest piece, part of ${facts.longestPieceAt}, took ${Math.round(facts.longestPieceMs)} ms.`,
+				).toBeLessThan(20_000);
 			},
 		);
-	}, 60_000);
+	});
 });

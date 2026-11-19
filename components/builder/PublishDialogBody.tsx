@@ -49,6 +49,14 @@ import {
 	upsertDeploymentViews,
 	withLandedConfirmations,
 } from "@/components/builder/app-setup/publishingSectionModel";
+import {
+	type CczTargetRow,
+	cczHasNoChoice,
+	cczPickAfterRead,
+	cczTargetRows,
+	chosenCczTarget,
+	type DownloadTargets,
+} from "@/components/builder/cczTargetsModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
 import {
@@ -72,7 +80,10 @@ import {
 	withAcceptedMoves,
 	withConfirmation,
 } from "@/components/builder/publishOutcome";
-import { StopPublishingDialog } from "@/components/builder/StopPublishingDialog";
+import {
+	StopPublishingDialog,
+	type StopPublishingTarget,
+} from "@/components/builder/StopPublishingDialog";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import {
@@ -89,9 +100,12 @@ import {
 	Field,
 	FieldDescription,
 	FieldLabel,
+	FieldLegend,
+	FieldSet,
 	FieldTitle,
 } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
+import { RadioGroup, RadioGroupItem } from "@/components/shadcn/radio-group";
 import {
 	Select,
 	SelectContent,
@@ -108,7 +122,6 @@ import {
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
-	type DownloadTargetsView,
 	readDeploymentsAction,
 	readDownloadTargetsAction,
 	type StoppedPublishingView,
@@ -360,20 +373,6 @@ function compatibilityTargetDisplayName(
 	);
 }
 
-/** The project spaces a CCZ can be made for, loaded when the dialog opens. */
-type DownloadTargets =
-	| { type: "loading" }
-	| { type: "ready"; view: DownloadTargetsView }
-	| { type: "error"; message: string };
-
-/** A select value for one project space: the server and the name together. */
-function downloadTargetKey(target: {
-	readonly server: CommCareServer;
-	readonly domain: string;
-}): string {
-	return `${target.server}:${target.domain}`;
-}
-
 /** The deployments this app already has, loaded when the dialog opens. */
 type ExistingDeployments =
 	| { type: "idle" }
@@ -442,8 +441,8 @@ export function PublishDialogBody({
 	const [cczTargetKey, setCczTargetKey] = useState("");
 	/**
 	 * Counts what changed where a CCZ can be made while this is open, a
-	 * publish that landed and a stop, so the CCZ's project spaces are read
-	 * again after each.
+	 * publish that landed, a stop and a CCZ download that was refused, so
+	 * the CCZ's project spaces are read again after each.
 	 */
 	const [targetChanges, setTargetChanges] = useState(0);
 	/**
@@ -719,13 +718,13 @@ export function PublishDialogBody({
 			live = false;
 		};
 	}, [open, canUploadToHq, getAppId]);
-	/* Which project spaces a CCZ can be made for: the same ledger read and
-	 * the same lines the download itself answers from, so the dialog never
-	 * offers a space the download would refuse. It is read when this opens
-	 * and again after each publish that lands, since that publish can be
-	 * what puts the app on a space, and after each stop, which takes one
-	 * away. A pick that is still offered stays; one target is chosen for the
-	 * person; several wait for their pick. */
+	/* Which project spaces a CCZ can be made for: the same ledger read, the
+	 * same lines and the same standing of each space the download itself
+	 * answers from, so the dialog never offers a space the download would
+	 * refuse, and says why a space has no CCZ before anyone chooses it. It is
+	 * read when this opens and again after each publish that lands, since
+	 * that publish can be what puts the app on a space, and after each stop,
+	 * which takes one away (`cczTargetsModel.ts::cczPickAfterRead`). */
 	useEffect(() => {
 		if (!open) return;
 		void targetChanges;
@@ -738,10 +737,7 @@ export function PublishDialogBody({
 					return;
 				}
 				setDownloadTargets({ type: "ready", view: result.data });
-				const keys = result.data.targets.map(downloadTargetKey);
-				setCczTargetKey((current) =>
-					keys.includes(current) ? current : keys.length === 1 ? keys[0] : "",
-				);
+				setCczTargetKey((current) => cczPickAfterRead(result.data, current));
 			})
 			.catch(() => {
 				if (!live) return;
@@ -755,12 +751,7 @@ export function PublishDialogBody({
 			live = false;
 		};
 	}, [open, getAppId, targetChanges]);
-	const cczTarget =
-		downloadTargets.type === "ready"
-			? (downloadTargets.view.targets.find(
-					(candidate) => downloadTargetKey(candidate) === cczTargetKey,
-				) ?? null)
-			: null;
+	const cczTarget = chosenCczTarget(downloadTargets, cczTargetKey);
 
 	/* ONE store for the records, keyed by target. The open-time read seeds
 	 * it, a publish response upserts into it, and Check status upserts into
@@ -1478,6 +1469,15 @@ export function PublishDialogBody({
 			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
 				setStatus({ type: "idle" });
+				/* A CCZ the download refused may be one the project space's
+				 * facts stopped allowing since the list was read, so the list
+				 * is read again and the person meets the project spaces once
+				 * more, each as the download found it. */
+				if (downloadTarget === "mobile") {
+					setTargetChanges((n) => n + 1);
+					pendingStepFocus.current = true;
+					setReviewing(false);
+				}
 				return;
 			}
 			setStatus({
@@ -1556,10 +1556,7 @@ export function PublishDialogBody({
 		changeStep(false);
 	};
 	const mobileUnavailable =
-		target === "mobile" &&
-		downloadTargets.type !== "loading" &&
-		(downloadTargets.type === "error" ||
-			downloadTargets.view.targets.length === 0);
+		target === "mobile" && cczHasNoChoice(downloadTargets);
 	const canReview =
 		target === "hq"
 			? !notConfigured && Boolean(selectedDomain) && appName.trim().length > 0
@@ -2180,10 +2177,7 @@ export function PublishDialogBody({
 							Done
 						</Button>
 					</>
-				) : target === "mobile" &&
-					downloadTargets.type !== "loading" &&
-					(downloadTargets.type === "error" ||
-						downloadTargets.view.targets.length === 0) ? (
+				) : mobileUnavailable ? (
 					<DialogClose render={<Button variant="outline" />}>Close</DialogClose>
 				) : (
 					<>
@@ -2281,7 +2275,9 @@ function ExistingTargetRows({
 /**
  * Which project space the CCZ is for, in four exclusive states: none and
  * nothing holding the app back, none because CommCare HQ cannot take it as
- * it stands, one (chosen for the person), or several (theirs to pick).
+ * it stands, or the project spaces it is published to, each one a CCZ can
+ * be made for a choice (the only such one chosen for the person) and each
+ * one it can't shown with why, never chosen.
  */
 function CczTargetField({
 	state,
@@ -2297,6 +2293,7 @@ function CczTargetField({
 	/** Switch the dialog to publishing; absent where this person cannot publish. */
 	onPublish?: () => void;
 }) {
+	const legendId = useId();
 	if (state.type === "loading") {
 		return (
 			<div
@@ -2357,35 +2354,42 @@ function CczTargetField({
 			</div>
 		);
 	}
-	const items = targets.map((target) => ({
-		value: downloadTargetKey(target),
-		label: projectSpaceLabel(target),
-	}));
+	const rows = cczTargetRows(state.view);
+	const anyAvailable = rows.some((row) => row.unavailableLine === null);
 	return (
-		<Field className="mt-4 gap-1.5">
-			<FieldLabel htmlFor="ccz-project-space">Project space</FieldLabel>
-			<Select
-				items={items}
+		<FieldSet className="mt-4 gap-1.5" data-ccz-project-space>
+			<FieldLegend id={legendId} variant="label" className="mb-0">
+				Project space
+			</FieldLegend>
+			<RadioGroup<string>
+				aria-labelledby={legendId}
 				value={selectedKey}
-				onValueChange={(value) => onSelectedKeyChange(value ?? "")}
+				onValueChange={(value) => {
+					if (typeof value === "string") onSelectedKeyChange(value);
+				}}
 				disabled={disabled}
 			>
-				<SelectTrigger id="ccz-project-space" className="w-full">
-					<SelectValue placeholder="Choose a project space" />
-				</SelectTrigger>
-				<SelectContent>
-					{items.map((item) => (
-						<SelectItem key={item.value} value={item.value}>
-							{item.label}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
+				{rows.map((row) => (
+					<CczTargetChoice key={row.key} row={row} />
+				))}
+			</RadioGroup>
 			<FieldDescription>
-				The CCZ signs workers in to this project space and uses its app and form
-				ids, so its forms land with the ones already collected there.
+				{anyAvailable
+					? "The CCZ signs workers in to this project space and uses its app and form ids, so its forms land with the ones already collected there."
+					: "None of the project spaces this app is published to can have a CCZ from Nova right now."}
 			</FieldDescription>
-		</Field>
+		</FieldSet>
+	);
+}
+
+function CczTargetChoice({ row }: { row: CczTargetRow }) {
+	return (
+		<RadioGroupItem<string>
+			value={row.key}
+			unavailableReason={row.unavailableLine ?? undefined}
+		>
+			{row.label}
+		</RadioGroupItem>
 	);
 }
 
@@ -3132,14 +3136,14 @@ function RemoteChangeChoice({
 	domain: string;
 	/** What the panel reads and answers into; null with no connection to name the target. */
 	panel: Omit<HqChangesPanelProps, "home" | "item" | "since"> | null;
-	/** The way to leave CommCare HQ's version as it is; null with no connection to name the target. */
+	/**
+	 * The way to leave CommCare HQ's version as it is; null with no connection
+	 * to name the target. The HQ app it stops is the one the refusal's app
+	 * change names, the app the person is deciding over.
+	 */
 	stop: {
 		readonly canStop: boolean;
-		readonly target: {
-			readonly appId: string;
-			readonly server: CommCareServer;
-			readonly domain: string;
-		};
+		readonly target: Omit<StopPublishingTarget, "hqAppId">;
 		readonly onStopped: (
 			next: StoppedPublishingView,
 			target: { readonly server: CommCareServer; readonly domain: string },
@@ -3203,7 +3207,7 @@ function RemoteChangeChoice({
 						{change.kind === "app" && stop !== null ? (
 							<DriftStop
 								canStop={stop.canStop}
-								target={stop.target}
+								target={{ ...stop.target, hqAppId: change.identity }}
 								onStopped={stop.onStopped}
 								onRecordsStale={stop.onRecordsStale}
 							/>
@@ -3254,11 +3258,7 @@ function DriftStop({
 	onRecordsStale,
 }: {
 	canStop: boolean;
-	target: {
-		readonly appId: string;
-		readonly server: CommCareServer;
-		readonly domain: string;
-	};
+	target: StopPublishingTarget;
 	onStopped: (
 		next: StoppedPublishingView,
 		target: { readonly server: CommCareServer; readonly domain: string },

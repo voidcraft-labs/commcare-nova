@@ -7,20 +7,24 @@ import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
-import { selectionsHeldFromHq } from "./downloadTarget";
+import { cczStandingOf, selectionsHeldFromHq } from "./downloadTarget";
 import { getEntryPointLink } from "./entryPointLinks";
 import {
 	type EntryPointLink,
 	getEntryPointLinkSchema,
 } from "./entryPointTypes";
-import { DeploymentError } from "./errors";
+import { DeploymentAppDeletedError, DeploymentError } from "./errors";
 import { previewDeploymentAnswerFor } from "./previewSpace";
 import { firstPublishOf, leftBehindResources } from "./resources";
+import type { CczUnavailable } from "./runtimeTarget";
 import {
 	currentResourceIdentities,
 	deploymentKept,
 	faultCode,
+	type HeldDeploymentKept,
+	holdDeploymentKept,
 	type KeptReadAfter,
+	keptFromHeld,
 	landedDeploymentKept,
 	landedFirstPublish,
 	refreshDeployment,
@@ -32,9 +36,11 @@ import type { SetupArtifact } from "./setupArtifact";
 import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
+	holdTargetFacts,
 	readDeploymentsForApp,
 	readFirstPublishStates,
 	readReachedDeploymentTargets,
+	withDeploymentReadSnapshot,
 	withdrawDeploymentConfirmation,
 } from "./store";
 import {
@@ -46,6 +52,7 @@ import {
 	deploymentTargetSchema,
 	type PreviewDeploymentAnswer,
 	provisionWorkersSchema,
+	stopPublishingSchema,
 	withdrawDeploymentConfirmationSchema,
 } from "./types";
 import type {
@@ -217,14 +224,15 @@ function unavailable(): DeploymentActionResult<never> {
 }
 
 /**
- * The committed blueprint plus the app's places, from ONE snapshot read.
+ * The committed blueprint plus the app's organization (its places and where
+ * CommCare HQ manages them), from ONE snapshot read.
  *
- * The authoring snapshot already carries the locations beside the
+ * The authoring snapshot already carries the organization beside the
  * blueprint, and the artifact needs both: reading them, throwing the
- * locations away, and re-running the same authorized transaction to read
- * them again was this module's most expensive no-op.
+ * organization away, and re-running the same authorized transaction to read
+ * it again was this module's most expensive no-op.
  */
-async function committedDocWithLocations(scope: DeploymentScope) {
+async function committedDocWithOrganization(scope: DeploymentScope) {
 	const snapshot = await readOrganizationAuthoringSnapshot({
 		appId: scope.appId,
 		projectId: scope.projectId,
@@ -234,7 +242,7 @@ async function committedDocWithLocations(scope: DeploymentScope) {
 	return {
 		doc: snapshot.blueprint,
 		sourceSequence: snapshot.blueprintSeq,
-		locations: snapshot.organization.locations,
+		organization: snapshot.organization,
 	};
 }
 
@@ -258,12 +266,14 @@ export async function refreshDeploymentAction(
 	const resolved = await resolveScope(parsed.data.appId, "edit");
 	if (!resolved.ok) return resolved.result;
 	try {
-		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const { doc, organization } = await committedDocWithOrganization(
+			resolved.scope,
+		);
 		const refreshed = await refreshDeployment(
 			resolved.scope,
 			{ server: parsed.data.server, domain: parsed.data.domain },
 			doc,
-			locations,
+			organization,
 		);
 		if (refreshed === null) return notFound();
 		return {
@@ -360,12 +370,14 @@ export async function refreshKeptValuesAction(input: {
 		if (outcome.kind !== "refreshed" && outcome.kind !== "superseded") {
 			return { success: true, data: { kind: outcome.kind } };
 		}
-		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const { doc, organization } = await committedDocWithOrganization(
+			resolved.scope,
+		);
 		const artifact = await setupArtifactFor(
 			resolved.scope,
 			outcome.deployment,
 			doc,
-			locations,
+			organization,
 		);
 		return {
 			success: true,
@@ -411,17 +423,43 @@ export async function readDeploymentsAction(
 	const resolved = await resolveScope(parsed.data, "view");
 	if (!resolved.ok) return resolved.result;
 	try {
-		const deployments = await readDeploymentsForApp(resolved.scope);
+		/* The records, their ledgers, every first-publish list and every kept
+		 * list of one moment, for a caller allowed to see them then: a move or a
+		 * stop that commits meanwhile is wholly before or wholly after. One
+		 * deployment's kept facts at a time, on the snapshot's one connection,
+		 * each list projected once the snapshot has given it back. */
+		const { deployments, firstPublishStates, heldKept } =
+			await withDeploymentReadSnapshot(
+				resolved.scope,
+				"view",
+				async (snapshot) => {
+					const deployments = await readDeploymentsForApp(snapshot);
+					const heldKept = new Map<string, HeldDeploymentKept>();
+					for (const deployment of deployments)
+						heldKept.set(
+							deployment.deployment.id,
+							await holdDeploymentKept(snapshot, deployment),
+						);
+					return {
+						deployments,
+						firstPublishStates: await readFirstPublishStates(snapshot),
+						heldKept,
+					};
+				},
+			);
+		const kept = new Map<string, DeploymentKept | null>(
+			[...heldKept].map(([id, held]) => [id, keptFromHeld(held)]),
+		);
 		if (deployments.length === 0) return { success: true, data: [] };
 		/* Read the document and its places ONCE. They belong to the app, not
 		 * to any one project space, so building three artifacts must not cost
 		 * three reads of the same rows. */
-		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const { doc, organization } = await committedDocWithOrganization(
+			resolved.scope,
+		);
 		/* Also once: the names belong to the app's tables, not to any one
 		 * project space, and `null` means Nova could not tell. */
 		const identities = await currentResourceIdentities(resolved.scope, doc);
-		/* Once as well: every deployment's first-publish list, by its id. */
-		const firstPublishStates = await readFirstPublishStates(resolved.scope);
 		return {
 			success: true,
 			data: await Promise.all(
@@ -431,10 +469,10 @@ export async function readDeploymentsAction(
 						resolved.scope,
 						deployment,
 						doc,
-						locations,
+						organization,
 					),
 					leftBehind: leftBehindResources(deployment, identities),
-					kept: await deploymentKept(resolved.scope, deployment),
+					kept: kept.get(deployment.deployment.id) ?? null,
 					firstPublish: firstPublishOf(
 						deployment,
 						firstPublishStates.get(deployment.deployment.id),
@@ -474,7 +512,9 @@ export async function withdrawDeploymentConfirmationAction(
 			target,
 			parsed.data.confirmation,
 		);
-		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const { doc, organization } = await committedDocWithOrganization(
+			resolved.scope,
+		);
 		return {
 			success: true,
 			data: {
@@ -483,7 +523,7 @@ export async function withdrawDeploymentConfirmationAction(
 					resolved.scope,
 					deployment,
 					doc,
-					locations,
+					organization,
 				),
 				leftBehind: leftBehindResources(
 					deployment,
@@ -530,14 +570,18 @@ export interface StoppedPublishingView {
  *
  * The scope resolves at `edit`, as Check status does, so a viewer or a
  * stranger finds nothing to stop; an editor, who can see and publish to the
- * deployment, gets `not_permitted` with who may. A failure is answered only
- * for a stop that did not land; once the ending commits, the answer is
- * `success` whatever faults after it (`StoppedPublishingView`).
+ * deployment, gets `not_permitted` with who may. The request names the HQ
+ * app the person was looking at: a repeat of a stop that landed answers as
+ * stopped, and a deployment that publishes to another HQ app now answers
+ * `invalid_input` with the sentence that says so, having stopped nothing. A
+ * failure is answered only for a stop that did not land; once the ending
+ * commits, the answer is `success` whatever faults after it
+ * (`StoppedPublishingView`).
  */
 export async function stopPublishingAction(
 	input: unknown,
 ): Promise<DeploymentActionResult<StoppedPublishingView>> {
-	const parsed = deploymentTargetSchema.safeParse(input);
+	const parsed = stopPublishingSchema.safeParse(input);
 	if (!parsed.success) {
 		return {
 			success: false,
@@ -551,13 +595,14 @@ export async function stopPublishingAction(
 	let stopped: Awaited<ReturnType<typeof stopPublishing>>;
 	let doc: CommittedDoc["doc"];
 	try {
-		const committed = await committedDocWithLocations(resolved.scope);
+		const committed = await committedDocWithOrganization(resolved.scope);
 		doc = committed.doc;
 		stopped = await stopPublishing(
 			resolved.scope,
 			{ server: parsed.data.server, domain: parsed.data.domain },
+			parsed.data.hqAppId,
 			doc,
-			committed.locations,
+			committed.organization,
 		);
 	} catch (error) {
 		return failure(error, "stop publishing", resolved.scope);
@@ -608,9 +653,18 @@ async function stoppedView(
 	}
 }
 
+/**
+ * One project space this app is published to, as the publish dialog lists
+ * it for a CCZ: whether one can be made there, and where not, why.
+ */
+export interface DownloadTargetOption extends DeploymentTargetKey {
+	/** Why there is no CCZ for this project space; null where one can be made. */
+	readonly unavailable: CczUnavailable | null;
+}
+
 /** The project spaces a CCZ of this app can be made for, as the dialog offers them. */
 export interface DownloadTargetsView {
-	readonly targets: readonly DeploymentTargetKey[];
+	readonly targets: readonly DownloadTargetOption[];
 	/**
 	 * With no target: one line per selection of the app CommCare HQ cannot
 	 * take, which is why it can be published nowhere yet. Empty otherwise.
@@ -627,10 +681,13 @@ export interface DownloadTargetsView {
  * Which project spaces the publish dialog offers a CCZ for.
  *
  * The same ledger read and the same lines the two compile surfaces answer
- * from (`downloadTarget.ts`), so the dialog never offers a space the
- * download would refuse. The committed document is read first, because an
- * app that does not declare Android has no CCZ for any space. A read
- * authorizes as a view.
+ * from (`downloadTarget.ts`), and for each project space the standing the
+ * download itself reads (`downloadTarget.ts::cczStandingOf`), from what
+ * Nova holds of that space and nothing it asks CommCare HQ: one whose app in
+ * CommCare HQ keeps a custom base URL elsewhere is listed with that reason,
+ * so the person learns it before choosing rather than from the download.
+ * The committed document is read first, because an app that does not
+ * declare Android has no CCZ for any space. A read authorizes as a view.
  */
 export async function readDownloadTargetsAction(
 	input: unknown,
@@ -646,22 +703,38 @@ export async function readDownloadTargetsAction(
 	const resolved = await resolveScope(parsed.data, "view");
 	if (!resolved.ok) return resolved.result;
 	try {
-		const { doc } = await committedDocWithLocations(resolved.scope);
+		const { doc } = await committedDocWithOrganization(resolved.scope);
 		if (!declaresAndroid(doc)) {
 			return {
 				success: true,
 				data: { targets: [], heldFromHq: [], webAppsOnly: true },
 			};
 		}
-		const reached = await readReachedDeploymentTargets(resolved.scope);
-		if (reached.length > 0) {
+		/* The targets and each one's facts come from one snapshot, as the
+		 * download's do, so a stop or a refresh committing meanwhile is wholly
+		 * before the list or wholly after it; each standing is projected from
+		 * the facts' bytes once the snapshot has given its connection back. */
+		const held = await withDeploymentReadSnapshot(
+			resolved.scope,
+			"view",
+			async (snapshot) => {
+				const read = [];
+				for (const target of await readReachedDeploymentTargets(snapshot))
+					read.push({ target, facts: await holdTargetFacts(snapshot, target) });
+				return read;
+			},
+		);
+		const targets: DownloadTargetOption[] = held.map(
+			({ target: { server, domain }, facts }) => ({
+				server,
+				domain,
+				unavailable: cczStandingOf({ server, domain }, facts).unavailable,
+			}),
+		);
+		if (targets.length > 0) {
 			return {
 				success: true,
-				data: {
-					targets: reached.map(({ server, domain }) => ({ server, domain })),
-					heldFromHq: [],
-					webAppsOnly: false,
-				},
+				data: { targets, heldFromHq: [], webAppsOnly: false },
 			};
 		}
 		return {
@@ -728,16 +801,21 @@ export async function provisionWorkersAction(
 	const resolved = await resolveScope(parsed.data.appId, "edit");
 	if (!resolved.ok) return resolved.result;
 	try {
-		const { doc, locations } = await committedDocWithLocations(resolved.scope);
+		const { doc, organization } = await committedDocWithOrganization(
+			resolved.scope,
+		);
 		const outcome = await provisionWorkers({
 			scope: resolved.scope,
 			doc,
-			locations,
+			locations: organization.locations,
 			server: parsed.data.server,
 			domain: parsed.data.domain,
 			workers: parsed.data.workers,
 			...(parsed.data.adoptPersonaUuids && {
 				adoptPersonaUuids: parsed.data.adoptPersonaUuids,
+			}),
+			...(parsed.data.confirmWorkerLevels && {
+				confirmWorkerLevels: parsed.data.confirmWorkerLevels,
 			}),
 		});
 		/* Everything after this point is REPORTING, and none of it may cost
@@ -751,7 +829,7 @@ export async function provisionWorkersAction(
 			resolved.scope,
 			outcome.deployment,
 			doc,
-			locations,
+			organization,
 		);
 		return {
 			success: true,
@@ -767,8 +845,8 @@ export async function provisionWorkersAction(
 	}
 }
 
-/** What `committedDocWithLocations` hands back, so this file names it once. */
-type CommittedDoc = Awaited<ReturnType<typeof committedDocWithLocations>>;
+/** What `committedDocWithOrganization` hands back, so this file names it once. */
+type CommittedDoc = Awaited<ReturnType<typeof committedDocWithOrganization>>;
 
 /** One deployment's first-publish list as a view shows it (`resources.ts::firstPublishOf`). */
 async function deploymentFirstPublish(
@@ -803,13 +881,13 @@ async function provisionedView(
 	scope: DeploymentScope,
 	deployment: ProvisionWorkersOutcomeDeployment,
 	doc: CommittedDoc["doc"],
-	locations: CommittedDoc["locations"],
+	organization: CommittedDoc["organization"],
 ): Promise<ProvisionWorkersView["view"]> {
 	if (deployment === null) return null;
 	try {
 		return {
 			deployment,
-			artifact: await setupArtifactFor(scope, deployment, doc, locations),
+			artifact: await setupArtifactFor(scope, deployment, doc, organization),
 			leftBehind: leftBehindResources(
 				deployment,
 				await currentResourceIdentities(scope, doc),
@@ -818,6 +896,11 @@ async function provisionedView(
 			firstPublish: await deploymentFirstPublish(scope, deployment, doc),
 		};
 	} catch (error) {
+		/* The app went to recently deleted, or the caller lost it, during the
+		 * call: there is no record of it to show them, which is expected, and
+		 * the accounts go out either way. */
+		if (error instanceof DeploymentError && error.code === "not_found")
+			return null;
 		log.error("[deployment] provisioning view could not be built", error, {
 			appId: scope.appId,
 		});
@@ -835,6 +918,10 @@ function failure(
 	 * reach. Replacing that with "Nova couldn't check just now" would ask
 	 * somebody to retry a thing that will never work. */
 	if (error instanceof DeploymentError) {
+		/* A member whose app was deleted meanwhile is told so, not that it
+		 * isn't available. */
+		if (error instanceof DeploymentAppDeletedError)
+			return { success: false, code: "not_found", message: error.message };
 		if (error.code === "not_found") return notFound();
 		return {
 			success: false,
@@ -869,7 +956,7 @@ export async function getEntryPointLinkAction(
 	const resolved = await resolveScope(parsed.data.appId, "edit");
 	if (!resolved.ok) return resolved.result;
 	try {
-		const { doc, sourceSequence } = await committedDocWithLocations(
+		const { doc, sourceSequence } = await committedDocWithOrganization(
 			resolved.scope,
 		);
 		return {

@@ -888,12 +888,11 @@ function stepBacksOf(
 			 * (`previewMenuScreenLanding`). */
 			const heldOnList = previewCaseListHeldChoices(
 				reading.chosen !== undefined && listsOwnFormMenu
-					? { moduleUuid: listModuleUuid, cases, session: "worker" }
+					? { moduleUuid: listModuleUuid, cases }
 					: undefined,
 				{
 					moduleUuid: listModuleUuid,
 					continuation: previewCaseListContinuation(doc, listModuleUuid),
-					session: "worker",
 				},
 			);
 			const menuHoldsCase =

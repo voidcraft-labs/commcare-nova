@@ -21,6 +21,7 @@
 
 import type { IconifyIcon } from "@iconify/types";
 import tablerCloudDataConnection from "@iconify-icons/tabler/cloud-data-connection";
+import tablerCloudDownload from "@iconify-icons/tabler/cloud-download";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerKey from "@iconify-icons/tabler/key";
@@ -52,9 +53,12 @@ interface CapabilityDef extends Capability {
  * most consequential grants — keep it on rephrase.
  *
  * The Nova rows (`nova.read` / `nova.write`) cover Postgres-backed app
- * blueprints; the HQ rows (`nova.hq.read` / `nova.hq.write`) cover the
- * separate CommCare HQ system the user has authenticated to via a
- * stored API key. Cloud iconography on the HQ rows distinguishes them
+ * blueprints; the HQ rows (`nova.hq.read` / `nova.hq.write` /
+ * `nova.hq.import`) cover the separate CommCare HQ system the user has
+ * authenticated to via a stored API key. A row's sentence is what every
+ * grant of its scope means for as long as the grant stands, so authority a
+ * row does not name is a new scope with a row of its own, never a reworded
+ * row: a person who approved the old sentence never approved the new one. Cloud iconography on the HQ rows distinguishes them
  * from the eye/pencil pair on the Nova-internal rows — visually
  * reinforcing that HQ is an external system, not just another Nova
  * capability.
@@ -89,6 +93,16 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 		label: "Deploy your apps to CommCare HQ on your behalf",
 		icon: tablerCloudUpload,
 		matches: (s) => s.has("nova.hq.write"),
+	},
+	/* Bringing an app in copies what CommCare HQ holds into a Project every
+	 * member of it can see, and the list names who in Nova already manages
+	 * an app, so the row says both. */
+	{
+		key: "nova.hq.import",
+		label:
+			"Read apps and data in your CommCare HQ project spaces, see who in Nova manages them, and bring them into your Projects on your behalf",
+		icon: tablerCloudDownload,
+		matches: (s) => s.has("nova.hq.import"),
 	},
 	/* The Projects rows name the member-email exposure and the
 	 * grant-access-to-others power explicitly — these are the two facts a
@@ -128,6 +142,7 @@ const KNOWN_CAPABILITY_SCOPES: ReadonlySet<string> = new Set([
 	"nova.write",
 	"nova.hq.read",
 	"nova.hq.write",
+	"nova.hq.import",
 	"nova.projects.read",
 	"nova.projects.write",
 ]);

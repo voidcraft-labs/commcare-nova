@@ -57,7 +57,9 @@
  *   sends after the import): the request bodies as sent, framed with a fixed
  *   multipart boundary; each with a `.json` sidecar naming the method, path,
  *   content type and fields, every import's the layout marker
- *   (`./publish.ts::TWO_IMPORT_LAYOUT`), and each update's the placeholder
+ *   (`./publish.ts::TWO_IMPORT_LAYOUT`) and the capture peer's save counter
+ *   around it (`saveCounter`; `mediaSaveCounter` around the media upload
+ *   after an update), and each update's the placeholder
  *   app id, the fields of HQ's source it was built over (`assumedSource`),
  *   what the peer answered for the lookup tables it pushes
  *   (`assumedResources`), and where Nova's preflight stopped it over a
@@ -68,7 +70,10 @@
  *   the retained HQ reads copy (`proof/hq/test_retained_reads.py`);
  * - when Nova publishes there, `local-1.ccz` and `local-2.ccz`: two exports
  *   of D as Nova's compile route builds them for an app published to that
- *   project space, with what it keeps after D's update (`targetFacts`).
+ *   project space, with what it keeps after D's update (`targetFacts`), or,
+ *   where that project space's app keeps a custom base URL that sends phones
+ *   elsewhere, neither, and `outcome.json`'s `localCcz` holds the download's
+ *   refusal (`{ refused: { reason, host } }`).
  *
  * Every file is the same on every run for one seed (`--seed`, by default
  * the corpus's): a publish draws no id, and each publish and each local
@@ -115,6 +120,7 @@ import {
 	capturePublish,
 	documentVerdict,
 	exportFindings,
+	type LocalCczRefused,
 	localCcz,
 	minimumConfiguration,
 	type NovaPublishVerdict,
@@ -472,7 +478,8 @@ async function writeRequest(
 }
 
 /**
- * What an update's import sidecar names beside its request: the fields of
+ * What an update's import sidecar names beside its request: the capture
+ * peer's save counter around it and around its media upload, the fields of
  * HQ's source and the resources it was built over, and where Nova's
  * preflight stopped it, the stop and what the resend confirmed.
  */
@@ -482,6 +489,10 @@ function updateSidecar(
 	return {
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
+		saveCounter: sent.saveCounter,
+		...(sent.mediaSaveCounter !== undefined && {
+			mediaSaveCounter: sent.mediaSaveCounter,
+		}),
 		assumedSource: sent.assumedSource,
 		...(sent.assumedResources !== undefined && {
 			assumedResources: sent.assumedResources,
@@ -577,6 +588,7 @@ async function writeConfiguration(
 	const { create, content } = capture.create;
 	await writeRequest(directory, "create.import", create.importApp, {
 		layout: TWO_IMPORT_LAYOUT,
+		saveCounter: create.saveCounter,
 	});
 	await writeFile(
 		join(directory, "create.ownership.json"),
@@ -596,6 +608,9 @@ async function writeConfiguration(
 	 * update left it, with what it then keeps. */
 	const targetFacts = capturedTargetFacts(capture, "update");
 	let localFiles: string[] | null = [];
+	/* Nor of one whose project space's app sends phones elsewhere: the
+	 * download's refusal (`workers-sent-elsewhere`) stands in its place. */
+	let localRefused: LocalCczRefused["refused"] | null = null;
 	for (const [copy, ordinal] of [
 		[1, OPERATION_ORDINALS.local],
 		[2, OPERATION_ORDINALS.localAgain],
@@ -606,8 +621,9 @@ async function writeConfiguration(
 			{ seed, ordinal, configuration: LOCAL_CONFIGURATION },
 			{ targetFacts },
 		);
-		if (archive === null) {
+		if (!Buffer.isBuffer(archive)) {
 			localFiles = null;
+			localRefused = archive?.refused ?? null;
 			break;
 		}
 		await writeFile(join(directory, `local-${copy}.ccz`), archive);
@@ -636,7 +652,9 @@ async function writeConfiguration(
 			),
 			localCcz:
 				localFiles === null
-					? null
+					? localRefused === null
+						? null
+						: { refused: localRefused }
 					: {
 							files: localFiles,
 							compiledAtSeq: entry.document.compiledAtSeq,

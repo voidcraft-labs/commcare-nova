@@ -121,7 +121,14 @@ const PROJECT = "bring-in-project";
 const ACTOR = "bring-in-editor";
 const STRANGER = "bring-in-stranger";
 const VIEWER = "bring-in-viewer";
-const SCOPES = ["nova.read", "nova.write", "nova.hq.read", "nova.hq.write"];
+/* Every scope these tools need: reading and bringing in from CommCare HQ is `nova.hq.import`. */
+const SCOPES = [
+	"nova.read",
+	"nova.write",
+	"nova.hq.read",
+	"nova.hq.write",
+	"nova.hq.import",
+];
 const LIST = `/a/${FIXTURE_DOMAIN}/apps/api/list_apps/`;
 const PROBE = `/a/${FIXTURE_DOMAIN}/api/lookup_table/v1/?limit=1`;
 const PNG = readFileSync(

@@ -191,11 +191,12 @@ describe("database privilege convergence contract", () => {
 		expect(runtimeTableCapability("not_a_table")).toBeNull();
 	});
 
-	test("lets the runtime insert and delete a deployment's identity, media-path and keyed case id rows, and never lock or change one", () => {
+	test("lets the runtime insert and delete a deployment's identity, media-path, keyed case id and column word rows, and never lock or change one", () => {
 		for (const table of [
 			"app_deployment_identities",
 			"app_deployment_media_paths",
 			"app_deployment_keyed_case_ids",
+			"app_deployment_column_field_words",
 		]) {
 			expect(runtimeTableCapability(table)).toBe("insert-delete");
 			expect(classifyPublicTable(table)).toBe("application");
@@ -204,6 +205,15 @@ describe("database privilege convergence contract", () => {
 			expect(RUNTIME_TABLES_WITHOUT_INSERT).not.toContain(table);
 			expect(RUNTIME_TABLES_WITHOUT_DELETE).not.toContain(table);
 		}
+	});
+
+	test("lets the runtime insert and settle a write Nova let out to CommCare HQ, and never lock or delete one", () => {
+		expect(runtimeTableCapability("hq_remote_writes")).toBe("insert-update");
+		expect(classifyPublicTable("hq_remote_writes")).toBe("application");
+		expect(RUNTIME_TABLES_WITHOUT_ROW_LOCKS).toContain("hq_remote_writes");
+		expect(RUNTIME_TABLES_WITHOUT_DELETE).toContain("hq_remote_writes");
+		expect(RUNTIME_TABLES_WITHOUT_UPDATE).not.toContain("hq_remote_writes");
+		expect(RUNTIME_TABLES_WITHOUT_INSERT).not.toContain("hq_remote_writes");
 	});
 
 	test("carries every migrated app-state table, so a deploy is not blocked", () => {

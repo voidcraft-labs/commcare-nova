@@ -36,6 +36,7 @@ import type {
 } from "@/lib/domain";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
+import type { ColumnFieldWordOf } from "../../wireIdentity";
 import type { ResolvedSortDirective } from "./sortKeys";
 
 /**
@@ -204,4 +205,10 @@ export interface CaseListEmitContext {
 	 * lower through it.
 	 */
 	readonly lookupNaming?: LookupWireNaming;
+	/**
+	 * The word the archive's target keeps each column's property under on each
+	 * screen (`WireIdentity.columnFieldWord`), which the column's app string
+	 * ids are named by. Absent where the target holds none.
+	 */
+	readonly columnFieldWord?: ColumnFieldWordOf;
 }

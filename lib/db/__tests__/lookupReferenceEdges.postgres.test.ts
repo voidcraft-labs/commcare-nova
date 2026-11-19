@@ -41,6 +41,8 @@ async function createTable(
 	projectId: string,
 	name: string,
 ): Promise<LookupTableSnapshot> {
+	/* A lookup writer reads its member's role on its own transaction. */
+	await h.seedProjectMember(`${projectId}-owner`, projectId, "owner");
 	return createLookupTable(
 		{
 			projectId,

@@ -15,7 +15,10 @@ absent where the document has no such state. ``B`` is B aligned to A, served whe
 A's (proof 3's B); proof 4's states are B and B-edit as the unit served them. ``local`` is Nova's local archive
 on a device each configuration's unit served: one archive, but its device's network is that configuration's
 HQ (its searches compiled by that HQ under that configuration's flags, its restore that state's), so it is
-compared with the same configuration's A. Nothing here runs the reader: every function reads the records.
+compared with the same configuration's A. A document whose project space's app keeps a custom base URL
+elsewhere has no local archive, for Nova's download makes none (``Document.local_refusal``), so its records hold
+no ``local`` device and nothing of one is compared; the bar holds that refusal to A
+(``proof.checks.bar.local_outcome``). Nothing here runs the reader: every function reads the records.
 
 A walk is named by what it chose (``proof/android/README.md``): its menus' commands, a list's action
 (``@action:<n>``), the case it opened at its first list (``@case:<id>``), and, for a walk in a language other than

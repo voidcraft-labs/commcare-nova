@@ -4,7 +4,7 @@ import { getEntryPointLink } from "@/lib/deployment/entryPointLinks";
 import { getEntryPointLinkSchema } from "@/lib/deployment/entryPointTypes";
 import { toMcpErrorResult } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
 const shapes = getEntryPointLinkSchema.shape;
@@ -14,10 +14,11 @@ export function registerGetEntryPointLink(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"get_entry_point_link",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
 				"Create a deep link after freshly checking the published entry point against the exact released build on CommCare HQ. Supply case IDs from that HQ project space, never Nova Preview case IDs. The public URL follows HQ's build selection when opened; it is not pinned to the checked release and a recipient's latest-build policy can select another build. This operation reads HQ and records its observation in Nova, so it requires HQ write scope and edit access. It never opens the link or executes case claims.",
 			inputSchema: z.strictObject({
@@ -35,7 +36,6 @@ export function registerGetEntryPointLink(
 		},
 		async (args) => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "get_entry_point_link");
 				const { doc, app, access } = await loadAppBlueprint(
 					args.app_id,
 					ctx.userId,

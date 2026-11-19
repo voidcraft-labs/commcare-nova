@@ -22,13 +22,14 @@ import {
 	effectiveCaseSearchConfig,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 } from "@/lib/domain/modules";
+import { recordFromEntries } from "@/lib/domain/records";
 import {
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 	type SearchRuntimeValidationMessage,
 } from "@/lib/domain/searchRuntimeValidationMessages";
 import { commCareLocalization } from "../../localization";
 import { withCandidate } from "../candidate";
-import { isJsonObject } from "../jsonCursor";
+import { isJsonObject, objectMembers } from "../jsonCursor";
 import { readFormSyntax } from "../syntaxRead";
 import { translationEntryFor } from "../translations";
 
@@ -88,8 +89,8 @@ function guardReading(test: string, message: string): ValidationReading {
 
 /** A `{code: text}` map's strings. */
 function texts(value: unknown): Readonly<Record<string, string>> {
-	if (!isJsonObject(value)) return {};
-	const out: Record<string, string> = {};
+	const out = recordFromEntries<string>([]);
+	if (!isJsonObject(value)) return out;
 	for (const [code, text] of Object.entries(value))
 		if (typeof text === "string") out[code] = text;
 	return out;
@@ -102,11 +103,7 @@ export function storedPrompts(
 	if (!Array.isArray(modules)) return [];
 	return modules.flatMap((module) => {
 		const config = isJsonObject(module) ? module.search_config : undefined;
-		const properties =
-			isJsonObject(config) && Array.isArray(config.properties)
-				? config.properties
-				: [];
-		return properties.filter(isJsonObject);
+		return isJsonObject(config) ? (objectMembers(config.properties) ?? []) : [];
 	});
 }
 

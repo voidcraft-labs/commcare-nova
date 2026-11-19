@@ -655,5 +655,31 @@
 			}
 		],
 		"exports": ["local"]
+	},
+	{
+		"id": "visits-due-named-under-case-name",
+		"entry": "menus-and-case-lists/name-date-opened-external-id-status-owner-id-hq-renames-to-case",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m2-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/3/fields/0",
+				"value": "Amina Odhiambo"
+			},
+			{
+				"pointer": "/caseList/rows/4/fields/0",
+				"value": "Kofi Mensah"
+			}
+		],
+		"exports": ["local"]
 	}
 ]

@@ -113,56 +113,63 @@ describe("profileServerProperties with what the project space keeps", () => {
 	const plain = values(null);
 
 	it("sends forms to the secure receiver where the project space's app submits securely", () => {
-		expect(values({ secureSubmissions: true, customBaseUrl: null })).toEqual({
+		expect(values({ secureSubmissions: true })).toEqual({
 			...plain,
 			PostURL:
 				"https://india.commcarehq.org/a/field-ops/receiver/secure/app-1/",
 		});
-		expect(values({ secureSubmissions: false, customBaseUrl: null })).toEqual(
-			plain,
-		);
+		expect(values({ secureSubmissions: false })).toEqual(plain);
 	});
 
-	/* Each stored `custom_base_url` is read as `targetFactsFromSource` reads
-	 * it, and the URLs are worked from HQ's `urljoin(url_base, "/a/…")`,
-	 * which keeps the base's scheme, lower-cased, and its netloc as stored. */
-	it.each([
-		["https://example.org", "https://example.org"],
-		["https://example.org/", "https://example.org"],
-		["https://example.org/hq/", "https://example.org"],
-		["https://example.org:8443/x", "https://example.org:8443"],
-		[
-			"https://relay:s3cret@proxy.example.org/hq/",
-			"https://relay:s3cret@proxy.example.org",
-		],
-		["https://Proxy.Example.org:443/", "https://Proxy.Example.org:443"],
-		["HTTPS://example.org", "https://example.org"],
-	])("puts the three URLs of a custom base URL %s on %s", (stored, origin) => {
-		const read = targetFactsFromSource(
-			{ custom_base_url: stored, secure_submissions: true },
-			{
-				observedAt: "2026-11-01T00:00:00.000Z",
-				novaOwnsAutoGpsCapture: false,
-				adopted: false,
-			},
-		);
-		expect(read === null ? null : values(read)).toEqual({
-			"ota-restore-url": `${origin}/a/field-ops/phone/restore/app-1/`,
-			PostURL: `${origin}/a/field-ops/receiver/secure/app-1/`,
-			key_server: `${origin}/a/field-ops/phone/keys/`,
-			cc_user_domain: plain.cc_user_domain,
-		});
-	});
+	/* A phone sends a worker's name and password to `ota-restore-url` and every
+	 * form to `PostURL`, so whatever custom base URL the project space keeps,
+	 * the three URLs stand on the deployment's own server. Each stored value is
+	 * read as `targetFactsFromSource` reads it, and the whole facts are handed
+	 * in, as the compiler hands them. */
+	it.each(COMMCARE_SERVER_IDS)(
+		"puts the three URLs on %s's own base whatever custom base URL is kept",
+		(server) => {
+			const base = COMMCARE_SERVERS[server].baseUrl;
+			for (const stored of [
+				"https://example.org/hq/",
+				"https://relay:s3cret@proxy.example.org/hq/",
+				"http://x",
+				"https://u:p@www.commcarehq.org",
+				"https://india.commcarehq.org/hq/",
+			]) {
+				const read = targetFactsFromSource(
+					{ custom_base_url: stored, secure_submissions: true },
+					{
+						observedAt: "2026-11-01T00:00:00.000Z",
+						novaOwnsAutoGpsCapture: false,
+						adopted: false,
+					},
+				);
+				expect(read?.customBaseUrl, stored).not.toBeNull();
+				const properties = profileServerProperties({ ...target, server }, read);
+				for (const { key, value } of properties) {
+					if (key === "cc_user_domain") continue;
+					expect(new URL(value).origin, `${stored} ${key}`).toBe(
+						new URL(base).origin,
+					);
+					expect(value).not.toContain("s3cret");
+				}
+			}
+		},
+	);
 
 	it("leaves the worker's account domain and the suite's URLs where they were", () => {
-		const moved = values({
-			secureSubmissions: true,
-			customBaseUrl: "https://example.org",
-		});
+		const moved = values({ secureSubmissions: true });
 		expect(moved.cc_user_domain).toBe("field-ops.commcarehq.org");
 		expect(runtimeUrls(target).claim).toBe(
 			"https://india.commcarehq.org/a/field-ops/phone/claim-case/",
 		);
+	});
+
+	it("reads no custom base URL: the fact is no input", () => {
+		expectTypeOf<
+			Parameters<typeof profileServerProperties>[1]
+		>().toEqualTypeOf<{ readonly secureSubmissions: boolean } | null>();
 	});
 });
 

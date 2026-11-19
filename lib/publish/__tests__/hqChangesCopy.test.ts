@@ -46,6 +46,7 @@ import {
 	nextPublishChangesLine,
 	nothingNewToPublishLine,
 	nothingToBringInLine,
+	novaLimitLead,
 	PUBLISH_OVER_CHOSEN_LINE,
 	PUBLISH_OVER_HQ_ACTION,
 	PUBLISH_OVER_HQ_HELPER,
@@ -57,6 +58,7 @@ import {
 	sincePhrase,
 	USE_HQ_VERSION_ACTION,
 	USE_HQ_VERSION_HELPER,
+	whereHqKeepsLines,
 } from "@/lib/publish/hqChangesCopy";
 import {
 	HQ_CHANGE_HELD,
@@ -294,6 +296,10 @@ describe("something Nova can't hold", () => {
 		expect(CANNOT_BRING_IN_TOO_LARGE_LEAD).toBe(
 			"CommCare HQ's version of this app is larger than Nova brings in, so Nova brought nothing in.",
 		);
+		expect(novaLimitLead("too-large")).toBe(CANNOT_BRING_IN_TOO_LARGE_LEAD);
+		expect(novaLimitLead("too-intricate")).toBe(
+			"CommCare HQ's version of this app takes more checking than Nova gives one app, so Nova brought nothing in.",
+		);
 		expect(CANNOT_BRING_IN_OTHER_WAYS).toBe(
 			"You can also publish over CommCare HQ's version, which removes these from CommCare HQ, or stop publishing here.",
 		);
@@ -344,9 +350,12 @@ describe("the stops", () => {
 		since: DriftReference = PUBLISHED,
 	) => hqChangesUnavailableLine(reason, { domain: "alpha", since });
 
-	it("says nothing in the project space is this app's: deleted, never published, stopped", () => {
+	it("says nothing in the project space is this app's: deleted, taken while deleted, never published, stopped", () => {
 		expect(line("app-deleted")).toBe(
-			"This app is in recently deleted, and another Nova app took its app in “alpha” while it was there, so there's nothing there to bring in. Once this app is restored, you can check again.",
+			"This app is in recently deleted, so there's nothing in “alpha” to bring in to it. Once it's restored, you can check again.",
+		);
+		expect(line("hq-app-taken")).toBe(
+			"Another Nova app took this app's app in “alpha” while this app was in recently deleted, so there's nothing there to bring in. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise.",
 		);
 		expect(line("not-published")).toBe(
 			"Nova hasn't published this app to “alpha”, so there's nothing there to bring in. Publishing there makes a new app.",
@@ -377,6 +386,9 @@ describe("the stops", () => {
 		);
 		expect(line("base-too-large")).toBe(
 			"Nova's record of what it left in “alpha” is larger than Nova compares, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.",
+		);
+		expect(line("comparison-too-intricate")).toBe(
+			"Comparing CommCare HQ's version with what Nova left in “alpha” takes more checking than Nova gives one app, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.",
 		);
 		expect(line("nova-updated", CHANGES_BROUGHT_IN)).toBe(
 			`Nova updated how this app is stored since Nova last brought in changes from “alpha”, so it can't tell this app's changes from CommCare HQ's here. ${AFTER}`,
@@ -484,6 +496,10 @@ const SAMPLED: Readonly<Record<string, () => readonly string[]>> = {
 	sincePhrase: () => REFERENCES.map((since) => sincePhrase(since, "alpha")),
 	hqChangesLead: () => [hqChangesLead("x", true), hqChangesLead("x", false)],
 	showAllAction: () => [showAllAction(12)],
+	novaLimitLead: () => [
+		novaLimitLead("too-large"),
+		novaLimitLead("too-intricate"),
+	],
 	renamedInNovaLine: () => [
 		renamedInNovaLine([{ caseType: "a", from: "b", to: "c" }]),
 		renamedInNovaLine([
@@ -533,6 +549,20 @@ const SAMPLED: Readonly<Record<string, () => readonly string[]>> = {
 	hqChangesBroughtInToast: () => [
 		hqChangesBroughtInToast(null),
 		hqChangesBroughtInToast("A"),
+	],
+	whereHqKeepsLines: () => [
+		...whereHqKeepsLines({
+			formIds: ["A"],
+			keyedPrefixes: ["A"],
+			mediaPaths: 1,
+			columnFields: ["A"],
+		}),
+		...whereHqKeepsLines({
+			formIds: ["A", "B"],
+			keyedPrefixes: ["A", "B"],
+			mediaPaths: 2,
+			columnFields: ["A", "B"],
+		}),
 	],
 };
 

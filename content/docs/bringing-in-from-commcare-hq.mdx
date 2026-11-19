@@ -110,6 +110,21 @@ Nova keeps no copy of the list. **Copy the list** lets you take it with you, and
 
 Nova doesn't bring in part of an app.
 
+Nova reads only so much of an app's lookup tables: a table holding more data
+than Nova reads for one table is listed under **Nova can't hold this yet**, and
+an app whose tables together hold more lookup data than Nova brings in is too.
+That limit is Nova's, not the app's.
+
+Nova also gives each app only so much checking for its size. An app that takes
+more checking than that is listed under **Nova can't hold this yet** as an app
+that takes more checking than Nova gives one app. That limit is Nova's too, and
+it counts the checking itself rather than time, so checking again gives the same
+answer. Looking for changes made in CommCare HQ works within the same limit.
+
+When Nova is reading several apps from CommCare HQ at once, it may not have room
+to start on yours. It says so and changes nothing, and you can check again in a
+minute or two.
+
 ## After it's in
 
 The app opens in the builder, and **App setup → Publishing** already shows the
@@ -150,7 +165,9 @@ in it changes what workers see or do, the list says so.
 
 An admin or owner of the Project can choose **Stop publishing here** on the
 project space's card. The app in CommCare HQ stays as it is, this app stops
-publishing to it, and it can be brought in again as a new app.
+publishing to it, and it can be brought in again as a new app once any publish
+to it that was running has finished. If a publish is still finishing when you
+bring that app in, Nova says so, and you can try again in a few minutes.
 
 ## From an agent
 

@@ -53,6 +53,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
+	"unread-fixture-declarations-dropped",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
@@ -117,6 +118,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"hidden-value-defaults-dropped": false,
 	"sort-by-entry-with-a-blank-name-dropped": true,
 	"form-titles-written": true,
+	"unread-fixture-declarations-dropped": true,
 };
 
 /** Ids another entry's sentence says to a person. */

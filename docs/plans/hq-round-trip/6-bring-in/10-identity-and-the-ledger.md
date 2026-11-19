@@ -62,8 +62,8 @@ moves `lib/db/appTests.ts::RUNTIME_VERSION` is decided there.
 3. **A form's key is its `xmlns`; a question's is its form's `xmlns` and its authored path** (2.2),
    read with `lib/domain/expression/formStructure.ts::formFieldPath`, which leaves out the nodes Nova
    generates.
-4. **A key met twice is never minted twice** (2.3): the resolver answers the second claim with the
-   first one's place, and the reader's frame reports it as `unrecognized` where no reader module named
+4. **A key met twice is never minted twice** (2.3): the reading's claims answer the second claim with
+   the first one's place, and the reader's frame reports it as `unrecognized` where no reader module named
    it first.
 5. **An adopted deployment's identity rows are dense: one row per menu and per form the reading holds,
    written once, in the birth's transaction** (3). Rows are never changed: part 15's bring-in of
@@ -622,12 +622,21 @@ export type IdentityClaim =
 	/** The key was claimed before, at `firstPlace`. Nothing is minted. */
 	| { readonly ok: false; readonly key: ExternalKey; readonly firstPlace: string };
 
+/** The UUID each key takes: a function of the key alone, holding nothing. */
 export interface IdentityResolver {
+	uuidOf(key: ExternalKey): Uuid;
+}
+
+/** The keys one reading, or one call that names entities, has claimed under a resolver. */
+export interface IdentityClaims {
 	/** `place` is where in HQ's app the entity was read, in the finding's place vocabulary. */
 	claim(key: ExternalKey, place: string): IdentityClaim;
 	/** Every key claimed so far, ordered by `externalKeyText`. */
 	entries(): readonly IdentityMapEntry[];
 }
+
+/** New claims under `resolver`, with nothing claimed. */
+export function claimsUnder(resolver: IdentityResolver): IdentityClaims;
 
 /** Mints every key: `mintEntityUuid(appId, key)`. A reading of an HQ app uses this. */
 export function mintingResolver(appId: string): IdentityResolver;
@@ -642,6 +651,13 @@ export function freeEntityUuid(
 	appId: string, key: ExternalKey, taken: (uuid: Uuid) => boolean,
 ): Uuid;
 ```
+
+A resolver holds no claim. A reading opens its own claims under the resolver its input names
+(`context.ts`, `ReadContext.identities`), and so does each call outside a reading that names
+entities (`worldEntities.ts::levelsFromHq` and `worldEntitiesFromReads` take the claims they claim
+in; `lib/deployment/reading/projectData` opens them per call), so one input, resolver and all, may
+be read any number of times and reads alike each time, and a reading changes nothing it was given
+(`readerPurity.test.ts`, which reads each input twice and reads it frozen).
 
 `matchingResolver` throws at construction if `known` holds one key twice or one UUID under two keys.
 A key `known` lacks takes `freeEntityUuid(appId, key, uuid => known holds uuid)`. A map holds the
@@ -785,19 +801,39 @@ rule.
   another prefix than the one the project space's cases stand under. `read.keyedCreates` (part 07,
   2.4) holds each one the document keeps, with the source's prefix and case type. The adoption
   records one row per entry in `app_deployment_keyed_case_ids` (`deployment_id`,
-  `nova_operation_uuid`, `case_type`, `case_id_prefix`; primary key the first two; inserted and
-  deleted with the identity rows, 3.2, never updated). A publish to the adopted deployment passes
+  `nova_operation_uuid`, `case_type`, `case_id_prefix`; primary key the first two) where the prefix
+  is not the document's own derivation. The rows are the record of the last reading of that
+  project space: written at the birth and replaced by each bring-in of changes for every keyed
+  create that reading holds (3.3), inserted and deleted, never updated. A publish to the adopted deployment passes
   `ExpandOptions.keyedCaseIdPrefixes` from the rows whose `case_type` is still the operation's, so
   a key a worker enters again after the first publish reaches the case it reached before; an
   operation whose type was changed, every operation made in Nova and every other project space take
   the derivation, as an id with no identity row does. Without the rows the first publish would
-  change which case such a key reaches, which no first-publish register entry declares. Both
-  rules are pure functions of `adoption.ts`: `adoptedKeyedCaseIdRows(read):
-  readonly AdoptedKeyedCaseId[]` (`{ operationUuid, caseType, prefix }`, one per entry, sorted by
-  operation; an operation listed twice throws) gives the rows the birth inserts, and
-  `keyedCaseIdPrefixesFor(doc, rows): ReadonlyMap<Uuid, string>` gives the map a publish passes,
-  each row whose operation the document holds with `operationCaseType` equal to the row's
-  `caseType`.
+  change which case such a key reaches, which no first-publish register entry declares. The rows
+  are part of the one target-identity record (3.3): the reading's keyed creates are observed and
+  resolved there, and `adoption.ts::keyedCaseIdPrefixesFor(doc, rows): ReadonlyMap<Uuid, string>`
+  gives the map a publish passes, each row whose operation the document holds with
+  `operationCaseType` equal to the row's `caseType`.
+- **A case list column's field word.** HQ's build reads three properties under two words each in a
+  column's `field` (`detail_screen.py::CASE_PROPERTY_MAP`: `name` and `case_name`, `date-opened` and
+  `date_opened`, `external-id` and `external_id`) and names the column's app strings by the word the
+  column stores (`id_strings.py::detail_column_header_locale`, `detail_column_enum_variable`,
+  `detail_column_alt_text_variable`). The document holds the property alone, and Nova writes `name`,
+  `date-opened` and `external_id` (`lib/commcare/suite/wire.ts::hqColumnFieldText`), so where a person
+  typed the other word in HQ's Case List page, a publish that wrote Nova's would move the column's
+  field and its header's app string id, and a translation stored under the old id would be lost.
+  `read.columnFieldWords` (part 07, 2.4) holds the word each column the document keeps stores on each
+  screen, keyed by the column's UUID. The adoption records one row per column and screen in
+  `app_deployment_column_field_words` (`deployment_id`, `nova_column_uuid`, `screen` `short` or
+  `long`, `field_word`; primary key the first three) where the word is not the one Nova writes, which
+  the table's CHECK states: `case_name`, `date_opened` or `external-id`. The rows are part of the one
+  target-identity record (3.3), observed, resolved, written, read and projected with the rest:
+  `exportIdentityOf` lays them into `WireIdentity.columnFieldWord`, which the HQ JSON's column field,
+  an `invisible` short field, a sort element's field and the join check
+  (`hqJson/caseList.ts::projectCaseListForHq`) and the local suite's app string ids
+  (`suite/case-list/columns.ts::detailColumnLocaleBase`) all print through `hqColumnFieldText`, so no
+  place writes one word while another writes the other. A word the column's property no longer
+  takes (its property changed in Nova) is Nova's word; every other project space takes Nova's word.
 
 Real form ids exist nowhere but HQ's application resource (`ApplicationResource.dehydrate_module`
 returns `form.unique_id`; `Application.scrub_source` re-mints it in every source read), which needs
@@ -807,12 +843,12 @@ the plan's API access. That is why a reading requires it, and it is checked firs
 
 ### 3.2 Who writes, and the privilege move
 
-- **Insert**: `store.ts::recordAdoptedDeploymentInTransaction` (6.2), once per adoption. No publish
-  writes a row: a menu or a form made in Nova after the adoption has no row and takes the derivation,
-  and one removed in Nova leaves a row no export reads. Part 15's `store.ts::recordHqChangesTaken`
-  is the second inserter: it writes a row for each menu and form a person made in CommCare HQ that
-  a bring-in of changes takes, by this section's rule, so the next publish sends CommCare HQ's own
-  id for it (its section 4.4).
+- **Insert and delete**: `store.ts::writeTargetIdentityInTransaction` (3.3), the one writer of the
+  three tables, called by the birth (`recordAdoptedDeploymentInTransaction`, 6.2), by a bring-in of
+  changes (part 15's `recordHqChangesTaken`) and by a save that reads as the same app (part 15's
+  `recordRefreshedAppBaseline`), each with the record the reading resolved. No publish writes a
+  row: a menu or a form made in Nova after the adoption has no row and takes the derivation, and one
+  removed in Nova leaves a row no export reads.
 - **Delete**: `lib/db/hqAppClaims.ts::endDeploymentInTransaction` (8.2), every row of the deployment.
 - **Update**: never. A row is immutable; a change is the delete of an ending and the inserts of a
   later adoption.
@@ -824,10 +860,52 @@ Part 15 adds one more of each: a bring-in of changes inserts a row for a file Co
 or replaced, and where the replaced file's own asset holds that path it deletes that row first
 (its section 7.6). That is a delete and an insert, never an update.
 
-`app_deployment_keyed_case_ids` (3.1) has the identity rows' insert and delete and no other:
-`recordAdoptedDeploymentInTransaction` inserts one row per `read.keyedCreates` entry the
-document keeps, and `endDeploymentInTransaction` deletes every row of the deployment with its
-identity rows. Its DDL is statement 11b of section 11.
+`app_deployment_keyed_case_ids` (3.1) has the identity rows' insert and delete and no other: the
+one writer (3.3) at the birth, a bring-in of changes and a save that reads as the same app, and
+`endDeploymentInTransaction` deleting every row of the deployment with its identity rows. Its DDL is
+statement 11b of section 11. `app_deployment_column_field_words` (3.1) has the same insert and
+delete and no other; its DDL is statement 11b'.
+
+### 3.3 One target-identity record
+
+What a reading observes of where CommCare HQ keeps the things the document does not hold (menu and
+form ids, keyed-create prefixes, media paths, case list column field words) is one value,
+`lib/deployment/targetIdentity.ts::TargetIdentity` (`{ entities, keyedCaseIds, mediaPaths,
+columnWords }`, each in canonical order), with one function per step:
+
+- **observe**: `observedTargetIdentity({ read, aligned, mediaFiles, mediaMap, doc })`, the only
+  function that turns a reading into identities: every menu and form the reading names with the ids
+  the application resource holds, derived ones included, every keyed create, each named file's
+  path with the other paths HQ holds it at and every path HQ's media map holds, and the word each
+  column the document holds stores on each screen, Nova's word included.
+- **resolve**: `resolveTargetIdentity(stored, observed, doc)`, the one rule. What the reading names
+  takes the observed value; a value equal to its derivation means no row; a stored row of something
+  the reading does not name stays unless the observation takes its id, `xmlns`, prefix or path,
+  tested against the whole observation; a file keeps its stored path while HQ's map still holds it
+  and no other file of the reading stands there; a column's word takes nothing from another column,
+  so a stored word of a column on a screen the reading does not name stays; only then is the result
+  reduced, a column's word equal to Nova's being no row. A birth is `resolve(empty, observed)`.
+- **write**: `store.ts::writeTargetIdentityInTransaction(tx, deploymentId, { read, next })`, the
+  difference from `read` to `next`, refused (`TargetIdentityMovedError`) where the stored rows are
+  no longer `read`.
+- **read**: `store.ts::readTargetIdentity(scope, target)`, the only reader, which replaces the
+  per-table readers.
+- **project**: `exportIdentityOf(doc, record)`, the identity (its column words included), keyed
+  prefixes and held media paths a publish, a `.ccz` (`CompileOptions.identity`), preflight's export
+  boundary and a take's ownership all print under. The HQ import file carries no target, so it prints
+  derived ids and Nova's words.
+
+A bring-in's review digest binds the record the birth writes (part 12, section 5.2). Acceptance of a
+reading prints under the source's own ids, prefixes and paths (`reading/emission.ts`), which for
+every entity the document holds is the record the reading resolves, since the observation wins for
+everything it names; the one deliberate difference is a form's id, which acceptance takes from the
+source read that re-mints it. A reading's app strings, which judge a translation stored under a
+generated key, name each column by the word its source keeps (`ReaderInput.appStrings`' second
+argument), so a header translation stored under HQ's id for the column folds into the header.
+A bring-in of changes names a column whose word moved for a menu the app held
+(`targetIdentityChanges`' `columnFields`, a line of `whereHqKeepsLines`), as it names a form's new
+id. The review digest's version stays 2: the record's shape grew in place, and no deployed revision
+reads a digest of version 2.
 
 `lib/db/privilegeConvergence.ts`: `app_deployment_identities` leaves `RUNTIME_READ_ONLY_TABLES` and
 joins `RUNTIME_INSERT_DELETE_TABLES`, with `app_deployment_media_paths` and
@@ -870,7 +948,10 @@ CREATE TABLE IF NOT EXISTS app_deployment_media_paths (
 		char_length(wire_path) <= 255
 		AND wire_path COLLATE "C" ~ '^[^/\\\x01-\x1f\x7f-\x9f]+(/[^/\\\x01-\x1f\x7f-\x9f]+)+$'
 		AND wire_path !~ '(^|/)\.{1,2}(/|$)'
-		AND wire_path !~ '^ | $')
+		AND wire_path !~ '^ | $'
+		AND lower(wire_path COLLATE "C") !~ '^(profile\.ccpr|suite\.xml|media_suite\.xml)(/|$)'
+		AND lower(wire_path COLLATE "C") !~ '^[^/]+/app_strings\.txt(/|$)'
+		AND lower(wire_path COLLATE "C") !~ '^modules-[0-9]+/forms-[0-9]+\.xml(/|$)')
 );
 CREATE UNIQUE INDEX IF NOT EXISTS app_deployment_media_paths_path_folded
 	ON app_deployment_media_paths (deployment_id, lower(wire_path COLLATE "C"));
@@ -898,15 +979,21 @@ The CHECK and the folded index are the floor the database can state without lean
 a directory and a name (any directory, since HQ's build writes whichever one the path names,
 `MediaSuiteGenerator.media_resources`), no empty segment, no `.` or `..` segment, no backslash, no
 control character (the code points of `\p{Cc}`, U+0001 to U+001F and U+007F to U+009F, named; a
-`text` value holds no U+0000), no space at either end, and no two paths of one deployment that differ
-only by ASCII letter case. Neither leans on the locale: under a libc UTF-8 locale PostgreSQL's
+`text` value holds no U+0000), no space at either end, none of the names a `.ccz` gives its own files
+or a name under one, in ASCII letter case (the root files, `<directory>/app_strings.txt`,
+`modules-<n>/forms-<n>.xml`), and no two paths of one deployment that differ only by ASCII letter case. Neither leans on the locale: under a libc UTF-8 locale PostgreSQL's
 `[:cntrl:]` also takes U+2028 and U+2029 (glibc and musl both count them as controls), which
 `isHoldableWirePath` holds inside a name, and its `lower()` maps each code point alone (Σ to σ, İ to
 i) where `toLowerCase()` and Python's `str.lower()` give a final sigma ς and i̇, so a locale's floor
 would refuse rows the rule writes. So the control class is named code point by code point, and the
 index folds under the C collation, where `lower()` folds A to Z alone: two paths that fold together
-there also fold together under `toLowerCase()`. The rule itself is `isHoldableWirePath` and `assignMediaPaths` (4.2), in
-TypeScript, and every row a writer inserts has passed it.
+there also fold together under `toLowerCase()`. The converse does not hold (É and é are two paths
+under the C collation and one under `toLowerCase()`), so no writer matches rows by the index's fold:
+the key every decision compares by is `hqMedia.ts::wirePathKey` (`toLowerCase()`, HQ's upload's own
+matching), in TypeScript. The rule itself is `isHoldableWirePath` and `assignMediaPaths` (4.2), in
+TypeScript, and every row a writer inserts has passed it; every read of the rows passes them through
+it again (`adoption.ts::heldMediaPathRows`), so a row it refuses, a store defect, is logged and its
+file takes its derived path.
 
 ### 4.2 Which path a file keeps
 
@@ -929,7 +1016,8 @@ export interface MediaPathAssignment {
 		readonly why: MediaPathRederivedReason }[];
 }
 export type MediaPathRederivedReason =
-	/** HQ's upload cannot address it, or it is no safe archive entry (`isHoldableWirePath`). */
+	/** HQ's upload cannot address it, or it is no safe archive entry, a name a `.ccz` gives its own
+	 *  files among them (`isHoldableWirePath`). */
 	| "not-holdable"
 	/** It is in Nova's derived shape and is not this file's own derived path. */
 	| "names-another-file"
@@ -946,8 +1034,10 @@ export function assignMediaPaths(files: readonly AdoptedMediaFile[]): MediaPathA
 `isHoldableWirePath` answers true exactly when the path is well-formed UTF-16 (no lone surrogate);
 has at most 255 code points; has a directory
 and a name, with no empty segment and no `.` or `..` segment; holds no backslash and no control
-character (`\p{Cc}`); and neither starts nor ends with a character Python's `str.strip()` removes
-(`\p{Zs}`, U+2028, U+2029; the controls it removes are already refused). Checked at the pin:
+character (`\p{Cc}`); neither starts nor ends with a character Python's `str.strip()` removes
+(`\p{Zs}`, U+2028, U+2029; the controls it removes are already refused); and is none of the names a
+`.ccz` gives its own files, or a name under one, compared without letter case
+(`lib/commcare/cczMembers.ts::isGeneratedMemberPath`). Checked at the pin:
 `str.isspace()`, which `strip()` with no argument removes, holds for exactly `\p{Zs}` (U+0020,
 U+00A0, U+1680, U+2000 to U+200A, U+202F, U+205F, U+3000), U+2028, U+2029 and the ten controls
 U+0009 to U+000D, U+001C to U+001F and U+0085, the same set Node's `\p{Zs}` gives with the two
@@ -964,6 +1054,16 @@ separators. Each clause has a reason:
   4.4's writer has no spelling for.
 - **Segments.** An empty, `.` or `..` segment, a backslash and a control character are what make a
   path unsafe as a zip entry and as a media suite location.
+- **None of the archive's own names.** A `.ccz` packs media beside `profile.ccpr`, `suite.xml`,
+  `media_suite.xml`, `<dir>/app_strings.txt` and `modules-<n>/forms-<n>.xml`, and a zip writer keeps
+  one of two entries of one name, so a file held at `default/app_strings.txt` would replace the
+  language file the oracles validated. HQ lets an app editor give a file such a path (the bulk path
+  rename, `hqmedia/view_helpers.py::validate_multimedia_paths_rows`, checks only that the old path
+  exists and the new one differs). A language or a form can be added after the path is held
+  (`fra/app_strings.txt` is harmless until the app gains French), so the reservation is by shape, not
+  by the app's current files, and compared without letter case. The compiler names its files through
+  the same module, and its member writer (`zipMembers.ts::zipMembers`) refuses two members of one name
+  in any letter case as an oracle.
 - **Ends.** `CommCareMultimedia.get_form_path` strips the path of every zip entry before the bulk
   upload matches it, so no entry can ever match an app path that starts or ends with such a
   character: HQ's own upload cannot put a file there.
@@ -976,14 +1076,15 @@ separators. Each clause has a reason:
    already given its finding, under the entry
    `expressions-and-data/multimedia-map-key-not-under-jr-file-that-the-build-keeps`, and no such file
    reaches a birth. This is the one path that is a finding. Every other path is held or re-derived.
-2. A candidate `isHoldableWirePath` refuses is dropped: `rederived`, `not-holdable`.
+2. A candidate `isHoldableWirePath` refuses is dropped: `rederived`, `not-holdable`, a name of the
+   archive's own among them.
 3. A candidate whose lower-case form matches `^commcare/[0-9a-f]{64}\.[a-z0-9]+$` and that is not
    exactly `wirePathFor(contentHash, extension)` is dropped: `rederived`, `names-another-file`. Such a
    path names another file's bytes: it arises when a file Nova published was replaced in HQ under the
    same path. Holding it would let it collide with the derived path of the file whose hash it spells,
    and `multimedia/bundle.ts::buildMediaBundle` dedupes by path on the premise that one path is one
    file. The test is on the lower-case form because of step 4's rule.
-4. A candidate whose `toLowerCase()` form equals that of a candidate of another asset is dropped, on
+4. A candidate whose `toLowerCase()` form (`hqMedia.ts::wirePathKey`) equals that of a candidate of another asset is dropped, on
    both assets: `rederived`, `differs-only-by-case`. HQ's bulk upload matches a zip entry to an app
    path with both lower-cased and takes the first match (`hqmedia/tasks.py::process_bulk_upload_zip`:
    `form_path = media_class.get_form_path(path, lowercase=True)`, `app_paths_lower.index(form_path)`,
@@ -1189,6 +1290,11 @@ export class HqAppAlreadyClaimedError extends Error {
 	readonly name = "HqAppAlreadyClaimedError";
 	constructor(readonly key: HqAppKey, readonly holder: HqAppClaimHolder | null);
 }
+/** A write another Nova app let out to the HQ app has not settled (8.5). Nothing was written. */
+export class HqAppWriteInFlightError extends Error {
+	readonly name = "HqAppWriteInFlightError";
+	constructor(readonly key: HqAppKey, readonly settlesAt: string);
+}
 
 /** The first step of a birth's transaction. Throws `HqAppAlreadyClaimedError` where a live app holds it. */
 export async function claimHqAppInTransaction(
@@ -1325,7 +1431,13 @@ export async function settleReleasedClaimsInTransaction(
 	tx: Transaction<AppDatabase>,
 	input: { readonly appId: string; readonly actorUserId: string; readonly at: Date;
 	         readonly locks: ReleasedClaimLocks },
-): Promise<readonly { readonly server: string; readonly domain: string }[]>;
+): Promise<SettledClaims>;
+/** `stopped`: the project spaces ended `claimed-elsewhere`; `waiting`: those whose claim stays
+ *  released because a write another app let out to that HQ app is open (8.5). */
+export interface SettledClaims {
+	readonly stopped: readonly { readonly server: string; readonly domain: string }[];
+	readonly waiting: readonly { readonly server: string; readonly domain: string }[];
+}
 ```
 
 `restoreApp` calls `lockReleasedClaimsInTransaction` where it calls `lockAppRow` today, and it is the
@@ -1361,6 +1473,12 @@ through `locks.released` in order:
   the HQ app back.
 - **A live holder.** `endDeploymentInTransaction` (8.2) with reason `claimed-elsewhere`, and the
   project space joins the answer, which `restoreApp` returns as `stoppedPublishing`.
+- **A write of another app still open.** Before either take-back arm, under the HQ app's advisory
+  lock, where `hq_remote_writes` holds an open write of another app to that HQ app (8.5), the claim
+  stays released and the project space joins `waiting`. A restore leaves it so and goes on; the
+  app's next publish there settles it again, and answers `app_changed_while_publishing` with
+  `PUBLISH_WAITS_FOR_ANOTHER_WRITE` while it still waits. The birth's take (5.2) refuses the same
+  way, with `HqAppWriteInFlightError`.
 
 No statement here can meet the claim index: every case was read under the locks that decide it. A
 unique violation on `HQ_APP_CLAIM_INDEX` is therefore an invariant failure and fails the restore,
@@ -1392,8 +1510,9 @@ export type HqAppClaimView =
 
 export async function readHqAppClaims(input: {
 	readonly viewerUserId: string;
-	readonly server: CommCareServer; readonly domain: string;
-	readonly remoteAppIds: readonly string[];
+	/** CommCare HQ's answer, in this request, that the key reaches these apps
+	 *  (`lib/commcare/hq/appsSeen.ts`): its server, project space and app ids. */
+	readonly seen: HqAppsSeen;
 }): Promise<readonly HqAppClaimView[]>;
 ```
 
@@ -1405,9 +1524,15 @@ mapping's `adopted_by` for an adopted one and the deployment's `created_by` for 
 and the view does not say which: what a reader is offered is the same either way, and "since"
 that date is true of both (part 01, section 9.3). An HQ app with no row is absent from the answer:
 it is free. A name that no longer resolves reads "A former member", as a confirmation's does. The
-caller has already proven a key that reaches the project space (part 05, section 11,
-`getHqCredentials`); the function reads nothing of HQ. The holding Project's name and the Nova
-app's name are never returned for `elsewhere`.
+caller hands the function CommCare HQ's own answer, in this request, that its key reaches those
+apps: `HqAppsSeen`, which only `listHqApps` (for every app the list holds) and
+`readHqAppForReading`'s `read` answer (for the app whose document HQ returned) make, and a Biome
+`noRestrictedImports` pattern refuses any other production maker. Nova's stored list of the
+project spaces a key reached (part 05, section 11, `getHqCredentials`) proves membership only when
+the key was last saved, so a key HQ now refuses (membership removed, key revoked, Edit Apps
+removed) gets HQ's own refusal for a claimed and an unclaimed id alike, never who holds the app.
+The function reads nothing of HQ. The holding Project's name and the Nova app's name are never
+returned for `elsewhere`.
 
 `HqAppClaimView` is part 01's `HqAppClaimDetail` with `remoteAppId` added (part 01
 (`01-the-bar-and-the-manifest.md`), section 8.1). That type is declared in
@@ -1415,9 +1540,10 @@ app's name are never returned for `elsewhere`.
 `already-in-nova` carries as `detail.claim`. A type-level case in part 01's `hqFindings.test.ts`
 holds the two to each other.
 
-Both requests of a bring-in call it for the one app chosen, inside the read they share (part 12,
-section 3.3). A view there is the stop `already-in-nova`, with the view less `remoteAppId` as the
-finding's `detail.claim`. The picker (part 13, section 4.2) calls it once over the apps it lists.
+Both requests of a bring-in call it for the one app chosen, inside the read they share, once
+CommCare HQ has answered with the app (part 12, section 3.3, step 3). A view there is the stop
+`already-in-nova`, with the view less `remoteAppId` as the finding's `detail.claim`. The picker
+(part 13, section 4.2) calls it once over the apps it lists, with the list's `HqAppsSeen`.
 Each of those reads is advice; `claimHqAppInTransaction` decides.
 
 ---
@@ -1526,11 +1652,13 @@ Refactors of `store.ts`:
 | Symbol | Change |
 |---|---|
 | `writeAppBaseline(tx, deploymentId, scope, baseline)` | takes `observedBy: string` in place of `scope` (it reads only the actor). Both arms write `nova_revision` as given, `media_files` by `baseline.mediaFiles` (part 15, section 7.2, which holds the rule), and `first_publish_changes` by the clause part 09 gives them (its section 12.3) |
-| `lockAppForDeploymentWrite(tx, scope, capability)` | returns the role it read under the lock, as `auth_member` stores it (`string`: Better Auth may store several roles comma-joined, which `roleAllowsApp` reads and `ProjectRole` cannot name), which `endDeployment` reads (8.3); every other caller ignores it |
+| `lockAppForDeploymentWrite(tx, scope, capability)` | returns the role it read under the lock, as `auth_member` stores it (`string`: Better Auth may store several roles comma-joined, which `roleAllowsApp` reads and `ProjectRole` cannot name), which `endDeployment` reads (8.3); every other caller ignores it. It and the read snapshot (`withDeploymentReadSnapshot`), and the settle of released claims, make one authorization of the app row, `authorizeDeploymentApp(app, scope, capability, act, roleIn)`: a missing app, another Project and a caller without the capability are `deploymentNotFound()`, checked first, and only then an app in recently deleted is `DeploymentAppDeletedError` in the read's or the write's words (Copy), so a write and a read cannot disagree on who learns of a deletion |
 | the confirmation insert inside `foldDeploymentAttempt` | moves to `insertDeploymentConfirmationsInTransaction(tx, deploymentId, actorUserId, keys)`, same statement and conflict rule; `foldDeploymentAttempt` calls it and keeps its "only with a preflight that passed" refusal, which is a rule of the fold and not of the table |
 | `writeResourceMapping` | unchanged signature; exported to the module's own callers only, as today |
 | `withDeploymentRow` | gains `expectedEndings` and the ended rule (8.5) |
-| `toDeploymentRecord`, `toDeploymentResource`, `loadResources` | read `endings`; `endedReason`, `releasedAt`; resolve `adoptedByName` and `endedByName` through `confirmerNames` |
+| `admitAppWrite`, `admitAppCreate`, `admitWorkbookWrite`, `settleRemoteWrites`, `readOpenMediaJobs`, `recordOrphanedRemoteApp` | new (8.5): the admission of each write a publish sends to CommCare HQ into `hq_remote_writes`, its settling, and the record of an empty app made as an ending committed |
+| `recordRemoteResource` | orders two publishes of one HQ app by the counter its import acknowledged (`app_deployment_resources.pushed_remote_revision`), 7.2 |
+| `toDeploymentRecord`, `toDeploymentResource`, `loadResources` | read `endings`; `endedReason`, `releasedAt`; resolve `adoptedByName` and `endedByName` through `confirmerNames`, both of which read only inside an authorized read snapshot (`withDeploymentReadSnapshot`) or a write holding the app and deployment rows, so a list or a detail read across a move answers one generation or not-found |
 | `readAppBaseline` | admits `read` and `changes`; reports `storedOrigin` on an unverified row (6.3); answers `novaRevision`, `mediaFiles` and `sourceBytes` (part 15, sections 3, 7.2 and 2.7) |
 
 `lib/deployment/index.ts` is the barrel client components import (`PublishDialogBody.tsx`,
@@ -1737,6 +1865,14 @@ says which features Nova won't ask about and why (Copy; part 13 (`13-the-experie
 8.8, places the line). The create calls this function over the candidate's document, the target,
 `source.cloudcareEnabled` and `accepted.sourceHoldsSaveToCase` (part 12, section 6.2).
 
+A sixth kind, `worker-level`, is no publish's and no adoption's: provisioning asks it, where CommCare
+HQ manages the app's places in the project space, for each level a worker would stand at, since no
+API key reads a level's `has_users` and HQ's worker API does not check it (part 11, section 11.3).
+Its subject is the level's code; provisioning records it once every problem it can know of passes,
+before it asks CommCare HQ anything (`store.ts::recordWorkerLevelConfirmations`), and it is withdrawn
+like any other. The kind CHECK and a subject CHECK of the level code's grammar are statement 11d of
+section 11.
+
 **"Save only if changed" is not recorded, because it is no confirmation.** A reading probes one
 flag of the source project space, `SAVE_ONLY_EDITED_FORM_FIELDS`, where the source holds
 `update_mode: edit`, and the document holds an `onlyIfChanged` write only where that flag is on
@@ -1820,11 +1956,22 @@ export async function settleReleasedClaims(scope: DeploymentScope): Promise<
   receives): `keyedCaseIdPrefixesFor` over the target's `app_deployment_keyed_case_ids` rows,
   computed over the document each body is built from, and an empty map on every other target.
 - **The read-back** is the new baseline: origin `push`, the ownership of the body sent,
-  `nova_revision` the sequence sent (part 15, section 3). The same upsert sets
+  `nova_revision` the sequence sent (part 15, section 3), only where HQ's save counter proves it is
+  what the import left. `preflight.ts` reads the counter just before the `target-app` read (and
+  `service.ts` again before the second read where Project data went); the import acknowledges the
+  counter after its one save; and the read-back is `readHqAppSourceAtVersion` at that counter (the
+  source, then the counter, which must stand there). An acknowledgement more than one past the
+  counter read before the last read (a save fell between that read and the import), a read-back the
+  counter shows `moved`, and an update acknowledged with no counter each store `unread`, and the
+  landed publish says so in a warning; the next publish then stops and asks. On a first publish the
+  read after the create is bound the same way, to the 1 HQ's one save of a new app leaves
+  (`models/applications.py::_import_app`); a `moved` read there stops at `resources`. The same upsert sets
   `first_publish_changes` null, which ends the list the person reviewed (part 09, section 12.3),
   and keeps `media_files`.
 - **The mapping** stays `adopted`, with its first attribution, `pushed_revision` the head, and
-  `remote_revision` the import's answer.
+  `remote_revision` and `pushed_remote_revision` the import's answer. `recordRemoteResource` writes
+  where the stored `pushed_remote_revision` of that HQ app is not above it, so two publishes of one
+  app record in HQ's save order.
 - **Media.** The `target-app` edge has already compared the file at each held path with the one
   the birth recorded (part 15, section 7.4). The bulk upload names HQ's paths (4.3), and once it
   settles the publish records the id CommCare HQ reported for each (part 15, section 7.8).
@@ -1904,8 +2051,8 @@ moment one does.
 /** `lib/db/hqAppClaims.ts`. */
 export async function endDeploymentInTransaction(
 	tx: Transaction<AppDatabase>,
-	input: { readonly deploymentId: string; readonly appId: string; readonly byUserId: string;
-	         readonly reason: HqAppEndReason; readonly at: Date },
+	input: { readonly deploymentId: string; readonly appId: string; readonly remoteAppId: string;
+	         readonly byUserId: string; readonly reason: HqAppEndReason; readonly at: Date },
 ): Promise<{ readonly ended: boolean }>;
 ```
 
@@ -1914,8 +2061,10 @@ The caller holds the app row lock: `FOR SHARE` with the deployment row `FOR UPDA
 writer of the app. `<all null>` below is this module's `NO_PHASE_OUTCOMES_JSON` (5.2). In order:
 
 1. `UPDATE app_deployment_resources SET superseded_at = at, ended_by = byUserId, ended_reason =
-   reason, released_at = NULL WHERE deployment_id = $1 AND kind = 'app' AND superseded_at IS NULL`. No
-   row: return `{ ended: false }` and change nothing.
+   reason, released_at = NULL WHERE deployment_id = $1 AND kind = 'app' AND remote_id = $2 AND
+   superseded_at IS NULL`. The statement ends the mapping of the HQ app it names and no other. No
+   row: return `{ ended: false }` and change nothing; `endDeployment` then decides what a stop for a
+   mapping already ended answers (8.3).
 2. `DELETE FROM app_deployment_identities WHERE deployment_id = $1`.
 3. `DELETE FROM app_deployment_keyed_case_ids WHERE deployment_id = $1` (3.2: the prefixes go with
    the identity rows they were read beside).
@@ -1931,22 +2080,25 @@ Kept: the baseline row ("its baseline stays as history"; the next create there r
 space); every `lookup-table`, `location` and `worker` mapping (what Nova put there is still there, and
 a later publish updates it in place).
 
-The index entry goes with `superseded_at`, so the HQ app is free the moment this commits.
+The index entry goes with `superseded_at`. Another Nova app is granted the HQ app once every write
+admitted under the ended mapping has settled (8.5): `claimHqAppInTransaction` refuses with
+`HqAppWriteInFlightError` while one is open, and a settle leaves a claim released.
 
 ### 8.3 "Stop publishing here", server side
 
 ```ts
 /** `lib/deployment/store.ts`. An admin or owner of the app's Project; `not_permitted` for an editor. */
 export async function endDeployment(
-	scope: DeploymentScope, target: DeploymentTargetKey,
+	scope: DeploymentScope, target: DeploymentTargetKey, hqAppId: string,
 ): Promise<DeploymentWithResources>;
 /** `lib/deployment/service.ts`. The one lifecycle the builder and MCP share. */
 export async function stopPublishing(
-	scope: DeploymentScope, target: DeploymentTargetKey, doc: BlueprintDoc,
+	scope: DeploymentScope, target: DeploymentTargetKey, hqAppId: string, doc: BlueprintDoc,
 	locations?: readonly StoredLocation[],
 ): Promise<{ readonly deployment: DeploymentWithResources; readonly artifact: SetupArtifact | null }>;
-/** `lib/deployment/actions.ts`. Input: `deploymentTargetSchema`. A failure only for a stop that did
- * not land; once the ending commits, every read after it answers null where it faults. */
+/** `lib/deployment/actions.ts`. Input: `stopPublishingSchema` (`deploymentTargetSchema` with
+ * `hqAppId`). A failure only for a stop that did not land; once the ending commits, every read
+ * after it answers null where it faults. */
 export interface StoppedPublishingView {
 	readonly view: DeploymentView | null;
 	/** What Preview names and plays now, project space and settings together (`previewDeploymentAnswerFor`). */
@@ -1956,6 +2108,17 @@ export async function stopPublishingAction(input: unknown):
 	Promise<DeploymentActionResult<StoppedPublishingView>>;
 ```
 
+- **Which mapping.** The stop names the HQ app the person decided over, and ends that mapping or
+  nothing, decided under the deployment row's lock: a live mapping of it is ended (8.2); a mapping
+  of it an ending already superseded answers the deployment as it stands and writes nothing, so a
+  retry of a stop that landed answers as stopped, whatever a publish since made there; a deployment
+  that publishes to another HQ app now, or superseded that one without an ending, refuses with the
+  new `DeploymentErrorCode` `stale` ("This app publishes to a different app in “{domain}” than the
+  one you were looking at, so Nova didn't stop anything. Have another look, and stop it from there
+  if you still want to."), the action's `invalid_input` and MCP's `deployment_changed`, writing
+  nothing; and a deployment with no `app` mapping at all has nothing to stop. The HQ app id is
+  enough: within one deployment row the live `app` mapping changes exactly when its remote id
+  changes, so neither the deployment id nor the endings count adds anything.
 - **Who.** An admin or an owner of the app's Project: the members who hold `delete` on its apps
   (`lib/auth/projectRoles.ts`), the capability a delete and a move already ask for. An editor can see
   the deployment and publish to it, so the honest answer to an editor names who can stop, and is not
@@ -1983,8 +2146,9 @@ export async function stopPublishingAction(input: unknown):
 - **A shell.** A deployment whose live mapping is the empty app of a first publish can be stopped
   too: the empty app stays in HQ, and the ended card's line links to it (8.6).
 - **MCP.** `stop_publishing` (part 13 registers it, its section 14.5; Departure 3): input
-  `{ app_id: string, server: "production" | "india" | "eu", domain: string }`, scope
-  `nova.hq.write` through `oauthScopeChallenge` and `assertScope` as
+  `{ app_id: string, server: "production" | "india" | "eu", domain: string, hq_app_id: string }`,
+  scope `nova.hq.write` through the one registration helper
+  (`lib/mcp/scopedTool.ts::registerScopedTool`, over `scopes.ts::TOOL_SCOPES`), as
   `withdraw_deployment_confirmation` does. It calls `stopPublishing` and returns `{ app_id,
   ...describeDeployment(deployment, identities), setup_artifact }`, as `refresh_deployment` returns;
   the served schema and the description are part 13's (the same section).
@@ -2028,6 +2192,10 @@ whose forms have HQ's: every form's `xmlns` would change.
   `refreshKeptValues` (its section 6.5).
   `finishDeploymentContentWrite` takes it and, on a mismatch, returns false and writes nothing (the
   ending already cleared the manifest and rotated the generation).
+  A record of a table or place push that rests on its writes' admissions (below) is the exception:
+  an ending keeps every table and place mapping, so `recordPushedResources` and
+  `markResourceBaselinesUnread` record what the push made after an ending as a `partial` push that
+  supersedes nothing and folds no rung, and the publish meets the ending at its next admission.
   `workers.ts::provisionWorkers` passes the count from its own read to `recordPushedResources`.
   The count travels as `store.ts::DeploymentFence` (`{ readonly expectedEndings: number }`): a
   member of the input object of `foldDeploymentAttempt` (its options, now required),
@@ -2053,20 +2221,91 @@ whose forms have HQ's: every form's `xmlns` would change.
   UPLOAD_ERROR_TAGS` and `lib/mcp/errors.ts` gain the tag, so their maps stay total; the tool's
   description sentence is part 13's (its section 14.7).
 
-**What the fence cannot close.** A publish already running on the previous revision when the deploy
-lands knows no `endings`. If a person stops that deployment through the new revision in those
-minutes, that publish can still record its mapping. The window is one deploy's drain, and the remedy
-is to stop the deployment again.
+**Writes admitted before they are sent.** The fence protects what Nova records after a write; it
+cannot keep a write already sent from landing after an ending. Validity of what lands is not the
+test: a write to an HQ app is sent only under an admission recorded while the sender's live,
+unreleased mapping to that app stands, and another Nova app is granted the claim only when no
+admitted write of another app is still open. `hq_remote_writes` (this layer's migration,
+insert-update, never locked or deleted) holds each one, open while `settled_at` is null and
+`held_until` is in the future (`lib/db/openRemoteWrite.ts`).
 
-A publish that was sent before the ending and landed after it leaves HQ updated with HQ's own ids,
-which is a valid app. Nova keeps no record of it, and says so.
+- `store.ts::admitAppWrite` admits an import or a media bundle immediately before it goes, under the
+  HQ app's advisory lock, the app row and the deployment row `FOR UPDATE`: it holds the fence and
+  the live, unreleased `app` mapping naming that HQ app, else sends nothing (`DeploymentEndedError`,
+  or `mapping-moved` answered `app_changed_while_publishing`). `admitAppCreate` admits the empty
+  app's create under the fence alone; `admitWorkbookWrite` admits a lookup workbook under the
+  Project's lookup state and each table's row (part 11); `admitPlacesWrite` admits each batch of
+  places under the fence, one row per place. Every admission needs a live app and `edit`.
+- What a write made is recorded on its admission, not on the app staying live or its publisher
+  keeping edit (`store.ts::withRecordRow`, `lockAppForAdmittedRecord`): each record of a create,
+  an import, a workbook, a batch of places, the media files and the entry-point evidence names the
+  admitted writes it states, which must be this caller's, for this app, Project and project space,
+  and of the record's kinds. So an app deleted, or a publisher demoted, between the admission and
+  the record still has what the write made recorded, and a restored app holds it; a record with no
+  admission behind it needs a live app and `edit`. Holding the deletion off would not close this:
+  the write's answer comes before its record. The record settles the writes it states in its own
+  transaction, so a write stays open until what it made is recorded. On a deleted app a create's
+  record writes the mapping live and unreleased, so the app holds the new HQ app as it holds every
+  HQ app it published to (given up when another app takes it, taken back by the restore); the
+  baseline is written as for a live app; a complete push still supersedes what it does not name.
+- A record answers only what its caller may read now (`store.ts::RecordAnswer`): the caller's
+  access is read in the record's own transaction by `authorizeDeploymentApp` at `view`, and the
+  record answers what the writes it records put on CommCare HQ (`landed`) always, and the
+  deployment only to a caller who may still view a live app. A publisher removed from the Project,
+  or whose app was deleted, between the admission and the record gets no record, so none of its
+  other members' names, confirmations or history; one demoted to viewer reads it whole. A publish
+  whose import landed answers such a publisher landed with `deployment` null and `sent`; a record
+  that answers no deployment before the import stops the publish there; provisioning answers the
+  accounts and passwords with no record. The import's record also answers the tables and places
+  its content stands on, which the entry-point manifest names whoever may read the record.
+- An open create that names no app yet holds every HQ app on its project space from another Nova
+  app (`hqAppClaims.ts::openWriteSettlesAt`), since HQ may have made the very app a claim is for;
+  the create's record names it.
+- A publish whose app is deleted, or whose publisher loses edit, after the import landed sends no
+  media and answers landed with `MEDIA_NOT_SENT_AFTER_ACCESS_WARNING` (Copy).
+- A publish whose app is deleted before that stops at its next admission or write, with what its
+  writes made recorded on their admissions, and folds nothing of the attempt, since the record
+  belongs to an app in recently deleted. `publishAppToHq` answers a `DeploymentAppDeletedError`
+  from any of its reads or writes, and a not-found it asks the store about once
+  (`store.ts::deploymentAppDeletion`, since a read outside the store answers a deleted app as
+  missing), by throwing it again in its own words (`errors.ts::appDeletedWhilePublishing`, Copy),
+  saying whether anything had gone to CommCare HQ; a publisher who lost edit or left the Project
+  is told, once anything had gone, that it went and was recorded
+  (`errors.ts::accessLostWhilePublishing`, Copy, still a not-found), and gets the not-found where
+  nothing had.
+  Provisioning workers answers the same way before any account, and after one answers
+  `app_not_available` with the accounts made and their passwords (Copy).
+- An ending serializes with the admission on the deployment row, and a claim on the advisory lock,
+  so either the admission committed first and the grant sees its row, or the ending committed first
+  and the admission finds no mapping. Stop publishing stays instant; a bring-in of a just-stopped HQ
+  app answers "try again in a few minutes" (part 12).
+- Grace: a write HQ answered settles at once; an import or a workbook whose answer never reached
+  Nova (no answer, or the deadline: `remoteWrites.ts::hqAnsweredWrite` decides over every cause a
+  failure can carry, so a cause added later is a decision there, and a list read's `moved` is an
+  answer) stays open five minutes after Nova stopped waiting; a media bundle HQ accepted stays open with
+  its job id for the hour HQ keeps its status, and a bring-in polls it by that id.
+- The create HQ answered while an ending committed, whose record the fence refuses, is recorded as a
+  superseded mapping dated the publish's start (`recordOrphanedRemoteApp`, on the create's
+  admission), so the ending stays the latest and the left-behind report names that app.
+- A Project move refuses while the app has an open write.
+
+What no admission closes is CommCare HQ's: a write whose answer never arrived can still be applied
+after its grace, a media job runs when HQ's queue reaches it, and the former publisher's own key
+writes to HQ directly. Each is a save, so the new holder's next read detects it through the save
+counter and its drift check (section 6); it is detected, never prevented.
+
+**What the fence cannot close.** A publish already running on the previous revision when the deploy
+lands knows no `endings`. The previous revision's record throws on the state `ended`
+(`toDeploymentRecord` reads no such state), so it can record its mapping only once a new-revision
+publish has moved the state on; and for one deploy's drain the previous revision admits nothing in
+`hq_remote_writes`. The window is that drain, and the remedy is to stop the deployment again.
 
 ### 8.6 What every reader does with an ended deployment
 
 | Reader | What it does | Change |
 |---|---|---|
 | Preview's project space (`readDeploymentPreviewRecords`, `resolvePreviewDeploymentTarget`) | `ended` does not display as `uploaded`, so the project space is not named; the ending's notify re-resolves open tabs | none for an ending. For 5.3's released mapping on a live app, whose state still displays as `uploaded`, `readDeploymentPreviewRecords` gains one filter: `NOT EXISTS` a live `app` mapping of the deployment with `released_at IS NOT NULL` |
-| `.ccz` (`readReachedDeploymentTargets`, `chooseDownloadTarget`) | no live mapping, so it is not a target; `unknownProjectSpace`'s sentence is true as written | none |
+| `.ccz` (`readReachedDeploymentTargets`, `chooseDownloadTarget`) | no live mapping, so it is not a target; `unknownProjectSpace`'s sentence is true as written. A download in flight when the ending commits is made wholly from before it, its target, ids, paths, prefixes and facts read in one snapshot, never the old HQ app with derived ids | none |
 | the HQ app file's attachment links | as the `.ccz`: not a reached target | none |
 | deep links (`getEntryPointLink`) | no manifest and no published app: "Publish this app again before creating a link." | none |
 | Check status (`refreshDeployment`) | where `deploymentEnding` is not null, says the publishing stopped, in place of "hasn't reached". Where the live `app` mapping is released (5.3), asks CommCare HQ nothing and writes nothing, and says another Nova app publishes there now; the card (`DeploymentStatus.tsx`) offers no Check status on such a mapping, since every press could only refuse | two sentences (Copy) |
@@ -2473,6 +2712,22 @@ CREATE TABLE IF NOT EXISTS app_deployment_keyed_case_ids (
 		~ '^nova-case-v1:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:$')
 );
 
+-- 11b'. The word each kept case list column's field holds on one screen, where it is not the
+--       word Nova writes (section 3.1): case_name, date_opened or external-id, which HQ's build
+--       reads as name, date-opened and external_id do (detail_screen.py::CASE_PROPERTY_MAP).
+CREATE TABLE IF NOT EXISTS app_deployment_column_field_words (
+	deployment_id uuid NOT NULL REFERENCES app_deployments(id) ON DELETE CASCADE,
+	nova_column_uuid uuid NOT NULL,
+	screen text NOT NULL,
+	field_word text NOT NULL,
+	recorded_at timestamptz(3) NOT NULL DEFAULT now(),
+	PRIMARY KEY (deployment_id, nova_column_uuid, screen),
+	CONSTRAINT app_deployment_column_field_words_screen
+		CHECK (screen IN ('short', 'long')),
+	CONSTRAINT app_deployment_column_field_words_word
+		CHECK (field_word IN ('case_name', 'date_opened', 'external-id'))
+);
+
 -- 12. Hand the batch back as it was found.
 SET LOCAL lock_timeout = 0;
 ```
@@ -2490,6 +2745,10 @@ type that is not blank and fits CommCare HQ's column, and a prefix in the one sh
 `nova-case-v1:`, a lowercase version-5 UUID and a colon (50 code units,
 `AUTHORED_CASE_ID_PREFIX_LENGTH`). That floor binds the reader too: a prefix the reader holds as
 a keyed create must be in that shape, or the birth's insert of its row is refused.
+
+Statement 11b' is the table section 3.1 records the column field words in, written and never
+changed as 11b's rows are. Its CHECK holds a word to the three Nova does not write, so a row of
+Nova's own word, which the record never holds, is refused.
 
 In the TypeScript source each backslash of the path CHECK is doubled inside the `sql` template. The
 guard's message names no script: a migration is immutable once applied, and
@@ -2666,10 +2925,18 @@ publishes to more than one server. In the one-space text the entry stands where 
 | `stopPublishing`, not permitted (`not_permitted`) | "Only an admin or owner of this Project can stop publishing here. You can ask one of them to." |
 | `stopPublishing`, nothing to stop (`invalid`) | "Nova isn't publishing this app to “{domain}”, so there's nothing to stop." |
 | `publishing_stopped`, nothing sent | "Someone stopped publishing this app to “{domain}” while Nova was getting this publish ready, so nothing was sent. Publishing again makes a new app there." |
-| `publishing_stopped`, something sent | "Someone stopped publishing this app to “{domain}” while this publish was running. CommCare HQ may hold what this publish had already sent, and Nova keeps no record of it. Publishing again makes a new app there." |
+| `publishing_stopped`, something sent | "Someone stopped publishing this app to “{domain}” while this publish was running. CommCare HQ may hold part of what this publish had already sent there. Publishing again makes a new app there." |
+| a landed publish whose app was deleted, or whose publisher lost edit, before its media went (`MEDIA_NOT_SENT_AFTER_ACCESS_WARNING`, `lib/deployment/remoteChanges.ts`) | "This app was deleted, or you can no longer edit it, right after it landed, so Nova didn't send its pictures and sounds. Once you can edit it again, publishing again sends them." |
 | `refreshDeployment` and `refreshKeptValues`, ended (`invalid`) | "Nova stopped publishing this app to “{domain}”, so there's nothing there for it to check on. Publishing there again makes a new app." |
 | `refreshDeployment`, the live `app` mapping released (`invalid`) | "Another Nova app publishes to this app's CommCare HQ app in “{domain}” now, so Nova has nothing to check there for this one. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise." |
 | `provisionWorkers`, ended (`app_not_published`) | "Nova stopped publishing this app to “{domain}”, so there's no app there for a worker to sign in to. You can publish it there again and then add workers." |
+| a deployment read of an app in recently deleted, to a member allowed the read (`DeploymentAppDeletedError`, `errors.ts::APP_DELETED_READ`) | "This app was deleted, so Nova can't show where it's published. You can restore it from Recently deleted in your apps." |
+| a deployment write to an app in recently deleted, to a member allowed the write (`DeploymentAppDeletedError`, `errors.ts::APP_DELETED_WRITE`) | "This app was deleted, so Nova changed nothing about where it's published. You can restore it from Recently deleted in your apps." |
+| a publish whose app was deleted while it ran, nothing sent (`errors.ts::appDeletedWhilePublishing`) | "This app was deleted while Nova was getting it ready to publish to “{domain}”, so nothing was sent. You can restore it from Recently deleted in your apps and publish again." |
+| a publish whose app was deleted while it ran, something sent | "This app was deleted while it was being published to “{domain}”, so Nova stopped. CommCare HQ may hold part of what was already sent there, and Nova kept a record of it. You can restore the app from Recently deleted in your apps and publish again." |
+| a publish whose publisher could no longer publish the app (left its Project, or lost edit) once something had gone (`errors.ts::accessLostWhilePublishing`) | "Nova stopped publishing this app to “{domain}” because you can no longer publish it. CommCare HQ may hold part of what was already sent there, and Nova kept a record of it. Someone who can edit the app can publish it again." |
+| `provisionWorkers`, the app deleted before any account | "This app was deleted, so Nova made no workers' accounts on “{domain}”. You can restore it from Recently deleted in your apps." |
+| `provisionWorkers`, the app deleted after an account (`app_not_available`) | "This app was deleted while Nova was making workers' accounts on “{domain}”, so it made no more. The accounts it made are listed here with their passwords, and Nova kept a record of them. You can restore the app from Recently deleted in your apps." |
 | `recordAdoptedDeploymentInTransaction`, the app row is not the born app (thrown, never shown to a person) | "Nova tried to record where app {appId} came from and found no such app in Project {projectId}. The app's birth and its deployment are written together, so this is Nova's fault to fix: check the order of the creation transaction." |
 | `assignMediaPaths`, a path outside `jr://file/` (thrown, never shown) | "Nova was given the media path “{path}” to keep, and it doesn't start with jr://file/. CommCare HQ can't build an app with such a path, so the reader should have reported this file before the app was created." |
 | `matchingResolver`, a key or UUID twice (thrown) | "Nova was given an identity map that names {what} twice (entries {first} and {second}). A map holds each key and each UUID once, so whatever built this map has a mistake to fix." `{what}` is "the key " and `externalKeyText(key)`, or "the UUID " and the UUID; `{first}` and `{second}` are the two entries' positions in `known`, counted from 0 |
@@ -2721,7 +2988,9 @@ Each line names the failure it would catch.
   version string or name layout). Equal parts under two kinds give two UUIDs. Every minted UUID parses
   with `uuidSchema` and has version 5. `EXTERNAL_ENTITY_KINDS` and `KINDS_WITH_NO_EXTERNAL_KEY`
   partition `BLUEPRINT_AUTHORED_IDENTITY_KINDS` (a new identity kind nobody classified). A second
-  claim of one key answers `ok: false` with the first place and mints nothing. `matchingResolver`
+  claim of one key answers `ok: false` with the first place and mints nothing, and claims opened
+  again under one resolver start with nothing taken (a resolver that keeps a reading's claims).
+  `matchingResolver`
   answers a known key with its UUID, mints an unknown one, and throws on a map with a key or a UUID
   twice.
 - `lib/commcare/reader/__tests__/identityMap.test.ts`. Over the document arbitraries
@@ -2892,7 +3161,10 @@ Each line names the failure it would catch.
   `not_found`); after it the state is `ended`, `endings` is 1, the mapping is superseded with the
   person and `stopped`, no identity or media-path row remains, the baseline and the confirmations
   remain, the claim is free, and `previewProjectSpaceFor` no longer names the project space. A second
-  call answers "nothing to stop". Each fenced writer, called with the count read before the ending,
+  stop naming the same HQ app answers the stopped deployment with `endings` unchanged, also after a
+  publish recorded a new HQ app there, whose mapping stays live; a stop naming an HQ app the
+  deployment does not publish to is refused `stale` with nothing changed; "nothing to stop" stays
+  only for a deployment with no `app` mapping at all. Each fenced writer, called with the count read before the ending,
   throws `DeploymentEndedError` and writes nothing (`recordRefreshedAppBaseline` among them), and
   `finishDeploymentContentWrite` answers false; a fold that carries the count after the ending
   passes, and the ending still stands. A released mapping on a live app is not named by Preview

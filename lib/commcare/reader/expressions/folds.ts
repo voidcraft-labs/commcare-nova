@@ -47,6 +47,8 @@ import { organizationLevelsOf } from "@/lib/domain/organization";
 import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
 import { caseTypeHopMap } from "../../caseTypeDepths";
+import { type SourceTable, tableOf } from "../../sourceKeys";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FoldApi } from "../../xpath/formParseScope";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { formUserProperty } from "../../xpath/referenceBindings";
@@ -366,14 +368,14 @@ export function rowProperty(step: PathStep | undefined): string | undefined {
 	return step.name;
 }
 
-const COMPARISONS: Readonly<Record<string, ComparisonKind>> = {
+const COMPARISONS: SourceTable<ComparisonKind> = tableOf({
 	"=": "eq",
 	"!=": "neq",
 	">": "gt",
 	">=": "gte",
 	"<": "lt",
 	"<=": "lte",
-};
+});
 const ORDERINGS: ReadonlySet<string> = new Set([">", ">=", "<", "<="]);
 
 /** A record literal typed by its own shape, where it stands against a date
@@ -584,7 +586,7 @@ const typedLiteral: Fold = {
 	propose(node, context, api, env) {
 		const whole = slotLiteral(node, context, api, env);
 		if (whole !== undefined) return whole;
-		const test = binary(node, Object.keys(COMPARISONS));
+		const test = binary(node, [...COMPARISONS.keys()]);
 		if (test === undefined) return undefined;
 		const leftText = stringValue(test.left);
 		const rightText = stringValue(test.right);
@@ -601,7 +603,7 @@ const typedLiteral: Fold = {
 		const literal = shapedLiteral(text, other, context, ordering);
 		if (literal.data_type === undefined && literal.value !== null)
 			return undefined;
-		const kind = COMPARISONS[test.op] as ComparisonKind;
+		const kind = COMPARISONS.get(test.op) as ComparisonKind;
 		const typed = api.term(
 			literal,
 			literalSide === "left" ? test.left : test.right,
@@ -640,7 +642,8 @@ function typedBranchLiterals(
 		let type: string | undefined;
 		try {
 			type = scalarDataType(typeOf(branch.bound, context)?.data);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			continue;
 		}
 		if (type === "date" || type === "datetime") typed.add(type);
@@ -670,14 +673,15 @@ function typedBranchesCompared(
 	let type: string | undefined;
 	try {
 		type = scalarDataType(typeOf(other, context)?.data);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 	if (type !== "date" && type !== "datetime") return undefined;
 	const bound = api.bind(branchSide, context);
 	const typed = retypedBranch(branchSide, bound, new Set([type]), api);
 	if (typed === bound) return undefined;
-	const kind = COMPARISONS[test.op] as ComparisonKind;
+	const kind = COMPARISONS.get(test.op) as ComparisonKind;
 	return api.remember(
 		leftGives
 			? { kind, left: typed, right: other }
@@ -873,7 +877,8 @@ const blankBranch: Fold = {
 				return untextualType(
 					scalarDataType(typeOf(bound[at] as Expression, context)?.data),
 				);
-			} catch {
+			} catch (error) {
+				rethrowWorkStop(error);
 				return false;
 			}
 		});
@@ -999,7 +1004,8 @@ function choseElsewhere(
 	let start: Term | undefined;
 	try {
 		start = termOf(env.bindPlain(datum, context));
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return false;
 	}
 	return (
@@ -1770,7 +1776,7 @@ const instantComparison: Fold = {
 	id: "instant-comparison",
 	ruleSets: ["form", "record"],
 	propose(node, context, api) {
-		const test = binary(node, Object.keys(COMPARISONS));
+		const test = binary(node, [...COMPARISONS.keys()]);
 		if (test === undefined) return undefined;
 		const leftText = instantParseOperand(test.left);
 		const rightText = instantParseOperand(test.right);
@@ -1804,7 +1810,7 @@ const instantComparison: Fold = {
 		const right = side(test.right, rightText);
 		if (left === undefined || right === undefined) return undefined;
 		return api.remember(
-			{ kind: COMPARISONS[test.op] as ComparisonKind, left, right },
+			{ kind: COMPARISONS.get(test.op) as ComparisonKind, left, right },
 			node,
 		);
 	},
@@ -2007,7 +2013,7 @@ const datetimeValue: Fold = {
 	propose(node, context, api) {
 		// In a comparison by day a device holds a system date as a day, and
 		// the emitter writes the other side's `datetime-coerce` as `date(V)`.
-		const test = binary(node, Object.keys(COMPARISONS));
+		const test = binary(node, [...COMPARISONS.keys()]);
 		if (test !== undefined) {
 			const leftDay = call(test.left, "date", 1);
 			const rightDay = call(test.right, "date", 1);
@@ -2026,7 +2032,7 @@ const datetimeValue: Fold = {
 			// text it is (`temporalLiterals.ts`).
 			const value = api.bind(day.args[0] as FormSyntax, context);
 			const coerced = api.remember({ kind: "datetime-coerce", value }, day);
-			const kind = COMPARISONS[test.op] as ComparisonKind;
+			const kind = COMPARISONS.get(test.op) as ComparisonKind;
 			return api.remember(
 				rightDay !== undefined
 					? { kind, left: other, right: coerced }
@@ -2912,7 +2918,8 @@ function presenceProposal(
 		});
 		via = typed.via;
 		destination ??= typed.destinationCaseType;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 	const bound =

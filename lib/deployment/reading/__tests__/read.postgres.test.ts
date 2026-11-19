@@ -107,9 +107,9 @@ const PATHS = {
 	source: `/a/${DOMAIN}/apps/source/${APP}/`,
 	version: `/a/${DOMAIN}/apps/view/${APP}/current_version/`,
 	list: `/a/${DOMAIN}/apps/api/list_apps/`,
-	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`,
+	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`,
 	levels: `/a/${DOMAIN}/api/location_type/v1/?limit=1000`,
-	places: `/a/${DOMAIN}/api/location/v2/?limit=1000`,
+	places: `/a/${DOMAIN}/api/location/v2/?limit=5000`,
 	spaces: "/api/user_domains/v1/?limit=100",
 	flagged: `/api/user_domains/v1/?limit=100&feature_flag=${hqPrivateFeatureFlag("save-only-edited-answers").slug}`,
 	media: (id: string) => `/hq/multimedia/file/CommCareImage/${id}/`,
@@ -559,8 +559,9 @@ describe("readHqAppForReview", () => {
 				key: { domain: "another-space" },
 			},
 			{
+				/* Nova's claims are advice asked only once CommCare HQ answered with the app. */
 				code: "already-in-nova",
-				serving: () => {},
+				serving: (peer) => serveApp(peer, { tables: false }),
 				before: async () => {
 					await birthAdoptedApp(h, {
 						appId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
@@ -830,7 +831,7 @@ describe("readHqAppForReview", () => {
 					serveLevels(peer);
 					servePlaces(peer, [hqPlace("north", "region", null)], {
 						total_count: 10_001,
-						next: `/a/${DOMAIN}/api/location/v2/?limit=1000&offset=1000`,
+						next: `/a/${DOMAIN}/api/location/v2/?limit=5000&offset=1000`,
 					});
 				},
 			},
@@ -960,18 +961,138 @@ describe("readHqAppForReview", () => {
 		});
 
 		it("drives every code a read can raise, here or where its source is built", () => {
-			/* Three codes are driven where their source is built: a source one byte over the
-			 * bound in cap.test.ts, and below, an app saved twice during the read and a menu
+			/* Six codes are driven where their source is built: a source one byte over the
+			 * bound in cap.test.ts, a reading past its work limit in the reader's
+			 * readWorkMeter.test.ts, a process with no room for one more bring-in in
+			 * room.test.ts, tables whose rows together pass the request's bound in
+			 * lookupTableBudget.test.ts, and below, an app saved twice during the read and a menu
 			 * CommCare HQ could not summarize beside the form's own finding. A new code with no
 			 * case fails here. */
 			const elsewhere: readonly ReadCircumstance[] = [
 				"too-large",
+				"too-intricate",
+				"nova-busy",
+				"lookup-data-too-large",
 				"changed-while-reading",
 				"menu-unreadable-in-hq",
 			];
 			const driven = new Set([...cases.map(({ code }) => code), ...elsewhere]);
 			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(
 				[],
+			);
+		});
+	});
+
+	describe("who holds the app in Nova, told only on CommCare HQ's answer", () => {
+		const HOLDER = "bring-in-other-owner";
+		/** A live Nova app of a Project the reader is not in holds the HQ app. */
+		const heldElsewhere = async () => {
+			await h.seedProjectMember(HOLDER, OTHER_PROJECT, "owner");
+			await birthAdoptedApp(h, {
+				appId: "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+				projectId: OTHER_PROJECT,
+				actorUserId: HOLDER,
+				target: { server: "india", domain: DOMAIN },
+				remoteAppId: APP,
+			});
+		};
+		const refusals: readonly {
+			readonly name: string;
+			readonly serving: (peer: MockAgent) => void;
+		}[] = [
+			{
+				name: "a key CommCare HQ no longer accepts",
+				serving: (peer) =>
+					serve(peer, PATHS.application, {
+						status: 401,
+						headers: { "Content-Type": "application/json" },
+						body: "{}",
+					}),
+			},
+			{
+				name: "an account no longer a member of the project space",
+				serving: (peer) => {
+					serve(
+						peer,
+						PATHS.application,
+						retainedReadingRead("application-no-permission"),
+					);
+					serve(
+						peer,
+						PATHS.list,
+						retainedReadingRead("application-no-permission"),
+					);
+				},
+			},
+			{
+				name: "an app the project space no longer holds",
+				serving: (peer) => {
+					serve(peer, PATHS.application, {
+						status: 404,
+						headers: { "Content-Type": "application/json" },
+						body: "{}",
+					});
+					serve(
+						peer,
+						PATHS.list,
+						changed(retainedReadingRead("list-apps"), (body) => ({
+							...body,
+							applications: [],
+						})),
+					);
+					serve(peer, PATHS.source, {
+						status: 404,
+						headers: { "Content-Type": "application/json" },
+						body: "{}",
+					});
+				},
+			},
+			{
+				name: "an account that can't edit apps",
+				serving: (peer) => {
+					serve(peer, PATHS.application, application());
+					serve(
+						peer,
+						PATHS.source,
+						retainedReadingRead("application-no-permission"),
+					);
+				},
+			},
+		];
+
+		it.each(refusals)(
+			"answers $name the same for a held app as for a free one, naming no holder",
+			async ({ serving }) => {
+				const free = await read(serving);
+				await heldElsewhere();
+				const held = await read(serving);
+				expect(held.answer).toEqual(free.answer);
+				expect(held.requests).toEqual(free.requests);
+				expect(held.answer.kind).toBe("stop");
+				expect(JSON.stringify(held.answer)).not.toContain("claim");
+			},
+		);
+
+		it("names the holder once CommCare HQ answers with the app, before reading anything else", async () => {
+			await heldElsewhere();
+			const { answer, requests } = await read((peer) =>
+				serveApp(peer, { tables: false }),
+			);
+			expect(answer).toMatchObject({
+				kind: "stop",
+				finding: {
+					code: "already-in-nova",
+					detail: {
+						claim: {
+							kind: "elsewhere",
+							contact: { role: "person", names: [expect.any(String)] },
+						},
+					},
+				},
+			});
+			/* The bracketed read and nothing after it: no table, place or file. */
+			expect([...requests].sort()).toEqual(
+				[PATHS.application, PATHS.source, PATHS.version].sort(),
 			);
 		});
 	});

@@ -115,14 +115,28 @@ export function ManagedTableBanner({
 		}
 	};
 
-	/** The confirmations' action: `null` once the change landed, else its refusal. */
+	/**
+	 * The confirmations' action: `null` once the change landed, else its
+	 * refusal. It sends the review digest of the view the dialog shows, so the
+	 * change is made only over the table and the apps the person read; where
+	 * either moved, the view is read again and the dialog shows how it stands
+	 * now beside the refusal.
+	 */
 	const change =
 		(
-			run: (projectId: string, tableId: string) => Promise<ManagedTableOutcome>,
+			run: (
+				projectId: string,
+				tableId: string,
+				reviewDigest: string,
+			) => Promise<ManagedTableOutcome>,
+			reviewDigest: string,
 		) =>
 		async (): Promise<string | null> => {
-			const answer = await run(table.projectId, table.id);
-			if (!answer.ok) return answer.message;
+			const answer = await run(table.projectId, table.id, reviewDigest);
+			if (!answer.ok) {
+				if (answer.reason === "review-moved") await view.reload();
+				return answer.message;
+			}
 			setDialog(null);
 			await settle(answer);
 			return null;
@@ -304,7 +318,7 @@ export function ManagedTableBanner({
 					domain={hq.domain}
 					apps={loaded.apps}
 					onCancel={() => setDialog(null)}
-					onConfirm={change(manageLookupTableInNovaAction)}
+					onConfirm={change(manageLookupTableInNovaAction, loaded.reviewDigest)}
 				/>
 			)}
 			{loaded !== null && dialog === "hand-back" && (
@@ -312,12 +326,10 @@ export function ManagedTableBanner({
 					open
 					tableName={table.name}
 					domain={hq.domain}
-					typedColumns={table.columns
-						.filter((column) => column.dataType !== "text")
-						.map((column) => column.label)}
+					typedColumns={loaded.typedColumns}
 					apps={loaded.apps}
 					onCancel={() => setDialog(null)}
-					onConfirm={change(letHqManageLookupTableAction)}
+					onConfirm={change(letHqManageLookupTableAction, loaded.reviewDigest)}
 				/>
 			)}
 		</aside>

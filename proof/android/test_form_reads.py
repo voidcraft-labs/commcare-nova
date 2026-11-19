@@ -33,6 +33,12 @@ HQ's receiver; ``sent`` holds each instance it sent, as Android wrote it.
   as Android renders labels the same way (``lib/preview/platform.ts``,
   ``labelMarkdown``); the test asserts what the device drew, so a change in
   Android's rendering fails here before Preview's reading goes stale.
+- A label's value is formatted with the label: ``targeted-styled-value``'s
+  question is labelled ``Styled `` then a Hidden Value calculated as
+  ``'**x**'``, which Core splices into the label's markdown form as written
+  (``FormDef.fillTemplateString``) before Markwon draws it, so the screen
+  shows ``Styled x`` with the value in bold and no asterisk, the order
+  Preview plays (``lib/preview/engine/labelRefs.ts``).
 - A label with no markdown form shows its text as written: Android draws a
   label's markdown only where its text holds that form
   (``QuestionWidget.java::setTextFromPrompt``, ``setChoiceText``), so in
@@ -64,7 +70,8 @@ to another id than the create block's after a reopen (an id drawn again); a
 title or saved name in the source language, or a header that moved with the
 title; a count Android reads as the row's own node (so the validation
 never holds) or as no row; and a label written with no markdown form that
-Android formats all the same, or a markdown form it stops reading; a help text written with no markdown form that
+Android formats all the same, or a markdown form it stops reading; a value spliced into a label after its
+formatting, so its asterisks show; a help text written with no markdown form that
 Android formats all the same, or one with a markdown form that it shows as typed; and a number keypad that drops a
 sign out of place, a second period or a space, which Preview's Android rule would then keep where a phone does not.
 """
@@ -81,6 +88,12 @@ pytestmark = pytest.mark.reader("android")
 
 REGISTRATION = "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0"
 RENDERS = "targeted-preview-android-renders"
+STYLED = "targeted-styled-value"
+# The label of ``targeted-styled-value``'s question: ``Styled `` then a Hidden Value calculated as ``'**x**'``
+# (``proof/targeted/documents/styledValue.ts::STYLED_LABEL_LEAD``, ``STYLED_VALUE``), as Core splices it, and as
+# Markwon draws it once spliced.
+STYLED_SPLICED = "Styled **x**"
+STYLED_DRAWN = "Styled x"
 PLAIN = "targeted-plain-labels"
 PLAIN_HELP = "targeted-plain-help"
 # The text each help, label and choice of ``targeted-plain-help`` holds
@@ -242,6 +255,20 @@ def test_a_markdown_label_renders_as_markwon_renders_it(android_documents, hq):
         if text.startswith("a") and "c" in text
     ]
     assert " ".join(label.split()) == "a b x c", label
+
+
+def test_a_labels_value_is_formatted_with_the_label(android_documents, hq):
+    """The survey "Styles" asks "Seen", labelled ``Styled `` then the value of a Hidden Value calculated as
+    ``'**x**'``. Core splices the value into the label's markdown form as written
+    (``FormEntryCaption.getSpecialFormQuestionText``, ``FormDef.fillTemplateString``), and Android formats the label
+    after that, so the question's screen shows ``Styled x``, the asterisks drawn as bold, and never the asterisks:
+    the order Preview plays (``lib/preview/engine/labelRefs.ts``), a value substituted and then formatted."""
+    with _served(android_documents[STYLED]) as (served, archive):
+        answer, _ = _app(served, archive, "styled", commands=[FORM], views=True)
+
+    (form,) = _forms(answer["walks"][FORM])
+    shown = _shown(form, "/data/seen[1]")
+    assert STYLED_DRAWN in shown and STYLED_SPLICED not in shown, shown
 
 
 def _shown(form, reference):

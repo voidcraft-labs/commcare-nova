@@ -35,6 +35,7 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
+import { NO_ENTRIES } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -49,6 +50,7 @@ import {
 	hqEntryFacts,
 } from "../../hq/entryFacts";
 import { planPlacements } from "../../placement";
+import { rethrowWorkStop } from "../../workMeter";
 import {
 	type GeneratedNodePurpose,
 	generatedBaseName,
@@ -59,7 +61,12 @@ import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { externalKey } from "../identity";
-import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
+import {
+	isJsonObject,
+	type JsonCursor,
+	objectMembers,
+	sameJson,
+} from "../jsonCursor";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { holdsWorkerRecordWrite } from "../worldEntities";
@@ -666,8 +673,8 @@ function tagFinding(tag: unknown, open: boolean): Claim<"refuse"> | undefined {
  *  the product headed "Product", and an empty long detail. */
 function defaultProductDetails(value: unknown): boolean {
 	if (!isJsonObject(value)) return true;
-	const short = isJsonObject(value.short) ? value.short : {};
-	const long = isJsonObject(value.long) ? value.long : {};
+	const short = isJsonObject(value.short) ? value.short : NO_ENTRIES;
+	const long = isJsonObject(value.long) ? value.long : NO_ENTRIES;
 	const columns = Array.isArray(short.columns) ? short.columns : [];
 	const longColumns = Array.isArray(long.columns) ? long.columns : [];
 	if (columns.length !== 1 || longColumns.length > 0) return false;
@@ -772,7 +779,8 @@ function loadDatumRenamed(
 	let ids: readonly string[];
 	try {
 		ids = datumIdsFromFacts(own, facts);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return false;
 	}
 	return !ids.includes(`case_id_${tag}`);
@@ -1107,7 +1115,7 @@ function mint(
 	n: number,
 ): Uuid | undefined {
 	return r.ctx.accounting.identity(
-		r.ctx.resolver.claim(
+		r.ctx.identities.claim(
 			externalKey.caseOperation(r.form.xmlns, ["advanced", tag], action, n),
 			whereText(r.form.place),
 		),
@@ -1146,7 +1154,7 @@ export function readAdvancedActions(
 		json.refuse("arbitrary_datums", ADVANCED_CLAIMS.arbitraryDatums);
 
 	const stored = json.peek("actions");
-	const actions = isJsonObject(stored) ? stored : {};
+	const actions = isJsonObject(stored) ? stored : NO_ENTRIES;
 	const A = json.object(
 		"actions",
 		"AdvancedFormActions",
@@ -1232,6 +1240,24 @@ export function readAdvancedActions(
 		if (isJsonObject(load) && typeof load.case_tag === "string")
 			loadTags.set(load.case_tag, i);
 	});
+	/** Where each tag is first stored among the loads, so the tags stored before a load are one
+	 *  lookup, never a copy of the loads before it. */
+	const firstTagAt = new Map<string, number>();
+	storedLoads.forEach((load, i) => {
+		if (
+			isJsonObject(load) &&
+			typeof load.case_tag === "string" &&
+			!firstTagAt.has(load.case_tag)
+		)
+			firstTagAt.set(load.case_tag, i);
+	});
+	const tagsBefore = (i: number): Pick<ReadonlySet<string>, "has"> => ({
+		has: (tag) => (firstTagAt.get(tag) ?? i) < i,
+	});
+	/** Each chosen load's place among the chosen loads, by its place among the loads. */
+	const chosenPosition = new Map(
+		chosenIndexes.map((index, position) => [index, position]),
+	);
 	const openTags = new Map<string, number>();
 	storedOpens.forEach((open, j) => {
 		if (isJsonObject(open) && typeof open.case_tag === "string")
@@ -1251,16 +1277,8 @@ export function readAdvancedActions(
 	const readLoad = (L: JsonCursor, i: number): void => {
 		const load = storedLoads[i] as Record<string, unknown>;
 		if (load.auto_select !== null && load.auto_select !== undefined) {
-			const before = ctx.accounting.findings().length;
-			const earlierTags = new Set(
-				storedLoads
-					.slice(0, i)
-					.flatMap((one) =>
-						isJsonObject(one) && typeof one.case_tag === "string"
-							? [one.case_tag]
-							: [],
-					),
-			);
+			const before = ctx.accounting.findingCount();
+			const earlierTags = tagsBefore(i);
 			const read = readAutoSelectLoad(
 				r,
 				L,
@@ -1272,13 +1290,13 @@ export function readAdvancedActions(
 			);
 			if (read !== undefined) worker = read;
 			else {
-				const refusal = ctx.accounting.findings()[before];
+				const refusal = ctx.accounting.findingRaised(before);
 				if (refusal !== undefined && typeof load.case_tag === "string")
 					refusedAutoLoads.set(load.case_tag, refusal);
 			}
 			return;
 		}
-		const position = chosenIndexes.indexOf(i);
+		const position = chosenPosition.get(i) ?? -1;
 		const last = position === chosenIndexes.length - 1;
 		const tag = load.case_tag;
 		const tagClaim = tagFinding(tag, false);
@@ -1339,7 +1357,7 @@ export function readAdvancedActions(
 				),
 			);
 		// The index: none on the first, the tag of the load before on each later one.
-		const index = isJsonObject(load.case_index) ? load.case_index : {};
+		const index = isJsonObject(load.case_index) ? load.case_index : NO_ENTRIES;
 		const indexTag = typeof index.tag === "string" ? index.tag : "";
 		let indexRead: StoredLoad["index"];
 		const refusedParent = refusedAutoLoads.get(indexTag);
@@ -1459,7 +1477,7 @@ export function readAdvancedActions(
 					| Record<string, unknown>
 					| undefined;
 				return chainIndexName(
-					isJsonObject(stored?.case_index) ? stored.case_index : {},
+					isJsonObject(stored?.case_index) ? stored.case_index : NO_ENTRIES,
 				);
 			});
 		readLoadPreloads(r, L, load, caseType as string, indexed, hops);
@@ -1572,13 +1590,13 @@ export function readAdvancedActions(
 		}
 	};
 	loadCursors.forEach((L, i) => {
-		const before = ctx.accounting.findings().length;
+		const before = ctx.accounting.findingCount();
 		readLoad(L, i);
 		const load = storedLoads[i];
 		const chosen =
 			isJsonObject(load) &&
 			(load.auto_select === null || load.auto_select === undefined);
-		const refusal = ctx.accounting.findings()[before];
+		const refusal = ctx.accounting.findingRaised(before);
 		if (chosen && !loadUuids.has(i) && refusal !== undefined)
 			refusedChosenLoads.set(i, refusal);
 	});
@@ -2107,12 +2125,12 @@ function readAutoSelectLoad(
 	r: Reading,
 	L: JsonCursor,
 	load: Readonly<Record<string, unknown>>,
-	earlierTags: ReadonlySet<string>,
+	earlierTags: Pick<ReadonlySet<string>, "has">,
 	operations: AdvancedProposal[],
 	operationId: (type: string) => string,
 	ordinal: (tag: string, action: string) => number,
 ): StoredLoad | undefined {
-	const auto = isJsonObject(load.auto_select) ? load.auto_select : {};
+	const auto = isJsonObject(load.auto_select) ? load.auto_select : NO_ENTRIES;
 	const mode = auto.mode;
 	const C = ADVANCED_CLAIMS;
 	if (
@@ -2184,7 +2202,7 @@ function readAutoSelectLoad(
 	}
 	// The index: none on an auto-selected load. HQ's page stores one with a blank tag, which
 	// indexes nothing (`advanced/actions.js`, `case_index.tag('')`).
-	const index = isJsonObject(load.case_index) ? load.case_index : {};
+	const index = isJsonObject(load.case_index) ? load.case_index : NO_ENTRIES;
 	// Each refusal below reads the load no further, so the load stands under
 	// it whole: one cause, one finding, no key of it left unclaimed.
 	if (typeof index.tag === "string" && index.tag !== "") {
@@ -2287,7 +2305,7 @@ function readLoadPreloads(
 	indexed: boolean,
 	hops: readonly string[],
 ): void {
-	const preload = isJsonObject(load.preload) ? load.preload : {};
+	const preload = isJsonObject(load.preload) ? load.preload : NO_ENTRIES;
 	if (Object.keys(preload).length === 0) return;
 	// HQ's build refuses the form for a property its validator refuses
 	// (`LoadUpdateAction.get_property_names` → `check_case_properties`).
@@ -2769,7 +2787,7 @@ export function judgeLoads(
 type JsonObject = Readonly<Record<string, unknown>>;
 
 function object(value: unknown): JsonObject {
-	return isJsonObject(value) ? value : {};
+	return isJsonObject(value) ? value : NO_ENTRIES;
 }
 
 /** A question path of `form`, mapped through each generated node to the
@@ -3041,7 +3059,8 @@ export function settleAdvancedForm(
 			identity: inputs.identity,
 			attachmentTarget: inputs.attachmentTarget,
 		});
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		// The planner throws only over a draft the reader built wrong: the reader's own defect,
 		// behind the finding at the form's actions.
 		ctx.accounting.defect(
@@ -3192,19 +3211,14 @@ function parentIndexAgainst(
 	parentType: string,
 ): string | undefined {
 	if (!isJsonObject(actions)) return undefined;
-	const loads = Array.isArray(actions.load_update_cases)
-		? actions.load_update_cases.filter(isJsonObject)
-		: [];
-	const opens = Array.isArray(actions.open_cases)
-		? actions.open_cases.filter(isJsonObject)
-		: [];
+	const loads = objectMembers(actions.load_update_cases) ?? [];
+	const opens = objectMembers(actions.open_cases) ?? [];
 	const typeOfTag = new Map<unknown, unknown>(
 		[...loads, ...opens].map((action) => [action.case_tag, action.case_type]),
 	);
 	for (const open of opens) {
-		if (open.case_type !== childType || !Array.isArray(open.case_indices))
-			continue;
-		for (const index of open.case_indices.filter(isJsonObject)) {
+		if (open.case_type !== childType) continue;
+		for (const index of objectMembers(open.case_indices) ?? []) {
 			const identifier =
 				typeof index.reference_id === "string" && index.reference_id !== ""
 					? index.reference_id

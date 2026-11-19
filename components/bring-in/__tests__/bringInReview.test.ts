@@ -653,6 +653,8 @@ describe("what a create that did not create says on the review", () => {
 			no_project_access: null,
 			invalid_input: null,
 			app_unavailable: null,
+			/* The review stands while another app's publish finishes. */
+			publish_in_flight: "footer",
 		};
 		for (const [refusal, place] of Object.entries(at)) {
 			expect(reviewRefusalAt(refusal as ReadingRefusal)).toBe(place);

@@ -55,6 +55,7 @@ import {
 } from "@/lib/commcare/xform/formPath";
 import { planGeneratedNodes } from "@/lib/commcare/xform/generatedNodes";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type { AcceptanceDifference } from "./acceptance";
@@ -126,10 +127,11 @@ export function sourceApplication(
 
 function madeSourceApplication(source: HqAppSource): Record<string, unknown> {
 	const held = source.raw._attachments;
-	const attachments: Record<string, unknown> =
+	const attachments = recordFromEntries(
 		typeof held === "object" && held !== null && !Array.isArray(held)
-			? { ...(held as Record<string, unknown>) }
-			: {};
+			? Object.entries(held as Record<string, unknown>)
+			: [],
+	);
 	for (const menu of source.modules)
 		for (const form of menu.forms)
 			if (form.attachment !== null)

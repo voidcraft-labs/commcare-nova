@@ -325,8 +325,9 @@ an app came from CommCare HQ, and nothing ends a deployment.
 (`CHOICES`), checked against the saved app before a platform is added.
 
 **MCP.** `lib/mcp/server.ts::registerNovaTools` registers the account, saved-app and deployment tools
-and then every `SHARED_TOOL_REGISTRY` entry. HQ tools declare `oauthScopeChallenge(ctx, SCOPES.hqRead |
-SCOPES.hqWrite)` and call `assertScope` before any read. `check_project_space_compatibility` returns
+and then every `SHARED_TOOL_REGISTRY` entry. A tool that needs a scope beyond the floor registers
+through `lib/mcp/scopedTool.ts::registerScopedTool`, which reads its scopes from
+`lib/mcp/scopes.ts::TOOL_SCOPES`, declares the challenge and checks them before the handler runs. `check_project_space_compatibility` returns
 the compatibility report and the confirmations an upload will ask. Errors are `McpErrorPayload`s with a
 closed `error_type`. No tool lists or reads an HQ app.
 
@@ -790,9 +791,10 @@ export function chosenDeclaration(
  * What of a person's answers still applies to a review that came back. The name is kept where the
  * person had changed it from `before.appName`, and is `now.appName` otherwise. The pair
  * `(runsOnlyOn, splitDatetime)` is kept where it is still a member of `now.runsOn`, and is the
- * preselected entry's otherwise. Each table answer is kept where `now.tables` still asks a choice
- * for that tag and still offers that answer, and the tag is left unanswered otherwise. `dropped`
- * is true where a declaration or a table answer could not be kept.
+ * preselected entry's otherwise. Each table answer is kept only where the tag's entry in
+ * `now.tables` is the entry it was given against in `before.tables`, as canonical JSON, and still
+ * offers that answer (`reviewTypes.ts::keptTableChoices`), and the tag is left unanswered
+ * otherwise. `dropped` is true where a declaration or a table answer could not be kept.
  */
 export function carryAnswers(
 	previous: ReviewAnswers, before: ReadingReview, now: ReadingReview, digest: string,
@@ -821,9 +823,12 @@ export function resumableCreate(raw: string | null, key: ReadingKey, now: number
 `carryAnswers` is why a review that comes back does not ask a person the same thing twice. A
 `changed` create that carries a review, and the read after a `read-again`, each put the person in
 front of a review whose digest is new, and discarding their answers there would make them choose a
-name, a platform and each table again for a change that may have touched none of them. Where a
-choice could not be kept, the lead gains part 12's one sentence for it (its "Copy"). Across a
-reload nothing is kept (3.2).
+name, a platform and each table again for a change that may have touched none of them. A table's
+answer is kept only where that table's review entry is the same as the one it was given against
+(its standing, CommCare HQ's content, the Project table's revisions, what differs, the apps that
+read it and both offers); where the entry changed, the table is asked again, since the answer was
+consent to consequences that moved. Where a choice could not be kept, the lead gains part 12's one
+sentence for it (its "Copy"). Across a reload nothing is kept (3.2).
 
 The remaining pure functions of the file are given, with their types, where their screen uses them:
 `StopAction` and `STOP_ACTIONS` (6.2), `placeGroupKey`, `accountGroups`, `accountHeading`,
@@ -1018,7 +1023,8 @@ at the place `{ kind: "app" }`:
 3. `probeHqApiAccess(creds, domain)` (part 05, 5.2), after the list and never beside it.
    `plan-lacks-api-access` answers that stop, `account-lacks-access-apis` answers `cannot-access-apis`,
    and `failed` answers the stop for `hqReadCircumstance(failure)`. `available` goes on.
-4. `readHqAppClaims({ viewerUserId, server, domain, remoteAppIds })` (part 10, 5.5), one query. Each
+4. `readHqAppClaims({ viewerUserId, seen })` (part 10, 5.5), one query, `seen` the `HqAppsSeen` the
+   list of step 2 carries: CommCare HQ's answer, in this request, that the key reaches those apps. Each
    view becomes the row's `claim` with `remoteAppId` dropped, which is part 01's `HqAppClaimDetail`.
 
 Rows are in CommCare HQ's order, which is by name (part 05, 5.1). The function reads nothing else of
@@ -1331,7 +1337,7 @@ nothing else of this part. The title, the body and the next step of every code a
 | Codes | Standing | Drawn |
 |---|---|---|
 | the nineteen codes of 6.2 | `stop` | the stop block (6.1) with the actions of 6.2: as the whole screen for a read's `stop` answer and for a create's `changed` answer that carries one, in the App field's place for a `stop` answer of the picker (4.5), and above the review, with no S1 and no actions, for a `held` answer of a create (8.10) |
-| `too-large` | `not-yet` | the circumstance block of 7.2, in the group of the finding's own place; the heading is A1 (7.1) |
+| `too-large`, `too-intricate` | `not-yet` | the circumstance block of 7.2, in the group of the finding's own place; the heading is A1 (7.1). `too-intricate` is a reading that passed the work limit of its source's size (part 06, 2.2): "This app takes more checking than Nova gives one app", "{app} needs more work to read than Nova spends on a single app of its size. That limit is Nova's, not the app's.", and the next step `too-large`'s, of an app like this; a review of changes whose only finding is it leads with its own line, "CommCare HQ's version of this app takes more checking than Nova gives one app, so Nova brought nothing in." |
 | `unrecognized`, `read-back-differs` | `not-yet` | the same block; the heading is A2 where every finding of the account is one of part 01's `NOVA_FAULT_CIRCUMSTANCES`, else A1 (7.1) |
 | `menu-unreadable-in-hq`, `shadow-disagrees`, `media-file-unreadable`, `app-unreadable-in-hq`, `table-rows-unreadable` | `fix-in-hq` | the same block, under the amber label |
 | `no-platform-runs-everything` | `fix-in-hq` | the same block; its next step is the sentence about the date and time question where `detail.reason` is `split-refused`, which `circumstanceBlock` chooses |
@@ -1354,7 +1360,7 @@ that carries an account and for a `check-failed` answer (8.10).
 
 1. An amber `tabler:info-circle` and the heading, as `h1`: **A1**, or **A2** where
    `accountHeading(findings)` says every finding is a fault of Nova's own (each one a circumstance
-   of part 01's `NOVA_FAULT_CIRCUMSTANCES`, its 8.3). `too-large` and the three place codes are not
+   of part 01's `NOVA_FAULT_CIRCUMSTANCES`, its 8.3). `too-large`, `too-intricate` and the three place codes are not
    among them: each is a limit Nova has, and "this time" would promise that checking again gets
    past it. They take **A1**, which says "yet". `{app}` is the answer's `appName`, or "this app"
    where the read ended before it learned one.
@@ -2113,15 +2119,23 @@ type StopPublishingData =
 export function StopPublishingDialog(props: {
 	readonly open: boolean;
 	readonly onOpenChange: (open: boolean) => void;
-	/** The deployment to stop: the three fields `stopPublishingAction` takes. */
-	readonly target: { readonly appId: string; readonly server: CommCareServer;
-	                   readonly domain: string };
+	/** The deployment to stop and the HQ app the surface drew it over: the four fields
+	 *  `stopPublishingAction` takes. A surface whose record maps no HQ app offers no stop. */
+	readonly target: StopPublishingTarget;
 	/** Called once with the action's answer when the stop succeeds, before the dialog closes. */
 	readonly onStopped: (next: StoppedPublishingView) => void;
 	/** Called once when the stop answered anything but a stop, or no answer arrived. */
 	readonly onRecordsStale: () => void;
 }): ReactElement;
 ```
+
+`StopPublishingTarget` is `{ appId, server, domain, hqAppId }`, `hqAppId` the HQ app of the live
+mapping of the record the card or the refusal was drawn from. The stop ends that app's mapping or
+nothing (part 10, section 8.3): where the app publishes to another HQ app by the time the stop
+lands, the action answers `invalid_input` with the sentence "This app publishes to a different app
+in “{domain}” than the one you were looking at, so Nova didn't stop anything. Have another look, and
+stop it from there if you still want to.", which the dialog shows, and the surface reads its records
+again (`onRecordsStale`); a stop repeated after one that landed answers as stopped.
 
 The card passes an `onStopped` that does what the paragraph above says; the drift stop passes the
 one of 11.3.
@@ -2488,20 +2502,57 @@ and are not repeated here.
 
 | Tool | File (`lib/mcp/tools/`) | Scope | Calls |
 |---|---|---|---|
-| `list_hq_apps` | `listHqApps.ts` | `nova.hq.read` | `listHqAppsForPicker` (4.2) |
-| `read_hq_app` | `readHqApp.ts` | `nova.hq.read` | `readHqAppForReview` (part 12, section 3) |
-| `bring_in_hq_app` | `bringInHqApp.ts` | `nova.hq.write` | `createFromReview` (part 12, 5.3) |
+| `list_hq_apps` | `listHqApps.ts` | `nova.hq.import` | `listHqAppsForPicker` (4.2) |
+| `read_hq_app` | `readHqApp.ts` | `nova.hq.import` | `readHqAppForReview` (part 12, section 3) |
+| `bring_in_hq_app` | `bringInHqApp.ts` | `nova.hq.import` | `createFromReview` (part 12, 5.3) |
 | `stop_publishing` | `stopPublishing.ts` | `nova.hq.write` | `stopPublishing` (part 10, 8.3) |
-| `refresh_managed_data` | `managedData.ts` | `nova.hq.write` | `refreshManagedLookupTable`, `refreshManagedPlaces` (part 11, 12.4) |
-| `set_lookup_table_management` | `managedData.ts` | `nova.hq.write` | `manageLookupTableInNova`, `letHqManageLookupTable` (part 11, 12.4) |
-| `read_hq_changes` | `readHqChanges.ts` | `nova.hq.read` | `reviewHqChanges` (part 15, section 9.2) |
-| `bring_in_hq_changes` | `bringInHqChanges.ts` | `nova.hq.write` | `bringInHqChanges` (part 15, section 9.2) |
+| `refresh_managed_data` | `managedData.ts` | `nova.hq.import` | `refreshManagedLookupTable`, `refreshManagedPlaces` (part 11, 12.4) |
+| `set_lookup_table_management` | `managedData.ts` | `nova.hq.write` and `nova.hq.import` | `manageLookupTableInNova`, `letHqManageLookupTable` (part 11, 12.4) |
+| `read_hq_changes` | `readHqChanges.ts` | `nova.hq.import` | `reviewHqChanges` (part 15, section 9.2) |
+| `bring_in_hq_changes` | `bringInHqChanges.ts` | `nova.hq.import` | `bringInHqChanges` (part 15, section 9.2) |
 
-Each declares `scopeChallenge: oauthScopeChallenge(ctx, <scope>)` and calls `assertScope(ctx, <scope>,
-"<tool>")` as its first statement, before any read, "so a missing-scope credential can't probe
-whether a record exists" (`lib/mcp/scopes.ts`). The scopes are part 05's (its section 13):
-`read_hq_app` writes nothing, in Nova or in CommCare HQ, and `bring_in_hq_app` records a deployment
-that authorizes later writes to that HQ app.
+`get_deployment` and the Publishing section's read (`readDeploymentsAction`) each take one
+authorized read snapshot for their whole answer (`store.ts::withDeploymentReadSnapshot`): the
+records, their ledgers (mappings, confirmations, who stopped publishing), the revisions, the
+first-publish lists and every kept list, one deployment at a time on the snapshot's connection, so
+a Project move or a stop that commits while they read is wholly before or wholly after the answer.
+
+Two existing deployment tools change with this step. `provision_workers` gains
+`confirm_worker_levels` (the codes of the levels a person confirmed take workers in the project
+space, sent only after a `worker_levels_unconfirmed` refusal named them in `worker_levels`, each with
+its `code`, `name` and `persona_names`; part 11, section 11.3), and `withdraw_deployment_confirmation`
+takes the kind `worker-level` with the level's code as `subject`. `read_hq_changes`'s `nothing` answer
+gains `hq_changes`: where CommCare HQ now keeps what the app doesn't hold and a record follows (a
+keyed create's case id prefix, a form's id, a file's path; part 15, section 4.4).
+
+Each registers through `lib/mcp/scopedTool.ts::registerScopedTool`, which reads the tool's scopes
+from `lib/mcp/scopes.ts::TOOL_SCOPES`, declares the SDK's scope challenge for all of them and checks
+each before the handler runs, so a missing-scope credential can't probe whether a record exists and
+no handler states a scope of its own. A tool's scope follows what its answers carry, never only
+where its writes land (part 05, section 13): every tool whose answer can carry CommCare HQ's content
+needs the new scope `nova.hq.import`, whose consent row (`lib/oauth/capabilities.ts`) reads "Read
+apps and data in your CommCare HQ project spaces, see who in Nova manages them, and bring them into
+your Projects on your behalf", its API key label "HQ Import". `stop_publishing` writes Nova's ledger
+alone, the publishing lifecycle `nova.hq.write`'s row names. No code path gives a
+grant or key a scope its person did not approve: an OAuth client is challenged for it and the person
+approves it at consent (a stored consent that lacks it sends the request to consent; a refresh
+issues the refresh token's own scopes and never adds one), and an API key's owner edits the key. A
+newly registered client holds the scope in its capability list by registration, and a client
+identified by its metadata document takes it in the next time its document is read; its person is
+still asked at consent. What exists at the deploy is given the scope once, as data, by a repair that
+runs after the deploy is live (`scripts/migrate-hq-import-scope.ts` over
+`scripts/lib/hqImportScope.ts`, scanned first by `scripts/scan-hq-import-scope.ts`): every OAuth
+client's own scope list, and every consent, live refresh token and enabled API key that already holds
+both `nova.hq.read` and `nova.hq.write`, because reading and writing CommCare HQ with the person's
+stored key is the reach bringing an app in uses. A grant holding one HQ scope or neither gains
+nothing and is asked as for any scope. So an existing connection's next refresh holds the scope with
+no step of the person's, and an existing key that reads and writes CommCare HQ can bring apps in. It
+runs after the deploy, not before, because the revision it replaces rewrites a metadata document
+client's list from its own scopes and the provider then refuses a refresh token holding a scope the
+client's list lacks (`handleRefreshTokenGrant` → `validateClientScopes`). The stack's last commit
+removes the scripts, their library and test, the maintenance image's two bundles, the historical
+repair Job's admission and its policy cases, and `docs/architecture/deployment.md`'s paragraph, so
+nothing of the repair reaches main.
 
 **The Solutions Architect is given none of the eight**, and none enters `SHARED_TOOL_REGISTRY`. The
 standing reason is `deploymentTools.ts`'s own: "A deployment is not authored vocabulary: it is durable
@@ -2804,9 +2855,17 @@ Every sentence is the one the screen shows, from the same exports (`lib/publish/
 part's `bringInCopy.ts`), with dates as ISO text or the UTC day.
 
 **A long account, or a review's many tables, one page at a time.** `describeReading` takes an
-account's findings, or a review's tables, from `from` until the JSON of the whole result would pass
-80,000 characters, which is under `lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`, and always one,
-and the tool registers `LARGE_RESULT_META`. Every other part of a review is on every page. Nothing
+account's findings, or a review's tables, from `from` through the one pager
+(`lib/mcp/paging.ts::cutPage`), which every tool that answers a reading shares, and the tool
+registers `LARGE_RESULT_META`. A page is at most `PAGE_LIMIT_CHARS` (80,000 characters, under
+`lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`) of the text the tool sends, the outer envelope of a
+write's answer included, because every part of it has a stated maximum, never because a loop was
+careful: the shell (everything but the pieces) is at most `SHELL_MAX_CHARS`, its app and Project
+names cut as a finding's name is; every piece at most `PIECE_MAX_CHARS`, a finding or a table too
+long for one fitted to it (`fitPiece`, its texts cut with `…`, its keys and short words whole); so
+any one piece fits beside the shell, a page holds at least one, and following the cursors reads
+every piece once. `toolText` measures the text sent and answers an error rather than text past the
+limit. Every other part of a review is on every page. Nothing
 is kept between calls, so each page is a fresh read, and two pages could come from two versions of
 the app. One opaque cursor closes that. `next_page` (on `account`, or on `review`) is the text
 `<index>:<digest>`: the first finding or table the next page holds, and the digest of what the page
@@ -2843,7 +2902,7 @@ the first page, and `read_hq_app` with its `next_page` as `page` reads the rest)
 while Nova was creating the app, and no app was created: call `read_hq_app` again and show the user
 the new review); `check_failed` (one of Nova's own checks stopped the create, no app was created,
 and `reading` holds what Nova reported); or `held` (no app was created and `stop` says why, such as
-a key CommCare HQ turned down). Creating changes nothing in CommCare HQ. If this call ends before
+a key CommCare HQ turned down). Creating changes nothing in CommCare HQ. A `bring_in_refused` error whose `refusal` is `publish_in_flight` means another Nova app's publish to that HQ app is still finishing, after someone stopped publishing it there: no app was created, the review stands, and the same call can be made again in a few minutes. If this call ends before
 you get an answer, call it again with the same arguments. It answers the app if it was created, and
 creates it if it was not. Before the first `upload_app_to_hq`, relay `first_publish`, from the
 chosen `review.runs_on` entry or from `check_project_space_compatibility`: `workers.lines` first,
@@ -2911,7 +2970,8 @@ names what only the page does: it starts the next read itself ("so Nova is readi
 keeps the review on screen ("Your review is still here"), while a tool call has returned and the
 agent decides what comes next.
 
-`changed` carries a fresh read's first page, up to the 80,000 characters an account page fills, so
+`changed` carries a fresh read's first page, cut against the whole `changed` answer (`describeReading`'s
+`envelope`), so it and its envelope stay within `PAGE_LIMIT_CHARS`, and
 the tool registers `LARGE_RESULT_META` as `read_hq_app` does; without it a host's default ceiling
 replaces the answer with a short preview.
 
@@ -2925,7 +2985,9 @@ MCP tool returns a builder address today (`get_app` returns none), so this is th
 
 Input and scope are part 10's (its 8.3): `z.strictObject({ app_id:
 deploymentTargetSchema.shape.appId, server: deploymentServerSchema, domain:
-deploymentTargetSchema.shape.domain })`, each described as `refresh_deployment` describes it. It is
+deploymentTargetSchema.shape.domain, hq_app_id: hqAppIdSchema })`, each described as
+`refresh_deployment` describes it, `hq_app_id` as "The `hq_app_id` `get_deployment` shows for this
+project space: the CommCare HQ app the user decided to stop publishing to." It is
 `strictObject` and not the `z.object` `refresh_deployment` uses, because the SDK converts a tool's
 input schema with `io` `"input"` (`@modelcontextprotocol/server`, `standardSchemaToJsonSchema(
 tool.inputSchema, "input")`), and Zod's object processor writes `additionalProperties: false` for a
@@ -2933,7 +2995,12 @@ plain object only on the output side (`zod/v4/core/json-schema-processors.js`: a
 always, a regular object "if (ctx.io === "output")"). A plain object would be served open, and
 14.9's test holds all six tools closed. Description: "Stop publishing an app to one CommCare HQ project
 space. The app in CommCare HQ stays exactly as it is, this Nova app stops publishing to it, and it can
-be brought in to Nova again as a new app. A later upload to that project space makes a new app there,
+be brought in to Nova again as a new app once any publish to it that was running has finished. Pass
+the `hq_app_id` `get_deployment` shows for this project space: the stop ends publishing to that HQ
+app or does nothing. Calling it again for the same `hq_app_id` answers the stopped deployment. If this
+app publishes to a different HQ app there by then, the call returns `deployment_changed` and stops
+nothing: read `get_deployment` again and ask the user before stopping that one. A later upload to that
+project space makes a new app there,
 beside the one that stays. Nothing is sent to CommCare HQ. Only an admin or owner of the app's Project
 can do this: an editor gets `permission_denied` with who can, and someone who cannot edit the app
 gets `not_found`, as every tool that changes an app answers them. This cannot be undone from Nova, so
@@ -2945,8 +3012,9 @@ write, so a viewer never reaches the store's `not_permitted`.) The result is `{ 
 returns. Every read after the ending commits answers less rather than an error: the identities null
 (only superseded apps are reported), the kept list `unread` (`landedDeploymentKept`, after `stop`),
 the artifact null, each logged by the fault's class and code; an error after a landed stop would send
-the agent to stop again and meet "there's nothing to stop". `not_permitted` arrives as
-`permission_denied` with part 10's sentence (its 8.3).
+the agent to stop again, which then answers the stopped deployment. `not_permitted` arrives as
+`permission_denied` with part 10's sentence (its 8.3), and `stale` as `deployment_changed`, a new
+`McpErrorType`, with its sentence.
 
 ### 14.6 `refresh_managed_data` and `set_lookup_table_management`
 
@@ -2955,7 +3023,8 @@ Inputs are part 11's table (its 12.4), each a `z.strictObject` for the reason 14
 table_id?: string, app_id?: string }` with exactly one of the two (checked by the handler,
 `invalid_input` with "Send table_id to refresh one lookup table, or app_id to refresh that app's
 places. This call sent both or neither."); `set_lookup_table_management` takes `{ project_id: string,
-table_id: string, managed_by: "nova" | "commcare-hq", confirmed: boolean }`.
+table_id: string, managed_by: "nova" | "commcare-hq", review_digest?: string }`, the digest a
+64-character lowercase hex string.
 
 Descriptions:
 
@@ -2963,18 +3032,25 @@ Descriptions:
   and update Nova's copy. Nova never changes that data in the project space that manages it. Use it
   after the user changed the table or the places in CommCare HQ and wants Preview to show it. The
   result's `message` says what changed, or why the copy was kept as it was."
-- `set_lookup_table_management`: "Change who manages a lookup table that came from CommCare HQ. With
-  `confirmed: false` this changes nothing: it returns what the change does and the apps that read the
-  table. Show the user that answer and ask. Send `confirmed: true` only after they agree.
-  `managed_by: \"nova\"` means the table is edited in Nova from then on and each publish replaces it
+- `set_lookup_table_management`: "Change who manages a lookup table that came from CommCare HQ.
+  Without `review_digest` this changes nothing: it returns what the change does, the apps that read
+  the table and a `review_digest`. Show the user that answer and ask. Only after they agree, send the
+  same call again with that `review_digest`. The change is made only while the table and the apps
+  that read it are still what that answer showed; otherwise nothing changes, the answer's `reason`
+  is `review-moved`, and it holds the change as it stands now with a new `review_digest`: show it and
+  ask again. `managed_by: \"nova\"` means the table is edited in Nova from then on and each publish replaces it
   in CommCare HQ, and a later change there stops the next publish. `managed_by: \"commcare-hq\"` hands
   it back: Nova takes CommCare HQ's columns and rows and stops changing the table there. Never decide
   this for the user."
 
 Results carry, as `message`, the sentence part 11's `lib/publish/managedData.ts` gives the
 outcome (its section 9 for a table, its 11.4 for places), the one a caller with no CommCare HQ
-connection is told among them. For `confirmed: false` the dialog's body lines are `lines`, with
-`apps`.
+connection is told among them. Without `review_digest` the dialog's body lines are `lines`, with
+`apps` and `review_digest` (part 11's `managedTableReviewDigest` of who manages the table, its two
+revisions and the apps that read it). With it, the services act only where that digest is still the
+table's, and hold the write to it under the table's lock; a moved one answers the preview again with
+`ok: false`, `reason: "review-moved"` and part 11's sentence for it as `message`. A bare yes is no
+input the tool takes: a client cannot confirm a state it never read.
 
 ### 14.7 Five tools that change
 
@@ -3478,7 +3554,7 @@ are the screen's own headings.
 | `claude-code/commands.mdx`, a new section before "Uploading to CommCare HQ" | none | "## Bringing in an app from CommCare HQ", holding "### `/nova:bring_in [project space] [app name]`" and: "Brings an app you already have in CommCare HQ in to Nova, so you can keep working on it here and publish back to the same HQ app. Nova reads the app first with your API key (saved in [Nova settings](https://commcare.app/settings)) and creates nothing until you've seen what comes in. Name a project space and an app to go straight to them; leave them off and Claude asks." Then: "Claude asks you for each thing that is yours to decide: the Nova Project where you can edit more than one, the app's name, where the app runs, and what to do about a lookup table your Project already has. If Nova can't hold every part of the app yet, Claude shows you the whole list of what and where, and nothing is created." A `text` block: `/nova:bring_in` and `/nova:bring_in my-project-space "vaccine tracking"`. And a link to [Bringing in an app from CommCare HQ](../bringing-in-from-commcare-hq.mdx) |
 | `claude-code/commands.mdx`, `/nova:upload_to_hq`, its last paragraph | "The first upload to a project space creates the app there; uploading again updates that same HQ app in place." | "The first upload to a project space creates the app there, or updates the app it was brought in from; uploading again updates that same HQ app in place. Before the first upload of an app you brought in, Claude shows you what that upload changes in CommCare HQ." |
 | `claude-code/commands.mdx`, `/nova:upload_to_hq`, "Changes made in CommCare HQ" | "…changed in CommCare HQ since Nova last published it…" | "…changed in CommCare HQ since Nova last published it, or since you brought the app in…", as part 10 words the origin in the product. The bullet gains at its end: "Claude can read what changed and bring it in to Nova, and asks before removing anything you changed in Nova. An admin or owner of the Project can also stop publishing there, which leaves CommCare HQ's version as it is." |
-| `mcp/api-keys.mdx`, "Scopes" | `nova.hq.read`: "Look up which CommCare HQ project spaces your stored API key can reach." `nova.hq.write`: "Upload finished apps to CommCare HQ." | each row says what its scope grants now, the tools of 14.1 among them: `nova.hq.read` "Use your stored CommCare HQ API key to read from CommCare HQ: see which project spaces it reaches and check one, see where an app is published, list a project space's apps, and read an app to bring it in to Nova." `nova.hq.write` "Upload apps to CommCare HQ and look after where they're published: check how a published app is doing, make worker accounts and links into an app, and stop publishing to a project space. It also brings an app in from CommCare HQ, refreshes lookup tables and places that CommCare HQ manages, and hands a lookup table to Nova or back to CommCare HQ." |
+| `mcp/api-keys.mdx`, "Scopes" | `nova.hq.read`: "Look up which CommCare HQ project spaces your stored API key can reach." `nova.hq.write`: "Upload finished apps to CommCare HQ." | the two rows keep what they granted, each said of what it grants now: `nova.hq.read` "Look up which CommCare HQ project spaces your stored API key can reach, check whether one can run an app, and see where an app is published." `nova.hq.write` "Upload apps to CommCare HQ and look after where they're published: check how a published app is doing, make worker accounts and links into an app, and stop publishing to a project space." A new row: `nova.hq.import` "Use your stored CommCare HQ API key to read a project space's apps, lookup tables and places, and see who in Nova already manages an app there, and to bring them into a Nova Project, where every member of that Project can see them. It also brings in changes made in CommCare HQ and refreshes data CommCare HQ manages. Handing a lookup table to Nova or back to CommCare HQ needs it and `nova.hq.write`." `mcp/access.mdx` gains the consent row, and `mcp/connecting.mdx` names three HQ rows. All three say what an existing connection or key meets: one that held both `nova.hq.read` and `nova.hq.write` was given `nova.hq.import` (14.1), and any other, a new one included, is asked at consent or has its key edited. |
 | `claude-code/quickstart.mdx`, the paragraph on uploading | "`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app." | "`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app, or back to the HQ app it was brought in from." |
 
 ### 17.3 `content/docs/mcp/tools.mdx`
@@ -3494,9 +3570,9 @@ A new section, "Bringing in an app from CommCare HQ", after "Creating and deleti
 
 | Tool | What it does |
 |---|---|
-| `list_hq_apps` | List the apps of one CommCare HQ project space by name and `hq_app_id`. `in_nova` says a Nova app already manages one, with the app to open or who to ask. Requires `nova.hq.read`. |
-| `read_hq_app` | Read one HQ app for a Nova Project the user chose. Returns `state`, and with it a `review` (with the `reading_id` to create from), an `account` of findings (each with its place, sentence, standing and next step) or a `stop`. A long account, and a review with more lookup tables than one answer holds, is paged with `page` and `next_page`, a review's `tables_total` saying how many tables there are in all. Calling it again reads afresh. Requires `nova.hq.read`. |
-| `bring_in_hq_app` | Create the Nova app from a review, given the `project_id`, `domain` and `hq_app_id` that were read, the `reading_id`, `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`, one answer for each table that asks one on every page of the review. `status` is `created`, `changed`, `read_again`, `check_failed` or `held`; where the `reading` a `changed` answer holds is longer than one answer, it is the first page, and `read_hq_app` with its `next_page` as `page` reads the rest. Sending it again with the same arguments answers the same app. It reads the app again with the user's CommCare HQ key and changes nothing in CommCare HQ. Requires `nova.hq.write`. |
+| `list_hq_apps` | List the apps of one CommCare HQ project space by name and `hq_app_id`. `in_nova` says a Nova app already manages one, with the app to open or who to ask. Requires `nova.hq.import`. |
+| `read_hq_app` | Read one HQ app for a Nova Project the user chose. Returns `state`, and with it a `review` (with the `reading_id` to create from), an `account` of findings (each with its place, sentence, standing and next step) or a `stop`. A long account, and a review with more lookup tables than one answer holds, is paged with `page` and `next_page`, a review's `tables_total` saying how many tables there are in all. Calling it again reads afresh. Requires `nova.hq.import`. |
+| `bring_in_hq_app` | Create the Nova app from a review, given the `project_id`, `domain` and `hq_app_id` that were read, the `reading_id`, `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`, one answer for each table that asks one on every page of the review. `status` is `created`, `changed`, `read_again`, `check_failed` or `held`; where the `reading` a `changed` answer holds is longer than one answer, it is the first page, and `read_hq_app` with its `next_page` as `page` reads the rest. Sending it again with the same arguments answers the same app. It reads the app again with the user's CommCare HQ key and changes nothing in CommCare HQ. Requires `nova.hq.import`. |
 
 A callout after the table: "An agent never chooses the Project, the name, where the app runs, the
 date-and-time split or a lookup table's answer for the user. `bring_in_hq_app` has no defaults for
@@ -3806,7 +3882,7 @@ runners.
 | `components/bring-in/__tests__/bringInModel.test.ts` | every row of 3.3's reducer table; `screenOf` over every `ReadingAnswer["kind"]` through a `satisfies Record` table; `nextAct` at each location, with a call in flight, with one lost request and with two, and after a `failed` line; at an app's address `nextAct` is `none` until `resume` is dispatched, then `read` | an answer kind part 12 adds with no screen; a read sent before the tab's key is looked at; a retry storm after a lost request |
 | the same, a create as a sequence of events | `create-asked`: `screenOf` is `creating` and `nextAct` is `create` with that input. `call`, then `stage` and `files` events: still `creating`, with the stage and the count held. `lost`: still `creating`, and `nextAct` is `create` after 3000 with the input first sent. A second `lost`: `creating` with `lost`, `nextAct` is `none`. `retry`: `create` at once, same input. `failed`: the screen is `failed` with the operation `create`, and `nextAct` is `none` until `retry`, which gives the same create. At no step of the sequence is the screen `review` | the review's choices back on screen under a create in flight; a lost create with no way on; a failed request sent again by the page itself |
 | the same, every `CreateAnswer` | `changed` with a review: the lead is `changed-review` and `answers` are what `carryAnswers` keeps; with an account: the screen is `account` under its lead; with a stop: `stopped`, the lead `changed-stop`, and `changed-already-in-nova` for that code; `read-again`: `carried` holds the answers and their review, `answer` is null, `nextAct` is `read`, and the `read-done` that follows with a review applies `carryAnswers` and keeps the lead; `check-failed`: the account of the one finding, under its lead; `held`: the review with the answers kept and `held` set; each refusal on the review or on the `refused` screen, as 8.10's table has it | the person's answers resent against a review that changed; a lead lost when the read after `read-again` answers; a refusal with no screen |
-| the same, `carryAnswers` | it keeps a name the person had changed and takes the new review's name where they had not; it keeps a declaration still offered and a table answer still offered; it takes the preselected entry, and leaves a tag unanswered, where each is no longer offered, with `dropped` true; its answers carry the new digest | a person asked the same thing twice; an answer kept that the new review does not offer |
+| the same, `carryAnswers` | it keeps a name the person had changed and takes the new review's name where they had not; it keeps a declaration still offered and a table answer whose review entry is unchanged, and asks again a table whose entry changed though its answer is still offered (an app now reading it); it takes the preselected entry, and leaves a tag unanswered, where each is no longer offered, with `dropped` true; its answers carry the new digest | a person asked the same thing twice; an answer kept that the new review does not offer |
 | the same, `resumableCreate` | it answers the input for a stored create of the address's own key written inside the window; null for another app's key, for one written `BRING_IN_RESUME_WINDOW_MS` ago or more, for text that fails `bringInInputSchema`, and for no text | a create started on a page load the person did not ask for; one app's create sent for another |
 | the same, the three ends of a landing | `landed` with `unverified`: `screenOf` is `unopened` with the app's id and `nextAct` is `none`, so no second create can be sent; with `leaving`: `creating` and `none`; with `landed`: `creating` and `none` | Bring it in offered again for an app that exists |
 | the same, the picker | `connection` with one project space chooses it and sets `apps` to `loading`; `nextAct` is then `list-apps` with that project space; `picker-reload` returns a loaded list to `loading`; `picker-project` changes no list; a `picker-apps` for another project space is dropped; `connection` that no longer holds the chosen project space clears it; with no Project, `connection` chooses nothing and `nextAct` stays `none`; a list that answered `not-connected`, then a `connection` that still holds its project space, is `loading` again and `nextAct` lists it | a picker with one project space that never lists; a list for a project space no longer chosen painted over the new one; a Check connection that finds the key back and leaves the aside up for good |
@@ -3924,13 +4000,14 @@ builder.
 |---|---|---|
 | `lib/mcp/__tests__/servedSchemas.test.ts` (extended), "serves bring_in_hq_app with every answer required and no default" | `required` is all nine properties; `additionalProperties` is false; `runs_only_on` admits `null`, `"web-apps"` and `"android"` and nothing else; `review_digest` admits 64 lower-case hex and refuses upper case; `reading_id` admits a UUIDv7 and refuses a UUIDv4; no schema position holds a `default` | an optional answer an agent can leave for Nova to choose |
 | the same, "serves read_hq_app as one closed object" | `required` is `project_id`, `domain` and `hq_app_id`; `page` is the one optional property, with its pattern; `additionalProperties` false | a continuation field left over from a flow that had steps; a key field renamed without the description |
-| the same, "serves the four other bring-in tools as closed objects" | the property sets of `list_hq_apps` (`domain` alone), `stop_publishing`, `refresh_managed_data` and `set_lookup_table_management`, the last two as part 11's table has them, and `additionalProperties` false on each of the four, which holds only because all four are `z.strictObject` (14.5) | an input drifting from the two parts' tables; a tool served open because it was written `z.object` |
+| the same, "serves the four other bring-in tools as closed objects" | the property sets of `list_hq_apps` (`domain` alone), `stop_publishing` (`app_id`, `domain`, `hq_app_id`, `server`, all required), `refresh_managed_data` and `set_lookup_table_management`, the last two as part 11's table has them, and `additionalProperties` false on each of the four, which holds only because all four are `z.strictObject` (14.5) | an input drifting from the two parts' tables; a tool served open because it was written `z.object` |
 | the same, "tells a client an agent never chooses for the user" | `bring_in_hq_app`'s description contains "never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them"; `read_hq_app`'s contains "never choose it for them"; `set_lookup_table_management`'s contains "Never decide this for the user." These three phrases are the contract a client is served: they are how the rule that `bring_in_hq_app` never chooses for the person (14.4) reaches an agent, which is the exception `docs/testing.md` makes for a pinned string | the rule softened in an edit |
 | the same, "names each key where a client reads it" | each of the keys `first_publish`, `check_again`, `next_page`, `restarted`, `brought_in`, `ending` and the tag `publishing_stopped` is named in the description of a tool that returns it (14.3, 14.4, 14.7), and the three tools that name `first_publish` (`read_hq_app`, `bring_in_hq_app`, `check_project_space_compatibility`) each say to relay `workers.lines` first, then `hq_only.lines`, then `reassurance` where it is not null, then `note` | a projection key no description explains; an agent told to read a key that is no longer served |
 | `lib/mcp/__tests__/readingProjection.test.ts` | `describeReading` for each of the three answer kinds; every sentence equals the copy export the screen uses; a stop's and a circumstance finding's `title` and `next` equal `circumstanceBlock`'s with the UTC day, for `already-in-nova` and for a `split-refused` `no-platform-runs-everything` among them; a circumstance whose row holds `name: "line"` carries `named`; an account holds `check_again` equal to `ACCOUNT_CHECK_AGAIN_LINE` on every page; each `runs_on` entry's `first_publish` equals `firstPublishLines(choice.firstPublish, "review")` with its keys in snake case, so two entries that differ in declaration differ in list, the review holds no list of its own, and no `touches_workers` key is served; `cannot_run` holds a feature's label as an item and never inside `sentence`; with 2,000 findings whose names and places are at their longest, each page's JSON is under 80,000 characters and following `next_page` to its end gives every finding once; a `page` whose digest is another account's gives the fresh account from its start with `restarted` true and M7; a `page` against a read that is now a review gives the review with `restarted` true; a `page` that meets a stop (`rate-limited`) gives the stop with `restarted` false and no `message`, and the same cursor still pages the account; `mapReadingRefusal` is total through its `satisfies Record<ReadingRefusal, …>` table | an answer the client truncates in silence; two versions of an app stitched into one list; MCP and the screen saying different things; an agent relaying the proposed row's list for the row the user chose |
 | `lib/mcp/__tests__/errors.test.ts` (extended) | `toMcpErrorResult(new BringInToolError("hq_read_stopped", body, { circumstance, title, next }))` carries the three fields beside `message`; one with `refusal` and `projectId` carries `refusal` and `project_id`; fields the error does not hold are absent keys, not nulls | a stop that reaches a client as a bare message, with no next step |
-| `lib/mcp/__tests__/bringInToolScopes.test.ts` (no database) | through `withMcpClient` with a token that lacks the tool's scope: each of the six answers `scope_missing` with its `required_scope`, and the service functions, mocked at the module boundary, are never called; and through `app/api/mcp/dispatch.ts::dispatchMcpTools` as an OAuth client without the scope, each is answered 403 with `insufficient_scope` naming the scope before anything runs | a scope hole; a missing-scope credential learning whether an app exists; a challenge declared for another scope than the tool asserts, which leaves an OAuth client without incremental consent |
+| `lib/mcp/__tests__/bringInToolScopes.test.ts` (no database) | through `withMcpClient` with a token that lacks one of the tool's scopes: each tool answers `scope_missing` with that `required_scope`, and the service functions, mocked at the module boundary, are never called; the fullest grant before `nova.hq.import` and `nova.hq.write` alone reach none of the seven tools that need it; through `app/api/mcp/dispatch.ts::dispatchMcpTools` as an OAuth client holding only the floor, each is answered 403 with `insufficient_scope` naming every scope it needs and keeping the ones held, before anything runs; and the tools registered with a challenge are exactly `TOOL_SCOPES`' | a scope hole; a missing-scope credential learning whether an app exists; a challenge declared for another scope than the tool asserts, which leaves an OAuth client without incremental consent |
 | `lib/mcp/__tests__/bringInTools.postgres.test.ts` | through `withMcpClient`, over real Postgres and part 05's retained answers served by `MockAgent`: `read_hq_app` answers a review with its `reading_id` in one call; with the HQ peer held open and a progress token, a notification arrives for each stage, and with no token none does; a call the client cancels aborts the HQ requests in flight; `bring_in_hq_app` answers `created`, and sent again with the same arguments answers the same `app_id`, and its `url` is `AS_ORIGIN` then `/build/` then the app's id; a table left out is `invalid_input` with `refusal: "choice_missing"`; a source that changed after the read is `changed` with `reading`; a birth whose own check is made to refuse is `check_failed` with the one finding in `reading`; a table of a tag the app reads made in the Project under the birth is `read_again` with **M9**, and the next read asks its choice; CommCare HQ answering 503 on the create's read is `held` with **M10** and the stop, and the same arguments create once it answers; a `domain` that is no slug is `invalid_input` with **M8** at both tools, asking CommCare HQ nothing; each `ReadingRefusal` a call can produce arrives with the `error_type` and `refusal` of 14.8's table; a stop at `list_hq_apps` is `hq_read_stopped` with `circumstance`, `title` and `next`; `key-cannot-reach-space` and `not-a-member` there are both `domain_not_authorized`, each with its own message | a retry that makes a second app; a client that times out on an app with many files; a refusal with no bucket |
+| `lib/mcp/__tests__/paging.test.ts` | a piece of any length fitted to `PIECE_MAX_CHARS`, its keys and short words whole; pages of pieces of every size (one past the page limit among them), from any start and beside a shell up to `SHELL_MAX_CHARS`, each at most `PAGE_LIMIT_CHARS` and holding at least one piece, every piece read once; a piece that is a page of its own stands alone; a shell or a piece past its bound throws; `toolText` answers an error, never text past the limit | an answer a host cuts in silence because one finding, table, line or name was longer than a page; a write's envelope pushing its first page past the limit |
 | `lib/mcp/__tests__/resultSizeWire.test.ts` (extended) | through `tools/list`, `read_hq_app` and `bring_in_hq_app` each carry `_meta["anthropic/maxResultSizeChars"]` of 100,000 (`LARGE_RESULT_META`), above the 80,000 characters a page of the account may hold | an account page, served by `read_hq_app` or in a `changed` answer of `bring_in_hq_app`, that the host's default 50,000-character cap replaces with a preview, so the client reads part of the account as if it were the whole |
 | `lib/mcp/__tests__/compatibility.postgres.test.ts` (extended) | `first_publish` is null for a Nova-made app and for a brought-in app after its first publish; before it, it equals `firstPublishLines(view, "publish")` in snake case for the declaration the app was created with, for an app whose chosen declaration was not the preselected one; and after `runsOnlyOn` is changed in the document, its two Web Apps lines follow the document (part 09, 12.3) | the list arriving after the fact; the preselected row's list told for an app created with another; a stored Web Apps line told for an app that no longer runs that way |
 | `lib/mcp/__tests__/deploymentTools.postgres.test.ts` (extended) | `brought_in` and `ending` on `get_deployment`; `stop_publishing` as an editor is `permission_denied` with part 10's sentence, as a viewer `not_found`, and as an owner returns the ended deployment; `refresh_deployment` with `kept_values` dates its sentence with the UTC day | a member told "not found" for something they can see; a description that promises an answer a caller never gets; a date spelled two ways across tools |
@@ -4070,8 +4147,9 @@ was weighed and not taken. Each states the evidence and the decision taken.
     answers `changed` with a review, and the read after a `read-again`, each put the person in front
     of a review with a new digest. Not done: discarding every answer made for another digest, because
     the change may have touched none of them, and a person would then choose a name, a platform and
-    each table a second time. What cannot be kept is said (8.10), and across a reload nothing is
-    kept (3.2).
+    each table a second time. A table's answer is kept only where its review entry is unchanged,
+    since an answer is consent to that entry's consequences. What cannot be kept is said (8.10),
+    and across a reload nothing is kept (3.2).
 17. **A reload during a create sends the same create again, from one key in the tab** (9.1). Not
     done: reading the app again as every other reload does, because the read would then answer
     `already-in-nova` for the app the person had just made, or a review they would answer twice. Not

@@ -2,13 +2,13 @@
  * LocationTypeV0_5Test / LocationV0_6Test and LocationResource._update. */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { MockAgent } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
 import {
 	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { log } from "@/lib/logger";
+import { HQ_LOCATION_PATCH_ACK_MAX_BYTES } from "../hq/bounds";
 import {
 	listHqLocations,
 	listHqLocationTypes,
@@ -23,7 +23,7 @@ const CREDS = {
 const HOST = "https://india.commcarehq.org",
 	DOMAIN = "clinic";
 const TYPES = "/a/clinic/api/location_type/v1/?limit=1000";
-const PLACES = "/a/clinic/api/location/v2/?limit=1000";
+const PLACES = "/a/clinic/api/location/v2/?limit=5000";
 const PATCH = "/a/clinic/api/location/v2/";
 const AUTH = { authorization: "ApiKey account:fixture-key" };
 const region = {
@@ -81,17 +81,22 @@ it("resolves level parents across pages independent of response order", async ()
 			.get(HOST)
 			.intercept({ path: TYPES, method: "GET", headers: AUTH })
 			.reply(200, {
-				meta: { next: "?limit=1000&offset=1000" },
+				meta: { next: "?limit=1000&offset=1000", offset: 0, total_count: 2 },
 				objects: [district],
-			});
+			})
+			.times(2);
 		peer
 			.get(HOST)
 			.intercept({
-				path: "/a/clinic/api/location_type/v1/?limit=1000&offset=1000",
+				path: "/a/clinic/api/location_type/v1/?limit=1000&offset=1",
 				method: "GET",
 				headers: AUTH,
 			})
-			.reply(200, { meta: { next: null }, objects: [region] });
+			.reply(200, {
+				meta: { next: null, offset: 1, total_count: 2 },
+				objects: [region],
+			})
+			.times(2);
 		expect(await listHqLocationTypes(CREDS, DOMAIN)).toEqual([
 			{
 				id: "8",
@@ -119,7 +124,9 @@ it("resolves level parents across pages independent of response order", async ()
 				.map((call) => call.fullUrl),
 		).toEqual([
 			HOST + TYPES,
-			`${HOST}/a/clinic/api/location_type/v1/?limit=1000&offset=1000`,
+			`${HOST}/a/clinic/api/location_type/v1/?limit=1000&offset=1`,
+			HOST + TYPES,
+			`${HOST}/a/clinic/api/location_type/v1/?limit=1000&offset=1`,
 		]);
 	});
 });
@@ -130,17 +137,22 @@ it("reads every place and preserves complete target metadata for an eventual sha
 			.get(HOST)
 			.intercept({ path: PLACES, method: "GET", headers: AUTH })
 			.reply(200, {
-				meta: { next: "?limit=1000&offset=1000" },
+				meta: { next: "?limit=5000&offset=5000", offset: 0, total_count: 2 },
 				objects: [root],
-			});
+			})
+			.times(2);
 		peer
 			.get(HOST)
 			.intercept({
-				path: "/a/clinic/api/location/v2/?limit=1000&offset=1000",
+				path: "/a/clinic/api/location/v2/?limit=5000&offset=1",
 				method: "GET",
 				headers: AUTH,
 			})
-			.reply(200, { meta: { next: null }, objects: [child] });
+			.reply(200, {
+				meta: { next: null, offset: 1, total_count: 2 },
+				objects: [child],
+			})
+			.times(2);
 		expect(await listHqLocations(CREDS, DOMAIN)).toEqual([
 			{
 				locationId: "hq-region",
@@ -181,7 +193,7 @@ it.each([
 			[],
 			{},
 			{ objects: [] },
-			{ objects: [], meta: {} },
+			{ objects: [], meta: { total_count: "0" } },
 			{ objects: [null], meta: { next: null } },
 			{ objects: [{}], meta: { next: null } },
 		];
@@ -473,14 +485,14 @@ it("owns one deadline across pages and releases it after a stalled second page",
 					statusCode: 200,
 					data: JSON.stringify({
 						objects: [root],
-						meta: { next: "?offset=1000" },
+						meta: { next: "?offset=1000", offset: 0, total_count: 2 },
 					}),
 				};
 			});
 		peer
 			.get(HOST)
 			.intercept({
-				path: "/a/clinic/api/location/v2/?offset=1000",
+				path: "/a/clinic/api/location/v2/?limit=5000&offset=1",
 				method: "GET",
 			})
 			.reply(async () => {
@@ -579,7 +591,7 @@ it("stops the place list at a page whose total is over the caller's limit, after
 			.reply(answer.status, answer.body, { headers: answer.headers });
 		expect(
 			await listHqLocations(CREDS, DOMAIN, { stopPast: total - 1 }),
-		).toEqual({ kind: "past-limit", totalCount: total });
+		).toEqual({ kind: "past-limit", by: "rows", totalCount: total });
 		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
 	});
 });
@@ -601,40 +613,46 @@ it("refuses a place list whose places pass the limit while the total it names do
 	});
 });
 
-it("stops a place list that names no total at the first page that takes it past the limit, and reads it whole without one", async () => {
-	/* Written here: every retained page names a total. */
-	const SECOND = "/a/clinic/api/location/v2/?limit=1000&offset=1000";
-	const THIRD = "/a/clinic/api/location/v2/?limit=1000&offset=2000";
-	const serve = (peer: MockAgent) => {
+it("answers a publish's inventory past its row bound as no answer, and a bring-in's as past-limit", async () => {
+	await withHttpPeer(async (peer) => {
 		peer
 			.get(HOST)
 			.intercept({ path: PLACES, method: "GET" })
-			.reply(200, { objects: [root], meta: { next: SECOND } });
-		peer
-			.get(HOST)
-			.intercept({ path: SECOND, method: "GET" })
-			.reply(200, { objects: [child], meta: { next: THIRD } });
-	};
-	await withHttpPeer(async (peer) => {
-		serve(peer);
-		expect(await listHqLocations(CREDS, DOMAIN, { stopPast: 1 })).toEqual({
+			.reply(200, {
+				objects: [root],
+				meta: { next: "more", offset: 0, total_count: 100_001 },
+			})
+			.times(2);
+		/* An inventory Nova did not read whole cannot say a site code is free. */
+		expect(await listHqLocations(CREDS, DOMAIN)).toEqual({
+			success: false,
+			status: 502,
+			cause: "too-large",
+		});
+		expect(await listHqLocations(CREDS, DOMAIN, { stopPast: 10_000 })).toEqual({
 			kind: "past-limit",
-			totalCount: null,
+			by: "rows",
+			totalCount: 100_001,
 		});
 		expect(peer.getCallHistory()?.calls()).toHaveLength(2);
 	});
+});
+
+it("takes a batch acknowledgement longer than Nova reads as one it cannot read, which may have landed", async () => {
 	await withHttpPeer(async (peer) => {
-		serve(peer);
 		peer
 			.get(HOST)
-			.intercept({ path: THIRD, method: "GET" })
-			.reply(200, { objects: [], meta: { next: null } });
-		const places = await listHqLocations(CREDS, DOMAIN);
-		if ("success" in places) throw new Error("the list did not read");
-		expect(places.map((place) => place.locationId)).toEqual([
-			root.location_id,
-			child.location_id,
-		]);
+			.intercept({ path: PATCH, method: "PATCH" })
+			.reply(
+				202,
+				JSON.stringify(["x".repeat(HQ_LOCATION_PATCH_ACK_MAX_BYTES)]),
+			);
+		expect(await patchHqLocations(CREDS, DOMAIN, [CREATE])).toEqual({
+			success: false,
+			status: 502,
+			message: "",
+			mayHaveLanded: true,
+		});
 	});
 });
 

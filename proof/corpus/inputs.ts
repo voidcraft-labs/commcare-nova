@@ -67,8 +67,10 @@
  *   the document runs under holds the flag that archive was compiled for,
  *   `EMPTY_LIST_TEXT_ARCHIVE`).
  * - `judge`: what only the judges read: `edit/batch.json`, a targeted
- *   document's or a base's `expected.json`, and a base's
- *   `first-publish.json` (`firstPublish`).
+ *   document's or a base's `expected.json`, a base's
+ *   `first-publish.json` (`firstPublish`), and the refusal a document states
+ *   in place of a local archive (`LOCAL_REFUSED`, `localRefused`, and
+ *   `editLocalRefused` for D′'s).
  * - `importFile`: the HQ import file (`import-file.zip`), by its entries as a
  *   local archive is, which no check reads and the HQ package's import-page
  *   tests do (`proof/hq/test_import_file.py`): the corpus's `inputs.json`
@@ -109,6 +111,14 @@ export const EMPTY_LIST_TEXT_FLAG = "USH_EMPTY_CASE_LIST_TEXT";
  * `local.ccz` is every other configuration's.
  */
 export const EMPTY_LIST_TEXT_ARCHIVE = "local-empty-list-text.ccz";
+
+/**
+ * What a document states in place of a local archive Nova's download refuses
+ * for its project space (`./publish.ts::localCcz`, `workers-sent-elsewhere`):
+ * `{ reason, host, server }`, beside `document.json` and in `edit/` for D′.
+ * Only the judges read it (the bar holds it to A), so it is in `judge`.
+ */
+export const LOCAL_REFUSED = "local-refused.json";
 
 /** Each local archive a document may carry, by its role in `local`. */
 export const LOCAL_ROLES = [
@@ -384,6 +394,12 @@ export async function documentInputs(
 	}
 	if (existsSync(join(root, "first-publish.json"))) {
 		judge.firstPublish = await file(root, "first-publish.json");
+	}
+	if (existsSync(join(root, LOCAL_REFUSED))) {
+		judge.localRefused = await file(root, LOCAL_REFUSED);
+	}
+	if (existsSync(join(root, "edit", LOCAL_REFUSED))) {
+		judge.editLocalRefused = await file(root, `edit/${LOCAL_REFUSED}`);
 	}
 	const importFile: Record<string, InputFile> = {};
 	if (existsSync(join(root, "import-file.zip"))) {

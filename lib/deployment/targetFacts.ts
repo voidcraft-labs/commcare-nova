@@ -129,6 +129,10 @@ export function keptAdvisoryFacts(
 		uiTextFallsBack: facts.uiTextKeys.some((key) =>
 			languageCodes.some((code) => facts.uiText[code]?.[key] === undefined),
 		),
+		uiTextNotCarried: facts.uiTextNotCarried.some((code) =>
+			languageCodes.includes(code),
+		),
+		profileNotCarried: facts.profileNotCarried,
 		androidLogos: facts.androidLogos.length > 0,
 		practiceWorker: facts.practiceWorker,
 		languageNames:

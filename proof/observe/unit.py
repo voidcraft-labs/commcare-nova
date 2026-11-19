@@ -790,7 +790,7 @@ class _Unit:
         if captured.media is None:
             return None
         with ops("media", publish.captured_digest(captured.media)):
-            return publish.upload_media(self.unit, self.app_id, captured.media)
+            return publish.upload_media(self.unit, self.app_id, captured.media, counter=captured.media_save_counter)
 
     def create_a(self, ops, *, full):
         """A, as the ``a`` record's ``create`` (and ``hqSide``, ``apiReads``, ``state``) holds it: Nova's first

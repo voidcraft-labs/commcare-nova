@@ -35,21 +35,27 @@ function metadata(head: HashtagMetadata = NO_HEAD) {
 
 describe("the shadowed attributes", () => {
 	it("are the surface's vellum-markup family, its markers left out", () => {
-		expect(SHADOWED_ATTRIBUTES.bind?.map((pair) => pair.real).sort()).toEqual(
-			["calculate", "constraint", "nodeset", "ref", "relevant"].sort(),
-		);
-		expect(SHADOWED_ATTRIBUTES.repeat).toContainEqual({
+		expect(
+			SHADOWED_ATTRIBUTES.get("bind")
+				?.map((pair) => pair.real)
+				.sort(),
+		).toEqual(["calculate", "constraint", "nodeset", "ref", "relevant"].sort());
+		expect(SHADOWED_ATTRIBUTES.get("repeat")).toContainEqual({
 			real: "jr:count",
 			shadow: "jr__count",
 		});
-		expect(SHADOWED_ATTRIBUTES.input?.map((pair) => pair.real).sort()).toEqual(
-			["bind", "nodeset", "ref"].sort(),
-		);
-		expect(SHADOWED_ATTRIBUTES.output).toEqual([
+		expect(
+			SHADOWED_ATTRIBUTES.get("input")
+				?.map((pair) => pair.real)
+				.sort(),
+		).toEqual(["bind", "nodeset", "ref"].sort());
+		expect(SHADOWED_ATTRIBUTES.get("output")).toEqual([
 			{ real: "value", shadow: "value" },
 		]);
 		expect(
-			SHADOWED_ATTRIBUTES.setvalue?.map((pair) => pair.real).sort(),
+			SHADOWED_ATTRIBUTES.get("setvalue")
+				?.map((pair) => pair.real)
+				.sort(),
 		).toEqual(["ref", "value"]);
 	});
 });

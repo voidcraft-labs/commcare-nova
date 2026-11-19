@@ -18,7 +18,9 @@ import "server-only";
  * modules for the reader that needs them.
  */
 
+import { NO_ENTRIES } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
+import { HQ_APPLICATION_MAX_BYTES } from "./bounds";
 import {
 	baseUrl,
 	type CommCareApiError,
@@ -31,8 +33,7 @@ import {
 import { isHqObject } from "./readCollection";
 import { readHqJson } from "./readJson";
 
-/** The most bytes of an application resource answer Nova reads: 64 MiB. */
-export const HQ_APPLICATION_MAX_BYTES = 64 * 1024 * 1024;
+export { HQ_APPLICATION_MAX_BYTES } from "./bounds";
 
 /** One build CommCare HQ holds for an app. */
 export interface HqAppBuild {
@@ -240,7 +241,7 @@ function stringBag(
 	value: unknown,
 	absent: "empty" | "refuse",
 ): Readonly<Record<string, string>> | undefined {
-	if (value === undefined) return absent === "empty" ? {} : undefined;
+	if (value === undefined) return absent === "empty" ? NO_ENTRIES : undefined;
 	if (
 		!isHqObject(value) ||
 		!Object.values(value).every((text) => typeof text === "string")

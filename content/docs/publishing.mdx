@@ -375,6 +375,12 @@ It's listed with the rest. Bringing the changes in takes CommCare HQ's file,
 and Nova sends its own file back only when you choose to publish over the
 change.
 
+**Some changes in CommCare HQ move only where it keeps something**: the case id
+a form files the cases it makes from an answer under, a form's id, or the path a
+file is kept at. Nova lists those too, and follows them when you bring the change
+in, so your next publish keeps CommCare HQ's version and a key a worker enters
+again still reaches the case it reached before.
+
 **Nova also looks when you open an app.** Once the builder is up, if you can
 edit the app, Nova checks in the background whether it changed in CommCare HQ,
 using your own CommCare HQ connection. Nothing waits on it. If something
@@ -397,8 +403,11 @@ decided this way.
 
 **You can also stop publishing here.** The app in CommCare HQ stays as it is,
 this app stops publishing to it, and it can be brought in to Nova again as a
-new app. If you publish to that project space later, Nova makes a new app
-there. A Project's admins and owners can do this.
+new app once any publish to it that was running has finished. If you publish to
+that project space later, Nova makes a new app there. A Project's admins and
+owners can do this. The stop is for the app the card showed you: if this app
+has started publishing to a different app there since, Nova stops nothing and
+asks you to have another look.
 
 Once publishing stops, the project space's card in **App setup → Publishing**
 says who stopped it and when, and links to the app it left in CommCare HQ. If
@@ -481,7 +490,12 @@ section lists the ones your project space holds differently from a new app,
 with the date Nova last read them, and **Refresh from CommCare HQ** reads them
 again. A CCZ you download for that project space follows them. Two things it
 can't carry, your Android logos and a practice mobile worker, it tells you about
-when you download it. An app you brought in from CommCare HQ keeps these
+when you download it, and so it does for wording or a setting stored in
+CommCare HQ in a form a CCZ can't carry. A custom base URL is the one setting a
+CCZ never follows, because it decides where phones send workers' passwords and
+forms. While your project space's app holds one that points somewhere other
+than the server the app is published on, there's no CCZ for it, and your
+workers can install the app from CommCare HQ. An app you brought in from CommCare HQ keeps these
 settings exactly as it had them, including the ones it never set. Nova fills in
 its own defaults only on an app it created there.
 
@@ -502,7 +516,12 @@ CommCare HQ.
 
 Ticking a persona that already has an account brings that account into step with
 what the app says now, rather than making a second one. Its password is
-untouched.
+untouched. An account Nova made follows its persona entirely: worker
+information the persona has no value for is cleared, and so are its places when
+the persona stands nowhere. An account you had Nova take over changes only where
+its persona says something: the worker information the persona or its role has a
+value for, and its places when the persona stands somewhere. Everything else on
+it stays as CommCare HQ holds it.
 
 Occasionally CommCare HQ breaks off partway through making an account without
 saying whether it made one. An unreadable response or a connection that times out
@@ -534,11 +553,20 @@ publish asks before it makes the table again, and recreates it once you say so.
 Nova records the new table as created by Nova and keeps the earlier takeover in
 its history.
 
-Three things Nova will refuse rather than guess at:
+Four things Nova will refuse rather than guess at:
 
 - **A username somebody already has.** Nova shows you the account and takes it
   over only if you say so for that exact one. A shared name is not evidence it
   is yours.
+- **A worker at a level nobody confirmed takes workers**, where the app's places
+  are managed in CommCare HQ. CommCare HQ doesn't tell Nova which levels take
+  workers, and its own pages refuse a worker at a level that doesn't. Nova lists
+  each level with the personas who would stand there; you can check
+  **Organization Levels** in CommCare HQ (the **Has Users** column), tick the
+  levels that take workers and make the workers again. Nova keeps your answer for
+  that project space, and you can withdraw it from the project space's card,
+  which names each level as Nova asked about it, with CommCare HQ's code beside
+  the name where the two differ.
 - **A persona missing worker information you marked required.** CommCare HQ will
   not save a worker without it. Publishing still works; only making the worker
   stops.
@@ -563,11 +591,16 @@ and the values already filled in.
   no role until you give it one.
 - **Organization levels.** The rungs of your organization. Create these before
   you publish, because every place names the level it stands at and CommCare HQ
-  will not take a place whose level is not there.
+  will not take a place whose level is not there. Where your places are managed
+  in CommCare HQ on that project space, the levels are already its own: the notes
+  list them, say which ones you confirmed take workers, and Nova asks before it
+  makes a worker at any other. An answer about a level that has since left the
+  organization stays listed until you withdraw it.
 - **Place information.** One field per piece of information your places carry,
   on the project's location-fields page. Nova sends the values with every place;
   a field the project space has not defined is kept as loose data that nothing
-  on CommCare HQ can validate or filter on.
+  on CommCare HQ can validate or filter on. Places managed in CommCare HQ carry
+  the information CommCare HQ holds, so this step doesn't appear for them.
 - **Automations.** Each rule or alert, created on the relevant page. Changing an
   automation in Nova does not change one you already made on CommCare HQ.
 - **Finding cases by distance.** CommCare HQ's search measures distance only on
@@ -652,7 +685,13 @@ several, you choose which one. An app that isn't published anywhere has no CCZ
 yet, so publish it to a project space first. An app that runs in Web Apps only
 has no CCZ either, because a CCZ installs an app on Android phones. If its
 workers use phones too, you can set it to run on Android as well, in App
-settings.
+settings. A CCZ always signs workers in on the server the app is published on,
+so a project space whose app in CommCare HQ has a custom base URL pointing
+somewhere else has no CCZ while that setting is there. The list of project
+spaces shows such a space with the address it points at, and you can't choose
+it; your workers can install the app from CommCare HQ instead. If Nova learns
+of the setting only as you download, the download says so and the list shows
+it from then on.
 
 A newer CCZ for the same project space keeps every form's identity, so a phone
 that updates to it reopens the forms a worker saved incomplete.

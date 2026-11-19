@@ -381,7 +381,7 @@ it("names the retained table that holds all three in HQ's own definition list", 
 		peer
 			.get("https://india.commcarehq.org")
 			.intercept({
-				path: "/a/clinic/api/lookup_table/v1/?limit=100",
+				path: "/a/clinic/api/lookup_table/v1/?limit=1000",
 				method: "GET",
 			})
 			.reply(answer.status, answer.body, { headers: answer.headers });

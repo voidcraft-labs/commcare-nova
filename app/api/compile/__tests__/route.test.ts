@@ -711,6 +711,8 @@ it("writes what the project space keeps into its CCZ and says what the CCZ canno
 			profileProperties: { "cc-autoup-freq": "freq-daily" },
 			uiText: {},
 			uiTextKeys: [],
+			uiTextNotCarried: [],
+			profileNotCarried: false,
 			secureSubmissions: true,
 			customBaseUrl: null,
 			autoGpsCapture: false,

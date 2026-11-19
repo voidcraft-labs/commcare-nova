@@ -101,6 +101,7 @@ it("actual OAuth registration records allowed capabilities without granting user
 	});
 	const capabilities = [
 		"email",
+		"nova.hq.import",
 		"nova.hq.read",
 		"nova.hq.write",
 		"nova.projects.read",
@@ -284,4 +285,117 @@ it("actual organization deletion refuses before changing sessions, membership or
 	expect(session.rows).toEqual([
 		{ activeOrganizationId: "configuration-project" },
 	]);
+});
+
+/** Every scope a Nova grant can hold but `nova.hq.import`. */
+const PRE_IMPORT_SCOPES = [
+	"openid",
+	"offline_access",
+	"profile",
+	"email",
+	"nova.read",
+	"nova.write",
+	"nova.hq.read",
+	"nova.hq.write",
+	"nova.projects.read",
+	"nova.projects.write",
+];
+
+/** Where an authorization request by a signed-in person for `scope` goes: to the consent page, to
+ *  the client with a code, or back to the client with an error. */
+async function authorize(
+	auth: ReturnType<typeof createAuth>,
+	clientId: string,
+	scope: readonly string[],
+): Promise<URL> {
+	const authorization = new URL(`${origin}/api/auth/oauth2/authorize`);
+	authorization.search = new URLSearchParams({
+		client_id: clientId,
+		redirect_uri: "https://client.example.test/callback",
+		response_type: "code",
+		scope: scope.join(" "),
+		resource: MCP_RESOURCE_URL,
+		state: "import-state",
+		code_challenge: "a".repeat(43),
+		code_challenge_method: "S256",
+	}).toString();
+	const response = await auth.handler(
+		new Request(authorization, {
+			headers: {
+				cookie: `better-auth.session_token=${signSessionCookie("import-token", secret)}`,
+			},
+		}),
+	);
+	await response.body?.cancel();
+	expect(response.status).toBe(302);
+	const location = response.headers.get("location");
+	if (location === null) throw new Error("Authorization did not redirect");
+	return new URL(location, origin);
+}
+
+it("sends a request for the import scope to consent when the person's approval lacks it, whatever else it holds", async () => {
+	const auth = createAuth(database.pool);
+	const client = await auth.api.registerOAuthClient({
+		body: {
+			client_name: "Standing native client",
+			redirect_uris: ["https://client.example.test/callback"],
+			token_endpoint_auth_method: "none",
+		},
+	});
+	const context = await auth.$context;
+	const now = new Date();
+	await context.adapter.create({
+		model: "user",
+		forceAllowId: true,
+		data: {
+			id: "import-user",
+			name: "Import user",
+			email: "import@dimagi.com",
+			emailVerified: true,
+			createdAt: now,
+			updatedAt: now,
+		},
+	});
+	await context.adapter.create({
+		model: "session",
+		data: {
+			token: "import-token",
+			userId: "import-user",
+			expiresAt: new Date(Date.now() + 60000),
+			createdAt: now,
+			updatedAt: now,
+		},
+	});
+	/* The person approved every scope but the import scope. */
+	await context.adapter.create({
+		model: "oauthConsent",
+		data: {
+			clientId: client.client_id,
+			userId: "import-user",
+			scopes: PRE_IMPORT_SCOPES,
+			resources: [MCP_RESOURCE_URL],
+			createdAt: now,
+			updatedAt: now,
+		},
+	});
+
+	/* What they approved is still theirs without asking. */
+	const standing = await authorize(auth, client.client_id, PRE_IMPORT_SCOPES);
+	expect(standing.origin).toBe("https://client.example.test");
+	expect(standing.searchParams.get("code")).not.toBeNull();
+
+	/* Asking for the import scope too takes the person to consent, whatever they approved before. */
+	const widened = await authorize(auth, client.client_id, [
+		...PRE_IMPORT_SCOPES,
+		"nova.hq.import",
+	]);
+	expect(widened.pathname).toBe("/consent");
+	expect(widened.searchParams.get("scope")?.split(" ")).toContain(
+		"nova.hq.import",
+	);
+
+	for (const table of ["auth_oauth_access_token", "auth_oauth_refresh_token"])
+		expect((await database.pool.query(`SELECT * FROM ${table}`)).rows).toEqual(
+			[],
+		);
 });

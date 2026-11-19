@@ -4,23 +4,26 @@
  * holds the same elements, attributes, binds and setvalues as the stored
  * one. Paths are read by the XPath grammar (`xform/model.ts::pathSteps`) and
  * every expression is compared as a syntax tree (`sameXPathText`); no text
- * is matched. The `vellum:` shadows of a bind are not compared: the form
- * reader already held each to its real attribute.
+ * is matched. The `vellum:` shadows of a bind and a setvalue are not compared:
+ * the form reader already held each to its real attribute.
  */
 import type { Document, Element } from "domhandler";
 import { isTag } from "domhandler";
 import {
-	attributeNamespace,
-	elementNamespace,
 	type NamespaceScope,
 	namespaceScopes,
 	splitName,
 	VELLUM_NS,
 } from "../../xmlNamespaces";
 import { tryParseXml } from "../../xmlParse";
+import {
+	attributesByName,
+	sameAttributeMaps,
+	sameElementWhole,
+} from "../sameElement";
 import { sameXPathText } from "../syntaxCompare";
 import type { ReadSaveToCaseBlock } from "../xform";
-import { pathSteps } from "../xform/model";
+import { heldSetvalueRef, pathSteps } from "../xform/model";
 import type { ParsedXForm } from "../xform/parse";
 
 /** One form's source as the comparison reads it: its data root, its model's
@@ -91,7 +94,9 @@ export function emittedFormSource(xml: string): FormSourceModel | undefined {
 
 /** A path's steps from the data root, a final attribute step as `@name`;
  *  undefined where the text is no path of the form's data. A relative
- *  path is taken from the data root, as the form builder reads a bind's. */
+ *  path is taken from the data root, as Core reads a bind's `nodeset`
+ *  (`XFormParser.processStandardBindAttributes`); a setvalue's path is read
+ *  only where it is absolute (`setvaluePath`). */
 function dataPath(
 	text: string | undefined,
 	root: string,
@@ -173,70 +178,6 @@ export interface EarlierSpelling {
 	readonly emittedOnly: (path: readonly string[]) => boolean;
 }
 
-/** An element's attributes by namespace and local name, the namespace
- *  declarations left out. */
-function attributesOf(
-	element: Element,
-	scope: NamespaceScope,
-	skip: (namespace: string | null) => boolean,
-): Map<string, string> {
-	const out = new Map<string, string>();
-	for (const [name, value] of Object.entries(element.attribs)) {
-		if (name === "xmlns" || name.startsWith("xmlns:")) continue;
-		const namespace = attributeNamespace(name, scope);
-		if (skip(namespace)) continue;
-		out.set(`${namespace ?? ""} ${splitName(name).local}`, value);
-	}
-	return out;
-}
-
-function sameMap(
-	a: ReadonlyMap<string, string>,
-	b: ReadonlyMap<string, string>,
-): boolean {
-	if (a.size !== b.size) return false;
-	for (const [key, value] of a) if (b.get(key) !== value) return false;
-	return true;
-}
-
-/** Two data elements alike: name and namespace, attributes as sets, own
- *  text, and every child alike in order. */
-function sameDataElement(
-	a: Element,
-	aForm: FormSourceModel,
-	b: Element,
-	bForm: FormSourceModel,
-	deep: boolean,
-): boolean {
-	const aScope = aForm.scope(a);
-	const bScope = bForm.scope(b);
-	if (
-		splitName(a.name).local !== splitName(b.name).local ||
-		elementNamespace(a, aScope) !== elementNamespace(b, bScope)
-	)
-		return false;
-	const keep = () => false;
-	if (!sameMap(attributesOf(a, aScope, keep), attributesOf(b, bScope, keep)))
-		return false;
-	if (!deep) return true;
-	const aChildren = children(a);
-	const bChildren = children(b);
-	if (aChildren.length !== bChildren.length) return false;
-	if (aChildren.length === 0) return ownText(a) === ownText(b);
-	return aChildren.every((child, i) =>
-		sameDataElement(child, aForm, bChildren[i] as Element, bForm, true),
-	);
-}
-
-function ownText(element: Element): string {
-	return element.children
-		.map((child) =>
-			"data" in child && child.type === "text" ? child.data : "",
-		)
-		.join("")
-		.trim();
-}
-
 const EXPRESSION_ATTRIBUTES = new Set([
 	"calculate",
 	"relevant",
@@ -253,11 +194,14 @@ const ELEMENT_PATHS = new WeakMap<
 >();
 
 /** The binds and setvalues of `form` whose path `select` takes, in order. A list is always read
- *  through the one path attribute of its kind (`bindPathText`, `setvalueRef`). */
+ *  through the one path of its kind (`bindPathText`, `setvaluePath`). */
 function modelElements(
 	form: FormSourceModel,
 	elements: readonly Element[],
-	pathAttribute: (element: Element) => string | undefined,
+	pathAttribute: (
+		element: Element,
+		form: FormSourceModel,
+	) => string | undefined,
 	select: (path: readonly string[]) => boolean,
 ): { element: Element; path: string[] }[] {
 	let paths = ELEMENT_PATHS.get(elements);
@@ -265,7 +209,7 @@ function modelElements(
 		const root = form.dataRoot.name;
 		paths = elements.map((element) => ({
 			element,
-			path: dataPath(pathAttribute(element), root),
+			path: dataPath(pathAttribute(element, form), root),
 		}));
 		ELEMENT_PATHS.set(elements, paths);
 	}
@@ -275,8 +219,10 @@ function modelElements(
 	return out;
 }
 
+/** A bind's path, its `nodeset`: the one attribute Core reads a bind's node from
+ *  (`XFormParser.processStandardBindAttributes`). */
 function bindPathText(element: Element): string | undefined {
-	return element.attribs.nodeset ?? element.attribs.ref;
+	return element.attribs.nodeset;
 }
 
 /**
@@ -294,13 +240,12 @@ function actingBinds(
 ): { element: Element; path: string[] }[] {
 	return binds.filter(({ element, path }) => {
 		const scope = form.scope(element);
-		const own = attributesOf(
+		const own = attributesByName(
 			element,
 			scope,
 			(namespace) => namespace === VELLUM_NS,
 		);
 		own.delete(" nodeset");
-		own.delete(" ref");
 		if (own.size > 0) return true;
 		return (
 			modelElements(form, form.binds, bindPathText, (other) =>
@@ -310,8 +255,14 @@ function actingBinds(
 	});
 }
 
-function setvalueRef(element: Element): string | undefined {
-	return element.attribs.ref;
+/** A setvalue's path: its `ref` where it is spelled as Nova writes one, read as Core reads it
+ *  (`xform/model.ts::heldSetvalueRef`), so a setvalue Core would aim elsewhere (by a `bind`, a
+ *  relative `ref`) is under no block on either side. */
+function setvaluePath(
+	element: Element,
+	form: FormSourceModel,
+): string | undefined {
+	return heldSetvalueRef(element, form.scope(element));
 }
 
 /** Each wrapper's verdict, per emitted form and per set of paths judged apart: a wrapper and the
@@ -366,12 +317,10 @@ function sameBind(
 ): boolean {
 	if (!samePath(a.path, b.path)) return false;
 	const skip = (namespace: string | null) => namespace === VELLUM_NS;
-	const aAttributes = attributesOf(a.element, aForm.scope(a.element), skip);
-	const bAttributes = attributesOf(b.element, bForm.scope(b.element), skip);
-	for (const key of ["nodeset", "ref"]) {
-		aAttributes.delete(` ${key}`);
-		bAttributes.delete(` ${key}`);
-	}
+	const aAttributes = attributesByName(a.element, aForm.scope(a.element), skip);
+	const bAttributes = attributesByName(b.element, bForm.scope(b.element), skip);
+	aAttributes.delete(" nodeset");
+	bAttributes.delete(" nodeset");
 	if (aAttributes.size !== bAttributes.size) return false;
 	for (const [key, value] of aAttributes) {
 		const other = bAttributes.get(key);
@@ -393,16 +342,26 @@ function sameBind(
 	return true;
 }
 
-/** Two setvalues alike: one event, one target path, the value as a tree. */
+/** Two setvalues alike, as a bind is: one target path, every attribute outside the form
+ *  builder's namespace as a set, the `value` as a tree and every other attribute as written,
+ *  and the same content (none, since a setvalue with any names no path). */
 function sameSetvalue(
 	a: { element: Element; path: string[] },
+	aForm: FormSourceModel,
 	b: { element: Element; path: string[] },
+	bForm: FormSourceModel,
 ): boolean {
 	if (!samePath(a.path, b.path)) return false;
-	if ((a.element.attribs.event ?? "") !== (b.element.attribs.event ?? ""))
-		return false;
-	const aValue = a.element.attribs.value;
-	const bValue = b.element.attribs.value;
+	const skip = (namespace: string | null) => namespace === VELLUM_NS;
+	const aAttributes = attributesByName(a.element, aForm.scope(a.element), skip);
+	const bAttributes = attributesByName(b.element, bForm.scope(b.element), skip);
+	aAttributes.delete(" ref");
+	bAttributes.delete(" ref");
+	const aValue = aAttributes.get(" value");
+	const bValue = bAttributes.get(" value");
+	aAttributes.delete(" value");
+	bAttributes.delete(" value");
+	if (!sameAttributeMaps(aAttributes, bAttributes)) return false;
 	if (aValue === undefined || bValue === undefined) return aValue === bValue;
 	return sameXPathText(aValue, bValue, { ruleSet: "form" });
 }
@@ -419,7 +378,7 @@ function sameLists<T>(
  * Whether the block the emitter writes at `stored.block.path` equals the
  * stored one, with its wrappers: elements by name and order, attributes as
  * sets, each bind by its path with each expression as a syntax tree, each
- * setvalue by event, ref and value tree. The block is compared with
+ * setvalue whole, as a bind is. The block is compared with
  * everything under it; a wrapper by its own element, the binds on its own
  * node and the setvalues that set it, since its children are other
  * blocks, each judged on its own: what is compared of them is their names,
@@ -454,7 +413,15 @@ export function blockTreesEqual(
 	): boolean => {
 		const emittedElement = elementAt(emitted, path);
 		if (emittedElement === undefined) return false;
-		if (!sameDataElement(storedElement, form, emittedElement, emitted, true))
+		if (
+			!sameElementWhole(
+				storedElement,
+				form.scope,
+				emittedElement,
+				emitted.scope,
+				true,
+			)
+		)
 			return false;
 		const under = (one: readonly string[]) => startsWith(one, path);
 		return (
@@ -467,9 +434,9 @@ export function blockTreesEqual(
 				(a, b) => sameBind(a, form, b, emitted, heldPrint, earlier),
 			) &&
 			sameLists(
-				modelElements(form, form.setvalues, setvalueRef, under),
-				modelElements(emitted, emitted.setvalues, setvalueRef, under),
-				sameSetvalue,
+				modelElements(form, form.setvalues, setvaluePath, under),
+				modelElements(emitted, emitted.setvalues, setvaluePath, under),
+				(a, b) => sameSetvalue(a, form, b, emitted),
 			)
 		);
 	};
@@ -485,7 +452,13 @@ export function blockTreesEqual(
 		);
 		if (
 			emittedWrapper === undefined ||
-			!sameDataElement(wrapper.element, form, emittedWrapper, emitted, false) ||
+			!sameElementWhole(
+				wrapper.element,
+				form.scope,
+				emittedWrapper,
+				emitted.scope,
+				false,
+			) ||
 			!sameLists(
 				storedChildren.map((child) => child.name),
 				children(emittedWrapper)
@@ -521,9 +494,9 @@ export function blockTreesEqual(
 				(a, b) => sameBind(a, form, b, emitted, heldPrint, earlier),
 			) &&
 			sameLists(
-				modelElements(form, form.setvalues, setvalueRef, at),
-				modelElements(emitted, emitted.setvalues, setvalueRef, at),
-				sameSetvalue,
+				modelElements(form, form.setvalues, setvaluePath, at),
+				modelElements(emitted, emitted.setvalues, setvaluePath, at),
+				(a, b) => sameSetvalue(a, form, b, emitted),
 			)
 		);
 	};

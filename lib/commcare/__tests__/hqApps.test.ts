@@ -73,13 +73,19 @@ describe("listHqApps", () => {
 			const sent = rows(retainedBodyJson(retainedReadingRead("list-apps")));
 			/* The live app, the linked app and the remote app; no build and no deleted app. */
 			expect(sent).toHaveLength(3);
-			expect(listed).toEqual(
-				sent.map((row) => ({
+			expect(listed).toEqual({
+				listings: sent.map((row) => ({
 					appId: row.app_id,
 					name: row.name,
 					version: row.version,
 				})),
-			);
+				/* HQ's answer names the project space and every app it listed, and only those. */
+				seen: {
+					server: CREDS.server,
+					domain: "clinic",
+					remoteAppIds: sent.map((row) => row.app_id),
+				},
+			});
 		});
 	});
 

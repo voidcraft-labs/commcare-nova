@@ -1171,8 +1171,17 @@ answers) stays a rule of reference parts, as the wire's guard is: a value is one
 The evaluator's result is string-coerced by the device's rule, which G3 holds to Core. Both
 platforms read a value alike; no platform rule and no cell is added.
 
-In edit mode `lib/references/LabelContent.tsx` draws a value as its chip (4.7); in the running preview
-it draws the evaluated text. `lib/references/provider.ts::ReferenceProvider.projectTemplate`, the
+In edit mode `lib/references/LabelContent.tsx` draws a value as its chip (4.7). In the running
+preview the evaluated text is substituted into the label before the label is formatted, as Core does
+(`FormEntryCaption.getSpecialFormQuestionText` → `FormDef.fillTemplateString`, which splices each
+`<output>`'s text into the markdown form with no escaping), so formatting inside a value shows as it
+does on a device. The label renders under one policy whoever wrote its text
+(`lib/markdown.tsx::labelMarkdownOptions`): a bare address is not a link (neither runtime links one),
+a link opens only a web address, and a picture is not loaded unless its address is inside the label,
+so label text never makes the builder's page request anything; a picture at an address draws its
+description, a difference from Web Apps the public docs state. Core substitutes again where a value
+holds `${n}`, to a fixpoint over the form's outputs; Preview makes one pass, since its outputs are not
+numbered as the emitted form's are. `lib/references/provider.ts::ReferenceProvider.projectTemplate`, the
 plain-text projection of compact and search surfaces, adds `[calculated value]` for a `value` part
 (the text of `projectProseTemplate` with no printer) and reports nothing unresolved for it;
 `resolvePart` and `projectPart` keep taking a `ProseReferencePart`.
@@ -2294,6 +2303,10 @@ checks are in "Tests".
 | Help text | formatting where the copy exists, else as typed (`QuestionWidget.java::createHelpLayout`: `getHelpMultimedia(TEXT_FORM_MARKDOWN)`, else `getHelpText()`) | formats the default text always (`form_ui.js::Question.prototype.fromJS`, `help`; `PromptToJson.java::parseQuestion` sends `getHelpText()`) |
 | Hint | as typed always (`QuestionWidget.java::addHintText`, `getHintText()`) | formats the default text always (`fromJS`, `hint`) |
 | Validation message | as typed always (`FormEntryPrompt.java::getConstraintText`, no form) | as typed always (the manifest's `questions/validation-message-markdown-form`, IGNORED on both) |
+
+The formatted copy each runtime reads already holds its output values (Core fills them in before
+the text leaves `FormEntryCaption`), so the row "Label: formatting where the copy exists" covers a
+value's text too: a value's formatting is formatted.
 
 Step 5 gave the label and the choice `plainLabel`. The help text has the same reading on Android (read,
 not run: G4), so it gains the same setting. A hint and a validation message have none on any runtime.

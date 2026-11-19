@@ -26,6 +26,7 @@
 
 import { type Document, type Element, isTag } from "domhandler";
 import type { Uuid } from "@/lib/domain";
+import { recordFromEntries } from "@/lib/domain/records";
 import {
 	type CircumstanceDetail,
 	circumstanceFinding,
@@ -37,6 +38,7 @@ import {
 	type ReadCircumstance,
 	type ReadStanding,
 	type Subject,
+	shownPlace,
 } from "@/lib/publish/hqFindings";
 import type { IndexedEntry, InventoryIndex } from "../surface/inventory";
 import { elementNamespace, namespaceScopes, splitName } from "../xmlNamespaces";
@@ -240,8 +242,9 @@ interface NodeState {
 	/** The declared claim's registered name, where a declared claim holds the node. */
 	declared?: string;
 	declaredKey?: string | null;
-	/** Claims `claimEntry` applied, by their surface key. */
-	readonly entries: Map<string, string>;
+	/** Claims `claimEntry` applied, by their surface key; made at the first, since most nodes a
+	 *  reading claims hold a declared claim alone. */
+	entries?: Map<string, string>;
 	/** Covered by a finding already raised, handed off, or claimed as part of a claim that records
 	 *  nothing there (`partOf`). */
 	settled: boolean;
@@ -379,9 +382,13 @@ export class Accounting implements ClaimLedger {
 	readonly #readSubtrees = new Set<Element>();
 	readonly #watched: Watched[] = [];
 	readonly #findings: Finding[] = [];
+	/** The place of every finding raised, as `whereText` spells it. */
+	readonly #findingPlaces = new Set<string>();
+	/** `findings()`'s answer until the next finding is raised. */
+	#findingsView: readonly Finding[] | undefined;
 	readonly #findingKeys = new Set<string>();
 	readonly #defects: ReaderDefect[] = [];
-	readonly #counts: Record<string, number> = {};
+	readonly #counts = recordFromEntries<number>([]);
 	readonly #records: PendingRecord[] = [];
 	readonly #handOffs: HandOffRecord[] = [];
 	/** Each place, key and entry of the app's JSON a claim's reach or a finding's class records
@@ -391,7 +398,6 @@ export class Accounting implements ClaimLedger {
 	readonly #own = new Set<string>();
 	/** The sites a kept claim at HQ's default recorded, so a key is recorded once. */
 	readonly #atDefault = new WeakMap<object, Set<string>>();
-	#syntaxReads = 0;
 	#rebuilds = 0;
 	#closed = false;
 
@@ -427,11 +433,6 @@ export class Accounting implements ClaimLedger {
 		);
 	}
 
-	/** A text read with `readFormSyntax`, for `ReadWork`. */
-	noteSyntaxRead(): void {
-		this.#syntaxReads += 1;
-	}
-
 	/** An expected tree built for a generated node, for `ReadWork`. */
 	noteRebuild(): void {
 		this.#rebuilds += 1;
@@ -461,7 +462,7 @@ export class Accounting implements ClaimLedger {
 		}
 		let state = byOwner.get(site.sub);
 		if (state === undefined) {
-			state = { entries: new Map(), settled: false };
+			state = { settled: false };
 			byOwner.set(site.sub, state);
 		}
 		return state;
@@ -588,6 +589,8 @@ export class Accounting implements ClaimLedger {
 		if (this.#findingKeys.has(key)) return;
 		this.#findingKeys.add(key);
 		this.#findings.push(finding);
+		this.#findingPlaces.add(whereText(finding.place));
+		this.#findingsView = undefined;
 	}
 
 	#unrecognized(place: HqPlace, name: string): void {
@@ -615,7 +618,7 @@ export class Accounting implements ClaimLedger {
 			...(standing === "fix-in-hq" && entry.cause !== null
 				? { cause: entry.cause }
 				: {}),
-			place,
+			place: shownPlace(place),
 			subject: entry.subject as Subject,
 			detail: {
 				...(name === undefined ? {} : { name: cutFindingName(name) }),
@@ -647,7 +650,7 @@ export class Accounting implements ClaimLedger {
 		const name = claimName(claim) ?? "unregistered-claim";
 		const first =
 			state.declared ??
-			(claim.key === null ? undefined : state.entries.get(claim.key));
+			(claim.key === null ? undefined : state.entries?.get(claim.key));
 		if (first !== undefined) {
 			this.defect(
 				place,
@@ -923,7 +926,7 @@ export class Accounting implements ClaimLedger {
 		// A use another claim at the node already names is that claim's.
 		if (
 			options?.unlessClaimed === true &&
-			(state.entries.has(key) || state.declaredKey === key)
+			(state.entries?.has(key) === true || state.declaredKey === key)
 		)
 			return;
 		const registered = claimNameForEntry(entryId);
@@ -948,7 +951,7 @@ export class Accounting implements ClaimLedger {
 			return;
 		}
 		const first =
-			state.entries.get(key) ??
+			state.entries?.get(key) ??
 			(state.declaredKey === key ? state.declared : undefined);
 		if (first !== undefined) {
 			this.defect(
@@ -963,6 +966,7 @@ export class Accounting implements ClaimLedger {
 			this.#keyNotNamed(ledgerSite, state, place, registered, entry, key);
 			return;
 		}
+		state.entries ??= new Map();
 		state.entries.set(key, registered);
 		this.#record(ledgerSite, at.key, entry.id, entry.standing);
 		if (this.#makesFinding("account", entry.standing)) {
@@ -993,7 +997,7 @@ export class Accounting implements ClaimLedger {
 		const ledgerSite = this.#site(site);
 		if (ledgerSite === undefined) return;
 		const state = this.#state(ledgerSite);
-		const first = state.entries.get(key);
+		const first = state.entries?.get(key);
 		const entry = this.#index.entry(entryId);
 		const registered = claimNameForEntry(entryId);
 		if (
@@ -1025,14 +1029,25 @@ export class Accounting implements ClaimLedger {
 	/** Whether some finding already stands at exactly `place`: a check whose inputs a finding
 	 *  there withheld is skipped, and that finding sends the person to the place. */
 	hasFindingAt(place: HqPlace): boolean {
-		const where = whereText(place);
-		return this.#findings.some((finding) => whereText(finding.place) === where);
+		return this.#findingPlaces.has(whereText(place));
 	}
 
 	/** Every finding raised so far, in the order raised: what a later stage names a node it covers
-	 *  by. The close adds the unclaimed uses and sorts. */
+	 *  by. The close adds the unclaimed uses and sorts. One frozen copy, made again only once a
+	 *  finding is raised, so a loop that asks between findings copies nothing. */
 	findings(): readonly Finding[] {
-		return [...this.#findings];
+		this.#findingsView ??= Object.freeze([...this.#findings]);
+		return this.#findingsView;
+	}
+
+	/** How many findings have been raised so far: where a step's own findings will start. */
+	findingCount(): number {
+		return this.#findings.length;
+	}
+
+	/** The finding raised at `index` in the order raised, or undefined where none has been. */
+	findingRaised(index: number): Finding | undefined {
+		return this.#findings[index];
 	}
 
 	/** Hands the node at `site` to project data, as a cursor's `handOff` does, for a stage that
@@ -1119,7 +1134,9 @@ export class Accounting implements ClaimLedger {
 		const state = this.#peekState(owner, sub);
 		return (
 			state !== undefined &&
-			(state.settled || state.declared !== undefined || state.entries.size > 0)
+			(state.settled ||
+				state.declared !== undefined ||
+				(state.entries?.size ?? 0) > 0)
 		);
 	}
 
@@ -1227,7 +1244,7 @@ export class Accounting implements ClaimLedger {
 	/** Every unclaimed use and unread admission becomes `unrecognized`; then the totals. */
 	close(): {
 		readonly findings: readonly Finding[];
-		readonly work: ReadWork;
+		readonly work: Pick<ReadWork, "nodes" | "rebuilds">;
 		readonly claims: ClaimLog;
 		readonly defects: readonly ReaderDefect[];
 	} {
@@ -1289,7 +1306,6 @@ export class Accounting implements ClaimLedger {
 			findings,
 			work: {
 				nodes: this.#nodesVisited,
-				syntaxReads: this.#syntaxReads,
 				rebuilds: this.#rebuilds,
 			},
 			claims,

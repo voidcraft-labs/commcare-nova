@@ -37,15 +37,26 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import {
-	authHeader,
+	HQ_LOCATION_INVENTORY_MAX_ROWS,
+	HQ_LOCATION_LIST_MAX_BYTES,
+	HQ_LOCATION_PATCH_ACK_MAX_BYTES,
+	HQ_LOCATION_TYPE_LIST_MAX_BYTES,
+	HQ_LOCATION_TYPE_LIST_MAX_ROWS,
+} from "./bounds";
+import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
+	type HqAnswer,
 	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
+	readAnswerJson,
+	readRefusedBody,
+	sendHq,
 } from "./http";
+import { parseHqJsonText } from "./jsonText";
 import {
 	type HqPastLimit,
 	isHqObject,
@@ -155,22 +166,24 @@ export interface HqLocationPushRefusal extends CommCareApiError {
 export const HQ_LOCATION_PATCH_LIMIT = 100;
 
 /**
- * How many to ask for per page when reading.
+ * How many to ask for per page when reading: each resource's largest.
  *
  * `v0_6.py::LocationResource.Meta.max_limit` is 5000 and the level
  * resource takes tastypie's default 1000. Nova has to read the WHOLE list
  * either way — the resource has no filter that takes a set of site codes,
- * so there is no smaller question to ask — and asking in large pages is
- * what keeps a big project space to a handful of round trips.
+ * so there is no smaller question to ask — and asking in the largest pages
+ * keeps most project spaces to one request, one evaluation of a list HQ
+ * serves with no order (`v0_6.py::LocationResource.Meta.queryset`).
  */
-const LOCATION_PAGE_SIZE = 1000;
+const PLACE_PAGE_SIZE = 5_000;
+const LEVEL_PAGE_SIZE = 1_000;
 
 /**
- * A bound on pages followed, so a cursor that never terminates cannot
- * spin here holding a request open. A hundred thousand places is not a
- * project space Nova is refusing to serve; it is a cursor that is wrong.
+ * A bound on pages followed, past each list's row limit at its page size,
+ * so reaching it means a list that never ends rather than a large one.
  */
-const MAX_LOCATION_PAGES = 100;
+const MAX_PLACE_PAGES = 21;
+const MAX_LEVEL_PAGES = 11;
 
 /**
  * The levels the project space defines.
@@ -194,14 +207,22 @@ export async function listHqLocationTypes(
 	options: { readonly cancel?: AbortSignal } = {},
 ): Promise<readonly HqLocationType[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
-	const raw = await readHqCollection(
-		creds,
-		`${baseUrl(creds)}/a/${domain}/api/location_type/v1/?limit=${LOCATION_PAGE_SIZE}`,
-		"location type list",
-		MAX_LOCATION_PAGES,
-		{ cancel: options.cancel },
-	);
-	if ("success" in raw) return raw;
+	const list = await readHqCollection(creds, {
+		label: "location type list",
+		firstUrl: `${baseUrl(creds)}/a/${domain}/api/location_type/v1/?limit=${LEVEL_PAGE_SIZE}`,
+		maxPages: MAX_LEVEL_PAGES,
+		maxRows: HQ_LOCATION_TYPE_LIST_MAX_ROWS,
+		maxBytes: HQ_LOCATION_TYPE_LIST_MAX_BYTES,
+		row: (value) => (isHqObject(value) ? value : null),
+		identity: (value) => String(value.id),
+		cancel: options.cancel,
+	});
+	if ("success" in list) return list;
+	/* Every place is judged against these levels, so a list past Nova's
+	 * bound is no answer, never a short list. */
+	if ("kind" in list)
+		return { success: false, status: 502, cause: "too-large" };
+	const raw = list.rows;
 
 	/* The level above is declared as `parent = fields.ForeignKey('self',
 	 * 'parent_type')`, so it serializes under the key `parent` and as a
@@ -317,9 +338,12 @@ export function listHqLocations(
 ): Promise<readonly HqLocation[] | CommCareApiError>;
 /**
  * With `stopPast`: `past-limit` where the project space holds more places
- * than it. The read ends at the page whose `meta.total_count` is over it,
- * with that total, or, where no page names a total, at the first page that
- * takes the places read past it, with a null total.
+ * than it, read from the first page's `meta.total_count` after one request,
+ * or where the places pass `bounds.ts::HQ_LOCATION_LIST_MAX_BYTES`. Without
+ * it the read is a publish's inventory, held to
+ * `HQ_LOCATION_INVENTORY_MAX_ROWS` and the same byte bound, and a list past
+ * either is no answer (`too-large`): an inventory Nova did not read whole
+ * cannot say a site code is free.
  */
 export function listHqLocations(
 	creds: CommCareCredentials,
@@ -332,30 +356,23 @@ export async function listHqLocations(
 	options: { readonly cancel?: AbortSignal; readonly stopPast?: number } = {},
 ): Promise<readonly HqLocation[] | HqPastLimit | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
-	const url = `${baseUrl(creds)}/a/${domain}/api/location/v2/?limit=${LOCATION_PAGE_SIZE}`;
 	const { cancel, stopPast } = options;
-	const raw =
-		stopPast === undefined
-			? await readHqCollection(
-					creds,
-					url,
-					"location list",
-					MAX_LOCATION_PAGES,
-					{
-						cancel,
-					},
-				)
-			: await readHqCollection(
-					creds,
-					url,
-					"location list",
-					MAX_LOCATION_PAGES,
-					{
-						cancel,
-						stopPast,
-					},
-				);
-	if ("success" in raw || "kind" in raw) return raw;
+	const list = await readHqCollection(creds, {
+		label: "location list",
+		firstUrl: `${baseUrl(creds)}/a/${domain}/api/location/v2/?limit=${PLACE_PAGE_SIZE}`,
+		maxPages: MAX_PLACE_PAGES,
+		maxRows: stopPast ?? HQ_LOCATION_INVENTORY_MAX_ROWS,
+		maxBytes: HQ_LOCATION_LIST_MAX_BYTES,
+		row: (value) => (isHqObject(value) ? value : null),
+		identity: (value) => String(value.location_id),
+		cancel,
+	});
+	if ("success" in list) return list;
+	if ("kind" in list)
+		return stopPast === undefined
+			? { success: false, status: 502, cause: "too-large" }
+			: list;
+	const raw = list.rows;
 
 	const places: HqLocation[] = [];
 	const ids = new Set<string>();
@@ -458,18 +475,18 @@ export async function patchHqLocations(
 	});
 
 	return withHqRequestDeadline(async (signal) => {
-		let res: Response;
+		let res: HqAnswer;
 		try {
-			res = await fetch(`${baseUrl(creds)}/a/${domain}/api/location/v2/`, {
-				method: "PATCH",
-				headers: {
-					Authorization: authHeader(creds),
-					"Content-Type": "application/json",
+			res = await sendHq(
+				creds,
+				`${baseUrl(creds)}/a/${domain}/api/location/v2/`,
+				{
+					method: "PATCH",
+					contentType: "application/json",
+					body,
+					signal,
 				},
-				body,
-				redirect: "manual",
-				signal,
-			});
+			);
 		} catch (error) {
 			log.warn("[commcare] location push unreachable", {
 				domain,
@@ -481,12 +498,13 @@ export async function patchHqLocations(
 		if (res.status !== 202)
 			return await refusedPush(res, domain, places.length);
 
-		let parsed: unknown;
-		try {
-			parsed = await res.json();
-		} catch {
-			log.error("[commcare] location push returned non-JSON", undefined, {
+		const answer = await readAnswerJson(res, HQ_LOCATION_PATCH_ACK_MAX_BYTES);
+		if (answer.kind === "unreadable") {
+			/* An acknowledgement longer than Nova reads is one it cannot read,
+			 * and the batch may have landed either way. */
+			log.error("[commcare] location push answer is unreadable", undefined, {
 				domain,
+				why: answer.why,
 			});
 			return {
 				success: false,
@@ -495,6 +513,7 @@ export async function patchHqLocations(
 				mayHaveLanded: true,
 			};
 		}
+		const parsed = answer.data;
 		if (
 			!Array.isArray(parsed) ||
 			parsed.length !== places.length ||
@@ -536,17 +555,16 @@ export async function patchHqLocations(
  * repeating, and the caller says the useful thing instead.
  */
 async function refusedPush(
-	res: Response,
+	res: HqAnswer,
 	domain: string,
 	count: number,
 ): Promise<HqLocationPushRefusal> {
-	let body = "";
-	try {
-		body = await res.text();
-	} catch {}
+	const read = await readRefusedBody(res);
+	/* A refusal past the bound keeps no sentence: its head is not JSON. */
+	const body = read.kind === "text" && read.whole ? read.text : "";
 	let message = "";
 	try {
-		const parsed: unknown = JSON.parse(body);
+		const parsed: unknown = parseHqJsonText(body);
 		if (
 			parsed !== null &&
 			typeof parsed === "object" &&
@@ -557,13 +575,13 @@ async function refusedPush(
 	} catch {}
 	/* HQ's sentence names a place and its site code, so the line holds the
 	 * body's shape and length, never its words. */
-	const facts = hqTextFacts(body);
+	const facts = hqTextFacts(read.kind === "text" ? read.text : "");
 	const refusal = {
 		domain,
 		status: res.status,
 		count,
 		body: facts.shape,
-		bodyBytes: facts.bytes,
+		bodyBytes: read.kind === "text" ? read.bytes : 0,
 	};
 	if (res.status === 401 || res.status === 403) {
 		log.warn("[commcare] location push refused", refusal);

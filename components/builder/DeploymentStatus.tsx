@@ -86,11 +86,15 @@ import {
 	type StoppedPublishingView,
 	withdrawDeploymentConfirmationAction,
 } from "@/lib/deployment/actions";
-import { remoteAppReportedGone } from "@/lib/deployment/resources";
+import {
+	activeRemoteApp,
+	remoteAppReportedGone,
+} from "@/lib/deployment/resources";
 import type {
 	DeploymentConfirmationKey,
 	DeploymentKept,
 } from "@/lib/deployment/types";
+import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
 import {
 	broughtInFromLine,
 	notPublishedYetLine,
@@ -195,6 +199,8 @@ export function DeploymentStatus({
 	workers?: ReactNode;
 }) {
 	const record = view.deployment.deployment;
+	/* The HQ app a stop from this card names: the one this record shows. */
+	const stopHqAppId = activeRemoteApp(view.deployment)?.remoteId ?? null;
 	/* An app with no lookup tables and no places has no data rung: drawing
 	 * it would leave a step permanently unticked at preflight and then tick
 	 * it on upload for work that never ran. The artifact is the honest
@@ -559,13 +565,20 @@ export function DeploymentStatus({
 					>
 						{STOP_PUBLISHING_HELPER}
 					</p>
-					<StopPublishingDialog
-						open={stopOpen}
-						onOpenChange={setStopOpen}
-						target={{ appId, server: record.server, domain: record.domain }}
-						onStopped={handleStopped}
-						onRecordsStale={noteDeploymentRecordsChanged}
-					/>
+					{stopHqAppId !== null ? (
+						<StopPublishingDialog
+							open={stopOpen}
+							onOpenChange={setStopOpen}
+							target={{
+								appId,
+								server: record.server,
+								domain: record.domain,
+								hqAppId: stopHqAppId,
+							}}
+							onStopped={handleStopped}
+							onRecordsStale={noteDeploymentRecordsChanged}
+						/>
+					) : null}
 				</div>
 			) : null}
 		</section>
@@ -814,7 +827,10 @@ function ConfirmationsOnRecord({
 	onWithdrawn?: (next: DeploymentView) => void;
 }) {
 	const record = view.deployment.deployment;
-	const rows = liveConfirmationRows(view.deployment.confirmations);
+	/* A worker-level confirmation stores CommCare HQ's code for the level; the
+	 * app's levels give the name the Workers panel asked by. */
+	const levels = useOrganizationLevels();
+	const rows = liveConfirmationRows(view.deployment.confirmations, levels);
 	const sessionApi = useBuilderSessionApi();
 	const [pending, startTransition] = useTransition();
 	const [withdrawError, setWithdrawError] = useState<string | null>(null);
@@ -863,7 +879,11 @@ function ConfirmationsOnRecord({
 			<ul aria-labelledby={headingId} className="mt-2 flex flex-col gap-1.5">
 				{rows.map((row) => (
 					<li
-						key={row.label}
+						key={
+							row.key.kind === "plan-feature" || row.key.kind === "worker-level"
+								? `${row.key.kind}:${row.key.subject}`
+								: row.key.kind
+						}
 						className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-lg border border-nova-border bg-nova-well px-3 py-1.5 text-[13px] leading-relaxed"
 					>
 						<span className="min-w-0">

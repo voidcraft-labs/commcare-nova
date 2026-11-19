@@ -17,6 +17,7 @@
  * `unique_id`; HQ's other menu kinds hold no form an entry reads.
  */
 
+import { NO_ENTRIES } from "@/lib/domain/records";
 import { activeActions, publishedCaseBlocks } from "./publishedCaseBlocks";
 
 export interface HqEntryFacts {
@@ -200,21 +201,84 @@ function basicFormRequiresCase(form: JsonObject): boolean {
 export function parentStepRead(
 	modules: readonly unknown[],
 	module: JsonObject,
-	seen: ReadonlySet<unknown> = new Set(),
 ): boolean {
-	if (isObject(module.case_list) && module.case_list.show === true) return true;
-	if (objects(module.forms).some(basicFormRequiresCase)) return true;
-	const next = new Set(seen).add(module.unique_id);
-	return modules.some((other) => {
-		if (!isObject(other)) return false;
-		const select = isObject(other.parent_select) ? other.parent_select : {};
-		return (
-			select.active === true &&
-			select.module_id === module.unique_id &&
-			!next.has(other.unique_id) &&
-			parentStepRead(modules, other, next)
-		);
-	});
+	if (ownParentStepRead(module)) return true;
+	let steps = parentStepsRead.get(modules);
+	if (steps === undefined) {
+		steps = readParentSteps(modules);
+		parentStepsRead.set(modules, steps);
+	}
+	if (steps.menus.has(module)) return steps.read.has(module);
+	// A menu outside the list: read through the menus of the list that select it.
+	const { read } = steps;
+	return objects(modules).some(
+		(other) =>
+			selectsParent(other, module.unique_id) &&
+			other.unique_id !== module.unique_id &&
+			read.has(other),
+	);
+}
+
+/** A menu whose own entries walk its parent selection: its case list menu item, or a form that
+ *  requires a case. */
+function ownParentStepRead(module: JsonObject): boolean {
+	return (
+		(isObject(module.case_list) && module.case_list.show === true) ||
+		objects(module.forms).some(basicFormRequiresCase)
+	);
+}
+
+/** Whether `module` selects the menu whose id is `id` as its parent. */
+function selectsParent(module: JsonObject, id: unknown): boolean {
+	const select = isObject(module.parent_select)
+		? module.parent_select
+		: NO_ENTRIES;
+	return select.active === true && select.module_id === id;
+}
+
+/** For each list of menus, its menus and those whose parent selection a build walks. */
+const parentStepsRead = new WeakMap<
+	readonly unknown[],
+	{ readonly menus: ReadonlySet<unknown>; readonly read: ReadonlySet<unknown> }
+>();
+
+/**
+ * Every menu of `modules` whose parent selection a build walks, worked out once a list: a menu
+ * whose own entries walk it, and every menu a menu that does selects as its parent, through
+ * any chain of them. A chain names each menu once (a menu that selects itself walks nothing
+ * more), so a menu is read exactly where a chain of distinct menus reaches one whose own
+ * entries walk it: each menu and each selection examined once, whatever the depth.
+ */
+function readParentSteps(modules: readonly unknown[]): {
+	readonly menus: ReadonlySet<unknown>;
+	readonly read: ReadonlySet<unknown>;
+} {
+	const menus = objects(modules);
+	const byId = new Map<unknown, JsonObject[]>();
+	for (const menu of menus) {
+		const same = byId.get(menu.unique_id);
+		if (same === undefined) byId.set(menu.unique_id, [menu]);
+		else same.push(menu);
+	}
+	const read = new Set<unknown>();
+	const pending: JsonObject[] = [];
+	for (const menu of menus)
+		if (ownParentStepRead(menu)) {
+			read.add(menu);
+			pending.push(menu);
+		}
+	for (let child = pending.pop(); child !== undefined; child = pending.pop()) {
+		const select = isObject(child.parent_select)
+			? child.parent_select
+			: NO_ENTRIES;
+		if (select.active !== true) continue;
+		for (const parent of byId.get(select.module_id) ?? []) {
+			if (parent.unique_id === child.unique_id || read.has(parent)) continue;
+			read.add(parent);
+			pending.push(parent);
+		}
+	}
+	return { menus: new Set(menus), read };
 }
 
 /**
@@ -234,9 +298,11 @@ export function advancedLoadListMenus(
 	for (const module of menus)
 		for (const form of objects(module.forms)) {
 			if (form.doc_type !== "AdvancedForm") continue;
-			const actions = isObject(form.actions) ? form.actions : {};
+			const actions = isObject(form.actions) ? form.actions : NO_ENTRIES;
 			for (const load of objects(actions.load_update_cases)) {
-				const select = isObject(load.auto_select) ? load.auto_select : {};
+				const select = isObject(load.auto_select)
+					? load.auto_select
+					: NO_ENTRIES;
 				if (idOf(select.mode) !== null || isObject(load.load_case_from_fixture))
 					continue;
 				const named = idOf(load.details_module);
@@ -258,7 +324,9 @@ export function advancedLoadListMenus(
 /** The menu's short case list detail, `{}` where it has none. */
 function shortDetail(module: JsonObject): JsonObject {
 	const details = module.case_details;
-	return isObject(details) && isObject(details.short) ? details.short : {};
+	return isObject(details) && isObject(details.short)
+		? details.short
+		: NO_ENTRIES;
 }
 
 /** `max_select_value`'s default, which HQ's model holds where a list stores none. */
@@ -294,7 +362,9 @@ function ownMenuFacts(
 			? stored
 			: DEFAULT_MAX_SELECT;
 	const parentSelect = module.parent_select;
-	const search = isObject(module.search_config) ? module.search_config : {};
+	const search = isObject(module.search_config)
+		? module.search_config
+		: NO_ENTRIES;
 	const offersSearch =
 		(Array.isArray(search.properties) && search.properties.length > 0) ||
 		(Array.isArray(search.default_properties) &&
@@ -339,7 +409,7 @@ function ownMenuFacts(
 
 /** The facts of one form read by `publishedCaseBlocks`, whose actions are sound. */
 function formFacts(form: JsonObject, menu: OwnMenuFacts): HqEntryFacts {
-	const actions = isObject(form.actions) ? form.actions : {};
+	const actions = isObject(form.actions) ? form.actions : NO_ENTRIES;
 	const caseFacts =
 		form.doc_type === "AdvancedForm"
 			? advancedFormFacts(actions)
@@ -422,9 +492,11 @@ function advancedFormFacts(actions: JsonObject): CaseFacts {
 		newChildCases: [],
 		usesWorkerRecord: false,
 		loads: objects(actions.load_update_cases).map((load) => {
-			const index = isObject(load.case_index) ? load.case_index : {};
+			const index = isObject(load.case_index) ? load.case_index : NO_ENTRIES;
 			const indexTag = idOf(index.tag);
-			const autoSelect = isObject(load.auto_select) ? load.auto_select : {};
+			const autoSelect = isObject(load.auto_select)
+				? load.auto_select
+				: NO_ENTRIES;
 			return {
 				tag: typeof load.case_tag === "string" ? load.case_tag : "",
 				caseType: typeof load.case_type === "string" ? load.case_type : "",

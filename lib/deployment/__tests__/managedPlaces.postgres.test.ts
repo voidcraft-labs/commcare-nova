@@ -12,10 +12,7 @@
 
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
-import {
-	readHttpRequestBody,
-	withHttpPeer,
-} from "@/__tests__/helpers/httpPeer";
+import { readHttpRequestBody } from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
@@ -33,19 +30,23 @@ import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { publishConfirmationNeeds } from "../preflight";
 import { planManagedPlaces } from "../reading/projectData/places";
 import { type PublishOutcome, publishAppToHq } from "../service";
+import { withdrawDeploymentConfirmation } from "../store";
 import type { DeploymentConfirmationKey } from "../types";
 import { provisionWorkers } from "../workers";
 import {
 	acceptImport,
 	connect,
 	HOST,
+	hqSaves,
 	publishRequests,
 	serveSource,
+	withManagedPeer,
 } from "./managedFixtures";
 import { reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 beforeEach(() => {
+	hqSaves.reset();
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
 });
@@ -195,8 +196,8 @@ it("never pushes places to the project space that manages them, and refreshes th
 		needs.needed.flatMap((need) => need.reasons).includes(PUSH_REASON),
 	).toBe(false);
 
-	const places = "/a/clinic/api/location/v2/?limit=1000";
-	await withHttpPeer(async (peer) => {
+	const places = "/a/clinic/api/location/v2/?limit=5000";
+	await withManagedPeer(async (peer) => {
 		request(peer, places).reply(200, {
 			meta: { next: null },
 			objects: [
@@ -321,7 +322,7 @@ it("plans the copy for any other project space, as places Nova made there", asyn
 	expect(needs.needed.flatMap((need) => need.reasons)).toContain(PUSH_REASON);
 });
 
-it("stands a persona in the place CommCare HQ manages, by that place's id there", async () => {
+it("asks before it stands a persona at a level of places CommCare HQ manages, then stands them in that place, by its id there, until the answer is withdrawn", async () => {
 	const doc = await seed();
 	const [place] = (await readOrganization(SCOPE)).locations;
 	if (place === undefined) throw new Error("The copy holds no place.");
@@ -340,8 +341,8 @@ it("stands a persona in the place CommCare HQ manages, by that place's id there"
 		]),
 	});
 	// The app is on the project space that manages the places.
-	await withHttpPeer(async (peer) => {
-		request(peer, "/a/clinic/api/location/v2/?limit=1000").reply(200, {
+	await withManagedPeer(async (peer) => {
+		request(peer, "/a/clinic/api/location/v2/?limit=5000").reply(200, {
 			meta: { next: null },
 			objects: [
 				{
@@ -372,8 +373,50 @@ it("stands a persona in the place CommCare HQ manages, by that place's id there"
 			},
 		},
 	};
+	const provision = (confirmWorkerLevels?: readonly string[]) =>
+		provisionWorkers({
+			scope: SCOPE,
+			doc: assigned,
+			...MANAGING,
+			locations: [place],
+			workers: [{ personaUuid: AMINA, username: "amina" }],
+			...(confirmWorkerLevels && { confirmWorkerLevels }),
+		});
+	const workerLevelRows = () =>
+		h
+			.db()
+			.selectFrom("app_deployment_confirmations")
+			.select(["kind", "subject", "withdrawn_at"])
+			.where("kind", "=", "worker-level")
+			.execute();
+
+	// CommCare HQ's level API doesn't say whether Region takes workers: Nova
+	// asks before CommCare HQ is asked anything, and records nothing.
+	const asked = await withManagedPeer(async (peer) => {
+		const result = await provision();
+		expect(publishRequests(peer)).toEqual([]);
+		return result;
+	});
+	expect(asked.refusal).toMatchObject({
+		code: "worker_levels_unconfirmed",
+		levels: [{ code: "region", name: "Region", personaNames: ["Amina"] }],
+		details: ["Region (region): Amina"],
+	});
+	expect(asked.refusal?.message).toBe(
+		"CommCare HQ doesn't tell Nova which levels take workers in “clinic”. Amina would stand at a place at the level Region. You can check Organization Levels in CommCare HQ, then confirm that level takes workers and provision again.",
+	);
+	expect(await workerLevelRows()).toEqual([]);
+	// A confirmation of a level no worker here stands at answers nothing.
+	const elsewhere = await withManagedPeer(async (peer) => {
+		const result = await provision(["district"]);
+		expect(publishRequests(peer)).toEqual([]);
+		return result;
+	});
+	expect(elsewhere.refusal?.code).toBe("worker_levels_unconfirmed");
+	expect(await workerLevelRows()).toEqual([]);
+
 	const sent: unknown[] = [];
-	const outcome = await withHttpPeer(async (peer) => {
+	const outcome = await withManagedPeer(async (peer) => {
 		peer
 			.get(HOST)
 			.intercept({
@@ -391,18 +434,32 @@ it("stands a persona in the place CommCare HQ manages, by that place's id there"
 				return { statusCode: 200, data: '{"id":"hq-amina"}' };
 			},
 		);
-		return provisionWorkers({
-			scope: SCOPE,
-			doc: assigned,
-			...MANAGING,
-			locations: (await readOrganization(SCOPE)).locations,
-			workers: [{ personaUuid: AMINA, username: "amina" }],
-		});
+		return provision(["region"]);
 	});
 	expect(outcome.refusal, JSON.stringify(outcome.refusal)).toBeNull();
 	expect(sent).toEqual([
 		{ locations: ["hq-north"], primary_location: "hq-north" },
 	]);
+	expect(await workerLevelRows()).toEqual([
+		{ kind: "worker-level", subject: "region", withdrawn_at: null },
+	]);
+	expect(
+		outcome.deployment?.confirmations.find(
+			(confirmation) => confirmation.kind === "worker-level",
+		),
+	).toMatchObject({ subject: "region" });
+
+	// Withdrawn, the next call asks again before CommCare HQ is asked anything.
+	await withdrawDeploymentConfirmation(SCOPE, MANAGING, {
+		kind: "worker-level",
+		subject: "region",
+	});
+	const again = await withManagedPeer(async (peer) => {
+		const result = await provision();
+		expect(publishRequests(peer)).toEqual([]);
+		return result;
+	});
+	expect(again.refusal?.code).toBe("worker_levels_unconfirmed");
 });
 
 it("refuses, before any account exists, a persona standing in a managed place CommCare HQ no longer has", async () => {
@@ -423,8 +480,8 @@ it("refuses, before any account exists, a persona standing in a managed place Co
 			},
 		]),
 	});
-	await withHttpPeer(async (peer) => {
-		request(peer, "/a/clinic/api/location/v2/?limit=1000").reply(200, {
+	await withManagedPeer(async (peer) => {
+		request(peer, "/a/clinic/api/location/v2/?limit=5000").reply(200, {
 			meta: { next: null },
 			objects: [
 				{
@@ -464,7 +521,7 @@ it("refuses, before any account exists, a persona standing in a managed place Co
 			},
 		},
 	};
-	const outcome = await withHttpPeer(async (peer) => {
+	const outcome = await withManagedPeer(async (peer) => {
 		const result = await provisionWorkers({
 			scope: SCOPE,
 			doc: assigned,

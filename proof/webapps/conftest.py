@@ -40,6 +40,7 @@ DOCUMENTS = (
     "targeted-platform-declaration",
     "targeted-search-no-title",
     "targeted-search-workflow",
+    "targeted-styled-value",
     "targeted-survey-menu",
     "targeted-tile-group-filter",
     "targeted-tile-hidden-order",

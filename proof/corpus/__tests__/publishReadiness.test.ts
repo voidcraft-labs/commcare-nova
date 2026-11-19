@@ -303,7 +303,7 @@ it("stops the publish and the download of a document the boundary refuses, and l
 			.status,
 	).toBe("sent");
 	const archive = await localCcz(accepted, PROOF_DOMAIN);
-	if (archive === null)
+	if (!Buffer.isBuffer(archive))
 		throw new Error("The app declares Android, and has no CCZ.");
 	expect(archive.length).toBeGreaterThan(0);
 });

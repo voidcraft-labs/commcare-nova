@@ -55,7 +55,7 @@ import {
 	propertyDisplayLabel,
 	propertyTypeLabel,
 } from "@/lib/domain/propertyDisplay";
-import { PreviewMarkdown } from "@/lib/markdown";
+import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
 import { useCanEdit } from "@/lib/session/hooks";
 import { LIST_ROW_CLS } from "@/lib/styles";
 import {
@@ -322,7 +322,9 @@ export function SearchCanvas({
 									{searchEnabled
 										? subtitle !== undefined && (
 												<div className="mt-1 preview-markdown text-[13px] text-nova-text-muted">
-													<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+													<PreviewMarkdown rendering={PREVIEW_LABEL_RENDERING}>
+														{subtitle}
+													</PreviewMarkdown>
 												</div>
 											)
 										: canvasLines.length === 0 && (

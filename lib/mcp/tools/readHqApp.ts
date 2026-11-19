@@ -12,7 +12,8 @@
  * answer is paged, each page a fresh read held to the account or review the
  * previous page was cut from.
  *
- * Scope: `nova.hq.read`, checked before any read. It writes nothing in Nova
+ * Scope: `nova.hq.import`, checked by its registration before anything runs:
+ * its answer is what CommCare HQ holds of the app. It writes nothing in Nova
  * or in CommCare HQ.
  */
 
@@ -35,9 +36,10 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { toolText } from "../paging";
 import { createProgressEmitter, readingProgressSink } from "../progress";
 import { LARGE_RESULT_META } from "../resultSize";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import {
 	describeReading,
@@ -114,10 +116,11 @@ export function bringInProgress(extra: ServerContext) {
 }
 
 export function registerReadHqApp(server: McpServer, ctx: ToolContext): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"read_hq_app",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
 				"Read one CommCare HQ app so it can be brought in to Nova, and say whether it can be. Nothing is created, nothing is kept and nothing changes in CommCare HQ. Send `project_id`, `domain` and `hq_app_id`: where the user can edit more than one Nova Project, ask which one the app should be added to and never choose it for them, because an app that reads lookup tables stays in the Project it is added to; where they can edit one, tell them which it is. One call is one whole read. `state` is one of: `review`, with `reading_id` and `review` (what will be created; `runs_on`, the ways the app can run, each with `first_publish`, what the first upload from Nova changes in CommCare HQ under that choice; what stays in CommCare HQ; and `review.review_digest`); `account`, with `account.findings`, each thing Nova cannot hold, where it is, and whether it is Nova's to build, something Nova does not bring in, or something to change in CommCare HQ; or `stop`, with `stop`, something that ended the read such as a permission, a plan without API access, or an app already in Nova. Relay titles, sentences and next steps as written, and do not summarize an account as a failure: it is everything Nova found on this read, and `check_again` says a later read may find more. For a `first_publish`, relay `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`. To check again after a change in CommCare HQ or a Nova update, call this tool again. An account longer than one answer is paged, and so is a review whose lookup tables don't fit one answer: pass `page` with the `next_page` it gave until it is null. Each review page holds its share of `review.tables`, and `review.tables_total` says how many there are in all; show the user every table of every page before calling `bring_in_hq_app`. Each page reads the app again, and where the app changed since the last page the answer starts over with `restarted` true. An app with many pictures and sounds can take a few minutes, and Nova reports progress while it works. If your client stops waiting before the answer comes, the app can be read in Nova in a browser.",
 			inputSchema: z.strictObject({
@@ -149,7 +152,6 @@ export function registerReadHqApp(server: McpServer, ctx: ToolContext): void {
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqRead, "read_hq_app");
 				const page =
 					args.page === undefined ? null : parseAccountPage(args.page);
 				if (args.page !== undefined && page === null)
@@ -177,7 +179,7 @@ export function registerReadHqApp(server: McpServer, ctx: ToolContext): void {
 					project: call.project,
 				});
 				return {
-					content: [{ type: "text", text: JSON.stringify(projection) }],
+					content: [{ type: "text", text: toolText(projection) }],
 				};
 			} catch (err) {
 				return toMcpErrorResult(err, {

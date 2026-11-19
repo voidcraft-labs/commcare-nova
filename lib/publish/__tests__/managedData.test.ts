@@ -177,6 +177,14 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.MANAGEMENT_NEEDS_ADMIN],
 	},
+	MANAGEMENT_REVIEW_MOVED: {
+		kind: "sentence",
+		texts: [copy.MANAGEMENT_REVIEW_MOVED],
+	},
+	handBackWhilePublishing: {
+		kind: "sentence",
+		texts: [copy.handBackWhilePublishing("acme-health")],
+	},
 	REFRESH_NEEDS_EDITOR: {
 		kind: "sentence",
 		texts: [copy.REFRESH_NEEDS_EDITOR],
@@ -211,6 +219,13 @@ const READINGS: Record<
 		texts: [
 			managedPlacesKeptInUse(["Kisumu"]),
 			managedPlacesKeptInUse(["Kisumu", "Nakuru"]),
+		],
+	},
+	managedPlacesRemade: {
+		kind: "sentence",
+		texts: [
+			copy.managedPlacesRemade(["Mercy Clinic"]),
+			copy.managedPlacesRemade(["Mercy Clinic", "Old Post"]),
 		],
 	},
 	managedPlacesKeptLeftOut: {
@@ -820,9 +835,9 @@ describe("the forms a sentence chooses by its arguments", () => {
 		expect(copy.managedPlacesOverLimit("acme-health", 12400)).toBe(
 			"acme-health now has 12,400 places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.",
 		);
-		// A list that named no total stopped once it passed the limit.
+		// A list that passed the bytes Nova reads before it passed the count.
 		expect(copy.managedPlacesOverLimit("acme-health", null)).toBe(
-			"acme-health now has more than 10,000 places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.",
+			"acme-health now holds more place information than Nova reads, and Nova holds up to 10,000 places for an app. Nova kept its copy as it was.",
 		);
 	});
 

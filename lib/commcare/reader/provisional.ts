@@ -26,6 +26,7 @@ import {
 	makeTranslationUnitId,
 } from "@/lib/domain/localization";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
+import { recordFromEntries } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -43,6 +44,7 @@ import {
 	type ExpressionReading,
 	readExpressionsSteps,
 } from "./expressions";
+import { EXPRESSION_CLAIMS } from "./expressions/findings";
 import { slotForm } from "./expressions/readExpression";
 import {
 	instanceIdsRead,
@@ -80,12 +82,12 @@ function documentField(field: DraftField, uuid: Uuid): Field {
 			id: field.id,
 			kind: isContainerKindName(field.kind) ? "group" : "hidden",
 		} as Field;
-	const slots: Record<string, unknown> = {
+	const slots = {
 		...field.field,
 		uuid,
 		id: field.id,
 		kind: field.kind,
-	};
+	} as Record<string, unknown>;
 	/* A select whose choices got a finding (`xform/options.ts::readChoices`)
 	 * holds none: its finding stands for them, and the select keeps its kind,
 	 * so every read of its answer binds as it would. */
@@ -280,7 +282,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 		...(draft.levels.length === 0
 			? {}
 			: {
-					organizationLevels: Object.fromEntries(
+					organizationLevels: recordFromEntries(
 						draft.levels.map((level) => [level.uuid, level]),
 					),
 					organizationLevelOrder: draft.levels.map((level) => level.uuid),
@@ -288,7 +290,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 		...(draft.userProperties.length === 0
 			? {}
 			: {
-					userProperties: Object.fromEntries(
+					userProperties: recordFromEntries(
 						draft.userProperties.map((one) => [one.uuid, one]),
 					),
 					userPropertyOrder: draft.userProperties.map((one) => one.uuid),
@@ -296,7 +298,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 		...(draft.locationProperties.length === 0
 			? {}
 			: {
-					locationProperties: Object.fromEntries(
+					locationProperties: recordFromEntries(
 						draft.locationProperties.map((one) => [one.uuid, one]),
 					),
 					locationPropertyOrder: draft.locationProperties.map(
@@ -453,12 +455,18 @@ function declarationSites(
 function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 	const pending = ctx.pending.list();
 	const index = inventoryIndex();
-	/* Each unread declaration's claims by key and place, in reading order:
-	 * a declaration takes the first one not yet taken. */
+	/* Each unread declaration's claims by key, place and entry, in reading order: a declaration
+	 * takes the first one not yet taken of the entry its source gives it, so a declaration this
+	 * pass claims otherwise (a table a choice list's itemset reads) leaves no claim of another
+	 * class to the next declaration of its key. */
 	const unreadAt = new Map<string, ExpressionClaim[]>();
 	for (const claim of reading.claims) {
 		if (claim.source >= 0) continue;
-		const at = JSON.stringify([claim.key, whereText(claim.place)]);
+		const at = JSON.stringify([
+			claim.key,
+			whereText(claim.place),
+			claim.entryId,
+		]);
 		const claims = unreadAt.get(at);
 		if (claims === undefined) unreadAt.set(at, [claim]);
 		else claims.push(claim);
@@ -513,12 +521,14 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				.sort((a, b) => a - b)
 				.map((position) => reading.claims[position] as ExpressionClaim);
 			const where = whereText(form.place);
+			let droppedFixture = false;
 			for (const [id, src] of xform.instanceSources) {
 				const declaration = xform.parsed.instances.find(
 					(instance) => instance.id === id,
 				);
 				if (declaration === undefined) continue;
-				const key = unreadDeclarationUse(src).key;
+				const unread = unreadDeclarationUse(src);
+				const key = unread.key;
 				// A table only a choice list's itemset reads is that carrier's read.
 				if (!ids.has(id) && xform.carrierInstances.has(id)) {
 					for (const one of declarationSites(declaration.element, key))
@@ -532,7 +542,9 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 					continue;
 				}
 				if (!ids.has(id)) {
-					const claim = unreadAt.get(JSON.stringify([key, where]))?.shift();
+					const claim = unreadAt
+						.get(JSON.stringify([key, where, unread.entryId]))
+						?.shift();
 					// A declaration only a refused expression of the form reads belongs to that
 					// expression's refusal, and stands under its finding.
 					const refusal = refusedReadOf(id, form.uuid);
@@ -551,6 +563,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 							form.place,
 							claim.detail,
 						);
+					if (claim.entryId === UNSERVED_MAYBE) droppedFixture = true;
 					continue;
 				}
 				const read = readClaims.find(
@@ -585,7 +598,34 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				for (const one of declarationSites(declaration.element, key))
 					ctx.accounting.cover(one.site, finding);
 			}
+			if (droppedFixture) recordDroppedFixtures(ctx, form);
 		}
+}
+
+/** The entry of a declared fixture no expression reads that the project space may not serve. */
+const UNSERVED_MAYBE =
+	EXPRESSION_CLAIMS[
+		"declared-unreferenced-fixture-instance-the-project-space-may-not"
+	].entry;
+
+/**
+ * Records, once for a form, that its source declares a fixture no expression reads that the
+ * project space may not serve: Core loads every declared instance when the form opens and stops
+ * the form where the fixture is not there (`CommCareInstanceInitializer.loadFixtureRoot`), and
+ * Nova writes no declaration nothing reads, so the first publish changes the form's source and,
+ * on a device the fixture never reaches, lets the form open (`unread-fixture-declarations-dropped`).
+ */
+function recordDroppedFixtures(
+	ctx: ReadContext,
+	form: ReadContext["draft"]["modules"][number]["forms"][number],
+): void {
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	ctx.facts.sameStateRewrites.push({
+		entry: UNSERVED_MAYBE,
+		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
+		register: "unread-fixture-declarations-dropped",
+	});
 }
 
 /** The slot a registration names and its owner's identity, for the throw over a registration whose slot the document lacks. */
@@ -1005,7 +1045,7 @@ export function* bindExpressionsSteps(
 			],
 			writtenUserFields: workerRecordWriteSlugs(ctx),
 		},
-		ctx.resolver,
+		ctx.identities,
 	);
 	if (world.userProperties.length > 0 || world.locationProperties.length > 0)
 		ctx.writeDraft(() => {

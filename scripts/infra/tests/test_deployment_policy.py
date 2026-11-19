@@ -166,6 +166,9 @@ class JobExecutionTests(unittest.TestCase):
             ["select-starting-value-scan.cjs", "--app", "app_123"],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute"],
+            ["hq-import-scope-scan.cjs"],
+            ["hq-import-scope-repair.cjs"],
+            ["hq-import-scope-repair.cjs", "--execute"],
         ):
             job = job_fixture()
             job["name"] = job_name
@@ -207,6 +210,10 @@ class JobExecutionTests(unittest.TestCase):
             ["select-starting-value-repair.cjs", "--plan-base64", ""],
             ["select-starting-value-repair.cjs", "--plan-base64", "not base64"],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute", "--extra"],
+            ["hq-import-scope-scan.cjs", "--execute"],
+            ["hq-import-scope-scan.cjs", "--prod"],
+            ["hq-import-scope-repair.cjs", "--execute", "--extra"],
+            ["hq-import-scope-repair.cjs", "--prod", "--execute"],
         ):
             with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args("commcare-nova-historical-repair", args)

@@ -93,9 +93,11 @@ form ids and `xmlns` the emission read. D is Nova's first reading of that app
 it brought in (`proof/corpus/publish.ts::PublishInput.hqAuthoredA`: the
 capture's peer starts from HQ's retained source answer, and the ledger is the
 one a bring-in leaves, one identity row a menu and a form, so every id comes
-from those rows), and B-edit is Nova's publish of D′ over A, where the base
-states an edit. Its case database is seeded from A alone
-(`proof/matrix/seed.py`). Which checks run on that hop is one rule,
+from those rows, and a row for each case list column whose field A keeps
+under the word Nova does not write, so B and the local archive write the
+column, and name its app strings, as A does), and B-edit is Nova's publish
+of D′ over A, where the base states an edit. Its case database is seeded
+from A alone (`proof/matrix/seed.py`). Which checks run on that hop is one rule,
 `proof/checks/eligibility.py` (every check but sensitivity, and parity, the
 stored-app comparison and the first-publish judge on this source alone):
 
@@ -146,7 +148,8 @@ summary of the app the review read, `proof/corpus/hqSummary.ts`, and the
 document taken; `proof/checks/corpus.py::BroughtIn`). A document that
 brings the saves in holds, in its `document.json`, its local archives and
 its import file, the document that republish sends, the one the bring-in
-gave, compiled under the ids the bring-in read of the app
+gave, compiled under the target-identity record the bring-in left (the ids
+it read of the app and each keyed create's prefix), as the republish sent it
 (`proof/corpus/entryWriter.ts::republishedDocument`): A after the saves and
 B both hold it, so the intent check and proof 3 hold A, B and the local
 archive to that document, and D is what the first publish's captured
@@ -953,8 +956,37 @@ a local build named by `PROOF_IMAGE` ("Building the image", below). The first
 run on a machine also fills a Docker volume with Nova's dependencies for Linux
 (`npm ci` inside the image, once per `package-lock.json`), since a macOS
 checkout's native binaries cannot run in the container; on Linux a checkout's
-own install is used in place. HQ's state lives in a Postgres the run starts
-beside the image and removes when it ends (`proof/compose.yaml`).
+own install is used in place. Either is mounted read-only. HQ's state lives in
+a Postgres the run starts beside the image and removes when it ends
+(`proof/compose.yaml`).
+
+### What the container sees, and what it leaves
+
+The container runs HQ, Core and every other upstream at its pins, so it is
+handed nothing it does not need and nothing it wrote is trusted. It sees a
+view of the checkout at `/work` (`proof/run.mjs::checkoutView`, under
+`.proof/views/` while the run lasts): the files git lists, tracked or
+untracked but not ignored, so an uncommitted edit runs, and never a file git
+ignores (an `.env`, a key) or `.git`. A CI shard and the surface extraction
+see only the harness, the surface and the files that pin its dependencies.
+The view and `node_modules` are read-only, so nothing the container runs
+writes there: the corpus's and the native producers' Vitest runs load
+`vitest.config.mts` with Node's own import, where Vite's default loader
+would bundle it into `node_modules/.vite-temp`, and keep neither of Vitest's
+caches (`proof/corpus/emissionProcess.ts::VITEST_WRITER_OPTIONS`); Python
+writes no bytecode (the image's `PYTHONDONTWRITEBYTECODE`) and pytest keeps
+no cache (`-p no:cacheprovider`); and every other tool writes in the
+container's own temporary directory, its home, or the output.
+Once the container exits, the run's output is sealed
+(`proof/ci/untrusted.mjs`): an output holding anything but directories and
+plain files (a link, a pipe, a device) is moved to `<output>.refused`, each
+entry is named, and the run exits 6, so no upload (which follows links), no
+gate and no adoption meets it. `node proof/run.mjs --seal <directory>` seals
+another container's output the same way. A CI shard's claim and wait
+commands, which carry the job's artifact-service credentials, run on the
+host beside the container (`proof/ci/hostCommands.mjs`): the server asks for
+one through a relay (`python -m proof.lane.relay`) that names a block of the
+queue and nothing else, and no credential enters the container.
 
 ### Selecting what runs
 
@@ -980,6 +1012,17 @@ HQ and forks `k` pytest workers (1 by default), each with its own database
 clone, Core runner JVM and editor driver. The items of one corpus document are
 one group and run together on one worker, so the document's records are
 observed once for all its checks.
+
+The server collects each phase before it forks, and every worker collects it
+again in the server's memory; a worker whose items or groups differ stops the
+phase before it runs anything ("a collection must not depend on the
+process"). pytest keeps the ids a parametrization's `ids` resolved on its mark
+and escapes them again on a second collection in one process, so an id is
+spelled in printable ASCII with no backslash, and no parametrization is read
+from a set, a hash or anything else of the process.
+`proof/test_collection.py`, in the early phase, collects the whole harness as
+the server and a worker do and under a second hash seed, and names each item
+that differs.
 
 With no corpus named, the run emits one into its output first
 (`proof/checks/corpus.py::emit_corpus`, inside the image), at the default seed
@@ -1305,12 +1348,15 @@ image and Postgres pulled, and the Android reader's runtime built and held to
 its own checks (`~/proof-android-reader`; its build installs Android SDK
 packages, which only an SDK whose license a person accepted may receive, so
 it is built only where `--android-licenses` names one). A run copies the
-tree (without `.git`, `node_modules` or `.proof`, so uncommitted edits run)
-to `~/proof-remote/<slot>` on the host (`--slot`, the tree's directory name
+tree's files git lists (never `.git`, an `.env` or any other file git
+ignores, which the copy also removes from the slot; uncommitted edits run),
+with that list as `.proof/checkout-files`, to `~/proof-remote/<slot>` on the
+host (`--slot`, the tree's directory name
 by default, keeps two trees apart on one host), links its `node_modules`
 from that install, runs `npm run proof -- <arguments>` there with the
-runtime and the JDK and each `--env`, and copies the output back to
-`.proof/remote/<slot>-<stamp>/` (it prints the directory), where
+runtime and the JDK and each `--env`, and copies the output back, as plain
+files and directories only, to `.proof/remote/<slot>-<stamp>/` (it prints the
+directory), where
 `python3 -m proof.lane.gate` reads it: told a slice's documents
 (`--documents`, "Seeing a reader's verdict before a merge"), or with nothing
 more for a whole lane. The output comes back without the emitted corpus and
@@ -1632,7 +1678,16 @@ reads it. Per document, under its id:
   rows where the publish compared them), which the HQ side holds to HQ's own
   table and row resources (`CapturedResourcesNotHeld`); and an update that
   met a stop over a person's saves names `confirmed`: each stop, and the
-  discards and adoptions the resend sent. Beside the first publish's two
+  discards and adoptions the resend sent. Every import's sidecar names the
+  capture peer's save counter around it (`saveCounter`, `{before, after}`,
+  `before` null for the create), and an update that sent media the counter
+  around that upload (`mediaSaveCounter`): the HQ side holds HQ's own
+  counter's move over the same write to it (`proof/observe/publish.py`,
+  `CapturedCounterNotHeld`), the create by where it leaves the counter, an
+  import and a media upload by how far each moves it, so the peer's model of
+  the counter a publish binds its baseline to never drifts from HQ's; a
+  control retained before the counter was recorded names none, and only its
+  imports' acknowledgements are held. Beside the first publish's two
   imports, `create.ownership.json` and `content.ownership.json` hold the
   overlay keys each body writes (`hqImportApplication`'s `ownership`), which
   the retained HQ reads copy (`proof/hq-reads/<document>/ownership.json`) and
@@ -1664,6 +1719,21 @@ reads it. Per document, under its id:
   Formplayer and the devices take the archive of the configuration they
   observe. A control retained before the archive per configuration holds one
   `local.ccz`, which proof 3 compares with every configuration's A;
+- `local-refused.json`, in place of the local archives, where the project
+  space's app keeps a custom base URL whose origin is not the server's own:
+  Nova's download makes no `.ccz` for that project space
+  (`lib/deployment/runtimeTarget.ts::workersSentElsewhere`), and the capture
+  answers its refusal (`proof/corpus/publish.ts::localCcz`), which the
+  document states as `{reason: "workers-sent-elsewhere", host, server}`
+  (`Document.local_refusal`; `edit/local-refused.json` for D′) under the
+  `judge` role of `inputs.json`. The bar holds it to A
+  (`proof/checks/bar.py::local_outcome`: a document that declares Android
+  carries the archive or states the refusal its base calls for, never both and
+  never neither, at `local@D`), proof 3 compares A's and B's sessions with no
+  local run, no device or Formplayer walk of an archive runs, and a base's
+  value expectations at the local archive are left out of its
+  `expected.json`. The base `hq-kept-settings`, which keeps
+  `https://example.org/hq/`, states it;
 - `edit/`: the edit batch with its footprint (`batch.json`), D′
   (`document.json`), its verdict, its `update` capture per configuration and
   its `local.ccz`;
@@ -2127,6 +2197,18 @@ replays it, and it passes with no entry and no control. Its three readings are
 `test_navigation.py::test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion_is_read`,
 each asserting what the device showed, so a change in Android's behavior fails
 the lane.
+`targeted-styled-value` holds the order in which a runtime shows a label's
+value: a question labelled `Styled ` then a Hidden Value calculated as
+`'**x**'`. Core splices the value in as written, so its intent expectation
+reads the label `Styled **x**` on the local archive and on HQ's build; a
+device draws `Styled x` with the value in bold
+(`proof/android/test_form_reads.py::test_a_labels_value_is_formatted_with_the_label`),
+and Formplayer hands the client `caption_markdown` `Styled **x**`, which the
+client renders with the value in bold
+(`proof/webapps/test_label_values.py`). Preview plays the same order
+(`lib/preview/engine/labelRefs.ts`), so the two readers' tests are what holds
+it; both start a served reader, so the pull request lane leaves them to the
+nightly.
 `targeted-session-context-reads` reads the session context where CommCare
 supplies it, declared Web Apps only, since Android has no window width: its
 module shows only when the window width is above 0, shows the width, the clock
@@ -2427,7 +2509,10 @@ still runs and authors that base again, and the gate fails every run whose
 corpus set a base aside ("Authoring bases again", below). Beside D the reading gives what a bring-in of A
 records and leaves (`CorpusDocument.hqAuthored`): the ids HQ holds for each
 menu and form, each form's `xmlns`, the prefix each keyed create's cases
-stand under, the files D holds and the path HQ keeps each at, and the lookup
+stand under, the word each case list column of D keeps its field under on
+each screen where A stores the property under the word Nova does not write
+(`case_name`, `date_opened`, `external-id`; `HqAuthoredFacts.columnWords`),
+the files D holds and the path HQ keeps each at, and the lookup
 tables D reads, with HQ's rows under the ids Nova's store gives them, managed
 in CommCare HQ from A's project space. D holds a file only where the reading
 read it: one HQ maps that nothing references, or that only a setting kept in
@@ -2500,7 +2585,7 @@ saying what it holds:
 | `hq-case-management` | each case setting HQ's Case Management page writes and Nova holds |
 | `hq-advanced` | advanced menus that load a two-menu chain |
 | `hq-nova-then-builder` | Nova's first publish of `targeted-save-to-case-shapes`, saved in HQ's form builder; the one base Nova's emitter can stale |
-| `hq-case-lists` | the column formats and sort rules HQ's pages write |
+| `hq-case-lists` | the column formats, sort rules and property words HQ's pages write, with a header's override under the id its stored word names |
 | `hq-search` | a search on each menu, as HQ's Case List page sets one |
 | `hq-expressions` | each expression Nova's first publish writes another way |
 | `hq-media` | media in every place and shape the first publish reads, videos among them |
@@ -2546,11 +2631,22 @@ test, which no other test writes or reads): a file another test writes, or
 one of a test that stopped before its comparison, stays. Every file is
 written whole before it takes its name, and a base's directory takes its
 name only once every file of it is written (`Retained.settle`), so a run
-stopped partway leaves no `expected.json` beside an old seed. A file at the
-top of a block's tree, in no base or group, is refused by name. `--report` names
-each base whose stored app, answers or reading changed, reading the old and
-the new answers with the run's own reader bundle. It is a file copy on the
-standard library, with no image. `hq-nova-then-builder` starts from Nova's
+stopped partway leaves no `expected.json` beside an old seed; a write left
+beside its name (`.<name>.<pid>.partial`) is no file the run made, and is
+passed over unread. A file at the top of a block's tree, in no base or
+group, is refused by name. `--report --corpus <corpus>` names each base
+whose stored app, answers or reading changed, reading the old answers and
+the answers as adopting leaves them with the reader bundle of a corpus made
+on your own machine (never one inside an output), before anything is
+written. A run's output is data its container wrote, so adopt reads every
+output through the retained layout (`proof/matrix/layout.py`, which
+`proof/matrix/retained-layout.json` declares): each member and held record
+opened without following a link, every name, type and size checked before a
+byte is read, a held record able to name only a file its directory may
+hold, and a run holding anything else, in any output, refused whole, by
+name, with nothing under `proof/` changed. A new file the lane retains is
+named in the layout in the same change. It runs on the standard library,
+with no image. `hq-nova-then-builder` starts from Nova's
 own capture of `targeted-save-to-case-shapes`, so a change to that
 document's capture fails `test_retained.py` on this base and is adopted the
 same way.
@@ -2583,12 +2679,29 @@ lets the lane run while the reader refuses it. The round, in order:
    cheaper first run. The run fails where a copy moved: that is the run that
    carries the new copies.
 3. Download every output of that run and adopt them in one command:
-   `python3 -m proof.matrix.adopt <output>... --report --corpus <the run's
-   corpus>`. A base whose new copy did not come in is left out by name, with
+   `python3 -m proof.matrix.adopt <output>... --report --corpus <corpus>`,
+   the corpus one made on your own machine (or a directory holding the reader
+   alone, `node proof/reader/build.mjs --out <directory>/native/reader`):
+   the report runs no reader a container or another job wrote. A base whose new copy did not come in is left out by name, with
    what HQ made and the whole reading under its block's `hq-apps-unread/`:
    the reader or the base's builder is wrong at that place, so fix the one
    that is and go back to step 2. Read the report: each base whose stored app,
-   answers or reading changed.
+   answers or reading changed. Adopting refuses the whole run, by name, with
+   nothing under `proof/` changed, where an output holds what the retained
+   layout (`proof/matrix/retained-layout.json`) does not declare, and says
+   which: an output with no `blocks/`, or a block that is a link; a file name
+   the layout does not list (a new file the lane retains: name it in the
+   layout in the same change, and run again), a hidden name, a directory
+   deeper than a retained tree goes, or a directory no base of
+   `proof/matrix/bases.json` names; a link, a pipe or anything else that is
+   not a plain file or a directory; a member over its bound (8 MiB a JSON
+   file, 16 MiB a media file) or a tree over 64 MiB; a `.json` member that
+   is not strict JSON, or a `media.json` row naming no media file of its
+   base; a held record naming a file its directory may not hold; and two
+   blocks that wrote one file differently, where HQ answered two blocks of
+   one run apart. A refusal of what the run wrote is fixed in the run (its
+   builder, or the layout), never by editing the output; two blocks that
+   answered apart is a determinism failure to find before adopting.
 4. Correct what the new copies contradict, by reading them: a base's hand
    files (`expectations.json`, `hq-plain`'s `document.ts`, an `edit.ts`) and
    a variant row (Copy L12, L17, L18). Run step 1's suite again: it holds
@@ -2652,15 +2765,22 @@ anywhere else or one not well formed. One row may compose a second change
 beside a refusal (`second`). A row whose value HQ's own import refuses, or
 whose source read serves something else, states that (`hqNeverServes`:
 `{raised}` or `{notServedAt}`), and `test_retained.py` holds it so on every
-run, failing where HQ starts serving the value. Where the lane's Python
-check decides the entry's class, the variant's added uses are joined to its
-claim log as parity joins a base's, and the rows it decides of each base are
-held both ways to `proof/matrix/parity-decided.json`, so a change that leaves
-a row's added uses empty fails by the row's name rather than leaving the join
-nothing to judge; a change meant to move the list writes it from the run's
-`matrix/<base>/unchecked-by-python.json`. A `holds` fragment speaks of an
-entity the reading holds: the bundle answers whether each key names one
-(`named`), and a fragment of a key that names none fails whatever its value.
+run, failing where HQ starts serving the value. A row may expect the
+circumstance `unrecognized` in place of an entry (`"entry": "unrecognized"`),
+naming the surface key the reading leaves unclaimed (`key`), which the judge
+holds to the finding's `detail.name`; coverage counts it for no entry. Where
+the lane's Python check decides the entry's class, the variant's added uses
+are joined to its claim log as parity joins a base's, and the rows it decides
+of each base are held both ways to `proof/matrix/parity-decided.json`, so a
+change that leaves a row's added uses empty fails by the row's name rather
+than leaving the join nothing to judge; a change meant to move the list
+writes it from the run's `matrix/<base>/unchecked-by-python.json`. A
+collection of HQ's objects holding a member that is no object (a `null` HQ's
+wrap keeps) is a use the check leaves undecided (`manifest_usage.py::standing`,
+`Use.holds_non_object`), since whether Nova's reader takes it whole or leaves
+it unclaimed is the reader's stage's. A `holds` fragment speaks of an entity
+the reading holds: the bundle answers whether each key names one (`named`),
+and a fragment of a key that names none fails whatever its value.
 
 **Coverage.** Every manifest entry is shown by a base that comes in (its
 `expected.json` claims it), by a variant with its expected finding, or
@@ -5645,7 +5765,7 @@ check keeps its separately scoped unread-declaration exception.
 | `expander` | HQ regenerates the suites and app strings the Core class reads; no HQ check (the bar publishes and builds every admitted expander document, and Core admits each build and CCZ). | `ExpanderRuntimeTest`: a case list column over eleven options shows `Tag 10` for `tag_10` on both paths, so HQ's enum key replacement keeps double-digit option keys apart. |
 | `expression` | HQ's `interpolate_xpath` (with a case, without one, and with `interpolate_dots=False`) and `get_instance_names` over the `hq-json` prints of literals HQ could misread, including interpolation tokens, instance-looking text, HTML references and trailing backslashes. Image mapping conditions also exercise `dot_interpolate` and `MappingItem.key_as_condition`; XForm instance discovery reads serialized XML, while decoded attributes are evaluated for their exact literal value (`test_hq_interpolation.py`). Two cases hold the reader of CommCare HQ's apps to the same helpers: HQ's `interpolate_xpath` and `dot_interpolate` answer every vector of the reader's port (`lib/commcare/reader/__tests__/interpolationVectors.ts`, written as `reader-interpolation.json`) as the port answers it, refusals included; and for each slot HQ interpolates (`case`, `no-case`, `no-dots`), HQ's helper turns Nova's `hq-json` print of an expression that reads what the slot may read (a case's property and its parent's in the case list filter, the chosen case's own property in a form's display condition, where Nova refuses a related case, the worker's session in a form's display condition with no case and a menu's display condition, and the search's answers in a search field's tests), with the case path the reader gives the slot, into the tree of Nova's `suite` print of the same expression, as eulxml's parser reads both. | `InstantOrderingRuntimeTest`, zoned: in four device zones (`utc`, `new-york`, `kolkata`, `kiritimati`) and three Formplayer setups (a UTC JVM with a browser zone of New York or Kolkata, or New York's offset alone), each a test JVM of its own, Core's bare comparison of every pair of the instant table (`lib/commcare/__tests__/instantOrderingTable.ts`): a date and time held as text orders false both ways, two typed ones order by calendar day in the reader's zone, and `=` between two spellings of one instant is false. The same pairs lowered by Nova's emitter (`serializeWire(toWire(…))`, `lib/commcare/xpath/wire/instant.ts`), written once per pair of operand classes and operator, order and compare by instant in every setup, for `<`, `<=`, `>`, `>=`, `=` and `!=`, and no malformed text throws; the eight malformed texts the parse reads as a number are held to named decodes, and the bare comparisons stay as the family's control. `CoreDateParityRuntimeTest`, zoned in the four device zones only: Core's date functions and coercions over the table Preview's evaluator is held to in Vitest (`lib/preview/xpath/__tests__/fixtures/coreDateParity.ts`, written as `core-date-parity.json`), each row's result against that zone's column: Core's day number and `date(n)` (a day less than the calendar in Kiritimati, round-tripping), a node holding a Date rounded by `date()` and `format-date()` while a direct one keeps its clock, `double()` of a direct Date following the wall clock, widget answers in New York's repeated hour, setvalue text cast as `DateTimeData.cast` holds it (a repeated hour at its later occurrence, a skipped one forward by the gap, a `Z` time a day late, the text Core's own uncast writes for `now()`), a blank node formatting as empty text, a day before AD 1 folding to AD wherever `roundDate` runs, instants either side of 1900-01-01T00:00Z, where the JDK's zone history begins (each zone's standard offset before it, the tzdb's from it, and the offset `DateTimeData.uncast` stamps on a day whose wall clocks repeat there), a Julian February 29 that `roundDate` refuses (a refused row names the exception Core throws, and Core must throw it), a time answer read as its wall clock with no zone, and the date-and-time split's join of a date and a time read back with each zone's offset. `DatetimeSplitRuntimeTest`, zoned in the four device zones: the date-and-time split's forms (the shared original `lib/doc/__tests__/datetimeSplitFixture.ts` after Nova's planner's splits, compiled into a local archive and written as `datetime-split/`, with its rows in `datetime-split.json`), each joined value holding, for a wall clock entered, the `DateTimeData` that `DateTimeData.cast` of that wall clock holds (what the date-and-time question held) and the writer's `nova_datetime_` text being the text CommCare HQ stores for that instant (UTC, six fraction digits and `Z`), which, opened as the case's value, rejoins to the same instant and is saved back unchanged; in New York's spring-forward gap and fall-back repeated hour it lands where the question did, and the report records each zone's instant; a case value fills both questions with the device's own date and clock of its moment, in Kiritimati the day after the UTC one (`instant.ts::deviceInstantText`, since Core's cast keeps the written day), rejoins to that moment and is saved back as it was read; a blank date or time leaves the join blank, and the time question's validation passes while the date is blank. `SessionContextRuntimeTest`: the window width gate, a form whose calculates read `session/context/window_width` bare and under the count guard (`session-context/window-width.xml`, written by hand, since Nova never emits the bare read in a form), opened with a width and then again with none, on the same `FormDef` (Formplayer's cached form, `FormDefinitionService.getFormDefWithCache`) and on a freshly parsed one (the form Formplayer deserializes after a cache miss), where the fresh form's bare read throws and the guarded one reads blank, which is why Nova refuses the window width in every slot a form evaluates; and Nova's guarded prints over Core's own `SessionInstanceBuilder.getSessionInstance` with each node present and absent: the app language and the window width read blank without their node, the drift is Core's 0, and the case list's search text reads blank with no frame step carrying a last query and the text with one or two, where a bare read of two nodes throws. `RowPredicateCurrentRuntimeTest`: a repeat whose entries count rows matching their own answer through a casedb predicate Core answers through its index, one it evaluates row by row and an attribute predicate over an in-memory fixture (`row-predicates/`, from `lib/commcare/__tests__/rowPredicateFixture.ts`); Nova's `current()/../kind` print gives each entry its own count under all three, and the bare `/data/visits/kind` print, the retained control made from the same bytes, answers per entry through the index and refuses two answers row by row. Two controls hold how a starting value's read is spelled (`row-predicates/starts.xml`, `row-defaults.json`): a starting value's direct read of another question answers the same spelled absolute and through `current()`, when the form opens and when an entry is made, over one, two and three entries, since Core runs a setvalue with its target as the context; and a starting value made with an entry that counts the places named by another question of its entry answers per entry through `current()`, while the absolute spelling is refused or reads one entry's answer for every entry. `ReaderSpellingRuntimeTest`: each vector of the reader's equivalence table (`lib/commcare/reader/expressions/__tests__/spellingVectors.ts`, written as `reader-spelling.json`), both spellings parsed by Core's `XPathParseTool` and evaluated over one instance, answers alike, and each negative control answers apart as its vector says (Core's casedb answers a `name` step with a blank node). `RepeatCountRuntimeTest`: on the local form the producer writes (`repeat-counts/counts.xml`), a Hidden Value calculating an integer and an integer single select, each named by `jr:count` directly, and `int(#form/weight div 2)` through its `nova_count_<repeat>` node all count the rows the retained control counts, the same node calculating the unwrapped fraction, which Core truncates under its `xsd:int` (`Recalculate.wrapData`; `int` truncates alike, `FunctionUtils.toInt`); each direct count holds the integer text `Integer.parseInt` reads, and a direct Hidden Value count follows the answer it calculates from as a carrier did, making rows as it rises and removing none as it falls. `ProseValueRuntimeTest`, zoned in the four device zones: the calculated values a label holds, over the vector form `lib/preview/engine/__tests__/proseValue.vectors.ts` builds (compiled into a local archive and written as `prose-values/`, with its rows in `prose-values.json`), each label read through `FormEntryPrompt.getQuestionText` as the text Preview prints for it (a text, a whole number, a decimal, a date, a date and time read through `coalesce`, a yes or no, a blank and a formatted date), and two refused answers whose validation messages compose a value, alone and beside a reference, each read through `getConstraintText` as its composed text rather than its expression's. The first two build no app. `ListFilterMatchRuntimeTest` builds none either: Core's own `StringUtils.normalize` and `fuzzyMatch`, which every case list filter runs through `EntitySortUtil.sortEntities`, over the vectors Preview's port is held to in Vitest (`lib/preview/__tests__/fixtures/listFilterMatch.ts`, written as `list-filter-match.json`): each text folds to the text Preview gives (accents of U+0300 to U+036F removed, then lower case), and each pair gets Preview's verdict and distance, a source of three code units or fewer never matching and a longer target cut to the source's length plus two. `NumericCoercionRuntimeTest` builds none and reads no product of the family: Core's `=` and `!=` over a checked-in control (`core/resources/numeric-coercion/comparisons.json`), a node of text against a number (read through `FunctionUtils.toNumeric`: trimmed, digits with a minus and a point, else a `year-month-day` date's day number, else no number) and a whole number's text against that text, which Nova's case store is held to as well (`lib/case-store/sql/__tests__/recordCoercions.postgres.test.ts`). |
 | `hq-oracle` | `Application.wrap` fails exactly where Nova's HQ-JSON oracle reports a fatal code; `RemoteApp` dispatch. | None. |
-| `localization`, `worker` | Every localization code passes HQ's `validate_lang`, which no build runs; forms, suites and each language's authored strings regenerated for the Core classes, with no stock translation catalog. | `LocalizationRuntimeTest`, `WorkerIdentityRuntimeTest`: language switching and prompts; worker data through form and suite expressions, and the built-in worker identity on the local form; and, over `worker-place-owner` (a follow-up whose case change gives the patient to the worker's case-sharing group, read from the session), on both paths, form entry refuses the form as it opens for a worker assigned nowhere, naming the field, and for a placed worker fills it in and gives the patient to the worker's group, exactly where Preview's form engine refuses it at open (`worker-place-owner.refusals.jsonl`, `dataRefusal.ts::caseBlocksReadAbsentWorkerKey`). |
+| `localization`, `worker` | Every localization code passes HQ's `validate_lang`, which no build runs; forms, suites and each language's authored strings regenerated for the Core classes, with no stock translation catalog. | `LocalizationRuntimeTest`, `WorkerIdentityRuntimeTest`: language switching and prompts; the archive made for a project space whose stored keys and texts would set another string than their key names (`kept-text.*`, `lib/commcare/__tests__/localeSmugglingFixture.ts`), each directory's `app_strings.txt` read by Core's own `LocalizationUtils.parseLocaleInput` as exactly the compiler's table, every string the document writes at its own text; worker data through form and suite expressions, and the built-in worker identity on the local form; and, over `worker-place-owner` (a follow-up whose case change gives the patient to the worker's case-sharing group, read from the session), on both paths, form entry refuses the form as it opens for a worker assigned nowhere, naming the field, and for a placed worker fills it in and gives the patient to the worker's group, exactly where Preview's form engine refuses it at open (`worker-place-owner.refusals.jsonl`, `dataRefusal.ts::caseBlocksReadAbsentWorkerKey`). |
 | `lookup` | HQ's workbook reader reads Nova's tables, a 50-column table, and strips exactly the padding Nova predicts; the lookup forms regenerated, and `targeted-instance-reads`'s form and suite. | `LookupRuntimeTest`: fixture install and replacement, dynamic choices, labels, answers and case processing; a missing fixture cannot pass as an empty list. `targeted-instance-reads`'s form reads the table by its tag (a row by its code, the row count) on both paths, and in its entry the table link fires where the place link, over a worker whose one place is a region, does not. |
 | `nested-menu` | Entries and menus equal Nova's for eight native shapes; the two shapes Nova's HQ export refuses reproduce their losses. Which instances an element reads comes from HQ's own XPath parser (js-xpath, which HQ's build runs on every filter), never from pattern matching. | `NestedMenuRuntimeTest`: all ten native shapes on both paths, reproducing HQ's two losses; the separate `targeted-nested-menu-session-reads` archive binds the form's identities to its actual submitted case blocks. |
 | `menu-screens` | Menus, entry stacks and endpoints equal Nova's over the four documents of menus that show their forms in the menu above and the two of registration from the case list, each of the two also written again with every list's other `afterSubmit` wherever Nova's gate admits it (`<document>-other-returns`), the three whose display conditions read a worker's place (`worker-place-read`, `worker-place-forms` and `worker-place-menus`), and `menu-landings`, built in the producer and admitted by Nova's gate: a case-first menu with a submenu, a case list menu with a submenu, a case-first menu of one form, three menus emitted advanced whose entries ask for the datum each load's tag names: a case list entry beside forms loaded under another tag, two forms a publish keeps under two tags, and two forms kept under the case list entry's own tag, and a menu emitted advanced whose two basic submenus' entries (a case list entry shown in its screen, and a form beside a case list entry on a screen of its own) align with its form, and `pinned-tile`, built in the producer and admitted by Nova's gate: two lists that keep their tile on screen as a parent-select chain's parent and child, a chain whose parent's list does not keep it, a same-type submenu under each kind of list, and a list that keeps it and offers a Search action its forms do not read (`test_menu_above_emission.py`), and each case list's Register action and its return frames equal Nova's, the health shape's media locales among them (`test_register_from_list_emission.py`). Its three controls are built past Nova's gate: `two-registrations-control`, a registration form that also creates a child of its own type at its root, offered from a list, which HQ's own `ModuleValidator.validate_case_list_form` refuses as `case list form not registration` (Nova's reason `several-registrations`); `step-back-control`, which the Core class runs; and `undeclared-worker-field-control`, a menu whose condition reads a worker field the app never declares, which Nova's gate refuses (`undeclared-worker-field`) and the Core class reads. | `MenuScreensRuntimeTest`: on both paths, along each walk of `menu-screens/pinned-tile.tiles.json` (a command chosen, a list's Search action run and answered with the walk's results, or a case chosen where Core asks for one, a search action's result then claimed as posted and its request finished, which rewinds the case into the list's datum, each step reaching the screen Preview reads it on), the tile Core frames (the earliest held datum whose definition names a persistent detail, the walk `MenuSessionRunnerService.getStepToFrame` and `BreadcrumbBarHelper.loadTile` make over `CommCareSession.findDatumDefinition`) is the case and detail Preview pins there (`lib/preview/pinnedCaseTile.ts::previewPinnedCaseTile` over the held cases `CaseListScreen`, `ModuleScreen` and `FormScreen` hand it), and on the details of a list's own case or of a search action's result Android's tile (the frame's, or the case on show with the persistent detail of the datum being chosen, `EntityDetailActivity.requestEntityContext`, which the remote request's `search_case_id` does not name) is what Preview draws there; and, Core's `MenuLoader` lists each screen as Preview shows it (`menu-screens/<document>.screens.json`, from `lib/domain/menuScreens.ts::menuScreenEntries` and `lib/preview/menuProjection.ts::previewScreenEntryVisibility` and `previewCaseListMenuEntry`), in order, as a device reaches the screen: with no case chosen, or, on a screen that chooses a case first, once Core has asked for it and been given each case of its type the device holds (the file's `deviceCases`, whose values meet and miss every form condition that reads the chosen case); for a worker whose role is blank and each role a display condition compares, so every condition is read holding and not (the documents declare `role` as a worker property, so the setup list a publish shows names the field, and in a project space that defines it HQ's restore gives a worker with no value `''`, `user_data.py::UserData.to_dict`); and each row of a submenu shown above that its parent's condition alone hides (`parentHides`) is left off; choosing each menu asks for a case first exactly where Nova says the screen chooses one first and exactly where Preview opens a case list for it (`lib/domain/navigation.ts::moduleLanding`, submenus or not); once a screen's case is chosen Core lists the screen, however many forms it shows; a worker who chooses each case-loading form as its screen offers it (after the case on a screen that chooses its case first, before any case elsewhere), steps back once (`CommCareSession.stepBack`) lands where Preview lands, the menu with the case still held where the form's command sits above the case and the case list where it sits beneath it (`stepBacks`' `oneStepBack`, `menu` exactly where `lib/domain/menuScreens.ts::screenChoosesCaseFirst` has the form chosen after its case, so this holds Core's step back to Nova's screen model; that Preview's screens hold the menu with the case, `CaseListScreen`'s `holdFormMenu` and `ModuleScreen`'s selection, is held by the browser journeys `e2e/tests/app/preview-form-refused.spec.ts` and `preview-menu-held-case.spec.ts`), and stepping on back to its case list and choosing a case again is given the form again exactly where Preview gives it (`afterStepBack`, from `previewCaseListReturn`, `previewCaseListFormRequest` and `previewRequestedForm`): where the form's command sits beneath the case, and never where it sits above it; every form with no destinations lands where Preview lands it (`lib/preview/engine/frameLanding.ts::screenOfFrame` over its after-submit frame), a form of a menu whose forms read the search given an empty result set and its claim as posted, and any other form that asks for a search or a claim failing; and the step-back control (two top-level menus above, each holding one follow-up form, of case types alpha and beta, and an ordinary alpha menu whose form links to the first): after the link's frame and a step back from the form, choosing the ordinary beta menu asks for a form and never for its case, and its form opens on the alpha case the frame left, which is why Nova refuses a frame through a first menu that shares one case. Its own test, `aScreenThatReadsAUserFieldTheDeviceLacksFailsWhereNovaSays`, reads the four worker documents (`worker-place-read`, `worker-place-forms`, `worker-place-menus` and `undeclared-worker-field-control`) on both suites for a list of workers' data: a screen whose condition reads a user field the worker's device lacks (a place key of a worker assigned nowhere, a field the project space does not define) fails whole in Core exactly where Preview refuses it, and every other worker's screens list what Preview lists; each document refuses some screen on both suites (a menu's tile, a case-first menu's form once its case is chosen, a form shown on the first menu, a submenu's form shown in its parent's screen and a submenu's tile, and the control's undeclared field). `RegisterFromListRuntimeTest`: for every host of `menu-screens/<document>.offers.json`, under both values of `afterSubmit` the rules admit for it, the Register action opens the form in its own menu with `return_to` naming the host, and, with the case created and without, the worker lands where Preview lands them (`lib/preview/engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`), with the new case chosen exactly where that frame selects in the host, and where the form's own after-submit says where that is in force. |
@@ -5883,8 +6003,9 @@ to run one block. Dynamic claims therefore do not establish exclusive
 execution on this service. A claim that cannot be settled stops that shard.
 
 The run steps reach the artifact service with the job's runtime token, which
-`.github/actions/proof-runtime` exports and the lane's server passes to its
-claim and wait commands alone. `proof-claim-race.yml`, run by hand, measures
+`.github/actions/proof-runtime` exports and `proof/run.mjs` keeps on the host:
+the claim and wait commands run there, beside the container, and the server
+asks for each through its relay. `proof-claim-race.yml`, run by hand, measures
 the claim modes on GitHub's service; `ci.yml`'s `proof_claims` input selects an
 explicit diagnostic mode, `proof_shards` selects another shard count, and
 `proof_fresh` queues every group fresh, reading nothing from the store and
@@ -6414,7 +6535,7 @@ and `proof/hq/test_retained_reads.py`, `proof/editors/test_retained_reads.py`
 and `proof/matrix/test_retained.py` fail on any byte it changes, each writing
 what HQ made under its block's output first. The weekly pin pull request
 regenerates both trees itself (`python3 -m proof.matrix.adopt`, below); a pin
-moved by hand runs the same command over the output of the failing run, and
+moved by hand runs the same command over every output of the failing run, and
 its review reads the diff and the adopt report (`--report`: each base whose
 stored app, answers or reading changed).
 
@@ -6433,10 +6554,15 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
    **Retained**: beside it, the corpus is emitted with its native products
    (so the run and the adopt report read the one reader bundle it carries),
    the tests that write what HQ answers and makes run in the new image
-   whatever their verdict, and what they wrote is adopted
-   (`python3 -m proof.matrix.adopt`) and carried as the artifact
-   `upstream-retained` (`proof/ci/retained.mjs`), which each later job of
-   the run puts in place beside the candidate's surface.
+   whatever their verdict, as one run on one machine, whose one output is
+   every output of that run, and what they wrote is adopted from it
+   (`python3 -m proof.matrix.adopt`, which `proof/ci/__tests__/laneWorkflow.test.ts`
+   holds to the outputs the job's runs write) and carried as the artifact
+   `upstream-retained` (`python3 -m proof.matrix.place pack`), which each
+   later job of the run puts in place beside the candidate's surface
+   (`python3 -m proof.matrix.place unpack`, through the retained layout). The
+   surface and the run's output are uploaded only once `proof/run.mjs` has
+   read the one and sealed the other.
 4. **Prewarm**: the whole lane runs fresh on the candidate image over the tree
    the pull request will carry, in the pull request lane's profile (without
    the readers), and saves what it observed as main's store for that image,
@@ -6450,7 +6576,13 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
    surface to the one commit, with the retained trees where the retained job
    made them (never without the lock, since the trees answer the new image,
    and the description carries the adopt report or names the job that
-   failed), opens the pull request or updates the open one,
+   failed). This job holds the write token, so it reads both artifacts as
+   data with main's own code: the surface without following a link, within a
+   bound and as JSON, the trees and the report through the retained layout,
+   each report line one of adopt's own sentences. An artifact it refuses is
+   handled as its job failing (main's trees, or the pins alone), the
+   description says which was refused and never what the artifact named, and
+   the job ends red. It opens the pull request or updates the open one,
    and requests review. GitHub holds CI on a pull request the workflow's own
    token opened: it starts when a person approves its run on the pull request
    or updates the branch, and a run dispatched on the branch would not stand
@@ -6485,7 +6617,10 @@ Edit `proof/pins.json` on a branch, run the "Proof image" workflow on that
 branch, record the slim image's digest it prints in `proof/image.lock` with
 the pins, regenerate the surface in that image
 (`PROOF_IMAGE=<the digest reference> npm run surface`), and commit all three
-together.
+together. Where the retained trees move too, adopt them from every output
+of the failing run (`python3 -m proof.matrix.adopt <output>... --report
+--corpus <a corpus made on your machine>`), which reads each output through
+the retained layout and runs nothing the container wrote.
 
 ### Changing the image recipe
 

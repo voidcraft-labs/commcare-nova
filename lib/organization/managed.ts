@@ -97,6 +97,14 @@ export interface ManagedPlacesRefresh {
 	 */
 	readonly keptInUse: readonly string[]; // names
 	/**
+	 * Places gone from CommCare HQ whose site code CommCare HQ now gives a new
+	 * place, which a persona, an owner rule or an automation still names: CommCare
+	 * HQ made them again as new places. Kept with `hq_gone_at` set and a numbered
+	 * code, beside the new place, which has a Nova id of its own. Not also in
+	 * `keptInUse`.
+	 */
+	readonly remade: readonly string[]; // names
+	/**
 	 * Places CommCare HQ now holds at a level the app lacks that a persona, an
 	 * owner rule or an automation still names: kept live as they stood before
 	 * the refresh (their level, parent, name and values the copy held), with
@@ -488,13 +496,16 @@ async function assertRefreshedRowsFit(
  * matched that way keeps its Nova id, which a case's owner and every persona
  * assignment name.
  *
- * A planned place no row holds by that id takes the row holding its site code
- * that no planned place holds by id: a place CommCare HQ deleted and made
- * again under the same code, which keeps the Nova id the code always named.
- * Where two rows hold one CommCare HQ id, the live one is that place. A place
- * a refresh kept after CommCare HQ stopped listing it keeps its CommCare HQ
- * id, so a place CommCare HQ lists again is matched by that id even where it
- * comes back under another code.
+ * Only by that id: a row of the copy is one CommCare HQ place for its whole
+ * life. A place CommCare HQ lists under an id no row holds is a new place
+ * with a new Nova id whatever its site code, since a site code is a name
+ * CommCare HQ passes on: a place deleted there and made again under its code,
+ * or a code another place gave up, is another place, and carrying a persona's
+ * assignment, an owner rule or a saved case's owner across to it would hand
+ * them a place no person chose. Where two rows hold one CommCare HQ id, the
+ * live one is that place. A place a refresh kept after CommCare HQ stopped
+ * listing it keeps its CommCare HQ id, so a place CommCare HQ lists again is
+ * matched by that id even where it comes back under another code.
  */
 function matchPlannedPlaces(
 	rows: readonly LocationRow[],
@@ -512,20 +523,10 @@ function matchPlannedPlaces(
 		}
 	}
 	const matched = new Map<string, LocationRow>();
-	const taken = new Set<string>();
 	for (const place of places) {
 		const row = byHqId.get(place.hqLocationId);
 		if (row === undefined) continue;
 		matched.set(place.siteCode, row);
-		taken.add(row.id);
-	}
-	const bySiteCode = new Map(rows.map((row) => [row.site_code, row]));
-	for (const place of places) {
-		if (matched.has(place.siteCode)) continue;
-		const row = bySiteCode.get(place.siteCode);
-		if (row === undefined || taken.has(row.id)) continue;
-		matched.set(place.siteCode, row);
-		taken.add(row.id);
 	}
 	return matched;
 }
@@ -629,10 +630,11 @@ function shedArchivedRows(input: {
  * Bring CommCare HQ's places into the copy: the one writer of a managed copy
  * after its birth.
  *
- * Matched by CommCare HQ's id, then by site code ({@link matchPlannedPlaces}).
- * A place CommCare HQ lists and the copy lacks is inserted; one whose site
- * code, name, level, parent, coordinates, values or CommCare HQ id differ, or
- * that a refresh kept as gone, is updated; one the copy holds live and
+ * Matched by CommCare HQ's id alone ({@link matchPlannedPlaces}), which only
+ * the insert writes: no refresh moves a row to another CommCare HQ place. A
+ * place CommCare HQ lists and the copy lacks is inserted; one whose site
+ * code, name, level, parent, coordinates or values differ, or that a refresh
+ * kept as gone, is updated; one the copy holds live and
  * CommCare HQ no longer lists is archived, unless a persona, an owner rule or
  * an automation names it (`app_location_references`), in which case it stays
  * live with its CommCare HQ id, with every ancestor CommCare HQ no longer
@@ -642,8 +644,11 @@ function shedArchivedRows(input: {
  * holds it at a level the app lacks is not gone. An archived one CommCare HQ
  * lists again is restored. A row CommCare HQ no longer lists whose site code
  * CommCare HQ now gives another place takes a numbered code
- * ({@link releasedSiteCode}). The refresh never writes the document, so it
- * never unassigns a persona: the person moves the persona and refreshes again.
+ * ({@link releasedSiteCode}), and where that row is kept because something
+ * names it, its name is reported in `remade`: CommCare HQ made a place again
+ * under its code, and what uses the old one stays with it. The refresh never
+ * writes the document, so it never unassigns a persona: the person moves the
+ * persona and refreshes again.
  *
  * Where the copy would pass {@link MAX_LOCATIONS_PER_APP} rows, the archived
  * rows nothing names and no case is owned by go, longest archived first and
@@ -685,6 +690,7 @@ export async function refreshManagedPlacesInTransaction(
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: hq.leftOut,
 			superseded: true,
@@ -704,6 +710,7 @@ export async function refreshManagedPlacesInTransaction(
 			changed: 0,
 			archived: 0,
 			keptInUse: [],
+			remade: [],
 			keptLeftOut: [],
 			leftOut: plan.leftOut,
 		};
@@ -770,8 +777,7 @@ export async function refreshManagedPlacesInTransaction(
 			row.parent_id !== parentId ||
 			!sameCoordinate(row.latitude, place.latitude) ||
 			!sameCoordinate(row.longitude, place.longitude) ||
-			!sameValues(row.values, place.values) ||
-			row.hq_location_id !== place.hqLocationId;
+			!sameValues(row.values, place.values);
 		if (!restored && !differs) continue;
 		if (restored) added += 1;
 		else changed += 1;
@@ -792,11 +798,12 @@ export async function refreshManagedPlacesInTransaction(
 		(row) => row.archived_at === null && !matchedIds.has(row.id),
 	);
 	const keptIds = new Set<string>();
-	const keptInUse: string[] = [];
+	const keptInUse: LocationRow[] = [];
 	const keptLeftOut: string[] = [];
 	for (const row of gone) {
 		if (!referenced.has(row.id)) continue;
-		(isGone(row) ? keptInUse : keptLeftOut).push(row.name);
+		if (isGone(row)) keptInUse.push(row);
+		else keptLeftOut.push(row.name);
 		let current: LocationRow | undefined = row;
 		while (
 			current !== undefined &&
@@ -882,6 +889,7 @@ export async function refreshManagedPlacesInTransaction(
 		takenCodes.add(siteCode);
 		released.push({ id: row.id, siteCode });
 	}
+	const releasedIds = new Set(released.map((row) => row.id));
 	const recoded = updates
 		.filter(
 			(update) => byId.get(update.id)?.site_code !== update.place.siteCode,
@@ -970,7 +978,6 @@ export async function refreshManagedPlacesInTransaction(
 				latitude = v.latitude,
 				longitude = v.longitude,
 				"values" = v.values,
-				hq_location_id = v.hq_location_id,
 				hq_gone_at = NULL,
 				order_key = v.order_key,
 				archived_at = NULL,
@@ -979,9 +986,9 @@ export async function refreshManagedPlacesInTransaction(
 			FROM (VALUES ${sql.join(
 				chunk.map(
 					(update) =>
-						sql`(${update.id}::uuid, ${update.place.siteCode}::text, ${update.place.name}::text, ${update.place.levelUuid}::uuid, ${update.parentId}::uuid, ${update.place.latitude}::numeric, ${update.place.longitude}::numeric, ${JSON.stringify(update.place.values)}::jsonb, ${update.place.hqLocationId}::text, ${finalOrderKey.get(update.id) ?? ""}::text)`,
+						sql`(${update.id}::uuid, ${update.place.siteCode}::text, ${update.place.name}::text, ${update.place.levelUuid}::uuid, ${update.parentId}::uuid, ${update.place.latitude}::numeric, ${update.place.longitude}::numeric, ${JSON.stringify(update.place.values)}::jsonb, ${finalOrderKey.get(update.id) ?? ""}::text)`,
 				),
-			)}) AS v(id, site_code, name, level_uuid, parent_id, latitude, longitude, "values", hq_location_id, order_key)
+			)}) AS v(id, site_code, name, level_uuid, parent_id, latitude, longitude, "values", order_key)
 			WHERE l.app_id = ${scope.appId} AND l.id = v.id
 		`.execute(tx);
 	}
@@ -1080,7 +1087,14 @@ export async function refreshManagedPlacesInTransaction(
 		added,
 		changed,
 		archived: archiveIds.length,
-		keptInUse: keptInUse.sort(compareText),
+		keptInUse: keptInUse
+			.filter((row) => !releasedIds.has(row.id))
+			.map((row) => row.name)
+			.sort(compareText),
+		remade: keptInUse
+			.filter((row) => releasedIds.has(row.id))
+			.map((row) => row.name)
+			.sort(compareText),
 		keptLeftOut: keptLeftOut.sort(compareText),
 		leftOut: plan.leftOut,
 	};

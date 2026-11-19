@@ -164,6 +164,26 @@ export function lookupTableMadeAgainWarning(name: string): string {
 export const APP_READ_BACK_FAILED_WARNING =
 	"Nova published the app but couldn't read it back, so the next publish will ask before it writes over what's there.";
 
+/**
+ * The warning when CommCare HQ's save counter shows the app changed there
+ * between Nova's last read and its import, or between the import and the
+ * read back: a save Nova's import may have written over, or one the read
+ * back holds beside Nova's own, so the read is no record of what Nova left.
+ */
+export const APP_CHANGED_DURING_PUBLISH_WARNING =
+	"This app changed in CommCare HQ while Nova was publishing it, so Nova couldn't record exactly what it left there. Your publish landed, and the next publish will ask before it writes over the app.";
+
+/** The warning when publishing there stopped right after the app landed, before its media went. */
+export const MEDIA_NOT_SENT_AFTER_STOP_WARNING =
+	"Publishing here stopped right after the app landed, so Nova didn't send its pictures and sounds.";
+
+/**
+ * The warning when the app was deleted, or its publisher lost edit, right
+ * after the app landed, so its media was not sent.
+ */
+export const MEDIA_NOT_SENT_AFTER_ACCESS_WARNING =
+	"This app was deleted, or you can no longer edit it, right after it landed, so Nova didn't send its pictures and sounds. Once you can edit it again, publishing again sends them.";
+
 /** The warning when a table or place could not be read back after its push. */
 export const RESOURCES_READ_BACK_FAILED_WARNING =
 	"Nova published this app's lookup tables and places but couldn't read every one of them back, so the next publish will ask before it writes over those.";

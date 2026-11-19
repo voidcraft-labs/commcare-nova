@@ -4,11 +4,24 @@ import { describe, expect, it } from "vitest";
 import {
 	ChatMarkdown,
 	composeRenderRules,
+	type LabelMarkdownRendering,
+	labelMarkdownOptions,
 	PREVIEW_LABEL_RENDERING,
-	PREVIEW_OPTIONS,
 	PreviewMarkdown,
 	withChipInjection,
 } from "../markdown";
+
+const WEB_APPS = PREVIEW_LABEL_RENDERING;
+const ANDROID: LabelMarkdownRendering = {
+	singleNewline: "space",
+	html: "dropped",
+	images: "alt-text",
+};
+
+/** A label rendered as the running preview renders it on a runtime. */
+function label(text: string, rendering = WEB_APPS): string {
+	return html(<PreviewMarkdown rendering={rendering}>{text}</PreviewMarkdown>);
+}
 
 /** Render a React element to an HTML string for assertion. */
 function html(element: React.ReactElement): string {
@@ -108,10 +121,8 @@ describe("ChatMarkdown", () => {
  * ------------------------------------------------------------------------ */
 
 describe("PreviewMarkdown", () => {
-	it('renders links with target="_blank" and rel="noopener noreferrer"', () => {
-		const output = html(
-			<PreviewMarkdown>{"[docs](https://example.com)"}</PreviewMarkdown>,
-		);
+	it('renders a web link with target="_blank" and rel="noopener noreferrer"', () => {
+		const output = label("[docs](https://example.com)");
 		expect(output).toContain("<a");
 		expect(output).toContain('href="https://example.com"');
 		expect(output).toContain('target="_blank"');
@@ -119,24 +130,106 @@ describe("PreviewMarkdown", () => {
 		expect(output).toContain("docs</a>");
 	});
 
-	it("renders images", () => {
-		const output = html(
-			<PreviewMarkdown>
-				{"![alt text](https://example.com/img.png)"}
-			</PreviewMarkdown>,
-		);
-		expect(output).toContain("<img");
-		expect(output).toContain('src="https://example.com/img.png"');
-		expect(output).toContain('alt="alt text"');
-	});
-
 	it("renders inline when inline prop is set (no block elements)", () => {
 		const output = html(
-			<PreviewMarkdown inline>{"**bold** text"}</PreviewMarkdown>,
+			<PreviewMarkdown inline rendering={WEB_APPS}>
+				{"**bold** text"}
+			</PreviewMarkdown>,
 		);
 		/* forceInline should prevent <p> wrapping — content is inline. */
 		expect(output).not.toContain("<p>");
 		expect(output).toContain("<strong>bold</strong>");
+	});
+});
+
+/* ---------------------------------------------------------------------------
+ * What label text may make the page do
+ *
+ * In the running preview a value is substituted into a label before the
+ * whole is formatted, as Core does before Web Apps or Android draws it, so a
+ * case name or an answer can carry formatting: it shows as on a device, and
+ * nothing in the text, the author's or a value's, opens a link a device
+ * would not make, opens anything but a web address, or makes the page
+ * request anything.
+ * ------------------------------------------------------------------------ */
+
+describe("a label's text on the builder's page", () => {
+	it("formats a substituted value as the device does", () => {
+		// `Patient: {{#case/case_name}}` over a case named with formatting.
+		const output = label(
+			"Patient: **Asha** [site](https://example.org) https://bare.example",
+		);
+		expect(output).toContain("<strong>Asha</strong>");
+		expect(output).toContain('href="https://example.org"');
+		// Neither runtime links a bare address: markdown-it is built without
+		// linkify, and Android's Markwon has no linkify plugin.
+		expect(output).not.toContain('href="https://bare.example"');
+		expect(visibleText(output)).toContain("https://bare.example");
+	});
+
+	it("links no bare address, mail address or www name, and keeps a CommonMark autolink", () => {
+		for (const text of [
+			"see https://bare.example now",
+			"write to a@b.example",
+			"www.example.com",
+		])
+			expect(label(text)).not.toContain("<a");
+		expect(label("<https://angle.example>")).toContain(
+			'href="https://angle.example"',
+		);
+	});
+
+	it("opens only a web address, and draws any other link as its words", () => {
+		for (const address of [
+			"intent://scan/#Intent;end",
+			"file:///etc/hosts",
+			"javascript:alert(1)",
+			"tel:+15555550123",
+			"mailto:a@b.example",
+			"/build/app",
+		]) {
+			const output = label(`[open](${address})`);
+			expect(output).not.toContain("<a");
+			expect(output).not.toContain("href");
+			expect(visibleText(output)).toBe("open");
+		}
+	});
+
+	it("never fetches a picture: a picture at an address draws its description on every runtime", () => {
+		for (const rendering of [WEB_APPS, ANDROID]) {
+			const output = label(
+				"![x-ray](https://storage.googleapis.com/any/p.png?case=asha)",
+				rendering,
+			);
+			expect(output).not.toContain("<img");
+			// React would preload an <img> it renders: no hint either.
+			expect(output).not.toContain("<link");
+			expect(output).not.toContain("storage.googleapis.com");
+			expect(visibleText(output)).toBe("x-ray");
+		}
+	});
+
+	it("draws a picture inside the label where Web Apps draws one, and its description on Android", () => {
+		const png = "![dot](data:image/png;base64,iVBORw0KGgo=)";
+		expect(label(png)).toContain('src="data:image/png;base64,iVBORw0KGgo="');
+		expect(label(png, ANDROID)).not.toContain("<img");
+		// A kind Web Apps' renderer refuses is described, not drawn.
+		expect(label("![svg](data:image/svg+xml;base64,PHN2Zy8+)")).not.toContain(
+			"<img",
+		);
+	});
+
+	it("holds the same policy with reference chips layered on", () => {
+		const options = withChipInjection(labelMarkdownOptions(WEB_APPS), (next) =>
+			next(),
+		);
+		const output = html(
+			<Markdown options={options}>
+				{"https://bare.example [x](file:///etc) ![p](https://a.example/p.png)"}
+			</Markdown>,
+		);
+		expect(output).not.toContain("<a");
+		expect(output).not.toContain("<img");
 	});
 });
 
@@ -152,9 +245,8 @@ describe("breaks behavior", () => {
 		expect(output).toContain("line 2");
 	});
 
-	it("converts single newlines to <br> in preview markdown", () => {
-		const output = html(<PreviewMarkdown>{"line 1\nline 2"}</PreviewMarkdown>);
-		expect(output).toContain("<br/>");
+	it("converts single newlines to <br> in a Web Apps label", () => {
+		expect(label("line 1\nline 2")).toContain("<br/>");
 	});
 
 	it("does not add <br> when there are no newlines", () => {
@@ -267,7 +359,7 @@ describe("withChipInjection", () => {
 			return next();
 		};
 
-		const options = withChipInjection(PREVIEW_OPTIONS, chipRule);
+		const options = withChipInjection(labelMarkdownOptions(WEB_APPS), chipRule);
 		const output = html(
 			<Markdown options={options}>{"text with #chip ref"}</Markdown>,
 		);
@@ -279,7 +371,7 @@ describe("withChipInjection", () => {
 		const chipRule: NonNullable<MarkdownToJSX.Options["renderRule"]> = (next) =>
 			next();
 
-		const options = withChipInjection(PREVIEW_OPTIONS, chipRule);
+		const options = withChipInjection(labelMarkdownOptions(WEB_APPS), chipRule);
 		const output = html(
 			<Markdown options={options}>{"line 1\nline 2"}</Markdown>,
 		);
@@ -288,23 +380,19 @@ describe("withChipInjection", () => {
 });
 
 describe("untrusted HTML stays literal in both renderers", () => {
-	it.each([ChatMarkdown, PreviewMarkdown])(
-		"escapes elements and preserves author text",
-		(Renderer) => {
-			const output = html(
-				<Renderer>
-					{
-						'<img src=x onerror="run()"><iframe src="https://evil.test">literal</iframe>'
-					}
-				</Renderer>,
-			);
-			expect(output).not.toContain("<img");
-			expect(output).not.toContain("<iframe");
-			expect(output).toContain("&lt;img");
-			expect(output).toContain("&lt;iframe");
-			expect(output).toContain("literal");
-		},
-	);
+	it.each([
+		["chat", (text: string) => html(<ChatMarkdown>{text}</ChatMarkdown>)],
+		["a label", (text: string) => label(text)],
+	])("escapes elements and preserves author text in %s", (_name, render) => {
+		const output = render(
+			'<img src=x onerror="run()"><iframe src="https://evil.test">literal</iframe>',
+		);
+		expect(output).not.toContain("<img");
+		expect(output).not.toContain("<iframe");
+		expect(output).toContain("&lt;img");
+		expect(output).toContain("&lt;iframe");
+		expect(output).toContain("literal");
+	});
 	it("preserves newlines inside code blocks instead of injecting breaks", () => {
 		const output = html(
 			<ChatMarkdown>{"```text\nfirst\nsecond\n```"}</ChatMarkdown>,
@@ -321,30 +409,15 @@ describe("untrusted HTML stays literal in both renderers", () => {
 describe("PreviewMarkdown's label rendering", () => {
 	const LABEL = "a\nb ![x](y) <b>c</b>";
 
-	it("keeps today's rendering by default: breaks, literal HTML, the image", () => {
-		const output = html(
-			<PreviewMarkdown rendering={PREVIEW_LABEL_RENDERING}>
-				{LABEL}
-			</PreviewMarkdown>,
-		);
-		expect(output).toBe(html(<PreviewMarkdown>{LABEL}</PreviewMarkdown>));
+	it("renders Web Apps': breaks, literal HTML, a picture at an address described", () => {
+		const output = label(LABEL);
 		expect(output).toContain("<br/>");
-		expect(output).toContain("<img");
+		expect(output).not.toContain("<img");
 		expect(output).toContain("&lt;b&gt;c&lt;/b&gt;");
 	});
 
 	it("joins a single newline, draws an image as its alt text and drops raw HTML", () => {
-		const output = html(
-			<PreviewMarkdown
-				rendering={{
-					singleNewline: "space",
-					html: "dropped",
-					images: "alt-text",
-				}}
-			>
-				{LABEL}
-			</PreviewMarkdown>,
-		);
+		const output = label(LABEL, ANDROID);
 		expect(output).not.toContain("<br");
 		expect(output).not.toContain("<img");
 		expect(output).not.toContain("&lt;b&gt;");
@@ -352,13 +425,11 @@ describe("PreviewMarkdown's label rendering", () => {
 	});
 
 	it("drops raw HTML and still breaks lines where the runtime breaks them", () => {
-		const output = html(
-			<PreviewMarkdown
-				rendering={{ singleNewline: "break", html: "dropped", images: "shown" }}
-			>
-				{"one <i>two</i>\nthree"}
-			</PreviewMarkdown>,
-		);
+		const output = label("one <i>two</i>\nthree", {
+			singleNewline: "break",
+			html: "dropped",
+			images: "shown",
+		});
 		expect(output).toContain("<br/>");
 		expect(output).not.toContain("&lt;i&gt;");
 		expect(output).toContain("two");

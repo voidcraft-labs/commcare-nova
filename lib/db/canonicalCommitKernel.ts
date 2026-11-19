@@ -839,6 +839,22 @@ export interface CanonicalCommitTransactionHooks {
 		context: GuardedBatchBeforeWriteContext,
 	) => Promise<void> | Promise<MigrationOutcome | undefined>;
 	/**
+	 * Project data an `hq-changes` batch newly reads (the lookup tables a
+	 * bring-in of changes made in CommCare HQ creates, refreshes or adopts),
+	 * written in the commit's own transaction: after the app row, the head
+	 * test, the Project and membership checks and the dedup return, and
+	 * immediately before the lookup context the gate reads, so the gate and
+	 * the edges read what it wrote, and the writes commit with the batch or
+	 * not at all. The twin of genesis's `afterAppInsert`. Refused for every
+	 * other kind; skipped on a dedup hit, since the first commit ran it. It
+	 * must be deterministic and free of network effects: a retried
+	 * transaction runs it again.
+	 */
+	readonly projectDataWrite?: (context: {
+		readonly tx: Transaction<AppDatabase>;
+		readonly projectId: string;
+	}) => Promise<void>;
+	/**
 	 * Closed, typed SQL-only sidecars (`canonicalCommitSidecars.ts`) executed
 	 * AFTER the committed-batch write tail, in the same transaction, with the
 	 * kernel's authoritative sequence/batch id/candidate after the write tail,
@@ -875,13 +891,13 @@ export function isUniqueViolation(err: unknown): boolean {
  * publish records its placements through. Synthetic repairs and the atomic
  * cross-Project move use the parallel locked protocols in `apps.ts`.
  *
- * One transaction: lock the app row (the per-app serialization point); a
- * `publish-placement` or `hq-changes` batch not yet committed whose expected
+ * One transaction: lock the app row (the per-app serialization point); lock +
+ * reauthorize the actor's exact Project membership against the fresh row (a
+ * concurrent MOVE rejects retryably), before anything is said about the app;
+ * a `publish-placement` or `hq-changes` batch not yet committed whose expected
  * head is not the locked row's throws {@link AppHeadMovedError}, writing
- * nothing; a
- * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
- * committed doc, writing nothing; lock + reauthorize the actor's exact Project
- * membership against the fresh row (a concurrent MOVE rejects retryably);
+ * nothing; a dedup hit on `(app_id, batch_id)` returns the recorded seq + the
+ * current committed doc, writing nothing;
  * while an initial build owns the app, reject every caller that does not carry
  * that exact build-holder authority; when chat supplied holder authority,
  * compare its exact mode/run identity before evaluation and again on the final
@@ -912,6 +928,11 @@ export async function commitCanonicalBatch(
 			"[commitGuardedBatch] chat writes require matching chat holder authority; non-chat writes cannot supply it",
 		);
 	}
+	if (internalOptions.projectDataWrite !== undefined && kind !== "hq-changes") {
+		throw new Error(
+			`[commitCanonicalBatch] only a bring-in of changes made in CommCare HQ writes Project data in its commit; this call asked for that under the kind ${kind}`,
+		);
+	}
 	// A person chose the bring-in; no run made it, and the log refuses one.
 	if (kind === "hq-changes" && runId !== undefined) {
 		throw new Error(
@@ -928,6 +949,20 @@ export async function commitCanonicalBatch(
 				`[commitGuardedBatch] app row missing for appId=${appId}`,
 			);
 		}
+		// Reject a caller admitted against an older Project placement, or one
+		// who no longer holds edit there, before anything is said about the
+		// app: the batch latch and the head test below answer only a caller
+		// this transaction has authorized under the app row. Explicit rename
+		// Phase A shares this transaction, so no case/schema write can escape
+		// before this fresh scope check.
+		assertExpectedAppProject(fresh, args.expectedProjectId);
+		await assertProjectCapabilityInTransaction(
+			tx,
+			actorUserId,
+			fresh.project_id,
+			"edit",
+			"You no longer have edit access to this app's Project.",
+		);
 		// Idempotent replay of an already-committed batch — the latch read
 		// happens under the app row lock, so it observes every prior commit.
 		const latch = await tx
@@ -985,17 +1020,6 @@ export async function commitCanonicalBatch(
 				throw new AppHeadMovedError(args.expectedHeadSeq, headSeq);
 			}
 		}
-		// Reject a caller admitted against an older Project placement. Explicit
-		// rename Phase A shares this transaction, so no case/schema write can
-		// escape before this fresh scope check.
-		assertExpectedAppProject(fresh, args.expectedProjectId);
-		await assertProjectCapabilityInTransaction(
-			tx,
-			actorUserId,
-			fresh.project_id,
-			"edit",
-			"You no longer have edit access to this app's Project.",
-		);
 		const lease = runLeaseState(leaseView(fresh));
 		if (
 			args.chatRunHolder !== undefined &&
@@ -1114,6 +1138,12 @@ export async function commitCanonicalBatch(
 				placementRule: true,
 			});
 		}
+		// The Project data the batch newly reads, in this transaction and before
+		// the lookup context below, so the gate reads what it wrote.
+		await internalOptions.projectDataWrite?.({
+			tx,
+			projectId: fresh.project_id,
+		});
 		const previousTargets = extractLookupReferenceTargets(freshDoc);
 		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
 		const lookupTargets = unionLookupReferenceTargetSets(

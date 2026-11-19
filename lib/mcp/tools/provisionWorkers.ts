@@ -52,7 +52,17 @@
  *                            username, required worker information with no
  *                            value, a persona standing in a place the
  *                            project space doesn't hold. Nothing was
- *                            written; `message` names each one.
+ *                            written; `message` names each one, and
+ *                            `worker_levels` any level to confirm beside
+ *                            them.
+ *      `worker_levels_unconfirmed`: a persona stands in a place CommCare HQ
+ *                            manages for the app there, at a level nobody
+ *                            confirmed takes workers in that project space;
+ *                            HQ's level API doesn't say. Nothing was
+ *                            written; `worker_levels` names each level with
+ *                            its code and who would stand there. Ask the
+ *                            user, and send the codes they confirm in
+ *                            `confirm_worker_levels`.
  *   7. `hq_worker_conflict`: one or more usernames already belong to
  *                            accounts Nova didn't create. Nothing was
  *                            written; `worker_conflicts` carries them
@@ -83,12 +93,25 @@
  *                            catches up. Wait a moment before retrying,
  *                            and never send `adopt_personas` for an
  *                            account no `worker_conflicts` entry names.
+ *  10. `not_found` with `workers`: the app was deleted, or the caller can
+ *                            no longer make its workers, after this call
+ *                            made some accounts. Those accounts are real
+ *                            and in `workers`, passwords included; the
+ *                            message says the app was deleted where the
+ *                            caller may still edit it.
  */
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { provisionWorkersSchema } from "@/lib/deployment/types";
-import type { WorkerConflict } from "@/lib/deployment/workerProvisionPlan";
+import {
+	MAX_WORKER_LEVELS_PER_PROVISION_CALL,
+	organizationLevelCodeSchema,
+	provisionWorkersSchema,
+} from "@/lib/deployment/types";
+import type {
+	WorkerConflict,
+	WorkerLevelToConfirm,
+} from "@/lib/deployment/workerProvisionPlan";
 import type {
 	ProvisionedWorker,
 	UnconfirmedWorker,
@@ -102,7 +125,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
 /**
@@ -120,9 +143,13 @@ const WORKER_ERROR_TAGS = {
 	app_not_published: "app_not_published",
 	hq_worker_state_unknown: "hq_worker_state_unknown",
 	workers_not_provisionable: "workers_not_provisionable",
+	worker_levels_unconfirmed: "worker_levels_unconfirmed",
 	hq_worker_conflict: "hq_worker_conflict",
 	hq_rejected_worker: "hq_rejected_worker",
 	hq_worker_may_exist: "hq_worker_may_exist",
+	/* The access-failure bucket every tool answers a deleted or unreachable
+	 * app with, carrying the accounts made before it. */
+	app_not_available: "not_found",
 } as const satisfies Record<WorkerRefusalCode, string>;
 
 /**
@@ -160,6 +187,14 @@ function describeUnconfirmed(worker: UnconfirmedWorker) {
 	};
 }
 
+function describeLevel(level: WorkerLevelToConfirm) {
+	return {
+		code: level.code,
+		name: level.name,
+		persona_names: level.personaNames,
+	};
+}
+
 function describeConflict(conflict: WorkerConflict) {
 	return {
 		persona_uuid: conflict.personaUuid,
@@ -173,12 +208,13 @@ export function registerProvisionWorkers(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"provision_workers",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Create CommCare HQ mobile-worker accounts for this app's personas on a project space, or bring existing ones into step with what the app says. The app must already be published there. Each account this call creates comes back with a `password` that exists only in this answer — show every one of them to the user immediately, including when the call also reports an error, because Nova stores none of them and cannot show them again. Omit a worker's `username` to take Nova's suggestion from the persona's name. If a username already belongs to an account Nova didn't create, the call refuses with `hq_worker_conflict` and names each one; ask the user about that exact account and only then send its persona in `adopt_personas`. If CommCare HQ breaks off mid-create, the call refuses with `hq_worker_may_exist` and puts that account's password in `unconfirmed_workers`: show it to the user immediately, because the account may be real and that password is the only one it will ever have, and tell them to look for that username on the project space rather than saying it was not created. Nova never deletes or retires a worker, because CommCare HQ's own delete soft-deletes every case that worker owns.",
+				"Create CommCare HQ mobile-worker accounts for this app's personas on a project space, or bring existing ones into step with what the app says. The app must already be published there. Each account this call creates comes back with a `password` that exists only in this answer — show every one of them to the user immediately, including when the call also reports an error, because Nova stores none of them and cannot show them again. Omit a worker's `username` to take Nova's suggestion from the persona's name. If a username already belongs to an account Nova didn't create, the call refuses with `hq_worker_conflict` and names each one; ask the user about that exact account and only then send its persona in `adopt_personas`. If CommCare HQ breaks off mid-create, the call refuses with `hq_worker_may_exist` and puts that account's password in `unconfirmed_workers`: show it to the user immediately, because the account may be real and that password is the only one it will ever have, and tell them to look for that username on the project space rather than saying it was not created. Taking an account over changes only the worker information and the places its persona names. Where CommCare HQ manages the app's places in that project space, its level API doesn't say which levels take workers, so the call refuses with `worker_levels_unconfirmed` and names each level in `worker_levels`; ask the user whether places at each level take workers there (CommCare HQ's Organization Levels page shows it), and only then send the codes they confirm in `confirm_worker_levels`. Nova never deletes or retires a worker, because CommCare HQ's own delete soft-deletes every case that worker owns.",
 			inputSchema: z.object({
 				app_id: provisionWorkersSchema.shape.appId.describe(
 					"App id whose personas to provision. Must be an app the caller can edit.",
@@ -212,11 +248,17 @@ export function registerProvisionWorkers(
 					.describe(
 						"Persona uuids whose username already exists on the project space and which the user has confirmed Nova may take over. Send only after an `hq_worker_conflict` refusal named them and the user said yes for each one; a shared username is not evidence the account is theirs. Omit to adopt nothing.",
 					),
+				confirm_worker_levels: z
+					.array(organizationLevelCodeSchema)
+					.max(MAX_WORKER_LEVELS_PER_PROVISION_CALL)
+					.optional()
+					.describe(
+						"Codes of the organization levels the user confirmed take workers in this project space, as a `worker_levels_unconfirmed` refusal's `worker_levels` names them. Send only after the user said yes for each level; Nova records it for the deployment until someone withdraws it. Omit to confirm nothing.",
+					),
 			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "provision_workers");
 				const { doc, access } = await loadAppBlueprint(
 					args.app_id,
 					ctx.userId,
@@ -251,6 +293,9 @@ export function registerProvisionWorkers(
 					...(args.adopt_personas && {
 						adoptPersonaUuids: args.adopt_personas,
 					}),
+					...(args.confirm_worker_levels && {
+						confirmWorkerLevels: args.confirm_worker_levels,
+					}),
 				});
 
 				/* The workers travel on BOTH shapes. A refusal that arrived
@@ -279,6 +324,9 @@ export function registerProvisionWorkers(
 									}),
 									...(refusal.conflicts.length > 0 && {
 										worker_conflicts: refusal.conflicts.map(describeConflict),
+									}),
+									...(refusal.levels.length > 0 && {
+										worker_levels: refusal.levels.map(describeLevel),
 									}),
 								}),
 							},

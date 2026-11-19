@@ -230,3 +230,92 @@ def test_every_check_an_operations_notes_are_held_by_reports_them():
         " observations.soft_assertion_differences(records, '<check>') to what it holds."
     )
     assert {"bar", "sensitivity", "proof2", "proof3"} <= reported
+
+
+# What Nova's download makes of a document, or its refusal ------------------------------------------------------
+
+SERVER = "https://www.commcarehq.org"
+REFUSED = {"reason": "workers-sent-elsewhere", "host": "example.org", "server": SERVER}
+
+
+def _outcome(*, android=True, archive=None, refusal=None, base=None):
+    found = bar.local_outcome(
+        "d",
+        android=android,
+        archive_server_origin=archive,
+        has_archive=archive is not None,
+        refusal=refusal,
+        held_base=base,
+        artifact="local@D",
+    )
+    return [difference.path for difference in found]
+
+
+def test_a_document_carries_the_archive_or_the_refusal_its_project_space_calls_for():
+    """Contract: Nova makes no ``.ccz`` for a project space whose app keeps a custom base URL whose origin is not
+    the server's own (``lib/deployment/runtimeTarget.ts::workersSentElsewhere``) and one for every other project
+    space of an app that declares Android, so a document carries the archive, or states the refusal where A's base
+    calls for it, never both and never neither. The plausible failures: a capture that makes an archive Nova's
+    download refuses (the base ``hq-kept-settings``, whose A keeps ``https://example.org/hq/``), one that states a
+    refusal where the base is the server's own address or another host than the one stated, and a lane step that
+    reads a missing archive as nothing to compare."""
+    assert _outcome(archive=SERVER) == []
+    assert _outcome(archive=SERVER, base="https://WWW.CommCareHQ.org:443/hq/") == []
+    assert _outcome(refusal=REFUSED, base="https://example.org/hq/") == []
+    assert _outcome(refusal={**REFUSED, "host": "example.org"}, base="https://worker:secret@example.org/") == []
+    assert _outcome(android=False) == []
+
+    assert _outcome() == ["/local-outcome/missing"]
+    assert _outcome(base="https://example.org/hq/") == ["/local-outcome/missing"]
+    assert _outcome(archive=SERVER, base="https://example.org/hq/") == [
+        "/local-outcome/archive-for-workers-sent-elsewhere"
+    ]
+    assert _outcome(refusal=REFUSED, base="https://www.commcarehq.org/") == ["/local-outcome/refusal"]
+    assert _outcome(refusal=REFUSED) == ["/local-outcome/refusal"]
+    assert _outcome(refusal=REFUSED, base="https://other.example/") == ["/local-outcome/refusal"]
+    assert _outcome(android=False, refusal=REFUSED, base="https://example.org/hq/") == ["/local-outcome/refusal"]
+    assert _outcome(archive=SERVER, refusal=REFUSED, base="https://example.org/hq/") == [
+        "/local-outcome/archive-and-refusal",
+        "/local-outcome/archive-for-workers-sent-elsewhere",
+    ]
+
+
+def test_a_base_url_is_read_as_novas_reading_of_it_reads_it():
+    """Contract: ``base_url_origin`` reads a custom base URL as ``lib/commcare/targetFacts.ts::heldBaseUrl`` does:
+    the host after any user information, and an origin only for an ``https`` base with none; and a value that is no
+    ``http`` or ``https`` URL with a host sends a phone nowhere else. The plausible failure: an origin read with its
+    user information or its default port, so the server's own address reads as another."""
+    assert bar.base_url_origin("https://WWW.CommCareHQ.org:443/hq/") == (
+        "WWW.CommCareHQ.org:443",
+        "https://www.commcarehq.org",
+    )
+    assert bar.base_url_origin("https://www.commcarehq.org:8443/") == (
+        "www.commcarehq.org:8443",
+        "https://www.commcarehq.org:8443",
+    )
+    assert bar.base_url_origin("https://worker:secret@example.org/") == ("example.org", None)
+    assert bar.base_url_origin("http://www.commcarehq.org/") == ("www.commcarehq.org", None)
+    assert bar.base_url_origin("not a url") is None
+    assert bar.base_url_origin(None) is None
+
+
+def test_an_archive_names_the_server_its_profile_signs_a_worker_in_on(tmp_path):
+    """Contract: ``archive_server`` reads the origin of the archive's ``ota-restore-url``, and None where its profile
+    names none (a control retained before an archive named its project space). The plausible failure: a reader of
+    another property, so an archive on the server reads as one sent elsewhere."""
+    import zipfile
+
+    def archive(name, profile):
+        path = tmp_path / name
+        with zipfile.ZipFile(path, "w") as written:
+            written.writestr("profile.ccpr", profile)
+        return path
+
+    named = archive(
+        "named.ccz",
+        '<profile xmlns="http://cihi.commcarehq.org/jad"><property key="ota-restore-url"'
+        ' value="https://www.commcarehq.org/a/d/phone/restore/app/" force="true"/></profile>',
+    )
+    unnamed = archive("unnamed.ccz", '<profile xmlns="http://cihi.commcarehq.org/jad"/>')
+    assert bar.archive_server(named) == SERVER
+    assert bar.archive_server(unnamed) is None

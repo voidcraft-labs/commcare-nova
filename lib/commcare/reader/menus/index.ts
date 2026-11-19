@@ -9,15 +9,17 @@
  */
 import type { HqApplication } from "@/lib/commcare";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { NO_ENTRIES } from "@/lib/domain/records";
 import { caseListMenuItemLabelUnit } from "../../emissionPlan";
 import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbove";
 import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection";
+import { rethrowWorkStop } from "../../workMeter";
 import { type Claim, defineClaims, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl } from "../expressions/printLevel";
 import { printSlot, sameSlotText } from "../expressions/readExpression";
-import { isJsonObject, sameJson } from "../jsonCursor";
+import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
 import { handedOff } from "../pendingExpressions";
 import { appPlace } from "../place";
 import { keptMediaPaths, readExpansionSteps } from "../projectionInputs";
@@ -89,7 +91,8 @@ export function readRootSelectionsTaken(ctx: ReadContext, app: DraftApp): void {
 		taken = rootSelectionTakesNewCase(provisionalDocument(ctx), {
 			kind: "unavailable",
 		}).map((error) => ({ formUuid: error.location.formUuid }));
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		// A document the projection cannot walk is the entry facts' to report.
 		return;
 	}
@@ -202,7 +205,8 @@ function heldAtLevel(
 				stored,
 			)
 		);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return false;
 	}
 }
@@ -235,7 +239,8 @@ export function* settleMenusSteps(
 	let expansion: HqApplication;
 	try {
 		expansion = yield* readExpansionSteps(ctx, doc);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		if (!keepsRefusedCaseType(ctx))
 			ctx.accounting.defect(
 				appPlace(),
@@ -253,9 +258,8 @@ export function* settleMenusSteps(
 	const formsByXmlns = new Map<unknown, JsonObject>();
 	for (const one of modules) {
 		if (!menusById.has(one.unique_id)) menusById.set(one.unique_id, one);
-		if (Array.isArray(one.forms))
-			for (const form of one.forms.filter(isJsonObject))
-				if (!formsByXmlns.has(form.xmlns)) formsByXmlns.set(form.xmlns, form);
+		for (const form of objectMembers(one.forms) ?? [])
+			if (!formsByXmlns.has(form.xmlns)) formsByXmlns.set(form.xmlns, form);
 	}
 	const moduleOf = (uniqueId: string) =>
 		menusById.get(uniqueId) as HqApplication["modules"][number] | undefined;
@@ -302,7 +306,7 @@ function acceptMenus(
 	for (const module of app.modules) {
 		if (folded.has(module) || doc.modules[module.uuid] === undefined) continue;
 		if (ctx.accounting.hasFindingAt(module.place)) continue;
-		const source = stored[module.index] ?? {};
+		const source = stored[module.index] ?? NO_ENTRIES;
 		const ours = moduleOf(module.uniqueId);
 		const unrecognized = (name: string) =>
 			ctx.accounting.circumstance("unrecognized", module.place, { name });
@@ -357,8 +361,12 @@ function acceptMenus(
 				ctx.accounting.circumstance("unrecognized", caseListPlaceOf(module), {
 					name,
 				});
-			const sourceList = isJsonObject(source.case_list) ? source.case_list : {};
-			const ourList = isJsonObject(ours.case_list) ? ours.case_list : {};
+			const sourceList = isJsonObject(source.case_list)
+				? source.case_list
+				: NO_ENTRIES;
+			const ourList = isJsonObject(ours.case_list)
+				? ours.case_list
+				: NO_ENTRIES;
 			// Each label as the reading holds it (`modules.ts::heldLabel`).
 			const sourceLabel = heldLabel(
 				ctx,

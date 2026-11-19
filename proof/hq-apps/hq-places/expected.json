@@ -38,6 +38,7 @@
 		"application-and-settings/rev-domain-copy-of-version",
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 		"expressions-and-data/commcaresession-jr-instance-session",
+		"expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not",
 		"expressions-and-data/instance-id-current-path-roots",
 		"expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
 		"expressions-and-data/session-user-data-field",
@@ -85,6 +86,7 @@
 	"firstPublish": [
 		"forms-and-settings-rewritten",
 		"empty-rows-guard",
-		"list-settings-respelled"
+		"list-settings-respelled",
+		"unread-fixture-declarations-dropped"
 	]
 }

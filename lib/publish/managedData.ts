@@ -283,6 +283,19 @@ export const REFRESH_NEEDS_EDITOR =
 export const HAND_BACK_OVERTAKEN =
 	"Someone chose Manage in Nova for this table while CommCare HQ was being read, so Nova kept it as they left it.";
 
+/** A hand-back of a table a publish is sending to CommCare HQ right now. */
+export function handBackWhilePublishing(domain: string): string {
+	return `Nova is publishing this table to “${domain}” right now, so it stays managed in Nova for the moment. You can try again once that publish finishes.`;
+}
+
+/**
+ * Manage in Nova or the hand-back, where the table, or the apps that read it,
+ * are no longer what the confirmation showed. The surface shows the table as
+ * it stands now beside it.
+ */
+export const MANAGEMENT_REVIEW_MOVED =
+	"This table, or the apps that read it, changed while you were deciding, so Nova changed nothing. Here is how it stands now.";
+
 /** A refresh that met a table someone had just taken over. */
 export const TABLE_TAKEN_OVER_MEANWHILE =
 	"Someone chose Manage in Nova for this table a moment ago, so there was nothing to refresh.";
@@ -325,6 +338,17 @@ export const MANAGED_PLACES_NO_EXTERNAL_IDS =
 export function managedPlacesKeptInUse(names: readonly string[]): string {
 	const one = names.length === 1;
 	return `${count(names.length)} ${one ? "place is" : "places are"} gone from CommCare HQ, and a persona, an owner rule or an automation still uses ${one ? "it" : "them"}: ${namesInWords(names)}. Nova kept ${one ? "it" : "them"}. You can move or change what uses ${one ? "it" : "them"}, then refresh again.`;
+}
+
+/**
+ * After a refresh, the places CommCare HQ made again as new places under their
+ * site codes that a persona, an owner rule or an automation still uses. Nova
+ * never carries what uses a place across to another CommCare HQ place, so the
+ * old one stays, marked gone, beside the new one.
+ */
+export function managedPlacesRemade(names: readonly string[]): string {
+	const one = names.length === 1;
+	return `CommCare HQ made ${namesInWords(names)} again as ${one ? "a new place" : "new places"}. A persona, an owner rule or an automation still uses the old ${one ? "one" : "ones"}, so Nova kept ${one ? "it" : "them"}. You can move what uses ${one ? "it" : "them"} to the new ${one ? "place" : "places"}, then refresh again.`;
 }
 
 /** Every refused write to places CommCare HQ manages. */
@@ -390,6 +414,7 @@ export type ManagedPlacesAnswer =
 				readonly changed: number;
 				readonly archived: number;
 				readonly keptInUse: readonly string[];
+				readonly remade: readonly string[];
 				readonly keptLeftOut: readonly string[];
 				/** True where a later refresh had already landed, so this one changed nothing. */
 				readonly superseded?: boolean;
@@ -401,7 +426,7 @@ export type ManagedPlacesAnswer =
  * What is said after a refresh of places answered, on the Organization
  * banner and in MCP's answer: what changed, then the places gone from
  * CommCare HQ that Nova kept because a persona or an owner rule still uses
- * them, then the places CommCare HQ holds at a level the app lacks that Nova
+ * them, then the ones of those CommCare HQ made again as new places, then the places CommCare HQ holds at a level the app lacks that Nova
  * kept as they stood. The places left out for a level the app lacks are the
  * copy's standing fact (`managedPlacesLeftOut`), which the banner shows
  * from the organization's own read, not from this answer. A refusal says its own sentence, and the
@@ -412,8 +437,15 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesAnswer): {
 	readonly lines: readonly string[];
 } {
 	if (!outcome.ok) return { tone: "alert", lines: [outcome.message] };
-	const { added, changed, archived, keptInUse, keptLeftOut, superseded } =
-		outcome.refresh;
+	const {
+		added,
+		changed,
+		archived,
+		keptInUse,
+		remade,
+		keptLeftOut,
+		superseded,
+	} = outcome.refresh;
 	if (superseded) {
 		return { tone: "status", lines: [MANAGED_PLACES_REFRESHED_SINCE] };
 	}
@@ -424,6 +456,7 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesAnswer): {
 				? MANAGED_PLACES_ALREADY_MATCH
 				: managedPlacesRefreshed(added, changed, archived),
 			...(keptInUse.length === 0 ? [] : [managedPlacesKeptInUse(keptInUse)]),
+			...(remade.length === 0 ? [] : [managedPlacesRemade(remade)]),
 			...(keptLeftOut.length === 0
 				? []
 				: [managedPlacesKeptLeftOut(keptLeftOut)]),
@@ -432,15 +465,17 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesAnswer): {
 }
 
 /**
- * A refresh that finds more places than Nova holds for an app. `total`
- * is CommCare HQ's count, null where its list named none and the read
- * stopped once it passed Nova's limit.
+ * A refresh that finds more places than Nova holds for an app. `total` is
+ * CommCare HQ's count where the list passed the place limit, and null where
+ * it passed the bytes Nova reads of a place list before it passed the count.
  */
 export function managedPlacesOverLimit(
 	domain: string,
 	total: number | null,
 ): string {
-	return `${domain} now has ${total === null ? "more than 10,000" : count(total)} places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.`;
+	return total === null
+		? `${domain} now holds more place information than Nova reads, and Nova holds up to 10,000 places for an app. Nova kept its copy as it was.`
+		: `${domain} now has ${count(total)} places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.`;
 }
 
 /** A refresh CommCare HQ refused to answer the account. */

@@ -33,6 +33,7 @@ import type {
 	DeploymentConfirmationKey,
 	DeploymentConfirmationKind,
 	DeploymentConfirmationNeeded,
+	PublishConfirmationKind,
 } from "@/lib/deployment/types";
 import {
 	type AppDeploymentNoticeEntry,
@@ -45,10 +46,10 @@ import {
 	STOP_PUBLISHING_UNANSWERED,
 } from "@/lib/publish/bringInCopy";
 import {
+	type ConfirmedLevel,
+	confirmationLabel,
 	isPlanFeatureId,
 	PLAN_FEATURE_IDS,
-	PLAN_FEATURES,
-	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
 import { PUBLISH_PLAN_CREATES_BESIDE } from "@/lib/publish/stopPublishing";
 
@@ -349,8 +350,9 @@ export function stopPublishingOffered(
 /**
  * What a stop that did not happen says, in the confirmation. A refusal whose
  * own sentence tells the person something true and actionable shows it: an
- * editor told who may stop (`not_permitted`), or a deployment with nothing
- * left to stop (`invalid_input`). A request whose answer never arrived
+ * editor told who may stop (`not_permitted`), a deployment with nothing
+ * left to stop, or one that publishes to another HQ app than the one the
+ * person looked at (`invalid_input`). A request whose answer never arrived
  * (`null`) may have stopped publishing, so it says Nova is checking rather
  * than that nothing changed. Every other failure is answered only for a stop
  * that did not land (`stopPublishingAction`), and says it changed nothing.
@@ -491,7 +493,7 @@ export function publishingCardNoticeEntries(
  */
 export interface ConfirmationRequest {
 	readonly key: DeploymentConfirmationKey;
-	readonly kind: DeploymentConfirmationKind;
+	readonly kind: PublishConfirmationKind;
 	readonly label: string;
 	/** The current plans that include it; empty for a setting no plan decides. */
 	readonly plans: string;
@@ -514,6 +516,8 @@ function requestKey(
 		case "form-entry-sync-off":
 		case "commtrack-off":
 			return { kind };
+		case "worker-level":
+			return subject === "" ? null : { kind, subject };
 	}
 }
 
@@ -524,12 +528,14 @@ export function sameConfirmationKey(
 ): boolean {
 	return (
 		a.kind === b.kind &&
-		(a.kind !== "plan-feature" ||
-			(b.kind === "plan-feature" && a.subject === b.subject))
+		(a.kind === "plan-feature" || a.kind === "worker-level"
+			? (b.kind === "plan-feature" || b.kind === "worker-level") &&
+				a.subject === b.subject
+			: true)
 	);
 }
 
-/** Every surface's order: the plan features as `PLAN_FEATURES` lists them, then the flat location list, the Connect forwarder, sync on form entry and CommCare Supply. */
+/** Every surface's order: the plan features as `PLAN_FEATURES` lists them, then the flat location list, the Connect forwarder, sync on form entry, CommCare Supply, and the levels that take workers. */
 function requestOrder(key: DeploymentConfirmationKey): number {
 	switch (key.kind) {
 		case "plan-feature":
@@ -542,6 +548,8 @@ function requestOrder(key: DeploymentConfirmationKey): number {
 			return PLAN_FEATURE_IDS.length + 2;
 		case "commtrack-off":
 			return PLAN_FEATURE_IDS.length + 3;
+		case "worker-level":
+			return PLAN_FEATURE_IDS.length + 4;
 	}
 }
 
@@ -577,7 +585,7 @@ export function confirmationRequests(
 ): readonly ConfirmationRequest[] {
 	const requests: ConfirmationRequest[] = [];
 	const add = (
-		kind: DeploymentConfirmationKind,
+		kind: PublishConfirmationKind,
 		subject: string,
 		need: Omit<ConfirmationRequest, "key" | "kind">,
 	) => {
@@ -725,9 +733,12 @@ export interface LiveConfirmationRow {
  * What a person confirmed about this card's project space and has not
  * withdrawn, in every surface's order. A plan feature Nova no longer knows
  * is left out: nothing asks for it, so there is nothing to withdraw.
+ * `levels` are the app's organization levels, which name a level a
+ * worker-level confirmation stores by its code.
  */
 export function liveConfirmationRows(
 	confirmations: readonly DeploymentConfirmation[],
+	levels: readonly ConfirmedLevel[],
 ): readonly LiveConfirmationRow[] {
 	return confirmations
 		.flatMap((confirmation): LiveConfirmationRow[] => {
@@ -736,10 +747,7 @@ export function liveConfirmationRows(
 			return [
 				{
 					key,
-					label:
-						key.kind === "plan-feature"
-							? PLAN_FEATURES[key.subject].label
-							: PROJECT_SPACE_SETTINGS[key.kind].label,
+					label: confirmationLabel(confirmation, levels),
 					confirmedBy: confirmation.confirmedByName,
 					confirmedAt: confirmation.confirmedAt,
 				},

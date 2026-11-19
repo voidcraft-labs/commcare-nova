@@ -2001,14 +2001,25 @@
 			{
 				"check": "proof3",
 				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/title",
+				"path": "/runs/*/trace/*/title/form",
 				"kind": "changed"
 			},
 			{
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
-				"path": "/runs/*/trace/*/title",
+				"path": "/runs/*/trace/*/title/form",
 				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "unread-fixture-declarations-dropped",
+		"placeKinds": ["form-part"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
 			}
 		]
 	}

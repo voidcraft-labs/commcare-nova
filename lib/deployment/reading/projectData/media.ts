@@ -15,6 +15,7 @@ import type {
 	ReaderMediaResolution,
 	ReadFacts,
 } from "@/lib/commcare/reader";
+import { type SourceTable, tableOf } from "@/lib/commcare/sourceKeys";
 import type { exportReadinessFindings } from "@/lib/doc/commitVerdicts";
 import type { DeclarationChoices } from "@/lib/doc/platformDeclaration";
 import {
@@ -29,6 +30,7 @@ import {
 	mediaFormatPlaysOn,
 } from "@/lib/domain/multimedia";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import type {
@@ -79,7 +81,7 @@ export interface HqMediaReference {
 
 /** The reader's slot words (`lib/domain/mediaRefs.ts::MediaRefLocation` kinds, and
  *  `unheld_itext`), each read as the slot it stands in. */
-const SLOT_OF_READER_SLOT: Readonly<Record<string, HqMediaSlot>> = {
+const SLOT_OF_READER_SLOT: SourceTable<HqMediaSlot> = tableOf({
 	field_media_bundle: "form",
 	option_media: "choice",
 	image_map_mapping: "list-image",
@@ -93,7 +95,7 @@ const SLOT_OF_READER_SLOT: Readonly<Record<string, HqMediaSlot>> = {
 	case_list_registration_audio_label: "register-action",
 	app_logo: "logo",
 	unheld_itext: "unheld-itext",
-};
+});
 
 /**
  * Every media reference a reading read, the resolved ones and the ones handed
@@ -105,9 +107,7 @@ export function hqMediaReferencesOf(
 	facts: ReadFacts,
 ): readonly HqMediaReference[] {
 	return [...facts.mediaReferences, ...facts.pendingMedia].map((read) => {
-		const slot = Object.hasOwn(SLOT_OF_READER_SLOT, read.slot)
-			? SLOT_OF_READER_SLOT[read.slot]
-			: undefined;
+		const slot = SLOT_OF_READER_SLOT.get(read.slot);
 		if (slot === undefined) {
 			throw new Error(
 				`The reader handed over a media reference in the slot “${read.slot}”, which bringing media in has no rule for. Add the slot to the table in hqMediaReferencesOf, with what each platform draws there, before the reader reads it.`,
@@ -220,6 +220,36 @@ const ENTRY = {
  * file, an entry of a type no slot can play, a sound slot naming a file CommCare
  * HQ filed as video, and an app with more files than Nova takes.
  */
+/** The most cases one tallied log line names beside its count. */
+const LOGGED_SAMPLES = 5;
+
+/**
+ * One log line per message for a loop over what CommCare HQ sent, written
+ * after the loop with the count of its cases and the first few: the loop's
+ * length is an app author's, and each error-level line is a Sentry event.
+ */
+function loggedOnce(): {
+	readonly add: (message: string, sample: Record<string, unknown>) => void;
+	readonly flush: () => void;
+} {
+	const lines = new Map<
+		string,
+		{ count: number; readonly samples: Record<string, unknown>[] }
+	>();
+	return {
+		add(message, sample) {
+			const line = lines.get(message) ?? { count: 0, samples: [] };
+			line.count += 1;
+			if (line.samples.length < LOGGED_SAMPLES) line.samples.push(sample);
+			lines.set(message, line);
+		},
+		flush() {
+			for (const [message, { count, samples }] of lines)
+				log.error(message, undefined, { count, samples });
+		},
+	};
+}
+
 export function planHqMedia(input: {
 	readonly references: readonly HqMediaReference[];
 	readonly multimediaMap: readonly HqMediaMapItem[];
@@ -233,6 +263,7 @@ export function planHqMedia(input: {
 	const findings: Finding[] = [];
 	const inert: HqMediaReference[] = [];
 	const claims: HqMediaClaim[] = [];
+	const logged = loggedOnce();
 	const files = new Map<
 		string,
 		{
@@ -281,9 +312,8 @@ export function planHqMedia(input: {
 			continue;
 		}
 		if (item.mediaType === "CommCareMultimedia") {
-			log.error(
-				"[bring-in:media] a media slot names a file CommCare HQ files as neither a picture, a sound nor a video",
-				undefined,
+			logged.add(
+				"[bring-in:media] media slots name a file CommCare HQ files as neither a picture, a sound nor a video",
 				{ slot: reference.slot, kind: reference.kind },
 			);
 			findings.push(
@@ -305,15 +335,11 @@ export function planHqMedia(input: {
 				);
 				continue;
 			}
-			log.error(
-				"[bring-in:media] a media slot names a file of another kind",
-				undefined,
-				{
-					slot: reference.slot,
-					kind: reference.kind,
-					mediaType: item.mediaType,
-				},
-			);
+			logged.add("[bring-in:media] media slots name a file of another kind", {
+				slot: reference.slot,
+				kind: reference.kind,
+				mediaType: item.mediaType,
+			});
 			findings.push(
 				circumstanceFinding("unrecognized", reference.place, {
 					name: `${reference.path} (${reference.kind} slot, ${item.mediaType})`,
@@ -335,6 +361,7 @@ export function planHqMedia(input: {
 		file.paths.add(reference.path);
 		file.references.push(reference);
 	}
+	logged.flush();
 	const planned: HqMediaFile[] = [...files.entries()]
 		.sort(([a], [b]) => compareCodeUnits(a, b))
 		.map(([key, file]) => ({
@@ -699,6 +726,7 @@ export function mediaFindings(input: {
 	const findings: Finding[] = [];
 	const inert: HqMediaReference[] = [];
 	const claims: HqMediaClaim[] = [];
+	const logged = loggedOnce();
 	for (const file of plan.files) {
 		const verdict = verdictOf(verdicts, file.key);
 		if (verdict === undefined) continue;
@@ -724,9 +752,8 @@ export function mediaFindings(input: {
 					findings.push(manifestFinding(entry, place, path));
 					break;
 				}
-				log.error(
-					"[bring-in:media] a media file was refused for a format no manifest entry names",
-					undefined,
+				logged.add(
+					"[bring-in:media] media files were refused for a format no manifest entry names",
 					{
 						reason: verdict.reason,
 						sniffedMime: verdict.sniffedMime ?? "none",
@@ -739,9 +766,8 @@ export function mediaFindings(input: {
 				break;
 			}
 			case "wrong-kind":
-				log.error(
-					"[bring-in:media] a media file's bytes are another kind than CommCare HQ files it as",
-					undefined,
+				logged.add(
+					"[bring-in:media] media files' bytes are another kind than CommCare HQ files them as",
 					{ sniffedKind: verdict.sniffedKind, mediaType: file.mediaType },
 				);
 				findings.push(
@@ -779,6 +805,7 @@ export function mediaFindings(input: {
 				break;
 		}
 	}
+	logged.flush();
 	return {
 		findings: distinct(findings),
 		playsOn,
@@ -794,7 +821,7 @@ function verdictOf(
 	verdicts: Readonly<Record<string, HqMediaVerdict>>,
 	key: string,
 ): HqMediaVerdict | undefined {
-	return Object.hasOwn(verdicts, key) ? verdicts[key] : undefined;
+	return ownRecordValue(verdicts, key);
 }
 
 // ---------------------------------------------------------------------------
@@ -870,8 +897,9 @@ export interface ReadingMediaPlan {
 		readonly provisionalId: MediaAssetId;
 	}[];
 	readonly verdicts: Readonly<Record<string, HqMediaVerdict>>;
-	/** In a create: the bytes of each held file, by file key, from its verdict to its
-	 *  publication. */
+	/** In a create: the bytes of each held file, by its content hash (a held verdict's
+	 *  `file.contentHash`), one buffer however many files hold those bytes, from the verdict
+	 *  to the publication. What the media budget counts is exactly what this holds. */
 	readonly kept: ReadonlyMap<string, Buffer>;
 	/** In a create, after the publish: the asset each held file became, by file key. */
 	readonly published: Readonly<Record<string, MediaAssetId>>;
@@ -909,9 +937,7 @@ export function readingMediaIndex(input: {
 			if (plan !== null && verdictOf(plan.verdicts, key)?.kind === "missing")
 				return { kind: "unreadable" };
 			const published =
-				plan !== null && Object.hasOwn(plan.published, key)
-					? plan.published[key]
-					: undefined;
+				plan === null ? undefined : ownRecordValue(plan.published, key);
 			return {
 				kind: "asset",
 				assetId:
@@ -962,9 +988,9 @@ export function planReadingMedia(input: {
 					file.multimediaId,
 				),
 			})),
-			verdicts: {},
+			verdicts: NO_ENTRIES,
 			kept: new Map(),
-			published: {},
+			published: NO_ENTRIES,
 		},
 	};
 }
@@ -1007,9 +1033,7 @@ function documentAssetId(
 	plan: ReadingMediaPlan,
 	file: ReadingMediaPlan["files"][number],
 ): MediaAssetId {
-	return Object.hasOwn(plan.published, file.key)
-		? (plan.published[file.key] as MediaAssetId)
-		: file.provisionalId;
+	return ownRecordValue(plan.published, file.key) ?? file.provisionalId;
 }
 
 /** One adopted file per path of each held file, with CommCare HQ's path as the source spells

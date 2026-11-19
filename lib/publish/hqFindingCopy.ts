@@ -568,6 +568,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"breaks-when-run":
 			"A name or label here holds a ${ that CommCare reads as a placeholder on some screens, such as Android's menus and every screen title, while other screens show it as typed. Taking out the ${ and what follows it up to its closing brace, where it has one, fixes it.",
 	},
+	"translation-overrides": {
+		either:
+			"A key in the app's translations starts or ends with a space, or holds =, # or a line break. CommCare HQ writes it so devices read its wording as another text's or as none, and some such keys stop CommCare HQ's build. Removing the key, or writing it without those characters, in CommCare HQ fixes it.",
+	},
 };
 
 /** The sentence a `fix-in-hq` finding of this subject and cause reads. */
@@ -789,10 +793,25 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "{app} is managed by a Nova app already, and one CommCare HQ app is managed by one Nova app so two can't publish over each other.",
 		next: "You can check again in a moment to see where it is.",
 	},
+	"nova-busy": {
+		title: "Nova is busy bringing in other apps",
+		body: "Nova is reading other apps from CommCare HQ right now and ran out of room to read {app} as well, so it stopped. Nothing was changed, in Nova or in CommCare HQ.",
+		next: "You can check again in a minute or two.",
+	},
+	"lookup-data-too-large": {
+		title: "This app reads more lookup data than Nova brings in",
+		body: "{app} reads more lookup data than Nova brings in. That limit is Nova's, not the app's.",
+		next: "There is nothing for you to change in the app. If you'd like Nova to bring in an app with this much lookup data, you can tell the team through Give feedback in Nova's account menu.",
+	},
 	"too-large": {
 		title: "This app is larger than Nova brings in",
 		body: "{app} is larger than the apps Nova brings in. That limit is Nova's, not the app's.",
 		next: "There is nothing for you to change in the app. If you'd like Nova to bring in an app this size, you can tell the team through Give feedback in Nova's account menu.",
+	},
+	"too-intricate": {
+		title: "This app takes more checking than Nova gives one app",
+		body: "{app} needs more work to read than Nova spends on a single app of its size. That limit is Nova's, not the app's.",
+		next: "There is nothing for you to change in the app. If you'd like Nova to bring in an app like this, you can tell the team through Give feedback in Nova's account menu.",
 	},
 	"menu-unreadable-in-hq": {
 		title: "CommCare HQ can't summarize this menu",

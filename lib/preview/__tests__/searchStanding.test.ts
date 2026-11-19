@@ -30,6 +30,10 @@ import {
 	previewStandingSearch,
 } from "@/lib/preview/searchStanding";
 import {
+	NO_PREVIEW_ENTRY_RECORD,
+	type PreviewHistoryEntry,
+} from "@/lib/routing/previewEntryRecords";
+import {
 	previewSearchHistoryWrite,
 	readPreviewSearchContexts,
 	readPreviewStandingSearches,
@@ -379,24 +383,29 @@ describe("a search that chose a submenu's parent case stands as that case does",
 describe("Back and Forward return to the searches each entry held", () => {
 	it("a search stands on an entry that records it, and on no other", () => {
 		const resultsEntry = withPreviewStandingSearches(
-			{ __novaPreviousEntry: { path: "/build/app" } },
+			{
+				state: { __novaPreviousEntry: { path: "/build/app" } },
+				record: NO_PREVIEW_ENTRY_RECORD,
+			},
 			["patients-search"],
 		);
 		// What else the entry carries stays.
-		expect(resultsEntry.__novaPreviousEntry).toEqual({ path: "/build/app" });
+		expect(resultsEntry.state.__novaPreviousEntry).toEqual({
+			path: "/build/app",
+		});
 		expect(
 			previewStandingSearch(
 				patientsSearch,
-				new Set(readPreviewStandingSearches(resultsEntry)),
+				new Set(readPreviewStandingSearches(resultsEntry.state)),
 			),
 		).toBe(patientsSearch);
 		// The clinic's entry, pushed by its crumb, recorded none.
 		const clinicEntry = withPreviewStandingSearches(resultsEntry, []);
-		expect(readPreviewStandingSearches(clinicEntry)).toEqual([]);
+		expect(readPreviewStandingSearches(clinicEntry.state)).toEqual([]);
 		expect(
 			previewStandingSearch(
 				patientsSearch,
-				new Set(readPreviewStandingSearches(clinicEntry)),
+				new Set(readPreviewStandingSearches(clinicEntry.state)),
 			),
 		).toBeUndefined();
 		// A state no page of this builder wrote holds no search.
@@ -615,7 +624,6 @@ describe("Clear is offered where the platform's Search screen has one", () => {
  * as a prompt of its own (`<prompt hidden="true">`).
  */
 describe("history gives a search back with the answers its platform runs it with", () => {
-	const SESSION = "running-session";
 	const patientsModule = searching.moduleUuid;
 	const hidden = hiddenSearchInputDef(
 		testUuid("search-standing-searched-by"),
@@ -649,12 +657,15 @@ describe("history gives a search back with the answers its platform runs it with
 	};
 	/* The list's entry, where the first search was begun, and the next
 	 * screen's, pushed from it. */
-	const listEntry = withPreviewSearchBegun({}, [], {
-		moduleUuid: patientsModule,
-		session: SESSION,
-		state: first as Exclude<PreviewSearchState, { kind: "not-searched" }>,
-	});
-	/* A push keeps the rest of the entry's state, the contexts among it
+	const listEntry = withPreviewSearchBegun(
+		{ state: {}, record: NO_PREVIEW_ENTRY_RECORD },
+		[],
+		{
+			moduleUuid: patientsModule,
+			state: first as Exclude<PreviewSearchState, { kind: "not-searched" }>,
+		},
+	);
+	/* A push carries the entry's record on, the contexts among it
 	 * (`previewHeldMenu.ts::builderEntryState`). */
 	const nextEntry = previewSearchHistoryWrite(
 		listEntry,
@@ -673,7 +684,10 @@ describe("history gives a search back with the answers its platform runs it with
 		replay: PreviewSearchReplay,
 		states: Readonly<Record<string, PreviewSearchState>>,
 		latest: Readonly<Record<string, Readonly<Record<string, string>>>>,
-		options: { readonly entry?: unknown; readonly moved?: boolean } = {},
+		options: {
+			readonly entry?: PreviewHistoryEntry;
+			readonly moved?: boolean;
+		} = {},
 	) => {
 		const screen = previewSearchScreenOf(app, at, {
 			...noFacts,
@@ -687,9 +701,8 @@ describe("history gives a search back with the answers its platform runs it with
 			screen,
 			selections: {},
 			states,
-			standing: readPreviewStandingSearches(entry),
+			standing: readPreviewStandingSearches(entry.state),
 			contexts: readPreviewSearchContexts(entry),
-			session: SESSION,
 			replay,
 			moved: options.moved ?? true,
 			latest,
@@ -789,9 +802,12 @@ describe("history gives a search back with the answers its platform runs it with
 	it("runs the search with no answer at all on Web Apps once a submission landed on its Search screen, its hidden value too", () => {
 		// The form's submission ends the search on the screen it lands on,
 		// and the entry before keeps it.
-		const ended = withPreviewSearchesEnded(nextEntry);
+		const ended = {
+			...nextEntry,
+			state: withPreviewSearchesEnded(nextEntry.state),
+		};
 		const landing = previewSearchHistoryWrite(ended, { ...ended }, "push");
-		expect(readPreviewStandingSearches(landing.written)).toEqual([]);
+		expect(readPreviewStandingSearches(landing.written.state)).toEqual([]);
 		// The landing showed the Search screen, which gives the query no
 		// answers (`getMenuView`), and Back reaches the list that ran it;
 		// Formplayer answers every prompt from none, the hidden one among them.

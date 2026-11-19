@@ -23,6 +23,10 @@ import type {
 	HqChangesReview,
 	HqChangesStage,
 } from "@/lib/deployment/hqChanges/types";
+import {
+	keptTableChoices,
+	type ReviewTable,
+} from "@/lib/deployment/reading/types";
 import type { RemoteChangeDiscard } from "@/lib/deployment/types";
 import type {
 	DriftDateOptions,
@@ -33,7 +37,6 @@ import {
 	broughtInLine,
 	CANNOT_BRING_IN_HEADING,
 	CANNOT_BRING_IN_OTHER_WAYS,
-	CANNOT_BRING_IN_TOO_LARGE_LEAD,
 	cannotBringInLead,
 	HQ_CHANGES_BRING_IN_LOST_LINE,
 	HQ_CHANGES_FAILED_LINE,
@@ -50,6 +53,7 @@ import {
 	NOVA_CHANGES_HEADING,
 	NOVA_CHANGES_LEAD,
 	nothingToBringInLine,
+	novaLimitLead,
 	PUBLISH_OVER_HQ_ACTION,
 	PUBLISH_OVER_HQ_HELPER,
 	PUBLISH_OVER_INSTEAD_LINE,
@@ -177,6 +181,12 @@ export interface HqChangesPanelState {
 	readonly moved: { readonly editedBy: string | null } | null;
 	/** Each table's answer, by tag. */
 	readonly tableChoices: Readonly<Record<string, LookupTableChoice>>;
+	/**
+	 * The review entry each answer in `tableChoices` was given against, by
+	 * tag: a review that comes back keeps an answer only over the same entry
+	 * (`keptTableChoices`).
+	 */
+	readonly answeredTables: Readonly<Record<string, ReviewTable>>;
 	/** Set where a bring-in was pressed with a table unanswered; each press is a new nonce. */
 	readonly needsChoice: { readonly nonce: number } | null;
 	/** The lists opened past their first ten lines. */
@@ -228,6 +238,7 @@ export function initialHqChangesPanel(at: number): HqChangesPanelState {
 		request: { id: 1, sent: false },
 		moved: null,
 		tableChoices: {},
+		answeredTables: {},
 		needsChoice: null,
 		shownAll: { hq: false, nova: false },
 		copy: "idle",
@@ -294,8 +305,21 @@ function withReview(
 	review: HqChangesReview,
 	at: number,
 ): HqChangesPanelState {
+	/* An answer stands only over the table's entry it was given against: a
+	 * table whose apps, columns, revisions or offers moved is asked again. */
+	const kept = keptTableChoices(
+		Object.values(state.answeredTables),
+		review.kind === "changes" ? review.tables : [],
+		state.tableChoices,
+	);
 	const base: HqChangesPanelState = {
 		...state,
+		tableChoices: kept.choices,
+		answeredTables: Object.fromEntries(
+			Object.entries(state.answeredTables).filter(([tag]) =>
+				Object.hasOwn(kept.choices, tag),
+			),
+		),
 		needsChoice: null,
 		shownAll: { hq: false, nova: false },
 		copy: "idle",
@@ -466,7 +490,9 @@ export function reduceHqChangesPanel(
 					};
 					return {
 						...withReview(answeredOnce, outcome.now, phase.progress.startedAt),
-						moved: { editedBy: outcome.editedBy },
+						moved: {
+							editedBy: "editedBy" in outcome ? outcome.editedBy : null,
+						},
 					};
 				}
 				case "gate":
@@ -493,12 +519,17 @@ export function reduceHqChangesPanel(
 				end: event.end,
 			});
 		}
-		case "table-chosen":
-			if (choicesOpen(state) === null) return state;
+		case "table-chosen": {
+			const entry = choicesOpen(state)?.tables.find(
+				(table) => table.tag === event.tag,
+			);
+			if (entry === undefined) return state;
 			return {
 				...state,
 				tableChoices: { ...state.tableChoices, [event.tag]: event.choice },
+				answeredTables: { ...state.answeredTables, [event.tag]: entry },
 			};
+		}
 		case "show-all":
 			return { ...state, shownAll: { ...state.shownAll, [event.list]: true } };
 		case "copied":
@@ -649,14 +680,20 @@ export interface ListsView {
 export type PanelBodyView =
 	| { readonly kind: "loading" }
 	| ListsView
-	/** Nothing to bring in. `goesAhead`: the card's line once the read is recorded. */
+	/**
+	 * Nothing to bring in. `hqChanges`: where CommCare HQ now keeps what the
+	 * document doesn't hold, which recording the read follows. `goesAhead`:
+	 * the card's line once the read is recorded.
+	 */
 	| {
 			readonly kind: "nothing";
 			readonly line: string;
+			readonly hqChanges: readonly string[];
 			readonly publishChanges: readonly string[];
 			readonly goesAhead: boolean;
 	  }
-	/** Something Nova can't hold. `tooLarge`: CommCare HQ's version is over the size Nova brings in, so no Check again. */
+	/** Something Nova can't hold. `tooLarge`: CommCare HQ's version is past a limit of Nova's own,
+	 *  its size or the work of reading it, so no Check again. */
 	| {
 			readonly kind: "account";
 			readonly heading: string;
@@ -873,6 +910,7 @@ function nothingView(
 	return {
 		kind: "nothing",
 		line: nothingToBringInLine(review.reason, since(review.since, context)),
+		hqChanges: review.hqChanges,
 		publishChanges: review.publishChanges,
 		goesAhead: context.home === "card" && recorded,
 	};
@@ -907,7 +945,7 @@ function answeredBody(
 				review.more === 0 &&
 				only !== undefined &&
 				only.subject === null &&
-				only.code === "too-large"
+				(only.code === "too-large" || only.code === "too-intricate")
 					? only
 					: null;
 			return {
@@ -915,7 +953,9 @@ function answeredBody(
 				heading: CANNOT_BRING_IN_HEADING,
 				lead:
 					tooLarge !== null
-						? CANNOT_BRING_IN_TOO_LARGE_LEAD
+						? novaLimitLead(
+								tooLarge.code === "too-large" ? "too-large" : "too-intricate",
+							)
 						: cannotBringInLead(review.findings.length + review.more),
 				account: review,
 				tooLarge,

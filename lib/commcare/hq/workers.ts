@@ -35,15 +35,22 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import {
-	authHeader,
+	HQ_WORKER_SEARCH_MAX_BYTES,
+	HQ_WORKER_WRITE_ACK_MAX_BYTES,
+} from "./bounds";
+import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	INVALID_DOMAIN_SLUG,
 	isEdgeRefusal,
 	isValidDomainSlug,
+	readAnswerJson,
+	readRefusedBody,
+	sendHq,
 	writeMayHaveLanded,
 } from "./http";
+import { parseHqJsonText } from "./jsonText";
 import { isHqObject } from "./readCollection";
 import { readHqJson } from "./readJson";
 
@@ -206,7 +213,9 @@ export async function findHqMobileWorkers(
 	url.searchParams.append("fields", "username");
 	url.searchParams.set("limit", String(usernames.length * 4));
 
-	const response = await readHqJson(creds, url.toString(), "worker search");
+	const response = await readHqJson(creds, url.toString(), "worker search", {
+		maxBytes: HQ_WORKER_SEARCH_MAX_BYTES,
+	});
 	if ("success" in response) return response;
 	const body = response.data;
 	if (!isHqObject(body) || !Array.isArray(body.objects))
@@ -358,27 +367,36 @@ async function writeWorker(
 	body: string,
 	read: (parsed: unknown) => { readonly userId: string } | null,
 ): Promise<{ readonly userId: string } | HqMobileWorkerRefusal> {
+	/* The request may have committed before a disconnect, body-read failure or
+	 * deadline. Its generated credential must survive all of these outcomes. */
+	const unconfirmed = (): HqMobileWorkerRefusal => {
+		log.warn("[commcare] worker write could not be confirmed", {
+			domain,
+			method,
+		});
+		return { success: false, status: 503, message: "", mayHaveLanded: true };
+	};
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 30_000);
 	try {
-		const res = await fetch(url, {
+		const res = await sendHq(creds, url, {
 			method,
-			headers: {
-				Authorization: authHeader(creds),
-				"Content-Type": "application/json",
-			},
+			contentType: "application/json",
 			body,
-			redirect: "manual",
 			signal: controller.signal,
 		});
-		const text = await res.text();
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(text);
-		} catch {
-			parsed = null;
-		}
 		if (!res.ok) {
+			const refusal = await readRefusedBody(res);
+			/* A refusal whose body the deadline or the network cut off is an
+			 * answer Nova could not confirm. */
+			if (refusal.kind === "unavailable") return unconfirmed();
+			const { text } = refusal;
+			let parsed: unknown = null;
+			if (refusal.whole) {
+				try {
+					parsed = parseHqJsonText(text);
+				} catch {}
+			}
 			const message =
 				isHqObject(parsed) && typeof parsed.error === "string"
 					? parsed.error
@@ -399,8 +417,15 @@ async function writeWorker(
 				mayHaveLanded: writeMayHaveLanded(res.status, edgeRefusal),
 			};
 		}
+		/* An acknowledgement longer than Nova reads is one it cannot confirm:
+		 * the write may have landed, and a create's password must survive. */
+		const answer = await readAnswerJson(res, HQ_WORKER_WRITE_ACK_MAX_BYTES);
+		if (answer.kind === "unreadable" && answer.why === "unavailable")
+			return unconfirmed();
 		const result =
-			res.status === (method === "POST" ? 201 : 200) ? read(parsed) : null;
+			res.status === (method === "POST" ? 201 : 200) && answer.kind === "json"
+				? read(answer.data)
+				: null;
 		if (result === null) {
 			log.warn(
 				"[commcare] worker write acknowledgement could not be confirmed",
@@ -410,13 +435,7 @@ async function writeWorker(
 		}
 		return result;
 	} catch {
-		// The request may have committed before a disconnect, body-read failure or
-		// deadline. Its generated credential must survive all of these outcomes.
-		log.warn("[commcare] worker write could not be confirmed", {
-			domain,
-			method,
-		});
-		return { success: false, status: 503, message: "", mayHaveLanded: true };
+		return unconfirmed();
 	} finally {
 		clearTimeout(timer);
 	}

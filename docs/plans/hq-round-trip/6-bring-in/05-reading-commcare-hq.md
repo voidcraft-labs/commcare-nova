@@ -89,9 +89,10 @@ is cited by its number, its file name and its section.
     when the counter is not V. It never retries the bracket itself: its caller, `gatherReading`
     (part 12, `12-the-reading-and-the-birth.md`, section 3.3), runs the attempt once more in the
     same request, and a second `changed` is the circumstance `changed-while-reading`.
-11. **An app body over 16 MiB is refused before it is parsed** (section 3.3):
+11. **An app body over 12 MiB is refused before it is parsed** (section 3.3):
     `HQ_BRING_IN_APP_MAX_BYTES` bounds the application resource and the source of a bring-in. It is
-    a plain refusal, the circumstance `too-large`, set from a measurement of Nova's own parsers.
+    a plain refusal, the circumstance `too-large`, set from a measurement of what one request at the
+    cap holds against the bring-ins' share of the instance's heap.
 12. **What marks a linked or a remote app is an answer, never a guess** (section 8): the source's
     `doc_type` `LinkedApplication` is `linked`; an app the list holds that the application resource
     answers 404 for is `remote`, because the list's view emits three document kinds and the resource
@@ -142,6 +143,18 @@ ships at the pin (`app_manager/static/app_manager/template_apps/`: `health`, `wa
 `agriculture`, whose `app.json` files are 160,669, 359,994 and 509,917 bytes). The largest,
 `agriculture` (its JSON, its eleven form XML attachments, 2,379 expressions), parses in 16 ms, and
 the three run 31 to 38 ms per MiB. Section 3.3 sets a bring-in's byte cap from it.
+
+**Read at source: lists that move between pages.** `fixtures/resources/v0_1.py::LookupTableResource.obj_get_list`
+serves `list(LookupTable.objects.by_domain(domain))`, and `fixtures/models.py::LookupTableManager.by_domain`
+orders nothing; `locations/resources/v0_6.py::LocationResource.Meta.queryset` is
+`SQLLocation.active_objects` with no ordering, and tastypie's `apply_sorting` adds none. Tastypie
+evaluates the list afresh for every page and slices it by offset (`paginator.py::get_slice`,
+`get_count`), so two pages of one list can repeat a row and omit another. `FixtureResource` orders by
+`sort_key` then `id`, and an edit between two pages that keeps the count still gives a set HQ never
+held; a workbook upload deletes and inserts rows (`fixtures/upload/run_upload.py`), so a changed row
+returns under a new id. No resource an API key reaches serves a table's revision:
+`LookupTableResource` does not serve `last_modified` (`fixtures/models.py::LookupTable.last_modified`
+exists), and the Excel download is a session view. Section 10.1's second pass is the answer.
 
 Read in full or by enclosing function, for this part:
 
@@ -244,8 +257,10 @@ Read in full or by enclosing function, for this part:
   calls for rows is unrecorded and the one recorded is uncalled. Section 14 swaps them.
 - *Read at source (the page size of `FixtureResource`).* `fixtures/resources/v0_1.py::
   FixtureResource.Meta.limit` is `0`, which tastypie reads as its `max_limit`; the page size Nova
-  sees is whatever HQ serves, and no reader assumes a number of rows a page: `readHqLookupTableRows`
-  follows `meta.next` and holds the pages to `meta.total_count` either way.
+  sees is whatever HQ serves (1,000). `readHqLookupTableRows` asks each page by its own offset on the
+  first page's URL, never a URL CommCare HQ sent, reads `meta.next` as "more" or "no more", and
+  holds the pages to `meta.total_count` and each row's `fixture_type` to the table's tag (section
+  10.1).
 - *Claim corrected (`lib/commcare/hq/appSource.ts::HqAppSourceModule.caseType`, "`case_type`; the
   empty string for a menu with none", and the reader's check that every form holds a string
   `xmlns`).* A mirror menu stores `"case_type": null`: `models/modules.py::ShadowModule.case_type` is
@@ -350,7 +365,12 @@ withHqRequestDeadline`, 30 seconds unless the caller passes a signal). A status 
 returned through `hq/http.ts::warnAndReturnError`, which logs the status and the body's shape and
 length (`hqTextFacts`), never its text, and returns the status, whether the edge refused it (`isEdgeRefusal`) and a `Retry-After` in seconds
 (`retryAfterMs`). No caller can read HQ's refusal text. A body over `maxBytes` and a 2xx that is not
-JSON both come back `{ status: 502, cause: "malformed" }`. JSON of the wrong shape is each caller's
+JSON both come back `{ status: 502, cause: "malformed" }`. The body becomes values through the one
+intake every text CommCare HQ wrote passes (`hq/jsonText.ts::parseHqJsonText`, a stored baseline's
+too): every object of it holds its own keys and no prototype, so a lookup by a name the app supplies
+answers what HQ wrote or nothing, and a value nested deeper than `HQ_JSON_MAX_DEPTH`, which HQ's own
+copy of an app (`export_json`'s `deepcopy`, under Python's recursion limit) cannot serve, is text
+that is no JSON. JSON of the wrong shape is each caller's
 to refuse, and they differ: `hq/appSource.ts`, `hq/readCollection.ts` and
 `hq/lookupTables.ts::readHqLookupTableRows` name the cause, while `client.ts::listDomainsMatching`,
 `testDomainAccess`, `readAppVersions`, `listAppBuilds` and `importApp`,
@@ -481,9 +501,16 @@ export type BoundedBody =
 	/** The stream failed or the deadline's signal aborted it; `error` is what the stream threw. */
 	| { readonly kind: "unavailable"; readonly error: unknown };
 export function readBoundedBody(
-	response: Response, maxBytes: number | undefined,
+	stream: ReadableStream<Uint8Array> | null, maxBytes: number, sizeHint: number | null,
 ): Promise<BoundedBody>;
 ```
+
+`maxBytes` is required, a whole number from one to `bounds.ts::HQ_BODY_BOUND_CEILING` (the reader
+throws on anything else), and every bound is a named constant of `lib/commcare/hq/bounds.ts`. No
+code outside `hq/http.ts` holds a `Response`: `http.ts::sendHq` is the one `fetch` for CommCare HQ
+and answers an `HqAnswer` whose body is reachable only through `read(maxBytes)`, and a Biome
+`noRestrictedGlobals` rule denies `fetch` in `lib/commcare` and `lib/deployment` outside it, so an
+unbounded read neither typechecks through the adapter nor lints outside it.
 
 ```ts
 // lib/commcare/hq/deadline.ts
@@ -508,7 +535,7 @@ export function withHqRequestDeadline<T>(
 
 // lib/commcare/hq/readJson.ts
 export type ReadHqJsonOptions = {
-	readonly maxBytes?: number;
+	readonly maxBytes: number;
 	/** Return a bounded prefix of a refused body as `refusedBody`. */
 	readonly keepRefusedBody?: boolean;
 } & (
@@ -670,17 +697,20 @@ exported from `hq/appReading.ts`:
 ```ts
 /** The deadline of each of the two reads of a bring-in whose body is the app. */
 export const HQ_APP_BODY_DEADLINE_MS = 60_000;
-/** The most bytes of an app body a bring-in reads: 16 MiB. A longer one is refused unparsed. */
-export const HQ_BRING_IN_APP_MAX_BYTES = 16 * 1024 * 1024;
+/** The most bytes of an app body a bring-in reads: 12 MiB. A longer one is refused unparsed. */
+export const HQ_BRING_IN_APP_MAX_BYTES = 12 * 1024 * 1024;
 ```
 
 | Read | Deadline | Byte bound | Past it |
 |---|---|---|---|
 | `listHqApps`, `probeHqApiAccess` | 30 s (the default) | 4 MiB, `HQ_APP_LIST_MAX_BYTES`; 1 MiB for the probe, `HQ_API_ACCESS_PROBE_MAX_BYTES` | `too-large` |
 | `readHqApplication` from observation and deep links | 30 s | 64 MiB, `HQ_APPLICATION_MAX_BYTES` | could not check, as a 502 is today |
-| a bring-in's application resource, and its source (`readHqAppForReading`) | 60 s each, `HQ_APP_BODY_DEADLINE_MS`: CommCare HQ computes the first, and either body can be megabytes | 16 MiB each, `HQ_BRING_IN_APP_MAX_BYTES` | `timed-out`; `too-large` |
-| a bring-in's save counter; the app list asked on a 403 or a 404 (section 8.2); the two lists of the flag read (section 10.5) | 30 s each | none; 4 MiB for the app list | `timed-out` |
-| the table list, each page of a table's rows, the level list, the place list, for a bring-in as for a publish | unchanged: 30 s each, a list's pages together and a row page its own | unchanged (none) | `timed-out` |
+| a bring-in's application resource, and its source (`readHqAppForReading`) | 60 s each, `HQ_APP_BODY_DEADLINE_MS`: CommCare HQ computes the first, and either body can be megabytes | 12 MiB each, `HQ_BRING_IN_APP_MAX_BYTES` | `timed-out`; `too-large` |
+| a bring-in's save counter; the app list asked on a 403 or a 404 (section 8.2); the two lists of the flag read (section 10.5) | 30 s each | 64 KiB for the save counter, `HQ_APP_VERSIONS_MAX_BYTES`; 4 MiB for the app list; 4 MiB a project space list, `HQ_PROJECT_SPACE_LIST_MAX_BYTES` | `timed-out`; `too-large` |
+| the table list, each table's rows, the level list, the place list, for a bring-in as for a publish | 30 s each pass, a list's pages together and a row page its own | across a pass: 16 MiB of tables (`HQ_LOOKUP_TABLE_LIST_MAX_BYTES`, 20,000 rows); 64 MiB of one table's rows (`HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`, at most `LOOKUP_MAX_ROWS` rows), and 128 MiB of every table one bring-in request reads (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`); 4 MiB of levels (`HQ_LOCATION_TYPE_LIST_MAX_BYTES`, 10,000 rows); 128 MiB of places (`HQ_LOCATION_LIST_MAX_BYTES`, `MAX_LOCATIONS_PER_APP` for a bring-in, 100,000 for a publish's inventory) | `past-limit` for rows and places (a finding, part 11), never an error; the table list, the level list and a publish's inventory: `too-large`, classified `hq-unavailable` |
+| the worker search; the build profile and suite | 30 s | 1 MiB, `HQ_WORKER_SEARCH_MAX_BYTES`; 20,000,000 bytes, `HQ_BUILD_RESOURCE_MAX_BYTES` | `too-large`; could not check |
+| every write's acknowledgement: the import, the media bundle's start and each status report, the workbook verdict, a place batch, a worker write | the write's own | 1 MiB (`HQ_IMPORT_ACK_MAX_BYTES`, `HQ_MEDIA_BUNDLE_ACK_MAX_BYTES`, `HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES`, `HQ_WORKER_WRITE_ACK_MAX_BYTES`); 64 KiB for a place batch, `HQ_LOCATION_PATCH_ACK_MAX_BYTES` | the write's answer Nova cannot read, which says it may have landed, never a refusal |
+| every refused body, of a read or a write | the read's or the write's | 64 KiB, `HQ_REFUSED_BODY_READ_MAX_BYTES` | its head is read and the rest cancelled |
 | `readHqMediaFile` | 60 s a file, `HQ_MEDIA_FILE_DEADLINE_MS`: a file can be 50 MiB | the caller's `maxBytes` | `too-large` |
 | a publish's source read | unchanged: 30 s | unchanged: 64 MiB, `HQ_APP_SOURCE_MAX_BYTES` | unchanged |
 
@@ -694,28 +724,60 @@ that proves short shows as that log line.
 **A bring-in's cap.** `readHqAppForReading` passes `HQ_BRING_IN_APP_MAX_BYTES` as `maxBytes` to
 the application resource read and to the source read. `readHqJson`'s bounded read stops at the
 bound, so an app over it is never parsed and never held: the answer is `cause: "too-large"`, kind
-`too-large`, and the circumstance `too-large` (part 01, sections 8.3 and 9.3), a plain refusal with
-one cause. The cap is a refusal threshold, never a size anything is designed for: HQ's starter apps
+`too-large`, and the circumstance `too-large` (part 01, sections 8.3 and 9.3), a plain refusal. A
+byte bound is no bound on what the forms' XML builds (`<a/>` is a node in four characters, and each
+namespace declaration is copied into every declaring element's scope under it), so the cap is bytes
+and structure: every parse stops past `xmlParse.ts::XmlLimits` (`hq/bounds.ts`: 250,000 nodes a
+document, 256 levels, 512 declarations), and a reading counts its forms' nodes, each form parsed
+once and a piece each, before anything reads them, answering the same `too-large` past
+`HQ_BRING_IN_READING_MAX_XML_NODES` (1,000,000; `lib/deployment/reading/gather.ts::formsWithinReading`).
+The numbers come from a measurement: the retained corpus's largest form holds 1,938 nodes, its
+deepest nests 13, its most declarations is 14, its largest source 10,292 nodes, and the source at
+the 16 MiB source the cap tests built 121,500, so each limit has at least three times their headroom. The cap is a refusal threshold, never a size anything is designed for: HQ's starter apps
 are 160 to 510 KB, and the app sources the proof lane retains are at most 85 KB.
 
-Why 16 MiB. A bring-in reads and checks the app on the request, in the serving process, so the
-number is set by how long one app may hold that process, not by the largest app Nova would like to
-hold. Nova's own parsers take 16 ms over the largest of HQ's starter apps and 31 to 38 ms per MiB
-over the three ("Executed during planning"). The reader and acceptance do more than parse, so ten
-times that is allowed: about 0.35 seconds per MiB. Measured, an app at the cap, a source of 16.7 MB
-(thirty-two times HQ's largest starter app), is about 49 to 54 seconds of processing on a laptop's
-efficiency cores, in 222 pieces with the event loop turning between them: the reader runs a stage,
-or a long stage's part, per piece (`readHqAppSteps`) and acceptance a check, or a long check's
-part, per piece (`acceptReadingSteps`), so the bound that
-matters is each piece's length, never the request's (part 12, section 3.6). Part 12
-(`12-the-reading-and-the-birth.md`, "Tests") holds the one
-test at the cap, in ordinary CI, which holds each synchronous piece under five seconds; a failure
-there is a defect in the reader or in acceptance and is fixed there, never a reason to lower the
-cap. The 64 MiB on `main` (`HQ_APP_SOURCE_MAX_BYTES`, and `HQ_APPLICATION_MAX_BYTES` beside it)
-stays what it is, a ceiling on a publish's read and a status check's. Nothing divides, pins or names
-the service's memory: a body is at most 16 MiB by this bound, the files in flight at most 64 MiB by
-section 9's, and the rows of the tables at most what part 11's caps admit (`11-project-data.md`,
-section 5.3).
+Why 12 MiB. A bring-in reads and checks the app on the request, in the serving process, so the
+number is set by what one app may cost that process, not by the largest app Nova would like to
+hold. Two costs bound it. Time: Nova's own parsers take 16 ms over the largest of HQ's starter apps
+and 31 to 38 ms per MiB over the three ("Executed during planning"), and an app of 16 MiB was about
+49 to 54 seconds of processing on a laptop's efficiency cores, in a few hundred pieces with the
+event loop turning between them: the reader runs a stage, or a long stage's part, per piece
+(`readHqAppSteps`) and acceptance a check, or a long check's part, per piece
+(`acceptReadingSteps`), so the bound that matters is each piece's length, never the request's
+(part 12, section 3.6). Bytes bound time only where the work is linear, so each reading is held
+too to a work limit that is a function of its source's size (part 06, 2.2), past which it is the
+account of one `too-intricate` finding. Part 12 (`12-the-reading-and-the-birth.md`, "Tests") holds the one test at
+the cap, in ordinary CI, which holds each synchronous piece under five seconds; a failure there is
+a defect in the reader or in acceptance and is fixed there. Memory sets the number: what a
+reading holds at its peak, measured with `--expose-gc` and a full collection every 2 seconds over
+a source of 15.99 MiB built as the cap tests build theirs, is 576 MiB, 36 bytes of heap a byte of
+source, after the reader let go of what it no longer reads (it was 647 MiB before); a changes
+review over two such sources held 615 MiB and its bring-in 605 MiB. The meter charges a reading 37
+bytes a byte and a changes review's second reading 3 more (`memoryMeter.ts::READING_HEAP_PER_SOURCE_BYTE`,
+`SECOND_READING_HEAP_PER_SOURCE_BYTE`), so a changes review at the cap costs 40 bytes a byte of
+its source. The bring-ins' share of the instance's heap is about 512 MiB (below), so the cap is at
+most 12.8 MiB, rounded down to 12 MiB, which charges 480 MiB: one request at the cap fits the
+share. The cap is a refusal threshold, never a size anything is designed for: HQ's starter apps are
+160 to 510 KB, and twenty-four times the largest of them still reads. The 64 MiB on `main`
+(`HQ_APP_SOURCE_MAX_BYTES`, and `HQ_APPLICATION_MAX_BYTES` beside it) stays what it is, a ceiling
+on a publish's read and a status check's. A body is at most 12 MiB by this bound, its forms'
+structure is bounded beside it (above), the files in flight are at most 64 MiB by section 9's, the
+rows of one table at most `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` of CommCare HQ's answer and the rows of
+every table one request reads at most `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`, read before part 11's
+caps judge them (`11-project-data.md`, section 5.3), so the caps are no bound on what is read. The
+process bounds what bring-ins hold together by a meter, not a reservation
+(`lib/commcare/hq/memoryMeter.ts`, run by `lib/deployment/reading/room.ts`): each request takes a
+lease when it starts, every body CommCare HQ sends is charged to it as it is read (`hq/readBody.ts`,
+by what it is kept as: a parsed body on the heap, a file outside it), a source taken into a reading
+is charged for what the reading builds from it, a changes review's two readings once however often
+the request reviews (`room.ts::holdChangesReadings`), and a file judged and let go is given back
+where it is let go. A charge that would take the process past its bound stops that request,
+partway through its reads if that is where it is: it writes nothing and answers `nova-busy`, whose
+sentence says nothing was changed. No request is stopped once it has begun to write. The oldest
+request running is never stopped, so one that would pass the bound by itself runs alone rather than
+being told forever to check again. The bound is half the heap V8 sizes from the instance's memory
+and a quarter of that memory for files, about 512 MiB each on the 2 GiB instance. An ordinary app
+of a megabyte charges about 37 MiB, so a dozen run at once.
 
 ---
 
@@ -853,6 +915,7 @@ export function hqReadCircumstance(failure: HqFailure): ReadCircumstance;
 | `rate-limited` | any | `rate-limited` |
 | `hq-unavailable`, `timed-out` | any | `hq-unavailable` |
 | `too-large` | `application`, `app-source` | `too-large` |
+| `too-large` | `lookup-rows` (the rows of a bring-in's tables together past `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`) | `lookup-data-too-large` |
 | `too-large` | any other | `hq-unavailable` |
 | `browser-only` | any | `browser-only` |
 | `answer-unreadable`, `refused` | any | `hq-unavailable` |
@@ -871,10 +934,17 @@ Why each row that is not its kind's own name:
   non-member 403 (`domain/decorators.py::_login_or_challenge`, before `login_and_domain_required`'s
   404, which only a signed-in session reaches) and the resources answer rule 7's sentence, so such a
   404 is a route CommCare HQ no longer serves, an answer Nova could not read.
-- **A body over the bound on the app list or the probe** is `hq-unavailable`, logged at error with
-  the request kind. `too-large` is part 01's word for the app itself and carries the standing
-  `not-yet`; a project space whose app list passes 4 MiB holds tens of thousands of apps, and no
-  code is added for a bound no project space has reached.
+- **A body over the bound on the app list, the probe, the table list or the level list** is
+  `hq-unavailable`, logged with the request kind. `too-large` is part 01's word for the app itself
+  and carries the standing `not-yet`; a project space whose app list passes 4 MiB holds tens of
+  thousands of apps. A table's rows and the place list are different: a real project space reaches
+  their bounds, so past them is a finding, never a failure (`over-row-limit` and `over-byte-limit`,
+  the caps finding of part 11; `places-over-nova-limit`). The rows of every table one bring-in reads
+  together past `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES` are the circumstance `lookup-data-too-large`
+  (standing `not-yet`, the app-size wording: "This app reads more lookup data than Nova brings in.
+  That limit is Nova's, not the app's.").
+- **A list that moved under every pass** (cause `moved`, section 10.1) is `hq-unavailable`: CommCare
+  HQ answered no one state, and checking again is the next step.
 - **`answer-unreadable` and `refused`** share `hq-unavailable`, whose body covers an answer Nova
   could not read. They are Nova's to understand, so a bring-in that meets one logs at error with the
   request kind and the status, never the body. `timed-out` shares it too: the body says "didn't
@@ -1690,56 +1760,67 @@ export function readHqMediaFile(
 
 ### 10.1 Lookup table definitions
 
-`hq/lookupTables.ts::listHqLookupTables` is the definition read, unchanged in shape:
+`hq/lookupTables.ts::listHqLookupTables` is the definition read:
 `fixtures/resources/v0_1.py::LookupTableResource` serves `id`, `is_global`, `tag`, `fields` as
 `[{field_name, properties}]` and `item_attributes`. It serves no description and no `is_indexed`.
-It asks for the refused body so its plan refusal classifies, and that needs a way through the page
-reader, which today passes `readHqJson` a signal and nothing else. `hq/readCollection.ts` gains:
+It asks at `limit=1000`, tastypie's `max_limit`, so most project spaces' lists are one request, and
+it asks for the refused body so its plan refusal classifies.
+
+**One list reader, which holds a list together.** Every list (the project spaces, the tables, a
+table's rows, the levels, the places) is read by `hq/readCollection.ts::readHqCollection` under a
+spec whose limits are all required:
 
 ```ts
-export interface ReadHqCollectionOptions {
-	readonly onMeta?: (meta: Readonly<Record<string, unknown>>) => void;
-	readonly deadline?: "whole" | "page";
-	/** Passed to every page's `readHqJson`, so a refused page keeps its bounded body. */
-	readonly keepRefusedBody?: boolean;
-	/** The caller's way to stop the list early, joined to each deadline the list owns. */
+export interface HqCollectionSpec<T> {
+	readonly label: string;
+	/** The first page's URL: its own selector and the resource's largest page. */
+	readonly firstUrl: string;
+	readonly maxPages: number;
+	/** A first page whose `meta.total_count` is over it answers `past-limit` after one request. */
+	readonly maxRows: number;
+	/** The bytes of one pass, every page together, a constant of `bounds.ts`. */
+	readonly maxBytes: number;
+	readonly row: (raw: unknown) => T | null;
+	readonly identity: (row: T) => string;
+	readonly deadline?: "whole" | "page" | HqReadDeadline;
 	readonly cancel?: AbortSignal;
-	/**
-	 * How many rows the caller can use. Where a page's `meta.total_count` is a number over it, or
-	 * the rows read so far pass it, the read ends there and answers `past-limit`.
-	 */
-	readonly stopPast?: number;
+	readonly keepRefusedBody?: boolean;
 }
-
-/**
- * A list that holds more rows than its caller can use. `totalCount` is HQ's own, or null where
- * no page named one.
- */
-export interface HqPastLimit {
-	readonly kind: "past-limit";
-	readonly totalCount: number | null;
-}
-
-// Without `stopPast` the answer is today's. With it the answer may be `HqPastLimit`.
-export function readHqCollection(
-	creds: CommCareCredentials, firstUrl: string, label: string, maxPages: number,
-	options?: Omit<ReadHqCollectionOptions, "stopPast">,
-): Promise<readonly unknown[] | CommCareApiError>;
-export function readHqCollection(
-	creds: CommCareCredentials, firstUrl: string, label: string, maxPages: number,
-	options: ReadHqCollectionOptions & { readonly stopPast: number },
-): Promise<readonly unknown[] | HqPastLimit | CommCareApiError>;
+export type HqPastLimit =
+	| { readonly kind: "past-limit"; readonly by: "rows"; readonly totalCount: number }
+	| { readonly kind: "past-limit"; readonly by: "bytes"; readonly totalCount: number | null };
+export function readHqCollection<T>(
+	creds: CommCareCredentials, spec: HqCollectionSpec<T>,
+): Promise<{ rows: readonly T[]; totalCount: number; bytes: number } | HqPastLimit | CommCareApiError>;
 ```
 
-`stopPast` is an overload on each reader that takes it, so a caller that passes none gets today's
-answer type and today's answer: no call site of a publish changes.
+Nova builds every page's URL: the first URL with `offset` set to the rows read so far. `meta.next`
+is read as "more" or "no more", and nothing in it is requested, so a continuation that names another
+selector is not something Nova can follow. Each page is held to the request and to the list: a list
+of several pages names `meta.total_count` on every page, the first page's, every page names the
+offset asked, a page with more to come holds rows, no identity appears twice, and the rows read
+equal the total; a total, an identity or a count broken across pages is the list moving, any other
+break is malformed. A page's bytes are charged against what remains of `maxBytes` before its rows
+are appended, and a pass past it answers `past-limit` by bytes; a first page whose total is over
+`maxRows` answers `past-limit` by rows with no row held.
 
-In its `whole` mode `readHqCollection` hands every page its own deadline as an `HqReadDeadline`
-(section 2.3); in its `page` mode each page owns its deadline and is handed `cancel`. Each list
-reader below takes its options last and hands them on: `listHqLookupTables(creds, domain, options?:
-{ readonly cancel?: AbortSignal })`, and the row and place readers of sections 10.2 and 10.4. A
-publish passes none, so every read of a publish keeps its deadline and its answer as they are.
-`listHqLookupTables` always passes `keepRefusedBody: true`.
+A matching total does not show that the pages belong together: CommCare HQ builds the list afresh
+for every page, and serves the table list and the place list with no `ORDER BY`
+(`fixtures/models.py::LookupTableManager.by_domain`, `locations/resources/v0_6.py::LocationResource.Meta.queryset`),
+so an edit between two pages that keeps the count gives a set HQ never held. So a list that took
+more than one page is read a second time, its rows digested page by page and dropped, and taken only
+where both passes agree on the ordered rows; on disagreement a third pass is compared with the
+second, and a list that moved under both answers the new cause `moved` (503, `hq-unavailable`,
+whose next step, checking again, is the right one). Two agreeing passes prove the list equal to a
+state CommCare HQ held unless a row changed and changed back between them, the most the pinned API
+allows: no resource a key reaches serves a table's revision (`LookupTableResource` does not serve
+`last_modified`) and no page larger than 1,000 rows.
+
+In its `whole` mode each pass of `readHqCollection` hands every page its own pass's deadline as an
+`HqReadDeadline` (section 2.3); in its `page` mode each page owns its deadline and is handed
+`cancel`; a deadline the caller holds owns every page of every pass. `listHqLookupTables`, the level
+list and a publish's place inventory answer a list past their bounds as `too-large`: an inventory
+Nova did not read whole says nothing is absent.
 
 Its silent defaults become refusals, because a bring-in must not read a malformed definition as a
 plain one: an entry of `fields` that is neither a string nor an object with a string name, a
@@ -1773,24 +1854,28 @@ follows up to 1,000 pages (`MAX_FIXTURE_ROW_PAGES`), which is right for a publis
 million rows to tell a person their table is too long. So the reader takes the limit:
 
 ```ts
-type HqLookupRows = { readonly totalCount: number; readonly rows: readonly HqFixtureRow[] };
+type HqLookupRows = {
+	readonly totalCount: number; readonly rows: readonly HqFixtureRow[]; readonly bytes: number;
+};
 
 export function readHqLookupTableRows(
-	creds: CommCareCredentials, domain: string, tableId: string,
-	options?: { readonly cancel?: AbortSignal },
-): Promise<HqLookupRows | CommCareApiError>;
-/** With `stopPast`: `past-limit` where the first page's total is over it, and no page after it. */
-export function readHqLookupTableRows(
-	creds: CommCareCredentials, domain: string, tableId: string,
-	options: { readonly cancel?: AbortSignal; readonly stopPast: number },
-): Promise<HqLookupRows | (HqPastLimit & { readonly totalCount: number }) | CommCareApiError>;
+	creds: CommCareCredentials, domain: string,
+	table: { readonly id: string; readonly tag: string },
+	options: { readonly maxRows: number; readonly maxBytes: number; readonly cancel?: AbortSignal },
+): Promise<HqLookupRows | HqPastLimit | CommCareApiError>;
 ```
 
-The first page reports the table's total (`meta.total_count`, which the reader already requires and
-holds the pages to). Where `stopPast` is given and that total is over it, no further page is asked
-for and the answer is `past-limit` with the total, which the finding carries. A bring-in passes
-`lib/lookup/constants.ts::LOOKUP_MAX_ROWS` (part 11, section 5.1); a publish passes none and reads
-every page.
+The first page reports the table's total (`meta.total_count`). Where it is over `maxRows`, no
+further page is asked for and the answer is `past-limit` by rows with the total, which the finding
+carries; where the rows pass `maxBytes`, `past-limit` by bytes. A matching total does not show that
+the pages belong together; a table of more than one page is read twice (section 10.1). Every row
+names its table's tag as `fixture_type` (`convert_fdt`), and a row whose `fixture_type` is not the
+table's tag makes the read malformed: a table renamed between the list and the rows makes the list
+stale. Every caller passes `lib/lookup/constants.ts::LOOKUP_MAX_ROWS` (part 11, section 5.1): a
+bring-in, and a publish's drift read, read-back and managed re-read alike, since a table past Nova's
+cap has changed and is over a cap whatever its rows hold. A bring-in passes at most what remains of
+its request's bound, `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`; every other caller one table's,
+`HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`.
 
 ### 10.3 What Nova's model cannot hold, and how it is detected
 
@@ -1834,14 +1919,14 @@ export function listHqLocations(
 
 **The place list stops the same way.** An app whose project space holds more places than Nova's
 limit is a finding (part 11, `11-project-data.md`, sections 11.1 and 11.4), so a bring-in passes
-`lib/organization/schema.ts::MAX_LOCATIONS_PER_APP` as `stopPast`. Where a page names a total over
-it, the read ends at that page with the total, which is what CommCare HQ serves at the pin: the
-retained `proof/hq-reads/places/locations.json` holds `total_count` in its `meta`. Where a page
-names none, the read ends at the first page that takes the places read past the limit, with a null
-total. That second case is written because the location resources name no paginator of their own
-(`locations/resources/v0_5.py::LocationResource.Meta`, `v0_6.py::LocationResource.Meta`), so the
-total comes from tastypie's default, which is in no pinned checkout and could stop naming one. A
-publish passes no `stopPast` and reads the whole list, as today.
+`lib/organization/schema.ts::MAX_LOCATIONS_PER_APP` as `stopPast`. The list asks 5,000 places a
+page, `v0_6.py::LocationResource.Meta.max_limit`, and its first page names the total, which is what
+CommCare HQ serves at the pin (the retained `proof/hq-reads/places/locations.json` holds
+`total_count` in its `meta`); a total over the limit ends the read at that page, and a list of
+several pages that names no total is malformed (section 10.1). Places past
+`HQ_LOCATION_LIST_MAX_BYTES` answer `past-limit` by bytes, whose finding names "more place
+information than Nova reads". A publish passes no `stopPast` and reads the whole inventory, held to
+`HQ_LOCATION_INVENTORY_MAX_ROWS` and the same byte bound, past either of which it is `too-large`.
 
 Both reads need the four gates `lib/deployment/CLAUDE.md` names and are not throttled. What they
 return bounds what a bring-in can know: a level's `name`, `code`, parent, `administrative`,
@@ -2029,12 +2114,18 @@ nothing from it and it is none of the changes that move `MODEL_CONTEXT_VERSION`.
 Preview runs, so it is none of the changes that move `RUNTIME_VERSION` either. Part 13
 (`13-the-experience.md`, section 14.1) registers eight MCP tools, six of its own and part 15's two,
 and five of them rest on these reads. What the reads imply for those five: `list_hq_apps`
-(`listHqApps` and `probeHqApiAccess`, through its `listHqAppsForPicker`) and `read_hq_app` (which
-writes nothing, in Nova or at HQ) declare `oauthScopeChallenge(ctx, SCOPES.hqRead)`;
-`bring_in_hq_app` records an adopted deployment that authorizes later writes to that HQ app, so it
-declares `SCOPES.hqWrite`, as `refresh_deployment` does for a ledger write. `read_hq_changes`
-declares `SCOPES.hqRead` and `bring_in_hq_changes` `SCOPES.hqWrite`, for the same two reasons
-(part 15, section 10). Each calls `assertScope` before `getHqCredentials`. A
+(`listHqApps` and `probeHqApiAccess`, through its `listHqAppsForPicker`), `read_hq_app`,
+`bring_in_hq_app`, `read_hq_changes` and `bring_in_hq_changes` all need the scope
+`nova.hq.import`, "Read apps and data in your CommCare HQ project spaces, see who in Nova manages
+them, and bring them into your Projects on your behalf": every answer each gives, a stop, a
+`changed` review, a held create and a gate's findings included, can carry what CommCare HQ holds
+of an app, and a scope means exactly what its consent row said when it was granted, so this
+authority could not ride `nova.hq.read` ("See your CommCare HQ project connection") or
+`nova.hq.write` ("Deploy your apps to CommCare HQ on your behalf"), whose standing grants and keys
+were approved under those sentences. Each tool registers through
+`lib/mcp/scopedTool.ts::registerScopedTool`, which reads its scopes from
+`lib/mcp/scopes.ts::TOOL_SCOPES`, declares the challenge for them and checks them before the
+handler runs, so before `getHqCredentials`. A
 tool answers a failed read with `hqReadCircumstance`'s code and the words part 01 holds for that
 code (part 13, section 14.8), never a status. The other three tools (`stop_publishing`,
 `refresh_managed_data`, `set_lookup_table_management`) call no reader of this part directly, and
@@ -2226,7 +2317,8 @@ and the shape of HQ's text, never the text),
 `[commcare] <label> refused` (warn, with the status, `edgeRefusal` and the body's shape and
 length, never the body),
 `[commcare] app reading misaligned` (error, with the place), `[commcare] media map is malformed`
-(error), `[commcare] media map entry is unreadable` (warn, with the entry's index),
+(error), `[commcare] media map entries are unreadable` (warn, once a read, with the count and the
+first five positions),
 `[commcare] build profiles are malformed` (error), `[commcare] feature flag list refused` (error,
 with the status, where the filtered list of section 10.5 answers a 400). The writes' lines hold the
 same closed shape and never HQ's text: `[commcare] import failed`, `import target missing`,
@@ -2492,11 +2584,11 @@ beside which an alternative was weighed and not taken.
    budget, and a budget needs a total to be divided from; a bring-in is one request with no such
    total, so each call is cut off by what that call can reasonably take and by nothing else. What a
    caller needs across several reads is a way to stop them, which is `cancel`.
-8. **The bring-in's byte cap is one constant, 16 MiB, set from a measurement, and nothing yields
+8. **The bring-in's byte cap is one constant, 12 MiB, set from a measurement, and nothing yields
    inside the reader** (section 3.3). Not done: a larger cap with a reader and an acceptance that
    give way to the event loop between forms. Both are synchronous pure functions today (part 06,
    `06-the-reader-forms.md`, section 2.2), and making both resumable is more change than a
-   constant, for apps thirty-two times the largest HQ ships as a starter.
+   constant, for apps twenty-four times the largest HQ ships as a starter.
 9. **The flag a bring-in reads has its own function** (section 10.5). Not done:
    `probeHqProjectSpaceCompatibility` with a plan of one capability. That probe is built for a
    publish: each of its reads has five seconds, and a read that fails is `unverified` with the

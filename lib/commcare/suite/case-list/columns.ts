@@ -307,8 +307,9 @@ function detailHeaderLocaleId(
 	moduleIndex: number,
 	field: string,
 	position: number,
+	word?: string,
 ): string {
-	return `${detailColumnLocaleBase(target, detailKind, moduleIndex, field, position)}.header`;
+	return `${detailColumnLocaleBase(target, detailKind, moduleIndex, field, position, word)}.header`;
 }
 
 /**
@@ -318,8 +319,9 @@ function detailHeaderLocaleId(
  * `.alt_text.<variable>` (`id_strings.py::detail_column_header_locale`,
  * `detail_column_enum_variable`, `detail_column_alt_text_variable`). `field`
  * is the domain's text of the column's walk and property; the stem holds the
- * `field` HQ JSON stores (`hqColumnFieldText`), which HQ's build names the
- * column by, so both archives give one column one id.
+ * `field` HQ JSON stores (`hqColumnFieldText`, in `word` where the target keeps
+ * the column under it), which HQ's build names the column by, so both archives
+ * give one column one id.
  */
 function detailColumnLocaleBase(
 	target: DetailTarget,
@@ -327,9 +329,18 @@ function detailColumnLocaleBase(
 	moduleIndex: number,
 	field: string,
 	position: number,
+	word?: string,
 ): string {
 	const localeType = DETAIL_LOCALE_TYPE[target][detailKind];
-	return `m${moduleIndex}.${localeType}.case_${hqColumnFieldText(field)}_${position}`;
+	return `m${moduleIndex}.${localeType}.case_${hqColumnFieldText(field, word)}_${position}`;
+}
+
+/** The word the export's target keeps `column`'s property under on the context's screen. */
+function heldWord(
+	column: Column,
+	ctx: CaseListEmitContext,
+): string | undefined {
+	return ctx.columnFieldWord?.(column.uuid, ctx.detailKind);
 }
 
 /**
@@ -937,6 +948,7 @@ function imageMapAltText(
 		ctx.moduleIndex,
 		columnFieldText(column),
 		position,
+		heldWord(column, ctx),
 	);
 	const keys = column.mapping.map((entry) => {
 		const name = keyAsVariable(imageMapEnumKey(entry.value));
@@ -1059,6 +1071,7 @@ function propertyDisplayProjection(
 			ctx.moduleIndex,
 			columnFieldText(column),
 			position,
+			heldWord(column, ctx),
 		)}.enum.knova_text_${index}`;
 	const variable = (
 		index: number,
@@ -1368,6 +1381,7 @@ export function buildColumnField(args: {
 							ctx.moduleIndex,
 							columnFieldText(column),
 							position,
+							heldWord(column, ctx),
 						),
 						sortLabel,
 					);
@@ -1390,7 +1404,8 @@ export function buildColumnField(args: {
 	const display = propertyDisplayProjection(column, ctx, position);
 	// The header's id is the one HQ's build gives the column HQ JSON stores
 	// (`id_strings.py::detail_column_header_locale`): `calculated_property`
-	// where the column is stored as an expression, its field otherwise.
+	// where the column is stored as an expression, its field otherwise, in
+	// the word the target keeps the column under.
 	const headerLocaleId = hqStoresAsExpression(column, ctx)
 		? detailCalculatedHeaderLocaleId(
 				ctx.target,
@@ -1404,6 +1419,7 @@ export function buildColumnField(args: {
 				ctx.moduleIndex,
 				columnFieldText(column),
 				position,
+				heldWord(column, ctx),
 			);
 	const width =
 		column.kind === "image-map" &&

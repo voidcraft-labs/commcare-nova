@@ -526,6 +526,12 @@ export function* acceptReadingSteps(
 		}
 	}
 	if (gate.length > 0) return failed("gate", gate);
+	/* The admitted batch and the construction's own candidate served the
+	 * gate alone: let them go before the fixed point reads the app again,
+	 * which is the reading's peak. `batch` is what the birth reduces, and each
+	 * choice's document stands in `gated`. */
+	admittedBatch = undefined;
+	built = undefined;
 
 	// 3. The fixed point: D, then the split document where a choice offers it.
 	const fixedPoint = yield* fixedPointCheck(input, gated, placeOf, threw);

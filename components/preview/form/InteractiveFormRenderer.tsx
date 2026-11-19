@@ -503,6 +503,7 @@ const InteractiveField = memo(function InteractiveField({
 								label={field.hint}
 								resolvedLabel={state.resolvedHint}
 								isEditMode={false}
+								rendering={rules.labelMarkdown}
 								className={FIELD_STYLES.hint}
 							/>
 						</div>

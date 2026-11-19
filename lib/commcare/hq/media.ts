@@ -21,23 +21,23 @@ import { log } from "@/lib/logger";
 import type { HqMediaType } from "./appSource";
 import { withHqRequestDeadline } from "./deadline";
 import {
-	authHeader,
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
 	failedResponseError,
-	HQ_REFUSED_BODY_READ_MAX_BYTES,
+	type HqAnswer,
+	readRefusedBody,
+	sendHq,
 	unansweredRead,
 } from "./http";
-import { readBoundedBody } from "./readBody";
+
+export { HQ_MEDIA_IN_FLIGHT_MAX_BYTES } from "./bounds";
 
 /** Each file's own deadline, through its last byte: a file can be 50 MiB. */
 export const HQ_MEDIA_FILE_DEADLINE_MS = 60_000;
 /** How many media files Nova asks CommCare HQ for at once. */
 export const HQ_MEDIA_READ_CONCURRENCY = 4;
-/** The most the files in flight may sum to, each counted at its kind's limit. */
-export const HQ_MEDIA_IN_FLIGHT_MAX_BYTES = 64 * 1024 * 1024;
 
 /** The wait before the one resend of a file HQ could not send. */
 const HQ_MEDIA_RESEND_WAIT_MS = 1_000;
@@ -61,7 +61,8 @@ export type HqMediaFileRead =
  *
  * An id outside `^[\w-]+$` is a request Nova will not send: it answers 400
  * with no request made. A body past `maxBytes` is cancelled and answers
- * `too-large`, and no `Content-Length` is trusted. A page for a browser in
+ * `too-large`; a `Content-Length` within the bound only sizes the one array
+ * the file is read into, and never bounds anything. A page for a browser in
  * place of a file is `browser-page`. Where no answer came, or HQ or its edge
  * answered 502, 503 or 504, the file is asked for once more after one
  * second, inside the same deadline. `options.cancel` stops the read early;
@@ -104,27 +105,21 @@ async function readOnce(
 	maxBytes: number,
 	signal: AbortSignal,
 ): Promise<HqMediaFileRead> {
-	let response: Response;
+	let response: HqAnswer;
 	try {
-		response = await fetch(url, {
-			headers: { Authorization: authHeader(creds), Accept: "*/*" },
-			redirect: "manual",
-			cache: "no-store",
+		response = await sendHq(creds, url, {
+			accept: "*/*",
+			noStore: true,
 			signal,
 		});
 	} catch (error) {
 		return unanswered(signal, error);
 	}
 	if (!response.ok) {
-		const body = await readBoundedBody(
-			response,
-			HQ_REFUSED_BODY_READ_MAX_BYTES,
-		);
+		const body = await readRefusedBody(response);
 		/* The headers came and the body did not: as unanswered as no headers. */
 		if (body.kind === "unavailable") return unanswered(signal, body.error);
-		const text = new TextDecoder().decode(
-			body.kind === "read" ? body.bytes : body.head,
-		);
+		const { text } = body;
 		/* The body is read only to tell the edge's refusal from HQ's, and is
 		 * never logged. */
 		log.warn("[commcare] media file refused", {
@@ -136,13 +131,13 @@ async function readOnce(
 			? { kind: "missing" }
 			: error;
 	}
-	const declaredContentType = mediaTypeOf(response.headers.get("content-type"));
+	const declaredContentType = mediaTypeOf(response.header("content-type"));
 	/* A page is not a file, and judging it as media would blame the app. */
 	if (declaredContentType === "text/html") {
-		await response.body?.cancel().catch(() => undefined);
+		await response.discard();
 		return { success: false, status: 502, cause: "browser-page" };
 	}
-	const body = await readBoundedBody(response, maxBytes);
+	const body = await response.read(maxBytes, "bytes");
 	if (body.kind === "too-long") return { kind: "too-large", maxBytes };
 	if (body.kind === "unavailable") return unanswered(signal, body.error);
 	return { kind: "read", bytes: body.bytes, declaredContentType };

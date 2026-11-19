@@ -42,6 +42,14 @@ export function recordFromEntries<T>(
 	return record;
 }
 
+/**
+ * A record holding nothing, under any key: what a read of an absent record
+ * falls back to, so a fallback answers no inherited member either.
+ */
+export const NO_ENTRIES: Readonly<Record<string, never>> = Object.freeze(
+	recordFromEntries<never>([]),
+);
+
 /** Whether a record already satisfies the no-inherited-namespace invariant. */
 export function isOwnRecord<T>(record: Readonly<Record<string, T>>): boolean {
 	return Object.getPrototypeOf(record) === null;

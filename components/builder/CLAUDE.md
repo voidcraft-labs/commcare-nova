@@ -313,7 +313,16 @@ decision from then on. `RemoteChangeChoice` stands beside `ResourceConflictChoic
 change made in CommCare HQ since Nova's last push and offers to discard them,
 bound to the digest of the list the person saw. Where the app itself changed
 and its list of changes is drawn, an admin or owner is also offered Stop
-publishing here (`StopPublishingDialog`), and an editor is told who can. For
+publishing here (`StopPublishingDialog`), and an editor is told who can. The
+dialog's target names the HQ app the person is deciding over
+(`StopPublishingTarget.hqAppId`): from a card, the HQ app its record holds;
+from the refusal, the HQ app its app change names (`identity`), so neither
+waits on the records being read; the stop ends that app's mapping or
+nothing; where the app publishes to another HQ app by then, the server's
+sentence says so and the surface reads its records again. The dialog holds
+the target it opened with until it closes, so records read again under it
+never move the HQ app a second press names; opening it again names the one
+the surface shows then. For
 an app brought in and not yet published, the review step states what the
 first publish changes (`FirstPublishLines`), from `DeploymentView.firstPublish`.
 Where a refusal carries
@@ -340,7 +349,12 @@ CommCare HQ answers `changed-in-hq` and by the header's See what changed in
 CommCare HQ. Every state, choice and word is the pure
 `hqChangesPanelModel.ts`'s, from `lib/publish/hqChangesCopy.ts`; the
 component sends the request `nextRequest` names (`hqChangesClient.ts`, the
-`/api/commcare/changes` routes' stage streams) and draws `panelView`. While the
+`/api/commcare/changes` routes' stage streams) and draws `panelView`. A table's
+answer is held with the review entry it was given against (`answeredTables`),
+and a review that comes back keeps it only where that table's entry is the same
+(`lib/deployment/reading/projectData/reviewTypes.ts::keptTableChoices`, which
+the bring-in's `carryAnswers` shares), so a table whose apps, columns or offers
+moved is asked again. While the
 review loads, and in its own choices, the panel is the item's controls, so the
 item's parts, its Publish over this and the stop block are drawn only under an
 account or a stop (`drawsItem`); a review with nothing to bring in but a read to
@@ -404,7 +418,11 @@ and Nova stores no copy of their passwords. The panel stays quiet until the app
 is on that project space, since the places a persona stands in only exist there
 after a publish. A username already in use gets the same untickable-by-default
 treatment a lookup table does, for the same reason: a shared name is not
-evidence of ownership, and here it is somebody's account. The dialog's landed
+evidence of ownership, and here it is somebody's account. A refusal naming
+levels of managed places nobody confirmed takes workers
+(`worker_levels_unconfirmed`, the refusal's `levels`) renders one unticked
+checkbox per level, and the ticked codes ride the next call as
+`confirmWorkerLevels` until a refusal stops naming them. The dialog's landed
 hero points at it with "Make workers in App setup" instead of mounting a
 second panel.
 
@@ -1814,10 +1832,19 @@ selected destination, deployment, or access changes. The copy states the observe
 check time, because HQ chooses the build each recipient opens.
 
 A CommCare mobile app file is made for one project space the app is published
-to. The dialog offers a select of those spaces (`onDownloadCcz` takes
-`{ server, domain }`): the only one is preselected, several leave the button off
-until one is chosen, and with none the dialog says why and offers Publish to
-CommCare HQ in its place. The CommCare HQ app file is always a ZIP (Download
+to. The dialog lists those spaces as a radio group (`onDownloadCcz` takes
+`{ server, domain }`), each with whether a CCZ can be made there
+(`DownloadTargetOption.unavailable`, the standing the download itself reads,
+`lib/deployment/downloadTarget.ts::readCczStanding`): a space whose app in
+CommCare HQ sends phones elsewhere is a row that cannot be chosen, with its
+reason (`runtimeTarget.ts::cczUnavailableLine`). The only space a CCZ can be
+made for is preselected, several leave the button off until one is chosen, a
+space with none is never picked, and where no listed space can have one, or
+there is none, the dialog says why and offers Close (with none, also Publish to
+CommCare HQ). A CCZ download that fails returns to the destination step and
+reads the list again, so a space whose facts changed since shows its reason.
+The pick, the rows and whether there is anything to choose are the pure
+`cczTargetsModel.ts`. The CommCare HQ app file is always a ZIP (Download
 ZIP), and its outcome shows the steps of the guide the ZIP holds; its optional
 server select only scopes attachment links.
 

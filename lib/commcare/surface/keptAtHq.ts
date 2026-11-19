@@ -42,6 +42,11 @@ export type KeptCczCell =
 	  }
 	/** The archive cannot follow; the download says so through this advisory. */
 	| { readonly does: "states"; readonly advisory: KeptExportAdvisoryId }
+	/**
+	 * No archive is made for a project space that holds the value away from what
+	 * Nova's archive writes; `by` is the rule that refuses the download.
+	 */
+	| { readonly does: "refuses"; readonly by: string }
 	/** Nothing an archive holds derives from the value. */
 	| { readonly does: "no-reader"; readonly why: string }
 	/** The archive carries Nova's own value by a stated contract. */
@@ -359,12 +364,15 @@ export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>> = {
 		),
 		base: "starter-health",
 	},
+	/* A custom base URL sends a phone's sign-in, sync and forms to its address
+	 * in HQ's own build, and an archive's profile names only the server the app
+	 * is published on, so a project space holding one elsewhere gets no `.ccz`. */
 	"application-and-settings/36-hq-custom-base-url": {
 		kind: "setting",
 		label: "custom-base-url",
 		ccz: {
-			does: "mirrors",
-			by: "lib/commcare/runtimeTarget.ts::profileServerProperties",
+			does: "refuses",
+			by: "lib/deployment/runtimeTarget.ts::workersSentElsewhere",
 		},
 		preview: NO_RECEIVER,
 		elsewhere: defaultsTo("none"),

@@ -18,7 +18,9 @@
  */
 
 import { type Element, isText } from "domhandler";
+import { NO_ENTRIES } from "@/lib/domain/records";
 import { FORM_TEXTS_HELD_CHARACTERS, HeldByText } from "../heldByText";
+import { type SourceTable, tableOf } from "../sourceKeys";
 import {
 	elementChildren,
 	elementNamespace,
@@ -51,7 +53,7 @@ export type CoreTypeClass =
 	| `other:${string}`;
 
 /** `XFormParser.java::typeMappings`, one class per Core data type, by the type's local name. */
-const TYPE_CLASSES: Readonly<Record<string, CoreTypeClass>> = {
+const TYPE_CLASSES: SourceTable<CoreTypeClass> = tableOf({
 	string: "text",
 	int: "integer",
 	integer: "integer",
@@ -78,22 +80,19 @@ const TYPE_CLASSES: Readonly<Record<string, CoreTypeClass>> = {
 	base64Binary: "unsupported",
 	hexBinary: "unsupported",
 	anyURI: "unsupported",
-};
+});
 
 /**
  * `XFormParser.java::typeMappings` as data, each key with and without the
  * `xsd:` prefix. `xsd:int` and `xsd:integer` are one class, as are
  * `xsd:double` and `xsd:decimal`, because Core gives each pair one data type.
  */
-export const CORE_BIND_TYPE_CLASSES: Readonly<Record<string, CoreTypeClass>> =
-	Object.freeze(
-		Object.fromEntries(
-			Object.entries(TYPE_CLASSES).flatMap(([type, typeClass]) => [
-				[type, typeClass],
-				[`xsd:${type}`, typeClass],
-			]),
-		),
-	);
+export const CORE_BIND_TYPE_CLASSES: SourceTable<CoreTypeClass> = new Map(
+	[...TYPE_CLASSES].flatMap(([type, typeClass]) => [
+		[type, typeClass],
+		[`xsd:${type}`, typeClass],
+	]),
+);
 
 /**
  * `type` with its prefix removed, looked up, as
@@ -107,9 +106,7 @@ export function coreTypeClass(bindType: string | null): CoreTypeClass {
 	if (bindType === null) return "text";
 	const colon = bindType.indexOf(":");
 	const local = colon < 0 ? bindType : bindType.slice(colon + 1);
-	return Object.hasOwn(TYPE_CLASSES, local)
-		? (TYPE_CLASSES[local] as CoreTypeClass)
-		: `other:${local}`;
+	return TYPE_CLASSES.get(local) ?? `other:${local}`;
 }
 
 export interface AnswerLeaf {
@@ -275,7 +272,7 @@ export function sourceIdentity(application: unknown): SourceIdentity {
 	const modules = Array.isArray(application.modules) ? application.modules : [];
 	const attachments = isObject(application._attachments)
 		? application._attachments
-		: {};
+		: NO_ENTRIES;
 
 	const holders = new Map<string, number>();
 	for (const module of modules) {
@@ -474,6 +471,23 @@ function formIdentity(xml: string): FormRecord {
 		return label !== undefined && plainAttribute(label.element, "ref") !== null;
 	};
 
+	/** The path Core binds a control to, or null where it names none; a `bind` naming no bind is
+	 *  a form Core refuses to load. */
+	const boundPath = (
+		element: Element,
+		local: string,
+		context: string,
+	): string | null => {
+		const bind = plainAttribute(element, "bind");
+		if (bind !== null) {
+			const path = bindPaths.get(bind);
+			if (path === undefined) unparsed("a control names a bind no bind has");
+			return path;
+		}
+		const ref = plainAttribute(element, local === "repeat" ? "nodeset" : "ref");
+		return ref === null ? null : normalize(resolvePath(ref, context));
+	};
+
 	// Step 3: the body, in document order.
 	const walkBody = (
 		parent: Scoped,
@@ -485,24 +499,24 @@ function formIdentity(xml: string): FormRecord {
 			const local = splitName(child.element.name).local;
 			if (NOT_CONTROLS.has(local)) continue;
 			const appearance = plainAttribute(child.element, "appearance");
+			// Core binds a control by its `bind` first, else a repeat by its `nodeset` and any other
+			// control by its `ref` (`XFormParser.parseControl`, `parseGroup`): a group's `nodeset`
+			// binds nothing.
+			const bound = boundPath(child.element, local, context);
 			if (local === "group") {
-				const ref =
-					plainAttribute(child.element, "ref") ??
-					plainAttribute(child.element, "nodeset");
-				if (ref === null) {
+				if (bound === null) {
 					walkBody(child, context, child);
 					continue;
 				}
-				const path = normalize(resolvePath(ref, context));
+				const path = bound;
 				addContainer({ path, kind: "group", appearance, counted: false });
 				written.set(path, { labelRef: labelRef(child), itemLabelRefs: [] });
 				walkBody(child, path, child);
 				continue;
 			}
 			if (local === "repeat") {
-				const nodeset = plainAttribute(child.element, "nodeset");
-				if (nodeset === null) unparsed("a repeat has no nodeset");
-				const path = normalize(resolvePath(nodeset, context));
+				if (bound === null) unparsed("a repeat has no nodeset");
+				const path = bound;
 				addContainer({
 					path,
 					kind: "repeat",
@@ -521,14 +535,7 @@ function formIdentity(xml: string): FormRecord {
 			}
 			if (!LEAF_CONTROLS.has(local as AnswerLeaf["control"]))
 				unparsed("the body holds an element that is no control Core reads");
-			const ref = plainAttribute(child.element, "ref");
-			const bind = plainAttribute(child.element, "bind");
-			const path =
-				ref !== null
-					? normalize(resolvePath(ref, context))
-					: bind !== null
-						? bindPaths.get(bind)
-						: undefined;
+			const path = bound ?? undefined;
 			if (path === undefined) unparsed("a control names no node");
 			const draft = drafts.get(path);
 			if (draft === undefined) unparsed("a control's path names no leaf");

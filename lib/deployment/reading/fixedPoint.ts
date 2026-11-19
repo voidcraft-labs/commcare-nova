@@ -21,6 +21,9 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 /** At most this many differences of the documents are kept, the first in the walk's order. */
 export const FIXED_POINT_DIFFERENCES_KEPT = 20;
 
+/** The app as a whole: where a difference stands that no narrower location holds. */
+const THE_APP: ValidationLocation = {};
+
 /** One way the re-read did not give the document, for a developer and a test. */
 export interface FixedPointDifference {
 	readonly check: "fixed-point";
@@ -75,7 +78,7 @@ export function fixedPointDifferences(
 		place,
 		detail,
 	});
-	const app = naming.placeOf({});
+	const app = naming.placeOf(THE_APP);
 
 	if (again.kind === "account")
 		return again.findings.map((finding) =>
@@ -125,7 +128,7 @@ export function fixedPointDifferences(
 				naming.placeOf(
 					locationOfPath(one.path, expected) ??
 						locationOfPath(one.path, read) ??
-						{},
+						THE_APP,
 				),
 				`${one.kind} /${one.path.join("/")}`,
 			),

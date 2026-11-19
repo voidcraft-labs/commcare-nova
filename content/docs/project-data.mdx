@@ -275,6 +275,12 @@ columns and rows as they are right then and stops changing the table there.
 Changes made in Nova that were never published there are replaced, and every
 column becomes text, as CommCare HQ holds it.
 
+Either change is made only over the table you confirmed. If someone edits the
+table, or another app starts reading it, while you're deciding or while Nova
+reads CommCare HQ, Nova changes nothing and shows you the table as it stands
+now, so you can confirm again. The same goes for your own access: if your role
+in the Project changes in that moment, Nova leaves the table as it was.
+
 If a column your apps read is gone in CommCare HQ, Nova keeps the column in its
 copy, with no values, so those apps keep opening. Their next publish to that
 project space stops until the column is back in CommCare HQ or the apps stop

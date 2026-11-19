@@ -8,8 +8,9 @@
  * session as it stands.
  *
  * The history is the browser's own model here: each entry's state written
- * through `builderEntryState`, the record written as the screen shows it,
- * and the real session store doing Home and the return.
+ * through `builderEntryState`, the record written as the screen shows it into
+ * the running session's records (`previewEntryRecords.ts`, the production
+ * registry), and the real session store doing Home and the return.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -21,14 +22,19 @@ import {
 	reconcileBuilderHistoryEntry,
 	scopedBuilderHistoryState,
 } from "../historyPolicy";
+import {
+	heldPreviewEntryRecords,
+	previewEntryOf,
+	previewEntryRecordReader,
+	previewEntryRecordsToRead,
+	previewEntryRecordsToWrite,
+} from "../previewEntryRecords";
 import { builderEntryState } from "../previewHeldMenu";
 import {
-	PREVIEW_SELECTIONS_STATE_KEY,
 	previewSelectionsArrival,
 	previewSelectionsInDocument,
 	previewSelectionsTargetOf,
-	readPreviewSelections,
-	withPreviewSelections,
+	type RecordedPreviewSelections,
 } from "../previewSelectionsHistory";
 
 const APP = "/build/app-a";
@@ -52,9 +58,11 @@ interface Entry {
 	state: Record<string, unknown>;
 }
 
-/** The browser's history: a push from the current entry, Back, Forward. */
+/** The browser's history: a push from the current entry, Back, Forward.
+ *  Each push carries the current entry's record on in the registry's
+ *  records, as `useClientPath.ts` does. */
 function browserHistory() {
-	const entries: Entry[] = [{ pathname: APP, state: {} }];
+	const entries: Entry[] = [{ pathname: APP, state: { __novaEntry: "home" } }];
 	let index = 0;
 	return {
 		get current(): Entry {
@@ -63,12 +71,19 @@ function browserHistory() {
 			return entry;
 		},
 		push(pathname: string): void {
-			const state = builderEntryState(this.current, {
-				pathname,
-				replace: false,
-			});
+			const records = heldPreviewEntryRecords();
+			const reader = previewEntryRecordReader(records);
+			const written = builderEntryState(
+				{
+					...this.current,
+					record: reader(previewEntryOf(this.current.state)),
+				},
+				{ pathname, replace: false },
+				reader,
+			);
+			records.set(previewEntryOf(written.state) ?? "", written.record);
 			entries.splice(index + 1);
-			entries.push({ pathname, state });
+			entries.push({ pathname, state: written.state });
 			index = entries.length - 1;
 		},
 		back(): void {
@@ -95,17 +110,32 @@ function previewStore() {
 
 type Store = ReturnType<typeof previewStore>;
 
-/** What the screen does on every entry but Home: the entry records the
- *  selections the session holds (`usePreviewSelectionsArrival`). */
+/** What the screen does on every entry but Home: the entry's record in the
+ *  running session holds the selections the session holds
+ *  (`usePreviewSelectionsArrival`). */
 function record(history: ReturnType<typeof browserHistory>, store: Store) {
 	const state = store.getState();
-	history.current.state = withPreviewSelections(history.current.state, {
-		session: state.previewSessionId,
-		task: state.previewTaskId,
-		menu: state.previewMenuCaseSelections,
-		target: previewSelectionsTargetOf(state.previewCaseTarget),
-		selected: state.previewSelectedCase,
+	const entry = previewEntryOf(history.current.state) ?? "";
+	const records = previewEntryRecordsToWrite(state.previewSessionId);
+	records.set(entry, {
+		...records.get(entry),
+		selections: {
+			task: state.previewTaskId,
+			menu: state.previewMenuCaseSelections,
+			target: previewSelectionsTargetOf(state.previewCaseTarget),
+			selected: state.previewSelectedCase,
+		},
 	});
+}
+
+/** The selections the entry on show holds in the running session. */
+function onEntry(
+	history: ReturnType<typeof browserHistory>,
+	store: Store,
+): RecordedPreviewSelections | undefined {
+	return previewEntryRecordsToRead(store.getState().previewSessionId).get(
+		previewEntryOf(history.current.state) ?? "",
+	)?.selections;
 }
 
 /** What a popstate does before the screen renders (the pop listener). */
@@ -118,8 +148,7 @@ function arrive(
 	const arrival = previewSelectionsArrival({
 		replay,
 		atHome: history.current.pathname === APP,
-		onEntry: readPreviewSelections(history.current.state),
-		session: state.previewSessionId,
+		onEntry: onEntry(history, store),
 		task: state.previewTaskId,
 		current: {
 			menu: state.previewMenuCaseSelections,
@@ -282,7 +311,6 @@ describe("Back past Home", () => {
 
 	it("returns only the menus and form the document still has", () => {
 		const recorded = {
-			session: "s",
 			task: "t",
 			menu: { [HOUSEHOLDS]: HOUSEHOLD, [testUuid("removed")]: HOUSEHOLD },
 			target: { formUuid: testUuid("removed-form") },
@@ -392,17 +420,35 @@ describe("Back and Forward within one task", () => {
 	});
 });
 
-describe("the record on a history entry", () => {
+describe("the record of a history entry", () => {
 	it("is the entry's own: a push does not inherit the entry it leaves", () => {
 		const history = browserHistory();
 		const store = previewStore();
 		chooseAVisit(history, store);
-		expect(readPreviewSelections(history.current.state)).toBeDefined();
+		expect(onEntry(history, store)).toBeDefined();
 		history.push(`${APP}/${HOUSEHOLDS}`);
-		expect(readPreviewSelections(history.current.state)).toBeUndefined();
+		expect(onEntry(history, store)).toBeUndefined();
 	});
 
-	it("is Project data: a stale generation's entry loses it", () => {
+	it("is the session's, never the entry's state: no case, name, property or filter text reaches history", () => {
+		const history = browserHistory();
+		const store = previewStore();
+		chooseAVisit(history, store);
+		goHome(history, store);
+		for (const value of ["h-1", "Smith household", "m-1", "Ada", "ward"])
+			expect(JSON.stringify(history.current.state)).not.toContain(value);
+		history.back();
+		const kept = JSON.stringify(history.current.state);
+		for (const value of ["h-1", "Smith household", "m-1", "Ada", "ward"])
+			expect(kept).not.toContain(value);
+		expect(kept).not.toContain('"ad"');
+		// What the entry was shown with is in the session's record.
+		expect(onEntry(history, store)?.target?.cases).toEqual([
+			{ caseId: "m-1", caseName: "Ada" },
+		]);
+	});
+
+	it("is Project data: a stale generation's entry loses its id, and with it the record", () => {
 		const active: BuilderHistoryScope = {
 			scopeId: "runtime",
 			appId: "app-a",
@@ -420,21 +466,20 @@ describe("the record on a history entry", () => {
 			active,
 			"pop",
 		);
-		expect(reconciled?.state[PREVIEW_SELECTIONS_STATE_KEY]).toBeUndefined();
+		expect(previewEntryOf(reconciled?.state)).toBeUndefined();
 	});
 
-	it("reads nothing from a value that is not one", () => {
-		for (const value of [
-			undefined,
-			"selections",
-			{ session: "s" },
-			{ session: "s", task: "t", menu: { m: { caseType: 1, cases: [] } } },
-			{ session: "s", task: "t", menu: {}, target: { cases: [] } },
-			{ session: "s", task: "t", menu: {}, selected: { caseId: "c" } },
-		]) {
-			expect(
-				readPreviewSelections({ [PREVIEW_SELECTIONS_STATE_KEY]: value }),
-			).toBeUndefined();
-		}
+	it("reads nothing a page wrote into the entry's state", () => {
+		const history = browserHistory();
+		const store = previewStore();
+		chooseAVisit(history, store);
+		history.current.state = {
+			__novaPreviewSelections: {
+				session: store.getState().previewSessionId,
+				task: "t",
+				menu: { [HOUSEHOLDS]: HOUSEHOLD },
+			},
+		};
+		expect(onEntry(history, store)).toBeUndefined();
 	});
 });

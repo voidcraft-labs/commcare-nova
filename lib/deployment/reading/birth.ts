@@ -10,7 +10,6 @@ import "server-only";
 import type { Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { resolveAuthorizedAppSnapshot } from "@/lib/db/appAccess";
 import {
 	type AdoptedAppReceipt,
@@ -28,8 +27,6 @@ import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	adoptedAppBaselineWrite,
-	adoptedIdentityRows,
-	adoptedKeyedCaseIdRows,
 	adoptionPlanFeatureConfirmations,
 	assignMediaPaths,
 } from "../adoption";
@@ -38,6 +35,7 @@ import {
 	type AdoptedDeploymentWrite,
 	recordAdoptedDeploymentInTransaction,
 } from "../store";
+import { exportIdentityOf } from "../targetIdentity";
 import type { AcceptedDeclaration } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
 import { firstPublishListToStore } from "./firstPublishChanges";
@@ -57,8 +55,8 @@ import type { ReadingKey } from "./types";
  * save counter this create's own bracketed read held, never the review's: the
  * digest leaves the counter out, so recording an earlier one beside this
  * create's baseline would make the first publish's drift check stop for a
- * save nobody needs to see. `ok: false` where a form of the reading has no
- * real CommCare HQ id.
+ * save nobody needs to see. The target-identity record is the gathering's,
+ * the value the review's digest bound.
  */
 export function adoptedDeploymentWrite(input: {
 	readonly appId: string;
@@ -68,13 +66,9 @@ export function adoptedDeploymentWrite(input: {
 	/** The declaration the person chose, from `gathered.accepted.declarations`. */
 	readonly chosen: AcceptedDeclaration;
 	readonly candidate: PreparedGenesisCandidate;
-}):
-	| { readonly ok: true; readonly write: Omit<AdoptedDeploymentWrite, "at"> }
-	| { readonly ok: false } {
+}): Omit<AdoptedDeploymentWrite, "at"> {
 	const { key, gathered, chosen, candidate } = input;
 	const { fetched, draft } = gathered;
-	const identities = adoptedIdentityRows(draft.identities, fetched.modules);
-	if (!identities.ok) return { ok: false };
 	const target = { server: key.server, domain: key.domain };
 	const mediaPaths = assignMediaPaths(gathered.mediaFiles).rows;
 	const doc = candidate.prepared.nextDoc;
@@ -88,7 +82,7 @@ export function adoptedDeploymentWrite(input: {
 			{ origin: COMMCARE_SERVERS[key.server].baseUrl, domain: key.domain },
 		),
 		target,
-		identity: targetWireIdentity(identities.rows),
+		identity: exportIdentityOf(doc, gathered.targetIdentity).identity,
 		novaRevision: 1,
 		mediaFiles: hqMediaRecordFromSource(
 			mediaPaths.map((row) => row.wirePath),
@@ -98,26 +92,21 @@ export function adoptedDeploymentWrite(input: {
 		firstPublish: firstPublishListToStore(chosen.firstPublish, draft.facts),
 	});
 	return {
-		ok: true,
-		write: {
-			appId: input.appId,
-			projectId: key.projectId,
-			actorUserId: input.actorUserId,
+		appId: input.appId,
+		projectId: key.projectId,
+		actorUserId: input.actorUserId,
+		target,
+		remoteAppId: key.remoteAppId,
+		remoteRevision: fetched.hqVersion,
+		pushedRevision: 1,
+		baseline,
+		targetIdentity: gathered.targetIdentity,
+		confirmations: adoptionPlanFeatureConfirmations({
+			doc,
 			target,
-			remoteAppId: key.remoteAppId,
-			remoteRevision: fetched.hqVersion,
-			pushedRevision: 1,
-			baseline,
-			identities: identities.rows,
-			mediaPaths,
-			keyedCaseIds: adoptedKeyedCaseIdRows(draft.identities),
-			confirmations: adoptionPlanFeatureConfirmations({
-				doc,
-				target,
-				sourceWebAppsOn: fetched.source.cloudcareEnabled,
-				sourceHoldsSaveToCase: gathered.accepted.sourceHoldsSaveToCase,
-			}),
-		},
+			sourceWebAppsOn: fetched.source.cloudcareEnabled,
+			sourceHoldsSaveToCase: gathered.accepted.sourceHoldsSaveToCase,
+		}),
 	};
 }
 

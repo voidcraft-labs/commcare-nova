@@ -326,3 +326,74 @@ describe("a root create's authored id", () => {
 			).toEqual([]);
 		});
 });
+
+/** The source with the root create's id setvalue edited by `edit`, and the bind of `note` given
+ *  the id `note`. */
+function createIdSetvalue(edit: (attribs: Record<string, string>) => void) {
+	return (xml: string) => {
+		const document = parseXml(xml) as unknown as Node;
+		for (const one of elements(document)) {
+			if (
+				one.name === "setvalue" &&
+				(one.attribs?.ref ?? "").endsWith("/photo/case/@case_id")
+			)
+				edit(one.attribs as Record<string, string>);
+			if (one.name === "bind" && one.attribs?.nodeset === "/data/note")
+				(one.attribs as Record<string, string>).id = "note";
+		}
+		return serializeXml(document as never);
+	};
+}
+
+/**
+ * A create's id setvalue in a block is held only as Nova writes it, read as Core reads it
+ * (`XFormParser.parseSetValueAction`): Core sets the node a `bind` attribute names in place of
+ * `ref`, so a block whose id setvalue holds one sets `note` to a new id as the form opens and
+ * submits the case with a blank id, which no reading may turn into a working create. Any other
+ * attribute is left for the close to report, and test 4 holds the setvalue to the emitter's whole.
+ */
+describe("a create's id setvalue spelled otherwise than Nova writes it", () => {
+	const SETVALUE =
+		"questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate";
+	const codesOf = async (edit: (xml: string) => string) => {
+		const outcome = readHqApp(
+			await inputFor(exportedBody(app(), { xml: edit })),
+		);
+		expect(outcome.kind).toBe("account");
+		return outcome.kind === "account"
+			? outcome.findings.map((one) => one.code)
+			: [];
+	};
+
+	it("is not held where a `bind` names its target", async () => {
+		const codes = await codesOf(
+			createIdSetvalue((attribs) => {
+				attribs.bind = "note";
+			}),
+		);
+		// The setvalue is no id of the block's, which is then a create with no id Nova writes.
+		expect(codes).toContain(SETVALUE);
+		expect(codes).toContain(
+			"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+		);
+	});
+
+	it("is not held where it sets its text, having no `value`", async () => {
+		const codes = await codesOf(
+			createIdSetvalue((attribs) => {
+				delete attribs.value;
+			}),
+		);
+		expect(codes).toContain(SETVALUE);
+	});
+
+	it("is not held where it holds an attribute Nova does not write", async () => {
+		const codes = await codesOf(
+			createIdSetvalue((attribs) => {
+				attribs.if = "false()";
+			}),
+		);
+		expect(codes).toContain(OUTSIDE);
+		expect(codes).toContain("unrecognized");
+	});
+});

@@ -12,12 +12,19 @@ import org.javarosa.core.model.instance.utils.InstanceUtils;
 import org.javarosa.core.services.locale.*;
 import org.javarosa.core.test.FormParseInit;
 import org.javarosa.form.api.*;
+import org.json.JSONArray;
 import org.junit.After;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
 /** Actual Core locale parser, SuiteParser text resolution and form prompt APIs.
- * The fixture supplies session metadata only; no Android rendering is claimed. */
+ * The fixture supplies session metadata only; no Android rendering is claimed.
+ * The kept-text archive is one made for a project space whose stored keys and
+ * texts would set another string than their key names if written as stored
+ * (lib/commcare/__tests__/localeSmugglingFixture.ts): every line of each of its
+ * app_strings.txt reads back through Core's own parser as exactly one record
+ * of the compiler's table (lib/commcare/localeFile.ts::localeFileText), and
+ * every string the document writes keeps the document's own text. */
 public class LocalizationRuntimeTest {
  private static final String[] SCENARIOS={"bilingual","mandarin","optional","escaped","stale","prompts"};
  private InputStream resource(String name) {InputStream input=getClass().getResourceAsStream("/localization/locale-"+name);assertNotNull(name,input);return input;}
@@ -85,6 +92,26 @@ public class LocalizationRuntimeTest {
     assertEquals(1,questions);
    }
   }
+ }
+ private static final String[] KEPT_TEXT_DIRECTORIES={"default","en","fra"};
+ private InputStream keptText(String name){InputStream input=getClass().getResourceAsStream("/localization/kept-text."+name);assertNotNull(name,input);return input;}
+ private Map<String,String> keptTable(String name)throws Exception{
+  JSONArray rows;try(InputStream input=keptText(name)){rows=new JSONArray(new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8));}
+  Map<String,String> table=new LinkedHashMap<>();
+  for(int i=0;i<rows.length();i++){JSONArray row=rows.getJSONArray(i);assertNull(name+" repeats "+row.getString(0),table.put(row.getString(0),row.getString(1)));}
+  return table;
+ }
+ @Test public void keptTextReadsBackAsTheCompilersTableInEveryDirectory()throws Exception{
+  for(String dir:KEPT_TEXT_DIRECTORIES){
+   Hashtable<String,String> read;try(InputStream input=keptText(dir+".strings.txt")){read=LocalizationUtils.parseLocaleInput(input);}
+   Map<String,String> table=keptTable(dir+".table.json");
+   assertFalse(dir,table.isEmpty());
+   assertEquals(dir,table,new HashMap<>(read));
+   for(Map.Entry<String,String> own:keptTable(dir+".own.json").entrySet())assertEquals(dir+" "+own.getKey(),own.getValue(),read.get(own.getKey()));
+   for(String smuggled:new String[]{"x","a"," modules.m0","\tforms.m0f0","forms.m0f0=Smuggled form"})assertFalse(dir+" "+smuggled,read.containsKey(smuggled));
+  }
+  assertEquals("x=y\nmodules.m0",keptTable("en.table.json").get("home.logout"));
+  assertEquals("Envoyer #1",keptTable("fra.table.json").get("home.sync"));
  }
  @Test public void searchPromptChildrenResolveTheirOwnLocalizedText()throws Exception{
   for(boolean hq:new boolean[]{false,true})for(String lang:new String[]{"es","en"}){

@@ -1,0 +1,50 @@
+{
+	"about": "What a retained tree may hold, and nothing else (proof/matrix/layout.py reads it). A run's output and an artifact are data a container or another job wrote, so every member is named here: a directory name, a file name or pattern (matched whole), and a size bound. A new file the lane retains is named here in the same change that retains it.",
+	"trees": {
+		"hq-apps": {
+			"directory": "a base id proof/matrix/bases.json lists",
+			"files": [
+				"app-source.json",
+				"app.json",
+				"application.json",
+				"base.json",
+				"current-version.json",
+				"expected.json",
+				"location-types.json",
+				"locations.json",
+				"lookup-tables.json",
+				"media-reads.json",
+				"media.json",
+				"places.json",
+				"practice-workers.json",
+				"project-spaces-flag.json",
+				"project-spaces.json",
+				"seed.json",
+				"tables.json"
+			],
+			"patterns": ["fixture-rows-[A-Za-z_][A-Za-z0-9_.-]*\\.json"],
+			"media": {
+				"directory": "media",
+				"name": "(?:0|[1-9][0-9]*)",
+				"extensions": "each extension proof/matrix/stand-ins.json gives a stand-in"
+			}
+		},
+		"hq-reads": {
+			"directory": "[a-z0-9]+(?:-[a-z0-9]+)*",
+			"files": [],
+			"patterns": ["[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\\.json"]
+		}
+	},
+	"held": {
+		"directory": "retained-held",
+		"record": "Under a block's output, retained-held/<tree>/<directory>/<test>.json for a directory the tree may hold, one record a comparing test, named by the test's node id quoted to one path segment or by its SHA-256 (proof/matrix/retained.py::record_name): a JSON object whose one key extra lists the paths under that directory its comparison found committed and did not make, each a file the tree's directory may hold.",
+		"name": "[A-Za-z0-9_~%-][A-Za-z0-9_.~%-]{0,199}\\.json"
+	},
+	"artifact": ["hq-apps", "hq-reads", "adopt-report.txt"],
+	"bounds": {
+		"json": 8388608,
+		"media": 16777216,
+		"tree": 67108864,
+		"report": 65536
+	}
+}

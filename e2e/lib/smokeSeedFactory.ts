@@ -71,6 +71,7 @@ import { gcsObjectKeyFor } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { createManagedLookupTablesInTransaction } from "@/lib/lookup/managed";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { amrNb } from "@/lib/media/__tests__/builtFixtures";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
@@ -125,6 +126,7 @@ import {
 } from "./localizationSeed";
 import {
 	buildManagedDataBlueprint,
+	buildManagedDataReaderBlueprint,
 	MANAGED_DATA_SEED,
 	managedDataLevels,
 	managedDataRoutes,
@@ -2249,10 +2251,14 @@ export async function createSmokeBuilders(
 					]),
 				),
 			};
-			await withAppTx((tx) =>
+			await withAppTx(async (tx) =>
 				createManagedLookupTablesInTransaction(
 					tx,
-					{ projectId: seedProjectId, actorId: SEED.userId, role: "owner" },
+					await authorizeLookupWriteInTransaction(
+						tx,
+						{ projectId: seedProjectId, actorId: SEED.userId },
+						"edit",
+					),
 					[
 						{
 							binding,
@@ -2328,11 +2334,27 @@ export async function createSmokeBuilders(
 				.where("userId", "=", SEED.viewerUserId)
 				.where("organizationId", "=", seedProjectId)
 				.executeTakeFirstOrThrow();
+			/* A second app of the Project that does not read the table yet. */
+			const reader = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: seed.readerApp.name, status: "complete" },
+			);
+			await appendSyntheticBatch({
+				appId: reader.appId,
+				expectedBaseSeq: reader.baseSeq,
+				targetDoc: toPersistableDoc(
+					buildManagedDataReaderBlueprint(reader.appId),
+				),
+				authority: { kind: "user", actorUserId: SEED.userId },
+			});
 			return {
 				managedData: {
 					appId,
 					tableId: binding.tableId,
-					routes: managedDataRoutes(appId, binding.tableId),
+					readerAppId: reader.appId,
+					routes: managedDataRoutes(appId, binding.tableId, reader.appId),
 				},
 			};
 		},

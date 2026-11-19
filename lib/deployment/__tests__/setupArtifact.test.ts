@@ -146,7 +146,7 @@ function artifact(overrides: Partial<SetupArtifactInput> = {}): SetupArtifact {
 		server: "production",
 		domain: "rhi-bihar",
 		hqAppId: "hq-abc",
-		locations: [],
+		organization: { locations: [] },
 		...overrides,
 	};
 	blueprintDocSchema.parse(toPersistableDoc(input.doc));
@@ -618,7 +618,10 @@ it("summarizes live places by stable level identity through partial pushes, adop
 		[archived.id, { adopted: true }],
 		[child.id, { adopted: false }],
 	]);
-	const first = section(artifact({ doc, locations, pushedPlaces }), "places");
+	const first = section(
+		artifact({ doc, organization: { locations }, pushedPlaces }),
+		"places",
+	);
 	expect(first.url).toBe(
 		"https://www.commcarehq.org/a/rhi-bihar/settings/locations/list/",
 	);
@@ -645,7 +648,10 @@ it("summarizes live places by stable level identity through partial pushes, adop
 	const state = doc.organizationLevels?.[STATE];
 	if (!state) throw new Error("Missing State");
 	state.name = "Province";
-	const next = section(artifact({ doc, locations }), "places");
+	const next = section(
+		artifact({ doc, organization: { locations } }),
+		"places",
+	);
 	expect(next.steps).toEqual([
 		{
 			id: STATE,
@@ -660,8 +666,156 @@ it("summarizes live places by stable level identity through partial pushes, adop
 	]);
 	expect(next.caveats).toHaveLength(2);
 	expect(
-		artifact({ doc, locations: [archived] }).sections.map(({ id }) => id),
+		artifact({ doc, organization: { locations: [archived] } }).sections.map(
+			({ id }) => id,
+		),
 	).toEqual(["organization", "build-and-release", "web-apps"]);
+});
+
+describe("an organization CommCare HQ manages", () => {
+	function managedDoc(): BlueprintDoc {
+		const doc = organizationDoc();
+		doc.locationProperties = {
+			[PROPERTY_B]: { uuid: PROPERTY_B, slug: "zone", label: "Zone" },
+		};
+		doc.locationPropertyOrder = [PROPERTY_B];
+		return doc;
+	}
+	const root = place("state-place", STATE);
+	const organization = {
+		locations: [
+			place("district-place", DISTRICT, root.id),
+			root,
+			place("other-state", STATE),
+		],
+		hq: {
+			server: "production",
+			domain: "rhi-bihar",
+			refreshedAt: "2026-11-01T00:00:00.000Z",
+			leftOut: {},
+			goneIds: [],
+		},
+	};
+
+	it("says the levels and places are CommCare HQ's where it manages them, which levels take workers, and a confirmation whose level left the organization", () => {
+		const result = artifact({
+			doc: managedDoc(),
+			organization,
+			confirmedWorkerLevels: new Set(["district", "block"]),
+		});
+		expect(result.sections.map(({ id }) => id)).toEqual([
+			"organization",
+			"places",
+			"build-and-release",
+			"web-apps",
+		]);
+		const asks =
+			"Nova asks you before it makes a worker who stands at a place at this level, because CommCare HQ doesn't tell Nova whether the level takes workers. Its Organization Levels page shows this as “Has Users”.";
+		expect(section(result, "organization")).toEqual({
+			id: "organization",
+			title: "Organization levels",
+			summary:
+				"CommCare HQ manages your organization on “rhi-bihar”, so these are its levels as CommCare HQ holds them. Nova makes and changes none of them there.",
+			url: "https://www.commcarehq.org/a/rhi-bihar/settings/locations/location_types/",
+			steps: [
+				{
+					id: PARTNER,
+					text: "“Partner”, with “Type Code” “partner”.",
+					detail: [asks],
+				},
+				{
+					id: STATE,
+					text: "“State”, with “Type Code” “state”.",
+					detail: [asks],
+				},
+				{
+					id: DISTRICT,
+					text: "“District”, with “Type Code” “district”.",
+					detail: [
+						"A member of your Project confirmed that places at this level take workers here, so Nova makes workers who stand at them.",
+					],
+				},
+				{
+					id: CLINIC,
+					text: "“Clinic”, with “Type Code” “clinic”.",
+					detail: [asks],
+				},
+				{
+					id: "worker-level:block",
+					text: "Places at the level with code “block” take workers (the level is no longer in the organization).",
+					detail: [
+						"A member of your Project confirmed this, and it counts again if a level with this code comes back to the organization. You can withdraw it from this project space's card in Publishing.",
+					],
+				},
+			],
+			caveats: [
+				"You can add or change levels on this page in CommCare HQ. Nova never writes them.",
+				"A level confirmed to take workers stays confirmed until someone withdraws it from this project space's card in Publishing.",
+			],
+		});
+		expect(section(result, "places")).toEqual({
+			id: "places",
+			title: "Places",
+			summary:
+				"These places live in “rhi-bihar” on CommCare HQ. Nova keeps a copy so Preview can show them, and never sends or changes them there.",
+			url: "https://www.commcarehq.org/a/rhi-bihar/settings/locations/list/",
+			steps: [
+				{ id: STATE, text: "State: 2 places", detail: [] },
+				{ id: DISTRICT, text: "District: 1 place", detail: [] },
+			],
+			caveats: [
+				"You can add or change places in CommCare HQ, then refresh Nova's copy in App setup, under Organization.",
+			],
+		});
+	});
+
+	it("asks for every level where nobody has confirmed one", () => {
+		const levels = section(
+			artifact({ doc: managedDoc(), organization }),
+			"organization",
+		);
+		expect(levels.steps.map(({ detail }) => detail)).toEqual(
+			levels.steps.map(() => [
+				"Nova asks you before it makes a worker who stands at a place at this level, because CommCare HQ doesn't tell Nova whether the level takes workers. Its Organization Levels page shows this as “Has Users”.",
+			]),
+		);
+	});
+
+	it("gives another project space the levels to make, since the places go there as Nova's", () => {
+		const result = artifact({
+			doc: managedDoc(),
+			domain: "rhi-up",
+			organization,
+			confirmedWorkerLevels: new Set(["district"]),
+		});
+		expect(result.sections.map(({ id }) => id)).toEqual([
+			"organization",
+			"place-data",
+			"places",
+			"build-and-release",
+			"web-apps",
+		]);
+		const levels = section(result, "organization");
+		expect(levels.steps[0]?.id).toBe("advanced-mode");
+		expect(levels.steps[3]).toEqual({
+			id: DISTRICT,
+			text: "Add a level named “District” with “Type Code” “district” and parent “State”.",
+			detail: expect.arrayContaining([
+				"Leave “Has Users” ticked; it arrives ticked. If you cannot see that column, nothing to do: CommCare HQ allows workers here anyway.",
+			]),
+		});
+		expect(section(result, "places").steps[0]?.detail).toEqual([
+			"Nova will put these on “rhi-up” the next time you publish.",
+		]);
+	});
+
+	it("leaves out the levels, place information and places where the organization could not be read", () => {
+		expect(
+			artifact({ doc: managedDoc(), organization: null }).sections.map(
+				({ id }) => id,
+			),
+		).toEqual(["build-and-release", "web-apps"]);
+	});
 });
 
 it("regenerates automations in authored order and includes deep-link setup only while a destination exists", () => {

@@ -8,6 +8,7 @@ import type {
 	LabelField as LabelFieldEntity,
 	ProseTemplate,
 } from "@/lib/domain";
+import { PREVIEW_LABEL_RENDERING } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
@@ -73,7 +74,7 @@ export function LabelField({
 					label={field.label}
 					resolvedLabel={state.resolvedLabel}
 					isEditMode={isEditMode}
-					rendering={labelRendering}
+					rendering={isEditMode ? PREVIEW_LABEL_RENDERING : labelRendering}
 					plainLabel={labelFormatText?.plain === true}
 					className={FIELD_STYLES.label}
 					proseSlot={{ entity: "field", uuid: field.uuid, slot: "label" }}

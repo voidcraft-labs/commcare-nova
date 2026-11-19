@@ -1,7 +1,6 @@
 import "server-only";
 
 import { sql, type Transaction } from "kysely";
-import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
 import {
 	type LookupColumnId,
@@ -22,6 +21,9 @@ import type {
 } from "./types";
 import {
 	advanceLookupProjectRevision,
+	authorizeLookupWriteInTransaction,
+	LookupAuthorityError,
+	type LookupWriteAuthority,
 	lockLookupProjectState,
 	lockLookupTableForUpdate,
 	lookupTableRevisions,
@@ -156,20 +158,32 @@ function assertScope(scope: LookupScope): void {
 		typeof scope.projectId !== "string" ||
 		scope.projectId.length === 0 ||
 		typeof scope.actorId !== "string" ||
-		scope.actorId.length === 0 ||
-		typeof scope.role !== "string" ||
-		scope.role.length === 0
+		scope.actorId.length === 0
 	) {
 		throw new Error("Lookup schema governance received an invalid scope.");
 	}
 }
 
-function assertDeleteCapability(scope: LookupScope): void {
-	if (!roleAllowsApp(scope.role, "delete")) {
-		throw new LookupSchemaGovernanceError(
-			"not_found",
-			"Lookup resource was not found.",
-		);
+/**
+ * The member's `delete`, read on the governance transaction itself. A member
+ * removed or whose role fell is refused with the same not-found shape as a
+ * missing or foreign resource.
+ */
+async function authorizeDelete(
+	tx: Transaction<AppDatabase>,
+	scope: LookupScope,
+): Promise<LookupWriteAuthority> {
+	try {
+		return await authorizeLookupWriteInTransaction(tx, scope, "delete");
+	} catch (error) {
+		if (error instanceof LookupAuthorityError) {
+			throw new LookupSchemaGovernanceError(
+				"not_found",
+				"Lookup resource was not found.",
+				{ cause: error },
+			);
+		}
+		throw error;
 	}
 }
 
@@ -218,13 +232,13 @@ function translateLockedTableError(error: unknown): never {
 
 async function lockTargetTable(
 	tx: Transaction<AppDatabase>,
-	projectId: string,
+	authority: LookupWriteAuthority,
 	operation: NormalizedOperation,
 ): Promise<StoredLookupTable> {
 	try {
 		return await lockLookupTableForUpdate(
 			tx,
-			projectId,
+			authority,
 			operation.tableId,
 			operation.expectedTableRevision,
 			/* Removing Nova's copy changes nothing in CommCare HQ, so a table
@@ -590,10 +604,11 @@ async function retypeColumn(
 /**
  * The production wrapper the three destructive Project data actions call.
  *
- * It requires the scope's `delete` capability before taking a lock, and the
- * transaction core below requires it again — an insufficient role collapses to
- * the same not-found shape as a missing or foreign resource on both gates, so
- * a caller can never tell "you may not" from "it isn't there".
+ * The transaction core below reads the member's `delete` on its own
+ * transaction before taking a lock: an insufficient role, or a membership
+ * removed since the request began, collapses to the same not-found shape as a
+ * missing or foreign resource, so a caller can never tell "you may not" from
+ * "it isn't there".
  *
  * The blocker set it raises is app ids only. Turning those into names is the
  * confirmation surface's job (`actions.ts::governanceFailure`), which reads
@@ -605,7 +620,6 @@ export async function applyLookupSchemaGovernance(
 	operation: LookupSchemaGovernanceOperation,
 ): Promise<LookupSchemaGovernanceResult> {
 	assertScope(scope);
-	assertDeleteCapability(scope);
 	const normalized = normalizeOperation(operation);
 	return withAppTx(async (tx) => {
 		return applyLookupSchemaGovernanceInTransaction(tx, scope, normalized);
@@ -614,8 +628,9 @@ export async function applyLookupSchemaGovernance(
 
 /**
  * Transaction core, also the package's seeded integration seam for exact race
- * coverage. This function never acquires an app lock: Project state -> table
- * -> exact edges is its complete lock prefix. Because neither prefix ever
+ * coverage. This function never acquires an app lock: the membership gate and
+ * member row -> Project state -> table -> exact edges is its complete lock
+ * prefix. Because neither prefix ever
  * holds a lock the other takes first, a table deletion racing an app commit
  * serializes rather than deadlocking.
  *
@@ -630,10 +645,10 @@ export async function applyLookupSchemaGovernanceInTransaction(
 	operationInput: LookupSchemaGovernanceOperation,
 ): Promise<LookupSchemaGovernanceResult> {
 	assertScope(scope);
-	assertDeleteCapability(scope);
 	const operation = normalizeOperation(operationInput);
-	const projectState = await lockLookupProjectState(tx, scope.projectId);
-	const table = await lockTargetTable(tx, scope.projectId, operation);
+	const authority = await authorizeDelete(tx, scope);
+	const projectState = await lockLookupProjectState(tx, authority);
+	const table = await lockTargetTable(tx, authority, operation);
 
 	switch (operation.kind) {
 		case "delete-table":

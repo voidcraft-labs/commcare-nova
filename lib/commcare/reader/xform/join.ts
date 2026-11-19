@@ -22,7 +22,9 @@ import {
 	questionIdProblem,
 	RESERVED_QUESTION_IDS,
 } from "@/lib/domain/questionId";
+import { NO_ENTRIES } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { type SourceTable, tableOf } from "../../sourceKeys";
 import {
 	elementNamespace,
 	isElement,
@@ -98,14 +100,14 @@ type QueryPurpose =
 const XFORM = { target: "xform", constraint: false } as const;
 
 /** The Connect roles HQ's form builder writes on a block (`commcareConnect.js`), by the block. */
-const CONNECT_ROLES: Readonly<
-	Record<string, Extract<NodeRole, { kind: "connect" }>["block"]>
-> = {
+const CONNECT_ROLES: SourceTable<
+	Extract<NodeRole, { kind: "connect" }>["block"]
+> = tableOf({
 	ConnectLearnModule: "learn_module",
 	ConnectAssessment: "assessment",
 	ConnectDeliverUnit: "deliver_unit",
 	ConnectTask: "task",
-};
+});
 
 export interface JoinInput {
 	readonly parsed: ParsedXForm;
@@ -278,7 +280,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (roles.has(node) || tree.refused.has(node) || covered.has(node))
 			continue;
 		if (node.role === undefined) continue;
-		const block = CONNECT_ROLES[node.role];
+		const block = CONNECT_ROLES.get(node.role);
 		if (node.role === "SaveToCase") under(node, { kind: "case-region" });
 		else if (block !== undefined) under(node, { kind: "connect", block });
 		else if (node.role === "ConnectWorkAreaUpdate") {
@@ -550,7 +552,14 @@ export function joinForm(input: JoinInput): JoinedForm {
 		)
 			cursor.take({ element: bind.element, attribute: "type" }, typeClaim)
 				.value;
-		const field = make(node, parent, control, row.kind, stood, row.slots ?? {});
+		const field = make(
+			node,
+			parent,
+			control,
+			row.kind,
+			stood,
+			row.slots ?? NO_ENTRIES,
+		);
 		if (bothSources)
 			field.bothSources = {
 				typeDeferred: bind?.type !== undefined && typeClaim === sites.type,
@@ -874,7 +883,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				control,
 				read.kind === "stand-in" ? "group" : "repeat",
 				stood,
-				read.kind === "stand-in" ? {} : stub.field,
+				read.kind === "stand-in" ? NO_ENTRIES : stub.field,
 			);
 			if (read.kind === "stand-in" && read.refusal !== undefined)
 				field.standInRefusal = read.refusal;

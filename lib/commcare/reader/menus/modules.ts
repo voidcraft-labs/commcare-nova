@@ -29,6 +29,7 @@ import {
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { advancedLoadListMenus, parentStepRead } from "../../hq/entryFacts";
 import { hiddenMenuEntryPoints } from "../../validator/rules/hiddenFromMenu";
@@ -53,7 +54,7 @@ import {
 	type UnheldText,
 	unheldText,
 } from "../heldText";
-import { isJsonObject } from "../jsonCursor";
+import { isJsonObject, objectMembers } from "../jsonCursor";
 import { readNavMedia } from "./navMedia";
 
 const M = "menus-and-case-lists";
@@ -71,7 +72,7 @@ function perClass<C extends string, U extends Claim["use"]>(
 	entry: string,
 	field: string,
 ): Readonly<Record<C, Claim<U>>> {
-	return Object.fromEntries(
+	return recordFromEntries(
 		classes.map((cls) => [cls, make(entry, `schema:${cls}.${field}`)]),
 	) as Record<C, Claim<U>>;
 }
@@ -354,7 +355,7 @@ const MENU = {
 
 defineClaims(
 	"menus.modules",
-	Object.fromEntries(
+	recordFromEntries(
 		Object.entries(MENU).flatMap(([name, one]) =>
 			"use" in one
 				? [[name, one as Claim]]
@@ -373,8 +374,17 @@ type JsonObject = Readonly<Record<string, unknown>>;
 /** Every menu object of the stored app, in HQ's order. */
 export function rawModules(ctx: ReadContext): readonly JsonObject[] {
 	const modules = ctx.app.peek("modules");
-	return Array.isArray(modules) ? modules.filter(isJsonObject) : [];
+	if (!Array.isArray(modules)) return [];
+	let members = storedMembers.get(modules);
+	if (members === undefined) {
+		members = objectMembers(modules) ?? [];
+		storedMembers.set(modules, members);
+	}
+	return members;
 }
+
+/** Each stored list of menus as `rawModules` reads it, judged once a reading. */
+const storedMembers = new WeakMap<readonly unknown[], readonly JsonObject[]>();
 
 /** The stored menu holding `uniqueId`, or undefined. */
 export function rawModuleById(
@@ -382,8 +392,22 @@ export function rawModuleById(
 	uniqueId: unknown,
 ): JsonObject | undefined {
 	if (typeof uniqueId !== "string" || uniqueId === "") return undefined;
-	return rawModules(ctx).find((module) => module.unique_id === uniqueId);
+	const modules = rawModules(ctx);
+	let byId = modulesById.get(modules);
+	if (byId === undefined) {
+		byId = new Map();
+		for (const module of modules)
+			if (!byId.has(module.unique_id)) byId.set(module.unique_id, module);
+		modulesById.set(modules, byId);
+	}
+	return byId.get(uniqueId);
 }
+
+/** Each list of menus, the first menu of each id, made once a reading. */
+const modulesById = new WeakMap<
+	readonly JsonObject[],
+	Map<unknown, JsonObject>
+>();
 
 /** The draft menu holding `uniqueId`, or undefined. */
 export function draftModuleById(
@@ -437,7 +461,7 @@ export function labelAsBuilt(
 	fallback: string,
 ): Readonly<Record<string, string>> {
 	const keys = Object.keys(label).sort(compareCodePoints);
-	const built: Record<string, string> = {};
+	const built = recordFromEntries<string>([]);
 	for (const lang of langs) {
 		let text: string | undefined;
 		for (const candidate of [lang, ...langs]) {
@@ -475,8 +499,8 @@ export function caseListLabelAsBuilt(
 export function labelMap(
 	value: unknown,
 ): Readonly<Record<string, string | null>> {
-	if (!isJsonObject(value)) return {};
-	const map: Record<string, string | null> = {};
+	const map = recordFromEntries<string | null>([]);
+	if (!isJsonObject(value)) return map;
 	for (const [code, text] of Object.entries(value))
 		if (typeof text === "string" || text === null) map[code] = text;
 	return map;
@@ -570,7 +594,7 @@ export function withReadTranslations(
 	const languages = applicationReading(ctx)?.languages;
 	const read = ctx.translations.units().find((one) => one.unit === unit);
 	if (languages === undefined || read === undefined) return map;
-	const out: Record<string, string | null> = { ...map };
+	const out = recordFromEntries(Object.entries(map));
 	for (const code of languages.codes) {
 		if (code === languages.source) continue;
 		const tag = languages.tagOf.get(code);
@@ -586,9 +610,9 @@ export function effectiveNames(
 	names: unknown,
 	langs: readonly string[],
 ): Readonly<Record<string, string>> {
-	const map = isJsonObject(names) ? names : {};
+	const map = isJsonObject(names) ? names : NO_ENTRIES;
 	const first = textOf(map[langs[0] ?? ""]);
-	return Object.fromEntries(
+	return recordFromEntries(
 		langs.map((lang) => {
 			const text = textOf(map[lang]);
 			return [lang, text === "" ? first : text];
@@ -608,7 +632,9 @@ export function caseListPlaceOf(module: DraftModule): HqPlace {
 
 /** HQ's `module_offers_search`: a search with a field or a default filter. */
 export function offersSearch(module: JsonObject): boolean {
-	const config = isJsonObject(module.search_config) ? module.search_config : {};
+	const config = isJsonObject(module.search_config)
+		? module.search_config
+		: NO_ENTRIES;
 	const nonEmpty = (value: unknown) => Array.isArray(value) && value.length > 0;
 	return nonEmpty(config.properties) || nonEmpty(config.default_properties);
 }
@@ -616,7 +642,9 @@ export function offersSearch(module: JsonObject): boolean {
 /** The results instance a menu's search loads into, whether or not it
  *  searches (`models/case_search.py::CaseSearch.get_instance_name`). */
 function resultsInstanceOf(module: JsonObject): string {
-	const config = isJsonObject(module.search_config) ? module.search_config : {};
+	const config = isJsonObject(module.search_config)
+		? module.search_config
+		: NO_ENTRIES;
 	const name = config.instance_name;
 	return typeof name === "string" && name !== ""
 		? `results:${name}`
@@ -625,7 +653,9 @@ function resultsInstanceOf(module: JsonObject): string {
 
 /** HQ's `module_uses_inline_search`: a search the menu's forms read. */
 export function usesInlineSearch(module: JsonObject): boolean {
-	const config = isJsonObject(module.search_config) ? module.search_config : {};
+	const config = isJsonObject(module.search_config)
+		? module.search_config
+		: NO_ENTRIES;
 	return (
 		offersSearch(module) &&
 		config.inline_search === true &&
@@ -635,24 +665,24 @@ export function usesInlineSearch(module: JsonObject): boolean {
 
 /** Whether the stored menu's case list selects several cases. */
 export function selectsSeveral(module: JsonObject): boolean {
-	const details = isJsonObject(module.case_details) ? module.case_details : {};
-	const short = isJsonObject(details.short) ? details.short : {};
+	const details = isJsonObject(module.case_details)
+		? module.case_details
+		: NO_ENTRIES;
+	const short = isJsonObject(details.short) ? details.short : NO_ENTRIES;
 	return short.multi_select === true;
 }
 
 /** The stored forms of a menu. */
 export function rawForms(module: JsonObject): readonly JsonObject[] {
-	return Array.isArray(module.forms) ? module.forms.filter(isJsonObject) : [];
+	return objectMembers(module.forms) ?? [];
 }
 
 /** Whether a stored form's entry asks for a case first: a basic form's
  *  `requires`, an advanced form's load chosen from a list. */
 export function formChoosesCase(form: JsonObject): boolean {
 	if (form.doc_type === "AdvancedForm") {
-		const actions = isJsonObject(form.actions) ? form.actions : {};
-		const loads = Array.isArray(actions.load_update_cases)
-			? actions.load_update_cases.filter(isJsonObject)
-			: [];
+		const actions = isJsonObject(form.actions) ? form.actions : NO_ENTRIES;
+		const loads = objectMembers(actions.load_update_cases) ?? [];
 		return loads.some((load) => {
 			const select = isJsonObject(load.auto_select) ? load.auto_select : null;
 			return select === null;
@@ -869,7 +899,9 @@ function selectionCycles(ctx: ReadContext, start: string): boolean {
 		if (seen.has(current)) return current === start;
 		seen.add(current);
 		const menu = rawModuleById(ctx, current);
-		const select = isJsonObject(menu?.parent_select) ? menu.parent_select : {};
+		const select = isJsonObject(menu?.parent_select)
+			? menu.parent_select
+			: NO_ENTRIES;
 		current = select.active === true ? select.module_id : undefined;
 	}
 	return false;
@@ -884,7 +916,9 @@ function readParentSelection(
 ): void {
 	if (module.docType !== "Module") return;
 	const { json } = module;
-	const select = isJsonObject(stored.parent_select) ? stored.parent_select : {};
+	const select = isJsonObject(stored.parent_select)
+		? stored.parent_select
+		: NO_ENTRIES;
 	if (select.active !== true) {
 		json.drop("parent_select", MENU.selectInactive);
 		return;
@@ -942,7 +976,9 @@ function readCaseListMenuItem(
 	stored: JsonObject,
 ): void {
 	const { json } = module;
-	const caseList = isJsonObject(stored.case_list) ? stored.case_list : {};
+	const caseList = isJsonObject(stored.case_list)
+		? stored.case_list
+		: NO_ENTRIES;
 	if (caseList.show !== true) {
 		if (!json.used("case_list")) return;
 		json.drop(
@@ -1055,7 +1091,9 @@ function readMenuSettings(
 	if (stored.is_training_module === true)
 		json.refuse("is_training_module", MENU.training[cls]);
 	if (module.docType === "Module") {
-		const taskList = isJsonObject(stored.task_list) ? stored.task_list : {};
+		const taskList = isJsonObject(stored.task_list)
+			? stored.task_list
+			: NO_ENTRIES;
 		if (json.used("task_list"))
 			if (taskList.show === true) json.refuse("task_list", MENU.taskListShown);
 			else json.drop("task_list", MENU.taskListHidden);
@@ -1070,7 +1108,7 @@ function readMenuSettings(
 	}
 	const fixtureSelect = isJsonObject(stored.fixture_select)
 		? stored.fixture_select
-		: {};
+		: NO_ENTRIES;
 	if (json.used("fixture_select"))
 		if (fixtureSelect.active === true)
 			json.refuse("fixture_select", MENU.fixtureSelectActive[cls]);
@@ -1191,7 +1229,7 @@ export function readModules(ctx: ReadContext, app: DraftApp): void {
 	const folded = new Set(app.foldedMenus.map((one) => one.menu));
 	const stored = rawModules(ctx);
 	for (const module of app.modules) {
-		const menu = stored[module.index] ?? {};
+		const menu = stored[module.index] ?? NO_ENTRIES;
 		readCaseType(ctx, module);
 		readMenuSettings(ctx, module, menu);
 		const media = readNavMedia(
@@ -1245,7 +1283,7 @@ function writeMenuIds(
 		if (folded.has(module)) continue;
 		const names = isJsonObject(stored[module.index]?.name)
 			? (stored[module.index]?.name as JsonObject)
-			: {};
+			: NO_ENTRIES;
 		const source = textOf(names[sourceCode ?? ""]);
 		const name =
 			source !== ""
@@ -1267,7 +1305,8 @@ function checkMenuOrder(
 	folded: ReadonlySet<DraftModule>,
 ): void {
 	const menus = app.modules.filter((module) => !folded.has(module));
-	const modules: Record<string, { parentModuleUuid?: Uuid }> = {};
+	const modules: Record<string, { parentModuleUuid?: Uuid }> =
+		recordFromEntries([]);
 	for (const module of menus)
 		modules[module.uuid] = {
 			...(module.module.parentModuleUuid === undefined

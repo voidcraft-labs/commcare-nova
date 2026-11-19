@@ -38,7 +38,9 @@
  * Python's `str()` does, where HQ's choice reaches one.
  */
 
+import { recordFromEntries } from "@/lib/domain/records";
 import { defaultTableText } from "../appStringKeys";
+import { chargeWork } from "../workMeter";
 
 /** A text HQ's build shows, or why the reader cannot know it. */
 export type HqText =
@@ -175,22 +177,94 @@ export function shownText(
 	lang: string,
 	langs: readonly string[],
 ): HqText {
-	const own = cleanTrans(stored, [lang, ...langs]);
-	if (!own.ok || own.text !== "") return own;
-	let fallback: HqText | undefined;
-	for (const lc of [...langs].reverse()) {
-		if (lc === DEFAULT_LOCALE) continue;
-		const read = cleanTrans(stored, [lc, ...langs]);
-		// The merge reads each language's table back through `loads`, so a text Python reads
-		// as blank is `""` there and every other loses the spaces at its end.
-		const value: HqText = read.ok
-			? { ok: true, text: defaultTableText(read.text) }
-			: read;
-		// `if not (val == '' and key in messages)`
-		if (!(value.ok && value.text === "" && fallback !== undefined))
-			fallback = value;
+	const map = asTextMap(stored);
+	if (map === undefined) return { ok: false, reason: "not-a-map" };
+	return mapShower(map, langs).shown(lang);
+}
+
+/** What one stored map shows in each language of one build's languages. */
+interface MapShower {
+	shown(lang: string): HqText;
+}
+
+/** Each map's shower, by the map and the languages it was made for. */
+const showers = new WeakMap<object, WeakMap<readonly string[], MapShower>>();
+
+/**
+ * `shownText` of `map` under `langs`, worked out once and answered for every
+ * language from it: `clean_trans(name, [lang] + langs)` is the language's own
+ * value where the map holds one (not `None`), else the first of `langs` the map
+ * holds, else its least key; and the `default` table's text, which a blank
+ * falls back to, is one text whatever the language. So each language is
+ * examined once a map, never once a language of each other language.
+ */
+function mapShower(map: TextMap, langs: readonly string[]): MapShower {
+	let byLangs = showers.get(map);
+	if (byLangs === undefined) {
+		byLangs = new WeakMap();
+		showers.set(map, byLangs);
 	}
-	return fallback ?? { ok: true, text: "" };
+	const known = byLangs.get(langs);
+	if (known !== undefined) return known;
+	chargeWork("visit", 1 + langs.length);
+	const holds = (lang: string) =>
+		Object.hasOwn(map, lang) && map[lang] !== null;
+	let first: string | undefined;
+	for (const lang of langs)
+		if (holds(lang)) {
+			first = lang;
+			break;
+		}
+	if (first === undefined) {
+		// `sorted(name.items())[0]`: the least key, whatever its value, `None` included.
+		const keys = Object.keys(map);
+		chargeWork("visit", keys.length);
+		first = keys.sort(compareCodePoints)[0];
+	}
+	const otherwise = first;
+	const printedBy = new Map<string, HqText>();
+	/** `clean_trans(map, [lang] + langs)`. */
+	const ownText = (lang: string): HqText => {
+		const chosen = holds(lang) ? lang : otherwise;
+		if (chosen === undefined) return { ok: true, text: "" };
+		let text = printedBy.get(chosen);
+		if (text === undefined) {
+			text = printed(map, chosen, "");
+			printedBy.set(chosen, text);
+		}
+		return text;
+	};
+	let fallback: HqText | undefined;
+	const defaultTable = (): HqText => {
+		if (fallback !== undefined) return fallback;
+		const read = new Map<string, HqText>();
+		let chosen: HqText | undefined;
+		for (let index = langs.length - 1; index >= 0; index--) {
+			const lc = langs[index] as string;
+			if (lc === DEFAULT_LOCALE) continue;
+			const own = ownText(lc);
+			let value = read.get(lc);
+			if (value === undefined) {
+				// The merge reads each language's table back through `loads`, so a text Python reads
+				// as blank is `""` there and every other loses the spaces at its end.
+				value = own.ok ? { ok: true, text: defaultTableText(own.text) } : own;
+				read.set(lc, value);
+			}
+			// `if not (val == '' and key in messages)`
+			if (!(value.ok && value.text === "" && chosen !== undefined))
+				chosen = value;
+		}
+		fallback = chosen ?? { ok: true, text: "" };
+		return fallback;
+	};
+	const shower: MapShower = {
+		shown(lang) {
+			const own = ownText(lang);
+			return !own.ok || own.text !== "" ? own : defaultTable();
+		},
+	};
+	byLangs.set(langs, shower);
+	return shower;
 }
 
 /**
@@ -208,7 +282,7 @@ export function sourceAndTranslations(
 ): HqSourceAndTranslations {
 	const source = shownText(stored, sourceLang, langs);
 	if (!source.ok) return source;
-	const translations: Record<string, string> = {};
+	const translations = recordFromEntries<string>([]);
 	for (const lang of langs) {
 		if (lang === sourceLang || lang === DEFAULT_LOCALE) continue;
 		const shown = shownText(stored, lang, langs);

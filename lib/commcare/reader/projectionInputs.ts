@@ -24,6 +24,7 @@
 import type { HqApplication } from "@/lib/commcare";
 import type { BlueprintDoc } from "@/lib/domain";
 import { mimeTypeForExtension } from "@/lib/domain/multimedia";
+import { recordFromEntries } from "@/lib/domain/records";
 import { LOOKUP_DATA_TYPES } from "@/lib/lookup/constants";
 import type { LookupDataType } from "@/lib/lookup/types";
 import { syntheticModuleUuid } from "../emissionPlan";
@@ -247,7 +248,7 @@ export function keptMediaPath(ctx: ReadContext, path: string): string {
 export function keptMediaPaths(ctx: ReadContext, value: unknown): unknown {
 	if (typeof value !== "object" || value === null || Array.isArray(value))
 		return value;
-	return Object.fromEntries(
+	return recordFromEntries(
 		Object.entries(value).map(([language, path]) => [
 			language,
 			typeof path === "string" ? keptMediaPath(ctx, path) : path,

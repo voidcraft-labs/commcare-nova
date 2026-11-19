@@ -108,7 +108,10 @@ function holdsNoValue(bag: Record<string, unknown>, key: string): boolean {
  * `languageNames: "nova"` Nova writes its own label where it has one and
  * drops every name the target holds; with `"target"`
  * the key is carried as the target holds it, an absent one stays absent,
- * and Nova's label is not written.
+ * and Nova's label is not written. A key is judged as HQ's build writes it
+ * (`appStringKeys.ts::translationKeyOwner`), so one that sets another string
+ * than its own name there (` modules.m0`, a key holding `=` or a line break)
+ * is never carried.
  */
 export function projectTranslationsForTarget(
 	application: Pick<HqApplication, "langs" | "translations">,

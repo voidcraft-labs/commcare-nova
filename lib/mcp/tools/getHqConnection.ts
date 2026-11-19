@@ -28,7 +28,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
 /** A project space the key can upload to. */
@@ -69,23 +69,16 @@ export function registerGetHqConnection(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"get_hq_connection",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
 				"Check the user's CommCare HQ connection: whether it's configured, which HQ deployment it lives on (`server`/`server_url`. US, India, and EU are separate CommCare servers), and every project space (domain) the API key can upload to (`available_domains`). Call this before `upload_app_to_hq` or `list_hq_apps` to confirm the project space. When `available_domains` holds more than one space, ask the user which space and pass their choice to `upload_app_to_hq`, never choose for them; a multi-space key's target is always the user's per-upload decision.",
 		},
 		async (_ctx): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				/* Per-tool scope gate — runs BEFORE any data read so a
-				 * missing-scope token cannot probe whether HQ creds exist
-				 * for the user. The route-layer `nova.read` requirement has
-				 * already passed; this gate adds the HQ-specific layer.
-				 * Throws `McpScopeError` on miss; the surrounding catch
-				 * routes through `toMcpErrorResult`'s scope-missing branch. */
-				assertScope(ctx, SCOPES.hqRead, "get_hq_connection");
-
 				const settings = await getCommCareSettings(ctx.userId);
 				const body: GetHqConnectionBody = settings.configured
 					? {

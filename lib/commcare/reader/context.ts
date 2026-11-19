@@ -21,7 +21,7 @@ import type { HqPlace } from "@/lib/publish/hqFindings";
 import type { InventoryIndex } from "../surface/inventory";
 import { Accounting, type Admitted } from "./accounting";
 import type { HeldExpansions } from "./heldExpansions";
-import type { IdentityResolver } from "./identity";
+import { claimsUnder, type IdentityClaims } from "./identity";
 import type { JsonCursor } from "./jsonCursor";
 import {
 	type AnsweredPendingRegistry,
@@ -112,8 +112,9 @@ export interface ReadContext {
 	readonly translations: TranslationSink;
 	/** Every expression registered for the expression stage, with the node each was read from. */
 	readonly pending: AnsweredPendingRegistry;
-	/** `input.resolver`. */
-	readonly resolver: IdentityResolver;
+	/** What this reading has claimed under `input.resolver`, which a reading never changes, so
+	 *  every reading of one input claims alike. */
+	readonly identities: IdentityClaims;
 	/** The bound provisional document; undefined before the expression stage. Frozen; replaced,
 	 *  never mutated. */
 	doc: BlueprintDoc | undefined;
@@ -179,7 +180,7 @@ export function createReadContext(
 		},
 		translations: translationSink(),
 		pending: pendingRegistry(),
-		resolver: input.resolver,
+		identities: claimsUnder(input.resolver),
 		doc: undefined,
 		facts: emptyFacts(input),
 		readsLocations: false,

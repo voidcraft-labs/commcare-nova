@@ -18,6 +18,7 @@ import {
 	type HqAppSource,
 	parseHqAppSource,
 } from "@/lib/commcare/hq/appSource";
+import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 function notASource(key: string): string {
@@ -48,7 +49,7 @@ export function sourceFromBaseline(normalized: unknown): HqAppSource {
  * order, and the two readings of one app are one document.
  */
 export function inStoredKeyOrder(source: HqAppSource): HqAppSource {
-	return sourceFromBaseline(JSON.parse(canonicalJsonText(source.raw)));
+	return sourceFromBaseline(parseHqJsonText(canonicalJsonText(source.raw)));
 }
 
 /**

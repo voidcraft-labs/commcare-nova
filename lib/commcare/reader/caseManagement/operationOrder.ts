@@ -22,6 +22,7 @@ import {
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { planFormCaseWire } from "../../casePlacementPlan";
 import { appPlacements, planBasicSubcases } from "../../placement";
+import { rethrowWorkStop } from "../../workMeter";
 import { generatedBaseName } from "../../xform/generatedNodes";
 import { withCandidate } from "../candidate";
 import { defineClaims, refuse } from "../claims";
@@ -213,7 +214,8 @@ export function caseManagementOperationsAsRead(
 		let plan: ReturnType<typeof planFormCaseWire> | undefined;
 		try {
 			plan = planFormCaseWire(doc, formUuid);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			plan = undefined;
 		}
 		if (plan === undefined) continue;

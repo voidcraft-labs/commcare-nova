@@ -6,11 +6,13 @@ import {
 	type Transaction,
 	type Updateable,
 } from "kysely";
+import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
 	type AppDatabase,
 	type LookupTablesTable,
 	notifyLookupProject,
 } from "@/lib/db/pg";
+import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { managedLookupTableRefusal } from "@/lib/publish/managedData";
 import { LookupError } from "./errors";
@@ -22,6 +24,125 @@ export type StoredLookupTable = Selectable<LookupTablesTable>;
 export interface LockedLookupProjectState {
 	revision: LookupRevision;
 }
+
+declare const lookupWriteAuthorityBrand: unique symbol;
+
+/**
+ * A member's authority to write a Project's lookup data, read in the one
+ * transaction that writes. Only `authorizeLookupWriteInTransaction` makes one,
+ * and it is good only on the transaction it was read on: every lock of a
+ * lookup writer takes one, so no writer reaches Project state or a table on a
+ * role read before its transaction, or in another one.
+ */
+export interface LookupWriteAuthority {
+	readonly projectId: string;
+	readonly actorId: string;
+	/** The member's role as the transaction read it under the membership gate. */
+	readonly role: string;
+	readonly [lookupWriteAuthorityBrand]: true;
+}
+
+/** Every authority made, with the transaction it was read on. */
+const authorityTransactions = new WeakMap<
+	LookupWriteAuthority,
+	Transaction<AppDatabase>
+>();
+
+/**
+ * A write refused because the member's standing, read in the write's own
+ * transaction, does not allow it: no longer a member of the Project
+ * (`not-a-member`), or a member whose role falls below what the write needs
+ * (`below-capability`). Its code is `not_found`, the shape every ordinary
+ * lookup boundary gives a resource the caller may not touch; a surface that
+ * names who can make the change reads `standing` and `capability`.
+ */
+export class LookupAuthorityError extends LookupError {
+	readonly standing: "not-a-member" | "below-capability";
+	readonly capability: Exclude<AppCapability, "view">;
+	constructor(
+		standing: "not-a-member" | "below-capability",
+		capability: Exclude<AppCapability, "view">,
+	) {
+		super("not_found", "Lookup resource was not found.");
+		this.name = "LookupAuthorityError";
+		this.standing = standing;
+		this.capability = capability;
+	}
+}
+
+/**
+ * Read the member's role in the Project on the write's own transaction, under
+ * the shared membership gate with the member row `FOR SHARE`
+ * (`projectRoleForInTransaction`), and answer the authority every lookup lock
+ * takes, or throw `LookupAuthorityError`. The lock order is the membership
+ * gate, then Project state, then tables: an app-bound writer has already
+ * taken its app row, and nothing takes the gate after Project state. Reading
+ * it twice on one transaction is harmless: the gate is already held and the
+ * row already locked.
+ */
+export async function authorizeLookupWriteInTransaction(
+	tx: Transaction<AppDatabase>,
+	writer: { readonly projectId: string; readonly actorId: string },
+	capability: Exclude<AppCapability, "view">,
+): Promise<LookupWriteAuthority> {
+	if (
+		typeof writer.projectId !== "string" ||
+		writer.projectId.length === 0 ||
+		typeof writer.actorId !== "string" ||
+		writer.actorId.length === 0
+	) {
+		throw new Error(
+			"A lookup write was authorized with no Project or no member to read.",
+		);
+	}
+	const role = await projectRoleForInTransaction(
+		tx,
+		writer.actorId,
+		writer.projectId,
+	);
+	if (role === null) throw new LookupAuthorityError("not-a-member", capability);
+	if (!roleAllowsApp(role, capability)) {
+		throw new LookupAuthorityError("below-capability", capability);
+	}
+	const authority = {
+		projectId: writer.projectId,
+		actorId: writer.actorId,
+		role,
+	} as LookupWriteAuthority;
+	authorityTransactions.set(authority, tx);
+	return authority;
+}
+
+/**
+ * The authority, where it was read on `tx` and allows `capability`; otherwise
+ * a fault of the caller (an authority from another transaction) or the
+ * write's refusal (a role below what this write needs).
+ */
+export function requireLookupCapability(
+	tx: Transaction<AppDatabase>,
+	authority: LookupWriteAuthority,
+	capability: Exclude<AppCapability, "view">,
+): LookupWriteAuthority {
+	if (authorityTransactions.get(authority) !== tx) {
+		throw new Error(
+			"A lookup write used an authority read on another transaction. Authorize the write on the transaction that makes it (authorizeLookupWriteInTransaction).",
+		);
+	}
+	if (!roleAllowsApp(authority.role, capability)) {
+		throw new LookupAuthorityError("below-capability", capability);
+	}
+	return authority;
+}
+
+/** The capability each purpose of a table lock needs, at the least. */
+const PURPOSE_CAPABILITY: Readonly<
+	Record<LookupWritePurpose, Exclude<AppCapability, "view">>
+> = {
+	author: "edit",
+	"remove-table": "delete",
+	"hq-refresh": "edit",
+	"hq-management": "delete",
+};
 
 export function lookupTableRevisions(
 	table: StoredLookupTable,
@@ -35,10 +156,16 @@ export function lookupTableRevisions(
 	};
 }
 
+/**
+ * Create-if-missing and lock the Project's lookup state, the first lock of
+ * every lookup writer, for the Project the authority was read for.
+ */
 export async function lockLookupProjectState(
 	tx: Transaction<AppDatabase>,
-	projectId: string,
+	authority: LookupWriteAuthority,
 ): Promise<LockedLookupProjectState> {
+	requireLookupCapability(tx, authority, "edit");
+	const { projectId } = authority;
 	await tx
 		.insertInto("lookup_project_state")
 		.values({ project_id: projectId })
@@ -70,21 +197,26 @@ export type LookupWritePurpose =
 	| "hq-management";
 
 /**
- * Lock one table `FOR UPDATE` for a write, in this order: the row, or
- * `not_found`; for an `author` write, the refusal of a table CommCare HQ
- * manages (`hq_server` set, no takeover); then the revision compare. The
- * managed check comes first, so a stale tab learns the table is managed
- * rather than being sent to reload. Only `hq-refresh` and `hq-management`
- * skip the compare, with a null `expectedRevision`: a refresh is no edit of
- * what a person loaded, and the lock it holds makes its read current.
+ * Lock one table `FOR UPDATE` for a write, in this order: the capability the
+ * purpose needs (`edit` for an author's write and a refresh, `delete` for
+ * removing a table and for changing who manages one), held by an authority
+ * read on this transaction; the row, or `not_found`; for an `author` write,
+ * the refusal of a table CommCare HQ manages (`hq_server` set, no takeover);
+ * then the revision compare. The managed check comes first, so a stale tab
+ * learns the table is managed rather than being sent to reload. Only
+ * `hq-refresh` and `hq-management` skip this compare, with a null
+ * `expectedRevision`: `managed.ts` compares what a person reviewed itself,
+ * under this lock.
  */
 export async function lockLookupTableForUpdate(
 	tx: Transaction<AppDatabase>,
-	projectId: string,
+	authority: LookupWriteAuthority,
 	tableId: LookupTableId,
 	expectedRevision: LookupRevision | null,
 	purpose: LookupWritePurpose,
 ): Promise<StoredLookupTable> {
+	requireLookupCapability(tx, authority, PURPOSE_CAPABILITY[purpose]);
+	const { projectId } = authority;
 	if (
 		expectedRevision === null &&
 		(purpose === "author" || purpose === "remove-table")

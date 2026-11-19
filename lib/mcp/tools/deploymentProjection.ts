@@ -29,7 +29,6 @@
  * never from the state, by the rules the Publishing card reads.
  */
 
-import { confirmationLabel } from "@/lib/deployment/confirmations";
 import {
 	activeRemoteApp,
 	deploymentEnding,
@@ -49,6 +48,10 @@ import { DEPLOYMENT_PHASES } from "@/lib/deployment/types";
 import { driftDate } from "@/lib/publish/driftReference";
 import type { FirstPublishLines } from "@/lib/publish/firstPublishCopy";
 import { KEPT_LABELS } from "@/lib/publish/keptValues";
+import {
+	type ConfirmationLevels,
+	confirmationLabel,
+} from "@/lib/publish/planFeatures";
 import { endedLine } from "@/lib/publish/stopPublishing";
 
 /** One remote resource an earlier publish left on the project space. */
@@ -175,13 +178,17 @@ export interface DeploymentConfirmationProjection {
  * `novaRevisions` is `store.ts::readDeploymentNovaRevisions` of the app,
  * read beside the record, or `unread` where the answer to a write that
  * landed could not read it (`landedNovaRevisions`), which leaves
- * `nova_revision` out.
+ * `nova_revision` out. `levels` are the app's organization levels
+ * (`orderedOrganizationLevels` of the document the record is read beside), which
+ * name the level a worker-level confirmation stores by its code, as the
+ * Publishing card names it.
  */
 export function describeDeployment(
 	view: DeploymentWithResources,
 	currentIdentities: ReadonlyMap<string, string> | null,
 	kept: DeploymentKept | null | "unread",
 	novaRevisions: ReadonlyMap<string, number> | "unread",
+	levels: ConfirmationLevels,
 ): DeploymentProjection {
 	const record = view.deployment;
 	const remote = activeRemoteApp(view);
@@ -236,7 +243,7 @@ export function describeDeployment(
 		confirmations: view.confirmations.map((confirmation) => ({
 			kind: confirmation.kind,
 			subject: confirmation.subject,
-			label: confirmationLabel(confirmation),
+			label: confirmationLabel(confirmation, levels),
 			confirmed_by: confirmation.confirmedByName,
 			confirmed_at: confirmation.confirmedAt,
 		})),

@@ -5,8 +5,15 @@ import type { PersistableDoc } from "@/lib/domain/blueprint";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
 import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
+import type { Uuid } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { type AdoptedMediaFile, assignMediaPaths } from "../../adoption";
+import {
+	canonicalTargetIdentity,
+	EMPTY_TARGET_IDENTITY,
+	resolveTargetIdentity,
+	type TargetIdentity,
+} from "../../targetIdentity";
 import { type ReviewDigestInput, reviewDigestOf } from "../digest";
 import { reviewMediaId } from "../mediaIds";
 import type {
@@ -95,11 +102,28 @@ function file(
 	return { hqPath, assetId, contentHash, extension: ".png" };
 }
 
-const BASE: ReviewDigestInput = {
-	v: 1,
-	review: REVIEW,
-	document: "e".repeat(64),
-	identities: [
+/** The record a birth writes of `files` alone: each file's path as the birth keeps it. */
+function pathsOf(files: readonly AdoptedMediaFile[]): TargetIdentity {
+	return resolveTargetIdentity(
+		EMPTY_TARGET_IDENTITY,
+		{
+			entities: [],
+			keyedCreates: [],
+			mediaPaths: assignMediaPaths(files).rows.map((row) => ({
+				...row,
+				derivedPath: "",
+				alsoAt: [],
+			})),
+			hqPaths: [],
+			columnWords: [],
+		},
+		{ appId: "01937c5e-7d1a-7c3b-8a4f-2b6c9d0e1f99" },
+	);
+}
+
+const OPERATION = "2d1b4e5a-3f4c-4d5e-8f6a-7b8c9d0e1f2a" as Uuid;
+const RECORD: TargetIdentity = canonicalTargetIdentity({
+	entities: [
 		{
 			entityKind: "module",
 			novaEntityUuid: "0b9f2c3e-1d2a-4b3c-8d4e-5f6a7b8c9d0e",
@@ -113,9 +137,34 @@ const BASE: ReviewDigestInput = {
 			xmlns: "http://openrosa.org/formdesigner/ABC",
 		},
 	],
-	mediaPaths: assignMediaPaths([
-		file("jr://file/commcare/image/logo.png", ASSET, HASH),
-	]),
+	keyedCaseIds: [
+		{
+			operationUuid: OPERATION,
+			caseType: "household",
+			prefix: "nova-case-v1:5b4a3c2d-1e0f-5a9b-8c7d-6e5f4a3b2c1d:",
+		},
+	],
+	mediaPaths: pathsOf([file("jr://file/commcare/image/logo.png", ASSET, HASH)])
+		.mediaPaths,
+	columnWords: [
+		{
+			columnUuid: "2e1b4f5a-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+			screen: "long",
+			word: "case_name",
+		},
+		{
+			columnUuid: "2e1b4f5a-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+			screen: "short",
+			word: "case_name",
+		},
+	],
+});
+
+const BASE: ReviewDigestInput = {
+	v: 2,
+	review: REVIEW,
+	document: "e".repeat(64),
+	targetIdentity: RECORD,
 };
 
 /** Each variant changes exactly one part of the input. */
@@ -133,6 +182,10 @@ function variants(): ReadonlyMap<string, ReviewDigestInput> {
 		review({ runsOn: [{ ...PRESELECTED, ...change }, OTHER] });
 	const table = (change: Partial<ReviewTable>): ReviewDigestInput =>
 		review({ tables: [{ ...TABLE, ...change }] });
+	const record = (change: Partial<TargetIdentity>): ReviewDigestInput => ({
+		...BASE,
+		targetIdentity: { ...RECORD, ...change },
+	});
 	return new Map<string, ReviewDigestInput>([
 		["review.appName", review({ appName: "Household survey 2" })],
 		["review.creates.menus", creates({ menus: 3 })],
@@ -212,36 +265,47 @@ function variants(): ReadonlyMap<string, ReviewDigestInput> {
 		],
 		["document", { ...BASE, document: "0".repeat(64) }],
 		[
-			"identities[].uniqueId",
-			{
-				...BASE,
-				identities: [
-					BASE.identities[0],
-					{ ...BASE.identities[1], uniqueId: "hq-form-2" },
-				],
-			},
+			"targetIdentity.entities[].uniqueId",
+			record({
+				entities: RECORD.entities.map((row) =>
+					row.entityKind === "form" ? { ...row, uniqueId: "hq-form-2" } : row,
+				),
+			}),
 		],
 		[
-			"identities[].xmlns",
-			{
-				...BASE,
-				identities: [
-					BASE.identities[0],
-					{
-						...BASE.identities[1],
-						xmlns: "http://openrosa.org/formdesigner/DEF",
-					},
-				],
-			},
+			"targetIdentity.entities[].xmlns",
+			record({
+				entities: RECORD.entities.map((row) =>
+					row.entityKind === "form"
+						? { ...row, xmlns: "http://openrosa.org/formdesigner/DEF" }
+						: row,
+				),
+			}),
 		],
 		[
-			"mediaPaths",
-			{
-				...BASE,
-				mediaPaths: assignMediaPaths([
+			"targetIdentity.keyedCaseIds[].prefix",
+			record({
+				keyedCaseIds: RECORD.keyedCaseIds.map((row) => ({
+					...row,
+					prefix: "nova-case-v1:6c5b4d3e-2f1a-5b0c-9d8e-7f6a5b4c3d2e:",
+				})),
+			}),
+		],
+		[
+			"targetIdentity.mediaPaths",
+			record({
+				mediaPaths: pathsOf([
 					file("jr://file/commcare/image/logo-2.png", ASSET, HASH),
-				]),
-			},
+				]).mediaPaths,
+			}),
+		],
+		[
+			"targetIdentity.columnWords[].word",
+			record({
+				columnWords: RECORD.columnWords.map((row) =>
+					row.screen === "short" ? { ...row, word: "date_opened" } : row,
+				),
+			}),
 		],
 	]);
 }
@@ -253,7 +317,7 @@ describe("reviewDigestOf", () => {
 		expect(reviewDigestOf(structuredClone(BASE))).toBe(digest);
 	});
 
-	it("changes with each part of the review, the document, an identity row and a media path", () => {
+	it("changes with each part of the review, the document, and the target-identity record: a menu's or form's id, a keyed create's prefix, a media path, a column's word", () => {
 		const base = reviewDigestOf(BASE);
 		const seen = new Map<string, string>();
 		for (const [part, input] of variants()) {
@@ -311,7 +375,7 @@ describe("reviewDigestOf", () => {
 				return {
 					...BASE,
 					document: canonicalJsonDigest(doc),
-					mediaPaths: assignMediaPaths(files),
+					targetIdentity: pathsOf(files),
 				};
 			}
 			const byId = new Map(
@@ -320,7 +384,7 @@ describe("reviewDigestOf", () => {
 			return {
 				...BASE,
 				document: canonicalJsonDigest(remapAssetRefs(doc, byId)),
-				mediaPaths: assignMediaPaths(
+				targetIdentity: pathsOf(
 					files.map((one) => ({
 						...one,
 						assetId: reviewMediaId(one.contentHash),
@@ -336,5 +400,20 @@ describe("reviewDigestOf", () => {
 		expect(reviewDigestOf(inputOf(reviewDoc, reviewFiles, false))).not.toBe(
 			reviewDigestOf(inputOf(createDoc, createFiles, false)),
 		);
+	});
+
+	it("gives one digest for one record whatever order its rows were gathered in", () => {
+		const reordered: TargetIdentity = {
+			entities: [...RECORD.entities].reverse(),
+			keyedCaseIds: [...RECORD.keyedCaseIds].reverse(),
+			mediaPaths: [...RECORD.mediaPaths].reverse(),
+			columnWords: [...RECORD.columnWords].reverse(),
+		};
+		expect(
+			reviewDigestOf({
+				...BASE,
+				targetIdentity: canonicalTargetIdentity(reordered),
+			}),
+		).toBe(reviewDigestOf(BASE));
 	});
 });

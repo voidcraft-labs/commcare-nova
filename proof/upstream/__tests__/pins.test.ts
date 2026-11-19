@@ -6,6 +6,7 @@ import {
 	readdir,
 	readFile,
 	rm,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -508,6 +509,118 @@ describe("the report stage", () => {
 		expect(created?.body).not.toContain("## Retained HQ answers and apps");
 	});
 
+	// The report job holds the write token, so an artifact is read there as data: a refused one is handled as its
+	// job failing (main's trees, or the pins alone for the surface), the description says which was refused and
+	// nothing the artifact named, and the stage ends red once the pull request is updated.
+	async function reportRefused(checkout: string, ...args: string[]) {
+		return exec(process.execPath, [SCRIPT, "report", ...args], {
+			cwd: checkout,
+			env,
+		}).then(
+			() => {
+				throw new Error("The report stage succeeded over a refused artifact.");
+			},
+			(error: { code: number; stderr: string }) => error,
+		);
+	}
+
+	it.each([
+		["a test-named file", "hq-reads/publish/x.test.ts", "export {};\n"],
+		["a hidden file", "hq-apps/hq-plain/.gitattributes", "* -diff\n"],
+		[
+			"a report line that is not adopt's",
+			"adopt-report.txt",
+			"hq-plain: see [this](https://example.org).\n",
+		],
+	])(
+		"commits main's retained trees and names the refusal when the artifact holds %s",
+		async (_, path, text) => {
+			const { checkout, origin, hq, ghLog } = await lane();
+			await hq.advance();
+			await stage(checkout, "plan");
+			const artifact = await retainedArtifact();
+			await writeFile(join(artifact, path), text);
+			const refused = await reportRefused(
+				checkout,
+				"--image-result",
+				"success",
+				"--digest",
+				`sha256:${"c".repeat(64)}`,
+				"--surface-result",
+				"success",
+				"--surface",
+				await surfaceFile({
+					"toggle:KEPT": { tag: "frozen", namespaces: ["domain"] },
+				}),
+				"--retained-result",
+				"success",
+				"--retained",
+				artifact,
+				"--run-url",
+				"https://example.org/run/6",
+			);
+			expect(refused.code).toBe(1);
+			expect(refused.stderr).toContain("Pull request #7 is updated");
+			expect(await branchCommit(origin)).toEqual({
+				onMain: true,
+				files: [
+					"lib/commcare/surface/surface.json",
+					"proof/image.lock",
+					"proof/pins.json",
+				],
+			});
+			const created = (await ghCalls(ghLog)).find(
+				(c) => c.args[1] === "create",
+			);
+			expect(created?.body).toContain(
+				"The retained trees this run made were not committed",
+			);
+			expect(created?.body).toContain("this run made were refused");
+			expect(created?.body).not.toContain("example.org)");
+			expect(created?.body).not.toContain("x.test.ts");
+			for (const line of ADOPTED) {
+				expect(created?.body).not.toContain(`- ${line}`);
+			}
+		},
+	);
+
+	it("commits the pins alone and names the refusal when the surface artifact is a link", async () => {
+		const { checkout, origin, hq, ghLog } = await lane();
+		await hq.advance();
+		await stage(checkout, "plan");
+		const target = await surfaceFile({ "toggle:KEPT": { tag: "frozen" } });
+		const linked = join(root, "linked-surface.json");
+		await symlink(target, linked);
+		const refused = await reportRefused(
+			checkout,
+			"--image-result",
+			"success",
+			"--digest",
+			`sha256:${"f".repeat(64)}`,
+			"--surface-result",
+			"success",
+			"--surface",
+			linked,
+			"--retained-result",
+			"success",
+			"--retained",
+			await retainedArtifact(),
+			"--run-url",
+			"https://example.org/run/7",
+		);
+		expect(refused.code).toBe(1);
+		expect(refused.stderr).toContain("is a link");
+		expect(await branchCommit(origin)).toEqual({
+			onMain: true,
+			files: ["proof/pins.json"],
+		});
+		const created = (await ghCalls(ghLog)).find((c) => c.args[1] === "create");
+		expect(created?.body).toContain(
+			"the surface the extraction made was refused",
+		);
+		expect(created?.body).not.toContain("## Retained HQ answers and apps");
+	});
+
 	it("updates the open pull request in place rather than opening another", async () => {
 		const { checkout, hq, ghLog, ghState } = await lane();
 		await writeFile(ghState, JSON.stringify([{ number: 7 }]));
@@ -657,19 +770,17 @@ describe("the workflow", () => {
 		);
 		expect(upload.uses).toMatch(/^actions\/upload-artifact@/);
 		expect(upload.with["if-no-files-found"]).toBe("error");
-		expect(upload.with["include-hidden-files"]).toBe(true);
 		const staging = expression("runner.temp");
 		expect(upload.with.path).toBe(`${staging}/upstream-retained/`);
 		const adopt = retained.steps.find((step: { run?: string }) =>
 			step.run?.includes("python3 -m proof.matrix.adopt"),
 		).run;
 		expect(adopt).toContain('--report --corpus "$RUNNER_TEMP/corpus"');
+		expect(adopt).toContain('> "$RUNNER_TEMP/adopt/adopt-report.txt"');
 		expect(adopt).toContain(
-			'> "$RUNNER_TEMP/upstream-retained/adopt-report.txt"',
+			'python3 -m proof.matrix.place pack proof "$RUNNER_TEMP/upstream-retained"',
 		);
-		expect(adopt).toContain(
-			'node proof/ci/retained.mjs proof "$RUNNER_TEMP/upstream-retained"',
-		);
+		expect(adopt).toContain('--report "$RUNNER_TEMP/adopt/adopt-report.txt"');
 		expect(report.needs).toContain("retained");
 		const download = report.steps.find(
 			(step: { with?: { name?: string } }) =>
@@ -686,6 +797,45 @@ describe("the workflow", () => {
 		expect(reporting.run).toContain(
 			'--retained "$RUNNER_TEMP/upstream-retained"',
 		);
+	});
+
+	// What a container or another job wrote is data. The plausible failures: an upload that follows a link a
+	// container left (upload-artifact follows links), a hidden file carried into the artifact, and a run's raw
+	// output uploaded before anything sealed it.
+	it("carries no hidden file and uploads a run's output only once it is sealed", async () => {
+		const workflow = parse(
+			await readFile(
+				join(WORKTREE, ".github/workflows/upstream-pins.yml"),
+				"utf8",
+			),
+		);
+		const steps = Object.values(workflow.jobs).flatMap(
+			(job) => (job as { steps?: Record<string, never>[] }).steps ?? [],
+		) as {
+			uses?: string;
+			run?: string;
+			with?: Record<string, unknown>;
+		}[];
+		const uploads = steps.filter((step) =>
+			step.uses?.startsWith("actions/upload-artifact@"),
+		);
+		expect(uploads.length).toBeGreaterThan(0);
+		for (const upload of uploads) {
+			expect(upload.with?.["include-hidden-files"]).toBeUndefined();
+		}
+		const retained = workflow.jobs.retained.steps as {
+			run?: string;
+			with?: { name?: string };
+		}[];
+		const raw = retained.findIndex(
+			(step) => step.with?.name === "upstream-retained-run",
+		);
+		const sealing = retained.findIndex(
+			(step) =>
+				step.run === 'node proof/run.mjs --seal "$RUNNER_TEMP/retained-out"',
+		);
+		expect(sealing).toBeGreaterThan(-1);
+		expect(sealing).toBeLessThan(raw);
 	});
 
 	// The run's own shell, executed as written over a controlled `node`: each test writes what HQ made before it
@@ -715,6 +865,8 @@ describe("the workflow", () => {
 			[1, 0],
 			[2, 2],
 			[3, 3],
+			// proof/run.mjs's own refusal of an output holding anything but plain files.
+			[6, 6],
 		]) {
 			const code = await exec("bash", ["-e", "-c", step.run], {
 				cwd: root,

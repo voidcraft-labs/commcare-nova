@@ -2,14 +2,18 @@
 // every writer meets, the create arm and the refresh arm.
 
 import { createHash } from "node:crypto";
-import { sql } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { Client, type Notification } from "pg";
 import { v7 } from "uuid";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { LOOKUP_STREAM_CHANNEL } from "@/lib/db/pg";
+import {
+	readLookupReferencingApps,
+	replaceLookupReferenceEdges,
+} from "@/lib/db/lookupReferenceEdges";
+import { type AppDatabase, LOOKUP_STREAM_CHANNEL } from "@/lib/db/pg";
 import {
 	type LookupColumnId,
 	type LookupTableId,
@@ -21,9 +25,12 @@ import { applyLookupAuthoringBatchInTransaction } from "../authoringBatch";
 import { LookupError } from "../errors";
 import {
 	createManagedLookupTablesInTransaction,
+	LookupReviewMovedError,
 	type ManagedLookupContent,
 	type ManagedOriginWrite,
+	type ManagedTableReviewed,
 	refreshManagedLookupTableInTransaction,
+	takeOverManagedLookupTableInTransaction,
 } from "../managed";
 import {
 	applyLookupSchemaGovernance,
@@ -52,6 +59,10 @@ import type {
 	LookupScope,
 	LookupTableSnapshot,
 } from "../types";
+import {
+	authorizeLookupWriteInTransaction,
+	LookupAuthorityError,
+} from "../writerTransaction";
 
 /* Three connections: a held hand-back, an author's write waiting at its lock,
  * and the observer that sees it wait. */
@@ -63,6 +74,39 @@ const SCOPE: LookupScope = {
 	role: "owner",
 };
 const DOMAIN = "district-health";
+
+/* Every lookup writer reads its member's role on its own transaction. */
+beforeEach(async () => {
+	await h.seedProjectMember(SCOPE.actorId, SCOPE.projectId, "owner");
+});
+
+/** The authority a production caller reads on the write's own transaction. */
+function authorized(
+	tx: Transaction<AppDatabase>,
+	capability: "edit" | "delete" = "delete",
+	writer: { readonly projectId: string; readonly actorId: string } = SCOPE,
+) {
+	return authorizeLookupWriteInTransaction(tx, writer, capability);
+}
+
+/**
+ * The table as a person or a reading reviews it before an adoption: its
+ * revisions and the apps whose edges name it, read now.
+ */
+async function reviewedNow(
+	tableId: LookupTableId,
+): Promise<ManagedTableReviewed> {
+	const table = await getLookupTable(SCOPE, tableId);
+	const readers = await readLookupReferencingApps(h.db(), {
+		projectId: SCOPE.projectId,
+		tableId,
+	});
+	return {
+		definitionRevision: table.definitionRevision,
+		rowsRevision: table.rowsRevision,
+		readerAppIds: readers.map((app) => app.appId).sort(),
+	};
+}
 const AT = new Date("2026-11-01T09:30:00.000Z");
 const LATER = new Date("2026-11-02T10:00:00.000Z");
 
@@ -122,10 +166,10 @@ async function createManaged(
 	await h
 		.db()
 		.transaction()
-		.execute((tx) =>
+		.execute(async (tx) =>
 			createManagedLookupTablesInTransaction(
 				tx,
-				SCOPE,
+				await authorized(tx),
 				[{ binding, name: tag, content, origin: originFor(content) }],
 				AT,
 			),
@@ -179,8 +223,8 @@ function inBatch(
 		h
 			.db()
 			.transaction()
-			.execute((tx) =>
-				applyLookupAuthoringBatchInTransaction(tx, SCOPE, {
+			.execute(async (tx) =>
+				applyLookupAuthoringBatchInTransaction(tx, await authorized(tx), {
 					updateTables: [
 						{
 							tableId: table.id,
@@ -551,10 +595,10 @@ describe("the create arm", () => {
 		await h
 			.db()
 			.transaction()
-			.execute((tx) =>
+			.execute(async (tx) =>
 				createManagedLookupTablesInTransaction(
 					tx,
-					SCOPE,
+					await authorized(tx),
 					[{ binding, name: "long_fields", content, origin }],
 					AT,
 				),
@@ -627,10 +671,10 @@ describe("the create arm", () => {
 			h
 				.db()
 				.transaction()
-				.execute((tx) =>
+				.execute(async (tx) =>
 					createManagedLookupTablesInTransaction(
 						tx,
-						SCOPE,
+						await authorized(tx),
 						[
 							{
 								binding: bindingFor("wide_cells", content.fields),
@@ -664,10 +708,10 @@ describe("the create arm", () => {
 			h
 				.db()
 				.transaction()
-				.execute((tx) =>
+				.execute(async (tx) =>
 					createManagedLookupTablesInTransaction(
 						tx,
-						SCOPE,
+						await authorized(tx),
 						[
 							{
 								binding: first,
@@ -707,10 +751,10 @@ describe("the create arm", () => {
 			h
 				.db()
 				.transaction()
-				.execute((tx) =>
+				.execute(async (tx) =>
 					createManagedLookupTablesInTransaction(
 						tx,
-						SCOPE,
+						await authorized(tx),
 						[
 							{
 								binding: first,
@@ -745,10 +789,10 @@ describe("the create arm", () => {
 			const receipt = await h
 				.db()
 				.transaction()
-				.execute((tx) =>
+				.execute(async (tx) =>
 					createManagedLookupTablesInTransaction(
 						tx,
-						SCOPE,
+						await authorized(tx),
 						["wards", "regions", "zones"].map((tag) => ({
 							binding: bindingFor(tag, CONTENT.fields),
 							name: tag,
@@ -775,19 +819,23 @@ async function refresh(
 	newColumnIds?: Readonly<Record<string, LookupColumnId>>,
 	remoteId?: string,
 ) {
+	const base = {
+		tableId,
+		content,
+		origin: originFor(content, remoteId),
+		at: LATER,
+		olderReadYields: true,
+		...(newColumnIds === undefined ? {} : { newColumnIds }),
+	};
+	const input =
+		mode === "adopt"
+			? { ...base, mode, reviewed: await reviewedNow(tableId) }
+			: { ...base, mode };
 	return h
 		.db()
 		.transaction()
-		.execute((tx) =>
-			refreshManagedLookupTableInTransaction(tx, SCOPE, {
-				tableId,
-				content,
-				origin: originFor(content, remoteId),
-				at: LATER,
-				mode,
-				olderReadYields: true,
-				...(newColumnIds === undefined ? {} : { newColumnIds }),
-			}),
+		.execute(async (tx) =>
+			refreshManagedLookupTableInTransaction(tx, await authorized(tx), input),
 		);
 }
 
@@ -819,8 +867,8 @@ describe("the refresh arm", () => {
 		const receipt = await h
 			.db()
 			.transaction()
-			.execute((tx) =>
-				refreshManagedLookupTableInTransaction(tx, SCOPE, {
+			.execute(async (tx) =>
+				refreshManagedLookupTableInTransaction(tx, await authorized(tx), {
 					tableId: table.id,
 					content: CONTENT,
 					origin,
@@ -1253,19 +1301,21 @@ describe("the refresh arm", () => {
 		const adoptedSignal = new Promise<void>((resolve) => {
 			adopted = resolve;
 		});
+		const reviewed = await reviewedNow(table.id);
 		const handBack = h
 			.db()
 			.transaction()
 			.execute(async (tx) => {
 				const receipt = await refreshManagedLookupTableInTransaction(
 					tx,
-					SCOPE,
+					await authorized(tx),
 					{
 						tableId: table.id,
 						content: CONTENT,
 						origin: originFor(CONTENT),
 						at: LATER,
 						mode: "adopt",
+						reviewed,
 						olderReadYields: true,
 					},
 				);
@@ -1349,24 +1399,28 @@ describe("a refresh whose read of CommCare HQ began before the copy's last write
 		rows: [{ name: "Alpha", code: "001" }],
 	};
 
-	function refreshAt(
+	async function refreshAt(
 		tableId: LookupTableId,
 		content: ManagedLookupContent,
 		at: Date,
 		mode: "refresh" | "adopt" = "refresh",
 	) {
+		const base = {
+			tableId,
+			content,
+			origin: originFor(content),
+			at,
+			olderReadYields: true,
+		};
+		const input =
+			mode === "adopt"
+				? { ...base, mode, reviewed: await reviewedNow(tableId) }
+				: { ...base, mode };
 		return h
 			.db()
 			.transaction()
-			.execute((tx) =>
-				refreshManagedLookupTableInTransaction(tx, SCOPE, {
-					tableId,
-					content,
-					origin: originFor(content),
-					at,
-					mode,
-					olderReadYields: true,
-				}),
+			.execute(async (tx) =>
+				refreshManagedLookupTableInTransaction(tx, await authorized(tx), input),
 			);
 	}
 
@@ -1419,5 +1473,263 @@ describe("a refresh whose read of CommCare HQ began before the copy's last write
 		const now = await getLookupTable(SCOPE, table.id);
 		expect(now.hq).toMatchObject({ managedBy: "nova" });
 		expect(now.rows).toEqual(before.rows);
+	});
+});
+
+describe("the lookup write contract", () => {
+	const EDITOR = { projectId: SCOPE.projectId, actorId: "managed-editor" };
+
+	it("reads the member's role on the write's own transaction: a scope built before the member left writes nothing", async () => {
+		const table = await createLookupTable(SCOPE, {
+			name: "Plain",
+			tag: "plain_contract",
+			columns: [{ wireName: "code", label: "Code", dataType: "text" }],
+		});
+		/* The scope still says owner, as one a request built before the removal does. */
+		await sql`DELETE FROM auth_member WHERE "userId" = ${SCOPE.actorId}`.execute(
+			h.db(),
+		);
+		const refused = await caught(
+			createLookupRow(SCOPE, {
+				tableId: table.id,
+				expectedTableRevision: table.tableRevision,
+				toIndex: 0,
+				values: values([[table.columns[0].id, "001"]]),
+			}),
+		);
+		expect(refused).toBeInstanceOf(LookupAuthorityError);
+		expect(refused).toMatchObject({
+			code: "not_found",
+			standing: "not-a-member",
+		});
+		expect(
+			await caught(
+				applyLookupSchemaGovernance(SCOPE, {
+					kind: "delete-table",
+					tableId: table.id,
+					expectedTableRevision: table.tableRevision,
+				}),
+			),
+		).toMatchObject({ code: "not_found" });
+		await h.seedProjectMember(SCOPE.actorId, SCOPE.projectId, "owner");
+		expect(await getLookupTable(SCOPE, table.id)).toEqual(table);
+	});
+
+	it("refuses an adoption and a takeover by a member who can only edit, inside the writer", async () => {
+		await h.seedProjectMember(EDITOR.actorId, EDITOR.projectId, "editor");
+		const plain = await createLookupTable(SCOPE, {
+			name: "Plain",
+			tag: "plain_adopt",
+			columns: [{ wireName: "name", label: "Name", dataType: "text" }],
+		});
+		const reviewed = await reviewedNow(plain.id);
+		const adopt = await caught(
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					refreshManagedLookupTableInTransaction(
+						tx,
+						await authorized(tx, "edit", EDITOR),
+						{
+							tableId: plain.id,
+							content: CONTENT,
+							origin: originFor(CONTENT),
+							at: LATER,
+							mode: "adopt",
+							reviewed,
+							olderReadYields: true,
+						},
+					),
+				),
+		);
+		expect(adopt).toMatchObject({
+			standing: "below-capability",
+			capability: "delete",
+		});
+		expect(await getLookupTable(SCOPE, plain.id)).toEqual(plain);
+
+		const managed = await createManaged("managed_takeover");
+		const takeover = await caught(
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					takeOverManagedLookupTableInTransaction(
+						tx,
+						await authorized(tx, "edit", EDITOR),
+						managed.id,
+						await reviewedNow(managed.id),
+						LATER,
+					),
+				),
+		);
+		expect(takeover).toMatchObject({ standing: "below-capability" });
+		expect(await getLookupTable(SCOPE, managed.id)).toEqual(managed);
+	});
+
+	it("refuses an authority read on another transaction", async () => {
+		const table = await createManaged("other_transaction");
+		const stale = await h
+			.db()
+			.transaction()
+			.execute((tx) => authorized(tx));
+		await expect(
+			h
+				.db()
+				.transaction()
+				.execute((tx) =>
+					refreshManagedLookupTableInTransaction(tx, stale, {
+						tableId: table.id,
+						content: CONTENT,
+						origin: originFor(CONTENT),
+						at: LATER,
+						mode: "refresh",
+						olderReadYields: true,
+					}),
+				),
+		).rejects.toThrow(/authority read on another transaction/);
+	});
+
+	it("holds an adoption to the apps that read the table when it was reviewed", async () => {
+		const plain = await createLookupTable(SCOPE, {
+			name: "Plain",
+			tag: "plain_readers",
+			columns: [{ wireName: "name", label: "Name", dataType: "text" }],
+		});
+		const reviewed = await reviewedNow(plain.id);
+		expect(reviewed.readerAppIds).toEqual([]);
+		/* An app starts reading the table: no revision of the table moves. */
+		const appId = await h.seedApp({
+			id: "app-new-reader",
+			project_id: SCOPE.projectId,
+		});
+		await h
+			.db()
+			.insertInto("lookup_table_references")
+			.values({
+				project_id: SCOPE.projectId,
+				table_id: plain.id,
+				app_id: appId,
+			})
+			.execute();
+		const adopt = (held: ManagedTableReviewed) =>
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					refreshManagedLookupTableInTransaction(tx, await authorized(tx), {
+						tableId: plain.id,
+						content: CONTENT,
+						origin: originFor(CONTENT),
+						at: LATER,
+						mode: "adopt",
+						reviewed: held,
+						olderReadYields: true,
+					}),
+				);
+		const moved = await caught(adopt(reviewed));
+		expect(moved).toBeInstanceOf(LookupReviewMovedError);
+		expect(moved).toMatchObject({ code: "conflict" });
+		expect(await getLookupTable(SCOPE, plain.id)).toEqual(plain);
+		const now = await reviewedNow(plain.id);
+		expect(now.readerAppIds).toEqual([appId]);
+		expect((await adopt(now)).changed).toBe("definition");
+	});
+
+	it("keeps an app commit from adding a reader until the adoption holding the table's lock commits", async () => {
+		const plain = await createLookupTable(SCOPE, {
+			name: "Plain",
+			tag: "plain_lock",
+			columns: [{ wireName: "name", label: "Name", dataType: "text" }],
+		});
+		const appId = await h.seedApp({
+			id: "app-waits",
+			project_id: SCOPE.projectId,
+		});
+		const reviewed = await reviewedNow(plain.id);
+		const adopted = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const adoption = h
+			.db()
+			.transaction()
+			.execute(async (tx) => {
+				await refreshManagedLookupTableInTransaction(tx, await authorized(tx), {
+					tableId: plain.id,
+					content: CONTENT,
+					origin: originFor(CONTENT),
+					at: LATER,
+					mode: "adopt",
+					reviewed,
+					olderReadYields: true,
+				});
+				adopted.resolve();
+				await release.promise;
+			});
+		let edges: Promise<void> | undefined;
+		try {
+			await adopted.promise;
+			let landed = false;
+			edges = h
+				.db()
+				.transaction()
+				.execute((tx) =>
+					replaceLookupReferenceEdges(tx, {
+						appId,
+						projectId: SCOPE.projectId,
+						targets: { tableIds: [plain.id], columnTargets: [] },
+					}),
+				)
+				.then(() => {
+					landed = true;
+				});
+			await vi.waitFor(async () => {
+				const waiting = await sql<{ count: number }>`
+					SELECT count(*)::integer AS count FROM pg_stat_activity
+					WHERE datname = current_database() AND wait_event_type = 'Lock'
+				`.execute(h.db());
+				expect(waiting.rows[0]?.count).toBeGreaterThan(0);
+			});
+			expect(landed).toBe(false);
+			release.resolve();
+			await adoption;
+			await edges;
+			expect(landed).toBe(true);
+		} finally {
+			release.resolve();
+			await adoption.catch(() => undefined);
+			await edges?.catch(() => undefined);
+		}
+		expect((await reviewedNow(plain.id)).readerAppIds).toEqual([appId]);
+		expect((await getLookupTable(SCOPE, plain.id)).hq?.managedBy).toBe(
+			"commcare-hq",
+		);
+	});
+
+	it("holds a takeover to the table it was reviewed at", async () => {
+		const managed = await createManaged("takeover_review");
+		const reviewed = await reviewedNow(managed.id);
+		await refresh(managed.id, {
+			fields: CONTENT.fields,
+			rows: [{ name: "Gamma", code: "003" }],
+		});
+		const moved = await caught(
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					takeOverManagedLookupTableInTransaction(
+						tx,
+						await authorized(tx),
+						managed.id,
+						reviewed,
+						LATER,
+					),
+				),
+		);
+		expect(moved).toBeInstanceOf(LookupReviewMovedError);
+		expect((await getLookupTable(SCOPE, managed.id)).hq?.managedBy).toBe(
+			"commcare-hq",
+		);
 	});
 });

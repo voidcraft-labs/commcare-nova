@@ -398,7 +398,7 @@ it("serves accept_placement_moves as exactly a reason and a 64-hex digest", () =
 
 it("tells a client what an upload records and what a move offer asks of the user", () => {
 	expect(served("upload_app_to_hq").description).toContain(
-		"The first upload of a case change records where CommCare HQ keeps it, which changes the saved app (`placements.recorded`); work begun with `begin_work` before then has to begin again. If a refusal carries `placement_moves`, show the user each move's `sentence`, and send `accept_placement_moves` with its `reason` and `digest` only when the user agrees: the move changes where CommCare HQ keeps those answers in every project space the app is published to. `hq_placement_moves_changed` means the offer changed since; show the new one. `app_changed_while_publishing` means the app kept changing while Nova prepared the upload; upload again.",
+		"The first upload of a case change records where CommCare HQ keeps it, which changes the saved app (`placements.recorded`); work begun with `begin_work` before then has to begin again. If a refusal carries `placement_moves`, show the user each move's `sentence`, and send `accept_placement_moves` with its `reason` and `digest` only when the user agrees: the move changes where CommCare HQ keeps those answers in every project space the app is published to. `hq_placement_moves_changed` means the offer changed since; show the new one. `app_changed_while_publishing` means the app, or where it publishes, kept changing while Nova prepared the upload, and nothing more was sent; relay the `message`, which says when to upload again.",
 	);
 	expect(served("check_project_space_compatibility").description).toContain(
 		"`placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case.",
@@ -448,6 +448,36 @@ it("serves the CommCare Supply confirmation on upload and withdrawal, and names 
 	expect(served("check_project_space_compatibility").description).toContain(
 		"`commtrack_off` says whether the project space's CommCare Supply setting needs confirming, and `placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case.",
 	);
+});
+
+it("serves provision_workers' confirm_worker_levels as level codes, and withdrawal of a worker level", () => {
+	const provision = served("provision_workers");
+	const properties = (provision.inputSchema as Json).properties;
+	if (!object(properties) || !object(properties.confirm_worker_levels))
+		throw new Error("provision_workers serves no confirm_worker_levels");
+	const validateLevels = new Ajv2020({
+		strict: false,
+		validateFormats: false,
+	}).compile(properties.confirm_worker_levels);
+	expect(validateLevels(["district", "Health_Facility", "_ward-2"])).toBe(true);
+	expect(validateLevels(["2nd-level"])).toBe(false);
+	expect(validateLevels("district")).toBe(false);
+	expect(properties.confirm_worker_levels.description).toContain(
+		"`worker_levels_unconfirmed`",
+	);
+	expect(provision.description).toContain("`confirm_worker_levels`");
+
+	const withdraw = (
+		served("withdraw_deployment_confirmation").inputSchema as Json
+	).properties;
+	if (!object(withdraw) || !object(withdraw.kind))
+		throw new Error("withdraw_deployment_confirmation serves no kind");
+	const validateKind = new Ajv2020({
+		strict: false,
+		validateFormats: false,
+	}).compile(withdraw.kind);
+	expect(validateKind("worker-level")).toBe(true);
+	expect(withdraw.kind.description).toContain("`worker-level`");
 });
 
 it("serves refresh_deployment's kept_values and tells a client what the kept list is", () => {
@@ -579,8 +609,8 @@ it("serves the four other bring-in tools as closed objects", () => {
 		additionalProperties: false,
 	});
 	expect(inputShape("stop_publishing")).toEqual({
-		properties: ["app_id", "domain", "server"],
-		required: ["app_id", "domain", "server"],
+		properties: ["app_id", "domain", "hq_app_id", "server"],
+		required: ["app_id", "domain", "hq_app_id", "server"],
 		additionalProperties: false,
 	});
 	expect(inputShape("refresh_managed_data")).toEqual({
@@ -589,10 +619,36 @@ it("serves the four other bring-in tools as closed objects", () => {
 		additionalProperties: false,
 	});
 	expect(inputShape("set_lookup_table_management")).toEqual({
-		properties: ["confirmed", "managed_by", "project_id", "table_id"],
-		required: ["confirmed", "managed_by", "project_id", "table_id"],
+		properties: ["managed_by", "project_id", "review_digest", "table_id"],
+		required: ["managed_by", "project_id", "table_id"],
 		additionalProperties: false,
 	});
+	/* A change of who manages a table is made only under the digest of the
+	 * preview the user read: there is no bare yes. */
+	expect(
+		takes("set_lookup_table_management", {
+			project_id: "program",
+			table_id: "table",
+			managed_by: "nova",
+			confirmed: true,
+		}),
+	).not.toBe(true);
+	expect(
+		takes("set_lookup_table_management", {
+			project_id: "program",
+			table_id: "table",
+			managed_by: "nova",
+			review_digest: "not a digest",
+		}),
+	).not.toBe(true);
+	expect(
+		takes("set_lookup_table_management", {
+			project_id: "program",
+			table_id: "table",
+			managed_by: "nova",
+			review_digest: "a".repeat(64),
+		}),
+	).toBe(true);
 	const managedBy = (served("set_lookup_table_management").inputSchema as Json)
 		.properties;
 	if (!object(managedBy) || !object(managedBy.managed_by))
@@ -603,9 +659,26 @@ it("serves the four other bring-in tools as closed objects", () => {
 			app_id: "app",
 			server: "production",
 			domain: "clinic",
+			hq_app_id: "hq-app",
 			reason: "the user asked",
 		}),
 	).not.toBe(true);
+	/* The stop names the HQ app the client read, or it is no stop at all. */
+	expect(
+		takes("stop_publishing", {
+			app_id: "app",
+			server: "production",
+			domain: "clinic",
+		}),
+	).not.toBe(true);
+	expect(
+		takes("stop_publishing", {
+			app_id: "app",
+			server: "production",
+			domain: "clinic",
+			hq_app_id: "hq-app",
+		}),
+	).toBe(true);
 });
 
 it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-in with every answer required", () => {
@@ -691,6 +764,9 @@ it("names each key where a client reads it", () => {
 	expect(served("get_hq_connection").description).toContain("`list_hq_apps`");
 	expect(served("stop_publishing").description).toContain(
 		"`setup_artifact` is then null, and `get_deployment` reads it again",
+	);
+	expect(served("stop_publishing").description).toContain(
+		"the call returns `deployment_changed` and stops nothing",
 	);
 	/* CommCare HQ can hold no name for an app, so the client is told the review's
 	 * name can be empty and asks the user for one there. */

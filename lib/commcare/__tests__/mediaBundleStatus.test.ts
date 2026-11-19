@@ -26,6 +26,7 @@ import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { log } from "@/lib/logger";
 import { uploadAppMediaBundle } from "../client";
+import { HQ_MEDIA_BUNDLE_ACK_MAX_BYTES } from "../hq/bounds";
 import { buildMediaBulkUploadZip } from "../multimedia/bulkUploadZip";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
@@ -171,4 +172,17 @@ it("reads no ids from a status with no matched files, or an entry with no id, an
 	} finally {
 		warn.mockRestore();
 	}
+});
+
+it("takes a start or a status report longer than Nova reads as one it cannot read, never as a refusal", async () => {
+	const long = "x".repeat(HQ_MEDIA_BUNDLE_ACK_MAX_BYTES);
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: POST, method: "POST" })
+			.reply(200, { success: true, processing_id: "proc-1", note: long });
+		expect(await upload()).toEqual({ success: false, status: 502 });
+		serve(peer, { ...completedStatus(undefined), errors: [long] });
+		expect(await upload()).toEqual({ success: false, status: 502 });
+	});
 });

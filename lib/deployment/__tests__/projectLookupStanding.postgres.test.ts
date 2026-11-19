@@ -10,7 +10,6 @@
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -22,17 +21,20 @@ import type { DeploymentConfirmationKey } from "../types";
 import {
 	acceptImport,
 	connect,
+	hqSaves,
 	publishRequests,
 	type ServedTable,
 	serveRows,
 	serveSource,
 	serveTableList,
 	takeWorkbook,
+	withManagedPeer,
 } from "./managedFixtures";
 import { reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 beforeEach(() => {
+	hqSaves.reset();
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
 });
@@ -192,7 +194,7 @@ async function firstPublished(adopted: boolean) {
 	const table = await projectTable(PROJECT, FIRST);
 	const first = await appReading("app-a", PROJECT, FIRST, table);
 	const second = await appReading("app-b", PROJECT, SECOND, table);
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		firstPublishPushing(peer, "hq-app-a", {
 			listed: adopted ? [landed] : [],
 			compared: false,
@@ -212,7 +214,7 @@ async function firstPublished(adopted: boolean) {
 describe("a second app of the Project publishing the Project's table", () => {
 	it("pushes it, unasked, and records its own mapping as Nova's", async () => {
 		const { second } = await firstPublished(false);
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			firstPublishPushing(peer, "hq-app-b", {
 				listed: [landed],
 				compared: true,
@@ -220,7 +222,7 @@ describe("a second app of the Project publishing the Project's table", () => {
 			const outcome = await publish("app-b", PROJECT, SECOND, second);
 			expect(outcome.landed, JSON.stringify(outcome)).toBe(true);
 			expect(publishRequests(peer).slice(0, 2)).toEqual([
-				`GET /a/${DOMAIN}/api/lookup_table/v1/?limit=100`,
+				`GET /a/${DOMAIN}/api/lookup_table/v1/?limit=1000`,
 				`GET /a/${DOMAIN}/api/fixture/v1/?fixture_type_id=hq-facilities`,
 			]);
 		});
@@ -236,7 +238,7 @@ describe("a second app of the Project publishing the Project's table", () => {
 		const { second } = await firstPublished(true);
 		const first = await mappingOf("app-a");
 		expect(first).toMatchObject({ ownership: "adopted", adopted_by: FIRST });
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			firstPublishPushing(peer, "hq-app-b", {
 				listed: [landed],
 				compared: true,
@@ -263,7 +265,7 @@ describe("a second app of the Project publishing the Project's table", () => {
 			})
 			.where("id", "=", "app-a")
 			.execute();
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			firstPublishPushing(peer, "hq-app-b", {
 				listed: [landed],
 				compared: true,
@@ -276,7 +278,7 @@ describe("a second app of the Project publishing the Project's table", () => {
 	it("asks, as for a stranger's table, once the first app is deleted for good", async () => {
 		const { second, table } = await firstPublished(false);
 		await sql`DELETE FROM apps WHERE id = ${"app-a"}`.execute(h.db());
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			serveTableList(peer, DOMAIN, [landed]);
 			expect(
 				refusal(await publish("app-b", PROJECT, SECOND, second)),
@@ -293,7 +295,7 @@ describe("a second app of the Project publishing the Project's table", () => {
 			...landed,
 			rows: [{ code: "001", name: "Clinic (renamed in HQ)" }],
 		};
-		await withHttpPeer(async (peer) => {
+		await withManagedPeer(async (peer) => {
 			serveTableList(peer, DOMAIN, [changed]);
 			serveRows(peer, DOMAIN, changed);
 			const stopped = refusal(await publish("app-b", PROJECT, SECOND, second));
@@ -317,7 +319,7 @@ it("refuses an app of another Project whose table shares the tag", async () => {
 	await connect(h, stranger, "india", [DOMAIN]);
 	const theirs = await projectTable(OTHER, stranger);
 	const doc = await appReading("app-c", OTHER, stranger, theirs);
-	await withHttpPeer(async (peer) => {
+	await withManagedPeer(async (peer) => {
 		serveTableList(peer, DOMAIN, [landed]);
 		expect(refusal(await publish("app-c", OTHER, stranger, doc))).toMatchObject(
 			{

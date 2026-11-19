@@ -1734,7 +1734,7 @@ test("inline prose popovers expose their names and retain editing focus", async 
 	await page.getByRole("button", { name: "Image", exact: true }).click();
 	const image = page.getByRole("dialog", { name: "Insert image", exact: true });
 	await expect(image).toHaveAccessibleDescription(
-		"You can add an image address and a description.",
+		"You can add an image address and a description. Web Apps shows the image, and Preview shows its description.",
 	);
 	const imageAddress = image.getByRole("textbox", {
 		name: "Image address",
