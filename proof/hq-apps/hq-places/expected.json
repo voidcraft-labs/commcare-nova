@@ -84,6 +84,7 @@
 	],
 	"firstPublish": [
 		"forms-and-settings-rewritten",
-		"empty-rows-guard"
+		"empty-rows-guard",
+		"list-settings-respelled"
 	]
 }
