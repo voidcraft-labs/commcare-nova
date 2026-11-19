@@ -54,5 +54,14 @@
 	"userData": [],
 	"worker": {
 		"location": null
-	}
+	},
+	"cases": [
+		{
+			"type": "client",
+			"properties": {
+				"standing": "open",
+				"village": "north"
+			}
+		}
+	]
 }
