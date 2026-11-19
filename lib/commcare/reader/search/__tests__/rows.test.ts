@@ -8,7 +8,9 @@
  * gives each its own place. On a menu whose forms do not read the search, a list filter clause
  * the search does not restate raises, and so does a conjunct with no field; on one whose forms
  * read it, the first is held with `search-restates-list-filter` and the second joins the list
- * filter with `search-filter-joined-to-list`, unless an advanced load names the menu. A conjunct
+ * filter with `search-filter-joined-to-list`, unless an advanced load names the menu, whichever
+ * placement joins it (a later row can move it there from a field's condition). A field holding a
+ * conjunct as its condition is never read as a simple field, which would drop it. A conjunct
  * that reads a bare prompt outside its guard raises. Rows in another order read equal and record
  * the reorder.
  *
@@ -1112,9 +1114,13 @@ describe("a menu whose forms do not read the search", () => {
 describe("a menu whose forms read the search", () => {
 	const PATIENTS = 1;
 
-	/** An intake menu that registers patients, a menu of patients whose forms read its search, and,
-	 *  where asked, a menu held advanced whose follow-up loads a patient. */
-	function readingForms(advanced = false): BlueprintDoc {
+	/** An intake menu that registers patients, a menu of patients whose forms read its search, with
+	 *  `list` over its case list, and, where asked, a menu held advanced whose follow-up loads a
+	 *  patient. */
+	function readingForms(
+		advanced = false,
+		list: Partial<CaseListConfig> = {},
+	): BlueprintDoc {
 		const register = {
 			name: "Register",
 			type: "registration" as const,
@@ -1147,12 +1153,13 @@ describe("a menu whose forms read the search", () => {
 				}),
 			],
 		});
-		const list: CaseListConfig = {
+		const config: CaseListConfig = {
 			columns: [plainColumn(uuid(1), "case_name", "Name")],
 			listColumnOrder: [uuid(1)],
 			detailColumnOrder: [uuid(1)],
 			searchInputs: [bare],
 			filter: notesIs("open"),
+			...list,
 		};
 		const doc = buildDoc({
 			modules: [
@@ -1161,7 +1168,7 @@ describe("a menu whose forms read the search", () => {
 					name: "Patients",
 					caseType: "patient",
 					forms: [visit("Visit")],
-					caseListConfig: list,
+					caseListConfig: config,
 					caseSearchConfig: { formsReadSearch: true },
 				},
 				...(advanced
@@ -1230,11 +1237,16 @@ describe("a menu whose forms read the search", () => {
 	it("raises a conjunct with no field that the device's list filter reads otherwise than HQ's search, since joining it would change the list", async () => {
 		const entry =
 			"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s";
-		// A standard property, which HQ reads from its own metadata, and a literal longer than the
-		// exact field HQ's `!=` negates indexes.
+		// A standard property, which HQ reads from its own metadata; a negation of a property's text,
+		// true in HQ of a stored `'other '` or `' '` the device reads trimmed (`'other'`, `''`); and a
+		// literal with a space at an end, which HQ matches as stored and the device trimmed.
 		for (const row of [
 			`"case_name = 'Ana'"`,
-			`"notes != '${"x".repeat(8192)}'"`,
+			`"notes != 'other'"`,
+			`"notes != ''"`,
+			`"not(notes = 'other')"`,
+			`"notes = 'other '"`,
+			`"starts-with(notes, ' ot')"`,
 		]) {
 			const reading = await readLists(readingForms(), {
 				edit: (app) => {
@@ -1249,6 +1261,83 @@ describe("a menu whose forms read the search", () => {
 			expect(listOf(reading, PATIENTS).filter).toEqual(notesIs("open"));
 			expect(registers(reading)).not.toContain("search-filter-joined-to-list");
 		}
+	});
+
+	it("reads a conjunct with no field back on the advanced field whose condition holds it beside the field's derivation, as the canonical document holds it", async () => {
+		// Nova writes the field's condition as two rows, the conjunct with no field then the
+		// derivation. Reading the field as a simple one would drop the first, and joining it to the
+		// list filter would change the list a device runs.
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: and(
+				notesIs("other"),
+				whenInput(input(ADV), eq(prop("patient", "phone"), input(ADV))),
+			),
+		};
+		const doc = readingForms(false, { searchInputs: [advanced] });
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		const canonical =
+			canonDocument(doc).modules[doc.moduleOrder[PATIENTS] as Uuid]
+				?.caseListConfig;
+		const read = listOf(reading, PATIENTS);
+		expect(authored(read.filter, reading, [advanced], PATIENTS)).toEqual(
+			canonical?.filter,
+		);
+		expect(authored(read.searchInputs, reading, [advanced], PATIENTS)).toEqual(
+			canonical?.searchInputs,
+		);
+		expect(authored(placements(), reading, [advanced], PATIENTS)).toEqual([
+			{ kind: "B", clause: 0 },
+			{ kind: "D", from: "field", input: ADV },
+			{ kind: "D", from: "field", input: ADV },
+		]);
+		expect(registers(reading)).not.toContain("search-filter-joined-to-list");
+	});
+
+	it("declares a conjunct with no field that a later row moves from a field's condition to the list filter as joined to the list", async () => {
+		// The conjunct is first an excluded field's condition; the clause after it waits for a field
+		// HQ's matcher compares, and Nova writes the list filter's rows before the field's, so only the
+		// conjunct in the list filter writes the rows in order. The list a device runs gains it.
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: { kind: "match-all" },
+		};
+		const inputs = [bare, advanced];
+		const reading = await readLists(
+			readingForms(false, {
+				searchInputs: inputs,
+				filter: and(notesIs("open"), notesDiffer(PHONE)),
+			}),
+			{
+				edit: (app) => {
+					rowsOf(app, PATIENTS).splice(1, 0, {
+						property: "_xpath_query",
+						defaultValue: `"notes = 'other'"`,
+					});
+				},
+			},
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(placements()).toEqual([
+			{ kind: "B", clause: 0 },
+			{ kind: "F" },
+			{ kind: "D", from: "filter" },
+		]);
+		expect(
+			authored(listOf(reading, PATIENTS).filter, reading, inputs, PATIENTS),
+		).toEqual(and(notesIs("open"), notesIs("other"), notesDiffer(PHONE)));
+		expect(registers(reading)).toContain("search-filter-joined-to-list");
 	});
 
 	it("raises a conjunct with no field where an advanced form's load names the menu", async () => {

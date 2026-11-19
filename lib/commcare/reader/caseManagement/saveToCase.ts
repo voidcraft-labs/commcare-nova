@@ -2932,17 +2932,13 @@ function claimAccepted(
 						slot: "form_close_condition",
 					} as SlotContextRef)
 				: undefined;
-	const pendingSites = new Set(
-		ctx.pending.list().map((_, index) => {
-			const at = ctx.pending.site(index).at;
-			return "element" in at ? at : undefined;
-		}),
-	);
-	const registeredAt = (element: Element, attribute: string) =>
-		registeredAttributes.get(element)?.has(attribute) === true ||
-		[...pendingSites].some(
-			(at) => at?.element === element && at.attribute === attribute,
-		);
+	// What was registered before this settle: a use it registers below does not count.
+	const registeredBefore = ctx.pending.list().length;
+	const registeredAt = (element: Element, attribute: string) => {
+		if (registeredAttributes.get(element)?.has(attribute) === true) return true;
+		const index = ctx.pending.firstAt(element, attribute);
+		return index !== undefined && index < registeredBefore;
+	};
 	const registerUses = (element: Element) => {
 		if (usesRef === undefined) return;
 		for (const attribute of ["calculate", "relevant", "value"]) {

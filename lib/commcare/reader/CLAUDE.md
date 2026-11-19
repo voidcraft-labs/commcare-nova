@@ -265,6 +265,17 @@ never a match. The bundle's digest keys every judgment of the corpus, so a chang
 corpus document again. `__tests__/bases.retained.test.ts` holds the reading of every retained base
 to the lane's `expected.json` in ordinary CI. No production module imports `proof/reader/`.
 
+A reading records each stored value Nova writes back another way on purpose in
+`ReadFacts.sameStateRewrites`, under the first-publish register's id it falls under
+(`types.ts::SameStateRegister`): `SAME_STATE_REGISTERS` are the ids of a same-state rule a
+comparison allows, and `FIRST_PUBLISH_READING_RECORDS` the ids a stage records where no comparison
+has a rule (a Save to Case date and time in Nova's earlier spelling, a Register label with no text,
+a name map, an app string a worker reads otherwise, a navigation media map, a form text written as
+literal outputs, a Hidden Value's unread default, a blank-named Sort by entry, a form's title). Each
+id is an entry of `lib/deployment/reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES` whose
+`applies` reads that record, the two lists together are every such entry, and the lane holds each id
+to a retained base whose `expected.json` lists it (`entryCoverage.test.ts`, rule 3).
+
 ## What the reader is told
 
 `ReaderInput` (`types.ts`) is everything a reading takes. Beside the source as HQ serves it and
@@ -644,6 +655,14 @@ A change that holds one removes its line.
   entry only for a bind attribute, a menu's display condition and a case list's filter;
   `provisional.ts::applyExpressionCircumstance`). No entry yet names a syntax error in a setvalue,
   an output or an itemset's filter.
+- **A processing instruction in a text Core reads** (a title, label, hint, help text, alert, an
+  itext or choice value, a repeat's caption, a setvalue's or an instance node's text): `unrecognized`
+  at the element's place, `xform:<element>/processing-instruction()`, wherever a claim of the
+  element or of a subtree that reads it stands (`accounting.ts::coreReadsTextOf`). CommCare HQ's
+  build removes comments and keeps processing instructions, and Core's `getXMLText` stops at one
+  (a title it starts reads null) while `getLabel` writes it as `null`; the reader reads the text
+  around it. One beside an element in an element Core reads by its children alone is inert, as
+  every comment is.
 - **A `required` on a Hidden Value's bind**: `unrecognized` at the question,
   `xform:bind@required` (`xform/logic.ts::readBindLogic`, which claims a `required` only on a kind
   that holds one and refuses it only on a label), wherever no other reader claims it.
@@ -680,6 +699,14 @@ A change that holds one removes its line.
   (`search/settings.ts::readSearchSettings`, `holdsOwnersWithoutClause`). Only Nova's spelling
   tells the clause from an authored condition (`isOwnerClause`), and Nova's print would write the
   clause again beside the respelled one.
+- **A search's own filter row that reads no Search field and that HQ's search and the device's list
+  read apart**, on a menu whose forms read the search, where no excluded field can hold it: refused
+  under `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`
+  (`search/joinReadsAlike.ts`). Nova keeps such a row only as a clause of the list filter, which the
+  device runs again over the results. HQ tests a property's text as stored and the device trimmed
+  (Core's `TreeElementParser`, `CaseXmlParser`), so a `!=`, a `not` of `=`, of a blank test or of
+  `starts-with`, a literal with a space at an end, or the session's user data (untrimmed) would
+  drop a case HQ's search returned.
 - **Two rewrites that print at one node, one inside the other's spelling, each spelled otherwise
   than the source**: refused under the slot's own entry (`expressions/index.ts::siteLevel`). No
   single site's flip moves the first difference on, so the search finds no level.

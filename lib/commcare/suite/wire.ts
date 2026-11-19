@@ -42,6 +42,26 @@ export function hqColumnFieldText(fieldText: string): string {
 	return [...steps, HQ_COLUMN_PROPERTY_WORDS[property] ?? property].join("/");
 }
 
+/** One word of CommCare HQ's case list field grammar. */
+const HQ_FIELD_WORD = "[a-zA-Z][\\w_-]*";
+
+/**
+ * CommCare HQ's grammar for a case list `field` it reads as a property name:
+ * words that start with a letter, joined by `/`, after any `prefix:` words,
+ * with a `#` allowed before the last. HQ's build refuses a sort element whose
+ * field does not match (`helpers/validators.py::ModuleDetailValidatorMixin._validate_detail_screen_field`,
+ * `invalid sort field`), and its Case List page will not keep a property
+ * column whose field does not (`static/app_manager/js/details/utils.js::isValidPropertyName`).
+ */
+const HQ_DETAIL_FIELD = new RegExp(
+	`^(${HQ_FIELD_WORD}:)*(${HQ_FIELD_WORD}\\/)*#?${HQ_FIELD_WORD}$`,
+);
+
+/** Whether CommCare HQ's build and Case List page take `field` as a property name (`HQ_DETAIL_FIELD`). */
+export function isHqDetailField(field: string): boolean {
+	return HQ_DETAIL_FIELD.test(field);
+}
+
 /**
  * A property column's value on a case row: the row's own property, or the
  * property of the case the column's walk reaches, read as CommCare HQ's build

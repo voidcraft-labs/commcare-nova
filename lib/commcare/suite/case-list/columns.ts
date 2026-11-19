@@ -129,6 +129,7 @@ import {
 	type ColumnVia,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
+	casePropertyShowsOptionLabels,
 	columnFieldText,
 	columnPropertyCaseType,
 	imageMapShowsImages,
@@ -147,7 +148,7 @@ import { escapeRegex } from "../../xml";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { columnPropertyPath, hqColumnFieldText, normalizeSpace } from "../wire";
 import { keyAsVariable } from "./keyVariable";
-import { columnReadsCaseAttribute } from "./orderPlanOptions";
+import { columnStoredAsExpression } from "./orderPlanOptions";
 import {
 	buildSortBlock,
 	calculatedPropertyText,
@@ -974,6 +975,67 @@ function imageMapAltText(
 // ============================================================
 
 /**
+ * Whether HQ JSON stores a shown property column as an expression
+ * (`useXpathExpression`), as `hqJson/caseList.ts::projectColumnToDetail`
+ * writes it on both details: a link, an interval, and a plain column over a
+ * property that shows its options' labels (`casePropertyShowsOptionLabels`,
+ * over the catalog of the case the column's walk reaches). A column over a
+ * case attribute is `buildExpressionField`'s.
+ */
+function hqStoresAsExpression(
+	column: Exclude<Column, { kind: "calculated" }>,
+	ctx: CaseListEmitContext,
+): boolean {
+	switch (column.kind) {
+		case "link":
+		case "interval":
+			return true;
+		case "plain": {
+			const caseType = columnPropertyCaseType(
+				column,
+				ctx.caseType,
+				ctx.caseTypes,
+			);
+			const properties =
+				column.via === undefined
+					? ctx.caseProperties
+					: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
+						[]);
+			return casePropertyShowsOptionLabels(
+				properties.find((candidate) => candidate.name === column.field),
+			);
+		}
+		default:
+			return false;
+	}
+}
+
+/**
+ * The strings and translation units of one detail's fields, merged in
+ * order. Every locale id a detail writes belongs to one field, so an id
+ * already held is a naming slip that would replace another field's text in
+ * every language; it throws rather than write over it.
+ */
+export function mergeFieldStrings(
+	strings: Record<string, string>,
+	translationUnits: Record<string, TranslationUnitId>,
+	emission: Pick<CaseListFieldEmission, "strings" | "translationUnits">,
+): void {
+	for (const id of Object.keys(emission.strings))
+		if (Object.hasOwn(strings, id))
+			throw new Error(
+				`mergeFieldStrings: two fields of one case list detail write the app string ${JSON.stringify(id)}, so the later one would replace the earlier one's text. Each field's locale ids must be its own.`,
+			);
+	for (const id of Object.keys(emission.translationUnits))
+		if (Object.hasOwn(translationUnits, id))
+			throw new Error(
+				`mergeFieldStrings: two fields of one case list detail name the translation unit of ${JSON.stringify(id)}. Each field's locale ids must be its own.`,
+			);
+	Object.assign(strings, emission.strings);
+	Object.assign(translationUnits, emission.translationUnits);
+}
+
+/**
  * Resolve the display XPath for a property-rooted column. Calc
  * columns ride the inline-variable template path and don't route
  * through this helper.
@@ -1280,11 +1342,11 @@ export function buildColumnField(args: {
 	if (column.kind === "calculated") {
 		return buildCalculatedField({ column, position, ctx, hidden, sortLabel });
 	}
-	// A plain column over a case's attributes is HQ's expression column over
-	// `@<name>`, through the column's walk where it has one
-	// (`hqJson/caseList.ts`, `columnReadsCaseAttribute`), which HQ's build
+	// A plain column over the case's id is HQ's expression column over
+	// `@case_id`, through the column's walk where it has one
+	// (`hqJson/caseList.ts`, `columnStoredAsExpression`), which HQ's build
 	// writes as a calculated column's field.
-	if (column.kind === "plain" && columnReadsCaseAttribute(column))
+	if (column.kind === "plain" && columnStoredAsExpression(column))
 		return buildExpressionField({
 			column,
 			position,
@@ -1326,13 +1388,23 @@ export function buildColumnField(args: {
 	}
 
 	const display = propertyDisplayProjection(column, ctx, position);
-	const headerLocaleId = detailHeaderLocaleId(
-		ctx.target,
-		ctx.detailKind,
-		ctx.moduleIndex,
-		columnFieldText(column),
-		position,
-	);
+	// The header's id is the one HQ's build gives the column HQ JSON stores
+	// (`id_strings.py::detail_column_header_locale`): `calculated_property`
+	// where the column is stored as an expression, its field otherwise.
+	const headerLocaleId = hqStoresAsExpression(column, ctx)
+		? detailCalculatedHeaderLocaleId(
+				ctx.target,
+				ctx.detailKind,
+				ctx.moduleIndex,
+				position,
+			)
+		: detailHeaderLocaleId(
+				ctx.target,
+				ctx.detailKind,
+				ctx.moduleIndex,
+				columnFieldText(column),
+				position,
+			);
 	const width =
 		column.kind === "image-map" &&
 		imageMapShowsImages(column, ctx.assets !== undefined)

@@ -72,6 +72,7 @@ function wholeEntryOf(standing: ReadStanding): string {
 }
 
 const INERT_WHOLE = wholeEntryOf("inert");
+const COMMENTS = "questions/xml-comments-processing-instructions";
 const HELD_WHOLE = wholeEntryOf("held");
 /** Entries that name the keys the cases below claim: a record names a key its entry names. */
 const NAME = "application-and-settings/name";
@@ -517,6 +518,69 @@ describe("the XML cursor", () => {
 				subject: "districts",
 			},
 		]);
+	});
+
+	describe("a processing instruction", () => {
+		/** An instance whose group holds an instruction beside its element, and whose leaf holds
+		 *  one inside its text, which Core's `getXMLText` stops at. */
+		const instructed = () => {
+			const document = parseXml(
+				XFORM.replace(
+					"<q>an answer</q>",
+					"<g><?x y?><q>an <?x y?>answer</q></g>",
+				),
+			);
+			const html = child(document, "html");
+			const head = child(html, "head");
+			const model = child(head, "model");
+			const instance = child(model, "instance");
+			const bind = child(model, "bind");
+			const body = child(html, "body");
+			const cursor = accounting();
+			const xml = cursor.xml(document, 0, 0, FORM);
+			for (const element of [html, head, model, instance])
+				xml.derived({ element }, CLAIMS.element);
+			xml.dropSubtree(bind, CLAIMS.subtree);
+			xml.dropSubtree(body, CLAIMS.subtree);
+			return { books: cursor, xml, data: child(instance, "data") };
+		};
+
+		it("in a text a subtree's claim reads is unrecognized, and beside an element under it is not", () => {
+			const { books, xml, data } = instructed();
+			xml.takeSubtree(data, CLAIMS.takenWhole).value;
+			expect(unrecognized(books.close().findings)).toEqual([
+				"xform:{http://example.org/form}q/processing-instruction()",
+			]);
+		});
+
+		it("in a subtree a claim reads past is part of that claim", () => {
+			const { books, xml, data } = instructed();
+			xml.dropSubtree(data, CLAIMS.subtree);
+			expect(books.close().findings).toEqual([]);
+		});
+
+		it("in a text a claimed element holds is unrecognized, and beside an element is inert", () => {
+			const { books, xml, data } = instructed();
+			const g = child(data, "g");
+			const q = child(g, "q");
+			xml.derived({ element: data }, CLAIMS.element);
+			xml.derived({ element: data, attribute: "xmlns" }, CLAIMS.element);
+			xml.derived({ element: data, attribute: "uiVersion" }, CLAIMS.element);
+			xml.derived({ element: g }, CLAIMS.element);
+			xml.take({ element: q }, CLAIMS.name).value;
+			const { findings, claims } = books.close();
+			expect(unrecognized(findings)).toEqual([
+				"xform:{http://example.org/form}q/processing-instruction()",
+			]);
+			expect(
+				[...claims.records()]
+					.filter((record) => record.entry === COMMENTS)
+					.map((record) => record.where),
+			).toEqual([
+				"/h:html/comment()",
+				"/h:html/h:head[1]/model[1]/instance[1]/{http://example.org/form}data[1]/{http://example.org/form}g[1]/processing-instruction()",
+			]);
+		});
 	});
 });
 

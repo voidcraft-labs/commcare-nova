@@ -12,7 +12,8 @@
 // outside its directory and opens no socket while it reads, and judges a
 // picture with the sharp it carries; a read back of the document gives its
 // canonical form with no difference, a request for the claim log gives one,
-// and a first reading that comes in answers its claim counts; and a request
+// and a first reading that comes in answers its claim counts and, for each
+// `holds` fragment, whether its key names an entity at all; and a request
 // for which the lane holds no answer ends the reading naming its path.
 //
 // Plausible failure: a build whose bytes move with the machine or the time,
@@ -21,7 +22,9 @@
 // a runtime that cannot judge a picture there; a reader the bundle carries
 // that reads back another document than the one Nova published; an entry
 // that answers a reading without its claims, so every base the lane reads
-// counts no claim; or a peer that lets a reading the lane cannot reproduce
+// counts no claim; a fragment of a key the reading does not hold answered as
+// one whose entity holds nothing, so a row's null value holds of nothing; or a
+// peer that lets a reading the lane cannot reproduce
 // pass.
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -205,6 +208,17 @@ const BRACKET = {
 	currentVersion: asRetained(retainedReadingRead("current-version")),
 } as const;
 
+/** The external key of navigation-base's first menu (`identity.ts::externalKeyText`), and one no menu has. */
+const FIRST_MENU_KEY = JSON.stringify([
+	"module",
+	(
+		retainedBodyJson(retainedGroupRead("navigation-base/app-source")) as {
+			modules: { unique_id: string }[];
+		}
+	).modules[0]?.unique_id,
+]);
+const NO_MENU_KEY = JSON.stringify(["module", "no-menu-holds-this-id"]);
+
 /** Runs the bundle `directory` holds over `requests`, under the trap, from that directory. */
 async function readWith(
 	directory: string,
@@ -343,6 +357,12 @@ it(
 					identity: "mint",
 					claims: "counts",
 				} satisfies LaneReadInput,
+				// One fragment of the menu the source holds, and one of a key that names nothing: a
+				// value of null is told from a key the reading does not hold.
+				holds: [
+					{ key: FIRST_MENU_KEY, pointer: "", value: null },
+					{ key: NO_MENU_KEY, pointer: "/name", value: null },
+				],
 			},
 		]);
 		expect(ran.stderr).toBe("");
@@ -377,6 +397,13 @@ it(
 			asked: ["application", "source", "currentVersion", "lookupTables"],
 		});
 		expect(answers?.[2]?.declaration).toBeDefined();
+		const held = answers?.[2]?.held as readonly Record<string, unknown>[];
+		expect(held.map(({ key, named }) => ({ key, named }))).toEqual([
+			{ key: FIRST_MENU_KEY, named: true },
+			{ key: NO_MENU_KEY, named: false },
+		]);
+		expect(held[0]?.found).not.toBeNull();
+		expect(held[1]?.found).toBeNull();
 		expect(Array.isArray(answers?.[2]?.firstPublish)).toBe(true);
 		// A reading that comes in answers its claim counts too, which the lane writes a base's
 		// `expected.json` from (`proof/matrix/retain.py::claimed`): navigation-base's menu has a name,

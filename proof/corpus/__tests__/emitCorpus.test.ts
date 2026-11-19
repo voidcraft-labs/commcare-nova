@@ -1215,7 +1215,7 @@ describe("the hq-authored source", () => {
 		);
 	});
 
-	it("writes the reading's facts where a read back reads them, and the first-publish ids", () => {
+	it("writes the reading's facts where a read back reads them, and the first-publish changes with their places", () => {
 		const facts = document.hqAuthored;
 		if (facts === undefined) throw new Error("The document holds no facts.");
 		expect(json("document.json").hqAuthored).toEqual({
@@ -1224,7 +1224,13 @@ describe("the hq-authored source", () => {
 			firstPublish: facts.firstPublish,
 			mediaPaths: {},
 		});
-		expect(json("first-publish.json")).toEqual({ ids: facts.firstPublish });
+		expect(json("first-publish.json")).toEqual({
+			changes: facts.firstPublishPlaces,
+		});
+		expect(
+			facts.firstPublishPlaces.map(({ id }) => id),
+			"first-publish.json names each change the reading predicts, in its order",
+		).toEqual(facts.firstPublish);
 	});
 
 	it("writes each hand-written expectation once a state it runs at, on the form a person named, with its restore", () => {

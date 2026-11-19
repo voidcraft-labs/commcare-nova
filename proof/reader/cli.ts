@@ -18,14 +18,21 @@
  *   choices })`, the choices being the declarations the reading offers, so
  *   `expected` loses its own declaration and the comparison requires it among
  *   them. A file is the asset the document's media name at the path it was
- *   sent at: where two of its assets were sent at one path, `expected` names
- *   the one there (`laneReading.ts::publishedFiles`), since one Project holds
- *   one asset a content and HQ one file a path.
+ *   sent at, or, where the input carries what HQ served
+ *   (`LaneReadInput.servedMedia`), the asset whose bytes HQ served there:
+ *   where two of its assets are one file (sent at one path, or of the same
+ *   bytes), `expected` names the one the reading names
+ *   (`LaneReading.sameFile`), since one Project holds one asset a content
+ *   and HQ one file a path.
  * - `first-read`: a base's first reading (`identity: "mint"`), whose answer
  *   holds the declaration it was read under and that declaration's
  *   first-publish ids. With `expected`, the two documents are compared whole
  *   (`choices: null`). With `holds`, each fragment's value is found at its
- *   pointer of the entity its external key names.
+ *   pointer of the entity its external key names: `named` says whether the
+ *   reading holds an entity under the key at all, and `found` is what that
+ *   entity holds at the pointer (`null` for nothing, and for a key that names
+ *   no entity), so a fragment whose value is `null` is told apart from a key
+ *   the reading does not hold.
  * - `claims`: the reading's claim log in full.
  *
  * Each difference carries the value `expected` holds at its path and the
@@ -61,7 +68,6 @@ import {
 	type LaneDeclaration,
 	type LaneReadInput,
 	type LaneReading,
-	publishedFiles,
 	readForLane,
 } from "./laneReading";
 
@@ -95,6 +101,9 @@ interface Answer {
 	readonly held?: readonly {
 		readonly key: string;
 		readonly pointer: string;
+		/** Whether the reading holds an entity under `key`. */
+		readonly named: boolean;
+		/** What that entity holds at `pointer`: `null` for nothing, and where `named` is false. */
 		readonly found: unknown;
 	}[];
 	readonly asked: readonly string[];
@@ -200,13 +209,12 @@ function heldOf(
 	);
 	return holds.map(({ key, pointer }) => {
 		const uuid = uuidOfKey.get(key);
+		const entity = uuid === undefined ? undefined : entityOf(reading.doc, uuid);
 		return {
 			key,
 			pointer,
-			found:
-				uuid === undefined
-					? null
-					: (atPointer(entityOf(reading.doc, uuid), pointer) ?? null),
+			named: entity !== undefined,
+			found: entity === undefined ? null : (atPointer(entity, pointer) ?? null),
 		};
 	});
 }
@@ -237,16 +245,14 @@ async function answer(request: Request): Promise<Answer> {
 		return { ...base, findings: reading.findings };
 	if (reading.kind === "declaration-not-offered")
 		return { ...base, declaration: reading.stated, offered: reading.offered };
-	// A read back names each file by the asset the document's own media give its path: where two
-	// assets of the document were sent at one path, the expected document names the one there.
+	// Where two assets of the document are one file, the expected document names the one the read
+	// back names it by.
 	const expectedDoc =
 		request.expected === undefined
 			? undefined
 			: hydrated(
 					request.expected,
-					request.mode === "read-back"
-						? publishedFiles(request.input.document).sameFile
-						: undefined,
+					request.mode === "read-back" ? reading.sameFile : undefined,
 				);
 	const expected =
 		expectedDoc !== undefined && request.canon === true

@@ -846,16 +846,19 @@ class _Unit:
         return record
 
     def tables(self, captured=None):
-        """What a restore of this unit serves of the lookup tables (``sessions.hq_restore``): for an app made in
-        CommCare HQ, the tables A was made with (``sessions.AuthoredTables``), since nothing of Nova's uploads a
-        workbook over a table CommCare HQ manages; otherwise the workbook ``captured`` pushed, or the one D's first
-        publish pushed."""
+        """What a restore of this unit serves of the lookup tables (``sessions.hq_restore``), at the state the publish
+        ``captured`` made (A where it is None): the workbook that publish pushed, uploaded again over the state, which
+        already holds it, so every table HQ then holds is served, whoever made A; where it pushed none, for an app
+        made in CommCare HQ the tables A was made with (``sessions.AuthoredTables``, which HQ holds without any
+        upload), and otherwise the workbook D's first publish pushed."""
         from proof.observe import publish, sessions
 
+        held = None if captured is None else captured.lookups
+        if held is not None:
+            return held
         if self.hq_authored:
             return sessions.AuthoredTables(self.document.root / publish.AUTHORED / "tables.json")
-        held = None if captured is None else captured.lookups
-        return held or self.export.content.lookups
+        return self.export.content.lookups
 
     def restore_for_sessions(self, ops):
         """A's restore over D's cases for proof 3, with the tables D's first publish uploaded, or those an app made
@@ -887,14 +890,19 @@ class _Unit:
         the levels and the places, in the operation ``reads:project-data``,
         and each mapped file at the address HQ gives its map item
         (``HQMediaMapItem.url``) in the operation ``reads:media``, through
-        ``operations.media_file_read``, which keeps the bytes HQ sent.
+        ``operations.media_file_read``, which keeps the bytes HQ sent. At
+        ``saved``, the same reads of each mapped file: proof 6 names each path
+        of HQ's app after a person's saves by the asset whose bytes HQ serves
+        there (``proof/reader/laneReading.ts::servedFiles``), never by the
+        review it holds to them.
 
         Returns ``{"source", "application", "currentVersion", "projectSpaces":
         {"all", "flagged"}, "projectData"?: {"lookupTables", "fixtureRows":
         {<tag>: ...}, "locationTypes", "locations"}, "media"?: [{"path",
         "mediaType", "multimediaId", "status", "sha256", "length"}]}``, each
         answer a blob of it as ``HqAnswer.retained`` writes it, a file's bytes
-        never: they are the document's own (``authored/media/``). The fork
+        never: at ``authored`` they are the document's own (``authored/media/``),
+        and at ``saved`` the hash names the document's asset. The fork
         keeps the API user, its key and whatever HQ writes while it answers
         (with ``USERCASE``, the application resource's case property map makes
         the project space's user field definition the first time it is asked)
@@ -938,11 +946,13 @@ class _Unit:
                     ),
                 }
             if label == "authored":
-                found["projectData"], found["media"] = self._project_data_reads(ops, credential, kept)
+                found["projectData"] = self._project_data_reads(ops, credential, kept)
+            if label in ("authored", "saved"):
+                found["media"] = self._media_reads(ops, credential)
         return found
 
     def _project_data_reads(self, ops, credential, kept):
-        """The reads a first reading makes beyond the app (``api_reads`` at ``authored``): ``(projectData, media)``."""
+        """The project data a first reading reads beyond the app (``api_reads`` at ``authored``)."""
         from proof.hq import operations
 
         unit = self.unit
@@ -957,6 +967,14 @@ class _Unit:
                 "locationTypes": kept(operations.location_types_read(unit, credential)),
                 "locations": kept(operations.locations_read(unit, credential)),
             }
+        return data
+
+    def _media_reads(self, ops, credential):
+        """Each file HQ's media map names, read at the address HQ gives its map item (``api_reads`` at ``authored``
+        and ``saved``): one row a path, with the SHA-256 of the bytes HQ sent."""
+        from proof.hq import operations
+
+        unit = self.unit
         media = []
         with ops("reads:media", b"media"):
             app = operations.held_app(unit, self.app_id)
@@ -972,7 +990,7 @@ class _Unit:
                         "length": len(answer.data),
                     }
                 )
-        return data, media
+        return media
 
     def observe_a(self):
         from proof.observe.sensitivity import flip_builds, flip_plan

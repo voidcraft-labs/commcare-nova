@@ -21,7 +21,9 @@ document:
   (``brings-in`` or ``records``): the review read the capture's peer, which
   models HQ's saves, so HQ's own answer after the same saves (its ``saved``
   read at A) must read as the review read the peer
-  (``broughtIn.reading``, ``saved_requests``), with ``canon``. The ids HQ
+  (``broughtIn.reading``, ``saved_requests``), with ``canon``, each path
+  of HQ's media map named by the asset whose bytes HQ served there (the
+  ``saved`` read's ``media``), never by the review's own paths. The ids HQ
   mints for a menu or form a person adds are not modeled, so a row of the
   review's identity naming ids HQ's source does not hold is HQ's entity at
   that position (``aligned_identity``). Its differences are
@@ -408,27 +410,16 @@ def aligned_identity(doc, rows, source):
     return aligned
 
 
-def held_media_paths(stored, reading):
-    """The path HQ holds each held file under for the ``saved`` read, by asset id: the document's own (under
-    ``hqAuthored`` for an app made in HQ, else at its top level), then each the review's reading resolved a file HQ
-    holds under a path its content does not derive to (``broughtIn.reading.mediaPaths``: a picture a person
-    replaced under Nova's path), which a read back's media index takes before any content path
-    (``proof/reader/laneReading.ts::publishedFiles``)."""
-    return {
-        **((stored.get("hqAuthored") or {}).get("mediaPaths") or {}),
-        **(stored.get("mediaPaths") or {}),
-        **(reading.get("mediaPaths") or {}),
-    }
-
-
 def saved_requests(document, records):
     """The hold of the review's reading, on a document whose republish runs Nova's review of a person's saves
     (``REVIEWED``): one read back, a configuration, of HQ's own answer after the saves (part ``a``'s ``saved`` read)
     against the reading the review made of the capture's peer (``broughtIn.reading``), under that reading's identity
-    aligned to HQ's (``aligned_identity``), with ``canon``. Returns ``([(request, "saved", None)], the differences
-    found before any reading)``. A review that found changes always read the app, so one with no reading is refused
-    by name; a review that found nothing to bring in holds a reading only where Nova's check read the app (not where
-    it answered ``unchanged``, nor where the files alone read as the baseline's), and asks the hold only then."""
+    aligned to HQ's (``aligned_identity``), with ``canon``, and told what HQ served at each path its media map names
+    (``servedMedia``, the ``saved`` read's ``media``), which names each file by its bytes; a ``saved`` read that holds
+    no media reads is refused by name. Returns ``([(request, "saved", None)], the differences found before any
+    reading)``. A review that found changes always read the app, so one with no reading is refused by name; a review
+    that found nothing to bring in holds a reading only where Nova's check read the app (not where it answered
+    ``unchanged``, nor where the files alone read as the baseline's), and asks the hold only then."""
     if (document.hq_side or {}).get("republish") not in REVIEWED:
         return [], []
     planned, before = [], []
@@ -465,18 +456,21 @@ def saved_requests(document, records):
             )
             continue
         source = _source_of(reads["source"], f"{document.id}'s {name}/a {SAVED} read")
+        if reads.get("media") is None:
+            raise ReadsMissing(
+                f"{document.id}'s {name}/a {SAVED} read holds no media reads, which name each file HQ's app holds"
+                " after the saves by the bytes HQ serves at its path. The unit reads them at every saved read"
+                " (proof/observe/unit.py::_Unit.api_reads)."
+            )
         stored = {
             **document.document,
             **reading,
             "identity": aligned_identity(reading["doc"], reading["identity"], source),
         }
-        held = held_media_paths(document.document, reading)
-        if held:
-            stored["mediaPaths"] = held
         request = {
             "id": f"{document.id}@{name}@{SAVED}",
             "mode": "read-back",
-            "input": read_back_input(document, reads, stored),
+            "input": {**read_back_input(document, reads, stored), "servedMedia": reads["media"]},
             "expected": reading["doc"],
             "canon": True,
         }

@@ -36,15 +36,29 @@ function escapeLiteral(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** One surface pattern as HQ's `re.match` reads it: anchored at the start only. */
-function patternMatcher(pattern: string): RegExp {
+/** One surface pattern as HQ's `re.match` reads it: anchored at the start only, or, `whole`, at
+ *  both ends, as the id function the pattern is registered for spells a key. */
+function patternMatcher(pattern: string, whole = false): RegExp {
 	let source = "^";
 	for (const char of pattern) {
 		if (char === "*") source += ".*";
 		else if (char === "#") source += "[0-9]+";
 		else source += escapeLiteral(char);
 	}
-	return new RegExp(source);
+	return new RegExp(whole ? `${source}$` : source);
+}
+
+/**
+ * Whether `key` is spelled whole by `pattern`, one of HQ's generated patterns as the surface holds
+ * it (`*` any text, `#` digits): the key the id function registered with that pattern can give
+ * (`id_strings.py`). HQ itself matches a pattern at the key's start only, so a key such as
+ * `forms.m0f0.icon` matches `forms.m#f#` there; whole, it is `forms.m#f#.icon`'s alone.
+ */
+export function generatedAppStringPatternSpells(
+	pattern: string,
+	key: string,
+): boolean {
+	return patternMatcher(pattern, true).test(key);
 }
 
 /** The generated patterns, from the surface, in its order. */
@@ -55,7 +69,9 @@ export const GENERATED_APP_STRING_PATTERNS: readonly string[] = Object.keys(
 	.map((key) => key.slice(APP_STRING_ID_PREFIX.length))
 	.filter((pattern) => pattern !== TARGET_OWNED_PATTERN);
 
-const GENERATED_MATCHERS = GENERATED_APP_STRING_PATTERNS.map(patternMatcher);
+const GENERATED_MATCHERS = GENERATED_APP_STRING_PATTERNS.map((pattern) =>
+	patternMatcher(pattern),
+);
 
 /** The first generated pattern `key` matches at its start, as HQ's `re.match` reads it; undefined
  *  where it matches none. */

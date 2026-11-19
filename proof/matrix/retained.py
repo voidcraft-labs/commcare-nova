@@ -10,9 +10,15 @@ once its reading came in, ``held``), so a run that fails its hold still
 leaves what HQ made for ``python3 -m proof.matrix.adopt`` to copy, and
 ``hold`` (or ``differences``) then compares the committed directory with what
 was made. Each comparison also writes, under
-``$PROOF_OUT/retained-held/<tree>/<name>.json``, the committed files of its
-own that it did not make (``extra``, one list a directory, the union of every
-comparison of it in the block): a file is taken out of a retained tree only
+``$PROOF_OUT/retained-held/<tree>/<name>/<test>.json``, the committed files of
+its own that it did not make (``extra``): one record a comparing test, named
+by that test's node id, which only that test writes and no other reads, so two
+tests comparing one directory on two workers of one block
+(``proof/hq/test_retained_reads.py`` and
+``proof/editors/test_retained_reads.py`` both compare ``shell/``) never write
+over each other's record, and each record is written whole before it takes
+its name, so no reader meets one half written. Adopting takes the union of
+every record of a directory: a file is taken out of a retained tree only
 where a test that writes it reached its comparison and did not make it, so
 adopting never removes the files another test writes into the same
 directory (``proof/editors/test_retained_reads.py``'s saves under
@@ -26,9 +32,12 @@ observation partition (``proof/observe/partition.py::OBSERVATION_DIRECTORIES``).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -40,6 +49,46 @@ def text_of(value) -> str:
 
 # Under a block's output: what each comparison found committed and not made (``Retained.held_record``).
 HELD = "retained-held"
+# Under a block's output: where a held directory's files are written before the directory takes its name
+# (``Retained.settle``), which no tree adopted reads.
+SETTLING = "retained-settling"
+# The longest record name written as the test's quoted node id; a longer one is named by its digest.
+RECORD_NAME_MAX = 200
+
+
+def write_whole(path: Path, data: bytes):
+    """``data`` written at ``path`` so that a reader of ``path`` meets the old file or the whole new one, never part
+    of one: written beside it under a name no reader reads, then renamed over it (``os.replace``)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Made as any other file of the run's output is (mkstemp's is its owner's alone), one a process.
+    partial = path.with_name(f".{path.name}.{os.getpid()}.partial")
+    try:
+        partial.write_bytes(data)
+        os.replace(partial, path)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def comparing_test() -> str:
+    """The node id of the test running now (pytest's ``PYTEST_CURRENT_TEST``, its phase left off), which names the
+    held record its comparisons write; a comparison outside a test fails by name."""
+    current = os.environ.get("PYTEST_CURRENT_TEST")
+    if not current:
+        pytest.fail(
+            "A retained directory's comparison writes its held record under the test that compares it, and"
+            " PYTEST_CURRENT_TEST is not set, so this comparison runs in no test. Compare inside a test."
+        )
+    return current.rsplit(" (", 1)[0]
+
+
+def record_name(test: str) -> str:
+    """The file name of ``test``'s held record: its node id quoted to one path segment, or, where that is longer than
+    ``RECORD_NAME_MAX``, the id's SHA-256. Two tests never share one."""
+    quoted = quote(test, safe="")
+    if len(quoted) > RECORD_NAME_MAX:
+        quoted = hashlib.sha256(test.encode("utf-8")).hexdigest()
+    return f"{quoted}.json"
 
 
 def output_root() -> Path:
@@ -65,7 +114,9 @@ class Retained:
     With ``held=True`` nothing is written until ``settle`` writes every file
     made under the directory, or ``moved`` writes them under another tree:
     a base's directory under ``hq-apps/`` is written only once its reading
-    came in, so ``python3 -m proof.matrix.adopt`` never meets one half made."""
+    came in, and ``settle`` gives it its name only once every file is whole,
+    so ``python3 -m proof.matrix.adopt`` and the gate never meet one half
+    made (its ``expected.json`` beside the rest or nothing)."""
 
     def __init__(self, group, *, tree="hq-reads", held=False):
         self.group = group
@@ -78,15 +129,32 @@ class Retained:
     def _write(self, relative: str, data: bytes):
         if self.held:
             return
-        path = self.out / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        write_whole(self.out / relative, data)
 
     def settle(self):
-        """Every file made written under the directory, and each one made after it as it is made."""
+        """Every file made written under the directory, and each one made after it as it is made.
+
+        The files are written into a directory of their own under ``$PROOF_OUT/retained-settling/``, which no tree
+        adopted reads, and that directory is then renamed to the directory's own path (``os.replace``, one rename on
+        one file system): a run stopped while settling, or a write that raises, leaves no directory under the tree
+        at all, never one holding some of its files beside a marker of the rest (a base's ``expected.json``)."""
+        # A directory made as any other of the run's output is (mkdtemp's is its owner's alone), one a process.
+        staging = output_root() / SETTLING / self.tree / f"{self.group}.{os.getpid()}"
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
+        try:
+            for relative, data in sorted(self.all_made().items()):
+                path = staging / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            if self.out.exists():
+                shutil.rmtree(self.out)
+            self.out.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(staging, self.out)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
         self.held = False
-        for relative, data in sorted(self.all_made().items()):
-            self._write(relative, data)
 
     def moved(self, tree):
         """A ``Retained`` of the same group under ``tree``, holding and writing every file made here."""
@@ -145,17 +213,18 @@ class Retained:
         return missing, stale, extra
 
     def held_record(self) -> Path:
-        """Where the comparisons of this directory write what they found committed and not made."""
-        return output_root() / HELD / self.tree / f"{self.group}.json"
+        """Where the test running now writes what its comparisons of this directory found committed and not made:
+        its own record, which no other test writes or reads (the module's docstring)."""
+        return output_root() / HELD / self.tree / self.group / record_name(comparing_test())
 
     def record_held(self, extra):
-        """``extra`` (paths under the directory, with their suffixes) added to the directory's held record: the
-        files its owner compared, found committed and did not make, which adopting removes where no block of the
-        run wrote them."""
+        """``extra`` (paths under the directory, with their suffixes) added to this test's held record of the
+        directory: the files it compared, found committed and did not make, which adopting removes where no block of
+        the run wrote them. Only this test's comparisons, one after another in its one process, read the record
+        and write it again."""
         path = self.held_record()
         known = set(json.loads(path.read_text(encoding="utf-8"))["extra"]) if path.is_file() else set()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text_of({"extra": sorted(known | set(extra))}), encoding="utf-8")
+        write_whole(path, text_of({"extra": sorted(known | set(extra))}).encode("utf-8"))
 
     def hold(self, committed: Path, *, ignore=(), others=lambda name: False):
         """The committed JSON files are exactly those made, byte for byte (each ``ignore``d subtree, and each file

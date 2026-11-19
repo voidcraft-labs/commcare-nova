@@ -59,7 +59,10 @@ The plausible failures each test here catches:
   defect (defect 10) cannot show;
 - a restore Core does not read whole, or one whose cases HQ's case processing
   does not hold, so an update or an index to a restore case is refused;
-- HQ's builds read lookup tables from a restore that does not serve them;
+- HQ's builds read lookup tables from a restore that does not serve them,
+  or B's restore chosen by who made A rather than by what B's publish
+  uploaded, so on an app made in CommCare HQ a republish's workbook (one
+  written over a table CommCare HQ manages) never reaches B's sessions;
 - a search's own query keys (``case_type``, ``_xpath_query``) in one class
   with its prompts' keys, so a register entry for one absorbs the other;
 - a submission's form version compared as it is across the two export paths,
@@ -111,13 +114,12 @@ ENTRIES = WORKTREE / "lib" / "commcare" / "surface" / "entries"
 
 @pytest.mark.parametrize("document", cases.document_params("proof3") + cases.control_params("proof3"))
 def test_the_same_sessions_behave_the_same_on_each_build(document, hq, core_runner, editor_driver):
-    found = proof3.document_behavior(
-        document, observations.records_for(document, core_runner, editor_driver=editor_driver)
-    )
+    records = observations.records_for(document, core_runner, editor_driver=editor_driver)
+    found = proof3.document_behavior(document, records)
     cases.hold(
         "proof3",
         document,
-        changes.undeclared(document, "proof3", found),
+        changes.undeclared(document, "proof3", found, sites=proof3.document_sites(document, records)),
         cases.load_register(),
         configurations=sorted(document.exports),
     )
@@ -1244,6 +1246,84 @@ def test_a_lookup_table_hq_cannot_serve_is_a_refused_comparison(hq, core_runner)
     ]
     assert differences[0].after["workbook"] == captured.body_path.name
     assert differences[0].after["table"] in {table["tag"] for table in document.document["lookup"]["definitions"]}
+
+
+def _authored_with_tables():
+    """The first document made in CommCare HQ whose A holds lookup tables and whose republish was sent with no
+    workbook, with that configuration's name."""
+    from proof.observe.publish import AUTHORED
+
+    for document in cases.load_corpus().emitted:
+        if not document.hq_authored or not (document.root / AUTHORED / "tables.json").is_file():
+            continue
+        for name in sorted(document.exports):
+            republish = document.exports[name].republish
+            if republish is not None and republish.lookups is None:
+                return document, name
+    return None
+
+
+def _with_republish_workbook(document, name, workbook, root):
+    """A copy of ``document`` at ``root`` whose republish under ``name`` pushes ``workbook`` (a lookup workbook
+    capture) before its import, as a republish that pushes tables names its workbook (``corpus._captured``)."""
+    shutil.copytree(document.root, root)
+    (root / "inputs.json").unlink()  # the copy's keys are its own files' (unit.computed_inputs)
+    republish = document.exports[name].republish
+    directory = root / republish.body_path.parent.relative_to(document.root)
+    shutil.copyfile(workbook.body_path, directory / "republish-planted.lookup.body")
+    sidecar = dict(workbook.meta)
+    sidecar.pop("body", None)
+    (directory / "republish-planted.lookup.json").write_text(json.dumps(sidecar), encoding="utf-8")
+    meta = dict(republish.meta)
+    meta["lookups"] = "republish-planted.lookup.body"
+    (directory / republish.body_path.with_suffix(".json").name).write_text(json.dumps(meta), encoding="utf-8")
+    return Document(id=document.id, source=document.source, root=root)
+
+
+def _served_tags(restore):
+    """The tag of each lookup table a restore serves (its ``item-list:<tag>`` fixtures)."""
+    root = etree.fromstring(restore)
+    ids = (element.get("id") or "" for element in root.iter() if etree.QName(element).localname == "fixture")
+    return {fixture.removeprefix("item-list:") for fixture in ids if fixture.startswith("item-list:")}
+
+
+def test_b_s_sessions_on_an_app_made_in_hq_read_the_tables_the_unit_holds_after_b_s_publish(hq, core_runner, tmp_path):
+    """Contract: B's restore serves the tables the unit holds once B's publish ran, whoever made A
+    (``proof.observe.sessions.observe``, ``unit._Unit.tables``). A copy of a document made in HQ whose republish
+    pushes a workbook (one Nova pushed for another document) records B's lookup outcome, and B's restore serves the
+    workbook's tables beside A's, which A's restore does not; the same document as its corpus holds it, whose
+    republish pushes none, records no lookup outcome of B, which reads A's tables. The plausible failure: B's
+    restore chosen by who made A, so a republish that writes over a table CommCare HQ manages leaves B's sessions
+    reading A's rows and proof 3 sees nothing."""
+    found, nova = _authored_with_tables(), _lookup_document()
+    assert found, "No corpus document made in HQ holds lookup tables and republishes with no workbook."
+    assert nova, "No corpus document's publish sends lookup tables, so no workbook can be planted."
+    document, name = found
+    workbook = nova[1].content.lookups
+    planted_tags = {table["tag"] for table in nova[0].document["lookup"]["definitions"]}
+    planted = _with_republish_workbook(document, name, workbook, tmp_path / document.id)
+    assert planted.exports[name].republish.lookups is not None
+
+    served = {}
+    observe_restore = sessions.hq_restore
+
+    def recorded(unit, database, tables, label, operation=None):
+        outcome, restore = observe_restore(unit, database, tables, label, operation)
+        if restore is not None:
+            served[label] = _served_tags(restore)
+        return outcome, restore
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sessions, "hq_restore", recorded)
+        records = _observed_without_hooks(planted, core_runner, [name])
+    recorded_sessions = observations.sessions_record(records, name)
+    assert recorded_sessions is not None and recorded_sessions.get("lookupsB") == {"served": True}, recorded_sessions
+    assert served["restore-b"] & planted_tags, served
+    assert not served["restore-a"] & planted_tags, served
+    assert served["restore-a"] <= served["restore-b"], served
+
+    unplanted = observations.sessions_record(_observed_without_hooks(document, core_runner, [name]), name)
+    assert unplanted is not None and "lookupsB" not in unplanted, unplanted
 
 
 # The profile and the search keys ----------------------------------------------

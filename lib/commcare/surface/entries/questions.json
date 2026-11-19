@@ -6288,7 +6288,7 @@
 		"surfaceKeys": [],
 		"noSurfaceKey": "Comments and processing instructions are no elements or attributes a reader reads, so the surface holds no item for them and the check makes no use of them.",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: no reader; Vellum drops them",
+		"dispositionCell": "**INERT**: no runtime reads them: CommCare HQ's build removes every comment (`xform.py::parse_xml`), and a processing instruction it keeps is inert only in an element Core reads by its element children alone; one in a text Core reads (a title, label, hint, help text, alert, value, caption, setvalue or instance default) changes that text (`XFormParser.getXMLText` stops at it, `getLabel` writes it as `null`), so the reader claims none there and it is unrecognized; Vellum drops them",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

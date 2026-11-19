@@ -1444,7 +1444,7 @@ function decideGeneratedKeys(
 		TranslationUnitId,
 		Map<LanguageTag, LocalizedValue>
 	>();
-	let folds = 0;
+	const foldedPointers: string[] = [];
 	for (const { held } of left) {
 		const verdict = verdicts.get(`${held.language}\u0000${held.key}`) ?? {
 			kind: "not-yet",
@@ -1484,7 +1484,7 @@ function decideGeneratedKeys(
 		}
 		held.json.take(held.key, CLAIMS.generatedOverOneText, (value) => value)
 			.value;
-		folds += 1;
+		foldedPointers.push(`${held.json.pointer}/${pointerToken(held.key)}`);
 		foldedKeys.add(`${held.language}\u0000${held.key}`);
 		if (!foldSites.has(verdict.unit))
 			foldSites.set(verdict.unit, {
@@ -1536,8 +1536,8 @@ function decideGeneratedKeys(
 			.find((one) => one.uuid === owner.formUuid);
 		if (form !== undefined) refuseFormNameReadAsInstance(ctx, form, after);
 	}
-	ctx.facts.foldedTranslationKeys += folds;
-	return folds > 0;
+	ctx.facts.foldedTranslationKeys.push(...foldedPointers);
+	return foldedPointers.length > 0;
 }
 
 /**

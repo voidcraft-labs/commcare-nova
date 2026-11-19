@@ -1,15 +1,19 @@
 /**
  * Contract: the reader joins a conjunct of a search's own filter to the list filter of a menu whose
  * forms read the search (kind F) only where every case HQ's search returns for it is one the
- * device's list filter keeps (`joinReadsAlike`): a custom text property of the searched case
- * compared with a string literal by `=` or `!=` (a literal the exact field indexes), tested blank,
- * matched by `starts-with`, or compared by `=` with the worker's own information, the case's type
- * compared with a type, `and`, `or`, `match-all` and `match-none` of those, `not` of those whose
- * negation HQ and the device read alike, and an `if` over the worker's own information whose
- * branches are admitted. Every other shape the audit read (a negation of `starts-with`, another
- * standard property, a property through a related case, a number or a date, `today()`, a typed
- * property, a match of several values, a distance, a choice made over a session value that moves
- * between the search and its list) is not admitted.
+ * device's list filter keeps (`joinReadsAlike`). HQ tests a property's text as stored and the device
+ * the same text trimmed at both ends (Core's `TreeElementParser`), so admitted are: a custom text
+ * property of the searched case compared by `=` with a string literal no trim changes, tested
+ * blank, matched by `starts-with` with such a literal, or compared by `=` with the worker's own
+ * information Core holds trimmed (the worker's record, the session's user name and id), the case's
+ * type compared with a type either way and under `not`, `and`, `or`, `match-all` and `match-none` of
+ * those, `not` of `!=`, and an `if` over the worker's own information whose branches are admitted.
+ * Not admitted: a custom property by `!=` or under `not` of `=`, `is-blank` or `starts-with` (each
+ * true in HQ of a stored text the device trims to make it false), a literal with a code unit up to
+ * U+0020 at an end, the session's user data (untrimmed), and every other shape the audit read
+ * (another standard property, a property through a related case, a number or a date, `today()`, a
+ * typed property, a match of several values, a distance, a choice made over a session value that
+ * moves between the search and its list).
  *
  * The failure it catches: a join that changes the list a worker sees, which the reader would record
  * as a change no worker meets (`search-filter-joined-to-list`, `touchesWorkers: false`).
@@ -74,6 +78,9 @@ const chosenBy = (field: "username" | "userid" | "drift" | "applanguage") =>
 		matchNone(),
 		eq(notes, literal("north")),
 	);
+/** The worker's record's `field`, which the device's case database holds trimmed. */
+const workerRecord = (field: string) =>
+	({ kind: "session-user", field, source: "worker-record" }) as const;
 const alike = (conjunct: Expression) =>
 	joinReadsAlike(conjunct, doc, "patient");
 
@@ -82,29 +89,26 @@ describe("a conjunct the reader may join to the list filter", () => {
 		["a text property equal to a literal", eq(notes, literal("north"))],
 		["the literal on the left", eq(literal("north"), notes)],
 		["a text property equal to blank", eq(notes, literal(""))],
-		["a text property unequal to a literal", neq(notes, literal("north"))],
 		["a text property tested blank", isBlank(notes)],
 		[
 			"a text property starting with a literal",
 			match(notes, "nor", "starts-with"),
 		],
 		[
-			"a text property equal to the worker's own information",
-			eq(notes, sessionUser("district")),
+			"a text property equal to the worker's record",
+			eq(notes, { kind: "term", term: workerRecord("district") }),
 		],
 		[
 			"a conjunction",
-			and(eq(notes, literal("a")), neq(prop("patient", "phone"), literal("b"))),
+			and(eq(notes, literal("a")), isBlank(prop("patient", "phone"))),
 		],
 		["a disjunction", or(eq(notes, literal("a")), eq(notes, literal("b")))],
 		["every case", matchAll()],
 		["no case", matchNone()],
-		["a negation of an equality", not(eq(notes, literal("north")))],
 		["a negation of an inequality", not(neq(notes, literal("north")))],
-		["a negation of a blank test", not(isBlank(notes))],
 		[
-			"a negation of a disjunction",
-			not(or(eq(notes, literal("a")), isBlank(notes))),
+			"a negation of a conjunction of inequalities",
+			not(and(neq(notes, literal("a")), neq(notes, literal("b")))),
 		],
 		[
 			"a double negation",
@@ -137,13 +141,46 @@ describe("a conjunct the device's list reads otherwise than HQ's search", () => 
 	const household = ancestorPath(relationStep("parent", "household"));
 	it.each<[string, Expression]>([
 		["a negation of starts-with", not(match(notes, "nor", "starts-with"))],
+		// HQ keeps a stored `'north '` for each of these, and the device reads it trimmed, `'north'`.
+		["a text property unequal to a literal", neq(notes, literal("north"))],
+		["a text property unequal to blank", neq(notes, literal(""))],
+		["a negation of an equality", not(eq(notes, literal("north")))],
+		// HQ keeps a stored `' '`, which the device reads as blank.
+		["a negation of a blank test", not(isBlank(notes))],
 		[
-			"a negation of an equality with a literal the exact field does not index",
-			not(eq(notes, literal("x".repeat(8192)))),
+			"a negation of a disjunction",
+			not(or(eq(notes, literal("a")), isBlank(notes))),
+		],
+		[
+			"a conjunction holding an inequality",
+			and(eq(notes, literal("a")), neq(prop("patient", "phone"), literal("b"))),
+		],
+		// HQ matches a stored text with the space, which the device reads without it.
+		["an equality with a literal ending in a space", eq(notes, literal("x "))],
+		[
+			"an equality with a literal starting with a space",
+			eq(notes, literal(" x")),
+		],
+		[
+			"an equality with a literal ending in a line break",
+			eq(notes, literal("x\n")),
+		],
+		[
+			"a starts-with of a literal starting with a space",
+			match(notes, " a", "starts-with"),
+		],
+		[
+			"a starts-with of a literal ending in a space",
+			match(notes, "a ", "starts-with"),
+		],
+		// The session's user data is the restore's text, which Core does not trim.
+		[
+			"a text property equal to the session's user data",
+			eq(notes, sessionUser("district")),
 		],
 		[
 			"a negation of an equality with the worker's information",
-			not(eq(notes, sessionUser("district"))),
+			not(eq(notes, { kind: "term", term: workerRecord("district") })),
 		],
 		["a list chosen by the clock's drift", chosenBy("drift")],
 		["a list chosen by the app's language", chosenBy("applanguage")],
@@ -180,10 +217,6 @@ describe("a conjunct the device's list reads otherwise than HQ's search", () => 
 			eq(prop("patient", "dob"), literal("2026-01-15")),
 		],
 		["today", eq(notes, today())],
-		[
-			"a text property unequal to a literal the exact field does not index",
-			neq(notes, literal("x".repeat(8192))),
-		],
 		["a match of several values", multiSelectAny(notes, literal("a"))],
 		["a fuzzy match", match(notes, "nrth", "fuzzy")],
 		[
@@ -202,8 +235,11 @@ describe("a conjunct the device's list reads otherwise than HQ's search", () => 
 		expect(alike(conjunct)).toBe(false);
 	});
 
-	it("admits the longest literal the exact field indexes, and no longer one", () => {
-		expect(alike(neq(notes, literal("x".repeat(8191))))).toBe(true);
-		expect(alike(neq(notes, literal("x".repeat(8192))))).toBe(false);
+	it("admits a literal whose ends no trim changes, and none whose ends one does", () => {
+		expect(alike(eq(notes, literal("north\u0021")))).toBe(true);
+		expect(alike(eq(notes, literal("north\u0020")))).toBe(false);
+		expect(alike(eq(notes, literal("\u0000north")))).toBe(false);
+		// U+00A0 is no code unit Java's `String.trim()` removes.
+		expect(alike(eq(notes, literal("north\u00a0")))).toBe(true);
 	});
 });

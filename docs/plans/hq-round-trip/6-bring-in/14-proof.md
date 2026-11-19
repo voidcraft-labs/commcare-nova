@@ -11,9 +11,11 @@ Citations are `path::symbol`: Nova at `main` `1f103305`, and the Dimagi checkout
 Every CommCare fact below was read at those commits for this part. Nothing was run: no lane, no
 emission, no test. Every count comes from `jq` or `python3` over committed files.
 
-Nothing in this part reaches a served tool input, a tool description or the authoring guide, and
-nothing here changes what Preview stores. So this part gives the step's one `MODEL_CONTEXT_VERSION`
-move and its one `RUNTIME_VERSION` move no reason of its own.
+Nothing this part plans reaches a served tool input, a tool description or the authoring guide, and
+nothing it plans changes what Preview stores. The fixes the lane's runs forced (Departure 12) do
+reach the case list tools (a column's `via`, a sort rule's `label`) and the authoring guide's words
+for them, and ride the step's one `MODEL_CONTEXT_VERSION` move; none moves `RUNTIME_VERSION`, which
+stays the step's one move.
 
 | Section | Owns |
 |---|---|
@@ -859,8 +861,12 @@ def save_authored_practice_workers(state, workers: Sequence[dict]) -> None:
 ```
 
 A managed table is never pushed to the project space that manages it (part 11, 11-project-data.md,
-section 8.2), so no later operation of the unit uploads a workbook for such a document: the tables
-B and B-edit read are the ones A was made with.
+section 8.2). The observation does not rest on that rule: B's and B-edit's restores serve the tables
+the unit holds at that state, whoever made A (`proof/observe/unit.py::_Unit.tables`,
+`sessions.py::observe`), so a republish's workbook is uploaded again over B, which already holds it,
+and every table HQ then holds is served; where the republish pushes none, the tables B reads are
+the ones A was made with. A workbook pushed over a table CommCare HQ manages then shows on B's
+sessions as a Nova-born document's does.
 
 Part 05's reads (`application_read`, `app_list_read`, `api_access_read`, `project_spaces_read` and
 the rest of its section 14.1) and this part's `location_types_read` are operations of this same
@@ -1132,12 +1138,14 @@ Formplayer's and Android's pins move apart from HQ's, and Android's runtime is b
 outside the image, where HQ's pin time is not; a runtime clock that followed HQ's pin would change
 every runtime record and every hand-written runtime expectation with each HQ pin. Production reads
 one day on both sides, so the gap matters only where HQ's search compares a case's date with its
-clock: a date on or between the two days (one day more at each end, for the project space's zone)
-is found by one side's search and not the other's. Proof 3's and proof 4's Core sessions refuse that
-case by name: the first query HQ answers that calls `today()` or `now()`, read with HQ's own parser,
-refuses a case database holding such a date (`proof/observe/sessions.py::HqSearches`,
-`refuse_dates_between_the_clocks`, held by `proof/hq/test_search_clocks.py`). The fix is the
-document's: a case date outside those days.
+clock: a date the clock's two readings put on either side of a comparison (shifted by any
+`date-add` HQ evaluates) is found by one side's search and not the other's. Proof 3's and proof 4's
+Core sessions refuse that case by name: each query HQ answers that calls `today()` or `now()`, read
+with HQ's own parser, is asked again with HQ's clock at the runtimes' instant
+(`proof/hq/determinism.py::clock_at`), in a fork, keeping nothing of it, and the search is refused
+where the two answers list other cases (`proof/observe/sessions.py::HqSearches`, `ClocksApart`, held
+by `proof/hq/test_search_clocks.py`). HQ's own value functions evaluate each shift, so the harness
+computes no date. The fix is the document's: case dates both instants read alike.
 
 ---
 
@@ -1235,7 +1243,7 @@ what each needs.
 | Check | On an `hq-authored` document | What changes, and where |
 |---|---|---|
 | bar | runs on A, B and B-edit. A must build: a base is an app HQ accepts | none in the judge: `observations.py::judged_states` already answers every state for a document that is no witness, `bar.py::document_bar` already reads A and B, and `create_authored`'s publish record (`_publish_record(None, None, None)`, 2.4) is a create HQ took with no upload beside it |
-| intent | runs on A, B and B-edit, and on the local archives. At A it holds what HQ builds of its own app to what D states, which is a check of the reader | `proof/checks/intent.py`: for an `hq-authored` document `profile_settings` and `local_profile_settings` take A's stored profile values (`authored/app.json`, `profile.properties`) as `saved` (`saved_profile`), at A, B, B-edit and each local archive, the mechanism `hq-side.json`'s `profileProperties` already uses. Nothing is skipped: Nova's publish carries the target's own values and its archive mirrors them (`KEPT_AT_HQ`, part 01 section 5). The one kept value the archive cannot carry, an Android logo, its download states (`kept_android_logos_absent`), and proof 3 holds that statement both ways on the archive's comparison (`proof3.py::stated_android_logos`): each slot A's stored `logo_refs` holds is HQ's trace's `brand-banner-*` property forced at its path, which the archive's profile lacks. The document states only the two settings it owns (`stated_settings(intent, seeds=False)`): a kept setting A does not hold is expected, at every state, as HQ's build writes an unstated one (`_unstated_setting`), and the archive writes none. No base saves the settings for this reason; a deployment Nova brought in is seeded with none (`seeds: "target"`, part 01 section 7.3). The Web Apps setting is held to the declaration at B and B-edit and not at A, which holds the setting its author left (`hq-new-app` holds it off while D declares both platforms). So are the add-ons in use (`add_ons_in_use`, `state_differences`' `add_ons`): A holds the map its author left, which HQ's pages read beside the use (`add_ons.py::show`), and an advanced form counts as using Case Conditions and Child Cases whatever it holds (`_uses_conditional_form_actions`), so A is held to none and every state Nova published to each; the first publish turns on each add-on Nova needs, a stored change of `add_ons` the claim log holds inert (`parity.inert_of`) |
+| intent | runs on A, B and B-edit, and on the local archives. At A it holds what HQ builds of its own app to what D states, which is a check of the reader | `proof/checks/intent.py`: for an `hq-authored` document `profile_settings` and `local_profile_settings` take A's stored profile values (`authored/app.json`, `profile.properties`) as `saved` (`saved_profile`), at A, B, B-edit and each local archive, the mechanism `hq-side.json`'s `profileProperties` already uses. Nothing is skipped: Nova's publish carries the target's own values and its archive mirrors them (`KEPT_AT_HQ`, part 01 section 5). The one kept value the archive cannot carry, an Android logo, its download states (`kept_android_logos_absent`), and proof 3 holds that statement both ways on the archive's comparison (`proof3.py::stated_android_logos`): each slot A's stored `logo_refs` holds is HQ's trace's `brand-banner-*` property forced at its path, which the archive's profile lacks. The document states only the two settings it owns (`stated_settings(intent, seeds=False)`): a kept setting A does not hold is expected, at every state, as HQ's build writes an unstated one (`_unstated_setting`), and the archive writes none. No base saves the settings for this reason; a deployment Nova brought in is seeded with none (`seeds: "target"`, part 01 section 7.3). The Web Apps setting is held to the declaration at B and B-edit and not at A, which holds the setting its author left (`hq-new-app` holds it off while D declares both platforms). So are the add-ons in use (`add_ons_in_use`, `state_differences`' `add_ons`): A holds the map its author left, which HQ's pages read beside the use (`add_ons.py::show`), and an advanced form counts as using Case Conditions and Child Cases whatever it holds (`_uses_conditional_form_actions`), so A is held to none and every state Nova published to each; the first publish turns on each add-on Nova needs, a stored change of `add_ons` the claim log holds inert (`parity.claim_places_of`) |
 | value expectations | each of the base's hand-written expectations runs on A, on B and, where the base's declaration includes Android, on the local archive, and must give the one value (6.4) | the entry writer writes one `Expectation` for each state the expectation runs at (`export: "A" | "B" | "local"`, less `local` where no archive is made, and only the states its `exports` names: 6.4); `proof/observe/intent.py::_runs_at` runs expectations for a document that is `targeted` or `hq_authored` |
 | manifest | runs on A, B, B-edit and the local archives. At A it is the independent check that the base holds nothing refused, undecided, unnamed or held-new | `proof/checks/manifest_usage.py::export_uses` reads A from the manifest observation's `authored` upload, the bytes of `authored/app.json` (`Document.authored`, 2.4), read as HQ's source read serves it (`as_served`: without `models/applications.py::Application._meta_fields` and `external_blobs`), built at A under every configuration; `proof/observe/manifest.py::uploads_of` records that upload in place of a first publish's. A `test_corpus.py` case holds the refusal of records without it. A's multimedia map names the files HQ holds for it, which Nova's local archive keeps under its own paths or not at all, so the observation reads each file `authored/media.json` retains, by the path the map gives it (`proof/observe/manifest.py::authored_media`, the readings' `authoredMedia`), and a media class at an item of A's map is read from that file (`manifest_value_classes.py::_media`, `App.authored`); `test_manifest.py` holds the observation's inputs naming each file |
 | proof 1 | runs, A against B. A difference is accepted only where an entry of `proof/first-publish-changes.json` names the document (section 9); `proof/identity-moves.json` never applies | `proof/checks/test_proof1_identity.py` asks `changes.declared` before `cases.hold` |
@@ -1603,10 +1611,10 @@ A `LaneReadInput` with `identity: "mint"` and no `projectData`, or with `identit
    too, as production's re-read of an app Nova holds is told them, a brought-in one included
    (`hqChanges/readings.ts`, and acceptance's own re-read of a reading): told none, the read back
    of a base's D′ loses every type its edit declared on a property no writer types. The ids CommCare HQ
-   holds for each menu and form, and the held media paths, are read under the document's
-   `hqAuthored` or at its top level (`identity`, `mediaPaths`), which proof 6 gives the document
-   a bring-in of a person's saves left (`proof6.py::requests_for`, `BroughtIn.identities`); the
-   top level's stand where both are given. Nova's
+   holds for each menu and form are read under the document's `hqAuthored` or at its top level
+   (`identity`), which proof 6 gives the document a bring-in of a person's saves left
+   (`proof6.py::requests_for`, `BroughtIn.identities`); the top level's stand where both are given,
+   and a base's held media paths are read under `hqAuthored`. Nova's
    publish of the document
    created those in HQ from the same data, or, for a base, left HQ's as they were. No acceptance
    runs: the read back is itself the fixed point, and `offered` comes from the draft's
@@ -1925,7 +1933,7 @@ The rule "Observation is separate from judgment" gains, after "import neither HQ
 > Two judges run one product of Nova's: `proof/checks/proof6.py` and `proof/checks/parity.py` run the
 > reader bundle the corpus carries (`native/reader/reader.mjs`, built by `proof/reader/build.mjs` in
 > the corpus job) under the image's Node, through `proof/checks/readerbundle.py`; the first-publish
-> judge reads the claim log parity's judge read (`parity.inert_of`). The bundle reads its requests file and nothing else, and its
+> judge reads the claim log parity's judge read (`parity.claim_places_of`). The bundle reads its requests file and nothing else, and its
 > digest is part of every corpus document's judged key (`proof/store/keys.py::judged_under`), so a
 > judgment stands for the reader that made it. No other judge runs a product of Nova's while it
 > judges; the corpus reader's `emit_corpus` runs the emission before any judging. The bundle is
@@ -2022,7 +2030,7 @@ manifest entry (7.5), not by template.
 |---|---|---|---|
 | `hq-plain` | pages, builder | section 3 | yes |
 | `hq-new-app` | pages, builder | `default_new_app` then `new_module` with no case type posted, so the type is `case` (`_init_module_case_type`), the registration form given one text question in the form builder and its case name set. None of the fifteen settings is saved (part 01, 01-the-bar-and-the-manifest.md, section 7.3), and Web Apps is off, as `Application.cloudcare_enabled` defaults. Declaration: both platforms, so the first publish turns Web Apps on (part 09's `web-apps-turned-on`). Part 01's Run 3 reads it | no |
-| `hq-saved-pages` | pages, builder | `hq-new-app`, then every app-manager section saved once with nothing changed, as proof 4 saves them: app settings, add-ons, UI translations, the menu's settings, its case list with its search, its case detail, each form's settings and case management, and each form in the form builder. It exhibits what each page writes on a save: the nine tile cell keys off a tile (the INERT entry part 01 section 3.2 cuts for them), `case_tile_field: ""`, and the profile settings a save of the settings page writes that no runtime reads, each an INERT entry at `15a00a97` (`application-and-settings/3-properties-purge-freq`, `6-properties-log-prop-weekly-within-its-choices`, `7-properties-log-prop-daily-within-its-choices`, `12-properties-user-reg-server`, `14-properties-restore-tolerance`, `16-properties-loose-media`). A stored-source difference at any of them is under part 09's `forms-and-settings-rewritten`, whose lane allowance is every pointer the claim log holds as `inert` (9.3) | no |
+| `hq-saved-pages` | pages, builder | `hq-new-app`, then every app-manager section saved once with nothing changed, as proof 4 saves them: app settings, add-ons, UI translations, the menu's settings, its case list with its search, its case detail, each form's settings and case management, and each form in the form builder. It exhibits what each page writes on a save: the nine tile cell keys off a tile (the INERT entry part 01 section 3.2 cuts for them), `case_tile_field: ""`, and the profile settings a save of the settings page writes that no runtime reads, each an INERT entry at `15a00a97` (`application-and-settings/3-properties-purge-freq`, `6-properties-log-prop-weekly-within-its-choices`, `7-properties-log-prop-daily-within-its-choices`, `12-properties-user-reg-server`, `14-properties-restore-tolerance`, `16-properties-loose-media`). A stored-source difference at any of them is under part 09's `forms-and-settings-rewritten`, whose lane allowance is every pointer the claim log holds as `inert` where no claim of another standing shares its branch (9.3) | no |
 | `starter-health` | template, stand-in media | HQ's health starter: two display-only menus, a Register action that returns to the list with an icon, a case list filter, an ascending sort with blanks last (part 03), three case forms whose logic reads the case (none through a `case_preload` entry and none through a default), one `case_list_form` block with a blank form id (menu 2), ten media paths at HQ's own paths, profile values Nova does not seed (`cc-fuzzy-search-enabled: yes` among them), `secure_submissions: true`, `mobile_ucr_restore_version` 1.0, `created_from_template`. Its preselected declaration is both platforms: the template holds `cloudcare_enabled: true`, so its configuration holds `CLOUDCARE` and HQ's import sets the setting on from the plan (`models/applications.py::_create_app_from_doc`), and nothing it holds is unavailable on either platform (6.1). Part 01's two `mirrors` rows on this base (`23-properties-cc-fuzzy-search-enabled`, `43-hq-secure-submissions`) need a declaration that includes Android (7.5, rule 2), which that rule gives whatever the setting. Parts 01, 02, 03; part 08's E6 | yes |
 | `starter-agriculture` | template, stand-in media | four menus and nine forms, five Phone Number questions (part 03), a child case, six forms whose questions default to a case's value (form builder defaults reading `#case/`; no `case_preload` entry), a date-descending sort, `translations.fra` for a language outside `langs` (UI keys HQ keeps, which no runtime reads for a language the app does not hold), a Register action that goes on with the new case, three `case_list_form` blocks with a blank form id (menus 0, 2 and 3), list columns showing the parent case's name (`menus-and-case-lists/idx-prop-parent-host-any-index-names-other-than-a-first-step`), and two Hidden Values with both a calculate and a default no later load-time value reads (`questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads`, first publish `hidden-value-defaults-dropped`). E6 | no |
 | `starter-wash` | template, stand-in media | four display-only menus beside one with a case list, three forms that open a child case, three `case_list_form` blocks with a blank form id (menus 2, 3 and 4; menu 0 holds none) (part 02's INERT row), a case detail column showing the parent case's address, a Hidden Value with both a calculate and a default no later load-time value reads (`questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads`), and its first form's icon, whose map entry names no file (6.3; first publish `broken-pictures-removed`, beside `case-settings-respelled` and `hidden-value-defaults-dropped`). E6 | no |
@@ -2287,12 +2295,12 @@ Nova's own publish. What this part holds of them:
   menu and a form; `proof/checks/corpus.py::BroughtIn.reading`), and `proof6.saved_requests` reads
   HQ's `saved` answer back against it with `canon`, the review's ids for a menu or form a person
   added (which the peer mints otherwise than HQ) taken as HQ's at that position
-  (`proof6.aligned_identity`). The reading also names, by asset, each file the review found HQ holding
-  under a path its content does not derive (`BringInRecord.reading.mediaPaths`: a picture a person
-  replaced under Nova's path, which the review resolved by its bytes to an asset the Project holds), and
-  the `saved` read back holds each such path to that asset before any asset whose content derives the
-  path (`proof6.held_media_paths`, `proof/reader/laneReading.ts::publishedFiles`), since HQ serves the
-  replaced file there. Its differences are `document@saved` and `reading@saved`. The
+  (`proof6.aligned_identity`). The `saved` read also reads each file HQ's media map names
+  (`reads:media`, as the `authored` read does), and the read back names each path by the asset whose
+  bytes HQ served there (`LaneReadInput.servedMedia`, `proof/reader/laneReading.ts::servedFiles`),
+  never by a path the review recorded: a picture a person replaced under Nova's path is the asset of
+  the person's bytes, as the review's reading must name it. Its differences are `document@saved` and
+  `reading@saved`. The
   capture records a reading wherever Nova's check read the app: every review that found changes,
   and a review that found nothing which the check decided. A review that found changes and
   recorded no reading is refused by name; one that found nothing with no reading (it answered
@@ -2416,10 +2424,11 @@ the stop `changed-while-reading`. The answer is held to the row:
 - a refusing row: the reading is an `account` whose findings are exactly the row's `(code,
   standing, place)`, one unless the row composes two (Copy L12);
 - a holding row: the reading is `read`, its claim log counts the row's entry, and each `holds`
-  fragment is in the document (the answer's `held` carries, for each, the value found at that
-  entity's pointer, 5.2);
+  fragment is in the document (the answer's `held` carries, for each, whether its key names an
+  entity of the reading and the value found at that entity's pointer, 5.2; a key that names none
+  fails whatever the fragment's value);
 - where Python decides the class (a REFUSED entry with a value-class reader, or one of 8.2's
-  thirteen): parity's join (`proof/checks/parity.py::join(uses, claims)`, the pure function
+  nineteen): parity's join (`proof/checks/parity.py::join(uses, claims)`, the pure function
   `parity.differences` calls) over the row's own uses (`parity.row_uses`): of the uses Python
   extracts from the variant's source answer that it does not extract from the base's, each it
   decides under one of the row's own entries (its entry, its second's and each of its also's), and
@@ -2436,8 +2445,9 @@ the stop `changed-while-reading`. The answer is held to the row:
   projects to Python's (8.1's table), so a row use the log lacks fails. No other use of a variant is
   judged, and no record the other way (`unseen`): a reader that refuses a subtree claims nothing
   inside it, so a structural use beneath it, which Python holds, has no record at its place. The
-  rows Python checked are counted and every other row is listed by name as
-  `unchecked_by_python`, so the count is seen.
+  rows Python checked are held both ways to `proof/matrix/parity-decided.json`, one list a base, and
+  every other row is listed by name as `unchecked_by_python`, so a change that leaves a row's
+  uses empty fails by the row's name.
 
 So the three statements of a variant's class (its row, Python, the reader) meet in one test,
 over what HQ answers at the pin on that run. Nothing of a variant is retained.
@@ -2826,39 +2836,42 @@ it: part 04's N1, part 02's two and part 07's two, each planned in its part.
 
 The lane's register of what Nova's first publish over an HQ-authored app changes on purpose. Part 09
 (09-acceptance-and-the-first-publish.md, section 11) owns the typed register
-`FIRST_PUBLISH_CHANGES` (the predicate over A, the stored-source paths, the sentence, whether it
-touches workers). A shard holds `proof/` and `lib/commcare/surface/` and cannot read the
-TypeScript register, so the lane keeps this file beside it. The file's shape is this part's:
+`FIRST_PUBLISH_CHANGES` (the predicate over A, the stored-source paths, where the change stands, the
+sentence, whether it touches workers). A shard holds `proof/` and `lib/commcare/surface/` and cannot
+read the TypeScript register, so the lane keeps this file beside it. The file's shape is this part's:
 
 ```json
 [
 	{
 		"change": "case-names-checked",
+		"placeKinds": ["form-node", "form-part", "form", "case"],
 		"rows": [
 			{ "check": "source", "artifact": "app.json", "path": "/_attachments/*" },
 			{ "check": "source", "artifact": "app.json", "path": "/modules/*/forms/*/actions" },
-			{ "check": "proof1", "artifact": "form", "path": "/questions/*" }
+			{ "check": "proof1", "artifact": "form:*", "path": "/questions/*", "kind": "added" }
 		]
 	}
 ]
 ```
 
-The rows above show the shape; a row that is not a `source` row is the run's to give, not this
-plan's.
-
 - `change` is a member of `FIRST_PUBLISH_CHANGE_IDS`. One object a change, every register entry
   in registry order.
-- `rows`: each a difference the entry allows, in the lane's own vocabulary: `check` one of `source`,
-  `proof1`, `proof2`, `proof3`; `artifact`, the structural `path` and the optional `kind` name the
-  class exactly as a known-defect entry does (`proof/README.md`, "Known defects"). A `source` row
-  is one of the entry's `paths` in part 09's register. Every other row is written from a base's own
-  evidence (`blocks/<id>/checks/<check>/corpus-<base>.json`), never by typing a path
+- `placeKinds`: the kinds of place the entry stands at (`firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS`:
+  `app`, `menu`, `form`, `form-node`, `form-part`, `case`), or `["app-wide"]` for the one entry that
+  stands everywhere, `forms-and-settings-rewritten`. The loader refuses an entry that names none,
+  `app-wide` beside another kind, a kind the vocabulary does not hold, and two app-wide entries:
+  each such entry could never be seen apart from the one that stands everywhere.
+- `rows`: each a class of difference the entry allows, in the lane's own vocabulary: `check` one of
+  `source`, `proof1`, `proof2`, `proof3`; `artifact`, the structural `path` and the optional `kind`
+  name the class exactly as a known-defect entry does (`proof/README.md`, "Known defects"). A
+  `source` row is one of the entry's `paths` in part 09's register. Every other row is written from
+  a base's own evidence (`blocks/<id>/checks/<check>/corpus-<base>.json`), never by typing a path
   (`proof/CLAUDE.md`, "A structural path names a symptom"). No row names `intent`: an intent
   difference on a base says the reader read A wrongly or Nova's emission lost what D states, and
   neither is ever a declared change.
 
-The file names no document: where an entry applies is the reading's to say (9.2), and each base's
-`expected.json` already holds its `firstPublish` list byte for byte.
+A row says what a change may change; a place says where, on one app. The file names no document
+and no place: where an entry applies and where it stands are the reading's to say (9.2).
 
 ```python
 # proof/checks/changes.py
@@ -2873,63 +2886,112 @@ class Row:
 class Change:
     change: str
     rows: tuple[Row, ...]
+    kinds: tuple[str, ...]     # ("app-wide",) for the one change that stands everywhere
 
-def load(path: Path = FIRST_PUBLISH_CHANGES) -> tuple[Change, ...]:
-    """The file's entries in file order. Refuses two objects of one change, two rows of one class
-    within an object, and a check outside the four."""
-
-def declared(document, check: str, differences, *, inert: frozenset[str] = frozenset()):
-    """-> (held, ids): the differences of `check` a row of an entry applying on `document` matches
-    (9.2), and the ids of the entries that matched. A `source` row matches a difference whose
-    concrete pointer it covers (`*` one step, a pointer covering what is under it, as part 09's
-    paths are written); another row's path is exact. A `source` difference whose pointer is in
-    `inert`, or under one (the pointers the claim log holds under an entry of standing inert,
-    9.3), is matched by forms-and-settings-rewritten."""
-
-def undeclared(document, check: str, differences, *, inert=frozenset()):
-    """`differences` less what `declared` holds: what goes on to the registers."""
-
-def differences(document, checked: Mapping[str, Sequence[Difference]], *,
-                inert: frozenset[str], readers: bool) -> list[Difference]:
-    """Holds 1 and 2 of 9.3 for one base. `checked` is every difference of the four checks, by
-    check; `readers` is whether the served readers ran. Answers the `changes` differences
-    `/<id>/unsaid` and `/<id>/unseen`."""
+def load(path: Path = FIRST_PUBLISH_CHANGES) -> tuple[Change, ...]: ...
+def placed(document, register) -> dict[str, tuple[str, ...]]:
+    """The applying changes with their places, each held to its entry's kinds."""
+@dataclass(frozen=True)
+class Sites:
+    """What a document's records say of where proof 2's and proof 3's differences stand: each run, step,
+    menu choice and case of proof 3's sessions, each build element named only by position, each media
+    resource (proof2.document_sites, proof3.document_sites)."""
+def locate(difference, sites=NO_SITES) -> tuple[str, ...]:
+    """Where a difference stands in the tree the places name; () where nothing places it."""
+def exactness(place: str, location) -> int | None:
+    """None where the location is not at the place or under it; else the steps named alike."""
+def holders(difference, changes, applying, places=NO_CLAIMS, sites=NO_SITES) -> list[str]:
+    """The applying changes that hold the difference, most exactly."""
+def declared(document, check, differences, *, places=NO_CLAIMS, sites=NO_SITES, register=None): ...
+def undeclared(document, check, differences, *, places=NO_CLAIMS, sites=NO_SITES, register=None): ...
+def differences(document, checked, *, places=NO_CLAIMS, sites=NO_SITES, readers, register=None) -> list[Difference]: ...
 ```
 
-A `source` row is one of the entry's `paths`, which part 09's Vitest holds
+A `source` row is one of the entry's `paths`, and each object's `placeKinds` its entry's kinds
+(`firstPublishChanges.ts::firstPublishPlaceKindsOf`), which part 09's Vitest holds
 (`proof/ci/__tests__/firstPublishChanges.test.ts`, its section 13.2: the file's ids are the
-register's in order, each object's `source` rows are exactly the entry's `paths`, and a `proof3`
-row stands only under an entry whose `touchesWorkers` is true). Every other row is written from a
-run's evidence: `python3 -m proof.checks.changes rows <output> <base>` prints, for each unheld
-difference of the base's evidence, the row that names it, and the session writes each printed row
-under the entry whose change it shows, which it reads from the entry's sentence in part 09. No
-row's path is typed. The command runs on a hosted runner's `python3`, on the standard library
+register's in order, each object's `source` rows are exactly the entry's `paths`, its place kinds
+the entry's, and a `proof3` row stands only under an entry whose `touchesWorkers` is true). One
+exception: `forms-and-settings-rewritten`, which stands everywhere, never names a form's whole
+source (`/_attachments/*`, which the loader refuses for it), and holds a form's source only by the
+part classes (`/_attachments/*/data/*/:bind/@vellum:nodeset`) a run's evidence writes, so a change
+of a question no change makes is never held there. Every
+other row is written from a run's evidence: `python3 -m proof.checks.changes rows <output> <base>`
+prints, for each difference of the base's evidence no applying change holds at one of its places,
+`{"row", "at"}`: the row that names its class and the applying changes whose places stand most
+exactly where it is. The session writes the row under the change `at` names where the entry's
+sentence in part 09 says its change shows there, and under none where the difference is a defect.
+No row's path is typed. The command runs on a hosted runner's `python3`, on the standard library
 (`proof/CLAUDE.md`, "What runs with no image").
 
 ### 9.2 The hold
 
 `proof/checks/changes.py::declared(document, check, differences)` returns the differences of
-`check` that a row of an applying entry matches, and the ids that matched; the tests of proof 1, 2
+`check` an applying change holds, and the ids that hold one most exactly; the tests of proof 1, 2
 and 3 (`test_proof1_identity.py`, `test_proof2_build.py`, `test_proof3_behavior.py`) and the
-`source` check's (`test_first_publish_changes.py`) call it (`changes.undeclared`) before
-`cases.hold`, and the judge modules stay as they are, so a test of another package that calls
-`proof2.py` or `proof3.py` judges as before.
+`source` check's (`test_first_publish_changes.py`) call it (`changes.undeclared`, with the
+document's `Sites` for proofs 2 and 3) before `cases.hold`, and the comparisons of the judge modules
+stay as they are, so a test of another package that calls `proof2.py` or `proof3.py` judges as
+before.
 
-An entry applies on a document where the document's `first-publish.json` lists its id. That file,
-`{ "ids": [...] }`, is written at emission from the reading (`LaneReading.firstPublish`, the base's
-declaration's `AcceptedDeclaration.firstPublish.ids`): the changes Nova would tell the person this
-app's first publish makes.
+An entry applies on a document where the document's `first-publish.json` lists it. That file,
+`{"changes": [{"id", "places"}]}`, is written at emission from the reading
+(`LaneReading.firstPublishPlaces`, `firstPublishChanges.ts::firstPublishChangePlaces` over the
+base's declaration's `AcceptedDeclaration.firstPublishFacts`): the changes Nova would tell the
+person this app's first publish makes, each with the places it stands at on this app.
+
+**Places.** A place is a JSON Pointer over one tree of the app by position
+(`lib/deployment/reading/firstPublishPlaces.ts`): `/app/<key>...`, `/menu/<m>/<key>...`,
+`/form/<m>.<f>/<key>...`, a form's XForm under `/form/<m>.<f>/xform` (a data node at
+`xform/data/...`, its title at `xform/title`, and `xform/**/<part>` a part under any node of it:
+`:itext`, `:control`, `:setvalue`, `case/update/<property>`), and `/case/<type>/<property>...`, a
+property read through a relation by its relation's steps; `**` any run of steps.
+The empty pointer is the whole app, the place of `forms-and-settings-rewritten` alone. Each entry's
+places come from what the reading records of its change, which section 9.4 lists entry by entry. An
+entry that applies and gives no place, or a place of a kind it does not declare, throws in
+`firstPublishChangePlaces`, so the emission stops rather than write a change the judge could meet
+nowhere; the register refuses at load, and in its Vitest, an entry declaring no kind of its own.
+
+**Locations.** Each difference is located in the same tree (`changes.locate`): a `source`
+difference by its pointer (a form's attachment, keyed by position, as its XForm, and inside it by
+the part and node `proof/checks/xform_parts.py` names); proof 1's by the form and question
+(`/order` as anything under the form's data), the form's case updates or the case type and property
+it names, and its `app.json` by pointer. Proofs 2 and 3 are located through what the document's
+records say of where each stands (`changes.Sites`, built by `proof2.document_sites` and
+`proof3.document_sites` and written beside the `changes` check's evidence for `changes rows`):
+proof 2's by the ids of CommCare's own vocabulary its pointer carries, each holding positions (a
+menu's `m<m>`, a detail's `m<m>_case_short`, a command's `m<m>-f<f>` or `search_command.m<m>`, an
+app string's key by its `id_strings` family, a form's artifact `form:<m>.<f>`), and where it names
+an element only by its position (a suite's `entry[7]`, `remote-request[2]`, `xform[3]`) by what A's
+and B's builds hold there, a media resource by the path it installs; proof 3's by the run's step:
+a form's step at the form its script's command opened (`id_strings.form_command` is positional), a
+case list's at the detail it shows, a search's at its menu's search, a menu step's choice at the
+menu or form it opens, and Core's case database and HQ's cases at each case's type. Whatever no
+record places (two configurations or two sides that place it apart, a served reader's walk) stands
+nowhere, where only `forms-and-settings-rewritten` stands; `**` in a location stands for what it
+cannot name below a step it reaches (a list's header names no column).
+
+**Holding.** A change holds a difference where a row of it names the difference's class and one of
+its places stands at the difference's location or above it. Of the changes that hold it, the ones
+whose place there is the most exact (the most steps it names alike, `changes.exactness`) see it; a
+tie between two changes at one node is both seen, since the judge does not guess between values.
+`forms-and-settings-rewritten`, at the whole app, so sees exactly what no other applying change's
+place holds.
 
 It is strict both ways, as `proof/walk-stops.json` is:
 
-- a difference on an `hq-authored` document that no row of an applying entry matches goes on to the
-  spelling rules and the known-defect register like any other, where nothing holds it, and fails;
-- an entry that applies on a document must match some difference there (hold 2 of the judge);
-- an entry is never read on a document it does not apply to, and never on a document of another
-  source. `proof/identity-moves.json` stays the witnesses' alone.
+- a difference on an `hq-authored` document that no applying change holds at one of its places goes
+  on to the spelling rules and the known-defect register like any other, where nothing holds it, and
+  fails: a difference of a change's class at another form or another node is not that change's;
+- an entry that applies on a document must see some difference at its places (hold 2 of the judge);
+- an entry is never read on a document it does not apply to, and on no document of another source
+  but one whose saves in CommCare HQ Nova brings in, where it applies by the review's list for the
+  next publish (6.6, `changes.py::placed`) and, since the review names no place, stands everywhere.
+  `proof/identity-moves.json` stays the witnesses' alone.
 
 The file joins `proof/store/fingerprints.py::JUDGE_FILES`, so an edit to it judges every document
-again and observes none.
+again and observes none. `first-publish.json` is emitted, so a change of where the reading says a
+change stands moves the document's digest and judges it again.
 
 ### 9.3 The judge
 
@@ -2944,8 +3006,17 @@ stored app with B's as HQ's source read serves each: the parsed bodies of part `
 read and part `b`'s `published` read (5.3). It walks the two JSON values together and reports
 `Difference(check="source", artifact="app.json", path, kind)` at each differing pointer, a list
 position and an app's own key (a form's attachment name, a language code, a media path) as `*` in
-`path` and kept in `at`. A form's source is compared as bytes and reported once, at
-`/_attachments/*`. One thing is compared another way, for its reason at source: a form's
+`path` and kept in `at`. A form's source is compared by its parts
+(`proof/checks/xform_parts.py`), each keyed as Core and HQ's form builder find it and placed under
+the data node it is about: the title; each node of the primary instance, its attributes and a
+leaf's text; each bind's attributes by its node set; each setvalue by its event and node; each
+control of the body by its node (its element, attributes, inline texts, choices, itemset and the
+order of what it holds); and each itext text by what reads it (a control's label, hint, help or
+alert, a choice's label, a bind's `jr:constraintMsg`), by language and form, so a text Nova keeps
+under another id is the same part (`/_attachments/*/data/*/:itext/label/*/default` at
+`/_attachments/form:0.0.xml/data/age/:itext/label/en/default`). A form only one side holds is one
+difference at `/_attachments/*`, and a source that does not parse is refused at its attachment.
+One thing is compared another way, for its reason at source: a form's
 `unique_id` and every reference to one (`case_list_form.form_id`, a form link's `form_id`,
 `shadow_parent_form_id`). Every source read re-mints them (`Application.scrub_source`,
 `update_form_unique_ids`, each reference by `models/base.py::form_id_references`), so each is
@@ -2960,8 +3031,9 @@ holds, so the comparison reports those apart. For each path the document's `medi
 (2.1), a map item whose `multimedia_id` or `unique_id` differs between the two reads, and a
 resource of that path whose version differs between A's and B's built media suites (the resource
 `id_strings.media_resource(unique_id, name)` names, `suite_xml/generator.py::MediaSuiteGenerator`), is a
-`source` difference at `/multimedia_map/*/held`, which is no entry's path and so never a declared
-change. That is part 10's assertion (10-identity-and-the-ledger.md, section 4.7), held on every
+`source` difference at `/multimedia_map/*/held`, which is never a declared change: no row matches
+it, however wide (`/multimedia_map/*` covers its pointer), the inert allowance does not hold it, and
+the register refuses a row that names it (`changes.held`). That is part 10's assertion (10-identity-and-the-ledger.md, section 4.7), held on every
 base that maps media and exhibited on `hq-media`.
 
 **Held properties of a column.** A case list column's `field` holds the property the column shows,
@@ -2973,8 +3045,8 @@ prints every expression it holds in its own spelling (whitespace, quote marks, a
 is at `/modules/*/case_details/short/filter`. A row at that path would also absorb a change to which
 property a column shows, so the comparison reports a `field` that differs at its own pointer only
 where the column is calculated on both sides, and any other at
-`/modules/*/case_details/<detail>/columns/*/held`, which is no entry's path (`starter-wash` exhibits
-the calculated respelling).
+`/modules/*/case_details/<detail>/columns/*/held`, which `changes.held` keeps from every row and
+from the inert allowance alike (`starter-wash` exhibits the calculated respelling).
 
 **The stored app is compared as stored.** `source` is a check like any other in that its differences
 go through `changes.declared` and then the known-defect register, which takes no entry of it. It
@@ -2989,43 +3061,57 @@ load is `forms-and-settings-rewritten`'s. It observes nothing new; it reads reco
 needs.
 
 **The inputs, a base.** The differences of the hop (`source`, proof 1 against A, proof 2 over every
-build file but a form's XML, proof 3 always: section 4); the entries that apply (`first-publish.json`,
-9.2); and the claim log in `full` mode, one request to the bundle in mode `claims` over part `a`'s
-`authored` read, for the allowance of `forms-and-settings-rewritten`: a `source` difference whose
-pointer the log holds under an entry of standing `inert` is matched by that entry, which is how it
-covers "the settings no runtime reads" without a row for each.
+build file but a form's XML, proof 3 always: section 4); the entries that apply and their places
+(`first-publish.json`, 9.2); and the claim log in `full` mode, one request to the bundle in mode
+`claims` over part `a`'s `authored` read, for the allowance of `forms-and-settings-rewritten`: a
+`source` difference whose pointer the log holds under an entry of standing `inert`, or under such a
+place, is matched by that entry, which is how it covers "the settings no runtime reads" without a
+row for each, but not where the log holds a claim of another standing at that inert place or under
+it on the difference's branch (`parity.claim_places_of`, `changes.inert_holds`): the log records
+some claims at the container whose value they read (a key of a language's strings at
+`/translations`, a profile key HQ's settings do not list at `/profile`, a media reference with no
+file at `/multimedia_map`), and there it does not tell the inert key from a kept one.
 
 **The three holds.**
 
-1. **Nothing undeclared.** Every difference of the four checks is matched by a row of an entry that
-   applies on the base (or by the inert allowance), or erased by a spelling rule. Any other is
-   reported as the difference it is, and with the known register empty it fails the base. Where
-   such a difference matches a row of an entry that does not apply on the base, the judge adds
+1. **Nothing undeclared.** Every difference of the four checks is held by an applying change at one
+   of its places (or by the inert allowance), or erased by a spelling rule. Any other is reported as
+   the difference it is, and with the known register empty it fails the base. Where such a
+   difference matches a row of an entry that does not apply on the base, the judge adds
    `Difference(check="changes", artifact="register", path="/<id>/unsaid")`: the first publish
    changed something Nova's review would not have said (Copy L9).
-2. **Nothing declared in vain.** Every entry that applies on the base matches at least one
-   difference there, or `/<id>/unseen`: Nova would tell the person of a change that did not happen
-   (L10). By profile: in the `no-readers` profile (`PROOF_READERS=0`) the hold skips an entry every
-   row of which names a served reader's artifact (`formplayer@`, `webapps@`, `android@`,
-   `connect@`) whose reader the run does not observe; in the `readers` profile it holds every
-   entry. The judge reads the readers the run observes (`proof.lane.readers.named`, as
-   `cases.load_register` reads them for the known register), and from no list of ids.
+2. **Nothing declared in vain.** Every entry that applies on the base sees at least one difference
+   at its places, held there more exactly than by any other applying change, or `/<id>/unseen`:
+   Nova would tell the person of a change that did not happen (L10). A difference
+   `forms-and-settings-rewritten` sees in a form says nothing of another change of that form. By
+   profile: in the `no-readers` profile (`PROOF_READERS=0`) the hold skips an entry every row of
+   which names a served reader's artifact (`formplayer@`, `webapps@`, `android@`, `connect@`) whose
+   reader the run does not observe; in the `readers` profile it holds every entry. The judge reads
+   the readers the run observes (`proof.lane.readers.named`, as `cases.load_register` reads them for
+   the known register), and from no list of ids.
 3. **Behavior only where behavior is declared.** A `proof3` difference is matched only by a `proof3`
    row, and part 09's Vitest admits a `proof3` row only under an entry whose `touchesWorkers` is
    true. The other half is 6.4's rule: each such entry on a base has a before and after pair of
    value expectations that shows it.
 
+What the places leave open: a list's header and a search's request name no column and no Search
+field, so they stand at the list or the search and any change placed in it holds them; and
+`forms-and-settings-rewritten`'s part classes of a form's source are written only from a hosted
+run's evidence (`changes rows` over the next whole run), so until they are, every form source
+difference no other change's place holds fails the stored-app comparison by name.
+
 So the register is closed three ways: the typed list (part 09), the lane's file (9.1), and this
-judge between what the reader predicts for an app and what HQ, Core and the readers then show.
-`proof/checks/test_first_publish_changes_controls.py` plants evidence for each hold in both
-profiles, with no HQ. `proof/views/test_exports.py` gains the `hq-plain` case: HQ's form export of
-B holds a column for each generated node, which is what the sentence of `hidden-values-added` tells
-the person.
+judge between what the reader predicts for an app, where it says the change stands, and what HQ,
+Core and the readers then show. `proof/checks/test_first_publish_changes_controls.py` plants
+evidence for each hold in both profiles, with no HQ, over registers whose rows overlap.
+`proof/views/test_exports.py` gains the `hq-plain` case: HQ's form export of B holds a column for
+each generated node, which is what the sentence of `hidden-values-added` tells the person.
 
 ### 9.4 Which base shows each entry
 
 Section 7.5's rule 3 requires every id on some base. Part 09's register names the ids (its section
-11.2); each is placed here:
+11.2); each is placed here, and where it stands on a reading (its `at`, from what the reading
+records of its change, 9.2) is the second table's.
 
 | Entry | Base |
 |---|---|
@@ -3045,10 +3131,40 @@ Section 7.5's rule 3 requires every id on some base. Part 09's register names th
 | `date-and-time-questions-split` | `hq-questions` |
 | `media-paths-joined`, `media-files-renamed`, `media-references-with-no-file-removed`, `unused-media-entries-removed` | `hq-media` |
 | `broken-pictures-removed` | `starter-wash`, its first form's icon (6.3) |
+| `names-respelled` | `hq-languages`, `hq-kept-settings` and `starter-agriculture`, each holding a menu's or a form's name, or the app's, that Nova prints another way |
+| `media-maps-respelled` | `hq-saved-pages` and the three starters, whose icon and audio maps HQ's pages stored in a shape Nova prints another way |
 | `hidden-value-defaults-dropped` | `starter-agriculture` and `starter-wash` |
 | `text-spaces-dropped` | `hq-languages`, whose first menu's name is typed with a space before it |
 | `form-text-characters-written-as-outputs` | `hq-questions`, whose second form's `contact_phone` label holds a no-break space, put in through the form page's upload after the form builder's save, which writes it as a plain space |
+| `form-titles-written` | `hq-new-app`, whose follow-up form, never opened in the form builder, holds the blank title HQ's new form writes; read under both platforms, so where the app runs on Android |
 | `sort-by-entry-with-a-blank-name-dropped` | `hq-case-lists`, whose third menu's list holds `visits` as Search Only under a header the Case List tab leaves blank, and a sort rule on `visits` with display text; read under its Android declaration, since Web Apps shows no Sort by entry for such a column and the id is listed only where the app runs on Android |
+
+| Entry | Where it stands on a reading |
+|---|---|
+| `forms-and-settings-rewritten` | everywhere: declared app-wide, the place of what no other change's place holds |
+| `hidden-values-added` | each generated node the reading's form holds and Nova's does not, or the reverse, or under another name (`FirstPublishFacts.generatedByForm`) |
+| `case-names-checked`, `validation-counts-moved`, `validation-messages-composed` | each `nova_trimmed_`, `nova_constraint_` or constraint-message node added and the question that owns it; for the case name, also the form's `actions`, its case blocks' name and external id (`xform/**/case/create/case_name`, `xform/**/case/update/case_name`, `xform/**/case/update/external_id`) and each case type it writes at `name`, `case_name` and `external_id` |
+| `instant-comparison`, `empty-rows-guard`, `absent-session-value-guard`, `row-predicate-current`, `search-value-guards`, `search-today-device-day` | each slot the expression stage held up to the rewrite (`ReadFacts.rewrites`), by the pointer of the value it was read from (a column's `field`, a list's `filter`, a search's `default_properties`, a form's `form_filter` or link, a menu's `module_filter`), or a question's node where a form's XForm holds it |
+| `case-settings-respelled` | each stored value the case readers record; a preload's questions, whose starting value Nova writes; an external id's property on the case type, the form's update of it and the property as each type indexed to it reads it (`/case/<child>/<index>/external_id`) |
+| `sort-rule-kept-as-hidden-column` | each sort element recorded, and in its menu each short detail column Nova's projection writes over a property no stored short column shows, at its index there (`hqJson/caseList.ts::projectCaseListForHq`) |
+| `search-filter-rows-recut`, `list-settings-respelled`, `search-filter-joined-to-list`, `search-restates-list-filter`, `link-held-case-guards-added`, `registration-label-fixed`, `names-respelled`, `media-maps-respelled`, `text-spaces-dropped`, `sort-by-entry-with-a-blank-name-dropped` | each stored value the reading records under the id (`ReadFacts.sameStateRewrites`), by the menu or form at its position; for `list-settings-respelled`, also each menu offering no search whose `auto_launch` the shell writes otherwise |
+| `date-and-time-saved-as-hq-stores-it` | in each form recorded, its `nova_datetime_` nodes and their questions, and each property of a date and time a case change of the form writes: its case blocks' row (`xform/**/case/update/<property>`) and the property on its case type |
+| `connect-app-captures-location` | `auto_gps_capture` and each form's `/data/meta/location` |
+| `translation-overrides-folded` | each folded key (`ReadFacts.foldedTranslationKeys`, its pointer `/translations/<code>/<key>`) and the text it names by HQ's own key, each slot of its row of `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS` at the positions the key spells (`placesOfGeneratedKey`): the app's name; a menu's name; a form's name, its `<h:title>` (`xform/title`) and its data node's `name` (`xform/data/@name`); a case list item's or Register button's label; a column's header or enum (`case_details/<short or long>/columns/<i>/header`, `.../enum`, the screen and column the key spells, a search detail's being the case list's) and the detail's `sort_elements`; a Search field's texts (`search_config/properties`); the search's title and subtitle. The entry's paths are the same rows' (`FOLDED_TEXT_PATHS`), so each place it gives lies under a path it allows |
+| `location-list-setting-reset`, `web-apps-turned-off`, `web-apps-turned-on` | the app key the shell writes |
+| `date-and-time-questions-split` | each question split, the date and the time questions it inserted (`datetimeSplitFieldUuid`), and the form's `actions` |
+| `blank-translations-filled` | the itext of each form the reading counts a blank translation in (`xform/**/:itext`) |
+| `media-paths-joined`, `media-files-renamed`, `media-references-with-no-file-removed`, `broken-pictures-removed`, `unused-media-entries-removed` | each media map path joined, moved, left out or pruned; every value of the app's JSON that names one, by its pointer (a case list column's icon among them), or a question's node; and the menu's or form's media listing, which for a menu holds its case list item's, its Register button's and both details' icons |
+| `form-text-characters-written-as-outputs` | each recorded form's itext and inline texts (`xform/**/:itext`, `xform/**/:control`) |
+| `hidden-value-defaults-dropped` | each recorded form's load-time setvalues (`xform/**/:setvalue`) and its `case_references_data.load` |
+| `form-titles-written` | each recorded form's `<h:title>` (`xform/title`) |
+
+Three entries stand at a part of a form rather than a node of it (`blank-translations-filled`,
+`form-text-characters-written-as-outputs`, `hidden-value-defaults-dropped`), because the reading
+records the form and not the node; each is a narrowing the reader can make by recording the node
+with its record. `lib/deployment/reading/__tests__/firstPublishChanges.test.ts` holds each entry's
+places to what its pair's first publish changes: every pointer of the stored app the publish moves
+that the entry's paths cover and no other applying entry's do lies under one of its places.
 
 `hq-expressions` keeps the shape of a default that reads another question and expects no id for
 it. `date-and-time-saved-as-hq-stores-it` touches workers, so where the run gives it a `proof3`
@@ -3364,7 +3480,8 @@ output of a run (one a shard) and merges by file: each file a block wrote under 
 or `blocks/*/hq-reads/` is written over `proof/hq-apps/` or `proof/hq-reads/`, two blocks that wrote
 one file apart are refused, and a committed file the run did not write is removed only where a
 comparison of the test that writes it recorded it as committed and not made
-(`blocks/*/retained-held/`, `proof/matrix/retained.py::Retained.record_held`). Replacing each
+(`blocks/*/retained-held/<tree>/<directory>/<test>.json`, one record a comparing test,
+`proof/matrix/retained.py::Retained.record_held`). Replacing each
 directory whole, as adopting first did, lost files of a sharded run: `proof/hq/test_retained_reads.py`
 and `proof/editors/test_retained_reads.py` both write `proof/hq-reads/navigation-base/`, and adopting
 one shard's output deleted the files the other's block wrote. With `--report` it prints each base
@@ -3497,7 +3614,7 @@ No test sleeps. Every process a test starts goes through `proof/processes.py`.
 |---|---|---|
 | root `CLAUDE.md`, the `proof/` bullet | "over a reproducible corpus of admitted documents" | "over a reproducible corpus of admitted documents and of apps made in CommCare HQ's own pages" |
 | root `CLAUDE.md`, the same bullet | "Its checks (the bar, intent, manifest, configuration sensitivity, proofs 1 to 5, every walk held to its end or a held stop)" | "Its checks (the bar, intent, manifest, configuration sensitivity, proofs 1 to 6, parity with Nova's reader, every walk held to its end or a held stop)" |
-| root `CLAUDE.md`, the same bullet | "every difference is erased by a proven spelling rule or held by the strict known-defect register (`proof/known-defects.json`), whose entries for a fixed defect move to `proof/fixed-defects.json` and keep showing on its retained control;" | "every difference is erased by a proven spelling rule, held by the strict known-defect register (`proof/known-defects.json`), whose entries for a fixed defect move to `proof/fixed-defects.json` and keep showing on its retained control, or, on an app made in CommCare HQ, named by the first-publish register (`proof/first-publish-changes.json`);" The sentence is replaced whole, so the clause on `proof/known-defects.json` stays with the register it describes |
+| root `CLAUDE.md`, the same bullet | "every difference is erased by a proven spelling rule or held by the strict known-defect register (`proof/known-defects.json`), whose entries for a fixed defect move to `proof/fixed-defects.json` and keep showing on its retained control;" | "every difference is erased by a proven spelling rule, held by the strict known-defect register (`proof/known-defects.json`), whose entries for a fixed defect move to `proof/fixed-defects.json` and keep showing on its retained control, or named by the changes register (`proof/first-publish-changes.json`): on an app made in CommCare HQ, a change its first publish makes, and on a document whose saves in CommCare HQ are brought in, a change Nova's review lists for the next publish;" The sentence is replaced whole, so the clause on `proof/known-defects.json` stays with the register it describes |
 | `proof/CLAUDE.md`, opening | "over a reproducible corpus" | "over a reproducible corpus of Nova's documents and of apps HQ's own pages and models made" |
 | `proof/CLAUDE.md`, "Observation is separate from judgment" | (no sentence about a judge running a process) | 5.7's paragraph |
 | `proof/CLAUDE.md`, the accepted seams | "The accepted seams are these four" | "The accepted seams are these five", with 6.3's paragraph, and the first seam names the level list's order beside the lookup table list's |
@@ -3592,7 +3709,7 @@ could reach for, and why it is not built. The numbers are fixed, since other fil
    document as much as D is, and the read costs five
    requests. `canonDocument` applies to every D′, an HQ-authored base's among them, since an edit
    made in Nova can hold either member of a canonical pair (5.1).
-10. **Thirteen HELD-NEW value-class readers in Python** (8.2), where part 01 and
+10. **Nineteen HELD-NEW value-class readers in Python** (8.2), where part 01 and
     part 04 leave the number to this part. Not done: leaving every HELD-NEW class that shares a
     key unjudged by Python, as the lane does today, because where step 6 cuts a HELD row by one
     value's grammar or bound, a wrong draw publishes over an app Nova mis-read (8.2).
@@ -3600,11 +3717,19 @@ could reach for, and why it is not built. The numbers are fixed, since other fil
     held to a document a person wrote (2.1). Not done: holding `hq-plain` by its reading alone,
     because neither production acceptance nor proof 6 can catch a consistent mis-read: it
     prints back to itself (5.1).
-12. **No departure on migration, rollout or product code.** This part changes nothing under `lib/`
-    but `lib/commcare/surface/__tests__/entryCoverage.test.ts`, the reader's own test directories
+12. **No departure on migration or rollout; product code changes only where a run found it
+    wrong.** What this part plans changes nothing under `lib/` but
+    `lib/commcare/surface/__tests__/entryCoverage.test.ts`, the reader's own test directories
     (section 10's suites, and part 07's form-builder case of `saveToCase.retained.test.ts`), one
     header sentence of `lib/commcare/__tests__/advancedDocArbitrary.ts` (11.2) and one sentence
-    of `lib/commcare/CLAUDE.md` ("Contracts"). `proof/reader/` imports part 12's `gatherFromHq`
+    of `lib/commcare/CLAUDE.md` ("Contracts"). The lane's runs then found defects that 11.3 settles
+    in the code that owns them, with no register entry: the reader (`lib/commcare/reader`), the
+    emission (`lib/commcare`), the first-publish register and its ids, copy and stored list
+    (`lib/deployment/reading/firstPublishChanges.ts`, `lib/publish/firstPublishChangeIds.ts`,
+    `firstPublishCopy.ts`), and what those fixes reached in the domain, the case store, Preview and
+    the builder's case list workspace (P2's outcomes R, B and C1); each lands with its own unit
+    test, and each contract it changes is that area's `CLAUDE.md`. None adds a migration, a flag or
+    a version floor. `proof/reader/` imports part 12's `gatherFromHq`
     and, for a read back, the reader and part 05's two reads, with part 11's
     `ReadingProjectSide` type and `levelsFromHq`, part 10's resolver and identity functions, part
     09's `readBack.ts`, `canon.ts` and `readingAppStrings`, and part 08's

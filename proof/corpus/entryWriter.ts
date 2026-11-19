@@ -61,8 +61,8 @@
  * `minimum` and `maximum`, with no single flag), and only `export/minimum/`
  * is written: the republish Nova sends over A as over an app it brought in
  * (`./publish.ts::PublishInput.hqAuthoredA`) and D′'s update. Beside them it
- * writes the ids of the first-publish changes the reading predicts
- * (`first-publish.json`), the base's hand-written value expectations as
+ * writes the first-publish changes the reading predicts, each with the
+ * places it stands at (`first-publish.json`), the base's hand-written value expectations as
  * `expected.json`, one expectation for each state it runs at (HQ's A, Nova's
  * B and, where the declaration D was read under includes Android, the local
  * archive), each form named by HQ's positions resolved to D's form through
@@ -1075,7 +1075,10 @@ export async function writeEntry(
 	if (authored !== undefined) {
 		await writeAuthored(root, document.id, authored.retained);
 		await writeJson(join(root, "first-publish.json"), {
-			ids: authored.firstPublish,
+			changes: authored.firstPublishPlaces.map(({ id, places }) => ({
+				id,
+				places,
+			})),
 		});
 		const hand = await handExpected(document.id, authored);
 		await writeJson(join(root, "expected.json"), hand.expected);

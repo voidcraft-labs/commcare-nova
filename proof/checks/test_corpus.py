@@ -897,7 +897,10 @@ def _as_hq_authored(root, document_id):
     _write_json(directory / "authored" / "app.json", app)
     _write_json(directory / "authored" / "media.json", [])
     _write_json(directory / "authored" / "seed.json", {"catalog": [], "values": {}, "userData": [], "worker": {}})
-    _write_json(directory / corpus.FIRST_PUBLISH, {"ids": ["forms-and-settings-rewritten"]})
+    _write_json(
+        directory / corpus.FIRST_PUBLISH,
+        {"changes": [{"id": "forms-and-settings-rewritten", "places": [""]}]},
+    )
     (root / "index.json").write_text(
         json.dumps({"seed": 1, "sample": 0, "documents": [{"id": document_id, "source": "hq-authored:planted"}]})
     )
@@ -920,6 +923,20 @@ def test_an_hq_authored_document_is_read_with_no_first_publish(copied):
     assert document.authored.media_rows() == [] and document.authored.tables is None
     assert document.case_seed["catalog"] == []
     assert document.first_publish == ("forms-and-settings-rewritten",)
+    assert document.first_publish_places == (("forms-and-settings-rewritten", ("",)),)
+    # The ids alone, or a change with no list of places, are refused by name: a change is judged at its places.
+    for refused in (
+        {"ids": ["forms-and-settings-rewritten"]},
+        {"changes": [{"id": "forms-and-settings-rewritten"}]},
+        {"changes": [{"id": "hidden-values-added", "places": []}, {"id": "hidden-values-added", "places": []}]},
+    ):
+        _write_json(document.root / corpus.FIRST_PUBLISH, refused)
+        with pytest.raises(corpus.CorpusLayoutError, match="first-publish.json"):
+            _ = corpus.load(root).document(document_id).first_publish_places
+    _write_json(
+        document.root / corpus.FIRST_PUBLISH,
+        {"changes": [{"id": "forms-and-settings-rewritten", "places": [""]}]},
+    )
     # A base that maps no media holds no media.json (proof/matrix/retain.py writes it only for one that does).
     (document.root / "authored" / "media.json").unlink()
     unmapped = corpus.load(root).document(document_id).authored

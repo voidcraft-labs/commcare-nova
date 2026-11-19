@@ -13,10 +13,7 @@ import {
 	readerInput,
 	sourceFromBody,
 } from "@/lib/commcare/reader/__tests__/readerInput";
-import {
-	type SchemaDefaultReader,
-	schemaPropertyDefault,
-} from "@/lib/commcare/surface/schemaDefaults";
+import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { adoptedAppBaselineWrite, adoptedIdentityRows } from "../adoption";
 import {
@@ -58,7 +55,6 @@ function diff(
 	ownership: AppOwnership,
 	options: {
 		shell?: boolean;
-		schemaDefault?: SchemaDefaultReader;
 		languageNames?: "nova" | "target";
 	} = {},
 ): readonly AppChangePart[] {
@@ -67,7 +63,6 @@ function diff(
 		current: normalized(current).normalized,
 		ownership,
 		shell: options.shell ?? false,
-		schemaDefault: options.schemaDefault ?? schemaPropertyDefault,
 		languageNames: options.languageNames ?? "nova",
 	});
 }
@@ -380,7 +375,6 @@ describe("a baseline an app brought in from CommCare HQ is born with", () => {
 			current: normalized(current).normalized,
 			ownership: baseline.ownership,
 			shell: false,
-			schemaDefault: schemaPropertyDefault,
 			languageNames: "target",
 		});
 	}
@@ -423,6 +417,42 @@ describe("the schema-growth rule", () => {
 			if (module !== undefined) module.comment = "Set in HQ";
 		});
 		expect(diff(older, set, ownership)).toEqual([
+			{ kind: "menu", menu: 0, name: "Patients" },
+		]);
+	});
+
+	it("reads a detail pair added as a read serves it, with its two details named, as no change", () => {
+		/* `Module.ref_details` stands in for a property a later HQ adds whose
+		 * default holds a `DetailPair`. The class declares each detail's
+		 * `display` null; every read names them `short` and `long`
+		 * (`models/modules.py::DetailPair.wrap`), so that is the value a later
+		 * read carries. */
+		const declared = schemaPropertyDefault("Module", "ref_details");
+		const pair = structuredClone(declared.default) as Record<
+			string,
+			Record<string, unknown>
+		>;
+		expect(pair.doc_type).toBe("DetailPair");
+		expect([pair.short?.display, pair.long?.display]).toEqual([null, null]);
+		const served = structuredClone(pair);
+		served.short = { ...served.short, display: "short" };
+		served.long = { ...served.long, display: "long" };
+		const holding = (value: unknown) =>
+			edited((app) => {
+				const module = app.modules[0];
+				if (module !== undefined) module.ref_details = value;
+			});
+		const without = edited((app) => {
+			delete app.modules[0]?.ref_details;
+		});
+		expect(diff(without, holding(served), ownership)).toEqual([]);
+		expect(diff(holding(served), without, ownership)).toEqual([]);
+		const withColumn = structuredClone(served);
+		withColumn.short = {
+			...withColumn.short,
+			columns: [{ doc_type: "DetailColumn", field: "village" }],
+		};
+		expect(diff(without, holding(withColumn), ownership)).toEqual([
 			{ kind: "menu", menu: 0, name: "Patients" },
 		]);
 	});

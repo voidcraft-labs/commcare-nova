@@ -239,9 +239,11 @@ export interface ReadFacts {
 	 *  expression reads that the catalog lacks, and each tag a form declares that the catalog
 	 *  lacks and nothing reads (`declaredOnly`), at the place `{ kind: "lookup-table", tag }`. */
 	readonly unreadTables: readonly UnreadTable[];
-	/** The generated translation keys `assembleDocument` folded, and a first-language
-	 *  `app.display.name` the application walker read as the app's name. */
-	readonly foldedTranslationKeys: number;
+	/** The JSON Pointer over CommCare HQ's stored app (`/translations/<code>/<key>`) of each
+	 *  generated translation key `assembleDocument` folded into the text it sets, and of a
+	 *  first-language `app.display.name` the application walker read as the app's name. The key
+	 *  names that text's place (`firstPublishPlaces.ts::placesOfGeneratedKey`). */
+	readonly foldedTranslationKeys: readonly string[];
 	readonly forms: readonly ReadFormFacts[];
 
 	/** Each same-state rule applied: the entry, a JSON Pointer, and the id of the first-publish
@@ -258,8 +260,8 @@ export interface ReadFacts {
 	 */
 	readonly childCasesUnread: readonly string[];
 
-	/** The expression stage's report, passed through: the rewrites it applied. */
-	readonly rewrites: ExpressionReading["rewrites"];
+	/** The expression stage's report, passed through: the rewrites it applied, each at its slot. */
+	readonly rewrites: readonly ReadRewrite[];
 	/** `ExpressionReading.rounds`, for the reading's log. */
 	readonly expressionRounds: number;
 }
@@ -319,6 +321,18 @@ export type SameStateRegister =
 
 /** One rewrite a reading allowed: the entry claimed, the JSON Pointer of the
  *  stored value Nova writes back differently, and the register's row. */
+/** A rewrite of `emissionRewrites.ts` the first publish applies at one slot of the source. */
+export interface ReadRewrite {
+	readonly id: ExpressionReading["rewrites"][number]["id"];
+	readonly place: HqPlace;
+	/** The surface key of the slot. */
+	readonly key: string;
+	/** The JSON Pointer over CommCare HQ's stored app of the value the slot was read from, where a
+	 *  key of the app's JSON holds it (a column's `field`, a list's `filter`, a Search field's
+	 *  `default_value`); absent for a slot of a form's XForm, whose place names its node. */
+	readonly pointer?: string;
+}
+
 export interface SameStateRewrite {
 	readonly entry: string;
 	readonly path: string;
@@ -367,6 +381,10 @@ export interface ReadMediaReference {
 	 *  HQ files as a video is that slot's finding before any file is fetched. */
 	readonly mediaKind: MediaKind;
 	readonly place: HqPlace;
+	/** The JSON Pointer over CommCare HQ's stored app of the map or the value that names the path,
+	 *  where a key of the app's JSON does (a menu's `media_image`, a case list column's enum
+	 *  item's `value`, a `logo_refs` slot); absent for a form's itext, whose place names its node. */
+	readonly pointer?: string;
 	/** A `lib/domain/mediaRefs.ts::MediaRefLocation` kind: `field_media_bundle`, `option_media`,
 	 *  `app_logo`, and the menu and list kinds the menu and list readers pass. */
 	readonly slot: string;
@@ -378,6 +396,8 @@ export interface PendingMedia {
 	readonly mediaKind: MediaKind;
 	readonly resolution: "no-entry" | "unreadable";
 	readonly place: HqPlace;
+	/** As `ReadMediaReference.pointer`. */
+	readonly pointer?: string;
 	/** As `ReadMediaReference.slot`, or `unheld_itext` for a slot Nova holds no media for. */
 	readonly slot: string;
 }

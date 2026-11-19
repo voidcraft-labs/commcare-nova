@@ -57,7 +57,7 @@ import functools
 import json
 from dataclasses import dataclass
 
-from proof.checks import manifest_usage, observations, proof6, readerbundle
+from proof.checks import changes, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "parity"
@@ -311,11 +311,13 @@ def join(uses, claims, *, document: str = "", held=None) -> list[Difference]:
     return found
 
 
-def inert_pointers(claims) -> frozenset[str]:
-    """Each place of the app's own JSON the claim log holds under an entry of standing inert: what the first-publish
-    judge lets forms-and-settings-rewritten cover (``proof.checks.changes.declared``)."""
-    return frozenset(
-        record.where for record in records_of(claims) if record.standing == "inert" and record.artifact == "app.json"
+def claim_places(claims) -> changes.ClaimPlaces:
+    """Each place of the app's own JSON the claim log holds a record at, those under an entry of standing inert apart
+    from the rest: what the first-publish judge's inert allowance reads (``proof.checks.changes.inert_holds``)."""
+    records = [record for record in records_of(claims) if record.artifact == "app.json"]
+    return changes.ClaimPlaces(
+        inert=frozenset(record.where for record in records if record.standing == "inert"),
+        other=frozenset(record.where for record in records if record.standing != "inert"),
     )
 
 
@@ -375,9 +377,13 @@ def claims_logs(document, records) -> dict:
     return logs
 
 
-def inert_of(document, records) -> frozenset[str]:
-    """The inert places of every configuration's claim log (``inert_pointers``)."""
-    return frozenset().union(*(inert_pointers(log) for log in claims_logs(document, records).values()))
+def claim_places_of(document, records) -> changes.ClaimPlaces:
+    """The places of every configuration's claim log together (``claim_places``)."""
+    found = [claim_places(log) for log in claims_logs(document, records).values()]
+    return changes.ClaimPlaces(
+        inert=frozenset().union(*(places.inert for places in found)),
+        other=frozenset().union(*(places.other for places in found)),
+    )
 
 
 def _lane_uses(document, records, name, readings):

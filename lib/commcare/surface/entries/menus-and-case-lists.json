@@ -4175,14 +4175,14 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`useXpathExpression` + `field` reading one case attribute (`@case_id`, `@owner_id`, `@status`)",
+		"item": "`useXpathExpression` + `field` reading one case attribute Nova writes as one (`@case_id`)",
 		"surfaceKeys": [
 			"schema:DetailColumn.field",
 			"schema:DetailColumn.useXpathExpression"
 		],
 		"valueClass": "expression-reading-one-case-attribute",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a column over `case_id`, `owner_id` or `status`",
+		"dispositionCell": "**HELD**: a column over `case_id`; `@owner_id` and `@status` are calculated columns, since Nova writes a column over either as the property field HQ's Case List page stores",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4195,7 +4195,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`useXpathExpression: true`, `field: @<name>`, the column kind's format (`plain`, `date`, `phone`, `enum`, `enum-image`, `invisible`)",
+			"cell": "`useXpathExpression: true`, `field: @case_id`, the column kind's format (`plain`, `date`, `phone`, `enum`, `enum-image`, `invisible`)",
 			"markers": []
 		},
 		"gates": []

@@ -243,14 +243,20 @@ REGISTER = changes.parse(
     [
         {
             "change": "media-files-renamed",
+            "placeKinds": ["app"],
             "rows": [
                 {"check": "source", "artifact": "app.json", "path": "/multimedia_map/*"},
                 {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "removed"},
             ],
         },
-        {"change": "location-list-setting-reset", "rows": [{"check": "source", "artifact": "app.json", "path": "/x"}]},
+        {
+            "change": "location-list-setting-reset",
+            "placeKinds": ["app"],
+            "rows": [{"check": "source", "artifact": "app.json", "path": "/x"}],
+        },
         {
             "change": "hidden-values-added",
+            "placeKinds": ["form-node"],
             "rows": [{"check": "proof3", "artifact": "formplayer@B", "path": "/runs/*/screens"}],
         },
     ]
@@ -293,14 +299,17 @@ def test_the_register_loads_and_refuses_what_the_judge_cannot_hold():
     assert all(row.check in changes.ROW_CHECKS for change in held for row in change.rows)
     row = {"check": "source", "artifact": "app.json", "path": "/name"}
     for refused, says in (
-        ([{"change": "a", "rows": []}, {"change": "a", "rows": []}], "two objects of the change a"),
-        ([{"change": "a", "rows": [row, row]}], "twice"),
-        ([{"change": "a", "rows": [{**row, "check": "intent"}]}], "names the check 'intent'"),
-        ([{"change": "a", "rows": [{**row, "kind": "moved"}]}], "left out for every kind"),
+        (
+            [{"change": "a", "placeKinds": ["app"], "rows": []}, {"change": "a", "placeKinds": ["app"], "rows": []}],
+            "two objects of the change a",
+        ),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [row, row]}], "twice"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "check": "intent"}]}], "names the check 'intent'"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "kind": "moved"}]}], "left out for every kind"),
     ):
         with pytest.raises(changes.ChangesError, match=says):
             changes.parse(refused)
-    assert changes.parse([{"change": "a", "rows": [row]}])[0].rows[0].path == "/name"
+    assert changes.parse([{"change": "a", "placeKinds": ["app"], "rows": [row]}])[0].rows[0].path == "/name"
 
 
 def _write(path, value):
@@ -321,13 +330,16 @@ def test_the_rows_command_prints_each_unheld_class_of_a_document_s_evidence_once
     _write(tmp_path / "corpus" / DOCUMENT / "hq-side.json", {"republish": "brings-in", "publishChanges": []})
     printed = changes.rows(tmp_path, DOCUMENT, register=REGISTER)
     assert printed == [
-        {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "removed"},
-        {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "added"},
-        {"check": "proof3", "artifact": "trace@B", "path": IMAGE, "kind": "changed"},
+        {"row": {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "removed"}, "at": []},
+        {"row": {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "added"}, "at": []},
+        {"row": {"check": "proof3", "artifact": "trace@B", "path": IMAGE, "kind": "changed"}, "at": []},
     ]
-    # Where the review lists the change, what its rows hold is no longer printed.
+    # Where the review lists the change, what its rows hold is no longer printed, and what they do not is printed
+    # under it: the review names no place, so the change stands everywhere.
     _write(
         tmp_path / "corpus" / DOCUMENT / "hq-side.json",
         {"republish": "brings-in", "publishChanges": ["media-files-renamed"]},
     )
-    assert changes.rows(tmp_path, DOCUMENT, register=REGISTER) == printed[1:]
+    assert changes.rows(tmp_path, DOCUMENT, register=REGISTER) == [
+        {**one, "at": ["media-files-renamed"]} for one in printed[1:]
+    ]

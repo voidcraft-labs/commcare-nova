@@ -219,13 +219,10 @@ function bindTypeClass(
 
 /** Whether the expression stage held what a bind's attribute registered. */
 function held(ctx: ReadContext, element: object, attribute: string): boolean {
-	const list = ctx.pending.list();
-	for (let index = 0; index < list.length; index++) {
-		const at = ctx.pending.site(index).at;
-		if ("element" in at && at.element === element && at.attribute === attribute)
-			return ctx.pending.outcome(index).expression !== undefined;
-	}
-	return false;
+	const index = ctx.pending.firstAt(element, attribute);
+	return (
+		index !== undefined && ctx.pending.outcome(index).expression !== undefined
+	);
 }
 
 /** The load-time order check of one form. */
@@ -572,12 +569,9 @@ function registrationOf(
 	slot: string,
 ): number | undefined {
 	const list = ctx.pending.list();
-	for (let index = 0; index < list.length; index++) {
-		const ref = list[index]?.ref;
-		if (ref?.entity === "field" && ref.uuid === uuid && ref.slot === slot)
-			return index;
-	}
-	return undefined;
+	return ctx.pending
+		.of("field", uuid)
+		.find((index) => list[index]?.ref.slot === slot);
 }
 
 /**

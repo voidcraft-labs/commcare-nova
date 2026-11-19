@@ -2003,7 +2003,7 @@ holds it to the slots part 11's `hqMediaReferencesOf` reads.
 
 ### 11.2 Every entry
 
-Thirty-five entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
+Thirty-nine entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
 predicate is given: `f.source` is CommCare HQ's source, `f.doc` the document under the choice,
 `f.facts` the reader's `ReadFacts`, `f.generated` the generated difference, `f.media` the path
 assignment, `f.mediaLeftOut` and `f.choice` as typed above. The first column is the entry's place in
@@ -2032,7 +2032,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 19 | `registration-label-fixed` | the same | `/modules/*/case_list_form/label/*` | yes |
 | 20 | `date-and-time-saved-as-hq-stores-it` | the same | `/_attachments/*` | yes |
 | 21 | `connect-app-captures-location` | `f.doc.connectType` is set and `f.source.raw.auto_gps_capture` is not `true` | `/auto_gps_capture` | yes |
-| 22 | `translation-overrides-folded` | `f.facts.foldedTranslationKeys` is above zero (part 06, section 17.3) | `/translations/*/*`; `/name`; `/modules/*/name/*`; `/modules/*/forms/*/name/*`; `/modules/*/case_list/label/*`; `/modules/*/case_list_form/label/*` | no |
+| 22 | `translation-overrides-folded` | `f.facts.foldedTranslationKeys` is above zero (part 06, section 17.3) | `/translations/*/*` and `firstPublishPlaces.ts::FOLDED_TEXT_PATHS`, the slots of each kind of key a reading folds (`FOLDED_TEXT_SLOTS`): `/name`; `/modules/*/name/*`; `/modules/*/forms/*/name/*` and `/_attachments/*` (a form's `<h:title>` and data node `name`, written from its name in the first language); `/modules/*/case_list/label/*`; `/modules/*/case_list_form/label/*`; `/modules/*/case_details/*/columns/*/header/*` and `/modules/*/case_details/*/sort_elements/*/display/*` (a column's header on either screen, a sort-only field's); `/modules/*/case_details/*/columns/*/enum/*/value/*` (a mapping's label, an interval's text, a case property's choice label); `/modules/*/search_config/properties/*/` `label/*`, `hint/*`, `required/text/*` and `validations/*/text/*`; `/modules/*/search_config/title_label/*`; `/modules/*/search_config/description/*` | no |
 | 23 | `location-list-setting-reset` | `f.source.raw.location_fixture_restore` is `both_fixtures` or `only_flat_fixture` | `/location_fixture_restore` | no |
 | 24 | `web-apps-turned-off` | `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is `android` | `/cloudcare_enabled` | yes |
 | 25 | `web-apps-turned-on` | not `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is not `android` | `/cloudcare_enabled` | yes |
@@ -2048,7 +2048,8 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 34 | `text-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/*`; `/modules/*/case_list/label`; `/modules/*/case_list_form/label`; `/modules/*/case_details/*/columns/*/header`; `/modules/*/case_details/*/columns/*/enum/*/value`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description`; `/modules/*/search_config/properties/*/label`; `/modules/*/search_config/properties/*/hint`; `/modules/*/search_config/properties/*/required/text`; `/modules/*/search_config/properties/*/validations/*/text` | yes |
 | 35 | `form-text-characters-written-as-outputs` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/_attachments/*` | no |
 | 36 | `hidden-value-defaults-dropped` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the form stage, so also in `FIRST_PUBLISH_READING_RECORDS`) | `/_attachments/*`; `/modules/*/forms/*/case_references_data/load` | no |
-| 37 | `form-titles-written` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the assembly, `reader/assemble.ts::recordTitleRewrites`, for a form whose `<h:title>` Core reads as other text than `formWireName`), and the app runs on Android (`FIRST_PUBLISH_ANDROID_ONLY`) | `/_attachments/*` | yes |
+| 37 | `sort-by-entry-with-a-blank-name-dropped` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by `caseList/order.ts::readSortElements` for a short detail's `invisible` column whose sort element has display text under a header blank in every language, which CommCare HQ's build writes as a no-break space Android's Sort by lists), and the app runs on Android (`FIRST_PUBLISH_ANDROID_ONLY`; Web Apps lists no Sort by entry for such a column) | `/modules/*/case_details/short/sort_elements/*/display` | yes |
+| 38 | `form-titles-written` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the assembly, `reader/assemble.ts::recordTitleRewrites`, for a form whose `<h:title>` Core reads as other text than `formWireName`), and the app runs on Android (`FIRST_PUBLISH_ANDROID_ONLY`) | `/_attachments/*` | yes |
 
 `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`. Every other entry has
 `reading`. `date-and-time-questions-split` reads what the chosen declaration did to the document at
@@ -2259,6 +2260,7 @@ entry above). None is left undecided.
 | A date and time written through Nova's own sibling or Save to Case value, in the spelling Nova writes | exact | the reader folds the sibling and reads the value it recognizes (part 03, section 7.1) |
 | The same, in the spelling Nova wrote before this step | declare, `date-and-time-saved-as-hq-stores-it` | section 11.2: the reader reads it as the same write, Nova writes CommCare HQ's spelling back, and a phone then keeps other text for a case it saves |
 | A sort rule over a date and time property | exact | part 03, section 7.1: the fix is in the text a phone writes, so the list's order rule, its sort element and its columns are written as the source holds them |
+| A sort element with display text on a short detail's `invisible` column whose header is blank in every language | declare, `sort-by-entry-with-a-blank-name-dropped`, where the app runs on Android | CommCare HQ's build writes the blank header as a no-break space (`commcare_translations.py::dumps`), which Android's Sort by lists as a choice with no name (`EntitySelectActivity.getSortOptionsList`); Nova holds no name for the rule and writes the display blank (`hqJson/caseList.ts::sortDisplay`), so the choice leaves Sort by. Web Apps lists no Sort by entry for such a column |
 | The date and time split | declare, `date-and-time-questions-split`, only where the person chose it | part 06, section 16.3 |
 | New export columns from generated nodes | declare, `hidden-values-added` | each generated leaf is a new column of CommCare HQ's form export |
 | A generated node renamed (a suffix that moved) | declare, `hidden-values-added` | the column starts again under the new name |
@@ -2555,16 +2557,20 @@ asked, and the question is where it is agreed.
 ### 13.1 Whose file it is
 
 The file's shape, its loader and its judge are part 14's (14-proof.md, sections 9.1 to 9.4): an array
-of `{ change, rows: [{ check, artifact, path, kind? }] }`, one object a change, every register entry
-in registry order. This part gives it the ids and each entry's `source` rows: one row a pointer of
-the entry's `paths`, `artifact: "app.json"`. Every row but a `source` row is written from a run's
+of `{ change, placeKinds, rows: [{ check, artifact, path, kind? }] }`, one object a change, every
+register entry in registry order. This part gives it the ids, each entry's kinds of place
+(`firstPublishPlaceKindsOf`) and each entry's `source` rows: one row a pointer of the entry's
+`paths`, `artifact: "app.json"`. Every row but a `source` row is written from a run's
 evidence, as part 14's section 9.1 says. This part also writes the file's one Vitest,
 `proof/ci/__tests__/firstPublishChanges.test.ts`. What it gives the lane is below, and nothing else.
 
 The lane's shards hold `proof/` and `lib/commcare/surface/` and nothing else of the repository
 (`proof/CLAUDE.md`), so the judge cannot read the TypeScript register. The two meet in two places
-only: the ids, and `first-publish.json` in each base's directory, the predicted ids the reader bundle
-writes from the base's declaration's `AcceptedDeclaration.firstPublish.ids` (part 14, section 9.2).
+only: the ids, and `first-publish.json` in each base's directory, the predicted changes the reader
+bundle writes from the base's declaration's `AcceptedDeclaration.firstPublish.ids`, each with the
+places it stands at (`firstPublishChangePlaces` over `AcceptedDeclaration.firstPublishFacts`; each
+entry's `at`, `firstPublishPlaces.ts`), which the judge holds each difference to (part 14, section
+9.2).
 
 ### 13.2 What the judge needs for an entry no proof shows
 
@@ -2581,7 +2587,8 @@ one comparison, which part 14 writes (its section 9.3):
 - **`source`**, a check name `proof/checks/differences.py::CHECKS` gains (it refuses an unknown one in
   `Difference.__post_init__`), beside `proof6`, `parity` and `changes`. It compares A's stored app with
   B's as CommCare HQ's source view serves each: JSON by pointer, a position and an app's own key as
-  `*`, and a form's source as bytes, reported at `/_attachments/*`. Every source read re-mints form
+  `*`, and a form's source by its parts, each under the data node it is about
+  (`proof/checks/xform_parts.py`). Every source read re-mints form
   ids, so a form id and every reference to one is compared as the menu and form position it names
   (part 14, 9.3). `changes.declared` is called for it as for the proofs, so a row may have `check:
   "source"`.
@@ -2593,8 +2600,8 @@ one comparison, which part 14 writes (its section 9.3):
   the checkout is whole. `proof/ci/__tests__/firstPublishChanges.test.ts` holds: the file's ids are
   `FIRST_PUBLISH_CHANGE_IDS` in order; each object's `source` rows are exactly the entry's `paths`
   (entry 1's four written pointers; its inert allowance has no row); a `proof3` row stands only under
-  an entry whose `touchesWorkers` is true. A behavior difference under an entry that declares none
-  is then a failing test, never an accepted change.
+  an entry whose `touchesWorkers` is true; each object's `placeKinds` is its entry's. A behavior
+  difference under an entry that declares none is then a failing test, never an accepted change.
 - **Entry 1's allowance.** A `source` difference at a pointer the base's claim log holds under an
   entry of standing `inert` (the reader bundle's `claims: "full"` product, part 14, section 8.1) is
   `forms-and-settings-rewritten`'s: Nova does not write back what no runtime reads. The judge matches
@@ -2607,10 +2614,11 @@ With `source` an observed check, every one of the thirty-five ids is one some ch
 Part 14's both-ways judge (its section 9.3), with `source` among its observed checks, on every
 `hq-authored` document and nowhere else:
 
-1. **Nothing unsaid.** A difference of the hop that no entry naming the document holds goes on to the
-   spelling rules and the known-defect register, where nothing holds it, and fails; an observed id the
-   reading did not predict is `/<id>/unsaid`.
-2. **Nothing said in vain.** A predicted id nothing observed is `/<id>/unseen`.
+1. **Nothing unsaid.** A difference of the hop that no entry naming the document holds at one of its
+   places goes on to the spelling rules and the known-defect register, where nothing holds it, and
+   fails; an observed id the reading did not predict is `/<id>/unsaid`.
+2. **Nothing said in vain.** A predicted id nothing observed at its places, more exactly than by any
+   other predicted id, is `/<id>/unseen`.
 3. **Behavior only where behavior is declared**, by 13.2's Vitest; proof 3's value expectations
    for a base (part 14, section 6.4) include one that shows each worker-touching entry the base
    exhibits.
@@ -2894,7 +2902,7 @@ constants and writes no heading, lead, label, reassurance or note of its own (se
 | `FIRST_PUBLISH_FORM_BUILDER_NOTE` | If your team opens these forms in CommCare HQ's form builder, some hidden details will look different there. |
 
 **C2. The sentences** (`FIRST_PUBLISH_SENTENCES`), one for each id that has a line of its own:
-thirty. `search-filter-rows-recut`, `list-settings-respelled`, `names-respelled` and
+thirty-five. `search-filter-rows-recut`, `list-settings-respelled`, `names-respelled` and
 `media-maps-respelled` are said by the first. The
 sentences of part 08's rewrites and of part 07's same-state readings are written here, because the
 register is their home.
@@ -2920,7 +2928,7 @@ register is their home.
 | `registration-label-fixed` | A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads “Create a new Case” there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova. |
 | `date-and-time-saved-as-hq-stores-it` | A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place. |
 | `connect-app-captures-location` | Every form of this CommCare Connect app will record where it was filled in. Nova turns on Auto Capture Location for the app in CommCare HQ. |
-| `translation-overrides-folded` | A wording set in CommCare HQ's app translations for the app's, a menu's or a form's name becomes that name. Workers read the same words. |
+| `translation-overrides-folded` | A wording set in CommCare HQ's app translations for one of the app's texts, such as a menu's name, a case list column's header or a Search field's label, becomes that text in Nova. Workers read the same words. |
 | `location-list-setting-reset` | This app's own setting for the location list goes back to the project space's default. The app reads places the same way. |
 | `web-apps-turned-off` | Web Apps is turned off for this app in CommCare HQ, because the app is set to run on Android only. |
 | `web-apps-turned-on` | Web Apps is turned on for this app in CommCare HQ, because the app is set to run in Web Apps. |
@@ -2934,6 +2942,7 @@ register is their home.
 | `text-spaces-dropped` | A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks. |
 | `form-text-characters-written-as-outputs` | Where a question's text holds a no-break space, or words CommCare HQ would take as a request for data, Nova writes those characters as fixed values. CommCare HQ's form builder shows each one as a small reference inside the text. Workers read the same words. |
 | `hidden-value-defaults-dropped` | A hidden value that held both a starting value and a calculation keeps only its calculation. CommCare always replaced the starting value before anything read it. |
+| `sort-by-entry-with-a-blank-name-dropped` | On Android, a case list's Sort by no longer lists a choice with no name. CommCare HQ listed a hidden column there whose name was blank in every language, so workers saw an empty choice. You can give its sort rule a name in Nova to list it again. |
 | `form-titles-written` | Each form's title now holds the form's name. On Android, a saved form a worker opens again shows that name at the top, where it showed no title or an older name before. |
 
 **C3. `read-back-differs`.** The block is part 01's (01-the-bar-and-the-manifest.md, section 9.3).

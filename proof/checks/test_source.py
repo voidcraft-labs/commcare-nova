@@ -38,8 +38,22 @@ def _app(first, second, *, link_to, show="no", last_modified="2026-01-01", multi
                 ],
             }
         ],
-        "_attachments": {f"{first}.xml": "<h:html/>", f"{second}.xml": "<h:html>2</h:html>"},
+        "_attachments": {f"{first}.xml": _xform(), f"{second}.xml": _xform(title="Second")},
     }
+
+
+def _xform(*, title="Visit", calculate="/data/age * 2", label="Age", label_id="age-label"):
+    """A form as HQ's form builder writes one: a question whose label is an itext text and a Hidden Value."""
+    return f"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
+ xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="http://commcarehq.org/xforms/vellum">
+<h:head><h:title>{title}</h:title>
+<model><instance><data xmlns="http://openrosa.org/formdesigner/f1" uiVersion="1" version="1"><age/><double/></data>
+</instance>
+<bind nodeset="/data/age" type="xsd:int"/>
+<bind nodeset="/data/double" calculate="{calculate}"/>
+<itext><translation lang="en" default=""><text id="{label_id}"><value>{label}</value></text></translation></itext>
+</model></h:head>
+<h:body><input ref="/data/age"><label ref="jr:itext('{label_id}')"/></input></h:body></h:html>"""
 
 
 HELD = frozenset({"jr://file/commcare/image/a.png"})
@@ -65,12 +79,47 @@ def test_a_changed_kept_key_is_reported_at_its_own_pointer():
     assert [(d.path, d.kind) for d in found] == [("/profile/properties/cc-show-saved", "changed")]
 
 
-def test_a_changed_form_source_is_one_difference_at_its_attachment():
+def test_a_changed_form_source_is_a_difference_at_each_part_it_changed_under_the_node_it_is_about():
     a = _app("a", "b", link_to="b")
     b = _app("c", "d", link_to="d")
-    b["_attachments"]["c.xml"] = "<h:html>changed</h:html>"
+    b["_attachments"]["c.xml"] = _xform(calculate="/data/age*2", label="Age in years")
     found = compare_sources("doc", a, b, HELD)
-    assert [(d.path, d.at, d.kind) for d in found] == [("/_attachments/*", "/_attachments/form:0.0.xml", "changed")]
+    assert [(d.path, d.at, d.kind, d.before, d.after) for d in found] == [
+        (
+            "/_attachments/*/data/*/:itext/label/*/default",
+            "/_attachments/form:0.0.xml/data/age/:itext/label/en/default",
+            "changed",
+            "Age",
+            "Age in years",
+        ),
+        (
+            "/_attachments/*/data/*/:bind/@calculate",
+            "/_attachments/form:0.0.xml/data/double/:bind/@calculate",
+            "changed",
+            "/data/age * 2",
+            "/data/age*2",
+        ),
+    ]
+
+
+def test_a_text_kept_under_another_id_is_no_difference_and_a_form_only_one_side_holds_is_one():
+    a = _app("a", "b", link_to="b")
+    b = _app("c", "d", link_to="d")
+    b["_attachments"]["c.xml"] = _xform(label_id="age_question-label")
+    assert compare_sources("doc", a, b, HELD) == []
+    b["_attachments"]["e.xml"] = _xform()
+    found = compare_sources("doc", a, b, HELD)
+    assert [(d.path, d.at, d.kind) for d in found] == [("/_attachments/*", "/_attachments/e.xml", "added")]
+
+
+def test_a_form_source_that_does_not_parse_is_refused_at_its_attachment():
+    a = _app("a", "b", link_to="b")
+    b = _app("c", "d", link_to="d")
+    b["_attachments"]["c.xml"] = "<h:html>"
+    found = compare_sources("doc", a, b, HELD)
+    assert [(d.path, d.at, d.kind) for d in found] == [
+        ("/_attachments/*/:not-well-formed", "/_attachments/form:0.0.xml/:not-well-formed", "refused")
+    ]
 
 
 def test_a_held_media_path_naming_another_file_is_reported_apart():

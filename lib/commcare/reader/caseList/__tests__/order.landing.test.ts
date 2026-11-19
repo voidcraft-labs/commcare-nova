@@ -188,20 +188,20 @@ const ruledHeaders = (columns: readonly Column[]) =>
 		.filter((column) => column.sort !== undefined)
 		.map((column) => [column.header, column.sort]);
 
-/** Two shown ID mappings over `status` after a name column, the rule on the one `ruled` names. */
-function statusMappings(ruled: 2 | 3, laterValues = ["open", "closed"]) {
+/** Two shown ID mappings over `case_id` after a name column, the rule on the one `ruled` names. */
+function idMappings(ruled: 2 | 3, laterValues = ["open", "closed"]) {
 	return patients([
 		plainColumn(uuid(1), "case_name", "Name"),
 		idMappingColumn(
 			uuid(2),
-			"status",
+			"case_id",
 			"Status",
 			[idMappingEntry("open", "Open"), idMappingEntry("closed", "Closed")],
 			ruled === 2 ? { sort: columnSort("asc", 0) } : {},
 		),
 		idMappingColumn(
 			uuid(3),
-			"status",
+			"case_id",
 			"Status again",
 			laterValues.map((value) => idMappingEntry(value, value.toUpperCase())),
 			ruled === 3 ? { sort: columnSort("asc", 0) } : {},
@@ -210,16 +210,17 @@ function statusMappings(ruled: 2 | 3, laterValues = ["open", "closed"]) {
 }
 
 /**
- * Contract: a rule on a shown ID mapping over an attribute-backed property, after another shown
+ * Contract: a rule on a shown ID mapping over the case's id, an expression column on HQ's wire
+ * (`EXPRESSION_ONLY_COLUMN_PROPERTIES`), after another shown
  * ID mapping over it with the same values, prints the positional element of its own column, and
  * the ownership rule admits it there, since both order by one table; the reader reads each
  * placement back where it is and the landing row moves neither. The failure it catches: a
  * reading that reads the rule on the earlier mapping, the column it lands on, so a first publish
  * rewrites the element's `field`.
  */
-describe("a rule on the later of two shown ID mappings over status with one table", () => {
-	const onLater = statusMappings(3);
-	const onEarlier = statusMappings(2);
+describe("a rule on the later of two shown ID mappings over the case's id with one table", () => {
+	const onLater = idMappings(3);
+	const onEarlier = idMappings(2);
 
 	it("is admitted on either and prints the position of the column it is on", async () => {
 		expect(ownershipCodes(onLater)).toEqual([]);
@@ -252,8 +253,8 @@ describe("a rule on the later of two shown ID mappings over status with one tabl
  * the commit gate then refuses.
  */
 describe("a positional element naming an ID mapping with another table than its landing", () => {
-	const named = statusMappings(3, ["closed", "open"]);
-	const landing = statusMappings(2, ["closed", "open"]);
+	const named = idMappings(3, ["closed", "open"]);
+	const landing = idMappings(2, ["closed", "open"]);
 
 	it("reads the rule on the column it lands on", async () => {
 		expect(ownershipCodes(named)).toEqual([
@@ -278,21 +279,21 @@ describe("a positional element naming an ID mapping with another table than its 
 
 const icon = testUuid("asset-status-icon") as unknown as MediaAssetId;
 
-/** Two shown image maps over `status` with one set of values after a name column, the rule on
+/** Two shown image maps over `case_id` with one set of values after a name column, the rule on
  *  the one `ruled` names. */
-function statusImages(ruled: 2 | 3) {
+function idImages(ruled: 2 | 3) {
 	return patients([
 		plainColumn(uuid(1), "case_name", "Name"),
 		imageMapColumn(
 			uuid(2),
-			"status",
+			"case_id",
 			"Status",
 			[imageMapEntry("open", icon)],
 			ruled === 2 ? { sort: columnSort("asc", 0) } : {},
 		),
 		imageMapColumn(
 			uuid(3),
-			"status",
+			"case_id",
 			"Status again",
 			[imageMapEntry("open", icon)],
 			ruled === 3 ? { sort: columnSort("asc", 0) } : {},
@@ -301,7 +302,7 @@ function statusImages(ruled: 2 | 3) {
 }
 
 /**
- * Contract: an image map over an attribute-backed property is an expression column, so a rule on
+ * Contract: an image map over the case's id is an expression column, so a rule on
  * the later of two with one set of values prints its own position, and both order by one table
  * where the export carries the media manifest that writes them as images; the reader reads the
  * rule where it is. Exported with no manifest, each map with entries is a plain column over the
@@ -309,9 +310,9 @@ function statusImages(ruled: 2 | 3) {
  * reading prints that export back. The failure it catches: `orderKeyClass` keying an image map
  * apart from the plan's key for it, so a reading moves a rule the export names by position.
  */
-describe("a rule on the later of two shown image maps over status with one table", () => {
-	const onLater = statusImages(3);
-	const onEarlier = statusImages(2);
+describe("a rule on the later of two shown image maps over the case's id with one table", () => {
+	const onLater = idImages(3);
+	const onEarlier = idImages(2);
 
 	it("is admitted on either and prints the position of the column it is on", async () => {
 		expect(ownershipCodes(onLater)).toEqual([]);
@@ -342,7 +343,7 @@ describe("a rule on the later of two shown image maps over status with one table
 				read.columns.map((one) =>
 					one.kind === "plain" ? one.field : one.kind,
 				),
-			).toEqual(["case_name", "status", "status"]);
+			).toEqual(["case_name", "case_id", "case_id"]);
 			expect(ruledHeaders(orderedColumns(read, "list"))).toEqual(
 				ruledHeaders(orderedColumns(docList(doc), "list")),
 			);

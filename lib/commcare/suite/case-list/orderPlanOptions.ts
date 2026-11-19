@@ -12,7 +12,6 @@ import type { RewriteControl } from "@/lib/commcare/emissionRewrites";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
-	ATTRIBUTE_BACKED_COLUMN_PROPERTIES,
 	type BlueprintDoc,
 	type CaseListOrderOptions,
 	type CaseListOrderPlan,
@@ -21,6 +20,7 @@ import {
 	caseListOrderPlan,
 	casePropertyShowsOptionLabels,
 	columnPropertyCaseType,
+	EXPRESSION_ONLY_COLUMN_PROPERTIES,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	type Module,
@@ -54,21 +54,23 @@ export function hqEnumPlaceholder(index: number): string {
 	return `nova_text_${index.toString(10).padStart(10, "0")}`;
 }
 
-/** Whether the column reads an attribute-backed property (finding 57). */
-export function columnReadsCaseAttribute(column: Column): boolean {
+/**
+ * Whether HQ JSON stores a property column as the expression reading its
+ * property, `@case_id`: no HQ property column can show it
+ * (`EXPRESSION_ONLY_COLUMN_PROPERTIES`).
+ */
+export function columnStoredAsExpression(column: Column): boolean {
 	return (
 		column.kind !== "calculated" &&
-		(ATTRIBUTE_BACKED_COLUMN_PROPERTIES as ReadonlySet<string>).has(
-			column.field,
-		)
+		(EXPRESSION_ONLY_COLUMN_PROPERTIES as ReadonlySet<string>).has(column.field)
 	);
 }
 
 /**
  * The text HQ JSON writes as a column's expression `field` on one screen.
  * `screen` is the detail the column is written into: on Results a column
- * hidden there that is not calculated prints its raw wire path (`@<name>`
- * for an attribute-backed one); on Details a column prints as its kind shows
+ * hidden there that is not calculated prints its raw wire path (`@case_id`
+ * for one over the case's id); on Details a column prints as its kind shows
  * it. A column with no expression of its own prints its raw wire path.
  *
  * `lookupNaming` is the run's naming where the caller has one; a caller with

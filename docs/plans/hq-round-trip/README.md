@@ -17,7 +17,7 @@ means the research's "Defects in Nova today", its section of that name, or its
 | 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
 | 5 | Case writes, forms and navigation | done: ["Step 5 is done"](#step-5-is-done) |
-| 6 | [Bringing an app in from CommCare HQ](6-bring-in.md), with its fifteen parts in [`6-bring-in/`](6-bring-in/), which replace the outline this row held | planned in full |
+| 6 | [Bringing an app in from CommCare HQ](6-bring-in.md), with its fifteen parts in [`6-bring-in/`](6-bring-in/), which replace the outline this row held | planned in full, and built as one stack of ten layers that has not merged: what is left is the stack's merge and deploy, then the checks of its "Exit" ([`6-bring-in.md`](6-bring-in.md#exit)), read from `main` and the first scheduled night |
 | 7 | [The rest of the model](7-rest-of-model.md) | outline: the model Nova does not hold yet, in eight groups with a default order |
 
 ## Step 1 is done

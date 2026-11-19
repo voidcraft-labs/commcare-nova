@@ -78,12 +78,17 @@ def written(outputs, tree: str) -> dict[str, dict[str, bytes]]:
     where: dict[tuple[str, str], Path] = {}
     for root in block_roots(outputs, tree):
         for path in sorted(root.rglob("*")):
-            if not path.is_file():
+            # A file written beside its name and never renamed (``retained.write_whole``) is none the run made.
+            if not path.is_file() or path.name.endswith(".partial"):
                 continue
             relative = path.relative_to(root)
+            if len(relative.parts) < 2:
+                raise AdoptRefused(
+                    f"{path} is a file at the top of {tree}/, and every file a run writes there sits in a base's or a"
+                    " group's directory. Look at which test wrote it (proof/matrix/retained.py writes each under"
+                    " its directory)."
+                )
             directory, name = relative.parts[0], Path(*relative.parts[1:]).as_posix()
-            if not name:
-                raise AdoptRefused(f"{path} is a file at the top of {tree}/; every file sits in a base or group.")
             data = path.read_bytes()
             files = found.setdefault(directory, {})
             if name in files and files[name] != data:
@@ -98,14 +103,24 @@ def written(outputs, tree: str) -> dict[str, dict[str, bytes]]:
 
 def unmade(outputs, tree: str) -> dict[str, set[str]]:
     """The committed files of ``tree`` that a comparison of the run found and did not make, by directory: the union
-    of every block's held records (``retained-held/<tree>/<directory>.json``)."""
+    of every block's held records, one a comparing test (``retained-held/<tree>/<directory>/<test>.json``). A
+    record's file written beside it and never renamed (``.<name>.<pid>.partial``, ``retained.write_whole``) is no
+    record; any other file that is no record of a directory is refused by name."""
     found: dict[str, set[str]] = {}
     for root in block_roots(outputs, f"{HELD}/{tree}"):
-        for path in sorted(root.glob("*.json")):
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.name.endswith(".partial"):
+                continue
+            relative = path.relative_to(root)
+            if len(relative.parts) != 2 or path.suffix != ".json":
+                raise AdoptRefused(
+                    f"{path} is no held record: each sits at {HELD}/{tree}/<directory>/<test>.json"
+                    " (proof/matrix/retained.py::Retained.held_record)."
+                )
             extra = json.loads(path.read_text(encoding="utf-8")).get("extra")
             if not isinstance(extra, list) or not all(isinstance(name, str) and name for name in extra):
                 raise AdoptRefused(f"{path} lists no files a comparison found and did not make.")
-            found.setdefault(path.stem, set()).update(extra)
+            found.setdefault(relative.parts[0], set()).update(extra)
     return found
 
 

@@ -538,7 +538,10 @@ export class XmlCursorImpl implements XmlCursor {
 						recordedNode(at, claim.key, this.scope),
 					);
 		const recorded = this.ledger.claim(site, claim, place, detail);
-		this.ledger.coverSubtree(element);
+		this.ledger.coverSubtree(
+			element,
+			claim.use === "take" || claim.use === "derived",
+		);
 		if (recorded) this.findingWithin(element, claim);
 		return recorded;
 	}
@@ -638,7 +641,7 @@ export class XmlCursorImpl implements XmlCursor {
 							),
 					};
 		this.ledger.handOff(site, key ?? plain.name, to, subject);
-		this.ledger.coverSubtree(element);
+		this.ledger.coverSubtree(element, false);
 	}
 
 	placeUnclaimed(resolve: (element: Element) => HqPlace): void {

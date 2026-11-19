@@ -112,7 +112,11 @@ import {
 } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
-import { buildCarrierField, buildColumnField } from "./columns";
+import {
+	buildCarrierField,
+	buildColumnField,
+	mergeFieldStrings,
+} from "./columns";
 import {
 	EMPTY_CASE_LIST_TEXT,
 	emptyCaseListTextLocaleId,
@@ -393,8 +397,7 @@ export function buildShortDetail(args: {
 				field.rule?.label !== undefined && { sortLabel: field.rule.label }),
 		});
 		fields.push(emission.element);
-		Object.assign(strings, emission.strings);
-		Object.assign(translationUnits, emission.translationUnits);
+		mergeFieldStrings(strings, translationUnits, emission);
 	}
 	for (const carrier of sortNodes.carriers) {
 		const emission = buildCarrierField(
@@ -404,8 +407,7 @@ export function buildShortDetail(args: {
 			wire,
 		);
 		fields.push(emission.element);
-		Object.assign(strings, emission.strings);
-		Object.assign(translationUnits, emission.translationUnits);
+		mergeFieldStrings(strings, translationUnits, emission);
 	}
 
 	return {

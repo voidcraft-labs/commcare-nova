@@ -1433,11 +1433,11 @@ function searchSlotTree(
  */
 function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 	const held = new Map<string, { tree: Expression; level: PrintLevel }>();
-	ctx.pending.list().forEach((registration, index) => {
-		const ref = registration.ref;
-		if (ref.entity !== "module" || ref.uuid !== mod.uuid) return;
+	const registrations = ctx.pending.list();
+	for (const index of ctx.pending.of("module", mod.uuid)) {
+		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
-		if (expression === undefined || level === undefined) return;
+		if (expression === undefined || level === undefined) continue;
 		const member = (ref as { readonly member?: { searchInputUuid?: string } })
 			.member;
 		const key =
@@ -1445,7 +1445,7 @@ function heldSearchLevels(ctx: ReadContext, mod: Module): SearchConfigRewrites {
 				? ref.slot
 				: `${ref.slot}/${member.searchInputUuid}`;
 		held.set(key, { tree: expression, level });
-	});
+	}
 	return (ref) => {
 		const one = held.get(searchSlotKey(ref));
 		if (one === undefined) return undefined;

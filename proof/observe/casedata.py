@@ -665,9 +665,9 @@ def served_fixtures(state, user_id=USER_ID, *, workbook=None):
     """HQ's item-list fixtures for each lookup table HQ holds, by tag, each served as ``ItemListsProvider`` serves
     a global table (``lookup_fixtures``' second half, which uploads nothing).
 
-    An app made in CommCare HQ is served this alone: its tables are the ones
-    its A was made with (``proof/hq/operations.py::save_authored_tables``),
-    and Nova uploads no workbook over a table HQ manages. ``workbook`` names
+    A state of an app made in CommCare HQ that no publish pushed a workbook
+    to is served this alone: its tables are the ones its A was made with
+    (``proof/hq/operations.py::save_authored_tables``). ``workbook`` names
     the lookup workbook uploaded before, for a refusal's reason, where one
     was. A table HQ holds per owner is refused (``LookupTablesNotServed``):
     the restore here serves only global tables.

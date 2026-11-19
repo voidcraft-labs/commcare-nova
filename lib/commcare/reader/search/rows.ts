@@ -1725,6 +1725,8 @@ export function classifySearchRows(
 	const ownsFilter = input.formsReadSearch && !loadNamesMenu(ctx, module);
 	// Whether a row could not be read: a list clause it restates is then not known to go unrestated.
 	let unread = false;
+	// Whether the search's own filter joined to the list is declared.
+	let joinRecorded = false;
 	// Each conjunct read as a simple field's derivation, with its record's place.
 	const derivations: { input: Uuid; conjunct: Expression; at: number }[] = [];
 	// Each conjunct read as a field's own condition where the list filter could also take it,
@@ -2002,12 +2004,14 @@ export function classifySearchRows(
 				record({ kind: "B", clause });
 				continue;
 			}
-			// C: a simple field's derivation.
+			// C: a simple field's derivation. A field that already holds a conjunct as its condition is
+			// no simple field: reading it as one would drop that conjunct.
 			const prompt = input.prompts.find(
 				(one) =>
 					onlyField === undefined &&
 					one.exclude &&
 					!derivedInputs.has(one.uuid) &&
+					!conditioned.has(one.uuid) &&
 					conjunct.kind === "when-input-present" &&
 					conjunct.input.searchInputUuid === one.uuid,
 			);
@@ -2271,6 +2275,7 @@ export function classifySearchRows(
 					`${module.json.pointer}/case_details/short/filter`,
 					"search-filter-joined-to-list",
 				);
+				joinRecorded = true;
 				record({ kind: "F" });
 				continue;
 			}
@@ -2388,15 +2393,23 @@ export function classifySearchRows(
 		}
 	}
 
-	// A conjunct that reads Search fields under their guards is placed as the first field's own
-	// condition, or as a simple field's derivation, where that keeps the rows placed so far in
-	// order, but Nova writes the list filter's rows before field conditions and derivations, so a
-	// later row can show the conjunct was the list filter's. Over the settled menu, where the rows
-	// come out of the stored order, the fewest of those conjuncts read as list filter clauses
-	// instead, each among the list filter's clauses in row order, under which they come back in
-	// order are.
+	// A conjunct placed as an advanced field's own condition where the list filter could also take
+	// it, or as a simple field's derivation, keeps the rows placed so far in order, but Nova writes
+	// the list filter's rows before field conditions and derivations, so a later row can show the
+	// conjunct was the list filter's. Over the settled menu, where the rows come out of the stored
+	// order, the fewest of those conjuncts read as list filter clauses instead, each among the list
+	// filter's clauses in row order, under which they come back in order and the device runs the
+	// list, are. One that reads Search fields waits for them, so the device's own list filter prints
+	// the same; one that reads none is a clause the device's list filter runs, the search's own
+	// filter joined to the list (kind F), offered only where kind F is.
+	const joinsList = (conjunct: Expression) =>
+		ownsFilter && joinReadsAlike(conjunct, doc, caseType);
 	const movable = [
-		...fieldConditions.map((one) => ({ ...one, from: "field" as const })),
+		...fieldConditions
+			.filter(
+				(one) => inputReads(one.conjunct).length > 0 || joinsList(one.conjunct),
+			)
+			.map((one) => ({ ...one, from: "field" as const })),
 		...derivations
 			.filter((one) => conjuncts[one.at]?.placement.kind === "C")
 			.map((one) => ({ ...one, from: "derived" as const })),
@@ -2445,19 +2458,50 @@ export function classifySearchRows(
 		).sort((a, b) => a.length - b.length);
 		for (const chosen of subsets) {
 			const candidate = asFilter(chosen);
-			if (!writesInOrder(candidate)) continue;
+			if (
+				!writesInOrder(candidate) ||
+				!deviceRunsList(doc, candidate, module.uuid)
+			)
+				continue;
 			doc = candidate;
 			for (const one of chosen) {
 				const record = conjuncts[one.at];
 				if (record !== undefined)
 					conjuncts[one.at] = {
 						...record,
-						placement: { kind: "D", from: "filter" },
+						placement:
+							inputReads(one.conjunct).length === 0
+								? { kind: "F" }
+								: { kind: "D", from: "filter" },
 					};
 			}
 			break;
 		}
 	}
+	// The search's own filter joined to the list changes the list a device runs, whichever placement
+	// joined it, so the change is declared from the settled menu: wherever a conjunct is kind F, or
+	// the list filter a device runs prints otherwise than it did.
+	const listChanged = () => {
+		const before = listFilterText(ctx, start, module.uuid);
+		const after = listFilterText(ctx, doc, module.uuid);
+		return (
+			before !== undefined &&
+			after !== undefined &&
+			(before === "" || after === ""
+				? before !== after
+				: !sameXPathText(before, after))
+		);
+	};
+	if (
+		!joinRecorded &&
+		(conjuncts.some((one) => one.placement.kind === "F") || listChanged())
+	)
+		sameState(
+			ctx,
+			ROWS_HELD,
+			`${module.json.pointer}/case_details/short/filter`,
+			"search-filter-joined-to-list",
+		);
 
 	const unrestated = listClauses.flatMap((_, index) =>
 		restated.has(index) ? [] : [index],
@@ -2540,6 +2584,7 @@ export function classifySearchRows(
 					id,
 					place,
 					key: "schema:DefaultCaseSearchProperty.defaultValue",
+					pointer: `${module.json.pointer}/search_config/default_properties`,
 				});
 	}
 	ctx.doc = doc;

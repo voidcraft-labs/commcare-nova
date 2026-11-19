@@ -201,7 +201,7 @@ def sessions_record(records, name):
 # (``proof.observe.unit._Unit.api_reads``): under ``apiReads`` in a part's record, one entry a label
 # (``published``, ``authored``, ``saved``), each ``{source, application, currentVersion, projectSpaces: {all,
 # flagged}, projectData?: {lookupTables, fixtureRows: {<tag>: answer}, locationTypes?, locations?}, media?: [{path,
-# mediaType, multimediaId, status, sha256, length}]}``, each answer a blob of the JSON
+# mediaType, multimediaId, status, sha256, length}], at ``authored`` and ``saved``}``, each answer a blob of the JSON
 # ``proof.hq.operations.HqAnswer.retained()`` writes.
 API_READS = "apiReads"
 API_READ_LABELS = ("published", "authored", "saved")
@@ -230,7 +230,8 @@ def api_reads(records, name, part, label):
     refused the publish that makes it, or Nova stopped it) or no such read.
 
     Returns ``{source, application, currentVersion, projectSpaces?, projectData?, media}``: ``projectData`` as
-    ``LaneReadInput.projectData`` names its answers (without the media), ``media`` the record's rows."""
+    ``LaneReadInput.projectData`` names its answers (without the media), ``media`` the record's rows, or None where
+    the read recorded none (only the ``authored`` and ``saved`` reads read the files)."""
     record = records.configurations[name].part(part) or {}
     reads = (record.get(API_READS) or {}).get(label)
     if reads is None:
@@ -258,7 +259,8 @@ def api_reads(records, name, part, label):
             if data.get(key) is not None:
                 held[key] = _answer(data[key], blobs, f"{where}.projectData.{key}")
         found["projectData"] = held
-    found["media"] = list(reads.get("media") or [])
+    media = reads.get("media")
+    found["media"] = None if media is None else list(media)
     return found
 
 

@@ -525,6 +525,7 @@ export async function hqAuthoredDocument(
 		identity: reading.identity,
 		source: sourceBody(app),
 		firstPublish: reading.firstPublish,
+		firstPublishPlaces: reading.firstPublishPlaces,
 		declaration: reading.declaration,
 		mediaPaths,
 		keyedCaseIds: reading.keyedCaseIds,

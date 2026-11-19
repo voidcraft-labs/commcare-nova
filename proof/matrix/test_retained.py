@@ -15,10 +15,13 @@ the reader bundle. Three tests read that one authoring:
   fragments, a row whose value HQ never serves is held to that on every run,
   and each use the lane's Python check decides under the row's own entries
   (``parity.row_uses``) is joined to the reader's claim at the same place;
-  the rows it checked are counted and the rest named. Fails on a refusal with
-  another code, standing or place, a held fragment missing, a variant that
-  reads when it must not, and a value HQ cannot hold counted as one an app
-  can carry.
+  the rows it checked are held both ways to the base's list in
+  ``proof/matrix/parity-decided.json`` and the rest named. Fails on a refusal
+  with another code, standing or place, a held fragment missing, a fragment
+  whose key names no entity of the reading (a null value then holds of
+  nothing), a variant that reads when it must not, a value HQ cannot hold
+  counted as one an app can carry, and a manifest check that stops deciding
+  a row's uses, which would leave the join with nothing to judge.
 - ``test_a_base_exhibits_what_it_names``: every entry a base's row names is
   counted by its reading's claim log. Fails on a builder that quietly stops
   authoring a shape at a pin.
@@ -203,7 +206,26 @@ def _hold_variant(outcome):
             f"The variant {variant.id} reads, and its claim log counts no claim under {variant.entry}, which the row"
             " says it exhibits. Look at the row's change and at the reader's claim for that key."
         )
-    held = {(hold["key"], hold["pointer"]): hold["found"] for hold in answer.get("held") or []}
+    answered = {(hold["key"], hold["pointer"]): hold for hold in answer.get("held") or []}
+    # A fragment speaks of an entity the reading holds: a null value means that entity holds nothing at the pointer,
+    # never that the reading holds no entity under the key (``proof/reader/cli.ts::heldOf``'s ``named``).
+    unnamed = sorted(
+        {
+            hold["key"]
+            for hold in outcome.holds
+            if (answered.get((hold["key"], hold["pointer"])) or {}).get("named") is not True
+        }
+    )
+    if unnamed:
+        if outcome.unserved:
+            return unserved_message(variant, f"its source read holds something else at {outcome.unserved[0]}")
+        return (
+            f"The variant {variant.id} reads, and its row holds fragments of {_joined(unnamed)}, which"
+            f" {'names' if len(unnamed) == 1 else 'name'} no menu, form or field of the reading. Look at the row's"
+            " holds keys in proof/matrix/variants.json and at the reader's external identity map"
+            " (lib/commcare/reader/identityMap.ts), which gives each entity its key."
+        )
+    held = {place: hold["found"] for place, hold in answered.items()}
     wrong = [
         f"{hold['pointer']} of {hold['key']} (it holds {held.get((hold['key'], hold['pointer']))!r})"
         for hold in outcome.holds
@@ -248,6 +270,44 @@ def python_parity(outcomes):
     return sorted(checked), sorted(unchecked), differences
 
 
+PARITY_DECIDED = Path(__file__).resolve().parent / "parity-decided.json"
+
+
+def parity_decided():
+    """``proof/matrix/parity-decided.json``: for each base, the rows the lane's manifest check decides (the rows
+    ``python_parity`` checks), each list sorted."""
+    return json.loads(PARITY_DECIDED.read_text(encoding="utf-8"))
+
+
+def decided_rows_message(base_id, checked, committed):
+    """What is wrong where the rows the lane's manifest check decided of a base are not the rows
+    ``parity-decided.json`` names for it, or None. Held both ways: a row it no longer decides is a variant whose
+    parity nothing judged, and a row it decides that the file does not name is a change in what parity covers that
+    is to be read before it is written down."""
+    named = committed.get(base_id)
+    if named is None:
+        return (
+            f"proof/matrix/parity-decided.json names no rows of the base {base_id}, so nothing holds how many of its"
+            f" variants the lane's manifest check decides. It decided {len(checked)}: add the base with them."
+        )
+    lost = sorted(set(named) - set(checked))
+    gained = sorted(set(checked) - set(named))
+    if not (lost or gained):
+        return None
+    clauses = []
+    if lost:
+        clauses.append(f"it no longer decides {_joined(lost)}, so their parity is judged by nothing")
+    if gained:
+        clauses.append(f"it now decides {_joined(gained)}, which the file does not name")
+    return (
+        f"The lane's manifest check decided other variants of {base_id} than proof/matrix/parity-decided.json names:"
+        f" {'; '.join(clauses)}. A row it stops deciding is one whose added uses (proof/checks/parity.py::added_uses)"
+        " or row uses (row_uses) came back empty: look there first. Where the change is meant (a row added or"
+        f" removed, a class Python reads anew), write the base's list from {_run_output()}/blocks/*/matrix/{base_id}/"
+        "unchecked-by-python.json (checkedByPython) and say why in the pull request."
+    )
+
+
 @pytest.mark.under_determinism
 def test_each_variant_reads_as_its_row_says(authored_base):
     base, made = authored_base
@@ -265,6 +325,8 @@ def test_each_variant_reads_as_its_row_says(authored_base):
     assert not differences, "\n".join(
         parity.disagreement(difference.document, difference) for difference in differences
     )
+    wrong = decided_rows_message(base.id, checked, parity_decided())
+    assert wrong is None, wrong
 
 
 @pytest.mark.under_determinism

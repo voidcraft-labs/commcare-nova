@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ATTRIBUTE_BACKED_COLUMN_PROPERTIES } from "@/lib/domain";
+import { EXPRESSION_ONLY_COLUMN_PROPERTIES } from "@/lib/domain";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
 
 // Core CaseChildElement exposes case identity/type/owner/status as attributes.
@@ -21,10 +21,10 @@ describe("emitCasePropertyWirePath", () => {
 	});
 });
 
-// The case list's attribute arm writes `@<name>` as an expression column's
-// HQ `field` for exactly these, and the local suite reads the same path.
-describe("an attribute-backed case list property", () => {
-	it.each([...ATTRIBUTE_BACKED_COLUMN_PROPERTIES])(
+// The case list writes `@<name>` as an expression column's HQ `field` for
+// exactly these, and the local suite reads the same path.
+describe("a case list property no HQ property column shows", () => {
+	it.each([...EXPRESSION_ONLY_COLUMN_PROPERTIES])(
 		"%s is read as its attribute",
 		(property) => {
 			expect(emitCasePropertyWirePath(property)).toBe(`@${property}`);

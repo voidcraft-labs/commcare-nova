@@ -615,9 +615,10 @@ and holds each to the effects as written.
    runs Nova's review of a person's saves (`brings-in` or `records`), HQ's own
    answer after the same saves (the `saved` read at A) must read as the review
    read the capture's peer (`broughtIn.reading`, `saved_requests`), with
-   `canon`, each file the review found under a path its content does not
-   derive named there by the asset the review resolved it to
-   (`broughtIn.reading.mediaPaths`, held before any content path); the ids HQ mints for a menu or form a person adds are not
+   `canon`, each path of HQ's media map named by the asset whose bytes HQ
+   served there (the `saved` read's media reads, `servedMedia`,
+   `proof/reader/laneReading.ts::servedFiles`), never by a path the review
+   recorded; the ids HQ mints for a menu or form a person adds are not
    modeled, so a row of the review's identity naming ids HQ's source does not
    hold is HQ's entity at that position (`aligned_identity`). `canonDocument`
    is the reader's one closed list (`lib/commcare/reader/canon.ts::CANONICALIZATIONS`),
@@ -627,7 +628,8 @@ and holds each to the effects as written.
    by the asset the document's media give the path it was published at, a
    built-in icon at its content path among them, where two assets of the
    document's media went to one path the first of them, as one Project keeps
-   one asset a file (`proof/reader/laneReading.ts::publishedFiles`). A
+   one asset a file (`proof/reader/laneReading.ts::publishedFiles`), but the
+   `saved` read, which names it by the bytes HQ served. A
    difference is `document@<state>`, the reading gave another
    document, at the differing entity's place and slot with every UUID and
    position `*` (kept in `at`), with the two documents' values there as its
@@ -718,12 +720,44 @@ things there on purpose, and tells the person which before it sends anything
 (`lib/deployment/reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES`). On
 every app made in HQ the lane holds that list both ways
 (`proof/checks/changes.py`), over `proof/first-publish-changes.json`: one
-object a change, in the typed register's order, each with the rows of the
-differences the change allows, in the lane's own vocabulary, since a shard
-holds no TypeScript. An entry applies on a document where its
-`first-publish.json` lists the id, which the emission writes from the reading
-under the declaration it was read under: the changes Nova's review would tell
-the person this app's first publish makes.
+object a change, in the typed register's order, each with the kinds of place
+it stands at (`placeKinds`) and the rows of the differences the change allows,
+in the lane's own vocabulary, since a shard holds no TypeScript. An entry
+applies on a document where its `first-publish.json`
+(`{"changes": [{"id", "places"}]}`) lists it, which the emission writes from
+the reading under the declaration it was read under: the changes Nova's
+review would tell the person this app's first publish makes, each with the
+places it stands at on this app.
+
+A row says what a change may change; a place says where. A place is a JSON
+Pointer over one tree of the app by position
+(`lib/deployment/reading/firstPublishPlaces.ts`): `/app/<key>`,
+`/menu/<m>/<key>`, `/form/<m>.<f>/<key>`, a form's XForm under
+`/form/<m>.<f>/xform` (`xform/data/...` a node of its data, `xform/title`,
+`xform/**/:itext` its texts under any node), `/case/<type>/<property>`; the
+empty pointer is the whole app, the place of `forms-and-settings-rewritten`
+alone, the one entry whose `placeKinds` is `["app-wide"]`. Each difference is
+located in the same tree (`changes.locate`: a stored-app difference by its
+pointer and, in a form, by the part and node `proof/checks/xform_parts.py`
+names; proof 1's by its form and question or case type and property; proofs
+2 and 3 through what the document's records say of where each stands,
+`changes.Sites`: a build element by the positional id in CommCare's own
+vocabulary its pointer carries, a suite menu's, detail's or command's, an app
+string's key,
+or, named only by position, by what the builds hold there; a session's step
+by the form or menu its run's script opened, a menu's choice by what it
+opens, a case by its type; whatever no record places stands nowhere, where
+only the change that stands everywhere stands). A
+change holds a difference where a row of it names the difference's class and
+one of its places stands at the difference's location or above it; of those,
+the change whose place there names the most steps alike sees it
+(`changes.exactness`; two at one node both see it), so
+`forms-and-settings-rewritten` sees only what no other change's place holds.
+A difference of a change's class at another form or another node is not that
+change's. The loader refuses an entry that declares no kind of place of its
+own, and the emission an applying change that names no place
+(`firstPublishChanges.ts::firstPublishChangePlaces`): either could never be
+seen apart.
 
 - A `source` row is one of the entry's paths in the typed register, a JSON
   Pointer over HQ's stored app (`*` for a position or an app's own key), that
@@ -731,14 +765,24 @@ the person this app's first publish makes.
   comparison (`proof/checks/source.py`: A's stored app against B's, as HQ's
   source read serves each, with every form's re-minted `unique_id` compared
   as the position it names and `last_modified` left out) whose pointer it
-  covers. A `source` difference at a place the reader's claim log holds as
-  inert is matched by `forms-and-settings-rewritten` (`parity.inert_of`). A
-  media path the document holds is compared apart, at
-  `/multimedia_map/*/held`, which no entry names, and so is a case list
-  column's `field` that differs where the column is not calculated on both
-  sides (which property it shows), at
-  `/modules/*/case_details/<detail>/columns/*/held`; a calculated column's
-  expression is reported at its own `field`. The comparison applies no
+  covers. A form's source is compared by its parts, each under the data
+  node it is about (`/_attachments/*/data/*/:bind/@calculate` at
+  `/_attachments/form:0.1.xml/data/visit/when/:bind/@calculate`; an itext
+  text by what reads it, so one Nova keeps under another id is no
+  difference). A `source` difference at a place the reader's claim log holds as
+  inert, or under one, is matched by `forms-and-settings-rewritten`
+  (`parity.claim_places_of`, `changes.inert_holds`), but not where the log
+  holds a claim of another standing at that inert place or under it on the
+  difference's branch: the log records some claims at the container whose
+  value they read (`/translations`, `/profile`, `/multimedia_map`), and
+  there it does not tell the inert key from a kept one. A media path the
+  document holds is compared apart, at `/multimedia_map/*/held`, and so is a
+  case list column's `field` that differs where the column is not calculated
+  on both sides (which property it shows), at
+  `/modules/*/case_details/<detail>/columns/*/held`; no row matches either,
+  however wide, the inert allowance holds neither, and the register refuses
+  a row that names one (`changes.held`), so a change there always fails the
+  base. A calculated column's expression is reported at its own `field`. The comparison applies no
   spelling rule: a rule is proven on HQ's builds and the readers it names,
   while a person reads the stored app on HQ's own pages, which tell
   rule-equal spellings apart (the form summary's comparison of two
@@ -747,8 +791,16 @@ the person this app's first publish makes.
 - A `proof1`, `proof2` or `proof3` row names a class as a known-defect entry
   does: the check, the artifact, the exact structural path and, where it
   names one, the kind. It is written from a base's own evidence, never by
-  typing a path: `python3 -m proof.checks.changes rows <output> <base>` prints
-  the row of each difference of the base no applying row holds.
+  typing a path: `python3 -m proof.checks.changes rows <output> <base>` prints,
+  for each difference of the base no applying change holds at its places,
+  the row that names its class and the changes whose places stand most
+  exactly where it is (`{"row", "at"}`, proofs 2 and 3 located by the sites
+  the run's `changes` check wrote); write the row under the change `at`
+  names where that change's sentence describes the difference.
+  `forms-and-settings-rewritten` names a form's source only by part classes
+  written so (`/_attachments/*/data/*/:bind/@vellum:nodeset`): the loader
+  refuses it a row over a form's whole source, so a question no change
+  touches is never held there.
 
 Only proofs 1 to 3 and the stored-app comparison ask the register
 (`changes.declared`, before `cases.hold`), and only on a document made in HQ
@@ -758,13 +810,18 @@ a difference no applying row matches is held to the spelling rules and the
 known-defect register like any other. The judge
 (`proof/checks/test_first_publish_changes.py`) holds three things over the
 differences of all four on every base: nothing changed that Nova's review
-would not have said (`/<id>/unsaid`, a difference only a row of an entry that
-does not apply matches); nothing it would say failed to show
-(`/<id>/unseen`, an applying entry that matches nothing, but where every row
+would not have said (`/<id>/unsaid`, a difference no applying change holds at
+its places, which a row of an entry that does not apply names); nothing it
+would say failed to show (`/<id>/unseen`, an applying entry that sees no
+difference at its places, even while `forms-and-settings-rewritten` sees its
+form, but where every row
 of it names a served reader's artifact and the run observes no served
 reader, which leaves it to the run that does); and a behavior difference
 (`proof3`) matched only by a `proof3` row. `test_first_publish_changes_controls.py`
-holds the three over planted evidence in both profiles. The known-defect
+holds the three over planted evidence in both profiles, over registers whose
+rows overlap, and each place reader over a planted trace and build. One thing
+stays wide, named: a list's header and a search's request name no column and
+no Search field, so they stand at the list or the search. The known-defect
 register takes no entry naming `proof6`, `parity`, `source` or `changes`
 (`proof/checks/registers.py` refuses one): a difference of theirs means
 Nova's reader, its manifest, the review's list or the register's rows are
@@ -1588,8 +1645,9 @@ reads it. Per document, under its id:
   `media.json` with `media/`, `tables.json`, `places.json` and
   `practice-workers.json` where the base holds them), so the document's key
   names every byte of A; beside it
-  `first-publish.json` (`{"ids": [...]}`), the first-publish changes the
-  reading predicts ("First-publish changes"). Such a document has one
+  `first-publish.json` (`{"changes": [{"id", "places"}]}`), the
+  first-publish changes the reading predicts, each with the places it stands
+  at ("First-publish changes"). Such a document has one
   configuration, the base's (`base.json`'s, as both `minimum` and
   `maximum`, with no single flag), holds no `create` or `content` capture and
   writes `export/minimum/` alone (the republish over A and D′'s update), and
@@ -2451,9 +2509,14 @@ tests write files of one retained directory
 both write `proof/hq-reads/navigation-base/` and `shell/`), and a sharded run
 puts them on different shards, so a committed file the run did not write is
 removed only where a comparison of the test that writes it recorded it as
-committed and not made (`<block>/retained-held/<tree>/<directory>.json`,
-`proof/matrix/retained.py::Retained.record_held`): a file another test writes,
-or one of a test that stopped before its comparison, stays. `--report` names
+committed and not made (`<block>/retained-held/<tree>/<directory>/<test>.json`,
+`proof/matrix/retained.py::Retained.record_held`, one record a comparing
+test, which no other test writes or reads): a file another test writes, or
+one of a test that stopped before its comparison, stays. Every file is
+written whole before it takes its name, and a base's directory takes its
+name only once every file of it is written (`Retained.settle`), so a run
+stopped partway leaves no `expected.json` beside an old seed. A file at the
+top of a block's tree, in no base or group, is refused by name. `--report` names
 each base whose stored app, answers or reading changed, reading the old and
 the new answers with the run's own reader bundle. It is a file copy on the
 standard library, with no image. `hq-nova-then-builder` starts from Nova's
@@ -2510,8 +2573,11 @@ run removes nothing of it and leaves each base or group it never made at its
 old copy, which step 5's run fails on again: adopt from a run whose authoring
 tests reached their comparisons.
 
-**What the package holds** (`proof/matrix`, two lane groups:
-`test_retained.py`, and the rest):
+**What the package holds** (`proof/matrix`: `test_retained.py` runs as one
+lane group a base, `proof/matrix/test_retained.py[<base>]` for each base
+`proof/matrix/bases.json` lists, since its three tests share one authoring
+of the base (`proof/checks/sharding.py::SPLIT_BY_PARAMETER`), and the rest
+of the package is one group more):
 
 - `test_retained.py::test_the_hq_apps_nova_reads_are_hqs_own`: the committed
   `proof/hq-apps/<base>/` is what HQ made, byte for byte; `test_each_variant_reads_as_its_row_says`:
@@ -2557,7 +2623,13 @@ whose source read serves something else, states that (`hqNeverServes`:
 `{raised}` or `{notServedAt}`), and `test_retained.py` holds it so on every
 run, failing where HQ starts serving the value. Where the lane's Python
 check decides the entry's class, the variant's added uses are joined to its
-claim log as parity joins a base's.
+claim log as parity joins a base's, and the rows it decides of each base are
+held both ways to `proof/matrix/parity-decided.json`, so a change that leaves
+a row's added uses empty fails by the row's name rather than leaving the join
+nothing to judge; a change meant to move the list writes it from the run's
+`matrix/<base>/unchecked-by-python.json`. A `holds` fragment speaks of an
+entity the reading holds: the bundle answers whether each key names one
+(`named`), and a fragment of a key that names none fails whatever its value.
 
 **Coverage.** Every manifest entry is shown by a base that comes in (its
 `expected.json` claims it), by a variant with its expected finding, or
@@ -2875,11 +2947,15 @@ and Android's runtime is checked outside the image, so a runtime clock that
 followed HQ's pin would change every runtime record and hand-written
 expectation with each weekly HQ pin. Production reads one day on both sides,
 so the gap matters only where HQ's search compares a case's date with its
-clock. Once a query HQ has answered calls `today()` or `now()` (read with
-HQ's own parser), `HqSearches` refuses a case database holding a date on or
-between the two days, with a day more at each end for the project space's
-zone (`sessions.py::refuse_dates_between_the_clocks`,
-`proof/hq/test_search_clocks.py`): give such a case a date outside them. A
+clock. Each query HQ has answered that calls `today()` or `now()` (read with
+HQ's own parser) is asked again at the runtimes' instant
+(`proof/hq/determinism.py::clock_at`), in a fork, with nothing of it kept,
+and `HqSearches` refuses the search where the two answers list other cases
+(`sessions.py::HqSearches._hold_to_the_runtimes_clock`, `ClocksApart`,
+`proof/hq/test_search_clocks.py`): HQ evaluates every shift of its clock
+itself (`date-add` of `today()` by a literal or by a Search field's
+answer), so no window of dates is guessed. Give the cases the search
+compares dates both instants read alike. A
 session's bounds (400 screens and 64
 choices of a run, 5,000 derived runs) are safety nets no app the lane walks
 comes near: a run that reaches one fails the request by the bound's name,
@@ -4165,7 +4241,8 @@ changes its review lists for the next publish (`publishChanges`), which the
 capture holds to the review's own list (`proof/corpus/publish.ts::bringInOverPeer`)
 and `proof/checks/corpus.py::Document.next_publish` reads. A document made in
 HQ states no saves, so a document has the first-publish list, this one, or
-none (`changes.py::_applying`). On such a document, proofs 1, 2 and 3 accept
+none (`changes.py::placed`). The review names no place, so each listed change
+stands everywhere. On such a document, proofs 1, 2 and 3 accept
 exactly the differences a row of a listed change names (`proof/checks/changes.py::undeclared`, called before the
 register), and the check `changes` (`proof/checks/test_next_publish_changes.py`)
 holds the list strict both ways over the three proofs together: a difference
@@ -4185,9 +4262,9 @@ document, then
 python3 -m proof.checks.changes rows <output> <document>
 ```
 
-which prints, for each difference of the document's evidence no row of a
-change its review lists holds, the row that names it; write each under the
-change whose sentence describes it.
+which prints, for each difference of the document's evidence no change its
+review lists holds, the row that names it and the changes standing there; write
+each under the change whose sentence describes it.
 
 ### Walk stops
 
@@ -4371,6 +4448,15 @@ each in `readers`, with the test that runs that reader on both spellings
 | `webapps` | HQ's Web Apps client shown the same walks in Chromium, under HQ's own stylesheets; its screens compared by the lane's judge (`client_differences`) | the rule's own test module |
 | `connect` | HQ's own receiver and Connect repeater forwarding each spelling's submissions to one opportunity in CommCare Connect, whose answers, tasks and rows are compared (`proof.observe.connect`) | the rule's own test module |
 | `android` | both spellings installed on a device and read by commcare-android's own code: the install, every profile reader, the home screen and every walk | a method of `proof/android/predicates.py`, which runs where the reader's runtime is (the `proof-android-runtime` job, on every run) |
+
+A rule's proof comes in halves. The test that builds both spellings in HQ and
+runs them in Core takes no served reader, so the pull request lane runs it.
+The test that serves both spellings to Formplayer, and through it to the Web
+Apps client, takes the session's Formplayer from its `formplayer_runner`
+fixture, which marks it `reader` (`proof/conftest.py`), and one that reads the
+client's screens is marked `reader("webapps")` too, so the pull request lane,
+without the readers, leaves that half to the nightly. Android's method runs
+on every run of the runtime's job.
 
 `test_closed_set.py` fails while a module is unlisted or untested, while a
 rule names a reader whose test does not exist, and while a rule that reads
@@ -5557,7 +5643,7 @@ the others do:
   that takes. Nothing is left out for time. As modelled from
   `proof/timings.json`'s measures, never promised: about six minutes when
   nothing the lane reads changed, about eleven up to about forty changed
-  documents, twelve or thirteen for a hundred, and about fourteen when every
+  documents, twelve or thirteen for a hundred, and about sixteen when every
   group is observed afresh ("Timings and what the lane is expected to take", below).
 - **Every night** (`proof-audit.yml`) runs it over main in both profiles
   against main's store, so every group the store lacks is observed (each
@@ -6093,7 +6179,10 @@ workers' time is inside a device's request ("Android in the unit": 24,662
 requests, a JVM each). Twenty-four groups drawn across the lane's range and
 run again with Formplayer alone took 8% of what they took with every reader,
 HQ's, Core's and the editors' own work included, which leaves the Web Apps
-client's walks about 43%.
+client's walks about 43%. Since 2026-11-06 the profile counts a shard of two
+workers (`execution.workers`, for a hosted runner's memory), each group's
+box-seconds rescaled by 4/2 so its worker-seconds stand, beside the groups
+measured on 2026-10-18 (`measured.basis`): 532 groups, 992,996 box-seconds.
 
 On GitHub's free plan that is 138 hours of four-vCPU runners, about ten
 hours with fourteen at once, which no pull request can wait for and no night
@@ -6102,7 +6191,8 @@ changed, and the weekly runs it whole (`proof-audit.yml`). Each sizes its
 shards from its queue's estimates, which come from the `readers` costs, to
 stay within the profile's budget a shard (`execution.budget`), with its
 heaviest documents observed in pieces ("Documents observed in pieces",
-above). From this measure `plan size` gives a whole fresh lane 56 shards,
+above). From this measure, at four workers a shard before that rescale,
+`plan size` gave a whole fresh lane 56 shards,
 four rounds of fourteen, none expected past 10,640 seconds: 146 documents
 and controls are queued in 294 pieces, each counted at 0.65 of its document
 until a run measures the pieces. Past fourteen shards the count is rounded
@@ -6113,12 +6203,15 @@ sooner. The measuring run itself was on proof machines
 every document whole, 184 workers on 224 vCPUs, each bin two and three
 quarter to four and three quarter hours, gated together).
 
-**The pull request lane.** The `no-readers` costs come from one run of the
-whole lane without the readers on hosted runners, run 41631814297 (dispatched with
-`proof_fresh`): thirteen shards of four workers on four vCPUs, one vCPU a
-worker, every group observed afresh with no store: 546 groups from 56
-worker sessions, 19,589 worker-seconds, 4,897 box-seconds, the median document
-25 seconds on one worker. When the readers came to the lane, one run of the whole lane
+**The pull request lane.** The `no-readers` costs come from the first whole
+green run of the lane without the readers over step 6's bases, measured on
+2026-11-19 (`measured.at`) on hosted runners of four workers on four vCPUs,
+one vCPU a worker: 637 groups (499 documents, 86 controls and 52 package
+groups, the surface among them) from 27 worker sessions, 5,930 box-seconds
+(about 23,700 worker-seconds), the median document 6.1 box-seconds, about 24
+seconds on one worker. Before it, run 41631814297 (dispatched with
+`proof_fresh`) measured 546 groups at 4,897 box-seconds on thirteen shards.
+When the readers came to the lane, one run of the whole lane
 without them on a 32-vCPU proof machine at 32 workers, one vCPU a worker as
 on a CI shard, every group observed afresh, took 16,076 worker-seconds over
 452 groups. Main's lane before the readers, run the same way on
@@ -6140,20 +6233,14 @@ every base in HQ and makes and reads each variant of it, took about 1,140
 seconds on one worker whole (three slice runs measured 1,130 to 1,142), and
 runs as one group a base (`proof/matrix/test_retained.py[<base>]`, the bases
 of `proof/matrix/bases.json`): its three tests share one authoring of a base,
-so it is split by base and never by test. Until a run measures the bases one
-by one, each is counted at its even share of the module's whole: the
-`no-readers` profile's measure of the unsplit `proof/matrix/test_retained.py`,
-284.5 box-seconds over its 22 bases, about 13 each
-(`proof.checks.sharding.estimate`). The `readers` profile holds no measure of
-the module, so there each base is counted at the longest measured package
-group until a run with the readers measures it, which oversizes the nightly
-and undersizes nothing. A base whose part no run measured beside measured
-ones is counted at the longest of those; `hq-questions`, a quarter of the
-variants, runs past its share. The `no-readers` profile is refreshed from the
-next whole pull request lane's outputs (`node proof/run.mjs --timings
-<output>...`), which measures each base's group and drops the unsplit
-module's measure. The next longest group is `proof/lane/test_forkserver.py`, 278. The
-longest group a lane runs is the least its shard can take.
+so it is split by base and never by test. The `no-readers` profile measures
+each base's group: `hq-questions`, a quarter of the variants, is the longest
+group of the lane at 125.6 box-seconds (about 500 seconds on one worker),
+then `hq-search` at 116.3 and `proof/lane/test_forkserver.py` at 90.8. The
+`readers` profile holds no measure of the module, so there each base is
+counted at the longest measured package group until a run with the readers
+measures it, which oversizes the nightly and undersizes nothing. The longest
+group a lane runs is the least its shard can take.
 
 A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from
 the job's start to the pulled image and Postgres (the other setup overlaps
@@ -6201,12 +6288,17 @@ What a pull request runs is what its changes leave out of main's store, which
 the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are the model's: `plan fit` over the queues the queue
-builder's own code makes for each change, from this commit's corpus (430
-documents, 86 controls, 30 package groups: 546 groups,
-4,897 box-seconds whole) and `proof/timings.json`, with a store taken to hold everything the
-change's keys do not move, over two audit seeds and, for the rows of
-documents, ten draws of them. Only the last row has been measured on hosted
-runners. At an earlier commit, of 456 groups, pull request run 38425969767
+builder's own code makes for each change, from the corpus of run
+41631814297's commit (430 documents, 86 controls, 30 package groups: 546
+groups, 4,897 box-seconds whole) and `proof/timings.json` as it then stood,
+with a store taken to hold everything the change's keys do not move, over two
+audit seeds and, for the rows of documents, ten draws of them. Only the last
+row has been measured on hosted runners. Over the profile as it now stands
+(637 groups, 5,930 box-seconds) the plan's model of a whole fresh lane, each
+group binned on its own, is twelve shards ending at about 955 seconds, 15.9
+minutes, its longest shard bounded by `hq-questions`' 503; and a lane of the
+audit sample alone ends at about 320 to 460 seconds on one shard, by which four
+documents it draws. The middle rows have not been modelled again over it. At an earlier commit, of 456 groups, pull request run 38425969767
 observed every group afresh on fourteen shards, each of which ran its blocks
 to the end, and its gate's job, which judged all 5,226 items (one of them, a
 test of the lane's own, failed), ended 755 seconds after the workflow
@@ -6224,7 +6316,7 @@ At an earlier commit, over 398 documents, run 40287062122 (dispatched with
 `proof_fresh`) observed all 514 groups afresh on fourteen shards, and its
 gate's job, which judged all 6,428 items with none failing, ended 926
 seconds after the workflow started, where its plan then expected 786. At
-this commit, run 41631814297 (dispatched with `proof_fresh`, the run the
+that commit, run 41631814297 (dispatched with `proof_fresh`, the run the
 `no-readers` costs come from) observed all 546 groups afresh on thirteen
 shards, the count its plan chose over the previous profile, and its gate's
 job, which judged all 6,815 items with none failing, ended 1,511 seconds
@@ -6233,9 +6325,9 @@ held by the pull request's own run, started six seconds before it: its
 corpus job started 209 seconds in and ended at 419, its plan started at
 711, and its shards started from 732 to 965 seconds, past every slot the
 model counts, while each shard's job took 338 to 571 seconds. Over the
-refreshed profile the model expects 840 for thirteen shards, the longest
-shard taking 527 (its fixed cost and its span). The other rows are the
-model's alone.
+profile that run refreshed the model expected 840 for thirteen shards, the
+longest shard taking 527 (its fixed cost and its span). The other rows are the
+model's alone, and the table is that profile's.
 
 | The change | Groups that run | Shards | Expected end |
 | --- | --- | --- | --- |

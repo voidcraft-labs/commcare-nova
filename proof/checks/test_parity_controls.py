@@ -24,8 +24,10 @@ with no suite beside the app, where a read no entry supplies stays undecided.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+from pathlib import Path
 
 from lxml import etree
 
@@ -240,3 +242,30 @@ def test_a_session_read_is_decided_against_the_suite_hq_built_as_the_manifest_ch
     standing, entries, decided = _session_read((_built("other_id"),))
     assert (standing, decided) == (REFUSED, True)
     assert "expressions-and-data/session-data-datum-the-entry-does-not-supply" in entries
+
+
+def _hq_plain_source():
+    """The retained source answer of the base ``hq-plain`` (``proof/hq-apps/hq-plain/app-source.json``), parsed."""
+    answer = Path(__file__).resolve().parents[1] / "hq-apps" / "hq-plain" / "app-source.json"
+    return json.loads(json.loads(answer.read_text(encoding="utf-8"))["body"])
+
+
+def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_base_again():
+    """Contract: ``parity.added_uses`` gives the uses the lane decides in a variant's source that its base's source
+    does not decide alike: exactly the decided use of the one value a row sets (a badge on a form, which the manifest
+    holds as not yet held, ``forms-and-case-writes/custom-icons-0``), and none for the base's source over itself.
+    The plausible failure: an identity or an extraction that reads a variant's use as already seen in its base, so
+    every row's judged uses come back empty and the join judges nothing (``proof/matrix/parity-decided.json`` then
+    fails by name in the lane; this holds the function without HQ)."""
+    base = _hq_plain_source()
+    assert parity.added_uses(base, copy.deepcopy(base)) == []
+    variant = copy.deepcopy(base)
+    variant["modules"][0]["forms"][1]["custom_icons"] = [
+        {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""}
+    ]
+    [added] = parity.added_uses(base, variant)
+    assert added.use == Use("schema:Form.custom_icons", "app.json", "/modules/0/forms/1/custom_icons")
+    assert (added.standing, [entry.id for entry in added.entries]) == (
+        manifest_usage.HELD_NEW,
+        ["forms-and-case-writes/custom-icons-0"],
+    )

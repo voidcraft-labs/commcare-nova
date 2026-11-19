@@ -3227,8 +3227,8 @@ By `format`:
 | `translatable-enum` with `useXpathExpression`, the expression Nova's label projection of a select property (`hqExpressionField` of a plain column over it) and the `enum` its choices | `{ kind: "plain", field, header }`. The property, its kind and its choice values are proposed from the expression (the `=` literals of a single choice, the `selected` values of a multiple one) and confirmed by printing `plainSelectDisplayXpath` back, each `enum` key the variable `hqEnumPlaceholder` names for its choice. The first such column over a property declares its kind and its choices, in the `enum`'s order, over any the select questions gave it, each label the `enum` entry's source-language text and its other languages its translations, role `case-property-option-label` (section 7); a property of another type keeps its own, and every other column is checked against what was declared by the (R2) comparison | `21-translatable-enum-authored` |
 | the same, the expression `columns.ts::intervalColumnDisplayXpath` for some field, threshold, unit and display, one `enum` entry | `{ kind: "interval", field, header, threshold, unit, display, text }`, `text` by language under the role `case-list-interval-text` | `21-translatable-enum-authored` |
 | any other `translatable-enum` | finding | part 04's N13, `21-translatable-enum-outside-nova-s-two-projections`; `translatable-enum-on-a-column-that-is-not-a-calculated-property-over-a-property`, `translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers`, `translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`; `21p-translatable-enum-key-outside-a-za-z0-9` |
-| `plain` with `useXpathExpression`, the field reading one case attribute | `{ kind: "plain", field: "case_id" \| "owner_id" \| "status", header }` | `usexpathexpression-field-reading-one-case-attribute` |
-| any other format with `useXpathExpression`, the field reading one of those three attributes | the column its format reads (a date, a phone, an ID mapping, an image map) over that attribute: Nova writes every column over `case_id`, `owner_id` or `status` as `@<name>` with its kind's format (`hqJson/caseList.ts::projectColumnToDetail`) | `usexpathexpression-field-reading-one-case-attribute`, then the format's own row |
+| `plain` with `useXpathExpression`, the field reading the case's id | `{ kind: "plain", field: "case_id", header }`; a field reading `@owner_id` or `@status` alone is the calculated column it is, since Nova writes a column over either as the property field HQ's Case List page stores | `usexpathexpression-field-reading-one-case-attribute` |
+| any other format with `useXpathExpression`, the field reading the case's id | the column its format reads (a date, a phone, an ID mapping, an image map) over it: Nova writes every column over `case_id` as `@case_id` with its kind's format (`hqJson/caseList.ts::projectColumnToDetail`) | `usexpathexpression-field-reading-one-case-attribute`, then the format's own row |
 | `plain` with `useXpathExpression` otherwise | `{ kind: "calculated", header, expression }`, pending (slot `case_list_column_expression`) | part 08 claims `usexpathexpression-field-xpath-lifting-into-valueexpression` or its HELD-NEW pair; `calculated-column-reading-results-search-input-instances-in-a` |
 | `invisible` on the short detail, outside a custom tile | the column of the joined long column where one joins (11.3), else `{ kind: "plain", field, header }`; with `useXpathExpression`, the field read as the two `plain` rows with `useXpathExpression` read it (a case attribute, else a calculated column, pending), which is how `projectColumnForShortDetail` writes a hidden calculated or attribute-backed field; `visibleInList: false` | `7-invisible-search-only-on-the-case-list-outside-a-custom-tile` |
 | `invisible` on the long detail, outside a nodeset tab | a plain column shown on the detail | `7p-invisible-on-the-case-detail-outside-a-data-tab-over-a` |
@@ -3912,20 +3912,25 @@ one filter is still applied by the server as a row, and is now applied a second 
 over results that already satisfy it as HQ's search reads it. So the join keeps the list only where
 the device keeps every case HQ's search returns for the conjunct, and the reader joins only the
 shapes for which that was read at the pins (`search/joinReadsAlike.ts`, whose doc comment cites each
-reading): a custom text property of the searched case compared by `=` with a string literal or with
-the worker's own information (HQ's exact, letter-case match on `case_properties.value.exact`,
-`comparison.py::_create_query`), by `!=` with a literal of at most 8191 characters (the exact field's
-`ignore_above`), tested blank (`case_property_missing`, which a device reads alike since a missing
-element unpacks to `''`), or matched by `starts-with` (HQ's prefix on the exact field); the case's
-type compared by `=` or `!=` with a type (HQ's exact term on the type it indexes,
-`comparison.py::_create_system_query`, and the device's `@case_type` of the case HQ answered); `and`,
-`or`, `match-all` and `match-none` of those; a negation read as its argument with each comparison
-turned over, where that reading is joined (HQ's `not` is the negation of its argument's filter,
-`query_functions.py::not_`, and its `!=` the same negation of `=`, so `not(p = 'x')` is `p != 'x'`;
-`not` of `starts-with` is not joined, since a value past the exact field's `ignore_above` matches no
-prefix in HQ and may start with it on the device); and an `if` whose condition reads only literals and
-the worker's own information (`username`, `userid`, the worker's data), each branch joined, since the
-device takes one branch when it sends the search and in the list after. Not joined: any other
+reading). HQ tests a property's text as stored, spaces at its ends included, and the device the
+results' text trimmed at both ends (Java `String.trim()`, Core's `TreeElementParser.parse` and
+`CaseXmlParser`), so a shape is joined only where it holds of every stored text once trimmed: a
+custom text property of the searched case compared by `=` with a string literal no trim changes or
+with the worker's own information Core holds trimmed (the worker's record, `username`, `userid`;
+HQ's exact, letter-case match on `case_properties.value.exact`, `comparison.py::_create_query`),
+tested blank (`case_property_missing`, unset or exactly `''`, both blank on the device), or matched
+by `starts-with` with a literal no trim changes (HQ's prefix on the exact field); the case's type
+compared by `=` or `!=` with a type (HQ's exact term on the type it indexes,
+`comparison.py::_create_system_query`, and the device's `@case_type` of the case HQ answered, an
+attribute no parse trims); `and`, `or`, `match-all` and `match-none` of those; a negation read as
+its argument with each comparison turned over, where that reading is joined (HQ's `not` is the
+negation of its argument's filter, `query_functions.py::not_`, and its `!=` the same negation of
+`=`, so `not(p != 'x')` is `p = 'x'`); and an `if` whose condition reads only literals and the
+worker's own information (`username`, `userid`, the worker's data), each branch joined, since the
+device takes one branch when it sends the search and in the list after. Not joined: a custom
+property by `!=`, or under `not` of `=`, a blank test or `starts-with` (each true in HQ of a stored
+`'x '` or `' '` the device reads trimmed as `'x'` or `''`), a literal with a code unit up to U+0020
+at an end, the session's user data (the restore's text, which `UserXmlParser` does not trim), any other
 standard property (HQ reads its own indexed metadata, dates by the project space's time zone), an
 `if` over any other session value (`drift` is set again from every answer the device gets, the
 search's own among them, `CommCareNetworkServiceGenerator.driftInterceptor`; `window_width` and

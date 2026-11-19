@@ -66,8 +66,10 @@ way, where a run's sample leaves documents out, ``proof.store.queue.sampled``),
   document has no first publish: each ``export/<configuration>/`` holds the
   republish of D over that app, and nothing in place of ``create`` and
   ``content``. It is exported under one configuration, and its
-  ``first-publish.json`` (``{"ids": [...]}``) lists the first-publish register's
-  entries Nova's reading says its first publish makes;
+  ``first-publish.json`` (``{"changes": [{"id", "places"}]}``) lists the
+  first-publish register's entries Nova's reading says its first publish
+  makes, each with the places it stands at on this app
+  (``proof.checks.changes``);
 - ``inputs.json``: the digest of every file above that a check reads, by the
   part of the document's HQ tree that reads it (``proof/corpus/inputs.ts``).
 
@@ -391,8 +393,7 @@ class BroughtIn:
     ids HQ holds for each menu and form the record keeps, the review over the record (``again``), the summary of the
     app the review read, which the capture's peer modeled (``assumed_summary``), the document the app holds after
     it, and the review's reading of CommCare HQ's app now (``reading``: ``{doc, identity}``, the document and one
-    identity row a menu and a form of it, with ``mediaPaths``, each asset at the path HQ holds it under where the
-    review found a file under a path its content does not derive, or None where the record holds none)."""
+    identity row a menu and a form of it, or None where the record holds none)."""
 
     review: dict
     taken: str
@@ -422,18 +423,11 @@ class BroughtIn:
             not isinstance(reading, dict)
             or not isinstance(reading.get("doc"), dict)
             or not isinstance(reading.get("identity"), list)
-            or set(reading) - {"doc", "identity", "mediaPaths"}
-            or not isinstance(reading.get("mediaPaths", {}), dict)
-            or not all(
-                isinstance(asset, str) and isinstance(path, str)
-                for asset, path in (reading.get("mediaPaths") or {}).items()
-            )
+            or set(reading) != {"doc", "identity"}
         ):
             raise CorpusLayoutError(
                 f"{where} records the review's reading as {reading!r}; it is {{doc, identity}}, the document the"
-                " review read of CommCare HQ's app and one identity row a menu and a form of it, with mediaPaths,"
-                " each asset at the path HQ holds it under, where the review found a file under a path its content"
-                " does not derive."
+                " review read of CommCare HQ's app and one identity row a menu and a form of it."
             )
         return cls(
             review=value["review"],
@@ -706,17 +700,38 @@ class Document:
         return _read_json(authored.seed)
 
     @cached_property
-    def first_publish(self) -> tuple[str, ...]:
-        """The first-publish register's ids Nova's reading says this document's first publish makes
-        (``first-publish.json``); empty for any document not made in HQ, on which no entry is ever read."""
+    def first_publish_places(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """The first-publish register's changes Nova's reading says this document's first publish makes, each with
+        the places it stands at (``first-publish.json``, ``{"changes": [{"id", "places"}]}``), in the file's order;
+        empty for any document not made in HQ, on which no entry is ever read."""
         if not self.hq_authored:
             return ()
         path = self.root / FIRST_PUBLISH
         value = _read_json(path)
-        ids = value.get("ids") if isinstance(value, dict) else None
-        if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids) or len(set(ids)) != len(ids):
-            raise CorpusLayoutError(f'{path} holds {{"ids": [...]}}, each a first-publish register id once.')
-        return tuple(ids)
+        changes = value.get("changes") if isinstance(value, dict) and set(value) == {"changes"} else None
+        shape = (
+            f'{path} holds {{"changes": [{{"id", "places"}}]}}: each change a first-publish register id once, with'
+            " the places it stands at, a list of JSON Pointers (proof/corpus/entryWriter.ts writes it)."
+        )
+        if not isinstance(changes, list):
+            raise CorpusLayoutError(shape)
+        found, seen = [], set()
+        for change in changes:
+            if not isinstance(change, dict) or set(change) != {"id", "places"}:
+                raise CorpusLayoutError(shape)
+            change_id, places = change["id"], change["places"]
+            if not isinstance(change_id, str) or change_id in seen:
+                raise CorpusLayoutError(shape)
+            if not isinstance(places, list) or not all(isinstance(place, str) for place in places):
+                raise CorpusLayoutError(shape)
+            seen.add(change_id)
+            found.append((change_id, tuple(places)))
+        return tuple(found)
+
+    @property
+    def first_publish(self) -> tuple[str, ...]:
+        """The ids of ``first_publish_places``, in its order; empty for any document not made in HQ."""
+        return tuple(change_id for change_id, _ in self.first_publish_places)
 
     @property
     def hq_authored_facts(self) -> dict | None:

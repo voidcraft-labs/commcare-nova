@@ -68,7 +68,7 @@ import {
 } from "@/lib/domain";
 import { moduleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
-import { buildColumnField } from "./columns";
+import { buildColumnField, mergeFieldStrings } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
@@ -194,8 +194,7 @@ export function buildLongDetail(args: {
 			ctx,
 		});
 		fields.push(emission.element);
-		Object.assign(strings, emission.strings);
-		Object.assign(translationUnits, emission.translationUnits);
+		mergeFieldStrings(strings, translationUnits, emission);
 	}
 
 	return {

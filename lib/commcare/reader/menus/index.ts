@@ -18,6 +18,7 @@ import { readerDefect } from "../defects";
 import { levelControl } from "../expressions/printLevel";
 import { printSlot, sameSlotText } from "../expressions/readExpression";
 import { isJsonObject, sameJson } from "../jsonCursor";
+import { handedOff } from "../pendingExpressions";
 import { appPlace } from "../place";
 import { keptMediaPaths, readExpansionSteps } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
@@ -129,6 +130,36 @@ function sameFilter(
 	return sameSlotText(doc, ref, a as string, b as string);
 }
 
+/** The index of a display condition's registration, or -1 where the menu or form registered none. */
+function registrationOf(ctx: ReadContext, ref: DisplayConditionRef): number {
+	const registrations = ctx.pending.list();
+	return (
+		ctx.pending
+			.of(ref.entity, ref.uuid)
+			.find((index) => registrations[index]?.ref.slot === ref.slot) ?? -1
+	);
+}
+
+/**
+ * Whether a stored display condition is the one Nova's print writes: the same text, a print at
+ * the level the expression stage held it at, or a slot that stage handed to project data, whose
+ * print is project data's one finding at the table (`pendingExpressions.ts::handedOff`).
+ */
+function sameDisplayCondition(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	ref: DisplayConditionRef,
+	stored: unknown,
+	ours: unknown,
+): boolean {
+	const index = registrationOf(ctx, ref);
+	if (index >= 0 && handedOff(ctx.pending.outcome(index))) return true;
+	return (
+		sameFilter(doc, ref, stored, ours) ||
+		heldAtLevel(ctx, doc, ref, stored, ours)
+	);
+}
+
 /**
  * Whether a display condition the expression stage held at a level other than exact
  * (`expressions/printLevel.ts`) is the stored one: the document still holds the tree the stage
@@ -144,14 +175,7 @@ function heldAtLevel(
 	ours: unknown,
 ): boolean {
 	if (typeof stored !== "string") return false;
-	const index = ctx.pending
-		.list()
-		.findIndex(
-			(one) =>
-				one.ref.entity === ref.entity &&
-				one.ref.uuid === ref.uuid &&
-				one.ref.slot === ref.slot,
-		);
+	const index = registrationOf(ctx, ref);
 	if (index < 0) return false;
 	const { expression, level } = ctx.pending.outcome(index);
 	const tree =
@@ -288,17 +312,7 @@ function acceptMenus(
 		}
 		const own = doc.modules[module.uuid];
 		if (
-			!sameFilter(
-				doc,
-				{
-					entity: "module",
-					uuid: module.uuid,
-					slot: "module_display_condition",
-				},
-				source.module_filter,
-				ours.module_filter,
-			) &&
-			!heldAtLevel(
+			!sameDisplayCondition(
 				ctx,
 				doc,
 				{
@@ -401,13 +415,7 @@ function acceptMenus(
 			const formUnrecognized = (name: string) =>
 				ctx.accounting.circumstance("unrecognized", form.place, { name });
 			if (
-				!sameFilter(
-					doc,
-					{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
-					form.json.peek("form_filter"),
-					ourForm.form_filter,
-				) &&
-				!heldAtLevel(
+				!sameDisplayCondition(
 					ctx,
 					doc,
 					{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },

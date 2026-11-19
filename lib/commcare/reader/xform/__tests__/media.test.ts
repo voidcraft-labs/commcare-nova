@@ -367,9 +367,11 @@ describe("a map of paths by language", () => {
 				at(ctx),
 			),
 		).toEqual({ kind: "asset", assetId: "asset-a.png" });
+		// The reference names the value of the app's JSON it was read from, which places it.
 		expect(ctx.facts.mediaReferences).toEqual([
 			expect.objectContaining({
 				path: "jr://file/a.png",
+				pointer: "/modules",
 				slot: "module_media",
 			}),
 		]);
@@ -435,7 +437,11 @@ describe("a map of paths by language", () => {
 			),
 		).toEqual({ kind: "handed-off" });
 		expect(ctx.facts.pendingMedia).toEqual([
-			expect.objectContaining({ resolution: "no-entry", slot: "module_media" }),
+			expect.objectContaining({
+				resolution: "no-entry",
+				pointer: "/modules",
+				slot: "module_media",
+			}),
 		]);
 		expect(ctx.close().claims.handOffs).toEqual([
 			expect.objectContaining({

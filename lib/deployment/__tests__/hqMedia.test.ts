@@ -22,7 +22,6 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { HqMediaMapItem } from "@/lib/commcare/hq/appSource";
-import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import {
 	type HqMediaPath,
 	hqMediaRecordFromSource,
@@ -424,7 +423,6 @@ describe("diffHqAppSource's media part", () => {
 			current: normalized.normalized,
 			ownership,
 			shell: options.shell,
-			schemaDefault: schemaPropertyDefault,
 			languageNames: "nova",
 			...(options.mediaChanged !== undefined && {
 				mediaChanged: options.mediaChanged,

@@ -52,6 +52,9 @@ export interface ListReadingOptions {
 	readonly media?: boolean;
 	/** The names Nova's emission prints each table read under, where the document reads one. */
 	readonly lookupNaming?: LookupWireNaming;
+	/** Run once every expression is bound, before the settles: a test that plants a difference
+	 *  between the reading and the source, as a reader stage's wrong proposal would. */
+	readonly afterBinding?: (ctx: ReadContext) => void;
 }
 
 export interface ListReading {
@@ -115,7 +118,10 @@ export async function readLists(
 	const last = STAGES.indexOf(
 		options.firstPassOnly === true ? bindExpressions : assembleDocument,
 	);
-	for (const stage of STAGES.slice(0, last)) stage(ctx);
+	for (const stage of STAGES.slice(0, last)) {
+		stage(ctx);
+		if (stage === bindExpressions) options.afterBinding?.(ctx);
+	}
 	return { ctx, findings: ctx.accounting.findings(), app };
 }
 

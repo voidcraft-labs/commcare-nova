@@ -83,7 +83,7 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"connect-app-captures-location":
 		"Every form of this CommCare Connect app will record where it was filled in. Nova turns on Auto Capture Location for the app in CommCare HQ.",
 	"translation-overrides-folded":
-		"A wording set in CommCare HQ's app translations for the app's, a menu's or a form's name becomes that name. Workers read the same words.",
+		"A wording set in CommCare HQ's app translations for one of the app's texts, such as a menu's name, a case list column's header or a Search field's label, becomes that text in Nova. Workers read the same words.",
 	"location-list-setting-reset":
 		"This app's own setting for the location list goes back to the project space's default. The app reads places the same way.",
 	"web-apps-turned-off":

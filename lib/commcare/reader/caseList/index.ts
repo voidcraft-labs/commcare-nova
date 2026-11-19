@@ -32,11 +32,12 @@ import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
 import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, sameJson } from "../jsonCursor";
-import type { PendingExpression } from "../pendingExpressions";
+import { handedOff, type PendingExpression } from "../pendingExpressions";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { applyExpressionClaim, provisionalDocument } from "../provisional";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sameXPathText } from "../syntaxCompare";
+import { ATTRIBUTE_PROPERTIES } from "./attributeColumns";
 import {
 	appCodes,
 	attributeOf,
@@ -278,8 +279,14 @@ function fieldRead(column: JsonObject): {
 			? { element: renamed }
 			: { property: renamed };
 	}
+	// The one attribute Nova writes as an expression column (`@case_id`) reads as the property
+	// column over it; any other expression, `@status` among them, is its text: HQ's build names a
+	// column stored as an expression otherwise than the property field it reads alike
+	// (`id_strings.py::detail_column_header_locale`).
 	const attribute = attributeOf(field);
-	return attribute === undefined ? { text: field } : { property: attribute };
+	return attribute === undefined || !ATTRIBUTE_PROPERTIES.has(attribute)
+		? { text: field }
+		: { property: attribute };
 }
 
 const CELL_KEYS = [
@@ -294,6 +301,18 @@ const CELL_KEYS = [
 	"show_shading",
 ] as const;
 
+/** Whether two columns' fields read one value: one element, one property, or one expression. */
+function sameField(
+	a: ReturnType<typeof fieldRead>,
+	b: ReturnType<typeof fieldRead>,
+): boolean {
+	if (a.element !== undefined || b.element !== undefined)
+		return a.element === b.element;
+	if (a.property !== undefined || b.property !== undefined)
+		return a.property === b.property;
+	return sameXPathText(a.text ?? "", b.text ?? "");
+}
+
 /**
  * The surface key of the first difference between a stored column and the projection's, each
  * read as HQ's build reads it on `screen`: the format as the reading reads it
@@ -307,18 +326,16 @@ function columnDifference(
 	ours: JsonObject,
 	tile: boolean,
 	screen: "short" | "long",
+	fieldHandedOff: boolean,
 ): string | undefined {
 	const format = columnFormatAsRead(stored.format, screen);
 	if (format !== columnFormatAsRead(ours.format, screen))
 		return "schema:DetailColumn.format";
 	const a = fieldRead(stored);
 	const b = fieldRead(ours);
-	if (a.element !== undefined || b.element !== undefined) {
-		if (a.element !== b.element) return "schema:DetailColumn.field";
-	} else if (a.property !== undefined || b.property !== undefined) {
-		if (a.property !== b.property) return "schema:DetailColumn.field";
-	} else if (!sameXPathText(a.text ?? "", b.text ?? ""))
-		return "schema:DetailColumn.field";
+	// A column whose expression was handed to project data prints no tree of the source's, so its
+	// field is project data's finding, never the list's.
+	if (!fieldHandedOff && !sameField(a, b)) return "schema:DetailColumn.field";
 	// HQ's build reads no header of a Search Only column (`detail_screen.py::Invisible`).
 	if (
 		format !== "invisible" &&
@@ -419,9 +436,15 @@ function sortDifference(
 	stored: readonly JsonObject[],
 	ours: readonly JsonObject[],
 	columns: { readonly stored: unknown; readonly ours: unknown },
+	handedOff: ReadonlySet<number>,
 ): string | undefined {
 	// The text a positional element joins by: the `field` of the short column it names
 	// (`util.py::get_sort_and_sort_only_columns`).
+	const positionOf = (field: unknown) => {
+		const match =
+			typeof field === "string" ? CALCULATED_FIELD.exec(field) : null;
+		return match === null ? undefined : Number(match[1]);
+	};
 	const positionalText = (field: unknown, detail: unknown) => {
 		const match =
 			typeof field === "string" ? CALCULATED_FIELD.exec(field) : null;
@@ -460,6 +483,10 @@ function sortDifference(
 			// on the column the stored element names orders by another key than the column it
 			// lands on, which no document Nova admits holds, and is read on the column it lands
 			// on (`order.ts::readSortElements`): the first publish writes that column's position.
+			// A stored element over a column whose expression was handed to project data names a
+			// text Nova's print holds no tree of: project data's finding, never the list's.
+			const stored = positionOf(element.field);
+			if (stored !== undefined && handedOff.has(stored)) continue;
 			if (!sameXPathText(storedText, ourText))
 				return "schema:SortElement.field";
 			const index = reading.sort.kept[position] as number;
@@ -541,34 +568,6 @@ function caseListPlace(module: DraftModule): HqPlace {
 	};
 }
 
-/** The registrations of each menu's own slots, in registration order, worked out once per
- *  registry and again only once it holds more: each menu's settle reads its own. */
-const registrationsByMenu = new WeakMap<
-	readonly PendingExpression[],
-	{ readonly length: number; readonly byMenu: Map<string, number[]> }
->();
-
-function moduleRegistrations(
-	registrations: readonly PendingExpression[],
-): ReadonlyMap<string, readonly number[]> {
-	const known = registrationsByMenu.get(registrations);
-	if (known !== undefined && known.length === registrations.length)
-		return known.byMenu;
-	const byMenu = new Map<string, number[]>();
-	registrations.forEach((registration, index) => {
-		const ref = registration.ref;
-		if (ref.entity !== "module") return;
-		const indices = byMenu.get(ref.uuid);
-		if (indices === undefined) byMenu.set(ref.uuid, [index]);
-		else indices.push(index);
-	});
-	registrationsByMenu.set(registrations, {
-		length: registrations.length,
-		byMenu,
-	});
-	return byMenu;
-}
-
 /**
  * The control that prints each expression slot of a menu's details at the level the reading
  * held it (`expressions/printLevel.ts`): a calculated column's expression and the list's filter,
@@ -580,7 +579,7 @@ function moduleRegistrations(
 function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 	const held = new Map<string, { tree: Expression; level: PrintLevel }>();
 	const registrations = ctx.pending.list();
-	for (const index of moduleRegistrations(registrations).get(mod.uuid) ?? []) {
+	for (const index of ctx.pending.of("module", mod.uuid)) {
 		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
@@ -641,10 +640,11 @@ function listDifference(
 		long: JsonObject;
 	};
 	const codes = appCodes(ctx);
+	const handed = handedOffListSlots(ctx, reading);
 	// A column an inert row dropped is written by no build.
 	const kept = (detail: unknown, dropped: ReadonlySet<number>) =>
 		(Array.isArray(detail) ? detail : []).flatMap((column, index) =>
-			isJsonObject(column) && !dropped.has(index) ? [column] : [],
+			isJsonObject(column) && !dropped.has(index) ? [{ column, index }] : [],
 		);
 	// An image map's paths compare as the files they name (`keptMediaPaths`).
 	const asPrinted = (column: JsonObject): JsonObject =>
@@ -661,23 +661,24 @@ function listDifference(
 	const shortStored = kept(
 		reading.short.peek("columns"),
 		reading.dropped.short,
-	).map(asPrinted);
+	).map(({ column, index }) => ({ column: asPrinted(column), index }));
 	const longStored = kept(
 		reading.long.peek("columns"),
 		reading.dropped.long,
-	).map(asPrinted);
+	).map(({ column, index }) => ({ column: asPrinted(column), index }));
 	const shortOurs = objects(pair.short.columns);
 	const longOurs = objects(pair.long.columns);
 	const tile = mod.caseListConfig?.tile !== undefined;
 	if (longStored.length !== longOurs.length) return "schema:Detail.columns";
-	for (const [index, column] of longStored.entries()) {
+	for (const [position, { column, index }] of longStored.entries()) {
 		const key = columnDifference(
 			codes,
 			sourceCode(ctx),
 			column,
-			longOurs[index] as JsonObject,
+			longOurs[position] as JsonObject,
 			false,
 			"long",
+			handed.long.has(index),
 		);
 		if (key !== undefined) return key;
 	}
@@ -691,14 +692,15 @@ function listDifference(
 		!(shortStored.length === 0 && shortOurs.length <= 1)
 	)
 		return "schema:Detail.columns";
-	for (const [index, column] of shortStored.entries()) {
+	for (const [position, { column, index }] of shortStored.entries()) {
 		const key = columnDifference(
 			codes,
 			sourceCode(ctx),
 			column,
-			shortOurs[index] as JsonObject,
+			shortOurs[position] as JsonObject,
 			tile,
 			"short",
+			handed.short.has(index),
 		);
 		if (key !== undefined) return key;
 	}
@@ -709,6 +711,7 @@ function listDifference(
 		objects(reading.short.peek("sort_elements")),
 		objects(pair.short.sort_elements),
 		{ stored: reading.short.peek("columns"), ours: pair.short.columns },
+		handed.short,
 	);
 	if (sortKey !== undefined) return sortKey;
 	// The owner clause of an exclusion the reading refused is that refusal's: Nova's print writes
@@ -721,12 +724,16 @@ function listDifference(
 	const ourFilter = pair.short.filter;
 	const blank = (value: unknown) =>
 		value === null || value === undefined || value === "";
-	if (blank(storedFilter) !== blank(ourFilter)) return "schema:Detail.filter";
-	if (
-		!blank(storedFilter) &&
-		!sameXPathText(String(storedFilter), String(ourFilter))
-	)
-		return "schema:Detail.filter";
+	// A filter whose expression was handed to project data prints no tree of the source's, so the
+	// filter is project data's finding, never the list's.
+	if (!handed.filter) {
+		if (blank(storedFilter) !== blank(ourFilter)) return "schema:Detail.filter";
+		if (
+			!blank(storedFilter) &&
+			!sameXPathText(String(storedFilter), String(ourFilter))
+		)
+			return "schema:Detail.filter";
+	}
 	// `false` is the off switch HQ's Case List page writes on every save of a short detail, which
 	// every reader tests by truth (`details.ts`, `detail-persistence-switches-false`).
 	const off = (value: unknown) => blank(value) || value === false;
@@ -947,11 +954,7 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 			);
 			continue;
 		}
-		if (
-			difference !== undefined &&
-			!ctx.accounting.hasFindingAt(place) &&
-			!slotHandedOff(ctx, module.uuid)
-		)
+		if (difference !== undefined && !ctx.accounting.hasFindingAt(place))
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
 	}
 }
@@ -962,29 +965,49 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
  * only for an exclusion it holds, belongs to that refusal.
  */
 function ownerExclusionRefused(ctx: ReadContext, moduleUuid: Uuid): boolean {
+	const registrations = ctx.pending.list();
 	return ctx.pending
-		.list()
+		.of("module", moduleUuid)
 		.some(
-			(registration, index) =>
-				registration.ref.entity === "module" &&
-				registration.ref.uuid === moduleUuid &&
-				registration.ref.slot === "excluded_owner_ids" &&
+			(index) =>
+				registrations[index]?.ref.slot === "excluded_owner_ids" &&
 				ctx.pending.outcome(index).expression === undefined,
 		);
 }
 
 /**
- * Whether the expression stage handed an expression slot of a menu's details to project data (a
- * read of a table the catalog lacks): that read is project data's one finding, at the table, and
- * the list holds no tree for the slot, so its print of the slot is no difference of the list's.
+ * The slots of a menu's details whose expression the expression stage handed to project data (a
+ * read of a table the catalog lacks): each calculated column's, by its index in each stored
+ * detail, a column on both screens at both, and the list filter's. That read is project data's
+ * one finding, at the table, and the list holds no tree for the slot, so the slot's own print is
+ * no difference of the list's; every other part of the list is compared as it stands.
  */
-function slotHandedOff(ctx: ReadContext, moduleUuid: Uuid): boolean {
-	return ctx.pending
-		.list()
-		.some(
-			(registration, index) =>
-				registration.ref.entity === "module" &&
-				registration.ref.uuid === moduleUuid &&
-				ctx.pending.outcome(index).claim?.handOff !== undefined,
-		);
+function handedOffListSlots(
+	ctx: ReadContext,
+	reading: CaseListReading,
+): {
+	readonly short: ReadonlySet<number>;
+	readonly long: ReadonlySet<number>;
+	readonly filter: boolean;
+} {
+	const columns = new Set<Uuid>();
+	let filter = false;
+	const registrations = ctx.pending.list();
+	for (const index of ctx.pending.of("module", reading.module.uuid)) {
+		const ref = (registrations[index] as PendingExpression).ref;
+		if (ref.entity !== "module" || !handedOff(ctx.pending.outcome(index)))
+			continue;
+		if (ref.slot === "case_list_filter") filter = true;
+		else if (ref.slot === "case_list_column_expression")
+			columns.add(ref.member.columnUuid);
+	}
+	const short = new Set<number>();
+	const long = new Set<number>();
+	reading.joined.columns.forEach((column, index) => {
+		const uuid = reading.uuids[index];
+		if (uuid === undefined || !columns.has(uuid)) return;
+		if (column.short !== undefined) short.add(column.short);
+		if (column.long !== undefined) long.add(column.long);
+	});
+	return { short, long, filter };
 }

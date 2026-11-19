@@ -48,6 +48,7 @@ import {
 	instanceIdsRead,
 	unreadDeclarationUse,
 } from "./expressions/surfaceUses";
+import { pointerToken } from "./jsonCursor";
 import { manifestFindingOf } from "./languages";
 import {
 	type PendingExpression,
@@ -939,7 +940,14 @@ export function applyExpressionReading(
 				place: { kind: "lookup-table", tag },
 				declaredOnly: true,
 			});
-	ctx.facts.rewrites.push(...reading.rewrites);
+	for (const { source, ...rewrite } of reading.rewrites) {
+		const at = ctx.pending.site(source).at;
+		ctx.facts.rewrites.push(
+			"json" in at
+				? { ...rewrite, pointer: `${at.json.pointer}/${pointerToken(at.key)}` }
+				: rewrite,
+		);
+	}
 	ctx.facts.expressionRounds = reading.rounds;
 	const sources = new Map<Uuid, ReadonlyMap<string, string>>();
 	for (const module of ctx.draft.modules)

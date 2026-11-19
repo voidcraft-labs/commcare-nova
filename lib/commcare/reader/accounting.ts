@@ -68,7 +68,8 @@ import {
 } from "./xmlCursor";
 
 const CLAIMS = defineClaims("accounting", {
-	/** A comment or a processing instruction in a form's source, which no reader reads. */
+	/** A comment in a form's source, which CommCare HQ's build removes, or a processing
+	 *  instruction in an element whose text Core does not read (`coreReadsTextOf`). */
 	comment: drop("questions/xml-comments-processing-instructions", null),
 });
 
@@ -210,8 +211,13 @@ export interface ClaimLedger {
 	partOf(site: LedgerSite, claim: Claim, place: HqPlace): void;
 	/** The element's own text is claimed with it. */
 	claimText(element: Element): void;
-	/** Everything under the element is claimed. */
-	coverSubtree(element: Element): void;
+	/**
+	 * Everything under the element is claimed. `reads` is whether the claim reads what it covers
+	 * (`take`, `derived`), so the close still looks under it for a processing instruction in a
+	 * text Core reads (`#closeXml`); a claim that reads past, refuses or hands off what it covers
+	 * stands for every node under it.
+	 */
+	coverSubtree(element: Element, reads: boolean): void;
 	handOff(
 		site: LedgerSite,
 		key: string,
@@ -297,6 +303,47 @@ function documentOf(element: Element): Document | null {
  * parent to differ from, and a prefixed element takes its namespace from its
  * prefix.
  */
+/**
+ * The elements CommCare Core reads as text with their markup (`XFormParser.getLabel`, through
+ * `getLabelOrTextId` for a repeat's captions) or with `getXMLText` whatever else they hold: a
+ * label, hint, help text and alert, an itext text's or a choice's value, a repeat's captions and
+ * headers, and the form's title. Core compares local names alone.
+ */
+const CORE_TEXT_ELEMENTS: ReadonlySet<string> = new Set([
+	"label",
+	"hint",
+	"help",
+	"alert",
+	"value",
+	"title",
+	"chooseCaption",
+	"addCaption",
+	"delCaption",
+	"doneCaption",
+	"addEmptyCaption",
+	"doneEmptyCaption",
+	"entryHeader",
+	"delHeader",
+	"mainHeader",
+]);
+
+/**
+ * Whether CommCare Core reads `element`'s text, where a processing instruction changes what it
+ * reads. CommCare HQ's build removes a form's comments and keeps its processing instructions
+ * (`xform.py::parse_xml`), and Core's parse keeps each as a node of its own: `getXMLText` stops
+ * at it, reading a text it starts as null (a title, a choice's value, an instance's default, a
+ * setvalue's text), and `getLabel` writes it as `null` (a label, an itext value). Core reads an
+ * element that holds another element and is none of `CORE_TEXT_ELEMENTS` by its element children
+ * alone (`parseElement`, `parseControlChildren`, `parseItem`, `loadInstanceData`, the itext
+ * block's), so an instruction there changes nothing a runtime reads.
+ */
+function coreReadsTextOf(element: Element): boolean {
+	return (
+		!element.children.some(isTag) ||
+		CORE_TEXT_ELEMENTS.has(splitName(element.name).local)
+	);
+}
+
 function namespaceIsConstruct(
 	element: Element,
 	namespace: string | null,
@@ -317,6 +364,8 @@ export class Accounting implements ClaimLedger {
 	readonly #xml = new Map<Document, XmlCursorImpl>();
 	readonly #textClaimed = new Set<Element>();
 	readonly #subtrees = new Set<Element>();
+	/** The covered subtrees whose claim reads what it covers (`coverSubtree`). */
+	readonly #readSubtrees = new Set<Element>();
 	readonly #watched: Watched[] = [];
 	readonly #findings: Finding[] = [];
 	readonly #findingKeys = new Set<string>();
@@ -718,8 +767,9 @@ export class Accounting implements ClaimLedger {
 		this.#textClaimed.add(element);
 	}
 
-	coverSubtree(element: Element): void {
+	coverSubtree(element: Element, reads: boolean): void {
 		this.#subtrees.add(element);
+		if (reads) this.#readSubtrees.add(element);
 	}
 
 	handOff(
@@ -1082,7 +1132,10 @@ export class Accounting implements ClaimLedger {
 			parentNamespace: string | null | undefined,
 		) => {
 			this.#nodesVisited += 1;
-			if (this.#subtrees.has(element)) return;
+			if (this.#subtrees.has(element)) {
+				if (this.#readSubtrees.has(element)) instructionsIn(element);
+				return;
+			}
 			const scope = cursor.scope(element);
 			const place = () => cursor.resolvePlace(element);
 			if (!this.#claimed(element, "")) {
@@ -1116,6 +1169,10 @@ export class Accounting implements ClaimLedger {
 					);
 					continue;
 				}
+				if (child.type === "directive" && coreReadsTextOf(element)) {
+					instructionInText(element);
+					continue;
+				}
 				if (child.type === "comment" || child.type === "directive") {
 					this.#nodesVisited += 1;
 					const kind =
@@ -1132,6 +1189,23 @@ export class Accounting implements ClaimLedger {
 						place(),
 					);
 				}
+			}
+		};
+		/** A processing instruction in a text Core reads, which no claim holds: `unrecognized`. */
+		const instructionInText = (element: Element) => {
+			this.#nodesVisited += 1;
+			this.#unrecognized(
+				cursor.resolvePlace(element),
+				`xform:${qualifiedElement(element, cursor.scope(element))}/processing-instruction()`,
+			);
+		};
+		/** Each text Core reads under a subtree whose claim reads it, for a processing instruction
+		 *  in it: the claim read the text without it, and Core does not. */
+		const instructionsIn = (element: Element) => {
+			for (const child of element.children) {
+				if (isTag(child)) instructionsIn(child);
+				else if (child.type === "directive" && coreReadsTextOf(element))
+					instructionInText(element);
 			}
 		};
 		for (const child of cursor.document.children)

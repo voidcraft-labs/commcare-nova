@@ -100,6 +100,12 @@ export interface HqAuthoredFacts {
 	readonly source: unknown;
 	/** The first-publish register ids that apply under `declaration`. */
 	readonly firstPublish: readonly string[];
+	/** Where each of `firstPublish` stands on the reading, in the same order
+	 *  (`lib/deployment/reading/firstPublishChanges.ts::firstPublishChangePlaces`). */
+	readonly firstPublishPlaces: readonly {
+		readonly id: string;
+		readonly places: readonly string[];
+	}[];
 	/** The declaration D was read under: the base's own, or the reading's preselected one. */
 	readonly declaration: {
 		readonly runsOnlyOn: "web-apps" | "android" | null;

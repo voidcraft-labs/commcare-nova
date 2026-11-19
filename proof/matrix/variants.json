@@ -13293,7 +13293,7 @@
 		]
 	},
 	{
-		"id": "hq-case-lists/status-on-the-detail",
+		"id": "hq-case-lists/case-id-on-the-detail",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/usexpathexpression-field-reading-one-case-attribute",
 		"change": {
@@ -13301,9 +13301,9 @@
 			"pointer": "/modules/0/case_details/long/columns/-",
 			"value": {
 				"model": "case",
-				"field": "@status",
+				"field": "@case_id",
 				"header": {
-					"en": "Status"
+					"en": "Case ID"
 				},
 				"format": "plain",
 				"useXpathExpression": true,
@@ -13342,7 +13342,7 @@
 					}
 				],
 				"pointer": "/caseListConfig/columns/8/field",
-				"value": "status"
+				"value": "case_id"
 			}
 		]
 	},

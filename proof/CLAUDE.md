@@ -218,7 +218,7 @@ harness keeps, each with its reason.
   files held by name, `readerbundle.py::held_runtime`; built by
   `proof/reader/build.mjs` in the corpus job) under the image's Node, through
   `proof/checks/readerbundle.py`; the first-publish judge reads the claim log
-  parity's judge read (`parity.inert_of`). The bundle reads its requests file
+  parity's judge read (`parity.claim_places_of`). The bundle reads its requests file
   and nothing else, and its digest is part of every corpus document's judged
   key (`proof/store/keys.py::judged_under`), so a judgment stands for the
   reader that made it. No other judge runs a product of Nova's while it
@@ -315,7 +315,9 @@ harness keeps, each with its reason.
   is adopted (`proof/README.md`, "Authoring bases again"). Where a person's
   saves in HQ precede a republish (`brings-in`, `records`), HQ's own answer
   after the same saves is held to what Nova's review read of the capture's
-  peer (proof 6's `document@saved`), so the peer never stands for HQ
+  peer (proof 6's `document@saved`), each file of it named by the bytes HQ
+  serves at its path and never by a path the review recorded
+  (`laneReading.ts::servedFiles`), so the peer never stands for HQ
   unchecked.
 - **A republish after a migration is observed on its witness.** A migration
   that changes the wire or an identity has a targeted witness whose A is the
@@ -342,12 +344,25 @@ harness keeps, each with its reason.
   a row of a change the changes register (`first-publish-changes.json`,
   `proof/checks/changes.py`) holds for the document: on a document made in HQ
   (`hq-authored`), a change its reading says Nova's first publish makes
-  (`first-publish.json`); on a document whose saves in CommCare HQ Nova
-  brings in, a change its review lists for the next publish (the statement's
-  `publishChanges`), on proofs 1 to 3. The `changes` check holds each list
-  strict both ways and reads it on no other document; rows other than
-  `source`'s are written from the document's evidence (`python3 -m
-  proof.checks.changes rows`), never typed. Proof 6, parity, the stored-app
+  (`first-publish.json`), and only at the places the reading gives it there
+  (a form, a node of its data, a menu's or the app's key, a case property;
+  `lib/deployment/reading/firstPublishPlaces.ts`), the most exact place
+  holding a difference, so `forms-and-settings-rewritten`, the one change
+  that stands everywhere, keeps only what no other change's place holds, and
+  never a form's whole source, only the part classes a run's evidence writes;
+  a difference of proofs 2 and 3 is placed by what the document's records say
+  of where its build element, run, step or case stands (`changes.Sites`), and
+  one no record places stands nowhere a change's own place is; on a
+  document whose saves in CommCare HQ Nova brings in, a change its review
+  lists for the next publish (the statement's `publishChanges`), on proofs 1
+  to 3, everywhere, since the review names no place. The `changes` check
+  holds each list strict both ways (a change no difference shows at its
+  places is unseen) and reads it on no other document; an entry declares the
+  kinds of place it stands at, and one that declares none of its own is
+  refused, since it could never be seen apart; rows other than `source`'s are
+  written from the document's evidence (`python3 -m proof.checks.changes
+  rows`, which names the change whose place stands where each unheld
+  difference is), never typed. Proof 6, parity, the stored-app
   comparison and the changes judge take no known-defect entry: a difference
   of theirs means Nova's reader, its manifest, the review's list or the
   register's rows are wrong, and it is fixed where it is found
@@ -450,7 +465,7 @@ harness keeps, each with its reason.
     fifteen seconds of the soonest any count ends) and says in the job's
     summary when the lane is expected to end, as modelled from
     `proof/timings.json`: about six minutes with nothing changed, about
-    eleven up to about forty changed documents, about fourteen with every
+    eleven up to about forty changed documents, about sixteen with every
     group fresh. A shard's deadline is twice its expected time, never under
     twenty minutes: it ends a stuck shard, which fails the lane, and never
     decides what is verified.
