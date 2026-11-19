@@ -1478,7 +1478,15 @@ export function bindSlot(
 		spans: new Map(),
 		plain: new Set(),
 	};
-	const scope = scopeWith(doc, pending, env, withdrawn, sites, prepared.syntax);
+	// A value a device works out inside a search row is no slot's whole source.
+	const scope = scopeWith(
+		doc,
+		pending,
+		env,
+		withdrawn,
+		sites,
+		env.rowValues === true ? undefined : prepared.syntax,
+	);
 	const parsed = parseFormExpression(prepared.text, scope);
 	if (!parsed.ok)
 		return { kind: "refused", cause: { kind: "parse", issues: parsed.issues } };

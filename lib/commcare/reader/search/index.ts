@@ -31,6 +31,7 @@ import { readExpressions } from "../expressions";
 import { readExpression } from "../expressions/readExpression";
 import {
 	scanReads,
+	searchRowHoleReads,
 	searchRowProperties,
 	searchRowRelations,
 } from "../expressions/scanReads";
@@ -425,10 +426,22 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const relations = filters.rows.map((row) =>
 			searchRowRelations(row.text, caseType),
 		);
+		// A value the device works out in a row reads the cases the menu's own slot reads (the case
+		// a menu above chose, a case of a type its read tests), declared as an expression's are.
+		const holeReads = filters.rows.flatMap((row) =>
+			searchRowHoleReads(
+				row.text,
+				module.uuid,
+				() => provisionalDocument(ctx),
+				expressionEnvOf(ctx),
+			),
+		);
 		const related =
 			relations.some(
 				(one) => one.links.length > 0 || one.properties.length > 0,
-			) || properties.length > 0;
+			) ||
+			properties.length > 0 ||
+			holeReads.length > 0;
 		if (related && app.caseTypes != null)
 			ctx.writeDraft(() => {
 				app.caseTypes = produce(app.caseTypes ?? [], (draft) => {
@@ -440,6 +453,8 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 						for (const read of reads)
 							noteProperty(draft, read.caseType, read.property, told);
 					}
+					for (const read of holeReads)
+						noteProperty(draft, read.caseType, read.property, told);
 				});
 			});
 		const workflow = readSearchWorkflow(ctx, module, cursor);

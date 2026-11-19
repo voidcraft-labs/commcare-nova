@@ -12,7 +12,6 @@ import {
 	type ExpressionContext,
 	pushRowScope,
 } from "@/lib/domain/expression/context";
-import { readsSearchRow } from "@/lib/domain/expression/csqlPositions";
 import {
 	DISTANCE_UNITS,
 	type DistanceUnit,
@@ -2163,43 +2162,27 @@ const inFold: Fold = {
 	},
 };
 
-/** Whether `range`, read from `node`, an `and`, is two top-level conjuncts
- *  of a list filter its search restates that read the searched case, which
- *  the search prints as a row each (`suite/case-search/xpathQuery.ts`): there
- *  a range prints one row and its two comparisons two, so the reading takes
- *  the comparisons and the search's rows say which the source holds
- *  (`search/rows.ts::classifySearchRows`). A clause that reads no case is
- *  worked out on the device whole, one row either way, and a date and time's
- *  range from a value to itself is the row its equality prints, which a row
- *  reads as the equality (`csqlRead.ts::CsqlBinder.proposedEquality`), so
- *  the range is read there. Clauses are told by their place in the slot's
- *  source. */
+/** Whether `node`, an `and` read as a range, is two top-level conjuncts of a
+ *  list filter its search restates, which the search prints as a row each
+ *  (`suite/case-search/xpathQuery.ts`), whatever they read: there a range
+ *  prints one row and its two comparisons two, so the reading takes the
+ *  comparisons and the search's rows say which the source holds
+ *  (`search/rows.ts::classifySearchRows`, which reads one row as a run of the
+ *  list's clauses, a date and time's range from a value to itself among
+ *  them, which the row reads as the equality it also prints). Clauses are
+ *  told by their place in the slot's whole source, which a value a device
+ *  works out inside a row is not (`ExpressionReadEnv.rowValues`). */
 function conjunctsPrintAsRows(
 	node: FormSyntax,
-	range: Extract<Expression, { kind: "between" }>,
 	context: ExpressionContext,
 	env: FoldEnv,
 ): boolean {
 	if (
 		context.slot.slot !== "case_list_filter" ||
 		!context.profile.targets.has("CS") ||
-		env.root === undefined ||
-		!readsSearchRow(range)
+		env.root === undefined
 	)
 		return false;
-	if (
-		range.lowerInclusive &&
-		range.upperInclusive &&
-		sameJson(range.lower, range.upper)
-	) {
-		let type: string | undefined;
-		try {
-			type = scalarDataType(typeOf(range.left, context)?.data);
-		} catch {
-			type = undefined;
-		}
-		if (type === "datetime") return false;
-	}
 	const top = new Set(
 		clauses(env.root, "and").map((clause) => `${clause.from}:${clause.to}`),
 	);
@@ -2213,8 +2196,7 @@ const between: Fold = {
 	ruleSets: ["record"],
 	propose(node, context, api, env) {
 		const range = betweenOf(node, context, api);
-		return range === undefined ||
-			conjunctsPrintAsRows(node, range, context, env)
+		return range === undefined || conjunctsPrintAsRows(node, context, env)
 			? undefined
 			: api.remember(range, node);
 	},

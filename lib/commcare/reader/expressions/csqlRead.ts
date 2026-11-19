@@ -727,6 +727,7 @@ function deviceEnv(env: SearchRowEnv): ExpressionReadEnv {
 			entryFactsRefused: new Set(),
 			formPlaces: new Map(),
 			computedDatums: new Map(),
+			rowValues: true,
 		};
 		deviceEnvs.set(env, made);
 	}

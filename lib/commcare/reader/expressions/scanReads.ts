@@ -371,6 +371,80 @@ export function scanReads(
 	doc: BlueprintDoc,
 	env: ExpressionReadEnv,
 ): ScannedReads {
+	const scanner = readsScanner(doc, env);
+	for (const registration of pending) {
+		const prepared = preparedSource(doc, registration);
+		if (prepared.ok) scanner.scan(prepared.syntax, registration.ref, true);
+	}
+	return scanner.finish();
+}
+
+/**
+ * The case properties the device values of a search filter row read (each
+ * hole `csqlRead.ts::searchRowCsql` finds, a choice's included), read as the
+ * searched menu's own slot reads them: a property of the case a menu above
+ * chose through the datum the menu's case list entry holds for it, and one of
+ * a case type the read's own type test names. No hole is evaluated at a row
+ * of the search, so `searchRowProperties` and `searchRowRelations`, which
+ * read the searched case and the cases related to it, leave every hole out.
+ * `docOf` gives the document the menus are read into, asked only where a
+ * hole reads a case.
+ */
+export function searchRowHoleReads(
+	text: string,
+	moduleUuid: Uuid,
+	docOf: () => BlueprintDoc,
+	env: ExpressionReadEnv,
+): ScannedReads["caseProperties"] {
+	let read: ReturnType<typeof readFormSyntax>;
+	try {
+		read = readFormSyntax(text);
+	} catch {
+		return [];
+	}
+	if (!read.ok || read.node === undefined) return [];
+	const row = searchRowCsql(read.node);
+	if (row === undefined) return [];
+	const holes: FormSyntax[] = [];
+	const collect = (run: CsqlRun): void => {
+		for (const hole of run.holes.values()) holes.push(hole);
+		for (const branches of run.choices.values())
+			for (const branch of branches) collect(branch);
+	};
+	collect(row);
+	const readsCase = holes.some((hole) =>
+		nodesOf(hole).some(
+			(node) =>
+				casedbRow(core(node)) !== undefined ||
+				siblingCaseRow(core(node)) !== undefined,
+		),
+	);
+	if (!readsCase) return [];
+	const scanner = readsScanner(docOf(), env);
+	for (const hole of holes)
+		scanner.scan(
+			hole,
+			{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+			false,
+		);
+	return scanner.finish().caseProperties;
+}
+
+/** One scan of an app's reads: `scan` reads one slot's syntax into it, and
+ *  `finish` gives what every syntax it read reads. `ownRow` says whether the
+ *  syntax is evaluated at the slot's own row, which a device value of a
+ *  search's row is not. */
+function readsScanner(
+	doc: BlueprintDoc,
+	env: ExpressionReadEnv,
+): {
+	readonly scan: (
+		syntax: FormSyntax,
+		ref: PendingExpression["ref"],
+		ownRow: boolean,
+	) => void;
+	readonly finish: () => ScannedReads;
+} {
 	const properties = new Map<string, { caseType: string; property: string }>();
 	const entryRows = entryRowsOf(doc);
 	const slugs = new Set<string>();
@@ -487,20 +561,23 @@ export function scanReads(
 				source.length > TABLE_SOURCE.length
 			)
 				tags.add(source.slice(TABLE_SOURCE.length));
-	for (const registration of pending) {
-		const prepared = preparedSource(doc, registration);
-		if (!prepared.ok) continue;
-		const context = slotContext(doc, registration.ref, lookupTypes(env));
-		const row = context === undefined ? undefined : activeRowScope(context);
+	const scan = (
+		syntax: FormSyntax,
+		ref: PendingExpression["ref"],
+		ownRow: boolean,
+	): void => {
+		const context = slotContext(doc, ref, lookupTypes(env));
+		const row =
+			context === undefined || !ownRow ? undefined : activeRowScope(context);
 		const rowType = row?.kind === "case" ? row.caseType : undefined;
-		const form = slotForm(doc, registration.ref);
+		const form = slotForm(doc, ref);
 		const moduleUuid = context?.form?.moduleUuid;
 		const moduleType =
 			moduleUuid === undefined ? undefined : doc.modules[moduleUuid]?.caseType;
 		const reachable =
 			form === undefined ? [] : [...caseTypeHopMap(doc, moduleType).entries()];
-		notePresence(rowType ?? moduleType, prepared.syntax);
-		const nodes = nodesOf(prepared.syntax);
+		notePresence(rowType ?? moduleType, syntax);
+		const nodes = nodesOf(syntax);
 		const inPredicate = new Set<FormSyntax>();
 		const innerStep = partsOfPaths(nodes);
 		for (const node of nodes) {
@@ -565,16 +642,10 @@ export function scanReads(
 			const chosen =
 				key === undefined
 					? undefined
-					: registration.ref.entity === "module"
-						? chosenCaseType(doc, entryRows, registration.ref.uuid, key)
-						: registration.ref.entity === "form" && moduleUuid !== undefined
-							? chosenCaseType(
-									doc,
-									entryRows,
-									moduleUuid,
-									key,
-									registration.ref.uuid,
-								)
+					: ref.entity === "module"
+						? chosenCaseType(doc, entryRows, ref.uuid, key)
+						: ref.entity === "form" && moduleUuid !== undefined
+							? chosenCaseType(doc, entryRows, moduleUuid, key, ref.uuid)
 							: undefined;
 			// A search's rows are the searched menu's case type.
 			const searched =
@@ -643,37 +714,40 @@ export function scanReads(
 				if (path.root === undefined || fromCurrent)
 					note(rowType, elementProperty(path.steps[0]));
 			}
-	}
-	// Each property an untyped query reads that no case type declares, and
-	// no read types, belongs to the slot's own case type: Nova's binder
-	// types it by the one type that declares it, and the print, which tests
-	// no type, is the same whichever type that is.
-	const declared = new Set([
-		...effectiveCaseTypes(doc).flatMap((type) =>
-			type.properties.map((one) => one.name),
-		),
-		...[...properties.values()].map((one) => one.property),
-	]);
-	for (const read of untypedReads)
-		if (
-			!declared.has(read.property) &&
-			!isStandardCaseListProperty(read.property)
-		)
-			note(read.caseType, read.property);
-	return {
-		caseProperties: [...properties.values()].sort((a, b) =>
-			a.caseType === b.caseType
-				? a.property < b.property
-					? -1
-					: a.property > b.property
-						? 1
-						: 0
-				: a.caseType < b.caseType
-					? -1
-					: 1,
-		),
-		locationDataSlugs: sortedDistinct(slugs),
-		lookupTags: sortedDistinct(tags),
-		parentLinks: [...links.values()],
 	};
+	const finish = (): ScannedReads => {
+		// Each property an untyped query reads that no case type declares, and
+		// no read types, belongs to the slot's own case type: Nova's binder
+		// types it by the one type that declares it, and the print, which tests
+		// no type, is the same whichever type that is.
+		const declared = new Set([
+			...effectiveCaseTypes(doc).flatMap((type) =>
+				type.properties.map((one) => one.name),
+			),
+			...[...properties.values()].map((one) => one.property),
+		]);
+		for (const read of untypedReads)
+			if (
+				!declared.has(read.property) &&
+				!isStandardCaseListProperty(read.property)
+			)
+				note(read.caseType, read.property);
+		return {
+			caseProperties: [...properties.values()].sort((a, b) =>
+				a.caseType === b.caseType
+					? a.property < b.property
+						? -1
+						: a.property > b.property
+							? 1
+							: 0
+					: a.caseType < b.caseType
+						? -1
+						: 1,
+			),
+			locationDataSlugs: sortedDistinct(slugs),
+			lookupTags: sortedDistinct(tags),
+			parentLinks: [...links.values()],
+		};
+	};
+	return { scan, finish };
 }

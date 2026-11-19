@@ -14,9 +14,15 @@
  * neither is typed and the reading cannot print the source; and a property
  * compared with a branch node whose other branch a number types only once
  * the comparison types it, so the two are left of types the checker refuses
- * to compare; a property of the case a menu above chose, ordered against
+ * to compare; a whole number a calculated column reads tried first as a
+ * decimal because an unsorted column's position came first, beside the same
+ * column the list orders by as a whole number, whose sort then reads as a
+ * decimal's; a property of the case a menu above chose, ordered against
  * a moment, left text; and a read of that case in a form's display condition
- * taken for a read of the form's own case, whose type lacks the property.
+ * taken for a read of the form's own case, whose type lacks the property;
+ * and a property of that case a Search field's condition reads only in a
+ * value the device works out before the search runs, never declared on the
+ * chosen case's type, so the condition reads as no property of the app.
  */
 
 import { describe, expect, it } from "vitest";
@@ -29,7 +35,13 @@ import {
 } from "@/lib/deployment/reading/__tests__/novaReading";
 import { readBackDifferences } from "@/lib/deployment/reading/readBack";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, calculatedColumn, proseText } from "@/lib/domain";
+import {
+	advancedSearchInputDef,
+	type BlueprintDoc,
+	calculatedColumn,
+	columnSort,
+	proseText,
+} from "@/lib/domain";
 import {
 	datetimeCoerce,
 	type Expression,
@@ -37,6 +49,7 @@ import {
 	gt,
 	gte,
 	ifExpr,
+	input,
 	isIn,
 	literal,
 	lte,
@@ -45,6 +58,7 @@ import {
 	switchCase,
 	switchExpr,
 	term,
+	whenInput,
 } from "@/lib/domain/expression";
 import { chosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { canonDocument } from "../canon";
@@ -52,15 +66,27 @@ import { mintingResolver } from "../identity";
 import { readHqApp } from "../index";
 
 const COLUMN = testUuid("first-reading-types-column");
+const SORTED_COLUMN = testUuid("first-reading-types-sorted-column");
 const HOUSEHOLDS = "first-reading-types-households";
 
 /** A follow-up of `visit` cases, `seen` a date, `age` a whole number and
  *  `weight` a decimal,
  *  holding `expression` in the form's display condition or a calculated
  *  column. */
-function visitDoc(slot: "form" | "column", expression: Expression) {
+function visitDoc(
+	slot: "form" | "column" | "unsorted-and-sorted",
+	expression: Expression,
+) {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
-	const column = calculatedColumn(COLUMN, "Due", expression);
+	const columns =
+		slot === "unsorted-and-sorted"
+			? [
+					calculatedColumn(COLUMN, "Due", expression),
+					calculatedColumn(SORTED_COLUMN, "Order", expression, {
+						sort: columnSort("asc", 0),
+					}),
+				]
+			: [calculatedColumn(COLUMN, "Due", expression)];
 	return buildDoc({
 		caseTypes: [
 			{
@@ -77,14 +103,20 @@ function visitDoc(slot: "form" | "column", expression: Expression) {
 				name: "Visits",
 				caseType: "visit",
 				caseListConfig:
-					slot === "column"
-						? {
+					slot === "form"
+						? config
+						: {
 								...config,
-								columns: [...config.columns, column],
-								listColumnOrder: [...config.listColumnOrder, column.uuid],
-								detailColumnOrder: [...config.detailColumnOrder, column.uuid],
-							}
-						: config,
+								columns: [...config.columns, ...columns],
+								listColumnOrder: [
+									...config.listColumnOrder,
+									...columns.map((column) => column.uuid),
+								],
+								detailColumnOrder: [
+									...config.detailColumnOrder,
+									...columns.map((column) => column.uuid),
+								],
+							},
 				forms: [
 					{
 						name: "Check",
@@ -100,8 +132,13 @@ function visitDoc(slot: "form" | "column", expression: Expression) {
 
 /** Households, `last_seen` a date and time, and their visits listed after a
  *  household is chosen, filtered by `filter`, the visit's form shown on
- *  `display`. */
-function routedDoc(filter: Expression, display?: Expression) {
+ *  `display`, the visits searched by an advanced Search field whose
+ *  condition is `searched`. */
+function routedDoc(
+	filter: Expression,
+	display?: Expression,
+	searched?: Expression,
+) {
 	const config = () => caseListConfig([{ field: "case_name", header: "Name" }]);
 	return buildDoc({
 		caseTypes: [
@@ -147,7 +184,24 @@ function routedDoc(filter: Expression, display?: Expression) {
 				name: "Visits",
 				caseType: "visit",
 				parentCaseModuleUuid: HOUSEHOLDS,
-				caseListConfig: { ...config(), filter },
+				caseListConfig: {
+					...config(),
+					filter,
+					...(searched === undefined
+						? {}
+						: {
+								searchInputs: [
+									advancedSearchInputDef(
+										SINCE,
+										"since",
+										"Since",
+										"text",
+										searched,
+									),
+								],
+							}),
+				},
+				...(searched === undefined ? {} : { caseSearchConfig: {} }),
 				forms: [
 					{
 						name: "Review",
@@ -161,6 +215,7 @@ function routedDoc(filter: Expression, display?: Expression) {
 	});
 }
 
+const SINCE = testUuid("first-reading-types-since");
 const SEEN = term(prop("visit", "seen"));
 const AGE = term(prop("visit", "age"));
 const WEIGHT = term(prop("visit", "weight"));
@@ -205,6 +260,21 @@ const CASES: readonly {
 		),
 	},
 	{
+		name: "a whole number a calculated column reads, beside the same column the list orders by as a whole number",
+		doc: visitDoc("unsorted-and-sorted", {
+			kind: "negate",
+			value: {
+				kind: "arith",
+				op: "+",
+				left: AGE,
+				right: {
+					kind: "coalesce",
+					values: [term(literal(3)), term(literal(-2))],
+				},
+			},
+		}),
+	},
+	{
 		name: "a comparison of a property with a branch node that reads another beside a number",
 		doc: visitDoc(
 			"form",
@@ -239,6 +309,30 @@ const CASES: readonly {
 				chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "size"),
 			),
 		),
+	},
+	{
+		name: "a Search field's condition reading, in a value the device works out, a property of the case a menu above chose that nothing else reads",
+		doc: routedDoc(
+			{ kind: "match-all" },
+			undefined,
+			whenInput(
+				input(SINCE),
+				eq(
+					term(prop("visit", "weight")),
+					chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "size"),
+				),
+			),
+		),
+	},
+	{
+		name: "a Search field's condition comparing two reads of the case a menu above chose",
+		doc: routedDoc({ kind: "match-all" }, undefined, {
+			kind: "not",
+			clause: eq(
+				chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "size"),
+				chosenCaseProperty(testUuid(HOUSEHOLDS), "household", "size"),
+			),
+		}),
 	},
 	{
 		name: "an ordering of a property of the case a menu above chose",
