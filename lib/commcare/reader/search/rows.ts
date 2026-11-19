@@ -491,6 +491,76 @@ export function filterConditionsOfAFieldAreItsOwn(
 }
 
 /**
+ * The reader's canonical choice `search-field-conditions-of-another-field-are-its-own`: a conjunct
+ * of an advanced Search field's condition that reads Search fields, each under its own presence
+ * test, the first of which (in the fields' order) is another advanced field, and the same conjunct
+ * as that field's condition's last conjunct, where the search's rows come out the same: Nova writes
+ * one row per top-level conjunct of each field's condition, field after field, so both print one
+ * export, and the reader returns the first field's (`classifySearchRows`, kind D, whose first
+ * candidate is the condition of the first field the conjunct reads).
+ */
+export function fieldConditionsOfAnotherFieldAreItsOwn(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	let out = doc;
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = out.modules[moduleUuid];
+		const config = module?.caseListConfig;
+		if (
+			module === undefined ||
+			config === undefined ||
+			effectiveCaseSearchConfig(module) === undefined
+		)
+			continue;
+		const [only, ...more] = emittedSearchConjuncts(out, moduleUuid);
+		if (only?.kind === "match-none" && more.length === 0) continue;
+		for (const field of config.searchInputs) {
+			if (field.kind !== "advanced") continue;
+			for (const clause of topLevel(
+				effectiveFilterForEmission(field.predicate),
+			)) {
+				const reads = inputReads(clause);
+				const first = config.searchInputs.find((input) =>
+					reads.some((read) => read.uuid === input.uuid),
+				);
+				if (
+					reads.length === 0 ||
+					!reads.every((read) => read.guarded) ||
+					first?.kind !== "advanced" ||
+					first.uuid === field.uuid
+				)
+					continue;
+				const held = out.modules[moduleUuid]?.caseListConfig?.searchInputs.find(
+					(one) => one.uuid === field.uuid,
+				);
+				if (
+					held?.kind !== "advanced" ||
+					!topLevel(held.predicate).some((one) => sameJson(one, clause))
+				)
+					continue;
+				const moved = withCandidate(out, (draft) => {
+					withoutPredicateClause(
+						draft as BlueprintDoc,
+						moduleUuid,
+						field.uuid,
+						clause,
+					);
+					setPredicate(draft as BlueprintDoc, moduleUuid, first.uuid, clause);
+				});
+				if (
+					sameJson(
+						emittedSearchConjuncts(moved, moduleUuid),
+						emittedSearchConjuncts(out, moduleUuid),
+					)
+				)
+					out = moved;
+			}
+		}
+	}
+	return out;
+}
+
+/**
  * The reader's canonical choice `search-field-conditions-over-other-fields-are-the-filter-s`: a
  * conjunct of an advanced Search field's condition that reads Search fields, each under its own
  * presence test, the first of which (in the fields' order) is no advanced field, and the same

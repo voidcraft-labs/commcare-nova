@@ -242,7 +242,10 @@ clause only where it holds, and the canonical rows `search-filter-conditions-of-
 and `search-field-conditions-over-other-fields-are-the-filter-s` move only a clause it holds for,
 each where the search's rows come out the same.
 A clause a device prints (a presence test under a negation, which a device reads as never there)
-is a clause of the list the case list stage reads, which a row restates.
+is a clause of the list the case list stage reads, which a row restates. A field's conjunct whose
+first field read, in the fields' order, is another advanced field is that field's
+(`search-field-conditions-of-another-field-are-its-own`), where the search's rows come out the
+same, as the reader's kind D tries that field's condition first.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
