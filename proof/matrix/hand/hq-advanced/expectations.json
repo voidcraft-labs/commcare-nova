@@ -8,6 +8,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/head_name",
@@ -32,6 +37,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/head_name",
@@ -57,6 +67,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/head_name",
@@ -84,7 +99,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "household-two"
+					"case_id": "household-two",
+					"case_id_new_member_0": "new-member"
 				}
 			},
 			"answers": [

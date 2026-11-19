@@ -32,9 +32,11 @@ export interface EvaluateRequest {
 	readonly instances?: readonly string[];
 	/** Rows to add at each repeat, by its generic path. */
 	readonly repeats?: Readonly<Record<string, number>>;
+	/** The datums by id: a case id, or the case ids a several-case datum
+	 * chose together (`Evaluate.java::selectSeveral`). */
 	readonly session?: {
 		readonly command?: string;
-		readonly data?: Readonly<Record<string, string>>;
+		readonly data?: Readonly<Record<string, string | readonly string[]>>;
 	};
 	/** A case list on the installed local archive: its search text and sort column. */
 	readonly caseList?: {

@@ -330,6 +330,39 @@ export function sortNamedHiddenColumnDocument(): BlueprintDoc {
 	};
 }
 
+/**
+ * A menu of a case type whose forms are all surveys, so it lists no cases, holding a list of its
+ * own: a column no export holds, since such a menu is written the one name column every new menu
+ * in CommCare HQ holds.
+ */
+export function surveyListDocument(): BlueprintDoc {
+	return buildDoc({
+		appId: "read-back-survey-list",
+		caseTypes: [
+			{
+				name: "household",
+				properties: [{ name: "village", label: "Village" }],
+			},
+		],
+		modules: [
+			{
+				name: "Household surveys",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "village", header: "Village" },
+				]),
+				forms: [
+					{
+						name: "Census",
+						type: "survey",
+						fields: [f({ kind: "text", id: "head", label: "Head" })],
+					},
+				],
+			},
+		],
+	});
+}
+
 /** Every object of `value` whose `uuid` is `uuid`. */
 function holders(value: unknown, uuid: string): Record<string, unknown>[] {
 	if (Array.isArray(value)) return value.flatMap((one) => holders(one, uuid));

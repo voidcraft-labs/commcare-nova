@@ -1012,6 +1012,19 @@ class State:
     served: dict | None = None
 
 
+def not_hq_own(differences, stored):
+    """The differences a save made that no member of ``HQ_OWN_REPORTS`` names as HQ's own, asked of the stored app
+    the save was made over (``stored``, its app document): what a save makes of any app whatever Nova wrote (the
+    settings page writing each setting an app holds no value for, ``settings_page_writes_unset_settings``) is no
+    change of Nova's next publish. Each report is asked with its artifact as the save names it
+    (``<artifact>@<editor>``), before the B and configuration are added."""
+    return [
+        difference
+        for difference in differences
+        if hq_own_reports.held(difference.artifact, difference.path, difference, stored) is None
+    ]
+
+
 class _Judged:
     """One B's record judged: its differences, named by the B and configuration, and its saves."""
 
@@ -1079,15 +1092,16 @@ class _Judged:
             stored_json = apply_patch(base.stored_json, self._blob(entry["stored"]))
             after = stored_from(stored_json)
             stored = stored_differences(base.stored, after, document=self.document, editor=editor, readings=readings)
+            stored = not_hq_own(stored, base.stored_json)
             save["stored_changed"] = bool(stored)
             found += stored
             built = outcome_from_delta(entry["build"], base.build, self.blobs, f"B after {editor} ({scope.name})")
             differences = build_differences(base.build, built, document=self.document, editor=editor, readings=readings)
             save["built"] = True
-            found += differences
+            found += not_hq_own(differences, base.stored_json)
             if differences:
                 behavior, save["ran"] = self.behavior_differences(editor, base, built, entry.get("trace"))
-                found += behavior
+                found += not_hq_own(behavior, base.stored_json)
             trace = entry.get("trace")
             served = entry.get("served")
             if served is not None and "refused" in served:

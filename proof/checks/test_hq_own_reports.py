@@ -2,7 +2,7 @@
 them and its condition holds.
 
 Contract (``proof.checks.hq_own_reports``): ``HQ_OWN_REPORTS`` holds exactly
-its three members, each with a proof test of its name in the module it
+its four members, each with a proof test of its name in the module it
 names, and every module the lane names a proof of HQ's own reports is a
 member's; a check leaves out a report only where a member names its artifact
 and path and the member's condition holds on what the check holds of the
@@ -24,7 +24,12 @@ from proof.checks import android, connect, hq_own_reports, proof4
 from proof.checks.hq_own_reports import HQ_OWN_REPORTS, HqOwnReport, held, unproven
 from proof.observe.outcome import BuildOutcome
 
-MEMBERS = ("registration_alert_child_case", "android_grouped_tile_reopen", "connect_block_renamed")
+MEMBERS = (
+    "registration_alert_child_case",
+    "android_grouped_tile_reopen",
+    "connect_block_renamed",
+    "settings_page_writes_unset_settings",
+)
 
 
 # The set -----------------------------------------------------------------------------------------------------------
@@ -384,3 +389,47 @@ def test_a_block_whose_id_changed_at_another_place_is_no_rename():
         BuildOutcome("B", 1, [], {}, {"modules-0/forms-0.xml": moved.encode(), "suite.xml": b"<suite/>"})
     )
     assert connect.renamed_blocks(_forms(("deliver", "home_visit")), after) == frozenset()
+
+
+# The settings page writes the settings an app holds no value for --------------------------------------------------
+
+
+def test_the_settings_the_member_names_are_the_fifteen_nova_seeds():
+    """The member's settings are the fifteen a publish over an app Nova brought in leaves unset, which the intent
+    judge fixes as ``NOVA_PROFILE_CONSTANTS``: a sixteenth the page wrote would stay reported."""
+    from proof.checks.intent import NOVA_PROFILE_CONSTANTS
+
+    assert sorted(hq_own_reports.UNSEEDED_SETTINGS) == sorted(NOVA_PROFILE_CONSTANTS)
+
+
+def _settings_save(stored, *, kind="added", key="cc-enable-tts", path=None):
+    """What proof 4 judges of an app settings save over ``stored`` (the app document the save was made over)
+    that wrote ``key`` into the stored app, each built profile and Core's reading of the profile."""
+    from proof.checks.differences import Difference
+
+    over = {"profile": {"properties": stored}}
+    found = [
+        Difference("proof4", "-", "app.json@app settings", path or f"/profile/properties/{key}", "-", kind, None, "no"),
+        Difference(
+            "proof4", "-", "media_profile.ccpr@app settings", f"/profile/property[@key={key}]", "-", kind, None, "x"
+        ),
+        Difference("proof4", "-", "trace@app settings", f"/profile/properties/{key}", "-", kind, None, "no"),
+    ]
+    return [(difference.artifact, difference.path) for difference in proof4.not_hq_own(found, over)]
+
+
+def test_a_setting_the_settings_page_writes_where_the_app_held_none_is_hqs_own():
+    assert _settings_save({"cc-show-saved": "no"}) == []
+
+
+def test_a_setting_the_app_held_or_the_save_changed_is_still_reported():
+    held = _settings_save({"cc-enable-tts": "yes"})
+    assert held == [
+        ("app.json@app settings", "/profile/properties/cc-enable-tts"),
+        ("media_profile.ccpr@app settings", "/profile/property[@key=cc-enable-tts]"),
+        ("trace@app settings", "/profile/properties/cc-enable-tts"),
+    ]
+    assert len(_settings_save({}, kind="changed")) == 3
+    # A setting outside the fifteen, and the same report made by another save, stand.
+    assert len(_settings_save({}, key="cc-show-saved")) == 3
+    assert hq_own_reports.held("app.json@case list", "/profile/properties/cc-enable-tts", None, {}) is None

@@ -23,7 +23,7 @@ import {
 	type GeneratedNodePurpose,
 	generatedNodePaths,
 } from "@/lib/commcare/xform/generatedNodes";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { type BlueprintDoc, declaresWebApps, type Uuid } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
@@ -287,6 +287,20 @@ const SEARCH_KEYS_READ_ONLY_WITH_TEXT: readonly string[] = [
 	"additional_case_types",
 ];
 
+/** The keys of a case list column HQ's Case List page saves on every column and HQ's
+ *  build reads on none Nova writes (`details/bootstrap5/column.js::serialize`;
+ *  `graph_configuration` HQ reads on a `graph` column alone), which Nova writes as the
+ *  page saves them (`lib/commcare/hqShells.ts::detailColumn`). */
+const DETAIL_COLUMN_PAGE_KEYS: readonly string[] = [
+	"calc_xpath",
+	"hasNodeset",
+	"hasAutocomplete",
+	"isTab",
+	"nodeset",
+	"relevant",
+	"graph_configuration",
+];
+
 /** A Search field's keys a reading takes as spelled another way (`search/prompts.ts`). */
 const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
 	"label",
@@ -318,6 +332,36 @@ const sameStateRecorded =
 	(id: FirstPublishChangeId) =>
 	(facts: FirstPublishFacts): boolean =>
 		recordedIn(id)(facts.facts);
+
+/**
+ * Whether some menu of the source that offers no search stores another
+ * `auto_launch` than the shell Nova writes for such a search under the
+ * choice being judged: whether the app runs in Web Apps
+ * (`lib/commcare/hqShells.ts::caseSearchConfigShell`). A menu offers a search
+ * where its search holds a Search field or a default filter
+ * (`util.py::module_offers_search`); a stored value that is not `true` is
+ * HQ's default, `false` (`models/case_search.py::CaseSearch.auto_launch`).
+ */
+function inactiveAutoLaunchRespelled(facts: FirstPublishFacts): boolean {
+	const modules = facts.source.raw.modules;
+	const written = declaresWebApps(facts.doc);
+	return (Array.isArray(modules) ? modules : []).some((module) => {
+		const config =
+			typeof module === "object" && module !== null
+				? (module as { search_config?: unknown }).search_config
+				: undefined;
+		if (typeof config !== "object" || config === null) return false;
+		const search = config as {
+			readonly properties?: unknown;
+			readonly default_properties?: unknown;
+			readonly auto_launch?: unknown;
+		};
+		const holds = (rows: unknown) => Array.isArray(rows) && rows.length > 0;
+		if (holds(search.properties) || holds(search.default_properties))
+			return false;
+		return (search.auto_launch === true) !== written;
+	});
+}
 
 /**
  * The entry of a change a worker meets on Android alone
@@ -365,7 +409,21 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 * Nova writes every form and setting again in its own spelling
 	 * (`lib/commcare/expander.ts::expandDoc`), and CommCare HQ's import marks
 	 * every app it updates (`views/app_import_api.py::import_app_api` sets
-	 * `created_from_template`, which no page and no runtime reads). Applies on
+	 * `created_from_template`, which no page and no runtime reads), and its
+	 * media upload, saving the files Nova sends into the app's map, stores the
+	 * `media_form_errors` its own media listing sets on the app it saves
+	 * (`hqmedia/tasks.py::process_bulk_upload_zip` asks
+	 * `get_all_paths_of_type`, whose `all_media` sets it, then `app.save()`),
+	 * which only HQ's media page reads. Every case
+	 * list column is written as HQ's Case List page saves one
+	 * (`lib/commcare/hqShells.ts::detailColumn`,
+	 * `details/bootstrap5/column.js::serialize`): the page's own keys
+	 * (`calc_xpath`, `hasNodeset`, `hasAutocomplete`, `isTab`, `nodeset`,
+	 * `relevant`), which `models/case_list.py::DetailColumn` does not declare
+	 * and nothing HQ builds reads, and `graph_configuration` null, which HQ
+	 * reads only on a `graph` column (`app_strings.py`,
+	 * `detail_screen.py::Graph`), a format Nova never writes; a column of an
+	 * app made in HQ's models holds neither the keys nor null. Applies on
 	 * every reading.
 	 */
 	"forms-and-settings-rewritten": {
@@ -377,6 +435,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/forms/*/case_references_data/load",
 			"/modules/*/case_details/short/filter",
 			"/created_from_template",
+			"/media_form_errors",
+			...DETAIL_COLUMN_PAGE_KEYS.map(
+				(key) => `/modules/*/case_details/*/columns/*/${key}`,
+			),
 		],
 	},
 	/**
@@ -500,16 +562,25 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 * A case list's, a search's or a menu's stored setting or text map Nova
 	 * writes another way with nothing a device shows changed, recorded by the
 	 * list, search and menu readers and by `heldText.ts::recordTextRewrite`.
+	 * A search a menu does not offer is written as its shell, whose
+	 * `auto_launch` is whether the app runs in Web Apps, which no reading
+	 * knows, so the entry also applies where such a menu stores another value
+	 * than the choice writes (`inactiveAutoLaunchRespelled`). The id has no
+	 * sentence of its own (`FIRST_PUBLISH_SAID_BY`), so a list stored under
+	 * one choice says what it says under another.
 	 */
 	"list-settings-respelled": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: sameStateRecorded("list-settings-respelled"),
+		applies: (facts) =>
+			sameStateRecorded("list-settings-respelled")(facts) ||
+			inactiveAutoLaunchRespelled(facts),
 		paths: [
 			"/modules/*/case_details/short/max_select_value",
 			"/modules/*/case_details/short/sort_elements",
 			"/modules/*/search_config/title_label",
 			"/modules/*/search_config/description",
+			"/modules/*/search_config/auto_launch",
 			...SEARCH_KEYS_READ_ONLY_WITH_TEXT.map(
 				(key) => `/modules/*/search_config/${key}`,
 			),

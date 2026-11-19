@@ -8,6 +8,7 @@ import org.javarosa.core.model.condition.EvaluationContext;
 import org.javarosa.core.model.data.StringData;
 import org.javarosa.core.model.instance.FormInstance;
 import org.javarosa.core.model.instance.TreeElement;
+import org.javarosa.core.model.instance.TreeReference;
 import org.javarosa.xpath.XPathParseTool;
 import org.javarosa.xpath.expr.FunctionUtils;
 import org.json.JSONArray;
@@ -33,13 +34,22 @@ public class NumericCoercionRuntimeTest {
         }
     }
 
-    /** Core's answer to {@code expression} over a {@code data} root holding {@code value} as its one {@code value} node, or no such node. */
+    /**
+     * Core's answer to {@code expression} over a {@code data} root holding {@code value} as its one {@code value}
+     * node, or, for a property the case lacks, none. A case's missing property is a path the case database's
+     * template allows that reaches no node (CaseDataInstance.hasTemplatePath), which a read unpacks as the empty
+     * nodeset's value (XPathNodeset.unpack). A form instance gives a path its template lacks no nodeset at all and
+     * a read of it raises, so the lacking property stands here as a template node, which no read expands
+     * (EvaluationContext.expandReference leaves templates out of a step no index names).
+     */
     private static boolean holds(String value, String expression) throws Exception {
         TreeElement root = new TreeElement("data", 0);
         if (value != null) {
             TreeElement node = new TreeElement("value", 0);
             node.setValue(new StringData(value));
             root.addChild(node);
+        } else {
+            root.addChild(new TreeElement("value", TreeReference.INDEX_TEMPLATE));
         }
         FormInstance instance = new FormInstance(root);
         Object result = XPathParseTool.parseXPath(expression).eval(instance, new EvaluationContext(instance));

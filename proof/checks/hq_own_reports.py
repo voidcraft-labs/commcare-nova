@@ -54,6 +54,17 @@ The members:
   changed it. A renamed task in a form of its own reaches Connect, which
   takes its payload and completes no task the worker was assigned under
   the old id (``task-completed-nothing``).
+- ``settings_page_writes_unset_settings``: the app settings page's save
+  adding each of the fifteen settings Nova seeds where the app's stored
+  profile holds no value for it, in the stored app, each built profile and
+  Core's reading of the profile. The page posts every setting it shows, an
+  unset one at the value it shows for it
+  (``settings/bootstrap5/commcare_settings.js::serialize``), and HQ stores
+  each (``views/settings.py::edit_commcare_profile``), on any app. Nova's
+  publish over an app it brought in leaves an unset setting unset
+  (``targetOverlay.ts::projectProfileForTarget``, ``seeds: "target"``), so
+  proof 4's save over B of such an app meets what the same save over the app
+  HQ made meets.
 
 This module reads records only: it imports neither HQ nor Django
 (``test_judge_purity``), and nothing beyond the standard library, since the
@@ -193,6 +204,66 @@ def connect_report_renamed(renamed, subjects) -> bool:
     return bool(subjects) and all((kind, block) in sides.get(side, ()) for kind, block, side in subjects)
 
 
+# The settings page writes the settings an app holds no value for -------------------------------------------------
+
+# The editor proof 4 names the app settings page's save by (``proof.editors.pages.APP_SETTINGS``).
+SETTINGS_PAGE = "app settings"
+# The fifteen settings Nova seeds on an app it made and leaves as the project space holds them on an app it brought
+# in (``lib/commcare/targetOverlay.ts::projectProfileForTarget``, ``seeds: "target"``), fixed here by hand as
+# ``proof.checks.intent.NOVA_PROFILE_CONSTANTS`` fixes them, which ``test_hq_own_reports`` holds equal.
+UNSEEDED_SETTINGS = (
+    "cc-autosync-freq",
+    "cc-autoup-freq",
+    "cc-content-valid",
+    "cc-days-form-retain",
+    "cc-enable-tts",
+    "cc-fuzzy-search-enabled",
+    "cc-gps-auto-capture-accuracy",
+    "cc-inflation-target-density",
+    "cc-label-required-questions-with-asterisk",
+    "cc-login-duration-seconds",
+    "cc-maps-default-layer",
+    "cc-resize-images",
+    "logenabled",
+    "unsent-number-limit",
+    "unsent-time-limit",
+)
+# Where proof 4 reports a setting: in the stored app's profile and in a Core trace's reading of the profile
+# (``/profile/properties/<key>``), and in each built profile (``/profile/property[@key=<key>]``).
+STORED_SETTING = "/profile/properties/"
+BUILT_SETTING = "/profile/property[@key="
+SETTING_PATHS = tuple(
+    path for key in UNSEEDED_SETTINGS for path in (f"{STORED_SETTING}{key}", f"{BUILT_SETTING}{key}]")
+)
+SETTINGS_ARTIFACTS = tuple(
+    f"{artifact}@{SETTINGS_PAGE}"
+    for artifact in ("app.json", "profile.xml", "profile.ccpr", "media_profile.xml", "media_profile.ccpr", "trace")
+)
+
+
+def setting_of(path: str) -> str | None:
+    """The setting a report at one of ``SETTING_PATHS`` names, or None for any other path."""
+    if path.startswith(STORED_SETTING):
+        return path[len(STORED_SETTING) :]
+    if path.startswith(BUILT_SETTING) and path.endswith("]"):
+        return path[len(BUILT_SETTING) : -1]
+    return None
+
+
+def settings_page_wrote_unset(difference, stored) -> bool:
+    """Whether a report of the settings page's save (``difference``, as proof 4 makes it) is a setting the app held
+    no value for, which the save wrote: the report adds it, and the stored app the save was made over (``stored``,
+    its app document) holds no value under it. The page posts every setting it shows, an unset one at the value it
+    shows for it (``settings/bootstrap5/commcare_settings.js::serialize``), and HQ's save stores each
+    (``views/settings.py::edit_commcare_profile``), so any app whose profile lacks a setting gains it, with HQ's
+    build then writing it into the profile (``ApplicationBase.create_profile``)."""
+    key = setting_of(difference.path)
+    if key is None or difference.kind != "added" or not isinstance(stored, dict):
+        return False
+    properties = (stored.get("profile") or {}).get("properties") or {}
+    return key not in properties
+
+
 # The set ---------------------------------------------------------------------------------------------------------
 
 HQ_OWN_REPORTS: tuple[HqOwnReport, ...] = (
@@ -224,6 +295,17 @@ HQ_OWN_REPORTS: tuple[HqOwnReport, ...] = (
         applies=connect_report_renamed,
         proof="proof/connect/test_hq_own_rename.py",
         description="What Connect does with a block renamed under an opportunity that holds its old id (defect 15).",
+    ),
+    HqOwnReport(
+        id="settings_page_writes_unset_settings",
+        artifacts=SETTINGS_ARTIFACTS,
+        paths=SETTING_PATHS,
+        applies=settings_page_wrote_unset,
+        proof="proof/editors/test_hq_own_settings_page.py",
+        description=(
+            "The app settings page's save writing each setting an app holds no value for, which an app made in HQ"
+            " and brought in holds none of, since Nova's publish over it seeds none."
+        ),
     ),
 )
 

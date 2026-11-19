@@ -8,6 +8,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_pregnacy_0": "new-pregnacy"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/patient_name",
@@ -60,6 +65,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_pregnacy_0": "new-pregnacy"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/patient_name",
@@ -112,6 +122,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_pregnacy_0": "new-pregnacy"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/patient_name",
@@ -164,6 +179,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_pregnacy_0": "new-pregnacy"
+				}
+			},
 			"constraintChecks": [
 				{
 					"path": "/data/patient_name",
@@ -188,6 +208,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_pregnacy_0": "new-pregnacy"
+				}
+			},
 			"constraintChecks": [
 				{
 					"path": "/data/patient_name",

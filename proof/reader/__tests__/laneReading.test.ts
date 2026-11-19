@@ -17,6 +17,13 @@
  * `hqAuthored`, so a form CommCare HQ added that a bring-in took reads back
  * under a minted UUID and proof 6 reports the document it brought in as
  * changed.
+ *
+ * And each path a document's publish sent a file at is named by one asset of
+ * the document's media, the first sent there, and every later asset sent at
+ * that path is that file (`publishedFiles`), while an asset of other bytes, or
+ * one HQ keeps at a path of its own, is not. The plausible failure: proof 6
+ * holding a reading to name each of two assets of one content apart, which
+ * no Project holds and no reading of HQ's one file can give.
  */
 
 import { expect, it } from "vitest";
@@ -29,7 +36,11 @@ import {
 import { readBackDifferences } from "@/lib/deployment/reading/readBack";
 import { storedDocument } from "@/proof/corpus/documents";
 import type { RetainedHqAnswer } from "@/proof/corpus/hqAuthored";
-import { type LaneReadInput, readForLane } from "../laneReading";
+import {
+	type LaneReadInput,
+	publishedFiles,
+	readForLane,
+} from "../laneReading";
 
 /** A reading of the retained answers is about a second, more under load. */
 const BUDGET_MS = 60_000;
@@ -107,3 +118,32 @@ it(
 	},
 	BUDGET_MS,
 );
+
+it("names each path a document's publish sent by one asset, and every other asset sent there as that file", () => {
+	const png = (bytes: number[]) => ({
+		kind: "image",
+		extension: ".png",
+		base64: Buffer.from(bytes).toString("base64"),
+	});
+	const files = publishedFiles({
+		doc: {},
+		media: {
+			first: png([1, 2, 3]),
+			again: png([1, 2, 3]),
+			other: png([4, 5, 6]),
+			held: png([1, 2, 3]),
+		},
+		mediaPaths: { held: "jr://file/commcare/kept-in-hq.png" },
+	});
+	expect([...files.byPath.values()].map((file) => file.assetId)).toEqual([
+		"first",
+		"other",
+		"held",
+	]);
+	expect(files.byPath.get("jr://file/commcare/kept-in-hq.png")?.assetId).toBe(
+		"held",
+	);
+	// The asset with the first's bytes is that file; another file, and one HQ keeps at a path of
+	// its own, stays itself.
+	expect([...files.sameFile]).toEqual([["again", "first"]]);
+});

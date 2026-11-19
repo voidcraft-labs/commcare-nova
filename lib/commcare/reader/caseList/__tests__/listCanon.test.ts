@@ -10,8 +10,8 @@
  * header, under the identity a re-read gives a plain column there, whatever its kind, or no column
  * where it has no rule. A menu that lists no cases is written the one name column every new menu
  * in CommCare HQ holds, whatever its list and search hold
- * (`columns-of-a-menu-that-lists-no-cases-are-off-the-detail`), and the reader returns that one
- * column off the detail, under the identity of the menu's own name column or the one a re-read
+ * (`columns-of-a-menu-that-lists-no-cases-are-its-one-name-column`), and the reader returns that one
+ * column on both screens, under the identity of the menu's own name column or the one a re-read
  * mints. Each row's two members print the same export, the row leaves a document that holds its
  * member as it is, and a reading of the export holds that member. A blank alt text on a label's
  * entry, as HQ's pages store it, reads as none.
@@ -54,7 +54,7 @@ import { withCandidate } from "../../candidate";
 import { externalKey, matchingResolver, mintEntityUuid } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
 import { knownCaseTypesOf, readHqApp } from "../../index";
-import { columnsOfAMenuThatListsNoCasesOffTheDetail } from "../details";
+import { columnsOfAMenuThatListsNoCases } from "../details";
 import { implicitOrderRuleIsAbsent } from "../order";
 import { tileColumnsShownNowhereAsRead } from "../tile";
 import { patients, uuid } from "./fixtures";
@@ -505,22 +505,19 @@ describe("a menu that lists no cases", () => {
 			[surveys([village]), undefined],
 			[surveys([]), undefined],
 		] as const) {
-			const chosen = columnsOfAMenuThatListsNoCasesOffTheDetail(doc);
+			const chosen = columnsOfAMenuThatListsNoCases(doc);
 			expect(exported(chosen)).toBe(exported(doc));
-			expect(columnsOfAMenuThatListsNoCasesOffTheDetail(chosen)).toBe(chosen);
+			expect(columnsOfAMenuThatListsNoCases(chosen)).toBe(chosen);
 			const module = chosen.modules[chosen.moduleOrder[0] ?? ""];
 			expect(module?.caseSearchConfig).toBeUndefined();
 			expect(module?.caseListConfig).toEqual(
-				shell({
-					...plainColumn(kept ?? minted(doc), "case_name", "Name"),
-					visibleInDetail: false,
-				}),
+				shell(plainColumn(kept ?? minted(doc), "case_name", "Name")),
 			);
 			expect(chosen.localization?.translations.spa).toEqual({});
 		}
 		// A menu with a form that loads a case shows its list.
 		const listed = patients([plainColumn(uuid(1), "case_name", "Name")]);
-		expect(columnsOfAMenuThatListsNoCasesOffTheDetail(listed)).toBe(listed);
+		expect(columnsOfAMenuThatListsNoCases(listed)).toBe(listed);
 	});
 
 	for (const [label, doc] of [

@@ -201,7 +201,7 @@ export function relatedColumns() {
 					export: "local",
 					form: listForm,
 					restore: "restore.xml",
-					request: { session: { command: "m0-f0" } },
+					request: { session: { command: "m0-f0" }, caseList: {} },
 					expect: [
 						{ pointer: "/caseList/rows/0/caseId", value: "targeted-kito" },
 						{ pointer: "/caseList/rows/0/fields/1", value: "Alder Lane" },

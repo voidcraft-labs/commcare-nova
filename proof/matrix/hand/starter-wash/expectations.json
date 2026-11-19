@@ -8,6 +8,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
 			"answers": [
 				{
 					"path": "/data/client_full_name",
@@ -60,6 +65,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
 			"constraintChecks": [
 				{
 					"path": "/data/client_full_name",
@@ -84,6 +94,11 @@
 		},
 		"restore": "restore.xml",
 		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
 			"constraintChecks": [
 				{
 					"path": "/data/client_full_name",
@@ -110,7 +125,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [
@@ -164,7 +180,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [
@@ -218,7 +235,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [
@@ -288,7 +306,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [
@@ -358,7 +377,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [
@@ -399,7 +419,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [
@@ -440,7 +461,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [
@@ -481,7 +503,8 @@
 		"request": {
 			"session": {
 				"data": {
-					"case_id": "wash-client-rehema"
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
 				}
 			},
 			"answers": [

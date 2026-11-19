@@ -60,6 +60,7 @@ import {
 	type CasePropertyDataType,
 	type Column,
 	type Expression,
+	intervalColumn,
 	makeTranslationUnitId,
 	plainColumn,
 	proseText,
@@ -880,6 +881,11 @@ const PAIRS: readonly Pair[] = [
 		other: () => searched([NAME_FIELD], {}),
 	},
 	{
+		id: "blank-search-field-labels-are-their-names",
+		name: "a Search field whose label is blank",
+		other: () => searched([{ ...NAME_FIELD, label: "" }], undefined),
+	},
+	{
 		id: "exact-search-mode-is-absent",
 		name: "a text Search field naming exact matching",
 		other: () =>
@@ -1158,6 +1164,40 @@ const PAIRS: readonly Pair[] = [
 			]),
 	},
 	{
+		id: "flag-interval-thresholds-as-read",
+		name: "a column flagged past two weeks, which prints fourteen days",
+		other: () =>
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				intervalColumn(
+					uuid(2),
+					"last_visit",
+					"Overdue",
+					2,
+					"weeks",
+					"flag",
+					"OVERDUE",
+				),
+			]),
+	},
+	{
+		id: "flag-interval-thresholds-as-read",
+		name: "a column flagged past a year, 365.25 days, which are twelve months",
+		other: () =>
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				intervalColumn(
+					uuid(2),
+					"last_visit",
+					"Overdue",
+					1,
+					"years",
+					"flag",
+					"OVERDUE",
+				),
+			]),
+	},
+	{
 		id: "dormant-tile-cells",
 		name: "tile cells on a list that is no tile",
 		other: () => tileCells(false),
@@ -1250,7 +1290,7 @@ const PAIRS: readonly Pair[] = [
 			),
 	},
 	{
-		id: "columns-of-a-menu-that-lists-no-cases-are-off-the-detail",
+		id: "columns-of-a-menu-that-lists-no-cases-are-its-one-name-column",
 		name: "a survey menu's sorted columns and its search",
 		other: () =>
 			buildDoc({

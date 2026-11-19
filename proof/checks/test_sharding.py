@@ -140,7 +140,9 @@ def test_each_group_is_collected_from_where_its_tests_are():
 def test_a_group_the_timings_do_not_list_counts_high_among_those_of_its_kind():
     """A sample's documents change with its size and seed, and a profile may be stale or partial, so many groups
     are unmeasured; counting each at a typical cost would let a shard of heavy ones pass for a light one and run
-    past its deadline, so each counts at the 90th percentile of its kind."""
+    past its deadline, so a document counts at the 90th percentile of the documents, and any other group, a test
+    module or a package of them, at the longest of the others: those are few and unalike, so a percentile of theirs
+    would count a new heavy module (every base's variants made in HQ) at a light one's cost."""
     timings = {f"corpus:{n}": float(n) for n in range(1, 11)} | {"proof/native": 100.0, "proof/core": 4.0}
     seconds = sharding.estimate(timings)
     assert seconds("corpus:3") == 3.0
@@ -157,6 +159,11 @@ def test_a_group_the_timings_do_not_list_counts_high_among_those_of_its_kind():
     assert seconds("corpus:6", pieces=4) == 6.0 and seconds("proof/new", pieces=4) == 100.0
     assert seconds("proof/new") == 100.0
     assert sharding.estimate({})("corpus:new") == sharding.estimate({})("proof/new") == sharding.DEFAULT_SECONDS
+    # Eleven package groups, one far heavier than the rest: a new one counts at the heaviest, where their 90th
+    # percentile would count it at 10.
+    packages = {f"proof/p{n}": float(n) for n in range(1, 11)} | {"proof/matrix/test_retained.py": 285.0}
+    assert sharding.estimate(packages)("proof/new") == 285.0
+    assert sharding.estimate(packages | {"corpus:1": 1.0})("corpus:new") == sharding.DEFAULT_SECONDS
     assert sharding.piece_share(2) == sharding.PIECE_SHARE and sharding.piece_share(1) == 1.0
     assert sharding.piece_share(4) == sharding.PIECE_SHARE / 2
 

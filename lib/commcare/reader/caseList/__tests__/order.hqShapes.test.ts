@@ -123,8 +123,8 @@ describe("CommCare HQ's sort elements", () => {
 				const short = app.modules[0]?.case_details.short;
 				if (short !== undefined)
 					short.sort_elements = [
-						element("case_name"),
-						element("case_name", { direction: "descending" }),
+						element("name"),
+						element("name", { direction: "descending" }),
 					];
 			},
 			firstPassOnly: true,

@@ -10,6 +10,7 @@ import {
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
@@ -207,6 +208,63 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(reading.ctx.facts.sameStateRewrites).toContainEqual(
 			expect.objectContaining({ register: "case-settings-respelled" }),
 		);
+	});
+
+	// HQ's build copies a value an update names straight into a case block leaf
+	// it binds with no type, so a Hidden Value bound `xsd:dateTime` saves its
+	// day alone there (Core's `Recalculate.wrapData`), while Nova saves a date
+	// and time through its `nova_datetime_` sibling, which keeps the moment.
+	it("refuses a Hidden Value bound `xsd:dateTime` that an update names straight, and reads it through Nova's sibling", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{
+							name: "seen_at",
+							label: proseText("Seen"),
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "seen",
+									calculate: "now()",
+									caseWrite: { caseType: "patient", property: "seen_at" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const STRAIGHT = `${F}/a-datetime-question-saved-straight-to-a-case`;
+		const throughSibling = await readCases(doc);
+		expect(codes(throughSibling)).toEqual([]);
+		const straight = await readCases(doc, {
+			edit: (json) => {
+				const update = actionsOf(json).update_case.update as Record<
+					string,
+					Record<string, unknown>
+				>;
+				expect(update.seen_at?.question_path).toBe("/data/nova_datetime_seen");
+				(update.seen_at as Record<string, unknown>).question_path =
+					"/data/seen";
+			},
+		});
+		expect(codes(straight)).toContain(STRAIGHT);
 	});
 
 	it("reads `open_case.external_id` as the external id write", async () => {

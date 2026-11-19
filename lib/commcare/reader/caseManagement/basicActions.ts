@@ -930,13 +930,30 @@ export function questionValue(
 		return { kind: "finding", claim: BASIC_CLAIMS.notOffered };
 	if ((captureFieldKinds as readonly string[]).includes(field.kind))
 		return { kind: "finding", claim: BASIC_CLAIMS.uploadQuestion };
-	if (field.kind === "datetime")
+	// A date and time, a question's or a Hidden Value's its bind types
+	// `xsd:dateTime`, named straight: HQ's build binds the leaf of the case block
+	// that copies it with no type, so Core keeps the day alone there
+	// (`Recalculate.wrapData` wraps a date of any other type as a date), while
+	// Nova saves every date and time to a case through its `nova_datetime_`
+	// sibling, which keeps the moment.
+	if (field.kind === "datetime" || boundDateTime(form, field))
 		return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
 	return {
 		kind: "value",
 		value: { field, link: false },
 		datetimeSibling: false,
 	};
+}
+
+/** Whether `field` is a Hidden Value whose bind in `form`'s source is typed `xsd:dateTime`. */
+export function boundDateTime(
+	form: DraftForm,
+	field: DraftField | undefined,
+): boolean {
+	if (field === undefined || field.kind !== "hidden") return false;
+	const type = form.xform?.binds.get(field.node)?.type;
+	if (type === undefined) return false;
+	return (type.startsWith("xsd:") ? type.slice(4) : type) === "dateTime";
 }
 
 // ── Property names ───────────────────────────────────────────────────────

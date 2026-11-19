@@ -28,6 +28,7 @@ import { KEYS_WITH_NO_EXTERNAL_KEY, readBackDifferences } from "../readBack";
 import {
 	everyKindDocument,
 	sortNamedHiddenColumnDocument,
+	surveyListDocument,
 	unexportedTextDocument,
 	worldDocument,
 } from "./readBackDocument";
@@ -47,8 +48,9 @@ function keptOut(doc: BlueprintDoc): unknown {
 /**
  * Every document the proof lane publishes, a case app that holds every kind
  * no wire carries, a survey holding a model's translation and a
- * validation message no condition can fail, and a list naming a column
- * hidden from both screens in Sort by under another text than its header.
+ * validation message no condition can fail, a list naming a column
+ * hidden from both screens in Sort by under another text than its header, and
+ * a menu that lists no cases holding a list of its own.
  */
 function documents(): { readonly id: string; readonly doc: BlueprintDoc }[] {
 	return [
@@ -59,6 +61,7 @@ function documents(): { readonly id: string; readonly doc: BlueprintDoc }[] {
 		{ id: "world", doc: worldDocument() },
 		{ id: "unexported-text", doc: unexportedTextDocument() },
 		{ id: "sort-named-hidden-column", doc: sortNamedHiddenColumnDocument() },
+		{ id: "survey-list", doc: surveyListDocument() },
 	];
 }
 
@@ -67,7 +70,7 @@ describe("the content no export holds", () => {
 		expect(NOT_CARRIED.map((row) => row.id).sort()).toEqual(
 			[
 				"app-logo-is-absent",
-				"columns-of-a-menu-that-lists-no-cases-are-off-the-detail",
+				"columns-of-a-menu-that-lists-no-cases-are-its-one-name-column",
 				"menu-and-form-ids-as-read",
 				"organization-levels-as-read",
 				"purpose-notes-are-absent",

@@ -126,7 +126,7 @@ import {
 	composeXPathQueryEmission,
 	xpathQueryRequestValues,
 } from "../suite/case-search/xpathQuery";
-import { columnPropertyPath } from "../suite/wire";
+import { columnPropertyPath, hqColumnFieldText } from "../suite/wire";
 import type {
 	CaseSearchProperty,
 	DefaultCaseSearchProperty,
@@ -226,11 +226,12 @@ function projectColumnToDetail(
 
 	// A column over a case attribute is the expression reading it, through the
 	// column's walk where it has one; any other property column is the field
-	// HQ's page stores, the walk's indices and the property joined by `/`.
+	// HQ's page stores, the walk's indices and the property joined by `/`, the
+	// property in HQ's word (`hqColumnFieldText`).
 	const attribute = columnReadsCaseAttribute(column);
 	const base = attribute
 		? detailColumn(hqXPath(columnPropertyPath(column)), headerRecord)
-		: detailColumn(columnFieldText(column), headerRecord);
+		: detailColumn(hqColumnFieldText(columnFieldText(column)), headerRecord);
 	const propertyCaseType =
 		columnPropertyCaseType(column, mod.caseType, ctx.caseTypes) ??
 		mod.caseType ??
@@ -356,14 +357,16 @@ function projectColumnToDetail(
  * unit, and the stored header stands under every wire code. The Case List
  * save keeps both spellings.
  *
- * Throws where the stored `field` is not the plan's join text: HQ joins an
- * order rule by that text alone, so the two must be one string.
+ * Throws where the stored `field` is not the plan's join text, a property's
+ * in HQ's word (`hqColumnFieldText`): HQ joins an order rule by that text
+ * alone, so the two must be one string.
  */
 function projectColumnForShortDetail(
 	field: CaseListShortField,
 	ctx: ColumnProjectionContext,
 ): WireDetailColumn<HqXPath> {
 	const { column } = field;
+	const joinText = hqJoinText(field);
 	const projected: WireDetailColumn<HqXPath> = field.hidden
 		? {
 				...detailColumn(
@@ -379,7 +382,7 @@ function projectColumnForShortDetail(
 									ctx.columnRewrites?.(column.uuid),
 								),
 							)
-						: field.joinText,
+						: joinText,
 					field.rule?.label !== undefined
 						? ctx.localization.textMap(
 								makeTranslationUnitId(
@@ -401,12 +404,21 @@ function projectColumnForShortDetail(
 		typeof projected.field === "string"
 			? projected.field
 			: hqXPathText(projected.field);
-	if (printedField !== field.joinText) {
+	if (printedField !== joinText) {
 		throw new Error(
-			`projectColumnForShortDetail: the short column ${column.uuid} writes the field ${JSON.stringify(printedField)}, but the order plan joins it by ${JSON.stringify(field.joinText)}. HQ joins an order rule by that text alone, so the projection and caseListOrderPlan must print one string.`,
+			`projectColumnForShortDetail: the short column ${column.uuid} writes the field ${JSON.stringify(printedField)}, but the order plan joins it by ${JSON.stringify(joinText)}. HQ joins an order rule by that text alone, so the projection and caseListOrderPlan must print one string.`,
 		);
 	}
 	return projected;
+}
+
+/** A short field's join text as HQ stores it: a property column's in HQ's word
+ *  (`hqColumnFieldText`), any other as the order plan prints it. */
+function hqJoinText(field: CaseListShortField): string {
+	const { column } = field;
+	return column.kind === "calculated" || columnReadsCaseAttribute(column)
+		? field.joinText
+		: hqColumnFieldText(field.joinText);
 }
 
 // ============================================================
@@ -420,7 +432,8 @@ function projectColumnForShortDetail(
  * (`static/app_manager/js/details/bootstrap5/sort_rows.js`,
  * `views/modules.py::_update_sort_elements`).
  *
- *   - `field`: the property name of a property element, or
+ *   - `field`: the property of a property element, in HQ's word
+ *     (`hqColumnFieldText`), as the column it joins stores it, or
  *     `_cc_calculated_<position>` of the field the rule is AUTHORED on, which
  *     HQ then gives to the first field with that field's text
  *     (`util.py::get_sort_and_sort_only_columns`).
@@ -477,7 +490,7 @@ function projectSortElements(
 		.map(({ rule, key, comparator }) => ({
 			field:
 				rule.element.kind === "property"
-					? rule.element.property
+					? hqColumnFieldText(rule.element.property)
 					: `_cc_calculated_${rule.element.position}`,
 			type: sortElementType(rule, key, comparator, dataTypeOf),
 			direction: SORT_DIRECTION_WIRE_MAP[rule.direction],
@@ -1007,6 +1020,24 @@ export function emptyShortListColumns(
 			repeatForLanguages(languages, EMPTY_SHORT_LIST_HEADER),
 		),
 	];
+}
+
+/**
+ * The details of a menu that lists no cases (`expander.ts`, `hasCases`): the
+ * pair every new menu holds in CommCare HQ, the one `name` column on the list
+ * and on the detail (`models/modules.py::Module.new_module`). HQ's build
+ * writes a detail for each screen that holds a column
+ * (`suite_xml/sections/details.py::DetailContributor`), which no entry of
+ * such a menu names, so a menu made in HQ keeps its built details through a
+ * publish.
+ */
+export function emptyListDetailPair(
+	languages: readonly string[],
+): DetailPair<HqXPath> {
+	return detailPair(
+		emptyShortListColumns(languages),
+		emptyShortListColumns(languages),
+	);
 }
 
 /**

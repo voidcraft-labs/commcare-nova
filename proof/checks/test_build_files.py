@@ -290,7 +290,7 @@ def test_a_media_version_differs_only_where_its_file_does(media_builds):
     media = [d for d in _differences(a, b) if d.artifact == "media_suite.xml"]
     # The replaced file's download location differs; no version does.
     assert media and not [d for d in media if d.path.endswith("/@version")], [d.describe() for d in media]
-    assert {d.path for d in media} == {"/suite/media[*]/resource[@id=*]/location[*]/text()"}
+    assert {d.path for d in media} == {"/suite/media[resource/@id=*]/resource[@id=*]/location[*]/text()"}
 
 
 def test_a_media_version_changed_with_its_file_unchanged_is_a_difference(media_builds):
@@ -304,7 +304,7 @@ def test_a_media_version_changed_with_its_file_unchanged_is_a_difference(media_b
     kept.set("version", str(b.app_version))
     found = _differences(a, _with_file(b, "media_suite.xml", etree.tostring(root, encoding="utf-8")))
     assert [(d.artifact, d.path) for d in found if d.path.endswith("/@version")] == [
-        ("media_suite.xml", "/suite/media[*]/resource[@id=*]/@version")
+        ("media_suite.xml", "/suite/media[resource/@id=*]/resource[@id=*]/@version")
     ]
 
 

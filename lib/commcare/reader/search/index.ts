@@ -22,7 +22,8 @@ import type {
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { withCandidate } from "../candidate";
-import { caseListReadings } from "../caseList/details";
+import { appCodes } from "../caseList/columns";
+import { caseListReadings, sameState } from "../caseList/details";
 import { dateSortDeclarations } from "../caseList/order";
 import { noteProperty } from "../caseManagement/catalog";
 import {
@@ -77,6 +78,7 @@ import {
 	runtimeGuardEnding,
 	SETTING_CLAIMS,
 	settleSearchSettings,
+	spelledAsShown,
 } from "./settings";
 import { offersSearch, readSearchWorkflow, searchPlace } from "./workflow";
 
@@ -451,6 +453,32 @@ function deriveInactiveSearch(
 	claimUndeclaredSearchKeys(cursor);
 }
 
+/**
+ * The title and the subtitle of a search the menu does not offer, where the first publish writes
+ * them another way. Nova writes such a search as its shell (`hqShells.ts::caseSearchConfigShell`,
+ * as HQ's Case List page saves every menu, `views/modules.py::_gather_and_update_search_properties`):
+ * both blank under every app language. HQ reads neither where the menu offers no search
+ * (`util.py::module_offers_search` guards every read in its build), so a stored map that is not
+ * blank under exactly the app's languages is recorded under `list-settings-respelled`. The shell's
+ * `auto_launch` follows where the app runs, which a reading does not know, so the first publish's
+ * list compares it with the stored one itself (`lib/deployment/reading/firstPublishChanges.ts`).
+ */
+function recordInactiveSearchRespellings(
+	ctx: ReadContext,
+	cursor: JsonCursor,
+): void {
+	const codes = appCodes(ctx);
+	const blank = Object.fromEntries(codes.map((code) => [code, ""]));
+	for (const key of ["title_label", "description"] as const)
+		if (!spelledAsShown(cursor.peek(key), blank, codes))
+			sameState(
+				ctx,
+				INACTIVE_KEYS[key]?.entry ?? C.inactive.entry,
+				`${cursor.pointer}/${key}`,
+				"list-settings-respelled",
+			);
+}
+
 /** Before any expression binds: every menu's search, read from its `search_config`, and the type each date
  *  Search field declares written into the draft's catalog before any expression binds. */
 export function readSearches(ctx: ReadContext, app: DraftApp): void {
@@ -467,13 +495,17 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		// A menu with no case type lists no cases: a search it does not offer is its shell's,
 		// claimed as inactive, and one it offers is left unclaimed, which the accounting names.
 		if (module.module.caseType === undefined) {
-			if (!offers) deriveInactiveSearch(module, cursor, new Set());
+			if (!offers) {
+				deriveInactiveSearch(module, cursor, new Set());
+				recordInactiveSearchRespellings(ctx, cursor);
+			}
 			continue;
 		}
 		const config: Partial<OrdinaryCaseSearchConfig> = {};
 		if (!offers) {
 			const settings = readSearchSettings(ctx, module, cursor, false, config);
 			deriveInactiveSearch(module, cursor, settings.claimed);
+			recordInactiveSearchRespellings(ctx, cursor);
 			if (
 				settings.owners !== undefined &&
 				config.excludedOwnerIds !== undefined

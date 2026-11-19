@@ -2333,6 +2333,7 @@
 			"schema:HQMediaMapItem.unique_id",
 			"schema:HQMediaMapItem.upstream_media_id",
 			"schema:HQMediaMapItem.version",
+			"schema:HQMediaMapItem.<undeclared>",
 			"media-class:CommCareImage",
 			"media-class:CommCareAudio",
 			"media-class:CommCareVideo"

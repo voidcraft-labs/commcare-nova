@@ -362,12 +362,12 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 		const details = app.modules[0].case_details;
 		expect(details.short.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 			"external_id",
 		]);
 		expect(details.short.columns[1].format).toBe("invisible");
 		expect(details.long.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 		]);
 		expect(details.short.sort_elements[0]?.field).toBe("external_id");
 		expect(validateHqJson(app)).toEqual([]);
