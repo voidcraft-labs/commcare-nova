@@ -41,6 +41,16 @@
  *   shell's create under `create.` and the content import under `content.`,
  *   which names the workbook and the media, and the privileges name both
  *   (`privileges.create.`, `privileges.content.`).
+ *   A document made in CommCare HQ (`hq-authored`) has no first publish:
+ *   its A is its base's app under `authored/`, so its `a` names, in place of
+ *   the first publish's requests, `authored.app` (`authored/app.json`),
+ *   `authored.media` (`authored/media.json`) and one role a media file
+ *   (`authored.media.<file>`, `authored/media/<file>`) where the base maps
+ *   media, `seed` (`authored/seed.json`), and `authored.tables` and
+ *   `authored.places` where the base holds them; and its privilege inputs
+ *   are A's app (`privileges.authored.app`), Nova's republish over it under
+ *   the minimum configuration (`privileges.republish.`, with what else it
+ *   sent) and D′'s update there (`privileges.update.`).
  *   A migration witness's first publish is its A, retained from before the
  *   migration (`retainedMigrationA`) and copied into each `export/<config>/`,
  *   so its `a` names, beside those, the overlay keys each retained import
@@ -55,8 +65,9 @@
  *   `edit/local.ccz`, and `local-empty-list-text.ccz` where a configuration
  *   the document runs under holds the flag that archive was compiled for,
  *   `EMPTY_LIST_TEXT_ARCHIVE`).
- * - `judge`: what only the judges read: `edit/batch.json` and a targeted
- *   document's `expected.json`.
+ * - `judge`: what only the judges read: `edit/batch.json`, a targeted
+ *   document's or a base's `expected.json`, and a base's
+ *   `first-publish.json` (`firstPublish`).
  * - `importFile`: the HQ import file (`import-file.zip`), by its entries as a
  *   local archive is, which no check reads and the HQ package's import-page
  *   tests do (`proof/hq/test_import_file.py`): the corpus's `inputs.json`
@@ -67,7 +78,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import AdmZip from "adm-zip";
 import { z } from "zod";
@@ -245,6 +256,37 @@ function prefixed(
 }
 
 /**
+ * A document made in CommCare HQ's A, by role: its base's app, media, seed,
+ * tables and places as the entry writer copied them under `authored/`.
+ */
+async function authoredA(root: string): Promise<Record<string, InputFile>> {
+	const part: Record<string, InputFile> = {
+		"authored.app": await file(root, "authored/app.json"),
+	};
+	if (existsSync(join(root, "authored/media.json"))) {
+		part["authored.media"] = await file(root, "authored/media.json");
+	}
+	if (existsSync(join(root, "authored/media"))) {
+		for (const name of (await readdir(join(root, "authored/media"))).sort()) {
+			part[`authored.media.${name}`] = await file(
+				root,
+				`authored/media/${name}`,
+			);
+		}
+	}
+	part.seed = await file(root, "authored/seed.json");
+	for (const [role, name] of [
+		["authored.tables", "tables.json"],
+		["authored.places", "places.json"],
+	] as const) {
+		if (existsSync(join(root, "authored", name))) {
+			part[role] = await file(root, `authored/${name}`);
+		}
+	}
+	return part;
+}
+
+/**
  * The manifest of the document written at `root`, under the configurations
  * its exports were captured in.
  */
@@ -252,11 +294,25 @@ export async function documentInputs(
 	root: string,
 	id: string,
 	configurations: readonly string[],
-	options: { readonly migrationWitness?: boolean } = {},
+	options: {
+		readonly migrationWitness?: boolean;
+		readonly hqAuthored?: boolean;
+	} = {},
 ): Promise<DocumentInputs> {
 	const edited = existsSync(join(root, "edit", "batch.json"));
+	const hqAuthored = options.hqAuthored === true;
 	const privileges: Record<string, InputFile> = {
-		...(await firstPublish(root, "export/minimum", "privileges.")),
+		...(hqAuthored
+			? {
+					"privileges.authored.app": await file(root, "authored/app.json"),
+					...((await republishStopped(root, "export/minimum"))
+						? {}
+						: prefixed(
+								"privileges.republish.",
+								await request(root, "export/minimum", "republish"),
+							)),
+				}
+			: await firstPublish(root, "export/minimum", "privileges.")),
 		...(edited && existsSync(join(root, "edit/export/minimum/update.json"))
 			? prefixed(
 					"privileges.update.",
@@ -279,7 +335,9 @@ export async function documentInputs(
 		byConfiguration[name] = {
 			a: {
 				...shared,
-				...(await firstPublish(root, exported)),
+				...(hqAuthored
+					? await authoredA(root)
+					: await firstPublish(root, exported)),
 				// A witness's A is its first publish or the retained one copied over it,
 				// and the overlay keys each import wrote are part of it.
 				...(options.migrationWitness === true && {
@@ -321,6 +379,9 @@ export async function documentInputs(
 	if (existsSync(join(root, "expected.json"))) {
 		judge.expected = await file(root, "expected.json");
 	}
+	if (existsSync(join(root, "first-publish.json"))) {
+		judge.firstPublish = await file(root, "first-publish.json");
+	}
 	const importFile: Record<string, InputFile> = {};
 	if (existsSync(join(root, "import-file.zip"))) {
 		importFile["import-file"] = {
@@ -347,7 +408,10 @@ export async function writeDocumentInputs(
 	root: string,
 	id: string,
 	configurations: readonly string[],
-	options: { readonly migrationWitness?: boolean } = {},
+	options: {
+		readonly migrationWitness?: boolean;
+		readonly hqAuthored?: boolean;
+	} = {},
 ): Promise<string> {
 	const text = jsonText(
 		await documentInputs(root, id, configurations, options),

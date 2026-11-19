@@ -121,10 +121,14 @@ import {
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
+	type CaseListSortLabel,
 	type CaseProperty,
 	type Column,
+	type ColumnVia,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
+	columnFieldText,
+	columnPropertyCaseType,
 	imageMapShowsImages,
 	makeTranslationUnitId,
 	printProseTemplate,
@@ -139,7 +143,7 @@ import {
 } from "../../multimedia/assetWirePath";
 import { escapeRegex } from "../../xml";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
-import { casePropertyPath, normalizeSpace } from "../wire";
+import { columnPropertyPath, normalizeSpace } from "../wire";
 import { keyAsVariable } from "./keyVariable";
 import { columnReadsCaseAttribute } from "./orderPlanOptions";
 import {
@@ -363,6 +367,31 @@ function buildHeaderBlock(localeId: string, width?: string): Element {
  */
 function buildHiddenHeaderBlock(): Element {
 	return el("header", { width: "0" }, [el("text", {}, [])]);
+}
+
+/**
+ * The header of a hidden field whose rule carries a name in Sort by
+ * (`caseListOrder.ts`, rule 10): width 0 over the field's own locale id,
+ * which HQ's build writes where the sort element has display text
+ * (`detail_screen.py::Invisible.header`), and the name as that id's app
+ * string in every language, the text Android's Sort by lists
+ * (commcare-android `EntitySelectActivity.getSortOptionsList`).
+ */
+function labelledHiddenHeader(
+	localeId: string,
+	label: CaseListSortLabel,
+): {
+	readonly element: Element;
+	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, TranslationUnitId>;
+} {
+	return {
+		element: buildHeaderBlock(localeId, "0"),
+		strings: { [localeId]: label.text },
+		translationUnits: {
+			[localeId]: makeTranslationUnitId("column", label.column, "sort-label"),
+		},
+	};
 }
 
 /**
@@ -708,7 +737,7 @@ export function intervalColumnDisplayXpath(
 	column: Extract<Column, { kind: "interval" }>,
 	textExpression?: WireExpr,
 ): WireExpr {
-	const field = casePropertyPath(column.field);
+	const field = columnPropertyPath(column);
 	return column.display === "always"
 		? intervalAlwaysXpath({
 				field,
@@ -895,12 +924,12 @@ function imageMapAltText(
 	) {
 		return undefined;
 	}
-	const field = casePropertyPath(column.field);
+	const field = columnPropertyPath(column);
 	const idBase = detailColumnLocaleBase(
 		ctx.target,
 		ctx.detailKind,
 		ctx.moduleIndex,
-		column.field,
+		columnFieldText(column),
 		position,
 	);
 	const keys = column.mapping.map((entry) => {
@@ -949,7 +978,7 @@ function propertyDisplayProjection(
 	ctx: CaseListEmitContext,
 	position: number,
 ): LocalizedDisplayProjection {
-	const field = casePropertyPath(column.field);
+	const field = columnPropertyPath(column);
 	const plain = (xpath: WireExpr): LocalizedDisplayProjection => ({
 		xpath,
 		variables: [],
@@ -961,7 +990,7 @@ function propertyDisplayProjection(
 			ctx.target,
 			ctx.detailKind,
 			ctx.moduleIndex,
-			column.field,
+			columnFieldText(column),
 			position,
 		)}.enum.knova_text_${index}`;
 	const variable = (
@@ -987,9 +1016,17 @@ function propertyDisplayProjection(
 	});
 	switch (column.kind) {
 		case "plain": {
-			const property = ctx.caseProperties.find(
-				(candidate) => candidate.name === column.field,
-			);
+			// The property's catalog entry and options are those of the case
+			// the column's walk reaches.
+			const caseType =
+				columnPropertyCaseType(column, ctx.caseType, ctx.caseTypes) ??
+				ctx.caseType;
+			const property = (
+				column.via === undefined
+					? ctx.caseProperties
+					: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
+						[])
+			).find((candidate) => candidate.name === column.field);
 			if (
 				property?.data_type !== "single_select" &&
 				property?.data_type !== "multi_select"
@@ -1002,7 +1039,7 @@ function propertyDisplayProjection(
 					index,
 					printProseTemplate(option.label, ctx.proseDoc),
 					casePropertyOptionTranslationUnitId(
-						ctx.caseType,
+						caseType,
 						property.name,
 						option.value,
 						casePropertyOptionOccurrence(options, index),
@@ -1230,11 +1267,13 @@ export function buildColumnField(args: {
 	readonly ctx: CaseListEmitContext;
 	/** The field is hidden from Results: HQ's `invisible` column. */
 	readonly hidden?: boolean;
+	/** The name the hidden field's rule gives it in Sort by. */
+	readonly sortLabel?: CaseListSortLabel;
 }): CaseListFieldEmission {
-	const { column, position, ctx, hidden = false } = args;
+	const { column, position, ctx, hidden = false, sortLabel } = args;
 
 	if (column.kind === "calculated") {
-		return buildCalculatedField({ column, position, ctx, hidden });
+		return buildCalculatedField({ column, position, ctx, hidden, sortLabel });
 	}
 	// A plain column over one of the case's attributes is HQ's expression
 	// column over `@<name>` (`hqJson/caseList.ts`, `columnReadsCaseAttribute`),
@@ -1249,9 +1288,22 @@ export function buildColumnField(args: {
 		});
 
 	if (hidden) {
-		const raw = casePropertyPath(column.field);
+		const raw = columnPropertyPath(column);
+		const header =
+			sortLabel === undefined
+				? undefined
+				: labelledHiddenHeader(
+						detailHeaderLocaleId(
+							ctx.target,
+							ctx.detailKind,
+							ctx.moduleIndex,
+							columnFieldText(column),
+							position,
+						),
+						sortLabel,
+					);
 		const fieldChildren: Element[] = [
-			buildHiddenHeaderBlock(),
+			header?.element ?? buildHiddenHeaderBlock(),
 			buildTemplateBlock(raw, ctx.wire, undefined, "0"),
 		];
 		const sortEl = resolveSortElement(column, ctx, () => ({
@@ -1261,8 +1313,8 @@ export function buildColumnField(args: {
 		if (sortEl !== undefined) fieldChildren.push(sortEl);
 		return {
 			element: el("field", {}, fieldChildren),
-			strings: {},
-			translationUnits: {},
+			strings: header?.strings ?? {},
+			translationUnits: header?.translationUnits ?? {},
 		};
 	}
 
@@ -1271,7 +1323,7 @@ export function buildColumnField(args: {
 		ctx.target,
 		ctx.detailKind,
 		ctx.moduleIndex,
-		column.field,
+		columnFieldText(column),
 		position,
 	);
 	const width =
@@ -1335,8 +1387,9 @@ function buildCalculatedField(args: {
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
 	readonly hidden?: boolean;
+	readonly sortLabel?: CaseListSortLabel;
 }): CaseListFieldEmission {
-	const { column, position, ctx, hidden = false } = args;
+	const { column, position, ctx, hidden = false, sortLabel } = args;
 	// `toWire` lowers the AST against the surrounding
 	// detail's storage-instance root — `instance('casedb')` for the
 	// case-target detail (default), `instance('results')` for the
@@ -1382,15 +1435,27 @@ function buildExpressionField(args: {
 		variables: [],
 	}));
 	if (hidden) {
+		const header =
+			sortLabel === undefined
+				? undefined
+				: labelledHiddenHeader(
+						detailCalculatedHeaderLocaleId(
+							ctx.target,
+							ctx.detailKind,
+							ctx.moduleIndex,
+							position,
+						),
+						sortLabel,
+					);
 		const fieldChildren: Element[] = [
-			buildHiddenHeaderBlock(),
+			header?.element ?? buildHiddenHeaderBlock(),
 			buildCalculatedTemplateBlock(calcXpath, ctx.wire, "0"),
 		];
 		if (sortEl !== undefined) fieldChildren.push(sortEl);
 		return {
 			element: el("field", {}, fieldChildren),
-			strings: {},
-			translationUnits: {},
+			strings: header?.strings ?? {},
+			translationUnits: header?.translationUnits ?? {},
 		};
 	}
 	const headerLocaleId = detailCalculatedHeaderLocaleId(
@@ -1417,26 +1482,57 @@ function buildExpressionField(args: {
 
 /**
  * The field CommCare HQ's build appends for a sort row no stored column
- * takes (`util.py::create_temp_sort_column`, an `invisible` column with an
- * empty display): an empty header at width 0, a width 0 template over the
- * raw wire path, and the rule's `<sort>`. It is never stored and carries no
- * tile cell, and the list's search matches its raw value.
+ * takes (`util.py::create_temp_sort_column`, an `invisible` column whose
+ * header is the row's display): an empty header at width 0 where the rule
+ * has no name in Sort by, else width 0 over the locale id HQ gives the
+ * appended column, whose position is the row's order
+ * (`id_strings.py::detail_column_header_locale` over `column.id + 1`, the
+ * column's `_i` being the row's 1-based order), and the name as its app
+ * string; a width 0 template over the raw wire path; and the rule's
+ * `<sort>`. It is never stored and carries no tile cell, and the list's
+ * search matches its raw value.
  */
 export function buildCarrierField(
-	property: string,
+	carrier: {
+		readonly property: string;
+		readonly field: string;
+		readonly via?: ColumnVia;
+		readonly label?: CaseListSortLabel;
+	},
 	directive: ResolvedSortDirective,
+	locale: {
+		readonly target: DetailTarget;
+		readonly moduleIndex: number;
+	},
 	context: WireElementContext,
-): Element {
-	const raw = casePropertyPath(property);
-	return el("field", {}, [
-		buildHiddenHeaderBlock(),
-		buildTemplateBlock(raw, context, undefined, "0"),
-		buildSortBlock(
-			directive,
-			sortText(directive, () => ({ xpath: raw, variables: [] }), context),
-			context,
-		),
-	]);
+): CaseListFieldEmission {
+	const raw = columnPropertyPath(carrier);
+	const header =
+		carrier.label === undefined || directive.order === undefined
+			? undefined
+			: labelledHiddenHeader(
+					detailHeaderLocaleId(
+						locale.target,
+						"short",
+						locale.moduleIndex,
+						carrier.property,
+						directive.order + 1,
+					),
+					carrier.label,
+				);
+	return {
+		element: el("field", {}, [
+			header?.element ?? buildHiddenHeaderBlock(),
+			buildTemplateBlock(raw, context, undefined, "0"),
+			buildSortBlock(
+				directive,
+				sortText(directive, () => ({ xpath: raw, variables: [] }), context),
+				context,
+			),
+		]),
+		strings: header?.strings ?? {},
+		translationUnits: header?.translationUnits ?? {},
+	};
 }
 
 /**

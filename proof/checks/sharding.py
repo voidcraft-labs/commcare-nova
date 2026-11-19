@@ -129,7 +129,8 @@ def parse_shard(value: str, variable: str):
 # worker, measured at a CI shard's density (proof/timings.json), would otherwise bound the pull request lane's
 # shard that runs it. Each package's group, module and test here stays within about 240 seconds at that density
 # (proof/README.md, "Timings and what the lane is expected to take"): proof/editors took 701 seconds whole,
-# proof/lane 470, proof/checks 375 and proof/hq 260.
+# proof/lane 470, proof/checks 375 and proof/hq 260. proof/matrix's test_retained.py authors every base in HQ and
+# makes and reads every variant of each, so it is a group of its own beside the rest of the package.
 SPLIT: dict[str, tuple[str, ...]] = {
     "checks/test_alignment.py": (),
     "checks/test_judge_purity.py": (),
@@ -148,6 +149,7 @@ SPLIT: dict[str, tuple[str, ...]] = {
         "test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_claim_brings",
         "test_two_forked_workers_write_the_evidence_one_unforked_session_writes",
     ),
+    "matrix/test_retained.py": (),
 }
 
 

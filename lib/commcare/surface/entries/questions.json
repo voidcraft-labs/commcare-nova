@@ -351,6 +351,7 @@
 		"item": "Integer (`xsd:int`; `xsd:integer` read as the same)",
 		"surfaceKeys": [
 			"mug:Int",
+			"mug:Text",
 			"jr-control:input",
 			"jr-type:int",
 			"jr-type:integer",
@@ -520,6 +521,7 @@
 		"item": "Decimal (`xsd:double`)",
 		"surfaceKeys": [
 			"mug:Double",
+			"mug:Text",
 			"jr-control:input",
 			"jr-type:double",
 			"xform:input",
@@ -553,6 +555,7 @@
 		"item": "Date (`xsd:date`)",
 		"surfaceKeys": [
 			"mug:Date",
+			"mug:Text",
 			"jr-control:input",
 			"jr-type:date",
 			"xform:input",
@@ -586,6 +589,7 @@
 		"item": "Time (`xsd:time`)",
 		"surfaceKeys": [
 			"mug:Time",
+			"mug:Text",
 			"jr-control:input",
 			"jr-type:time",
 			"xform:input",
@@ -619,6 +623,7 @@
 		"item": "Date and Time (`xsd:dateTime`)",
 		"surfaceKeys": [
 			"mug:DateTime",
+			"mug:Text",
 			"jr-control:input",
 			"jr-type:dateTime",
 			"xform:input",
@@ -653,6 +658,7 @@
 		"item": "GPS (`geopoint`)",
 		"surfaceKeys": [
 			"mug:Geopoint",
+			"mug:Text",
 			"jr-control:input",
 			"jr-type:geopoint",
 			"xform:input",
@@ -687,6 +693,7 @@
 		"item": "Barcode (`barcode`)",
 		"surfaceKeys": [
 			"mug:Barcode",
+			"mug:Text",
 			"jr-control:input",
 			"jr-type:barcode",
 			"xform:input",
@@ -1136,7 +1143,8 @@
 		"surfaceKeys": [
 			"mug:DataBindOnly",
 			"xform:model/bind",
-			"xform:model/bind@nodeset"
+			"xform:model/bind@nodeset",
+			"xform:model/bind@type"
 		],
 		"valueClass": "hidden-value-with-one-value-source",
 		"disposition": "HELD",
@@ -1163,7 +1171,7 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Hidden Value with neither",
-		"surfaceKeys": ["mug:DataBindOnly"],
+		"surfaceKeys": ["mug:DataBindOnly", "xform:model/bind@type"],
 		"valueClass": "hidden-value-without-value-source",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `hidden`",
@@ -1188,7 +1196,7 @@
 		"id": "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Hidden Value with both `calculate` and a default, by any expression spelling of its setvalue",
+		"item": "Hidden Value with both `calculate` and a default, by any expression spelling of its setvalue, where a runtime can read the default: a later load-time setvalue reads it, directly or through a calculation, or the Hidden Value stands in a repeat",
 		"surfaceKeys": ["mug:DataBindOnly"],
 		"valueClass": "hidden-value-with-calculate-and-default",
 		"disposition": "HELD-NEW",
@@ -1209,6 +1217,32 @@
 		},
 		"emission": {
 			"cell": "both",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Hidden Value with both `calculate` and a default, by any expression spelling of its setvalue, outside every repeat, where no later load-time setvalue reads the default, directly or through a calculation",
+		"surfaceKeys": ["mug:DataBindOnly", "xform:model/bind@type"],
+		"valueClass": "hidden-value-default-overwritten-before-any-read",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `hidden` with its `calculate` alone: Core runs the form's `xforms-ready` setvalues and then evaluates every calculate, relevant or not (`FormDef.initialize` → `initAllTriggerables`, `Recalculate.apply`), so the calculate replaces the default before any screen, and resuming a saved form runs no setvalue; with no later setvalue reading it and no repeat row to keep it, no runtime and no submission holds the default; the reader drops it and the first publish says so (`hidden-value-defaults-dropped`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "bind",
 			"markers": []
 		},
 		"gates": []
@@ -1389,6 +1423,7 @@
 		"item": "Question List (`<group appearance=\"field-list\">`) labelled",
 		"surfaceKeys": [
 			"mug:FieldList",
+			"mug:Group",
 			"jr-control:group",
 			"appearance:core/field-list",
 			"xform:group",
@@ -1423,6 +1458,7 @@
 		"item": "Question List unlabelled, when every root field is a section and it has no display condition",
 		"surfaceKeys": [
 			"mug:FieldList",
+			"mug:Group",
 			"jr-control:group",
 			"appearance:core/field-list",
 			"xform:group",
@@ -1457,6 +1493,7 @@
 		"item": "Question List unlabelled anywhere else",
 		"surfaceKeys": [
 			"mug:FieldList",
+			"mug:Group",
 			"jr-control:group",
 			"appearance:core/field-list",
 			"xform:group",
@@ -1921,7 +1958,8 @@
 			"xform:setvalue@event",
 			"xform:setvalue@ref",
 			"xform:setvalue@value",
-			"vellum-markup:model/instance//*@vellum:role"
+			"vellum-markup:model/instance//*@vellum:role",
+			"xform:model/instance//*"
 		],
 		"valueClass": "model-iteration",
 		"disposition": "HELD",
@@ -2418,6 +2456,7 @@
 		"item": "Signature (`image/*` + `signature`)",
 		"surfaceKeys": [
 			"mug:Signature",
+			"mug:Image",
 			"jr-control:upload",
 			"appearance:android/signature",
 			"appearance:web-apps/signature",
@@ -3020,7 +3059,14 @@
 			"xform:setvalue",
 			"xform:setvalue@event",
 			"xform:setvalue@ref",
-			"xform:setvalue@value"
+			"xform:setvalue@value",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"mug:DataBindOnly",
+			"xform:model/bind",
+			"xform:model/bind@nodeset",
+			"xform:model/bind@relevant",
+			"xform:model/bind@type"
 		],
 		"valueClass": "savetocase-create",
 		"disposition": "HELD",
@@ -3473,7 +3519,18 @@
 			"jr-type:dateTime",
 			"vellum-markup:model/instance//*@vellum:role",
 			"vellum-markup:model/instance//*@vellum:case_type",
-			"xform:model/bind@calculate"
+			"xform:model/bind@calculate",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"mug:DataBindOnly",
+			"xform:model/bind",
+			"xform:model/bind@nodeset",
+			"xform:model/bind@relevant",
+			"xform:model/bind@type",
+			"xform:setvalue",
+			"xform:setvalue@event",
+			"xform:setvalue@ref",
+			"xform:setvalue@value"
 		],
 		"valueClass": "savetocase-update",
 		"disposition": "HELD",
@@ -3500,7 +3557,35 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "SaveToCase property rows (calculation + condition) lifting into ValueExpression/Predicate in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": [
+			"mug:SaveToCase",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"xform:model/instance/*/*@jr:template",
+			"xform:model/instance//*@jr:template",
+			"vellum-markup:model/instance//*@vellum:role",
+			"vellum-markup:model/instance//*@vellum:case_type",
+			"xform:model/bind",
+			"xform:model/bind@nodeset",
+			"xform:model/bind@calculate",
+			"xform:model/bind@relevant",
+			"xform:model/bind@type",
+			"xform:setvalue",
+			"xform:setvalue@event",
+			"xform:setvalue@ref",
+			"xform:setvalue@value",
+			"xform:group",
+			"xform:group@ref",
+			"xform:repeat",
+			"xform:repeat@nodeset",
+			"xform:repeat@jr:count",
+			"xform:repeat@jr:noAddRemove",
+			"mug:Group",
+			"mug:Repeat",
+			"mug:DataBindOnly",
+			"jr-type:int",
+			"jr-type:dateTime"
+		],
 		"valueClass": "property-rows",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `writes[] {property, value, condition}`",
@@ -3553,7 +3638,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "SaveToCase property names with hyphens (`^[a-z][\\w-]*$`, case-insensitive) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": [
+			"mug:SaveToCase",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"vellum-markup:model/instance//*@vellum:role",
+			"vellum-markup:model/instance//*@vellum:case_type",
+			"mug:DataBindOnly"
+		],
 		"valueClass": "hyphenated-property-names",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `writes[].property`",
@@ -3605,7 +3697,7 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "SaveToCase Open Case Condition in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "open-case-condition",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: operation `condition` (Vellum puts it on `…/case`, so the whole block is conditional)",
@@ -3690,7 +3782,7 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "SaveToCase owner in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@calculate"],
 		"valueClass": "owner",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: operation `owner`",
@@ -3743,7 +3835,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "SaveToCase Link (`index/<name>` `child`/`extension`) and Unlink (empty index) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": [
+			"mug:SaveToCase",
+			"xform:model/instance//*",
+			"xform:model/bind@calculate"
+		],
 		"valueClass": "link-and-unlink",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `links[]` (unlink: `target: null`)",
@@ -3790,7 +3886,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "SaveToCase inside a repeat in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": [
+			"mug:SaveToCase",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"vellum-markup:model/instance//*@vellum:role",
+			"vellum-markup:model/instance//*@vellum:case_type",
+			"mug:DataBindOnly"
+		],
 		"valueClass": "inside-a-repeat",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `forEach`",
@@ -3816,7 +3919,15 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a SaveToCase block in Nova's condition group in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
-		"surfaceKeys": ["mug:SaveToCase"],
+		"surfaceKeys": [
+			"mug:SaveToCase",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"xform:group",
+			"xform:group@ref",
+			"xform:model/bind@relevant",
+			"mug:Group"
+		],
 		"valueClass": "inside-a-gated-group",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: operation `condition`",
@@ -4051,7 +4162,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect Learn Module",
-		"surfaceKeys": ["mug:ConnectLearnModule", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"vellum-markup:model/instance//*@vellum:role",
+			"mug:DataBindOnly"
+		],
 		"valueClass": "connect-learn-module",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `Form.connect.learn_module`; narrow (all four Connect blocks): no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block",
@@ -4136,7 +4254,15 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect Assessment",
-		"surfaceKeys": ["mug:ConnectAssessment", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectAssessment",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"vellum-markup:model/instance//*@vellum:role",
+			"mug:DataBindOnly",
+			"xform:model/bind@calculate"
+		],
 		"valueClass": "connect-assessment",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `connect.assessment`",
@@ -4162,7 +4288,15 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect Deliver Unit",
-		"surfaceKeys": ["mug:ConnectDeliverUnit", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"vellum-markup:model/instance//*@vellum:role",
+			"mug:DataBindOnly",
+			"xform:model/bind@calculate"
+		],
 		"valueClass": "connect-deliver-unit",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `connect.deliver_unit`, with an empty `work_area_id`",
@@ -4215,7 +4349,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect Task",
-		"surfaceKeys": ["mug:ConnectTask", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectTask",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*",
+			"vellum-markup:model/instance//*@vellum:role",
+			"mug:DataBindOnly"
+		],
 		"valueClass": "connect-task",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `connect.task`",
@@ -6221,6 +6362,25 @@
 		"emission": {
 			"cell": "only Vellum's own `toHashtag()` output, or none; never a shadow with a predicate on a form path (Nova's `constraintCollections.ts` shadows make Vellum write unparseable XPath into the real attribute: save-breaking)",
 			"markers": ["save-breaking"]
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/vellum-attributes-a-bind-carries-unread",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "`vellum:required` on a bind, and each `vellum:vellum__…` attribute: a shadow HQ's form builder writes and never reads, carried from save to save",
+		"surfaceKeys": [],
+		"noSurfaceKey": "HQ's form builder never asks for these attributes (it reads `required` alone, `parser.js::parseBindElement`), and the vellum family records only what the form builder asks of its own markup (`proof/surface/families/vellum.py::markup`), so they have no surface item.",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's form builder writes `vellum:required` as the shadow of a required condition (`util.js::writeHashtags`), keeps it unread as a raw bind attribute (`parser.js::parseBindElement`, `mugs/defaultOptions.js::getBindList`) and writes that again on every save with one more `vellum__` (HQ's wash template app carries such chains); HQ's build strips every `vellum:` attribute (`xform.py::XForm.strip_vellum_ns_attributes`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -8470,7 +8630,11 @@
 		"area": "questions",
 		"section": "Itext, markdown and label text",
 		"item": "`short` form",
-		"surfaceKeys": ["itext-form:core/short"],
+		"surfaceKeys": [
+			"itext-form:core/short",
+			"xform:model/itext/translation/text/value@form"
+		],
+		"valueClass": "short-form",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: no runtime reads it",
 		"platforms": {
@@ -8550,7 +8714,8 @@
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "differing-from-the-default-text",
 		"disposition": "REFUSED",
@@ -8580,7 +8745,8 @@
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "in-some-languages-only-showing-two-texts",
 		"disposition": "REFUSED",
@@ -8616,7 +8782,8 @@
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "in-some-languages-only-showing-one-text",
 		"disposition": "HELD",
@@ -8648,7 +8815,8 @@
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "in-a-form-with-formatting-off",
 		"disposition": "REFUSED",
@@ -8722,7 +8890,8 @@
 			"itext-form:hq/audio",
 			"itext-form:android/video",
 			"itext-form:core/video",
-			"itext-form:hq/video"
+			"itext-form:hq/video",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "differing-by-language",
 		"disposition": "HELD-NEW",
@@ -8780,7 +8949,10 @@
 		"area": "questions",
 		"section": "Itext, markdown and label text",
 		"item": "label `big-image`",
-		"surfaceKeys": ["itext-form:android/big-image"],
+		"surfaceKeys": [
+			"itext-form:android/big-image",
+			"xform:model/itext/translation/text/value@form"
+		],
 		"valueClass": "label",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ ships no file for a `big-image` form of its own (`FormMediaMixin.all_media` collects image, audio, video and video-inline forms; `remove_unused_mappings` prunes the rest), so Android's full-screen view opens a missing file unless another media form in the app happens to use the same path",
@@ -8997,7 +9169,8 @@
 			"itext-form:hq/audio",
 			"itext-form:android/video",
 			"itext-form:core/video",
-			"itext-form:hq/video"
+			"itext-form:hq/video",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "hint-media",
 		"disposition": "INERT",
@@ -9032,7 +9205,8 @@
 			"xform:upload/help@ref",
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "help",
 		"disposition": "HELD",
@@ -9061,7 +9235,8 @@
 		"item": "help text with no `markdown` form",
 		"surfaceKeys": [
 			"xform:model/itext/translation/text",
-			"itext-form:android/markdown"
+			"itext-form:android/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "help-without-markdown-form",
 		"disposition": "HELD",
@@ -9142,7 +9317,8 @@
 			"itext-form:hq/audio",
 			"itext-form:android/video",
 			"itext-form:core/video",
-			"itext-form:hq/video"
+			"itext-form:hq/video",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "help-media",
 		"disposition": "HELD",
@@ -9179,7 +9355,8 @@
 			"itext-form:hq/audio",
 			"itext-form:android/video",
 			"itext-form:core/video",
-			"itext-form:hq/video"
+			"itext-form:hq/video",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "on-capture-or-label",
 		"disposition": "HELD-NEW",
@@ -9264,7 +9441,8 @@
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "validation-message",
 		"disposition": "INERT",
@@ -9287,7 +9465,8 @@
 		"surfaceKeys": [
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "hint",
 		"disposition": "INERT",
@@ -9316,7 +9495,8 @@
 			"itext-form:hq/audio",
 			"itext-form:android/video",
 			"itext-form:core/video",
-			"itext-form:hq/video"
+			"itext-form:hq/video",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "validation-message-media",
 		"disposition": "INERT",
@@ -9344,7 +9524,8 @@
 			"xform:select1/item/label@ref",
 			"itext-form:android/markdown",
 			"itext-form:core/markdown",
-			"itext-form:hq/markdown"
+			"itext-form:hq/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "choice-label-markdown",
 		"disposition": "HELD",
@@ -9378,7 +9559,8 @@
 			"xform:select/item/label@ref",
 			"xform:select1/item/label",
 			"xform:select1/item/label@ref",
-			"itext-form:android/markdown"
+			"itext-form:android/markdown",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "choice-without-markdown-form",
 		"disposition": "HELD",
@@ -9409,7 +9591,8 @@
 		"surfaceKeys": [
 			"itext-form:android/image",
 			"itext-form:core/image",
-			"itext-form:hq/image"
+			"itext-form:hq/image",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "choice-image",
 		"disposition": "HELD",
@@ -9442,7 +9625,8 @@
 			"itext-form:hq/audio",
 			"itext-form:android/video",
 			"itext-form:core/video",
-			"itext-form:hq/video"
+			"itext-form:hq/video",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "choice-audio-video",
 		"disposition": "HELD",
@@ -9470,7 +9654,10 @@
 		"area": "questions",
 		"section": "Itext, markdown and label text",
 		"item": "choice `big-image`",
-		"surfaceKeys": ["itext-form:android/big-image"],
+		"surfaceKeys": [
+			"itext-form:android/big-image",
+			"xform:model/itext/translation/text/value@form"
+		],
 		"valueClass": "choice",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime (as for labels)",
@@ -9538,7 +9725,8 @@
 			"itext-form:hq/audio",
 			"itext-form:android/video",
 			"itext-form:core/video",
-			"itext-form:hq/video"
+			"itext-form:hq/video",
+			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "group-label-media",
 		"disposition": "INERT",
@@ -9814,7 +10002,33 @@
 		"area": "questions",
 		"section": "Itext, markdown and label text",
 		"item": "`<translation>` for a language not in `langs`",
-		"surfaceKeys": ["xform:model/itext/translation@lang"],
+		"surfaceKeys": [
+			"xform:model/itext/translation@lang",
+			"xform:model/itext/translation",
+			"xform:model/itext/translation/text",
+			"xform:model/itext/translation/text@id",
+			"xform:model/itext/translation/text/value",
+			"xform:model/itext/translation/text/value@form",
+			"xform:model/itext/translation/text/value/output",
+			"xform:model/itext/translation/text/value/output@value",
+			"xform:model/itext/translation/text/value/output@ref",
+			"xform:model/itext/translation/text/value/*@xmlns",
+			"vellum-markup:output@vellum:value",
+			"itext-form:android/audio",
+			"itext-form:android/big-image",
+			"itext-form:android/image",
+			"itext-form:android/markdown",
+			"itext-form:android/video",
+			"itext-form:core/audio",
+			"itext-form:core/image",
+			"itext-form:core/markdown",
+			"itext-form:core/short",
+			"itext-form:core/video",
+			"itext-form:hq/audio",
+			"itext-form:hq/image",
+			"itext-form:hq/markdown",
+			"itext-form:hq/video"
+		],
 		"valueClass": "not-in-langs",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: HQ strips it at build (`exclude_languages`)",

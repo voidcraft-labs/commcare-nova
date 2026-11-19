@@ -139,7 +139,11 @@ A `RecordQueryContext` is the separate SQL/query inference boundary. It has only
 catalog, binding, and lexical row facts, with no authored slot, native instance
 root, source form node, profile, or supplies. Internal `inferRecordQuery` exposes
 errors for writer inference and retained scalar rules. It is not an alternative
-stored-slot admission entry point.
+stored-slot admission entry point. Its bindings carry each answer's held class
+where its type does not give it (`formFieldHeld`): inference hands an
+operation's write the settled `hiddenHeld` and settles the types again under
+it until it stands, so a writer opinion reads a Hidden Value as the gate does
+(a yes or no Hidden Value stands as an `if`'s condition there too).
 
 Form positions keep Core's coercions and refuse only comparisons Core would
 answer wrongly, one finding per comparison: a time ordered before or after
@@ -392,7 +396,27 @@ Python or Postgres.
 - Record slots keep condition and value positions as a rule: a value where a
   condition belongs, or a condition where a value belongs, is `record-position`
   (reasons `condition-expected` and `value-expected`). Form logic takes Core's
-  coercions instead.
+  coercions instead. One read stands as a condition: a single node CommCare
+  holds as a yes or no (`ruleSets.ts::recordPositionVerdict`, read from the
+  node's settled `held` class, `typeChecker.ts::holdsOneYesNo`), such as a
+  Hidden Value a condition calculates, which Core holds as `BooleanData`
+  whatever its bind (`Recalculate.wrapData`). Any other read stays refused,
+  since Core reads text as true wherever it is not empty, a stored `0`
+  included. The Postgres compiler decides such a read's truth from its bound
+  answer and what CommCare holds it as (`compilePredicate.ts::compileBareRead`).
+- Two comparisons of types `typesCompatible` keeps apart are admitted under
+  `=`, `!=` and `in`, because every runtime answers them as their author means
+  (`ruleSets.ts::coercedEquality`, over `XPathEqExpr.testEquality`): a whole
+  number against a text literal spelling a whole number as CommCare writes one
+  (`canonicalIntegerText`: no sign but a minus, no leading zero, inside `int`),
+  which compares the two numbers; and a text or single choice value against a
+  number literal, the text read as Core's `toNumeric` reads it. `'01'`,
+  `'1.0'`, a decimal against text, a list of choices, an ordering, and either
+  shape in a condition CommCare HQ's search reads (`incompatible-values`
+  reason `search-coercion`) stay refused. Postgres lowers both in
+  `compilePredicate.ts::compileEquality`, held to Core by
+  `proof/native/core/NumericCoercionRuntimeTest.java` over one checked-in
+  control.
 - Strings are excluded from `ORDERED_TYPES`: locale-dependent string ordering is
   rarely meaningful for a case-list filter, so `gt`/`lt` refuse text. An
   operand of an ordering every value of which is `null` (the literal, or a

@@ -10,16 +10,20 @@ blob they name, so it reads whole beside a later snapshot of main. Two
 sources holding different values under one key keep neither, and an entry
 naming a blob no source holds is a miss, never a failed merge. A package
 group's outcome is kept only from a run in the environment the queue keys it
-under. The gate's reader gives back the evidence each cached group's checks
-wrote, and refuses a group the store cannot give whole.
+under. A corpus document's judgment is kept under the reader bundle its
+block's manifest names, and outputs that judged corpus documents under two
+bundles are refused. The gate's reader gives back the evidence each cached
+group's checks wrote, and refuses a group the store cannot give whole.
 
 The plausible failures: a snapshot whose bytes depend on the order its
 sources were read in (so two equal stores make two cache entries), a merge
 that keeps one of two differing records, a delta that repeats what main
 holds or leans on a blob only main's snapshot of the day holds (every merge
 of it failing once main's moves on), a package outcome kept from a run with
-HQ's speed seams off standing for one with them on, and a reader that skips
-a judgment it lacks, leaving the register nothing to hold.
+HQ's speed seams off standing for one with them on, a judgment made by one
+reader bundle kept under another's key (a reader change that leaves a stale
+verdict cached), and a reader that skips a judgment it lacks, leaving the
+register nothing to hold.
 """
 
 from __future__ import annotations
@@ -56,8 +60,9 @@ DIFFERENCES = [
 ]
 
 
-def _run(output, corpus, *, value="observed", outcome="passed"):
-    """One lane run's output: each document observed through the store, its block's manifest and evidence."""
+def _run(output, corpus, *, value="observed", outcome="passed", reader=None):
+    """One lane run's output: each document observed through the store, its block's manifest (naming the reader
+    bundle ``reader``) and evidence."""
     for identifier in ("one", "two"):
         document = document_of(corpus, identifier)
         observe_into(runtime.session_store(document, _environ(output)), document, records_of(document, value=value))
@@ -65,7 +70,7 @@ def _run(output, corpus, *, value="observed", outcome="passed"):
     store.transcripts.put(_transcript())
     groups = {f"corpus:{i}": {f"proof/checks/test_bar.py::test_bar[{i}]": outcome} for i in ("one", "two")}
     evidence = {(check, f"corpus:{i}"): DIFFERENCES for check in ("bar", "proof2") for i in ("one", "two")}
-    write_block(output, groups, evidence)
+    write_block(output, groups, evidence, reader=reader)
     return output
 
 
@@ -159,10 +164,17 @@ def test_a_key_two_sources_hold_differently_is_kept_by_neither_and_a_delta_holds
     assert store.blobs(records.configurations["minimum"].keys["a"]).refs() == records.blobs.refs()
 
 
-def _cached(index, judge, group):
+def _judged_key(index, judge, group, reader):
+    """The key the snapshot keeps a document's outcome under, as the queue builder derives it."""
     document = next(key for key, entry in index["documents"].items() if entry["group"] == group)
     parts = index["documents"][document]["parts"]
-    judged = keys.group_key(document, judge, {name: held for name, (_, held) in parts.items()})
+    return keys.group_key(
+        document, keys.group_judge(group, judge, reader), {name: held for name, (_, held) in parts.items()}
+    )
+
+
+def _cached(index, judge, group, reader=None):
+    judged = _judged_key(index, judge, group, reader)
     outcome = index["groups"][judged]
     return SimpleNamespace(group=group, judgments={**outcome["judgments"], "outcome": judged})
 
@@ -190,6 +202,36 @@ def test_the_gate_reads_each_cached_groups_evidence_and_refuses_a_group_the_stor
     failed_index = json.loads((failed / "index.json").read_text())
     with pytest.raises(reader.StoreIncomplete, match="did not pass"):
         reader.cached_evidence([_cached(failed_index, judge, "corpus:one")], failed)
+
+
+def test_a_corpus_documents_judgment_is_kept_under_the_reader_bundle_its_block_names_and_two_bundles_are_refused(
+    tmp_path, corpus
+):
+    """A corpus document's judged key names the reader bundle its block ran under (the manifest's ``reader``,
+    ``keys.judged_under``), as the queue builder keys it. Outputs whose blocks judged corpus documents under two
+    bundles are refused, as two judge fingerprints are: a judgment kept under the one bundle would stand for a
+    reading the other made. Outputs that agree are packed, and a block that judged no corpus document names no
+    bundle that counts."""
+    first = _run(tmp_path / "first", corpus, reader="r" * 64)
+    snapshot = pack.write(pack.gather([first]), tmp_path / "snapshot")
+    index = json.loads((snapshot / "index.json").read_text())
+    judge = json.loads((first / "store" / "fingerprints.json").read_text())["fingerprints"]["judge"]
+    kept = _cached(index, judge, "corpus:one", "r" * 64)
+    assert set(kept.judgments) == {"bar", "proof2", "outcome"}
+    assert reader.cached_evidence([kept], snapshot)
+    # Not under no bundle, nor under another one: those keys are another reading's.
+    assert _judged_key(index, judge, "corpus:one", None) not in index["groups"]
+    assert _judged_key(index, judge, "corpus:one", "s" * 64) not in index["groups"]
+
+    agreeing = _run(tmp_path / "agreeing", corpus, reader="r" * 64)
+    write_block(agreeing, {"proof/core": {"proof/core/test_core.py::test_core": "passed"}})
+    assert len(pack.gather([first, agreeing]).index["groups"]) == 2
+    other = _run(tmp_path / "other", corpus, reader="s" * 64)
+    with pytest.raises(pack.PackError, match="under 2 reader bundles"):
+        pack.gather([first, other])
+    unnamed = _run(tmp_path / "unnamed", corpus)
+    with pytest.raises(pack.PackError, match="under 2 reader bundles"):
+        pack.gather([first, unnamed])
 
 
 def test_the_surface_and_a_package_are_kept_under_the_key_their_queue_names(tmp_path):

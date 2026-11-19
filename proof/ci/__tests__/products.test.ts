@@ -9,7 +9,7 @@
 // with (lib/commcare/compiler.ts), so the archive reader is held to archives
 // it did not write.
 
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -214,4 +214,136 @@ it("refuses a side that is no production", async () => {
 	const compared = await compare(left, right);
 	expect(compared.code).toBe(2);
 	expect(compared.stderr).toContain("produced.json cannot be read");
+});
+
+it("compares the reader bundle byte for byte, renaming no id-shaped token in it", async () => {
+	// Two bundles that differ only by an id-shaped literal would be the same
+	// once renamed; the reader's digest keys every judgment, so they are not.
+	const bundle = (literal: string) =>
+		Buffer.from(`const READING = "${literal}";\nexport { READING };\n`);
+	const withReader = (literal: string) =>
+		layout(minted(), (files) => {
+			files.set("reader/reader.mjs", bundle(literal));
+			files.set(
+				"produced.json",
+				Buffer.from(
+					`${JSON.stringify({ case: { status: 0, error: null }, "hq-oracle": { status: 0, error: null }, reader: { status: 0, error: null } })}\n`,
+				),
+			);
+		});
+	const same = randomUUID();
+	const equal = await compare(
+		await write("left", withReader(same)),
+		await write("right", withReader(same)),
+	);
+	expect(equal.code).toBe(0);
+	const differing = await compare(
+		await write(
+			"left-other",
+			withReader("11111111-1111-4111-8111-111111111111"),
+		),
+		await write(
+			"right-other",
+			withReader("22222222-2222-4222-8222-222222222222"),
+		),
+	);
+	expect(differing.code).toBe(1);
+	expect(differing.stdout).toContain("1 files differ");
+	expect(differing.stdout).toContain("reader/reader.mjs: differs at byte 17");
+});
+
+/** A production holding a reader bundle and the runtime build.mjs carries beside it, made for
+ *  `platform` with `binding` as the platform's native bytes. */
+function withRuntime(
+	platform: string,
+	binding: Buffer,
+	options: { vips?: string; record?: (record: Runtime) => void } = {},
+) {
+	const files = new Map<string, Buffer>([
+		["node_modules/sharp/package.json", Buffer.from('{"version":"0.35.5"}\n')],
+		[`node_modules/@img/sharp-${platform}/lib/sharp.node`, binding],
+	]);
+	const record: Runtime = {
+		platform,
+		versions: { sharp: "0.35.5", vips: options.vips ?? "8.18.7" },
+		packages: {
+			"node_modules/sharp": "0.35.5",
+			[`node_modules/@img/sharp-${platform}`]: "0.35.5",
+		},
+		files: Object.fromEntries(
+			[...files].map(([path, bytes]) => [
+				path,
+				createHash("sha256").update(bytes).digest("hex"),
+			]),
+		),
+	};
+	options.record?.(record);
+	return layout(minted(), (production) => {
+		production.set("reader/reader.mjs", Buffer.from("export {};\n"));
+		production.set("reader/runtime.json", Buffer.from(JSON.stringify(record)));
+		for (const [path, bytes] of files) production.set(`reader/${path}`, bytes);
+		production.set(
+			"produced.json",
+			Buffer.from(
+				`${JSON.stringify({ case: { status: 0, error: null }, "hq-oracle": { status: 0, error: null }, reader: { status: 0, error: null } })}\n`,
+			),
+		);
+	});
+}
+
+interface Runtime {
+	platform: string;
+	versions: Record<string, string>;
+	packages: Record<string, string>;
+	files: Record<string, string>;
+}
+
+it("compares the reader's native runtime by what it is across platforms, and byte for byte on one", async () => {
+	// Two architectures' bindings are other bytes of one sharp and one libvips.
+	const across = await compare(
+		await write("x64", withRuntime("linux-x64", randomBytes(64))),
+		await write("arm64", withRuntime("linux-arm64", randomBytes(64))),
+	);
+	expect(across.stdout).toContain("are the same");
+	expect(across.code).toBe(0);
+	// One architecture's two productions are the same bytes.
+	const one = await compare(
+		await write("first", withRuntime("linux-x64", Buffer.alloc(64, 1))),
+		await write("second", withRuntime("linux-x64", Buffer.alloc(64, 2))),
+	);
+	expect(one.code).toBe(1);
+	expect(one.stdout).toContain(
+		"reader/node_modules/@img/sharp-linux-x64/lib/sharp.node: differs at byte 0",
+	);
+	// Another libvips is another runtime, whatever the platforms.
+	const vips = await compare(
+		await write("x64-vips", withRuntime("linux-x64", randomBytes(64))),
+		await write(
+			"arm64-vips",
+			withRuntime("linux-arm64", randomBytes(64), { vips: "8.19.0" }),
+		),
+	);
+	expect(vips.code).toBe(1);
+	expect(vips.stdout).toContain(
+		"reader/runtime.json: the runtimes report other versions",
+	);
+});
+
+it("refuses a reader runtime whose files are not the ones its record names", async () => {
+	const binding = randomBytes(64);
+	const compared = await compare(
+		await write("left", withRuntime("linux-x64", binding)),
+		await write(
+			"right",
+			withRuntime("linux-x64", binding, {
+				record: (record) => {
+					record.files["node_modules/sharp/package.json"] = "0".repeat(64);
+				},
+			}),
+		),
+	);
+	expect(compared.code).toBe(1);
+	expect(compared.stdout).toContain(
+		"reader/node_modules/sharp/package.json: on the right, its bytes are not the ones its reader/runtime.json names.",
+	);
 });

@@ -10,9 +10,11 @@ rules; the profile is compared on its required version and the properties a
 runtime running both builds reads; and HQ's case processing reads the same
 case blocks from both sides' submissions. Sessions run only on an HQ build a
 runtime can install. Every difference must fall in a class of
-``proof/known-defects.json``, or, on a document whose saves in CommCare HQ
-Nova brings in, be named by a change Nova's review lists for the next publish
-(``proof.checks.changes``).
+``proof/known-defects.json``, or be named by a change that applies to the
+document (``proof.checks.changes``): on an app made in CommCare HQ, a
+first-publish register entry its reading says applies; on a document whose
+saves in CommCare HQ Nova brings in, a change Nova's review lists for the next
+publish.
 
 The plausible failures each test here catches:
 

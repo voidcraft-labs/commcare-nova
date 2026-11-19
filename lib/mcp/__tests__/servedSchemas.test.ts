@@ -262,6 +262,113 @@ it("serves a question's keypad and text settings, a search with no title, where 
 	);
 });
 
+it("serves a property column's walk to the case above as a list of links", () => {
+	const module = {
+		work_id: "00000000-0000-4000-8000-000000000001",
+		request_id: "case-list-related-columns",
+		moduleUuid: "11111111-1111-4111-8111-111111111111",
+	};
+	const columns = (via: readonly Json[]) => ({
+		...module,
+		columns: [{ kind: "plain", field: "case_name", header: "Household", via }],
+	});
+	expect(
+		takes("add_case_list_columns", columns([{ identifier: "parent" }])),
+	).toBe(true);
+	expect(
+		takes(
+			"add_case_list_columns",
+			columns([
+				{ identifier: "parent" },
+				{ identifier: "host", throughCaseType: "village" },
+			]),
+		),
+	).toBe(true);
+	// A walk names at least one link, and a calculated column has none.
+	expect(takes("add_case_list_columns", columns([]))).not.toBe(true);
+	expect(
+		takes("add_case_list_columns", {
+			...module,
+			columns: [
+				{
+					kind: "calculated",
+					header: "Total",
+					expression: { kind: "term", term: { kind: "literal", value: 1 } },
+					via: [{ identifier: "parent" }],
+				},
+			],
+		}),
+	).not.toBe(true);
+	expect(
+		takes("update_case_list_column", {
+			...module,
+			columnUuid: "44444444-4444-4444-8444-444444444444",
+			column: {
+				kind: "date",
+				field: "visit_date",
+				header: "Last visit",
+				pattern: "%Y-%m-%d",
+				via: [{ identifier: "parent" }],
+			},
+		}),
+	).toBe(true);
+});
+
+it("serves a sort's name in Sort by as text on every column's rule", () => {
+	const module = {
+		work_id: "00000000-0000-4000-8000-000000000001",
+		request_id: "case-list-sort-label",
+		moduleUuid: "11111111-1111-4111-8111-111111111111",
+	};
+	const sort = { direction: "asc", priority: 0, label: "Feeling sick" };
+	expect(
+		takes("add_case_list_columns", {
+			...module,
+			columns: [
+				{
+					kind: "plain",
+					field: "feeling_sick",
+					header: "Feeling sick",
+					visibleInList: false,
+					sort,
+				},
+			],
+		}),
+	).toBe(true);
+	expect(
+		takes("update_case_list_column", {
+			...module,
+			columnUuid: "44444444-4444-4444-8444-444444444444",
+			column: {
+				kind: "date",
+				field: "visit_date",
+				header: "Last visit",
+				pattern: "%Y-%m-%d",
+				visibleInList: false,
+				sort,
+			},
+		}),
+	).toBe(true);
+	// The name is text, never another shape.
+	expect(
+		takes("add_case_list_columns", {
+			...module,
+			columns: [
+				{
+					kind: "plain",
+					field: "feeling_sick",
+					header: "Feeling sick",
+					visibleInList: false,
+					sort: { ...sort, label: 1 },
+				},
+			],
+		}),
+	).not.toBe(true);
+	expect(JSON.stringify(served("add_case_list_columns").inputSchema)).toContain(
+		"The name workers pick this column by in the list's Sort by menu",
+	);
+});
+
 it("serves accept_placement_moves as exactly a reason and a 64-hex digest", () => {
 	const properties = (served("upload_app_to_hq").inputSchema as Json)
 		.properties;

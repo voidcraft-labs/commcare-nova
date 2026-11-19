@@ -56,6 +56,17 @@ way, where a run's sample leaves documents out, ``proof.store.queue.sampled``),
   the work item 12 rows it shows (``source.rows``);
 - ``hq-side.json``, where a document carries it: what a person saves in HQ
   over A before Nova's next publish (``proof.observe.hqside``);
+- ``authored/``, on a document made in CommCare HQ (source ``hq-authored:<base>``,
+  ``Document.hq_authored``): the app HQ's own pages and models made
+  (``app.json``, ``Application.to_json()`` with each form's source under
+  ``_attachments``), the case seed made from that app (``seed.json``) and,
+  where the base holds them, ``media.json`` with the files it names under
+  ``media/``, ``tables.json`` and ``places.json`` (``Document.authored``). Such a
+  document has no first publish: each ``export/<configuration>/`` holds the
+  republish of D over that app, and nothing in place of ``create`` and
+  ``content``. It is exported under one configuration, and its
+  ``first-publish.json`` (``{"ids": [...]}``) lists the first-publish register's
+  entries Nova's reading says its first publish makes;
 - ``inputs.json``: the digest of every file above that a check reads, by the
   part of the document's HQ tree that reads it (``proof/corpus/inputs.ts``).
 
@@ -91,7 +102,7 @@ from pathlib import Path
 
 from proof import processes
 from proof.checks.configurations import TWO_IMPORTS
-from proof.checks.eligibility import migration_witness
+from proof.checks.eligibility import hq_authored, migration_witness
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
 CONTROLS_DIR = PROOF_DIR / "controls"
@@ -363,10 +374,12 @@ class Captured:
         return BroughtIn.from_json(record, self.body_path.with_suffix(".json"))
 
 
-# The keys of a bring-in's record (``proof/corpus/publish.ts::BringInRecord``).
+# The keys of a bring-in's record (``proof/corpus/publish.ts::BringInRecord``), and the one it holds where the review
+# read CommCare HQ's app now: that reading, which the HQ side holds HQ's own answer after the same saves to.
 BROUGHT_IN_KEYS = frozenset(
     {"review", "taken", "discarded", "mutations", "identities", "again", "assumedSummary", "document"}
 )
+BROUGHT_IN_READING = "reading"
 
 
 @dataclass(frozen=True)
@@ -375,8 +388,9 @@ class BroughtIn:
     (``review``, Nova's ``HqChangesReview``), whether the bring-in committed the change or recorded what HQ holds
     (``taken``: ``brought-in`` or ``recorded``), whether it removed changes made in Nova, the batch's length, the
     ids HQ holds for each menu and form the record keeps, the review over the record (``again``), the summary of the
-    app the review read, which the capture's peer modeled (``assumed_summary``), and the document the app holds
-    after it."""
+    app the review read, which the capture's peer modeled (``assumed_summary``), the document the app holds after
+    it, and the review's reading of CommCare HQ's app now (``reading``: ``{doc, identity}``, the document and one
+    identity row a menu and a form of it, or None where the record holds none)."""
 
     review: dict
     taken: str
@@ -386,19 +400,31 @@ class BroughtIn:
     again: dict
     assumed_summary: list
     document: dict
+    reading: dict | None = None
 
     @classmethod
     def from_json(cls, value, where):
-        if not isinstance(value, dict) or set(value) != BROUGHT_IN_KEYS:
+        if not isinstance(value, dict) or set(value) - {BROUGHT_IN_READING} != BROUGHT_IN_KEYS:
             raise CorpusLayoutError(
                 f"{where} names its broughtIn as {sorted(value) if isinstance(value, dict) else value!r}; a"
-                f" bring-in's record holds exactly {sorted(BROUGHT_IN_KEYS)}."
+                f" bring-in's record holds exactly {sorted(BROUGHT_IN_KEYS)}, and {BROUGHT_IN_READING} where the"
+                " review read CommCare HQ's app."
             )
         if value["taken"] not in ("brought-in", "recorded"):
             raise CorpusLayoutError(f"{where} records a bring-in that took {value['taken']!r}.")
         for key in ("review", "again", "document"):
             if not isinstance(value[key], dict) or not isinstance(value[key].get("kind", ""), str):
                 raise CorpusLayoutError(f"{where} records the bring-in's {key} as {value[key]!r}.")
+        reading = value.get(BROUGHT_IN_READING)
+        if reading is not None and (
+            not isinstance(reading, dict)
+            or not isinstance(reading.get("doc"), dict)
+            or not isinstance(reading.get("identity"), list)
+        ):
+            raise CorpusLayoutError(
+                f"{where} records the review's reading as {reading!r}; it is {{doc, identity}}, the document the"
+                " review read of CommCare HQ's app and one identity row a menu and a form of it."
+            )
         return cls(
             review=value["review"],
             taken=value["taken"],
@@ -408,6 +434,7 @@ class BroughtIn:
             again=value["again"],
             assumed_summary=value["assumedSummary"],
             document=value["document"],
+            reading=reading,
         )
 
     @property
@@ -554,6 +581,48 @@ class Edit:
         return path if path.exists() else None
 
 
+# The directory of a document made in CommCare HQ that holds what HQ made (``Document.authored``).
+AUTHORED = "authored"
+FIRST_PUBLISH = "first-publish.json"
+
+
+@dataclass(frozen=True)
+class Authored:
+    """What a document made in CommCare HQ holds in place of a first publish: the app HQ's own pages and models made,
+    and, where the base holds them, its media rows (``media.json``, each ``{path, file, mediaClass, kind, mimeType,
+    extension}``, ``file`` under ``authored/``; ``proof/matrix/retain.py`` writes it only for a base that maps media),
+    its lookup tables and its places, each the file's path or None."""
+
+    root: Path
+    app: Path
+    media: Path | None
+    tables: Path | None
+    places: Path | None
+    seed: Path | None
+
+    def app_json(self):
+        return _read_json(self.app)
+
+    def media_rows(self):
+        """The media rows, none where the base maps no media."""
+        if self.media is None:
+            return []
+        rows = _read_json(self.media)
+        if not isinstance(rows, list) or not all(
+            isinstance(row, dict) and isinstance(row.get("path"), str) and isinstance(row.get("file"), str)
+            for row in rows
+        ):
+            raise CorpusLayoutError(f"{self.media} lists one {{path, file, ...}} a mapped file of the app HQ made.")
+        return rows
+
+    def media_file(self, row) -> Path:
+        """The retained file of one media row (its ``file``, relative to ``authored/``)."""
+        path = self.root / row["file"]
+        if not path.is_file():
+            raise CorpusLayoutError(f"{self.media} names {row['file']} for {row['path']}, which {self.root} lacks.")
+        return path
+
+
 @dataclass(frozen=True)
 class Document:
     """One corpus document, or one control read as a document."""
@@ -577,6 +646,79 @@ class Document:
         from before a migration (``proof/migrations/<id>/``) and whose B is Nova's republish of the migrated document
         over it."""
         return migration_witness(self.source)
+
+    @property
+    def hq_authored(self):
+        """Whether the document's A is an app CommCare HQ's own pages and models made (source ``hq-authored:<base>``),
+        which Nova never sent: it holds ``authored/`` and no first publish."""
+        return hq_authored(self.source)
+
+    @cached_property
+    def authored(self) -> Authored | None:
+        """What stands where a first publish stood on a document made in HQ (``authored/``), or None on any other
+        document. Refuses a document made in HQ that lacks ``authored/app.json``."""
+        root = self.root / AUTHORED
+        if not self.hq_authored:
+            return None
+        if not (root / "app.json").is_file():
+            raise CorpusLayoutError(
+                f"{self.root} is a document made in CommCare HQ ({self.source}) and holds no {AUTHORED}/app.json,"
+                " which the entry writer copies from proof/hq-apps/<base>/; emit the corpus again."
+            )
+
+        def held(name):
+            path = root / name
+            return path if path.is_file() else None
+
+        return Authored(
+            root=root,
+            app=root / "app.json",
+            media=held("media.json"),
+            tables=held("tables.json"),
+            places=held("places.json"),
+            seed=held("seed.json"),
+        )
+
+    @cached_property
+    def case_seed(self):
+        """The case seed made from A (``authored/seed.json``, ``proof/matrix/seed.py``), or None: a document made in
+        HQ takes its case database from it and never from D."""
+        authored = self.authored
+        if authored is None:
+            return None
+        if authored.seed is None:
+            raise CorpusLayoutError(
+                f"{self.root} is a document made in CommCare HQ and holds no {AUTHORED}/seed.json, the case seed made"
+                " from A that its case database is made from."
+            )
+        return _read_json(authored.seed)
+
+    @cached_property
+    def first_publish(self) -> tuple[str, ...]:
+        """The first-publish register's ids Nova's reading says this document's first publish makes
+        (``first-publish.json``); empty for any document not made in HQ, on which no entry is ever read."""
+        if not self.hq_authored:
+            return ()
+        path = self.root / FIRST_PUBLISH
+        value = _read_json(path)
+        ids = value.get("ids") if isinstance(value, dict) else None
+        if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids) or len(set(ids)) != len(ids):
+            raise CorpusLayoutError(f'{path} holds {{"ids": [...]}}, each a first-publish register id once.')
+        return tuple(ids)
+
+    @property
+    def hq_authored_facts(self) -> dict | None:
+        """What Nova's reading of the base gave beside D (``document.json``'s ``hqAuthored``: the identity rows,
+        the media paths, the declaration and the first-publish ids), or None on any other document."""
+        if not self.hq_authored:
+            return None
+        facts = self.document.get("hqAuthored") if isinstance(self.document, dict) else None
+        if not isinstance(facts, dict) or not isinstance(facts.get("declaration"), dict):
+            raise CorpusLayoutError(
+                f"{self.document_path} is a document made in CommCare HQ and holds no hqAuthored with its"
+                " declaration, which Nova's reading of the base gave (proof/corpus/hqAuthored.ts)."
+            )
+        return facts
 
     @cached_property
     def configurations(self):
@@ -628,8 +770,10 @@ class Document:
         if not directory.is_dir():
             return {}
         found = {}
+        authored = self.authored is not None
         for child in sorted(p for p in directory.iterdir() if p.is_dir()):
-            create, content = _first_publish(child)
+            # A document made in HQ has no first publish: its A is the app HQ made (``authored/``).
+            create, content = (None, None) if authored else _first_publish(child)
             stopped = republish_stop(child)
             found[child.name] = Export(
                 configuration=self._configuration(child.name, child, self.root / "verdict.json"),

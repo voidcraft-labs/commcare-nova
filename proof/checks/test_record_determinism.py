@@ -12,8 +12,14 @@ is recreated too and ``b_aligned`` comes out byte-identical. A build made
 again asks HQ what the build first observed asked, so it leaves HQ as that
 build left it: where HQ writes as it answers (with USERCASE, the first time
 a build's identities are asked), the parts observed under a held ``a`` are
-still the first observation's. A fresh store observes every part and hands
-each to its audit, which finds it equal.
+still the first observation's. The reads of HQ's API a state makes
+(``unit._Unit.api_reads``, kept as the part's ``apiReads``) are made in a
+fork and left out of a state made again: where HQ writes as it answers them
+(with USERCASE, the application resource asks the case property map), A's
+build after them still writes what it writes with no read before it, and
+the parts under a held ``a`` are the first observation's. Which states read
+follows what each publishes (``unit.api_read_label``). A fresh store observes
+every part and hands each to its audit, which finds it equal.
 Every input a part reads moves its key (the local archive proof 3's
 sessions replay on moves ``b_aligned``'s; what a hook declares it reads
 moves its state's), and what only the judges read moves none; the corpus's
@@ -33,7 +39,9 @@ observations mint different ids), a timing, a path or an unordered set in a
 record, a recreated A or B that is not the one first observed (the parts
 under it then differ), a build made again that leaves out a read HQ writes
 on (the builds after it then write what the first observation's did not,
-and their records say so), a key that misses an input (a stored part would
+and their records say so), the API reads leaving a write behind that a state
+made again lacks, reads made at a state whose part a stored part of another
+state stands for, a key that misses an input (a stored part would
 stand for one whose inputs changed) or reads a judge-only input (every edit
 to the register would observe again), a hook given another state at B-edit
 than at B, a same-as that hides what B-edit's own observation shows, and a
@@ -225,21 +233,34 @@ def test_a_build_recreated_under_a_stored_part_leaves_hq_as_the_build_first_obse
     def granted(document, name):
         return "USERCASE" in document.exports[name].configuration.privileges
 
+    def published(document, name):
+        # A whose reads of HQ's API come before its build: Nova's own first publish (``api_read_label``).
+        return granted(document, name) and unit.api_read_label(document, "a") == "published"
+
     # HQ's case property map writes the project space's user field definition the first time a build's identities
-    # ask it, and only with USERCASE: the cheapest document a configuration of which grants it.
+    # ask it, and only with USERCASE: the cheapest document a configuration of which grants it, whose A is read
+    # through HQ's API (the application resource asks the same map) before it is built.
     document, _ = _cheapest_where(
-        granted, "configuration grants USERCASE", shows="a build made again asking HQ what the first build asked"
+        published,
+        "configuration grants USERCASE and whose A is Nova's publish",
+        shows="a build made again asking HQ what the first build asked",
     )
     monkeypatch.setattr(unit, "HOOKS", tuple(hook for hook in unit.HOOKS if hook[0] != "served"))
     first = unit.observe_document(document, core_runner=core_runner, editor_driver=editor_driver)
     # The premise: under each configuration that grants the privilege A's build wrote, so there is a write for a
-    # recreated A to make or miss.
+    # recreated A to make or miss, and the reads of HQ's API were made before it and left nothing for it to find.
     builds = {
         name: [entry["wrote"] for entry in held.a["operations"] if entry["label"] == "build"]
         for name, held in first.configurations.items()
         if granted(document, name)
     }
     assert builds and all(wrote == [True] for wrote in builds.values()), (document.id, builds)
+    for name, held in first.configurations.items():
+        if not granted(document, name):
+            continue
+        labels = [entry["label"] for entry in held.a["operations"]]
+        assert "published" in held.a.get("apiReads", {}), (document.id, name, sorted(held.a.get("apiReads") or {}))
+        assert "reads:published" in labels and labels.index("reads:published") < labels.index("build"), labels
     a_parts = {f"{name}/a" for name in first.configurations}
     under = unit.observe_document(
         document, core_runner=core_runner, editor_driver=editor_driver, store=DictStore(_store_of(first, a_parts))
@@ -378,6 +399,42 @@ def test_a_hook_that_declares_nothing_it_reads_is_refused(monkeypatch):
     monkeypatch.setitem(sys.modules, "proof.observe.intent", hook)
     with pytest.raises(unit.HookContractError, match="defines no inputs"):
         unit.hook_modules()
+
+
+def _reader(*, kind="corpus", authored=False, witness=False, saves=None, edited=False):
+    """A document as ``unit.api_read_label`` reads it: what it is, what a person saves in HQ over it, its edit."""
+    return types.SimpleNamespace(
+        kind=kind,
+        hq_authored=authored,
+        migration_witness=witness,
+        hq_side=None if saves is None else {"republish": saves},
+        edit=object() if edited else None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("document", "a", "saved", "b"),
+    [
+        # Nova's own publish is read at A; B republishes the same document, read where an edit makes B-edit read.
+        pytest.param(_reader(), "published", None, None, id="nova-born"),
+        pytest.param(_reader(edited=True), "published", None, "published", id="nova-born with an edit"),
+        # A migration witness's A is no export of Nova's current code; its B is.
+        pytest.param(_reader(witness=True), None, None, "published", id="witness"),
+        pytest.param(_reader(authored=True), "authored", None, "published", id="made in HQ"),
+        pytest.param(_reader(authored=True, edited=True), "authored", None, "published", id="made in HQ, edited"),
+        # The saves Nova reviews are read after them; a republish that brings them in is read at B.
+        pytest.param(_reader(saves="brings-in"), "published", "saved", "published", id="brings in"),
+        pytest.param(_reader(saves="records"), "published", "saved", None, id="records"),
+        # Saves no review reads, and an edit published over a person's saves, are no read of Nova's export.
+        pytest.param(_reader(saves="proceeds", edited=True), "published", None, None, id="proceeds, edited"),
+        pytest.param(_reader(kind="control", edited=True), None, None, None, id="control"),
+    ],
+)
+def test_the_reads_of_hqs_api_follow_what_each_state_publishes(document, a, saved, b):
+    assert unit.api_read_label(document, "a") == a
+    assert unit.api_read_label(document, "a", saved=True) == saved
+    # B and B-edit read alike, since a B-edit keyed as its B is recorded as that B.
+    assert unit.api_read_label(document, "b") == b
 
 
 def test_the_written_manifest_and_the_files_give_the_same_inputs():

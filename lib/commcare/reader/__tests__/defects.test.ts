@@ -48,6 +48,7 @@ const CLAIMS = defineClaims("defectsTest", {
 	held: take(HELD, "schema:Application.doc_type"),
 	heldAgain: take(HELD, "schema:Application.doc_type"),
 	heldDrop: drop(HELD, "schema:Application.doc_type"),
+	wrongKey: take(HELD, "schema:Application.name"),
 	comment: drop(COMMENTS, null),
 });
 
@@ -144,6 +145,19 @@ describe("each line is its template, from closed slots", () => {
 				`Nova couldn't find the session value that holds the case this form opens with, at ${key}, so it can't read the form's display condition as CommCare HQ builds it. CommCare HQ treats the form as one that opens on a case and Nova's reading of its menu and case operations does not; check what the case management reader made of this form.`,
 			],
 			[
+				readerDefect.keyNotNamed(place, MARKER, MARKER, MARKER),
+				`claim unregistered-claim at ${key} would record unnamed-key under no-such-entry, which does not name that key. Record the claim under the entry that reads that key, or with no key where its entry names none of the node's keys.`,
+			],
+			[
+				readerDefect.keyNotNamed(
+					place,
+					"defectsTest.held",
+					HELD,
+					"xform:model/bind@calculate",
+				),
+				`claim defectsTest.held at ${key} would record xform:model/bind@calculate under ${HELD}, which does not name that key. Record the claim under the entry that reads that key, or with no key where its entry names none of the node's keys.`,
+			],
+			[
 				readerDefect.emissionThrew(place, MARKER),
 				`Nova read part of an app from CommCare HQ and its own writer could not write that part back, at ${key}: another-emitter threw. The reader built something Nova's documents never hold; check what the stages before it made of this place.`,
 			],
@@ -198,8 +212,8 @@ describe("each line is its template, from closed slots", () => {
 		);
 	});
 
-	it("names twelve codes", () => {
-		expect(READER_DEFECT_CODES).toHaveLength(12);
+	it("names thirteen codes", () => {
+		expect(READER_DEFECT_CODES).toHaveLength(13);
 	});
 });
 
@@ -225,6 +239,15 @@ describe("a defect stands behind one finding named by a surface key", () => {
 					.drop("doc_type", CLAIMS.heldDrop);
 			},
 			`claim defectsTest.heldDrop at app is not permitted by ${HELD}, which is now held`,
+		],
+		[
+			"a claim under a key its entry does not name",
+			(books: Accounting) => {
+				books
+					.json({ doc_type: "LinkedApplication" }, place)
+					.take("doc_type", CLAIMS.wrongKey, String);
+			},
+			`claim defectsTest.wrongKey at app would record schema:Application.name under ${HELD}, which does not name that key. Record the claim under the entry that reads that key, or with no key where its entry names none of the node's keys.`,
 		],
 		[
 			"a held value nothing read",

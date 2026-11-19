@@ -5,7 +5,10 @@
  * The property's type is its declared type, else the one type its visible
  * questions and case operations agree on, else the one type its Hidden Value
  * writers agree on (`int` and `decimal` agreeing on `decimal`, `text` and
- * `single_select` on `text`); the facts come
+ * `single_select` on `text`). Writers that agree on no one type, a Hidden
+ * Value whose own results do not among them, are saved as text where text
+ * holds every one of their types and no question that opens on the
+ * property's value casts it (`ruleSets.ts::joinsAsText`); the facts come
  * from `lib/domain/expression/inference.ts::hiddenWriterVerdicts`. Each
  * writer is one finding, whose `details.paths` lists every offending output
  * and whose reason is the most serious of three:
@@ -13,7 +16,7 @@
  * - `type`: the value is not write-assignable to the property
  *   (`ruleSets.ts::isWriteAssignable`: storage assignability, plus a
  *   `format-date` fixed to `%Y-%m-%d` into a date, which `DateData.cast`
- *   reads back). A follow-up question that fills itself from a date, time,
+ *   reads back, and a number or a date into text). A follow-up question that fills itself from a date, time,
  *   number or location property casts the saved text through its own answer
  *   class at form open, and text the class can't read stops the form
  *   (`CASTING_PROPERTY_TYPES`); a property of several choices is kept on each
@@ -27,12 +30,14 @@
  *   Value dropped, saved to a date-and-time property, so the case would hold
  *   midnight instead of the moment.
  * - `hidden-disagreement`: only Hidden Values type the property and they name
- *   different types, one a question casts, so the property has none and a
- *   question of that kind could stop on the others' values. A disagreement
- *   among text and choices alone leaves the property untyped, read back as
- *   text, which every one of those values is. `details.disagreement` says
- *   whether the writer's own results disagree (`own`) or it disagrees with
- *   the other Hidden Value writers (`others`).
+ *   different types, one a question casts, that are not saved as text: one
+ *   is a date and time, a time or a location, or a question opens on the
+ *   property's value through an answer class that casts it
+ *   (`details.castBy`, the question it names), and would stop on the others'
+ *   values. A disagreement among text and choices alone leaves the property
+ *   untyped, read back as text, which every one of those values is.
+ *   `details.disagreement` says whether the writer's own results disagree
+ *   (`own`) or it disagrees with the other Hidden Value writers (`others`).
  *
  * A blank `''` fits every property (`Recalculate.wrapData` stores no value),
  * an output nothing types holds no opinion, and a starting value that reads
@@ -132,14 +137,23 @@ function writerError(
 			: `Forms and case lists that read "${writer.property}" would get ${gives} where they expect ${holds}.`;
 	const change =
 		writer.source === "default_value" ? "starting value" : "calculation";
+	const reader = castingReaderPhrase(doc, property);
+	const opensOn =
+		reader === undefined
+			? `A form that fills a question from "${writer.property}" can't know what it holds.`
+			: `${reader.sentence} would stop on the others.`;
+	const instead = (one: "it" | "this one") =>
+		reader === undefined
+			? `or save ${one} to another property.`
+			: `change "${reader.field}" so it starts another way, or save ${one} to another property.`;
 	const message =
 		reason === "clock-lost"
 			? `${subject} saves a date and time to ${target}, which holds a date and time, but the value keeps only the day because ${clockName} doesn't keep the time. The case would hold midnight instead of the moment. You can save it from a question or from now() instead.`
 			: reason === "hidden-disagreement"
 				? disagreement === "own"
-					? `${subject} saves ${gives} to ${target} from different results, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every result of the ${change} give the same kind of value, or save it to another property.`
-					: `${subject} saves ${valueKindPhrase(writer.opinion ?? valueTypes[0])} to ${target}, and other hidden values save ${otherHiddenPhrase(doc, writer)} there, so the property has no one type. A form that fills a question from "${writer.property}" can't know what it holds. You can make every hidden value that saves there give the same kind of value, or save this one to another property.`
-				: `${subject} saves ${gives} to ${target}, which holds ${holds} (${origin.phrase}). ${consequence} You can change the ${change} so it gives ${holds}, or save it to another property.${clockAlso ? ` Another of its results also keeps only the day because ${clockName} doesn't keep the time.` : ""}`;
+					? `${subject} saves ${gives} to ${target} from different results, so the property has no one type. ${opensOn} You can make every result of the ${change} give the same kind of value, ${instead("it")}`
+					: `${subject} saves ${valueKindPhrase(writer.opinion ?? valueTypes[0])} to ${target}, and other hidden values save ${otherHiddenPhrase(doc, writer)} there, so the property has no one type. ${opensOn} You can make every hidden value that saves there give the same kind of value, ${instead("this one")}`
+				: `${subject} saves ${gives} to ${target}, which holds ${holds} (${origin.phrase}). ${reader === undefined ? consequence : `${reader.sentence} would stop on any other kind.`} You can change the ${change} so it gives ${holds}, or save it to another property.${clockAlso ? ` Another of its results also keeps only the day because ${clockName} doesn't keep the time.` : ""}`;
 	const paths = verdict.findings
 		.filter((finding) => finding.reason === reason)
 		.map((finding) => finding.path);
@@ -180,6 +194,7 @@ function writerError(
 			...(valueTypes.length > 1 ? { valueTypes: valueTypes.join(",") } : {}),
 			...(property.type === undefined ? {} : { propertyType: property.type }),
 			...origin.details,
+			...(reader === undefined ? {} : { castBy: reader.field }),
 			...(clockSource === undefined ? {} : { clockSource }),
 		},
 	);
@@ -234,9 +249,32 @@ function originDetails(
 				phrase: "saved by the other hidden values that write it",
 				details: { origin: "hidden" },
 			};
+		case "joined":
+			return {
+				phrase: `its writers save ${valueKindsPhrase(origin.types)}, which it holds as text`,
+				details: { origin: "joined" },
+			};
 		default:
 			return { phrase: "its type", details: {} };
 	}
+}
+
+/** The question whose starting value is the property's value under an
+ * answer class that casts it, which kept the writers from being saved as
+ * text, with the clause that names it. */
+function castingReaderPhrase(
+	doc: BlueprintDoc,
+	property: PropertyAgreement,
+): { readonly field: string; readonly sentence: string } | undefined {
+	const reader = property.castBy;
+	if (reader === undefined) return undefined;
+	const field = doc.fields[reader.field]?.id ?? "a question";
+	const form = formOfField(doc, reader.field);
+	const formName = form === undefined ? undefined : doc.forms[form]?.name;
+	return {
+		field,
+		sentence: `"${field}" in "${formName ?? "another form"}" opens on its value as ${valueKindPhrase(reader.type)}, and`,
+	};
 }
 
 /** What the other Hidden Value writers of the property give instead. */

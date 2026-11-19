@@ -215,6 +215,17 @@ pick one of the question's choices by its label. The condition stays connected
 to that choice, so changing the choice's saved value updates the condition too,
 and the choice can't be removed while the condition compares with it.
 
+A condition can also be a yes or no answer on its own. A hidden value calculated
+as a condition, such as “a note was given,” can decide whether a referral opens,
+with no comparison beside it. Any other answer needs one: a text or choice
+answer of `0` still counts as answered, so compare it with the value you mean.
+
+A number and the text of a number compare as people expect. A choice whose
+saved values are `1` and `0` can be compared with the number `1`, and a whole
+number with `'1'`, in a case change and in a case list's columns and filter.
+In a Search field's condition, and in the filter of a list that offers Search,
+compare like with like: the choice with `'1'`, or the number with `1`.
+
 When a value's condition is false, that property stays as it was. Preview skips
 the value's calculation, so unanswered inputs used only by that skipped value
 do not block submission.
@@ -327,8 +338,14 @@ saved and the response says what to adjust.
 An operation can save a text value into a single-choice property, or an integer
 into a decimal property, without adding a helper question. Choice labels and
 options belong to the question; saved values can also come from an operation.
-Nova still checks every possible result of an expression against the destination
-type, so a fractional value cannot be assigned to an integer property.
+A number or a date saved into a text property is kept as the text a phone saves
+for it: a whole number as its digits, a decimal number as Java writes it, a date
+as `2024-05-01`. Writers of one property that agree on no one kind of value are
+kept as text the same way, unless one of them is a date and time, a time or a
+location, or a question opens showing the property as a number, a date, a time
+or a location. Nova still checks every possible result of an expression against
+the destination type, so a fractional value cannot be assigned to an integer
+property.
 
 ## Remove unused property definitions
 

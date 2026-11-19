@@ -6,7 +6,7 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 
 A summary of the gates behind every row in the other inventory files; these rows are not counted. "Gate" is the class of the flag itself; "content" points at the rows it governs. A gate over held content is a target precondition: Nova's preflight checks feature flags through `user_domains?feature_flag=` (`api/resources/v0_5.py`), and has the person confirm each privilege an app's content needs at publish, since no HQ API returns a project space's privileges to an ordinary credential.
 
-### App-building toggles (70)
+### App-building toggles (72)
 
 | Toggle (slug) [tag] | Gate · content | Web Apps / Android | Preflight / refusal |
 |---|---|---|---|
@@ -76,6 +76,8 @@ A summary of the gates behind every row in the other inventory files; these rows
 | CASE_SEARCH_ENDPOINTS [internal] | TARGET-OWNED · HELD-NEW (Search configuration typed endpoint reference) | n/a | precondition; publish states the endpoint dependency, which Nova cannot see |
 | COPY_FORM_TO_APP [internal] | INERT · no content | n/a | none |
 | CUSTOM_APP_BASE_URL [internal] | TARGET-OWNED · `custom_base_url` target value | n/a | none |
+| DETAILED_TAGGING [internal] | INERT · no content: it names the project space in the metrics of an Elasticsearch query (`util/metrics/__init__.py::limit_domains`), which a build makes where the multimedia map names a path no reference holds: the build drops the mapping and saves the app (`hqmedia/models.py::ApplicationMediaMixin.remove_unused_mappings`), and the save's refresh of the data dictionary lists the project space's case types (`reports/analytics/esaccessors.py::get_case_types_for_domain_es`) | n/a | none |
+| ES_QUERY_PREFERENCE [internal] | INERT · no content: it routes that query to the same shards each time (`es/client.py::ElasticDocumentAdapter._search`), which changes no result | n/a | none |
 | IS_CONTRACTOR [internal, user] | INERT · no content | n/a | none |
 | MOBILE_RECOVERY_MEASURES [internal] | TARGET-OWNED · computed profile URL | n/a | none |
 | FACE_CAPTURE [release] | TARGET-OWNED · HELD-NEW (Question types face capture) | n/a | none: it gates only creating the question in Vellum (`core.js`), and HQ reads it nowhere else |

@@ -29,7 +29,10 @@ import {
 	type ColumnDisplayContext,
 	resolveCalculatedTemporalType,
 } from "@/lib/preview/columnDisplay";
-import { projectLocalizedCaseProperties } from "@/lib/preview/localizedCaseProperties";
+import {
+	projectLocalizedCaseProperties,
+	relatedColumnProperties,
+} from "@/lib/preview/localizedCaseProperties";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
 
 /**
@@ -69,6 +72,16 @@ export function useColumnDisplayContext(
 			localizedValues,
 		],
 	);
+	const relatedProperties = useMemo(
+		() =>
+			relatedColumnProperties(
+				config,
+				currentCaseType,
+				effectiveCaseTypes,
+				localizedValues,
+			),
+		[config, currentCaseType, effectiveCaseTypes, localizedValues],
+	);
 	const today = useLocalCalendarDay();
 	const projectProse = useProseProjection();
 	const lookupTypes = useExpressionLookupTypes();
@@ -104,6 +117,7 @@ export function useColumnDisplayContext(
 			language,
 			calculatedTemporalTypes,
 			caseProperties,
+			relatedProperties,
 			today,
 			reading: columnsReading,
 			projectProse,
@@ -112,6 +126,7 @@ export function useColumnDisplayContext(
 			language,
 			calculatedTemporalTypes,
 			caseProperties,
+			relatedProperties,
 			today,
 			columnsReading,
 			projectProse,

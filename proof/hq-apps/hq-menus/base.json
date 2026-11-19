@@ -1,0 +1,38 @@
+{
+	"id": "hq-menus",
+	"configuration": {
+		"flags": [
+			"SESSION_ENDPOINTS"
+		],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"FORM_LINK_WORKFLOW"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/40-hq-cloudcare-enabled",
+		"forms-and-case-writes/form-filter-lifting-into-predicate-a-direct-own-case-property-in",
+		"forms-and-case-writes/form-links-datums-on-a-form-target-names-among-the-target-s",
+		"forms-and-case-writes/form-links-target-a-form-any-suite-form",
+		"forms-and-case-writes/form-links-xpath",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/post-form-workflow-fallback-module-or-previous-screen-offered-in",
+		"forms-and-case-writes/post-form-workflow-form",
+		"forms-and-case-writes/session-endpoint-id",
+		"forms-and-case-writes/update-case-update-property-question",
+		"menus-and-case-lists/case-list-form-media-image-media-audio",
+		"menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module",
+		"menus-and-case-lists/case-list-form-post-form-workflow-default-case-list",
+		"menus-and-case-lists/case-list-session-endpoint-id",
+		"menus-and-case-lists/child-menu-one-tier-root-module-id-a-parentless-module",
+		"menus-and-case-lists/module-case-list-label-lang",
+		"menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms",
+		"menus-and-case-lists/module-filter-value-lifts-into-predicate",
+		"questions/text-input-xsd-string"
+	]
+}

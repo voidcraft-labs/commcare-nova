@@ -184,6 +184,12 @@ def project(document, configuration="minimum", *, web_apps=True):
             f"{document.id} declares Android only, so no worker opens it in Web Apps and HQ's Web Apps page lists no"
             " build of it. A Web Apps test reads a document that declares Web Apps (Document.platforms)."
         )
+    if document.authored is not None:
+        raise AssertionError(
+            f"{document.id} is an app made in CommCare HQ, which Nova never published first: its A is the app HQ made"
+            " (proof/observe/publish.py::create_authored), and project() makes Nova's first publish. A test of such"
+            " a document makes A itself and serves it through Project.released, as proof/views/test_exports.py does."
+        )
     export = document.exports[configuration]
     held = export.configuration.hq()
     if WEB_APPS_PRIVILEGE not in held.privileges:

@@ -1,0 +1,25 @@
+{
+	"id": "hq-media",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/multimedia-map",
+		"expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map",
+		"expressions-and-data/audio-mp3-aac-in-m4a-brand-m4a-m4b-flac-pcm-wav-8-or-16-bit",
+		"expressions-and-data/image-png-jpeg-gif-webp",
+		"expressions-and-data/media-path-jr-file",
+		"expressions-and-data/video-mp4-h-264-baseline-or-main-with-aac-lc-or-no-audio-webm",
+		"forms-and-case-writes/media-image-media-audio-same-asset-every-language",
+		"menus-and-case-lists/media-image-media-audio-same-asset-in-every-language",
+		"questions/choice-audio-video",
+		"questions/choice-image",
+		"questions/label-image-audio-video-same-asset-every-language"
+	]
+}

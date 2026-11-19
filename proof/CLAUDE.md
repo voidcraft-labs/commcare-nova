@@ -4,7 +4,8 @@ The proof lane holds every Nova export to CommCare's own code at pinned
 upstream commits: HQ's import, build, case processing, editors, receiver,
 restore and Connect repeater, CommCare Core's runtime, Formplayer's
 application, HQ's Web Apps client, CommCare Android's own app and CommCare
-Connect's own server, over a reproducible corpus. Every pull request runs it
+Connect's own server, over a reproducible corpus of Nova's documents and of
+apps HQ's own pages and models made. Every pull request runs it
 without the readers (`PROOF_READERS=0`, `proof/lane/readers.py`: HQ and Core
 whole, no state served to Formplayer, the client, a device or Connect); each
 scheduled night runs it with every reader over what changed since main's last
@@ -66,20 +67,33 @@ harness keeps, each with its reason.
   (`Unit.committing`). Each run of a walk is a fork of the unit, so no run
   reads what another's submission left; start each run as a worker who
   cleared their data, and give each runner its own database and Redis.
-- **The accepted seams are these four, each for its reason; a new one is a
+- **The accepted seams are these five, each for its reason; a new one is a
   claim to justify here.**
-  - *A restore hands a worker's cases, and HQ's lookup table resource lists
-    a project space's tables, in id order*
+  - *A restore hands a worker's cases, and HQ's lookup table and level
+    resources list a project space's tables and levels, in id order*
     (`proof/formplayer/hq.py::cases_in_id_order`,
-    `proof/hq/operations.py::lookup_tables_in_id_order`). HQ asks its
-    database for no order (`livequery.py::batch_cases`,
-    `LookupTableManager.by_domain`), so the order is whatever Postgres
+    `proof/hq/operations.py::lookup_tables_in_id_order`,
+    `location_types_in_id_order`). HQ asks its database for no order
+    (`livequery.py::batch_cases`, `LookupTableManager.by_domain`,
+    `LocationTypeResource`'s unordered queryset), so the order is whatever Postgres
     returns, which follows what earlier units wrote and rolled back in the
     worker's database, and every fixed order is one production can give;
     the lane needs one for its records to be byte-identical. What a device
     shows is not the restore's order where it matters: HQ's build gives an
     unsorted list a default sort on its first column, and Nova reads the
-    table list by id and tag.
+    table list by id and tag and the levels by code.
+  - *An app made in HQ holds the lane's own media files*
+    (`proof/matrix/media.py::stand_in`). HQ fetches a template app's media
+    from addresses the lane does not reach, and attaches whatever it
+    fetched; the lane attaches a file of the same kind at each path with the
+    same calls (`load_app_from_slug`'s, `proof/matrix/bases/_pages.py`), and
+    the bases that put media in through HQ's own uploaders (`hq-media`, with
+    its videos, `hq-menus`' picture and `hq-kept-settings`' logos) send the
+    same stand-ins. What a picture, a sound or a video shows is no claim the
+    lane makes; where it sits, what kind it is and that Nova keeps it there
+    are, and `proof/matrix/stand-ins.json` holds each stand-in to HQ's own
+    classification (`test_media.py`) and to Nova's judge of a file
+    (`proof/matrix/__tests__/standIns.test.ts`).
   - *A page's repeating timers of 10 s or more are held*
     (`proof/editors/driver/steps/page/polls.js`), and so is Elasticsearch's
     own refresh timer (`proof/hq/elasticsearch.py`, each written index
@@ -198,7 +212,24 @@ harness keeps, each with its reason.
   the gate entries) runs HQ, Core, Formplayer
   and the browsers and writes records; the judges (the rest of `proof/checks`,
   and `proof/rules`) are pure functions of records and import neither HQ nor
-  Django. Records and judgments are reused across runs under keys
+  Django. Two judges run one product of Nova's: `proof/checks/proof6.py` and
+  `proof/checks/parity.py` run the reader bundle the corpus carries
+  (`native/reader/reader.mjs`, and sharp's runtime beside it, each of its
+  files held by name, `readerbundle.py::held_runtime`; built by
+  `proof/reader/build.mjs` in the corpus job) under the image's Node, through
+  `proof/checks/readerbundle.py`; the first-publish judge reads the claim log
+  parity's judge read (`parity.inert_of`). The bundle reads its requests file
+  and nothing else, and its digest is part of every corpus document's judged
+  key (`proof/store/keys.py::judged_under`), so a judgment stands for the
+  reader that made it. No other judge runs a product of Nova's while it
+  judges (`test_judge_purity.py`); beside those two, only `proof/matrix`
+  runs the bundle, to read the bases and their variants
+  (`retain.py::run_bundle`), and every package whose tests reach it carries
+  the `reader` kind in its stored key (`proof/store/queue.py::PACKAGE_DATA`,
+  held by `proof/lane/test_blocks.py`). The bundle is never
+  run inside an observation, so a reader change observes no Nova-born
+  document again; a base whose reading changes is emitted anew and observed
+  again, as an emission change would be. Records and judgments are reused across runs under keys
   fingerprinted by each side's files (`proof/store/fingerprints.py`; the
   observation's fingerprint, `in_observation`, covers the partition and the
   lane's container configuration, `LANE_FILES`), so a judge that ran HQ, or an
@@ -269,6 +300,18 @@ harness keeps, each with its reason.
   where that republish names an id the capture's peer drew in HQ's place,
   the HQ side writes HQ's own in its stead (`observe/publish.py::held_ids`),
   never the reverse.
+- **An HQ-authored A is HQ's own.** A base is made by HQ's views, models
+  and form builder in `proof/matrix`, retained under `proof/hq-apps/` and
+  held to the pin byte for byte (`test_retained.py`); the unit saves it again
+  from its stored document (`proof/hq/operations.py::save_authored_app`,
+  `Application.from_source` and `save_attachments`) and never through Nova's
+  import. Its case database is seeded from A alone (`proof/matrix/seed.py`),
+  so a reader that drops something cannot empty both walks. What a person
+  writes about a base (`proof/matrix/hand/`) is written from A's authored
+  meaning, never from a reading. Where a person's saves in HQ precede a
+  republish (`brings-in`, `records`), HQ's own answer after the same saves is
+  held to what Nova's review read of the capture's peer (proof 6's
+  `document@saved`), so the peer never stands for HQ unchecked.
 - **A republish after a migration is observed on its witness.** A migration
   that changes the wire or an identity has a targeted witness whose A is the
   retained export from before it (`proof/migrations/<id>/`) and whose B is
@@ -290,14 +333,20 @@ harness keeps, each with its reason.
   difference a check reports is held by an entry of `known-defects.json` or
   erased by a spelling rule, and every entry must hold some difference no
   other entry holds on its document and still show on its control (step 1's
-  decision 12, `proof/README.md`). On a document whose saves in CommCare HQ
-  Nova brings in, a difference a row of a change its review lists for the
-  next publish names (`first-publish-changes.json`, the statement's
-  `publishChanges`, `proof/checks/changes.py`) is the one other thing proofs
-  1 to 3 may accept; the `changes` check holds that list strict both ways
-  over the three proofs, reads it on no other document and takes no
-  known-defect entry. Its rows are written from the document's evidence
-  (`python3 -m proof.checks.changes rows`), never typed. A fix moves its entries to
+  decision 12, `proof/README.md`). Two other things a check may accept, each
+  a row of a change the changes register (`first-publish-changes.json`,
+  `proof/checks/changes.py`) holds for the document: on a document made in HQ
+  (`hq-authored`), a change its reading says Nova's first publish makes
+  (`first-publish.json`); on a document whose saves in CommCare HQ Nova
+  brings in, a change its review lists for the next publish (the statement's
+  `publishChanges`), on proofs 1 to 3. The `changes` check holds each list
+  strict both ways and reads it on no other document; rows other than
+  `source`'s are written from the document's evidence (`python3 -m
+  proof.checks.changes rows`), never typed. Proof 6, parity, the stored-app
+  comparison and the changes judge take no known-defect entry: a difference
+  of theirs means Nova's reader, its manifest, the review's list or the
+  register's rows are wrong, and it is fixed where it is found
+  (`registers.py` refuses such an entry). A fix moves its entries to
   `fixed-defects.json` in the same pull request, where each must still show
   on its control and is held on no document. From step 5 the known register
   is empty; an entry added later names a defect `OPEN_DEFECTS` gives to a

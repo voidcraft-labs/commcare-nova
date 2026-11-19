@@ -3,9 +3,10 @@ name: Upstream pins
 # The weekly pin pull request (proof/README.md, "Changing a pin"). Upstream
 # changes reach Nova as one pull request a week that moves proof/pins.json to
 # each upstream's default-branch head, with the image built at those pins
-# (proof/image.lock) and the surface regenerated from them
-# (lib/commcare/surface/surface.json), so every check runs against the new
-# upstream code before a person adopts it by merging. There is only ever one
+# (proof/image.lock), the surface regenerated from them
+# (lib/commcare/surface/surface.json), and the retained HQ answers and apps
+# made again at them (proof/hq-reads/, proof/hq-apps/), so every check runs
+# against the new upstream code before a person adopts it by merging. There is only ever one
 # such pull request: a week with new heads replaces its one commit, and a week
 # with nothing new leaves it as it is, its description's date going stale.
 #
@@ -26,13 +27,20 @@ name: Upstream pins
 # this schedule's runs write the default branch's caches, which every pull
 # request can read. The prewarm
 # checks the tree the pull request will carry: the branch with the lock the
-# report job commits (the candidate image and the new pins) and the
-# regenerated surface, so its records and judgments are keyed as the pull
+# report job commits (the candidate image and the new pins), the
+# regenerated surface and, where the retained job made them, the regenerated
+# retained trees, so its records and judgments are keyed as the pull
 # request's own run looks them up.
 #
+# A pin move can change any byte HQ answers or makes: the retained job runs
+# the tests that write what HQ made at the new pins before they hold the
+# committed trees to it, whatever their verdict, and adopts what they wrote
+# (python3 -m proof.matrix.adopt), which the report job commits only beside
+# the lock, since the trees answer the new image.
+#
 # The workflow never merges. The jobs that run upstream code (the surface
-# extraction, the prewarm, the readers' lane) hold only a read token; the jobs
-# that write run none.
+# extraction, the retained trees, the prewarm, the readers' lane) hold only a
+# read token; the jobs that write run none.
 on:
   # Monday, just after midnight. The shared FIFO concurrency group waits for the weekly audit if it is still
   # running, and the image comparison waits for this run (proof/README.md, "The other workflows").
@@ -118,9 +126,106 @@ jobs:
           path: lib/commcare/surface/surface.json
           retention-days: 7
 
+  # What HQ answers and makes at the new pins (proof/README.md, "Changing a pin"). The lane's own corpus, with
+  # its native products, is emitted first, so the run and adopt's report read the one reader bundle it carries.
+  retained:
+    name: Make the retained HQ answers and apps again at the new pins
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: upstream/pins
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Record the candidate image in the lock
+        env:
+          CANDIDATE: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
+        run: node proof/ci/candidate.mjs --image "$CANDIDATE"
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          # The registry sometimes resets a connection mid-download (ECONNRESET), which npm does not
+          # retry; a reset is tried again, and any other failure, or a third reset, fails the step.
+          for attempt in 1 2 3; do
+            if npm install --global "npm@$npm_version" --ignore-scripts 2> "$RUNNER_TEMP/npm-self-install.log"; then break; fi
+            cat "$RUNNER_TEMP/npm-self-install.log" >&2
+            if [ "$attempt" = 3 ] || ! grep -q ECONNRESET "$RUNNER_TEMP/npm-self-install.log"; then exit 1; fi
+          done
+      - run: npm ci
+      - name: Emit the proof corpus
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs"
+          python3 -m proof.native.produce --out "$RUNNER_TEMP/native" > "$RUNNER_TEMP/logs/produce.log" 2>&1 &
+          produce=$!
+          trap 'kill "$produce" 2> /dev/null || true' EXIT
+          node --conditions=react-server --import ./proof/corpus/entropy.mts \
+            --import tsx proof/corpus/emit.ts --out "$RUNNER_TEMP/corpus" --jobs 4
+          produced=0
+          wait "$produce" || produced=$?
+          cat "$RUNNER_TEMP/logs/produce.log"
+          if [ "$produced" != 0 ]; then
+            echo "::error::The native proofs' products could not be written (python3 -m proof.native.produce exited $produced); its output is above."
+            exit 1
+          fi
+          mv -T "$RUNNER_TEMP/native" "$RUNNER_TEMP/corpus/native"
+      - name: Run the tests that write what HQ made
+        env:
+          PROOF_READERS: '0'
+          PROOF_CORPUS: ${{ runner.temp }}/corpus
+          PROOF_OUT_DIR: ${{ runner.temp }}/retained-out
+        run: |
+          # Each test writes what HQ made before it holds the committed tree to it, so a hold that fails because
+          # the new pins changed a tree (exit 1, an item failed) still leaves the new tree for adopt. Exit 1 is also
+          # proof/run.mjs's own refusal before the lane starts; adopt then finds nothing written and refuses by
+          # name. Any other exit is the lane's (proof/lane/serve.py: 2, it could not start; 3, a worker failed
+          # during the run), which leaves trees no one can trust.
+          code=0
+          node proof/run.mjs proof/matrix/test_retained.py proof/hq/test_retained_reads.py \
+            proof/editors/test_retained_reads.py || code=$?
+          case $code in
+            0|1) ;;
+            *)
+              echo "::error::The run that makes the retained trees ended with exit $code before its tests finished; its output is above."
+              exit "$code"
+              ;;
+          esac
+      - name: Adopt what HQ made into the retained trees
+        run: |
+          mkdir -p "$RUNNER_TEMP/upstream-retained"
+          python3 -m proof.matrix.adopt "$RUNNER_TEMP/retained-out" --report --corpus "$RUNNER_TEMP/corpus" \
+            > "$RUNNER_TEMP/upstream-retained/adopt-report.txt"
+          cat "$RUNNER_TEMP/upstream-retained/adopt-report.txt"
+          node proof/ci/retained.mjs proof "$RUNNER_TEMP/upstream-retained"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: upstream-retained
+          path: ${{ runner.temp }}/upstream-retained/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: upstream-retained-run
+          path: |
+            ${{ runner.temp }}/retained-out/
+            ${{ runner.temp }}/logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Wherever the pull request will carry the lock and the surface: with the regenerated trees where the retained job
+  # made them, and main's otherwise, as the report job commits them.
   prewarm:
     name: Prewarm main's evidence store for the candidate image
-    needs: [image, surface]
+    needs: [image, surface, retained]
+    if: ${{ !cancelled() && needs.image.result == 'success' && needs.surface.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
@@ -128,6 +233,7 @@ jobs:
       ref: upstream/pins
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
       surface: upstream-surface
+      retained: ${{ needs.retained.result == 'success' && 'upstream-retained' || '' }}
       label: prewarm
       readers: false
       shards: '8'
@@ -139,7 +245,7 @@ jobs:
   # After the prewarm, whatever it found: the two together would hold more than fourteen runners.
   readers:
     name: Every reader on the candidate image
-    needs: [image, surface, prewarm]
+    needs: [image, surface, retained, prewarm]
     if: ${{ !cancelled() && needs.image.result == 'success' && needs.surface.result == 'success' }}
     permissions:
       contents: read
@@ -148,16 +254,19 @@ jobs:
       ref: upstream/pins
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
       surface: upstream-surface
+      retained: ${{ needs.retained.result == 'success' && 'upstream-retained' || '' }}
       label: prewarm-readers
       # Its verdict fails this run where a reader does not hold on the new pins, before a person merges them.
       store: compare
 
   report:
     name: Open or update the pin pull request
-    needs: [plan, image, surface, prewarm]
+    needs: [plan, image, surface, retained, prewarm]
     # Runs whenever the plan moved the pins, including when the image or the
     # surface failed: the pull request then carries the new pins alone and
-    # names the failed step, and CI on it is red.
+    # names the failed step, and CI on it is red. Where only the retained job
+    # failed, it carries the lock and the surface with main's retained trees,
+    # and names that job.
     if: ${{ always() && needs.plan.outputs.action == 'update' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -178,12 +287,18 @@ jobs:
         with:
           name: upstream-surface
           path: ${{ runner.temp }}/upstream-surface
-      - name: Commit the lock and surface, and update the pull request
+      - uses: actions/download-artifact@v8
+        if: ${{ needs.retained.result == 'success' }}
+        with:
+          name: upstream-retained
+          path: ${{ runner.temp }}/upstream-retained
+      - name: Commit the lock, surface and retained trees, and update the pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_RESULT: ${{ needs.image.result }}
           DIGEST: ${{ needs.image.outputs.digest }}
           SURFACE_RESULT: ${{ needs.surface.result }}
+          RETAINED_RESULT: ${{ needs.retained.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           git config user.name "github-actions[bot]"
@@ -193,5 +308,7 @@ jobs:
             --digest "$DIGEST" \
             --surface-result "$SURFACE_RESULT" \
             --surface "$RUNNER_TEMP/upstream-surface/surface.json" \
+            --retained-result "$RETAINED_RESULT" \
+            --retained "$RUNNER_TEMP/upstream-retained" \
             --run-url "$RUN_URL" \
             --reviewer bperry0xff

@@ -11,9 +11,12 @@ judgments', each record part's storage key, a browser transcript's, and a
 package group's (a package keyed on a sample of the corpus by that sample
 alone); a test module changes the package groups' keys alone, but the one
 whose items run in documents' groups (HQ's branch proof), which changes the
-judgments' too; and a file no partition holds changes none. The parts that drive the
-browser name its code in their own keys (proof 4's declared inputs), so the
-store keeps no browser fingerprint beside any part. And a document's key
+judgments' too; the reader bundle the corpus carries changes a corpus
+document's judgment and the package groups that run it, and nothing a
+control's judgment, an observation or a native family reads; and a file no
+partition holds changes none. The parts that drive the browser name its
+code in their own keys (proof 4's declared inputs), so the store keeps no
+browser fingerprint beside any part. And a document's key
 changes wherever any of its parts' keys does, since the queue builder
 learns a document's parts from its key alone; a browser run's transcript
 changes with any code that starts the browser or records what it did.
@@ -25,7 +28,9 @@ driver, or of a test module), a document key that reads another document's files
 key that stays while a part's key moves (a driver edit leaving every
 document cached, proof 4 never driven again), a transcript replayed over
 outputs shaped by code that has since changed, a part whose key does not
-read a file it observes, and a part key that names the image, which would
+read a file it observes, a reader change that observes a document whose
+files did not change or leaves a stale judgment or a stale package verdict
+cached, and a part key that names the image, which would
 draw a unit's HQ entropy differently on each image and make two images'
 records incomparable.
 
@@ -199,7 +204,7 @@ CASES = {
         lambda checkout, corpus: (checkout / "proof/fixed-defects.json").write_text('[{"id": "x"}]\n'),
         {"judgment one"} | PACKAGES,
     ),
-    "the register of the changes a publish makes": (
+    "the changes register": (
         lambda checkout, corpus: (checkout / "proof/first-publish-changes.json").write_text('[{"change": "x"}]\n'),
         {"judgment one"} | PACKAGES,
     ),
@@ -304,6 +309,76 @@ def test_each_part_that_drives_a_browser_names_the_browsers_code_in_its_key(tmp_
     ):
         edited = unit.part_keys(inputs, "minimum", DATABASES, {**declared, state: {hook: {"browser": "edited"}}})
         assert {part for part in held if held[part] != edited[part]} == changed
+
+
+def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes_none(
+    tmp_path, checkout, corpus, monkeypatch
+):
+    """The reader bundle the corpus carries (``native/reader/``) is in a corpus document's judged key
+    (``keys.judged_under``) and in the key of each package whose tests run it (``queue.PACKAGE_DATA``'s
+    ``reader``), and in no other: no part, document or transcript key, no control's judgment, no native family's
+    digest. So over a store holding a whole run, a bundle that differs by one byte, beside the same documents,
+    queues every corpus document as judged, observes none, keeps every control cached, runs again the package
+    groups that run the bundle (``proof/matrix``'s two and ``proof/checks``), and keeps every other one cached,
+    the one that reads the native products among them. Run again and packed, every group is cached under the new
+    bundle."""
+    from proof.checks import sharding
+    from proof.store import pack
+    from proof.store.conftest import copied_control
+    from proof.store.test_queue import _build, _queued, _ran
+
+    monkeypatch.setattr(sharding, "SPLIT", {"matrix/test_retained.py": ()})
+    groups = {"corpus:one": 4.0, "corpus:two": 6.0, "proof/checks": 9.0}
+    timings = {"profiles": {"readers": {"groups": groups}, "no-readers": {"groups": groups}}}
+    write_files(
+        checkout,
+        {
+            "proof/timings.json": json.dumps(timings),
+            "proof/matrix/conftest.py": 'DOCUMENTS = ("one",)\n',
+            "proof/matrix/test_retained.py": "def test_retained():\n    pass\n",
+            "proof/matrix/test_seed.py": "def test_seed():\n    pass\n",
+            "proof/native/test_family.py": "def test_family():\n    pass\n",
+        },
+    )
+    control = copied_control(checkout / "proof" / "controls")
+    register = [{"id": "d1", "check": "bar", "document": "one", "control": control.id}]
+    (checkout / "proof" / "known-defects.json").write_text(json.dumps(register))
+    documents = ["corpus:one", "corpus:two"]
+    running = ["proof/checks", "proof/matrix", "proof/matrix/test_retained.py"]
+    others = ["proof/editors", "proof/native"]
+    every = sorted([control.group, *documents, *running, *others])
+
+    cold = _build(checkout, tmp_path / "cold.json", corpus=corpus)
+    assert cold["reader"] == keys.reader_digest(corpus) is not None
+    assert cold["classes"]["observed"] == every
+    store = pack.write(
+        pack.gather([_ran(checkout, corpus, tmp_path / "cold-run", tmp_path / "cold.json")], [tmp_path / "cold.json"]),
+        tmp_path / "cold-store",
+    )
+    warm = _build(checkout, tmp_path / "warm.json", corpus=corpus, stores=[store])
+    assert warm["classes"] == {"cached": every, "judged": [], "observed": []}
+
+    bundle = corpus / keys.READER / "reader.mjs"
+    changed_bytes = bytearray(bundle.read_bytes())
+    changed_bytes[0] ^= 1
+    bundle.write_bytes(bytes(changed_bytes))
+    native = keys.native_digest(corpus)
+    changed = _build(checkout, tmp_path / "changed.json", corpus=corpus, stores=[store])
+    assert changed["reader"] == keys.reader_digest(corpus) != cold["reader"]
+    assert keys.native_digest(corpus) == native
+    assert changed["classes"] == {
+        "cached": sorted([control.group, *others]),
+        "judged": documents,
+        "observed": running,
+    }
+    # The documents' own keys, which name their record parts, did not move: only their judged keys did.
+    assert [_queued(changed)[name]["key"] for name in documents] == [_queued(cold)[name]["key"] for name in documents]
+
+    # Judged again under the new bundle, the run's judgments are kept under it, and the next queue reads them.
+    again = _ran(checkout, corpus, tmp_path / "changed-run", tmp_path / "changed.json")
+    store = pack.write(pack.merged([store, pack.gather([again], [tmp_path / "changed.json"])]), tmp_path / "store")
+    after = _build(checkout, tmp_path / "after.json", corpus=corpus, stores=[store])
+    assert after["classes"] == {"cached": every, "judged": [], "observed": []}
 
 
 def test_a_git_checkout_is_fingerprinted_from_its_index_and_its_edits_as_a_walked_copy_is(tmp_path, checkout):

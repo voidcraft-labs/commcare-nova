@@ -556,6 +556,36 @@ describe("a case preload, read as the question's default", () => {
 		);
 	});
 
+	it("refuses a preload into a node Nova generates beside a question, which HQ reads as a calculated Hidden Value, at that node", async () => {
+		// A date-and-time question saved to its case writes through the sibling Nova generates for
+		// it, whose bind calculates the stored text: CommCare HQ's form builder reads it as a Hidden
+		// Value with a calculation, which overwrites a load into it.
+		const reading = await preloaded(
+			[
+				f({
+					kind: "datetime",
+					id: "seen_at",
+					label: "Seen",
+					caseWrite: { caseType: "patient", property: "seen_at" },
+				}),
+			],
+			{ "/data/nova_datetime_seen_at": "seen_at" },
+		);
+		expect(
+			reading.findings
+				.filter((one) => one.code.startsWith("forms-and-case-writes/"))
+				.map((one) => [
+					one.code,
+					one.place.kind === "question" ? one.place.path : one.place.kind,
+				]),
+		).toEqual([
+			[
+				"forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
+				"nova_datetime_seen_at",
+			],
+		]);
+	});
+
 	it("refuses a worker-record preload into a Hidden Value with a calculation as a question that holds no default", async () => {
 		const reading = await readCases(
 			followup([
@@ -708,6 +738,19 @@ describe("a case preload, read as the question's default", () => {
 					source: "worker-record",
 				},
 			});
+		});
+
+		it("puts the property it mints in the code-unit order of the slugs, as a re-read of Nova's export of it orders them", async () => {
+			// Nova writes the preload as a default the logic reads, so the re-read meets `district`
+			// among the logic's reads (`worldEntitiesFromReads`), in slug order beside `mood`.
+			const { reading } = await workerPreload("district");
+			expect(reading.findings).toEqual([]);
+			const doc = reading.doc;
+			expect(
+				(doc?.userPropertyOrder ?? []).map(
+					(uuid) => doc?.userProperties?.[uuid]?.slug,
+				),
+			).toEqual(["district", "mood"]);
 		});
 
 		it("reads `name` as the worker case's name, as HQ's build maps it, and mints no worker property for it", async () => {

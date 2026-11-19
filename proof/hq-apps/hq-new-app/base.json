@@ -1,0 +1,32 @@
+{
+	"id": "hq-new-app",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": {
+		"runsOnlyOn": null,
+		"splitDatetime": false
+	},
+	"exhibits": [
+		"application-and-settings/34-hq-build-spec-at-or-above-nova-s-floor-2-57",
+		"application-and-settings/amplifies-workers-amplifies-project-minimum-use-threshold",
+		"application-and-settings/archived-media",
+		"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker",
+		"application-and-settings/built-with-build-signed-built-on-build-comment-comment-from-last",
+		"application-and-settings/copy-history-family-id",
+		"application-and-settings/date-created-created-from-template-last-modified-has-submissions",
+		"application-and-settings/id",
+		"application-and-settings/rev-domain-copy-of-version",
+		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/unique-id",
+		"forms-and-case-writes/version",
+		"menus-and-case-lists/modulebase-unique-id",
+		"questions/text-input-xsd-string"
+	]
+}

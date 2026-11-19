@@ -342,6 +342,7 @@ function bindingOf(data: ReadingProjectData, tag: string): LookupTableBinding {
 const PLAIN_READS: ReaderProjectDataReads = {
 	lookupFields: { plain: ["code", "name"] },
 	unreadTables: [],
+	declaredTables: [],
 	readsPlaces: false,
 };
 
@@ -1522,6 +1523,7 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 			{
 				lookupFields: { clinics: ["code"], zones: ["code"] },
 				unreadTables: [],
+				declaredTables: [],
 				readsPlaces: false,
 			},
 			buildDoc({ appName: "Two tables", modules: [] }),

@@ -7,24 +7,38 @@ below, each HQ step inside ``unit.operation(label, digest of its input)`` so
 the unit's state, entropy and clock are a function of the inputs alone:
 
 ```
-seed → create(D) [shell, lookup upload, content] → media(D) → HQ-side saves → build(A) (no previous) → admit (Core)
-  → identities, flag reads → saved(build(A)) → mark@A
+seed → create(D) [shell, lookup upload, content] → media(D) → reads → HQ-side saves → reads → build(A) (no previous)
+  → admit (Core) → identities, flag reads → saved(build(A)) → mark@A
   → A's restore for proof 3 (in a fork) → the intent hook at A
   → sensitivity: build(A | each gate HQ read, flipped), each in a fork
-  b:         restore@A → republish(D) → media(D) → build(B | saved(build(A))) → admit → identities
+  b:         restore@A → republish(D) → media(D) → reads → build(B | saved(build(A))) → admit → identities
              (a republish Nova stopped sends nothing: the record holds the stop, and no B is observed)
                 → mark@B → the intent hook at B → proof4.observe_b → restore@B
   b_aligned: (at mark@B) B aligned to A → build(B-aligned | saved(build(A)))
                 → proof 3's sessions (local archive and A; B where the raw builds differ)
              (at mark@A where HQ refused B or Nova stopped it: the local archive's and A's sessions alone)
-  b_edit:    restore@A → update(D′) → media(D′) → build(B-edit | saved(build(A))) → admit → identities
+  b_edit:    restore@A → update(D′) → media(D′) → reads → build(B-edit | saved(build(A))) → admit → identities
                 → mark@B-edit → the intent hook at B-edit → proof4.observe_b → restore@B-edit
 local: Core's admission of local.ccz, local-again.ccz and edit/local.ccz → the intent and manifest local hooks
 ```
 
 ``create`` is Nova's first publish (``proof.observe.publish.create``): the
 shell's create and the content that fills it, keyed by the digest of both
-imports, or one create for a control retained in the legacy layout.
+imports, or one create for a control retained in the legacy layout. An app
+made in CommCare HQ (an ``hq-authored`` document) has no first publish: its
+``create`` makes A again from the document's ``authored/`` files with HQ's
+own models (``proof.observe.publish.create_authored``), keyed by their
+digest, and sends no media, which it attached already; no HQ-side save
+follows it.
+``reads`` is what Nova's own read of the app asks HQ's API (``_Unit.api_reads``),
+made in a fork, so nothing HQ writes as it answers reaches a later step, and
+kept as the part's ``apiReads`` by label (``api_read_label``): at A,
+``published`` where A is Nova's own publish (a document that is no
+migration witness), ``authored`` for an app made in HQ and ``saved`` after
+the saves a person makes in HQ whose review Nova runs (``hq-side.json``
+stating ``brings-in`` or ``records``); at B and B-edit, ``published``. A state
+made again under a stored part makes no reads, which the fork left out of
+every later state.
 ``media`` is the media upload Nova's publish sends after a content import HQ
 accepted (``proof.observe.publish.upload_media``), where the captured
 import names one: an operation of its own, keyed by the upload's request,
@@ -121,6 +135,8 @@ LOCAL_ROLES = (
 INPUTS = "inputs.json"
 # What a person saves in HQ over A before Nova's next publish, where the document carries it (proof.observe.hqside).
 HQ_SIDE = "hq-side.json"
+# The web user each state's reads of HQ's API are made as (``_Unit.api_reads``), made in the reads' own fork.
+API_READER = "proof-reader@example.org"
 # The roles of B-edit's inputs its key does not read: its verdict decides only whether the corpus holds its
 # publish, and its document is read through the case database it gives (``case_databases``) and what each
 # hook declares it reads (``hook_inputs``).
@@ -212,15 +228,77 @@ def _first_publish(root, directory, prefix=""):
     return part
 
 
+def hq_authored(document) -> bool:
+    """Whether ``document`` is an app made in CommCare HQ (``Document.hq_authored``): A is HQ's own app, made again
+    from the document's ``authored/`` files, and no first publish exists. A control never is one."""
+    return document.kind != "control" and document.hq_authored
+
+
+# The statements of ``hq-side.json`` under which Nova reviews what a person saved in HQ before it republishes.
+REVIEWED = frozenset({"brings-in", "records"})
+
+
+def api_read_label(document, part, *, saved=False):
+    """The label of the reads of HQ's API the unit makes in ``part`` (``a``, or ``b`` for B and B-edit alike) after
+    its publish, or None where it makes none.
+
+    At A: ``authored`` for an app made in CommCare HQ, after A is made;
+    ``published`` for every other document but a migration witness (whose A
+    is no export of Nova's current code), after the first publish and its
+    media; and, with ``saved``, after the saves a person makes in HQ,
+    ``saved`` where Nova reviews them (``hq-side.json`` stating ``brings-in``
+    or ``records``). At B and B-edit, ``published`` for an app made in HQ, a
+    migration witness, a document whose republish brings a person's saves in,
+    and every document with an edit and no ``hq-side.json``. B and B-edit are
+    read alike, because a B-edit keyed as its B is recorded as that B
+    (``observe_configuration``'s ``same_as``) and must hold what its own
+    observation would. A control makes none: proof 6 judges no control."""
+    if document.kind == "control":
+        return None
+    saves = document.hq_side
+    if part == "a":
+        if saved:
+            return "saved" if saves is not None and saves.get("republish") in REVIEWED else None
+        if hq_authored(document):
+            return "authored"
+        return None if document.migration_witness else "published"
+    brings_in = saves is not None and saves.get("republish") == "brings-in"
+    edited = document.edit is not None and saves is None
+    if hq_authored(document) or document.migration_witness or brings_in or edited:
+        return "published"
+    return None
+
+
+def _authored_inputs(document):
+    """Part ``a``'s roles for an app made in CommCare HQ, in place of a first publish's requests: the files A is made
+    again from (``proof.observe.publish.authored_files``) and the case seed its sessions run over (``seed``)."""
+    from proof.observe.publish import AUTHORED, authored_files
+
+    return {**authored_files(document.root), "seed": f"{AUTHORED}/seed.json"}
+
+
 def input_files(document):
     """Each part's input files, by role, as paths relative to the document's directory, laid out as
     ``proof/corpus/inputs.ts`` lays out ``inputs.json``: ``{"configurations": {<name>: {"a", "b", "b_edit"?}},
     "local"}``. What each part's key reads (``computed_inputs``), and so what the evidence store's guard lets its
     observation read (``proof.store.guard.input_files``). Part ``a`` reads both imports of a first publish in the
-    two-import layout, and the privileges read both (``privileges.create.``, ``privileges.content.``)."""
+    two-import layout, and the privileges read both (``privileges.create.``, ``privileges.content.``). Part ``a``
+    of a document made in HQ reads the app, media and seed under ``authored/`` in their place (``authored.app``,
+    ``authored.media``, ``authored.media.<name>`` a media file, ``authored.tables``, ``authored.places``, ``seed``),
+    and its privileges read the app (``privileges.authored.app``) and Nova's republish over it where Nova sent one
+    (``privileges.republish.``)."""
+    from proof.checks.corpus import republish_stop
+    from proof.observe.publish import AUTHORED
+
     root = document.root
     edited = (root / "edit" / "batch.json").exists()
-    privileges = _first_publish(root, "export/minimum", "privileges.")
+    authored = hq_authored(document)
+    if authored:
+        privileges = {"privileges.authored.app": f"{AUTHORED}/app.json"}
+        if republish_stop(root / "export/minimum") is None:
+            privileges.update(_prefixed("privileges.republish.", _request(root, "export/minimum", "republish")))
+    else:
+        privileges = _first_publish(root, "export/minimum", "privileges.")
     if edited and (root / "edit/export/minimum/update.json").exists():
         privileges.update(_prefixed("privileges.update.", _request(root, "edit/export/minimum", "update")))
     # A control retains what the checks derive from D and D' in place of their document.json (Document.derived).
@@ -243,8 +321,9 @@ def input_files(document):
             if document.kind != "control" and document.migration_witness
             else {}
         )
+        first = _authored_inputs(document) if authored else _first_publish(root, f"export/{name}")
         part = {
-            "a": {**shared, **_first_publish(root, f"export/{name}"), **privileges, **retained},
+            "a": {**shared, **first, **privileges, **retained},
             "b": (
                 {"outcome.json": f"export/{name}/outcome.json"}
                 if document.exports[name].republish_stopped is not None
@@ -668,6 +747,8 @@ class _Unit:
         self.unit, self.core_runner, self.editor_driver = unit, core_runner, editor_driver
         self.store, self.blobs, self.timings = store, blobs, timings
         self.hooks = hook_modules()
+        # An app made in CommCare HQ: A is made again from its authored files, and its tables are A's own.
+        self.hq_authored = hq_authored(document)
         self.app_id = None
         self.a_built = None
         self.saved_a = None
@@ -696,19 +777,39 @@ class _Unit:
             return publish.upload_media(self.unit, self.app_id, captured.media)
 
     def create_a(self, ops, *, full):
+        """A, as the ``a`` record's ``create`` (and ``hqSide``, ``apiReads``, ``state``) holds it: Nova's first
+        publish and its media, or, for an app made in CommCare HQ, the app made again from its authored files
+        (``publish.create_authored``), which attached its media itself; then the saves a person makes in HQ, where
+        the document carries them; then A's build. ``full`` is an observation for a record, which also makes the
+        reads of HQ's API (``api_reads``); without it, A is made again under a stored part, and no read is made:
+        each was made in a fork, so A is the same without it."""
         from proof.observe import publish
 
-        with ops("create", publish.first_publish_digest(self.export)):
-            self.app_id, refusal, lookups = publish.create(self.unit, self.export)
-        media = None if self.app_id is None else self.upload_media(ops, self.export.content)
-        record = {"create": _publish_record(refusal, lookups, media)}
+        if self.hq_authored:
+            with ops("create", publish.first_publish_digest(self.export, self.document.root)):
+                self.app_id, refusal, lookups = publish.create_authored(self.unit, self.document)
+            record = {"create": _publish_record(refusal, lookups)}
+        else:
+            with ops("create", publish.first_publish_digest(self.export)):
+                self.app_id, refusal, lookups = publish.create(self.unit, self.export)
+            media = None if self.app_id is None else self.upload_media(ops, self.export.content)
+            record = {"create": _publish_record(refusal, lookups, media)}
         if self.app_id is None:
             return record
+        reads = {}
+        label = api_read_label(self.document, "a")
+        if full and label is not None:
+            reads[label] = self.api_reads(ops, label)
         saves = self.document.hq_side
         if saves is not None:
             from proof.observe import hqside
 
             record["hqSide"] = hqside.save(self.unit, ops, self.app_id, saves, driver=self.editor_driver)
+            label = api_read_label(self.document, "a", saved=True)
+            if full and label is not None:
+                reads[label] = self.api_reads(ops, label)
+        if reads:
+            record["apiReads"] = reads
         self.a_built, flags, settings = _build(
             self.unit,
             ops,
@@ -728,14 +829,134 @@ class _Unit:
             record["settingsReadByBuild"] = settings
         return record
 
+    def tables(self, captured=None):
+        """What a restore of this unit serves of the lookup tables (``sessions.hq_restore``): for an app made in
+        CommCare HQ, the tables A was made with (``sessions.AuthoredTables``), since nothing of Nova's uploads a
+        workbook over a table CommCare HQ manages; otherwise the workbook ``captured`` pushed, or the one D's first
+        publish pushed."""
+        from proof.observe import publish, sessions
+
+        if self.hq_authored:
+            return sessions.AuthoredTables(self.document.root / publish.AUTHORED / "tables.json")
+        held = None if captured is None else captured.lookups
+        return held or self.export.content.lookups
+
     def restore_for_sessions(self, ops):
-        """A's restore over D's cases for proof 3, with the tables D's first publish uploaded (in a fork at A)."""
+        """A's restore over D's cases for proof 3, with the tables D's first publish uploaded, or those an app made
+        in CommCare HQ was made with (``tables``), in a fork at A."""
         from proof.observe import casedata, sessions
 
         database = casedata.document_case_database(self.document)
-        outcome, restore = sessions.hq_restore(self.unit, database, self.export.content.lookups, "restore-a", ops)
+        outcome, restore = sessions.hq_restore(self.unit, database, self.tables(), "restore-a", ops)
         self.restore_a = restore
         return {"lookups": outcome, "restore": None if restore is None else self.blobs.put(restore)}
+
+    def api_reads(self, ops, label):
+        """What Nova's own read of the app asks HQ's API, as HQ answers it at this state, in a fork of the unit.
+
+        Inside ``seams.also_granted(privileges.API_ACCESS)`` (every resource
+        Nova reads an app through asks for it, and no app's content does) and
+        ``seams.api_rate_limits`` (which ``operations.api_request`` asks of its
+        callers), with HQ's Redis, where a user's save takes its lock, and the
+        commit callbacks HQ's saves register run where production's commit runs
+        them: the API user is made with its key (``operations.seed_api_user``,
+        a member whose role also edits places, which HQ's level resource asks
+        for), then the application resource, the source and the version, each
+        in the operation ``reads:<label>`` and in the order Nova's read makes
+        them (the bracket of the app's read), then the project space list
+        whole and filtered by ``SAVE_ONLY_EDITED_FORM_FIELDS`` in the operation
+        ``reads:project-spaces``. At ``authored``, what a first reading asks
+        beyond the app, as ``proof/matrix/retain.py`` makes those reads of the
+        base it retains: the lookup table list and each listed table's rows,
+        the levels and the places, in the operation ``reads:project-data``,
+        and each mapped file at the address HQ gives its map item
+        (``HQMediaMapItem.url``) in the operation ``reads:media``, through
+        ``operations.media_file_read``, which keeps the bytes HQ sent.
+
+        Returns ``{"source", "application", "currentVersion", "projectSpaces":
+        {"all", "flagged"}, "projectData"?: {"lookupTables", "fixtureRows":
+        {<tag>: ...}, "locationTypes", "locations"}, "media"?: [{"path",
+        "mediaType", "multimediaId", "status", "sha256", "length"}]}``, each
+        answer a blob of it as ``HqAnswer.retained`` writes it, a file's bytes
+        never: they are the document's own (``authored/media/``). The fork
+        keeps the API user, its key and whatever HQ writes while it answers
+        (with ``USERCASE``, the application resource's case property map makes
+        the project space's user field definition the first time it is asked)
+        out of every later operation, so a state made again under a stored part
+        leaves the reads out."""
+        from corehq import privileges, toggles
+
+        from proof.hq import operations
+        from proof.hq import redis as hq_redis
+        from proof.hq.seams import also_granted, api_rate_limits
+
+        unit, app_id = self.unit, self.app_id
+        found = {}
+
+        def kept(answer):
+            return self.blobs.put_json(answer.retained())
+
+        with (
+            hq_redis.shared(None),
+            unit.fork(),
+            unit.committing(),
+            also_granted(privileges.API_ACCESS),
+            api_rate_limits(unit),
+        ):
+            with ops(f"reads:{label}", b"api-user"):
+                credential = operations.seed_api_user(unit, API_READER, edit_locations=True)
+            for name, read in (
+                ("application", operations.application_read),
+                ("source", operations.source_read),
+                ("currentVersion", operations.current_version_read),
+            ):
+                with ops(f"reads:{label}", name.encode()):
+                    found[name] = kept(read(unit, app_id, credential))
+            with ops("reads:project-spaces", label.encode()):
+                found["projectSpaces"] = {
+                    "all": kept(operations.project_spaces_read(unit, credential)),
+                    "flagged": kept(
+                        operations.project_spaces_read(
+                            unit, credential, feature_flag=toggles.SAVE_ONLY_EDITED_FORM_FIELDS.slug
+                        )
+                    ),
+                }
+            if label == "authored":
+                found["projectData"], found["media"] = self._project_data_reads(ops, credential, kept)
+        return found
+
+    def _project_data_reads(self, ops, credential, kept):
+        """The reads a first reading makes beyond the app (``api_reads`` at ``authored``): ``(projectData, media)``."""
+        from proof.hq import operations
+
+        unit = self.unit
+        with ops("reads:project-data", b"project-data"):
+            listed = operations.lookup_tables_read(unit, credential)
+            tables = json.loads(listed.body).get("objects", []) if listed.status == 200 else []
+            data = {
+                "lookupTables": kept(listed),
+                "fixtureRows": {
+                    table["tag"]: kept(operations.fixture_rows_read(unit, table["id"], credential)) for table in tables
+                },
+                "locationTypes": kept(operations.location_types_read(unit, credential)),
+                "locations": kept(operations.locations_read(unit, credential)),
+            }
+        media = []
+        with ops("reads:media", b"media"):
+            app = operations.held_app(unit, self.app_id)
+            for path, item in sorted(app.multimedia_map.items()):
+                answer = operations.media_file_read(unit, item.url, credential)
+                media.append(
+                    {
+                        "path": path,
+                        "mediaType": item.media_type,
+                        "multimediaId": item.multimedia_id,
+                        "status": answer.status,
+                        "sha256": hashlib.sha256(answer.data).hexdigest(),
+                        "length": len(answer.data),
+                    }
+                )
+        return data, media
 
     def observe_a(self):
         from proof.observe.sensitivity import flip_builds, flip_plan
@@ -825,7 +1046,7 @@ class _Unit:
     def b_context(self, ops, name, built, captured):
         from proof.observe import casedata, sessions
 
-        lookups = captured.lookups or self.export.content.lookups
+        lookups = self.tables(captured)
         database = casedata.document_case_database(self.document, edit=name == "B-edit")
         outcome, restore = sessions.hq_restore(self.unit, database, lookups, "restore-proof4", ops)
         return BContext(
@@ -865,8 +1086,9 @@ class _Unit:
     def observe_b(self, part, captured, name, stopped=None):
         """B (``captured`` the republish) or B-edit (the update) over A, as the ``b`` or ``b_edit`` record.
 
-        Both take the same steps (publish, build, then the hooks and proof 4
-        from the mark right after the build), so a B-edit with B's inputs is
+        Both take the same steps (publish, the reads of HQ's API where
+        ``api_read_label`` names them, build, then the hooks and proof 4 from
+        the mark right after the build), so a B-edit with B's inputs is
         observed as B is. The unit is left at that mark (``mark_b``). A
         republish Nova stopped (``stopped``, its failure code) sent nothing, so
         no B is observed: the record holds the stop, as a refused B holds no
@@ -879,6 +1101,9 @@ class _Unit:
         record = {"kind": "b", "publish": self.publish_over_a(ops, captured, name)}
         self.b_built = self.mark_b = None
         if record["publish"]["refused"] is None:
+            label = api_read_label(self.document, "b")
+            if label is not None:
+                record["apiReads"] = {label: self.api_reads(ops, label)}
             built, flags, _ = _build(self.unit, ops, self.core_runner, self.app_id, name, self.saved_a)
             record["state"] = _state_record(built, self.blobs)
             # The flags HQ read while it built this state, apart from those its publish read: the gates the
@@ -912,6 +1137,10 @@ class _Unit:
         From B's mark. Where HQ refused B there is no B to align, and the
         sessions of the two export paths run all the same (decision 15: the
         local archive against ``build(A)``, always), from A's mark; B's do not.
+        B's sessions and walks run where the raw builds of A and of B aligned to
+        A differ, and always for an app made in CommCare HQ, whose A is HQ's own
+        app and not Nova's export, so two builds alike say nothing of what a
+        worker meets on B.
         """
         from proof.hq import operations
         from proof.hq.seams import build_seams
@@ -939,7 +1168,10 @@ class _Unit:
                 with build_seams(previous=self.saved_a):
                     b_aligned, _ = build_state(aligned, self.unit.record, "B-aligned")
             record["aligned"] = outcome_record(b_aligned, self.blobs)
-            differs = builds.raw_builds_differ(self.document.id, self.a_built.outcome, b_aligned, alignment)
+            differs = (
+                builds.raw_builds_differ(self.document.id, self.a_built.outcome, b_aligned, alignment)
+                or self.hq_authored
+            )
         restore_a = (a_record or {}).get("restoreA")
         if restore_a is not None:
             restore = None if restore_a["restore"] is None else self.blobs.get(restore_a["restore"])

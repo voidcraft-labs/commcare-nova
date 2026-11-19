@@ -22,6 +22,7 @@
 			"!!proof/ci/vendor/artifact.bundle.mjs",
 			"!!proof/controls",
 			"!!proof/hq/fixtures/advanced-rule-shapes.json",
+			"!!proof/hq-apps",
 			"!!proof/hq-reads",
 			"!!proof/migrations",
 			"!!public/xpath-worker",

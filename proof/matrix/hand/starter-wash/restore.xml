@@ -1,0 +1,7 @@
+<OpenRosaResponse>
+<message nature="ota_restore_success">Successfully restored account test!</message>
+<Sync xmlns="http://commcarehq.org/sync"><restore_id>sync_token</restore_id></Sync>
+<Registration xmlns="http://openrosa.org/user/registration"><username>test</username><password>sha1$60441$53cf77c2ac3608a944db96af177a6dfe1579e4ba</password><uuid>test_uuid</uuid><date>2012-04-30</date></Registration>
+<case case_id="wash-client-rehema" date_modified="2026-01-01T00:00:00.000000Z" user_id="test_uuid" xmlns="http://commcarehq.org/case/transaction/v2"><create><case_type>client</case_type><case_name>Rehema Musa</case_name><owner_id>test_uuid</owner_id></create><update><current_reading>120</current_reading><client_status>Active</client_status><full_address>Kibera Road</full_address><client_id>R7K2QX</client_id></update></case>
+<case case_id="wash-referral-1" date_modified="2026-01-01T00:00:00.000000Z" user_id="test_uuid" xmlns="http://commcarehq.org/case/transaction/v2"><create><case_type>referall</case_type><case_name>Rehema Musa</case_name><owner_id>test_uuid</owner_id></create><update><cut_water>1</cut_water><repairs>1</repairs><leakage>0</leakage><restore_water>0</restore_water></update><index><parent case_type="client">wash-client-rehema</parent></index></case>
+</OpenRosaResponse>

@@ -20,7 +20,7 @@ describe("the equivalence table holds the spellings Core reads alike", () => {
 				return;
 			}
 			expect(record).toBe(true);
-			// `cond` is a call form logic holds as written (S1 is record-only).
-			expect(form).toBe(vector.row !== "S1");
+			// `cond` is a call form logic holds as written (the `cond` row is record-only).
+			expect(form).toBe(vector.row !== "cond");
 		});
 });

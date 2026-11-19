@@ -38,10 +38,15 @@ import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
 import { entryPointSchema } from "./entryPoints";
-import type { Expression, RelationPath } from "./expression/types";
+import type {
+	Expression,
+	RelationPath,
+	RelationStep,
+} from "./expression/types";
 import {
 	conditionSchema,
 	relationPathSchema,
+	relationStepSchema,
 	valueSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "./expression/types";
@@ -109,6 +114,15 @@ export const columnSortShape = {
 		.describe(
 			'Where cases with no value sort: "first" or "last". Leave it out to follow the direction: first when ascending, last when descending.',
 		),
+	/** The name a worker picks this rule by in the list's Sort by menu, on a
+	 *  column hidden from Results. A shown column is offered there under its
+	 *  header already. */
+	label: z
+		.string()
+		.optional()
+		.describe(
+			"The name workers pick this column by in the list's Sort by menu, for a column hidden from Results (visibleInList false). A column shown on Results is offered there under its header, so leave it out there. Android lists it; Web Apps lists it only in a case tile's Sort By.",
+		),
 };
 
 /**
@@ -120,7 +134,9 @@ export const columnSortShape = {
  * order is uniform across saga / preview / wire layers (no layer
  * assumes uniqueness). One meaning has one stored form: an ascending rule
  * with blanks first is the rule with no `blanks`, so every writer builds a
- * rule through `columnSort`.
+ * rule through `columnSort`. `label` is the source-language name of the rule
+ * in the list's Sort by menu, held on a column hidden from Results
+ * (`columnSortLabelShows`).
  */
 export const columnSortSchema = z
 	.strictObject(columnSortShape)
@@ -136,6 +152,19 @@ export const columnSortSchema = z
 					"An ascending rule already puts blank values first, and a descending rule last, so blanks is kept only when it says the other one.",
 			});
 		}
+		// A name of nothing but characters up to U+0020, which a device trims
+		// away, names nothing; the gate refuses one CommCare HQ reads as blank.
+		if (
+			sort.label !== undefined &&
+			[...sort.label].every((char) => (char.codePointAt(0) ?? 0) <= 0x20)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["label"],
+				message:
+					"A name in Sort by needs some text a worker can read. Leave label out where the column needs no name there.",
+			});
+		}
 	});
 export type ColumnSort = z.infer<typeof columnSortSchema>;
 
@@ -145,15 +174,35 @@ export function sortBlanks(sort: ColumnSort): SortBlanks {
 }
 
 /** A rule in its one stored form: `blanks` left out where it is the
- *  direction's own. */
+ *  direction's own, and `label` where it names nothing. */
 export function columnSort(
 	direction: SortDirection,
 	priority: number,
 	blanks?: SortBlanks,
+	label?: string,
 ): ColumnSort {
-	return blanks === undefined || blanks === defaultSortBlanks(direction)
-		? { direction, priority }
-		: { direction, priority, blanks };
+	return {
+		direction,
+		priority,
+		...(blanks !== undefined &&
+			blanks !== defaultSortBlanks(direction) && { blanks }),
+		...(label !== undefined && { label }),
+	};
+}
+
+/**
+ * Whether a column's sort rule names it in the list's Sort by menu: a rule
+ * with a label on a column on the list and hidden from Results. A shown
+ * column is offered under its header already (the gate refuses a label
+ * there, `CASE_LIST_SORT_LABEL_NOT_SHOWN`), and a column that is not on
+ * the list holds no rule. The one reader of where a label reaches a screen.
+ */
+export function columnSortLabelShows(column: Column): boolean {
+	return (
+		column.sort?.label !== undefined &&
+		column.visibleInList === false &&
+		column.notOnList !== true
+	);
 }
 
 // ── Interval-column units ────────────────────────────────────────
@@ -544,12 +593,33 @@ const columnBase = z
 // columns have no `field` slot — the expression is the source.
 
 /**
+ * The indices a property column walks from the list's case to the case
+ * whose property it shows, each step the one a `prop` read's `ancestor` arm
+ * takes: `parent` reaches the catalog's parent type, and any other index
+ * names the type it reaches (`throughCaseType`). Absent: the list's own
+ * case. The column's `field` is a property of the case the walk reaches,
+ * so the column's identity is that `(case type, property)` pair.
+ */
+export const columnViaSchema = z.tuple(
+	[relationStepSchema],
+	relationStepSchema,
+);
+export type ColumnVia = [RelationStep, ...RelationStep[]];
+
+/** The slot every property-backed column kind carries beside its `field`. */
+const propertyColumnSlots = {
+	field: authoredCasePropertyNameSchema,
+	/** Shows `field` of the case these indices reach rather than the list's own. */
+	via: columnViaSchema.optional(),
+};
+
+/**
  * Plain text column — renders the property value as a string.
  * Default kind for any displayed column.
  */
 const plainColumnSchema = columnBase.extend({
 	kind: z.literal("plain"),
-	field: authoredCasePropertyNameSchema,
+	...propertyColumnSlots,
 	header: z.string(),
 });
 
@@ -565,7 +635,7 @@ const plainColumnSchema = columnBase.extend({
  */
 const dateColumnSchema = columnBase.extend({
 	kind: z.literal("date"),
-	field: authoredCasePropertyNameSchema,
+	...propertyColumnSlots,
 	header: z.string(),
 	pattern: z
 		.string()
@@ -579,7 +649,7 @@ const dateColumnSchema = columnBase.extend({
  */
 const phoneColumnSchema = columnBase.extend({
 	kind: z.literal("phone"),
-	field: authoredCasePropertyNameSchema,
+	...propertyColumnSlots,
 	header: z.string(),
 });
 
@@ -629,7 +699,7 @@ export function idMappingValueHoldsForbiddenCharacter(value: string): boolean {
 
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
-	field: authoredCasePropertyNameSchema,
+	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped labels"
 	// display and emits the same empty-string XPath as any unmatched value.
@@ -670,7 +740,7 @@ const imageMapEntrySchema = z.strictObject({
 });
 const imageMapColumnSchema = columnBase.extend({
 	kind: z.literal("image-map"),
-	field: authoredCasePropertyNameSchema,
+	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped images"
 	// display. Rows, when present, must have unique values — same rationale
@@ -704,7 +774,7 @@ const imageMapColumnSchema = columnBase.extend({
  */
 const intervalColumnSchema = columnBase.extend({
 	kind: z.literal("interval"),
-	field: authoredCasePropertyNameSchema,
+	...propertyColumnSlots,
 	header: z.string(),
 	// Positive integer count of `unit`s. A negative or zero threshold
 	// would flag every non-empty cell in the `flag` arm (the wire
@@ -740,7 +810,7 @@ const intervalColumnSchema = columnBase.extend({
  */
 const linkColumnSchema = columnBase.extend({
 	kind: z.literal("link"),
-	field: authoredCasePropertyNameSchema,
+	...propertyColumnSlots,
 	header: z.string(),
 	linkText: z
 		.string()
@@ -781,6 +851,50 @@ export const columnSchema = z.discriminatedUnion("kind", [
 ]);
 export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
+
+/** A column over a property: every kind but `calculated`. */
+export type PropertyColumn = Exclude<Column, { kind: "calculated" }>;
+
+/** The walk a property column reads through, as a `prop` read's relation;
+ *  undefined where it shows a property of the list's own case. */
+export function columnRelationPath(
+	column: Pick<PropertyColumn, "via">,
+): RelationPath | undefined {
+	return column.via === undefined
+		? undefined
+		: { kind: "ancestor", via: column.via };
+}
+
+/**
+ * The text CommCare HQ's case list stores as a property column's `field`:
+ * each index of the column's walk, then the property, joined by `/`, which
+ * `detail_screen.py::PropertyXpathGenerator.xpath` splits there and walks
+ * index by index. A step's case type is Nova's alone and no part of it.
+ */
+export function columnFieldText(
+	column: Pick<PropertyColumn, "field" | "via">,
+): string {
+	return column.via === undefined
+		? column.field
+		: [...column.via.map((step) => step.identifier), column.field].join("/");
+}
+
+/** Whether two column walks are one walk: the same indices, each naming the
+ *  same case type or none. */
+export function sameColumnVia(
+	a: readonly RelationStep[] | undefined,
+	b: readonly RelationStep[] | undefined,
+): boolean {
+	if (a === undefined || b === undefined) return a === b;
+	return (
+		a.length === b.length &&
+		a.every(
+			(step, index) =>
+				step.identifier === b[index].identifier &&
+				step.throughCaseType === b[index].throughCaseType,
+		)
+	);
+}
 
 /** Whether the column is a field of the list: shown, or hidden and still carried. */
 export function columnOnList(column: Pick<Column, "notOnList">): boolean {
@@ -877,6 +991,22 @@ export interface ColumnCommonSlots {
 	readonly tile?: TileCell;
 }
 
+/** The slots a property column's builder takes: the common ones and the
+ *  walk to the case whose property it shows (`columnViaSchema`). */
+export interface PropertyColumnSlots extends ColumnCommonSlots {
+	readonly via?: ColumnVia;
+}
+
+/** `withCommonSlots`, then the walk where the slots name one. */
+function withPropertySlots<T extends Record<string, unknown>>(
+	base: T,
+	slots: PropertyColumnSlots,
+): T & PropertyColumnSlots {
+	const out: T & { via?: ColumnVia } = withCommonSlots(base, slots);
+	if (slots.via !== undefined) out.via = slots.via;
+	return out;
+}
+
 /**
  * Spreads the common optional slots onto a column object only when
  * present. Avoids leaking `key: undefined` shapes that would fail
@@ -911,9 +1041,9 @@ export function plainColumn(
 	uuid: Uuid,
 	field: string,
 	header: string,
-	slots: ColumnCommonSlots = {},
+	slots: PropertyColumnSlots = {},
 ): Extract<Column, { kind: "plain" }> {
-	return withCommonSlots(
+	return withPropertySlots(
 		{ uuid, kind: "plain" as const, field, header },
 		slots,
 	);
@@ -934,9 +1064,9 @@ export function dateColumn(
 	field: string,
 	header: string,
 	pattern: string,
-	slots: ColumnCommonSlots = {},
+	slots: PropertyColumnSlots = {},
 ): Extract<Column, { kind: "date" }> {
-	return withCommonSlots(
+	return withPropertySlots(
 		{ uuid, kind: "date" as const, field, header, pattern },
 		slots,
 	);
@@ -951,9 +1081,9 @@ export function phoneColumn(
 	uuid: Uuid,
 	field: string,
 	header: string,
-	slots: ColumnCommonSlots = {},
+	slots: PropertyColumnSlots = {},
 ): Extract<Column, { kind: "phone" }> {
-	return withCommonSlots(
+	return withPropertySlots(
 		{ uuid, kind: "phone" as const, field, header },
 		slots,
 	);
@@ -968,9 +1098,9 @@ export function linkColumn(
 	field: string,
 	header: string,
 	linkText: string,
-	slots: ColumnCommonSlots = {},
+	slots: PropertyColumnSlots = {},
 ): Extract<Column, { kind: "link" }> {
-	return withCommonSlots(
+	return withPropertySlots(
 		{ uuid, kind: "link" as const, field, header, linkText },
 		slots,
 	);
@@ -987,9 +1117,9 @@ export function idMappingColumn(
 	field: string,
 	header: string,
 	mapping: readonly IdMappingEntry[],
-	slots: ColumnCommonSlots = {},
+	slots: PropertyColumnSlots = {},
 ): Extract<Column, { kind: "id-mapping" }> {
-	return withCommonSlots(
+	return withPropertySlots(
 		{ uuid, kind: "id-mapping" as const, field, header, mapping: [...mapping] },
 		slots,
 	);
@@ -1022,9 +1152,9 @@ export function imageMapColumn(
 	field: string,
 	header: string,
 	mapping: readonly ImageMapEntry[],
-	slots: ColumnCommonSlots = {},
+	slots: PropertyColumnSlots = {},
 ): Extract<Column, { kind: "image-map" }> {
-	return withCommonSlots(
+	return withPropertySlots(
 		{ uuid, kind: "image-map" as const, field, header, mapping: [...mapping] },
 		slots,
 	);
@@ -1060,9 +1190,9 @@ export function intervalColumn(
 	unit: TimeSinceUnit,
 	display: IntervalDisplay,
 	text: string,
-	slots: ColumnCommonSlots = {},
+	slots: PropertyColumnSlots = {},
 ): Extract<Column, { kind: "interval" }> {
-	return withCommonSlots(
+	return withPropertySlots(
 		{
 			uuid,
 			kind: "interval" as const,

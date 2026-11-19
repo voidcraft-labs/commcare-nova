@@ -127,6 +127,96 @@ it("gives a lone shard's output its directory after every download of the shards
 	]);
 });
 
+// A prewarm checks the tree the pin pull request will carry, so every job that takes the candidate's surface takes
+// its retained trees too: one that took only the surface would emit the bases from main's answers, or hold main's
+// trees to the new pins. The step that puts them in place runs as written, over a checkout's proof/: the trees are
+// replaced whole (a download alone would keep a file the new tree lacks), and nothing else of proof/ moves.
+it("puts the candidate's retained trees in place, whole, in every job that puts its surface in place", async () => {
+	const expression = (name: string) => `\${{ ${name} }}`;
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
+	);
+	expect(workflow.on.workflow_call.inputs.retained.default).toBe("");
+	const placing: string[] = [];
+	const surfaced: string[] = [];
+	const runs = new Set<string>();
+	for (const [name, job] of Object.entries(workflow.jobs)) {
+		const steps = ((job as { steps?: unknown[] }).steps ?? []) as Record<
+			string,
+			// biome-ignore lint/suspicious/noExplicitAny: a workflow step's fields are YAML of any shape.
+			any
+		>[];
+		if (
+			steps.some((step) => step.with?.name === expression("inputs.surface"))
+		) {
+			surfaced.push(name);
+		}
+		const download = steps.findIndex(
+			(step) => step.with?.name === expression("inputs.retained"),
+		);
+		if (download === -1) continue;
+		placing.push(name);
+		expect(steps[download].uses).toMatch(/^actions\/download-artifact@/);
+		expect(steps[download].if).toBe(expression("inputs.retained != ''"));
+		expect(steps[download].with.path).toBe(
+			`${expression("runner.temp")}/retained`,
+		);
+		const place = steps[download + 1];
+		expect(place.if).toBe(steps[download].if);
+		runs.add(place.run);
+	}
+	expect(placing).toEqual(surfaced);
+	expect(placing.sort()).toEqual(["emit", "gate", "shard"]);
+	expect([...runs]).toHaveLength(1);
+	const [place] = runs;
+
+	const scratch = await mkdtemp(join(tmpdir(), "proof-lane-retained-"));
+	try {
+		const files: Record<string, string> = {
+			// The checkout: a base the new tree changes, an answer it drops, and the harness's own files.
+			"checkout/proof/ci/retained.mjs": await readFile(
+				join(WORKTREE, "proof/ci/retained.mjs"),
+				"utf8",
+			),
+			"checkout/proof/hq-apps/hq-plain/app.json": "old\n",
+			"checkout/proof/hq-apps/hq-plain/stale.json": "dropped\n",
+			"checkout/proof/hq-reads/publish/source-live.json": "kept\n",
+			"checkout/proof/pins.json": "pins\n",
+			// The artifact, as the retained job stages it.
+			"temp/retained/hq-apps/hq-plain/app.json": "new\n",
+			"temp/retained/hq-apps/hq-new-app/app.json": "made\n",
+			"temp/retained/hq-reads/publish/source-live.json": "kept\n",
+			"temp/retained/adopt-report.txt": "hq-plain: its stored app changed.\n",
+		};
+		for (const [path, text] of Object.entries(files)) {
+			await mkdir(join(scratch, path, ".."), { recursive: true });
+			await writeFile(join(scratch, path), text);
+		}
+		await run("bash", ["-e", "-c", place], {
+			cwd: join(scratch, "checkout"),
+			env: { ...process.env, RUNNER_TEMP: join(scratch, "temp") },
+		});
+		const { stdout } = await run("find", [".", "-type", "f"], {
+			cwd: join(scratch, "checkout"),
+		});
+		expect(stdout.trim().split("\n").sort()).toEqual([
+			"./proof/ci/retained.mjs",
+			"./proof/hq-apps/hq-new-app/app.json",
+			"./proof/hq-apps/hq-plain/app.json",
+			"./proof/hq-reads/publish/source-live.json",
+			"./proof/pins.json",
+		]);
+		expect(
+			await readFile(
+				join(scratch, "checkout/proof/hq-apps/hq-plain/app.json"),
+				"utf8",
+			),
+		).toBe("new\n");
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+});
+
 it("runs the shards on a usable Android runtime while retaining failed reader checks", async () => {
 	const workflow = parse(
 		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),

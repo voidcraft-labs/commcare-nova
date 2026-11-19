@@ -2708,6 +2708,16 @@ deployment") own the detail. The binding facts:
   from `lib/commcare/emissionRewrites.ts::EMISSION_REWRITES`, and the proof
   lane holds the predicted set equal to the observed one on every app made in
   CommCare HQ (`proof/first-publish-changes.json`).
+- **The reader is proven over HQ's own apps.** The proof lane authors apps in
+  CommCare HQ's own pages, models and form builder at its pins (`proof/matrix`,
+  retained under `proof/hq-apps/`), reads each as a first reading would, and
+  holds every check of the hop to them: Nova's reading of the app reads back
+  to itself from HQ after Nova publishes it (proof 6), the reader's claim log
+  agrees with the lane's own manifest classifier (parity), and each variant
+  of a base reads as its row says. Every manifest entry is shown by such an
+  app, by a variant, or exempted with one of five reasons
+  (`lib/commcare/surface/__tests__/entryCoverage.test.ts`; `proof/README.md`,
+  "Apps made in CommCare HQ").
 - **One HQ app, one Nova app.** A unique index over live app mappings holds it
   across Projects (`lib/db/hqAppClaims.ts`).
 - **Project data comes in as copies CommCare HQ manages.** The lookup tables

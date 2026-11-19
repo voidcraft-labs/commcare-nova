@@ -11,7 +11,10 @@ an element of a parsed XForm or suite (``XmlAt``), a slot of the app JSON
 (``VALUE_CLASSES``, by the entry's id) tells whether that use falls in its
 REFUSED entry's class: True, False, or None where the export alone does not
 say. An allowing entry's class is never read: it is the rest of its key's
-values (``manifest_usage.standing``).
+values (``manifest_usage.standing``). A HELD-NEW entry that splits one value
+of a key an allowing entry also names, by that value's grammar or bound, has
+a reader too, which decides by the use's own value and the objects or
+elements that hold it: a use it takes is one Nova does not hold yet.
 
 Each reader follows its inventory row and, where the row names a reader of
 the value, that reader's own test at source: Core's parser for an XForm's
@@ -803,6 +806,28 @@ def _declared_instances(root):
     )
 
 
+def instance_scheme(instance_id):
+    """The scheme HQ's build reads in an instance id (``suite_xml/post_process/instances.py::get_instance_factory``).
+
+    The id's part before its first ``:``, or the whole id; an id holding
+    ``selected_cases`` without a ``:`` is that scheme.
+    """
+    if ":" in instance_id:
+        return instance_id.split(":", 1)[0]
+    return "selected_cases" if "selected_cases" in instance_id else instance_id
+
+
+def preset_source(manifest, instance_id):
+    """The source HQ's build declares an app JSON slot's read of ``instance_id`` under in the suite it writes: the
+    source of the preset instance its scheme's factory gives that id (``instances.py::preset_instances``, recorded
+    as the scheme item's ``preset``), or None where no preset of that id is the scheme's."""
+    item = manifest.item(f"instance-scheme:{instance_scheme(instance_id)}") or {}
+    preset = item.get("preset")
+    if isinstance(preset, dict) and preset.get("id") == instance_id:
+        return preset.get("src")
+    return None
+
+
 def instance_source(manifest, src):
     """The branch of ``CommCareInstanceInitializer.generateRoot`` an instance's ``src`` reaches.
 
@@ -876,12 +901,16 @@ class App:
 
     kind = "app"
 
-    def __init__(self, doc, artifact, configurations=None):
+    def __init__(self, doc, artifact, configurations=None, authored=False):
         self.doc = doc
         self.artifact = artifact
         self.configurations = None if configurations is None else tuple(configurations)
+        # The app HQ made, on a document made in CommCare HQ: its multimedia map names the files HQ holds for it
+        # (``Readings.authored_media``), never those of Nova's local archive.
+        self.authored = authored
         self.forms = {}  # a form's unique_id -> Form
         self.readings = None
+        self.case_types = None  # the document's declared types, or the optional metadata a control retained
 
     @cached_property
     def modules(self):
@@ -906,10 +935,6 @@ class App:
     def xform(self, form):
         """The parsed XForm of a form, or None."""
         return self.forms.get((form or {}).get("unique_id"))
-
-    @cached_property
-    def case_types(self):
-        return {module.get("case_type") for module in self.modules if module.get("case_type")}
 
     def root(self, module):
         """The module a module sits under (``root_module_id``), or None."""
@@ -2179,6 +2204,46 @@ def shared_with_another_endpoint(use, manifest):
     return _endpoint_ids(at.app).count(value) > 1
 
 
+def _load_target(app, module, load):
+    """The menu whose case list an advanced form's load lists cases from, by HQ's build
+    (``suite_xml/sections/entries.py::get_datum_meta_assertions_advanced``, its ``get_target_module``): the menu its
+    ``details_module`` names (the form's own where it names that), else the form's own menu where the load's case
+    type is that menu's, else the first menu of the load's case type; None where none is."""
+    named = load.get("details_module")
+    if named:
+        return module if named == module.get("unique_id") else app.modules_by_id.get(named)
+    case_type = load.get("case_type")
+    if case_type == module.get("case_type"):
+        return module
+    return next((each for each in app.modules if each.get("case_type") == case_type), None)
+
+
+def auto_select_on_a_load_target(use, manifest):
+    """``menus-and-case-lists/auto-select-case-true-on-a-basic-module-an-advanced-form-s-load``: a basic menu's
+    ``auto_select_case: true`` where an advanced form's load lists its cases from that menu's case list
+    (``_load_target``), so HQ's build writes the load's datum ``autoselect`` (``get_manual_datum``). Only a load
+    that chooses its case does: one that selects its case itself (``auto_select`` with a mode) or chooses it from a
+    lookup table (``load_case_from_fixture``) takes another branch. Every other basic menu's is the inert class
+    beside it. A suite's datum does not say which menu set it (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    menu = at.nearest(*MODULES)
+    if menu is None or menu.get("doc_type", "Module") != "Module" or menu.get("auto_select_case") is not True:
+        return False
+    for module in at.app.modules:
+        if module.get("doc_type") != "AdvancedModule":
+            continue
+        for form in _forms(module):
+            loads, _ = _advanced_lists(form)
+            for load in loads:
+                if ((load.get("auto_select") or {}).get("mode")) or _from_fixture(load):
+                    continue
+                if _load_target(at.app, module, load) is menu:
+                    return True
+    return False
+
+
 def task_list_shown(use, manifest):
     """``menus-and-case-lists/module-task-list-show-true``: ``Module.task_list.show: true``."""
     at = _json(use)
@@ -2199,6 +2264,177 @@ def shown_on_a_shadow_module(use, manifest):
     return module.get("doc_type") == "ShadowModule" and bool((module.get("case_list") or {}).get("show"))
 
 
+def _puts_off_the_menu(text):
+    """Whether a menu's display condition is ``false()``, or ``false() and <rest>``: the condition Nova's reader
+    reads as the menu off the menu (``reader/menus/modules.ts``: ``match-none``, or an ``and`` whose first clause
+    is), read over Core's tokens of it. ``and`` binds tighter than ``or``, so an ``or`` outside every bracket makes
+    the whole an ``or``. None where Core's lexer does not read the text."""
+    if not isinstance(text, str):
+        return False
+    found = xpath_tokens(text)
+    if found is None:
+        return None
+    kinds = [token.kind for token in found]
+    if kinds[:3] != ["QNAME", "LPAREN", "RPAREN"] or found[0].text != "false":
+        return False
+    if len(kinds) == 3:
+        return True
+    if kinds[3] != "AND":
+        return False
+    depth = 0
+    for kind in kinds[4:]:
+        if kind in ("LPAREN", "LBRACK"):
+            depth += 1
+        elif kind in ("RPAREN", "RBRACK"):
+            depth -= 1
+        elif kind == "OR" and depth == 0:
+            return False
+    return True
+
+
+# Nova's after-submit destination of each workflow word (``reader/menus/afterSubmit.ts``: ``WORDS``, and
+# ``FALLBACK_WORDS`` for the fallback, which holds no ``default``).
+WORKFLOW_DESTINATIONS = {
+    "default": "app_home",
+    "root": "firstMenu",
+    "module": "module",
+    "parent_module": "parentMenu",
+    "previous_screen": "previous",
+}
+
+
+def _folded_forms(app):
+    """Each form a host's case list offers after a search finds nothing, with that host: the form of a hidden menu
+    Nova's reader folds into the host (``reader/menus/registration.ts::fold``), read beside the host's own forms.
+    Such a ``case_list_form`` carries the relevancy that offers it only then; one offered always names a form in a
+    menu of its own."""
+    folded = {}
+    for host in app.modules:
+        offer = host.get("case_list_form")
+        if not isinstance(offer, dict) or not offer.get("form_id") or not offer.get("relevancy_expression"):
+            continue
+        form = app.forms_by_id.get(offer["form_id"])
+        if form is not None and app.module_of(form) is not host:
+            folded[id(form)] = host
+    return folded
+
+
+def _offered_when_shown(app, module, destination, folded):
+    """Whether Nova offers ``destination`` to a form of ``module`` once the menu off the menu is shown: whether no
+    other reason withholds it (``lib/domain/postSubmit.ts::WITHHELD_BY``). None where only
+    ``menu-opens-with-first-menu-case`` could, which reads every form the first menu lists."""
+    root = app.root(module)
+    root_several = root is not None and _multi_select(root)
+    if destination == "module":
+        own = [form for form in _forms(module) if id(form) not in folded]
+        bare = not own and bool((module.get("case_list") or {}).get("show"))
+        if root_several or bare or module.get("put_in_root"):
+            return False
+        return None if root is not None and root.get("put_in_root") else True
+    if destination == "previous":
+        on_first_menu = bool(module.get("put_in_root")) and (root is None or bool(root.get("put_in_root")))
+        return not (_multi_select(module) or root_several or _inline_search(module) or on_first_menu)
+    if destination == "parentMenu":
+        return root is not None and not root_several and not root.get("put_in_root")
+    return False
+
+
+def _opens_off_the_menu(app, hidden):
+    """Whether something opens the menu ``hidden``, which its display condition puts off the menu
+    (``reader/menus/modules.ts::opensOffTheMenu``): an entry point of its own or of its case list, an after-submit
+    link whose target is the menu, or a form's return, its workflow or its fallback, that the menu's being off the
+    menu leaves unoffered and that would be offered with it shown: the return to the menu from one of its forms
+    (``module``, ``previous_screen``), or from a form of a child menu to its parent (``parent_module``). True, False,
+    or None where the export alone does not say."""
+    if any(hidden.get(slot) for slot in ENDPOINT_SLOTS):
+        return True
+    folded = _folded_forms(app)
+    unsure = False
+    for module in app.modules:
+        for form in _forms(module):
+            menu = folded.get(id(form), module)
+            linked = form.get("post_form_workflow") == "form" and bool(form.get("form_links"))
+            for link in (form.get("form_links") or []) if linked else []:
+                link = link or {}
+                if not link.get("form_id") and link.get("module_unique_id") == hidden.get("unique_id"):
+                    return True
+            words = [form.get("post_form_workflow_fallback")] if linked else [form.get("post_form_workflow")]
+            for word in words:
+                destination = WORKFLOW_DESTINATIONS.get(word or "default")
+                if destination in ("module", "previous"):
+                    held_back = menu is hidden
+                elif destination == "parentMenu":
+                    held_back = app.root(menu) is hidden
+                else:
+                    held_back = False
+                if not held_back:
+                    continue
+                offered = _offered_when_shown(app, menu, destination, folded)
+                if offered:
+                    return True
+                unsure = unsure or offered is None
+    return None if unsure else False
+
+
+def _frames_ending_in(root, menu_id):
+    """Whether a suite's stack frame (a ``<create>`` or ``<push>``, an entry's or an endpoint's) ends with the
+    command of the menu ``menu_id`` or of its case list (``m<n>-case-list``), which opens that menu's screen. None
+    where a frame's last command names its value other than as one literal."""
+    unsure = False
+    for frame in root.iter():
+        if not isinstance(frame.tag, str) or _local(frame) not in ("create", "push"):
+            continue
+        commands = [child for child in _children(frame) if _local(child) == "command"]
+        if not commands:
+            continue
+        found = xpath_tokens(commands[-1].get("value") or "")
+        if found is None or len(found) != 1 or found[0].kind != "STR":
+            unsure = True
+            continue
+        if found[0].text[1:-1] in (menu_id, f"{menu_id}-case-list"):
+            return True
+    return None if unsure else False
+
+
+def filter_off_the_menu_on_a_destination(use, manifest):
+    """``menus-and-case-lists/module-filter-false-on-a-menu-something-opens``: a menu whose display condition puts it
+    off the menu (``_puts_off_the_menu``) while something opens it (``_opens_off_the_menu``): Android opens it as a
+    screen that lists nothing, and Web Apps lands on the app's first screen. A hidden menu a host's case list folds
+    in is never read as off the menu. In a suite, a ``<menu>`` that holds its id alone is opened where a stack frame
+    ends with its command (``_frames_ending_in``); one whose id another ``<menu>`` shares (a menu whose forms show in
+    the menu above writes its parent's) names that screen, not its own, and the same condition's use in the app JSON
+    is the one judged."""
+    at = use.at
+    if isinstance(at, XmlAt) and at.document.kind == "runtime":
+        if _local(at.element) != "menu" or at.attribute != "relevant":
+            return False
+        hides = _puts_off_the_menu(at.element.get("relevant"))
+        if not hides:
+            return hides
+        menu_id = at.element.get("id")
+        if menu_id is None:
+            return None
+        menus = [
+            element
+            for element in at.document.root.iter()
+            if isinstance(element.tag, str) and _local(element) == "menu" and element.get("id") == menu_id
+        ]
+        return False if len(menus) > 1 else _frames_ending_in(at.document.root, menu_id)
+    at = _json(use)
+    if at is None:
+        return None
+    module = at.nearest(*MODULES)
+    if module is None:
+        return None
+    hides = _puts_off_the_menu(module.get("module_filter"))
+    if not hides:
+        return hides
+    folded = _folded_forms(at.app)
+    if any(id(form) in folded for form in _forms(module)):
+        return False
+    return _opens_off_the_menu(at.app, module)
+
+
 # Forms and case writes -----------------------------------------------------------------
 
 
@@ -2207,6 +2443,24 @@ def _form(use):
     if at is None:
         return None, None
     return at, at.nearest(*FORMS)
+
+
+# The kind each form class fixes as its ``form_type`` default (``models/forms.py::Form``, ``AdvancedForm``,
+# ``ShadowForm``).
+FORM_TYPES = {"Form": "module_form", "AdvancedForm": "advanced_form", "ShadowForm": "shadow_form"}
+
+
+def form_type_of_another_kind(use, manifest):
+    """``forms-and-case-writes/form-type-other-than-the-form-s-own-kind``: a form whose ``form_type`` is not the kind
+    its class fixes, which no page writes and by which HQ's build chooses the form's session values and after-submit
+    frames (``reader/structure.ts::readFormKeys`` refuses every value but the class's default)."""
+    at = _json(use)
+    if at is None:
+        return None
+    for cls, value in reversed(at.scope):
+        if cls in FORM_TYPES:
+            return "form_type" in value and value["form_type"] != FORM_TYPES[cls]
+    return None
 
 
 def referral(use, manifest):
@@ -2439,16 +2693,21 @@ offers no "This case is a subcase of the previous case" (``case_config_advanced.
 def _tag_names_other_than_previous_load(at, form, loads, opens, action, index):
     if not _is_load(action, loads) or not _indices(action, loads):
         return False
+    tag = action["case_index"].get("tag")
+    if not any(other.get("case_tag") == tag for other in (*loads, *opens)):
+        # A tag naming no action is HQ's build's own refusal (``missing parent tag``), another entry's.
+        return False
     position = next(i for i, load in enumerate(loads) if load is action)
     previous = loads[position - 1].get("case_tag") if position > 0 else None
-    return action["case_index"].get("tag") != previous
+    return tag != previous
 
 
 tag_names_other_than_previous_load = _advanced_reader(_tag_names_other_than_previous_load)
 tag_names_other_than_previous_load.__doc__ = """
 ``forms-and-case-writes/loadupdateaction-case-index-tag-naming-a-load-other-than-the-one``:
-a load's ``case_index.tag`` other than the tag of the load just before it in ``load_update_cases``, the only
-action the editor links a load to (``advanced/actions.js``, the load's ``subcase`` write)."""
+a load's ``case_index.tag`` naming an action other than the load just before it in ``load_update_cases``, the
+only action the editor links a load to (``advanced/actions.js``, the load's ``subcase`` write). A tag naming no
+action is ``forms-and-case-writes/case-index-tag-naming-no-action``'s, which HQ's build refuses."""
 
 
 def _open_action_slash_key(at, form, loads, opens, action, index):
@@ -2852,7 +3111,7 @@ def unrecognized_index_key(use, manifest):
     at, form = _form(use)
     if form is None:
         return None
-    if not _in_actions(at, form, "update_case"):
+    if not _in_actions(at, form, "update_case") or not _writes_own_update(_actions(form).get("update_case")):
         return False
     keys = list((_actions(form).get("update_case") or {}).get("update") or {})
     unsure = False
@@ -2872,14 +3131,18 @@ def index_key_on_opened_case(use, manifest):
         return None
     if not _in_actions(at, form, "update_case") or not _active(_actions(form).get("open_case")):
         return False
+    if not _writes_own_update(_actions(form).get("update_case")):
+        return False
     return any("/" in str(key) for key in (_actions(form).get("update_case") or {}).get("update") or {})
 
 
 def usercase_preload_other(use, manifest):
-    """``forms-and-case-writes/any-other-usercase-preload``: a ``usercase_preload`` on a form whose active
-    ``usercase_update`` writes nothing (the row above holds one beside an update that writes at least one
-    property, where moving each load to a default leaves the load's values the same, which the export does
-    not settle: None)."""
+    """``forms-and-case-writes/any-other-usercase-preload``: a ``usercase_preload`` the row above does not hold,
+    read where Nova's reader draws the line (``caseManagement/preloads.ts``): beside an active ``usercase_update``
+    that writes at least one property, the row above holds a load whose every path names a question of the form
+    outside any repeat and whose every property a worker-record read spells (``_usercase_read``); any other load
+    is in this class. A path naming a node whose name Nova's own generated nodes take (``nova_``) is left open:
+    Nova's reader tells its own node from an author's by printing it again, which the export does not settle."""
     at, form = _form(use)
     if form is None:
         return None
@@ -2891,7 +3154,62 @@ def usercase_preload_other(use, manifest):
     update = _actions(form).get("usercase_update") or {}
     if not (_active(update) and update.get("update")):
         return True
-    return None
+    if any(_usercase_read(property_name) is None for property_name in preload.values()):
+        return True
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    verdicts = {_usercase_question(xform, path) for path in preload}
+    if False in verdicts:
+        return True
+    return None if None in verdicts else False
+
+
+def _usercase_read(property_name):
+    """The worker-case element a ``usercase_preload`` of ``property_name`` reads where a worker-record read prints
+    it, else None (``preloads.ts::usercaseRead``): HQ's build refuses the property outside its grammar or in its
+    reserved words (``helpers/validators.py::IndexedFormBaseValidator.check_case_properties``); a path through an
+    index reads an ancestor of the worker's case; ``owner_id`` is the case's attribute; a name with the one trailing
+    newline HQ's grammar admits reads the element of the name without it, which Nova names only where HQ's build
+    reads the name so without the newline or the element is one of every case's (``preloads.ts::preloadReadOf``);
+    and Nova's worker-record read spells only ``SESSION_USER_FIELD``'s names."""
+    if not isinstance(property_name, str) or HQ_PROPERTY_PATH.fullmatch(property_name) is None:
+        return None
+    newline = property_name.endswith("\n")
+    *indices, name = (property_name[:-1] if newline else property_name).split("/")
+    if not newline and name in HQ_CASE_RESERVED_WORDS:
+        return None
+    if newline and name not in CASE_CHILD_ELEMENTS and (name in ("name", "owner_id") or name in HQ_CASE_RESERVED_WORDS):
+        return None
+    if not newline and name == "name":
+        name = "case_name"
+    if indices or name == "owner_id":
+        return None
+    return name if name == "case_name" or SESSION_USER_FIELD.fullmatch(name) else None
+
+
+def _usercase_question(xform, path):
+    """Whether a ``usercase_preload`` path names a question of the form outside any repeat, as Nova's reader reads
+    one (``preloads.ts::fieldAt``, ``basicActions.ts::repeatOfField``): a node of the main instance under its data
+    root, by its absolute path or its path from the root, that no Save to Case block, case block or meta block
+    holds, and that no repeat holds; a repeat itself stands outside any repeat but its own. None for a node whose
+    name Nova's generated nodes take, which Nova's reader reads as one of its own only where printing it again
+    gives the node."""
+    if not isinstance(path, str) or not path or xform.data_root is None:
+        return False
+    root = f"/{_local(xform.data_root)}"
+    if path.startswith("/"):
+        if not path.startswith(f"{root}/"):
+            return False
+        absolute = path
+    else:
+        absolute = f"{root}/{path}"
+    node = xform.nodes.get(absolute)
+    if node is None or isinstance(node, tuple) or xform.holder(node) is not None:
+        return False
+    if any(absolute.startswith(f"{repeat}/") for repeat in xform.repeat_paths):
+        return False
+    return None if _local(node).startswith("nova_") else True
 
 
 def multi_select_top_level(use, manifest):
@@ -3118,7 +3436,9 @@ def _picker_offers(xform, path, *, repeats):
 
 def subcase_or_advanced_condition_not_offered(use, manifest):
     """``forms-and-case-writes/a-subcase-or-advanced-action-condition-on-a-question-the-picker``: a child
-    case's condition or close condition on a question the picker does not offer."""
+    case's condition or close condition on a question the picker does not offer. Read on the condition a use sits
+    on or in (``_use_conditions``), else on each condition of the child case it sits in, else on every child
+    case's."""
     at, form = _form(use)
     if form is None:
         return None
@@ -3127,8 +3447,11 @@ def subcase_or_advanced_condition_not_offered(use, manifest):
     xform = at.app.xform(form)
     subcase = at.nearest("OpenSubCaseAction")
     for each in [subcase] if subcase is not None else _subcases(form):
+        own = _use_conditions(at, form) if subcase is not None else None
         for slot in ("condition", "close_condition"):
             condition = each.get(slot) or {}
+            if own is not None and not any(condition is one for one in own):
+                continue
             if condition.get("type") != "if":
                 continue
             if xform is None:
@@ -3225,7 +3548,7 @@ def question_not_offered_by_picker(use, manifest):
     if written is not None:
         return _own_write_not_offered(xform, written.get("question_path"))
     if preload is not None:
-        return any(_own_write_not_offered(xform, path) for path in preload.get("preload") or {})
+        return any(_preload_not_offered(xform, path) for path in preload.get("preload") or {})
     actions = _actions(form)
     own = [
         update.get("question_path") if isinstance(update, dict) else None
@@ -3234,9 +3557,11 @@ def question_not_offered_by_picker(use, manifest):
     ]
     open_name = (actions.get("open_case") or {}).get("name_update") or {}
     own.append(open_name.get("question_path") if isinstance(open_name, dict) else None)
-    own += list((actions.get("case_preload") or {}).get("preload") or {})
-    return any(_own_write_not_offered(xform, path) for path in filter(None, own)) or any(
-        _child_write_not_offered(xform, each, None) for each in _subcases(form)
+    preloads = list((actions.get("case_preload") or {}).get("preload") or {})
+    return (
+        any(_own_write_not_offered(xform, path) for path in filter(None, own))
+        or any(_preload_not_offered(xform, path) for path in preloads)
+        or any(_child_write_not_offered(xform, each, None) for each in _subcases(form))
     )
 
 
@@ -3284,6 +3609,14 @@ def _own_write_not_offered(xform, path):
     return bool(path) and (xform.in_repeat(path) or _is_label(xform, path))
 
 
+def _preload_not_offered(xform, path):
+    """A basic form's preload on a label outside any repeat. A preload into a repeat question is the INERT class
+    ``forms-and-case-writes/case-preload-into-a-question-inside-a-repeat`` (HQ's ``xforms-ready`` load runs before
+    any row exists, ``XForm.add_case_preloads``), as Nova's reader reads it before it reads a label
+    (``caseManagement/preloads.ts``)."""
+    return bool(path) and not xform.in_repeat(path) and _is_label(xform, path)
+
+
 def _child_write_not_offered(xform, subcase, written):
     context = subcase.get("repeat_context") or ""
     if written is not None:
@@ -3316,7 +3649,7 @@ def upload_question(use, manifest):
     at, form = _form(use)
     if form is None:
         return None
-    if not _in_actions(at, form, "update_case"):
+    if not _in_actions(at, form, "update_case") or not _writes_own_update(_actions(form).get("update_case")):
         return False
     xform = at.app.xform(form)
     written = at.nearest("ConditionalCaseUpdate")
@@ -3677,14 +4010,14 @@ def request_config_key_runtime_value(use, manifest):
 
 def related_case_property_twice(use, manifest):
     """``case-search/an-x-commcare-custom-related-case-property-entry-together-with``: an
-    ``x_commcare_custom_related_case_property`` default filter beside ``custom_related_case_property``."""
+    ``x_commcare_custom_related_case_property`` default filter beside ``custom_related_case_property``. A use
+    inside a default filter is in the class only where that filter is the one keyed so (``_default_entries``), as
+    Nova's reader refuses that filter alone (``search/index.ts::keyFinding``)."""
     at, config = _search(use)
     if config is None:
         return None
     keyed = any(
-        each.get("property") == "x_commcare_custom_related_case_property"
-        for each in config.get("default_properties") or []
-        if isinstance(each, dict)
+        each.get("property") == "x_commcare_custom_related_case_property" for each in _default_entries(at, config)
     )
     return keyed and bool(config.get("custom_related_case_property"))
 
@@ -3716,37 +4049,57 @@ def endpoint_id_key(use, manifest):
     return any(entry.get("property") == "x_commcare_endpoint_id" for entry in _default_entries(at, config))
 
 
+def holds_no_default_value(entry):
+    """Whether a default filter holds no value: its ``defaultValue`` is absent, no string, or blank once
+    JavaScript's ``trim`` takes what ends it, as Nova's reader reads it (``search/index.ts``, the row it refuses
+    whole). HQ keeps no ``None`` there (``DefaultCaseSearchProperty.defaultValue``, ``exclude_if_none``)."""
+    value = entry.get("defaultValue")
+    return not isinstance(value, str) or not value.strip("".join(JS_WHITESPACE))
+
+
 def missing_default_value(use, manifest):
     """``case-search/default-properties-entry-with-no-defaultvalue-…``: a default filter with no
-    ``defaultValue`` (HQ stores an empty one as none, ``DefaultCaseSearchProperty.wrap``)."""
-    at, config = _search(use)
-    if config is None:
+    ``defaultValue`` (HQ stores an empty one as none, ``DefaultCaseSearchProperty.wrap``). The class stands at
+    the filter itself (``schema:DefaultCaseSearchProperty``, which the extraction makes a use of only for such a
+    filter), where Nova's reader refuses the whole filter: the list that holds it, and its keys, are in no such
+    class."""
+    at = _json(use)
+    if at is None:
         return None
-    return any(not entry.get("defaultValue") for entry in _default_entries(at, config))
+    if at.key is not None or at.scope[-1][0] != "DefaultCaseSearchProperty":
+        return False
+    return holds_no_default_value(at.owner)
 
 
 def blacklisted_owner_ids_twice(use, manifest):
     """``case-search/that-entry-together-with-blacklisted-owner-ids-expression``: a
-    ``commcare_blacklisted_owner_ids`` default filter beside ``blacklisted_owner_ids_expression``."""
+    ``commcare_blacklisted_owner_ids`` default filter beside ``blacklisted_owner_ids_expression``. A use inside a
+    default filter is in the class only where that filter is the one keyed so (``_default_entries``), as Nova's
+    reader refuses that filter alone (``search/index.ts::keyFinding``)."""
     at, config = _search(use)
     if config is None:
         return None
-    keyed = any(
-        each.get("property") == "commcare_blacklisted_owner_ids"
-        for each in config.get("default_properties") or []
-        if isinstance(each, dict)
-    )
+    keyed = any(each.get("property") == "commcare_blacklisted_owner_ids" for each in _default_entries(at, config))
     return keyed and bool(config.get("blacklisted_owner_ids_expression"))
 
 
 def shared_by_filter_and_prompt(use, manifest):
-    """``case-search/a-default-filter-and-a-search-property-sharing-one-name``."""
+    """``case-search/a-default-filter-and-a-search-property-sharing-one-name``: a prompt's ``name`` a default
+    filter's ``property`` also names, and that filter's ``property``; a use in a prompt or a filter that shares
+    no name is in no such class (``search/prompts.ts``, ``nameShared``)."""
     at, config = _search(use)
     if config is None:
         return None
-    prompts = {each.get("name") for each in config.get("properties") or [] if isinstance(each, dict)}
+    prompts = {each.get("name") for each in config.get("properties") or [] if isinstance(each, dict)} - {None, ""}
     filters = {each.get("property") for each in config.get("default_properties") or [] if isinstance(each, dict)}
-    return bool((prompts & filters) - {None, ""})
+    filters -= {None, ""}
+    prompt = at.nearest("CaseSearchProperty")
+    if prompt is not None:
+        return prompt.get("name") in filters
+    entry = at.nearest("DefaultCaseSearchProperty")
+    if entry is not None:
+        return entry.get("property") in prompts
+    return bool(prompts & filters)
 
 
 def _required(prompt):
@@ -3808,6 +4161,47 @@ mobile_ucr_reports = _prompt_reader(
     lambda prompt: prompt.get("input_") in ("select1", "select") and _itemset_scheme(prompt) == "commcare-reports"
 )
 mobile_ucr_reports.__doc__ = """``case-search/input-select1-select-commcare-reports-itemset-mobile-ucr``."""
+
+
+def editor_appearance(prompt):
+    """The appearance HQ's Case List page shows for a prompt (``case_claim.js::_getAppearance``): the stored
+    ``appearance``, or none; a selection's lookup or Mobile UCR choice over it, by whether its itemset's
+    ``instance_id`` names ``commcare-reports``; ``address`` where the stored appearance is; and the input type over
+    all of them where it is a date, a date range or a checkbox. Nova's reader reads it alike
+    (``search/prompts.ts::editorAppearance``)."""
+    stored = prompt.get("appearance")
+    appearance = stored if isinstance(stored, str) else ""
+    input_ = prompt.get("input_")
+    if input_ in ("select1", "select"):
+        itemset = prompt.get("itemset")
+        instance_id = itemset.get("instance_id") if isinstance(itemset, dict) else None
+        appearance = (
+            "report_fixture"
+            if isinstance(instance_id, str) and "commcare-reports" in instance_id
+            else "lookup_table_fixture"
+        )
+    if stored == "address":
+        appearance = "address"
+    if input_ in ("date", "daterange", "checkbox"):
+        appearance = input_
+    return appearance
+
+
+# The appearances HQ's Case List page shows that take no value another screen sends a prompt: every one but a plain
+# text field and a lookup or Mobile UCR selection (``views/modules.py::_update_search_properties`` keeps a
+# ``receiver_expression`` only for appearance ``fixture`` or none).
+RECEIVER_REFUSED_APPEARANCES = frozenset({"barcode_scan", "address", "date", "daterange", "checkbox"})
+
+receiver_on_another_appearance = _prompt_reader(
+    lambda prompt: (
+        prompt.get("receiver_expression") not in (None, "")
+        and editor_appearance(prompt) in RECEIVER_REFUSED_APPEARANCES
+    )
+)
+receiver_on_another_appearance.__doc__ = """``case-search/receiver-expression-on-a-prompt-whose-editor-…``: a
+``receiver_expression`` holding text on a prompt whose appearance in HQ's Case List page is neither a plain text
+field nor a lookup or Mobile UCR selection (``editor_appearance``); a blank one is no value, and on any other prompt
+the expression is ``case-search/receiver-expression``'s."""
 
 # The input types a runtime names (commcare-core ``QueryPrompt.INPUT_TYPE_*``): the six Formplayer supports
 # (``QueryScreen.getSupportedPrompts``), of which Android supports three (``QueryRequestActivity``).
@@ -4011,16 +4405,15 @@ def _clickable_icon_list_empty(at, column, detail, kind, module):
 
 
 clickable_icon_list_empty = _column_reader(_clickable_icon_list_empty)
-clickable_icon_list_empty.__doc__ = (
-    """``menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case``."""
-)
+clickable_icon_list_empty.__doc__ = """``menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-…``:
+the column, read on each use of its keys, its icon mapping (``enum``) among them, which HQ's build reads of a
+clickable icon (``detail_screen.py::ClickableIcon``) and which the column editor's extras on another format are not."""
 
 clickable_icon_on_detail = _column_reader(
     lambda at, column, detail, kind, module: _format(column) == "clickable-icon" and kind == "long"
 )
-clickable_icon_on_detail.__doc__ = (
-    """``menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-whatever-its-endpoint``."""
-)
+clickable_icon_on_detail.__doc__ = """``menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-…``: the
+column, read on each use of its keys, its icon mapping (``enum``) among them."""
 
 # Characters HQ's mapping editor marks in a translatable-enum key (ui-element-key-val-mapping.js::hasBadXML):
 # anything outside [A-Za-z0-9_-].
@@ -4176,9 +4569,12 @@ filter_changes_the_build.__doc__ = """``menus-and-case-lists/24p-filter-otherwis
 SINGLE_FORMATS = ("image", "geo-boundary", "geo-boundary-color", "geo-points", "geo-points-colors")
 
 
-def _repeated_single_format(detail):
-    formats = [_format(column) for column in _columns(detail)]
-    return any(formats.count(single) > 1 for single in SINGLE_FORMATS)
+def _repeated_single_format(detail, column=None):
+    """Whether a detail holds a second column of one of ``SINGLE_FORMATS``; for a use in a column, whether that
+    column is of the repeated format, since the class is a fact about those columns and not their neighbours."""
+    formats = [_format(one) for one in _columns(detail)]
+    repeated = {single for single in SINGLE_FORMATS if formats.count(single) > 1}
+    return bool(repeated) if column is None else _format(column) in repeated
 
 
 def several_of_one_format_basic(use, manifest):
@@ -4188,7 +4584,7 @@ def several_of_one_format_basic(use, manifest):
     at, column, detail, kind, module = _column(use)
     if detail is None:
         return None
-    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(detail)
+    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(detail, column)
 
 
 def several_of_one_format_advanced(use, manifest):
@@ -4196,7 +4592,7 @@ def several_of_one_format_advanced(use, manifest):
     at, column, detail, kind, module = _column(use)
     if detail is None:
         return None
-    return (module or {}).get("doc_type") == "AdvancedModule" and _repeated_single_format(detail)
+    return (module or {}).get("doc_type") == "AdvancedModule" and _repeated_single_format(detail, column)
 
 
 # HQ's editor's field check (details/utils.js::isValidPropertyName, and sort_rows.js::hasValidPropertyName for a
@@ -4247,23 +4643,30 @@ def _custom_tile(detail):
     return detail.get("case_tile_template") == "custom"
 
 
+def _case_list_tile(detail, kind):
+    """Whether a detail is the case list's custom tile, whose cells the tile's cell classes read. A custom tile on
+    the case detail is a class of its own (``menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-
+    tile``), which takes its cells with it, as Nova's reader refuses it whole (``caseList/tile.ts::readTile``)."""
+    return kind == "short" and _custom_tile(detail)
+
+
 null_on_unplaced_tile = _column_reader(
     lambda at, column, detail, kind, module: (
-        _custom_tile(detail) and (column.get("grid_x") is None or column.get("grid_y") is None)
+        _case_list_tile(detail, kind) and (column.get("grid_x") is None or column.get("grid_y") is None)
     )
 )
 null_on_unplaced_tile.__doc__ = """``menus-and-case-lists/custom-tile-column-with-grid-null-unplaced``."""
 
 null_font_size_on_tile = _column_reader(
     lambda at, column, detail, kind, module: (
-        _custom_tile(detail) and "font_size" in column and column.get("font_size") is None
+        _case_list_tile(detail, kind) and "font_size" in column and column.get("font_size") is None
     )
 )
 null_font_size_on_tile.__doc__ = """``menus-and-case-lists/custom-tile-font-size-null``."""
 
 null_alignment_on_placed_tile = _column_reader(
     lambda at, column, detail, kind, module: (
-        _custom_tile(detail)
+        _case_list_tile(detail, kind)
         and column.get("grid_x") is not None
         and column.get("grid_y") is not None
         and column.get("horizontal_align") is None
@@ -4431,11 +4834,12 @@ def default_on_multi_select_host(use, manifest):
 def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
     """``menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of``: a module that shows
     its forms in the menu above (``put_in_root``) beside one of what HQ's build refuses there: its own
-    ``session_endpoint_id``, inline search (``util.py::module_uses_inline_search``), a form of its own whose
-    ``post_form_workflow`` is ``module``, a form of a child module whose ``post_form_workflow`` is
-    ``parent_module``, or a ``form_links`` entry anywhere in the app that names it by ``module_unique_id`` with no
-    ``form_id`` (``helpers/validators.py``: ``endpoint to display only forms``, ``inline search to display only
-    forms``, ``form link to display only forms``)."""
+    ``session_endpoint_id``, inline search (``util.py::module_uses_inline_search``), or a ``form_links`` entry
+    anywhere in the app that names it by ``module_unique_id`` with no ``form_id`` (``helpers/validators.py``:
+    ``endpoint to display only forms``, ``inline search to display only forms``, ``form link to display only
+    forms``). An end-of-form return to it (a form of its own whose ``post_form_workflow`` is ``module``, or a form
+    of a child module's whose is ``parent_module``) is the form's own class
+    (``forms-and-case-writes/post-form-workflow-hq-s-build-refuses-module-in-a-put-in-root``), at the form."""
     at, module = _module_of_detail(use)
     if module is None:
         return None
@@ -4443,14 +4847,9 @@ def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
         return False
     if module.get("session_endpoint_id") or _inline_search(module):
         return True
-    if any(form.get("post_form_workflow") == "module" for form in _forms(module)):
-        return True
     me = module.get("unique_id")
     for other in at.app.modules:
-        child = other.get("root_module_id") == me
         for form in _forms(other):
-            if child and form.get("post_form_workflow") == "parent_module":
-                return True
             for link in form.get("form_links") or []:
                 if isinstance(link, dict) and link.get("module_unique_id") == me and not link.get("form_id"):
                     return True
@@ -4689,6 +5088,18 @@ names_a_survey_module.__doc__ = (
 )
 
 
+def _max_select_number(value):
+    """A list's ``max_select_value`` as Nova's reader reads it (``caseList/details.ts::readSelection``): a number,
+    False for null (HQ's model's ``None``, for which HQ's build writes no ``max-select-value`` and Core takes 100), and
+    None for any other value, which HQ's model refuses as it wraps the app (``IntegerProperty``, an
+    ``AssertTypeProperty``), so no source HQ serves holds it and the reader leaves it unclaimed."""
+    if value is None:
+        return False
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
+
+
 def zero_or_below_minus_one(use, manifest):
     """``menus-and-case-lists/detail-max-select-value-of-0-or-below-1-on-a-multi-select-basic``: a
     multi-select basic case list whose ``max_select_value`` is 0 or below -1; in a suite, an instance datum's
@@ -4707,8 +5118,10 @@ def zero_or_below_minus_one(use, manifest):
     short = ((module.get("case_details") or {}).get("short")) or {}
     if (module.get("doc_type") or "Module") != "Module" or not short.get("multi_select"):
         return False
-    value = short.get("max_select_value")
-    return isinstance(value, int) and not isinstance(value, bool) and (value == 0 or value < -1)
+    value = _max_select_number(short.get("max_select_value"))
+    if value is None or value is False:
+        return value
+    return value == 0 or value < -1
 
 
 def fails_filter_xpath_check(use, manifest):
@@ -4785,8 +5198,49 @@ def _entry_searches_inline(entry):
     )
 
 
+def _instance_reads(use):
+    """The expression a use of an instance's scheme sits on, in a form or an app JSON's slot, where HQ's build
+    reads each instance id it holds (``models/forms.py``'s ``add_missing_instances``, and the suite it writes from
+    a slot): its document and the ids its paths read from ``instance()``, by Core's parse of it. (None, None) for a
+    use on no such expression (a suite's declaration); (document, None) where the records hold no parse of it."""
+    document, text = _expression_at(use)
+    if document is None or document.kind == "runtime" or text is None:
+        return None, None
+    parsed = document.parsed(text)
+    if parsed is None or "error" in parsed:
+        return document, None
+    return document, {path["instance"] for path in parsed["instancePaths"]}
+
+
+def _form_entries(form):
+    """Each ``<entry>`` of the suites the check reads beside a form (``Form.entry_suites``) that opens it (its
+    ``<form>`` names the form's namespace)."""
+    if form.xmlns is None:
+        return []
+    return [
+        entry
+        for suite in form.entry_suites
+        for entry in _children(suite)
+        if _local(entry) == "entry"
+        and any(_local(child) == "form" and (child.text or "").strip() == form.xmlns for child in _children(entry))
+    ]
+
+
 def non_inline_search_form(prefix):
     def reader(use, manifest):
+        document, read = _instance_reads(use)
+        if document is not None:
+            # An app JSON's slot is evaluated in a menu or a case list, outside a form.
+            if document.kind != "xform":
+                return False
+            if read is None:
+                return None
+            if not any(instance_id.startswith(prefix) for instance_id in read):
+                return False
+            entries = _form_entries(document)
+            if not entries:
+                return None
+            return any(not _entry_searches_inline(entry) for entry in entries)
         instance, entry = _instance_in(use)
         if instance is None:
             return None
@@ -4795,33 +5249,76 @@ def non_inline_search_form(prefix):
         return not _entry_searches_inline(entry)
 
     reader.__doc__ = (
-        f"An ``{prefix}`` instance a form's entry declares, reached through a search that is not inline (the"
-        " entry's session holds no query): the search's ``<rewind>`` drops the step that loads it"
-        " (``SessionFrame.rewindToMarkAndSet``)."
+        f"An ``{prefix}`` instance a form's entry declares, or a form's expression reads, reached through a search"
+        " that is not inline (the session of an entry that opens the form holds no query): the search's"
+        " ``<rewind>`` drops the step that loads it (``SessionFrame.rewindToMarkAndSet``). An app JSON's slot is"
+        " evaluated outside a form."
     )
     return reader
+
+
+# The sources a ``locations`` instance takes: HQ's hierarchical fixture, and its flat one; and the flag under which
+# HQ's build chooses the hierarchical one (``corehq/toggles/__init__.py::HIERARCHICAL_LOCATION_FIXTURE``).
+HIERARCHICAL_LOCATIONS = "jr://fixture/commtrack:locations"
+FLAT_LOCATIONS = "jr://fixture/locations"
+HIERARCHICAL_LOCATION_FIXTURE = "HIERARCHICAL_LOCATION_FIXTURE"
+
+
+def _locations_source(source):
+    if source == HIERARCHICAL_LOCATIONS:
+        return True
+    if source == FLAT_LOCATIONS:
+        return False
+    return None
 
 
 def hierarchical_locations(use, manifest):
     """``expressions-and-data/commtrack-locations-hierarchical``: a ``locations`` instance a suite declares from
     HQ's hierarchical fixture, ``jr://fixture/commtrack:locations``, which HQ chooses only under
     ``HIERARCHICAL_LOCATION_FIXTURE`` with the flat fixture off
-    (``suite_xml/post_process/instances.py::location_fixture_instances``). The flat ``jr://fixture/locations`` is
-    not, and another source is not this class's to say (None)."""
+    (``suite_xml/post_process/instances.py::location_fixture_instances``), or a form's expression reading an
+    instance its form declares from it. The flat ``jr://fixture/locations`` is not, and another source is not this
+    class's to say (None). An app JSON slot's read takes the source HQ's build chooses as it writes the suite: the
+    flat one in a project space without ``HIERARCHICAL_LOCATION_FIXTURE``, by the configurations the app was sent
+    under (``App.configurations``), and with the flag on, the one its location settings choose, which no export
+    carries (None)."""
+    document, read = _instance_reads(use)
+    if document is not None and document.kind == "app":
+        if read is None or not any(instance_id.split(":", 1)[0] == "locations" for instance_id in read):
+            return None if read is None else False
+        configurations = document.configurations
+        if configurations is None or any(HIERARCHICAL_LOCATION_FIXTURE in each.flags for each in configurations):
+            return None
+        return False
+    if document is not None:
+        if read is None:
+            return None
+        places = {instance_id for instance_id in read if instance_id.split(":", 1)[0] in ("locations", "commtrack")}
+        verdicts = {
+            _locations_source(source) for instance_id, source in document.declared_instances if instance_id in places
+        }
+        if True in verdicts:
+            return True
+        return False if verdicts == {False} else None
     instance, _ = _instance_in(use)
     if instance is None:
         return None
-    source = instance.get("src")
-    if source == "jr://fixture/commtrack:locations":
-        return True
-    if source == "jr://fixture/locations":
-        return False
-    return None
+    return _locations_source(instance.get("src"))
 
 
 def legacy_after_query(use, manifest):
     """``expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail``: the legacy
-    bare ``search-input`` instance declared by a form's entry or a detail, read after the query."""
+    bare ``search-input`` instance declared by a form's entry or a detail, read after the query; in an app JSON, a
+    case list column's or filter's read of it, or a form link's, which HQ's build writes into a detail and an
+    entry's stack. A form's own read is the form's class, and a display condition's is a menu's."""
+    document, read = _instance_reads(use)
+    if document is not None:
+        if document.kind != "app":
+            return False
+        if read is None:
+            return None
+        at = use.at
+        return "search-input" in read and at.nearest("Detail", "FormLink", "FormDatum") is not None
     at = _xml(use, "runtime")
     if at is None or _local(at.element) != "instance":
         return None
@@ -5067,8 +5564,9 @@ MEDIA_PREFIX = "jr://file/"
 
 def _media(use):
     """What the file a ``media-class`` use's multimedia map item names is (``proof.observe.manifest.
-    media_facts``), as Nova's local archive carries it at the reference's path: None where no archive holds
-    it."""
+    media_facts``): in the app HQ made, the file HQ holds at the item's path (``Readings.authored_media``), and in
+    an app Nova sends, the file Nova's local archive carries at the reference's path. None where neither holds
+    one."""
     at = _json(use)
     if at is None:
         return None
@@ -5078,7 +5576,11 @@ def _media(use):
         return None
     references = at.app.doc.get("multimedia_map") or {}
     path = next((key for key, value in references.items() if value is item), None)
-    if path is None or not path.startswith(MEDIA_PREFIX):
+    if path is None:
+        return None
+    if at.app.authored:
+        return readings.authored_media.get(path)
+    if not path.startswith(MEDIA_PREFIX):
         return None
     return readings.media.get(path[len(MEDIA_PREFIX) :])
 
@@ -5204,17 +5706,53 @@ def _node_name(element):
     return f"{element.prefix}:{_local(element)}" if element.prefix else _local(element)
 
 
+# The question ids Vellum warns about in any case (``baseSpecs.js::RESERVED_NAMES``), and those its parser finds by
+# bare element name at any depth, so a form holding one never opens (``parser.js``, and jQuery's ``parseXML``, which
+# takes any ``parsererror`` element for its own parse failure); ``lib/domain/questionId.ts::RESERVED_QUESTION_IDS``.
+RESERVED_ANY_CASE = frozenset({"case", "registration", "script"})
+NEVER_OPENED = frozenset({"instance", "bind", "parsererror"})
+
+
+def _question_node(use):
+    """The data node a question id use sits on, with its form: a node Vellum's parser makes a question of
+    (``Form.vellum_nodes``); ``(form, None)`` for any other element, ``(None, None)`` outside an XForm."""
+    form, element = _data_node(use)
+    if form is None:
+        return None, None
+    if element is None or element not in form.vellum_nodes:
+        return form, None
+    return form, element
+
+
 def invalid_question_id(use, manifest):
     """``questions/question-id-failing-the-grammar-or-meta-in-any-case``: a data node Vellum's parser makes a
     question of (``Form.vellum_nodes``) whose name fails Vellum's Question ID rule or is ``meta`` in any case
-    (``baseSpecs.js``'s ``nodeID`` validation, ``util.js::isValidElementName``)."""
-    form, element = _data_node(use)
+    (``baseSpecs.js``'s ``nodeID`` validation, ``util.js::isValidElementName``), or is ``instance``, ``bind`` or
+    ``parsererror``, which HQ's form builder cannot open a form holding (``NEVER_OPENED``), as Nova's reader reads
+    each question's data node (``lib/commcare/reader/xform/join.ts``'s question id rule over
+    ``questionId.ts::questionIdProblem``)."""
+    form, element = _question_node(use)
     if form is None:
         return None
-    if element is None or element not in form.vellum_nodes:
+    if element is None:
         return False
     name = _node_name(element)
-    return VELLUM_ELEMENT_NAME.fullmatch(name) is None or name.lower() == "meta"
+    return VELLUM_ELEMENT_NAME.fullmatch(name) is None or name.lower() == "meta" or name in NEVER_OPENED
+
+
+def reserved_question_id(use, manifest):
+    """``questions/question-id-case-registration-script``: a question's data node whose name passes Vellum's Question
+    ID rule and is ``case``, ``registration`` or ``script`` in any case, which HQ's form builder only warns about and
+    Nova's question id rule refuses (``RESERVED_ANY_CASE``; Nova's reader claims the node under this entry,
+    ``lib/commcare/reader/xform/join.ts``)."""
+    form, element = _question_node(use)
+    if form is None:
+        return None
+    # A case block's own ``<case>`` (its namespace the case transaction's) is no question.
+    if element is None or etree.QName(element).namespace == CASE:
+        return False
+    name = _node_name(element)
+    return VELLUM_ELEMENT_NAME.fullmatch(name) is not None and name.lower() in RESERVED_ANY_CASE
 
 
 def sibling_with_one_name(use, manifest):
@@ -5257,6 +5795,168 @@ def hidden_value_with_children(use, manifest):
     if element is None or form.vellum_nodes.get(element, "") is not None or not _children(element):
         return False
     return not form.question_controls(_path_of(form, element))
+
+
+def _model_setvalues(form):
+    """The setvalues the model holds as its own children, in document order (what Vellum keeps as defaults)."""
+    return [] if form.model is None else list(form.model.iterfind(f"{{{XFORMS}}}setvalue"))
+
+
+def _reads_through_calculates(form, reads, path, seen):
+    """Whether one of ``reads`` (paths) is ``path``, or a Hidden Value's (a node no body control names) whose
+    calculate reads it, through any chain of such calculates. A read this does not place reaches nothing."""
+    for read in reads:
+        if read is None:
+            continue
+        if read == path:
+            return True
+        if read in seen or form.question_controls(read):
+            continue
+        seen.add(read)
+        bind = form.bind(read)
+        calculate = bind.get("calculate") if bind is not None else None
+        if not (calculate or "").strip():
+            continue
+        through = _tree_reads(form, calculate, read)
+        if through and _reads_through_calculates(form, through, path, seen):
+            return True
+    return False
+
+
+def _relative_read(tree, context):
+    """The node a relative location path with no predicate names from ``context``, its structure as HQ's XPath
+    grammar reads it (the observation's ``trees``), or None for any other expression."""
+    if not isinstance(tree, list) or tree[:2] != ["path", "relative"] or tree[3]:
+        return None
+    return _resolved(context, tree[4])
+
+
+def _call_of(tree, name, arity):
+    """A call's arguments, where ``tree`` is a call of ``name`` with ``arity`` arguments, else None."""
+    if isinstance(tree, list) and tree[:2] == ["call", name] and len(tree[2]) == arity:
+        return tree[2]
+    return None
+
+
+def _row_id_choice(tree, place, count, ids, context, *, whole):
+    """Whether ``tree`` is ``if(<place> < <count>, selected-at(<ids>, <place>), '')``, the choice of a row's id a
+    count placement writes: its count and ids read from ``context`` as the nodes ``count`` and ``ids``, the count as
+    it stands or, where it is not ``whole``, through ``int()``, and its place one expression twice, which ``place``
+    tells is the row's."""
+    branches = _call_of(tree, "if", 3)
+    if branches is None or branches[2] != ["text", ""]:
+        return False
+    test, chosen = branches[0], _call_of(branches[1], "selected-at", 2)
+    if chosen is None or not isinstance(test, list) or test[:2] != ["binary", "<"] or chosen[1] != test[2]:
+        return False
+    bound = test[3] if whole else (_call_of(test[3], "int", 1) or [None])[0]
+    return place(test[2]) and _relative_read(bound, context) == count and _relative_read(chosen[0], context) == ids
+
+
+def _count_placement_row_id(form, element, path, bind, defaults):
+    """Whether a Hidden Value with a calculate and a default is the id of a row of a query repeat's count placement,
+    which the count repeat's own entry holds (``questions/count-repeat-whose-count-and-row-ids-come-from-one-query-a``,
+    ``lib/commcare/xform/countPlacementRow.ts``): a child of a repeat's row (an element holding ``jr:template``, the
+    nodeset of a body ``<repeat>`` whose ``jr:count`` names a node beside the row, its count), whose calculate is
+    ``if(../<index> < ../../<count>, selected-at(../../<ids>, ../<index>), '')`` over another node of the row and a
+    node beside the row, and whose one default, at ``jr-insert``, is ``if(position(..) < int(../../<count>),
+    selected-at(../../<ids>, position(..)), '')``. The default and the calculate give a row one id, so no runtime
+    reads a default its calculate does not give, as Nova's reader reads the row
+    (``reader/xform/generated.ts::readQueryPlacement``). Each expression is read by its structure as HQ's XPath
+    grammar reads it (the observation's ``trees``): None where the records hold none of one this decides by."""
+    row = element.getparent()
+    wrapper = row.getparent() if row is not None else None
+    if wrapper is None or row is form.data_root or row.get(f"{{{JAVAROSA}}}template") is None:
+        return False
+    row_path, wrapper_path = form.paths.get(row), form.paths.get(wrapper)
+    counted = [
+        control
+        for control in form.controls.get(row_path or "", [])
+        if _local(control) == "repeat" and (control.get(f"{{{JAVAROSA}}}count") or "").strip()
+    ]
+    if row_path is None or wrapper_path is None or len(counted) != 1 or len(defaults) != 1:
+        return False
+    if (defaults[0].get("event") or "").split() != ["jr-insert"]:
+        return False
+    count_reads = _tree_reads(form, counted[0].get(f"{{{JAVAROSA}}}count"), row_path)
+    if count_reads is None:
+        return None
+    count = count_reads[0] if len(count_reads) == 1 else None
+    if count is None or count.rpartition("/")[0] != wrapper_path:
+        return False
+    calculate, default = form.tree(bind.get("calculate")), form.tree(defaults[0].get("value"))
+    if calculate is None or default is None:
+        return None
+    branches = _call_of(calculate, "if", 3)
+    chosen = _call_of(branches[1], "selected-at", 2) if branches is not None else None
+    ids = _relative_read(chosen[0], path) if chosen is not None else None
+    if ids is None or ids in (count, row_path) or ids.rpartition("/")[0] != wrapper_path:
+        return False
+
+    def row_place(tree):
+        place = _relative_read(tree, path)
+        return place is not None and place != path and place.rpartition("/")[0] == row_path
+
+    def row_position(tree):
+        held = _call_of(tree, "position", 1)
+        return held is not None and _relative_read(held[0], path) == row_path
+
+    return _row_id_choice(calculate, row_place, count, ids, path, whole=True) and _row_id_choice(
+        default, row_position, count, ids, path, whole=False
+    )
+
+
+def hidden_value_default_read(use, manifest):
+    """``questions/hidden-value-with-both-calculate-and-a-default-by-any-expression``: a Hidden Value (a data node no
+    body control names, ``mug:DataBindOnly``) whose bind calculates it and whose default a model setvalue sets,
+    where a runtime can read the default: the node stands in a repeat, where a row's default can outlast its
+    calculate; or a later ``xforms-ready`` setvalue of the model reads it, directly or through the calculates of
+    the Hidden Values it reads. Core runs a new form's ``xforms-ready`` setvalues in model order and then every
+    calculate (``FormDef.initialize``, ``initAllTriggerables``), so otherwise the calculate replaces the default
+    before anything reads it, which the held class beside it is
+    (``questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads``). As Nova's reader decides it
+    (``xform/afterBinding.ts::defaultUnread``), a node more than one setvalue sets, and a default set at another
+    event, are in the class. Each later setvalue's reads are its value's structure as HQ's XPath grammar reads it
+    (the observation's ``trees``), evaluated at the node it sets; None where the records hold none, or a read this
+    does not place leaves the class open. The class reads the form's own elements alone, never an app beside it.
+    An attribute HQ's reader lists as a Hidden Value, a SaveToCase block's ``<case>`` attribute
+    (``xform.py::XForm.get_questions``), is outside the class: Vellum reads it as a property of the block's own mug
+    (``saveToCase.js``: ``case_id``, ``date_modified``), never as a Hidden Value."""
+    form, element = _data_node(use)
+    if form is None:
+        return None
+    if use.at.attribute is not None:
+        return False
+    if element is None or form.question_controls(form.paths.get(element)):
+        return False
+    path = form.paths.get(element)
+    bind = form.bind(path)
+    if path is None or bind is None or not (bind.get("calculate") or "").strip():
+        return False
+    defaults = [setvalue for setvalue in _model_setvalues(form) if (setvalue.get("ref") or "").strip() == path]
+    if not defaults:
+        return False
+    row_id = _count_placement_row_id(form, element, path, bind, defaults)
+    if row_id is not False:
+        return None if row_id is None else False
+    if form.in_repeat(path):
+        return True
+    if len(defaults) != 1 or (defaults[0].get("event") or "").split() != ["xforms-ready"]:
+        return True
+    loads = _load_setvalues(form)
+    unsure = False
+    for later in loads[loads.index(defaults[0]) + 1 :]:
+        value = later.get("value")
+        if not (value or "").strip():
+            continue
+        reads = _tree_reads(form, value, (later.get("ref") or "").strip())
+        if reads is None:
+            unsure = True  # no structure recorded, or a read this does not place
+            continue
+        if _reads_through_calculates(form, reads, path, set()):
+            return True
+        unsure = unsure or None in reads
+    return None if unsure else False
 
 
 # The body controls that may name a node with element children: a group and a repeat, the only questions whose
@@ -5450,6 +6150,16 @@ RESERVED_CASE_PROPERTIES = frozenset(
         "xform_ids",
     }
 )
+# The reserved words HQ's build refuses as a preloaded property's last step (``case-reserved-words.json``, and the two
+# hyphenated spellings ``lib/commcare/constants.ts::HQ_CASE_RESERVED_WORDS`` adds), ``owner_id`` aside, which HQ reads
+# as the case's ``@owner_id``.
+HQ_CASE_RESERVED_WORDS = (RESERVED_CASE_PROPERTIES - {"owner_id"}) | {"date-opened", "external-id"}
+# The children of every case Core's case database holds that Nova reads by the same element
+# (``preloads.ts::CASE_CHILD_ELEMENTS``): the reserved words HQ's grammar admits only with a trailing newline.
+CASE_CHILD_ELEMENTS = frozenset({"case_name", "date_opened", "last_modified"})
+# A session-user field's name, which a worker-record read prints as an element
+# (``lib/domain/externalUserProperty.ts::SESSION_USER_FIELD_PATTERN``).
+SESSION_USER_FIELD = re.compile(r"[a-zA-Z_][-a-zA-Z0-9_]*")
 # A worker property's slug (``lib/domain/users.ts::USER_PROPERTY_SLUG_PATTERN``, at most 127 characters), matched whole.
 WORKER_PROPERTY_SLUG = re.compile(r"[a-zA-Z_][-a-zA-Z0-9_]{0,126}")
 # HQ's property grammar on an action's key (``helpers/validators.py::validate_property``;
@@ -5576,47 +6286,63 @@ def inline_instance(use, manifest):
 
 
 def unnamed_instances(use, manifest):
-    """``expressions-and-data/more-than-one-instance-without-an-id``: an ``<instance>`` without an ``id`` in a form
-    holding another, which Vellum refuses to open (``parser.js::_getInstances``, which finds every element named
-    ``instance`` in the document and throws on a second whose ``id`` is empty)."""
+    """``expressions-and-data/more-than-one-instance-without-an-id``: an ``<instance>`` without an ``id`` after the
+    form's first such instance, which Vellum refuses to open (``parser.js::_getInstances``, which finds every element
+    named ``instance`` in the document, takes the first whose ``id`` is empty as the main instance and throws on a
+    later one). The first is the form's main instance, which is not in the class."""
     form, element = _instance_element(use)
     if form is None:
         return None
     if element is None or element.get("id"):
         return False
-    return sum(1 for other in form.named_instance_elements if not other.get("id")) > 1
+    unnamed = [other for other in form.named_instance_elements if not other.get("id")]
+    return len(unnamed) > 1 and element is not unnamed[0]
 
 
 def supply_point_datum(use, manifest):
     """``expressions-and-data/session-data-supply-point-id-anywhere-except-…``: an expression reading the session's
     ``data/supply_point_id``, anywhere but in an advanced form one of whose computed datums has that id
-    (``AdvancedForm.arbitrary_datums``). Read from Core's parse of the expression (its instance paths through the
-    session's instance, ``instance-source:session``). A suite does not say which form its expressions belong to:
-    None there."""
-    at = _xml(use)
-    if at is None or at.attribute is None:
-        return None
-    document = at.document
-    parsed = document.parsed(at.element.get(at.attribute))
+    (``_supply_point_read``)."""
+    reads, computed = _supply_point_read(use, manifest)
+    return reads if not reads else (None if computed is None else not computed)
+
+
+def supply_point_computed_datum(use, manifest):
+    """``expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed``: an expression
+    reading the session's ``data/supply_point_id`` in an advanced form one of whose computed datums has that id
+    (``_supply_point_read``), which HQ's build writes before its own CommTrack datum."""
+    reads, computed = _supply_point_read(use, manifest)
+    return reads if not reads else computed
+
+
+def _supply_point_read(use, manifest):
+    """Whether an expression reads the session's ``data/supply_point_id``, and where it does, whether it stands in an
+    advanced form one of whose computed datums has that id (``AdvancedForm.arbitrary_datums``); None where this does
+    not say. Read from Core's parse of the expression (its instance paths through the session's instance,
+    ``instance-source:session``). A suite does not say which form its expressions belong to: None there. An app JSON
+    slot does: a form's display condition and its links are the form's, and a menu's display condition and its case
+    list's filter and columns are no form's."""
+    document, text, sessions = _session_reads(use, manifest)
+    if document is None:
+        return None, None
+    parsed = document.parsed(text)
     if parsed is None or "error" in parsed:
-        return None
-    sessions = {
-        instance_id
-        for instance_id, src in document.declared_instances
-        if instance_source(manifest, src) == "instance-source:session"
-    }
+        return None, None
     if not any(
         path["instance"] in sessions and path["steps"][:3] == ["session", "data", "supply_point_id"]
         for path in parsed["instancePaths"]
     ):
-        return False
-    if document.kind != "xform":
-        return None
-    if document.app_form is None:
-        return None
-    _, form_json = document.app_form
+        return False, None
+    if isinstance(use.at, JsonAt):
+        form_json = use.at.nearest(*FORMS)
+        if form_json is None:
+            return True, False
+    elif document.kind != "xform" or document.app_form is None:
+        return True, None
+    else:
+        _, form_json = document.app_form
     datums = form_json.get("arbitrary_datums") or []
-    return not (
+    return True, (
         form_json.get("doc_type") == "AdvancedForm"
         and any(isinstance(datum, dict) and datum.get("datum_id") == "supply_point_id" for datum in datums)
     )
@@ -5873,19 +6599,12 @@ def datum_not_supplied(use, manifest):
     ``count(<the read>) = 1``, ``>= 1`` or ``> 0``, which Core does not evaluate where the leaf is absent (the
     ``return_to`` guard of CommCare HQ's case list registration frames, ``workflow.py``), read over the
     expression's structure as HQ's XPath grammar reads it where the records hold it."""
-    at = _xml(use)
-    if at is None or at.attribute is None:
+    document, text, sessions = _session_reads(use, manifest)
+    if document is None:
         return None
-    document = at.document
-    text = at.element.get(at.attribute)
     parsed = document.parsed(text)
     if parsed is None or "error" in parsed:
         return None
-    sessions = {
-        instance_id
-        for instance_id, src in document.declared_instances
-        if instance_source(manifest, src) == "instance-source:session"
-    }
     read = {
         path["steps"][2]
         for path in parsed["instancePaths"]
@@ -5899,10 +6618,116 @@ def datum_not_supplied(use, manifest):
         read &= _unpacked_session_data(tree, sessions, frozenset())
     if not read:
         return False
-    supplied = _form_supplied(document) if document.kind == "xform" else _suite_supplied(document, at.element, sessions)
+    if isinstance(use.at, JsonAt):
+        supplied = _slot_supplied(use.at, sessions)
+    elif document.kind == "xform":
+        supplied = _form_supplied(document)
+    else:
+        supplied = _suite_supplied(document, use.at.element, sessions)
     if supplied is None:
         return None
     return not read <= set(supplied)
+
+
+def _session_reads(use, manifest):
+    """The document a use's expression sits in, its text, and the instance ids it reads the session through: those
+    an XML document declares from the session's source, or, in an app JSON slot, those HQ's build declares so in
+    the suite it writes (``preset_source``); (None, None, None) where the use sits on no expression."""
+    at = use.at
+    if isinstance(at, JsonAt):
+        text = at.value if isinstance(at.value, str) else None
+        parsed = at.app.parsed(text)
+        if text is None or parsed is None or "error" in parsed:
+            return (None, None, None) if text is None else (at.app, text, set())
+        sessions = set()
+        for path in parsed["instancePaths"]:
+            src = preset_source(manifest, path["instance"])
+            if src is not None and instance_source(manifest, src) == "instance-source:session":
+                sessions.add(path["instance"])
+        return at.app, text, sessions
+    at = _xml(use)
+    if at is None or at.attribute is None:
+        return None, None, None
+    document = at.document
+    sessions = {
+        instance_id
+        for instance_id, src in document.declared_instances
+        if instance_source(manifest, src) == "instance-source:session"
+    }
+    return document, at.element.get(at.attribute), sessions
+
+
+def _app_suites(app):
+    """The suites the check reads beside an app JSON's forms (``Form.entry_suites``: HQ's builds of its upload, or
+    the local archive Nova built of the same export), each once, read with the app's readings."""
+    seen, suites = set(), []
+    for form in app.forms.values():
+        for root in form.entry_suites:
+            if id(root) not in seen:
+                seen.add(id(root))
+                suite = Runtime(root, "suite.xml")
+                suite.readings = app.readings
+                suites.append(suite)
+    return suites
+
+
+def _slot_elements(root, owner, key, m, f, forms):
+    """The suite elements HQ's build writes an app JSON display condition or form link into (``_slot_supplied``)."""
+    elements = [element for element in root.iter() if isinstance(element.tag, str)]
+    if owner in ("FormLink", "FormDatum"):
+        return [element for element in elements if _local(element) == "entry" and _command_id(element) == f"m{m}-f{f}"]
+    if owner in FORMS:
+        commands = {f"m{m}-f{f}"} if key == "form_filter" else set()
+    else:
+        own = [element for element in elements if _local(element) == "menu" and element.get("id") == f"m{m}"]
+        if own:
+            return own
+        commands = {f"m{m}-f{index}" for index in range(forms)}
+    return [
+        element
+        for element in elements
+        if _local(element) == "command"
+        and element.get("id") in commands
+        and element.getparent() is not None
+        and _local(element.getparent()) == "menu"
+    ]
+
+
+def _slot_supplied(at, sessions):
+    """The session data ids set where an app JSON slot's expression runs: where the suites the check reads beside
+    the app hold the element HQ's build writes the slot into (``id_strings.py``), the ids set there
+    (``_suite_supplied``), every suite agreeing; None where none holds it. A menu's display condition is its
+    ``<menu id="m<i>">``'s, else (a menu shown in the one above) each of its forms' commands'; a form's display
+    condition is its command's, ``m<i>-f<j>``; a form link's condition and carried values run in the stack of the
+    form's own entry; a case list's filter and calculated columns are its detail's, ``m<i>_case_short`` or
+    ``m<i>_case_long``."""
+    module = at.nearest(*MODULES, "ReportModule")
+    if module is None:
+        return None
+    m = next((index for index, held in enumerate(at.app.modules) if held is module), None)
+    form = at.nearest(*FORMS)
+    f = next((index for index, held in enumerate(_forms(module)) if held is form), None)
+    owner = at.scope[-1][0]
+    detail = at.nearest("Detail")
+    detail_id = None
+    if detail is not None:
+        pair = module.get("case_details") or {}
+        detail_id = next(
+            (f"m{m}_case_{kind}" for kind in ("short", "long") if isinstance(pair, dict) and pair.get(kind) is detail),
+            None,
+        )
+        if detail_id is None:
+            return None
+    agreed = None
+    for suite in _app_suites(at.app):
+        if detail_id is not None:
+            supplied = _detail_supplied(suite.root, detail_id)
+        else:
+            elements = _slot_elements(suite.root, owner, at.key, m, f, len(_forms(module)))
+            supplied = _agreed(_suite_supplied(suite, element, sessions) for element in elements)
+        if supplied is not None:
+            agreed = set(supplied) if agreed is None else agreed & set(supplied)
+    return None if agreed is None else list(agreed)
 
 
 def _holds_other(tree):
@@ -5991,7 +6816,10 @@ def _unpacked_session_data(tree, sessions, present):
 def var_in_form(use, manifest):
     """``expressions-and-data/var-in-a-form-expression``: a variable reference (``$name``) in an XForm's
     expression, where no variable is defined (form contexts define none, so it reads blank). A suite's are the
-    variables HQ's build declares there, outside the class."""
+    variables HQ's build declares there, outside the class, and so are an app JSON slot's, which HQ's build writes
+    into the suite (a menu's or a command's condition, a detail, a stack operation)."""
+    if isinstance(use.at, JsonAt):
+        return False
     at = _xml(use)
     if at is None:
         return None
@@ -6007,6 +6835,19 @@ def _expression_at(use):
     if isinstance(at, JsonAt):
         return at.app, at.value if isinstance(at.value, str) else None
     return None, None
+
+
+def case_named_by_its_slug(use, manifest):
+    """``expressions-and-data/case-module-slug-unrelated-parent-select-case``: a ``#case`` that names the case of
+    a menu by its slug (``#case:<module-slug>/…``, what "Other" parent selection writes,
+    ``app_schemas/session_schema.py::get_session_schema``). In a slot HQ's build interpolates, its text replacement
+    of ``#case`` (``xpath.py::interpolate_xpath``) leaves the ``:<slug>`` after the case's path, so the slot's text
+    says which it is; the bare shorthand is the case its own menu chose, outside the class. A ``#case`` read
+    anywhere else is not read here."""
+    at = use.at
+    if not isinstance(at, JsonAt) or not isinstance(at.value, str):
+        return None
+    return "#case:" in at.value
 
 
 def here_in_form(use, manifest):
@@ -6274,7 +7115,8 @@ def time_operand(use, manifest):
     compares as a number, a string holding ``:`` being NaN (``FunctionUtils.toNumeric``). Each side is read over the
     expression's structure as HQ's XPath grammar reads it (``_time_kind``); a side whose value this does not read (a
     case property whose type or case context is unknown, a lookup table's field, a value only the run time knows)
-    leaves it open."""
+    leaves it open. A case list's filter and calculated columns in an app JSON are read on each row, a case of its
+    menu's type (``_list_case_type``)."""
     document, text = _expression_at(use)
     if document is None or text is None:
         return None
@@ -6283,13 +7125,30 @@ def time_operand(use, manifest):
         return None
     context = _context_path(use)
     verdicts = set()
-    for node, case_type, in_predicate in _relational(tree):
+    for node, case_type, in_predicate in _relational(tree, _list_case_type(use)):
         verdicts |= {
             _time_kind(manifest, document, side, context, frozenset(), case_type, in_predicate) for side in node[2:]
         }
     if True in verdicts:
         return True
     return None if None in verdicts else False
+
+
+def _list_case_type(use):
+    """The case type an app JSON case list's filter or calculated column reads its relative paths on: the case
+    list's menu's, each row of the list being a case of it (HQ's build writes the filter into the datum's
+    ``nodeset`` predicate over ``casedb/case[@case_type=…]`` and a column into its detail's ``xpath``); None for
+    any other use."""
+    at = use.at
+    if not isinstance(at, JsonAt) or at.nearest("Detail") is None:
+        return None
+    module = at.nearest(*MODULES)
+    pair = (module or {}).get("case_details")
+    detail = at.nearest("Detail")
+    if not isinstance(pair, dict) or not any(pair.get(kind) is detail for kind in ("short", "long")):
+        return None
+    case_type = module.get("case_type")
+    return case_type if isinstance(case_type, str) and case_type else None
 
 
 def _relational(tree, case_type=None, in_predicate=False):
@@ -6355,16 +7214,25 @@ def _context_path(use):
     return _node_path(form, form.node(at.element.get("nodeset")))
 
 
+# A string literal's text that spells an ISO date and time, as Nova's typed-literal rule reads one
+# (``lib/domain/expression/ruleSets.ts::literalShape``, ``ISO_DATETIME_SHAPE``): a literal's value, never XPath.
+ISO_DATETIME_LITERAL = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?", re.ASCII
+)
+
+
 def _time_kind(manifest, document, tree, context, seen, case_type=None, in_predicate=False):
-    """Whether a value is a time as a comparison reads it: True for a string holding ``:`` or a form node whose bind
-    type is ``xsd:time`` (or whose calculate gives a time), False for a number, a date, a truth value or another
-    answer, None where this does not read it. A case predicate reads the same ``CaseChildElement`` properties in
-    a form and a suite; its explicit case type and the document's catalog place a custom property's value."""
+    """Whether a value is a time as a comparison reads it: True for a string holding ``:`` that is no ISO date and
+    time (``ISO_DATETIME_LITERAL``, which Nova's reader types as a moment and compares as one) or a form node whose
+    bind type is ``xsd:time`` (or whose calculate gives a time), False for a number, a date, a date and time, a
+    truth value or another answer, None where this does not read it. A case predicate reads the same
+    ``CaseChildElement`` properties in a form and a suite; its explicit case type and the document's catalog place
+    a custom property's value."""
     kind = tree[0]
     if kind == "number":
         return False
     if kind == "text":
-        return ":" in tree[1]
+        return ":" in tree[1] and ISO_DATETIME_LITERAL.fullmatch(tree[1]) is None
     if kind == "negative":
         return False
     if kind == "binary":
@@ -6383,9 +7251,11 @@ def _time_kind(manifest, document, tree, context, seen, case_type=None, in_predi
             return False
         property_name = _bare_read(tree, "child")
         data_type = ((document.case_types or {}).get(case_type) or {}).get(property_name)
-        if data_type in ("datetime", "time"):
+        if data_type == "time":
             return True  # Core reads a custom property's stored text; ':' makes FunctionUtils.toNumeric return NaN
-        if data_type in ("date", "int", "decimal"):
+        if data_type in ("date", "datetime", "int", "decimal"):
+            # A date and time is no time of day: Nova compares two as moments (the instant-comparison rewrite,
+            # which a first publish declares), whatever Core makes of the stored text.
             return False
         if document.kind == "runtime" or property_name is not None:
             return None
@@ -7170,7 +8040,9 @@ def required_condition_differing(use, manifest):
     form, bind, _ = _bind(use)
     if bind is None:
         return None if form is None else False
-    condition = bind.get(f"{{{VELLUM}}}requiredCondition")
+    # The condition Vellum reads: its ``vellum:`` spelling, else the bare one the form builder also writes
+    # (``parser.js::parseVellumAttrs``), which the observation reads no hashtags of, so that one is not settled.
+    condition = bind.get(f"{{{VELLUM}}}requiredCondition") or bind.get("requiredCondition")
     required = bind.get("required")
     # parser.js::parseBoolAttributeValue: Vellum reads a required that is false() (lowercased, its white space
     # removed) or empty as not required, and writes it as false() whatever the condition.
@@ -7569,7 +8441,11 @@ def appearance_words(manifest, document, element, value, readers=None):
 def appearance_token_no_runtime_reads(use, manifest):
     """``questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on``: an appearance of several words
     one of which no runtime's read of that element takes in its place (``appearance_words``), other than a label's
-    appearance starting ``floating-`` (its own row)."""
+    appearance starting ``floating-`` (its own row), where dropping those words changes a runtime's reading. Where it
+    may not, the value may be the HELD-NEW class beside it
+    (``questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that``, ``minimal hint-as-placeholder foo``
+    on a select), which turns on the class of what is left (``xform/appearances.ts::droppingKeepsReading``), and the
+    use is not settled."""
     form, element, value = _control_appearance(use)
     if element is None:
         return None if form is None else False
@@ -7577,7 +8453,37 @@ def appearance_token_no_runtime_reads(use, manifest):
         return False
     if _local(element) == "trigger" and value.startswith("floating-"):
         return False
-    return bool(appearance_words(manifest, form, element, value)[1])
+    unread = appearance_words(manifest, form, element, value)[1]
+    if not unread:
+        return False
+    return True if _dropping_changes_reading(manifest, form, element, value, unread) else None
+
+
+def _dropping_changes_reading(manifest, document, element, value, unread):
+    """Whether dropping an appearance's unread words changes a runtime's reading of it, as the reader decides it
+    (``xform/appearances.ts::droppingKeepsReading``): nothing is left, a read of the whole value takes what is left,
+    a dropped word holds a value Android matches inside the string, or the second word, which Web Apps reads by its
+    position, moves."""
+    rest = [word for word in value.split() if word not in unread]
+    if not rest:
+        return True
+    rest_text = " ".join(rest)
+    facts = element_facts(manifest, document, element)
+    rules = [rule for rule in appearance_rules(manifest) if rule.reads(facts)]
+    if any(rule.match == "whole" and appearance_matches(rest_text, rule) for rule in rules):
+        return True
+    if any(
+        rule.reader == "android" and rule.match in ("contains", "index") and appearance_matches(word, rule)
+        for word in unread
+        for rule in rules
+    ):
+        return True
+
+    def second(text):
+        words = text.split(" ")
+        return words[1] if len(words) > 1 else None
+
+    return any(rule.match == 'word 1 split on " "' for rule in rules) and second(value) != second(rest_text)
 
 
 def case_variant_read_differently(use, manifest):
@@ -7639,12 +8545,13 @@ def data_parent_crossing_a_repeat(use, manifest):
 
 
 # The keys a class does not declare that the inventory's rows name, by class (``menus-and-case-lists/
-# module-display-separately``, ``display-style-on-an-advanced-or-shadow-module``,
+# module-display-separately``, ``module-referral-label-case-label`` (HQ's agriculture template app carries both on
+# every menu), ``display-style-on-an-advanced-or-shadow-module``,
 # ``legacy-detail-custom-variables-key``, ``detail-print-template``, ``ui-bookkeeping-keys-…``;
 # ``forms-and-case-writes/no-vellum-removed-field-dynamic-key``, ``put-in-root-on-a-form-dynamic-key``,
 # ``update-multi-name-update-multi``); the rows' own items spell them, which a test holds the map to.
 ROW_UNDECLARED_KEYS = {
-    "Module": frozenset({"display_separately"}),
+    "Module": frozenset({"display_separately", "referral_label", "case_label"}),
     "AdvancedModule": frozenset({"display_style"}),
     "ShadowModule": frozenset({"display_style"}),
     "Detail": frozenset({"custom_variables", "print_template"}),
@@ -7677,8 +8584,565 @@ def undeclared_key_no_row_names(use, manifest):
     at = _json(use)
     if at is None or at.key is None or not use.key.endswith(UNDECLARED):
         return None
+    if _in_reference_details(at):
+        return False  # ``menus-and-case-lists/module-ref-details`` holds every key of a detail HQ's build never writes
     names = ROW_UNDECLARED_KEYS.get(use.key[len("schema:") : -len(UNDECLARED)])
     return None if names is None else at.key not in names
+
+
+def _in_reference_details(at):
+    """Whether a use sits in a menu's ``ref_details``, which HQ's build never writes (``Module.get_details`` turns the
+    ``ref_*`` details off), so the inventory's row for the key holds the whole value by where it sits."""
+    module = at.nearest(*MODULES)
+    pair = (module or {}).get("ref_details")
+    return isinstance(pair, dict) and any(value is pair for _, value in at.scope)
+
+
+# HELD-NEW classes beside an allowing class of their key ----------------------------
+#
+# Where an entry HELD-NEW splits one value of a key an allowing entry also names, by that value's grammar or bound,
+# the line between what Nova holds and what it does not hold yet is one predicate over the value. Each reader here
+# draws it as Nova's reader of HQ's apps does (the module that claims the entry, named in each docstring), from the
+# use's own value and the objects or elements that hold it, never from another part of the app. A use it does not
+# read (one of a suite, where the key is also a parser's) it leaves unjudged (None), and the use is then held as it
+# was (``manifest_usage.standing``).
+
+
+# The update keys CommCare HQ's server stores apart from a case's properties wherever a case block's ``<update>``
+# holds them (``form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_update_action``:
+# ``location_id`` becomes the case's own column, ``hq_user_id`` is copied to its external id;
+# ``lib/commcare/reader/caseManagement/basicActions.ts::isServerDivertedKey``).
+SERVER_DIVERTED_KEYS = frozenset({"location_id", "hq_user_id"})
+# HQ's property grammar with parents (``helpers/validators.py::validate_property``, which
+# ``IndexedFormBaseValidator.check_case_properties`` runs on every written key; ``basicActions.ts::HQ_PROPERTY_PATH``),
+# matched whole: Python's ``re.match`` of a pattern ending in ``$`` takes one newline before the end, which the
+# optional ``\n`` spells here.
+HQ_PROPERTY_PATH = re.compile(r"[a-zA-Z][\w-]*(/[a-zA-Z][\w-]*)*\n?")
+# The index steps an update key may take before its property (``case_config_ui.js::caseProperty.validate``).
+UPDATE_INDEX_STEPS = frozenset({"parent", "host"})
+# Nova's case property grammar (``lib/domain/casePropertyName.ts::authoredCasePropertyNameSchema``): its pattern,
+# matched whole, its length and the three spellings it refuses for Nova's canonical standard names.
+AUTHORED_CASE_PROPERTY_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH = 255
+NOT_CANONICAL_STANDARD_NAMES = frozenset({"name", "date-opened", "external-id"})
+# ``case-reserved-words.json`` and HQ's own hyphenated spellings, which HQ's validator refuses as a written key
+# (``lib/commcare/constants.ts::HQ_CASE_RESERVED_WORDS``).
+HQ_CASE_RESERVED_WORDS = (RESERVED_CASE_PROPERTIES - {"owner_id"}) | {"date-opened", "external-id"}
+# The code point ranges of a name character of Core's XPath grammar, as Nova's reader reads a written key
+# (``basicActions.ts::CORE_NAME_RANGES``).
+CORE_NAME_RANGES = (
+    (0x2D, 0x2E),
+    (0x30, 0x39),
+    (0x41, 0x5A),
+    (0x5F, 0x5F),
+    (0x61, 0x7A),
+    (0xB7, 0xB7),
+    (0xC0, 0xD6),
+    (0xD8, 0xF6),
+    (0xF8, 0x37D),
+    (0x37F, 0x1FFF),
+    (0x200C, 0x200D),
+    (0x203F, 0x2040),
+    (0x2070, 0x218F),
+    (0x2C00, 0x2FEF),
+    (0x3001, 0xD7FF),
+    (0xF900, 0xFDCF),
+    (0xFDF0, 0xFFFD),
+)
+
+
+def _authored_property_name(name):
+    """Whether Nova's case property grammar takes a name (``authoredCasePropertyNameSchema``)."""
+    return (
+        0 < len(name) <= MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
+        and AUTHORED_CASE_PROPERTY_NAME.fullmatch(name) is not None
+        and name not in NOT_CANONICAL_STANDARD_NAMES
+    )
+
+
+def _core_name_character(character):
+    code = ord(character)
+    return any(low <= code <= high for low, high in CORE_NAME_RANGES)
+
+
+def _non_ascii_core_name(name):
+    """Whether a written property name is in the ``non-ascii`` class of Nova's reader
+    (``basicActions.ts::propertyNameClass``): outside Nova's grammar, inside HQ's (``HQ_PROPERTY``) and none of its
+    reserved words, and every character one of Core's name characters, which leaves one past ASCII. A name a
+    character of which Core does not read as a name's is HQ's build's to refuse (the bar's), and none of this."""
+    if AUTHORED_CASE_PROPERTY_NAME.fullmatch(name) and name not in RESERVED_CASE_PROPERTIES:
+        return False  # Nova's grammar, or only past its length
+    if HQ_PROPERTY.fullmatch(name) is None or name in HQ_CASE_RESERVED_WORDS or name in RESERVED_CASE_PROPERTIES:
+        return False
+    return all(_core_name_character(character) for character in name)
+
+
+def _held(value, key):
+    """``value[key]`` where ``value`` is an object, else None."""
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def _writes_own_update(update_case):
+    """Whether HQ's build writes a basic form's ``update_case`` map: the action is active (``_active``); under the
+    condition ``never`` the map is the inert class Nova's reader reads it as
+    (``forms-and-case-writes/update-case-update-map-under-condition-never``), which no key of it is a write of."""
+    return _active(update_case)
+
+
+def _written_maps(at):
+    """The property maps a use of an action's keys holds, each ``(slot, map)``: ``own`` (a basic form's
+    ``update_case``), ``worker`` (its ``usercase_update``), ``child`` (a child case's ``case_properties``), ``load``
+    and ``open`` (an advanced load's or open action's ``case_properties``). A use of a form's ``actions`` holds every
+    one of its actions' maps, a use of ``update_case`` that action's, a use of a map that map. None for any other
+    use."""
+    owner, cls, value = at.owner, at.scope[-1][0], at.value
+    if at.key == "update" and cls == "UpdateCaseAction":
+        actions = at.scope[-2][1] if len(at.scope) > 1 else None
+        if _held(actions, "usercase_update") is owner:
+            return [("worker", value)]
+        return [("own", value if _writes_own_update(owner) else None)]
+    if at.key == "case_properties" and cls == "OpenSubCaseAction":
+        return [("child", value)]
+    if at.key == "case_properties" and cls == "LoadUpdateAction":
+        return [("load", value)]
+    if at.key == "case_properties" and cls == "AdvancedOpenCaseAction":
+        return [("open", value)]
+    if at.key == "update_case" and cls == "FormActions":
+        return [("own", _held(value, "update") if _writes_own_update(value) else None)]
+    if at.key == "actions" and cls in FORMS:
+        own = _held(value, "update_case")
+        maps = [
+            ("own", _held(own, "update") if _writes_own_update(own) else None),
+            ("worker", _held(_held(value, "usercase_update"), "update")),
+        ]
+        for slot, name in (("child", "subcases"), ("load", "load_update_cases"), ("open", "open_cases")):
+            listed = _held(value, name)
+            maps += [(slot, _held(action, "case_properties")) for action in listed or () if isinstance(listed, list)]
+        return maps
+    return None
+
+
+def _written_properties(at):
+    """The property each key of a use's maps writes (``_written_maps``), where Nova's reader reads the key as a
+    write of that property: a key with an index step on a child case, the worker's record or an open action is
+    refused before its property is read (``basicActions.ts``: ``illegalChildKey``, ``usercaseSlash``;
+    ``advancedActions.ts``: the open action's ``slash``), as is one outside HQ's grammar with parents (a child
+    case's key excepted, which is read as a location key first) or through an index step other than ``parent`` or
+    ``host``. None for a use that holds no map."""
+    maps = _written_maps(at)
+    if maps is None:
+        return None
+    found = []
+    for slot, held in maps:
+        for key in held if isinstance(held, dict) else ():
+            if not isinstance(key, str):
+                continue
+            if slot in ("child", "worker", "open") and "/" in key:
+                continue
+            if slot != "child" and HQ_PROPERTY_PATH.fullmatch(key) is None:
+                continue
+            *steps, written = key.split("/")
+            if any(step not in UPDATE_INDEX_STEPS for step in steps):
+                continue
+            found.append(written)
+    return found
+
+
+def _save_to_case_row(use):
+    """The name of the row of a SaveToCase node's own ``case/update`` an instance-content use sits on, or None."""
+    form, element = _data_node(use)
+    if form is None or element is None:
+        return None
+    update = element.getparent()
+    case = update.getparent() if update is not None else None
+    if update is None or update.tag != f"{{{CASE}}}update" or case is None or case.tag != f"{{{CASE}}}case":
+        return None
+    held = form.holder(element)
+    if held is None or held[0] != "save-to-case" or case.getparent() is not held[1]:
+        return None
+    return _local(element)
+
+
+def location_or_external_id_key(use, manifest):
+    """``forms-and-case-writes/update-keys-location-id-hq-user-id``: a write of ``location_id`` or ``hq_user_id``,
+    which HQ's server stores apart from the case's properties: an action's key whose last step names one (a basic
+    update's, through ``parent`` or ``host`` too, the worker's record's, a child case's, a load's or an open
+    action's), and a row of a SaveToCase node's own ``case/update`` that names one, on any case
+    (``basicActions.ts::isServerDivertedWrite``, ``saveToCase.ts::refusedRowKey``). A key whose question is an
+    upload names an attachment instead (``xform.py::XFormCaseBlock.add_case_updates`` over ``is_attachment``), the
+    upload question's class, which reads the form's body. A HELD-NEW class's reader reads only the use and the
+    objects that hold it, so this one takes such a key too, where Nova's reader claims it as the upload's."""
+    at = _json(use)
+    if at is not None:
+        written = _written_properties(at)
+        return None if written is None else any(name in SERVER_DIVERTED_KEYS for name in written)
+    if _xml(use, "xform") is None:
+        return None
+    return _save_to_case_row(use) in SERVER_DIVERTED_KEYS
+
+
+def non_ascii_core_name_key(use, manifest):
+    """``forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character``: an action's key whose written
+    property is Nova's reader's ``non-ascii`` class (``_non_ascii_core_name``): every character after the ASCII
+    letter HQ's grammar starts it with one of Core's name characters, at least one past ASCII. ``name`` and
+    ``owner_id`` are a case's own facts, and ``category`` and ``state`` a row of their own, neither of which this
+    class holds; none is past ASCII."""
+    at = _json(use)
+    if at is None:
+        return None
+    written = _written_properties(at)
+    return None if written is None else any(_non_ascii_core_name(name) for name in written)
+
+
+# The keys a prompt reaches CommCare HQ under as a request setting of its own (``case_search/models.py``:
+# ``CONFIG_KEYS_MAPPING``, the tag key, the owner exclusion key and the query key;
+# ``lib/commcare/reader/search/prompts.ts::RESERVED_REQUEST_KEYS``), whose prompt is another class's.
+PROMPT_REQUEST_KEYS = frozenset(
+    {
+        "case_type",
+        "x_commcare_data_registry",
+        "x_commcare_custom_related_case_property",
+        "x_commcare_include_all_related_cases",
+        "commcare_sort",
+        "x_commcare_endpoint_id",
+        "x_commcare_tag_module_name",
+        "commcare_blacklisted_owner_ids",
+        "_xpath_query",
+    }
+)
+# A Search field's name (``lib/domain/modules.ts::SEARCH_INPUT_NAME_PATTERN``), matched whole.
+SEARCH_INPUT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+# The case attributes a prompt can be named for, and the case's name, which HQ's search matches by its own rule: a
+# prompt without ``exclude`` named for one is another class's (``prompts.ts::ATTRIBUTE_PROMPT_NAMES``).
+ATTRIBUTE_PROMPT_NAMES = frozenset({"case_id", "owner_id", "status", "name"})
+
+
+def _prompt_slot(use, key):
+    """The prompt a use of its ``key`` sits on, or None."""
+    at = _json(use)
+    if at is None or at.key != key or at.scope[-1][0] != "CaseSearchProperty":
+        return None
+    return at.owner
+
+
+def prompt_key_outside_nova_s_name_grammar(use, manifest):
+    """``case-search/prompt-key-outside-nova-s-name-grammar``: a prompt's ``name`` outside a Search field's grammar
+    (``SEARCH_INPUT_NAME``), or, on a prompt that is neither hidden nor ``exclude``, a case property Nova's grammar
+    does not name (``_x``, ``date-opened``, ``external-id``), as Nova's reader reads it
+    (``prompts.ts``, ``nameOutside``). A name HQ reads as a request setting of its own, and a case attribute's name
+    on a prompt without ``exclude``, are other classes'."""
+    prompt = _prompt_slot(use, "name")
+    if prompt is None:
+        return None
+    name = prompt.get("name")
+    if not isinstance(name, str):
+        return None
+    if name in PROMPT_REQUEST_KEYS:
+        return False
+    if SEARCH_INPUT_NAME.fullmatch(name) is None:
+        return True
+    if prompt.get("hidden") is True or prompt.get("exclude") is True or name in ATTRIBUTE_PROMPT_NAMES:
+        return False
+    return not _authored_property_name(name)
+
+
+def _offered_search_config(use):
+    """A use's ``CaseSearch`` object and whether its menu offers that search: ``util.py::module_offers_search``,
+    a search property or a default filter, read from the object itself; (None, None) outside one."""
+    at = _json(use)
+    config = None if at is None else at.nearest("CaseSearch")
+    if config is None:
+        return None, None
+    return config, bool(config.get("properties") or config.get("default_properties"))
+
+
+def endpoint_on_an_offered_search(use, manifest):
+    """``case-search/case-search-endpoint-id``: ``case_search_endpoint_id`` on a search the menu offers, the one
+    place HQ's build reads it (``util.py::module_uses_case_search_endpoint``, beside ``CASE_SEARCH_ENDPOINTS``),
+    and each default filter of such a search, which HQ's build sends the endpoint as a parameter of its key
+    (``remote_requests.py``, ``_remote_request_query_datums``). On a menu that offers none the id is part of the
+    search configuration HQ stores and builds nothing of, the round trip's class, and a default filter of a
+    search with no id is its own key's."""
+    config, offered = _offered_search_config(use)
+    if config is None:
+        return None
+    if use.key == "schema:CaseSearch.case_search_endpoint_id":
+        return offered
+    return offered and bool(config.get("case_search_endpoint_id"))
+
+
+def custom_sort_on_an_offered_search(use, manifest):
+    """``case-search/custom-sort-properties-property-name-sort-type-exact-date``: a search's custom sort, and each
+    of its rows and their keys, on a search the menu offers, where HQ's build writes the sort into the query
+    (``post_process/remote_requests.py``, ``RemoteRequestsHelper``). On a menu that offers none it is part of
+    the search configuration HQ stores and builds nothing of, the round trip's class."""
+    _, offered = _offered_search_config(use)
+    return offered
+
+
+def _hq_auto_selects(module):
+    """``models/modules.py::Module.is_auto_select``: a menu's short detail's ``auto_select``, whether or not the
+    list is multi-select, since the method tests ``is_multi_select`` itself, a bound method and so always true; an
+    advanced menu never (``AdvancedModule.is_auto_select``). A shadow menu's is its source menu's
+    (``ShadowModule.is_auto_select``), another menu's than its own: None."""
+    if module.get("doc_type") == "ShadowModule":
+        return None
+    if module.get("doc_type") == "AdvancedModule":
+        return False
+    return bool(((module.get("case_details") or {}).get("short") or {}).get("auto_select"))
+
+
+def search_on_clear_without_auto_select(use, manifest):
+    """``case-search/search-on-clear``: ``search_on_clear`` on a search the menu offers, whose case list does not
+    choose its case by itself (``_hq_auto_selects``). HQ's build reads it only on such a search
+    (``remote_requests.py``); beside the list's auto select it is the bar's refusal, whether or not the menu
+    searches (``helpers/validators.py::validate_search_config``), and on a menu that offers no search otherwise it
+    is part of the search configuration HQ stores and builds nothing of."""
+    config, offered = _offered_search_config(use)
+    if config is None:
+        return None
+    module = _json(use).nearest(*MODULES)
+    if module is None:
+        return None
+    if not offered:
+        return False
+    auto_selects = _hq_auto_selects(module)
+    return None if auto_selects is None else not auto_selects
+
+
+def default_on_date_range(use, manifest):
+    """``case-search/default-value-on-a-date-range-input``: a ``default_value`` that holds text on a prompt shown as
+    a date range (``input_: daterange`` on a prompt that is not hidden; ``prompts.ts``, ``defaultOnRange``). A blank
+    default is no default: HQ's build and Web Apps read one only where it holds text."""
+    prompt = _prompt_slot(use, "default_value")
+    if prompt is None:
+        return None
+    value = prompt.get("default_value")
+    return value not in (None, "") and prompt.get("input_") == "daterange" and prompt.get("hidden") is not True
+
+
+def choice_value_with_both_quote_marks(use, manifest):
+    """``questions/choice-value-holding-both-an-apostrophe-and-a-double-quote``: a choice's ``<value>`` whose text
+    holds both ``'`` and ``"``, which no XPath string literal spells (``lib/domain/selectOptionValue.ts::
+    selectOptionValueProblem``, read by ``lib/commcare/reader/xform/options.ts``). A value with an element of its own
+    inside is read as no value."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    item = element.getparent()
+    if _local(element) != "value" or item is None or _local(item) != "item":
+        return False
+    select = item.getparent()
+    if select is None or _local(select) not in SELECTS or _children(element):
+        return False
+    text = element.text or ""
+    return "'" in text and '"' in text
+
+
+def max_select_value_above_100(use, manifest):
+    """``menus-and-case-lists/detail-max-select-value-above-100``: a ``max_select_value`` above 100 on the case list
+    of a basic menu with a case type whose list selects several cases (``lib/commcare/reader/caseList/details.ts::
+    readSelection``). A value 0, below -1 or no number is another class's."""
+    at = _json(use)
+    if at is None or at.key != "max_select_value" or at.scope[-1][0] != "Detail":
+        return None
+    detail, pair, module = at.owner, at.nearest("DetailPair"), at.nearest(*MODULES)
+    if pair is None or pair.get("short") is not detail or module is None:
+        return False
+    if module.get("doc_type") == "AdvancedModule" or not module.get("case_type"):
+        return False
+    if detail.get("multi_select") is not True:
+        return False
+    value = _max_select_number(detail.get("max_select_value"))
+    if value is None or value is False:
+        return value
+    return value > 100
+
+
+# The column formats HQ's build writes an image's alternative text for (``app_strings.py``: ``column.format in
+# ('enum-image', 'clickable-icon')``), the only ones the alternative text is read on.
+ALT_TEXT_FORMATS = frozenset({"enum-image", "clickable-icon"})
+# The characters Core trims from the end of a line it reads of an app strings file: every one up to U+0020.
+CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
+
+
+def _shown_text(text):
+    """Whether a device shows a text HQ's build writes as an app string as other than blank
+    (``lib/commcare/reader/heldText.ts::hqDeviceText``): HQ writes a text Python reads as blank as one non-breaking
+    space, Core reads its line up to a carriage return and trims what ends it up to U+0020."""
+    if not text.strip():
+        return False
+    return text.split("\r", 1)[0].rstrip(CORE_LINE_END_TRIMMED) != ""
+
+
+def _python_str(value):
+    """Python's ``str`` of a JSON value, where the parsed value fixes it (``lib/commcare/reader/hqText.ts::
+    pythonStr``); None for a number, whose printed digits the parse does not keep."""
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    return None
+
+
+def alt_text_holding_text(use, manifest):
+    """``menus-and-case-lists/enum-mappingitem-alt-text-non-blank``: a mapping entry's ``alt_text`` on an image map
+    or a clickable icon (``ALT_TEXT_FORMATS``) whose text HQ's build writes (``app_strings.py``,
+    ``clean_trans(item.alt_text, langs)``) a device shows as other than blank in some app language
+    (``lib/commcare/reader/caseList/columns.ts::claimAltText``, ``hqText.ts::shownText``). Which text HQ's build
+    shows in a language turns on the app's languages, which a HELD-NEW class's reader does not read, so the class is
+    decided only where the map alone settles it: every text ``clean_trans`` can choose (each value that is not
+    ``None``, and ``None`` printed as ``None`` where the least key holds it) shown, or none of them. A map holding
+    both, such as ``{"en": "", "fra": "Photo"}``, is not settled, nor is a value whose printed text the parse does not
+    fix. On another format it is read nowhere, which is another class."""
+    at = _json(use)
+    if at is None or at.key != "alt_text" or at.scope[-1][0] != "MappingItem":
+        return None
+    column = at.nearest("DetailColumn")
+    if column is None or column.get("format") not in ALT_TEXT_FORMATS:
+        return False
+    texts = at.value
+    if not isinstance(texts, dict):
+        return None
+    if not texts:
+        return False
+    chosen = [_python_str(text) for text in texts.values() if text is not None]
+    if texts[min(texts)] is None:
+        chosen.append("None")
+    if any(text is None for text in chosen):
+        return None
+    shown = {_shown_text(text) for text in chosen}
+    return shown.pop() if len(shown) == 1 else None
+
+
+def case_tag_with_a_hyphen(use, manifest):
+    """``forms-and-case-writes/case-tag-holding-a-hyphen``: a load's or an open action's ``case_tag`` that holds
+    ``-`` and passes every check the advanced Case Management page makes of a tag (``EDITOR_TAG``, no ``/``), on an
+    action that is not an auto-selected load (``lib/commcare/reader/caseManagement/advancedActions.ts::tagFinding``,
+    which no auto-selected load's tag is read by). A blank tag, one with ``/`` and one the page refuses are other
+    classes'. A shadow form's ``extra_actions`` are read by no tag check: Nova's reader refuses a shadow form whole
+    (``lib/commcare/reader/structure.ts``)."""
+    at = _json(use)
+    if at is None or at.key != "case_tag" or at.scope[-1][0] not in ADVANCED_ACTIONS:
+        return None
+    if at.nearest("ShadowForm") is not None:
+        return False
+    action, tag = at.owner, at.value
+    if at.scope[-1][0] == "LoadUpdateAction" and action.get("auto_select") is not None:
+        return False
+    return isinstance(tag, str) and "/" not in tag and EDITOR_TAG.fullmatch(tag) is not None and "-" in tag
+
+
+# Nova's XML name for a link's and a tile grouping's identifier (``lib/domain/expression/types.ts::
+# XML_ELEMENT_NAME_PATTERN``), matched whole; it holds no ``-``.
+XML_ELEMENT_NAME = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
+
+
+def _index_identifier(index):
+    """An advanced open action's index's identifier as HQ's build names it: its ``reference_id``, ``parent`` where
+    that is blank."""
+    reference = index.get("reference_id")
+    return reference if isinstance(reference, str) and reference != "" else "parent"
+
+
+def index_identifier_outside_an_xml_name(use, manifest):
+    """``forms-and-case-writes/index-identifier-outside-an-xml-element-name``: an advanced open action's index whose
+    identifier (``_index_identifier``) is no XML name Nova writes (``XML_ELEMENT_NAME``;
+    ``advancedActions.ts``, ``openIndexName``). A load's index is another class's."""
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key == "case_indices" and at.scope[-1][0] == "AdvancedOpenCaseAction":
+        indices = [index for index in at.value or [] if isinstance(index, dict)] if isinstance(at.value, list) else []
+    elif at.scope[-1][0] == "CaseIndex":
+        if len(at.scope) < 2 or at.scope[-2][0] != "AdvancedOpenCaseAction":
+            return False
+        indices = [at.owner]
+    else:
+        return None
+    return any(XML_ELEMENT_NAME.fullmatch(_index_identifier(index)) is None for index in indices)
+
+
+def tile_group_identifier_outside_an_xml_name(use, manifest):
+    """``menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name``: a case list's tile grouping
+    whose ``index_identifier`` holds text that is no XML name Nova writes (``XML_ELEMENT_NAME``), on the case list of
+    a menu with a case type whose tile is custom (``lib/commcare/reader/caseList/tile.ts``,
+    ``groupIdentifierOutside``). A grouping with no identifier groups nothing."""
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key == "case_tile_group" and at.scope[-1][0] == "Detail":
+        group = at.value
+    elif at.scope[-1][0] == "CaseTileGroupConfig":
+        group = at.owner
+    else:
+        return None
+    detail, pair, module = at.nearest("Detail"), at.nearest("DetailPair"), at.nearest(*MODULES)
+    if detail is None or pair is None or pair.get("short") is not detail or module is None:
+        return False
+    if not module.get("case_type") or detail.get("case_tile_template") != "custom" or not isinstance(group, dict):
+        return False
+    identifier = group.get("index_identifier")
+    return isinstance(identifier, str) and identifier != "" and XML_ELEMENT_NAME.fullmatch(identifier) is None
+
+
+# The words HQ's case list page takes as a column's property that Nova reads under another name
+# (``lib/commcare/reader/caseList/columns.ts::HQ_PROPERTY_RENAMES``).
+HQ_PROPERTY_RENAMES = {
+    "external-id": "external_id",
+    "date-opened": "date_opened",
+    "status": "status",
+    "name": "case_name",
+    "owner_id": "owner_id",
+}
+
+
+def column_field_outside_nova_s_grammar(use, manifest):
+    """``menus-and-case-lists/column-field-outside-nova-s-property-grammar``: a column's ``field`` HQ's case list page
+    takes as one property (``PROPERTY_NAME``, with no prefix and no path) whose name, after HQ's words Nova reads
+    under its own (``HQ_PROPERTY_RENAMES``), Nova's property grammar does not take: a ``#`` before it, or a name past
+    255 characters (``columns.ts::classifyField``). A calculated column's field is an expression, and ``#owner_name``,
+    a prefixed field, a path, a field the page refuses and ``case_id`` are other classes'."""
+    at = _json(use)
+    if at is None or at.key != "field" or at.scope[-1][0] != "DetailColumn":
+        return None
+    column, field = at.owner, at.value
+    if column.get("useXpathExpression") or not isinstance(field, str):
+        return False
+    if field == "#owner_name" or field.find(":") > 0 or "/" in field or PROPERTY_NAME.fullmatch(field) is None:
+        return False
+    renamed = HQ_PROPERTY_RENAMES.get(field, field)
+    if renamed == "case_id":
+        return False
+    return (
+        AUTHORED_CASE_PROPERTY_NAME.fullmatch(renamed) is None or len(renamed) > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
+    )
+
+
+def build_profiles_held(use, manifest):
+    """``application-and-settings/build-profiles-non-empty``: an app's ``build_profiles`` holding a profile, and each
+    part of a profile it holds (``lib/commcare/reader/appShell.ts``: anything but an empty map). An empty map is
+    HQ's default and no use."""
+    at = _json(use)
+    if at is None:
+        return None
+    if at.nearest("BuildProfile") is not None:
+        return True
+    if at.key == "build_profiles" and at.scope[-1][0] in ("Application", "LinkedApplication"):
+        return not (isinstance(at.value, dict) and not at.value)
+    return None
+
+
+def data_root_named_other_than_data(use, manifest):
+    """``questions/data-root-element-named-other-than-data``: a form whose main instance's data root is named other
+    than ``data`` (``lib/commcare/reader/xform/parse.ts::claimDataRoot``, by its local name), so every answer's path
+    starts with that name. Another instance's root is no data root."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    return element is form.data_root and _local(element) != "data"
 
 
 # The registry ---------------------------------------------------------------------
@@ -7686,7 +9150,8 @@ def undeclared_key_no_row_names(use, manifest):
 
 # Each value class the check reads, by the id of the entry that names it: a reader of a use (and the
 # manifest), giving whether the use falls in that class (True), not (False), or None where the export does not
-# say. A REFUSED entry refused only because HQ's build refuses its state needs none (the bar reports it,
+# say. The entry is REFUSED, or HELD-NEW beside an allowing class of its key (the last group). A REFUSED entry
+# refused only because HQ's build refuses its state needs none (the bar reports it,
 # ``proof.checks.manifest_usage.Entry.refused_by_hq_build``).
 # The REFUSED classes whose uses are two symptoms the check names apart: each class's part reader by its entry's
 # id (``manifest_usage.unclassified`` writes a use's part after its class). Nova's scaffolding nodes are one
@@ -7723,6 +9188,7 @@ VALUE_CLASSES = {
     "questions/question-id-failing-the-grammar-or-meta-in-any-case": invalid_question_id,
     "questions/two-sibling-data-nodes-with-one-name": sibling_with_one_name,
     "questions/hidden-value-with-children": hidden_value_with_children,
+    "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": hidden_value_default_read,
     "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": question_with_children,
     "questions/default-data-value-datavalue-instance-text": default_data_value,
     "questions/hand-written-case-block-without-vellum-role-incl-a-root-data": hand_written_case_block,
@@ -7778,6 +9244,7 @@ VALUE_CLASSES = {
     ),
     # Forms and case writes
     "forms-and-case-writes/form-name-read-as-an-instance": form_name_read_as_an_instance,
+    "forms-and-case-writes/form-type-other-than-the-form-s-own-kind": form_type_of_another_kind,
     "forms-and-case-writes/form-requires-referral": referral,
     "forms-and-case-writes/form-requires-none-with-child-cases-but-no-open": child_cases_without_open,
     "forms-and-case-writes/subcases-condition-never": subcase_never,
@@ -7881,6 +9348,7 @@ VALUE_CLASSES = {
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,
+    "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": receiver_on_another_appearance,
     "case-search/search-button-label-any-other-value": other_search_button_label,
     "case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with": list_first_with_web_apps,
     "case-search/a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys": reserved_request_key,
@@ -7897,7 +9365,11 @@ VALUE_CLASSES = {
         shared_with_another_endpoint
     ),
     "menus-and-case-lists/module-task-list-show-true": task_list_shown,
+    "menus-and-case-lists/auto-select-case-true-on-a-basic-module-an-advanced-form-s-load": (
+        auto_select_on_a_load_target
+    ),
     "menus-and-case-lists/shadowmodule-case-list-show-true": shown_on_a_shadow_module,
+    "menus-and-case-lists/module-filter-false-on-a-menu-something-opens": filter_off_the_menu_on_a_destination,
     "menus-and-case-lists/15-address-popup": format_reader("address-popup"),
     "menus-and-case-lists/17-picture": format_reader("picture"),
     "menus-and-case-lists/18-audio": format_reader("audio"),
@@ -7970,9 +9442,13 @@ VALUE_CLASSES = {
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,
     "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": supply_point_datum,
+    "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed": (
+        supply_point_computed_datum
+    ),
     "expressions-and-data/session-data-datum-the-entry-does-not-supply": datum_not_supplied,
     "expressions-and-data/var-in-a-form-expression": var_in_form,
     "expressions-and-data/here-in-a-form": here_in_form,
+    "expressions-and-data/case-module-slug-unrelated-parent-select-case": case_named_by_its_slug,
     "expressions-and-data/session-context-window-width-in-form-logic": window_width_in_form_logic,
     "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": choice_name_on_lookup,
     "expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src": referenced_unrecognized_source,
@@ -8002,4 +9478,24 @@ VALUE_CLASSES = {
     "expressions-and-data/audio-m4a-with-another-brand-isom-mp41-mp42-dash": audio_m4a_other_brand,
     "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp": av1_mov_avi_theora_h263,
     "forms-and-case-writes/form-filter-using-fixture-value": fixture_value,
+    # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
+    "forms-and-case-writes/update-keys-location-id-hq-user-id": location_or_external_id_key,
+    "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
+    "forms-and-case-writes/case-tag-holding-a-hyphen": case_tag_with_a_hyphen,
+    "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
+    "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
+    "case-search/default-value-on-a-date-range-input": default_on_date_range,
+    "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
+    "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
+    "case-search/search-on-clear": search_on_clear_without_auto_select,
+    "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
+    "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
+    "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
+    "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": alt_text_holding_text,
+    "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
+        tile_group_identifier_outside_an_xml_name
+    ),
+    "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
+    "application-and-settings/build-profiles-non-empty": build_profiles_held,
+    "questions/question-id-case-registration-script": reserved_question_id,
 }

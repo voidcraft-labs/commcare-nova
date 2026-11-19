@@ -18,7 +18,10 @@ import {
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
-import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
+import type {
+	ExpressionContext,
+	LookupDefinitionIndex,
+} from "@/lib/domain/expression/context";
 import { slotContext } from "@/lib/domain/expression/context";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import {
@@ -63,16 +66,20 @@ import {
 	EMISSION_REWRITES,
 	type EmissionRewriteId,
 } from "../../emissionRewrites";
+import { inventoryIndex } from "../../surface/inventory";
 import {
 	formDisplayCondition,
 	moduleDisplayCondition,
 } from "../../validator/rules/displayConditions";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { noteProperty } from "../caseManagement/catalog";
-import { sameJson } from "../jsonCursor";
-import type { PendingExpression } from "../pendingExpressions";
+import { type HandOffKind, sameJson } from "../jsonCursor";
+import {
+	type PendingExpression,
+	pendingPlaceholder,
+} from "../pendingExpressions";
 import { guessKey } from "../search/dateRangeGuesses";
-import { readFormSyntax } from "../syntaxRead";
+import { readFormSyntax, sharedFormSyntax } from "../syntaxRead";
 import type { ReaderKnownCaseTypes } from "../types";
 import type { ReadSourceNames } from "../xform";
 import {
@@ -96,6 +103,7 @@ import {
 	parseIssueEntry,
 	rawTextEntry,
 	slotEntries,
+	tableReadTag,
 	visitSyntax,
 } from "./findings";
 import { levelControl, type PrintLevel } from "./printLevel";
@@ -114,8 +122,11 @@ import { scanReads } from "./scanReads";
 import {
 	expressionSurfaceUses,
 	instanceIdsRead,
+	type SurfaceUse,
 	type SurfaceUseFacts,
+	syntaxHoldsHashtag,
 	unreadDeclarationUse,
+	unreadSlotUses,
 } from "./surfaceUses";
 
 export interface ExpressionReadEnv {
@@ -183,6 +194,22 @@ export interface ExpressionClaim {
 	readonly place: HqPlace;
 	readonly key: string;
 	readonly detail: FindingDetail;
+	/** Where project data's rules settle the claim instead: a read of a table
+	 *  the catalog lacks is handed to its lookup table rules, which raise the
+	 *  table's one finding at `{ kind: "lookup-table", tag }` whichever slot
+	 *  read it, so the node is handed off and raises nothing of its own. */
+	readonly handOff?: { readonly to: HandOffKind; readonly subject: string };
+	/** The refusal that keeps a slot out where its entry names the key of a use the text makes
+	 *  and not the slot's own key (`jr:choice-name` over a select whose choices come from a
+	 *  table, in a display condition): the slot's own claim stands under the slot's allowing
+	 *  entry, and the refusal, the reading's one finding, is claimed at the same node under the
+	 *  use's key. Applied with the claim (`provisional.ts::applyExpressionClaim`). */
+	readonly refusal?: {
+		readonly entryId: string;
+		readonly key: string;
+		readonly detail: FindingDetail;
+		readonly handOff?: { readonly to: HandOffKind; readonly subject: string };
+	};
 }
 export interface ExpressionReading {
 	/** The document with every held expression in its slot, and the properties step 1 declared. */
@@ -224,6 +251,9 @@ export interface ExpressionReading {
 	};
 	/** Tags an expression reads that the catalog does not hold. */
 	readonly unreadTables: readonly string[];
+	/** Tags a form declares (`jr://fixture/item-list:<tag>`) that the catalog
+	 *  does not hold and no expression reads. */
+	readonly declaredTables: readonly string[];
 	/** Registrations with no tree and no claim: those whose slot the document
 	 *  does not hold, and those of a form in `env.entryFactsRefused` whose
 	 *  claim would be M1. In ascending order. */
@@ -461,12 +491,37 @@ type Resolution =
 			/** The surface key the entry is answered under, where the reader
 			 *  that answered it named one. */
 			readonly key?: string;
+			/** The tag of a table the catalog lacks that the slot reads: the
+			 *  claim is handed to project data (`ExpressionClaim.handOff`). */
+			readonly table?: string;
 	  }
 	| { readonly kind: "unrecognized"; readonly reason: string };
 
 const M1 =
 	EXPRESSION_CLAIMS["session-data-datum-the-entry-does-not-supply"].entry;
+const M2 =
+	EXPRESSION_CLAIMS["an-expression-core-cannot-evaluate-as-its-author-meant"]
+		.entry;
 const M3 = EXPRESSION_CLAIMS["a-form-expression-outside-what-nova-types"].entry;
+/** A read of the worker's own record in a menu's or a form's display condition or a case list
+ *  slot, the usercase row of each of them. */
+const WORKER_RECORD_IN_RECORD_SLOT =
+	EXPRESSION_CLAIMS[
+		"user-prop-in-module-filter-form-filter-case-list-slots-the"
+	].entry;
+
+/** Whether the tree reads the worker's own record (`#user/<p>`). */
+function readsWorkerRecord(tree: Expression): boolean {
+	let found = false;
+	walkExpressionTerms(tree, (term) => {
+		if (
+			(term.kind === "session-user" || term.kind === "session-user-property") &&
+			term.source === "worker-record"
+		)
+			found = true;
+	});
+	return found;
+}
 
 /** The index a case query reaches its rows through where the query names no
  *  case type and the index is not `parent`: HQ's `#host` join. Nova prints a
@@ -543,12 +598,24 @@ function refusalOf(
 						to: pending.text.length,
 						message: "",
 					};
-	const answer = parseIssueEntry(
-		issue,
-		doc,
-		pending,
-		declarationsOf(doc, pending.ref, env),
-	);
+	const declarations = declarationsOf(doc, pending.ref, env);
+	// A read of a table the catalog lacks is project data's to judge: the
+	// table is one finding however many slots read it.
+	const table =
+		cause.kind === "parse" && cause.issues[0] !== undefined
+			? tableReadTag(cause.issues[0], pending, declarations)
+			: undefined;
+	if (
+		table !== undefined &&
+		![...env.lookup.values()].some((one) => one.tag === table)
+	)
+		return {
+			kind: "entry",
+			entryId: M2,
+			reason: "parse:instance-unknown",
+			table,
+		};
+	const answer = parseIssueEntry(issue, doc, pending, declarations);
 	if (answer.entryId === "unrecognized")
 		return { kind: "unrecognized", reason: answer.reason };
 	return {
@@ -559,6 +626,65 @@ function refusalOf(
 				: answer.entryId,
 		reason: answer.reason,
 	};
+}
+
+/** A use whose entry the manifest refuses outranks a slot answer that is no
+ *  refusal: a read of a search's answers in a form the parser refuses for a
+ *  reason of Nova's own (`unknown-search-input`, the slot's default) is the
+ *  read the instance's own class refuses, so the expression is that one line
+ *  of the account and not two. */
+function withRefusingInstanceUse(
+	resolution: Extract<Resolution, { kind: "entry" }>,
+	uses: readonly { readonly key: string; readonly entryId: string }[],
+): Extract<Resolution, { kind: "entry" }> {
+	if (resolution.reason !== "parse:unknown-search-input") return resolution;
+	const index = inventoryIndex();
+	const refusing = (entryId: string) =>
+		index.entry(entryId)?.disposition === "REFUSED";
+	if (refusing(resolution.entryId)) return resolution;
+	const use = uses.find(
+		(one) => one.key.startsWith("instance-scheme:") && refusing(one.entryId),
+	);
+	return use === undefined
+		? resolution
+		: { ...resolution, entryId: use.entryId, key: use.key };
+}
+
+/**
+ * The slot's allowing entry for its own key, where the entry refusing it does not name that key:
+ * the slot's row for the tree it bound (or, for a text no tree was bound from, the placeholder a
+ * slot of its expectation holds), where that entry names the key and allows it. Undefined where the refusing entry
+ * names the slot's key itself, or the slot has no such entry, so the refusal stands at the key.
+ */
+function allowingEntryBeside(
+	doc: BlueprintDoc,
+	registration: PendingExpression,
+	refusingEntryId: string,
+	candidate: Expression | undefined,
+	expectation: "condition" | "value",
+): string | undefined {
+	const index = inventoryIndex();
+	const refusing = index.entry(refusingEntryId);
+	if (refusing === undefined || refusing.surfaceKeys.includes(registration.key))
+		return undefined;
+	const tree = candidate ?? pendingPlaceholder(expectation);
+	const held = slotEntries(registration.ref.slot).held(
+		doc,
+		registration.ref,
+		tree,
+	);
+	const entry = held === undefined ? undefined : index.entry(held);
+	if (
+		entry === undefined ||
+		!entry.surfaceKeys.includes(registration.key) ||
+		!(
+			entry.standing === "held" ||
+			entry.standing === "kept" ||
+			entry.standing === "inert"
+		)
+	)
+		return undefined;
+	return entry.id;
 }
 
 /** The refusal of `candidate`, the slot's tree, which the document the slots
@@ -605,6 +731,32 @@ const WITHHOLD_ALL = new Set<EmissionRewriteId>(EMISSION_REWRITE_IDS);
 /** The slots `readExpressionsSteps` binds or judges between two stops. */
 const SLOTS_PER_STEP = 400;
 
+/** A slot's context in a document, by the document and the slot's reference: `slotContext` is a
+ *  function of the two (and the lookup types, one for a reading of the expressions), and a stage
+ *  asks it of each registration several times over the same document. */
+type SlotContextOf = (
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+) => ExpressionContext | undefined;
+
+function slotContexts(types: ReturnType<typeof lookupTypes>): SlotContextOf {
+	const byDoc = new WeakMap<
+		BlueprintDoc,
+		Map<SlotContextRef, ExpressionContext | undefined>
+	>();
+	return (doc, ref) => {
+		let known = byDoc.get(doc);
+		if (known === undefined) {
+			known = new Map();
+			byDoc.set(doc, known);
+		}
+		if (known.has(ref)) return known.get(ref);
+		const context = slotContext(doc, ref, types);
+		known.set(ref, context);
+		return context;
+	};
+}
+
 export function readExpressions(
 	doc: BlueprintDoc,
 	pending: readonly PendingExpression[],
@@ -630,13 +782,21 @@ export function* readExpressionsSteps(
 	env: ExpressionReadEnv,
 ): Generator<void, ExpressionReading, void> {
 	const types = lookupTypes(env);
+	const contextOf = slotContexts(types);
+	// A registration that only claims its uses binds nothing (`PendingExpression.usesOnly`).
 	const live = pending.map(
-		(registration) => slotContext(doc, registration.ref, types) !== undefined,
+		(registration) =>
+			registration.usesOnly !== true &&
+			contextOf(doc, registration.ref) !== undefined,
 	);
 	const sites = sitesOf(doc, pending);
 
 	// 1. Scan, and declare the case properties binding will find.
-	const scanned = scanReads(pending, doc, env);
+	const scanned = scanReads(
+		pending.filter((registration) => registration.usesOnly !== true),
+		doc,
+		env,
+	);
 	const known = new Set(
 		effectiveCaseTypes(doc).flatMap((type) =>
 			type.properties.map((property) =>
@@ -673,7 +833,14 @@ export function* readExpressionsSteps(
 	yield;
 	// 1b. Type: a property the catalog holds untyped that a record slot
 	// compares with a value of a known type is of that type.
-	const base = withComparedTypes(scannedBase, pending, live, sites, env);
+	const base = withComparedTypes(
+		scannedBase,
+		pending,
+		live,
+		sites,
+		env,
+		contextOf,
+	);
 	yield;
 	const declaredProperties = missing.filter((read) =>
 		(base.caseTypes ?? []).some(
@@ -754,10 +921,9 @@ export function* readExpressionsSteps(
 			const doc = written(base, pending, sites, trees);
 			let more = false;
 			for (const [index, tree] of trees) {
-				const context = slotContext(
+				const context = contextOf(
 					doc,
 					(pending[index] as PendingExpression).ref,
-					types,
 				);
 				if (
 					context !== undefined &&
@@ -875,7 +1041,7 @@ export function* readExpressionsSteps(
 				continue;
 			}
 			const relation =
-				slotContext(current, registration.ref, types)?.ruleSet === "record"
+				contextOf(current, registration.ref)?.ruleSet === "record"
 					? untypedRelationStep(judgment.candidate)
 					: undefined;
 			if (relation !== undefined) {
@@ -889,6 +1055,19 @@ export function* readExpressionsSteps(
 						reason: XML_ELEMENT_NAME_PATTERN.test(relation)
 							? `relation:${relation}`
 							: "name:index-identifier",
+					},
+				});
+				continue;
+			}
+			if (bound.listedCaseInQuery) {
+				// The listed case read inside another query of cases, which no
+				// tree Nova holds reads: the slot's own refusal.
+				outcomes.set(index, {
+					kind: "refused",
+					resolution: {
+						kind: "entry",
+						entryId: slotDefault(current, registration.ref, () => M3),
+						reason: "listed-case-in-query",
 					},
 				});
 				continue;
@@ -952,7 +1131,7 @@ export function* readExpressionsSteps(
 					? judgment.candidate
 					: undefined;
 		if (candidate === undefined) continue;
-		const context = slotContext(checked, registration.ref, types);
+		const context = contextOf(checked, registration.ref);
 		if (context === undefined) continue;
 		const named = nameGrammarEntry(candidate);
 		if (named !== undefined) {
@@ -1040,7 +1219,9 @@ export function* readExpressionsSteps(
 					kind: "refused",
 					resolution: {
 						kind: "entry",
-						entryId: slotDefault(checked, registration.ref, () => M3),
+						entryId: readsWorkerRecord(candidate)
+							? WORKER_RECORD_IN_RECORD_SLOT
+							: slotDefault(checked, registration.ref, () => M3),
 						reason: `dialect:${answer}`,
 					},
 				});
@@ -1068,7 +1249,58 @@ export function* readExpressionsSteps(
 	const claims: ExpressionClaim[] = [];
 	const ownerless: number[] = [];
 	const held = new Map<number, Expression>();
+	/* The slot a text registered for its uses alone is read in, and what classes its uses, by
+	 * the registration's slot: every attribute of a form registers under one. */
+	const readIn = new Map<
+		SlotContextRef,
+		| {
+				readonly context: ExpressionContext;
+				readonly facts: SurfaceUseFacts;
+		  }
+		| undefined
+	>();
 	pending.forEach((registration, index) => {
+		if (registration.usesOnly === true) {
+			// Each use the text makes, at the node it was read from; the node itself is its
+			// registrar's claim.
+			let slot = readIn.get(registration.ref);
+			if (!readIn.has(registration.ref)) {
+				const context = contextOf(checked, registration.ref);
+				slot =
+					context === undefined
+						? undefined
+						: {
+								context,
+								facts: surfaceUseFactsOf(
+									checked,
+									registration,
+									env,
+									undefined,
+									{
+										kind: "ownerless",
+									},
+								),
+							};
+				readIn.set(registration.ref, slot);
+			}
+			if (slot === undefined) return;
+			const name = registrationName(checked, registration);
+			for (const use of registrationUses(
+				registration,
+				sharedSyntax(registration.text),
+				undefined,
+				slot.context,
+				slot.facts,
+			))
+				claims.push({
+					source: index,
+					entryId: use.entryId,
+					place: registration.place,
+					key: use.key,
+					detail: { name },
+				});
+			return;
+		}
 		if (!live[index]) {
 			ownerless.push(index);
 			return;
@@ -1081,22 +1313,26 @@ export function* readExpressionsSteps(
 		const name = registrationName(checked, registration);
 		// The uses the text makes, before HQ's interpolation, held or not.
 		const source = textSyntax(registration.text);
-		const context = slotContext(checked, registration.ref, types);
+		const context = contextOf(checked, registration.ref);
+		const facts =
+			context === undefined
+				? undefined
+				: surfaceUseFactsOf(
+						checked,
+						registration,
+						env,
+						refused.get(index),
+						outcome,
+					);
 		const uses =
-			source === undefined || context === undefined
+			context === undefined || facts === undefined
 				? []
-				: expressionSurfaceUses(
+				: registrationUses(
+						registration,
 						source,
 						outcome.kind === "held" ? outcome.tree : undefined,
 						context,
-						"xpath",
-						surfaceUseFactsOf(
-							checked,
-							registration,
-							env,
-							refused.get(index),
-							outcome,
-						),
+						facts,
 					);
 		// The keys this registration's claims hold: one claim per key at a node.
 		const claimed = new Set<string>();
@@ -1135,30 +1371,81 @@ export function* readExpressionsSteps(
 				ownerless.push(index);
 				return;
 			}
+			const resolution = withRefusingInstanceUse(outcome.resolution, uses);
 			// The slot's own claim is under the registration's key, which the
 			// frame finds it by; where the entry is registered under the key of
 			// a use the text makes (an operator, a function, an instance
 			// scheme), the claim is recorded under that key too, and stands for
 			// that use.
 			const entryKey =
-				outcome.resolution.key ??
+				resolution.key ??
 				claimKeyOfUse(
-					outcome.resolution.entryId,
+					resolution.entryId,
 					uses.map((use) => use.key),
 				);
 			claimed.add(registration.key);
-			claims.push({
-				source: index,
-				entryId: outcome.resolution.entryId,
-				place: registration.place,
-				key: registration.key,
-				detail: { name, reason: outcome.resolution.reason },
-			});
-			if (entryKey !== undefined && entryKey !== registration.key) {
+			const handOff =
+				resolution.table === undefined
+					? undefined
+					: {
+							to: "lookup-table-read" as const,
+							subject: resolution.table,
+						};
+			// A refusing entry that names no surface key at all (`noSurfaceKey`) names neither the
+			// slot's key nor a use's: its record names none (`Accounting.claimEntry`). A hand-off
+			// records no claim, so it stands alone.
+			const keyless =
+				handOff === undefined &&
+				inventoryIndex().entry(resolution.entryId)?.surfaceKeys.length === 0;
+			const apart =
+				!keyless && (entryKey === undefined || entryKey === registration.key)
+					? undefined
+					: allowingEntryBeside(
+							checked,
+							registration,
+							resolution.entryId,
+							bindings.get(index)?.candidate,
+							context?.profile.expectation.kind === "condition"
+								? "condition"
+								: "value",
+						);
+			if (apart !== undefined && (entryKey !== undefined || keyless)) {
+				// The refusing entry names the use's key, or no key, and not the slot's: the slot's
+				// node stands under the slot's allowing entry, and the refusal beside it.
+				const refusalKey = entryKey ?? registration.key;
+				claimed.add(refusalKey);
+				claims.push({
+					source: index,
+					entryId: apart,
+					place: registration.place,
+					key: registration.key,
+					detail: { name },
+					refusal: {
+						entryId: resolution.entryId,
+						key: refusalKey,
+						detail: { name, reason: resolution.reason },
+						...(handOff !== undefined && { handOff }),
+					},
+				});
+			} else {
+				claims.push({
+					source: index,
+					entryId: resolution.entryId,
+					place: registration.place,
+					key: registration.key,
+					detail: { name, reason: resolution.reason },
+					...(handOff !== undefined && { handOff }),
+				});
+			}
+			if (
+				apart === undefined &&
+				entryKey !== undefined &&
+				entryKey !== registration.key
+			) {
 				claimed.add(entryKey);
 				claims.push({
 					source: index,
-					entryId: outcome.resolution.entryId,
+					entryId: resolution.entryId,
 					place: registration.place,
 					key: entryKey,
 					detail: { name },
@@ -1240,6 +1527,9 @@ export function* readExpressionsSteps(
 		unreadTables: scanned.lookupTags.filter(
 			(tag) => ![...env.lookup.values()].some((table) => table.tag === tag),
 		),
+		declaredTables: scanned.declaredLookupTags.filter(
+			(tag) => ![...env.lookup.values()].some((table) => table.tag === tag),
+		),
 		ownerless: ownerless.sort((a, b) => a - b),
 		rounds,
 	};
@@ -1255,8 +1545,8 @@ function withComparedTypes(
 	live: readonly boolean[],
 	sites: readonly (Site | undefined)[],
 	env: ExpressionReadEnv,
+	contextOf: SlotContextOf,
 ): BlueprintDoc {
-	const types = lookupTypes(env);
 	const effective = effectiveCaseTypes(doc);
 	const untyped = (caseType: string, property: string): boolean => {
 		const declared = (doc.caseTypes ?? [])
@@ -1276,7 +1566,7 @@ function withComparedTypes(
 	const required: { readonly one: RequiredType; readonly index: number }[] = [];
 	pending.forEach((registration, index) => {
 		if (!live[index]) return;
-		const context = slotContext(doc, registration.ref, types);
+		const context = contextOf(doc, registration.ref);
 		if (context?.ruleSet !== "record") return;
 		if (sites[index] === undefined) return;
 		const bound = bindSlot(doc, registration, env, new Set());
@@ -1567,6 +1857,49 @@ function relationDestination(
 	}
 }
 
+/** `text`'s syntax as every read of it shares it, for a walk that keeps no node. */
+function sharedSyntax(text: string): FormSyntax | undefined {
+	try {
+		const read = sharedFormSyntax(text);
+		return read.ok ? read.node : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The uses a registration's text makes at the node its claims are recorded at: its syntax's, and
+ * in a slot HQ interpolates the shorthand of the text HQ interpolates there
+ * (`PendingExpression.slotText`, else the registration's own text). Where that text is more than
+ * the registration's and holds a hashtag, Core's lexer refuses the whole slot, so its uses are its
+ * shorthand alone; where the node is no slot HQ interpolates, the text's shorthand is no use.
+ */
+function registrationUses(
+	registration: PendingExpression,
+	source: FormSyntax | undefined,
+	candidate: Expression | undefined,
+	context: ExpressionContext,
+	slotFacts: SurfaceUseFacts,
+): readonly SurfaceUse[] {
+	const whole = registration.slotText;
+	const facts =
+		whole === null && slotFacts.shorthand
+			? { ...slotFacts, shorthand: false }
+			: slotFacts;
+	const text = whole ?? registration.text;
+	if (facts.shorthand && text !== registration.text) {
+		const wholeSource = textSyntax(text);
+		if (
+			wholeSource !== undefined &&
+			syntaxHoldsHashtag(wholeSource, context, facts)
+		)
+			return unreadSlotUses(text, facts);
+	}
+	return source === undefined
+		? unreadSlotUses(text, facts)
+		: expressionSurfaceUses(source, candidate, context, "xpath", facts, text);
+}
+
 /** A registration's text as the one grammar reads it, before HQ's
  *  interpolation: an XForm attribute, an HQ JSON value with its hashtags. */
 function textSyntax(text: string): FormSyntax | undefined {
@@ -1634,6 +1967,11 @@ function surfaceUseFactsOf(
 		instanceSources:
 			(form === undefined ? undefined : env.instanceSources.get(form)) ??
 			new Map(),
+		shorthand:
+			registration.mode.target === "hq-json" &&
+			registration.mode.interpolation !== "none" &&
+			registration.mode.interpolation !== "enum-key",
+		fixtureValue: registration.fixtureValue === true,
 	};
 }
 

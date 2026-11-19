@@ -40,6 +40,8 @@ export interface FieldKindFacts {
 	readonly appearance: string | undefined;
 	readonly hasCalculate: boolean;
 	readonly hasDefault: boolean;
+	/** Whether the node stands in a repeat. */
+	readonly inRepeat: boolean;
 }
 
 export interface FieldKindRow {
@@ -144,9 +146,23 @@ function hiddenRows(
 			(facts) => none(facts) && !facts.hasCalculate && !facts.hasDefault,
 			extra,
 		),
+		// Both sources outside every repeat: the calculate alone where no runtime reads the
+		// default, decided over the bound document (`afterBinding.ts::settleBothSources`).
+		takeRow(
+			X.kind.hiddenBothUnread,
+			"hidden",
+			(facts) =>
+				none(facts) &&
+				facts.hasCalculate &&
+				facts.hasDefault &&
+				!facts.inRepeat,
+			extra,
+		),
+		// In a repeat row the default can outlast the calculate.
 		refuseRow(
 			X.refusedKind.hiddenBoth,
-			(facts) => none(facts) && facts.hasCalculate && facts.hasDefault,
+			(facts) =>
+				none(facts) && facts.hasCalculate && facts.hasDefault && facts.inRepeat,
 		),
 	];
 }

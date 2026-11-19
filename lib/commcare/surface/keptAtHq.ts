@@ -8,7 +8,7 @@
 // changes reads the project space's value or says how it differs. Each row
 // says what a `.ccz` made for the project space does with the value, what
 // Preview does, what a first publish to another project space does, and which
-// app made in CommCare HQ holds it at a value other than the default.
+// app made in CommCare HQ holds it, or that no reading meets it.
 //
 // Pure and free of the manifest JSON: `__tests__/keptAtHq.test.ts` binds the
 // table to the entries both ways. The words a person reads live in
@@ -66,8 +66,14 @@ export interface KeptRow {
 	readonly ccz: KeptCczCell;
 	readonly preview: KeptPreviewCell;
 	readonly elsewhere: KeptElsewhereCell;
-	/** The HQ-authored base that holds it at a value other than the default. */
-	readonly base: string;
+	/**
+	 * The HQ-authored base whose reading meets it, or `null` where no reading of
+	 * any app meets it: HQ's source read leaves the key out, or every key is
+	 * project data no read takes, a build's or none. Such an entry is exempt
+	 * from coverage under the reason its keys or HQ's answer make true
+	 * (`proof/matrix/exemptions.json`), never by a decision.
+	 */
+	readonly base: string | null;
 }
 
 // The cells most rows share.
@@ -117,7 +123,8 @@ function seeded(
 	};
 }
 
-/** A record HQ's server keeps of the app, which no archive and no Preview reads. */
+/** A record HQ's server keeps of the app, which no archive and no Preview reads, and which a
+ *  just-created app's source holds at HQ's own default. */
 const SERVER_RECORD: KeptRow = {
 	kind: "server-record",
 	ccz: NO_ARCHIVE_READER,
@@ -126,7 +133,7 @@ const SERVER_RECORD: KeptRow = {
 	base: "hq-new-app",
 };
 
-/** State of the project space that the app's source holds none of. */
+/** State of the project space that the app's source holds none of, and no reading reads. */
 const PROJECT_STATE: KeptRow = {
 	kind: "project-state",
 	ccz: {
@@ -135,8 +142,12 @@ const PROJECT_STATE: KeptRow = {
 	},
 	preview: NO_CLAIM,
 	elsewhere: ITS_OWN,
-	base: "hq-new-app",
+	base: null,
 };
+
+/** A record HQ's server keeps of the app that HQ's source read leaves out
+ *  (`models/applications.py::Application.export_json`), so no reading meets it. */
+const UNSERVED_RECORD: KeptRow = { ...SERVER_RECORD, base: null };
 
 const RECORDED_IDS: KeptRow = {
 	kind: "identity",
@@ -149,14 +160,13 @@ const RECORDED_IDS: KeptRow = {
 	base: "hq-new-app",
 };
 
-const PROJECT_TABLE: Pick<KeptRow, "ccz" | "preview" | "elsewhere" | "base"> = {
+const PROJECT_TABLE: Pick<KeptRow, "ccz" | "preview" | "elsewhere"> = {
 	ccz: { does: "own", why: "The archive embeds the Project's table." },
 	preview: {
 		does: "reads",
 		by: "lib/preview/engine/useLookupPreviewData.tsx::PreviewLookupDataProvider",
 	},
 	elsewhere: ITS_OWN,
-	base: "hq-new-app",
 };
 
 const PREVIEW_CHROME = noClaim("Preview's chrome is Nova's own.");
@@ -412,13 +422,13 @@ export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>> = {
 		...SERVER_RECORD,
 		ccz: { does: "own", why: "The archive's version is the app's sequence." },
 	},
-	"application-and-settings/short-odk-url-short-odk-media-url": SERVER_RECORD,
+	"application-and-settings/short-odk-url-short-odk-media-url": UNSERVED_RECORD,
 	"application-and-settings/built-with-build-signed-built-on-build-comment-comment-from-last":
 		SERVER_RECORD,
 	"application-and-settings/date-created-created-from-template-last-modified-has-submissions":
 		SERVER_RECORD,
 	"application-and-settings/copy-history-family-id": SERVER_RECORD,
-	"application-and-settings/external-blobs": SERVER_RECORD,
+	"application-and-settings/external-blobs": UNSERVED_RECORD,
 	"application-and-settings/archived-media": SERVER_RECORD,
 	"application-and-settings/id": {
 		kind: "identity",
@@ -449,11 +459,14 @@ export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>> = {
 		...SERVER_RECORD,
 		ccz: { does: "own", why: "Each form takes the app's sequence." },
 	},
+	/* A just-made app reads no table, so the ids are met where the app reads one. */
 	"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table":
-		{ kind: "identity", ...PROJECT_TABLE },
+		{ kind: "identity", ...PROJECT_TABLE, base: "hq-lookups" },
+	/* HQ's lookup table resource serves neither field, so no reading meets them. */
 	"expressions-and-data/is-synced-last-modified": {
 		kind: "server-record",
 		...PROJECT_TABLE,
+		base: null,
 	},
 	"case-search/domain-casesearchconfig-sync-cases-on-form-entry": PROJECT_STATE,
 	"forms-and-case-writes/supply-point-id-datum-hq-injects-under-commtrack-enabled-into":

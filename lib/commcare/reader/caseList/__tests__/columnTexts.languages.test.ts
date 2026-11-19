@@ -407,7 +407,9 @@ describe("a detail's two texts and a sort element's label", () => {
 		]);
 	});
 
-	it("refuses a sort-only label a null makes HQ show as `None`", async () => {
+	// HQ's build asks every value of the display whether it is blank (`SortElement.has_display_values`
+	// strips each), so a null leaves it no build, as any value that is no text does.
+	it("names a sort-only label holding a null, which HQ's build cannot read, and no label finding", async () => {
 		const reading = await readBilingual(village(), (app) => {
 			shortOf(app).sort_elements = [
 				{
@@ -421,9 +423,9 @@ describe("a detail's two texts and a sort element's label", () => {
 				},
 			];
 		});
-		expect(codes(reading)).toContain(
-			"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
-		);
+		expect(closedCodes(reading)).toEqual([
+			"unrecognized:schema:SortElement.display",
+		]);
 	});
 
 	it("names a detail text whose shown text the reader cannot know, and no differing text", async () => {

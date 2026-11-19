@@ -77,6 +77,22 @@ const CASES: readonly Case[] = [
 			],
 		],
 	},
+	// HQ leaves these unsearched or reads them as filters of their own
+	// (`case_search/models.py::UNSEARCHABLE_KEYS`, `case_search/utils.py::_apply_filter`), and a key
+	// under `indices.` as a reverse-index filter, never as the property the name spells.
+	...["include_closed", "commcare_project", "case_types", "indices.parent"].map(
+		(name): Case => ({
+			title: `the name ${name}, which HQ never searches as a property`,
+			edit: (body) => renameFirst(body, name),
+			findings: [
+				[
+					`${S}a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys`,
+					"search",
+					name,
+				],
+			],
+		}),
+	),
 	{
 		title: "a name outside Nova's name grammar",
 		edit: (body) => renameFirst(body, "1st"),
@@ -575,6 +591,20 @@ describe("a Search field Nova cannot hold", () => {
 						: undefined,
 			},
 		});
+		// The table `t` as project data defines it, for a reading that binds its reads.
+		const TABLE_T = {
+			id: "01890000-0000-7000-8000-000000000301" as LookupTableId,
+			name: "T",
+			tag: "t",
+			columns: [
+				{
+					id: "01890000-0000-7000-8000-000000000302" as LookupColumnId,
+					wireName: "code",
+					label: "Code",
+					dataType: "text" as const,
+				},
+			],
+		};
 		const overTable = (body: JsonObject) => {
 			const prompt = first(body);
 			prompt.input_ = "select1";
@@ -607,6 +637,51 @@ describe("a Search field Nova cannot hold", () => {
 					]),
 				).toEqual([[MISSING, "search", "case_name", "parse:unknown-column"]]);
 			});
+
+		// A filter row's value a device reads from a table, as from the cases on the device, is the
+		// one entry for values that query device data, at the search.
+		it.each([
+			["a told table", "instance('item-list:t')/t_list/t[1]/code"],
+			[
+				"the cases on the device",
+				"instance('casedb')/casedb/case[1]/case_name",
+			],
+		])(
+			"a filter row's value read from %s is that one finding",
+			async (_title, read) => {
+				const body = exportedBody(PROMPTS);
+				const config = (body.modules as JsonObject[])[0]
+					?.search_config as JsonObject;
+				(config.default_properties as JsonObject[]).push({
+					property: "_xpath_query",
+					doc_type: "DefaultCaseSearchProperty",
+					defaultValue: `concat("case_name = '", ${read}, "'")`,
+				});
+				const told = withTable(await inputFor(body));
+				const outcome = readHqApp({
+					...told,
+					lookup: {
+						...told.lookup,
+						definitions: new Map([[TABLE_T.id, TABLE_T]]),
+					},
+				});
+				expect(outcome.defects).toEqual([]);
+				if (outcome.kind !== "account") throw new Error("read with no finding");
+				expect(
+					outcome.findings.map((one) => [
+						one.code,
+						one.place.kind,
+						one.detail.name,
+					]),
+				).toEqual([
+					[
+						`${S}a-search-value-that-queries-cases-a-table-or-places`,
+						"search",
+						"_xpath_query",
+					],
+				]);
+			},
+		);
 
 		it("a table the reading was not told of is handed off, and nothing else is a finding", async () => {
 			const body = exportedBody(PROMPTS);
@@ -770,5 +845,34 @@ describe("a Search field Nova cannot hold", () => {
 			]),
 		);
 		expect(found).toHaveLength(2);
+	});
+
+	// HQ's Case List page shows a barcode appearance as its own, and a date input over any
+	// appearance (`case_claim.js::_getAppearance`): a value received on either is that entry alone.
+	const RECEIVED_ON_WIDGET = [
+		`${S}receiver-expression-on-a-prompt-whose-editor-appearance-is`,
+		"search",
+		"case_name",
+	] as const;
+
+	it("for a value received on a barcode field is the editor appearance's entry alone", async () => {
+		const found = await account((body) => {
+			const prompt = first(body);
+			prompt.appearance = "barcode_scan";
+			prompt.receiver_expression = "home-address";
+		});
+		expect(found).toEqual([RECEIVED_ON_WIDGET]);
+	});
+
+	it("for a value received on a date field is the editor appearance's entry, whatever the appearance", async () => {
+		const found = await account((body) => {
+			const prompt = first(body);
+			prompt.input_ = "date";
+			prompt.appearance = "barcode_scan";
+			prompt.receiver_expression = "home-address";
+		});
+		expect(
+			found.filter(([code]) => code.startsWith(`${S}receiver-expression`)),
+		).toEqual([RECEIVED_ON_WIDGET]);
 	});
 });

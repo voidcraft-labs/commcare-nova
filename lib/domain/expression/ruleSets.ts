@@ -1,6 +1,7 @@
 import {
 	type CasePropertyDataType,
 	casePropertyDataTypes,
+	TEXT_JOINED_DATA_TYPES,
 } from "../casePropertyTypes";
 import { unhandledKindMessage } from "./errors";
 import type { CheckError, ScalarType } from "./typeChecker";
@@ -84,15 +85,39 @@ export function agreedStorageType(
 }
 
 /**
+ * Whether writers of `types` that agree on no one type
+ * (`agreedStorageType`) can be saved as text: every one of them is a type a
+ * text property holds as the text a device submits for it
+ * (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`). Whether they are is the
+ * property's decision, since a question that opens on the property's value
+ * as a number or a date would stop on the others' text
+ * (`inference.ts`, the casting readers).
+ */
+export function joinsAsText(types: Iterable<CasePropertyDataType>): boolean {
+	const named = [...new Set(types)];
+	return (
+		named.length > 1 &&
+		named.every((type) => TEXT_JOINED_DATA_TYPES.has(type)) &&
+		agreedStorageType(named) === undefined
+	);
+}
+
+/**
  * Whether a writer's result can be saved to a destination: storage
- * assignability, plus an ISO date text (`isoDateText`: a `format-date` with
- * the fixed pattern `%Y-%m-%d`, `datePattern.ts::isIsoDateText`) into a
- * `date` property. A follow-up question reads such text back through
- * `DateData.cast` → `DateUtils.parseDate`, which takes exactly
- * `YYYY-MM-DD`. Only a writer's verdict reads this: the value's type stays
- * `text`, so a comparison or ordering never treats it as a date. A
- * `datetime` property stays strict, since a day text there saves midnight,
- * as a `date` value would.
+ * assignability, plus two allowances a writer's verdict alone reads.
+ *
+ * - An ISO date text (`isoDateText`: a `format-date` with the fixed pattern
+ *   `%Y-%m-%d`, `datePattern.ts::isIsoDateText`) into a `date` property. A
+ *   follow-up question reads such text back through `DateData.cast` →
+ *   `DateUtils.parseDate`, which takes exactly `YYYY-MM-DD`. The value's
+ *   type stays `text`, so a comparison or ordering never treats it as a
+ *   date. A `datetime` property stays strict, since a day text there saves
+ *   midnight, as a `date` value would.
+ * - A whole number, a decimal number or a date into a `text` property, which
+ *   holds the text a device submits for it
+ *   (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`). The value's type stays
+ *   its own, and a single choice property stays strict, since a number is no
+ *   choice of it.
  */
 export function isWriteAssignable(
 	valueType: ResolvedType,
@@ -101,7 +126,11 @@ export function isWriteAssignable(
 ): boolean {
 	return (
 		isValueStorageAssignable(valueType, destinationType) ||
-		(isoDateText && valueType === "text" && destinationType === "date")
+		(isoDateText && valueType === "text" && destinationType === "date") ||
+		(destinationType === "text" &&
+			valueType !== ANY_TYPE &&
+			valueType !== "boolean" &&
+			TEXT_JOINED_DATA_TYPES.has(valueType))
 	);
 }
 
@@ -193,6 +222,73 @@ export function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
 	if (a === "multi_select" && b === "text") return true;
 	if (a === "text" && b === "multi_select") return true;
 	return false;
+}
+
+/**
+ * The text of a whole number exactly as CommCare writes one: no sign but a
+ * leading minus, no leading zero, and inside Java's `int` range, the text
+ * `IntegerData.uncast` gives (`Integer.toString`) and the text Nova stores
+ * for a whole number.
+ */
+export function canonicalIntegerText(text: string): number | undefined {
+	if (!/^(?:0|-?[1-9][0-9]{0,9})$/.test(text)) return undefined;
+	const value = Number(text);
+	return value >= -2147483648 && value <= 2147483647 ? value : undefined;
+}
+
+/** One operand of an `=`, `!=` or `in` member: its type, and the literal it
+ *  is where it is one. */
+export interface EqualityOperand {
+	readonly type: ResolvedType;
+	readonly literal?: Literal;
+}
+
+/**
+ * A comparison by `=` or `!=` of two types `typesCompatible` keeps apart that
+ * every CommCare runtime still answers as its author means, and how.
+ * `XPathEqExpr.java::testEquality` compares two values as numbers when either
+ * is a number, reading the other through `FunctionUtils.java::toNumeric`, and
+ * as text otherwise; a case's property is text on every device.
+ *
+ * - `integer-text`: a whole number opposite a text literal spelling a whole
+ *   number as CommCare writes one (`canonicalIntegerText`). A property holds
+ *   that same text, so the text comparison a device makes of a property, and
+ *   the number comparison it makes of a calculated whole number, both agree
+ *   with comparing the two numbers. `'01'` or `'1.0'` stays refused: a device
+ *   compares a property's text `1` with it and finds them different.
+ * - `text-number`: a text or single choice value opposite a number literal.
+ *   A device reads the text as the number `toNumeric` gives (digits with an
+ *   optional minus and point once trimmed, else a `year-month-day` date as
+ *   its day number, else no number), so `cut_water = 1` holds where the
+ *   choice's value is `1`. A list of choices stays refused, since its text
+ *   holds several values.
+ */
+export function coercedEquality(
+	a: EqualityOperand,
+	b: EqualityOperand,
+): "integer-text" | "text-number" | undefined {
+	for (const [value, literal] of [
+		[a, b],
+		[b, a],
+	] as const) {
+		const text = literal.literal;
+		if (
+			value.type === "int" &&
+			text !== undefined &&
+			text.data_type === undefined &&
+			typeof text.value === "string" &&
+			canonicalIntegerText(text.value) !== undefined
+		)
+			return "integer-text";
+		if (
+			(value.type === "text" || value.type === "single_select") &&
+			literal.literal !== undefined &&
+			typeof literal.literal.value === "number" &&
+			isNumeric(literal.type)
+		)
+			return "text-number";
+	}
+	return undefined;
 }
 
 export const ALL_RESOLVED_TYPES: readonly ResolvedType[] = [
@@ -288,9 +384,22 @@ export function valueExpressionKindResultClass(
 }
 
 export type RecordPosition = "condition" | "value";
+/**
+ * Whether an expression of `kind` stands in a record `position`. A condition
+ * stands where a condition belongs and a value where a value belongs; `if`
+ * and `switch` stand in either. One read stands as a condition too: a read
+ * of a single node whose value CommCare holds as a yes or no (`heldYesNo`),
+ * such as a Hidden Value calculated by a condition. Core holds a calculated
+ * `Boolean` as `BooleanData` whatever the node's bind
+ * (`Recalculate.java::wrapData`) and reads it back as that `Boolean`
+ * (`XPathPathExpr.java::unpackValue`), so its truth is the calculation's. A
+ * read of text never stands as one: Core reads text as true when it is not
+ * empty (`FunctionUtils.java::toBoolean`), so a stored `0` would hold.
+ */
 export function recordPositionVerdict(
 	kind: Expression["kind"],
 	position: RecordPosition,
+	heldYesNo = false,
 ):
 	| { readonly ok: true }
 	| {
@@ -298,6 +407,8 @@ export function recordPositionVerdict(
 			readonly reason: "value-expected" | "condition-expected";
 	  } {
 	if (kind === "if" || kind === "switch") return { ok: true };
+	if (kind === "term" && position === "condition" && heldYesNo)
+		return { ok: true };
 	const condition = isConditionArm({ kind } as Expression);
 	return condition === (position === "condition")
 		? { ok: true }

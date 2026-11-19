@@ -33,11 +33,13 @@ import type {
 	CaseListOrderPlan,
 	CaseListOrderRule,
 	CaseListSortKey,
+	CaseListSortLabel,
 	Column,
+	ColumnVia,
 	SortDirection,
 	Uuid,
 } from "@/lib/domain";
-import { casePropertyPath } from "../wire";
+import { columnPropertyPath } from "../wire";
 
 // ============================================================
 // Wire-vocab translation
@@ -109,6 +111,10 @@ export interface PlannedSortNodes {
 	readonly byUuid: ReadonlyMap<Uuid, ResolvedSortDirective>;
 	readonly carriers: readonly {
 		readonly property: string;
+		readonly field: string;
+		readonly via?: ColumnVia;
+		/** The carrier's name in Sort by (`caseListOrder.ts`, rule 10). */
+		readonly label?: CaseListSortLabel;
 		readonly directive: ResolvedSortDirective;
 	}[];
 }
@@ -156,7 +162,7 @@ function keyDirective(
 			return {
 				...attributes,
 				kind: "property",
-				xpath: casePropertyPath(key.property),
+				xpath: columnPropertyPath({ field: key.property, via: key.via }),
 			};
 		case "mapping-position": {
 			if (column.kind !== "id-mapping" && column.kind !== "image-map") {
@@ -167,10 +173,7 @@ function keyDirective(
 			return {
 				...attributes,
 				kind: "property",
-				xpath: idMappingSortXpath(
-					casePropertyPath(column.field),
-					column.mapping,
-				),
+				xpath: idMappingSortXpath(columnPropertyPath(column), column.mapping),
 			};
 		}
 		case "option-label":
@@ -202,9 +205,12 @@ export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
 	}
 	const carriers = plan.carriers.map((carrier) => ({
 		property: carrier.property,
+		field: carrier.field,
+		...(carrier.via !== undefined && { via: carrier.via }),
+		...(carrier.rule.label !== undefined && { label: carrier.rule.label }),
 		directive: {
 			kind: "property" as const,
-			xpath: casePropertyPath(carrier.property),
+			xpath: columnPropertyPath(carrier),
 			type: carrier.comparator,
 			...ruleAttributes(carrier.rule),
 		},

@@ -1,0 +1,366 @@
+{
+	"application-and-settings/37-hq-profile-url-on-an-application": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's wrap of an Application refuses a profile_url key (WrappingAttributeError), so no app's source carries it; the row hq-new-app/profile-url holds that outcome."
+	},
+	"application-and-settings/38-hq-manage-urls": {
+		"reason": "stated-by-its-part",
+		"note": "Part 01 decided it (its section 8.3): manage_urls is a RemoteApp's setting (commcare-app-settings.yml requires doc_type RemoteApp), and CommCare HQ's read answers a remote app before any reader runs, so no reading claims this entry."
+	},
+	"application-and-settings/doc-type-linkedapplication-downstream-app": {
+		"reason": "stated-by-its-part",
+		"note": "Part 01 decided it (its section 8.3): CommCare HQ's read answers a linked app before any reader runs, so no reading claims this entry."
+	},
+	"application-and-settings/doc-type-remoteapp-profile-url-manage-urls-questions-map": {
+		"reason": "stated-by-its-part",
+		"note": "Part 01 decided it (its section 8.3): CommCare HQ's read answers a remote app before any reader runs, so no reading claims this entry."
+	},
+	"application-and-settings/external-blobs": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's source read pops external_blobs (models/applications.py::Application.export_json), so no app's source carries it; the row hq-new-app/external-blobs holds that on every run."
+	},
+	"application-and-settings/profile-and-suite-skeleton": {
+		"reason": "only-in-a-build",
+		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
+	},
+	"application-and-settings/short-odk-url-short-odk-media-url": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's source read leaves both keys out (models/applications.py::Application.export_json drops _meta_fields), so no app's source carries them; the row hq-new-app/short-odk-url holds that on every run."
+	},
+	"application-and-settings/unknown-doc-type": {
+		"reason": "stated-by-its-part",
+		"note": "Part 01 decided it (its section 8.3): a source of any other doc_type is an answer Nova cannot read, and the reading stops before any reader runs."
+	},
+	"application-and-settings/upstream-app-id-upstream-version-linked-app-translations-linked": {
+		"reason": "stated-by-its-part",
+		"note": "Part 01 decided it (its section 8.3): only a linked app holds these keys, and CommCare HQ's read answers a linked app before any reader runs."
+	},
+	"case-search/domain-casesearchconfig-sync-cases-on-form-entry": {
+		"reason": "not-in-app-source",
+		"note": "Its key is a project space setting, which no app's source holds and no reading reads; lib/commcare/__tests__/planPrivileges.test.ts holds the forms a publish asks a person to confirm it for."
+	},
+	"case-search/list-first-where-web-apps-is-declared": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"case-search/redo-last-on-the-search-action": {
+		"reason": "only-in-a-build",
+		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
+	},
+	"expressions-and-data/absent-field-vs-zero-values-vs-empty-string": {
+		"reason": "stated-by-its-part",
+		"note": "Part 11 decided it (its section 13.1): the row resource raises on a field with no value, so no reading meets one."
+	},
+	"expressions-and-data/audio-3gp": {
+		"reason": "stated-by-its-part",
+		"note": "Part 11 decided it (its section 2.1): CommCare HQ files an audio 3GP as video, so an audio slot naming one is refused from the source under the M4A entry before any file is fetched."
+	},
+	"expressions-and-data/case-module-slug-unrelated-parent-select-case": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 14.1): a read through the datum of an unrelated parent selection stands under the menu's refusal of that selection, so no reading names this class on its own."
+	},
+	"expressions-and-data/cell-values-always-strings-in-hq": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/description": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/fields-is-indexed": {
+		"reason": "stated-by-its-part",
+		"note": "Part 11 decided it (its section 13.1): no read an API key makes shows whether a field is indexed."
+	},
+	"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/image-svg": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ stores a picture only once Pillow opens it (CommCareImage.attach_data raises BadMediaFileException for an SVG), so no app's map names one; the row hq-media/svg-picture holds that outcome."
+	},
+	"expressions-and-data/is-global-false-row-owners-user-group-location": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/is-synced-last-modified": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds, and HQ's lookup table resource serves neither field; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/item-attributes-and-per-row-attribute-values": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/lookup-table-rows-in-the-local-archive-suite": {
+		"reason": "only-in-a-build",
+		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
+	},
+	"expressions-and-data/menu-instance-declarations": {
+		"reason": "only-in-a-build",
+		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
+	},
+	"expressions-and-data/print-template-jr-file-commcare-text-id-html": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 8.2): a print callout's template reference is claimed with the callout's one finding, and the template's map item is the map's, so no reading names this class on its own."
+	},
+	"expressions-and-data/registry-case": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 14.1): the hashtag a shadow spells for a registry read stands under the real attribute's registry read, so no reading names this class on its own."
+	},
+	"expressions-and-data/results-results-inline-results-name-in-search-details": {
+		"reason": "stated-by-its-part",
+		"note": "Part 08 decided it (its section 9.3): a results read is held only in what CommCare HQ's build writes for a search's results detail, and a source's own read in a menu's slot is a query of cases refused under the slot's own entry with this class claimed beside the refusal, so no reading that reads names it."
+	},
+	"expressions-and-data/row-order-sort-key": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/suite-variable-references": {
+		"reason": "stated-by-its-part",
+		"note": "Part 08 decided it (its section 9.3): a variable the suite declares exists only in the suite CommCare HQ's build writes, and a source's own $name is refused under its slot's entry, so no reading names this entry."
+	},
+	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/tag-containing-casedb-or-ledgerdb": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/tag-or-field-name-holding-a-period": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/tag-or-field-name-with-non-ascii-letters": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"expressions-and-data/tag-types": {
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+	},
+	"forms-and-case-writes/a-now-hidden-value-saved-straight-to-a-case": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/a-shadow-s-own-extra-actions-load-update-cases-case-properties": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/auto-gps-capture-on-a-shadowform": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/data-dictionary-caseproperty-data-type": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"forms-and-case-writes/extra-actions-load-update-cases-repeating-a-parent-tag-overrides": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/extra-actions-load-update-cases-with-a-tag-absent-from-the": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/extra-actions-open-cases-non-empty": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/select-writers-with-differing-option-catalogs": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"forms-and-case-writes/shadow-own-fields-name-media-custom-icons-form-filter-post-form": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/shadow-parent-form-id-missing-or-dangling": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/shadow-parent-form-id-naming-an-advancedform-that-is-not-a": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"forms-and-case-writes/subcase-of-the-module-s-own-case-type-in-a-project-space-with": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 3.4): the reader always reads a child case's link, reading the project space's flag is no part of a reading, and a publish asks the same-type-child-links question instead."
+	},
+	"forms-and-case-writes/supply-point-id-datum-hq-injects-under-commtrack-enabled-into": {
+		"reason": "only-in-a-build",
+		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
+	},
+	"forms-and-case-writes/update-case-update-value-as-a-bare-string-legacy-pre": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's wrap refuses a bare string under UpdateCaseAction.update (BadValueError), so no app's source carries one; the row hq-plain/bare-string-update holds that outcome."
+	},
+	"forms-and-case-writes/usercase-creation-and-sync-hq-user-id": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case": {
+		"reason": "only-in-a-build",
+		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
+	},
+	"forms-and-case-writes/validation-cache": {
+		"reason": "hq-never-serves-the-value",
+		"note": "FormBase.wrap pops validation_cache on every wrap (corehq/apps/app_manager/models/forms.py), so no app's source holds it; hq-plain/validation-cache holds that on every run."
+	},
+	"forms-and-case-writes/writers-int-decimal": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"forms-and-case-writes/writers-of-one-property-with-one-type": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"forms-and-case-writes/writers-saved-as-text": {
+		"reason": "no-surface-key",
+		"note": "The entry names no key: writers of one property that agree on no one type are a class of the whole form's writers, and no surface item holds it, so no claim of the reader counts it at a place."
+	},
+	"forms-and-case-writes/writers-text-single-select": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"menus-and-case-lists/7pp-invisible-inside-a-data-tab-over-a-nodeset": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.2): a column of a data tab stands under the tab's own finding, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/a-geo-column-on-the-case-detail-beside-the-column-it-depends-on": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): the class stands only beside an address column on the same detail, which 8-address refuses, so no reading holds it and the reading counts it beside that finding."
+	},
+	"menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/a-stored-tab-without-istab": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): every stored tab is refused by its kind, so no reading holds one."
+	},
+	"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.2): a slot of a template tile stands under the template's own finding, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/custom-icons-1": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 8.2): the badges after a menu's first stand only beside the first badge, which custom-icons-0-badge-localized-text-or-xpath refuses, and are counted beside that finding, so no reading holds what this entry names."
+	},
+	"menus-and-case-lists/hq-computed-datums-case-id-new-type-n-usercase-id-datum-parent": {
+		"reason": "only-in-a-build",
+		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
+	},
+	"menus-and-case-lists/lookup-autolaunch": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+	},
+	"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+	},
+	"menus-and-case-lists/lookup-enabled-on-an-icon-text-grid-case-list": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): the class exists only on an icon_text_grid list, which detail-case-tile-template-icon-text-grid refuses, and the reading counts it beside that finding."
+	},
+	"menus-and-case-lists/lookup-extras-key-value": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+	},
+	"menus-and-case-lists/lookup-image-jr": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+	},
+	"menus-and-case-lists/lookup-name": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+	},
+	"menus-and-case-lists/lookup-responses-key": {
+		"reason": "stated-by-its-part",
+		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+	},
+	"menus-and-case-lists/shadowmodule-case-list-show-false": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/shadowmodule-case-list-show-true": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/shadowmodule-case-type-stored-key": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/shadowmodule-excluded-form-ids-empty": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/shadowmodule-excluded-form-ids-non-empty": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/shadowmodule-form-session-endpoints-empty": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
+	},
+	"menus-and-case-lists/unknown-module-doc-type": {
+		"reason": "hq-never-serves-the-value",
+		"note": "CommCare HQ's wrap of a menu refuses an unknown doc_type (ModuleBase.wrap raises ValueError), so no app's source carries one; the row hq-menus/unknown-menu-type holds that outcome."
+	},
+	"questions/a-data-root-namespace-declaration-other-than-xmlns-and-xmlns-jrm": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"questions/a-translation-missing-for-an-app-language": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 12.1): a translation absent for an app language leaves no element to claim, and the language shows the form's default language's text, which the reading reads as its text, so no reading names this entry."
+	},
+	"questions/case-mapping-diff-vellum-hq": {
+		"reason": "stated-by-its-part",
+		"note": "Part 06 decided it (its section 14.2): case_mapping_diff is a parameter of the form builder's save (util.py::save_xform merges it into the form's actions, Vellum's caseManagement.js posts it), which HQ stores nowhere, so no source read holds it."
+	},
+	"questions/extra-namespace-declarations-on-h-html": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"questions/h-head-children-other-than-hq-s-own-h-title-model-odkx-intent": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"questions/jr-requiredmsg": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	},
+	"questions/xml-comments-processing-instructions": {
+		"reason": "no-surface-key",
+		"note": "The entry names no surface key, and it allows what it describes."
+	}
+}

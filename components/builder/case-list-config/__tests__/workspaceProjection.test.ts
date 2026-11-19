@@ -157,6 +157,20 @@ describe("removeColumnFromDisplay", () => {
 });
 
 describe("showColumnOnDisplay", () => {
+	it("drops a rule's name in Sort by when the field shows on Results again, and keeps the rule", () => {
+		const hidden = column("hidden", {
+			visibleInList: false,
+			sort: { direction: "asc", priority: 0, label: "Oldest first" },
+		});
+		expect(showColumnOnDisplay([hidden], hidden.uuid, "list")).toEqual([
+			column("hidden", { sort: { direction: "asc", priority: 0 } }),
+		]);
+		// Shown on Details only, the field stays hidden from Results, and the name stays.
+		expect(showColumnOnDisplay([hidden], hidden.uuid, "detail")).toEqual([
+			hidden,
+		]);
+	});
+
 	it("returns a Nova-hidden field to its saved Results position", () => {
 		const hidden = {
 			...column("hidden", { visibleInList: false }),

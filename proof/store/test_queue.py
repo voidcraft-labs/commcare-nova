@@ -120,7 +120,8 @@ def _ran(checkout, corpus, output, queue_path, *, failing=()):
                 document = document_of(corpus, identifier) if kind == "corpus" else _control(checkout, identifier)
                 observe_into(runtime.session_store(document, environ), document, records_of(document))
                 evidence[("bar", name)] = []
-    write_block(output, groups, evidence)
+    # The server names the queue's reader bundle in each block's manifest (proof.lane.serve).
+    write_block(output, groups, evidence, reader=value.get("reader"))
     return output
 
 

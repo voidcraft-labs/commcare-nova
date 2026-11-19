@@ -440,9 +440,23 @@ describe("a count-placement query repeat Nova writes", () => {
 			placement: "count",
 		});
 		expect(visits?.standIn).toBe(false);
-		expect(visits?.expressions.map((one) => [one.slot, one.text])).toEqual([
-			["ids_query", "'a b'"],
-		]);
+		// The query is the slot's; each generated node's calculate is the emitter's own, read for
+		// the uses its syntax makes alone.
+		expect(
+			visits?.expressions
+				.filter((one) => one.usesOnly !== true)
+				.map((one) => [one.slot, one.text]),
+		).toEqual([["ids_query", "'a b'"]]);
+		expect(
+			visits?.expressions
+				.filter((one) => one.usesOnly === true)
+				.map((one) => one.at),
+		).toEqual(
+			visits?.expressions
+				.filter((one) => one.usesOnly === true)
+				.map((one) => one.at)
+				.filter((at) => "element" in at && at.attribute === "calculate"),
+		);
 		// The row is no field: the repeat's children are the row's.
 		expect(fields.find((field) => field.id === "item")).toBeUndefined();
 		expect(

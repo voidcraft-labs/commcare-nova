@@ -100,12 +100,18 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"Some pictures, sounds and videos get new names in CommCare HQ, because Nova can't keep the names they had. Phones download them again with the next version of the app.",
 	"media-references-with-no-file-removed":
 		"References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there.",
+	"broken-pictures-removed":
+		"Icons that have no file in CommCare HQ are removed. Web Apps showed an empty or broken picture in their place, and Android showed nothing. You can choose a new icon in Nova.",
 	"unused-media-entries-removed":
 		"CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ.",
 	"text-spaces-dropped":
 		"A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks.",
 	"form-text-characters-written-as-outputs":
 		"Where a question's text holds a no-break space, or words CommCare HQ would take as a request for data, Nova writes those characters as fixed values. CommCare HQ's form builder shows each one as a small reference inside the text. Workers read the same words.",
+	"hidden-value-defaults-dropped":
+		"A hidden value that held both a starting value and a calculation keeps only its calculation. CommCare always replaced the starting value before anything read it.",
+	"sort-by-entry-with-a-blank-name-dropped":
+		"On Android, a case list's Sort by no longer lists a choice with no name. CommCare HQ listed a hidden column there whose name was blank in every language, so workers saw an empty choice. You can give its sort rule a name in Nova to list it again.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */

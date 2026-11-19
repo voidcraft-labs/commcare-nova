@@ -1,0 +1,60 @@
+{
+	"catalog": [
+		{
+			"name": "client",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "client_code",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "district",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "dob",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "last_visit",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "registered_at",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "standing",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "village",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {
+		"client/district": [
+			"d1"
+		],
+		"client/standing": [
+			"active",
+			"open"
+		]
+	},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

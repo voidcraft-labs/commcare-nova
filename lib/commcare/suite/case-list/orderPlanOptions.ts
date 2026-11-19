@@ -16,9 +16,11 @@ import {
 	type BlueprintDoc,
 	type CaseListOrderOptions,
 	type CaseListOrderPlan,
+	type CaseType,
 	type Column,
 	caseListOrderPlan,
 	casePropertyShowsOptionLabels,
+	columnPropertyCaseType,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	type Module,
@@ -35,7 +37,7 @@ import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
-import { casePropertyPath } from "../wire";
+import { columnPropertyPath } from "../wire";
 import {
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
@@ -118,13 +120,11 @@ export function hqExpressionField(
 			...(rewrites === undefined ? {} : { rewrites }),
 		});
 	}
-	const path = casePropertyPath(column.field);
+	const path = columnPropertyPath(column);
 	if (screen === "results" && column.visibleInList === false) return path;
 	switch (column.kind) {
 		case "plain": {
-			const property = effectiveCaseTypes(doc)
-				.find((type) => type.name === mod.caseType)
-				?.properties.find((candidate) => candidate.name === column.field);
+			const property = columnProperty(column, mod, effectiveCaseTypes(doc));
 			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
 				return path;
 			}
@@ -139,6 +139,22 @@ export function hqExpressionField(
 		default:
 			return path;
 	}
+}
+
+/**
+ * The catalog entry of the property a property column shows, from the type
+ * its walk reaches (`columnPropertyCaseType`); undefined where the walk
+ * reaches no type or the type holds no such property.
+ */
+export function columnProperty(
+	column: Exclude<Column, { kind: "calculated" }>,
+	mod: Pick<Module, "caseType">,
+	caseTypes: readonly CaseType[],
+): CaseType["properties"][number] | undefined {
+	const caseType = columnPropertyCaseType(column, mod.caseType, caseTypes);
+	return caseTypes
+		.find((type) => type.name === caseType)
+		?.properties.find((candidate) => candidate.name === column.field);
 }
 
 /** The canonical HQ print used to join an expression column to its sort rule. */
@@ -216,8 +232,13 @@ export function caseListOrderOptions(
 	columnRewrites?: ColumnRewrites,
 ): CaseListOrderOptions {
 	const expressions = moduleExpressionContexts(doc, mod.uuid, lookupNaming);
+	const caseTypes = effectiveCaseTypes(doc);
 	return {
 		mediaOn,
+		relatedProperties: (via) => {
+			const reached = columnPropertyCaseType({ via }, mod.caseType, caseTypes);
+			return caseTypes.find((type) => type.name === reached)?.properties;
+		},
 		calculatedType: (column) => {
 			if (column.kind !== "calculated") return undefined;
 			const context = expressions({

@@ -1,0 +1,34 @@
+{
+	"id": "hq-case-lists",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/update-case-update-property-question",
+		"menus-and-case-lists/2-date-date-format-d-m-y-d-m-y-m-d-y-m-d-y-b-d-y",
+		"menus-and-case-lists/4-phone",
+		"menus-and-case-lists/5-enum-id-mapping",
+		"menus-and-case-lists/7-invisible-search-only-on-the-case-list-outside-a-custom-tile",
+		"menus-and-case-lists/blanks-first-last",
+		"menus-and-case-lists/detail-filter-value-lifts-into-predicate",
+		"menus-and-case-lists/direction",
+		"menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
+		"menus-and-case-lists/field-naming-a-property-not-displayed-hq-appends-a-hidden-column",
+		"menus-and-case-lists/module-with-case-type-case-list-module",
+		"menus-and-case-lists/no-sort-elements",
+		"menus-and-case-lists/type-plain-date-int-double-equal-to-the-type-nova-derives",
+		"menus-and-case-lists/usexpathexpression-field-xpath-lifting-into-valueexpression",
+		"questions/date-xsd-date",
+		"questions/decimal-xsd-double",
+		"questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"questions/multiple-choice-select1-item",
+		"questions/text-input-xsd-string"
+	]
+}

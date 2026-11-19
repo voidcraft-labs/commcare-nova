@@ -22,5 +22,10 @@ export function blanksAfterDirectionChange(
 	direction: SortDirection,
 	picked: SortBlanks | undefined,
 ): ColumnSort {
-	return columnSort(direction, rule.priority, picked ?? rule.blanks);
+	return columnSort(
+		direction,
+		rule.priority,
+		picked ?? rule.blanks,
+		rule.label,
+	);
 }

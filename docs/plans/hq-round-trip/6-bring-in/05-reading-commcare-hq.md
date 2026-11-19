@@ -1571,7 +1571,11 @@ finding and nothing in it is the person's to fix. Over the expected menus:
 `dehydrate_module`'s `try` covers `get_all_case_properties_local(app)`, which is computed for the
 whole app before any form is read, so when it fails every menu's entry is an error and no one menu
 holds the cause. Part 12 (`12-the-reading-and-the-birth.md`, section 3.3) gives `menus`
-as part 01's `menu-unreadable-in-hq` at each named menu, beside the reader's other findings, and
+as part 01's `menu-unreadable-in-hq` at each named menu, beside the reader's other findings, except
+where those findings name a form of that menu, or one of its questions, that CommCare HQ will not save
+or build (fix cause `hq-refuses` or `either`): `dehydrate_module` reads every form of the menu in one
+`try`, so that finding is the cause and the menu's is left out
+(`lib/deployment/reading/unsummarizedMenus.ts::unsummarizedBeside`); and
 `app` as an account of the one circumstance `app-unreadable-in-hq` at the app, with no finding at
 any menu. Either way the answer of this read is `read`, so under `menus` the reader still reports
 every other finding of the app in the same pass. HQ's text goes nowhere: it is `str(e)` of any

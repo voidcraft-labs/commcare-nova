@@ -34,6 +34,7 @@ import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import {
 	caseSelectionCardinality,
 	columnOnList,
+	columnSortLabelShows,
 	effectiveCaseSearchConfig,
 	isHiddenSearchInput,
 	isVisibleSearchInput,
@@ -552,6 +553,8 @@ function moduleUses(
 			uses.push(
 				slotUse("column-hidden-from-results", target, slot("visibleInList")),
 			);
+		if (columnSortLabelShows(column) && wanted("case-list-sort-label"))
+			uses.push(slotUse("case-list-sort-label", target, slot("sort.label")));
 		if (column.kind === "link" && wanted("link-column"))
 			uses.push(slotUse("link-column", target, slot("kind")));
 		out.push(...inFeatureOrder(uses));

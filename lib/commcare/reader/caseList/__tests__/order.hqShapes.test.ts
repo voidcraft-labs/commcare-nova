@@ -1,15 +1,20 @@
 /**
  * Contract: the sort elements CommCare HQ's pages write that Nova would write otherwise read by
- * their rows: a sort-only element becomes a hidden column, last, beside a detail-only column over
- * the same property that stays off the list; an unsorted list whose first column is `invisible`
+ * their rows: a sort-only element becomes a hidden column, among the list's fields and ahead of a
+ * detail-only column over the same property that stays off the list; an unsorted list whose first column is `invisible`
  * gives that column the rule HQ's build applies; of two elements with one `field` the later
- * stands; `type: "string"` reads as Nova's derived word; a label on a sort-only element raises.
+ * stands; `type: "string"` reads as Nova's derived word; a label on a sort-only element is the
+ * name of the hidden column's rule in Sort by, read on the column only Details shows over its
+ * property where there is one, and a label beside an `invisible` column names it by that column's
+ * header, which HQ's build shows there, and where that header is blank in every language, by no
+ * name, recording the blank entry the first publish drops from Android's Sort by.
  * Each same-state reading records its first-publish row.
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, Column } from "@/lib/domain";
+import { type BlueprintDoc, type Column, proseText } from "@/lib/domain";
 import {
+	calculatedColumn,
 	columnSort,
 	dateColumn,
 	idMappingColumn,
@@ -74,9 +79,11 @@ describe("CommCare HQ's sort elements", () => {
 				column.sort,
 			]),
 		).toEqual([
+			// The hidden column is one of the list's fields, so it stands ahead of the column only
+			// Details shows, as a re-read of Nova's own export gives it (`columnsOffAScreenLast`).
 			["case_name", undefined, undefined, undefined, undefined],
-			["phone", false, undefined, true, undefined],
 			["phone", false, false, undefined, columnSort("asc", 0)],
+			["phone", false, undefined, true, undefined],
 		]);
 		expect(registers(reading)).toContain("sort-rule-kept-as-hidden-column");
 	});
@@ -147,8 +154,43 @@ describe("CommCare HQ's sort elements", () => {
 		expect(registers(reading)).not.toContain("sort-rule-kept-as-hidden-column");
 	});
 
-	it("raises a label on a sort-only element", async () => {
+	it("reads a label on a sort-only element as the name in Sort by of a column shown nowhere", async () => {
 		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (short !== undefined)
+					short.sort_elements = [
+						element("notes", {
+							direction: "descending",
+							display: { en: "Notes" },
+						}),
+					];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const read = comparableList(listOf(reading)) as {
+			list: Record<string, unknown>[];
+		};
+		// The appended column's header is the label, the only place HQ's build prints it.
+		expect(read.list.at(-1)).toMatchObject({
+			field: "notes",
+			header: "Notes",
+			visibleInList: false,
+			visibleInDetail: false,
+			sort: columnSort("desc", 0, undefined, "Notes"),
+		});
+		expect(registers(reading)).toContain("sort-rule-kept-as-hidden-column");
+	});
+
+	it("reads a sort-only element's label on the column only Details shows over its property", async () => {
+		const doc = patients([
+			plainColumn(uuid(1), "case_name", "Name"),
+			plainColumn(uuid(2), "notes", "Patient notes", {
+				visibleInList: false,
+				notOnList: true,
+			}),
+		]);
 		const reading = await readLists(doc, {
 			edit: (app) => {
 				const short = app.modules[0]?.case_details.short;
@@ -157,11 +199,99 @@ describe("CommCare HQ's sort elements", () => {
 						element("notes", { display: { en: "Notes" } }),
 					];
 			},
-			firstPassOnly: true,
 		});
-		expect(codes(reading)).toContain(
-			"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
+		expect(closedCodes(reading)).toEqual([]);
+		const read = comparableList(listOf(reading)) as {
+			list: Record<string, unknown>[];
+		};
+		// One column, on the list hidden from Results and on Details under its own header.
+		expect(
+			read.list.map((column) => [
+				column.field,
+				column.header,
+				column.visibleInList,
+				column.visibleInDetail,
+				column.notOnList,
+				column.sort,
+			]),
+		).toEqual([
+			["case_name", "Name", undefined, undefined, undefined, undefined],
+			[
+				"notes",
+				"Patient notes",
+				false,
+				undefined,
+				undefined,
+				columnSort("asc", 0, undefined, "Notes"),
+			],
+		]);
+	});
+
+	it("reads a label beside an invisible column as its name in Sort by, the column's own header", async () => {
+		const doc = patients([
+			plainColumn(uuid(1), "case_name", "Name"),
+			plainColumn(uuid(2), "notes", "Notes", {
+				visibleInList: false,
+				visibleInDetail: false,
+				sort: columnSort("asc", 0),
+			}),
+		]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (short === undefined) return;
+				const invisible = short.columns[1];
+				if (invisible !== undefined) invisible.header = { en: "Latest notes" };
+				short.sort_elements = [
+					element("notes", { display: { en: "Shown nowhere" } }),
+				];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const read = comparableList(listOf(reading)) as {
+			list: Record<string, unknown>[];
+		};
+		expect(read.list[1]).toMatchObject({
+			header: "Latest notes",
+			sort: columnSort("asc", 0, undefined, "Latest notes"),
+		});
+		// The entry keeps its name, so nothing a worker sees in Sort by moves.
+		expect(registers(reading)).not.toContain(
+			"sort-by-entry-with-a-blank-name-dropped",
 		);
+	});
+
+	// HQ's build lists the column under its header (`detail_screen.py::Invisible.header`), which it
+	// writes as a no-break space (`commcare_translations.py::dumps`), so Android's Sort by shows an
+	// entry that looks blank; Nova holds no name there, so the first publish drops it.
+	it("reads a label beside an invisible column with a blank header as no name, and records the blank Sort by entry the first publish drops", async () => {
+		const doc = patients([
+			plainColumn(uuid(1), "case_name", "Name"),
+			plainColumn(uuid(2), "notes", "", {
+				visibleInList: false,
+				visibleInDetail: false,
+				sort: columnSort("asc", 0),
+			}),
+		]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (short !== undefined)
+					short.sort_elements = [
+						element("notes", { display: { en: "Notes" } }),
+					];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const read = comparableList(listOf(reading)) as {
+			list: Record<string, unknown>[];
+		};
+		expect(read.list[1]?.sort).toEqual(columnSort("asc", 0));
+		expect(
+			reading.ctx.facts.sameStateRewrites
+				.filter((one) => one.path.endsWith("/sort_elements/0/display"))
+				.map((one) => one.register),
+		).toEqual(["sort-by-entry-with-a-blank-name-dropped"]);
 	});
 
 	// HQ's build writes a sort-only element's label only where some stored value is not blank to
@@ -196,7 +326,7 @@ describe("CommCare HQ's sort elements", () => {
 		expect(read.list.at(-1)?.sort).toEqual(columnSort("asc", 0));
 	});
 
-	it("raises a label of a character Python does not read as a space, which HQ's build writes", async () => {
+	it("holds a label of a character Python does not read as a space, which HQ's build writes", async () => {
 		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
 		const reading = await readLists(doc, {
 			edit: (app) => {
@@ -206,10 +336,13 @@ describe("CommCare HQ's sort elements", () => {
 						element("notes", { display: { en: "\ufeff" } }),
 					];
 			},
-			firstPassOnly: true,
 		});
-		expect(codes(reading)).toContain(
-			"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
+		expect(closedCodes(reading)).toEqual([]);
+		const read = comparableList(listOf(reading)) as {
+			list: Record<string, unknown>[];
+		};
+		expect(read.list.at(-1)?.sort).toEqual(
+			columnSort("asc", 0, undefined, "\ufeff"),
 		);
 	});
 
@@ -434,7 +567,7 @@ describe("a sort element's field that is no one word", () => {
 	for (const [field, entry] of [
 		[
 			"parent/village",
-			"menus-and-case-lists/idx-prop-parent-host-any-index-names-other-than-a-first-step",
+			"menus-and-case-lists/idx-prop-in-a-menu-that-offers-search-or-through-an-index",
 		],
 		["user/district", "menus-and-case-lists/user-prop-usercase"],
 		["#owner_name", "menus-and-case-lists/owner-name"],
@@ -507,5 +640,107 @@ describe("a sort calculation beside a field", () => {
 			},
 		);
 		expect(codes(reading)).toEqual([]);
+	});
+});
+
+describe("a rule on a column Nova writes by its choices' labels", () => {
+	const visits = (column: Column) =>
+		buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "village",
+							label: proseText("village"),
+							data_type: "single_select",
+							options: [
+								{ value: "north", label: proseText("North") },
+								{ value: "south", label: proseText("South") },
+							],
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "single_select",
+									id: "village",
+									options: [
+										{ value: "north", label: "North" },
+										{ value: "south", label: "South" },
+									],
+									caseWrite: { caseType: "patient", property: "village" },
+								}),
+							],
+						},
+					],
+					caseListConfig: {
+						columns: [plainColumn(uuid(1), "case_name", "Name"), column],
+						searchInputs: [],
+					},
+				},
+			],
+		});
+	const sortFieldEntries = async (doc: BlueprintDoc) => {
+		const reading = await readLists(doc);
+		expect(closedCodes(reading)).toEqual([]);
+		return {
+			app: reading.app,
+			entries: [...reading.ctx.close().claims.records()]
+				.filter((record) => record.key === "schema:SortElement.field")
+				.map((record) => record.entry),
+		};
+	};
+
+	it("reads Nova's rule on a select property's label column as a sort on a translatable-enum column", async () => {
+		const { app, entries } = await sortFieldEntries(
+			visits(
+				plainColumn(uuid(2), "village", "Village", {
+					sort: columnSort("asc", 0),
+				}),
+			),
+		);
+		const short = app.modules[0]?.case_details.short;
+		// Nova writes the column as its label projection and the rule by the column's place.
+		expect(short?.columns[1]?.format).toBe("translatable-enum");
+		expect(short?.sort_elements.map((one) => one.field)).toEqual([
+			"_cc_calculated_1",
+		]);
+		expect(entries).toEqual([
+			"menus-and-case-lists/sort-on-a-translatable-enum-column-nova-s-label-projection-of-a",
+		]);
+	});
+
+	it("reads a rule on a calculated column of another format as a sort on a calculated column", async () => {
+		const { app, entries } = await sortFieldEntries(
+			visits(
+				calculatedColumn(
+					uuid(2),
+					"Village again",
+					{
+						kind: "term",
+						term: { kind: "prop", caseType: "patient", property: "village" },
+					},
+					{ sort: columnSort("asc", 0) },
+				),
+			),
+		);
+		const short = app.modules[0]?.case_details.short;
+		expect(short?.columns[1]?.format).toBe("plain");
+		expect(entries).toEqual(["menus-and-case-lists/field-cc-calculated-n"]);
 	});
 });

@@ -24,6 +24,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { lookupTableDefinition } from "@/lib/__tests__/lookupFixtures";
 import {
 	and,
 	datetimeLiteral,
@@ -38,9 +39,14 @@ import {
 } from "@/lib/domain/expression/builders";
 import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { advancedSearchInputDef } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import { emitCsql } from "../../../csql/emitter";
+import { lookupWireNaming } from "../../../lookup/naming";
 import { searchWireShape } from "../../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../../suite/case-search/types";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
@@ -242,6 +248,55 @@ describe("a search filter row's CSQL", () => {
 			).toEqual({ ok: true, predicate, level: "exact", rewrites: [] });
 	});
 
+	it("reads HQ's other spellings of a selection as the selection Nova prints, and says the row is respelled", () => {
+		// HQ's search names one function `selected` and `selected-any`, and `selected-all` finds what
+		// the selection of each of its words finds where each word is one token.
+		const tags = {
+			kind: "prop",
+			caseType: "patient",
+			property: "tags",
+		} as const;
+		const fixed = (values: string[], quantifier: "any" | "all"): Expression =>
+			({
+				kind: "multi-select-contains",
+				property: tags,
+				values: values.map((value) => literal(value)),
+				quantifier,
+			}) as Expression;
+		for (const [row, predicate] of [
+			[`"selected-any(tags, 'a')"`, fixed(["a"], "any")],
+			[`"selected-all(tags, 'a')"`, fixed(["a"], "any")],
+			[`"selected-any(tags, 'a b')"`, fixed(["a", "b"], "any")],
+			[`"selected-all(tags, 'a b')"`, fixed(["a", "b"], "all")],
+		] as const)
+			expect(readSearchFilterRow(row, condition, env)).toEqual({
+				ok: true,
+				predicate,
+				level: "guards",
+				rewrites: [],
+				respelled: true,
+			});
+		// A word HQ's analyser may split is no one token: `selected-all` then finds what no
+		// selection Nova prints finds.
+		expect(
+			readSearchFilterRow(`"selected-all(tags, 'well-child')"`, condition, env),
+		).toMatchObject({ ok: false });
+		// A value the device works out: `selected` is Nova's `selected-any`.
+		const answered = `if(count(${ANSWER}), concat("selected(tags, '", ${ANSWER}, "')"), 'match-all()')`;
+		expect(readSearchFilterRow(answered, condition, env)).toEqual({
+			ok: true,
+			predicate: whenInput(input(REGION), {
+				kind: "multi-select-contains",
+				property: tags,
+				values: [term(input(REGION))],
+				quantifier: "any",
+			} as Expression),
+			level: "guards",
+			rewrites: ["search-value-guards"],
+			respelled: true,
+		});
+	});
+
 	it("reads a count of subcases bounded by a Search field's answer, and a case type test, as the trees that wrote them", () => {
 		// The bound's zero is written bare by a choice around the answer.
 		const counted: Expression = whenInput(input(REGION), {
@@ -274,6 +329,78 @@ describe("a search filter row's CSQL", () => {
 				entryId:
 					"case-search/property-names-operators-or-function-names-computed-at-runtime",
 			},
+		});
+	});
+
+	describe("a value read from a lookup table's row", () => {
+		const districts = lookupTableDefinition({
+			id: lookupTableIdSchema.parse("01912d68-783e-7000-8000-00000000d001"),
+			name: "Districts",
+			tag: "districts",
+			columns: [
+				{
+					id: lookupColumnIdSchema.parse(
+						"01912d68-783e-7000-8000-00000000d002",
+					),
+					wireName: "id",
+					label: "Id",
+				},
+			],
+		});
+		const lookup = new Map([[districts.id, districts]]);
+		const tableEnv = { doc, lookup };
+		const tableFilter = slotContext(
+			doc,
+			{ entity: "module", uuid: filter.slot.uuid, slot: "case_list_filter" },
+			new Map([
+				[
+					districts.id,
+					new Map(districts.columns.map((one) => [one.id, one.dataType])),
+				],
+			]),
+		);
+		if (tableFilter === undefined) throw new Error("No case list filter slot.");
+		const firstDistrict: Expression = {
+			kind: "table-lookup",
+			tableId: districts.id,
+			resultColumnId: districts.columns[0].id,
+			where: { kind: "match-all" },
+		};
+
+		it("reads Nova's own row back as the tree that wrote it", () => {
+			const predicate = eq(village, firstDistrict);
+			const wire = emitCsql(predicate, {
+				types: tableFilter,
+				bindings: {
+					lookup: {
+						naming: lookupWireNaming([districts]),
+						instanceScope: "suite",
+					},
+				},
+			}).wrapper;
+			const text = serializeWire(wire, {
+				target: "hq-json",
+				interpolation: "none",
+			}).text;
+			expect(readSearchFilterRow(text, tableFilter, tableEnv)).toMatchObject({
+				ok: true,
+				predicate,
+			});
+		});
+
+		it("claims the row HQ's page writes, which Nova's print does not, under the device query entry", () => {
+			// HQ's page reads the first row's column as `rows[1]/column`, which
+			// Nova prints under its guard for no rows: the device query, never
+			// a row left unrecognized.
+			const text = `concat("village = '", instance('item-list:districts')/districts_list/districts[1]/id, "'")`;
+			expect(readSearchFilterRow(text, tableFilter, tableEnv)).toMatchObject({
+				ok: false,
+				claim: {
+					entryId:
+						"case-search/a-search-value-that-queries-cases-a-table-or-places",
+					detail: { name: "_xpath_query", reason: "table-lookup" },
+				},
+			});
 		});
 	});
 

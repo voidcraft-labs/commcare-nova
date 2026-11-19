@@ -1187,7 +1187,12 @@ function bindingOf(data: ReadingProjectData, tag: string): LookupTableBinding {
 function readsOf(
 	lookupFields: Readonly<Record<string, readonly string[]>>,
 ): ReaderProjectDataReads {
-	return { lookupFields, unreadTables: [], readsPlaces: false };
+	return {
+		lookupFields,
+		unreadTables: [],
+		declaredTables: [],
+		readsPlaces: false,
+	};
 }
 
 const PLAIN_READS = readsOf({ plain: ["code", "name"] });
@@ -1450,6 +1455,7 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 		const reads = {
 			lookupFields: { plain: ["code"] },
 			unreadTables: ["gone", "rich"],
+			declaredTables: [],
 			readsPlaces: false,
 		};
 		expect(names(findingsFor(data, reads, null))).toEqual([
@@ -1459,6 +1465,25 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 			],
 			...names(lookupTableFindings(readOf(richTable, richRows), NO_MEASURE)),
 		]);
+	});
+
+	it("raises a form that cannot open for a table it only declares that CommCare HQ lacks, and nothing for one CommCare HQ holds", () => {
+		const data = gather([plain(), readOf(richTable, richRows)]);
+		const reads = {
+			lookupFields: {},
+			unreadTables: [],
+			declaredTables: ["gone", "rich"],
+			readsPlaces: false,
+		};
+		const findings = findingsFor(data, reads, null);
+		expect(names(findings)).toEqual([
+			[
+				"expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-does",
+				"gone",
+			],
+		]);
+		expect(findings[0]?.place).toEqual({ kind: "lookup-table", tag: "gone" });
+		expect(findings[0]?.standing).toBe("fix-in-hq");
 	});
 
 	it("finds a table managed from this project space whose refresh would keep it past 250 columns, and binds nothing", () => {
@@ -1518,12 +1543,24 @@ describe("projectDataReadsOf", () => {
 				{ tag: "rich", place: { kind: "lookup-table", tag: "rich" } },
 				{ tag: "gone", place: { kind: "app" } },
 				{ tag: "rich", place: { kind: "app" } },
+				{
+					tag: "rich",
+					place: { kind: "lookup-table", tag: "rich" },
+					declaredOnly: true,
+				},
+				{
+					tag: "spare",
+					place: { kind: "lookup-table", tag: "spare" },
+					declaredOnly: true,
+				},
 			],
 			readsLocations: true,
 		};
+		// A tag something reads is read, wherever else a form only declares it.
 		expect(projectDataReadsOf(data, account)).toEqual({
 			lookupFields: {},
 			unreadTables: ["gone", "rich"],
+			declaredTables: ["spare"],
 			readsPlaces: true,
 		});
 		const read: ReadOutcome = {
@@ -1543,6 +1580,7 @@ describe("projectDataReadsOf", () => {
 					forms: [],
 					sameStateRewrites: [],
 					entryFactsRefused: [],
+					childCasesUnread: [],
 					rewrites: [],
 					expressionRounds: 0,
 				},
@@ -1554,6 +1592,7 @@ describe("projectDataReadsOf", () => {
 		expect(projectDataReadsOf(data, read)).toEqual({
 			lookupFields: { plain: ["code", "name"] },
 			unreadTables: ["gone"],
+			declaredTables: [],
 			readsPlaces: false,
 		});
 	});

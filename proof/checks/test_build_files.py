@@ -306,3 +306,35 @@ def test_a_media_version_changed_with_its_file_unchanged_is_a_difference(media_b
     assert [(d.artifact, d.path) for d in found if d.path.endswith("/@version")] == [
         ("media_suite.xml", "/suite/media[*]/resource[@id=*]/@version")
     ]
+
+
+def test_on_an_app_made_in_hq_every_built_file_but_a_form_still_has_its_comparison(builds):
+    """On an app made in CommCare HQ proof 2 leaves each form's built XML out (``proof2.judged``,
+    ``eligibility.form_xml_unjudged``): a form's bytes are Nova's own spelling of the form HQ's form builder wrote.
+    Every other file HQ builds, the default build's and each build profile's, is still compared, and a change to it
+    is still a difference in that file. The plausible failure: a filter that drops more than the forms, so a suite,
+    a profile or a language's app strings is never compared on such an app."""
+    from types import SimpleNamespace
+
+    from proof.checks import proof2
+
+    a, _ = builds
+    made_in_hq = SimpleNamespace(source="hq-authored:planted")
+    nova_born = SimpleNamespace(source="producer:planted")
+    before = parsed_build(a)
+    kept = set()
+    for path in sorted(before):
+        content = a.files[path] if path in a.files else a.profile_files[PROFILE][path]
+        found = compare_parsed_builds(
+            before, parsed_build(_with_file(a, path, _mutated(path, content))), check="proof2", document="suite-app"
+        )
+        assert found, path
+        judged = proof2.judged(made_in_hq, found)
+        artifact = before[path].artifact
+        if proof2.form_artifact(artifact):
+            assert judged == [], path
+        else:
+            assert judged == found, path
+            kept.add(artifact)
+        assert proof2.judged(nova_born, found) == found
+    assert {"suite.xml", "media_suite.xml", "profile.ccpr", "app_strings:en", f"{PROFILE}/suite.xml"} <= kept

@@ -15,7 +15,8 @@ for a run without one, by the server from its own collection
      "unsampled": [<document id>, ...],
      "sample": {"seed": <ISO year and week> | null, "documents": [<document id>, ...]},
      "selection": {"documents": [<document id>, ...], "left": [<group>, ...]},
-     "readers": false | [<reader>, ...]}
+     "readers": false | [<reader>, ...],
+     "reader": <digest of the corpus's reader bundle>}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
 (from ``proof-plan``), and the main queue (from ``proof-corpus``, once the
@@ -66,10 +67,17 @@ in the queue of a run that observes not every reader (``PROOF_READERS``,
 ``proof.lane.readers``), is false for none or the list of those it observes:
 the server refuses a queue built for another set than its own, and the gate
 leaves the register's entries only the other readers show to the nightly.
+``reader``, only in a main queue over a corpus that carries the reader
+bundle (``native/reader/``, ``proof.store.keys.reader_digest``), is its
+digest: what a corpus document's judged key names beside the judge's code
+(``proof.store.keys.judged_under``), which the queue builder keyed each
+corpus document's group under and the packer keys its judgments under.
 
 A block's run leaves ``blocks/<id>/`` in the output of the shard that ran it:
 
 - ``block.json``, its manifest: the block, the phase and shard that ran it,
+  the reader bundle its queue names (``reader``, where it names one, which
+  ``proof.store.pack`` keys the block's corpus documents' judgments under),
   and for each group the items the worker collected for it, each item's
   outcome, the worker, its seconds, and why it failed when a worker could
   not finish it;
@@ -107,8 +115,10 @@ DOCUMENT_KINDS = ("corpus:", "control:")
 # capture, the lane's nested servers, every native family, the spelling
 # rules' own tests (the documents they spell two ways), the Connect proofs
 # (the Connect apps they run), the evidence store's guarded observation
-# of a document. Like a document's group, each runs in the main phase,
-# once the corpus is in place.
+# of a document, the matrix of apps made in HQ (the corpus document a base
+# is built from, and the reader bundle the corpus carries). Like a
+# document's group, each runs in the main phase, once the corpus is in
+# place.
 CORPUS_PACKAGES = (
     "proof/android",
     "proof/checks",
@@ -117,6 +127,7 @@ CORPUS_PACKAGES = (
     "proof/formplayer",
     "proof/hq",
     "proof/lane",
+    "proof/matrix",
     "proof/native",
     "proof/rules",
     "proof/store",
@@ -266,6 +277,9 @@ class Queue:
     sample: Sample | None = None
     # The documents and what it leaves out, for a run over documents named by hand; None for any other.
     selection: Selection | None = None
+    # The digest of the reader bundle the corpus carries (proof.store.keys.reader_digest); None for a queue over no
+    # corpus, or over one that carries none.
+    reader: str | None = None
 
     def groups(self) -> set[str]:
         return {name for block in self.blocks for name in block.names}
@@ -400,9 +414,13 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
             if both:
                 problems.append(f"{', '.join(both[:5])} is run or read, and the selection names it as left out")
             selection = Selection(tuple(documents), tuple(left))
+    reader = value.get("reader")
+    if reader is not None and (not isinstance(reader, str) or not reader):
+        problems.append(f"its reader is {reader!r}, not the digest of the reader bundle its corpus carries")
+        reader = None
     if problems:
         raise QueueError(f"{where} is not a lane queue:\n" + "\n".join(f"- {problem}" for problem in problems))
-    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample, selection)
+    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample, selection, reader)
 
 
 def piece_problems(groups: Iterable[QueuedGroup]) -> list[str]:
@@ -483,6 +501,7 @@ def queue_json(queue: Queue) -> dict:
             else {}
         ),
         **({} if queue.readers == lane_readers.EVERY else {"readers": lane_readers.to_record(queue.readers)}),
+        **({} if queue.reader is None else {"reader": queue.reader}),
     }
 
 
@@ -546,7 +565,9 @@ def group_record(*, group, fresh, collected, outcomes, worker=None, seconds=None
     }
 
 
-def manifest(block: Block, *, phase: str, shard: str, groups: list[dict]) -> dict:
+def manifest(block: Block, *, phase: str, shard: str, groups: list[dict], reader: str | None = None) -> dict:
+    """One block's manifest; ``reader`` the reader bundle its queue names (``Queue.reader``), which a corpus
+    document's judged key names (``proof.store.keys.judged_under``)."""
     return {
         "version": MANIFEST_VERSION,
         "block": block.id,
@@ -554,6 +575,7 @@ def manifest(block: Block, *, phase: str, shard: str, groups: list[dict]) -> dic
         "shard": shard,
         "estimate": block.estimate,
         "groups": sorted(groups, key=lambda record: record["group"]),
+        **({} if reader is None else {"reader": reader}),
     }
 
 

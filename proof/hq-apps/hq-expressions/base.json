@@ -1,0 +1,23 @@
+{
+	"id": "hq-expressions",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"expressions-and-data/item-list-tag-read-in-any-other-expression",
+		"questions/a-default-value-that-reads-form-nodes",
+		"questions/bind-calculate-on-a-hidden-value",
+		"questions/date-and-time-xsd-datetime",
+		"questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"questions/repeat-group-user-controlled",
+		"questions/text-input-xsd-string"
+	]
+}

@@ -98,9 +98,17 @@ const QUOTED_LOCATIONS = [
 	"&quot;locations&quot;",
 ] as const;
 
+/** The fixture addresses a form's instance of places is declared from: the
+ *  flat fixture and the hierarchical one, each of which the reader counts as a
+ *  read of places (`reader/provisional.ts::textReadsPlaces`). */
+const PLACE_FIXTURE_SOURCES = [
+	"jr://fixture/locations",
+	"jr://fixture/commtrack:locations",
+] as const;
+
 /**
  * Whether the source's text (the app's body and every form's attachment) may
- * read places: it names the fixture address a form's instance declares for
+ * read places: it names a fixture address a form's instance declares for
  * them, whatever id the form gives that instance, or holds the whole word
  * `locations` between two quote marks of one spelling, which is how a suite
  * expression names the instance by id in a string literal, in either quote
@@ -112,7 +120,7 @@ const QUOTED_LOCATIONS = [
  */
 export function sourceMayReadPlaces(sourceText: string): boolean {
 	return (
-		sourceText.includes("jr://fixture/locations") ||
+		PLACE_FIXTURE_SOURCES.some((source) => sourceText.includes(source)) ||
 		QUOTED_LOCATIONS.some((quoted) => sourceText.includes(quoted))
 	);
 }

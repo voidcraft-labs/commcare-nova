@@ -157,6 +157,16 @@ export function appearanceReads(
 	).map(({ key, reader, token }) => ({ key, reader, token }));
 }
 
+/** Every appearance surface key some runtime reads `value` as, whatever the element it stands on:
+ *  the keys a refusal covering the attribute names it by. */
+export function appearanceKeysMatching(value: string): readonly string[] {
+	return [
+		...new Set(
+			RULES.filter((rule) => ruleMatches(value, rule)).map((rule) => rule.key),
+		),
+	];
+}
+
 /** The control type Core gives an upload by its media type (`XFormParser.parseUpload`). */
 const UPLOAD_CONTROLS: Readonly<Record<string, string>> = {
 	[UPLOAD_MEDIATYPE_BY_CAPTURE_KIND.image]: "CONTROL_IMAGE_CHOOSE",

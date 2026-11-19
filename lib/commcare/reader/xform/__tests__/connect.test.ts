@@ -506,6 +506,26 @@ describe("each refusal row", () => {
 		expect(connectCodes(findings)).toEqual([entry]);
 	});
 
+	it("refuses two assessments whole, each bind's calculate under the one finding", async () => {
+		const { findings } = await readApp([
+			withBlocks(assessment("quiz_a"), assessment("quiz_b")),
+		]);
+		// The form's own places: the menu's keys are a later stage's, which this reading stops before.
+		expect(
+			findings
+				.filter(
+					(finding) =>
+						finding.place.kind === "form" || finding.place.kind === "question",
+				)
+				.map((finding) => [finding.code, finding.detail.name]),
+		).toEqual([
+			[
+				Q("several-connect-assessment-blocks-in-one-form-or-one-inside-a"),
+				undefined,
+			],
+		]);
+	});
+
 	it("refuses an assessment inside a repeat", async () => {
 		const block = assessment("quiz", "/data/rows/quiz");
 		const source = xformSource({

@@ -1,5 +1,5 @@
 /**
- * R1, a save's own respelling: a Nova export, and the same export after HQ's
+ * A save's own respelling: a Nova export, and the same export after HQ's
  * form builder saved one of its forms with nothing changed
  * (`proof/hq-reads/navigation-base/app-source.json` and
  * `app-source-after-form-builder-save.json`). What a save respells (the

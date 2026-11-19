@@ -7,6 +7,7 @@
 
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
+import { columnPropertyCaseType } from "./columnRelation";
 import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
 import type { Field } from "./fields";
@@ -24,6 +25,7 @@ import {
 import { collectAssetRefs } from "./mediaRefs";
 import {
 	caseListColumnTextShows,
+	columnSortLabelShows,
 	effectiveCaseSearchConfig,
 	isSelectSearchInput,
 	type Module,
@@ -51,6 +53,7 @@ export const translationUnitRoles = [
 	"field-validation-message",
 	"select-option-label",
 	"case-list-header",
+	"case-list-sort-label",
 	"case-list-mapping-label",
 	"case-list-interval-text",
 	"search-input-label",
@@ -154,6 +157,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"form-name",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
+	"case-list-sort-label",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
@@ -471,6 +475,7 @@ function addCasePropertyOptionUnits(
 	property: CaseProperty,
 	seen: Set<TranslationUnitId>,
 	out: TranslationUnit[],
+	caseType: string = module.caseType ?? "",
 ): void {
 	if (
 		property.data_type !== "single_select" &&
@@ -481,7 +486,7 @@ function addCasePropertyOptionUnits(
 	for (const [index, option] of options.entries()) {
 		const occurrence = casePropertyOptionOccurrence(options, index);
 		const id = casePropertyOptionTranslationUnitId(
-			module.caseType ?? "",
+			caseType,
 			property.name,
 			option.value,
 			occurrence,
@@ -496,7 +501,7 @@ function addCasePropertyOptionUnits(
 				source: option.label,
 				owner: {
 					kind: "case-property-option",
-					caseType: module.caseType ?? "",
+					caseType,
 					property: property.name,
 					value: option.value,
 					occurrence,
@@ -641,6 +646,26 @@ export function collectTranslationUnits(
 
 		const list = module.caseListConfig;
 		for (const column of list?.columns ?? []) {
+			// A sort rule's name in the list's Sort by menu, on a column hidden
+			// from Results, whether or not Details shows the column.
+			const sortLabel = column.sort?.label;
+			if (sortLabel !== undefined && columnSortLabelShows(column)) {
+				out.push(
+					unit({
+						id: makeTranslationUnitId("column", column.uuid, "sort-label"),
+						valueKind: "text",
+						role: "case-list-sort-label",
+						source: sortLabel,
+						owner: {
+							kind: "case-list-column",
+							moduleUuid,
+							columnUuid: column.uuid,
+						},
+						breadcrumb: [...moduleBreadcrumb, "Cases", sortLabel, "Sort by"],
+						context: { moduleName: module.name, columnKind: column.kind },
+					}),
+				);
+			}
 			if (!caseListColumnTextShows(column)) continue;
 			const owner = {
 				kind: "case-list-column" as const,
@@ -706,14 +731,22 @@ export function collectTranslationUnits(
 				);
 			}
 			if (column.kind === "plain") {
-				const property = caseProperty(doc, module.caseType, column.field);
-				if (property !== undefined) {
+				// A column read through a relation shows the options of the case
+				// its walk reaches.
+				const caseType = columnPropertyCaseType(
+					column,
+					module.caseType,
+					doc.caseTypes ?? [],
+				);
+				const property = caseProperty(doc, caseType, column.field);
+				if (property !== undefined && caseType !== undefined) {
 					addCasePropertyOptionUnits(
 						doc,
 						module,
 						property,
 						seenCaseOptions,
 						out,
+						caseType,
 					);
 				}
 			}

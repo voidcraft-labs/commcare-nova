@@ -47,7 +47,7 @@ function plan(
 		files: [],
 		findings: [],
 		inert: claims.map((claim) => claim.reference),
-		claims,
+		claims: claims.map((claim) => ({ ...claim, brokenPicture: false })),
 		references,
 		runsOn: ["android"],
 		contentValid: null,

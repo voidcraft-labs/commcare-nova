@@ -88,6 +88,13 @@ def published(document, core_runner, configuration="minimum"):
     from proof.hq.seams import build_seams
     from proof.observe import publish
 
+    if document.authored is not None:
+        raise AssertionError(
+            f"{document.id} is an app made in CommCare HQ, which Nova never published first: its A is the app HQ made"
+            " (proof/observe/publish.py::create_authored), and published() makes Nova's first publish. The"
+            " Formplayer tests read the documents proof/formplayer/conftest.py::DOCUMENTS names, each one Nova"
+            " published."
+        )
     export = document.exports[configuration]
     with hq_check(export.configuration.hq()) as (unit, _):
         # One operation, its digest the document's: what HQ draws while it applies the publish (the app's id,

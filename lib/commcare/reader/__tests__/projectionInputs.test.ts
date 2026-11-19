@@ -7,7 +7,8 @@
  * reading expanded with its inputs prints the source's ids, the source's
  * project space in the link, and the source's tag and field names; built once
  * per reading; each resolved asset at the path the source spells. The
- * plausible failure: every (R2) failing on an id, an address or a table name,
+ * plausible failure: every comparison of a settled emission with its source
+ * failing on an id, an address or a table name,
  * so that every real app reads `unrecognized`.
  */
 import { describe, expect, it } from "vitest";

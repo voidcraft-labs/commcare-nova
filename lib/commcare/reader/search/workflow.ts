@@ -185,7 +185,7 @@ export function readSearchWorkflow(
 		config.take("default_search", W.listFirst.defaultSearch, Boolean).value;
 		workflow = { workflow: "listFirst" };
 	}
-	// (R1): the booleans the projection writes for the reading are the stored ones.
+	// The booleans the projection writes for the reading are the stored ones.
 	const shape = searchWireShape(workflow as OrdinaryCaseSearchConfig);
 	if (
 		shape.autoLaunch !== autoLaunch ||

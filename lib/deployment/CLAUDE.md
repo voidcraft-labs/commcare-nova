@@ -687,7 +687,9 @@ files, never from `lib/deployment/reading`, whose index is server-only.
 complete accounting, the gate and the export readiness of a first publish
 under every declaration the review will offer, the exact fixed point over
 Nova's own emission of the document and of the split document a declaration
-can make, identity agreement between CommCare HQ's source and that emission,
+can make (each printed under its choice's declaration, the document under the
+proposed one, since an export writes where the app runs and a list-first search
+reads by it), identity agreement between CommCare HQ's source and that emission,
 and agreement with CommCare HQ's own question summary. It is pure and runs on
 the request, in pieces: `acceptReadingSteps` and the reader's
 `readHqAppSteps` stop between checks and stages, and `gather.ts::Pieces` lets
@@ -727,8 +729,10 @@ source at a bring-in, and never from what Nova sent. A push's read-back keeps
 it for the same HQ app, since it comes before the upload; a create writes
 none. A baseline of origin `read` also
 holds `first_publish_changes`: the first-publish changes the person reviewed
-that do not depend on where the app runs, and the Web App setting CommCare HQ
-held. After changes made in CommCare HQ are brought in or recorded, a
+that do not depend on where the app runs, each change a worker meets on
+Android alone that the reading gives whatever the app declared
+(`FIRST_PUBLISH_ANDROID_ONLY`, shown only while the app runs on Android), and
+the Web App setting CommCare HQ held. After changes made in CommCare HQ are brought in or recorded, a
 baseline can hold a list of the other kind in the same column: what the next
 publish changes there. The value's `of` says which kind it is. A `create` and
 an `unread` baseline hold none, and the one upsert clears it when a push

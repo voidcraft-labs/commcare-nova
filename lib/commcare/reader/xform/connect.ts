@@ -7,14 +7,19 @@
  * one element would be a second claim on every node of it.
  */
 
-import type { Element } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import { CONNECT_ID_MAX_LENGTH, type Uuid } from "@/lib/domain";
 import type { FormStructureConnect } from "@/lib/domain/expression/formStructure";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { connectIdProblem } from "../../connectSlugs";
 import { CONNECT_BLOCK_SHAPES, CONNECT_XMLNS } from "../../xform/builder";
-import { elementNamespace } from "../../xmlNamespaces";
+import {
+	attributeNamespace,
+	elementNamespace,
+	splitName,
+	VELLUM_NS,
+} from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
 import { defineClaims, refuse, take } from "../claims";
 import type { ReadContext } from "../context";
@@ -28,6 +33,11 @@ import { X } from "./claims";
 import type { NodeRole, ReadConnectBlock } from "./index";
 import { type BindFacts, type DataNode, insideRepeat } from "./model";
 import type { ParsedXForm } from "./parse";
+import {
+	type FormRefusals,
+	refuseBindLogic,
+	type StandingRefusal,
+} from "./refusals";
 
 /** The longest deliver unit id Connect's column holds (`DeliverUnit.slug`). */
 const DELIVER_UNIT_COLUMN = 100;
@@ -43,11 +53,23 @@ const MUG: Readonly<Record<Block, string>> = {
 
 const Q = (id: string) => `questions/${id}`;
 
+/** A block's wrapper, a child of the data root, as the lane names an instance's content. */
+const TOP = "xform:model/instance/*/*";
+/** The block's own element and its leaves, under the wrapper. */
+const NESTED = "xform:model/instance//*";
+/** The form builder's role on the wrapper. */
+const ROLE = "vellum-markup:model/instance//*@vellum:role";
+
+/** A held block is claimed whole at its wrapper's data node, and recorded inside at each node the
+ *  lane reads: the role on the wrapper, the block's element and each leaf, and the Hidden Value
+ *  HQ's question reader reads each leaf as (`xform.py::XForm.get_questions`), since no control
+ *  names one. HQ's reader types no question a Connect block's, so no record names a
+ *  `mug:Connect*` item. */
 export const C = defineClaims("xform", {
-	"connect-learn-module": take(Q("connect-learn-module"), MUG.learn_module),
-	"connect-assessment": take(Q("connect-assessment"), MUG.assessment),
-	"connect-deliver-unit": take(Q("connect-deliver-unit"), MUG.deliver_unit),
-	"connect-task": take(Q("connect-task"), MUG.task),
+	"connect-learn-module": take(Q("connect-learn-module"), TOP),
+	"connect-assessment": take(Q("connect-assessment"), TOP),
+	"connect-deliver-unit": take(Q("connect-deliver-unit"), TOP),
+	"connect-task": take(Q("connect-task"), TOP),
 	"a-connect-learn-module-or-task-id-longer-than-50-characters-or@mug:ConnectLearnModule":
 		refuse(
 			Q("a-connect-learn-module-or-task-id-longer-than-50-characters-or"),
@@ -110,6 +132,31 @@ const TOO_LONG = {
 		],
 } as const;
 
+/** Records a held block's nodes under its claim where the lane reads each (`C`'s comment). */
+function recordBlock(
+	cursor: XmlCursor,
+	wrapper: Element,
+	claim: (typeof C)["connect-task"],
+	scope: ParsedXForm["scope"],
+): void {
+	for (const attribute of Object.keys(wrapper.attribs))
+		if (
+			attributeNamespace(attribute, scope(wrapper)) === VELLUM_NS &&
+			splitName(attribute).local === "role"
+		)
+			cursor.within({ element: wrapper, attribute }, claim, [ROLE]);
+	const walk = (element: Element) => {
+		for (const child of element.children) {
+			if (!isTag(child)) continue;
+			cursor.within({ element: child }, claim, [NESTED]);
+			if (!child.children.some(isTag))
+				cursor.within({ element: child }, claim, ["mug:DataBindOnly"]);
+			walk(child);
+		}
+	};
+	walk(wrapper);
+}
+
 /** Each block's own element and its leaves, in the order the emitter writes them. */
 const SHAPES: Readonly<
 	Record<
@@ -157,6 +204,9 @@ export interface ReadConnectInput {
 	readonly accounting: Accounting;
 	readonly formPlace: HqPlace;
 	readonly formUuid: Uuid;
+	/** What the form's cursor has refused and claimed, so a refused block's binds claim only what
+	 *  no claim holds yet. */
+	readonly refusals: FormRefusals;
 }
 
 export interface ReadConnect {
@@ -240,16 +290,24 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 		const leaf = (name: string) =>
 			own.children.find((child) => child.name === name) as DataNode;
 		const wrapperBind = input.binds.get(wrapper);
+		// A refused block is refused whole: its nodes, and what each node's bind says it does.
 		const refuseBlock = (
 			claim: Parameters<XmlCursor["refuseSubtree"]>[1],
 			name?: string,
-		) =>
-			cursor.refuseSubtree(
-				wrapper.element,
-				claim,
-				formPlace,
-				name === undefined ? undefined : { name },
-			);
+		) => {
+			const refusal: StandingRefusal =
+				name === undefined
+					? { claim, place: formPlace }
+					: { claim, place: formPlace, detail: { name } };
+			cursor.refuseSubtree(wrapper.element, claim, formPlace, refusal.detail);
+			const walk = (node: DataNode) => {
+				const bind = input.binds.get(node);
+				if (bind !== undefined)
+					refuseBindLogic(cursor, input.refusals, bind.element, refusal);
+				for (const child of node.children) walk(child);
+			};
+			walk(wrapper);
+		};
 		// The id: Nova's grammar, then Connect's columns, then Nova's own bound.
 		const problem = connectIdProblem(id);
 		if (problem?.kind === "format") {
@@ -286,11 +344,6 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 		}
 		if (wrapperBind?.logic.relevant !== undefined) {
 			refuseBlock(C["connect-blocks-beyond-one-of-each-kind"]);
-			cursor.refuse(
-				{ element: wrapperBind.element, attribute: "relevant" },
-				C["connect-blocks-beyond-one-of-each-kind"],
-				formPlace,
-			);
 			continue;
 		}
 		// What each leaf holds.
@@ -352,6 +405,7 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 				);
 		}
 		cursor.takeSubtree(wrapper.element, HELD[block]).value;
+		recordBlock(cursor, wrapper.element, HELD[block], input.parsed.scope);
 		for (const name of ["name", "description"] as const) {
 			const text = slots[name];
 			if (typeof text !== "string") continue;

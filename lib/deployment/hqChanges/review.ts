@@ -105,6 +105,7 @@ import {
 import {
 	adoptedMediaFiles,
 	hqMediaReferencesOf,
+	mediaLeftOutOf,
 	narrowDeclarationsByMedia,
 	planReadingMedia,
 	type ReadingMediaPlan,
@@ -1313,7 +1314,7 @@ export async function checkHqChanges(
 				...files.findings,
 			]),
 			lookup: readingLookupSnapshot(data, readsNow),
-			mediaLeftOut: judgedPlan.inert.length,
+			mediaLeftOut: mediaLeftOutOf(judgedPlan.claims),
 			media: {
 				files: [...adoptedMediaFiles(media.now), ...ownMediaFiles(fetched)],
 				rows,

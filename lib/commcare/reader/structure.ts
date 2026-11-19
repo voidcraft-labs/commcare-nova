@@ -111,11 +111,20 @@ const MENU = defineClaims("structure.menu", {
 		`${M}/module-display-separately`,
 		"schema:Module.<undeclared>",
 	),
+	"legacyLabels@Module": account(
+		`${M}/module-referral-label-case-label`,
+		"schema:Module.<undeclared>",
+	),
 	"displayStyle@AdvancedModule": account(
 		`${M}/display-style-on-an-advanced-or-shadow-module`,
 		"schema:AdvancedModule.<undeclared>",
 	),
 	advanced: take(`${M}/advancedmodule`, "schema:AdvancedModule"),
+	caseList: take(
+		`${M}/module-with-case-type-case-list-module`,
+		"schema:Module",
+	),
+	survey: take(`${M}/module-with-case-type-survey-module`, "schema:Module"),
 });
 
 /** A menu of a document type Nova does not hold: one finding, covering the whole menu. */
@@ -145,6 +154,13 @@ const MENU_TYPE = defineClaims("structure.menuType", {
 
 const FORM = defineClaims("structure.form", {
 	...perClass("formType", FORM_CLASSES, take, `${F}/form-type`, "form_type"),
+	...perClass(
+		"formTypeOther",
+		FORM_CLASSES,
+		refuse,
+		`${F}/form-type-other-than-the-form-s-own-kind`,
+		"form_type",
+	),
 	...perClass("uniqueId", FORM_CLASSES, account, `${F}/unique-id`, "unique_id"),
 	...perClass(
 		"xmlns",
@@ -667,9 +683,10 @@ export function refuseFormNameReadAsInstance(
 ): void {
 	const instance = instanceScanRead(wireName);
 	if (instance !== undefined)
-		ctx.accounting.finding(
+		ctx.accounting.findingAt(
 			FORM[`nameReadAsInstance@${form.docType}`] as Claim,
 			form.place,
+			`${form.json.pointer}/name`,
 			{ name: instance },
 		);
 }
@@ -806,6 +823,11 @@ function readMenuKeys(
 	for (const key of json.undeclared()) {
 		if (cls === "Module" && key === "display_separately")
 			json.account(key, MENU["displaySeparately@Module"] as Claim<"account">);
+		else if (
+			cls === "Module" &&
+			(key === "referral_label" || key === "case_label")
+		)
+			json.account(key, MENU["legacyLabels@Module"] as Claim<"account">);
 		else if (cls === "AdvancedModule" && key === "display_style")
 			json.account(
 				key,
@@ -836,7 +858,13 @@ function readFormKeys(
 	const claim = <U extends ClaimUse>(name: string) =>
 		FORM[`${name}@${cls}` as keyof typeof FORM] as Claim<U>;
 	json.account("unique_id", claim<"account">("uniqueId"));
-	read(json.take("form_type", claim<"take">("formType"), (value) => value));
+	// HQ's build chooses a form's session values and after-submit frames by its `form_type`,
+	// whose default is the kind each class fixes (`models/forms.py::Form`, `AdvancedForm`) and
+	// which no page writes, so any other value builds the form as another kind.
+	if (json.used("form_type"))
+		json.refuse("form_type", claim<"refuse">("formTypeOther"));
+	else
+		read(json.take("form_type", claim<"take">("formType"), (value) => value));
 	const unit = makeTranslationUnitId("form", draft.uuid, "name");
 	const names = readName(ctx, unit, json, claim<"take">("name"));
 	/* The text `formWireName` writes into the form's source is the name in the
@@ -885,6 +913,8 @@ function readFormKeys(
 	references.account("load", FORM.caseReferencesLoad);
 	CASE_REFERENCES.set(draft, references);
 	for (const key of json.undeclared()) {
+		// `validation_cache` is undeclared too (`FormBase.wrap` pops it), and claimed above.
+		if (key === "validation_cache") continue;
 		if (key === "put_in_root") json.account(key, claim("putInRoot"));
 		else if (key === "no_vellum") json.account(key, claim("noVellum"));
 		else json.refuse(key, claim("otherUndeclared"), { name: key });
@@ -949,9 +979,13 @@ export function readStructure(ctx: ReadContext): void {
 		const place = json.place;
 		const name = place.kind === "menu" ? place.name : "";
 		switch (json.cls) {
-			case "ShadowModule":
-				json.refuseWhole(mirrorClaim(menu, menus));
+			case "ShadowModule": {
+				const claim = mirrorClaim(menu, menus);
+				json.refuseWhole(claim);
+				// A mirror under a mirror menu is a version 2 mirror too.
+				if (claim === MENU_TYPE.childMirror) json.alsoOfClass(MENU_TYPE.mirror);
 				return;
+			}
 			case "ReportModule":
 				json.refuseWhole(MENU_TYPE.report);
 				return;
@@ -963,12 +997,24 @@ export function readStructure(ctx: ReadContext): void {
 				return;
 		}
 		const cls = json.cls as MenuClass;
-		if (cls === "AdvancedModule") read(json.takeClass(MENU.advanced));
 		const uniqueId = json.peek("unique_id");
 		if (typeof uniqueId !== "string" || uniqueId === "") {
 			json.refuseWhole(MENU[`uniqueIdMissing@${cls}`] as Claim<"refuse">);
 			return;
 		}
+		// A menu's class is read at its own pointer: an advanced menu, and a
+		// basic one by whether it names a case type (a case list menu) or
+		// none (a survey menu), as HQ's menu page tells the two apart.
+		const caseType = json.peek("case_type");
+		read(
+			json.takeClass(
+				cls === "AdvancedModule"
+					? MENU.advanced
+					: typeof caseType === "string" && caseType !== ""
+						? MENU.caseList
+						: MENU.survey,
+			),
+		);
 		const forms: FormCandidate[] = [];
 		const formCursors = json.list(
 			"forms",

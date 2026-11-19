@@ -19,7 +19,7 @@ import {
 import { term } from "@/lib/domain/expression/builders";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
-import type { HqPlace } from "@/lib/publish/hqFindings";
+import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { caseTypeHopMap } from "../../caseTypeDepths";
 import { HQ_CASE_RESERVED_WORDS } from "../../constants";
 import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
@@ -30,7 +30,7 @@ import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { externalKey } from "../identity";
 import { isJsonObject, sameJson } from "../jsonCursor";
-import { appPlace, whereText } from "../place";
+import { appPlace, questionPlace, whereText } from "../place";
 import { holdsWorkerProperty } from "../worldEntities";
 import type { DraftField } from "../xform";
 import {
@@ -104,6 +104,12 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 	noDefault: refuse(
 		`${F}/case-preload-into-a-question-that-holds-no-default`,
 		"schema:PreloadAction.preload",
+	),
+	/** No preload beside an own case change that writes a question: the writer holds no default
+	 *  that reads the case, read at `case_preload`'s default. */
+	writerWithoutPreload: take(
+		`${F}/a-writer-question-with-no-case-preload-update-only`,
+		"schema:FormActions.case_preload",
 	),
 	illegalProperty: refuse(
 		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
@@ -207,6 +213,29 @@ export function fieldAt(form: DraftForm, path: string): DraftField | undefined {
 	return role?.kind === "field" ? role.field : undefined;
 }
 
+/**
+ * The place of the node a preload path names, where it is one Nova generates beside a question
+ * (the role the form stage gave it, settled or proposed) and its bind carries a calculate, which
+ * CommCare HQ's form builder reads as a Hidden Value it calculates; undefined for any other path.
+ */
+function calculatedGeneratedNodePlace(
+	form: DraftForm,
+	path: string,
+): HqPlace | undefined {
+	const relative = conditionQuestionPath(form, path);
+	const xform = form.xform;
+	const node = relative === undefined ? undefined : xform?.nodes.get(relative);
+	if (xform === null || xform === undefined || node === undefined)
+		return undefined;
+	const role = xform.roles.get(node);
+	if (role?.kind !== "generated" && role?.kind !== "generated-candidate")
+		return undefined;
+	if (xform.binds.get(node)?.logic.calculate === undefined) return undefined;
+	return form.place.kind === "form"
+		? questionPlace(form.place, node.path)
+		: undefined;
+}
+
 /** Whether a question holds a default Nova can give it: its kind holds one,
  *  and it is no Hidden Value whose bind calculates it. */
 export function holdsDefault(form: DraftForm, field: DraftField): boolean {
@@ -293,7 +322,6 @@ export function readPreloads(
 	const actionsStored = json.peek("actions");
 	const A = actionsCursorOf(form);
 	if (!isJsonObject(actionsStored) || A === undefined) return;
-	const inactive = inactiveClaimOf(form);
 	const requires = json.peek("requires") ?? "none";
 	const active = activeActions(actionsStored, requires);
 	const candidates: PreloadCandidate[] = [];
@@ -309,8 +337,18 @@ export function readPreloads(
 		? actionsStored.case_preload
 		: {};
 	const caseMap = isJsonObject(casePreload.preload) ? casePreload.preload : {};
-	if (Object.keys(caseMap).length === 0) A.derived("case_preload", inactive);
-	else {
+	if (Object.keys(caseMap).length === 0) {
+		const updateCase = isJsonObject(actionsStored.update_case)
+			? actionsStored.update_case
+			: {};
+		if (
+			active.has("update_case") &&
+			isJsonObject(updateCase.update) &&
+			Object.keys(updateCase.update).length > 0
+		)
+			A.takeDefault("case_preload", PRELOAD_CLAIMS.writerWithoutPreload);
+		A.derived("case_preload", inactiveClaimOf(form, "case_preload"));
+	} else {
 		if (requires !== "case") {
 			// HQ's validator holds every preloaded property to its grammar, index
 			// steps included, and its last step out of the reserved words
@@ -328,6 +366,19 @@ export function readPreloads(
 			const topLevel =
 				module.module.parentModuleUuid === undefined &&
 				module.module.parentCaseModuleUuid === undefined;
+			// A refusal of an entry of the map is a class of the map and the actions that hold it,
+			// so it stands at each of them its entry names (`Accounting.findingAt`).
+			const refuseEntry = (
+				claim: Claim,
+				place: HqPlace,
+				detail?: FindingDetail,
+			) =>
+				ctx.accounting.findingAt(
+					claim,
+					place,
+					`${A.pointer}/case_preload`,
+					detail,
+				);
 			// The rows the map's questions read under, in the table's order; the
 			// map is claimed under the first of them.
 			const rows = new Set<PreloadRow>();
@@ -336,15 +387,25 @@ export function readPreloads(
 				// HQ's build refuses the form, wherever the question stands: its validator holds
 				// every preloaded property to its grammar and out of the reserved words.
 				if (typeof property === "string" && hqBuildRefusesProperty(property)) {
-					ctx.accounting.finding(
+					refuseEntry(
 						PRELOAD_CLAIMS.illegalProperty,
 						field?.place ?? form.place,
 						{ name: property },
 					);
 					continue;
 				}
+				// A node Nova generates beside a question is, to CommCare HQ's form builder, a
+				// Hidden Value its bind calculates: a load into it is overwritten by the calculate.
+				const generated =
+					field === undefined
+						? calculatedGeneratedNodePlace(form, path)
+						: undefined;
+				if (generated !== undefined) {
+					refuseEntry(PRELOAD_CLAIMS.noDefault, generated);
+					continue;
+				}
 				if (field === undefined || typeof property !== "string") {
-					ctx.accounting.finding(PRELOAD_CLAIMS.label, form.place, {
+					refuseEntry(PRELOAD_CLAIMS.label, form.place, {
 						name: path,
 					});
 					continue;
@@ -355,20 +416,20 @@ export function readPreloads(
 					continue;
 				}
 				if (multi && topLevel) {
-					ctx.accounting.finding(PRELOAD_CLAIMS.multiSelect, field.place);
+					refuseEntry(PRELOAD_CLAIMS.multiSelect, field.place);
 					continue;
 				}
 				if (field.kind === "label") {
-					ctx.accounting.finding(PRELOAD_CLAIMS.label, field.place);
+					refuseEntry(PRELOAD_CLAIMS.label, field.place);
 					continue;
 				}
 				if (!holdsDefault(form, field)) {
-					ctx.accounting.finding(PRELOAD_CLAIMS.noDefault, field.place);
+					refuseEntry(PRELOAD_CLAIMS.noDefault, field.place);
 					continue;
 				}
 				const { indices, name } = preloadReadOf(property);
 				if (indices.some((segment) => segment !== "parent")) {
-					ctx.accounting.finding(PRELOAD_CLAIMS.otherPath, field.place, {
+					refuseEntry(PRELOAD_CLAIMS.otherPath, field.place, {
 						name: property,
 					});
 					continue;
@@ -382,7 +443,7 @@ export function readPreloads(
 						? undefined
 						: chain.types[chain.types.length - 1];
 				if (readType === undefined) {
-					ctx.accounting.finding(PRELOAD_CLAIMS.ancestorUnknown, field.place, {
+					refuseEntry(PRELOAD_CLAIMS.ancestorUnknown, field.place, {
 						name: property,
 					});
 					continue;
@@ -402,7 +463,7 @@ export function readPreloads(
 				}
 				if (name === undefined) {
 					// HQ's build reads a child element no property name of Nova's names.
-					ctx.accounting.finding(UNNAMED_PRELOAD, field.place, {
+					refuseEntry(UNNAMED_PRELOAD, field.place, {
 						name: property,
 						reason: "name:case-property",
 					});
@@ -447,7 +508,7 @@ export function readPreloads(
 		? usercasePreload.preload
 		: {};
 	if (Object.keys(usercaseMap).length === 0)
-		A.derived("usercase_preload", inactive);
+		A.derived("usercase_preload", inactiveClaimOf(form, "usercase_preload"));
 	else {
 		const usercaseUpdate = isJsonObject(actionsStored.usercase_update)
 			? actionsStored.usercase_update
@@ -519,7 +580,8 @@ export function readPreloads(
 	const loadMap = isJsonObject(loadFromForm.preload)
 		? loadFromForm.preload
 		: {};
-	if (Object.keys(loadMap).length === 0) A.derived("load_from_form", inactive);
+	if (Object.keys(loadMap).length === 0)
+		A.derived("load_from_form", inactiveClaimOf(form, "load_from_form"));
 	else {
 		if (requires !== "case")
 			A.drop("load_from_form", PRELOAD_CLAIMS.loadFromFormNoCase);
@@ -784,14 +846,20 @@ export function settlePreloads(ctx: ReadContext, form: DraftForm): void {
 				else {
 					const known = read.property;
 					if (draft.userProperties?.[known.uuid] === undefined) {
-						draft.userProperties = {
+						const properties = {
 							...(draft.userProperties ?? {}),
 							[known.uuid]: known,
 						};
-						draft.userPropertyOrder = [
-							...(draft.userPropertyOrder ?? []),
-							known.uuid,
-						];
+						draft.userProperties = properties;
+						// In the code-unit order of the slugs, as the properties the logic reads
+						// stand (`worldEntitiesFromReads`), so a re-read that meets this read in
+						// the logic gives the same order.
+						const order = [...(draft.userPropertyOrder ?? [])];
+						const after = order.findIndex(
+							(uuid) => (properties[uuid]?.slug ?? "") > known.slug,
+						);
+						order.splice(after < 0 ? order.length : after, 0, known.uuid);
+						draft.userPropertyOrder = order;
 					}
 					leaf = {
 						kind: "session-user-property",

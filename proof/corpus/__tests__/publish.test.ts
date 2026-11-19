@@ -47,9 +47,29 @@
  * plausible failures: a verdict that writes either key, or another value,
  * where the requirement does not hold, misses it where it does, or a
  * minimum configuration that turns on a flag a verdict needs off.
+ *
+ * Over an app brought in from CommCare HQ (`PublishInput.hqAuthoredA`), a
+ * create keyed by an answer is printed under the prefix its cases stand
+ * under there, as the bring-in recorded it. Contract: the republish's body
+ * and the local archive made for that project space print a recorded row's
+ * prefix, and with no row, or a row for a type the create no longer makes,
+ * the prefix the document derives. The plausible failure: a capture that
+ * sends the derived prefix over a base Nova read, so a key a worker enters
+ * again after the publish reaches a new case, which Nova's real publish
+ * never sends.
+ *
+ * A build profile a person saves in HQ is part of what the capture's peer
+ * holds, since a publish reads the app's profiles and can stop on them.
+ * Contract: after `targeted-hq-side-state`'s saves the peer holds the
+ * `build_profiles` HQ's own source read holds after the same save
+ * (`proof/hq-reads/targeted-hq-side-state/app-source-after-buildProfiles.json`,
+ * held to HQ on every lane run), key for key and in HQ's key order. The
+ * plausible failure: a peer that models a profile HQ would not serve, so a
+ * capture's publish reads profiles no project space holds.
  */
 
 import { readFile } from "node:fs/promises";
+import AdmZip from "adm-zip";
 import { expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -61,11 +81,13 @@ import {
 	clinicVisitsDocument,
 	searchLookupMediaDocument,
 } from "@/lib/deployment/__tests__/publishFixtures";
+import type { AdoptedKeyedCaseId } from "@/lib/deployment/adoption";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { type BlueprintDoc, type CaseOperation, proseText } from "@/lib/domain";
+import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { formField, term } from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { commtrackAdvanced } from "../../targeted/documents/advancedModules";
@@ -74,17 +96,22 @@ import {
 	OWN_BLOCK,
 	OWN_SLOT,
 } from "../../targeted/documents/heldPlacement";
+import { hqSideState } from "../../targeted/documents/hqSideState";
 import { supplyPointTextApp } from "../../targeted/documents/supplyPointText";
+import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { afterFirstPublish } from "../editBatches";
 import {
 	capturePublish,
 	documentVerdict,
+	localCcz,
 	minimumConfiguration,
+	PLACEHOLDER_APP_ID,
 	PROOF_DOMAIN,
 	type PublishDocument,
 	type RetainedPublish,
 } from "../publish";
+import { TargetPeer } from "../targetPeer";
 
 /** A document that runs Search, reads a lookup table and shows an uploaded image. */
 async function searchLookupMedia(): Promise<PublishDocument> {
@@ -411,4 +438,194 @@ it("writes commtrackEnabled and flagsOff only where Nova's publish requires them
 	expect(minimumConfiguration([same, other]).flags).not.toContain(
 		"DONT_INDEX_SAME_CASETYPE",
 	);
+});
+
+/** A survey that creates a visit whose id is keyed by an answer. */
+function keyedVisitApp(): BlueprintDoc {
+	return buildDoc(
+		{
+			appId: "keyed-visits",
+			appName: "Visits",
+			caseTypes: [
+				{
+					name: "visit",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					uuid: testUuid("keyed-menu"),
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: testUuid("keyed-form"),
+							name: "Log a visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", uuid: testUuid("keyed-key"), id: "key" }),
+								f({ kind: "text", uuid: testUuid("keyed-note"), id: "note" }),
+							],
+						},
+					],
+				},
+			],
+		},
+		(doc) => {
+			doc.forms[testUuid("keyed-form")].caseOperations = [
+				{
+					uuid: testUuid("keyed-create"),
+					id: "visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new", idFrom: testUuid("keyed-key") },
+					name: term(formField(testUuid("keyed-note"))),
+				} as CaseOperation,
+			];
+		},
+	);
+}
+
+it("prints each keyed create of an app brought in from CommCare HQ under the prefix its cases stand under there, in the republish and the local archive", async () => {
+	const app = keyedVisitApp();
+	const document: PublishDocument = {
+		id: "keyed-visits",
+		doc: toPersistableDoc(app),
+		compiledAtSeq: 1,
+	};
+	const configuration = minimumConfiguration([documentVerdict(document)]);
+	const captured = await capturePublish({
+		create: document,
+		updates: [],
+		configuration,
+		seed: DEFAULT_CORPUS_SEED,
+	});
+	if (captured.status !== "sent")
+		throw new Error("The first publish of the keyed-visit app was refused.");
+	// A as Nova's first publish left it in CommCare HQ, standing for an app
+	// a bring-in read.
+	const held = new TargetPeer({
+		credentials: {
+			username: "nova-proof",
+			apiKey: "key",
+			server: "production",
+		},
+		domain: configuration.domain,
+		flags: new Set(configuration.flags),
+		caseSearchEnabled: configuration.caseSearchEnabled,
+		appId: PLACEHOLDER_APP_ID,
+		commcareVersion: CORPUS_COMMCARE_VERSION,
+		cloudcareGranted: true,
+	});
+	await held.applyRetained([
+		captured.create.create.importApp,
+		captured.create.content.importApp,
+	]);
+	const source = held.snapshot().source;
+	if (source === undefined)
+		throw new Error("The peer holds no app after Nova's first publish.");
+
+	const scope = {
+		formUuid: testUuid("keyed-form"),
+		operationUuid: testUuid("keyed-create"),
+		caseType: "visit",
+	};
+	const derived = authoredCaseIdPrefix({ appId: app.appId, ...scope });
+	const kept = authoredCaseIdPrefix({ appId: "an-app-made-in-hq", ...scope });
+	const over = async (keyedCaseIds: readonly AdoptedKeyedCaseId[]) => {
+		const adopted = {
+			identity: [],
+			mediaPaths: new Map<string, string>(),
+			keyedCaseIds,
+		};
+		const republished = await capturePublish({
+			create: document,
+			updates: [{ name: "republish", document }],
+			configuration,
+			seed: DEFAULT_CORPUS_SEED,
+			hqAuthoredA: { source, ...adopted },
+		});
+		const republish = republished.updates.republish;
+		if (republish?.status !== "sent")
+			throw new Error(
+				`The republish over A was not sent: ${JSON.stringify(republish)}`,
+			);
+		const archive = await localCcz(document, configuration.domain, undefined, {
+			adopted,
+		});
+		if (archive === null)
+			throw new Error(
+				"Nova made no local archive of an app that runs on Android.",
+			);
+		const forms = new AdmZip(archive)
+			.getEntries()
+			.filter((entry) => entry.entryName.endsWith(".xml"))
+			.map((entry) => entry.getData().toString("utf8"))
+			.join("\n");
+		return { body: republish.importApp.body.toString("utf8"), forms };
+	};
+
+	// The row a bring-in recorded for the create: its prefix in both.
+	const recorded = await over([
+		{ operationUuid: scope.operationUuid, caseType: "visit", prefix: kept },
+	]);
+	expect(recorded.body).toContain(kept);
+	expect(recorded.body).not.toContain(derived);
+	expect(recorded.forms).toContain(kept);
+	expect(recorded.forms).not.toContain(derived);
+	// No row, or a row for a type the create no longer makes: the prefix the
+	// document derives.
+	for (const rows of [
+		[],
+		[
+			{
+				operationUuid: scope.operationUuid,
+				caseType: "household",
+				prefix: kept,
+			},
+		],
+	]) {
+		const none = await over(rows);
+		expect(none.body).toContain(derived);
+		expect(none.body).not.toContain(kept);
+		expect(none.forms).toContain(derived);
+	}
+});
+
+it("holds a build profile a person saves in HQ as HQ's own source read serves it", async () => {
+	const retained = async (name: string) =>
+		JSON.parse(
+			JSON.parse(
+				await readFile(
+					`proof/hq-reads/targeted-hq-side-state/${name}.json`,
+					"utf8",
+				),
+			).body,
+		) as Record<string, unknown>;
+	const before = await retained("app-source");
+	const after = await retained("app-source-after-buildProfiles");
+	const { hqSide } = hqSideState();
+	if (hqSide?.buildProfiles === undefined)
+		throw new Error("targeted-hq-side-state names no build profile save.");
+	const peer = new TargetPeer({
+		credentials: {
+			username: "nova-proof",
+			apiKey: "key",
+			server: "production",
+		},
+		domain: PROOF_DOMAIN,
+		flags: new Set(),
+		caseSearchEnabled: false,
+		appId: "app",
+		commcareVersion: "2.57.0",
+		cloudcareGranted: true,
+	});
+	peer.holdSource(before);
+	peer.applyHqSide(hqSide);
+	const held = peer.snapshot().source?.build_profiles;
+	expect(held).toEqual(after.build_profiles);
+	expect(JSON.stringify(held)).toBe(JSON.stringify(after.build_profiles));
 });

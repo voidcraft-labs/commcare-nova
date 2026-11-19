@@ -19,12 +19,25 @@
 // .xlsx) is compared entry by entry, in its own order, by name and content.
 // logs/ and timings.json say how a production went and are not compared;
 // produced.json is, and a product that failed on either side fails the
-// comparison.
+// comparison. The reader bundle (reader/, proof/reader/build.mjs) mints
+// nothing and is compared byte for byte: its digest keys every corpus
+// document's judgment, so two productions must build the same bytes. One
+// part of it cannot be the same bytes on two architectures: the native
+// runtime the bundle carries beside itself (reader/node_modules/, sharp with
+// the binding and libvips npm installed for the producing machine) and its
+// record (reader/runtime.json). Each side's runtime must be the files its
+// record names, by digest. Where the two records name one platform, the
+// runtime is compared byte for byte too; where they name two, it is compared
+// by what it is: the same packages at the same versions, the platform's name
+// aside, and the same sharp, libvips and libraries, by the versions the
+// runtime itself reports (sharp.versions, loaded from the bundle's
+// directory when it was built).
 //
 // Exits 0 when the two are equal, 1 naming every file that differs and where
 // it first does, and 2 when either side cannot be read. Node's standard
 // library only, so the comparing job installs nothing.
 
+import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { inflateRawSync } from "node:zlib";
@@ -33,6 +46,11 @@ const PRODUCED = "produced.json";
 const NOT_COMPARED = new Set(["logs", "timings.json"]);
 const MINTED =
 	/(?<![0-9A-Za-z])(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{40}|[0-9a-f]{16})(?![0-9A-Za-z])/g;
+// Products compared as written, with no id renamed.
+const AS_WRITTEN = new Set(["reader"]);
+// The reader bundle's native runtime and its record (proof/reader/build.mjs).
+const RUNTIME_RECORD = "reader/runtime.json";
+const RUNTIME_FILES = "reader/node_modules/";
 const ZIP_ENTRY = 0x04034b50;
 const ZIP_DIRECTORY = 0x02014b50;
 const ZIP_END = 0x06054b50;
@@ -182,6 +200,127 @@ function tokens(items) {
 	return held;
 }
 
+function isRuntime(path) {
+	return path === RUNTIME_RECORD || path.startsWith(RUNTIME_FILES);
+}
+
+function sortedJson(value) {
+	if (Array.isArray(value)) return value.map(sortedJson);
+	if (value === null || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.keys(value)
+			.sort()
+			.map((key) => [key, sortedJson(value[key])]),
+	);
+}
+
+/**
+ * One side's runtime record, held to the files beside it: every file under
+ * reader/node_modules/ is one the record names, with the digest it names.
+ * Null where the side carries no runtime. Pushes what breaks to `differing`.
+ */
+function runtimeRecord(items, side, differing) {
+	const text = items.get(RUNTIME_RECORD);
+	const files = [...items.keys()].filter((path) =>
+		path.startsWith(RUNTIME_FILES),
+	);
+	if (text === undefined) {
+		if (files.length > 0)
+			differing.push(
+				`${RUNTIME_RECORD}: the ${side} carries a runtime under ${RUNTIME_FILES} and no record of it.`,
+			);
+		return null;
+	}
+	let record;
+	try {
+		record = JSON.parse(Buffer.from(text, "latin1").toString("utf8"));
+	} catch {
+		differing.push(`${RUNTIME_RECORD}: the ${side}'s cannot be read as JSON.`);
+		return null;
+	}
+	if (
+		typeof record?.platform !== "string" ||
+		typeof record.versions !== "object" ||
+		typeof record.packages !== "object" ||
+		typeof record.files !== "object"
+	) {
+		differing.push(
+			`${RUNTIME_RECORD}: the ${side}'s names no platform, versions, packages and files.`,
+		);
+		return null;
+	}
+	const named = new Set(Object.keys(record.files));
+	for (const path of files) {
+		const relativePath = path.slice("reader/".length);
+		const digest = createHash("sha256")
+			.update(Buffer.from(items.get(path), "latin1"))
+			.digest("hex");
+		if (!named.has(relativePath))
+			differing.push(
+				`${path}: on the ${side}, and its ${RUNTIME_RECORD} does not name it.`,
+			);
+		else if (record.files[relativePath] !== digest)
+			differing.push(
+				`${path}: on the ${side}, its bytes are not the ones its ${RUNTIME_RECORD} names.`,
+			);
+		named.delete(relativePath);
+	}
+	for (const missing of [...named].sort())
+		differing.push(
+			`reader/${missing}: the ${side}'s ${RUNTIME_RECORD} names it, and the ${side} does not hold it.`,
+		);
+	return record;
+}
+
+/** What differs between two sides' reader runtimes (the module's header). */
+function runtimeDifferences(leftItems, rightItems) {
+	const differing = [];
+	const left = runtimeRecord(leftItems, "left", differing);
+	const right = runtimeRecord(rightItems, "right", differing);
+	if (left === null || right === null) {
+		if ((left === null) !== (right === null))
+			differing.push(
+				`${RUNTIME_RECORD}: only on the ${left === null ? "right" : "left"}.`,
+			);
+		return differing;
+	}
+	if (left.platform === right.platform) {
+		for (const path of [
+			...new Set([...leftItems.keys(), ...rightItems.keys()].filter(isRuntime)),
+		].sort()) {
+			if (!rightItems.has(path)) differing.push(`${path}: only on the left.`);
+			else if (!leftItems.has(path))
+				differing.push(`${path}: only on the right.`);
+			else if (leftItems.get(path) !== rightItems.get(path))
+				differing.push(
+					`${path}: differs ${firstDifference(leftItems.get(path), rightItems.get(path))}.`,
+				);
+		}
+		return differing;
+	}
+	const versions = (record) => JSON.stringify(sortedJson(record.versions));
+	if (versions(left) !== versions(right))
+		differing.push(
+			`${RUNTIME_RECORD}: the runtimes report other versions: left ${versions(left)}, right ${versions(right)}.`,
+		);
+	const packages = (record) =>
+		JSON.stringify(
+			sortedJson(
+				Object.fromEntries(
+					Object.entries(record.packages).map(([path, version]) => [
+						path.split(record.platform).join("<platform>"),
+						version,
+					]),
+				),
+			),
+		);
+	if (packages(left) !== packages(right))
+		differing.push(
+			`${RUNTIME_RECORD}: the runtimes hold other packages, ${left.platform}'s and ${right.platform}'s names aside: left ${packages(left)}, right ${packages(right)}.`,
+		);
+	return differing;
+}
+
 /** Where `left` and `right` first differ, with a little of each around it. */
 function firstDifference(left, right) {
 	let at = 0;
@@ -224,10 +363,20 @@ async function compare(left, right) {
 	for (const product of [
 		...new Set([...leftProducts.keys(), ...rightProducts.keys()]),
 	].sort()) {
-		const leftItems = leftProducts.get(product) ?? [];
-		const rightItems = rightProducts.get(product) ?? [];
-		const leftMasked = masked(leftItems, tokens(rightItems));
-		const rightMasked = masked(rightItems, tokens(leftItems));
+		const leftAll = leftProducts.get(product) ?? [];
+		const rightAll = rightProducts.get(product) ?? [];
+		if (product === "reader")
+			differing.push(
+				...runtimeDifferences(new Map(leftAll), new Map(rightAll)),
+			);
+		const leftItems = leftAll.filter(([path]) => !isRuntime(path));
+		const rightItems = rightAll.filter(([path]) => !isRuntime(path));
+		const leftMasked = AS_WRITTEN.has(product)
+			? new Map(leftItems)
+			: masked(leftItems, tokens(rightItems));
+		const rightMasked = AS_WRITTEN.has(product)
+			? new Map(rightItems)
+			: masked(rightItems, tokens(leftItems));
 		const leftPaths = [...leftMasked.keys()];
 		const rightPaths = [...rightMasked.keys()];
 		for (const path of [...new Set([...leftPaths, ...rightPaths])].sort()) {

@@ -9,6 +9,7 @@ import { isTag } from "domhandler";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { FormPath } from "../../xform/formPath";
 import {
+	elementNamespace,
 	JAVAROSA_NS,
 	namespacedAttribute,
 	splitName,
@@ -16,6 +17,7 @@ import {
 } from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import type { Claim } from "../claims";
+import { questionPlace } from "../place";
 import { readFormSyntax } from "../syntaxRead";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
@@ -86,10 +88,12 @@ export interface SetvalueFacts {
 	readonly refusal: NodeRefusal | undefined;
 }
 
-/** A refusal of the data tree itself, with the detail its one finding names. */
+/** A refusal of the data tree itself, with the detail its one finding names and the place it
+ *  stands at: the form's where none is named. */
 export interface NodeRefusal {
 	readonly claim: Claim<"refuse">;
 	readonly detail?: FindingDetail;
+	readonly place?: HqPlace;
 }
 
 /** A data tree read from the data root, every node by its path joined with "/". */
@@ -129,12 +133,17 @@ export type NodePathRead =
 
 /** The text's steps, `/` first for an absolute path; undefined where the text is no chain of
  *  name steps, `.` and `..`, with at most one final attribute step. */
-export function pathSteps(text: string): readonly string[] | undefined {
+export function pathSteps(
+	text: string,
+	predicates: "refuse" | "pass" = "refuse",
+): readonly string[] | undefined {
 	const read = readFormSyntax(text);
 	if (!read.ok || read.node === undefined) return undefined;
 	const steps: string[] = [];
 	const walk = (node: FormSyntax): boolean => {
 		switch (node.kind) {
+			case "filter":
+				return predicates === "pass" && walk(node.base);
 			case "child":
 				if (node.descendant) return false;
 				if (node.left === undefined) steps.push("/");
@@ -291,6 +300,31 @@ export function readNodePath(
 		: { kind: "node", node: at, attribute };
 }
 
+/** The refusal of the data tree an absolute path stands under whatever predicates its steps
+ *  hold: a plugin of the form builder names the nodes of its block with them
+ *  (`/data/balance[@type='b']/entry/@quantity`). Undefined where the steps, read past their
+ *  predicates, reach no node the tree refused. */
+export function refusalBesidePredicates(
+	text: string,
+	tree: DataTree,
+): NodeRefusal | undefined {
+	const steps = pathSteps(text, "pass");
+	if (steps === undefined || steps[0] !== "/" || steps[1] !== tree.root.name)
+		return undefined;
+	let at: DataNode | undefined;
+	for (const step of steps.slice(2)) {
+		if (step.startsWith("@") || step === "." || step === "..") break;
+		const children: readonly DataNode[] =
+			at === undefined ? tree.top : at.children;
+		const next = children.find((child) => child.name === step);
+		if (next === undefined) break;
+		at = next;
+		const refusal = tree.refused.get(at);
+		if (refusal !== undefined) return refusal;
+	}
+	return undefined;
+}
+
 /** The refusal of the data tree a path stands under: the node's it names, or, where it names
  *  none, the last node its steps named, since a node the tree refused covers everything under
  *  it, and a path that names a node of a refused pair by its name may mean either. */
@@ -342,6 +376,7 @@ export function readDataTree(
 	parsed: ParsedXForm,
 	cursor: XmlCursor,
 	formPlace: HqPlace,
+	appended: ReadonlySet<string> = new Set(),
 ): DataTree {
 	const nodes = new Map<string, DataNode>();
 	const order: DataNode[] = [];
@@ -383,6 +418,73 @@ export function readDataTree(
 		refused.set(node, refusal);
 		for (const child of node.children) refuseUnder(child, refusal);
 	};
+	/** Refuses a node whole at its question, with what stands under it; `at`, where given, is
+	 *  the node under it whose value makes the class, where the refusal's record stands. */
+	const refuseAtQuestion = (
+		node: DataNode,
+		claim: Claim<"refuse">,
+		detail?: FindingDetail,
+		at?: DataNode,
+	) => {
+		const place = questionPlace(
+			formPlace as Extract<HqPlace, { kind: "form" }>,
+			node.path,
+		);
+		if (at === undefined)
+			cursor.refuseSubtree(node.element, claim, place, detail);
+		else
+			cursor.refuseSubtreeAt(
+				node.element,
+				{ element: at.element },
+				claim,
+				place,
+				detail,
+			);
+		refuseUnder(node, {
+			claim,
+			place,
+			...(detail === undefined ? {} : { detail }),
+		});
+	};
+	// Nodes CommCare HQ's build or a plugin of the form builder owns, each refused whole with
+	// its bind, setvalues and control, which stand under the refusal of the data tree.
+	for (const node of order) {
+		if (refused.has(node)) continue;
+		const namespace = elementNamespace(
+			node.element,
+			parsed.scope(node.element),
+		);
+		const ledger = ledgerRole(node, namespace);
+		if (node.parent === null && appended.has(node.name))
+			refuseAtQuestion(
+				node,
+				node.name === "case" ? X.rootQuestionCase : X.rootQuestionUsercase,
+			);
+		else if (ledger !== undefined)
+			refuseAtQuestion(node, X.ledgerBlock[ledger]);
+		else if (
+			node.name === "case" &&
+			namespace === CASE_TRANSACTION_NS &&
+			!inSaveToCaseRole(node)
+		) {
+			// Where the form builder's Save to Case role would mark it: the node holding the case
+			// element alone, or the case element itself. The class is the case element's, which
+			// the refusal's record stands at, under the key its own depth gives it.
+			const parent = node.parent;
+			const block =
+				parent !== null && parent.children.length === 1 ? parent : node;
+			if (!refused.has(block))
+				refuseAtQuestion(
+					block,
+					node.parent === null
+						? X.handWrittenCaseBlock.root
+						: X.handWrittenCaseBlock.nested,
+					undefined,
+					node,
+				);
+		} else if (ignoredButRetained(node.element, parsed))
+			refuseAtQuestion(node, X.ignoreRetain);
+	}
 
 	for (const node of order) {
 		const siblings: readonly DataNode[] =
@@ -428,7 +530,7 @@ export function readDataTree(
 		cursor.refuseSubtree(
 			block.element,
 			refusal.claim,
-			formPlace,
+			refusal.place ?? formPlace,
 			refusal.detail,
 		);
 		refuseUnder(block, refusal);
@@ -488,11 +590,28 @@ export function readBinds(
 		const path = bindPath(element);
 		if (path === undefined) continue;
 		const read = readNodePath(path.text, tree, null);
-		if (read.kind === "not-a-path") continue;
+		if (read.kind === "not-a-path") {
+			// A bind a plugin writes into a block the tree refused names its node with
+			// predicates, and stands under that refusal.
+			const refusal = refusalBesidePredicates(path.text, tree);
+			if (refusal !== undefined)
+				cursor.refuseSubtree(
+					element,
+					refusal.claim,
+					refusal.place ?? formPlace,
+					refusal.detail,
+				);
+			continue;
+		}
 		// A bind on a node the data tree refused, or past one, stands under that refusal.
 		const refusal = refusalOf(read, tree);
 		if (refusal !== undefined) {
-			cursor.refuseSubtree(element, refusal.claim, formPlace, refusal.detail);
+			cursor.refuseSubtree(
+				element,
+				refusal.claim,
+				refusal.place ?? formPlace,
+				refusal.detail,
+			);
 			continue;
 		}
 		if (read.kind === "none") {
@@ -587,7 +706,12 @@ export function readSetvalues(
 						]
 					: undefined,
 			value: plainAttribute(element, "value"),
-			refusal: read === undefined ? undefined : refusalOf(read, tree),
+			refusal:
+				read === undefined || ref === undefined
+					? undefined
+					: read.kind === "not-a-path"
+						? refusalBesidePredicates(ref, tree)
+						: refusalOf(read, tree),
 		};
 	});
 }
@@ -611,7 +735,60 @@ export function readInstances(
 				});
 			continue;
 		}
-		if (!sources.has(instance.id)) sources.set(instance.id, instance.src);
+		if (sources.has(instance.id)) continue;
+		sources.set(instance.id, instance.src);
+		cursor.derived({ element: instance.element }, X.frame.instance);
 	}
 	return sources;
+}
+
+/** The case transaction namespace, which a case block's `case` element is in. */
+const CASE_TRANSACTION_NS = "http://commcarehq.org/case/transaction/v2";
+
+/** The ledger namespace of CommCare's stock transactions. */
+const LEDGER_NS = "http://commcarehq.org/ledger/v1";
+
+/**
+ * The role of a ledger block of the form builder's CommTrack plugin: the role the node names, or
+ * the one the plugin gives a `balance` or `transfer` element in the ledger namespace
+ * (`commtrack.js::parseDataElement`: a transfer with no `src` receives, one with no `dest`
+ * dispenses).
+ */
+function ledgerRole(
+	node: DataNode,
+	namespace: string | null,
+): "Balance" | "Transfer" | "Dispense" | "Receive" | undefined {
+	if (
+		node.role === "Balance" ||
+		node.role === "Transfer" ||
+		node.role === "Dispense" ||
+		node.role === "Receive"
+	)
+		return node.role;
+	if (namespace !== LEDGER_NS || node.role !== undefined) return undefined;
+	const local = splitName(node.element.name).local;
+	if (local === "balance") return "Balance";
+	if (local !== "transfer") return undefined;
+	if (plainAttribute(node.element, "src") === undefined) return "Receive";
+	if (plainAttribute(node.element, "dest") === undefined) return "Dispense";
+	return "Transfer";
+}
+
+/** Whether a node or a node above it carries the form builder's Save to Case role. */
+function inSaveToCaseRole(node: DataNode): boolean {
+	for (let at: DataNode | null = node; at !== null; at = at.parent)
+		if (at.role === "SaveToCase") return true;
+	return false;
+}
+
+/** Whether an element is marked `vellum:ignore="retain"`, content the form builder keeps as it
+ *  stands and shows as its Ignored question (`ignoreButRetain.js`). */
+function ignoredButRetained(element: Element, parsed: ParsedXForm): boolean {
+	const value = namespacedAttribute(
+		element,
+		parsed.scope(element),
+		VELLUM_NS,
+		"ignore",
+	);
+	return value?.split(/\s+/).includes("retain") === true;
 }

@@ -14,7 +14,15 @@
  */
 export interface SpellingVector {
 	/** The table's row, or the negative control's. */
-	readonly row: "L1" | "L2" | "L3" | "L4" | "L5" | "L6" | "S1" | "name";
+	readonly row:
+		| "whitespace"
+		| "grouping"
+		| "quotes"
+		| "numbers"
+		| "axes"
+		| "predicate-node"
+		| "cond"
+		| "name";
 	readonly name: string;
 	readonly a: string;
 	readonly b: string;
@@ -27,70 +35,70 @@ export interface SpellingVector {
 const CASE = "instance('casedb')/casedb/case[@case_id = 'c1']";
 
 export const SPELLING_VECTORS: readonly SpellingVector[] = [
-	{ row: "L1", name: "no space and a space", a: "1+1", b: "1 + 1" },
+	{ row: "whitespace", name: "no space and a space", a: "1+1", b: "1 + 1" },
 	{
-		row: "L1",
+		row: "whitespace",
 		name: "two spaces and a line feed",
 		a: "/data/a  =\n'1'",
 		b: "/data/a = '1'",
 	},
 	{
-		row: "L1",
+		row: "whitespace",
 		name: "a tab and a form feed",
 		a: "/data/a\t=\f'1'",
 		b: "/data/a = '1'",
 	},
 	{
-		row: "L1",
+		row: "whitespace",
 		name: "spaces inside a call",
 		a: "selected( /data/c ,'x' )",
 		b: "selected(/data/c, 'x')",
 	},
-	{ row: "L2", name: "a grouped sum", a: "(1 + 2) * 3", b: "(1+2)*3" },
+	{ row: "grouping", name: "a grouped sum", a: "(1 + 2) * 3", b: "(1+2)*3" },
 	{
-		row: "L2",
+		row: "grouping",
 		name: "a doubly grouped read",
 		a: "((/data/a))",
 		b: "/data/a",
 	},
 	{
-		row: "L2",
+		row: "grouping",
 		name: "a grouped comparison",
 		a: "(/data/a = /data/b)",
 		b: "/data/a = /data/b",
 	},
-	{ row: "L3", name: "single and double quotes", a: "'a'", b: '"a"' },
+	{ row: "quotes", name: "single and double quotes", a: "'a'", b: '"a"' },
 	{
-		row: "L3",
+		row: "quotes",
 		name: "a comparison of the two marks",
 		a: "'a' = \"a\"",
 		b: "\"a\" = 'a'",
 	},
 	{
-		row: "L3",
+		row: "quotes",
 		name: "a value holding a single mark",
 		a: `"it's" = concat('it', "'", 's')`,
 		b: `"it's" = concat("it", "'", "s")`,
 	},
 	{
-		row: "L3",
+		row: "quotes",
 		name: "a value holding a double mark",
 		a: `'say "hi"' = concat('say ', '"', 'hi', '"')`,
 		b: `'say "hi"' = concat("say ", '"', "hi", '"')`,
 	},
-	{ row: "L4", name: "a whole number and its decimal", a: "1", b: "1.0" },
-	{ row: "L4", name: "a leading zero", a: "01", b: "1" },
-	{ row: "L4", name: "a fraction with no whole part", a: ".5", b: "0.5" },
-	{ row: "L4", name: "a trailing point", a: "1.", b: "1" },
-	{ row: "L5", name: "the child axis", a: "/data/child::a", b: "/data/a" },
+	{ row: "numbers", name: "a whole number and its decimal", a: "1", b: "1.0" },
+	{ row: "numbers", name: "a leading zero", a: "01", b: "1" },
+	{ row: "numbers", name: "a fraction with no whole part", a: ".5", b: "0.5" },
+	{ row: "numbers", name: "a trailing point", a: "1.", b: "1" },
+	{ row: "axes", name: "the child axis", a: "/data/child::a", b: "/data/a" },
 	{
-		row: "L5",
+		row: "axes",
 		name: "the self axis",
 		a: "/data/x[1]/self::node()",
 		b: "/data/x[1]/.",
 	},
 	{
-		row: "L5",
+		row: "axes",
 		name: "the parent axis",
 		// Core takes a parent step only before any other step of a path
 		// (`XPathPathExpr.getReference`), so the pair stands in a predicate.
@@ -98,43 +106,43 @@ export const SPELLING_VECTORS: readonly SpellingVector[] = [
 		b: "count(/data/x[../a = '1'])",
 	},
 	{
-		row: "L5",
+		row: "axes",
 		name: "the attribute axis, a control",
 		a: "/data/x[1]/attribute::id",
 		b: "/data/x[1]/@id",
 	},
 	{
-		row: "L6",
+		row: "predicate-node",
 		name: "a predicate's own node",
 		a: "count(/data/x[. = 'a'])",
 		b: "count(/data/x[./. = 'a'])",
 	},
 	{
-		row: "S1",
+		row: "cond",
 		name: "three arguments, true first",
 		a: "cond(true(), 'a', 'b')",
 		b: "if(true(), 'a', 'b')",
 	},
 	{
-		row: "S1",
+		row: "cond",
 		name: "three arguments, none true",
 		a: "cond(false(), 'a', 'b')",
 		b: "if(false(), 'a', 'b')",
 	},
 	{
-		row: "S1",
+		row: "cond",
 		name: "five arguments, true second",
 		a: "cond(/data/a = '2', 'a', /data/b = '2', 'b', 'c')",
 		b: "if(/data/a = '2', 'a', if(/data/b = '2', 'b', 'c'))",
 	},
 	{
-		row: "S1",
+		row: "cond",
 		name: "five arguments, none true",
 		a: "cond(false(), 'a', false(), 'b', 'c')",
 		b: "if(false(), 'a', if(false(), 'b', 'c'))",
 	},
 	{
-		row: "S1",
+		row: "cond",
 		name: "a branch that would throw is never evaluated",
 		a: "cond(true(), 'a', date('not a date'))",
 		b: "if(true(), 'a', date('not a date'))",

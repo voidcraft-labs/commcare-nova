@@ -26,6 +26,7 @@ import {
 	type Column,
 	columnKindAcceptsPropertyType,
 	columnKindPropertyRequirement,
+	columnPropertyCaseType,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
@@ -47,10 +48,6 @@ export function columnKindPropertyType(
 	if (!config || !mod.caseType) return [];
 
 	const { augmentedCaseTypes } = validationContextFor(doc);
-	const properties = augmentedCaseTypes.find(
-		(ct) => ct.name === mod.caseType,
-	)?.properties;
-	if (properties === undefined) return [];
 
 	const errors: ValidationError[] = [];
 	for (let index = 0; index < config.columns.length; index++) {
@@ -58,6 +55,16 @@ export function columnKindPropertyType(
 		if (col.kind === "calculated") continue;
 		const requirement = columnKindPropertyRequirement(col.kind);
 		if (requirement === null) continue; // universal kinds accept everything
+		// The property is one of the case the column's walk reaches.
+		const caseType = columnPropertyCaseType(
+			col,
+			mod.caseType,
+			doc.caseTypes ?? [],
+		);
+		const properties = augmentedCaseTypes.find(
+			(ct) => ct.name === caseType,
+		)?.properties;
+		if (properties === undefined) continue;
 		// Raw `data_type` off the effective view, NOT
 		// `effectiveDataType(...)` — absent must stay absent (unknown
 		// is permissive here), and an unresolvable property is

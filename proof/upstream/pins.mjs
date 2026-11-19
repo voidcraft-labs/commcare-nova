@@ -1,6 +1,6 @@
 // The weekly pin pull request (proof/README.md, "Changing a pin"), in two
 // stages the workflow (.github/workflows/upstream-pins.yml) runs around the
-// image build and the surface extraction:
+// image build, the surface extraction and the retained trees made again:
 //
 //   node proof/upstream/pins.mjs plan
 //     Reads each upstream's default-branch head. When none differs from
@@ -10,24 +10,37 @@
 //     and pushes it, so the image builds from that branch.
 //
 //   node proof/upstream/pins.mjs report --image-result <result> [--digest <d>]
-//       --surface-result <result> [--surface <file>] --run-url <url>
+//       --surface-result <result> [--surface <file>]
+//       --retained-result <result> [--retained <dir>] --run-url <url>
 //     Adds the image lock and the regenerated surface to that one commit when
-//     both succeeded (the pins alone otherwise), opens the pull request or
-//     updates the open one, and requests the reviewer's review. GitHub holds
-//     CI on a pull request the workflow's own token opened until a person
-//     approves its run or updates the branch, and a run dispatched on the
-//     branch does not stand in for it (the held run hides its checks), so
-//     the description says so. It states the run's date and outcome and
-//     classifies every surface item the new pins add, remove or change.
+//     both succeeded (the pins alone otherwise), and beside them the retained
+//     trees made again at the new pins (proof/hq-apps/ and proof/hq-reads/,
+//     from the artifact `--retained` names, proof/ci/retained.mjs) when that
+//     job succeeded too: the trees answer the new image, so they are never
+//     committed without its lock. It opens the pull request or updates the
+//     open one, and requests the reviewer's review. GitHub holds CI on a pull
+//     request the workflow's own token opened until a person approves its
+//     run or updates the branch, and a run dispatched on the branch does not
+//     stand in for it (the held run hides its checks), so the description
+//     says so. It states the run's date and outcome, classifies every surface
+//     item the new pins add, remove or change, and carries the adopt report
+//     (which bases' stored app, answers or reading changed), or names the
+//     retained job where it failed.
 //
 // Every git and gh call goes through the executables on PATH, so a test runs
 // both stages against local repositories and a controlled `gh`.
 
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+	ADOPT_REPORT,
+	placeRetained,
+	RETAINED_TREES,
+} from "../ci/retained.mjs";
 
 const execute = promisify(execFile);
 
@@ -206,7 +219,47 @@ function describeEntries(entries) {
 	return entries.map((e) => `\`${e.id}\` (${e.disposition})`).join(", ");
 }
 
-function describe({ date, outcome, runUrl, before, after, classified }) {
+/**
+ * What the description says of the retained trees: the adopt report where
+ * they were committed, the failed job where the lock was and they were not,
+ * and nothing where the lock was not committed either (the outcome says why).
+ */
+function describeRetained(retained) {
+	if (retained === null) return [];
+	const heading = "## Retained HQ answers and apps";
+	if (!retained.committed) {
+		return [
+			heading,
+			"",
+			`The job that makes \`proof/hq-apps/\` and \`proof/hq-reads/\` again at the new pins did not succeed (its result: ${retained.result}), so the branch carries main's, and \`proof/matrix/test_retained.py\` and the retained reads hold them to the new pins. The job's log in the run says why. Once a run makes them, \`python3 -m proof.matrix.adopt <its output> --report\` adopts them on this branch.`,
+			"",
+		];
+	}
+	const report = retained.report
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	return [
+		heading,
+		"",
+		"Made again at the new pins and adopted into this commit (`python3 -m proof.matrix.adopt --report`):",
+		"",
+		...(report.length > 0
+			? report.map((line) => `- ${line}`)
+			: ["- The adopt report is empty."]),
+		"",
+	];
+}
+
+function describe({
+	date,
+	outcome,
+	runUrl,
+	before,
+	after,
+	classified,
+	retained,
+}) {
 	const lines = [
 		`Latest run: ${date}, ${outcome} ([run](${runUrl})).`,
 		"",
@@ -260,6 +313,7 @@ function describe({ date, outcome, runUrl, before, after, classified }) {
 			"",
 		);
 	}
+	lines.push(...describeRetained(retained));
 	return lines.join("\n");
 }
 
@@ -274,7 +328,38 @@ function outcomeOf(options) {
 	if (options.surfaceResult !== "success") {
 		return `the surface extraction did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the extractor runs at them`;
 	}
-	return `the image, the lock and the surface are updated, and CI ${CI_STARTS}`;
+	if (options.retainedResult !== "success") {
+		return `the image, the lock and the surface are updated, and the retained HQ answers and apps were not made again, so CI, which ${CI_STARTS}, holds main's to the new pins`;
+	}
+	return `the image, the lock, the surface and the retained HQ answers and apps are updated, and CI ${CI_STARTS}`;
+}
+
+/** The retained trees and the adopt report from the artifact at `directory`, put in the checkout; the paths to stage. */
+async function adoptRetained(cwd, directory) {
+	if (!directory) {
+		throw new Error(
+			"The retained job succeeded, and no --retained names the directory its artifact was downloaded into, so there are no trees to commit. Pass --retained <dir>.",
+		);
+	}
+	await placeRetained(directory, join(cwd, "proof"));
+	const staged = [];
+	for (const tree of RETAINED_TREES) {
+		const path = `proof/${tree}`;
+		// A tree neither the artifact nor main holds matches no path, which `git add` refuses.
+		if (
+			existsSync(join(cwd, path)) ||
+			(await git(cwd, "ls-files", "--", path)).trim()
+		) {
+			staged.push(path);
+		}
+	}
+	let report;
+	try {
+		report = await readFile(join(directory, ADOPT_REPORT), "utf8");
+	} catch (error) {
+		report = `The adopt report could not be read from the artifact (${error.code ?? error.message}).`;
+	}
+	return { staged, report };
 }
 
 export async function report(cwd, options) {
@@ -284,6 +369,7 @@ export async function report(cwd, options) {
 	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "FETCH_HEAD");
 	const after = JSON.parse(await readFile(join(cwd, PINS), "utf8"));
 	let classified = null;
+	let retained = null;
 	if (
 		options.imageResult === "success" &&
 		options.surfaceResult === "success"
@@ -302,7 +388,14 @@ export async function report(cwd, options) {
 			}),
 		);
 		await writeFile(join(cwd, SURFACE), await readFile(options.surface));
-		await git(cwd, "add", LOCK, SURFACE);
+		const staged = [LOCK, SURFACE];
+		retained = { committed: false, result: options.retainedResult ?? "none" };
+		if (options.retainedResult === "success") {
+			const adopted = await adoptRetained(cwd, options.retained);
+			staged.push(...adopted.staged);
+			retained = { ...retained, committed: true, report: adopted.report };
+		}
+		await git(cwd, "add", "--all", "--", ...staged);
 		await git(cwd, "commit", "--quiet", "--amend", "--no-edit");
 		await git(cwd, "push", "--quiet", "--force", "origin", BRANCH);
 		classified = await classify(cwd, beforeSurface, afterSurface);
@@ -314,6 +407,7 @@ export async function report(cwd, options) {
 		before,
 		after,
 		classified,
+		retained,
 	});
 	const bodyFile = join(cwd, ".git", "upstream-pins-body.md");
 	await writeFile(bodyFile, body);
@@ -341,7 +435,7 @@ export async function report(cwd, options) {
 	if (options.reviewer) {
 		await gh(cwd, "pr", "edit", number, "--add-reviewer", options.reviewer);
 	}
-	return { number, classified };
+	return { number, classified, retained: retained?.committed === true };
 }
 
 function parseOptions(args) {

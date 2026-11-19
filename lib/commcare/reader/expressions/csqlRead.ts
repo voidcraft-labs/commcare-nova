@@ -98,6 +98,9 @@ export type SearchRowReading =
 			/** The types the row's comparisons give properties its catalog
 			 *  holds untyped, which the predicate is read and checked under. */
 			readonly types?: readonly ComparedType[];
+			/** The row names a selection by a spelling HQ's search reads as the one Nova
+			 *  prints (`hqSelectionSpelling`), which the first publish writes in its place. */
+			readonly respelled?: true;
 	  }
 	| {
 			readonly ok: false;
@@ -516,6 +519,8 @@ interface BindState {
 	readonly proposals: boolean;
 	/** Whether the row's text called `today()`, HQ's server-side day. */
 	today: boolean;
+	/** The device values bound to a value that reads a lookup table's row. */
+	readonly tableReads: Set<FormSyntax>;
 }
 
 const COMPARISONS: Readonly<Record<string, ComparisonKind>> = {
@@ -681,7 +686,22 @@ function bindDevice(node: FormSyntax, state: BindState): Expression {
 			: bound.bound.candidate;
 	const query = deviceQuery(value);
 	if (query !== undefined) refuseWith(DEVICE_QUERY, query);
+	if (readsTableRow(value)) state.tableReads.add(node);
 	return value;
+}
+
+/** Whether a device value reads a lookup table's row. Nova's Search writes
+ *  such a value, so it is held where it prints back; where it alone does
+ *  not, the row is the device query the entry refuses
+ *  (`readSearchFilterRow`). */
+function readsTableRow(value: Expression): boolean {
+	let found = false;
+	walkExpression(value, {
+		visitExpression(expression) {
+			if (expression.kind === "table-lookup") found = true;
+		},
+	});
+	return found;
 }
 
 /** The device-data query a value holds, other than the chosen case's property. */
@@ -1659,7 +1679,9 @@ class CsqlBinder {
 					Literal,
 					...Literal[],
 				],
-				quantifier,
+				// One fixed value prints `selected(p, 'v')` whatever the quantifier, which reads
+				// back as any (`canonical.ts`, `selection-per-value`).
+				quantifier: values.length === 1 ? "any" : quantifier,
 			};
 		}
 		return {
@@ -1847,7 +1869,11 @@ function bindCsql(
 	context: ExpressionContext,
 	env: SearchRowEnv,
 	options: { readonly text: string; readonly proposals: boolean },
-): { readonly bound: Bound; readonly today: boolean } {
+): {
+	readonly bound: Bound;
+	readonly today: boolean;
+	readonly tableReads: ReadonlySet<FormSyntax>;
+} {
 	const state: BindState = {
 		context,
 		env,
@@ -1855,9 +1881,10 @@ function bindCsql(
 		prefix: markerPrefix(constantTexts(parts)),
 		proposals: options.proposals,
 		today: false,
+		tableReads: new Set(),
 	};
 	const bound = bindCsqlParts(parts, state, rowCaseType(context));
-	return { bound, today: state.today };
+	return { bound, today: state.today, tableReads: state.tableReads };
 }
 
 // ── Acceptance ───────────────────────────────────────────────────────
@@ -1927,7 +1954,10 @@ function wrapperDifference(
 interface CandidateText {
 	readonly text: string;
 	readonly holes: readonly WireExpr[];
+	/** The device's day between Nova's quote marks is read as the server's `today()`. */
 	readonly today: boolean;
+	/** The device's day is spliced in as a value, between quote marks. */
+	readonly deviceDay: boolean;
 	/** A hole or an obligation besides the device's day. */
 	readonly guarded: boolean;
 }
@@ -1936,14 +1966,20 @@ function isTodayCall(wire: WireExpr): boolean {
 	return wire.k === "call" && wire.fn === "today" && wire.args.length === 0;
 }
 
+/** `foldToday`: the device's day Nova splices between its fixed double quotes
+ *  is read as CSQL's own `today()`, the source a server's day is held from;
+ *  otherwise it stays a device value, a hole like any other but no guard,
+ *  since it holds no quote mark and is never blank. */
 function candidateText(
 	tree: CsqlNode,
 	prefix: string,
+	foldToday: boolean,
 ): CandidateText | undefined {
 	const segments = printCsql(tree);
 	let text = "";
 	const holes: WireExpr[] = [];
 	let today = false;
+	let deviceDay = false;
 	let guarded = false;
 	const mark = (value: WireExpr): void => {
 		text += `${prefix}nova_hole_${holes.length}__`;
@@ -1986,6 +2022,11 @@ function candidateText(
 			next?.kind === "constant" &&
 			next.text.startsWith('"')
 		) {
+			if (!foldToday) {
+				deviceDay = true;
+				mark(segment.xpath);
+				continue;
+			}
 			text = `${text.slice(0, -1)}today()`;
 			segments[index + 1] = { kind: "constant", text: next.text.slice(1) };
 			today = true;
@@ -1996,7 +2037,7 @@ function candidateText(
 		// choice around it included.
 		mark(segment.xpath);
 	}
-	return { text, holes, today, guarded };
+	return { text, holes, today, deviceDay, guarded };
 }
 
 /** The source's holes, in the order their markers stand in its text. */
@@ -2057,13 +2098,118 @@ function rejectsHeld(rejects: readonly FormSyntax[], tree: CsqlNode): boolean {
 	);
 }
 
+/** What the guards level found between a source row and Nova's wrapper. */
+interface GuardsLevel {
+	/** Nova's device day stands for the source's server `today()`. */
+	readonly today: boolean;
+	/** The source splices the device's day in as Nova does, between its own quote marks. */
+	readonly deviceDay: boolean;
+	/** Nova's wrapper adds a guard or a quote choice around a device value. */
+	readonly guarded: boolean;
+	/** The source's CSQL names a selection by a spelling HQ's search reads as Nova's
+	 *  (`hqSelectionSpelling`). */
+	readonly respelled?: true;
+}
+
+/** A word HQ's search analyses into one token whatever the analyser's rules for other
+ *  scripts: ASCII letters, digits and `_`, which the standard tokenizer joins, within its
+ *  255-character token limit. */
+const ONE_TOKEN = /^[A-Za-z0-9_]{1,255}$/u;
+
+/**
+ * `node` with each selection respelled as Nova prints the same query to HQ's search.
+ * HQ's search names one function `selected` and `selected-any`
+ * (`xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`), an analysed match on the value's
+ * words that any one finds (`query_functions.py::_selected_query`, `es/queries.py::match`),
+ * and `selected-all` the match all of them find. So `selected-any(p, 'a b')` finds what
+ * `(selected(p, 'a') or selected(p, 'b'))` finds, the spelling Nova prints for a fixed value's
+ * words (`csql/emitter.ts::selection`), and `selected-all(p, 'a b')` what
+ * `(selected(p, 'a') and selected(p, 'b'))` finds where each word is one token. For a value
+ * the device works out Nova prints `selected-any` and `selected-all` (`csql/emitter.ts::selection`),
+ * so there `selected` is `selected-any`.
+ */
+function hqSelectionSpelling(node: FormSyntax, prefix: string): FormSyntax {
+	const within = (child: FormSyntax) => hqSelectionSpelling(child, prefix);
+	switch (node.kind) {
+		case "group":
+		case "negative":
+			return { ...node, value: within(node.value) };
+		case "axis":
+			return { ...node, value: within(node.value) };
+		case "child":
+			return {
+				...node,
+				...(node.left === undefined ? {} : { left: within(node.left) }),
+				step: within(node.step),
+			};
+		case "filter":
+			return { ...node, base: within(node.base), where: within(node.where) };
+		case "binary":
+			return { ...node, left: within(node.left), right: within(node.right) };
+		case "call": {
+			const args = node.args.map(within);
+			const [property, value] = args;
+			const literal =
+				args.length === 2 && value !== undefined ? bare(value) : undefined;
+			const runtime =
+				literal !== undefined &&
+				((literal.kind === "string" && holdsMarker(literal.value, prefix)) ||
+					(literal.kind === "name" && holdsMarker(literal.name, prefix)));
+			// A value the device works out: Nova spells HQ's one function `selected-any`.
+			if (node.name === "selected" && runtime)
+				return { ...node, name: "selected-any", args };
+			if (
+				(node.name !== "selected-any" && node.name !== "selected-all") ||
+				property === undefined ||
+				literal?.kind !== "string" ||
+				runtime
+			)
+				return { ...node, args };
+			const words = literal.value
+				.split(/\s+/u)
+				.filter((word) => word.length > 0);
+			const all = node.name === "selected-all";
+			if (
+				words.length === 0 ||
+				(all && !words.every((word) => ONE_TOKEN.test(word)))
+			)
+				return { ...node, args };
+			if (words.length === 1) return { ...node, name: "selected", args };
+			const at = { from: node.from, to: node.to };
+			const tests = words.map(
+				(word): FormSyntax => ({
+					...at,
+					kind: "call",
+					name: "selected",
+					args: [property, { ...at, kind: "string", value: word }],
+				}),
+			);
+			const joined = tests.reduce(
+				(left, right): FormSyntax => ({
+					...at,
+					kind: "binary",
+					op: all ? "and" : "or",
+					left,
+					right,
+				}),
+			);
+			return { ...at, kind: "group", value: joined };
+		}
+		default:
+			return node;
+	}
+}
+
 /** Guards: the same CSQL and, hole for hole, the same device values, and no
- *  condition the source fails closed under that Nova's wrapper does not. */
+ *  condition the source fails closed under that Nova's wrapper does not. The
+ *  device's day Nova splices in is read first as the source's server
+ *  `today()`, then as the device's day the source splices in itself. */
 function guards(
 	row: RowSkeleton,
 	tree: CsqlNode,
 	prefix: string,
-): { readonly today: boolean; readonly guarded: boolean } | undefined {
+	unprinted: ReadonlySet<FormSyntax> = new Set(),
+): GuardsLevel | undefined {
 	const { parts, rejects } = row;
 	const [only] = parts;
 	if (parts.length === 1 && only?.kind === "presence") {
@@ -2075,34 +2221,43 @@ function guards(
 			{ parts: only.body, rejects: only.rejects },
 			tree.clause,
 			prefix,
+			unprinted,
 		);
 		return inner === undefined ? undefined : { ...inner, guarded: true };
 	}
 	if (tree.k === "presence") return undefined;
 	if (!rejectsHeld(rejects, tree)) return undefined;
 	const source = sourceText(parts, prefix);
-	const candidate = candidateText(tree, prefix);
-	if (source === undefined || candidate === undefined) return undefined;
-	if (source.holes.length !== candidate.holes.length) return undefined;
+	if (source === undefined) return undefined;
 	const left = readFormSyntax(source.text);
-	const right = readFormSyntax(candidate.text);
-	if (
-		!left.ok ||
-		!right.ok ||
-		left.node === undefined ||
-		right.node === undefined
-	)
-		return undefined;
-	if (!sameNode(left.node, right.node)) return undefined;
-	for (let index = 0; index < source.holes.length; index++) {
-		const hole = printed(candidate.holes[index] as WireExpr);
+	if (!left.ok || left.node === undefined) return undefined;
+	const respelling = hqSelectionSpelling(left.node, prefix);
+	for (const foldToday of [true, false]) {
+		const candidate = candidateText(tree, prefix, foldToday);
 		if (
-			hole === undefined ||
-			!sameNode(source.holes[index] as FormSyntax, hole)
+			candidate === undefined ||
+			source.holes.length !== candidate.holes.length
 		)
-			return undefined;
+			continue;
+		const right = readFormSyntax(candidate.text);
+		if (!right.ok || right.node === undefined) continue;
+		const same = sameNode(left.node, right.node);
+		const respelled = !same && sameNode(respelling, right.node);
+		if (!same && !respelled) continue;
+		const sameHoles = source.holes.every((node, index) => {
+			if (unprinted.has(node)) return true;
+			const hole = printed(candidate.holes[index] as WireExpr);
+			return hole !== undefined && sameNode(node, hole);
+		});
+		if (sameHoles)
+			return {
+				today: candidate.today,
+				deviceDay: candidate.deviceDay,
+				guarded: candidate.guarded,
+				...(respelled && { respelled: true as const }),
+			};
 	}
-	return { today: candidate.today, guarded: candidate.guarded };
+	return undefined;
 }
 
 /** The checker's and representability's refusal of a bound row, as its claim. */
@@ -2230,6 +2385,9 @@ export function readSearchFilterRow(
 	// reading, for the defect line of a row left unrecognized.
 	let differing: FormSyntax = source;
 	let differs = false;
+	// Whether a binding printed back as the source but at device values that
+	// read a lookup table's row, which Nova's print of them does not write.
+	let tableReadDiffers = false;
 	const unrecognized = () =>
 		({
 			ok: false,
@@ -2248,7 +2406,11 @@ export function readSearchFilterRow(
 		const rowContext = withPropertyTypes(context, typing);
 		const emission = emissionContext(rowContext, env);
 		for (const proposals of [true, false]) {
-			const { bound: raw, today } = bindCsql(parts, rowContext, env, {
+			const {
+				bound: raw,
+				today,
+				tableReads,
+			} = bindCsql(parts, rowContext, env, {
 				text,
 				proposals,
 			});
@@ -2302,6 +2464,11 @@ export function readSearchFilterRow(
 			}
 			const level = guards(row, tree, prefix);
 			if (level === undefined) {
+				if (
+					tableReads.size > 0 &&
+					guards(row, tree, prefix, tableReads) !== undefined
+				)
+					tableReadDiffers = true;
 				if (!differs) {
 					differing = wrapperDifference(source, bound, emission) ?? source;
 					differs = true;
@@ -2309,7 +2476,13 @@ export function readSearchFilterRow(
 				continue;
 			}
 			const rewrites: EmissionRewriteId[] = [];
-			if (level.guarded || !(today && level.today))
+			// The device's day between other quote marks than Nova's is the same CSQL
+			// on every device, and a selection HQ's search reads as Nova's spelling of it
+			// the same query, so neither alone is a rewrite a worker meets.
+			if (
+				level.guarded ||
+				!((today && level.today) || level.deviceDay || level.respelled)
+			)
 				rewrites.push("search-value-guards");
 			if (today && level.today) rewrites.push("search-today-device-day");
 			return {
@@ -2318,6 +2491,7 @@ export function readSearchFilterRow(
 				level: "guards",
 				rewrites: changing(reached, rewrites),
 				...types,
+				...(level.respelled && { respelled: true as const }),
 			};
 		}
 	}
@@ -2325,6 +2499,21 @@ export function readSearchFilterRow(
 	// row Nova's to explain, whatever another binding was refused for.
 	if (firstRefusal !== undefined && !differs)
 		return { ok: false, claim: rowClaim(firstRefusal, source) };
+	// A table's row the device reads in a spelling Nova's print does not write
+	// (HQ's page writes a row's column as `rows[1]/column`, which Nova prints
+	// under its guard for no rows) is the device query, not a row Nova cannot
+	// explain.
+	if (tableReadDiffers)
+		return {
+			ok: false,
+			claim: rowClaim(
+				{
+					entryId: DEVICE_QUERY,
+					detail: { name: "_xpath_query", reason: "table-lookup" },
+				},
+				source,
+			),
+		};
 	return unrecognized();
 }
 
@@ -2390,12 +2579,19 @@ export interface CsqlRun {
 }
 
 /** A row's CSQL as HQ's search reads it, with the holes in it: the parsed
- *  text the surface uses read, each marker's device node, and the runs of
- *  each choice the device makes in it, at any depth. Undefined where the
+ *  text the binding, the scans and the surface uses read, each marker's
+ *  device node, the runs of each choice the device makes in it, at any
+ *  depth, and the CSQL of each text the row can send HQ. Undefined where the
  *  text is no CSQL the grammar reads. */
-export function searchRowCsql(
-	wrapper: FormSyntax,
-): (CsqlRun & { readonly presence: boolean }) | undefined {
+export function searchRowCsql(wrapper: FormSyntax):
+	| (CsqlRun & {
+			readonly presence: boolean;
+			/** The CSQL of each text the row can send HQ (`sentTexts`), its two
+			 *  holes in `holes` too: the texts whose CSQL HQ's search parses,
+			 *  each a use of what it names. */
+			readonly sent: readonly FormSyntax[];
+	  })
+	| undefined {
 	let { parts } = rowSkeleton(wrapper);
 	let presence = false;
 	// A presence test inside another's body tests a second field: the CSQL is
@@ -2407,7 +2603,23 @@ export function searchRowCsql(
 		parts = only.body;
 	}
 	const run = csqlRunTree(parts);
-	return run === undefined ? undefined : { ...run, presence };
+	if (run === undefined) return undefined;
+	const holes = new Map(run.holes);
+	const literals: string[] = [];
+	visitSyntax(wrapper, (node) => {
+		if (node.kind === "string") literals.push(node.value);
+	});
+	const sentPrefix = markerPrefix([...literals, ...holes.keys()]);
+	const marks = {
+		hole: `${sentPrefix}nova_hole_sent__`,
+		dateHole: `${sentPrefix}nova_hole_sent_date__`,
+	};
+	const sent: FormSyntax[] = [];
+	for (const text of sentTexts(wrapper, marks, holes)) {
+		const read = readFormSyntax(text);
+		if (read.ok && read.node !== undefined) sent.push(read.node);
+	}
+	return { ...run, holes, presence, sent };
 }
 
 /** `parts` as one run, with the runs of each choice among its holes. */
@@ -2449,4 +2661,161 @@ function csqlRun(parts: readonly SkeletonPart[]):
 		if (part.kind === "choice") choices.set(marker, part);
 	}
 	return { csql: csql.node, holes, choices };
+
+/** Core's limit on the texts one `concat()` gives (`Shapes.MAX_STRINGS`). */
+const SENT_TEXTS_LIMIT = 256;
+
+/**
+ * The texts a row's wrapper can send HQ's search, as Core's `xpathStrings`
+ * reads them (`proof/core/.../Shapes.java::strings`, the reading the proof
+ * lane's manifest check takes): a string literal is its text, a number its
+ * text as `FunctionUtils.toString` writes it, `concat()` each combination of
+ * its arguments' texts in order, cut at 256 distinct texts, `if()` the texts
+ * of its two branches, `today()` the date hole and any other expression the
+ * hole, a value only the device knows. Each hole is one marker (`marks`), as
+ * Core's reading writes one text for every hole, each noted in `holes` beside
+ * the first node it stands for.
+ */
+function sentTexts(
+	node: FormSyntax,
+	marks: { readonly hole: string; readonly dateHole: string },
+	holes: Map<string, FormSyntax>,
+): ReadonlySet<string> {
+	const at = bare(node);
+	if (at.kind === "string") return new Set([at.value]);
+	if (at.kind === "number") return new Set([coreNumberText(at.value)]);
+	if (at.kind === "call" && at.name === "concat") {
+		let combined: ReadonlySet<string> = new Set([""]);
+		for (const argument of at.args) {
+			const parts = sentTexts(argument, marks, holes);
+			const next = new Set<string>();
+			for (const prefix of combined)
+				for (const part of parts) {
+					if (next.size >= SENT_TEXTS_LIMIT) break;
+					next.add(prefix + part);
+				}
+			combined = next;
+		}
+		return combined;
+	}
+	if (at.kind === "call" && at.name === "if" && at.args.length === 3)
+		return new Set([
+			...sentTexts(at.args[1] as FormSyntax, marks, holes),
+			...sentTexts(at.args[2] as FormSyntax, marks, holes),
+		]);
+	const mark =
+		at.kind === "call" && at.name === "today" ? marks.dateHole : marks.hole;
+	if (!holes.has(mark)) holes.set(mark, at);
+	return new Set([mark]);
+}
+
+/** The text Core's `FunctionUtils.toString` gives a number. */
+function coreNumberText(value: number): string {
+	if (Number.isNaN(value)) return "NaN";
+	if (Math.abs(value) < 1e-12) return "0";
+	if (!Number.isFinite(value)) return value < 0 ? "-Infinity" : "Infinity";
+	// Java's `(int) d`: toward zero, held to an int's range.
+	const whole = Math.max(-2147483648, Math.min(2147483647, Math.trunc(value)));
+	if (Math.abs(value - whole) < 1e-12) return String(whole);
+	// Java's `String.valueOf(double)`: plain from 10^-3 up to 10^7, else a
+	// mantissa with at least one fraction digit and `E` before the exponent.
+	const magnitude = Math.abs(value);
+	if (magnitude >= 1e-3 && magnitude < 1e7) return String(value);
+	const [mantissa = "", exponent = "0"] = value.toExponential().split("e");
+	return `${mantissa.includes(".") ? mantissa : `${mantissa}.0`}E${Number(exponent)}`;
+}
+
+/** The classes of what a held search row works out on the device, each the value class of an
+ *  entry of the row's own key: a clause it chooses by a condition, and the runtime values it
+ *  reads, the three session-context values that may be absent apart from the rest. */
+export type SearchRowRuntimeClass =
+	| "conditional-choice"
+	| "case-or-datum-terms"
+	| "session-context-drift-term"
+	| "session-context-window-width-term"
+	| "session-context-applanguage-term";
+
+/**
+ * The runtime classes a held row's predicate holds, in the order above, each once. A clause
+ * chosen by `if` or `switch` where a clause stands is a conditional choice. A runtime value
+ * reads the session (its datums and its context), the worker, a Search field's answer or a
+ * property of the case chosen in a menu; `drift`, `window_width` and `applanguage` are each a
+ * class of their own. A presence test reads no value, and a property of the searched case is
+ * the query's own anchor, no runtime value.
+ */
+export function searchRowRuntimeClasses(
+	predicate: Expression,
+): readonly SearchRowRuntimeClass[] {
+	const found = new Set<SearchRowRuntimeClass>();
+	const clause = (node: Expression): void => {
+		switch (node.kind) {
+			case "and":
+			case "or":
+				for (const one of node.clauses) clause(one);
+				return;
+			case "not":
+				clause(node.clause);
+				return;
+			case "when-input-present":
+				clause(node.clause);
+				return;
+			case "if":
+				found.add("conditional-choice");
+				clause(node.then);
+				clause(node.else);
+				return;
+			case "switch":
+				found.add("conditional-choice");
+				for (const one of node.cases) clause(one.then);
+				clause(node.fallback);
+				return;
+			default:
+				return;
+		}
+	};
+	clause(predicate);
+	const presence = new Set<object>();
+	walkExpression(predicate, {
+		visitExpression(expression) {
+			if (expression.kind === "when-input-present")
+				presence.add(expression.input);
+			if (
+				expression.kind === "project" &&
+				readChosenCaseProperty(expression) !== undefined
+			)
+				found.add("case-or-datum-terms");
+		},
+		visitTerm(term) {
+			if (presence.has(term)) return;
+			switch (term.kind) {
+				case "input":
+				case "session-user":
+				case "session-user-property":
+				case "session-datum":
+					found.add("case-or-datum-terms");
+					return;
+				case "session-context":
+					found.add(
+						term.field === "drift"
+							? "session-context-drift-term"
+							: term.field === "window_width"
+								? "session-context-window-width-term"
+								: term.field === "applanguage"
+									? "session-context-applanguage-term"
+									: "case-or-datum-terms",
+					);
+					return;
+				default:
+					return;
+			}
+		},
+	});
+	const order: readonly SearchRowRuntimeClass[] = [
+		"conditional-choice",
+		"case-or-datum-terms",
+		"session-context-drift-term",
+		"session-context-window-width-term",
+		"session-context-applanguage-term",
+	];
+	return order.filter((one) => found.has(one));
 }

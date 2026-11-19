@@ -35,6 +35,19 @@ describe("blanksAfterDirectionChange", () => {
 		expect(sortBlanks(turned)).toBe("last");
 	});
 
+	it("keeps the rule's name in Sort by through a turn", () => {
+		const turned = blanksAfterDirectionChange(
+			columnSort("asc", 0, undefined, "Oldest first"),
+			"desc",
+			undefined,
+		);
+		expect(turned).toEqual({
+			direction: "desc",
+			priority: 0,
+			label: "Oldest first",
+		});
+	});
+
 	it("writes the picked side against the new direction where they differ", () => {
 		const turned = blanksAfterDirectionChange(
 			columnSort("desc", 0),

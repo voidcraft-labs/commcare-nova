@@ -82,8 +82,8 @@ matches it by that id; one CommCare HQ no longer has (not one the plan leaves
 out at a level the app lacks, `leftOutHqLocationIds`) takes `hq_gone_at`,
 which worker provisioning reads as gone and the next match clears. A kept place
 the plan leaves out stays as the copy held it, at its old level, and the
-refresh names it (`keptLeftOut`, Copy O27), as the standing left-out line
-(O8) says such places stay. A gone row
+refresh names it (`keptLeftOut`), as the standing left-out line
+(`lib/publish/managedData.ts::managedPlacesLeftOut`) says such places stay. A gone row
 whose code CommCare HQ now gives another place takes a numbered code, and
 re-coded rows pass through a `~<id>` placeholder so a swap never meets the
 unique site code midway. Past `MAX_LOCATIONS_PER_APP` (archived rows count,

@@ -123,6 +123,7 @@ import {
 	type SetvalueRefusalDetails,
 	setvalueText,
 } from "./answerCast";
+import { heldCalculatedNumber } from "./calculatedNumber";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
@@ -1751,6 +1752,17 @@ export class FormEngine {
 		) {
 			return numericAnswerText(value);
 		}
+		// Core holds a calculated number by `Recalculate.wrapData`: its
+		// `(int)` under a whole-number bind, else its long where it is within a
+		// billionth of one, else the double, and submits that holding's text,
+		// so `3e9` is `3000000000` and not XPath's `3.0E9`.
+		if (
+			field.kind === "hidden" &&
+			typeof value === "number" &&
+			!Number.isNaN(value)
+		) {
+			return heldCalculatedNumber(value, this.bindsWholeNumber(field)).text;
+		}
 		// Core wraps a calculated Date using the destination bind
 		// (`Recalculate.wrapData`): a datetime bind holds `DateTimeData` of the
 		// instant, written as its canonical text in this realm's zone. XPath's
@@ -1771,8 +1783,21 @@ export class FormEngine {
 		return xpathToString(result);
 	}
 
+	/** Whether a field binds as a whole number, under which Core holds a
+	 *  calculated number as its `(int)`. */
+	private bindsWholeNumber(field: Field): boolean {
+		return (
+			fieldValueType(
+				field,
+				this.caseWriteDoc.caseTypes ?? [],
+				this.fieldWrites(field),
+			) === "int"
+		);
+	}
+
 	/** The runtime value a hidden calculation's node holds beside its text, as
-	 * `Recalculate.wrapData` wraps it: a number or boolean as itself, a Date
+	 * `Recalculate.wrapData` wraps it: a number as `heldCalculatedNumber`
+	 * holds it, a boolean as itself, a Date
 	 * into a datetime bind as its instant (`DateTimeData`), a Date into a time
 	 * bind as text, and a Date into any other bind as its local date
 	 * (`DateData` rounds). */
@@ -1783,7 +1808,9 @@ export class FormEngine {
 		if (field.kind !== "hidden") return undefined;
 		if (typeof result === "boolean") return result;
 		if (typeof result === "number") {
-			return Number.isNaN(result) ? undefined : result;
+			return Number.isNaN(result)
+				? undefined
+				: heldCalculatedNumber(result, this.bindsWholeNumber(field)).value;
 		}
 		if (!isXPathDate(result)) return undefined;
 		const valueType = fieldValueType(

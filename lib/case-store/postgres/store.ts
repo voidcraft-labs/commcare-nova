@@ -122,6 +122,7 @@ import type {
 	MigrationReport,
 	ParkedValueEntry,
 	QueryArgs,
+	RelatedRead,
 	ResetSampleDataArgs,
 	RestoreScope,
 	SchemaChangeKind,
@@ -504,7 +505,8 @@ function compileSortKey(
 			: key.kind === "interval-text"
 				? compileIntervalText(
 						{
-							caseType,
+							caseType: key.relation?.caseType ?? caseType,
+							...(key.relation !== undefined && { via: key.relation.via }),
 							property: key.property,
 							display: key.display,
 							thresholdDays: key.thresholdDays,
@@ -855,6 +857,7 @@ export class PostgresCaseStore implements CaseStore {
 	 */
 	private buildCaseSelect(args: QueryArgs) {
 		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
+		const related: ReadonlyArray<RelatedRead> = args.related ?? [];
 		if (args.caseIds !== undefined) {
 			if (
 				args.caseIds.length > 100 ||
@@ -959,7 +962,7 @@ export class PostgresCaseStore implements CaseStore {
 		// Reject early with the canonical compiler-bug shape so the
 		// caller surfaces the contract violation instead of a silent
 		// null-row or a wrapped pg parser error.
-		for (const column of calculated) {
+		for (const column of [...calculated, ...related]) {
 			if (column.uuid === "") {
 				throw new Error(
 					compilerBugMessage({
@@ -1042,10 +1045,15 @@ export class PostgresCaseStore implements CaseStore {
 			qb = qb.where(parentScope);
 		}
 
-		// Project each calculated column under its prefixed alias.
+		// Project each calculated column under its prefixed alias, and each
+		// value read off another case as the text a device holds for it.
 		for (const column of calculated) {
 			const expr = compileExpression(column.expression, exprCtx);
 			qb = qb.select(expr.as(aliasFor(column.uuid)));
+		}
+		for (const read of related) {
+			const text = compileDeviceTextExpression(read.expression, exprCtx);
+			qb = qb.select(text.as(aliasFor(read.uuid)));
 		}
 
 		if (args.predicate !== undefined) {
@@ -1058,7 +1066,7 @@ export class PostgresCaseStore implements CaseStore {
 		// alias (`__nova_calc__<uuid>`) with the consumer-facing key
 		// (the column's `uuid`) so the loop body needs no extra
 		// string ops per row.
-		const calcAliases = calculated.map((c) => ({
+		const calcAliases = [...calculated, ...related].map((c) => ({
 			alias: aliasFor(c.uuid),
 			uuid: c.uuid,
 		}));

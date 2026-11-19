@@ -683,7 +683,7 @@ describe("every export keeps Nova's voice", () => {
 });
 
 describe("the forms a sentence chooses by its arguments", () => {
-	it("joins the levels O14 names and makes the verb agree", () => {
+	it("joins the levels a removed-level refusal names and makes the verb agree", () => {
 		expect(
 			managedOrganizationCommitRefusal(
 				{ kind: "level-in-use", levels: ["Ward"] },
@@ -702,7 +702,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("sends a place CommCare HQ no longer has to what uses it, in O14 to O16's kept forms", () => {
+	it("sends a place CommCare HQ no longer has to what uses it, in the kept forms of the commit refusals", () => {
 		expect(
 			managedOrganizationCommitRefusal(
 				{ kind: "placement", place: '"Mercy Clinic"', kept: true },
@@ -721,7 +721,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("words O24 and O25 with a step a managed copy takes", () => {
+	it("words an owner rule's source refusals with a step a managed copy takes", () => {
 		expect(
 			managedOrganizationCommitRefusal(
 				{
@@ -751,7 +751,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("carries O16's issue between its two sentences", () => {
+	it("carries a value refusal's issue between its two sentences", () => {
 		expect(
 			managedOrganizationCommitRefusal(
 				{
@@ -789,7 +789,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("makes T16 agree with the apps that read the kept column", () => {
+	it("makes the kept-column line agree with the apps that read the kept column", () => {
 		expect(managedColumnKept("region", [intake], "acme-health")).toBe(
 			"CommCare HQ no longer has the column region, and Intake still reads it. Nova kept the column, with no values, so that app keeps opening. Its next publish to acme-health stops until the column is back in CommCare HQ or it stops reading it.",
 		);
@@ -801,7 +801,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("counts the places of O6, O8 and O27 and spells a count with its separator", () => {
+	it("counts the kept, left-out and kept-left-out places and spells a count with its separator", () => {
 		expect(managedPlacesKeptInUse(["Kisumu"])).toBe(
 			"1 place is gone from CommCare HQ, and a persona, an owner rule or an automation still uses it: Kisumu. Nova kept it. You can move or change what uses it, then refresh again.",
 		);
@@ -837,7 +837,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("makes T6's holds for a name and for many values", () => {
+	it("makes the unsupported refresh's holds for a name and for many values", () => {
 		expect(
 			copy.managedTableUnsupported(copy.holdsColumnNamed("2nd name")),
 		).toBe(
@@ -848,7 +848,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("says P1 sends none only of the tables the target manages", () => {
+	it("says the passed managed-data check sends none only of the tables the target manages", () => {
 		expect(
 			copy.managedDataPassed({ domain: "acme-health", here: 2, elsewhere: 0 }),
 		).toBe(
@@ -869,7 +869,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		).not.toMatch(/sends none/);
 	});
 
-	it("makes P13 agree with the tables it names", () => {
+	it("makes the passed project-data check agree with the tables it names", () => {
 		expect(copy.managedTablesLeftOut(["districts"], "acme-health")).toBe(
 			"CommCare HQ manages districts in acme-health, so Nova leaves it as it is.",
 		);
@@ -880,7 +880,7 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("says P15 refreshed the places only where it did", () => {
+	it("says the passed organization check refreshed the places only where it did", () => {
 		expect(copy.managedPlacesPassed("acme-health", true)).toBe(
 			"acme-health manages this app's places. Nova refreshed its copy and sends none.",
 		);
@@ -897,7 +897,7 @@ describe("the review's choice about a table that meets a Project table", () => {
 		options: { "use-commcare-hq": offered, "use-project": offered },
 	};
 
-	it("draws R6's title by whether the tables differ", () => {
+	it("draws the choice's title by whether the tables differ", () => {
 		expect(
 			reviewChoiceTitle("districts", "Kenya rollout", { differs: ["columns"] }),
 		).toBe("districts is already in Kenya rollout, and it's different");
@@ -906,7 +906,7 @@ describe("the review's choice about a table that meets a Project table", () => {
 		).toBe("districts is already in Kenya rollout");
 	});
 
-	it("draws R7's first form for tables that differ, naming what differs", () => {
+	it("draws the choice body's first form for tables that differ, naming what differs", () => {
 		const lead =
 			"This app reads the lookup table districts from acme-health. Kenya rollout already has a table by that name with";
 		expect(
@@ -930,7 +930,7 @@ describe("the review's choice about a table that meets a Project table", () => {
 		).toBe(`${lead} different rows.`);
 	});
 
-	it("draws R7's second form for an equal table Nova manages, open to the person", () => {
+	it("draws the choice body's second form for an equal table Nova manages, open to the person", () => {
 		expect(
 			reviewChoiceBody("districts", "Kenya rollout", "acme-health", base),
 		).toBe(
@@ -946,7 +946,7 @@ describe("the review's choice about a table that meets a Project table", () => {
 		);
 	});
 
-	it("drops R7's last sentence where the Project's table fails a project space rule", () => {
+	it("drops the choice body's last sentence where the Project's table fails a project space rule", () => {
 		expect(
 			reviewChoiceBody("districts", "Kenya rollout", "acme-health", {
 				...base,
@@ -964,7 +964,7 @@ describe("the review's choice about a table that meets a Project table", () => {
 		);
 	});
 
-	it("keeps R7's last sentence where use-project is refused for another reason", () => {
+	it("keeps the choice body's last sentence where use-project is refused for another reason", () => {
 		expect(
 			reviewChoiceBody("districts", "Kenya rollout", "acme-health", {
 				...base,
@@ -980,7 +980,7 @@ describe("the review's choice about a table that meets a Project table", () => {
 		).toMatch(/so it's yours to say which one this app uses\.$/);
 	});
 
-	it("draws R7's third form for an equal table managed from another project space", () => {
+	it("draws the choice body's third form for an equal table managed from another project space", () => {
 		const elsewhere = {
 			...base,
 			options: {
@@ -1040,7 +1040,7 @@ describe("the review's choice about a table that meets a Project table", () => {
 		).toThrow(/names nothing/);
 	});
 
-	it("makes R8's lines agree and drops the apps where none reads the table", () => {
+	it("makes the first answer's lines agree and drops the apps where none reads the table", () => {
 		expect(
 			copy.hqTableAnswerConsequence("Kenya rollout", "districts", []),
 		).toBe(

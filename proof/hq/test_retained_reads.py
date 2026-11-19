@@ -84,7 +84,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import os
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -94,6 +93,7 @@ from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.conftest import MIGRATION_WITNESSES, nova_shaped_upload, retained_migration_a
 from proof.hq.seams import RedisCounters, api_rate_limits, rate_counters
+from proof.matrix.retained import Retained
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
 READS = PROOF_DIR / "hq-reads"
@@ -115,54 +115,6 @@ PUBLISH_FILES = (
     "update-linked",
     "update-missing",
 )
-
-
-def _text(value) -> str:
-    return json.dumps(value, indent="\t", ensure_ascii=False) + "\n"
-
-
-class Retained:
-    """One group's answers: each written to the run's output as it is made, then the committed files held to
-    them."""
-
-    def __init__(self, group):
-        self.group = group
-        self.made: dict[str, str] = {}
-        out = os.environ.get("PROOF_OUT")
-        if not out:
-            pytest.fail(
-                "The retained reads are written under $PROOF_OUT/hq-reads, and PROOF_OUT is not set. Run them through"
-                " the proof harness (npm run proof -- proof/hq/test_retained_reads.py), which sets it to /out."
-            )
-        self.out = Path(out) / "hq-reads" / group
-
-    def keep(self, name, value):
-        text = _text(value.retained() if isinstance(value, operations.HqAnswer) else value)
-        if name in self.made:
-            raise AssertionError(f"The {self.group} group made {name} twice.")
-        self.made[name] = text
-        path = self.out / f"{name}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-        return value
-
-    def hold(self, committed: Path, *, ignore=(), others=lambda name: False):
-        """The committed files are exactly those made, byte for byte (each ``ignore``d subtree, and each file
-        ``others`` says another test writes, left out)."""
-        held = {
-            path.relative_to(committed).with_suffix("").as_posix(): path.read_text(encoding="utf-8")
-            for path in sorted(committed.rglob("*.json"))
-            if not any(path.relative_to(committed).as_posix().startswith(prefix) for prefix in ignore)
-            and not others(path.relative_to(committed).with_suffix("").as_posix())
-        }
-        missing = sorted(set(self.made) - set(held))
-        stale = sorted(name for name in set(self.made) & set(held) if held[name] != self.made[name])
-        extra = sorted(set(held) - set(self.made))
-        assert not (missing or stale or extra), (
-            f"proof/hq-reads/{self.group}/ is not what HQ answers at its pin: missing {missing}, changed {stale},"
-            f" made by nothing {extra}. HQ's answers are written to {self.out}; copy them into"
-            f" proof/hq-reads/{self.group}/ and read what changed."
-        )
 
 
 @contextmanager

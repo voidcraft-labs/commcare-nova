@@ -95,15 +95,20 @@ describe("KEPT_AT_HQ and the manifest", () => {
 	});
 });
 
-/** The HQ-authored apps the rows name, each holding its rows' values away from the default. */
-const BASES = new Set(["hq-new-app", "hq-kept-settings", "starter-health"]);
+/** The apps the lane authors in CommCare HQ (`proof/matrix/bases.json`), the bases a row may name. */
+const BASES = new Set<string>(
+	JSON.parse(readFileSync(resolve("proof/matrix/bases.json"), "utf8")),
+);
 
 describe("KEPT_AT_HQ's rows", () => {
 	const rows = Object.entries(KEPT_AT_HQ);
 
-	it("name a base that holds them", () => {
+	it("name a base that holds them, or none where no reading meets them", () => {
+		// Whether a base-less row is exempt, and under a reason true of it, is coverage's rule 2.
 		expect(
-			rows.filter(([, row]) => !BASES.has(row.base)).map(([id]) => id),
+			rows
+				.filter(([, row]) => row.base !== null && !BASES.has(row.base))
+				.map(([id]) => id),
 		).toEqual([]);
 	});
 

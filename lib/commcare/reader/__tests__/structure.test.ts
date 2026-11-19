@@ -9,7 +9,8 @@
  * read to anything but the one finding `form-name-read-as-an-instance`; and
  * an advanced menu's or form's class recorded nowhere the lane records it
  * (the object's own pointer), or an advanced form's dynamic keys left for
- * the close.
+ * the close; and the legacy labels HQ's agriculture template carries on a
+ * menu refused as undeclared keys, or any other undeclared key let through.
  */
 
 import { describe, expect, it } from "vitest";
@@ -103,6 +104,30 @@ describe("readStructure", () => {
 		]);
 	});
 
+	it("drops the legacy labels HQ's agriculture template carries on a menu, and refuses any other undeclared key", async () => {
+		const legacy = {
+			referral_label: { en: "Referrals" },
+			case_label: { en: "Cases" },
+		};
+		const { ctx, closed } = await readMenus([
+			menu("m-legacy", "Visits", [], legacy),
+		]);
+		expect(closed.findings).toEqual([]);
+		expect(entriesAt(closed, "/modules/0/referral_label")).toEqual([
+			`${M}/module-referral-label-case-label`,
+		]);
+		expect(entriesAt(closed, "/modules/0/case_label")).toEqual([
+			`${M}/module-referral-label-case-label`,
+		]);
+		expect(ctx.draft.modules).toHaveLength(1);
+		const planted = await readMenus([
+			menu("m-planted", "Visits", [], { planted_label: { en: "x" } }),
+		]);
+		expect(planted.closed.findings.map((one) => one.code)).toEqual([
+			`${M}/any-other-undeclared-key`,
+		]);
+	});
+
 	it("reads an advanced menu's and form's class at the object itself, and an advanced form's dynamic keys as a form's", async () => {
 		const xmlns = "http://openrosa.org/formdesigner/advanced";
 		const { ctx, closed } = await readMenus([
@@ -143,6 +168,29 @@ describe("readStructure", () => {
 			docType: "AdvancedModule",
 			forms: [{ docType: "AdvancedForm" }],
 		});
+	});
+
+	it("reads a basic menu's class at the object itself, a case list menu where it names a case type and a survey menu where it names none", async () => {
+		const { closed } = await readMenus([
+			menu("m-list", "Households", [], { case_type: "household" }),
+			menu("m-survey", "Surveys", [], { case_type: "" }),
+			menu("m-unset", "Unset"),
+		]);
+		expect(entriesAt(closed, "/modules/0")).toEqual([
+			`${M}/module-with-case-type-case-list-module`,
+		]);
+		expect(entriesAt(closed, "/modules/1")).toEqual([
+			`${M}/module-with-case-type-survey-module`,
+		]);
+		expect(entriesAt(closed, "/modules/2")).toEqual([
+			`${M}/module-with-case-type-survey-module`,
+		]);
+		const missing = await readMenus([
+			menu(null, "No id", [], { case_type: "household" }),
+		]);
+		expect(entriesAt(missing.closed, "/modules/0")).toEqual([
+			`${M}/module-unique-id-missing`,
+		]);
 	});
 
 	it("gives a mirror menu one finding at the menu, whatever it holds", async () => {

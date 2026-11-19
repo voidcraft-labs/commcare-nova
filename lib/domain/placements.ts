@@ -73,6 +73,34 @@ export const casePlacementSchema = z.union([
 ]);
 export type CasePlacement = z.infer<typeof casePlacementSchema>;
 
+/**
+ * Whether two placements are one place. It compares the fields each kind
+ * holds, never a serialization, because a placement a document stores and one
+ * the planner builds need not write their keys in one order.
+ */
+export function sameCasePlacement(a: CasePlacement, b: CasePlacement): boolean {
+	switch (a.kind) {
+		case "basic":
+			if (b.kind !== "basic" || a.slot !== b.slot) return false;
+			return (
+				a.slot !== "subcase" || (b.slot === "subcase" && a.index === b.index)
+			);
+		case "advanced":
+			return (
+				b.kind === "advanced" &&
+				a.tag === b.tag &&
+				(a.row === true) === (b.row === true)
+			);
+		case "save-to-case":
+			return (
+				b.kind === "save-to-case" &&
+				a.repeat === b.repeat &&
+				a.path.length === b.path.length &&
+				a.path.every((segment, i) => segment === b.path[i])
+			);
+	}
+}
+
 /** The own close runs once per form, at the root (a close in a repeat is the
  *  cutover's blocker `own-close-in-repeat`), so its block holds no `repeat`. */
 export const ownClosePlacementSchema = saveToCasePlacementSchema.omit({

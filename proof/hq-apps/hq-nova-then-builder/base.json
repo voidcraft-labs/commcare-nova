@@ -1,0 +1,22 @@
+{
+	"id": "hq-nova-then-builder",
+	"configuration": {
+		"flags": [
+			"CASE_SEARCH_ADVANCED"
+		],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"VELLUM_SAVE_TO_CASE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"questions/repeat-group-user-controlled",
+		"questions/text-input-xsd-string"
+	]
+}

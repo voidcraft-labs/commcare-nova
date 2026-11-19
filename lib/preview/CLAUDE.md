@@ -156,6 +156,12 @@ them when it shows a question. Android keeps what earlier changes left.
 Hidden calculations retain their evaluated numeric and boolean types in the live
 instance, entry checkpoints, and worker updates. UI/submission values remain text;
 counts reading those nodes use Core's typed conversion without replaying calculations.
+A calculated number is held as `Recalculate.wrapData` holds it
+(`engine/calculatedNumber.ts::heldCalculatedNumber`): its `(int)` under a
+whole-number bind, else its long where it is within a billionth of one, else
+the double, and its text is that holding's (`3e9` is `3000000000`, `1e-10` is
+`0`, `2e-9` is `2.0E-9`), never XPath's string of the double, so a Hidden Value
+saved to a text property stores what a device submits.
 
 Calculated/default datetime answers retain the XPath Date's instant, including
 hidden writers whose effective destination is datetime. Both synchronous and
@@ -1476,6 +1482,14 @@ store compares text lowercased by code point, a number only where its trimmed
 text is a plain decimal, and places blanks by the rule's `blanks` whatever its
 direction (`lib/case-store/postgres/store.ts`).
 
+A column read through a relation (`Column.via`) reads the related case's value
+as the device holds it, which the case store projects beside the row under the
+column's uuid in `row.calculated` (`QueryArgs.related`,
+`caseDataBindingHelpers.ts::runtimeRelatedReads`); its sort keys read the same
+walk, and the cell and the quick filter read that value through
+`columnDisplay.ts::columnSourceValue` and `columnRawText`, with the related
+type's catalog entry from `ColumnDisplayContext.relatedProperties`.
+
 The quick filter (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`)
 matches what a device's search matches, all from the plan: each shown column's
 text, each hidden field's text (the raw property, or a hidden calculated
@@ -1499,10 +1513,13 @@ orders by (a field with no key has none; a carrier's raw value is its own).
 The platform rule `listFilter` holds what each runtime does around it: Web
 Apps splits the typed text on single spaces, skips an empty text and, with
 fuzzy search on, orders the matches closest first only among the rows the
-list's order ties on every rule (`closest-among-ties`: Core sorts the filter's
-matches by score, then Formplayer sorts them again by the list's order with a
-stable sort), judging a tie by each rule's key text as the case store compares
-it (`caseListFilterFields.ts::orderTermsTie`); Android splits on runs of
+order they were read in ties on every term (`closest-among-ties`: Core sorts
+the filter's matches by score, then Formplayer sorts them again with a stable
+sort by the order it shows, the worker's Sort by pick alone where there is one
+and the list's order otherwise, `EntityScreenHelper.initEntities`), judging a
+tie by each key's text as the case store compares it
+(`caseListFilterFields.ts::caseListOrderTerms` over the list's
+`CaseListSortChoice`, `orderTermsTie`); Android splits on runs of
 whitespace, puts the closest matches first across the whole list and, once
 the worker has typed, runs an emptied box as one empty
 term. The required question's asterisk follows the platform rule
@@ -1526,6 +1543,53 @@ closeness too; and a number written
 in a form the plain decimal pattern does not match (an exponent, a leading `+`,
 a bare `.5`) is no number in Preview. The filter reads a calculated decimal as
 the case store's number text, where a device prints its own `Double`.
+
+## The list's Sort by
+
+The running list's **Sort by** (`components/preview/shared/CaseListSortMenu.tsx`)
+is the platform's, from the platform rule `sortMenu` and the pure model
+`caseListSortMenu.ts`, over the order plan in the language Preview shows
+(`useCaseListOrderPlan` over the worker module, whose sort labels
+`localizedBlueprintProjection.ts` localizes). `caseListSortOptions` lists
+Android's every field with a header that is not blank (a shown field always,
+a blank header being written as a no-break space; a hidden field or a carrier
+only with its name in Sort by, `EntitySelectActivity.getSortOptionsList`),
+numbered in the list's own order before a pick; and Web Apps' sort fields
+(`Detail.getOrderedFieldIndicesForSorting`): every one in a tile list's Sort
+By, only the shown ones in a list of columns, where Web Apps sorts by a
+clicked header and Preview offers the same fields in its menu. A pick orders
+by that field alone (`caseListOrder.ts::caseListSingleFieldOrder`, rule 11);
+picking it again turns it around, and on Android a first pick of the list's
+only sort field turns it around at once (`SortableEntityAdapter.sort`).
+Android keeps the earlier picks, newest first, then the list's own rules, to
+break ties, since it sorts the list it holds again with a stable sort; Web
+Apps sorts afresh by the one pick (`EntityScreenHelper.sortEntities`), and
+new filter text lets the pick go (`CloudcareUrl.setSearch`). The choice is
+`CaseListSortChoice`, plain JSON on `loadCasesAction`'s `sortChoice`,
+checked by `caseListSortChoiceSchema`; `buildCaseStoreSortKeys` puts the
+picks' keys first, so the case store orders every page by them, and a pick
+the plan no longer holds orders nothing. The choice belongs to the list's
+authored identity and the platform, and a pick keeps the page.
+
+What the list keeps of the worker's place in it (the page, the filter text,
+the pick) when they come back is the platform rule `caseListReturn` and the
+pure model `caseListReturn.ts`. Its own case details are part of the list, so
+they move nothing. `CaseListScreen` sees a return when the list shows again
+after its location stopped being current or it held a form menu, and asks
+`useClientPath.ts::readBuilderHistoryArrival` how: a step back (Back, Forward,
+a screen's own step back) keeps the place in Web Apps, whose list address
+carries `page`, `search` and `sortIndex` (`CloudcareUrl`), and on Android shows
+a new list (`EntitySelectActivity` finishes when a case is chosen), at its top
+in its own order with the filter text it held when it last opened a case's
+details (`saveLastQueryString` as the details cover it,
+`restoreLastQueryString` in the new list); any forward step (a submission
+landing on the list, a menu, a crumb, Home) starts afresh on both
+(`CloudcareUrl.onSubmit`, `spliceSelections`, `clearExceptApp`). A search run
+again lets the page and the filter text go and keeps the pick in Web Apps
+(`setQueryData` leaves `sortIndex`), and on Android opens a new list. Web Apps
+restores the place an address held, and Preview the place the list holds:
+Back through several visits of one list shows the latest, where Web Apps
+shows the popped visit's.
 
 ## Case tiles in the running app
 

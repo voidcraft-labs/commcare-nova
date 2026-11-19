@@ -9,8 +9,10 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
+	columnFieldText,
 	columnSort,
 	defaultSortBlanks,
 	type SortDirection,
@@ -33,11 +35,23 @@ import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { sameXPathText } from "../syntaxCompare";
 import {
 	appCodes,
+	type ColumnOptions,
 	classifyField,
-	HQ_PROPERTY_RENAMES,
+	heldTextsIn,
+	noteRespelled,
+	readRelationField,
+	refuseUnheldKey,
+	renamedField,
 	shownTexts,
+	sourceCode,
+	sourceText,
 } from "./columns";
-import { type JoinedColumn, type JoinedDetails, sameState } from "./details";
+import {
+	displayNames,
+	type JoinedColumn,
+	type JoinedDetails,
+	sameState,
+} from "./details";
 
 const A = "menus-and-case-lists/";
 
@@ -53,6 +67,11 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 	),
 	fieldHidden: take(
 		`${A}field-naming-a-property-not-displayed-hq-appends-a-hidden-column`,
+		"schema:SortElement.field",
+	),
+	/** A field naming a displayed `translatable-enum` column. */
+	fieldTranslatableEnum: take(
+		`${A}sort-on-a-translatable-enum-column-nova-s-label-projection-of-a`,
 		"schema:SortElement.field",
 	),
 	fieldCalculated: take(
@@ -120,11 +139,11 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 		`${A}display-lang-on-a-sort-joined-to-a-displayed-column`,
 		"schema:SortElement.display",
 	),
-	displaySortOnly: refuse(
+	displaySortOnly: take(
 		`${A}display-lang-sort-by-label-on-a-sort-only-element`,
 		"schema:SortElement.display",
 	),
-	displayInvisible: refuse(
+	displayInvisible: take(
 		`${A}display-lang-on-a-sort-joined-to-an-invisible-column`,
 		"schema:SortElement.display",
 	),
@@ -140,6 +159,10 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 		`${A}sort-calculation-authored-calculation-row-field`,
 		"schema:SortElement.sort_calculation",
 	),
+	calculationRowField: refuse(
+		`${A}sort-calculation-authored-calculation-row-field`,
+		"schema:SortElement.field",
+	),
 	calculationOther: refuse(
 		`${A}field-and-a-differing-sort-calculation-on-any-other-column`,
 		"schema:SortElement.sort_calculation",
@@ -147,6 +170,15 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 });
 
 const O = ORDER_CLAIMS;
+
+/** Whether every value of a sort element's stored display is a text, as HQ's build reads each
+ *  (`SortElement.has_display_values` strips every one); an absent display is HQ's default. */
+function displayHoldsText(display: unknown): boolean {
+	return (
+		!isJsonObject(display) ||
+		Object.values(display).every((text) => typeof text === "string")
+	);
+}
 
 /** HQ's name for a calculated short column's join text (`util.py::get_sort_and_sort_only_columns`). */
 export const CALCULATED_FIELD = /^_cc_calculated_(\d+)$/;
@@ -193,7 +225,9 @@ function orderKeyClass(column: JoinedColumn | undefined): string | undefined {
 	const body = column.proposal.column;
 	const shown = column.visibleInList !== false;
 	if (body.kind === "calculated") return "calculated";
-	if (!shown) return `property ${body.field}`;
+	// A property read through a relation is its walk and its property, as HQ stores the field.
+	const field = columnFieldText(body);
+	if (!shown) return `property ${field}`;
 	switch (body.kind) {
 		case "link":
 			return "link-text";
@@ -202,15 +236,15 @@ function orderKeyClass(column: JoinedColumn | undefined): string | undefined {
 		case "id-mapping":
 		case "image-map":
 			return `mapping-position ${JSON.stringify([
-				body.field,
+				field,
 				body.mapping.map((entry) => entry.value),
 			])}`;
 		case "plain":
 			return column.proposal.choices !== undefined
-				? `option-label ${body.field}`
-				: `property ${body.field}`;
+				? `option-label ${field}`
+				: `property ${field}`;
 		default:
-			return `property ${body.field}`;
+			return `property ${field}`;
 	}
 }
 
@@ -238,8 +272,14 @@ const OWN_SORT_FORMATS: ReadonlySet<string> = new Set([
 
 /** The claim that refuses a sort element's `field` where it is no property Nova reads, by the
  *  row of the column field HQ's build reads it as (`columns.ts::classifyField`), or none. */
-function fieldClass(text: string): Claim<"refuse"> | undefined {
-	const classified = classifyField(text);
+function fieldClass(
+	text: string,
+	relation: Pick<ColumnOptions, "offersSearch" | "relationVia">,
+): Claim<"refuse"> | undefined {
+	// A field of indices and a property reads the property of the case the indices reach.
+	const related = readRelationField(text, relation);
+	if (related?.kind === "property") return undefined;
+	const classified = related ?? classifyField(text);
 	if (classified.kind === "property") return undefined;
 	// The editor's own check refuses the field on a sort row as on a column.
 	return classified.claim.entry === O.fieldInvalid.entry
@@ -270,6 +310,7 @@ export function readSortElements(
 	short: JsonCursor,
 	joined: JoinedDetails,
 	shortColumns: readonly JsonCursor[],
+	relation: Pick<ColumnOptions, "offersSearch" | "relationVia">,
 ): SortReading {
 	const tileList = short.peek("case_tile_template") === "custom";
 	const stored = short.peek("sort_elements");
@@ -365,6 +406,10 @@ export function readSortElements(
 				);
 		}
 		const sort = columnSort(direction, priority, blanks);
+		// Whether HQ's build lists the element's field in Sort by: some display text is not blank
+		// to Python (`SortElement.has_display_values`).
+		const storedDisplay = cursor.peek("display");
+		const named = displayNames(storedDisplay);
 
 		// The column the element lands on; none where the element's `field` is refused.
 		let target: number | undefined;
@@ -380,8 +425,16 @@ export function readSortElements(
 				? "invisible"
 				: (shortColumns[short]?.peek("format") ?? "plain");
 		};
+		const calculation = cursor.peek("sort_calculation");
+		const authoredCalculation =
+			typeof calculation === "string" && calculation.trim() !== "";
 		const calculated = CALCULATED_FIELD.exec(text);
-		if (calculated !== null) {
+		if (text === "" && authoredCalculation) {
+			// HQ's calculation row stores no field: the empty field is the row's own, refused with
+			// its calculation as one finding.
+			cursor.refuse("field", O.calculationRowField);
+			ok = false;
+		} else if (calculated !== null) {
 			// HQ joins `_cc_calculated_<n>` to stored short column `n` where that column is an
 			// expression column, whatever its format, and raises for any other `n`; it sorts the
 			// first column whose `field` is that column's (`util.py::get_sort_and_sort_only_columns`).
@@ -417,15 +470,24 @@ export function readSortElements(
 			} else {
 				target = sameOrderKey(own, landing, joined) ? own : landing;
 				landingFormat = storedFormat(landing);
-				cursor.take("field", O.fieldCalculated, String).value;
+				// A rule on a `translatable-enum` column (Nova's label projection of a select
+				// property, or its interval) sorts by the label the column shows, as Nova's own
+				// print of such a rule does.
+				cursor.take(
+					"field",
+					landingFormat === "translatable-enum"
+						? O.fieldTranslatableEnum
+						: O.fieldCalculated,
+					String,
+				).value;
 			}
-		} else if (fieldClass(text) !== undefined) {
+		} else if (fieldClass(text, relation) !== undefined) {
 			// HQ's build reads the field as it reads a column's (the column it joins, or the one
 			// it appends), so a field that is no property Nova reads is refused by the column
 			// field's own row: a relation path, a worker's property, the owner's name, a prefix.
 			cursor.refuse(
 				"field",
-				fieldClass(text) ?? O.fieldInvalid,
+				fieldClass(text, relation) ?? O.fieldInvalid,
 				text === "" ? undefined : { name: text.slice(0, 200) },
 			);
 			ok = false;
@@ -446,58 +508,102 @@ export function readSortElements(
 					: joined.listOrder.find((index) => {
 							const column = joined.columns[index];
 							const body = column?.proposal.column;
-							const property = HQ_PROPERTY_RENAMES[text] ?? text;
+							const property = renamedField(text);
 							return (
 								column?.short !== undefined &&
 								column.visibleInList !== false &&
 								body?.kind === "link" &&
-								body.field === property &&
-								property !== "case_id"
+								columnFieldText(body) === property &&
+								body.field !== "case_id"
 							);
 						});
 			if (shortIndex !== undefined || linked !== undefined) {
 				target = shortIndex ?? linked;
 				if (shortIndex !== undefined) landingFormat = storedFormat(shortIndex);
-				cursor.take("field", O.fieldDisplayed, String).value;
+				cursor.take(
+					"field",
+					shortIndex !== undefined &&
+						storedFormat(shortIndex) === "translatable-enum"
+						? O.fieldTranslatableEnum
+						: O.fieldDisplayed,
+					String,
+				).value;
 			} else {
 				sortOnly = true;
 				cursor.take("field", O.fieldHidden, String).value;
 				// HQ's build reads five words as other properties (`detail_screen.py::CASE_PROPERTY_MAP`),
 				// which Nova names by its own names.
-				const property = HQ_PROPERTY_RENAMES[text] ?? text;
+				const related = readRelationField(text, relation);
+				const read =
+					related?.kind === "property"
+						? { field: related.name, via: related.via }
+						: { field: renamedField(text) };
+				const property = renamedField(text);
 				sameState(
 					ctx,
 					O.fieldHidden.entry,
 					`${cursor.pointer}/field`,
 					"sort-rule-kept-as-hidden-column",
 				);
-				const detailOnly = tileList
-					? joined.columns.findIndex(
-							(column) =>
-								column.notOnList === true &&
-								"field" in column.proposal.column &&
-								column.proposal.column.field === property,
-						)
-					: -1;
+				// A sort-only element HQ's build lists in Sort by shows its field there under its display
+				// and nowhere else, which Nova writes from the rule's name, so its rule is read on the
+				// column only Details shows over that property where there is one, as a tile list's is.
+				const detailOnly =
+					tileList || named
+						? joined.columns.findIndex(
+								(column) =>
+									column.notOnList === true &&
+									column.proposal.column.kind !== "calculated" &&
+									columnFieldText(column.proposal.column) === property,
+							)
+						: -1;
 				if (detailOnly !== -1) {
 					target = detailOnly;
 					const column = joined.columns[detailOnly];
-					if (column !== undefined) delete column.notOnList;
+					if (column !== undefined) {
+						delete column.notOnList;
+						if (!tileList) {
+							// Now a field of the list, it stands among the list's fields, ahead of the
+							// columns only Details shows, as the reader returns a list
+							// (`details.ts::columnsOffAScreenLast`).
+							column.sortField = true;
+							joined.listOrder.splice(joined.listOrder.indexOf(detailOnly), 1);
+							const offList = joined.listOrder.findIndex(
+								(index) => joined.columns[index]?.notOnList === true,
+							);
+							joined.listOrder.splice(
+								offList < 0 ? joined.listOrder.length : offList,
+								0,
+								detailOnly,
+							);
+						}
+					}
 				} else {
 					target = joined.columns.length;
 					joined.columns.push({
 						proposal: {
-							column: { kind: "plain", field: property, header: "" },
+							column: { kind: "plain", ...read, header: "" },
 							header: {},
 							texts: {},
 							invisible: false,
 							json: cursor,
 						},
+						// A column hidden from both screens whose rule names it in Sort by holds that name
+						// as its header too (`sortNamedHiddenColumnHeader`), set where the name is read.
 						visibleInList: false,
 						visibleInDetail: false,
 						carrier: true,
 					});
-					joined.listOrder.push(target);
+					// Among the list's fields, ahead of the columns only Details shows, as the
+					// reader returns a list (`details.ts::columnsOffAScreenLast`).
+					const offList = joined.listOrder.findIndex(
+						(index) => joined.columns[index]?.notOnList === true,
+					);
+					joined.listOrder.splice(
+						offList < 0 ? joined.listOrder.length : offList,
+						0,
+						target,
+					);
 					joined.detailOrder.push(target);
 				}
 			}
@@ -505,6 +611,34 @@ export function readSortElements(
 		// Every other key of the element is claimed whether or not it lands on a column.
 		const column = target === undefined ? undefined : joined.columns[target];
 		if (column !== undefined) column.sort = sort;
+		// A hidden column's rule that HQ's build lists in Sort by keeps the name it shows there: the
+		// display of a sort-only element, whose appended column HQ makes with that header
+		// (`util.py::create_temp_sort_column`), and the header of an `invisible` column the element
+		// lands on, which HQ's build writes under the column's own locale id
+		// (`detail_screen.py::Invisible.header`).
+		const nameIn = (shown: Readonly<Record<string, string>>) => {
+			if (column === undefined) return;
+			const text = sourceText(ctx, shown);
+			if (pythonBlank(text)) return false;
+			// A name is never blank in a language: HQ's build fills a blank one from another
+			// language's (`clean_trans`), and the name's translation takes the source's there.
+			const texts = Object.fromEntries(
+				Object.entries(shown).map(([code, one]) => [
+					code,
+					pythonBlank(one) ? text : one,
+				]),
+			);
+			column.sort = columnSort(direction, priority, blanks, text);
+			column.sortName = texts;
+			if (column.carrier === true && column.visibleInDetail === false) {
+				column.proposal = {
+					...column.proposal,
+					column: { ...column.proposal.column, header: text },
+					header: texts,
+				};
+			}
+			return true;
+		};
 
 		// The comparator: derived, numeric where the plan derives it, or a date where the property
 		// is of the date class (each judged in the settle; `dateSortDeclarations` names the
@@ -556,27 +690,65 @@ export function readSortElements(
 		// the appended column's header); one the reader cannot know (a number, an object) is
 		// left unclaimed, for the close to name at its key.
 		// HQ's build writes it only where some stored value is not blank to Python
-		// (`SortElement.has_display_values`: `s.strip() != ''`).
-		const storedDisplay = cursor.peek("display");
+		// (`SortElement.has_display_values`: `s.strip() != ''`), which it asks of every value, so
+		// a value that is no text (a null among them) leaves HQ no build, and is left unclaimed too.
 		const display = shownTexts(storedDisplay, codes);
-		if (display === undefined) ok = false;
-		else if (
-			isJsonObject(storedDisplay) &&
-			Object.values(storedDisplay).every(
-				(one) => typeof one === "string" && pythonBlank(one),
-			)
-		)
-			cursor.derived("display", O.display);
+		if (display === undefined || !displayHoldsText(storedDisplay)) ok = false;
+		else if (!named) cursor.derived("display", O.display);
 		else if (sortOnly || column === undefined) {
-			cursor.refuse("display", O.displaySortOnly);
-			ok = false;
+			// The appended column's header is the display, an app string held as every app string is.
+			const held = heldTextsIn(
+				storedDisplay,
+				codes,
+				sourceCode(ctx),
+				"case-list-sort-label",
+			);
+			if (held === undefined) {
+				refuseUnheldKey(
+					cursor,
+					"display",
+					codes,
+					sourceCode(ctx),
+					"case-list-sort-label",
+				);
+				ok = false;
+			} else {
+				cursor.take("display", O.displaySortOnly, () => held.texts).value;
+				noteRespelled(
+					ctx,
+					O.displaySortOnly.entry,
+					`${cursor.pointer}/display`,
+					storedDisplay,
+					held,
+				);
+				nameIn(held.texts);
+			}
 		} else if (column.proposal.invisible || column.visibleInList === false) {
-			cursor.refuse("display", O.displayInvisible);
-			ok = false;
+			// The column's own header is the text Sort by shows, which the column's reading holds;
+			// the display only switches it on. Where HQ's build lists the column under a header
+			// blank in every language, it writes that header as a no-break space
+			// (`commcare_translations.py::dumps`), which Android's Sort by lists as an entry that
+			// shows blank (`EntitySelectActivity.getSortOptionsList`); Nova holds no name there, so
+			// the first publish drops the entry. Where HQ's build lists none under this column's
+			// header (`sortName` is unset), nothing a worker sees moves.
+			cursor.take("display", O.displayInvisible, () => display).value;
+			if (column.sortName === undefined)
+				sameState(
+					ctx,
+					O.displayInvisible.entry,
+					`${cursor.pointer}/display`,
+					"list-settings-respelled",
+				);
+			else if (nameIn(column.sortName) !== true)
+				sameState(
+					ctx,
+					O.displayInvisible.entry,
+					`${cursor.pointer}/display`,
+					"sort-by-entry-with-a-blank-name-dropped",
+				);
 		} else cursor.drop("display", O.displayJoined);
 
-		const calculation = cursor.peek("sort_calculation");
-		if (typeof calculation === "string" && calculation.trim() !== "") {
+		if (authoredCalculation) {
 			const own = column?.proposal.expression?.text;
 			if (own !== undefined && sameXPathText(own, calculation)) {
 				cursor.derived("sort_calculation", O.calculationEqual);
@@ -669,7 +841,11 @@ export function dateSortDeclarations(
 				? [
 						{
 							order: carrier.rule.order,
-							key: { kind: "property", property: carrier.property } as const,
+							key: {
+								kind: "property",
+								property: carrier.field,
+								...(carrier.via !== undefined && { via: carrier.via }),
+							} as const,
 						},
 					]
 				: [],
@@ -685,15 +861,30 @@ export function dateSortDeclarations(
 		const key = written.find((one) => one.order === position + 1)?.key;
 		if (key?.kind !== "property" || isStandardCaseListProperty(key.property))
 			return;
-		const property = properties.find((one) => one.name === key.property);
+		// A key read through a relation orders by the property of the type its walk reaches.
+		const owner =
+			key.via === undefined
+				? caseType
+				: columnPropertyCaseType(
+						{ via: key.via },
+						caseType,
+						doc.caseTypes ?? [],
+					);
+		if (owner === undefined) return;
+		const property = (
+			owner === caseType
+				? properties
+				: (effectiveCaseTypes(doc).find((type) => type.name === owner)
+						?.properties ?? [])
+		).find((one) => one.name === key.property);
 		if (
 			property === undefined ||
 			property.data_type !== undefined ||
-			out.some((one) => one.property === key.property)
+			out.some((one) => one.caseType === owner && one.property === key.property)
 		)
 			return;
 		out.push({
-			caseType,
+			caseType: owner,
 			property: key.property,
 			dataType: DATE_SORT_DECLARED_TYPE,
 		});

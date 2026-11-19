@@ -1,0 +1,130 @@
+{
+	"catalog": [
+		{
+			"name": "pregnacy",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "Children_alive",
+					"data_type": "single_select",
+					"options": [
+						"yes",
+						"no"
+					]
+				},
+				{
+					"name": "Last_menstrual_period",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "Total_children",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "baby_name",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "danger_signs",
+					"data_type": "multi_select",
+					"options": [
+						"Headache",
+						"Rupturing",
+						"Convulsions",
+						"Baby_stopped_moving"
+					]
+				},
+				{
+					"name": "feeling_sick",
+					"data_type": "single_select",
+					"options": [
+						"Yes",
+						"No"
+					]
+				},
+				{
+					"name": "had_referral_checkup",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "has_condition_improved",
+					"data_type": "single_select",
+					"options": [
+						"yes",
+						"no"
+					]
+				},
+				{
+					"name": "pregnancy_outcome",
+					"data_type": "single_select",
+					"options": [
+						"live_birth",
+						"still_birth",
+						"abortion"
+					]
+				},
+				{
+					"name": "referral",
+					"data_type": "single_select",
+					"options": [
+						"Yes",
+						"No"
+					]
+				},
+				{
+					"name": "referral_anyway",
+					"data_type": "single_select",
+					"options": [
+						"yes_refer_now",
+						"no_do_not_refer"
+					]
+				},
+				{
+					"name": "village_name",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {
+		"pregnacy/danger_signs": [
+			"",
+			"Baby_stopped_moving",
+			"Convulsions",
+			"Headache",
+			"Rupturing"
+		],
+		"pregnacy/feeling_sick": [
+			"No",
+			"Yes",
+			"no",
+			"yes"
+		],
+		"pregnacy/has_condition_improved": [
+			"no",
+			"yes"
+		],
+		"pregnacy/pregnancy_outcome": [
+			"",
+			"live_birth"
+		],
+		"pregnacy/referral": [
+			"No",
+			"Yes"
+		],
+		"pregnacy/referral_anyway": [
+			"yes_refer_now"
+		]
+	},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

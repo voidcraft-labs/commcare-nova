@@ -2155,9 +2155,15 @@ part whose check can correct a sentence here says which one under its "Written a
   visibility to the paths themselves
   (`cloudcare/templates/cloudcare/partials/form_entry/multimedia.html`, `caption_audio`,
   `caption_video`), which Formplayer sends whatever the media map holds (`api/json/PromptToJson.java`,
-  `caption_audio` from `prompt.getAudioText()`). *Step 6:* part 11 decides each slot at source: the entry
+  `caption_audio` from `prompt.getAudioText()`). Where the map holds an entry for the path and the
+  project space no file, Web Apps also draws a broken picture for an image on a menu's or a form's tile,
+  the Register action or the logo, while Android draws nothing there (HQ's own wash starter keeps such an
+  entry for its first form's icon). *Step 6:* part 11 decides each slot at source: the entry
   becomes INERT for the slots nothing draws, beside a new REFUSED entry for the slots a runtime draws
-  (its section 3). Subject to its check R2 (the Android and Web Apps client readers over
+  (its section 3). An image on a tile, Register action or logo slot whose entry names no file is no
+  refusal: Nova leaves it out as it does an inert reference, and the first publish says the broken
+  picture goes (`broken-pictures-removed`, its section 3.2 row 2b); a sound there, and a question's, a
+  choice's or a list's image, still stops the reading as a file it cannot read (row 3). Subject to its check R2 (the Android and Web Apps client readers over
   `targeted-missing-media`, in a lane slice on hosted runners): each of its outcomes B to E moves one
   slot between the drawn and the inert side for one platform, with the two entries' `item` cells, and the
   sentence of this bullet that the outcome contradicts is corrected with it.

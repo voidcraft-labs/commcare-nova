@@ -130,6 +130,20 @@ export const ORDERED_DATA_TYPES: ReadonlySet<string> = new Set([
 export const CASTING_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> =
 	new Set(["date", "datetime", "time", "int", "decimal", "geopoint"]);
 
+/**
+ * The types whose values a text property holds as the text a device submits
+ * for them, so writers of these types that agree on no one type are saved as
+ * text. A device submits a whole number as its digits, a decimal as Java's
+ * `Double.toString` of it and a date as `yyyy-MM-dd`
+ * (`XFormAnswerDataSerializer.serializeAnswerData` over the data
+ * `Recalculate.wrapData` holds), and CommCare HQ stores that text as it
+ * comes. A date and time, a time and a location stay out: their text is
+ * rewritten on the way (HQ's `adjust_datetimes`) or carries a storage rule of
+ * its own, and several choices are a list.
+ */
+export const TEXT_JOINED_DATA_TYPES: ReadonlySet<CasePropertyDataType> =
+	new Set(["text", "single_select", "int", "decimal", "date"]);
+
 // ── Per-shape predicates ──────────────────────────────────────────
 //
 // Each predicate accepts the structural `{ data_type? }` shape so

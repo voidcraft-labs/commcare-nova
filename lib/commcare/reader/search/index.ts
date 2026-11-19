@@ -25,7 +25,14 @@ import { withCandidate } from "../candidate";
 import { caseListReadings } from "../caseList/details";
 import { dateSortDeclarations } from "../caseList/order";
 import { noteProperty } from "../caseManagement/catalog";
-import { defineClaims, derived, drop, refuse, take } from "../claims";
+import {
+	type Claim,
+	defineClaims,
+	derived,
+	drop,
+	refuse,
+	take,
+} from "../claims";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
 import { readExpressions } from "../expressions";
 import { readExpression } from "../expressions/readExpression";
@@ -61,11 +68,14 @@ import {
 	type SearchRow,
 } from "./rows";
 import {
+	claimUndeclaredSearchKeys,
 	holdsOwnersWithoutClause,
 	holdsText,
+	hqAutoSelects,
 	ownersWithoutClauseRegistration,
 	readSearchSettings,
 	runtimeGuardEnding,
+	SETTING_CLAIMS,
 	settleSearchSettings,
 } from "./settings";
 import { offersSearch, readSearchWorkflow, searchPlace } from "./workflow";
@@ -96,7 +106,7 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	),
 	noValue: refuse(
 		`${S}default-properties-entry-with-no-defaultvalue-hq-stores-an-empty`,
-		"schema:DefaultCaseSearchProperty.defaultValue",
+		"schema:DefaultCaseSearchProperty",
 	),
 	plainKey: refuse(
 		`${S}default-properties-entry-keyed-by-a-plain-property-property-p`,
@@ -149,6 +159,42 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 });
 
 const C = SEARCH_CLAIMS;
+
+/**
+ * The declared keys of a search a menu does not offer that the generated search's entry names,
+ * each read past as inactive at its own key: HQ's build reads a search's settings only for a
+ * menu that offers it (`util.py::module_offers_search`, which `RemoteRequestsHelper` and
+ * `module_uses_case_search_endpoint` ask), but for `search_on_clear` beside the case list's auto
+ * select, which its validator refuses whether or not the menu searches
+ * (`helpers/validators.py::ModuleBaseValidator.validate_search_config`, `deriveInactiveSearch`).
+ */
+const INACTIVE_KEYS = defineClaims(
+	"search.inactive",
+	Object.fromEntries(
+		[
+			"additional_case_types",
+			"additional_registry_cases",
+			"auto_launch",
+			"blacklisted_owner_ids_expression",
+			"case_search_endpoint_id",
+			"custom_related_case_property",
+			"custom_sort_properties",
+			"data_registry",
+			"data_registry_workflow",
+			"default_properties",
+			"default_search",
+			"description",
+			"include_all_related_cases",
+			"inline_search",
+			"instance_name",
+			"properties",
+			"search_button_display_condition",
+			"search_button_label",
+			"search_on_clear",
+			"title_label",
+		].map((key) => [key, derived(ROUND_TRIP, `schema:CaseSearch.${key}`)]),
+	) as Record<string, Claim<"derived">>,
+);
 
 /** What the settle takes from one menu's first pass. */
 interface SearchReading {
@@ -232,7 +278,9 @@ function readDefaultFilters(
 ): {
 	ok: boolean;
 	rows: SearchRow[];
-	names: Set<string>;
+	/** Each key a default filter other than a row names, with the pointer of each such filter's
+	 *  `property`. */
+	names: Map<string, string[]>;
 	zeroInput: boolean;
 	markersOnly: boolean;
 } {
@@ -262,7 +310,12 @@ function readDefaultFilters(
 	);
 	const relatedPropertySet = holdsText(cursor, "custom_related_case_property");
 	const rows: SearchRow[] = [];
-	const names = new Set<string>();
+	const names = new Map<string, string[]>();
+	const addName = (property: string, row: JsonCursor) =>
+		names.set(property, [
+			...(names.get(property) ?? []),
+			`${row.pointer}/property`,
+		]);
 	let ok = true;
 	list.forEach((row, index) => {
 		const key = row.peek("property");
@@ -287,12 +340,16 @@ function readDefaultFilters(
 			}
 			return;
 		}
+		// A filter with no value is refused whole, one finding at the search, whether HQ stores the
+		// key blank or leaves it out (`DefaultCaseSearchProperty.defaultValue` keeps no `None`): its
+		// key belongs to it.
 		if (typeof value !== "string" || value.trim() === "") {
-			row.refuse(
-				"defaultValue",
+			row.refuseWhole(
 				C.noValue,
 				property === "" ? undefined : { name: property.slice(0, 200) },
 			);
+			if (property !== "" && property !== "_xpath_query")
+				addName(property, row);
 			ok = false;
 			return;
 		}
@@ -306,15 +363,38 @@ function readDefaultFilters(
 			);
 			const detail = { name: property.slice(0, 200) };
 			row.refuse("property", claim, detail);
+			// A key HQ's request carries twice is a class of the row and of the search's own key
+			// beside it, so the refusal stands at that key too.
+			const beside =
+				claim === C.ownersTwice
+					? "blacklisted_owner_ids_expression"
+					: claim === C.relatedTwice
+						? "custom_related_case_property"
+						: undefined;
+			if (beside !== undefined)
+				accounting.findingAt(
+					claim,
+					row.place,
+					`${cursor.pointer}/${beside}`,
+					detail,
+				);
 			accounting.cover(
 				{ json: row, key: "defaultValue" },
 				manifestFindingOf(claim, row.place, detail),
 			);
-			names.add(property);
+			addName(property, row);
 			ok = false;
 			return;
 		}
 		row.take("property", C.rowProperty, String).value;
+		// The key the row's value is sent under is the `csql-key` item HQ's search reads it as,
+		// where it sits.
+		accounting.claimEntry(
+			{ json: row, key: "property" },
+			ROWS_HELD,
+			"csql-key:_xpath_query",
+			row.place,
+		);
 		// Nova's zero-input row: a search with no fields and no filter.
 		if (zeroInput)
 			accounting.claimEntry(
@@ -351,7 +431,27 @@ function declareParent(
 	child.relationship = "child";
 }
 
-/** Step 6, pass 1: every menu's search, read from its `search_config`, and the type each date
+/** A search the menu does not offer: each key `CaseSearch` declares that `claimed` leaves is the
+ *  shell's, read past as inactive where it holds a value other than HQ's default (a key at its
+ *  default declares no search, so it names no entry), and a key it does not declare is claimed as
+ *  on a search the menu offers, since the shell holds no such key. */
+function deriveInactiveSearch(
+	module: DraftModule,
+	cursor: JsonCursor,
+	claimed: ReadonlySet<string>,
+): void {
+	const stored = module.json.peek("search_config");
+	const undeclared = new Set(cursor.undeclared());
+	for (const key of Object.keys(isJsonObject(stored) ? stored : {}))
+		if (!claimed.has(key) && !undeclared.has(key) && cursor.used(key)) {
+			if (key === "search_on_clear" && hqAutoSelects(module))
+				cursor.refuse(key, SETTING_CLAIMS.searchOnClearAuto);
+			else cursor.derived(key, INACTIVE_KEYS[key] ?? C.inactive);
+		}
+	claimUndeclaredSearchKeys(cursor);
+}
+
+/** Before any expression binds: every menu's search, read from its `search_config`, and the type each date
  *  Search field declares written into the draft's catalog before any expression binds. */
 export function readSearches(ctx: ReadContext, app: DraftApp): void {
 	const readings = READINGS.get(ctx) ?? new Map<Uuid, SearchReading>();
@@ -367,24 +467,13 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		// A menu with no case type lists no cases: a search it does not offer is its shell's,
 		// claimed as inactive, and one it offers is left unclaimed, which the accounting names.
 		if (module.module.caseType === undefined) {
-			if (!offers)
-				for (const key of Object.keys(
-					isJsonObject(module.json.peek("search_config"))
-						? (module.json.peek("search_config") as object)
-						: {},
-				))
-					cursor.derived(key, C.inactive);
+			if (!offers) deriveInactiveSearch(module, cursor, new Set());
 			continue;
 		}
 		const config: Partial<OrdinaryCaseSearchConfig> = {};
 		if (!offers) {
 			const settings = readSearchSettings(ctx, module, cursor, false, config);
-			for (const key of Object.keys(
-				isJsonObject(module.json.peek("search_config"))
-					? (module.json.peek("search_config") as object)
-					: {},
-			))
-				if (!settings.claimed.has(key)) cursor.derived(key, C.inactive);
+			deriveInactiveSearch(module, cursor, settings.claimed);
 			if (
 				settings.owners !== undefined &&
 				config.excludedOwnerIds !== undefined
@@ -819,7 +908,7 @@ function coverUnsettledRows(ctx: ReadContext, reading: SearchReading): void {
 }
 
 /**
- * Step 8, pass 2: each searching menu's rows placed, its fields' arms decided, and its whole
+ * After the binding: each searching menu's rows placed, its fields' arms decided, and its whole
  * search accepted by the projection.
  */
 export function settleSearches(ctx: ReadContext, app: DraftApp): void {

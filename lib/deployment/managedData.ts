@@ -301,7 +301,7 @@ function rowsAsStored(
 	});
 }
 
-/** One item of `hq_managed_data_changed` per change: P6 to P11, P17 and P20. */
+/** One item of `hq_managed_data_changed` per change, in the item sentences of `lib/publish/managedData.ts`. */
 export function managedTableChangeItem(
 	tag: string,
 	change: ManagedTableChange,

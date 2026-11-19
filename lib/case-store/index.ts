@@ -93,6 +93,7 @@ export type {
 	ParkedValueEntry,
 	ParkedValueStanding,
 	QueryArgs,
+	RelatedRead,
 	ResetSampleDataArgs,
 	RestoreScope,
 	SchemaCaseStore,

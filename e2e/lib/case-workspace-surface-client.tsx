@@ -67,6 +67,21 @@ const caseTypes: CaseType[] = [
 		],
 	},
 ];
+// Clients belong to households, whose address a column can show.
+if (scenario === "related") {
+	caseTypes[0] = { ...caseTypes[0], parent_type: "household" } as CaseType;
+	caseTypes.push({
+		name: "household",
+		properties: [
+			{
+				name: "case_name",
+				label: proseText("Household name"),
+				data_type: "text",
+			},
+			{ name: "address", label: proseText("Address"), data_type: "text" },
+		],
+	});
+}
 const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 config.columns = [
 	plainColumn(nameId, "case_name", "Client name"),

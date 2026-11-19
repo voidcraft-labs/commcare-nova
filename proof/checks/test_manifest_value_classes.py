@@ -11,15 +11,19 @@ places every use inside it, so one export's real use is reported as refused;
 one that reads a neighbouring object instead of the one the use sits in (a
 form's other action, a detail's other column), so a use is refused for what
 another holds; and a registry whose ids drift from the entries', so a reader
-silently stops being consulted.
+silently stops being consulted. A HELD-NEW class beside an allowing class of
+its key has a reader too, where its class is one value's grammar or bound:
+the failures there are a reader that holds a value Nova does not hold yet,
+so the check passes what Nova's reader would not bring in, and one that
+reads more than the use's own value, so parity cannot hold it to the reader.
 
 Every reader the registry holds has its shapes in ``SHAPES``, by its entry's
 id, and the registry and the table must name the same ids: a refused shape
 (the reader says True) and an accepted one beside it (False), each a use of a
 key the entry names, found by the check's own extraction in an export as HQ,
 Vellum and Nova write it, and each also standing as the check places it (the
-refused one refused, or the source's in a local archive, resting on the entry;
-the accepted one resting elsewhere). A class the export cannot settle has the
+refused one refused, or the source's in a local archive, or held-new for a
+HELD-NEW class, resting on the entry; the accepted one resting elsewhere). A class the export cannot settle has the
 shape it leaves open (None) in place of a refused one, and a class that takes
 every use of its keys has no accepted one, each named with why; a class the
 check never consults its reader on (an entry naming a key its uses never have)
@@ -39,6 +43,7 @@ import struct
 import zlib
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
 import pytest
@@ -55,16 +60,47 @@ def manifest():
     return manifest_usage.load_manifest()
 
 
-def test_every_reader_reads_a_refused_entry_that_names_a_value_class(manifest):
-    """The registry is keyed by the entries' ids: each id is a REFUSED inventory entry with a value class (an
-    allowing class is the rest of its key's values, never read), so a renamed or removed entry fails here
-    rather than leaving its reader unread."""
+def test_every_reader_reads_a_refused_or_held_new_entry_that_names_a_value_class(manifest):
+    """The registry is keyed by the entries' ids: each id is a REFUSED or HELD-NEW inventory entry with a value
+    class (an allowing class is the rest of its key's values, never read), so a renamed or removed entry fails here
+    rather than leaving its reader unread, and a reader of an allowing entry is refused."""
     entries = {entry.id: entry for held in manifest.entries.values() for entry in held}
     assert sorted(set(classes.VALUE_CLASSES) - set(entries)) == []
     assert [key for key in classes.VALUE_CLASSES if entries[key].value_class is None] == []
-    assert [key for key in classes.VALUE_CLASSES if entries[key].disposition != "REFUSED"] == []
+    assert [key for key in classes.VALUE_CLASSES if entries[key].disposition not in ("REFUSED", "HELD-NEW")] == []
     # A REFUSED entry refused only because HQ's build refuses its state is the bar's, and needs no reader.
     assert [key for key in classes.VALUE_CLASSES if entries[key].refused_by_hq_build()] == []
+
+
+SOURCE_FAMILIES_FILE = Path(__file__).parent / "fixtures" / "source-families.json"
+SOURCE_FAMILIES = json.loads(SOURCE_FAMILIES_FILE.read_text(encoding="utf-8"))["families"]
+ALLOWING = ("HELD", "TARGET-OWNED", "INERT")
+
+
+def _held_new_readers(manifest):
+    """Each HELD-NEW entry the registry holds a reader of, by its id, with the keys that name it."""
+    named = {}
+    for key, held in manifest.entries.items():
+        for entry in held:
+            if entry.disposition == "HELD-NEW" and entry.id in classes.VALUE_CLASSES:
+                named.setdefault(entry, []).append(key)
+    return named
+
+
+def test_a_held_new_reader_reads_a_class_beside_an_allowing_class_of_a_key_an_app_source_holds(manifest):
+    """Contract: a HELD-NEW class gets a reader only where the check would otherwise hold its uses: it shares a key
+    with an allowing entry (HELD, TARGET-OWNED or INERT), and one of its keys is of a family the extraction reads
+    from an app's source (``fixtures/source-families.json``), where its reader can read the value. The plausible
+    failures: a reader of a class whose every key only HELD-NEW entries name, which ``standing`` already holds
+    held-new, so the reader decides nothing; and one whose keys are read only in Nova's own builds or lookup
+    data, which no app's source carries."""
+    readers = _held_new_readers(manifest)
+    assert readers, "the registry holds no HELD-NEW reader"
+    for entry, keys in sorted(readers.items()):
+        beside = {other.disposition for key in keys for other in manifest.entries[key] if other != entry}
+        assert beside & set(ALLOWING), f"{entry.id} shares no key with an allowing entry"
+        families = {key.split(":", 1)[0] for key in keys}
+        assert families & set(SOURCE_FAMILIES), f"{entry.id} names no key of a family an app's source holds"
 
 
 FORM = """<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml"
@@ -814,7 +850,11 @@ def test_search_settings_and_prompts(manifest):
     assert [classes.later_validations(use, manifest) for use in validations] == [False, True]
     [defaults] = _app_uses(app, manifest, "schema:CaseSearch.default_properties")
     assert classes.data_registry_key(defaults, manifest) is True
-    assert classes.missing_default_value(defaults, manifest) is True
+    # A filter with no value is its own use, at the filter; the list that holds it is no use of that class.
+    assert classes.missing_default_value(defaults, manifest) is False
+    [unvalued] = _app_uses(app, manifest, "schema:DefaultCaseSearchProperty")
+    assert unvalued.where == "/modules/0/search_config/default_properties/1"
+    assert classes.missing_default_value(unvalued, manifest) is True
     [label] = _app_uses(app, manifest, "schema:CaseSearch.search_button_label")
     assert classes.other_search_button_label(label, manifest) is True
     # auto_launch false in an app that declares Web Apps (cloudcare_enabled) is the retiring legacy workflow.
@@ -962,6 +1002,9 @@ def unsettled(export, source, key, where, **kw):
 
 
 ARTIFACTS = {"form": "form:0.0", "app": "app.json", "suite": "local.ccz/suite.xml"}
+# An itext value's own ``form`` attribute, a use beside each ``itext-form`` use at the same place, which takes the
+# class of the form it names: a markdown class by the markdown rule, a big image by the text its reference names.
+VALUE_FORM = "xform:model/itext/translation/text/value@form"
 # Two project spaces an app JSON is sent to: one with DONT_INDEX_SAME_CASETYPE on, and one with no flag.
 PLAIN = Configuration(
     name="minimum",
@@ -1074,6 +1117,15 @@ def _question_app(form, **fields):
     return _with_forms(_app([_module([form])], **fields), f=QUESTIONS)
 
 
+def _usercase_form(preload):
+    """A follow-up whose active ``usercase_update`` writes the worker's ``visits`` and whose ``usercase_preload``
+    loads ``preload`` (``{path: property}``)."""
+    return _form_json(
+        usercase_preload={"condition": ALWAYS, "preload": preload},
+        usercase_update={"condition": ALWAYS, "update": {"visits": _update("/data/q")}},
+    )
+
+
 def _linked(link, target_requires="case", **target_module):
     """A form linking to the form of another module (``f2``), by ``link``."""
     source = {**_form_json("none"), "form_links": [link]}
@@ -1184,6 +1236,52 @@ def _wav(code, bits):
 
 def _box_le(kind, body):
     return kind + struct.pack("<I", len(body)) + body
+
+
+def test_a_media_class_in_the_app_hq_made_is_read_from_the_file_hq_holds_at_its_path(manifest):
+    """Contract: a multimedia map item of the app HQ made (``app_json_uses(..., authored=True)``) names the file HQ
+    holds at the item's path, so its class is read from what the observation made of that file
+    (``Readings.authored_media``, by the path the map gives it); an app Nova sends names the file of Nova's local
+    archive at the reference's path (``Readings.media``). The plausible failures: a class left undecided at an
+    item of HQ's app whose file Nova's archive does not hold under that path (a file Nova keeps elsewhere, or one
+    no reference reads), and one read from Nova's file where HQ holds another under the same path."""
+    path = "commcare/b31d.png"
+    readings = manifest_usage.Readings(
+        questions={},
+        expressions={},
+        strings={},
+        csql={},
+        trees={},
+        conditions={},
+        media={path: {"mime": "image/png"}},
+        authored_media={f"jr://file/{path}": {"mime": "image/svg+xml"}, "jr://file/unread.png": {"mime": "image/png"}},
+    )
+    app = _app(
+        [_module()],
+        multimedia_map={
+            f"jr://file/{path}": {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"},
+            "jr://file/unread.png": {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"},
+            "jr://file/gone.png": {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"},
+        },
+    )
+
+    def verdicts(authored):
+        found = manifest_usage.Uses()
+        manifest_usage.app_json_uses(app, manifest, "app.json", found, authored=authored)
+        manifest_usage.read_observed(found, manifest, readings)
+        uses = [use for use in found.uses if use.key == "media-class:CommCareImage"]
+        return {use.where.split("/")[2]: classes.svg_image(use, manifest) for use in uses}
+
+    assert verdicts(True) == {
+        "jr:~1~1file~1commcare~1b31d.png": True,
+        "jr:~1~1file~1unread.png": False,
+        "jr:~1~1file~1gone.png": None,
+    }
+    assert verdicts(False) == {
+        "jr:~1~1file~1commcare~1b31d.png": False,
+        "jr:~1~1file~1unread.png": None,
+        "jr:~1~1file~1gone.png": None,
+    }
 
 
 def _png():
@@ -1353,7 +1451,7 @@ def _questions():
         ),
         "questions/input-readonly-true-control-attribute": (
             refused("form", labels, "jr-control:input", "body[1]/input[1]"),
-            accepted("form", labels, "mug:Trigger", "/data/t", readings=True),
+            accepted("form", labels, "mug:Trigger", "data[1]/{http://example.org/t}t[1]", readings=True),
         ),
         "questions/upload-with-any-other-mediatype-or-none": (
             refused("form", uploads, "jr-control:upload", "body[1]/upload[1]"),
@@ -1570,6 +1668,14 @@ def _settings_and_forms():
             # No default-language name: what the source's title holds is not in the app JSON.
             unsettled("app", named({"fr": "instance('abc')"}, ("en", "fr")), "schema:Form.name", form_name),
         ),
+        "forms-and-case-writes/form-type-other-than-the-form-s-own-kind": (
+            refused(
+                "app",
+                _app([_module([{**_form_json(), "form_type": "advanced_form"}])]),
+                "schema:Form.form_type",
+                "/modules/0/forms/0/form_type",
+            ),
+        ),
         "forms-and-case-writes/form-requires-referral": (
             refused(
                 "app", _app([_module([_form_json("referral")])]), "schema:Form.requires", "/modules/0/forms/0/requires"
@@ -1690,6 +1796,15 @@ def _settings_and_forms():
                 "schema:FormActions.update_case",
                 update,
             ),
+            # Under the condition never, HQ's build writes no key of the map, the inert class beside it.
+            accepted(
+                "app",
+                _app(
+                    [_module([_form_json(update_case={"condition": NEVER, "update": {"mother/dob": _update("/q")}})])]
+                ),
+                "schema:FormActions.update_case",
+                update,
+            ),
         ),
         "forms-and-case-writes/an-update-key-with-an-index-segment-on-a-form-that-opens-its": (
             refused(
@@ -1740,20 +1855,30 @@ def _settings_and_forms():
                 "schema:FormActions.usercase_preload",
                 f"{actions}/usercase_preload",
             ),
+            # Beside an update that writes, a load into a question outside any repeat is the row above's, and one
+            # into a repeat's question, or of a property a worker-record read cannot spell, is this class.
+            accepted(
+                "app",
+                _question_app(_usercase_form({"/data/q": "name", "s": "district"})),
+                "schema:FormActions.usercase_preload",
+                f"{actions}/usercase_preload",
+            ),
+            refused(
+                "app",
+                _question_app(_usercase_form({"/data/q": "name", "/data/rep/name": "district"})),
+                "schema:FormActions.usercase_preload",
+                f"{actions}/usercase_preload",
+            ),
+            refused(
+                "app",
+                _question_app(_usercase_form({"/data/q": "parent/district"})),
+                "schema:FormActions.usercase_preload",
+                f"{actions}/usercase_preload",
+            ),
+            # Without the form's source the export does not say which questions the paths name.
             unsettled(
                 "app",
-                _app(
-                    [
-                        _module(
-                            [
-                                _form_json(
-                                    usercase_preload={"condition": ALWAYS, "preload": {"/data/q": "name"}},
-                                    usercase_update={"condition": ALWAYS, "update": {"name": _update("/data/q")}},
-                                )
-                            ]
-                        )
-                    ]
-                ),
+                _app([_module([_usercase_form({"/data/q": "name"})])]),
                 "schema:FormActions.usercase_preload",
                 f"{actions}/usercase_preload",
             ),
@@ -1880,6 +2005,15 @@ def _settings_and_forms():
                 "schema:OpenSubCaseAction.condition",
                 f"{subcases}/0/condition",
             ),
+            # A condition's own slot is read on that condition, not on the close condition beside it.
+            accepted(
+                "app",
+                _question_app(
+                    _form_json(subcases=[_subcase(condition=_if("/data/s"), close_condition=_if("/data/q"))])
+                ),
+                "schema:OpenSubCaseAction.condition",
+                f"{subcases}/0/condition",
+            ),
         ),
         "forms-and-case-writes/an-open-close-child-case-or-advanced-action-condition-with": (
             refused(
@@ -1926,6 +2060,21 @@ def _settings_and_forms():
                 _question_app(_form_json(update_case={"condition": ALWAYS, "update": {"note": _update("/data/q")}})),
                 "schema:ConditionalCaseUpdate.question_path",
                 f"{update}/update/note/question_path",
+            ),
+            # A basic preload on a label is in the class; one into a repeat question is the inert class beside it.
+            refused(
+                "app",
+                _question_app(_form_json(case_preload={"doc_type": "PreloadAction", "preload": {"/data/t": "note"}})),
+                "schema:PreloadAction.preload",
+                "/modules/0/forms/0/actions/case_preload/preload",
+            ),
+            accepted(
+                "app",
+                _question_app(
+                    _form_json(case_preload={"doc_type": "PreloadAction", "preload": {"/data/rep/name": "note"}})
+                ),
+                "schema:PreloadAction.preload",
+                "/modules/0/forms/0/actions/case_preload/preload",
             ),
             # An advanced load takes no repeat question; an open action none outside its own repeat.
             refused(
@@ -2480,6 +2629,13 @@ def _advanced_actions():
                 f"{loads}/2/case_index/tag",
             ),
             accepted("app", _advanced_app([household, linked]), "schema:CaseIndex.tag", f"{loads}/1/case_index/tag"),
+            # A tag naming no action is HQ's build's refusal (``missing parent tag``), another entry's.
+            accepted(
+                "app",
+                _advanced_app([household, {**linked, "case_index": _index("load_nothing_9")}]),
+                "schema:CaseIndex.tag",
+                f"{loads}/1/case_index/tag",
+            ),
         ),
         "forms-and-case-writes/advancedopencaseaction-case-properties-key-with-parent-p": (
             refused(
@@ -2692,6 +2848,14 @@ def _search_and_menus():
     def search(*modules, **fields):
         return _app(list(modules), **fields)
 
+    def auto_selecting(module):
+        """``module`` whose case list chooses its case by itself, as HQ reads it (its short detail's ``auto_select``,
+        multi-select or not)."""
+        return {
+            **module,
+            "case_details": {"doc_type": "DetailPair", "short": {"doc_type": "Detail", "auto_select": True}},
+        }
+
     def details(*modules):
         return _app(list(modules))
 
@@ -2701,6 +2865,15 @@ def _search_and_menus():
 
     def plain(**module):
         return _module(unique_id=module.pop("unique_id", "p"), **module)
+
+    # A form that returns to its own menu after it is sent.
+    returns_to_its_menu = {**_form_json(), "post_form_workflow": "module"}
+    # A form whose one after-submit link opens the menu ``p``.
+    linked_to_p = {
+        **_form_json(),
+        "post_form_workflow": "form",
+        "form_links": [{"doc_type": "FormLink", "xpath": "", "module_unique_id": "p", "datums": []}],
+    }
 
     def product_app(short=None, long_columns=(), header=None, **column):
         """An advanced menu whose product details are the ones ``AdvancedModule.new_module`` writes, but for
@@ -2719,6 +2892,29 @@ def _search_and_menus():
         return details(_module(doc_type="AdvancedModule", product_details=pair))
 
     multi = {"short": {"multi_select": True}}
+    icons = [{"doc_type": "MappingItem", "key": "yes", "value": {"en": "jr://file/commcare/image/yes.png"}}]
+
+    # An instance a form declares and a calculate of it reads; the read's place, at the calculate.
+    def read_in_form(instance_id, src):
+        return _form(
+            data="<q/>",
+            model=(
+                f'<instance id="{instance_id}" src="{src}"/>'
+                f'<bind nodeset="/data/q" calculate="count(instance(\'{instance_id}\')/*)"/>'
+            ),
+        )
+
+    # A menu whose display condition reads an instance.
+    def read_in_slot(condition):
+        return _app([_module(module_filter=condition)])
+
+    read_at = ("instance-scheme:results", "model[1]/bind[1]/@calculate")
+    input_at = ("instance-scheme:search-input", "model[1]/bind[1]/@calculate")
+    places_at = ("instance-scheme:locations", "model[1]/bind[1]/@calculate")
+    module_read = ("instance-scheme:results", "/modules/0/module_filter")
+    module_input = ("instance-scheme:search-input", "/modules/0/module_filter")
+    search_input = "instance('search-input:results')/input/field"
+    legacy_input = "instance('search-input')/input/field"
     return {
         # Case search
         "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": (
@@ -2754,6 +2950,21 @@ def _search_and_menus():
                 search(_search_module(custom_related_case_property="parent/x")),
                 "schema:CaseSearch.custom_related_case_property",
                 f"{config}/custom_related_case_property",
+            ),
+            # Another default filter beside the one keyed so is in no such class.
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        custom_related_case_property="parent/x",
+                        default_properties=[
+                            _default("status", "'open'"),
+                            _default("x_commcare_custom_related_case_property", "'parent/x'"),
+                        ],
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
             ),
         ),
         "case-search/default-properties-entry-keyed-x-commcare-data-registry": (
@@ -2805,11 +3016,25 @@ def _search_and_menus():
             ),
         ),
         "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": (
+            # The class stands at the filter, which Nova's reader refuses whole, never at the list that holds it.
             refused(
+                "app",
+                search(_search_module(default_properties=[_default("status")])),
+                "schema:DefaultCaseSearchProperty",
+                f"{config}/default_properties/0",
+            ),
+            accepted(
                 "app",
                 search(_search_module(default_properties=[_default("status")])),
                 "schema:CaseSearch.default_properties",
                 f"{config}/default_properties",
+            ),
+            # a value of white space alone is none, as JavaScript's trim reads it
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("status", " \u3000")])),
+                "schema:DefaultCaseSearchProperty",
+                f"{config}/default_properties/0",
             ),
             accepted(
                 "app",
@@ -2836,6 +3061,21 @@ def _search_and_menus():
                 "schema:CaseSearch.blacklisted_owner_ids_expression",
                 f"{config}/blacklisted_owner_ids_expression",
             ),
+            # Another default filter beside the one keyed so is in no such class.
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        blacklisted_owner_ids_expression="'a'",
+                        default_properties=[
+                            _default("status", "'open'"),
+                            _default("commcare_blacklisted_owner_ids", "'b'"),
+                        ],
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
         ),
         "case-search/a-default-filter-and-a-search-property-sharing-one-name": (
             refused(
@@ -2847,6 +3087,17 @@ def _search_and_menus():
             accepted(
                 "app",
                 search(_search_module(properties=[_prompt("dob")], default_properties=[_default("status", "'x'")])),
+                "schema:CaseSearchProperty.name",
+                f"{prompts}/name",
+            ),
+            # A prompt beside the one that shares a name is in no such class.
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        properties=[_prompt("village"), _prompt("dob")], default_properties=[_default("dob", "'x'")]
+                    )
+                ),
                 "schema:CaseSearchProperty.name",
                 f"{prompts}/name",
             ),
@@ -2971,6 +3222,107 @@ def _search_and_menus():
             refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
             accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
+        "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": tuple(
+            make(
+                "app",
+                search(_search_module(properties=[_prompt("dob", receiver_expression="'x'", **fields)])),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{prompts}/receiver_expression",
+            )
+            for make, fields in (
+                (refused, {"appearance": "barcode_scan"}),
+                (refused, {"input_": "daterange"}),
+                # the date input HQ's page shows over a stored address appearance
+                (refused, {"appearance": "address", "input_": "date"}),
+                (accepted, {}),  # a plain text field
+                # a selection's lookup choice shows over a stored barcode appearance
+                (
+                    accepted,
+                    {
+                        "appearance": "barcode_scan",
+                        "input_": "select1",
+                        "itemset": {"doc_type": "Itemset", "instance_id": "item-list:regions"},
+                    },
+                ),
+            )
+        ),
+        # HQ's build reads these three only on a search the menu offers; on one it does not, each is part of the
+        # search configuration HQ stores and builds nothing of.
+        "case-search/case-search-endpoint-id": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("dob")], case_search_endpoint_id="visits")),
+                "schema:CaseSearch.case_search_endpoint_id",
+                f"{config}/case_search_endpoint_id",
+            ),
+            accepted(
+                "app",
+                search(_search_module(case_search_endpoint_id="visits")),
+                "schema:CaseSearch.case_search_endpoint_id",
+                f"{config}/case_search_endpoint_id",
+            ),
+            # a default filter is the endpoint's parameter beside an id, and its own key's with none
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("dob", "'x'")], case_search_endpoint_id="visits")),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("dob", "'x'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+        ),
+        "case-search/custom-sort-properties-property-name-sort-type-exact-date": tuple(
+            make(
+                "app",
+                search(
+                    _search_module(
+                        **fields,
+                        custom_sort_properties=[
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "dob", "sort_type": "date"}
+                        ],
+                    )
+                ),
+                key,
+                f"{config}/{where}",
+            )
+            for make, fields in ((refused, {"default_properties": [_default("status", "'open'")]}), (accepted, {}))
+            for key, where in (
+                ("schema:CaseSearch.custom_sort_properties", "custom_sort_properties"),
+                ("schema:CaseSearchCustomSortProperty.property_name", "custom_sort_properties/0/property_name"),
+            )
+        ),
+        "case-search/search-on-clear": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("dob")], search_on_clear=True)),
+                "schema:CaseSearch.search_on_clear",
+                f"{config}/search_on_clear",
+            ),
+            # HQ reads a list's auto select from its short detail, never from ``auto_select_case``
+            refused(
+                "app",
+                search({**_search_module(properties=[_prompt("dob")], search_on_clear=True), "auto_select_case": True}),
+                "schema:CaseSearch.search_on_clear",
+                f"{config}/search_on_clear",
+            ),
+            # beside the case list's auto select, multi-select or not, the bar's refusal
+            accepted(
+                "app",
+                search(auto_selecting(_search_module(properties=[_prompt("dob")], search_on_clear=True))),
+                "schema:CaseSearch.search_on_clear",
+                f"{config}/search_on_clear",
+            ),
+            accepted(
+                "app",
+                search(_search_module(search_on_clear=True)),
+                "schema:CaseSearch.search_on_clear",
+                f"{config}/search_on_clear",
+            ),
+        ),
         "case-search/search-button-label-any-other-value": (
             refused(
                 "app",
@@ -3029,6 +3381,8 @@ def _search_and_menus():
             refused("suite", CSQL_SUITE, "csql-op:>", "/data[1]/@ref", readings=True),
             accepted("suite", CSQL_SUITE, "csql-op:>", "/data[2]/@ref", readings=True),
             unsettled("suite", CSQL_SUITE, "csql-op:>", "/data[6]/@ref", readings=True),
+            # a system date compared with text is the date-time metadata class, never a property's range
+            accepted("suite", CSQL_SUITE, "csql-op:>", "/data[4]/@ref", readings=True),
         ),
         "case-search/date-opened-closed-on-or-last-modified-compared-with-any": (
             refused("suite", CSQL_SUITE, "csql-metadata:date_opened", "/data[4]/@ref", readings=True),
@@ -3093,6 +3447,40 @@ def _search_and_menus():
             refused("suite", ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[1]/@id"),
             accepted("suite", ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[3]/@id"),
         ),
+        "menus-and-case-lists/auto-select-case-true-on-a-basic-module-an-advanced-form-s-load": (
+            # A household menu's chosen load of a patient lists from the first patient menu, the basic menu before
+            # it; a load that selects its case itself, or one of the advanced menu's own case type, lists from none
+            # of it.
+            refused(
+                "app",
+                _advanced_app(
+                    [_load("load_patient_0")],
+                    modules_before=[_module(auto_select_case=True, unique_id="b")],
+                    case_type="household",
+                ),
+                "schema:Module.auto_select_case",
+                "/modules/0/auto_select_case",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    [_load("usercase", auto_select={"doc_type": "AutoSelectCase", "mode": "usercase"})],
+                    modules_before=[_module(auto_select_case=True, unique_id="b", case_type="visit")],
+                ),
+                "schema:Module.auto_select_case",
+                "/modules/0/auto_select_case",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    [_load("load_patient_0")],
+                    modules_before=[_module(auto_select_case=True, unique_id="b")],
+                    case_type="patient",
+                ),
+                "schema:Module.auto_select_case",
+                "/modules/0/auto_select_case",
+            ),
+        ),
         "menus-and-case-lists/module-task-list-show-true": (
             refused(
                 "app",
@@ -3106,6 +3494,45 @@ def _search_and_menus():
                 "schema:CaseList.show",
                 "/modules/0/case_list/show",
             ),
+        ),
+        "menus-and-case-lists/module-filter-false-on-a-menu-something-opens": (
+            # Its own entry point opens a menu off the menu.
+            refused(
+                "app",
+                _app([plain(module_filter="false()", session_endpoint_id="hidden")]),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+            ),
+            # A form of it returns to it.
+            refused(
+                "app",
+                _app([plain(module_filter="false() and true()", forms=[returns_to_its_menu])]),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+            ),
+            # Another menu's form links to it.
+            refused(
+                "app",
+                _app([plain(module_filter="false()"), plain(unique_id="o", forms=[linked_to_p])]),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+            ),
+            # Nothing opens it: its forms open from links and entry points of their own.
+            accepted(
+                "app",
+                _app([plain(module_filter="false()", forms=[_form_json()])]),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+            ),
+            # An or outside every bracket makes the condition one that can show the menu.
+            accepted(
+                "app",
+                _app([plain(module_filter="false() and true() or true()", session_endpoint_id="shown")]),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+            ),
+            refused("suite", HIDDEN_MENUS, "parser:MenuParser/menu@relevant", "menu[1]/@relevant"),
+            accepted("suite", HIDDEN_MENUS, "parser:MenuParser/menu@relevant", "menu[2]/@relevant"),
         ),
         "menus-and-case-lists/shadowmodule-case-list-show-true": (
             refused(
@@ -3199,6 +3626,21 @@ def _search_and_menus():
             accepted(
                 "app", columns_app(_column(fmt="clickable-icon")), "format:clickable-icon", f"{short}/columns/0/format"
             ),
+            # its icon mapping is the column's, never the column editor's extras on another format
+            refused(
+                "app",
+                columns_app(_column(fmt="clickable-icon", enum=icons), doc_type="AdvancedModule"),
+                "schema:DetailColumn.enum",
+                f"{short}/columns/0/enum",
+            ),
+            accepted(
+                "app",
+                columns_app(
+                    _column(fmt="clickable-icon", enum=icons, endpoint_action_id="visit"), doc_type="AdvancedModule"
+                ),
+                "schema:DetailColumn.enum",
+                f"{short}/columns/0/enum",
+            ),
         ),
         "menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-whatever-its-endpoint": (
             refused(
@@ -3209,6 +3651,18 @@ def _search_and_menus():
             ),
             accepted(
                 "app", columns_app(_column(fmt="clickable-icon")), "format:clickable-icon", f"{short}/columns/0/format"
+            ),
+            refused(
+                "app",
+                columns_app(_column(fmt="clickable-icon", enum=icons), where="long"),
+                "schema:DetailColumn.enum",
+                f"{long_}/columns/0/enum",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(fmt="clickable-icon", enum=icons, endpoint_action_id="visit")),
+                "schema:DetailColumn.enum",
+                f"{short}/columns/0/enum",
             ),
         ),
         "menus-and-case-lists/21p-translatable-enum-key-outside-a-za-z0-9": (
@@ -3338,6 +3792,13 @@ def _search_and_menus():
                 "format:image",
                 f"{short}/columns/0/format",
             ),
+            # The class is a fact about the repeated columns, never a neighbour of another format.
+            accepted(
+                "app",
+                columns_app(_column("n", "plain"), _column("a", "image"), _column("b", "image")),
+                "schema:DetailColumn.format",
+                f"{short}/columns/0/format",
+            ),
         ),
         "menus-and-case-lists/more-than-one-image-or-geo-column-of-the-same-format-in-a-detail": (
             refused(
@@ -3350,6 +3811,14 @@ def _search_and_menus():
                 "app",
                 columns_app(_column("a", "image"), _column("b", "image")),
                 "format:image",
+                f"{short}/columns/0/format",
+            ),
+            accepted(
+                "app",
+                columns_app(
+                    _column("n", "plain"), _column("a", "image"), _column("b", "image"), doc_type="AdvancedModule"
+                ),
+                "schema:DetailColumn.format",
                 f"{short}/columns/0/format",
             ),
         ),
@@ -3395,6 +3864,13 @@ def _search_and_menus():
                 columns_app(_column(grid_x=0, grid_y=0), short=tile),
                 "schema:Detail.case_tile_template",
                 f"{short}/case_tile_template",
+            ),
+            # A custom tile on the case detail is a class of its own, which takes its cells with it.
+            accepted(
+                "app",
+                columns_app(_column(), where="long", long=tile),
+                "schema:Detail.case_tile_template",
+                f"{long_}/case_tile_template",
             ),
         ),
         # A null font_size or horizontal_align is HQ's default, no use of the key: the tile's template is the use
@@ -3598,7 +4074,9 @@ def _search_and_menus():
             ),
         ),
         "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of": (
-            # Each of the five things HQ's build refuses beside put_in_root, then the starter shape.
+            # Each of the three things HQ's build refuses beside put_in_root; then an end-of-form return to it, which
+            # is the form's own class (forms-and-case-writes/post-form-workflow-hq-s-build-refuses-module-in-a-put-
+            # in-root, the bar's), and the starter shape.
             refused(
                 "app",
                 _app([plain(put_in_root=True, session_endpoint_id="visit")]),
@@ -3624,27 +4102,6 @@ def _search_and_menus():
             ),
             refused(
                 "app",
-                _app([plain(put_in_root=True, forms=[{**_form_json("case"), "post_form_workflow": "module"}])]),
-                "schema:Module.put_in_root",
-                "/modules/0/put_in_root",
-            ),
-            refused(
-                "app",
-                _app(
-                    [
-                        plain(put_in_root=True),
-                        plain(
-                            unique_id="c",
-                            root_module_id="p",
-                            forms=[{**_form_json("case"), "post_form_workflow": "parent_module"}],
-                        ),
-                    ]
-                ),
-                "schema:Module.put_in_root",
-                "/modules/0/put_in_root",
-            ),
-            refused(
-                "app",
                 _app(
                     [
                         plain(put_in_root=True),
@@ -3657,6 +4114,27 @@ def _search_and_menus():
                                     "form_links": [{"xpath": "", "module_unique_id": "p"}],
                                 }
                             ],
+                        ),
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            accepted(
+                "app",
+                _app([plain(put_in_root=True, forms=[{**_form_json("case"), "post_form_workflow": "module"}])]),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            accepted(
+                "app",
+                _app(
+                    [
+                        plain(put_in_root=True),
+                        plain(
+                            unique_id="c",
+                            root_module_id="p",
+                            forms=[{**_form_json("case"), "post_form_workflow": "parent_module"}],
                         ),
                     ]
                 ),
@@ -3894,6 +4372,20 @@ def _search_and_menus():
                 "schema:Detail.max_select_value",
                 f"{short}/max_select_value",
             ),
+            # Null is HQ's model's None, which Core reads as 100; no number is a value HQ's model refuses as it wraps
+            # the app, which Nova's reader leaves unclaimed.
+            accepted(
+                "app",
+                columns_app(short={"multi_select": True, "max_select_value": None}),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
+            unsettled(
+                "app",
+                columns_app(short={"multi_select": True, "max_select_value": True}),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
             refused("suite", MENUS, "parser:SessionDatumParser/instance-datum@max-select-value", "/@max-select-value"),
         ),
         "menus-and-case-lists/detail-filter-failing-etree-xpath-dummy-filter": (
@@ -3936,19 +4428,51 @@ def _search_and_menus():
         "expressions-and-data/results-read-in-form-expressions-reached-through-a-search-that": (
             refused("suite", SEARCH_SUITE, "instance-scheme:results", "entry[1]/instance[1]/@id"),
             accepted("suite", SEARCH_SUITE, "instance-scheme:results", "entry[2]/instance[1]/@id"),
+            # A form's read, with no suite beside it that says how an entry opens the form; a menu's display
+            # condition is evaluated outside a form.
+            unsettled("form", read_in_form("results", "jr://instance/remote/results"), *read_at, readings=True),
+            accepted("app", read_in_slot("count(instance('results')/results/case) > 0"), *module_read, readings=True),
         ),
         "expressions-and-data/search-input-read-in-form-expressions-reached-through-a-search": (
             refused("suite", INPUTS_SUITE, "instance-scheme:search-input", "entry[1]/instance[1]/@id"),
             accepted("suite", INPUTS_SUITE, "instance-scheme:search-input", "entry[2]/instance[1]/@id"),
+            unsettled(
+                "form",
+                read_in_form("search-input:results", "jr://instance/search-input/results"),
+                *input_at,
+                readings=True,
+            ),
+            accepted("app", read_in_slot(f"count({search_input}) > 0"), *module_input, readings=True),
         ),
         "expressions-and-data/commtrack-locations-hierarchical": (
             refused("suite", LOCATIONS_SUITE, "instance-scheme:commtrack", "entry[1]/instance[1]/@id"),
             accepted("suite", LOCATIONS_SUITE, "instance-scheme:locations", "entry[2]/instance[1]/@id"),
             unsettled("suite", LOCATIONS_SUITE, "instance-scheme:locations", "entry[3]/instance[1]/@id"),
+            # A form's read of the instance it declares, by the declaration's source.
+            refused("form", read_in_form("locations", "jr://fixture/commtrack:locations"), *places_at, readings=True),
+            accepted("form", read_in_form("locations", "jr://fixture/locations"), *places_at, readings=True),
+            # A slot's read, whose source HQ's build chooses by the project space's flag.
+            accepted(
+                "app",
+                read_in_slot("count(instance('locations')/locations/location) > 0"),
+                "instance-scheme:locations",
+                "/modules/0/module_filter",
+                readings=True,
+                configurations=(PLAIN,),
+            ),
         ),
         "expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail": (
             refused("suite", INPUTS_SUITE, "instance-scheme:search-input", "entry[3]/instance[1]/@id"),
             accepted("suite", INPUTS_SUITE, "instance-scheme:search-input", "remote-request[1]/instance[1]/@id"),
+            # A case list column's read of the legacy instance, after the query; a display condition's is a menu's.
+            refused(
+                "app",
+                _app([_detail_module(columns=[_column(f"count({legacy_input})", useXpathExpression=True)])]),
+                "instance-scheme:search-input",
+                "/modules/0/case_details/short/columns/0/field",
+                readings=True,
+            ),
+            accepted("app", read_in_slot(f"count({legacy_input}) > 0"), *module_input, readings=True),
         ),
         "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install": (
             # With the verification on: a reference whose file the local archive lacks, and one it holds.
@@ -4096,6 +4620,13 @@ CASE_LIST_ENDPOINTS = b"""<suite version="1">
  <endpoint id="own"><stack><push><command value="'m0'"/></push></stack></endpoint>
  <endpoint id="form"><stack><push><command value="'m0'"/><command value="'m0-f0'"/></push></stack></endpoint>
  <endpoint id="shared"><stack><push><command value="'m1'"/></push></stack></endpoint>
+</suite>"""
+# Two menus off the menu: an endpoint opens the first, and the second is passed through to its form.
+HIDDEN_MENUS = b"""<suite version="1"><menu id="m0" relevant="false()"><text><locale id="m0"/></text></menu>
+ <menu id="m1" relevant="false() and true()"><text><locale id="m1"/></text><command id="m1-f0"/></menu>
+ <entry><form>http://example.org/f</form><command id="m1-f0"><text><locale id="f"/></text></command></entry>
+ <endpoint id="own"><stack><push><command value="'m0'"/></push></stack></endpoint>
+ <endpoint id="form"><stack><push><command value="'m1'"/><command value="'m1-f0'"/></push></stack></endpoint>
 </suite>"""
 # Menus, one under another, and a multi-select datum whose limit is 0.
 MENUS = b"""<suite version="1"><menu id="m0"><text><locale id="m0"/></text></menu>
@@ -4318,6 +4849,8 @@ def _data_binds_and_itext():
           <group ref="/data/grp"><input ref="/data/grp/inner2"/></group>""",
     )
     usercase = form(data="<commcare_usercase/><q/>", body='<input ref="/data/q"/>')
+    # Names HQ's form builder cannot open a form holding, names it only warns about, and a plain one.
+    ids = form(data="<bind/><parsererror/><Registration/><SCRIPT/><plain/><g><script/></g>")
     usercase_update = {"condition": ALWAYS, "update": {"name": _update("/data/q")}}
     # A SaveToCase block's own update rows (`status`, `size`), a hand-written case block's and a question's.
     reserved = form(
@@ -4527,11 +5060,15 @@ def _data_binds_and_itext():
     # from the default, else from any app language with content (t4: es).
     translated = _with_forms(_app([_module([_form_json("none")])], langs=["fr", "en", "es"]), f=translations)
     in_two_languages = _with_forms(_app([_module([_form_json("none")])], langs=["en", "fr"]), f=translations)
+    # d's unread word may be dropped with every runtime's reading kept, the HELD-NEW class beside the refused one.
     appearances = form(
-        data="<a/><b/><c/>",
+        data="<a/><b/><c/><d/>",
         body="""<select1 ref="/data/a" appearance="minimal "><item><value>x</value></item></select1>
           <select1 ref="/data/b" appearance="minimal"><item><value>x</value></item></select1>
-          <select1 ref="/data/c" appearance="minimal foo"><item><value>x</value></item></select1>""",
+          <select1 ref="/data/c" appearance="minimal foo"><item><value>x</value></item></select1>
+          <select1 ref="/data/d" appearance="minimal hint-as-placeholder foo">
+            <item><value>x</value></item>
+          </select1>""",
     )
     # Each whole appearance Android reads ignoring case, as Nova writes it (a, c, e) and as a case variant (b, d, f).
     keypads = form(
@@ -4565,7 +5102,26 @@ def _data_binds_and_itext():
         basic=supply,
         advanced=supply_second,
     )
+    # A menu's display condition is no form's, so it reads the supply point outside an advanced form's datum; a form
+    # link is its form's, the advanced one holding the datum.
+    supplied_slots = _app(
+        [
+            _module(
+                [
+                    {
+                        **advanced,
+                        "unique_id": "linking",
+                        "form_links": [{"doc_type": "FormLink", "xpath": f"{session} = ''", "form_id": "linking"}],
+                    }
+                ],
+                module_filter=f"{session} = ''",
+            ),
+            _module(module_filter="instance('commcaresession')/session/data/case_id = ''", unique_id="other"),
+        ]
+    )
     variables = form(data="<v/>", model='<bind nodeset="/data/v" calculate="$x + 1"/>')
+    # HQ's build writes a menu's display condition into the suite, outside every form.
+    slot_variables = _app([_module(module_filter="$x = 1")])
     functions = form(
         data="<h/><s/><t/><n/><m/>",
         model="""<instance id="items" src="jr://fixture/item-list:items"/>
@@ -4575,6 +5131,17 @@ def _data_binds_and_itext():
         body="""<select1 ref="/data/s"><itemset nodeset="instance('items')/items_list/items">
             <label ref="name"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/t"><item><value>a</value></item></select1>""",
+    )
+    # A form's display condition reading the case of another menu by its slug, and the shorthand for its own case.
+    slug_cases = _app(
+        [
+            _module(
+                [
+                    {**_form_json(), "unique_id": "a", "form_filter": "#case:clinic/name = 'x'"},
+                    {**_form_json(), "unique_id": "b", "form_filter": "#case/name = 'x'"},
+                ]
+            )
+        ]
     )
     here_suite = b"""<suite version="1"><detail id="d"><title><text><locale id="t"/></text></title><field><header><text>
       <locale id="h"/></text></header><template><text><xpath function="here()"/></text></template></field></detail>
@@ -4612,6 +5179,25 @@ def _data_binds_and_itext():
         data="<a/><b/><c/>",
         model="""<bind nodeset="/data/a" calculate="/data/a/../b"/><bind nodeset="/data/c" calculate="../b"/>""",
     )
+    # A case list's calculated column reads each row, a case of the menu's type; a menu's display condition reads
+    # no case, so its bare name is not placed.
+    time_columns = _app(
+        [
+            _detail_module(
+                [
+                    _column("if(seen < now(), 'past', 'due')", useXpathExpression=True),
+                    _column("if(count < 3, 'few', 'many')", useXpathExpression=True),
+                    _column("if(clock < 12, 'morning', 'later')", useXpathExpression=True),
+                    # A literal spelled as a date and time is a moment, as Nova's reader types it; one spelled as a
+                    # time of day is a time.
+                    _column("if(seen < '2026-01-01T10:00:00Z', 'past', 'due')", useXpathExpression=True),
+                    _column("if(count < '10:30', 'early', 'late')", useXpathExpression=True),
+                ],
+                case_type="visit",
+                module_filter="count < 3",
+            )
+        ]
+    )
     times = form(
         data="<t/><n/><p/>",
         model=f"""<bind nodeset="/data/t" type="xsd:time" constraint=". &gt; '08:00'"/>
@@ -4620,6 +5206,8 @@ def _data_binds_and_itext():
         body='<input ref="/data/t"/><input ref="/data/n"/>',
     )
     detail_keys = _app([_detail_module([_column(foo=1, calc_xpath=".")], short={"foo": 1, "custom_variables": None})])
+    # HQ's build never writes a menu's ref_details, whose row holds the whole value.
+    reference_keys = _app([_module(ref_details={"doc_type": "DetailPair", "short": {"foo": 1}, "long": {}})])
     form_keys = _app([_module([{**_form_json("none"), "bar": 1, "no_vellum": False}])])
     short = "/modules/0/case_details/short"
     nested = form(
@@ -4637,7 +5225,17 @@ def _data_binds_and_itext():
         "questions/question-id-failing-the-grammar-or-meta-in-any-case": (
             refused("form", nodes, root_child, f"{data}_bad[1]"),
             refused("form", nodes, root_child, f"{data}meta[1]"),
+            refused("form", ids, root_child, f"{data}bind[1]"),
+            refused("form", ids, root_child, f"{data}parsererror[1]"),
             accepted("form", nodes, root_child, f"{data}good[1]"),
+            accepted("form", ids, root_child, f"{data}Registration[1]"),
+        ),
+        "questions/question-id-case-registration-script": (
+            refused("form", ids, root_child, f"{data}Registration[1]"),
+            refused("form", ids, root_child, f"{data}SCRIPT[1]"),
+            refused("form", ids, node, f"{data}g[1]/{data}script[1]"),
+            accepted("form", ids, root_child, f"{data}plain[1]"),
+            accepted("form", ids, root_child, f"{data}bind[1]"),
         ),
         "questions/two-sibling-data-nodes-with-one-name": (
             refused("form", nodes, root_child, f"{data}twin[2]"),
@@ -4841,6 +5439,9 @@ def _data_binds_and_itext():
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("form", translations, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
+            # the value's own form attribute takes the class of the form it names
+            refused("form", translations, VALUE_FORM, "translation[1]/text[1]/value[2]/@form"),
+            accepted("form", translations, VALUE_FORM, "translation[1]/text[2]/value[2]/@form"),
             # a hint's differing copy is questions/hint-markdown-form's; the label's beside it stays refused
             accepted(
                 "form", hinted, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form", readings=True
@@ -4863,6 +5464,8 @@ def _data_binds_and_itext():
             accepted("app", relanguaged, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("app", relanguaged, "itext-form:core/markdown", "translation[2]/text[2]/value[2]/@form"),
             refused("app", relanguaged, "itext-form:core/markdown", "translation[1]/text[3]/value[2]/@form"),
+            refused("form", translations, VALUE_FORM, "translation[1]/text[1]/value[2]/@form"),
+            accepted("form", copied, VALUE_FORM, "translation[1]/text[1]/value[2]/@form"),
         ),
         "questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text": (
             # fr is the app's first language: its blank t3 beside en's text is refused; en's blank t4 is no first's
@@ -4895,6 +5498,8 @@ def _data_binds_and_itext():
                 readings=True,
             ),
             accepted("form", hinted, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
+            refused("form", formatting_off, VALUE_FORM, "translation[1]/text[1]/value[2]/@form", readings=True),
+            accepted("form", formatting_off, VALUE_FORM, "translation[1]/text[2]/value[2]/@form", readings=True),
         ),
         "questions/itext-entry-referenced-only-from-jr-itext-in-an-expression": (
             refused("form", messages, "xform:model/itext/translation/text@id", "text[6]/@id", readings=True),  # extra
@@ -4913,6 +5518,7 @@ def _data_binds_and_itext():
         "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": (
             refused("form", appearances, "xform:select1@appearance", "select1[3]/@appearance"),
             accepted("form", appearances, "xform:select1@appearance", "select1[2]/@appearance"),
+            unsettled("form", appearances, "xform:select1@appearance", "select1[4]/@appearance"),
         ),
         "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": (
             refused("form", keypads, "appearance:android/numeric", "input[2]/@appearance"),
@@ -4931,10 +5537,18 @@ def _data_binds_and_itext():
         "questions/label-big-image": (
             refused("form", images, "itext-form:android/big-image", "text[1]/value[2]/@form", readings=True),
             accepted("form", images, "itext-form:android/big-image", "text[2]/value[2]/@form", readings=True),
+            refused("form", images, VALUE_FORM, "text[1]/value[2]/@form", readings=True),
+            accepted("form", images, VALUE_FORM, "text[2]/value[2]/@form", readings=True),
         ),
         "questions/choice-big-image": (
             refused("form", images, "itext-form:android/big-image", "text[2]/value[2]/@form", readings=True),
             accepted("form", images, "itext-form:android/big-image", "text[1]/value[2]/@form", readings=True),
+            refused("form", images, VALUE_FORM, "text[2]/value[2]/@form", readings=True),
+            accepted("form", images, VALUE_FORM, "text[1]/value[2]/@form", readings=True),
+        ),
+        "expressions-and-data/case-module-slug-unrelated-parent-select-case": (
+            refused("app", slug_cases, "hashtag:#case", "/modules/0/forms/0/form_filter"),
+            accepted("app", slug_cases, "hashtag:#case", "/modules/0/forms/1/form_filter"),
         ),
         "expressions-and-data/here-in-a-form": (
             refused("form", functions, "jr-handler:here", "bind[1]/@calculate", readings=True),
@@ -4985,7 +5599,10 @@ def _data_binds_and_itext():
                     ("form", CASE_PROPERTY_FORM, "bind", "calculate"),
                 )
                 for index, verdict in enumerate(
-                    (True, True, False, False, None, None, None, False, None, None, None, None, True), start=1
+                    # Two dates and times compare as moments (a first publish declares the instant-comparison
+                    # rewrite), so only the time of day is the class: ``clock < 12``.
+                    (False, True, False, False, None, None, None, False, None, None, None, None, False),
+                    start=1,
                 )
             ),
             accepted(
@@ -5014,9 +5631,32 @@ def _data_binds_and_itext():
                 "suite",
                 CASE_PROPERTY_SUITE,
                 "xpath-token:LT",
-                "datum[1]/@nodeset",
+                "datum[2]/@nodeset",
                 readings=True,
                 case_types=CASE_PROPERTY_TYPES,
+            ),
+            *(
+                Shape(
+                    "app",
+                    time_columns,
+                    "xpath-expr:XPathCmpExpr",
+                    where,
+                    verdict,
+                    readings=True,
+                    case_types=CASE_PROPERTY_TYPES,
+                )
+                for where, verdict in (
+                    # A date and time against now() is two moments, which Nova compares as such.
+                    ("/case_details/short/columns/0/field", False),
+                    ("/case_details/short/columns/1/field", False),
+                    ("/case_details/short/columns/2/field", True),
+                    ("/case_details/short/columns/3/field", False),
+                    ("/case_details/short/columns/4/field", True),
+                    ("/modules/0/module_filter", None),
+                )
+            ),
+            unsettled(
+                "app", time_columns, "xpath-expr:XPathCmpExpr", "/case_details/short/columns/0/field", readings=True
             ),
         ),
         "questions/data-parent-crossing-a-repeat": (
@@ -5028,12 +5668,23 @@ def _data_binds_and_itext():
             accepted("form", inline, "xform:model/instance@id", "instance[2]/@id"),
         ),
         "expressions-and-data/more-than-one-instance-without-an-id": (
-            refused("form", unnamed, "xform:model/instance", "model[1]/instance[1]"),
+            refused("form", unnamed, "xform:model/instance", "model[1]/instance[4]"),
+            accepted("form", unnamed, "xform:model/instance", "model[1]/instance[1]"),
             accepted("form", inline, "xform:model/instance", "model[1]/instance[1]"),
         ),
         "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": (
             refused("app", supplied, "session-path:session/data/*", "bind[1]/@calculate", readings=True),
             accepted("app", supplied, "session-path:session/data/*", "bind[2]/@calculate", readings=True),
+            refused("app", supplied_slots, "session-path:session/data/*", "/modules/0/module_filter", readings=True),
+            accepted("app", supplied_slots, "session-path:session/data/*", "/form_links/0/xpath", readings=True),
+            accepted("app", supplied_slots, "session-path:session/data/*", "/modules/1/module_filter", readings=True),
+        ),
+        "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed": (
+            accepted("app", supplied, "session-path:session/data/*", "bind[1]/@calculate", readings=True),
+            refused("app", supplied, "session-path:session/data/*", "bind[2]/@calculate", readings=True),
+            accepted("app", supplied_slots, "session-path:session/data/*", "/modules/0/module_filter", readings=True),
+            refused("app", supplied_slots, "session-path:session/data/*", "/form_links/0/xpath", readings=True),
+            accepted("app", supplied_slots, "session-path:session/data/*", "/modules/1/module_filter", readings=True),
         ),
         "expressions-and-data/session-data-datum-the-entry-does-not-supply": (
             refused("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[1]/@nodeset", readings=True),
@@ -5106,9 +5757,11 @@ def _data_binds_and_itext():
         "expressions-and-data/var-in-a-form-expression": (
             refused("form", variables, "xpath-token:VAR", "bind[1]/@calculate", readings=True),
             accepted("suite", VARIABLES_SUITE, "xpath-token:VAR", "menu[1]/@relevant", readings=True),
+            accepted("app", slot_variables, "xpath-token:VAR", "/modules/0/module_filter", readings=True),
         ),
         "menus-and-case-lists/any-other-undeclared-key": (
             refused("app", detail_keys, "schema:Detail.<undeclared>", f"{short}/foo"),
+            accepted("app", reference_keys, "schema:Detail.<undeclared>", "/ref_details/short/foo"),
             accepted("app", detail_keys, "schema:Detail.<undeclared>", f"{short}/custom_variables"),
             refused("app", detail_keys, "schema:DetailColumn.<undeclared>", f"{short}/columns/0/foo"),
             accepted("app", detail_keys, "schema:DetailColumn.<undeclared>", f"{short}/columns/0/calc_xpath"),
@@ -5120,12 +5773,345 @@ def _data_binds_and_itext():
     }
 
 
+def _held_new():
+    """The shapes of the HELD-NEW classes beside an allowing class of their key: a use the class takes (``refused``:
+    its reader says True, and the use stands held-new) and one beside it that the allowing class holds."""
+    data = "{http://example.org/t}"
+    case = f'<case xmlns="{CASE_NS}" case_id="" date_modified="" user_id="">'
+    update_map = "schema:UpdateCaseAction.update"
+    child_map = "schema:OpenSubCaseAction.case_properties"
+    updates = "/modules/0/forms/0/actions/update_case/update"
+    children = "/modules/0/forms/0/actions/subcases/0/case_properties"
+    loads = "/modules/0/forms/0/actions/load_update_cases"
+    opens = "/modules/0/forms/0/actions/open_cases"
+    short = "/modules/0/case_details/short"
+    prompts = "/modules/0/search_config/properties/0"
+
+    def own_update(key, condition=ALWAYS):
+        update = {"doc_type": "UpdateCaseAction", "condition": condition, "update": {key: _update("/data/q")}}
+        return _with_forms(_app([_module([_form_json("case", update_case=update)])]), f=QUESTIONS)
+
+    def child_update(key):
+        subcase = _subcase(case_properties={key: _update("/data/q")})
+        return _with_forms(_app([_module([_form_json("none", subcases=[subcase])])]), f=QUESTIONS)
+
+    # A SaveToCase block of a patient whose own update rows are `location_id` and `size`.
+    block = _form(
+        data=f"""<op vellum:role="SaveToCase" vellum:case_type="patient">{case}<update><location_id/>
+      <size/></update></case></op>"""
+    )
+    row = f"{data}op[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}"
+    household = _load("load_household_0", case_type="household")
+    worker = _load("usercase", auto_select={"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""})
+
+    load_tag, open_tag = "schema:LoadUpdateAction.case_tag", "schema:AdvancedOpenCaseAction.case_tag"
+    reference = "schema:CaseIndex.reference_id"
+
+    def opened(identifier):
+        index = _index("load_household_0", reference_id=identifier)
+        return _advanced_app([household], [_open("open_visit_0", case_indices=[index])])
+
+    def load_indexed(identifier):
+        index = _index("load_household_0", reference_id=identifier)
+        return _advanced_app([household, _load("load_patient_1", case_index=index)])
+
+    def search(**prompt):
+        return _app([_search_module(properties=[_prompt(**prompt)])])
+
+    def columns(*listed, **short_fields):
+        return _app([_detail_module(listed, short=short_fields)])
+
+    def tile(identifier, template="custom"):
+        group = {"doc_type": "CaseTileGroupConfig", "index_identifier": identifier, "header_rows": 2}
+        return columns(_column(), case_tile_template=template, case_tile_group=group)
+
+    def mapped(fmt, alt_text):
+        item = {"doc_type": "MappingItem", "key": "a", "value": {"en": "A"}, "alt_text": alt_text}
+        return columns(_column(fmt=fmt, enum=[item]))
+
+    profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": ["fra"]}})
+    choices = _form(
+        data="<s/>",
+        body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
+    )
+    named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
+    versioned = _form(data="<q/>").replace(b'name="T"', b'name="T" uiVersion="1"')
+    # Hidden Values (data nodes no control names): a, b and c with a calculate and a default, a read by r's later
+    # default, c through m's calculate by s's, b by nothing; h with both in a repeat; t with a calculate alone.
+    hidden_values = _form(
+        data="<a/><b/><c/><m/><r/><s/><t/><grp><h/><v/></grp>",
+        model=(
+            '<bind nodeset="/data/a" calculate="1 + 1"/><bind nodeset="/data/b" calculate="2 + 2"/>'
+            '<bind nodeset="/data/c" calculate="3 + 3"/><bind nodeset="/data/m" calculate="/data/c * 2"/>'
+            '<bind nodeset="/data/r"/><bind nodeset="/data/s"/><bind nodeset="/data/t" calculate="4"/>'
+            '<bind nodeset="/data/grp/h" calculate="5"/>'
+            '<setvalue event="xforms-ready" ref="/data/a" value="5"/>'
+            '<setvalue event="xforms-ready" ref="/data/b" value="6"/>'
+            '<setvalue event="xforms-ready" ref="/data/c" value="7"/>'
+            '<setvalue event="xforms-ready" ref="/data/grp/h" value="8"/>'
+            '<setvalue event="xforms-ready" ref="/data/r" value="/data/a + 1"/>'
+            '<setvalue event="xforms-ready" ref="/data/s" value="/data/m"/>'
+        ),
+        body="""<group ref="/data/grp"><label>G</label><repeat nodeset="/data/grp">
+          <input ref="/data/grp/v"><label>V</label></input></repeat></group>""",
+    )
+
+    # A query repeat's count placement as Nova writes it (``countPlacementRow.ts``): each row's id holds a
+    # calculate and a ``jr-insert`` default that give the row one id, which the count repeat's own entry holds. In
+    # ``s`` the row's default is another value, which the row's calculate replaces only later.
+    def count_placement(name, row_default):
+        ids, count, row_id, index = (f"nova_query_{part}_{name}" for part in ("ids", "count", "id", "index"))
+        data = f'<{name}><{ids}/><{count}/><item jr:template=""><{row_id}/><{index}/><note/></item></{name}>'
+        model = (
+            f"<bind nodeset=\"/data/{name}/{ids}\" calculate=\"join(' ', 'a b')\"/>"
+            f'<bind nodeset="/data/{name}/{count}" type="xsd:int" calculate="count-selected(../{ids})"/>'
+            f'<bind nodeset="/data/{name}/item/{row_id}"'
+            f" calculate=\"if(../{index} &lt; ../../{count}, selected-at(../../{ids}, ../{index}), '')\"/>"
+            f'<bind nodeset="/data/{name}/item/{index}" type="xsd:int"/>'
+            f'<setvalue event="jr-insert" ref="/data/{name}/item/{row_id}" value="{row_default}"/>'
+            f'<setvalue event="jr-insert" ref="/data/{name}/item/{index}" value="position(..)"/>'
+        )
+        body = (
+            f'<group ref="/data/{name}"><group><repeat nodeset="/data/{name}/item" jr:noAddRemove="true()"'
+            f' jr:count="/data/{name}/{count}"><input ref="/data/{name}/item/note"><label>N</label></input>'
+            "</repeat></group></group>"
+        )
+        return data, model, body
+
+    placed = [
+        count_placement(
+            "r",
+            "if(position(..) &lt; int(../../nova_query_count_r),"
+            " selected-at(../../nova_query_ids_r, position(..)), '')",
+        ),
+        count_placement("s", "if(position(..) &lt; 5, ../../nova_query_ids_s, '')"),
+    ]
+    count_rows = _form(
+        data="".join(data for data, _, _ in placed),
+        model="".join(model for _, model, _ in placed),
+        body="".join(body for _, _, body in placed),
+    )
+
+    def hidden(*names):
+        return "data[1]/" + "/".join(f"{{http://example.org/t}}{name}[1]" for name in names)
+
+    # A SaveToCase block's ``<case>`` attribute HQ's reader lists as a Hidden Value (``get_questions``), here with a
+    # calculate and a default, is the block's own property to Vellum, never a Hidden Value.
+    case_attribute = _form(
+        data=(
+            '<stc><case xmlns="http://commcarehq.org/case/transaction/v2" case_id="" date_modified="">'
+            "<create><case_type/></create></case></stc>"
+        ),
+        model=(
+            '<bind nodeset="/data/stc/case/@case_id" calculate="uuid()"/>'
+            '<bind nodeset="/data/stc/case/create/case_type" calculate="\'patient\'"/>'
+            '<setvalue event="xforms-ready" ref="/data/stc/case/@case_id" value="uuid()"/>'
+        ),
+    )
+    case_id = "{http://example.org/t}stc[1]/{http://commcarehq.org/case/transaction/v2}case[1]/@case_id"
+
+    hidden_type = "mug:DataBindOnly"
+    return {
+        "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": (
+            refused("form", hidden_values, hidden_type, hidden("a"), readings=True),
+            refused("form", hidden_values, hidden_type, hidden("c"), readings=True),
+            refused("form", hidden_values, hidden_type, hidden("grp", "h"), readings=True),
+            accepted("form", hidden_values, hidden_type, hidden("b"), readings=True),
+            accepted("form", hidden_values, hidden_type, hidden("t"), readings=True),
+            accepted("form", hidden_values, hidden_type, hidden("r"), readings=True),
+            # A count placement's row id is the count repeat's, and a row whose default its calculate does not give
+            # is a Hidden Value in a repeat.
+            accepted("form", count_rows, hidden_type, hidden("r", "item", "nova_query_id_r"), readings=True),
+            refused("form", count_rows, hidden_type, hidden("s", "item", "nova_query_id_s"), readings=True),
+            accepted("form", case_attribute, hidden_type, case_id, readings=True),
+        ),
+        "forms-and-case-writes/update-keys-location-id-hq-user-id": (
+            refused("app", own_update("location_id"), update_map, updates),
+            accepted("app", own_update("district"), update_map, updates),
+            # Under the condition never, HQ's build writes no key of the map, the inert class beside it.
+            accepted("app", own_update("location_id", NEVER), update_map, updates),
+            refused("app", child_update("hq_user_id"), child_map, children),
+            # A child case's key with an index step is refused before its property is read.
+            accepted("app", child_update("parent/location_id"), child_map, children),
+            refused("form", block, "xform:model/instance//*", f"{row}location_id[1]"),
+            accepted("form", block, "xform:model/instance//*", f"{row}size[1]"),
+        ),
+        "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
+            refused("app", own_update("größe"), update_map, updates),
+            refused("app", child_update("größe"), child_map, children),
+            accepted("app", own_update("size"), update_map, updates),
+            # ``ª`` is a letter to HQ's grammar and no name character to Core: HQ's build refuses it (the bar's).
+            accepted("app", own_update("aª"), update_map, updates),
+        ),
+        "forms-and-case-writes/case-tag-holding-a-hyphen": (
+            refused("app", _advanced_app([_load("load-patient")]), load_tag, f"{loads}/0/case_tag"),
+            refused("app", _advanced_app([household], [_open("open-visit")]), open_tag, f"{opens}/0/case_tag"),
+            accepted("app", _advanced_app([_load("load_patient")]), load_tag, f"{loads}/0/case_tag"),
+            # An auto-selected load's tag is read by no tag check.
+            accepted("app", _advanced_app([{**worker, "case_tag": "user-case"}]), load_tag, f"{loads}/0/case_tag"),
+            # Nor is a shadow form's, which Nova's reader refuses whole.
+            accepted(
+                "app",
+                _shadow_app([_load("load_patient")], [_load("load-patient")]),
+                load_tag,
+                "/modules/0/forms/1/extra_actions/load_update_cases/0/case_tag",
+            ),
+        ),
+        "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
+            refused("app", opened("my-parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("my_parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            # A load's index is another class's.
+            accepted("app", load_indexed("my-parent"), reference, f"{loads}/1/case_index/reference_id"),
+        ),
+        "case-search/prompt-key-outside-nova-s-name-grammar": (
+            refused("app", search(name="parent/dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            refused("app", search(name="_x"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            # Excluded from the search, the prompt names no case property.
+            accepted("app", search(name="_x", exclude=True), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+        ),
+        "case-search/default-value-on-a-date-range-input": (
+            refused(
+                "app",
+                search(name="dob", input_="daterange", default_value="today()"),
+                "schema:CaseSearchProperty.default_value",
+                f"{prompts}/default_value",
+            ),
+            accepted(
+                "app",
+                search(name="dob", input_="date", default_value="today()"),
+                "schema:CaseSearchProperty.default_value",
+                f"{prompts}/default_value",
+            ),
+            accepted(
+                "app",
+                search(name="dob", input_="daterange", default_value="today()", hidden=True),
+                "schema:CaseSearchProperty.default_value",
+                f"{prompts}/default_value",
+            ),
+        ),
+        "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": (
+            refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
+            accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
+        ),
+        "questions/data-root-element-named-other-than-data": (
+            refused("form", named, "xform:model/instance/*", f"instance[1]/{data}visit[1]"),
+            accepted("form", versioned, "xform:model/instance/*", f"instance[1]/{data}data[1]"),
+        ),
+        "menus-and-case-lists/detail-max-select-value-above-100": (
+            refused(
+                "app",
+                columns(multi_select=True, max_select_value=150),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
+            accepted(
+                "app",
+                columns(multi_select=True, max_select_value=99),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
+            # A list that selects one case reads no maximum.
+            accepted(
+                "app",
+                columns(multi_select=False, max_select_value=150),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
+            # Null is HQ's model's None, which Core reads as 100.
+            accepted(
+                "app",
+                columns(multi_select=True, max_select_value=None),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
+            # No number is a value HQ's model refuses as it wraps the app, which Nova's reader leaves unclaimed.
+            unsettled(
+                "app",
+                columns(multi_select=True, max_select_value="150"),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
+        ),
+        "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": (
+            refused(
+                "app",
+                mapped("enum-image", {"en": "A photo"}),
+                "schema:MappingItem.alt_text",
+                f"{short}/columns/0/enum/0/alt_text",
+            ),
+            accepted(
+                "app",
+                mapped("enum-image", {"en": " "}),
+                "schema:MappingItem.alt_text",
+                f"{short}/columns/0/enum/0/alt_text",
+            ),
+            # An ID mapping builds no image, so no alternative text is read.
+            accepted(
+                "app",
+                mapped("enum", {"en": "A photo"}),
+                "schema:MappingItem.alt_text",
+                f"{short}/columns/0/enum/0/alt_text",
+            ),
+            # Which of a blank text and a shown one HQ's build writes turns on the app's languages, which the map
+            # alone does not say.
+            unsettled(
+                "app",
+                mapped("enum-image", {"en": "", "fra": "Photo"}),
+                "schema:MappingItem.alt_text",
+                f"{short}/columns/0/enum/0/alt_text",
+            ),
+            # A null text is skipped for the map's least key, whose value prints as ``None``.
+            refused(
+                "app",
+                mapped("enum-image", {"en": None}),
+                "schema:MappingItem.alt_text",
+                f"{short}/columns/0/enum/0/alt_text",
+            ),
+        ),
+        "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
+            refused(
+                "app",
+                tile("my-group"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            accepted(
+                "app",
+                tile("my_group"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            # A list with no custom tile groups nothing.
+            accepted(
+                "app",
+                tile("my-group", template=None),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+        ),
+        "menus-and-case-lists/column-field-outside-nova-s-property-grammar": (
+            refused("app", columns(_column(field="#visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            refused("app", columns(_column(field="a" * 256)), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            accepted("app", columns(_column(field="visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            accepted(
+                "app", columns(_column(field="#owner_name")), "schema:DetailColumn.field", f"{short}/columns/0/field"
+            ),
+        ),
+        "application-and-settings/build-profiles-non-empty": (
+            refused("app", profiled, "schema:Application.build_profiles", "/build_profiles"),
+            refused("app", profiled, "schema:BuildProfile.name", "/build_profiles/french/name"),
+        ),
+    }
+
+
 SHAPES = {
     **_questions(),
     **_settings_and_forms(),
     **_advanced_actions(),
     **_search_and_menus(),
     **_data_binds_and_itext(),
+    **_held_new(),
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
@@ -5140,6 +6126,12 @@ EVERY_USE_TAKEN = {
     ),
     "menus-and-case-lists/module-with-is-training-module-true-training-menu-root-training": (
         "is_training_module is a use only where it is true, which is the class; a suite's menu root it does not read"
+    ),
+    "application-and-settings/build-profiles-non-empty": (
+        "an empty build_profiles is HQ's default and no use, and every use of the keys is a profile or its part"
+    ),
+    "forms-and-case-writes/form-type-other-than-the-form-s-own-kind": (
+        "form_type is a use only where it is not its class's default, the form's own kind, so every use is another"
     ),
 }
 # Classes whose uses the check never consults their reader on, by why (each a gap the inventory's keys close).
@@ -5168,7 +6160,7 @@ def _shape_uses(shape, manifest, readings=None):
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)
     for document in found.documents:
-        if isinstance(document, (classes.Form, classes.Runtime)):
+        if isinstance(document, (classes.App, classes.Form, classes.Runtime)):
             document.case_types = shape.case_types
     if readings is not None:
         manifest_usage.read_observed(found, manifest, readings)
@@ -5193,7 +6185,9 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
                 continue
             # The check consults the reader for that use: the use stands in the class where the reader takes it.
             kind, held = manifest_usage.standing(manifest, use)
-            if shape.verdict:
+            if shape.verdict and entry.disposition == "HELD-NEW":
+                assert kind == manifest_usage.HELD_NEW and entry in held, f"{entry_id} stands {kind} at {shape.where}"
+            elif shape.verdict:
                 refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
                 assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
             elif shape.verdict is False:
@@ -5234,6 +6228,72 @@ def test_a_reader_places_each_shape_read_with_the_observations_readings(entry_id
     _holds_its_shapes(entry_id, manifest, observed)
 
 
+def test_a_held_new_reader_decides_by_the_uses_own_value(manifest):
+    """Contract: a HELD-NEW class's reader decides by the use's own value and the objects or elements that hold it,
+    never by another part of the app or by what the observation read. Each of its shapes is read again with no app
+    beside the use (an app JSON's slot keeps its own objects, from the root down to the slot, and loses every read
+    of the app as a whole) and with no readings, and gives the same verdict. The plausible failure: a reader that
+    reads the app's languages, its other menus or a parse, so its class is no longer one value's, and parity's join
+    over a variant's added uses compares a reading the use alone does not settle."""
+    readers = sorted(entry.id for entry in _held_new_readers(manifest))
+    assert readers, "the registry holds no HELD-NEW reader"
+    for entry_id in readers:
+        reader = classes.VALUE_CLASSES[entry_id]
+        for shape in SHAPES[entry_id]:
+            if _made_by_readings(shape):
+                continue  # read with the readings that make its use (the next test)
+            found = _shape_uses(shape, manifest)
+            uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
+            assert uses, f"{entry_id}: no use of {shape.key} at {shape.where}"
+            for use in uses:
+                at = use.at
+                if isinstance(at, classes.JsonAt):
+                    alone = classes.JsonAt(None, at.scope, at.key)
+                else:
+                    at.document.readings = None
+                    alone = at
+                verdict = reader(replace(use, at=alone), manifest)
+                assert verdict is shape.verdict, f"{entry_id} reads more than the use at {shape.where}"
+
+
+def _made_by_readings(shape):
+    """Whether a shape's use exists only as the observation's readings make it: a question's type, as HQ's question
+    reader reads the form (``manifest_usage._question_uses``), and a session path, as Core's parse of the expression
+    gives its instance paths."""
+    return shape.key.startswith(("mug:", "session-path:"))
+
+
+def test_a_held_new_reader_of_a_use_the_readings_make_reads_its_own_form_alone(manifest, observed):
+    """Contract: a HELD-NEW class of a use the observation's readings make (a question's type, a session path)
+    decides by the form or slot the use stands in, read with the readings that make the use and give its
+    expressions' structure, and with no app beside it: an XForm keeps the form object that names it, its own, and
+    an app JSON's slot its objects from the root down to it. Each such shape is read again so, and gives the same
+    verdict. The plausible failure: a reader that reads another form, a menu or the app's languages, so its class is
+    no longer one form's or one slot's."""
+    shapes = [
+        (entry.id, shape)
+        for entry in _held_new_readers(manifest)
+        for shape in SHAPES[entry.id]
+        if _made_by_readings(shape)
+    ]
+    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"mug", "session-path"}
+    for entry_id, shape in shapes:
+        found = _shape_uses(shape, manifest, observed)
+        uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
+        assert uses, f"{entry_id}: no use of {shape.key} at {shape.where}"
+        for use in uses:
+            at = use.at
+            if isinstance(at, classes.JsonAt):
+                bare = classes.App({}, at.app.artifact)
+                bare.readings = at.app.readings
+                use = replace(use, at=classes.JsonAt(bare, at.scope, at.key))
+            elif at.document.app_form is not None:
+                _, form_json = at.document.app_form
+                at.document.app_form = None if shape.key.startswith("mug:") else (None, form_json)
+            verdict = classes.VALUE_CLASSES[entry_id](use, manifest)
+            assert verdict is shape.verdict, f"{entry_id} reads more than the use's own form at {shape.where}"
+
+
 def _entry_suite(*datum_ids):
     """A suite whose one entry opens the form ``FORM`` writes (namespace ``http://example.org/t``), writing
     ``datum_ids`` into the session."""
@@ -5256,7 +6316,8 @@ def test_an_app_json_forms_session_reads_are_judged_by_the_entries_hq_built_of_i
     the same export only where HQ built nothing, and is undecided only where neither says. The plausible failures:
     a document that declares no Android, so Nova hands it no local archive, whose every session read is undecided
     (which no register entry may hold); and a judge that reads Nova's own suite where HQ's build, which is what
-    runs the app JSON, writes other datums."""
+    runs the app JSON, writes other datums. A form link's condition and carried value, which HQ's build writes into
+    the stack of the form's own entry (``m0-f0``), are read against that entry's datums the same way."""
     from types import SimpleNamespace
 
     from proof.observe.record import ConfigurationRecords, DocumentRecords
@@ -5266,7 +6327,15 @@ def test_an_app_json_forms_session_reads_are_judged_by_the_entries_hq_built_of_i
         model="""<bind nodeset="/data/c" calculate="instance('commcaresession')/session/data/case_id"/>
           <bind nodeset="/data/p" calculate="instance('commcaresession')/session/data/parent_id"/>""",
     )
-    app = _with_forms(_app([_module([{**_form_json("none"), "unique_id": "f"}])]), f=form)
+    link = {
+        "doc_type": "FormLink",
+        "xpath": "instance('commcaresession')/session/data/case_id = ''",
+        "form_id": "f",
+        "datums": [
+            {"doc_type": "FormDatum", "name": "case_id", "xpath": "instance('commcaresession')/session/data/parent_id"}
+        ],
+    }
+    app = _with_forms(_app([_module([{**_form_json("none"), "unique_id": "f", "form_links": [link]}])]), f=form)
     built_suite, local_suite = _entry_suite("case_id"), _entry_suite("parent_id", "case_id")
     table = observed_manifest.readings(core_runner, forms=[form], runtimes=[local_suite], apps=[app])
     document = SimpleNamespace(
@@ -5278,6 +6347,7 @@ def test_an_app_json_forms_session_reads_are_judged_by_the_entries_hq_built_of_i
     )
     reader = classes.VALUE_CLASSES["expressions-and-data/session-data-datum-the-entry-does-not-supply"]
     binds = {"bind[1]/@calculate": "case_id", "bind[2]/@calculate": "parent_id"}
+    slots = {"/form_links/0/xpath": "link case_id", "/form_links/0/datums/0/xpath": "link parent_id"}
 
     def judged(built, local):
         records = DocumentRecords(document.id, "corpus")
@@ -5293,22 +6363,25 @@ def test_an_app_json_forms_session_reads_are_judged_by_the_entries_hq_built_of_i
         }
         records.local = {"kind": "local", "hooks": {"manifest": observed}}
         found = manifest_usage.export_uses(document, records, manifest)
-        uses = [use for use in found.uses if use.key == "session-path:session/data/*" and use.artifact == "form:0.0"]
+        uses = [use for use in found.uses if use.key == "session-path:session/data/*"]
         return {
-            datum_id: reader(use, manifest)
+            read: reader(use, manifest)
             for use in uses
-            for where, datum_id in binds.items()
-            if use.where.endswith(where)
+            for where, read in (binds if use.artifact == "form:0.0" else slots).items()
+            if use.where.endswith(where) and use.artifact in ("form:0.0", "app.json")
         }
 
+    def both(case_id, parent_id):
+        return {"case_id": case_id, "parent_id": parent_id, "link case_id": case_id, "link parent_id": parent_id}
+
     # No local archive (an app declared for Web Apps alone): HQ's build of the upload decides.
-    assert judged(built_suite, None) == {"case_id": False, "parent_id": True}
+    assert judged(built_suite, None) == both(False, True)
     # HQ's build decides where Nova's local archive writes more.
-    assert judged(built_suite, local_suite) == {"case_id": False, "parent_id": True}
+    assert judged(built_suite, local_suite) == both(False, True)
     # HQ built nothing (it refused the publish, which the bar reports): the local archive of the same export.
-    assert judged(None, local_suite) == {"case_id": False, "parent_id": False}
+    assert judged(None, local_suite) == both(False, False)
     # Neither says what opens the form: the reader cannot tell.
-    assert judged(None, None) == {"case_id": None, "parent_id": None}
+    assert judged(None, None) == both(None, None)
 
 
 # REFUSED classes the inventory keys whose reader the registry does not hold, each a gap: every use of their keys
@@ -5324,7 +6397,6 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
-        "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is",
         "expressions-and-data/commtrack-products-commtrack-programs",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
@@ -5338,7 +6410,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
         "menus-and-case-lists/attachment-name-with-any-other-format",
-        "menus-and-case-lists/auto-select-case-true-on-a-basic-module-an-advanced-form-s-load",
         "menus-and-case-lists/callout-with-no-extras-or-no-responses",
         "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist",
         "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
@@ -5403,7 +6474,9 @@ def test_the_undeclared_keys_the_catch_alls_leave_are_the_ones_the_rows_name(man
     """The REFUSED catch-alls for keys a class does not declare refuse every name but the ones the inventory's other
     rows name for that class (``ROW_UNDECLARED_KEYS``): for each class a catch-all names, the map holds exactly the
     names the items of the allowing entries naming ``schema:<Class>.<undeclared>`` spell (each backticked, a
-    ``<Class>.`` before it aside), so a row added or renamed fails here rather than its key staying refused."""
+    ``<Class>.`` before it aside), so a row added or renamed fails here rather than its key staying refused. A row
+    that also names a declared key of the class holds the object whole by where it sits (a menu's ``ref_details``),
+    not keys by name, and spells none."""
     import json
     import re
 
@@ -5419,9 +6492,10 @@ def test_the_undeclared_keys_the_catch_alls_leave_are_the_ones_the_rows_name(man
                 if not (key.startswith("schema:") and key.endswith(classes.UNDECLARED)):
                     continue
                 cls = key[len("schema:") : -len(classes.UNDECLARED)]
+                whole = any(other.startswith(f"schema:{cls}.") and other != key for other in entry["surfaceKeys"])
                 if entry["id"] in catch_alls:
                     named.setdefault(cls, set())
-                elif entry["disposition"] != "REFUSED":
+                elif entry["disposition"] != "REFUSED" and not whole:
                     spelled = {name.split(".")[-1] for name in re.findall(r"`([^`]+)`", entry["item"])}
                     held.setdefault(cls, set()).update(spelled)
     assert set(classes.ROW_UNDECLARED_KEYS) == set(named)

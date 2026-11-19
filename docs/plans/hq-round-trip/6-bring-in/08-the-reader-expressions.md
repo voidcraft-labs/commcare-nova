@@ -2855,6 +2855,21 @@ table above, which is the manifest's own class for the use: the lane's Python re
 each other. `findings.test.ts` holds every key and every entry id the record names to
 `lib/commcare/surface/entries` (section "Tests").
 
+Two allowing classes these rows name are shown by no reading that reads, and part 14's coverage
+exempts both under `stated-by-its-part` (its section 7.5). `results-results-inline-results-name-in-search-details`
+(`search-detail`) is held only in what CommCare HQ's build writes for a search's results detail: a
+source's own `results` read in a menu's slot (a case list column, a list filter) is a query of cases
+Nova's record rule holds no query in, so the slot is refused under its own entry (the `slot-default`
+answer of `findings.ts` for `parse:search-results-remote`, and the checker's reasons such as
+`listed-case-in-query`) and this class is claimed beside that refusal, never in a reading that reads.
+`suite-variable-references` (`suite-declared-variable`, an `export-use` entry) names a variable the
+suite declares for its own expression (a detail field's `<variable>`,
+`detail_screen.py::FormattedDetailColumn._calculated_property` and `Enum._xpath_template`; an
+endpoint's `<argument>`; a case claim's `<post>`; the search action's `$next_input`), which exists
+only in the suite HQ's build writes and never in an app's source, and a source's own `$name` is
+refused under its slot's entry (`findings.ts`, the `variable` case: `var-in-a-form-expression` in a
+form's logic, the slot's own entry elsewhere), so no reading names this entry.
+
 One use is of a form, not of an expression. A form's `<instance>` declaration that no held expression
 of the form reads is claimed once the form's registrations are bound, from `env.instanceSources`:
 `expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user` (INERT) for an

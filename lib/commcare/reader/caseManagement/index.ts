@@ -21,6 +21,9 @@ import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { planFormCaseWire } from "../../casePlacementPlan";
 import {
 	entryFactsDifference,
+	factReadsSurfaceKey,
+	type HqEntryFacts,
+	type HqMenuFacts,
 	hqEntryFacts,
 	menuFactsDifference,
 } from "../../hq/entryFacts";
@@ -36,6 +39,7 @@ import {
 	placedBasic,
 	planPlacements,
 } from "../../placement";
+import { inventoryIndex } from "../../surface/inventory";
 import {
 	type CaseWriteDuplicateReason,
 	type LinkInvalidReason,
@@ -54,6 +58,7 @@ import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { isJsonObject, sameJson } from "../jsonCursor";
+import { keepsRefusedCaseType } from "../menus/modules";
 import { appPlace, whereText } from "../place";
 import { readExpansionSteps, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
@@ -62,8 +67,10 @@ import type { DraftField, ReadXForm } from "../xform";
 import {
 	ADVANCED_CLAIMS,
 	advancedCaseReading,
+	listFormRulesPlace,
 	readAdvancedActions,
 	readAdvancedMenu,
+	refuseParentIndicesAgainstSelections,
 	settleAdvancedForm,
 	settleAdvancedMenu,
 	writeAdvancedChains,
@@ -85,6 +92,7 @@ import {
 } from "./catalog";
 import {
 	conditionFinding,
+	conditionNotYesNo,
 	readActionCondition,
 	statedBack,
 } from "./conditions";
@@ -105,7 +113,7 @@ import {
 } from "./saveToCase";
 
 /**
- * Step 3, pass 1: every form's type, case operations and preloads, read from
+ * Every form's type, case operations and preloads, read from
  * its `actions` with every key claimed, and from its Save to Case blocks;
  * every advanced menu's own keys. The operations' questions are minted after
  * this (`mintFields`), so they reach the draft in `writeCaseOperations`.
@@ -124,7 +132,7 @@ export function readCaseManagement(ctx: ReadContext, app: DraftApp): void {
 	}
 }
 
-/** Step 3, once the forms' questions are minted: each form's case
+/** Once the forms' questions are minted: each form's case
  *  operations and conditions, written into its draft; each advanced menu's
  *  parent selection from its forms' loads; and the app's case catalog. */
 export function writeCaseOperations(ctx: ReadContext, app: DraftApp): void {
@@ -297,10 +305,13 @@ function condition(owner: OwnerPath, stored: unknown): unknown {
 	const value = object(stored);
 	const type = value.type ?? "never";
 	if (type !== "if") return type;
+	const operator = value.operator ?? "=";
+	// HQ's build reads no answer beside `boolean_true` (`xform.py::XForm.action_relevance`), and
+	// its own templates store one there (`answer: "1"`).
 	return {
 		question: owner(value.question),
-		answer: value.answer ?? null,
-		operator: value.operator ?? "=",
+		answer: operator === "boolean_true" ? null : (value.answer ?? null),
+		operator,
 	};
 }
 
@@ -441,8 +452,17 @@ function settleConditions(
 		});
 		if (stated.reasons.length > 0) {
 			const claim = conditionFinding(stated.reasons, condition.own);
-			if (claim !== undefined) ctx.accounting.finding(claim, condition.place);
+			if (claim !== undefined)
+				ctx.accounting.findingAt(claim, condition.place, condition.pointer);
 			else unrecognized(ctx, form, "schema:FormActionCondition.question");
+			ok = false;
+			continue;
+		}
+		const notYesNo = condition.own
+			? undefined
+			: conditionNotYesNo(doc, form.uuid, read.expression);
+		if (notYesNo !== undefined) {
+			ctx.accounting.findingAt(notYesNo, condition.place, condition.pointer);
 			ok = false;
 			continue;
 		}
@@ -574,6 +594,7 @@ function settleScalarChecks(
 	const refused = new Set([
 		...scalarFieldsOfRefusedBlocks(form),
 		...(advanced?.refused === true ? advanced.createNames : []),
+		...(advanced?.refusedScalarFields ?? []),
 		...(basicCaseReading(form)?.refusedScalarFields ?? []),
 	]);
 	for (const field of readFields(xform)) {
@@ -909,7 +930,7 @@ function settleCaseChanges(
 }
 
 /**
- * Step 6, pass 2: each preload's default written over the authored default it
+ * After the binding: each preload's default written over the authored default it
  * replaces, every basic form's reading accepted over the bound document, its
  * scalar checks held to the emitter's, and its preloads judged.
  */
@@ -923,8 +944,17 @@ const FORMS_SETTLED_PER_STEP = 100;
 
 /** `settleCaseManagement`, stopping after its document's preparation, after
  *  every `FORMS_SETTLED_PER_STEP` forms and before the writers' types until it
- *  is resumed. */
+ *  is resumed; the entry facts that differ are judged once every form is
+ *  settled. */
 export function* settleCaseManagementSteps(
+	ctx: ReadContext,
+	app: DraftApp,
+): Generator<void, void, void> {
+	yield* settleCaseManagementForms(ctx, app);
+	settleEntryFactDifferences(ctx);
+}
+
+function* settleCaseManagementForms(
 	ctx: ReadContext,
 	app: DraftApp,
 ): Generator<void, void, void> {
@@ -969,16 +999,70 @@ export function* settleCaseManagementSteps(
 	}
 	yield;
 	settleWriterTypes(ctx, app, ctx.doc ?? doc);
+	refuseParentIndicesAgainstSelections(ctx, app, ctx.doc ?? doc);
 }
 
 // ── The entry facts ─────────────────────────────────────────────────────
+
+/** A fact that differs at a menu or a form, judged once every stage before
+ *  the settle of case management has raised its refusals. */
+interface EntryFactDifference {
+	readonly place: DraftForm["place"];
+	readonly menu: number;
+	readonly key: keyof HqEntryFacts | keyof HqMenuFacts;
+}
+
+const DIFFERENCES = new WeakMap<ReadContext, EntryFactDifference[]>();
+
+function differencesOf(ctx: ReadContext): EntryFactDifference[] {
+	let list = DIFFERENCES.get(ctx);
+	if (list === undefined) {
+		list = [];
+		DIFFERENCES.set(ctx, list);
+	}
+	return list;
+}
+
+/**
+ * Each fact that differs is `unrecognized` at its place, but where a finding
+ * already stands there, whose absent slot is why it differs, or where a
+ * finding anywhere in the same menu refuses a value the fact is read from (its
+ * entry names a stored field of `hq/entryFacts.ts::factReadsSurfaceKey`): what
+ * it refuses is left out of the document Nova emits, so the fact is claimed
+ * under that refusal. A refusal of a condition or a value is raised only once
+ * its expression is bound, so the facts are judged after the binding.
+ */
+function settleEntryFactDifferences(ctx: ReadContext): void {
+	const index = inventoryIndex();
+	const explained = ({ menu, key }: EntryFactDifference) =>
+		ctx.accounting.findings().some((finding) => {
+			if (!("menu" in finding.place) || finding.place.menu !== menu)
+				return false;
+			const keys =
+				finding.code === "unrecognized"
+					? [finding.detail.name ?? ""]
+					: (index.entry(finding.code)?.surfaceKeys ?? []);
+			return keys.some((surfaceKey) => factReadsSurfaceKey(key, surfaceKey));
+		});
+	for (const difference of differencesOf(ctx))
+		if (
+			!ctx.accounting.hasFindingAt(difference.place) &&
+			!explained(difference)
+		)
+			ctx.accounting.circumstance("unrecognized", difference.place, {
+				name: `entry-fact:${difference.key}`,
+			});
+	DIFFERENCES.delete(ctx);
+}
 
 /**
  * Compares the facts CommCare HQ's entry builder reads, menu by menu and
  * form by form, between the source and Nova's emission of the document the
  * drafts give before any expression is bound (`provisionalDocument`): run
  * once every slot a fact reads is written and nothing is bound. Each form
- * that differs is listed in `ctx.facts.entryFactsRefused`, with its finding.
+ * that differs is listed in `ctx.facts.entryFactsRefused`, and each difference
+ * no finding of the loads names is judged after the binding
+ * (`settleEntryFactDifferences`).
  */
 export function compareEntryFacts(ctx: ReadContext, app: DraftApp): void {
 	const steps = compareEntryFactsSteps(ctx, app);
@@ -1000,6 +1084,7 @@ export function* compareEntryFactsSteps(
 		yield;
 		emitted = hqEntryFacts(expansion);
 	} catch {
+		if (keepsRefusedCaseType(ctx)) return;
 		ctx.accounting.defect(
 			appPlace(),
 			"schema:Application.modules",
@@ -1008,28 +1093,37 @@ export function* compareEntryFactsSteps(
 		return;
 	}
 	let blocks: PublishedCaseBlocks | undefined;
-	// A slot a finding of a structure stage left absent is why its fact
-	// differs; that finding already sends the person there.
-	const raise = (place: DraftForm["place"], key: string) => {
-		if (ctx.accounting.hasFindingAt(place)) return;
-		if (key === "moduleKind")
-			ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, place);
-		else
-			ctx.accounting.circumstance("unrecognized", place, {
-				name: `entry-fact:${key}`,
-			});
+	const raise = (
+		place: DraftForm["place"],
+		menu: number,
+		key: keyof HqEntryFacts | keyof HqMenuFacts,
+	) => {
+		if (key === "moduleKind") {
+			if (!ctx.accounting.hasFindingAt(place))
+				ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, place);
+		} else differencesOf(ctx).push({ place, menu, key });
 	};
 	for (const module of app.modules) {
 		const a = source.menus.get(module.uniqueId);
 		const b = emitted.menus.get(module.uniqueId);
-		if (a !== undefined && b !== undefined) {
+		// A menu one of whose forms the reading refused whole holds fewer forms in the draft than
+		// in the source, so its facts differ for that refusal, whose finding stands at the form.
+		const formRefusedWhole =
+			module.forms.length <
+			(ctx.input.source.modules[module.index]?.forms.length ?? 0);
+		if (a !== undefined && b !== undefined && !formRefusedWhole) {
 			const key = menuFactsDifference(a, b);
-			if (key !== undefined) raise(module.place, key);
+			if (key !== undefined) raise(module.place, module.index, key);
 		}
 		for (const form of module.forms) {
-			const facts = source.forms.get(form.xmlns);
+			const stored = source.forms.get(form.xmlns);
 			const ours = emitted.forms.get(form.xmlns);
-			if (facts === undefined || ours === undefined) continue;
+			if (stored === undefined || ours === undefined) continue;
+			// Child cases the reading dropped as no change of a case stand under that drop: HQ's
+			// entry gives them only datums nothing the form holds reads.
+			const facts = ctx.facts.childCasesUnread.includes(form.xmlns)
+				? { ...stored, newChildCases: ours.newChildCases }
+				: stored;
 			const key = entryFactsDifference(facts, ours);
 			if (key === undefined) continue;
 			if (key === "loads") {
@@ -1063,9 +1157,22 @@ export function* compareEntryFactsSteps(
 					sameButTags &&
 					differing.length > 0 &&
 					differing.every((load) => !written.has(load.tag));
+				// The same loads where only the worker's record's stands elsewhere: HQ's entry
+				// computes its datum in stored order, Nova's after every chosen load.
+				const worker = (load: (typeof facts.loads)[number]) =>
+					load.autoSelect === "usercase";
+				const workerMoved =
+					facts.loads.some(worker) &&
+					sameJson(
+						facts.loads.filter((load) => !worker(load)),
+						ours.loads.filter((load) => !worker(load)),
+					) &&
+					sameJson(facts.loads.filter(worker), ours.loads.filter(worker));
 				const claim = underived
 					? ADVANCED_CLAIMS.underivedTag
-					: ADVANCED_CLAIMS.notOneChain;
+					: workerMoved
+						? ADVANCED_CLAIMS.workerLoadFirst
+						: ADVANCED_CLAIMS.notOneChain;
 				// One class is one finding: pass 1 may have raised it at the form.
 				// A form whose stored actions pass 1 refused part of has that
 				// finding at the form, and the document leaves the refused loads
@@ -1073,6 +1180,7 @@ export function* compareEntryFactsSteps(
 				const standing =
 					(advancedCaseReading(form)?.refused === true &&
 						ctx.accounting.hasFindingAt(form.place)) ||
+					listFormRulesPlace(ctx, module) !== undefined ||
 					ctx.accounting
 						.findings()
 						.some(
@@ -1083,14 +1191,16 @@ export function* compareEntryFactsSteps(
 				if (!standing)
 					ctx.accounting.finding(claim, form.place, {
 						name:
-							differing[0]?.tag ??
+							(workerMoved
+								? facts.loads.find(worker)?.tag
+								: differing[0]?.tag) ??
 							facts.loads[facts.loads.length - 1]?.tag ??
 							"",
 					});
 			} else if (key === "moduleKind") {
 				if (!ctx.accounting.hasFindingAt(module.place))
 					ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, module.place);
-			} else raise(form.place, key);
+			} else raise(form.place, module.index, key);
 			ctx.facts.entryFactsRefused.push(form.uuid);
 		}
 	}

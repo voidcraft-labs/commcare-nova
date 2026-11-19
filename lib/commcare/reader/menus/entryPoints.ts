@@ -11,6 +11,7 @@ import {
 	entryPointIdProblem,
 	type Uuid,
 } from "@/lib/domain";
+import type { HqPlace } from "@/lib/publish/hqFindings";
 import { validEntryPoints } from "../../validator/rules/app";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
@@ -101,6 +102,13 @@ const ENTRY_POINTS = {
 		`${F}/session-endpoint-id-not-a-slug-fixed-point-or-duplicated`,
 		"session_endpoint_id",
 	),
+	/** A form's id a menu's or a case list's shares. */
+	formShared: byClass(
+		FORMS,
+		refuse,
+		`${M}/two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form`,
+		"session_endpoint_id",
+	),
 	ignoreConditions: byClass(
 		FORMS,
 		take,
@@ -160,9 +168,13 @@ function textOf(value: unknown): string {
 /** One stored deep link id and where it stands. */
 interface StoredId {
 	readonly id: string;
+	readonly place: HqPlace;
+	readonly form: boolean;
 	readonly read: () => void;
 	readonly notSlug: () => void;
-	readonly shared: () => void;
+	/** Claims the id under the one finding of the id it shares, at `place`; `formsOnly`
+	 *  where every slot holding it is a form's. */
+	readonly shared: (place: HqPlace, formsOnly: boolean) => void;
 }
 
 /** One deep link read: its owner, and the slot it stands in. */
@@ -220,6 +232,8 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 		if (menuId !== "")
 			ids.push({
 				id: menuId,
+				place: module.place,
+				form: false,
 				read: () => {
 					json.take("session_endpoint_id", ENTRY_POINTS.menu[cls], textOf)
 						.value;
@@ -235,8 +249,13 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 				},
 				notSlug: () =>
 					json.refuse("session_endpoint_id", ENTRY_POINTS.menuNotSlug[cls]),
-				shared: () =>
-					json.refuse("session_endpoint_id", ENTRY_POINTS.menuShared[cls]),
+				shared: (place) =>
+					json.refuse(
+						"session_endpoint_id",
+						ENTRY_POINTS.menuShared[cls],
+						undefined,
+						place,
+					),
 			});
 		const listId = textOf(json.peek("case_list_session_endpoint_id"));
 		if (listId === "" && json.used("case_list_session_endpoint_id"))
@@ -253,6 +272,8 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 			} else
 				ids.push({
 					id: listId,
+					place: module.place,
+					form: false,
 					read: () => {
 						json.take(
 							"case_list_session_endpoint_id",
@@ -277,10 +298,12 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 							"case_list_session_endpoint_id",
 							ENTRY_POINTS.caseListNotSlug[cls],
 						),
-					shared: () =>
+					shared: (place) =>
 						json.refuse(
 							"case_list_session_endpoint_id",
 							ENTRY_POINTS.caseListShared[cls],
+							undefined,
+							place,
 						),
 				});
 		}
@@ -308,8 +331,22 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 				continue;
 			}
 			const ignore = json.peek("respect_relevancy") === false;
+			// A link's `respect_relevancy: false` belongs to it, refused with it.
+			const coverIgnore = (place: HqPlace, claim: Claim): void => {
+				if (!ignore) return;
+				const where = whereText(place);
+				const by = ctx.accounting
+					.findings()
+					.find(
+						(one) => one.code === claim.entry && whereText(one.place) === where,
+					);
+				if (by !== undefined)
+					ctx.accounting.cover({ json, key: "respect_relevancy" }, by);
+			};
 			ids.push({
 				id: formId,
+				place: form.place,
+				form: true,
 				read: () => {
 					json.take("session_endpoint_id", ENTRY_POINTS.form[cls], textOf)
 						.value;
@@ -335,17 +372,36 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 						read.set(uuid, { owner: form, slot: "session_endpoint_id" });
 					}
 				},
-				notSlug: () =>
-					json.refuse("session_endpoint_id", ENTRY_POINTS.formRefused[cls]),
-				shared: () =>
-					json.refuse("session_endpoint_id", ENTRY_POINTS.formRefused[cls]),
+				notSlug: () => {
+					json.refuse("session_endpoint_id", ENTRY_POINTS.formRefused[cls]);
+					coverIgnore(form.place, ENTRY_POINTS.formRefused[cls]);
+				},
+				shared: (place, formsOnly) => {
+					const claim = formsOnly
+						? ENTRY_POINTS.formRefused[cls]
+						: ENTRY_POINTS.formShared[cls];
+					json.refuse("session_endpoint_id", claim, undefined, place);
+					coverIgnore(place, claim);
+				},
 			});
 		}
-	const counts = new Map<string, number>();
-	for (const one of ids) counts.set(one.id, (counts.get(one.id) ?? 0) + 1);
+	// One id two slots share is one finding, at the last slot holding it in
+	// the app's order, and every slot holding it is claimed under it: the
+	// forms' own entry where only forms share it, else the menus' entry, which
+	// names every slot.
+	const holders = new Map<string, StoredId[]>();
+	for (const one of ids)
+		if (entryPointIdProblem(one.id) === undefined)
+			holders.set(one.id, [...(holders.get(one.id) ?? []), one]);
 	for (const one of ids) {
+		const sharing = holders.get(one.id) ?? [];
+		const last = sharing[sharing.length - 1];
 		if (entryPointIdProblem(one.id) !== undefined) one.notSlug();
-		else if ((counts.get(one.id) ?? 0) > 1) one.shared();
+		else if (sharing.length > 1 && last !== undefined)
+			one.shared(
+				last.place,
+				sharing.every((holder) => holder.form),
+			);
 		else one.read();
 	}
 }

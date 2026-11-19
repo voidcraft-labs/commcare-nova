@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"d1\", \"name\": \"Upper valley\"}, \"fixture_type\": \"districts\", \"id\": \"f1ccc5b0119a462681d73e346648fb62\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"d2\", \"name\": \"Lower valley\"}, \"fixture_type\": \"districts\", \"id\": \"a24ea56e6284425caebdd45e0b74dc88\", \"resource_uri\": \"\"}]}"
+}

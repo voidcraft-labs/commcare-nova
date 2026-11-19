@@ -3,8 +3,7 @@
  * that Nova's emitter does not write.
  *
  * Contract: each shape below reads into the finding its manifest entry names,
- * once, at its place, or reads as the same state; the chain test's step 5
- * (`judgeLoads`) tells a tag Nova would not derive on a load that changes no
+ * once, at its place, or reads as the same state; `judgeLoads` tells a tag Nova would not derive on a load that changes no
  * case from a chain that differs. The plausible failures: Nova re-tagging a
  * load, which renames a session value HQ's forms read; a hyphenated tag (HQ's
  * page writes one for every hyphenated case type) read as unrecognized
@@ -1222,6 +1221,81 @@ describe("a chain through a basic menu", () => {
 			"member",
 			"visit",
 		]);
+	});
+});
+
+/** An open action of a member, its one index under `parent` to the action tagged `tag`. */
+function memberOpen(
+	tag: string,
+	relationship: "child" | "extension",
+): Record<string, unknown> {
+	const condition = (type: string) => ({
+		type,
+		question: null,
+		answer: null,
+		operator: "=",
+		doc_type: "FormActionCondition",
+	});
+	return {
+		doc_type: "AdvancedOpenCaseAction",
+		case_type: "member",
+		case_tag: "open_member_0",
+		name_update: {
+			question_path: "/data/name",
+			update_mode: "always",
+			doc_type: "ConditionalCaseUpdate",
+		},
+		case_properties: {},
+		repeat_context: "",
+		case_indices: [
+			{
+				tag,
+				reference_id: "parent",
+				relationship,
+				relationship_question: "",
+				doc_type: "CaseIndex",
+			},
+		],
+		open_condition: condition("always"),
+		close_condition: condition("never"),
+	};
+}
+
+describe("an open action's index beside the menus' parent selection", () => {
+	it("refuses a parent index to another type or as an extension once, at the form", async () => {
+		const { doc } = memberFollowup();
+		for (const relationship of ["child", "extension"] as const) {
+			const reading = await readMenusOf(doc, (app) => {
+				const actions = actionsOf(app);
+				const loads = actions.load_update_cases;
+				// The member's own load as its parent, or the household load as an extension's.
+				const tag = String(
+					(relationship === "child" ? loads[loads.length - 1] : loads[0])
+						?.case_tag,
+				);
+				actions.open_cases = [memberOpen(tag, relationship)];
+			});
+			expect(reading.outcome.defects, relationship).toEqual([]);
+			expect(codesOf(reading), relationship).toEqual([
+				`${F}/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`,
+			]);
+			expect(reading.findings[0]?.place.kind).toBe("form");
+		}
+	});
+
+	it("stands an index to a refused load under that load's finding", async () => {
+		const { doc } = memberFollowup();
+		const reading = await readMenusOf(doc, (app) => {
+			const actions = actionsOf(app);
+			const [household] = actions.load_update_cases;
+			actions.load_update_cases = [household as Record<string, unknown>];
+			actions.open_cases = [memberOpen(String(household?.case_tag), "child")];
+		});
+		expect(reading.outcome.defects).toEqual([]);
+		expect(codesOf(reading)).toContain(
+			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
+		);
+		expect(codesOf(reading)).not.toContain("unrecognized:schema:CaseIndex.tag");
 	});
 });
 

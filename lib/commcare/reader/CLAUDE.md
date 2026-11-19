@@ -48,7 +48,143 @@ Four rules hold everywhere here:
   keeps reading the rest, and the expression stage binds every slot over a provisional document
   built whether or not a finding stands (`provisional.ts`).
 - **Claimed or unrecognized.** A stage reads nothing it does not claim against a manifest entry
-  (`claims.ts::defineClaims`), and whatever is left is `unrecognized` at the close.
+  (`claims.ts::defineClaims`), and whatever is left is `unrecognized` at the close. A held claim
+  that takes a value whole (`take`, `derived`) stands for the keys each of HQ's objects in it
+  declares, never for one it does not: such a key is claimed by its class's rule
+  (`jsonCursor.ts::registerUndeclaredKeys`, the same rule a stage visiting the object applies)
+  or reported at the close. Every claim that takes a value whole, or reads past it (`drop`,
+  `account`), is recorded also at each key of each of HQ's objects inside it that holds a value
+  other than its class's default and that the claim's entry names, at the key's own pointer
+  (`jsonCursor.ts::within`; a key the class does not declare, under a claim that reads past it,
+  as `schema:<class>.<undeclared>`), so the entry of a container read whole names each key inside
+  it the lane's parity reads there (the reference details HQ never builds, an inactive case
+  action under its form's type, a hidden case list menu item). A key at HQ's default is no use, and a claim on one is recorded, with
+  no surface key, only under a kept entry or where it takes the value whole under an allowing
+  entry with a value class (`accounting.ts::claimAtDefault`): a stage picks such an entry by the
+  value it read, so it claims under one only a value of that entry's class, and leaves a key at its
+  default unclaimed rather than name a class the default is not of (the keys of a search a menu
+  does not offer, `search/index.ts::deriveInactiveSearch`). A claim names the surface key whose value it reads and is recorded
+  where that value sits: an update map's entry refused for its key, or read through the cases
+  above, is recorded at the map (`refuseMapEntry`, `holdMapEntry`), the key in `detail.name`;
+  a claim on a key that names the schema key of an object above it (a profile setting refused
+  under `schema:Application.profile`, a language's key under `schema:Application.translations`)
+  is recorded at that key (`jsonCursor.ts::recordedAt`), as is a whole object read past under
+  such a key (`refuseWhole` with `account`: a language the app does not hold) and a media
+  reference with no file, at the app's `multimedia_map` (`lib/deployment/reading/gather.ts`), and
+  so is a part of a value refused
+  beside the key's own claim (`refusePart`, a `logo_refs` slot); a claim on an element that names
+  one of its attributes is recorded at the attribute, and one naming an itext form at the
+  `<value>`'s `form` (`xmlCursor.ts::recordedNode`, a media form's hand-off too), while the
+  `<value>` element itself, a text's value whatever form it names, stands under the text value's
+  claim (`xform/prose.ts::claimFormValue`). A form's frame is claimed element by element under
+  the key used there (`xform/parse.ts`: the model, the main instance, the itext block), and the
+  XHTML wrappers Core passes over, like an attribute of an instance's content Core copies as
+  answer data, are part of a claim with no record (`xmlCursor.ts::partOf`). A claim that covers a
+  subtree of a form is recorded also at each node in it the lane reads, under the key the lane
+  names that node by where the claim's entry names it (`xmlCursor.ts::within`: a Save to Case
+  block, a Connect block, a translation for a language the app does not hold, an itemset's `copy`),
+  and a refusal or an account covering an element stands also at each attribute under it whose
+  key its value spells (a setvalue's `event`, an `appearance`) where its entry names that key
+  (`xmlCursor.ts::findingWithin`). A finding that is a relation, made of one value, stands also
+  where that value sits: in a form, at the node whose value makes its class
+  (`Accounting.findingAtNode`: a control's `ref` whose data node sits under another repeat, a
+  data node holding text, a repeat a worker adds rows to inside a question list, a model
+  iteration's `vellum:role`; a data root's `uiVersion` other than `1` and a data root named other
+  than `data` stand at the data root, whose key the entry names), and in the app's JSON at each
+  node its class reads around the value (`Accounting.findingAt`: a form's name, its stored
+  after-submit word, the language list, the menu order, a menu's display condition, a detail's
+  tabs and its tile's cells and template, an empty case list's details, a key a search's request
+  carries twice and a name a default filter shares with a Search field). A subtree refused for
+  one node in it records its refusal at that node (`XmlCursor.refuseSubtreeAt`: a Save to Case
+  block's attachment or reserved row and a case element no role marks, and a guard under its
+  block's), an object refused under a narrower class is recorded under the wider one it is in
+  too (`JsonCursor.alsoOfClass`: a mirror under a mirror menu is a version 2 mirror), an entry
+  that names no surface key records none, its slot standing under the slot's allowing entry
+  beside it (`Accounting.claimEntry`, `expressions/index.ts`), and a claim's reach and a finding's
+  class add no record of the app's JSON that one already stands as (place, key and entry). Every
+  record names no key, or a key its entry names that names the node the record stands at
+  (`Accounting.#recordKey`; in a form, `xmlCursor.ts::keyNamesNode`, the lane's naming of a
+  node: an attribute by its own name, an instance's node by the most specific item its depth
+  matches, any other element by its last step). A claim under a key its entry does not name is
+  the defect `key-not-named` and records nothing, but where its caller makes it `keyless`
+  (`Accounting.claimEntry`: an expression's refusal whose entry names neither the slot's key nor
+  a use's, `provisional.ts::claimExpressionEntry`, a search row's refusal at its value,
+  `search/rows.ts::claimRowKey`); a claim whose key its entry names but whose node that key does
+  not (a refused question's itext, binds and control, which the refusal reaches past its own node)
+  is recorded under the entry's key that names the node, else with no key; and a claim's reach
+  records a node only under the first of its keys that holds (`Accounting.within`). So what a
+  refused Save to Case block reaches, its binds, setvalues and wrappers, is part of the refusal and
+  recorded only at the key the lane names each node by where the refusal's entry names it
+  (`caseManagement/saveToCase.ts::reachNode`), and a declaration only a refused expression reads
+  stands under that expression's finding (`provisional.ts::claimDeclarations`). A Save
+  to Case region's nodes, binds, setvalues and controls are each recorded by place
+  (`caseManagement/saveToCase.ts::regionKey`), with the type HQ's question reader gives a node of
+  it, and no record names a type HQ's reader never gives (`mug:SaveToCase`, `mug:Connect*`).
+  Every output of a text is claimed with its namespace, and an output of a markdown copy or of
+  another language as its source twin is, under every claim the expression stage made of the
+  twin (`xform/prose.ts::claimTwin`); a text Core parses that no slot holds (the emitter's own
+  texts in a Save to Case region, an output of a translation the app does not hold) is
+  registered for the uses its syntax makes alone (`pendingExpressions.ts::PendingExpression.usesOnly`).
+  So is every attribute Core parses as XPath (the surface's `parsedAs: xpath`) that a claim read
+  and no registration holds whole, as the expression stage opens: a reference path (a bind's
+  `nodeset`, a control's, a setvalue's or an itemset part's `ref`, an itemset's `nodeset`, a
+  repeat's `nodeset` and a count no slot reads), the logic written on a node no question holds,
+  an output of a text no slot reads, and a value a slot reads only a part of (a model iteration's query in its `join`, an itemset's
+  filter, a Save to Case row's trim), whose part keeps its own uses and whose whole claims each
+  use no other claim at the node names (`xform/attributeUses.ts`, `Accounting.claimEntry`'s
+  `unlessClaimed`). Such a text is read in the logic of its form's first field, since a path's
+  uses are classed by its form's rules alone.
+  A secondary instance's source is recorded at its `src`, and its id under
+  `xform:model/instance@id` (`provisional.ts::claimDeclarations`). A search row's key is
+  recorded at its `property`, and the class its Search field's presence test chooses it in at
+  its value (`search/rows.ts::claimRowUses`); the CSQL a row uses is each text Core's
+  `xpathStrings` gives the row (`expressions/csqlRead.ts::sentTexts`), a key in every class those
+  texts give it (`accounting.ts::claimEntryClass`). A text holding a hashtag, which Core's lexer
+  refuses, is used for its hashtags alone (`expressions/surfaceUses.ts::xpathUses`). The slots
+  HQ's build reads through `xpath.py::interpolate_xpath` are a menu's and a form's display
+  condition, the case list's filter, a detail tab's filter over a case type's children (a tab
+  with `has_nodeset`, a `nodeset_case_type` and no `nodeset` of its own, registered for its uses
+  alone, `caseList/details.ts::registerTabFilter`) and a Search field's required and validation
+  conditions; in each, every pattern HQ replaces that the text holds, inside a string too
+  (`#session/`, `#user`, `#case`, `#parent`, `#host`, and `$fixture_value` in a form's
+  condition where its menu's lookup table selection is active), is a use under its own key,
+  found by the text as HQ's replacement finds it (`surfaceUses.ts::shorthandUses`; a `#case` in the
+  class of a menu's case named by its slug where the text holds `#case:`), and no other
+  slot holds one: the lane reads the same slots (`proof/checks/manifest_usage.py::_interpolated`).
+  The text is the one HQ interpolates at the node the claims are recorded at
+  (`PendingExpression.slotText`): the whole stored filter where a registration reads the operand
+  beside an owner clause or the clause alone, a Search field's whole condition beside a rule read
+  apart from Nova's guard; where that whole text holds a hashtag, Core refuses the slot, so its
+  uses are its shorthand alone; and an owner clause recorded at the menu's `case_details` makes no
+  shorthand use (`expressions/index.ts::registrationUses`).
+  A question's data node is recorded under the type CommCare HQ's question reader gives it
+  (`xform/hqQuestionType.ts`, a port of `xform.py::VELLUM_TYPE_INDEX`, which compares each field
+  exactly), under the entry the reading holds the question by: an image upload is an Image
+  whatever its appearance, a Question List a Group where its appearance is `field-list` in
+  another letter case, and a typed input whose bind's `type` is spelled other than as that index
+  holds it (`int`, `xsd:geopoint`) a Text.
+  A language's key a runtime reads as one of its own UI
+  strings is that `ui-string:` item, claimed under it at the key (`appShell.ts::uiStringClaim`);
+  every other key of a language's strings is data, recorded at `translations`. An expression
+  refused under an entry that names the key of a use its text makes and not the slot's own key
+  stands under the slot's allowing entry at its key, the refusal beside it at the use's key
+  (`expressions/index.ts::allowingEntryBeside`, `ExpressionClaim.refusal`). The lane's parity
+  joins the claim log to its own uses at exactly those places.
+  A refused thing is refused whole: what belongs to a refused question, choice, repeat, control,
+  message or block and stands elsewhere in the source (the itext its references name, its bind's
+  type and logic, a refused repeat's wrapper label, the node a refused control names) is claimed
+  under that refusal (`xform/refusals.ts`, `xform/itext.ts::settleItext`), and so is an
+  expression's read of a text the form refuses because only expressions name it
+  (`provisional.ts::applyExpressionClaim`), and so is a form's read of the results of a search
+  whose instance name the reading refuses (`search/settings.ts::refusedInstanceNameOf`), the
+  own close's block of a form whose case management is refused
+  (`caseManagement/saveToCase.ts::settleSaveToCase`), and the list filter's owner clause of a
+  refused owner exclusion, which the list compares less that clause
+  (`caseList/index.ts::listDifference`), and every key a refused case list column, custom tile
+  cell or callout leaves, at the key under the refusal's entry where that entry names it and
+  covered by its finding otherwise (`caseList/refusedWhole.ts`); a source refused whole (blank,
+  holding no question as HQ counts one, a DOCTYPE, a data root named other than `data`) refuses its form whole, so nothing
+  of the form is read.
 - **No content in a finding or a log line.** A finding names a surface key, and the app's own
   value only in `detail.name`; a defect and its log line name places, codes and shapes, never an
   app's text.
@@ -116,6 +252,18 @@ list order, to every document
 expansion of each) and holds `expandDoc`'s output byte for byte after every row that changes the
 document, since a read-back that compares documents passes a row that moves content to a place
 that prints differently.
+
+The proof lane holds the bar where CommCare HQ serves the app. Its proof 6 runs this reader,
+bundled from the production code (`proof/reader/`: `laneReading.ts::readForLane`, which calls
+`lib/deployment/reading/gather.ts::gatherFromHq` for a first reading and reads a read back with
+`matchingResolver`), over HQ's own answers for every corpus document and every app the lane authored
+in HQ's own pages (`proof/hq-apps/`), and compares a read back with `canonDocument`: a
+canonicalization exists only as a row of `canon.ts::CANONICALIZATIONS`, never in the lane. Its
+parity joins the claim log (`accounting.ts::serializeClaimLog`) with the lane's own manifest
+classifier at the place each key's value sits, so a claim recorded anywhere else is a difference,
+never a match. The bundle's digest keys every judgment of the corpus, so a change here judges every
+corpus document again. `__tests__/bases.retained.test.ts` holds the reading of every retained base
+to the lane's `expected.json` in ordinary CI. No production module imports `proof/reader/`.
 
 ## What the reader is told
 
@@ -497,6 +645,29 @@ A change that holds one removes its line.
 - **A `required` on a Hidden Value's bind**: `unrecognized` at the question,
   `xform:bind@required` (`xform/logic.ts::readBindLogic`, which claims a `required` only on a kind
   that holds one and refuses it only on a label), wherever no other reader claims it.
+- **A Hidden Value holding both a calculate and a default where a runtime may read the
+  default**: one finding at the question under
+  `questions/hidden-value-with-both-calculate-and-a-default-by-any-expression`. The form stage
+  refuses one in a repeat whole, where a row's default can outlast its calculate; outside every
+  repeat it leaves the node and its bind's type unclaimed, and the bound document decides
+  (`xform/afterBinding.ts::settleBothSources`): where no later `xforms-ready` setvalue reads the
+  node, directly or through the calculates of what it reads, the calculate replaces the default
+  before anything reads it, so the reading holds the calculate alone under
+  `questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads` and records the form
+  under `hidden-value-defaults-dropped`; any doubt (a slot the expression stage did not hold,
+  another setvalue on the node, a later setvalue no bound tree gives the reads of) is the refusal.
+- **An index on the first chosen load of an advanced form naming the worker's record loaded
+  before it**: one finding at the form under
+  `forms-and-case-writes/an-index-on-the-first-chosen-load-naming-the-worker-s-record-loaded-before-it`
+  (`caseManagement/advancedActions.ts`). HQ's editor offers every load stored after the first that
+  does not auto-select "a subcase of the previous case", the worker's record's load among the
+  previous ones, and Nova holds no chosen case narrowed to the worker's record's children.
+- **The worker's record's auto-selected load stored before a chosen load**: one finding at the
+  form under
+  `forms-and-case-writes/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load`
+  (`caseManagement/index.ts::compareEntryFacts`, where the entry's loads differ only in where that
+  load stands). HQ's entry gives each load's datum in stored order, and Nova writes the worker's
+  load after every chosen load.
 - **An after-submit link's condition or carried value that prints as the source only with a
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with

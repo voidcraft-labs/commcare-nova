@@ -33,7 +33,7 @@ import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive"
 import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
-import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
+import { servedSchemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import {
 	type BuildProfileLanguageGap,
 	buildProfileLanguageGaps,
@@ -2020,7 +2020,7 @@ function appRemoteChange(input: {
 		current: input.current.normalized,
 		ownership: baseline.ownership,
 		shell: baseline.origin === "create",
-		schemaDefault: schemaPropertyDefault,
+		schemaDefault: servedSchemaPropertyDefault,
 		languageNames: input.languageNames,
 		mediaChanged: input.mediaChanged,
 	});

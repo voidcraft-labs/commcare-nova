@@ -295,13 +295,16 @@ interface ReadAfterSubmit {
 	readonly module: DraftModule;
 	readonly form: DraftForm;
 	readonly word: Word | "form" | undefined;
-	/** Links in stored order, the otherwise link last; undefined until step 4 reads them. */
+	/** Links in stored order, the otherwise link last; undefined until `registerLinkExpressions` reads them. */
 	links?: readonly ReadLink[];
 	/** Whether every link read into a target the document holds. */
 	whole?: boolean;
 	otherwise?: FormOtherwise;
 	/** Whether every registration of its links bound and was written into the document. */
 	bound?: boolean;
+	/** A fallback HQ's build reads under no workflow but `form`, claimed by its class once
+	 *  `registerLinkExpressions` knows what the menu offers. */
+	readonly fallbackUnread?: true;
 }
 
 const READINGS = new WeakMap<ReadContext, ReadAfterSubmit[]>();
@@ -418,16 +421,16 @@ export function readAfterSubmit(ctx: ReadContext, app: DraftApp): void {
 					WORD_CLAIMS[read][cls],
 					(value) => value,
 				).value;
-			if (read !== "form") {
-				if (json.used("form_links"))
-					json.drop("form_links", AFTER_SUBMIT.linksUnread[cls]);
-				if (json.used("post_form_workflow_fallback"))
-					json.drop(
-						"post_form_workflow_fallback",
-						AFTER_SUBMIT.fallbackUnconditional[cls],
-					);
-			}
-			readings.push({ module, form, word: read });
+			const fallbackUnread =
+				read !== "form" && json.used("post_form_workflow_fallback");
+			if (read !== "form" && json.used("form_links"))
+				json.drop("form_links", AFTER_SUBMIT.linksUnread[cls]);
+			readings.push({
+				module,
+				form,
+				word: read,
+				...(fallbackUnread && { fallbackUnread: true as const }),
+			});
 		}
 }
 
@@ -574,7 +577,7 @@ function strippedText(xpath: string, strip: number): string {
 	return parsed.text.slice(first.from, last.to);
 }
 
-// ── Step 4: links ───────────────────────────────────────────────────────
+// ── Links ───────────────────────────────────────────────────────────────
 
 interface StoredLink {
 	readonly cursor: JsonCursor;
@@ -672,7 +675,8 @@ function readLinkTarget(
 			return undefined;
 		}
 		if (!menuTargetOffered(snapshot, reading.module.uuid, named.uuid)) {
-			cursor.refuse("module_unique_id", AFTER_SUBMIT.targetModuleNotOffered);
+			// A refused link is refused whole: its condition and carried values are its own.
+			cursor.refuseWhole(AFTER_SUBMIT.targetModuleNotOffered);
 			return undefined;
 		}
 		cursor.take("module_unique_id", AFTER_SUBMIT.targetModule, (one) => one)
@@ -685,7 +689,7 @@ function readLinkTarget(
 		: [];
 	if (stored.length === 0) return { cursor, value, target, key, datums: [] };
 	if (target.type === "module") {
-		cursor.refuse("datums", AFTER_SUBMIT.datumsOther);
+		cursor.refuseWhole(AFTER_SUBMIT.datumsOther);
 		return undefined;
 	}
 	const targetForm =
@@ -699,7 +703,7 @@ function readLinkTarget(
 		const row = rows.find((one) => one.id === name || one.chainId === name);
 		const ref = row?.refs.find((one) => one.kind === "selected-case");
 		if (ref === undefined) {
-			cursor.refuse("datums", AFTER_SUBMIT.datumsOther);
+			cursor.refuseWhole(AFTER_SUBMIT.datumsOther);
 			return undefined;
 		}
 		names.push(ref);
@@ -907,7 +911,7 @@ function asLink(link: StoredLink): Pick<FormLink, "target" | "datums"> {
 }
 
 /**
- * The end of step 4: each `form` workflow's links read into destinations and
+ * Each `form` workflow's links read into destinations and
  * an otherwise, each link's held-case guards taken off its stored condition,
  * and what is left registered for the expression stage with each carried
  * value. Every structure a link reads is in the drafts by now, and nothing
@@ -915,11 +919,16 @@ function asLink(link: StoredLink): Pick<FormLink, "target" | "datums"> {
  */
 export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 	const forms = new Set(app.modules.flatMap((module) => module.forms));
+	const unread = readingsOf(ctx).filter(
+		(one) => one.fallbackUnread === true && forms.has(one.form),
+	);
 	const readings = readingsOf(ctx).filter(
 		(one) => one.word === "form" && forms.has(one.form),
 	);
-	if (readings.length === 0) return;
+	if (readings.length === 0 && unread.length === 0) return;
 	const snapshot = provisionalDocument(ctx);
+	for (const { form } of unread) dropUnreadFallback(snapshot, form);
+	if (readings.length === 0) return;
 	const inputs = readProjectionInputs(ctx);
 	const plan = emissionPlan(snapshot);
 	const projection = formLinkProjectionContext(plan.doc, {
@@ -997,6 +1006,34 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 				AFTER_SUBMIT.fallbackNone[cls],
 			);
 	}
+}
+
+/**
+ * A fallback HQ's build never reads (`workflow.py::_get_fallback_frame` reads it only under the
+ * `form` workflow beside a conditional link), dropped under its class: a word the menu offers,
+ * a word it does not, or no word at all.
+ */
+function dropUnreadFallback(snapshot: BlueprintDoc, form: DraftForm): void {
+	const cls = form.docType;
+	const fallback = form.json.peek("post_form_workflow_fallback");
+	if (
+		typeof fallback !== "string" ||
+		!Object.hasOwn(FALLBACK_WORDS, fallback)
+	) {
+		form.json.drop(
+			"post_form_workflow_fallback",
+			AFTER_SUBMIT.fallbackNone[cls],
+		);
+		return;
+	}
+	const destination = FALLBACK_WORDS[fallback as keyof typeof FALLBACK_WORDS];
+	form.json.drop(
+		"post_form_workflow_fallback",
+		snapshot.forms[form.uuid] !== undefined &&
+			otherwiseDestinationsOffered(snapshot, form.uuid).includes(destination)
+			? AFTER_SUBMIT.fallbackUnconditional[cls]
+			: AFTER_SUBMIT.fallbackOutside[cls],
+	);
 }
 
 /** The otherwise, then the destinations, each registered. */
@@ -1265,8 +1302,8 @@ function documentLink(
 }
 
 /** The guards of a read link, decided again over the document with its stored `xpath`:
- *  its target and carried selections are the ones step 4 wrote, so this agrees with the mark
- *  `registerLinkExpressions` read over the provisional document. */
+ *  its target and carried selections are the ones `registerLinkExpressions` wrote, so this agrees
+ *  with the mark it read over the provisional document. */
 function guardsOf(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -1431,17 +1468,21 @@ function settleWord(
 	const { form } = reading;
 	const destination = WORDS[word];
 	const facts = postSubmitModuleFacts(doc, reading.module.uuid);
+	// Each refusal is a class of the stored word, so it stands at the word too.
+	const wordAt = `${form.json.pointer}/post_form_workflow`;
 	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
-		ctx.accounting.finding(
+		ctx.accounting.findingAt(
 			AFTER_SUBMIT.previousOnFirstMenu[form.docType],
 			form.place,
+			wordAt,
 		);
 		return;
 	}
 	if (!postSubmitDestinationsOffered(doc, form.uuid).includes(destination)) {
-		ctx.accounting.finding(
+		ctx.accounting.findingAt(
 			AFTER_SUBMIT.wordNotOffered[form.docType],
 			form.place,
+			wordAt,
 			{
 				name: HQ_PAGE_LABELS.workflow[word],
 			},
@@ -1453,6 +1494,21 @@ function settleWord(
 		const target = draft.forms[form.uuid];
 		if (target !== undefined) target.postSubmit = destination;
 	});
+}
+
+/**
+ * Each form's return as its stored workflow word names it, by the form's uuid, for a form read
+ * under a word other than `form`: what a check that runs before `settleAfterSubmit` writes the
+ * returns into the document reads of where a form goes.
+ */
+export function storedReturns(
+	ctx: ReadContext,
+): ReadonlyMap<Uuid, PostSubmitDestination> {
+	const returns = new Map<Uuid, PostSubmitDestination>();
+	for (const { form, word } of readingsOf(ctx))
+		if (word !== undefined && word !== "form")
+			returns.set(form.uuid, WORDS[word]);
+	return returns;
 }
 
 /** The stored links against the expansion's, in stored order. */

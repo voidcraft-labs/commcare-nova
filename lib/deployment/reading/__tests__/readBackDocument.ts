@@ -10,7 +10,9 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	type Automation,
 	type BlueprintDoc,
+	columnSort,
 	makeTranslationUnitId,
+	plainColumn,
 	proseText,
 	translationSourceFingerprint,
 	type Uuid,
@@ -273,6 +275,59 @@ export function unexportedTextDocument(): BlueprintDoc {
 			},
 		},
 	} as BlueprintDoc;
+}
+
+/**
+ * A case list whose column hidden from Results and from Details sorts the list and is named in
+ * Sort by under another text than its header: a header no export holds, since each prints the
+ * name in the header's place.
+ */
+export function sortNamedHiddenColumnDocument(): BlueprintDoc {
+	const doc = buildDoc({
+		appId: "read-back-sort-name",
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						fields: [f({ kind: "text", id: "case_name", label: "Name" })],
+					},
+				],
+			},
+		],
+	});
+	const menu = doc.moduleOrder[0] as Uuid;
+	const module = doc.modules[menu];
+	const config = module?.caseListConfig;
+	if (module === undefined || config === undefined)
+		throw new Error("The fixture holds a menu with a case list.");
+	const hidden = {
+		...plainColumn(U("sort-named-column"), "weight", "Weight column"),
+		visibleInList: false,
+		visibleInDetail: false,
+		sort: columnSort("desc", 0, undefined, "Heaviest first"),
+	};
+	return {
+		...doc,
+		modules: {
+			...doc.modules,
+			[menu]: {
+				...module,
+				caseListConfig: {
+					...config,
+					columns: [...config.columns, hidden],
+					listColumnOrder: [...config.listColumnOrder, hidden.uuid],
+					detailColumnOrder: [...config.detailColumnOrder, hidden.uuid],
+				},
+			},
+		},
+	};
 }
 
 /** Every object of `value` whose `uuid` is `uuid`. */

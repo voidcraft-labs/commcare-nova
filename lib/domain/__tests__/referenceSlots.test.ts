@@ -76,6 +76,7 @@ import { lookupOptionsSourceSchema } from "../lookupCarriers";
 import {
 	type ColumnKind,
 	columnSchema,
+	columnViaSchema,
 	moduleSchema,
 	SELECT_SEARCH_INPUT_TYPES,
 	type SearchInputDef,
@@ -466,8 +467,11 @@ describe("module slots — paths resolve with the promised shape", () => {
 		expect(resolved.length).toBeGreaterThan(0);
 		if (slot.kind === "expression")
 			for (const r of resolved) expect(EXPRESSION_SCHEMAS.has(r)).toBe(true);
+		// A Search field's walk is a whole relation path; a column's is the
+		// index steps an `ancestor` arm takes.
 		if (slot.kind === "relation-path")
-			for (const r of resolved) expect(r).toBe(relationPathSchema);
+			for (const r of resolved)
+				expect([relationPathSchema, columnViaSchema]).toContain(r);
 		if (slot.kind === "case-property-ref" || slot.kind === "case-type-ref") {
 			for (const r of resolved) {
 				expect(r).toBeInstanceOf(z.ZodString);
@@ -475,19 +479,24 @@ describe("module slots — paths resolve with the promised shape", () => {
 		}
 	});
 
-	it("column-arm applicability is exact for field/expression slots", () => {
+	it("column-arm applicability is exact for field/via/expression slots", () => {
 		const fieldSlot = moduleSlots.find(
 			(s) => s.slot === "case_list_column_field",
 		);
+		const viaSlot = moduleSlots.find((s) => s.slot === "case_list_column_via");
 		const exprSlot = moduleSlots.find(
 			(s) => s.slot === "case_list_column_expression",
 		);
 		expect(fieldSlot?.columnKinds).toBeDefined();
+		expect(viaSlot?.columnKinds).toBeDefined();
 		expect(exprSlot?.columnKinds).toBeDefined();
 		for (const arm of columnSchema.options as z.ZodObject[]) {
 			const kind = (arm.shape.kind as z.ZodLiteral).value as ColumnKind;
 			expect("field" in arm.shape).toBe(
 				fieldSlot?.columnKinds?.includes(kind) ?? false,
+			);
+			expect("via" in arm.shape).toBe(
+				viaSlot?.columnKinds?.includes(kind) ?? false,
 			);
 			expect("expression" in arm.shape).toBe(
 				exprSlot?.columnKinds?.includes(kind) ?? false,

@@ -1,0 +1,236 @@
+/**
+ * The reader bundle's entry: `node reader.mjs <requests> <answers>`.
+ *
+ * It reads one JSON document from `<requests>`,
+ * `{ "requests": [{ "id", "mode", "input", "expected"?, "canon"?, "holds"? }] }`,
+ * reads each request's app through `readForLane`, and writes
+ * `{ "answers": [{ "id", "kind", "differences"?, "findings"?, "claims",
+ * "declaration"?, "offered"?, "firstPublish"?, "held"?, "asked" }] }` to
+ * `<answers>`. Standard output is not the answer channel: Nova's logger and
+ * the readers under it write there, so it is the bundle's log.
+ *
+ * Every answer, whatever the reading's kind, holds the reading's claims as
+ * the input's `claims` option asks for them: the JSON of the count of claims
+ * by entry id under `counts`, the claim log under `full`.
+ *
+ * - `read-back`: a read back of a corpus document (`identity: "match"`).
+ *   With `expected`, the answer holds `readBackDifferences(expected, { doc,
+ *   choices })`, the choices being the declarations the reading offers, so
+ *   `expected` loses its own declaration and the comparison requires it among
+ *   them.
+ * - `first-read`: a base's first reading (`identity: "mint"`), whose answer
+ *   holds the declaration it was read under and that declaration's
+ *   first-publish ids. With `expected`, the two documents are compared whole
+ *   (`choices: null`). With `holds`, each fragment's value is found at its
+ *   pointer of the entity its external key names.
+ * - `claims`: the reading's claim log in full.
+ *
+ * `canon: true` puts `expected` in its canonical form first
+ * (`lib/commcare/reader/canon.ts::canonDocument`). The entry draws nothing,
+ * opens no socket and reads no file but its first argument. A request it
+ * cannot answer (a request with no retained answer among them) ends the
+ * process with status 1 and the reason on standard error, and no answers
+ * file is written.
+ */
+
+import { readFileSync, writeFileSync } from "node:fs";
+import { canonDocument } from "@/lib/commcare/reader/canon";
+import { externalKeyText } from "@/lib/commcare/reader/identity";
+import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
+import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import {
+	type ReadBackDifference,
+	readBackDifferences,
+} from "@/lib/deployment/reading/readBack";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
+import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type LaneDeclaration,
+	type LaneReadInput,
+	type LaneReading,
+	readForLane,
+} from "./laneReading";
+
+type Mode = "read-back" | "first-read" | "claims";
+
+interface Hold {
+	readonly key: string;
+	readonly pointer: string;
+	readonly value: unknown;
+}
+
+interface Request {
+	readonly id: string;
+	readonly mode: Mode;
+	readonly input: LaneReadInput;
+	/** A stored document (`document.json`'s `doc`). */
+	readonly expected?: unknown;
+	readonly canon?: boolean;
+	readonly holds?: readonly Hold[];
+}
+
+interface Answer {
+	readonly id: string;
+	readonly kind: LaneReading["kind"];
+	readonly differences?: readonly ReadBackDifference[];
+	readonly findings?: readonly unknown[];
+	readonly claims: string;
+	readonly declaration?: LaneDeclaration;
+	readonly offered?: readonly LaneDeclaration[];
+	readonly firstPublish?: readonly string[];
+	readonly held?: readonly {
+		readonly key: string;
+		readonly pointer: string;
+		readonly found: unknown;
+	}[];
+	readonly asked: readonly string[];
+}
+
+const USAGE =
+	"The reader bundle takes two paths: node reader.mjs <requests> <answers>. The first holds { requests: [...] } as proof/reader/cli.ts describes; the answers are written to the second.";
+
+const MODE_OF_IDENTITY: Readonly<
+	Record<Mode, LaneReadInput["identity"] | null>
+> = { "read-back": "match", "first-read": "mint", claims: null };
+
+function hydrated(stored: unknown): BlueprintDoc {
+	const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(stored));
+	ensureReferenceIndex(doc);
+	return doc;
+}
+
+/** The value at JSON pointer `pointer` of `value`, or undefined where it holds none. */
+function atPointer(value: unknown, pointer: string): unknown {
+	if (pointer === "") return value;
+	let current = value;
+	for (const raw of pointer.split("/").slice(1)) {
+		const step = raw.replaceAll("~1", "/").replaceAll("~0", "~");
+		if (typeof current !== "object" || current === null) return undefined;
+		if (!Object.hasOwn(current, step)) return undefined;
+		current = (current as Record<string, unknown>)[step];
+	}
+	return current;
+}
+
+/** The record of the entity `uuid` names, from whichever of the document's maps holds it. */
+function entityOf(doc: BlueprintDoc, uuid: string): unknown {
+	for (const value of Object.values(doc)) {
+		if (
+			typeof value === "object" &&
+			value !== null &&
+			!Array.isArray(value) &&
+			Object.hasOwn(value, uuid)
+		)
+			return (value as Record<string, unknown>)[uuid];
+	}
+	return undefined;
+}
+
+function heldOf(
+	reading: Extract<LaneReading, { kind: "read" }>,
+	holds: readonly Hold[],
+): Answer["held"] {
+	const uuidOfKey = new Map(
+		externalIdentityMap(reading.doc, targetWireIdentity(reading.identity)).map(
+			(entry) => [
+				externalKeyText({ kind: entry.kind, parts: entry.parts }),
+				entry.uuid,
+			],
+		),
+	);
+	return holds.map(({ key, pointer }) => {
+		const uuid = uuidOfKey.get(key);
+		return {
+			key,
+			pointer,
+			found:
+				uuid === undefined
+					? null
+					: (atPointer(entityOf(reading.doc, uuid), pointer) ?? null),
+		};
+	});
+}
+
+async function answer(request: Request): Promise<Answer> {
+	const identity = MODE_OF_IDENTITY[request.mode];
+	if (identity === undefined)
+		throw new Error(
+			`The request ${request.id} asks for the mode ${String(request.mode)}; the reader bundle answers read-back, first-read and claims.`,
+		);
+	if (identity !== null && request.input.identity !== identity)
+		throw new Error(
+			`The request ${request.id} asks for a ${request.mode} with identity ${request.input.identity}; a ${request.mode} is made with identity ${identity}.`,
+		);
+	const input: LaneReadInput =
+		request.mode === "claims"
+			? { ...request.input, claims: "full" }
+			: request.input;
+	const reading = await readForLane(input);
+	const base = {
+		id: request.id,
+		kind: reading.kind,
+		asked: reading.asked,
+		claims: reading.claims,
+	};
+	if (request.mode === "claims") return base;
+	if (reading.kind === "account")
+		return { ...base, findings: reading.findings };
+	if (reading.kind === "declaration-not-offered")
+		return { ...base, declaration: reading.stated, offered: reading.offered };
+	const expectedDoc =
+		request.expected === undefined ? undefined : hydrated(request.expected);
+	const expected =
+		expectedDoc !== undefined && request.canon === true
+			? canonDocument(expectedDoc)
+			: expectedDoc;
+	const differences =
+		expected === undefined
+			? undefined
+			: readBackDifferences(expected, {
+					doc: reading.doc,
+					choices:
+						request.mode === "read-back"
+							? reading.offered.map((choice) => ({
+									runsOnlyOn: choice.runsOnlyOn ?? undefined,
+								}))
+							: null,
+				});
+	return {
+		...base,
+		...(differences !== undefined && { differences }),
+		...(request.mode === "first-read" && {
+			declaration: reading.declaration,
+			firstPublish: reading.firstPublish,
+		}),
+		...(request.holds !== undefined && {
+			held: heldOf(reading, request.holds),
+		}),
+	};
+}
+
+async function main(argv: readonly string[]): Promise<void> {
+	const [requestsPath, answersPath, ...rest] = argv;
+	if (
+		requestsPath === undefined ||
+		answersPath === undefined ||
+		rest.length > 0
+	)
+		throw new Error(USAGE);
+	const { requests } = JSON.parse(readFileSync(requestsPath, "utf8")) as {
+		readonly requests: readonly Request[];
+	};
+	if (!Array.isArray(requests)) throw new Error(USAGE);
+	const answers: Answer[] = [];
+	for (const request of requests) answers.push(await answer(request));
+	writeFileSync(answersPath, `${JSON.stringify({ answers }, null, "\t")}\n`);
+}
+
+try {
+	await main(process.argv.slice(2));
+} catch (error) {
+	process.stderr.write(
+		`${error instanceof Error ? error.message : String(error)}\n`,
+	);
+	process.exitCode = 1;
+}

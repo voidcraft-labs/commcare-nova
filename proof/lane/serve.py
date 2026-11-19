@@ -70,7 +70,11 @@ Readers. The server runs with the readers ``PROOF_READERS`` names
 slice's few), records them in ``serve.json`` (``readers``) and in the queue a
 run without queues writes, and refuses a queue built for another set
 (``readers`` in the queue): its groups and the keys its records are read
-under are that set's.
+under are that set's. Each block's manifest names the reader bundle its
+queue names (``reader``), which ``proof.store.pack`` keys its corpus
+documents' judgments under; the queue a run without queues writes names
+none, so nothing the store keeps of such a run stands for a judgment of a
+corpus that carries the bundle.
 
 Claims. ``--claim static`` owns every block (with ``--bin I/N``, the blocks
 of bin I of N, ``proof.checks.sharding.static_bins``). Otherwise each block
@@ -209,6 +213,8 @@ class PhaseInfo:
     by_group: dict[str, list[str]] = field(default_factory=dict)
     digest: str | None = None
     record: dict = field(default_factory=dict)
+    # The reader bundle the phase's queue names (proof.lane.blocks.Queue.reader), which its manifests name.
+    reader: str | None = None
 
 
 @dataclass
@@ -419,6 +425,7 @@ class Server:
             self.broker.add_phase("main", static=static)
             if options.queue.exists():
                 queue = self._load(options.queue, "main")
+                self.phases["main"].reader = queue.reader
                 self._collect_pieces(queue)
                 self.broker.offer("main", self._binned(queue, after=self._early()))
             else:
@@ -554,6 +561,7 @@ class Server:
             self.broker.cancel("main")
             return
         say(f"The main queue arrived after {seconds} s: {len(queue.blocks)} blocks.")
+        self.phases["main"].reader = queue.reader
         self._collect_pieces(queue)
         self.broker.offer("main", self._binned(queue, after=self._early()))
 
@@ -1000,7 +1008,9 @@ class Server:
                 )
             )
         path = lane_blocks.block_dir(self.out, run.block.id) / lane_blocks.MANIFEST
-        lane_blocks.write_json(path, lane_blocks.manifest(run.block, phase=name, shard=self.label, groups=groups))
+        lane_blocks.write_json(
+            path, lane_blocks.manifest(run.block, phase=name, shard=self.label, groups=groups, reader=info.reader)
+        )
         run.written = True
 
     def _done(self) -> bool:

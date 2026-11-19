@@ -725,6 +725,26 @@ function collectModuleConfigReferences(
 				// the type, so this slot has nothing left to say here.
 				break;
 			case "case_list_column_field":
+				// A column's property name follows the type it reads, which is
+				// the module's own or the one its walk reaches.
+				break;
+			case "case_list_column_via": {
+				// A column read through a relation names the types its walk
+				// passes through.
+				for (const col of list?.columns ?? []) {
+					if (
+						col.kind !== "calculated" &&
+						col.via !== undefined &&
+						viaNamesCaseType({ kind: "ancestor", via: col.via }, caseType)
+					) {
+						out.push({
+							verbose: `the case-list column "${col.header}" on ${where} reads through "${caseType}"`,
+							concise: `"${col.header || col.field}" in the case list on ${where} shows information through the "${caseType}" case type`,
+						});
+					}
+				}
+				break;
+			}
 			case "search_input_property":
 				// Contextual property names — they follow the module's own
 				// type and never name a type.

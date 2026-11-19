@@ -30,6 +30,7 @@ import {
 	imageMapEntry,
 	plainColumn,
 	proseText,
+	tileCell,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/expression";
 import { previewCaseListOrderPlan } from "@/lib/preview/engine/caseListOrder";
@@ -138,6 +139,30 @@ const LISTS: Record<string, CaseListConfig> = {
 		],
 		searchInputs: [],
 	}),
+	"Named in Sort by": resolveCaseListConfig({
+		columns: [
+			plainColumn(id("named-name"), "case_name", "Name"),
+			plainColumn(id("named-age"), "age", "Age", {
+				...HIDDEN,
+				sort: columnSort("desc", 0, undefined, "Oldest first"),
+			}),
+		],
+		searchInputs: [],
+	}),
+	"Tile named in Sort by": resolveCaseListConfig({
+		columns: [
+			plainColumn(id("tile-named-name"), "case_name", "Name", {
+				tile: tileCell(0, 0, 12, 1),
+			}),
+			plainColumn(id("tile-named-age"), "age", "Age", {
+				visibleInList: false,
+				visibleInDetail: false,
+				sort: columnSort("asc", 0, undefined, "Youngest first"),
+			}),
+		],
+		searchInputs: [],
+		tile: {},
+	}),
 	Attributes: resolveCaseListConfig({
 		columns: [
 			plainColumn(id("attribute-name"), "case_name", "Name"),
@@ -230,7 +255,7 @@ function impliedElement(
 		type,
 		direction: rule.direction === "asc" ? "ascending" : "descending",
 		blanks: rule.blanks,
-		display: { en: "" },
+		display: { en: rule.label?.text ?? "" },
 		sort_calculation: "",
 	};
 }
@@ -248,14 +273,14 @@ describe("the order plan's two emitters", () => {
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const assets = mediaManifest();
 	const hq: HqApplication = expandDoc(doc, { assets });
-	const suite = readXmlEvidence(
-		new AdmZip(
-			compileCcz(hq, doc.appName, doc, {
-				assets,
-				runtimeTarget: TEST_RUNTIME_TARGET,
-			}),
-		).readAsText("suite.xml"),
+	const archive = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			assets,
+			runtimeTarget: TEST_RUNTIME_TARGET,
+		}),
 	);
+	const suite = readXmlEvidence(archive.readAsText("suite.xml"));
+	const strings = archive.readAsText("en/app_strings.txt").split("\n");
 	const propertyType = (name: string) =>
 		doc.caseTypes
 			?.find((type) => type.name === "client")
@@ -320,6 +345,46 @@ describe("the order plan's two emitters", () => {
 			]);
 		},
 	);
+
+	it("writes a hidden column's name in Sort by as its header and its element's display, and as its locale in the local suite", () => {
+		const index = Object.keys(LISTS).indexOf("Named in Sort by");
+		const short = hq.modules[index].case_details.short;
+		expect(short.columns[1]).toMatchObject({
+			field: "age",
+			format: "invisible",
+			header: { en: "Oldest first" },
+		});
+		expect(short.sort_elements).toMatchObject([
+			{ field: "age", display: { en: "Oldest first" } },
+		]);
+		const header = xmlChildren(
+			xmlChildren(shortDetail(suite, index), "field")[1],
+			"header",
+		)[0];
+		const localeId = `m${index}.case_short.case_age_2.header`;
+		expect(header?.attributes.width).toBe("0");
+		expect(
+			xmlChildren(xmlChildren(header, "text")[0], "locale")[0]?.attributes.id,
+		).toBe(localeId);
+		expect(strings).toContain(`${localeId}=Oldest first`);
+	});
+
+	it("writes a tile list's name in Sort by as its sort row's display, and as the appended field's locale", () => {
+		const index = Object.keys(LISTS).indexOf("Tile named in Sort by");
+		const short = hq.modules[index].case_details.short;
+		expect(short.columns.map((column) => column.field)).toEqual(["case_name"]);
+		expect(short.sort_elements).toMatchObject([
+			{ field: "age", display: { en: "Youngest first" } },
+		]);
+		const carrier = xmlChildren(shortDetail(suite, index), "field")[1];
+		const header = xmlChildren(carrier, "header")[0];
+		// HQ's appended column is numbered by its row's order, 1, then one more.
+		const localeId = `m${index}.case_short.case_age_2.header`;
+		expect(
+			xmlChildren(xmlChildren(header, "text")[0], "locale")[0]?.attributes.id,
+		).toBe(localeId);
+		expect(strings).toContain(`${localeId}=Youngest first`);
+	});
 
 	it("writes a rule's own blanks, against its direction, to both emitters", () => {
 		const index = Object.keys(LISTS).indexOf("Blanks against direction");

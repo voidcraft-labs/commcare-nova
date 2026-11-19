@@ -12,10 +12,13 @@ import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import type { LanguageTag } from "@/lib/domain";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import surface from "../../surface/surface.json";
 import {
+	attributeNamespace,
 	elementNamespace,
 	type NamespaceScope,
 	splitName,
+	VELLUM_NS,
 	XFORMS_NS,
 } from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
@@ -25,6 +28,7 @@ import { readFormSyntax } from "../syntaxRead";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { DraftField } from "./index";
+import type { StandingRefusal } from "./refusals";
 
 /** The seven pragma keys the manifest names: ids CommCare reads as settings of the form. */
 export const PRAGMA_KEYS = [
@@ -93,6 +97,12 @@ export interface ItextReading extends ItextTable {
 	 *  `helpers/validators.py` makes a build error. A label that translation holds no `text` of
 	 *  builds. */
 	buildRefusesLabel(id: string): boolean;
+	/** Whether a translation holds two texts of `id`, which are refused at the form: a reference
+	 *  to it stands under that refusal. */
+	duplicated(id: string): boolean;
+	/** Each `text` of `id` a translation for a language the app does not hold carries: dropped,
+	 *  and still parsed by Core, so each output's value makes the uses its syntax makes. */
+	otherLanguageTexts(id: string): readonly Element[];
 }
 
 /** The table of a source that holds no text: no id, no value, no owner. */
@@ -144,6 +154,73 @@ function* subtreeNodes(
  * texts of one id in one translation are refused at the form, and neither is
  * read.
  */
+const TEXT = "xform:model/itext/translation/text";
+const VALUE = `${TEXT}/value`;
+
+/** Each runtime's surface item for an itext form a value names, by the form: what Core, Android
+ *  and HQ's own reader each read of it. */
+const ITEXT_FORM_ITEMS: ReadonlyMap<string, readonly string[]> = (() => {
+	const items = new Map<string, string[]>();
+	for (const key of Object.keys(
+		(surface as unknown as { readonly items: Record<string, unknown> }).items,
+	)) {
+		if (!key.startsWith("itext-form:")) continue;
+		const form = key.slice(key.indexOf("/") + 1);
+		items.set(form, [...(items.get(form) ?? []), key]);
+	}
+	return items;
+})();
+
+/**
+ * Records, under the drop of a translation for a language the app does not hold, each node of it
+ * Core reads where the lane names it: the translation, each text and its id, each value and the
+ * form it names, each output, its namespace, its value and its form builder shadow. The drop
+ * reads none of it; Core parses every translation as the form opens.
+ */
+function recordOtherLanguage(
+	cursor: XmlCursor,
+	translation: Element,
+	scope: (element: Element) => NamespaceScope,
+): void {
+	const claim = X.translationOtherLanguage;
+	cursor.within({ element: translation }, claim, [
+		"xform:model/itext/translation",
+	]);
+	for (const text of xformsChildren(translation, scope, "text")) {
+		cursor.within({ element: text }, claim, [TEXT]);
+		cursor.within({ element: text, attribute: "id" }, claim, [`${TEXT}@id`]);
+		for (const value of xformsChildren(text, scope, "value")) {
+			cursor.within({ element: value }, claim, [VALUE]);
+			const form = value.attribs.form;
+			if (form !== undefined) {
+				const at = { element: value, attribute: "form" };
+				cursor.within(at, claim, [`${VALUE}@form`]);
+				for (const item of ITEXT_FORM_ITEMS.get(form) ?? [])
+					cursor.within(at, claim, [item]);
+			}
+			for (const output of xformsChildren(value, scope, "output")) {
+				cursor.within({ element: output }, claim, [`${VALUE}/output`]);
+				cursor.within({ element: output, attribute: "xmlns" }, claim, [
+					`${VALUE}/*@xmlns`,
+				]);
+				for (const attribute of Object.keys(output.attribs)) {
+					const shadow =
+						attributeNamespace(attribute, scope(output)) === VELLUM_NS;
+					const named = splitName(attribute).local;
+					if (shadow && named === "value")
+						cursor.within({ element: output, attribute }, claim, [
+							"vellum-markup:output@vellum:value",
+						]);
+					else if (!shadow && (named === "value" || named === "ref"))
+						cursor.within({ element: output, attribute }, claim, [
+							`${VALUE}/output@${named}`,
+						]);
+				}
+			}
+		}
+	}
+}
+
 export function readItext(input: ReadItextInput): ItextReading {
 	const { cursor, accounting, formPlace, languages, scope } = input;
 	const values = new Map<string, Map<LanguageTag, Map<string, Element>>>();
@@ -151,6 +228,8 @@ export function readItext(input: ReadItextInput): ItextReading {
 	const texts = new Map<string, Map<LanguageTag, Element>>();
 	const owners = new Map<string, ItextOwner[]>();
 	const ids: string[] = [];
+	const duplicated = new Set<string>();
+	const otherLanguage = new Map<string, Element[]>();
 	const seenLanguages = new Set<string>();
 	/** The tags of the translations read, in document order. */
 	const held: LanguageTag[] = [];
@@ -171,12 +250,22 @@ export function readItext(input: ReadItextInput): ItextReading {
 		const code = translation.attribs.lang;
 		if (code === undefined || !languages.codes.includes(code)) {
 			cursor.dropSubtree(translation, X.translationOtherLanguage);
+			recordOtherLanguage(cursor, translation, scope);
+			for (const text of xformsChildren(translation, scope, "text")) {
+				const id = text.attribs.id;
+				if (id === undefined) continue;
+				otherLanguage.set(id, [...(otherLanguage.get(id) ?? []), text]);
+			}
 			continue;
 		}
 		const refused = languages.refused.get(code);
 		if (refused !== undefined) {
-			for (const node of subtreeNodes(translation))
+			// The translation of a refused language, its texts' own text with it, stands under
+			// that language's finding.
+			for (const node of subtreeNodes(translation)) {
 				accounting.cover(node, refused);
+				if (node.attribute === undefined) accounting.claimText(node.element);
+			}
 			continue;
 		}
 		const tag = languages.tagOf.get(code);
@@ -200,6 +289,7 @@ export function readItext(input: ReadItextInput): ItextReading {
 		}
 		for (const [id, held] of byId) {
 			if (held.length > 1) {
+				duplicated.add(id);
 				for (const text of held)
 					cursor.refuseSubtree(text, X.duplicateTextId, formPlace);
 				continue;
@@ -249,6 +339,8 @@ export function readItext(input: ReadItextInput): ItextReading {
 
 	return {
 		buildRefusesLabel: (id) => labelRefused.has(id),
+		duplicated: (id) => duplicated.has(id),
+		otherLanguageTexts: (id) => otherLanguage.get(id) ?? [],
 		values: (id) => values.get(id),
 		owners: (id) => owners.get(id) ?? [],
 		ids: () => ids,
@@ -426,8 +518,11 @@ function pragmaClaim(
  * Settles every text once the references are read: a referenced text's `id` by
  * its pragma row or as inert; a text no slot references by whether an
  * expression reads it, whether its id is a pragma key, or as inert. `elsewhere`
- * holds the ids a control or a bind outside every field references (a node
- * Nova generates), whose reader claims them.
+ * holds the ids a control or a bind outside every field references: a text whose
+ * every such reference stands under a refusal (a refused question's label, hint,
+ * help or message, a refused choice's label) belongs to what was refused and
+ * stands under that refusal; any other is a node Nova generates, whose reader
+ * claims it.
  */
 export function settleItext(
 	reading: ItextReading,
@@ -438,6 +533,8 @@ export function settleItext(
 		readonly placeOf: (owner: ItextOwner) => HqPlace;
 		readonly readByExpressions: ReadonlySet<string>;
 		readonly elsewhere: ReadonlySet<string>;
+		/** The refusal every reference of an id stands under, where each stands under one. */
+		readonly refusedReferences: (id: string) => StandingRefusal | undefined;
 	},
 ): void {
 	const { cursor, formPlace } = input;
@@ -448,7 +545,18 @@ export function settleItext(
 			claimReferencedId(reading, id, cursor, input.placeOf(first));
 			continue;
 		}
-		if (input.elsewhere.has(id)) continue;
+		if (input.elsewhere.has(id)) {
+			const refusal = input.refusedReferences(id);
+			if (refusal !== undefined)
+				for (const text of reading.texts(id).values())
+					cursor.refuseSubtree(
+						text,
+						refusal.claim,
+						refusal.place,
+						refusal.detail,
+					);
+			continue;
+		}
 		for (const text of reading.texts(id).values()) {
 			if (input.readByExpressions.has(id))
 				cursor.refuseSubtree(text, X.expressionOnlyText, formPlace);

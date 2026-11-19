@@ -14,6 +14,7 @@ import type {
 import { caseSlotFacts, stateCondition } from "@/lib/domain/basicCaseSlots";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
+import { formExpressionFacts } from "@/lib/domain/expression/context";
 import { type Claim, defineClaims, refuse } from "../claims";
 import type { DraftForm } from "../context";
 import { isJsonObject } from "../jsonCursor";
@@ -42,6 +43,10 @@ export const CONDITION_CLAIMS = defineClaims("caseManagement.conditions", {
 	apostrophe: refuse(
 		`${F}/an-open-close-child-case-or-advanced-action-condition-with`,
 		"schema:FormActionCondition.answer",
+	),
+	notYesNo: refuse(
+		`${F}/a-child-case-or-advanced-action-condition-boolean-true-on-a`,
+		"schema:FormActionCondition.operator",
 	),
 });
 
@@ -191,4 +196,28 @@ export function statedBack(
 	scope: { readonly own: boolean; readonly repeat: Uuid | undefined },
 ): ReturnType<typeof stateCondition> {
 	return stateCondition(caseSlotFacts(doc, formUuid), expression, scope);
+}
+
+/**
+ * The finding for a case change's condition (a child case's, or an advanced
+ * action's) that reads one question alone where CommCare holds no yes or no
+ * for it: HQ's `boolean_true` over a select, a label or a Hidden Value
+ * calculated as text. Core reads such an answer as true wherever it is not
+ * empty (`FunctionUtils.toBoolean`), `0` included, and Nova's record rules
+ * take a read alone as a condition only where it holds a yes or no
+ * (`lib/domain/expression/ruleSets.ts::recordPositionVerdict`), the fact the
+ * gate reads (`formExpressionFacts`' held class). The form's own conditions
+ * take Core's coercions and are never this finding.
+ */
+export function conditionNotYesNo(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	expression: Expression,
+): Claim<"refuse"> | undefined {
+	if (expression.kind !== "term" || expression.term.kind !== "field")
+		return undefined;
+	const held = formExpressionFacts(doc, formUuid)?.fields.get(
+		expression.term.uuid,
+	)?.held;
+	return held === "boolean" ? undefined : CONDITION_CLAIMS.notYesNo;
 }

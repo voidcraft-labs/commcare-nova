@@ -111,6 +111,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"column-hidden-from-results": [
 		"menus-and-case-lists/7-invisible-search-only-on-the-case-list-outside-a-custom-tile",
 	],
+	"case-list-sort-label": [
+		"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
+		"menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
+	],
 	"link-column": [
 		"menus-and-case-lists/10-markdown-any-property-or-expression",
 	],

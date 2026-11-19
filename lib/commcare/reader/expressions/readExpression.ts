@@ -116,7 +116,12 @@ import {
 	syntaxOf,
 } from "../hqInterpolation";
 import type { PendingExpression, ReadMode } from "../pendingExpressions";
-import { type CompareOptions, firstDifference } from "../syntaxCompare";
+import {
+	type CompareOptions,
+	firstDifference,
+	sameSyntax,
+	sameXPathText,
+} from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReadSourceNames, SourceNodeRef } from "../xform";
 import type { SlotPrint } from "./canonical";
@@ -172,6 +177,33 @@ export function slotReadMode(
 		}
 	}
 	return { target: "hq-json", ...moduleSlotMode(ref.slot) };
+}
+
+/** Whether two stored texts of an HQ JSON slot are one expression to a
+ *  runtime: each interpolated as HQ's build interpolates the slot
+ *  (`hqInterpolation.ts::interpolateHqXPath`, which writes `#session/` as
+ *  `instance('commcaresession')/session/`), then compared as one tree. Where
+ *  either text has no interpolation for the slot (a case shorthand on a slot
+ *  that opens no case), the two are compared as stored. */
+export function sameSlotText(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	a: string,
+	b: string,
+): boolean {
+	const mode = slotReadMode(doc, ref);
+	const slot =
+		mode.target === "hq-json" &&
+		mode.interpolation !== "none" &&
+		mode.interpolation !== "enum-key"
+			? hqInterpolationSlot(doc, ref, mode.interpolation)
+			: undefined;
+	if (slot !== undefined) {
+		const left = syntaxOf(a, slot);
+		const right = syntaxOf(b, slot);
+		if (left.ok && right.ok) return sameSyntax(left.syntax, right.syntax);
+	}
+	return sameXPathText(a, b);
 }
 
 function moduleSlotMode(
@@ -326,6 +358,8 @@ interface FoldSites {
 	readonly used: Set<string>;
 	readonly spans: Map<string, { readonly from: number; readonly to: number }>;
 	readonly plain: Set<FormSyntax>;
+	/** Set where the bind read the listed case inside another query of cases. */
+	listedCaseInQuery?: true;
 }
 
 /** The scope a registration's text binds in: the slot of the real
@@ -389,6 +423,9 @@ function scopeWith(
 		// (`CaseChildElement.getChildrenWithName`), so in an app's text it is
 		// a read of the property called `name`, never the case's name.
 		caseNameAlias: false,
+		listedCaseInQuery: () => {
+			sites.listedCaseInQuery = true;
+		},
 	};
 	return {
 		doc,
@@ -1459,6 +1496,10 @@ export interface BoundSlot {
 		string,
 		{ readonly from: number; readonly to: number }
 	>;
+	/** Where the bind read the listed case inside another query of cases
+	 *  (`current()/…` in a slot that lists cases), which no tree Nova holds
+	 *  reads, so the candidate reads the inner row there. */
+	readonly listedCaseInQuery?: true;
 }
 
 /** Bind `pending.text` against `doc` with every fold on but the `withdrawn`
@@ -1514,6 +1555,7 @@ export function bindSlot(
 			source: prepared.syntax,
 			foldSites,
 			spans: sites.spans,
+			...(sites.listedCaseInQuery && { listedCaseInQuery: true }),
 		},
 	};
 }

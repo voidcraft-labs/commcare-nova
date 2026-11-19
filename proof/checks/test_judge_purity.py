@@ -65,14 +65,18 @@ JUDGES = (
     "proof.checks.manifest_usage",
     "proof.checks.manifest_value_classes",
     "proof.checks.observations",
+    "proof.checks.parity",
     "proof.checks.proof1",
     "proof.checks.proof2",
     "proof.checks.proof3",
     "proof.checks.proof4",
     "proof.checks.proof5",
+    "proof.checks.proof6",
+    "proof.checks.readerbundle",
     "proof.checks.registers",
     "proof.checks.sensitivity",
     "proof.checks.served",
+    "proof.checks.source",
     "proof.observe.alignment",
     "proof.observe.builds",
     "proof.observe.identity",
@@ -310,3 +314,57 @@ def test_the_closure_follows_an_import_a_function_makes_and_a_package_that_runs_
     ]
     assert not partition.observes("proof/checks/judge.py") and partition.observes("proof/observe/unit.py")
     assert not partition.observes("proof/editors/driver/page.mjs") and partition.observes("proof/editors/client.py")
+
+
+# The reader bundle ---------------------------------------------------------------------
+
+READER_BUNDLE = "proof.checks.readerbundle"
+# The judges that run the reader bundle the corpus carries while they judge.
+BUNDLE_JUDGES = frozenset({"proof.checks.proof6", "proof.checks.parity"})
+
+
+def _module_imports(path, name):
+    """Every module ``name`` (at ``path``) imports, at module level or inside a function."""
+    import ast
+
+    package = name.rpartition(".")[0]
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                parts = package.split(".")
+                base = ".".join([*parts[: len(parts) - (node.level - 1)], *([node.module] if node.module else [])])
+            found.add(base)
+            found.update(f"{base}.{alias.name}" for alias in node.names)
+    return found
+
+
+def test_only_the_bundle_s_judges_run_it_and_no_observation_reaches_it():
+    """``proof.checks.readerbundle`` imports only the standard library, ``proof.processes`` and
+    ``proof.native.produce`` (where the corpus's products are found); no module but proof 6's and parity's judges
+    imports it, a test module aside; and the observation's closure holds none of it. The plausible failures: another
+    judge running a product of Nova's while it judges, whose verdict no store key names; and an observation that
+    runs the reader, so a reader change would observe again every document whose files are unchanged. Paired with
+    the accepted case: proof 6's judge does import it."""
+    from proof.observe import partition
+
+    proof = sharding.PROOF_DIR
+    bundle = proof / "checks" / "readerbundle.py"
+    own = {module for module in _module_imports(bundle, READER_BUNDLE) if module.startswith("proof")}
+    assert own <= {"proof", "proof.processes", "proof.native", "proof.native.produce"}, own
+    stdlib = {
+        module.split(".")[0] for module in _module_imports(bundle, READER_BUNDLE) if not module.startswith("proof")
+    }
+    assert stdlib <= set(sys.stdlib_module_names) | {"__future__"}, stdlib
+    importers = set()
+    for path in (proof / "checks").rglob("*.py"):
+        if "__pycache__" in path.parts or path.name.startswith("test_") or path.name == "conftest.py":
+            continue
+        name = ".".join(path.relative_to(proof.parent).with_suffix("").parts)
+        if READER_BUNDLE in _module_imports(path, name):
+            importers.add(name)
+    assert importers == BUNDLE_JUDGES, importers
+    assert "proof/checks/readerbundle.py" not in partition.import_closure()

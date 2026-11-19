@@ -88,4 +88,21 @@ describe("storageValueFromEvaluation", () => {
 		// The XForms wire convention for a selection's string projection.
 		expect(storageValueFromEvaluation(["a", "b"], "text")).toBe("a b");
 	});
+
+	it("writes a number or a date aimed at text as the text a device submits", () => {
+		// `Recalculate.wrapData` holds a whole double as IntegerData, a whole
+		// one past int's range as LongData, and any other as DecimalData,
+		// whose text is `Double.toString`; a NaN is blank.
+		expect(storageValueFromEvaluation(3, "text")).toBe("3");
+		expect(storageValueFromEvaluation(3e9, "text")).toBe("3000000000");
+		expect(storageValueFromEvaluation(1.0000000001, "text")).toBe("1");
+		expect(storageValueFromEvaluation(2.5, "text")).toBe("2.5");
+		expect(storageValueFromEvaluation(1e-5, "text")).toBe("1.0E-5");
+		expect(storageValueFromEvaluation(Number.NaN, "text")).toBeUndefined();
+		// A `date` column arrives as the process's local midnight; a device
+		// submits the day.
+		expect(storageValueFromEvaluation(new Date(2024, 4, 1), "text")).toBe(
+			"2024-05-01",
+		);
+	});
 });

@@ -105,8 +105,9 @@ export function candidateLookupTags(
 
 /**
  * The tags the reader read: those of the tables the document references
- * through `catalog`, and each tag of `ReadFacts.unreadTables`, each once, in
- * code-unit order.
+ * through `catalog`, and each tag of `ReadFacts.unreadTables` an expression or
+ * an itemset reads, each once, in code-unit order. A table a form only
+ * declares (`declaredOnly`) is read by nothing and comes in with nothing.
  */
 export function lookupTagsRead(
 	read: Extract<ReadOutcome, { kind: "read" }>,
@@ -123,7 +124,8 @@ export function lookupTagsRead(
 		}
 		tags.add(definition.tag);
 	}
-	for (const unread of read.draft.facts.unreadTables) tags.add(unread.tag);
+	for (const unread of read.draft.facts.unreadTables)
+		if (unread.declaredOnly !== true) tags.add(unread.tag);
 	return [...tags].sort(compareCodeUnits);
 }
 

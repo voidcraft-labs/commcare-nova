@@ -33,6 +33,7 @@ import {
 	type MediaAssetId,
 } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
+import { columnWithSource } from "../../columnSources";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import {
 	AddMappingButton,
@@ -66,6 +67,7 @@ export function ImageMapColumnCard({
 		visibleInDetail: value.visibleInDetail,
 		notOnList: value.notOnList,
 		tile: value.tile,
+		via: value.via,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -150,6 +152,10 @@ export function ImageMapColumnCard({
 	return (
 		<div className="space-y-4">
 			<ColumnFieldRow
+				via={value.via}
+				onSourceChange={(via, field) =>
+					onChange(columnWithSource(value, via, field))
+				}
 				field={value.field}
 				onFieldChange={setField}
 				header={value.header}

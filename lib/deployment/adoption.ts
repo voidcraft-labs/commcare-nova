@@ -451,7 +451,8 @@ export function adoptedAppBaselineWrite(input: {
 	/** CommCare HQ's file at each held media path, the logo's included. */
 	readonly mediaFiles: HqMediaRecord;
 	readonly observedAt: string;
-	/** The chosen declaration's list, from the create's own acceptance. */
+	/** The chosen declaration's list, from the create's own acceptance, as a
+	 *  list stores it (`reading/firstPublishChanges.ts::firstPublishListToStore`). */
 	readonly firstPublish: FirstPublishView;
 }): AppBaselineWrite & { readonly origin: "read" } {
 	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);

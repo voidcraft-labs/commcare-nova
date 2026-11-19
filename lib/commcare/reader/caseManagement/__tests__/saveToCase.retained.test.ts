@@ -4,7 +4,8 @@
  *
  * Contract: a block is read as an operation only in the shape Nova's
  * emitter writes today. The two `targeted-migration-*` reads hold HQ's read
- * of an app Nova exported before its step 5 migration. A block whose shape
+ * of an app Nova exported before the migration its witness names
+ * (`proof/migrations/<id>/`). A block whose shape
  * Nova no longer writes is the one finding
  * `questions/savetocase-block-outside-nova-s-own-block-shape` at its place
  * and no operation, with no canonicalization that would make an old shape

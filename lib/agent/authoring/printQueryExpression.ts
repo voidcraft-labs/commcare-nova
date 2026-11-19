@@ -280,6 +280,9 @@ export function queryPrinter(context: QueryPrintContext) {
 				return "true()";
 			case "match-none":
 				return "false()";
+			case "term":
+				// A read standing as a condition: a yes or no CommCare holds.
+				return term(value.term);
 			case "and":
 			case "or":
 				return call(

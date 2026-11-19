@@ -21,13 +21,25 @@
  * writes every create's name inside its trim: CommCare HQ stores a name as
  * submitted, so that block is one Nova does not write, and it stays out as
  * outside Nova's own block shape, once, at the block, never as a defect.
+ *
+ * A save in the form builder of every Save to Case shape Nova writes respells
+ * what no runtime reads otherwise: a `vellum:ref` or `vellum:nodeset` on each
+ * group and repeat, a `vellum:jr__count` on a keyed create's repeat, and a
+ * bind holding only its path on each group and repeat with none and on a
+ * close-only block's `case/close` (Core binds such a node its defaults). Each
+ * form reads as Nova's own export reads, with no finding and no defect. The
+ * plausible failures: a shadow on a block's control claimed twice, which
+ * stands as `unrecognized` at the form, and a bind that does nothing read as
+ * a difference from Nova's block, which keeps every block out.
  */
-import { type Element, isTag } from "domhandler";
+import { Element, isTag } from "domhandler";
+import { appendChild } from "domutils";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
+import { saveToCaseShapesApp } from "@/proof/targeted/documents/saveToCaseShapes";
 import { serializeXml } from "../../../serializeXml";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { parseXml } from "../../../xmlParse";
@@ -243,5 +255,100 @@ describe("a Save to Case block the form builder wrote inside a repeat", () => {
 			path: "r/nova_operations/make_clinic",
 		});
 		expect(outcome.findings).toEqual(outside);
+	});
+});
+
+/** `#form/…`, the form builder's shadow of an absolute path under `/data/`. */
+function formShadow(path: string): string {
+	const root = "/data/";
+	if (!path.startsWith(root))
+		throw new Error(`The fixture expected a path under ${root}, not ${path}.`);
+	return `#form/${path.slice(root.length)}`;
+}
+
+/** The data path of an element of the form's instance, from `/data` down. */
+function dataPathOf(element: Element): string {
+	const steps: string[] = [];
+	for (
+		let at: Element | null = element;
+		at !== null && at.name !== "data";
+		at = at.parent as Element | null
+	)
+		steps.unshift(at.name);
+	return `/data/${steps.join("/")}`;
+}
+
+/** A form's source as a save in HQ's form builder respells it, none of which a runtime reads:
+ *  each group's and repeat's shadow, a keyed create's count shadow, and a bind of its path alone
+ *  on each group and repeat with none and on each close-only block's `case/close`
+ *  (`saveToCase.js`, the close's `relevant` left blank). */
+function savedByTheBuilder(xml: string): string {
+	const document = parseXml(xml);
+	const all = elementsOf(document as { children?: unknown[] });
+	const model = all.find((one) => one.name === "model");
+	if (model === undefined) throw new Error("The form's source has no model.");
+	const bound = new Set(
+		all.filter((one) => one.name === "bind").map((one) => one.attribs.nodeset),
+	);
+	const bindPath = (path: string, shadow: boolean) => {
+		if (bound.has(path)) return;
+		bound.add(path);
+		appendChild(
+			model,
+			new Element(
+				"bind",
+				shadow
+					? { "vellum:nodeset": formShadow(path), nodeset: path }
+					: { nodeset: path },
+			),
+		);
+	};
+	for (const control of all) {
+		if (control.name !== "group" && control.name !== "repeat") continue;
+		const path = control.attribs.ref ?? control.attribs.nodeset;
+		if (path === undefined) continue;
+		control.attribs[
+			control.name === "group" ? "vellum:ref" : "vellum:nodeset"
+		] = formShadow(path);
+		const count = control.attribs["jr:count"];
+		// A model iteration's count is the repeat's own `@count`, which the builder names by no hashtag.
+		if (count !== undefined && path !== "/data/nova_selected_cases/item")
+			control.attribs["vellum:jr__count"] = formShadow(count);
+		bindPath(path, true);
+	}
+	for (const close of all)
+		if (
+			close.name === "close" &&
+			(close.parent as Element | null)?.name === "case"
+		)
+			bindPath(dataPathOf(close), false);
+	return serializeXml(document);
+}
+
+describe("every Save to Case shape Nova writes, saved in the form builder", () => {
+	it("reads as Nova's own export reads", async () => {
+		const doc = saveToCaseShapesApp();
+		const read = async (body: Record<string, unknown>) =>
+			readHqApp(
+				await inputFor(body, {
+					resolver: matchingResolver(
+						doc.appId,
+						externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+					),
+					knownCaseTypes: knownCaseTypesOf(doc),
+				}),
+			);
+		const saved = exportedBody(doc, { xml: savedByTheBuilder });
+		const sources = Object.values(saved._attachments as Record<string, string>);
+		expect(sources.some((xml) => xml.includes("vellum:jr__count"))).toBe(true);
+		expect(sources.some((xml) => xml.includes('/case/close"/>'))).toBe(true);
+
+		const outcome = await read(saved);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		expect(outcome.defects).toEqual([]);
+		const plain = await read(exportedBody(doc));
+		if (outcome.kind !== "read" || plain.kind !== "read")
+			throw new Error("A source did not read.");
+		expect(outcome.draft.doc).toEqual(plain.draft.doc);
 	});
 });

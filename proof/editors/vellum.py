@@ -416,7 +416,8 @@ def _check_edit(edit, outcome, form_unique_id):
         return
     if edit.get("way") not in EDIT_WAYS:
         raise ValueError(f"A Vellum run's edit names the way {edit.get('way')!r}; the driver makes it {EDIT_WAYS}.")
-    if not isinstance(outcome, dict) or not outcome.get("edited") or outcome.get("value") != edit["label"]:
+    expected = edit["value"] if "property" in edit else edit["label"]
+    if not isinstance(outcome, dict) or not outcome.get("edited") or outcome.get("value") != expected:
         raise VellumEditRefused(
             f"The edit of the question {edit['path']} of form {form_unique_id} in Vellum did not take ({outcome!r}),"
             " so the driver did not save it as the run names it. Look at what Vellum's object for the question holds."
@@ -452,8 +453,10 @@ def open_and_save(
 
     ``edit`` is the one edit the run makes between the open and the save, as a
     person makes one: ``{path, label, way}``, the label of the question at
-    ``path`` set to ``label`` in the form's default language, ``way`` one of
-    ``EDIT_WAYS`` (``driver/steps/vellum/edit.js``). The run's spec names it, so
+    ``path`` set to ``label`` in the form's default language, or ``{path,
+    property, value, way}``, that property of the question (its Default Value,
+    ``defaultValue``) set to ``value``; ``way`` is one of ``EDIT_WAYS``
+    (``driver/steps/vellum/edit.js``). The run's spec names it, so
     a transcript of a run with no edit never stands for one with it; an edit
     that did not take fails the run before the save (``VellumEditRefused``).
 

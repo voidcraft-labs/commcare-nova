@@ -29,6 +29,12 @@ pages offer of each saved add-on is compared too, A's against B's
 ``addOnsOffered``): Nova's next publish writes only the add-ons its app needs
 over the map HQ holds, so a page offers each saved add-on at B as at A.
 
+On a document made in CommCare HQ (``hq-authored``) a form's built XML is left
+out (``judged``, ``eligibility.form_xml_unjudged``): HQ builds both suites,
+the profiles, the app strings and the media suite from the two stored apps, so
+they compare, while a form's bytes are Nova's own spelling of the form HQ's
+form builder wrote, which proof 3 and intent judge.
+
 The comparison itself is the observation's (``proof.observe.builds``), which
 makes it with no rule to decide whether B's sessions run; this module makes
 it after the registered rules and judges the records.
@@ -37,6 +43,7 @@ it after the registered rules and judges the records.
 from __future__ import annotations
 
 from proof.checks.differences import Difference
+from proof.checks.eligibility import form_xml_unjudged
 from proof.observe import builds
 from proof.rules import RULES
 
@@ -120,8 +127,23 @@ def offered_add_ons(document, saved, a, b) -> list:
     return found
 
 
+def form_artifact(artifact) -> bool:
+    """Whether a built file's artifact is a form's XML (``form:<m>.<f>``, or a build profile's
+    ``<profile id>/form:<m>.<f>``; ``proof.checks.compare.build_files.artifact_for``)."""
+    return artifact.rpartition("/")[2].startswith("form:")
+
+
+def judged(document, found):
+    """``found`` without what proof 2 leaves out on the document: on an app made in HQ, every difference in a form's
+    built XML (``eligibility.form_xml_unjudged``)."""
+    if not form_xml_unjudged(document.source):
+        return found
+    return [difference for difference in found if not form_artifact(difference.artifact)]
+
+
 def document_build_equivalence(document, records):
-    """Proof 2's differences on one document: each configuration it is exported under, judged from its records."""
+    """Proof 2's differences on one document: each configuration it is exported under, judged from its records, less
+    what it leaves out there (``judged``)."""
     from proof.checks import observations
 
     found = []
@@ -133,4 +155,4 @@ def document_build_equivalence(document, records):
             a, b = _offered(held.a), _offered(held.b)
             if a is not None and b is not None:
                 found += offered_add_ons(document.id, saved, a, b)
-    return found + observations.soft_assertion_differences(records, "proof2")
+    return judged(document, found) + observations.soft_assertion_differences(records, "proof2")

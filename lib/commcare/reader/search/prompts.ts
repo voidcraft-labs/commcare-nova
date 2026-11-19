@@ -29,6 +29,7 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import { isReservedSearchInputName } from "../../suite/case-search/reservedInputNames";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { withCandidate } from "../candidate";
 import {
@@ -189,6 +190,9 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 		null,
 	),
+	/** No `input_`, HQ's own default (`CaseSearchProperty.input_` is `None`, which its source read
+	 *  leaves out): a plain text field. */
+	text: take(`${S}text-prompt-no-input`, "schema:CaseSearchProperty.input_"),
 	inputUnnamed: refuse(
 		`${S}input-no-runtime-names`,
 		"schema:CaseSearchProperty.input_",
@@ -299,21 +303,6 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 
 const P = PROMPT_CLAIMS;
 
-/** The keys a prompt reaches CommCare HQ under as a request setting of its own
- *  (`case_search/models.py`: `CONFIG_KEYS_MAPPING`, the tag key, the owner exclusion key and
- *  the query key). */
-const RESERVED_REQUEST_KEYS = new Set([
-	"case_type",
-	"x_commcare_data_registry",
-	"x_commcare_custom_related_case_property",
-	"x_commcare_include_all_related_cases",
-	"commcare_sort",
-	"x_commcare_endpoint_id",
-	"x_commcare_tag_module_name",
-	"commcare_blacklisted_owner_ids",
-	"_xpath_query",
-]);
-
 /** The case attributes a prompt can be named for, and the case's name, which HQ's search reads
  *  by its own rule (`case_search/const.py::INDEXED_METADATA_BY_KEY`: `@case_id`, `@owner_id`,
  *  `@status`, and `name`, the case's name, which Nova names `case_name`). */
@@ -406,6 +395,40 @@ function itemsetSource(
 	return filter === undefined ? { tag: item } : { tag: item, filter };
 }
 
+/**
+ * The appearance HQ's Case List page shows for a prompt (`case_claim.js::_getAppearance`): the
+ * stored `appearance`, or none; a selection's lookup or Mobile UCR choice over it; `address` where
+ * the stored appearance is; and the input type over all of them where it is a date, a date range
+ * or a checkbox.
+ */
+function editorAppearance(prompt: JsonCursor): string {
+	const stored = prompt.peek("appearance");
+	let appearance = typeof stored === "string" ? stored : "";
+	const input = prompt.peek("input_");
+	if (input === "select1" || input === "select") {
+		const itemset = prompt.peek("itemset");
+		const instanceId = isJsonObject(itemset) ? itemset.instance_id : undefined;
+		appearance =
+			typeof instanceId === "string" && instanceId.includes("commcare-reports")
+				? "report_fixture"
+				: "lookup_table_fixture";
+	}
+	if (stored === "address") appearance = "address";
+	if (input === "date" || input === "daterange" || input === "checkbox")
+		appearance = input;
+	return appearance;
+}
+
+/** The appearances HQ's Case List page shows that take no value another screen sends a prompt:
+ *  every one but a plain text field and a lookup or Mobile UCR selection. */
+const RECEIVER_REFUSED_APPEARANCES = new Set([
+	"barcode_scan",
+	"address",
+	"date",
+	"daterange",
+	"checkbox",
+]);
+
 /** Whether a prompt carries a widget: an itemset, an input type or an appearance, a blank input
  *  type or appearance being none (`readPrompt`). */
 function carriesWidget(prompt: JsonCursor): boolean {
@@ -422,7 +445,7 @@ export function readSearchPrompts(
 	ctx: ReadContext,
 	module: DraftModule,
 	config: JsonCursor,
-	defaultFilterNames: ReadonlySet<string>,
+	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 ): readonly PromptReading[] {
 	const place = searchPlace(module);
 	const prompts = config.list(
@@ -454,7 +477,7 @@ function readPrompt(
 	module: DraftModule,
 	prompt: JsonCursor,
 	place: HqPlace,
-	defaultFilterNames: ReadonlySet<string>,
+	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 	grouped: boolean,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
@@ -576,10 +599,18 @@ function readPrompt(
 	const label = labelRead.texts;
 	const hintMap = hintRead.texts;
 	const requiredMap = requiredRead.texts;
-	if (RESERVED_REQUEST_KEYS.has(name)) refuseWith("name", P.nameReserved);
+	// A key CommCare HQ reads as part of the request (a setting, a tag, an unsearched key, an
+	// owner, project space or reverse-index filter, CSQL) never searches the property it names.
+	if (isReservedSearchInputName(name)) refuseWith("name", P.nameReserved);
 	else if (!SEARCH_INPUT_NAME_PATTERN.test(name))
 		refuseWith("name", P.nameOutside);
-	else if (defaultFilterNames.has(name)) refuseWith("name", P.nameShared);
+	else if (defaultFilterNames.has(name)) {
+		refuseWith("name", P.nameShared);
+		// The name is a class of each default filter that shares it too, so the refusal stands at
+		// each one's `property`.
+		for (const pointer of defaultFilterNames.get(name) ?? [])
+			ctx.accounting.findingAt(P.nameShared, place, pointer, named);
+	}
 	// Beside a group, a member's `group_key` names its group, whose own entry's finding it is; a
 	// member with none is a finding of its own.
 	if (grouped) {
@@ -595,7 +626,7 @@ function readPrompt(
 	if (holds("receiver_expression"))
 		refuseWith(
 			"receiver_expression",
-			holds("appearance") && prompt.peek("appearance") !== "barcode_scan"
+			RECEIVER_REFUSED_APPEARANCES.has(editorAppearance(prompt))
 				? P.receiverOther
 				: P.receiver,
 		);
@@ -816,6 +847,13 @@ function readPrompt(
 					).value;
 					itemsetCursor = cursor;
 					cursor.take("instance_id", P.itemsetInstance, String).value;
+					// The table the field's choices read, through Nova's typed carrier.
+					ctx.accounting.claimEntry(
+						{ json: cursor, key: "instance_id" },
+						"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+						"instance-scheme:item-list",
+						place,
+					);
 					// A filter's claim on the nodeset is the expression stage's, by the registration below.
 					if (source.filter === undefined)
 						cursor.take("nodeset", P.itemsetNodeset, String).value;
@@ -848,7 +886,9 @@ function readPrompt(
 			if (addressRefused !== undefined)
 				cover(prompt, ["input_", "itemset"], addressRefused);
 			else cover(prompt, ["itemset"], refuseWith("input_", P.inputAddress));
-		} else if (input !== undefined && input !== null && input !== "")
+		} else if (input === undefined || input === null)
+			prompt.takeDefault("input_", P.text);
+		else if (input !== "")
 			cover(prompt, ["itemset"], refuseWith("input_", P.inputUnnamed));
 		if (!refusedHere("appearance")) {
 			if (appearance === "barcode_scan" && type === "text") {
@@ -971,8 +1011,10 @@ function readPrompt(
 		interpolation: "none" | "no-case" | "no-dots",
 		key: string,
 		deferRefusal = false,
-	) =>
-		ctx.pending.register(
+	) => {
+		// HQ interpolates the stored condition whole, a rule's runtime guard too.
+		const stored = at.json.peek(at.key);
+		return ctx.pending.register(
 			{
 				ref: {
 					entity: "module",
@@ -985,9 +1027,13 @@ function readPrompt(
 				place,
 				key,
 				...(deferRefusal && { deferRefusal: true as const }),
+				...(interpolation !== "none" &&
+					typeof stored === "string" &&
+					stored !== text && { slotText: stored }),
 			},
 			at,
 		);
+	};
 	const defaultText = prompt.peek("default_value");
 	const hasDefault =
 		holds("default_value") &&

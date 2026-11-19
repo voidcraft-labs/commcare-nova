@@ -69,6 +69,25 @@ export function readHashtagMetadata(
 	return { hashtags, transforms };
 }
 
+/**
+ * The hashtags one head element names as Vellum's `parser.js` hands them to
+ * `initHashtags`: each key of `vellum:hashtags`' JSON map, each key of
+ * `vellum:hashtagTransforms`' `prefixes`, whatever each one's value.
+ */
+export function headHashtagNames(
+	element: Element,
+	local: "hashtags" | "hashtagTransforms",
+): readonly string[] {
+	const value = jsonObject(ownText(element));
+	if (local === "hashtags") return Object.keys(value);
+	const { prefixes } = value;
+	return typeof prefixes === "object" &&
+		prefixes !== null &&
+		!Array.isArray(prefixes)
+		? Object.keys(prefixes)
+		: [];
+}
+
 /** The case management plugin's mapping in the head (`caseManagement.js`,
  *  `<vellum:case_mappings>`), which Vellum writes only when a form's source is copied and which
  *  says what HQ's form builder knew when it last saved; Nova writes none. */
@@ -167,6 +186,22 @@ export const REQUIRED_CONDITION = defineClaims("xform", {
 	),
 	"jr-requiredmsg": account("questions/jr-requiredmsg", null),
 });
+
+/** A `vellum:` attribute of a bind that HQ's form builder writes and never reads: `vellum:required`,
+ *  the shadow of a required condition its writer gives every bind attribute
+ *  (`util.js::writeHashtags`), while its parser reads `required` alone
+ *  (`parser.js::parseBindElement`); and `vellum:vellum__<name>`, the shadow it writes of a `vellum:`
+ *  attribute it kept unread as a raw bind attribute, one more `vellum__` on every save. */
+const CARRIED_UNREAD = defineClaims("xform", {
+	"vellum-attributes-a-bind-carries-unread": drop(
+		"questions/vellum-attributes-a-bind-carries-unread",
+		null,
+	),
+})["vellum-attributes-a-bind-carries-unread"];
+
+function carriedUnread(local: string): boolean {
+	return local === "required" || local.startsWith("vellum__");
+}
 
 // ── The comparison ───────────────────────────────────────────────────────
 
@@ -469,7 +504,8 @@ export interface JudgeShadowsInput {
 
 /**
  * Judges every shadow of the form, in document order, and each bind's
- * `requiredCondition` and `jr:requiredMsg`. Each shadow is dropped under the shadow
+ * `requiredCondition` and `jr:requiredMsg`, and drops each `vellum:` attribute of a bind the form
+ * builder carries unread. Each shadow is dropped under the shadow
  * entry; one that does not agree with its real attribute raises `shadow-disagrees` at its
  * question, named by the real attribute.
  */
@@ -494,7 +530,10 @@ export function judgeShadows(input: JudgeShadowsInput): void {
 				judge(element, scope, local, pair, shadow);
 			}
 		}
-		if (local === "bind" && inXForms) judgeRequired(element, scope);
+		if (local === "bind" && inXForms) {
+			judgeRequired(element, scope);
+			dropCarried(element, scope);
+		}
 		for (const child of element.children) if (isTag(child)) visit(child);
 	};
 	const judge = (
@@ -531,6 +570,18 @@ export function judgeShadows(input: JudgeShadowsInput): void {
 			base,
 		);
 		if (verdict === "disagrees" || verdict === "shadow-unparseable") disagree();
+	};
+	const dropCarried = (element: Element, scope: NamespaceScope) => {
+		for (const name of Object.keys(element.attribs)) {
+			const split = splitName(name);
+			if (
+				split.prefix !== "" &&
+				split.prefix !== "xmlns" &&
+				scope.get(split.prefix) === VELLUM_NS &&
+				carriedUnread(split.local)
+			)
+				cursor.drop({ element, attribute: name }, CARRIED_UNREAD);
+		}
 	};
 	const judgeRequired = (element: Element, scope: NamespaceScope) => {
 		const message = attributeIn(element, scope, JAVAROSA_NS, "requiredMsg");

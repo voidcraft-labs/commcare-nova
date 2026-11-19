@@ -1,0 +1,350 @@
+[
+	{
+		"id": "head-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "Amani"
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Amani"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "visit-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visit_note",
+					"value": "again"
+				}
+			],
+			"expressions": ["/data/visit_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "again"
+			}
+		]
+	},
+	{
+		"id": "follow-up-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/follow_up_note",
+					"value": "Called back"
+				}
+			],
+			"expressions": ["/data/follow_up_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Called back"
+			}
+		]
+	},
+	{
+		"id": "tool-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 3,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/tool_name",
+					"value": "Scale"
+				}
+			],
+			"expressions": ["/data/tool_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Scale"
+			}
+		]
+	},
+	{
+		"id": "reading-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 4,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/reading",
+					"value": "42 kg"
+				}
+			],
+			"expressions": ["/data/reading"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "42 kg"
+			}
+		]
+	},
+	{
+		"id": "case-list-shown",
+		"entry": "menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {
+				"searchText": "Amani"
+			}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "household-one"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "Amani household"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "case-list-labelled",
+		"entry": "menus-and-case-lists/module-case-list-label-lang",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {
+				"searchText": "Amani"
+			}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "household-one"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "Amani household"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "case-list-deep-link",
+		"entry": "menus-and-case-lists/case-list-session-endpoint-id",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {
+				"searchText": "Amani"
+			}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "household-one"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "Amani household"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "register-from-another-menu",
+		"entry": "menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {
+				"searchText": "Amani"
+			}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "household-one"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "Amani household"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "register-returns-to-the-list",
+		"entry": "menus-and-case-lists/case-list-form-post-form-workflow-default-case-list",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {
+				"searchText": "Amani"
+			}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "household-one"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "Amani household"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "register-with-a-picture",
+		"entry": "menus-and-case-lists/case-list-form-media-image-media-audio",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {
+				"searchText": "Amani"
+			}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "household-one"
+			},
+			{
+				"pointer": "/caseList/rows/0/fields/0",
+				"value": "Amani household"
+			}
+		],
+		"exports": ["local"]
+	}
+]

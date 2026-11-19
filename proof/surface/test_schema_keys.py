@@ -5,9 +5,12 @@ Contracts and the failures they catch:
   class does not declare, and a descriptor attribute says whether a key
   naming it is refused: HQ's own ``wrap`` (on classes whose ``wrap`` reads
   nothing outside the document) keeps an undeclared key and refuses
-  ``can_edit_in_vellum`` with ``WrappingAttributeError``, as the items say. An
-  extractor that listed a declared key, a method or a ``_``-prefixed name as a
-  descriptor, or got the setter wrong, fails.
+  ``can_edit_in_vellum`` with ``WrappingAttributeError``, as the items say,
+  and keeps a key naming a method (``Application.is_remote_app``) as a dynamic
+  property that hides it, as its item says (wrapped from a source that holds a
+  build spec, so the wrap reads no default build from Couch). An extractor that listed a
+  declared key, a nested class or a ``_``-prefixed name as a descriptor, left
+  a method out, or got the setter wrong, fails.
 - A form's source is ``schema:Form.source``, a ``FormSource`` descriptor with a
   setter, not a declared key.
 - Each dispatcher item names the doc types HQ's dispatcher accepts and the
@@ -43,6 +46,18 @@ def test_undeclared_keys_and_descriptors_behave_as_hq_wraps_them(items, hq):
             assert facts["declared"] is False and not key.rsplit(".", 1)[1].startswith("_"), key
     source = items["schema:Form.source"]
     assert source["descriptor"] == "FormSource" and source["setter"] is True
+    for method in ("create_all_files", "get_modules", "is_remote_app"):
+        facts = items[f"schema:Application.{method}"]
+        assert facts["declared"] is False and facts["setter"] is False, (method, facts)
+        assert facts["keyHandling"] == "kept as a dynamic property that hides the method", (method, facts)
+    # A source with a build spec of its own: without one, ApplicationBase.wrap reads HQ's default build from Couch
+    # (get_default_build_spec, CommCareBuildConfig.fetch), a read outside the document this probe needs none of.
+    build_spec = {"doc_type": "BuildSpec", "version": "2.57.0", "build_number": 1}
+    hidden = models.Application.wrap(
+        {"doc_type": "Application", "build_spec": build_spec, "is_remote_app": "surface-probe"}
+    )
+    assert not hidden.build_spec.is_null()
+    assert hidden.to_json()["is_remote_app"] == "surface-probe" and hidden.is_remote_app == "surface-probe"
 
 
 def test_dispatchers_refuse_what_the_items_say(items, hq):

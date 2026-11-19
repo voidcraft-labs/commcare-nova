@@ -1,0 +1,258 @@
+[
+	{
+		"tag": "crop-types",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "maize",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Maize",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "beans",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Beans",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "districts",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "d1",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Upper valley",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "d2",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Lower valley",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "seasons",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "long",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Long rains",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "short",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Short rains",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "villages",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "district",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "v1",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Kalama",
+							"properties": {}
+						}
+					],
+					"district": [
+						{
+							"value": "d1",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "v2",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Mbeya",
+							"properties": {}
+						}
+					],
+					"district": [
+						{
+							"value": "d1",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "v3",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Rusumo",
+							"properties": {}
+						}
+					],
+					"district": [
+						{
+							"value": "d2",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	}
+]

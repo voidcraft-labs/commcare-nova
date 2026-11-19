@@ -67,6 +67,7 @@ import {
 	type CaseReading,
 	readingCaseMetadataType,
 } from "@/lib/domain/expression/temporalType";
+import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { RelationPath, Term } from "@/lib/domain/expression/types";
 import { AbsentWorkerFieldError } from "../errors";
 import { compileLiteral } from "./compileLiteral";
@@ -261,6 +262,14 @@ export interface TermCompileContext {
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	/** Declared types survive binding values such as the form answer "10". */
 	formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
+	/**
+	 * What CommCare holds each form answer as, where its type does not say:
+	 * a Hidden Value calculated by a condition holds a yes or no
+	 * (`Recalculate.java::wrapData`), whose bound text `false` is false where
+	 * the same text typed as an answer is true. An answer missing here is
+	 * held as its type says.
+	 */
+	formFieldHeld?: ReadonlyMap<Uuid, ScalarHeld>;
 	knownInputs?: readonly SearchInputDecl[];
 	/** App organization hierarchy for owner-only location terms. */
 	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
@@ -310,6 +319,9 @@ export function recordQueryContextFor(
 		),
 		lookupTableId: ctx.lookupRowScope?.tableId as LookupTableId | undefined,
 		formFieldTypes: ctx.formFieldTypes,
+		...(ctx.formFieldHeld === undefined
+			? {}
+			: { formFieldHeld: ctx.formFieldHeld }),
 		knownInputs: ctx.knownInputs,
 		organizationLevels: ctx.organizationLevels,
 		userPropertySlugs: new Map(

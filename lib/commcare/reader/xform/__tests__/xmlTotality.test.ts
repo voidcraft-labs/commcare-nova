@@ -185,7 +185,11 @@ function admitted(
 			.filter((finding) => finding.code === "unrecognized")
 			.map((finding) => finding.detail.name),
 	);
-	const records = [...closed.claims.records()];
+	// A hashtag a head map's text names is a use of that text, claimed at the map beside the claim
+	// that covers it: it holds nothing under the map.
+	const records = [...closed.claims.records()].filter(
+		(record) => !record.key?.startsWith("hashtag:"),
+	);
 	return planted
 		.filter((node) => {
 			for (const at of node.chain) {

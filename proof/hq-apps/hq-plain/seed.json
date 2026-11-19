@@ -1,0 +1,40 @@
+{
+	"catalog": [
+		{
+			"name": "household",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "members",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "remark",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "village",
+					"data_type": "single_select",
+					"options": [
+						"north",
+						"south"
+					]
+				},
+				{
+					"name": "visit_date",
+					"data_type": "date",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

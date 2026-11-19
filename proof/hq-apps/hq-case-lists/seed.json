@@ -1,0 +1,54 @@
+{
+	"catalog": [
+		{
+			"name": "patient",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "dob",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "notes",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "phone",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "village",
+					"data_type": "single_select",
+					"options": [
+						"north",
+						"south"
+					]
+				},
+				{
+					"name": "visits",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "weight",
+					"data_type": "decimal",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {
+		"patient/dob": [
+			"2000-01-01"
+		]
+	},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

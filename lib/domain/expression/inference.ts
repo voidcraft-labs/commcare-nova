@@ -11,7 +11,13 @@
  *   case change's write whose whole value is a question's answer, a bare read
  *   of it or the `capture-link` of a capture, is that question's write: a
  *   visible question's kind types the property, and a Hidden Value is the
- *   typed writer of the first property it saves to.
+ *   typed writer of the first property it saves to. Writers that agree on no
+ *   one type, a Hidden Value whose results do not, or Hidden Values that do
+ *   not fit what the property's other writers agree on, are saved as text
+ *   where every type is one text holds (`ruleSets.ts::joinsAsText`) and no
+ *   question that opens on the property's value casts it (a casting reader:
+ *   a field whose starting value is the property's value, `fieldPreload`,
+ *   under an answer class in `CASTING_PROPERTY_TYPES`).
  * - `O`: each case-operation write's opinion: its destination's type when the
  *   value is write-assignable to it (`ruleSets.ts::isWriteAssignable`), else
  *   the value's type.
@@ -45,6 +51,7 @@ import type {
 	CaseType,
 	PersistableDoc,
 } from "../blueprint";
+import { fieldPreload } from "../casePreload";
 import {
 	CASTING_PROPERTY_TYPES,
 	type CasePropertyDataType,
@@ -71,7 +78,7 @@ import {
 } from "./context";
 import { isIsoDateText } from "./datePattern";
 import { resolveRelationDestination } from "./relationDestination";
-import { agreedStorageType, isWriteAssignable } from "./ruleSets";
+import { agreedStorageType, isWriteAssignable, joinsAsText } from "./ruleSets";
 import {
 	ANY_TYPE,
 	type CheckPath,
@@ -129,6 +136,12 @@ export interface HiddenOpinion {
 
 /** Where a property's agreed type comes from. */
 export type PropertyTypeOrigin =
+	/** Writers that agree on no one type, saved as text
+	 * (`ruleSets.ts::joinsAsText`). */
+	| {
+			readonly kind: "joined";
+			readonly types: readonly CasePropertyDataType[];
+	  }
 	| { readonly kind: "declared" }
 	| { readonly kind: "standard" }
 	/** The visible question whose kind sets it (the first such writer). */
@@ -150,6 +163,18 @@ export interface PropertyAgreement {
 	 * which their own rules report; Hidden Values then hold no opinion of
 	 * their own. */
 	readonly writersDisagree?: true;
+	/** The question whose starting value is this property's value under an
+	 * answer class that casts it, which kept writers that agree on no one
+	 * type from being saved as text: that question would stop on the
+	 * others' values. */
+	readonly castBy?: CastingReader;
+}
+
+/** A field whose starting value is a property's value, read through an
+ * answer class that casts text (`CASTING_PROPERTY_TYPES`). */
+export interface CastingReader {
+	readonly field: Uuid;
+	readonly type: CasePropertyDataType;
 }
 
 export interface ExpressionInference {
@@ -488,6 +513,22 @@ function concreteType(
 		: data;
 }
 
+/** A Hidden Value writer's types for its property: its agreed type, or each
+ * type its results name where they agree on none. */
+function hiddenWriterTypes(
+	analysis: HiddenAnalysis,
+): readonly CasePropertyDataType[] {
+	if (analysis.opinion !== undefined) return [analysis.opinion];
+	if (!analysis.outputsDisagree) return [];
+	return [
+		...new Set(
+			analysis.outputs.flatMap((output) =>
+				output.type === undefined ? [] : [output.type],
+			),
+		),
+	];
+}
+
 /** Every result an assignment can end with is an ISO date text, as the
  * checker's assignment rule reads each branch (`typeChecker.ts::assignmentErrors`). */
 function writesIsoDateText(expression: Expression): boolean {
@@ -561,7 +602,23 @@ class Inference {
 	private readonly untyped: ReturnType<typeof untypedExpressionFacts>;
 	private readonly fieldWriters: readonly FieldWriter[];
 	private readonly hiddenSites: readonly HiddenWriterSite[];
+	/** The property each Hidden Value is the typed writer of. */
+	private readonly hiddenWrites: ReadonlyMap<
+		Uuid,
+		{ readonly caseType: string; readonly property: string }
+	>;
 	private readonly operationWrites: readonly OperationWrite[];
+	/** The held class of each Hidden Value an operation's write reads, as
+	 * the last `finish` settled it: an operation's opinion reads a Hidden
+	 * Value as the gate does, so a yes or no Hidden Value stands as its
+	 * branch's condition. Empty until the first settlement. */
+	private operationHeld: ReadonlyMap<Uuid, ScalarHeld> = new Map();
+	/** Whether any operation's write reads a Hidden Value, the only reads
+	 * the held classes change. */
+	private readonly operationsReadHidden: boolean;
+	/** Every field whose starting value is a property's value, by the
+	 * property's key. */
+	private readonly preloadReaders = new Map<string, Field[]>();
 	/** Every written property, by key, with its case type and name. */
 	private readonly written = new Map<
 		string,
@@ -675,9 +732,17 @@ class Inference {
 			}
 		}
 		const hiddenSites: HiddenWriterSite[] = [];
-		for (const field of Object.values(doc.fields))
+		for (const field of Object.values(doc.fields)) {
 			if (field.kind === "hidden")
 				hiddenSites.push(this.hiddenSite(field, hiddenWrites.get(field.uuid)));
+			const preload = fieldPreload(field);
+			if (preload === undefined) continue;
+			const key = propertyKey(preload.caseType, preload.property);
+			const readers = this.preloadReaders.get(key) ?? [];
+			readers.push(field);
+			this.preloadReaders.set(key, readers);
+		}
+		this.hiddenWrites = hiddenWrites;
 		this.fieldWriters = fieldWriters;
 		this.hiddenSites = hiddenSites;
 		const hiddenUuids = new Set(hiddenSites.map((site) => site.field.uuid));
@@ -698,6 +763,9 @@ class Inference {
 			),
 		);
 		this.operationWrites = operationWrites;
+		this.operationsReadHidden = operationWrites.some(
+			(write) => namedUuids(write.value, hiddenUuids).length > 0,
+		);
 	}
 
 	run(): ExpressionInference {
@@ -708,9 +776,33 @@ class Inference {
 			properties: this.resolveProperties(
 				new Map(),
 				this.operationWrites.map(() => undefined),
+				new Map(),
 			),
 			operations: this.operationWrites.map(() => undefined),
 		};
+		// An operation's opinion reads the held classes the settled types
+		// give, which can move the types again: settle the types under the
+		// held classes the last settlement gave until those stand.
+		const tried = new Set<string>();
+		for (;;) {
+			state = this.settle(state);
+			const result = this.finish(state);
+			const heldKey = heldSignature(result.hiddenHeld);
+			if (
+				!this.operationsReadHidden ||
+				heldKey === heldSignature(this.operationHeld) ||
+				tried.has(heldKey)
+			)
+				return result;
+			tried.add(heldSignature(this.operationHeld));
+			this.operationHeld = result.hiddenHeld;
+		}
+	}
+
+	/** The typing passes from `start` to a fixed point, or to the facts every
+	 * state of a cycle shares. */
+	private settle(start: TypingState): TypingState {
+		let state = start;
 		const history: TypingState[] = [state];
 		let stateKey = signature(state);
 		const seen = new Map<string, number>([[stateKey, 0]]);
@@ -736,7 +828,7 @@ class Inference {
 			state = next;
 			stateKey = key;
 		}
-		return this.finish(state);
+		return state;
 	}
 
 	/** One recomputation of H, then P, then O. */
@@ -768,23 +860,22 @@ class Inference {
 			this.passAnalyses.set(uuid, { key, catalogKey, analysis });
 			analyses.set(uuid, analysis);
 		}
-		const hiddenOpinions = new Map<Uuid, CasePropertyDataType | undefined>();
-		for (const site of this.hiddenSites)
-			if (site.write !== undefined)
-				hiddenOpinions.set(
-					site.field.uuid,
-					analyses.get(site.field.uuid)?.opinion,
-				);
-		const properties = this.resolveProperties(hiddenOpinions, state.operations);
+		const hiddenOpinions = new Map<Uuid, HiddenAnalysis>();
+		for (const site of this.hiddenSites) {
+			const analysis = analyses.get(site.field.uuid);
+			if (site.write !== undefined && analysis !== undefined)
+				hiddenOpinions.set(site.field.uuid, analysis);
+		}
+		const properties = this.resolveProperties(
+			hiddenOpinions,
+			state.operations,
+			state.properties,
+		);
 		const hidden = new Map<Uuid, CasePropertyDataType | undefined>();
 		for (const site of this.hiddenSites)
 			hidden.set(
 				site.field.uuid,
-				this.hiddenDataType(
-					site,
-					analyses.get(site.field.uuid)?.expressionType,
-					properties,
-				),
+				this.hiddenDataType(site, analyses.get(site.field.uuid), properties),
 			);
 		const nextCatalog = this.concreteCatalogOf(properties);
 		const operations = this.operationWrites.map((write) =>
@@ -1015,15 +1106,34 @@ class Inference {
 		};
 	}
 
+	/**
+	 * `H` for one Hidden Value. A Hidden Value whose results agree on no type
+	 * has none of its own, though the checker may give its whole value the
+	 * type of one branch (an unknown branch holds no opinion, and a branch
+	 * whose own results disagree is unknown): it takes the type of the
+	 * property it saves to where every result fits it, which a text property
+	 * its writers are saved to is, and is otherwise unknown.
+	 */
 	private hiddenDataType(
 		site: HiddenWriterSite,
-		expressionType: CasePropertyDataType | undefined,
+		analysis: HiddenAnalysis | undefined,
 		properties: ReadonlyMap<string, PropertyAgreement>,
 	): CasePropertyDataType | undefined {
-		if (site.write === undefined) return expressionType;
-		const destination = properties.get(
-			propertyKey(site.write.caseType, site.write.property),
-		)?.type;
+		const destination =
+			site.write === undefined
+				? undefined
+				: properties.get(propertyKey(site.write.caseType, site.write.property))
+						?.type;
+		if (analysis?.outputsDisagree === true)
+			return destination !== undefined &&
+				analysis.outputs.every(
+					(output) =>
+						output.type === undefined ||
+						isWriteAssignable(output.type, destination, output.isoDateText),
+				)
+				? destination
+				: undefined;
+		const expressionType = analysis?.expressionType;
 		if (destination === undefined) return expressionType;
 		return expressionType === undefined ||
 			isValueStorageAssignable(expressionType, destination)
@@ -1042,6 +1152,7 @@ class Inference {
 				caseTypes,
 				currentCaseType: write.currentCaseType,
 				formFieldTypes: this.formFieldTypes(write.form, hidden),
+				formFieldHeld: this.operationHeld,
 				operationIds: write.operationIds,
 			}),
 		);
@@ -1104,10 +1215,13 @@ class Inference {
 		return result;
 	}
 
-	/** `P` for every written or declared property, from the current opinions. */
+	/** `P` for every written or declared property, from the current opinions.
+	 * `previous` is the last pass's `P`, which says what a Hidden Value that
+	 * opens on a property binds as (the type of the property it writes). */
 	private resolveProperties(
-		hiddenOpinions: ReadonlyMap<Uuid, CasePropertyDataType | undefined>,
+		hiddenOpinions: ReadonlyMap<Uuid, HiddenAnalysis>,
 		operations: readonly (CasePropertyDataType | undefined)[],
+		previous: ReadonlyMap<string, PropertyAgreement>,
 	): ReadonlyMap<string, PropertyAgreement> {
 		const visible = new Map<
 			string,
@@ -1142,21 +1256,51 @@ class Inference {
 		});
 		const hidden = new Map<
 			string,
-			{ types: Set<CasePropertyDataType>; fields: Uuid[] }
+			{
+				/** Each writer's agreed type, or every type its results name where
+				 * they agree on none. */
+				types: Set<CasePropertyDataType>;
+				analyses: HiddenAnalysis[];
+				fields: Uuid[];
+			}
 		>();
 		for (const site of this.hiddenSites) {
-			const opinion = hiddenOpinions.get(site.field.uuid);
-			if (site.write === undefined || opinion === undefined) continue;
+			const analysis = hiddenOpinions.get(site.field.uuid);
+			if (site.write === undefined || analysis === undefined) continue;
+			const types = hiddenWriterTypes(analysis);
+			if (types.length === 0) continue;
 			const key = propertyKey(site.write.caseType, site.write.property);
 			let entry = hidden.get(key);
 			if (entry === undefined) {
-				entry = { types: new Set(), fields: [] };
+				entry = { types: new Set(), analyses: [], fields: [] };
 				hidden.set(key, entry);
 			}
-			entry.types.add(opinion);
+			for (const type of types) entry.types.add(type);
+			entry.analyses.push(analysis);
 			entry.fields.push(site.field.uuid);
 		}
 		const result = new Map<string, PropertyAgreement>();
+		/** The text its writers' types join on, or the casting reader that
+		 * keeps them apart; undefined where text holds no one of them. */
+		const join = (
+			key: string,
+			types: Iterable<CasePropertyDataType>,
+		):
+			| { readonly joined: PropertyAgreement }
+			| { readonly castBy: CastingReader }
+			| undefined => {
+			const named = [...new Set(types)];
+			if (!joinsAsText(named)) return undefined;
+			const castBy = this.castingReader(key, previous);
+			return castBy !== undefined
+				? { castBy }
+				: {
+						joined: {
+							type: "text",
+							origin: { kind: "joined", types: [...named].sort() },
+						},
+					};
+		};
 		const resolve = (caseType: string, property: string): void => {
 			const key = propertyKey(caseType, property);
 			if (result.has(key)) return;
@@ -1176,30 +1320,83 @@ class Inference {
 				return;
 			}
 			const opinions = visible.get(key);
+			const hiddenEntry = hidden.get(key);
 			if (opinions !== undefined && opinions.size > 0) {
 				const agreed = agreedStorageType(opinions.keys());
 				const origin = agreed === undefined ? undefined : opinions.get(agreed);
-				result.set(
-					key,
-					agreed !== undefined && origin !== undefined
-						? { type: agreed, origin }
-						: { type: undefined, origin: undefined, writersDisagree: true },
-				);
+				if (agreed === undefined || origin === undefined) {
+					const joined = join(key, opinions.keys());
+					result.set(
+						key,
+						joined !== undefined && "joined" in joined
+							? joined.joined
+							: {
+									type: undefined,
+									origin: undefined,
+									writersDisagree: true,
+									...(joined === undefined ? {} : { castBy: joined.castBy }),
+								},
+					);
+					return;
+				}
+				// Hidden Values that save what the others' type can't hold join
+				// them, on the one type every one of them is stored as, or as
+				// text; otherwise each such Hidden Value is its own finding.
+				const misfit =
+					hiddenEntry?.analyses.some((analysis) =>
+						analysis.outputs.some(
+							(output) =>
+								output.type !== undefined &&
+								!isWriteAssignable(output.type, agreed, output.isoDateText),
+						),
+					) ?? false;
+				if (misfit && hiddenEntry !== undefined) {
+					const every = [...opinions.keys(), ...hiddenEntry.types];
+					const together = agreedStorageType(every);
+					if (together !== undefined) {
+						result.set(key, {
+							type: together,
+							origin: opinions.get(together) ?? {
+								kind: "hidden",
+								fields: hiddenEntry.fields,
+							},
+						});
+						return;
+					}
+					const joined = join(key, every);
+					if (joined !== undefined) {
+						result.set(
+							key,
+							"joined" in joined
+								? joined.joined
+								: { type: agreed, origin, castBy: joined.castBy },
+						);
+						return;
+					}
+				}
+				result.set(key, { type: agreed, origin });
 				return;
 			}
-			const hiddenEntry = hidden.get(key);
 			const agreed =
 				hiddenEntry === undefined
 					? undefined
 					: agreedStorageType(hiddenEntry.types);
+			if (agreed !== undefined && hiddenEntry !== undefined) {
+				result.set(key, {
+					type: agreed,
+					origin: { kind: "hidden", fields: hiddenEntry.fields },
+				});
+				return;
+			}
+			const joined =
+				hiddenEntry === undefined ? undefined : join(key, hiddenEntry.types);
 			result.set(
 				key,
-				agreed === undefined || hiddenEntry === undefined
+				joined === undefined
 					? { type: undefined, origin: undefined }
-					: {
-							type: agreed,
-							origin: { kind: "hidden", fields: hiddenEntry.fields },
-						},
+					: "joined" in joined
+						? joined.joined
+						: { type: undefined, origin: undefined, castBy: joined.castBy },
 			);
 		};
 		for (const { caseType, property } of this.written.values())
@@ -1208,6 +1405,37 @@ class Inference {
 			for (const property of caseType.properties)
 				resolve(caseType.name, property.name);
 		return result;
+	}
+
+	/**
+	 * The first field whose starting value is the property's value under an
+	 * answer class that casts it (`SetValueAction.java::processAction`): a
+	 * question of a number, date, time or location kind, or a Hidden Value
+	 * bound to such a type because it saves to another property of that
+	 * type (`fieldValueType`). A Hidden Value that saves back to this same
+	 * property binds as this property's own type and casts nothing.
+	 */
+	private castingReader(
+		key: string,
+		previous: ReadonlyMap<string, PropertyAgreement>,
+	): CastingReader | undefined {
+		for (const field of this.preloadReaders.get(key) ?? []) {
+			let type: CasePropertyDataType | undefined;
+			if (field.kind === "hidden") {
+				const write = this.hiddenWrites.get(field.uuid);
+				const written =
+					write === undefined
+						? undefined
+						: propertyKey(write.caseType, write.property);
+				type =
+					written === undefined || written === key
+						? undefined
+						: previous.get(written)?.type;
+			} else type = caseDataTypeForFieldKind(field.kind);
+			if (type !== undefined && CASTING_PROPERTY_TYPES.has(type))
+				return { field: field.uuid, type };
+		}
+		return undefined;
 	}
 
 	private declared(
@@ -1315,7 +1543,9 @@ class Inference {
 			if (writer.field.kind !== "hidden") {
 				// A visible question's kind is its opinion, and the property's
 				// agreed type where that type stores it, as an operation's is: an
-				// integer question beside a decimal property adds `decimal`.
+				// integer question beside a decimal property adds `decimal`, and
+				// one beside a property its writers are saved to as text adds
+				// `text`.
 				const kindType = caseDataTypeForFieldKind(writer.field.kind);
 				const destination = state.properties.get(
 					propertyKey(writer.caseType, writer.property),
@@ -1325,26 +1555,41 @@ class Inference {
 					writer.property,
 					kindType !== undefined &&
 						destination !== undefined &&
-						isValueStorageAssignable(kindType, destination)
+						isWriteAssignable(kindType, destination, false)
 						? destination
 						: kindType,
 				);
 				continue;
 			}
 			// A Hidden Value supplies a value to the property's storage, as an
-			// operation does: an opinion its agreed type stores is that type. One
-			// the agreed type does not store adds nothing here, since
+			// operation does: an opinion its agreed type takes is that type. One
+			// the agreed type does not take adds nothing here, since
 			// `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` names that Hidden Value alone and
-			// a correct writer beside it stays admitted.
-			const opinion = hiddenOpinions.get(writer.field.uuid)?.opinion;
+			// a correct writer beside it stays admitted. Where nothing types the
+			// property, a Hidden Value whose results agree on no type adds each
+			// of their types, so the disagreement is the property's.
+			const hiddenWriter = hiddenOpinions.get(writer.field.uuid);
+			const opinion = hiddenWriter?.opinion;
 			const destination = state.properties.get(
 				propertyKey(writer.caseType, writer.property),
 			)?.type;
-			if (destination === undefined)
-				add(writer.caseType, writer.property, opinion);
-			else if (
+			if (destination === undefined) {
+				if (hiddenWriter?.outputsDisagree === true)
+					for (const output of hiddenWriter.outputs)
+						add(writer.caseType, writer.property, output.type);
+				else add(writer.caseType, writer.property, opinion);
+			} else if (
 				opinion !== undefined &&
-				isValueStorageAssignable(opinion, destination)
+				isWriteAssignable(opinion, destination, false)
+			)
+				add(writer.caseType, writer.property, destination);
+			else if (
+				hiddenWriter?.outputsDisagree === true &&
+				hiddenWriter.outputs.every(
+					(output) =>
+						output.type === undefined ||
+						isWriteAssignable(output.type, destination, output.isoDateText),
+				)
 			)
 				add(writer.caseType, writer.property, destination);
 			else add(writer.caseType, writer.property, undefined);
@@ -1535,6 +1780,11 @@ function namedUuids(
 	};
 	visit(expression);
 	return [...found].sort();
+}
+
+/** A map of held classes, as one comparable string. */
+function heldSignature(held: ReadonlyMap<Uuid, ScalarHeld>): string {
+	return JSON.stringify([...held].sort(([a], [b]) => (a < b ? -1 : 1)));
 }
 
 function signature(state: TypingState): string {

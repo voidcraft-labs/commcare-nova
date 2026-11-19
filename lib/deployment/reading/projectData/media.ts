@@ -148,18 +148,39 @@ export interface HqMediaFile {
 	readonly references: readonly HqMediaReference[];
 }
 
-/** A reference with no file that no platform the app runs on draws, and the entry it stands
- *  under in the claim log. */
+/** A reference with no file that is left out, and the entry it stands under in the claim
+ *  log. */
 export interface HqMediaClaim {
 	readonly reference: HqMediaReference;
 	readonly entry: string;
+	/**
+	 * Whether Web Apps shows the reference as a broken picture, which leaving it
+	 * out takes away, so the first publish says so: an icon with a map entry and
+	 * no file. Otherwise no platform the app runs on draws anything for it.
+	 */
+	readonly brokenPicture: boolean;
+}
+
+/** How many references with no file a plan leaves out, by what a worker met before. */
+export interface MediaLeftOut {
+	/** References no worker sees anything for. */
+	readonly undrawn: number;
+	/** Icons Web Apps showed as a broken picture (`HqMediaClaim.brokenPicture`). */
+	readonly brokenPictures: number;
+}
+
+/** What `claims` leaves out, counted by `MediaLeftOut`. */
+export function mediaLeftOutOf(claims: readonly HqMediaClaim[]): MediaLeftOut {
+	const brokenPictures = claims.filter((claim) => claim.brokenPicture).length;
+	return { undrawn: claims.length - brokenPictures, brokenPictures };
 }
 
 export interface HqMediaPlan {
 	readonly files: readonly HqMediaFile[];
 	/** Findings known from the source alone. */
 	readonly findings: readonly Finding[];
-	/** References Nova leaves out because nothing draws them. */
+	/** References with no file Nova leaves out: those nothing draws, and the icons Web Apps
+	 *  shows as a broken picture. */
 	readonly inert: readonly HqMediaReference[];
 	/** The manifest entry each reference with no asset stands under, for the claim log (the
 	 *  surface key is `schema:Application.multimedia_map`). */
@@ -446,11 +467,21 @@ type NoFileOutcome =
 	| { readonly kind: "finding"; readonly finding: Finding }
 	| { readonly kind: "inert"; readonly claim: HqMediaClaim };
 
+/** The slots whose only drawing of a picture with an entry and no file is Web Apps' broken
+ *  picture: Android draws nothing there (`mediaSlotDrawnOn`). */
+const BROKEN_PICTURE_SLOTS: ReadonlySet<HqMediaSlot> = new Set([
+	"tile",
+	"register-action",
+	"logo",
+]);
+
 /**
  * A reference with no entry or no file, by the first rule that matches: one
- * Android's install check reaches stops the app; one a platform draws with no
- * entry is the source's to fix; one a platform draws with no file is CommCare
- * HQ's server holding none; anything else is inert.
+ * Android's install check reaches stops the app; an icon with an entry and no
+ * file, which Web Apps shows as a broken picture and Android not at all, is
+ * left out, and the first publish says so (`brokenPicture`); one a platform
+ * draws with no entry is the source's to fix; one a platform draws with no
+ * file is CommCare HQ's server holding none; anything else is inert.
  */
 function noFileOutcome(
 	reference: HqMediaReference,
@@ -476,6 +507,16 @@ function noFileOutcome(
 	const drawn = runsOn.some((platform) =>
 		mediaSlotDrawnOn(reference.slot, reference.kind, platform, missing),
 	);
+	if (
+		drawn &&
+		missing === "no-file" &&
+		reference.kind === "image" &&
+		BROKEN_PICTURE_SLOTS.has(reference.slot)
+	)
+		return {
+			kind: "inert",
+			claim: { reference, entry: ENTRY.nothingDraws, brokenPicture: true },
+		};
 	if (drawn) {
 		return {
 			kind: "finding",
@@ -489,7 +530,10 @@ function noFileOutcome(
 						),
 		};
 	}
-	return { kind: "inert", claim: { reference, entry: ENTRY.nothingDraws } };
+	return {
+		kind: "inert",
+		claim: { reference, entry: ENTRY.nothingDraws, brokenPicture: false },
+	};
 }
 
 // ---------------------------------------------------------------------------

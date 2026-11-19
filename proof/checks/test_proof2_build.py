@@ -12,10 +12,11 @@ next publish drops (defect 4), and a file the comparison never looks at,
 which ``compare.build_files`` refuses rather than skips. A form's content is
 its bytes as HQ built them, its data node's ``version`` value aside, since
 HQ hashes the rendered file: two builds of one form in two layouts may
-differ in its version, and two of the same bytes may not. On a document whose
-saves in CommCare HQ Nova brings in, a difference a change Nova's review lists
-for the next publish names is that change, never a defect
-(``proof.checks.changes``).
+differ in its version, and two of the same bytes may not. A difference a
+change that applies to the document names is that change, never a defect
+(``proof.checks.changes``): on an app made in CommCare HQ, a first-publish
+register entry its reading says applies; on a document whose saves in
+CommCare HQ Nova brings in, a change Nova's review lists for the next publish.
 
 On a document whose ``hq-side.json`` saves add-ons, what HQ's app, menu and
 form pages offer of each saved add-on is held alike at A and at B

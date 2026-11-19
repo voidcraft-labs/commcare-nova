@@ -21,6 +21,7 @@ import {
 } from "./appearances";
 import { type ControlNode, isFieldListAppearance } from "./body";
 import { X } from "./claims";
+import { hqQuestionType } from "./hqQuestionType";
 import type { DraftField } from "./index";
 import { itextReference } from "./itext";
 import type { BindFacts } from "./model";
@@ -137,6 +138,8 @@ export interface ReadContainersInput {
 		readonly field: DraftField;
 		readonly control: ControlNode;
 	}[];
+	/** Each data node's bind, whose `type` CommCare HQ's question reader reads a group by. */
+	readonly binds: ReadonlyMap<DraftField["node"], BindFacts>;
 	readonly sectioned: boolean;
 	readonly childrenOf: (field: DraftField) => readonly DraftField[];
 	readonly placeOf: (field: DraftField) => HqPlace;
@@ -156,6 +159,9 @@ export function readContainers(input: ReadContainersInput): void {
 		const fieldList = isFieldListAppearance(control.appearance);
 		const sites: {
 			readonly node: Claim<"take">;
+			/** The node's claim where CommCare HQ's question reader holds the Question List as a
+			 *  Group: its appearance is `field-list` in another letter case. */
+			readonly nodeAsGroup?: Claim<"take">;
 			readonly control: Claim<"take">;
 			readonly ref: Claim<"take">;
 			readonly appearance?: Claim<"take">;
@@ -172,7 +178,18 @@ export function readContainers(input: ReadContainersInput): void {
 			field.kind = "section";
 			delete field.field.fieldList;
 		}
-		cursor.take({ element: field.node.element }, sites.node).value;
+		const hqType = hqQuestionType({
+			tag: control.tag,
+			type: input.binds.get(field.node)?.type,
+			mediaType: control.mediaType,
+			appearance: control.appearance,
+		});
+		cursor.take(
+			{ element: field.node.element },
+			hqType === "Group" && sites.nodeAsGroup !== undefined
+				? sites.nodeAsGroup
+				: sites.node,
+		).value;
 		cursor.take({ element: control.element }, sites.control).value;
 		if (control.path === "ref" || control.path === "nodeset")
 			cursor.take(
@@ -231,8 +248,18 @@ function refuseUserRepeats(
 		if (
 			child.kind === "repeat" &&
 			child.field.repeat_mode === "user_controlled"
-		)
-			accounting.finding(X.userRepeatInQuestionList, input.placeOf(child));
+		) {
+			// The class is a fact about the `<repeat>` element, so the refusal stands there too.
+			const control = child.control;
+			if (control?.tag === "repeat")
+				accounting.findingAtNode(
+					X.userRepeatInQuestionList,
+					input.placeOf(child),
+					{ element: control.element },
+					"xform:repeat",
+				);
+			else accounting.finding(X.userRepeatInQuestionList, input.placeOf(child));
+		}
 		refuseUserRepeats(child, input, accounting);
 	}
 }

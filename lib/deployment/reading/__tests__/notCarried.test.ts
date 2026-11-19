@@ -27,6 +27,7 @@ import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { KEYS_WITH_NO_EXTERNAL_KEY, readBackDifferences } from "../readBack";
 import {
 	everyKindDocument,
+	sortNamedHiddenColumnDocument,
 	unexportedTextDocument,
 	worldDocument,
 } from "./readBackDocument";
@@ -45,8 +46,9 @@ function keptOut(doc: BlueprintDoc): unknown {
 
 /**
  * Every document the proof lane publishes, a case app that holds every kind
- * no wire carries, and a survey holding a model's translation and a
- * validation message no condition can fail.
+ * no wire carries, a survey holding a model's translation and a
+ * validation message no condition can fail, and a list naming a column
+ * hidden from both screens in Sort by under another text than its header.
  */
 function documents(): { readonly id: string; readonly doc: BlueprintDoc }[] {
 	return [
@@ -56,6 +58,7 @@ function documents(): { readonly id: string; readonly doc: BlueprintDoc }[] {
 		})),
 		{ id: "world", doc: worldDocument() },
 		{ id: "unexported-text", doc: unexportedTextDocument() },
+		{ id: "sort-named-hidden-column", doc: sortNamedHiddenColumnDocument() },
 	];
 }
 
@@ -68,6 +71,7 @@ describe("the content no export holds", () => {
 				"menu-and-form-ids-as-read",
 				"organization-levels-as-read",
 				"purpose-notes-are-absent",
+				"sort-named-hidden-column-header-is-its-name",
 				"tile-columns-shown-nowhere-are-as-read",
 				"translation-provenance-is-read-as-reviewed",
 				"validation-message-with-no-condition-is-absent",

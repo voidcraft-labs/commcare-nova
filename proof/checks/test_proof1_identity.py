@@ -11,10 +11,12 @@ strands a device's incomplete forms.
 
 Differences are accepted only where ``proof/identity-moves.json`` names
 them, on the migration witnesses each move names (a witness's A is the
-retained export of the app from before its migration), or, on a document
-whose saves in CommCare HQ Nova brings in, where a change Nova's review lists
-for the next publish names them (``proof.checks.changes``); every other one
-must fall in a class of ``proof/known-defects.json``.
+retained export of the app from before its migration); every other one must
+fall in a class of ``proof/known-defects.json``, but where a row of a change
+``proof/first-publish-changes.json`` applies to the document declares it
+(``proof.checks.changes``): on an app made in CommCare HQ, an entry its
+reading says the first publish makes, and on a document whose saves in
+CommCare HQ Nova brings in, a change Nova's review lists for the next publish.
 """
 
 from __future__ import annotations
@@ -31,8 +33,9 @@ def test_identity_survives_the_next_publish(document, hq, core_runner, editor_dr
     )
     witnesses = {emitted.id for emitted in cases.load_corpus().emitted if emitted.migration_witness}
     accepted, found = registers.accepted_moves(found, registers.load_identity_moves(witnesses=witnesses), document.id)
-    # On a document whose saves in CommCare HQ are brought in, a difference a change the review lists for the next
-    # publish declares (proof.checks.changes).
+    # A difference a change that applies to the document declares (proof.checks.changes): on an app made in CommCare
+    # HQ, the first-publish register's; on a document whose saves in CommCare HQ are brought in, a change the review
+    # lists for the next publish.
     declared, _ = changes.declared(document, "proof1", found)
     found = changes.undeclared(document, "proof1", found)
     cases.hold(

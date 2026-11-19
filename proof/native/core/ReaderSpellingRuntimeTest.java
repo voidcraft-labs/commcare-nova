@@ -21,7 +21,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Run E1: the reader's equivalence table (lib/commcare/reader/syntaxCompare.ts)
+ * The reader's equivalence table (lib/commcare/reader/syntaxCompare.ts)
  * read by Core. Each vector of
  * lib/commcare/reader/expressions/__tests__/spellingVectors.ts, written by the
  * expression producer as /expression/reader-spelling.json, holds two spellings;

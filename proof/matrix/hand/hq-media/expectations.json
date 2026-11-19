@@ -1,0 +1,474 @@
+[
+	{
+		"id": "animal-chosen",
+		"entry": "questions/choice-audio-video",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/animal_name",
+					"value": "Bessie"
+				},
+				{
+					"path": "/data/animal",
+					"value": "2"
+				},
+				{
+					"path": "/data/place_name",
+					"value": "Hill"
+				},
+				{
+					"path": "/data/place_note",
+					"value": "Valley"
+				},
+				{
+					"path": "/data/loose_note",
+					"value": "Loose"
+				}
+			],
+			"expressions": ["/data/animal", "/data/animal_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/4/path",
+				"value": "/data/loose_note[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "cow"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Bessie"
+			}
+		]
+	},
+	{
+		"id": "animal-chosen:choice-image",
+		"entry": "questions/choice-image",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/animal_name",
+					"value": "Bessie"
+				},
+				{
+					"path": "/data/animal",
+					"value": "2"
+				},
+				{
+					"path": "/data/place_name",
+					"value": "Hill"
+				},
+				{
+					"path": "/data/place_note",
+					"value": "Valley"
+				},
+				{
+					"path": "/data/loose_note",
+					"value": "Loose"
+				}
+			],
+			"expressions": ["/data/animal", "/data/animal_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/4/path",
+				"value": "/data/loose_note[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "cow"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Bessie"
+			}
+		]
+	},
+	{
+		"id": "animal-chosen:label-image-audio-video-same-asset-every-language",
+		"entry": "questions/label-image-audio-video-same-asset-every-language",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/animal_name",
+					"value": "Bessie"
+				},
+				{
+					"path": "/data/animal",
+					"value": "2"
+				},
+				{
+					"path": "/data/place_name",
+					"value": "Hill"
+				},
+				{
+					"path": "/data/place_note",
+					"value": "Valley"
+				},
+				{
+					"path": "/data/loose_note",
+					"value": "Loose"
+				}
+			],
+			"expressions": ["/data/animal", "/data/animal_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/4/path",
+				"value": "/data/loose_note[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "cow"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Bessie"
+			}
+		]
+	},
+	{
+		"id": "animal-chosen:media-path-jr-file",
+		"entry": "expressions-and-data/media-path-jr-file",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/animal_name",
+					"value": "Bessie"
+				},
+				{
+					"path": "/data/animal",
+					"value": "2"
+				},
+				{
+					"path": "/data/place_name",
+					"value": "Hill"
+				},
+				{
+					"path": "/data/place_note",
+					"value": "Valley"
+				},
+				{
+					"path": "/data/loose_note",
+					"value": "Loose"
+				}
+			],
+			"expressions": ["/data/animal", "/data/animal_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/4/path",
+				"value": "/data/loose_note[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "cow"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Bessie"
+			}
+		]
+	},
+	{
+		"id": "animal-chosen:image-png-jpeg-gif-webp",
+		"entry": "expressions-and-data/image-png-jpeg-gif-webp",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/animal_name",
+					"value": "Bessie"
+				},
+				{
+					"path": "/data/animal",
+					"value": "2"
+				},
+				{
+					"path": "/data/place_name",
+					"value": "Hill"
+				},
+				{
+					"path": "/data/place_note",
+					"value": "Valley"
+				},
+				{
+					"path": "/data/loose_note",
+					"value": "Loose"
+				}
+			],
+			"expressions": ["/data/animal", "/data/animal_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/4/path",
+				"value": "/data/loose_note[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "cow"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Bessie"
+			}
+		]
+	},
+	{
+		"id": "animal-chosen:audio-mp3-aac-in-m4a-brand-m4a-m4b-flac-pcm-wav-8-or-16-bit",
+		"entry": "expressions-and-data/audio-mp3-aac-in-m4a-brand-m4a-m4b-flac-pcm-wav-8-or-16-bit",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/animal_name",
+					"value": "Bessie"
+				},
+				{
+					"path": "/data/animal",
+					"value": "2"
+				},
+				{
+					"path": "/data/place_name",
+					"value": "Hill"
+				},
+				{
+					"path": "/data/place_note",
+					"value": "Valley"
+				},
+				{
+					"path": "/data/loose_note",
+					"value": "Loose"
+				}
+			],
+			"expressions": ["/data/animal", "/data/animal_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/4/path",
+				"value": "/data/loose_note[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "cow"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Bessie"
+			}
+		]
+	},
+	{
+		"id": "animal-chosen:video-mp4-h-264-baseline-or-main-with-aac-lc-or-no-audio-webm",
+		"entry": "expressions-and-data/video-mp4-h-264-baseline-or-main-with-aac-lc-or-no-audio-webm",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/animal_name",
+					"value": "Bessie"
+				},
+				{
+					"path": "/data/animal",
+					"value": "2"
+				},
+				{
+					"path": "/data/place_name",
+					"value": "Hill"
+				},
+				{
+					"path": "/data/place_note",
+					"value": "Valley"
+				},
+				{
+					"path": "/data/loose_note",
+					"value": "Loose"
+				}
+			],
+			"expressions": ["/data/animal", "/data/animal_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/4/path",
+				"value": "/data/loose_note[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "cow"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Bessie"
+			}
+		]
+	},
+	{
+		"id": "note-counted",
+		"entry": "questions/label-image-audio-video-same-asset-every-language",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/note_text",
+					"value": "Fine"
+				},
+				{
+					"path": "/data/note_count",
+					"value": "3"
+				}
+			],
+			"expressions": ["/data/note_count_doubled", "/data/note_text"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "6"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Fine"
+			}
+		]
+	},
+	{
+		"id": "note-counted:media-path-jr-file",
+		"entry": "expressions-and-data/media-path-jr-file",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/note_text",
+					"value": "Fine"
+				},
+				{
+					"path": "/data/note_count",
+					"value": "3"
+				}
+			],
+			"expressions": ["/data/note_count_doubled", "/data/note_text"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "6"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Fine"
+			}
+		]
+	},
+	{
+		"id": "note-counted:image-png-jpeg-gif-webp",
+		"entry": "expressions-and-data/image-png-jpeg-gif-webp",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/note_text",
+					"value": "Fine"
+				},
+				{
+					"path": "/data/note_count",
+					"value": "3"
+				}
+			],
+			"expressions": ["/data/note_count_doubled", "/data/note_text"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "6"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Fine"
+			}
+		]
+	}
+]

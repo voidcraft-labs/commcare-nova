@@ -1,0 +1,23 @@
+{
+	"id": "hq-connect-learn",
+	"configuration": {
+		"flags": [
+			"COMMCARE_CONNECT"
+		],
+		"namedPrivileges": [
+			"DATA_FORWARDING"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/connect-app-opened-in-the-connect-app",
+		"menus-and-case-lists/module-with-case-type-survey-module",
+		"questions/connect-assessment",
+		"questions/connect-learn-module",
+		"questions/integer-xsd-int-xsd-integer-read-as-the-same"
+	]
+}

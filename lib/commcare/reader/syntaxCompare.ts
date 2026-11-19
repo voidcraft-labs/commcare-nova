@@ -3,21 +3,25 @@
  * the one grammar (`xpath/formSyntax.ts`), normalized by the closed table of
  * spellings Core reads alike, and compared node for node. The table:
  *
- * - L1, whitespace between tokens: the grammar skips it, so no tree holds it.
- * - L2, parentheses that group an operand: a `group` node is its value
+ * - whitespace, between tokens: the grammar skips it, so no tree holds it.
+ * - grouping: parentheses that group an operand: a `group` node is its value
  *   (`parser/Parser.java::parseParens`).
- * - L3, `"x"` and `'x'`: a string compares by its value
+ * - quotes: `"x"` and `'x'`: a string compares by its value
  *   (`parser/Lexer.java::lex`, the `STR` token).
- * - L4, `1`, `1.0`, `01`, `.5`, `0.5`: a number compares by its double
+ * - numbers: `1`, `1.0`, `01`, `.5`, `0.5`: a number compares by its double
  *   (`Lexer.java::matchNumeric`, `Double.valueOf`).
- * - L5, `child::a` and `a`, `self::node()` and `.`, `parent::node()` and `..`
+ * - axes: `child::a` and `a`, `self::node()` and `.`, `parent::node()` and `..`
  *   (`expr/XPathStep.java` holds one axis and test for either spelling).
  *   `attribute::a` and `@a` are one `axis` node already.
- * - L6, `./.` and `.` as the whole of a path inside a predicate: Core
+ * - predicate-node: `./.` and `.` as the whole of a path inside a predicate: Core
  *   contextualizes both to the predicate's node.
- * - S1, in a record slot, `cond(c1, v1, …, cn, vn, d)` and
+ * - cond: in a record slot, `cond(c1, v1, …, cn, vn, d)` and
  *   `if(c1, v1, if(…, if(cn, vn, d)))` (`expr/XPathCondFunc.java::evalBody`
  *   stops at the first true test): the source's `cond` becomes nested `if`.
+ * - is-selected: `is-selected(a, b)` and `selected(a, b)`: Core's parser
+ *   builds one function for either name (`parser/ast/ASTNodeFunctionCall.java`,
+ *   `selected` falling through to `is-selected` and `XPathSelectedFunc`): the
+ *   source's `is-selected` becomes `selected`.
  *
  * A case row's `name` step is no spelling of `case_name`: Core's `casedb`
  * holds the case's name as `case_name` and answers any other step with a
@@ -34,7 +38,7 @@ import type { FormSyntax } from "../xpath/formSyntax";
 import { readFormSyntax } from "./syntaxRead";
 
 export interface CompareOptions {
-	/** `record` applies S1; `form` never does. */
+	/** `record` reads `cond` as nested `if`; `form` never does. */
 	readonly ruleSet: RuleSet;
 	/** Maps a form's own instance id, in the source tree, to Nova's id for the same source. */
 	readonly instanceId?: (id: string) => string;
@@ -44,7 +48,7 @@ export interface CompareOptions {
 
 const RECORD: CompareOptions = { ruleSet: "record" };
 
-/** Where a node sits: inside a predicate (L6) or not. */
+/** Where a node sits: inside a predicate (where `./.` is `.`) or not. */
 interface Position {
 	readonly predicate: boolean;
 }
@@ -99,8 +103,9 @@ function readSyntax(
 }
 
 /** A tree normalized by the table. The source side alone takes the local
- *  name maps and S1, since Nova's print spells its own names and never
- *  writes `cond` in a record slot. */
+ *  name maps, the `cond` row and the `is-selected` row, since Nova's print
+ *  spells its own names, never writes `cond` in a record slot and never writes
+ *  `is-selected`. */
 function comparable(
 	node: FormSyntax,
 	options: CompareOptions,
@@ -160,6 +165,12 @@ function comparable(
 						at.args.length % 2 === 1
 					)
 						return normalize(nestedIf(at), position);
+					if (at.name === "is-selected" && at.args.length === 2)
+						return {
+							...at,
+							name: "selected",
+							args: at.args.map((arg) => normalize(arg, position)),
+						};
 					if (
 						at.name === "instance" &&
 						at.args.length === 1 &&

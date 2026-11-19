@@ -1,0 +1,38 @@
+{
+	"id": "hq-search",
+	"configuration": {
+		"flags": [
+			"CASE_SEARCH_ADVANCED",
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"namedPrivileges": [
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": true
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"case-search/appearance-barcode-scan",
+		"case-search/exclude",
+		"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
+		"case-search/input-date",
+		"case-search/input-daterange",
+		"case-search/input-select1-lookup-itemset",
+		"case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
+		"case-search/itemset-sort-over-a-lookup-field",
+		"case-search/label-lang",
+		"case-search/name-prompt-key-case-property",
+		"case-search/several-xpath-query-rows",
+		"case-search/text-prompt-no-input",
+		"case-search/title-label-or-blank-hq-s-default",
+		"case-search/workflow-search-first-auto-launch-true-default-search-false",
+		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/update-case-update-property-question",
+		"questions/date-xsd-date",
+		"questions/text-input-xsd-string"
+	]
+}

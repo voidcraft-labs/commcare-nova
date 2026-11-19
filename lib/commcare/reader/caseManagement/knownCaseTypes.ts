@@ -81,6 +81,15 @@ export function knownCaseTypesOf(doc: BlueprintDoc): ReaderKnownCaseTypes {
 				if (write.via !== undefined)
 					noteSteps(origin, write.via, parentOf, note);
 		}
+	// A case list column showing a property through the indices above its menu's case.
+	for (const mod of Object.values(doc.modules))
+		for (const column of mod.caseListConfig?.columns ?? [])
+			if (
+				column.kind !== "calculated" &&
+				column.via !== undefined &&
+				mod.caseType !== undefined
+			)
+				noteSteps(mod.caseType, column.via, parentOf, note);
 	// A read of a property through the indices above the case it names.
 	const owners = [
 		...Object.keys(doc.fields).map((uuid) => ({

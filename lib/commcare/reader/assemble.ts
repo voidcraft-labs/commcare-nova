@@ -53,6 +53,7 @@ import {
 	columnsJoinedAsRead,
 	columnsOfAMenuThatListsNoCasesOffTheDetail,
 	columnsOffAScreenLast,
+	sortNamedHiddenColumnHeader,
 } from "./caseList/details";
 import {
 	implicitOrderRuleIsAbsent,
@@ -780,6 +781,16 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "columns-joined-as-read",
 		kind: "one-wire",
 		apply: columnsJoinedAsRead,
+	},
+	{
+		/** A column hidden from Results and from Details whose own order rule names it in Sort by,
+		 *  with any header, and with that name as its header: the name is written where its header
+		 *  would stand and the header nowhere, so the reader returns the name as its header
+		 *  (`caseList/details.ts::sortNamedHiddenColumnHeader`). It reads the columns
+		 *  `columns-joined-as-read` gives. */
+		id: "sort-named-hidden-column-header-is-its-name",
+		kind: "not-carried",
+		apply: sortNamedHiddenColumnHeader,
 	},
 	{
 		/** A case list's `columns` array in any order, and in its list order: the array is a set,
@@ -1759,7 +1770,7 @@ function judgeDeclaration(
 
 // ── Assembly ─────────────────────────────────────────────────────────────
 
-/** The document parsed whole, or the defect D8 where it does not parse. */
+/** The document parsed whole, or the defect `assembly` where it does not parse. */
 function parsesWhole(ctx: ReadContext, doc: BlueprintDoc): boolean {
 	const parsed = blueprintDocSchema.safeParse(toPersistableDoc(doc));
 	if (parsed.success) return true;
@@ -1872,6 +1883,7 @@ export function* assembleDocumentSteps(
 		forms: [...ctx.facts.forms],
 		sameStateRewrites: [...ctx.facts.sameStateRewrites],
 		entryFactsRefused: [...ctx.facts.entryFactsRefused],
+		childCasesUnread: [...ctx.facts.childCasesUnread],
 		rewrites: [...ctx.facts.rewrites],
 	};
 	const folds = new Map(

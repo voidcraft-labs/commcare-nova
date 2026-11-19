@@ -20,9 +20,11 @@
  *    `expanderEvidence.ts`) and the fuzz sample of `--sample` documents at
  *    `--seed` (`./__tests__/fuzzSample.test.ts`);
  * 2. the producers' documents (`./producers.ts`), the workforce documents
- *    built over them (`./workforce.ts`) and the targeted documents
- *    (`proof/targeted/index.ts`, when it exists), then every document's edit
- *    batch, captures, exports and input manifest (`./emitCorpus.ts`).
+ *    built over them (`./workforce.ts`), the targeted documents
+ *    (`proof/targeted/index.ts`, when it exists) and the documents of the
+ *    apps CommCare HQ made (`./hqAuthored.ts`, one a base `proof/hq-apps/`
+ *    retains), then every document's edit batch, captures, exports and input
+ *    manifest (`./emitCorpus.ts`).
  *
  * Nothing in the emission starts HQ: the privileges a document's content
  * needs are derived in the lane, where HQ runs
@@ -32,8 +34,8 @@
  * worker processes write the documents' directories. `--shard i/n` writes
  * only every n-th document from the i-th (in the order the sources list
  * them), each exactly as the whole corpus writes it. It prints the census
- * of the fixed floor (producers, workforce, expander and targeted
- * documents) and of the sample, and what each part took, writing the census
+ * of the fixed floor (producers, workforce, expander, targeted and
+ * HQ-authored documents) and of the sample, and what each part took, writing the census
  * to `index.json` and the timings to `timings.json`. It fails, before
  * writing any document, when the fixed floor leaves out a document or an
  * edit `./left-out.json` does not name, or takes one it names, naming each
@@ -64,6 +66,7 @@ import {
 } from "./documents";
 import { ENTROPY_PRELOAD, emissionEnv, WORKTREE } from "./emissionProcess";
 import { emitCorpus, type LeftOut, leftOutSchema } from "./emitCorpus";
+import { hqAuthoredDocuments } from "./hqAuthored";
 import { producerDocuments } from "./producers";
 import { workforceDocuments } from "./workforce";
 
@@ -285,6 +288,7 @@ async function main(argv: readonly string[]): Promise<void> {
 			...workforceDocuments(producers),
 			...(await readExpanderCapture(writers.expander)),
 			...(await targetedDocuments()),
+			...(await hqAuthoredDocuments()),
 		];
 		const sampled = await readFuzzSample(writers.sample);
 		const position = new Map(

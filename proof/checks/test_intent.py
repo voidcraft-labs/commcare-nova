@@ -1815,3 +1815,52 @@ def test_an_add_on_hq_says_the_stored_app_uses_is_one_it_holds_on():
     assert _found(intent.add_ons_in_use("doc", state({"display_conditions": True}, in_use))) == [
         ("add_ons@B", "/in-use/*", "/in-use/submenus", "changed", True, None)
     ]
+
+
+def test_an_app_made_in_hq_is_held_to_the_profile_it_holds_and_seeds_nothing():
+    """On a document made in CommCare HQ, Nova's publish carries the target's own profile values and seeds none
+    (``seeds: "target"``), and its archive mirrors them: so a setting A's stored profile holds is expected at that
+    value at A, at B and in the archive, and a kept setting A holds none of at HQ's setting for none, never at Nova's
+    seed. The plausible failures: a kept value reported as a difference at B or in the archive, and an unstated
+    setting expected at Nova's seed on an app that holds none."""
+    items = load_manifest().items
+    configuration = intent.JudgedConfiguration("minimum", "2.57.0", frozenset())
+    stated = intent.Intent(
+        app_name="Clinic", modules=[], settings={"showSavedForms": False, "showIncompleteForms": False}
+    )
+    owned = intent.stated_settings(stated, seeds=False)
+    assert owned == {"cc-show-saved": "no", "cc-show-incomplete": "no"}
+    unstated = {
+        key[len("setting:properties.") :]: intent._unstated_setting(item)
+        for key, item in items.items()
+        if key.startswith("setting:properties.")
+    }
+    held_by_a = {"cc-fuzzy-search-enabled": "yes"}
+    built = {name: value for name, value in unstated.items() if value is not None}
+    built.update(owned)
+    built.update(held_by_a)
+    found = intent.profile_settings("doc", stated, _built(built), configuration, items, held_by_a, seeds=False)
+    assert found == []
+    # Nova's seed where A holds nothing is a difference on an app made in HQ: HQ's build writes nothing there
+    # (``Application.create_profile`` writes a setting's default only where its ``commcare_default`` differs).
+    seeded = {**built, "cc-autoup-freq": "freq-never"}
+    assert unstated["cc-autoup-freq"] is None
+    assert _found(
+        intent.profile_settings("doc", stated, _built(seeded), configuration, items, held_by_a, seeds=False)
+    ) == [
+        (
+            "profile.ccpr@A",
+            "/profile/property[@key=cc-autoup-freq]/@value",
+            "/profile/property[@key=cc-autoup-freq]/@value",
+            "changed",
+            None,
+            "freq-never",
+        )
+    ]
+    # The archive writes A's value for a kept setting it holds, and no seed for one it does not.
+    profile = etree.Element("profile")
+    for key, value in {**owned, **held_by_a}.items():
+        etree.SubElement(profile, "property", key=key, value=value)
+    files = {"profile.ccpr": etree.tostring(profile)}
+    assert intent.local_profile_settings("doc", stated, files, "local.ccz", held_by_a, seeds=False) == []
+    assert _found(intent.local_profile_settings("doc", stated, files, "local.ccz", {}, seeds=True))

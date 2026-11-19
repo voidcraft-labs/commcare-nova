@@ -32,6 +32,14 @@ content import landed (``lib/deployment/service.ts::uploadMediaBytes``), when
 the captured import names one; the unit runs it as an operation of its own,
 after the import's, as Nova sends it in a request of its own.
 
+An app made in CommCare HQ (an ``hq-authored`` document) has no first
+publish: ``create_authored`` makes its A again from the files the document
+carries under ``authored/`` (``authored_files``), with HQ's own models, as
+the app HQ's pages and models made (``proof/hq/operations.py::
+save_authored_tables``, ``save_authored_places``, ``save_authored_app``), its
+media attached as HQ's template loader attaches a file. It sends no import, so
+it answers no refusal and no lookup upload.
+
 Each returns what it saw as data: HQ's refusal of the upload (its status
 and response), the result of the lookup workbook upload, and what HQ's
 processing of the media reported.
@@ -42,6 +50,9 @@ from __future__ import annotations
 import json
 
 from proof.observe.record import bytes_digest, digest
+
+# Where an app made in CommCare HQ keeps the files its A is made again from, under its document's directory.
+AUTHORED = "authored"
 
 
 def _json(value):
@@ -59,9 +70,36 @@ def captured_digest(captured) -> bytes:
     return digest(parts).encode()
 
 
-def first_publish_digest(export) -> bytes:
+def authored_files(root) -> dict:
+    """The files an app made in CommCare HQ is made again from, by role, as paths relative to its document's
+    directory ``root``: ``authored.app`` (``authored/app.json``, the app as HQ stores it), and, where the base holds
+    them, ``authored.media`` (``media.json``, one row a mapped path), one role a file of ``authored/media/``
+    (``authored.media.<name>``, each file the rows name), ``authored.tables`` and ``authored.places``, as
+    ``proof/corpus/inputs.ts`` names them. The case seed (``authored/seed.json``) is no file A is made from: the
+    unit reads it as the cases A's sessions run over (``proof.observe.unit.input_files``)."""
+    directory = root / AUTHORED
+    found = {"authored.app": f"{AUTHORED}/app.json"}
+    if (directory / "media.json").is_file():
+        found["authored.media"] = f"{AUTHORED}/media.json"
+    if (directory / "media").is_dir():
+        for name in sorted(path.name for path in (directory / "media").iterdir()):
+            found[f"authored.media.{name}"] = f"{AUTHORED}/media/{name}"
+    for name in ("tables", "places"):
+        if (directory / f"{name}.json").is_file():
+            found[f"authored.{name}"] = f"{AUTHORED}/{name}.json"
+    return found
+
+
+def first_publish_digest(export, root=None) -> bytes:
     """The digest of a configuration's first publish: of both imports in the two-import layout, each by
-    ``captured_digest``, and of the one create in the legacy layout."""
+    ``captured_digest``, and of the one create in the legacy layout. For an app made in CommCare HQ, which has no
+    first publish (``root`` its document's directory), the digest of every file A is made again from
+    (``authored_files``), each with its role."""
+    if root is not None:
+        files = authored_files(root)
+        return digest(
+            [[role, bytes_digest((root / path).read_bytes())] for role, path in sorted(files.items())]
+        ).encode()
     if not export.two_imports:
         return captured_digest(export.create)
     return digest([captured_digest(export.create).decode(), captured_digest(export.content).decode()]).encode()
@@ -115,6 +153,44 @@ def create(unit, export, *, plan_without_web_apps: bool = False):
     app_id = shell.response["app_id"]
     refusal, lookups = update(unit, app_id, export.content, "content", plan_without_web_apps=plan_without_web_apps)
     return (None if refusal else app_id), refusal, lookups
+
+
+def authored_media(root):
+    """Each mapped file of an app made in CommCare HQ, as ``operations.AuthoredMedia``: a row of its
+    ``authored/media.json`` (in its order, which is path order) with the bytes of the file the row names, and the
+    path's last segment as the name HQ's template loader hands ``attach_data``. Empty where the base maps no file."""
+    from proof.hq.operations import AuthoredMedia
+
+    directory = root / AUTHORED
+    if not (directory / "media.json").is_file():
+        return []
+    rows = json.loads((directory / "media.json").read_text(encoding="utf-8"))
+    return [
+        AuthoredMedia(
+            path=row["path"],
+            data=(directory / row["file"]).read_bytes(),
+            original_filename=row["path"].rsplit("/", 1)[-1],
+        )
+        for row in rows
+    ]
+
+
+def create_authored(unit, document):
+    """An app made in CommCare HQ made again in the unit from its document's ``authored/`` files: its lookup tables
+    (``operations.save_authored_tables``) and its levels and places (``save_authored_places``) where the base holds
+    them, each before the app, so A's build, its restore and every walk run over a project space that holds them;
+    then the app from its stored document, with its media attached (``save_authored_app``).
+
+    Returns ``(A's id, None, None)`` in ``create``'s shape: nothing is imported, so HQ refuses nothing and no
+    workbook is uploaded."""
+    from proof.hq import operations
+
+    directory = document.root / AUTHORED
+    for name, save in (("tables", operations.save_authored_tables), ("places", operations.save_authored_places)):
+        if (directory / f"{name}.json").is_file():
+            save(unit, json.loads((directory / f"{name}.json").read_text(encoding="utf-8")))
+    app = json.loads((directory / "app.json").read_text(encoding="utf-8"))
+    return operations.save_authored_app(unit, app, authored_media(document.root)), None, None
 
 
 def update(unit, app_id, captured, name, *, plan_without_web_apps: bool = False):

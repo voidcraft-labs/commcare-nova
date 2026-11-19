@@ -21,6 +21,7 @@ import {
 	hqMediaRefusalEntry,
 	type JudgedMediaFile,
 	mediaFindings,
+	mediaLeftOutOf,
 	mediaSlotDrawnOn,
 	planHqMedia,
 } from "../media";
@@ -333,8 +334,59 @@ describe("planHqMedia", () => {
 			[icon, register, choice].map((reference) => ({
 				reference,
 				entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
+				brokenPicture: false,
 			})),
 		);
+		expect(mediaLeftOutOf(out.claims)).toEqual({
+			undrawn: 3,
+			brokenPictures: 0,
+		});
+	});
+
+	it("leaves out an icon whose entry names no file, which Web Apps shows as a broken picture and Android not at all, and says so", () => {
+		const menu = ref("jr://file/m.png", "image", "tile", MENU_0);
+		const form = ref("jr://file/f.png", "image", "tile", FORM);
+		const register = ref(
+			"jr://file/r.png",
+			"image",
+			"register-action",
+			CASE_LIST,
+		);
+		const logo = ref("jr://file/logo.png", "image", "logo", { kind: "app" });
+		const icons = [menu, form, register, logo];
+		// HQ's starter app keeps the template's id for a form's icon and holds no file for it.
+		const out = plan(
+			icons,
+			icons.map((icon) => entry(icon.path, "CommCareImage", null)),
+			["web-apps", "android"],
+		);
+		expect(out.findings).toEqual([]);
+		expect(out.inert).toEqual(icons);
+		expect(out.claims).toEqual(
+			icons.map((reference) => ({
+				reference,
+				entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
+				brokenPicture: true,
+			})),
+		);
+		expect(mediaLeftOutOf(out.claims)).toEqual({
+			undrawn: 0,
+			brokenPictures: 4,
+		});
+		// A sound there is a play button with nothing to play, still CommCare HQ's to fix.
+		const sound = ref("jr://file/m.mp3", "audio", "tile", MENU_0);
+		expect(
+			plan([sound], [entry(sound.path, "CommCareAudio", null)], ["web-apps"])
+				.findings,
+		).toEqual([expect.objectContaining({ code: "media-file-unreadable" })]);
+		// With no entry Web Apps shows no icon at all, which no worker sees.
+		expect(plan([menu], [], ["web-apps"]).claims).toEqual([
+			{
+				reference: menu,
+				entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
+				brokenPicture: false,
+			},
+		]);
 	});
 
 	it("refuses a reference Android's install check reaches while the project space checks media at install", () => {
@@ -363,8 +415,8 @@ describe("planHqMedia", () => {
 });
 
 describe("the first-match rule over every slot, declaration and install setting", () => {
-	/* The four rows, written out here as the plan's table states them rather
-	 * than recomputed through the functions under test: the install check
+	/* The four rows of the first-match rule, written out here rather than
+	 * recomputed through the functions under test: the install check
 	 * (where Android is declared and the project space checks media at install,
 	 * a slot the check reaches), then a slot a declared runtime draws (an
 	 * unreadable file where the entry names no file), then inert. A tile is a
@@ -382,6 +434,16 @@ describe("the first-match rule over every slot, declaration and install setting"
 		logo: () => false,
 	};
 	const DRAWN_ON_ANDROID = new Set(["form", "choice", "list-image"]);
+	/* An icon with an entry and no file: Web Apps shows a broken picture, and
+	 * it is left out, said by the first publish. */
+	const brokenPicture = (
+		slot: HqMediaReference["slot"],
+		kind: string,
+		missing: "no-entry" | "no-file",
+	) =>
+		missing === "no-file" &&
+		kind === "image" &&
+		(slot === "tile" || slot === "register-action" || slot === "logo");
 	const drawnInWebApps = (
 		slot: HqMediaReference["slot"],
 		kind: string,
@@ -440,15 +502,20 @@ describe("the first-match rule over every slot, declaration and install setting"
 							);
 							const android = (runsOn as readonly string[]).includes("android");
 							const web = (runsOn as readonly string[]).includes("web-apps");
+							const drawn =
+								(android && DRAWN_ON_ANDROID.has(slot)) ||
+								(web && drawnInWebApps(slot, kind, missing));
+							const broken = drawn && web && brokenPicture(slot, kind, missing);
 							const expected =
 								android && contentValid !== "yes" && REACHED[slot](kind)
 									? `${E}a-media-reference-with-no-file-on-a-slot-android-s-install`
-									: (android && DRAWN_ON_ANDROID.has(slot)) ||
-											(web && drawnInWebApps(slot, kind, missing))
-										? missing === "no-entry"
-											? `${E}a-media-reference-with-no-file-on-a-slot-a-runtime-draws`
-											: "media-file-unreadable"
-										: "inert";
+									: broken
+										? "inert"
+										: drawn
+											? missing === "no-entry"
+												? `${E}a-media-reference-with-no-file-on-a-slot-a-runtime-draws`
+												: "media-file-unreadable"
+											: "inert";
 							const got =
 								out.findings.length > 0
 									? out.findings.map((finding) => finding.code).join(", ")
@@ -464,6 +531,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 									{
 										reference,
 										entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
+										brokenPicture: broken,
 									},
 								]);
 							cases++;
@@ -814,6 +882,21 @@ describe("mediaFindings", () => {
 			{
 				reference: ref("jr://file/b.png", "image", "tile", FORM),
 				entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
+				brokenPicture: false,
+			},
+		]);
+		// In Web Apps the same icon showed broken: left out, and said.
+		const web = mediaFindings({
+			plan: files(["web-apps"]),
+			verdicts: { "CommCareImage/b": { kind: "missing" } },
+			runsOn: ["web-apps"],
+		});
+		expect(web.findings).toEqual([]);
+		expect(web.claims).toEqual([
+			{
+				reference: ref("jr://file/b.png", "image", "tile", FORM),
+				entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
+				brokenPicture: true,
 			},
 		]);
 	});

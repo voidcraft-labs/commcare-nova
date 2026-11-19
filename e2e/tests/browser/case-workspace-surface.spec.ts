@@ -616,6 +616,48 @@ test("native default order uses typed directions and hidden information without 
 	}
 });
 
+test("native default order names a hidden field in Sort by, and an empty name takes it out", async ({
+	page,
+}) => {
+	await page.goto(peer.origin);
+	await page
+		.getByRole("button", { name: "Set default order", exact: true })
+		.press("Enter");
+	await page
+		.getByRole("combobox", { name: "Add to default order", exact: true })
+		.click();
+	await page.getByRole("option", { name: "Region", exact: true }).click();
+	const name = page.getByRole("textbox", {
+		name: "Name in Sort by",
+		exact: true,
+	});
+	await expect(name).toHaveValue("");
+	await expect(name).toHaveAccessibleDescription(
+		/^Workers can order the list by this from Sort by, under this name\./,
+	);
+	await name.fill("Region of the household");
+	await name.press("Enter");
+	const region = () =>
+		savedModule(page).then((module) =>
+			module.caseListConfig.columns.find(
+				(c: { field: string }) => c.field === "region",
+			),
+		);
+	await expect
+		.poll(async () => (await region())?.sort)
+		.toEqual({
+			direction: "asc",
+			priority: 0,
+			label: "Region of the household",
+		});
+	await name.fill("   ");
+	await name.press("Enter");
+	await expect
+		.poll(async () => (await region())?.sort)
+		.toEqual({ direction: "asc", priority: 0 });
+	await expect(name).toHaveValue("");
+});
+
 async function capturedFilterPeer(page: Page) {
 	const pending: Route[] = [];
 	const owned = new Set<Route>();
@@ -1075,4 +1117,38 @@ test("native Default order offers a tile list's field that is off the list and p
 	await expect(
 		page.getByRole("switch", { name: /^List search matches this/ }),
 	).toHaveCount(0);
+});
+
+test("a column shows information of the case above the listed one", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=related`);
+	await page
+		.locator('[data-case-column-select="00000000-0000-7000-8000-000000006001"]')
+		.first()
+		.click();
+	const from = page.getByRole("combobox", {
+		name: "Read information from",
+		exact: true,
+	});
+	await expect(from).toHaveText(/This case/);
+	await from.click();
+	await page
+		.getByRole("option", { name: "The household above it", exact: true })
+		.click();
+	await expect(from).toHaveText(/The household above it/);
+	// The household has a name too, so the column keeps reading case_name, now
+	// the household's.
+	await page
+		.getByRole("button", { name: "Leave workspace", exact: true })
+		.click();
+	const saved = await savedModule(page);
+	const column = saved.caseListConfig.columns.find(
+		(one: { uuid: string }) =>
+			one.uuid === "00000000-0000-7000-8000-000000006001",
+	);
+	expect(column).toMatchObject({
+		field: "case_name",
+		via: [{ identifier: "parent" }],
+	});
 });

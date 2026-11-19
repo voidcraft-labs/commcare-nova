@@ -57,7 +57,13 @@ import {
 } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { type CaseOperationPlaceKey, externalKey } from "../identity";
-import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
+import {
+	isJsonObject,
+	type JsonCursor,
+	pointerToken,
+	registerUndeclaredKeys,
+	sameJson,
+} from "../jsonCursor";
 import { whereText } from "../place";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField, ReadXForm } from "../xform";
@@ -186,6 +192,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-case-update-property-question`,
 		"schema:UpdateCaseAction.update",
 	),
+	updateMapUnderNever: drop(
+		`${F}/update-case-update-map-under-condition-never`,
+		"schema:UpdateCaseAction.update",
+	),
 	questionPath: take(
 		`${F}/update-case-update-property-question`,
 		"schema:ConditionalCaseUpdate.question_path",
@@ -301,6 +311,12 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	categoryStateKey: take(
 		`${F}/update-keys-location-id-hq-user-id-category-state`,
 		"schema:ConditionalCaseUpdate.question_path",
+	),
+	/** A key of the own case's update in Nova's grammar that no row above names:
+	 *  recorded at the map, where the key sits. */
+	asciiKey: take(
+		`${F}/update-key-whose-characters-after-the-ascii-first-are-all-core-s`,
+		"schema:UpdateCaseAction.update",
 	),
 	undeclaredActions: refuse(
 		`${F}/any-other-undeclared-key`,
@@ -457,35 +473,99 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	),
 });
 
-/** The same form-type claims, by the slot a row reads past on an inactive action. */
-const INACTIVE = defineClaims("caseManagement.basicActions.inactive", {
-	registration: derived(
-		`${F}/form-requires-none-open-case-active-close-case-inactive`,
-		"schema:Form.actions",
-	),
-	conditionalRegistration: derived(
-		`${F}/form-requires-none-open-case-condition-if`,
-		"schema:Form.actions",
-	),
-	closingRegistration: derived(
-		`${F}/form-requires-none-open-case-close-case-active`,
-		"schema:Form.actions",
-	),
-	followup: derived(`${F}/form-requires-case-no-close`, "schema:Form.actions"),
-	close: derived(`${F}/form-requires-case-close-case`, "schema:Form.actions"),
-	survey: derived(
-		`${F}/form-requires-none-no-case-action`,
-		"schema:Form.actions",
-	),
-	closeWithoutOpen: derived(
-		`${F}/form-requires-none-with-close-case-active-and-no-open-in-a-module-with-a`,
-		"schema:Form.actions",
-	),
-});
+/** The actions a form's type reads past where they are inactive, each claimed at its own key. */
+export type InactiveAction =
+	| "open_case"
+	| "update_case"
+	| "close_case"
+	| "case_preload"
+	| "usercase_preload"
+	| "load_from_form";
 
-const INACTIVE_BY_ENTRY = new Map(
-	Object.values(INACTIVE).map((claim) => [claim.entry, claim]),
+const INACTIVE_ACTIONS: readonly InactiveAction[] = [
+	"open_case",
+	"update_case",
+	"close_case",
+	"case_preload",
+	"usercase_preload",
+	"load_from_form",
+];
+
+/** The rows of a held form type, by the name their inactive claims are registered under. */
+const INACTIVE_ROWS = {
+	registration: `${F}/form-requires-none-open-case-active-close-case-inactive`,
+	conditionalRegistration: `${F}/form-requires-none-open-case-condition-if`,
+	closingRegistration: `${F}/form-requires-none-open-case-close-case-active`,
+	followup: `${F}/form-requires-case-no-close`,
+	close: `${F}/form-requires-case-close-case`,
+	survey: `${F}/form-requires-none-no-case-action`,
+	closeWithoutOpen: `${F}/form-requires-none-with-close-case-active-and-no-open-in-a-module-with-a`,
+} as const;
+
+/**
+ * The same form-type claims, by the action a row reads past where it is
+ * inactive: each names the action's own key, so its record stands where the
+ * action sits, and the keys inside the action stand under it there too
+ * (`jsonCursor.ts`, a held claim that takes a value whole).
+ */
+const INACTIVE = defineClaims(
+	"caseManagement.basicActions.inactive",
+	Object.fromEntries(
+		Object.entries(INACTIVE_ROWS).flatMap(([row, entry]) =>
+			INACTIVE_ACTIONS.map((action) => [
+				`${row}.${action}`,
+				derived(entry, `schema:FormActions.${action}`),
+			]),
+		),
+	) as Record<string, Claim<"derived">>,
 );
+
+/** The claim a row's entry reads past an inactive action under, by the row's entry and the action. */
+type InactiveClaims = ReadonlyMap<InactiveAction, Claim<"derived">>;
+
+const INACTIVE_BY_ENTRY: ReadonlyMap<string, InactiveClaims> = new Map(
+	Object.entries(INACTIVE_ROWS).map(([row, entry]) => [
+		entry,
+		new Map(
+			INACTIVE_ACTIONS.map((action) => [
+				action,
+				INACTIVE[`${row}.${action}`] as Claim<"derived">,
+			]),
+		),
+	]),
+);
+
+/**
+ * The keys an open action and an update action do not declare, read alike on
+ * an action a stage visits and on one a held claim takes whole (an inactive
+ * action, `jsonCursor.ts::registerUndeclaredKeys`): HQ's case management page
+ * shapes `name_update_multi` and `update_multi`, which no build reads, and any
+ * other is a key Nova cannot account for.
+ */
+const undeclaredOpenKey = registerUndeclaredKeys("OpenCaseAction", (key) =>
+	key === "name_update_multi" || key === "update_multi"
+		? BASIC_CLAIMS.updateMultiOpen
+		: BASIC_CLAIMS.undeclaredOpen,
+);
+const undeclaredUpdateKey = registerUndeclaredKeys("UpdateCaseAction", (key) =>
+	key === "update_multi"
+		? BASIC_CLAIMS.updateMultiUpdate
+		: BASIC_CLAIMS.undeclaredUpdate,
+);
+
+/** Claims each key `cursor`'s class does not declare under `rule`. */
+function claimUndeclared(
+	cursor: JsonCursor,
+	rule: (key: string) => Claim<"drop" | "refuse"> | undefined,
+): void {
+	for (const key of cursor.undeclared()) {
+		const claim = rule(key);
+		if (claim === undefined) continue;
+		if (claim.use === "refuse")
+			cursor.refuse(key, claim as Claim<"refuse">, { name: key });
+		else cursor.drop(key, claim as Claim<"drop">);
+	}
+}
 
 /** The one register row the same-state rewrites of a basic form fall under. */
 const CASE_SETTINGS_RESPELLED = "case-settings-respelled";
@@ -512,6 +592,8 @@ export interface ProposedCondition {
 	readonly repeat: DraftField | undefined;
 	/** The node it was read from, where a finding stands. */
 	readonly place: HqPlace;
+	/** Where the condition sits in the app's JSON. */
+	readonly pointer: string;
 }
 
 export interface ProposedOperation {
@@ -569,7 +651,7 @@ export interface BasicCaseReading {
 const READINGS = new WeakMap<DraftForm, BasicCaseReading>();
 const ACTIONS = new WeakMap<
 	DraftForm,
-	{ readonly cursor: JsonCursor; readonly inactive: Claim<"derived"> }
+	{ readonly cursor: JsonCursor; readonly inactive: InactiveClaims }
 >();
 
 /** A question path through a Hidden Value's date-and-time sibling, claimed once
@@ -678,13 +760,28 @@ export function actionsCursorOf(form: DraftForm): JsonCursor | undefined {
 	return ACTIONS.get(form)?.cursor;
 }
 
-export function inactiveClaimOf(form: DraftForm): Claim<"derived"> {
+export function inactiveClaimOf(
+	form: DraftForm,
+	action: InactiveAction,
+): Claim<"derived"> {
 	const known = ACTIONS.get(form);
 	if (known === undefined)
 		throw new Error(
 			"The preload reader was asked for a form whose case actions the first pass did not open. Read a form's preloads only after its basic actions.",
 		);
-	return known.inactive;
+	return inactiveClaim(known.inactive, action);
+}
+
+function inactiveClaim(
+	claims: InactiveClaims,
+	action: InactiveAction,
+): Claim<"derived"> {
+	const claim = claims.get(action);
+	if (claim === undefined)
+		throw new Error(
+			`The reader holds no claim for an inactive ${action} under this form's type. Every held form type's row declares one for each action it reads past.`,
+		);
+	return claim;
 }
 
 /** The first pass's reading of `form`, where its actions read into one. */
@@ -692,6 +789,20 @@ export function basicCaseReading(
 	form: DraftForm,
 ): BasicCaseReading | undefined {
 	return READINGS.get(form);
+}
+
+/** Each basic form whose `requires` and `actions` the reading refused, by the refusal. */
+const REFUSED_CASE_MANAGEMENT = new WeakMap<DraftForm, Claim<"refuse">>();
+
+/**
+ * The refusal of a basic form's case management, where the reading refused its `requires` and
+ * `actions` (a form that requires a referral, a close with no case to close): its finding stands
+ * at the form. Undefined for a form whose case management the reading holds.
+ */
+export function refusedCaseManagement(
+	form: DraftForm,
+): Claim<"refuse"> | undefined {
+	return REFUSED_CASE_MANAGEMENT.get(form);
 }
 
 // ── Questions ────────────────────────────────────────────────────────────
@@ -1160,13 +1271,16 @@ function rewrite(ctx: ReadContext, entry: string, path: string): void {
 	});
 }
 
+/** A relation finding about the value at `pointer` in the app's JSON, recorded around it
+ *  (`Accounting.findingAt`). */
 function finding(
 	ctx: ReadContext,
 	claim: Claim<"refuse">,
 	place: HqPlace,
+	pointer: string,
 	detail?: FindingDetail,
 ) {
-	ctx.accounting.finding(claim, place, detail);
+	ctx.accounting.findingAt(claim, place, pointer, detail);
 }
 
 function consume<T>(admitted: Admitted<T>): T {
@@ -1175,23 +1289,43 @@ function consume<T>(admitted: Admitted<T>): T {
 
 /** An active condition whose question names no question of the form: its
  *  finding at the form. The condition's own key stays claimed under its row. */
-function noteConditionQuestion(r: FormReading, condition: unknown): void {
+/**
+ * A condition's question that names nothing is its own finding. An answer the
+ * source stores beside `boolean_true` is one HQ's build never reads
+ * (`xform.py::XForm.action_relevance` writes the question's path alone), and
+ * HQ's own starter apps store `"1"` there; Nova writes none, so the first
+ * publish respells it, recorded at `pointer`, the condition's, under `entry`.
+ */
+function noteConditionQuestion(
+	r: FormReading,
+	condition: unknown,
+	entry: string,
+	pointer: string,
+): void {
 	if (
 		conditionType(condition) === "if" &&
 		conditionField(r.form, condition) === undefined
 	)
-		finding(r.ctx, CONDITION_CLAIMS.noQuestion, r.form.place);
+		finding(r.ctx, CONDITION_CLAIMS.noQuestion, r.form.place, pointer);
+	if (
+		conditionType(condition) === "if" &&
+		isJsonObject(condition) &&
+		condition.operator === "boolean_true" &&
+		condition.answer !== null &&
+		condition.answer !== undefined
+	)
+		rewrite(r.ctx, entry, `${pointer}/answer`);
 }
 
 /** One entry of an update map refused under its key's class: the entry's
  *  cursor refused whole, so its question path and mode stand under the one
- *  finding. */
+ *  finding, recorded at the map, where the map's key holds the entry's key. */
 function refuseEntry(
 	cursor: JsonCursor,
 	claim: Claim<"refuse">,
 	key: string,
 ): void {
-	cursor.refuseWhole(claim, { name: key });
+	cursor.refuseMapEntry(claim, { name: key });
 }
 
 /** One entry of an update map no row names: `unrecognized` once at the form,
@@ -1270,14 +1404,27 @@ function readUpdate(
 			: undefined;
 	if (read === undefined || read.kind === "finding") {
 		consume(cursor.take("question_path", pathClaim, (value) => value));
-		finding(r.ctx, read?.claim ?? CONDITION_CLAIMS.noQuestion, r.form.place, {
-			name: property,
-		});
+		finding(
+			r.ctx,
+			read?.claim ?? CONDITION_CLAIMS.noQuestion,
+			r.form.place,
+			`${cursor.pointer}/question_path`,
+			{ name: property },
+		);
 		return { ok: false };
 	}
-	const claim = pathClaimOf(read, pathClaim, keyClaim);
+	// A row that names the key by the map's own surface key (a key through the
+	// cases above) stands at the map, where the key sits, and the question path
+	// is then the update's own.
+	const mapRow =
+		keyClaim !== undefined && keyClaim.key !== pathClaim.key
+			? keyClaim
+			: undefined;
+	const pathRow = mapRow === undefined ? keyClaim : undefined;
+	if (mapRow !== undefined) cursor.holdMapEntry(mapRow);
+	const claim = pathClaimOf(read, pathClaim, pathRow);
 	if (claim === "join")
-		deferJoinClaim(r.form, cursor, read.value.field, keyClaim ?? pathClaim);
+		deferJoinClaim(r.form, cursor, read.value.field, pathRow ?? pathClaim);
 	else consume(cursor.take("question_path", claim, (value) => value));
 	return {
 		value: read.value,
@@ -1320,7 +1467,13 @@ function readUpdateMap(
 	if (isJsonObject(stored))
 		for (const [key, value] of Object.entries(stored))
 			if (!isJsonObject(value))
-				finding(r.ctx, BASIC_CLAIMS.bareString, r.form.place, { name: key });
+				finding(
+					r.ctx,
+					BASIC_CLAIMS.bareString,
+					r.form.place,
+					`${parent.pointer}/update/${pointerToken(key)}`,
+					{ name: key },
+				);
 	const loads = r.type === "followup" || r.type === "close";
 	for (const [key, cursor] of values) {
 		if (slot === "usercase") {
@@ -1425,12 +1578,20 @@ function readUpdateMap(
 							? BASIC_CLAIMS.ownerKey
 							: categoryOrState
 								? BASIC_CLAIMS.categoryStateKey
-								: undefined;
+								: facet
+									? undefined
+									: BASIC_CLAIMS.asciiKey;
 		const read = readUpdate(r, cursor, property, ownWrite, pathClaim, keyClaim);
 		if (!read.ok || read.value === undefined) continue;
 		// The own case and the worker's record are written once, from questions in no repeat.
 		if (!valueInScope(read.value, undefined)) {
-			finding(r.ctx, BASIC_CLAIMS.notOffered, r.form.place, { name: key });
+			finding(
+				r.ctx,
+				BASIC_CLAIMS.notOffered,
+				r.form.place,
+				`${cursor.pointer}/question_path`,
+				{ name: key },
+			);
 			continue;
 		}
 		if (facet && property === "name") {
@@ -1456,10 +1617,7 @@ function readUpdateMap(
 			}),
 		});
 	}
-	for (const key of parent.undeclared())
-		if (key === "update_multi")
-			parent.drop(key, BASIC_CLAIMS.updateMultiUpdate);
-		else parent.refuse(key, BASIC_CLAIMS.undeclaredUpdate, { name: key });
+	claimUndeclared(parent, undeclaredUpdateKey);
 	const conflicts = parent.peek("conflicts");
 	if (
 		isJsonObject(conflicts) &&
@@ -1518,6 +1676,14 @@ export function readBasicActions(
 	if (row.kind === "finding") {
 		json.refuse("requires", row.requires);
 		json.refuse("actions", row.actions);
+		REFUSED_CASE_MANAGEMENT.set(form, row.requires);
+		// A form that requires a referral chooses a case as a follow-up does
+		// (`FormBase.requires`), so its logic binds over the case it reads, and
+		// a read of that case stands under this one finding.
+		if (requires !== "none")
+			ctx.writeDraft(() => {
+				form.form.type = "followup";
+			});
 		return;
 	}
 	consume(json.take("requires", row.requires, (value) => value));
@@ -1525,7 +1691,7 @@ export function readBasicActions(
 		form.form.type = row.type;
 	});
 	const A = json.object("actions", "FormActions", row.actions);
-	const inactive = INACTIVE_BY_ENTRY.get(row.actions.entry) as Claim<"derived">;
+	const inactive = INACTIVE_BY_ENTRY.get(row.actions.entry) as InactiveClaims;
 	ACTIONS.set(form, { cursor: A, inactive });
 	const caseType = module.module.caseType ?? "";
 	const r: FormReading = {
@@ -1584,7 +1750,12 @@ export function readBasicActions(
 		const condition = consume(
 			O.take("condition", conditionClaim, (value) => value),
 		);
-		noteConditionQuestion(r, condition);
+		noteConditionQuestion(
+			r,
+			condition,
+			conditionClaim.entry,
+			`${O.pointer}/condition`,
+		);
 		if (conditionType(condition) === "if") {
 			const field = conditionField(form, condition);
 			openCondition = {
@@ -1592,6 +1763,7 @@ export function readBasicActions(
 				own: true,
 				repeat: undefined,
 				place: field?.place ?? form.place,
+				pointer: `${O.pointer}/condition`,
 			};
 		}
 		const nameUpdate = consume(
@@ -1607,10 +1779,13 @@ export function readBasicActions(
 			const path = nameUpdate.question_path;
 			if (typeof path === "string" && path !== "") {
 				const read = questionValue(ctx, form, path, "name");
+				const at = `${O.pointer}/name_update/question_path`;
 				if (read.kind === "finding")
-					finding(ctx, read.claim, form.place, { name: "name" });
+					finding(ctx, read.claim, form.place, at, { name: "name" });
 				else if (repeatOfField(read.value.field) !== undefined)
-					finding(ctx, BASIC_CLAIMS.notOffered, form.place, { name: "name" });
+					finding(ctx, BASIC_CLAIMS.notOffered, form.place, at, {
+						name: "name",
+					});
 				else {
 					ownName = read.value;
 					r.createNames.push(read.value.field);
@@ -1629,7 +1804,9 @@ export function readBasicActions(
 			);
 			const read = questionValue(ctx, form, external, "external_id");
 			if (read.kind === "finding")
-				finding(ctx, read.claim, form.place, { name: "external_id" });
+				finding(ctx, read.claim, form.place, `${O.pointer}/external_id`, {
+					name: "external_id",
+				});
 			else ownWrites.push({ property: "external_id", value: read.value });
 		}
 		if (
@@ -1637,10 +1814,7 @@ export function readBasicActions(
 			(O.peek("conflicts") as unknown[]).length > 0
 		)
 			O.refuse("conflicts", BASIC_CLAIMS.openConflicts);
-		for (const key of O.undeclared())
-			if (key === "name_update_multi" || key === "update_multi")
-				O.drop(key, BASIC_CLAIMS.updateMultiOpen);
-			else O.refuse(key, BASIC_CLAIMS.undeclaredOpen, { name: key });
+		claimUndeclared(O, undeclaredOpenKey);
 	} else if (
 		opens ||
 		(requires === "case" &&
@@ -1655,12 +1829,13 @@ export function readBasicActions(
 		openCase.external_id !== ""
 	)
 		A.drop("open_case", BASIC_CLAIMS.externalIdInactive);
-	else A.derived("open_case", inactive);
+	else A.derived("open_case", inactiveClaim(inactive, "open_case"));
 
 	// `update_case`.
 	const update = isJsonObject(actions.update_case) ? actions.update_case : {};
 	const updateType = conditionType(update.condition);
-	if (row.type === "survey") A.derived("update_case", inactive);
+	if (row.type === "survey")
+		A.derived("update_case", inactiveClaim(inactive, "update_case"));
 	else if (loads && !defaultCaseManagement) {
 		if (updateType === "never") {
 			// HQ writes no primary block here under either word; Nova writes `always`.
@@ -1676,6 +1851,7 @@ export function readBasicActions(
 					(value) => value,
 				),
 			);
+			if (U.used("update")) U.drop("update", BASIC_CLAIMS.updateMapUnderNever);
 			rewrite(
 				ctx,
 				BASIC_CLAIMS.updateNeverMulti.entry,
@@ -1742,7 +1918,8 @@ export function readBasicActions(
 				ownWrites.push(...read.writes);
 				if (read.name !== undefined) ownName = read.name;
 				if (read.owner !== undefined) ownOwner = read.owner;
-			}
+			} else if (U.used("update"))
+				U.drop("update", BASIC_CLAIMS.updateMapUnderNever);
 		}
 	}
 
@@ -1772,7 +1949,12 @@ export function readBasicActions(
 						? BASIC_CLAIMS.closeBooleanTrue
 						: BASIC_CLAIMS.closeCompared;
 			const condition = consume(C.take("condition", claim, (value) => value));
-			noteConditionQuestion(r, condition);
+			noteConditionQuestion(
+				r,
+				condition,
+				claim.entry,
+				`${C.pointer}/condition`,
+			);
 			if (type === "if") {
 				const field = conditionField(form, condition);
 				closeCondition = {
@@ -1780,10 +1962,11 @@ export function readBasicActions(
 					own: true,
 					repeat: undefined,
 					place: field?.place ?? form.place,
+					pointer: `${C.pointer}/condition`,
 				};
 			} else if (registration) closeCondition = "match-all";
 		}
-	} else A.derived("close_case", inactive);
+	} else A.derived("close_case", inactiveClaim(inactive, "close_case"));
 
 	// The own arm. One that opens nothing and carries nothing is the form's own case only
 	// where no Save to Case block takes it (`saveToCase.ts`, `ownTaken`), which is known once
@@ -1842,7 +2025,10 @@ export function readBasicActions(
 		if (!defaultCaseManagement) {
 			const sharing = ctx.app.peek("case_sharing") === true;
 			if (sharing) A.refuse("subcases", BASIC_CLAIMS.subcasesShared);
-			else A.drop("subcases", BASIC_CLAIMS.subcasesUnshared);
+			else {
+				A.drop("subcases", BASIC_CLAIMS.subcasesUnshared);
+				ctx.facts.childCasesUnread.push(form.xmlns);
+			}
 		} else
 			readSubcases(
 				r,
@@ -2061,7 +2247,12 @@ function readSubcases(
 		consume(
 			S.take("condition", BASIC_CLAIMS.subcaseCondition, (value) => value),
 		);
-		noteConditionQuestion(r, conditionStored);
+		noteConditionQuestion(
+			r,
+			conditionStored,
+			BASIC_CLAIMS.subcaseCondition.entry,
+			`${S.pointer}/condition`,
+		);
 
 		// The name and the writes.
 		const nameUpdate = consume(
@@ -2079,13 +2270,25 @@ function readSubcases(
 			if (typeof path === "string" && path !== "") {
 				const read = questionValue(ctx, form, path, "name");
 				if (read.kind === "finding") {
-					finding(ctx, read.claim, form.place, { name: "name" });
+					finding(
+						ctx,
+						read.claim,
+						form.place,
+						`${S.pointer}/name_update/question_path`,
+						{ name: "name" },
+					);
 					ok = false;
 				} else name = read.value;
 			}
 		}
 		if (name === undefined) {
-			finding(ctx, CONDITION_CLAIMS.noQuestion, form.place, { name: "name" });
+			finding(
+				ctx,
+				CONDITION_CLAIMS.noQuestion,
+				form.place,
+				`${S.pointer}/name_update/question_path`,
+				{ name: "name" },
+			);
 			ok = false;
 		}
 		const nameRepeat =
@@ -2110,7 +2313,13 @@ function readSubcases(
 				ok = false;
 			}
 		} else if (nameRepeat !== undefined) {
-			finding(ctx, BASIC_CLAIMS.notOffered, form.place, { name: "name" });
+			finding(
+				ctx,
+				BASIC_CLAIMS.notOffered,
+				form.place,
+				`${S.pointer}/name_update/question_path`,
+				{ name: "name" },
+			);
 			ok = false;
 		} else {
 			// A blank context names the root, where a name question in no repeat stands.
@@ -2164,7 +2373,13 @@ function readSubcases(
 				continue;
 			}
 			if (!valueInScope(read.value, repeat)) {
-				finding(ctx, BASIC_CLAIMS.notOffered, form.place, { name: key });
+				finding(
+					ctx,
+					BASIC_CLAIMS.notOffered,
+					form.place,
+					`${cursor.pointer}/question_path`,
+					{ name: key },
+				);
 				ok = false;
 				continue;
 			}
@@ -2179,7 +2394,12 @@ function readSubcases(
 			consume(
 				S.take("close_condition", BASIC_CLAIMS.subcaseClose, (value) => value),
 			);
-			noteConditionQuestion(r, closeStored);
+			noteConditionQuestion(
+				r,
+				closeStored,
+				BASIC_CLAIMS.subcaseClose.entry,
+				`${S.pointer}/close_condition`,
+			);
 		}
 		if (!ok || name === undefined || typeof caseType !== "string") {
 			if (name !== undefined) r.refusedScalarFields.push(name.field);
@@ -2213,6 +2433,7 @@ function readSubcases(
 						own: false,
 						repeat,
 						place: conditionField(form, conditionStored)?.place ?? form.place,
+						pointer: `${S.pointer}/condition`,
 					}
 				: undefined;
 		operations.push({
@@ -2240,6 +2461,7 @@ function readSubcases(
 							own: false,
 							repeat,
 							place: conditionField(form, closeStored)?.place ?? form.place,
+							pointer: `${S.pointer}/close_condition`,
 						}
 					: undefined;
 			operations.push({

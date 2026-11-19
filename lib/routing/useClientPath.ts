@@ -71,6 +71,16 @@ export function readBuilderHistoryMove(): number {
 	return builderHistoryMoves;
 }
 
+/** How the builder last moved to the screen on show: `back` for Back and
+ * Forward and for a screen's own step back (`stepBackToBuilderEntry`),
+ * `forward` for every other move. A list reads it as it shows again, to keep
+ * or start afresh the worker's place in it (`lib/preview/caseListReturn.ts`). */
+let builderHistoryArrival: "back" | "forward" = "forward";
+
+export function readBuilderHistoryArrival(): "back" | "forward" {
+	return builderHistoryArrival;
+}
+
 function reconcileHistory(event: "activate" | "pop"): boolean {
 	const { pathname, search } = window.location;
 	const replacement = reconcileBuilderHistoryEntry(
@@ -94,6 +104,7 @@ function onPopState(event: Event): void {
 	if (event === poppedEvent) return;
 	poppedEvent = event;
 	builderHistoryMoves += 1;
+	builderHistoryArrival = "back";
 	reconcileHistory("pop");
 	for (const listener of popListeners) listener();
 	notifyPathChange();
@@ -273,6 +284,15 @@ export function pushBuilderHistory(
 	replace = false,
 	heldMenu?: PreviewHeldCaseListMenu,
 ): void {
+	writeBuilderHistory(url, replace, heldMenu, "forward");
+}
+
+function writeBuilderHistory(
+	url: string,
+	replace: boolean,
+	heldMenu: PreviewHeldCaseListMenu | undefined,
+	arrival: "back" | "forward",
+): void {
 	takeInPendingPop();
 	const relative = builderNavigationUrl(url, window.location.href);
 	const { state, consumesEnd } = writtenState(
@@ -280,6 +300,7 @@ export function pushBuilderHistory(
 		relative,
 	);
 	builderHistoryMoves += 1;
+	builderHistoryArrival = arrival;
 	if (replace) window.history.replaceState(state, "", relative);
 	else {
 		if (consumesEnd) consumePreviewSearchesEnd();
@@ -314,7 +335,7 @@ export function stepBackOffPreviewHeldMenu(): void {
 	const { pathname, search } = window.location;
 	const back = previewHeldMenuBack(window.history.state);
 	if (back.kind === "show-list") {
-		pushBuilderHistory(`${pathname}${search}`, true);
+		writeBuilderHistory(`${pathname}${search}`, true, undefined, "back");
 		return;
 	}
 	/* The entry stepped back to exists, so the step always fires one
@@ -382,7 +403,7 @@ export function stepBackToBuilderEntry(url: string, leave: () => void): void {
 	const steps = stepsBackToPrevious(window.history.state, target.pathname);
 	if (steps === undefined) {
 		leave();
-		pushBuilderHistory(relative, true);
+		writeBuilderHistory(relative, true, undefined, "back");
 		return;
 	}
 	/* The entry stepped back to exists, so the step fires one popstate,
@@ -391,7 +412,7 @@ export function stepBackToBuilderEntry(url: string, leave: () => void): void {
 		popListeners.delete(land);
 		leave();
 		if (window.location.pathname !== target.pathname) {
-			pushBuilderHistory(relative);
+			writeBuilderHistory(relative, false, undefined, "back");
 			return;
 		}
 		if (window.location.search !== target.search)

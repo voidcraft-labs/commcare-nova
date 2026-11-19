@@ -27,13 +27,13 @@ import { type AppDatabase, withAppTx } from "./pg";
  * continue a journey started under an earlier one
  * (`lib/preview/app-tests/CLAUDE.md`). Version 19 does so for four reasons:
  * a query repeat's wrapper name; a date and time saved to a case, which is
- * now the text CommCare HQ stores for its moment (UTC, six fraction digits
- * and `Z`) where a journey started before it stored the viewer's offset; the
- * Search screen, which now opens as Core's query manager is built (its
+ * the text CommCare HQ stores for its moment (UTC, six fraction digits and
+ * `Z`) where a journey started under version 18 stored the viewer's offset;
+ * the Search screen, which opens as Core's query manager is built (its
  * choice lists read and a starting choice they do not offer let go, a menu
  * that opens on its search or its results refusing there, and the
  * assigned-case exclusion refusing only where Results are read); and a menu
- * that needs a parent case, which now asks for it before its screen only
+ * that needs a parent case, which asks for it before its screen only
  * where Core does, goes on at the parent's row unless the datum it chooses
  * for names a details screen, and lets every case chosen after a screen go
  * when Back returns to it, so the walk past it asks for the parent again. */

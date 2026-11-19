@@ -380,7 +380,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 				base: baseOutcome,
 				now: readHqApp(now),
 				inputs: { base, now },
-				baseMediaLeftOut: 0,
+				baseMediaLeftOut: { undrawn: 0, brokenPictures: 0 },
 			},
 		};
 	}
@@ -537,6 +537,68 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		).toThrow(
 			"Nova was asked to plan CommCare HQ's changes with no reference document. `loadReferenceDocument` answers `nova-updated` when it cannot build one, and the caller answers `unavailable` for it instead of planning.",
 		);
+	});
+});
+
+// ── What CommCare HQ's build never reads ─────────────────────────────
+
+describe("an answer stored beside a yes/no condition", () => {
+	it("is no change CommCare HQ made, since HQ's build never reads it", async () => {
+		// HQ's own starter apps store `answer: "1"` beside `boolean_true`
+		// (`xform.py::XForm.action_relevance` writes the question's path alone),
+		// so a save there that changes only that answer builds the same app.
+		const flag = testUuid("plan-close-flag");
+		const ref = buildDoc({
+			appId: APP_ID,
+			appName: "Visits",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Close",
+							type: "close",
+							closeCondition: {
+								kind: "term",
+								term: { kind: "field", uuid: flag },
+							},
+							fields: [
+								f({
+									kind: "hidden",
+									id: "flag",
+									uuid: flag,
+									calculate: {
+										kind: "term",
+										term: { kind: "literal", value: "x" },
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const answerBeside =
+			(answer: string) =>
+			(body: Record<string, unknown>): void => {
+				const close = (
+					body.modules as {
+						forms: { actions: { close_case: { condition: object } } }[];
+					}[]
+				)[0]?.forms[0]?.actions.close_case;
+				if (close === undefined) throw new Error("The form closes its case.");
+				close.condition = { ...close.condition, answer };
+			};
+		expect(
+			planFromDocuments({
+				ref,
+				now: ref,
+				base: await readingOf(ref, ref, undefined, answerBeside("1")),
+				theirs: await readingOf(ref, ref, undefined, answerBeside("yes")),
+				renamesSince: [],
+			}),
+		).toEqual({ kind: "nothing", publishChanges: [] });
 	});
 });
 

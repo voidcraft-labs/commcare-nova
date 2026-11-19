@@ -1,0 +1,295 @@
+[
+	{
+		"path": "jr://file/commcare/audio/data/convulsions_counseling_message-r5egx3.mp3",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3",
+		"sha256": "9c8298ed5286eda815ee97801b4f811294f94dfa826e6247776eea622dfa1903",
+		"base64": "//uQwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASUQzBAAQAAAAVkNPTU0AAABMAAADZW5nAGpyOi8vZmlsZS9jb21tY2FyZS9hdWRpby9kYXRhL2NvbnZ1bHNpb25zX2NvdW5zZWxpbmdfbWVzc2FnZS1yNWVneDMubXAzM0RJBAAQAAAAVg=="
+	},
+	{
+		"path": "jr://file/commcare/audio/data/headache_counseling_message-1lvvdp.mp3",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3",
+		"sha256": "7b2b4a9838ba6994ff617fd14a169b9a9b290885e28606c9069b24a1c19b6217",
+		"base64": "//uQwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASUQzBAAQAAAAU0NPTU0AAABJAAADZW5nAGpyOi8vZmlsZS9jb21tY2FyZS9hdWRpby9kYXRhL2hlYWRhY2hlX2NvdW5zZWxpbmdfbWVzc2FnZS0xbHZ2ZHAubXAzM0RJBAAQAAAAUw=="
+	},
+	{
+		"path": "jr://file/commcare/audio/data/rupturing_counseling_message-fbkyqp.mp3",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3",
+		"sha256": "8760a3ba20a80c25c0424993592f6f4c047ba44aba2e3975dbd4d7d52131a1de",
+		"base64": "//uQwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASUQzBAAQAAAAVENPTU0AAABKAAADZW5nAGpyOi8vZmlsZS9jb21tY2FyZS9hdWRpby9kYXRhL3J1cHR1cmluZ19jb3Vuc2VsaW5nX21lc3NhZ2UtZmJreXFwLm1wMzNESQQAEAAAAFQ="
+	},
+	{
+		"path": "jr://file/commcare/audio/data/stopped_moving_counseling_message-5ukyct.mp3",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3",
+		"sha256": "05d5755ea552c21a335b3da8cdcb92105063271b14b8e0f43f9d3cb099611b33",
+		"base64": "//uQwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASUQzBAAQAAAAWUNPTU0AAABPAAADZW5nAGpyOi8vZmlsZS9jb21tY2FyZS9hdWRpby9kYXRhL3N0b3BwZWRfbW92aW5nX2NvdW5zZWxpbmdfbWVzc2FnZS01dWt5Y3QubXAzM0RJBAAQAAAAWQ=="
+	},
+	{
+		"path": "jr://file/commcare/image/module0_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "577b50a7cdcd30ac25663ea9e6ddd4563ff3b7fcbb5d4308766ba5c93c45e9c1",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mPw114IAAHoARyoGjkiAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module0_form0_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "49a2ee14d917d58e37f48c6f9b2df171b083a540c71d968a7391f822ce124f50",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mOw3n8CAAL7AcO7L03CAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_case_list_form_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "c7eeac4ad48a7ab02a4c810fa58fabdde4e2503b83917d7759e17fa3ef9d376e",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNQzvgOAAI0AYMr/nnoAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "43d16d84835ae30aabf09f7e160d566742c15e98b2d4b9b63c96b089f5a06dcc",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNY9iEdAAQ9Af55GcxJAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form0_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "73b74443a27a742702d2b4701fb49c5af4abcdd37eafcc7ab32371c8060a61a2",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mPY/3EnAATcAmryWKRYAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form1_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "be285e1f851a1c9af958b70f5b51cd3c7083d5d9274b95707c8efbe95fcc1de2",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNg314IAAH4ATCflK86AAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form2_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "fabfb8dcad317cad0457d0d4a028440c08cee26fcab5fcc1f1ed0a238fc76752",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mOQC58GAAGiAQyVETboAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form3_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "00907bd1eaca40a84efc7653bb0806e076b7bec58ee3f67c2801558a5c5f62e8",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mO4eqMXAATAAjuEloD1AAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "19610af3007b2d13c26f62235480b5a12cf7069b72fe74ec6614cab52d04b475",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP4v/A/AAVCAqCsUFyXAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form0_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "4b678e35957610394b622d92690c8f01052a82e77e30769b3165ac2a1a8de412",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNQm2gAAAHIAOiO6j/NAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form1_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "036e175678a2c2fb166438f9711e04ef1392cd45a799586f305662f0fd85fefc",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNIMRcHAAG1ALMFysflAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form2_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "532ed0f139d608cd57e3a96392797e2788fd82b1a22803f5f0145b978ad00960",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mMIXDQTAALUAY11fjAXAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form3_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "105238b95143ba6a4e036f23fb1b995044b1605741b37cd6ae7ab2375d4af3c0",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mMo8d4IAAKnAXHquiPWAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module3_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "47521fbc1b3892423af866614c79c832ee0f2ec3bf2215ec8291c9e24d75f255",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNI9mkHAAJMATeSkLN0AAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/image/module3_form0_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "7faccebb88b03d745d7c77256bbfbfb93687de7c6587076dbb90529455d1769a",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mPgOagBAAHSAPbCGUhKAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/stand-in.mp3",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3",
+		"sha256": "0d130b7550c98c18433560a62736360dad40148a2d81bd3c54d2daefcdfa0eca",
+		"base64": "//uQwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASUQzBAAQAAAALkNPTU0AAAAkAAADZW5nAGpyOi8vZmlsZS9jb21tY2FyZS9zdGFuZC1pbi5tcDMzREkEABAAAAAu"
+	},
+	{
+		"path": "jr://file/commcare/stand-in.mp4",
+		"kind": "video",
+		"mediaClass": "CommCareVideo",
+		"mimeType": "video/mp4",
+		"extension": "mp4",
+		"sha256": "f137f8ccdb70f115ddb937ea07973cb8facdbeb074c959dc3fc89687716fbe24",
+		"base64": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAI/bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAACgAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAct0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAACgAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAFnbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAAD6AAAAChVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABEm1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAANJzdGJsAAAAhnN0c2QAAAAAAAAAAQAAAHZhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAIGF2Y0MBTUAe/+EACWdNQB7ogICAgAEABGjuPIAAAAAQc3R0cwAAAAAAAAAAAAAAEHN0c2MAAAAAAAAAAAAAABRzdHN6AAAAAAAAAAAAAAAAAAAAEHN0Y28AAAAAAAAAAAAAACdmcmVlanI6Ly9maWxlL2NvbW1jYXJlL3N0YW5kLWluLm1wNA=="
+	},
+	{
+		"path": "jr://file/commcare/stand-in.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "c4eec525448723a74271f3e9e1682bc2cf2d90fdb31a8038bc68ccd352bf7925",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mN4v6MLAATLAjIPil9LAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/https://cdn2.hubspot.net/hubfs/503070/images/appcues%20template%20app/wash/module2_form0_en.png",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/png",
+		"extension": "png",
+		"sha256": "c85f2106bd7d451eb89a87f6534d98fd2fb3a51b98a1e941f0da713de0d4f25c",
+		"base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mPwPa8OAAKwAUS78NvbAAAAAElFTkSuQmCC"
+	},
+	{
+		"path": "jr://file/commcare/refused-stand-in.avi",
+		"kind": "video",
+		"mediaClass": "CommCareVideo",
+		"extension": "avi",
+		"refusedUnder": "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp",
+		"sha256": "d7ac4b56ce26619215ab4bd96e95da5425cf3b11d05e87a2b53ef4789481aab9",
+		"base64": "UklGRkAAAABBVkkgTElTVDQAAABJTkZPSUNNVCgAAABqcjovL2ZpbGUvY29tbWNhcmUvcmVmdXNlZC1zdGFuZC1pbi5hdmkA"
+	},
+	{
+		"path": "jr://file/commcare/refused-stand-in.svg",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"extension": "svg",
+		"refusedUnder": "expressions-and-data/image-svg",
+		"sha256": "f3b0aedc31050f9ba4c95da18e4f11bb983ffdc561de6c3fe72ce8eea2f51b76",
+		"base64": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjxkZXNjPmpyOi8vZmlsZS9jb21tY2FyZS9yZWZ1c2VkLXN0YW5kLWluLnN2ZzwvZGVzYz48L3N2Zz4K"
+	},
+	{
+		"path": "jr://file/commcare/refused-stand-in.tif",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"extension": "tif",
+		"refusedUnder": "expressions-and-data/image-tiff-heif",
+		"sha256": "613478bec81940fd1a3a70e0b34b323f21f08b39ce1f49d3937d41220fc48ad6",
+		"base64": "SUkqAAgAAAAKAAABAwABAAAAAQAAAAEBAwABAAAAAQAAAAIBAwADAAAAhgAAAAMBAwABAAAAAQAAAAYBAwABAAAAAgAAAA4BAgAoAAAAjAAAABEBBAABAAAAtAAAABUBAwABAAAAAwAAABYBAwABAAAAAQAAABcBBAABAAAAAwAAAAAAAAAIAAgACABqcjovL2ZpbGUvY29tbWNhcmUvcmVmdXNlZC1zdGFuZC1pbi50aWYAzlXW"
+	},
+	{
+		"path": "jr://file/commcare/refused-stand-in.wav",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"extension": "wav",
+		"refusedUnder": "expressions-and-data/audio-wav-that-is-not-8-or-16-bit-pcm",
+		"sha256": "0446e1b4aad136409802004a50327f089d107f9383c0032ec33d42948d60d117",
+		"base64": "UklGRngAAABXQVZFZm10IBAAAAABAAEAQB8AAMBdAAADABgAZGF0YRgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMSVNUNAAAAElORk9JQ01UKAAAAGpyOi8vZmlsZS9jb21tY2FyZS9yZWZ1c2VkLXN0YW5kLWluLndhdgA="
+	},
+	{
+		"path": "jr://file/commcare/held-stand-in.amr",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"mimeType": "audio/amr",
+		"extension": "amr",
+		"heldUnder": "expressions-and-data/audio-raw-aac-adts-aac-amr-midi",
+		"sha256": "f1732ecab685bbea8667c23af60370d7aa3907a2c54565d872d1254790a20b13",
+		"base64": "IyFBTVIKPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8NAKInMivkjzJ71AIows8Jprv0ctkDn/BWximyaP6yg=="
+	},
+	{
+		"path": "jr://file/commcare/held-stand-in.bmp",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/bmp",
+		"extension": "bmp",
+		"heldUnder": "expressions-and-data/image-bmp",
+		"sha256": "b29c18fde003f7989dde207ae9b863042b98bb927acb75749500935faeb02c4c",
+		"base64": "Qk1eAAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAATCwAAEwsAAAAAAAAAAAAAXSJ+AGpyOi8vZmlsZS9jb21tY2FyZS9oZWxkLXN0YW5kLWluLmJtcA=="
+	},
+	{
+		"path": "jr://file/commcare/held-stand-in.ico",
+		"kind": "image",
+		"mediaClass": "CommCareImage",
+		"mimeType": "image/vnd.microsoft.icon",
+		"extension": "ico",
+		"heldUnder": "expressions-and-data/image-ico-avif",
+		"sha256": "5234aeb55e8eccab41fe2037294b7375e57c30eb030b94e3f208244d752fecd1",
+		"base64": "AAABAAEAAQEAAAEAIABFAAAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAABAAAAAQgCAAAAkHdT3gAAAAxJREFUeNpjWP/rFAAEzwJ0uTTYLAAAAABJRU5ErkJggg=="
+	},
+	{
+		"path": "jr://file/commcare/held-stand-in.mkv",
+		"kind": "video",
+		"mediaClass": "CommCareVideo",
+		"mimeType": "video/x-matroska",
+		"extension": "mkv",
+		"heldUnder": "expressions-and-data/video-hevc-mp4-mpeg-4-part-2-mp4-and-mkv-holding-a-codec-android",
+		"sha256": "ebc6b04aa10d38addd7ce692c9b388927b0d34d53a77bc457adecef39280d17c",
+		"base64": "GkXfo6NChoEBQveBAULygQRC84EIQoKIbWF0cm9za2FCh4EEQoWBAhhTgGfgFUmpZrsq17GDD0JATYCKbm92YS1wcm9vZldBpGpyOi8vZmlsZS9jb21tY2FyZS9oZWxkLXN0YW5kLWluLm1rdhZUrmubrpnXgQFzxYEBg4EBhoVWX1ZQOOCGsIEQuoEQ"
+	},
+	{
+		"path": "jr://file/commcare/held-stand-in.ogg",
+		"kind": "audio",
+		"mediaClass": "CommCareAudio",
+		"mimeType": "audio/ogg",
+		"extension": "ogg",
+		"heldUnder": "expressions-and-data/audio-ogg-vorbis-or-opus",
+		"sha256": "ea9708c44b5804f857ecf7c083fc52643ecedbb1021d949b8aba396fb6a37ba3",
+		"base64": "T2dnUwACAAAAAAAAAABBVk9OAAAAAKvcNQEBE09wdXNIZWFkAQE4AYC7AAAAAABPZ2dTAAAAAAAAAAAAAEFWT04BAAAApfLGdQFKT3B1c1RhZ3MKAAAAbm92YS1wcm9vZgEAAAAsAAAAQ09NTUVOVD1qcjovL2ZpbGUvY29tbWNhcmUvaGVsZC1zdGFuZC1pbi5vZ2dPZ2dTAAT4BAAAAAAAAEFWT04CAAAAPpKSfAED+P/+"
+	}
+]

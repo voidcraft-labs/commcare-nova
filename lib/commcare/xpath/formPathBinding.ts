@@ -767,7 +767,8 @@ export function bindFormPath(
 	// the slot's own row's at any depth. Inside a table's rows a case value is
 	// that captured row's; inside another query of cases Nova has no tree for
 	// it, so the bound read is the inner row's, whose print differs, and the
-	// slot is left unread rather than refused as text Core cannot run.
+	// reading is told (`FormReadingHooks.listedCaseInQuery`), which refuses the
+	// slot under its own entry where no other cause explains the difference.
 	const listed = context.rows[0];
 	if (
 		reading !== undefined &&
@@ -777,11 +778,14 @@ export function bindFormPath(
 		path.root.name === "current" &&
 		path.root.args.length === 0 &&
 		path.steps.length > 0
-	)
+	) {
+		if (context.rows.slice(1).some((row) => row.kind === "case"))
+			reading.listedCaseInQuery?.();
 		return binder.term(
 			rowValue(binder, path.steps, { ...context, rows: [listed] }, whole),
 			whole,
 		);
+	}
 	if (reading !== undefined && path.root?.kind === "root") {
 		const generated = generatedValuePath(path);
 		const expanding = expandingGenerated.get(binder) ?? new Set<string>();

@@ -72,6 +72,11 @@ export interface IdentityAgreementInput {
 	/** The project space the emission is written for (`ReaderInput.target`): a link's node is
 	 *  written only where a target is known, so the emission's generated nodes follow it. */
 	readonly attachmentTarget: AttachmentUrlTarget;
+	/** Whether the source project space applies "save only if changed"
+	 *  (`ReaderInput.saveOnlyEditedApplied`). Where it does not, HQ's build writes a write stored
+	 *  `edit` as one saved every time (`xform.py::XForm.save_only_if_edited`), so neither side's
+	 *  `editOnly` is compared; absent where the source holds no `edit`. */
+	readonly saveOnlyEditedApplied?: boolean;
 }
 
 export interface IdentityAgreement {
@@ -278,17 +283,20 @@ function blockKey(block: PublishedCaseBlock): string {
  * change names through a generated sibling is its owner question's, and the
  * own block of a form that does not open its case states its condition as
  * `always`, since Case Management reads `never` and `if` there as the same
- * state on every shape the reader holds.
+ * state on every shape the reader holds. Its writes saved only if changed are none where
+ * `editApplied` is false: the project space builds every write as saved every time.
  */
 function comparableBlock(
 	block: PublishedCaseBlock,
 	ownerOf: (path: string) => string,
+	editApplied: boolean,
 ): Readonly<Record<string, unknown>> {
 	const properties = (map: ReadonlyMap<string, string>) =>
 		[...map]
 			.map(([key, path]) => [key, ownerOf(path)])
 			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-	const sorted = (set: ReadonlySet<string>) => [...set].sort();
+	const sorted = (set: ReadonlySet<string>) =>
+		editApplied ? [...set].sort() : [];
 	switch (block.kind) {
 		case "basic-own":
 			return {
@@ -533,6 +541,7 @@ export function* identityDifferencesSteps(
 				publishedE,
 				siblingOwners(sideA.generated),
 				siblingOwners(sideE.generated),
+				input.saveOnlyEditedApplied !== false,
 				(segments, detail) => differ(segments, formPlace, detail),
 			);
 	}
@@ -556,8 +565,13 @@ export function* identityDifferencesSteps(
 	for (const id of factsE.menus.keys())
 		if (!factsA.menus.has(id))
 			differ(["entry-menu", "added"], places.app, `menu ${id} is written`);
-	for (const [xmlns, a] of factsA.forms) {
+	for (const [xmlns, stored] of factsA.forms) {
 		const e = factsE.forms.get(xmlns);
+		// Child cases the reading dropped as no change of a case (`ReadFacts.childCasesUnread`).
+		const a =
+			e !== undefined && input.draft.facts.childCasesUnread.includes(xmlns)
+				? { ...stored, newChildCases: e.newChildCases }
+				: stored;
 		const key = e === undefined ? "missing" : entryFactsDifference(a, e);
 		if (key !== undefined)
 			differ(
@@ -773,6 +787,7 @@ function caseBlockDifferences(
 	e: PublishedForm,
 	ownerA: (path: string) => string,
 	ownerE: (path: string) => string,
+	editApplied: boolean,
 	differ: (segments: readonly string[], detail: string) => void,
 ): void {
 	const byKey = (form: PublishedForm) =>
@@ -785,8 +800,8 @@ function caseBlockDifferences(
 			differ(["case-blocks", block.kind, "missing"], `${key} is not written`);
 			continue;
 		}
-		const left = comparableBlock(block, ownerA);
-		const right = comparableBlock(other, ownerE);
+		const left = comparableBlock(block, ownerA, editApplied);
+		const right = comparableBlock(other, ownerE, editApplied);
 		for (const member of Object.keys(left))
 			if (!same(left[member], right[member]))
 				differ(

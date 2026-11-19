@@ -1,0 +1,18 @@
+[
+	{
+		"path": "jr://file/commcare/logo/data/hq_logo_android_home.png",
+		"file": "media/0.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/logo/data/hq_logo_android_login.png",
+		"file": "media/1.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	}
+]

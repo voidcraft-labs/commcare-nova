@@ -1,0 +1,45 @@
+[
+	{
+		"id": "note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "Fever round"
+				}
+			],
+			"expressions": ["/data/note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Fever round"
+			}
+		]
+	},
+	{
+		"id": "note-label-in-french",
+		"entry": "questions/label-default-text-itext-value",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "fra",
+			"expressions": ["jr:itext('note-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Remarque de la tournée"
+			}
+		]
+	}
+]

@@ -1,0 +1,28 @@
+{
+	"id": "hq-connect-deliver",
+	"configuration": {
+		"flags": [
+			"COMMCARE_CONNECT"
+		],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"DATA_FORWARDING"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": {
+		"runsOnlyOn": "android",
+		"splitDatetime": false
+	},
+	"exhibits": [
+		"application-and-settings/40-hq-cloudcare-enabled",
+		"application-and-settings/connect-app-opened-in-the-connect-app",
+		"menus-and-case-lists/module-with-case-type-survey-module",
+		"questions/connect-deliver-unit",
+		"questions/connect-task",
+		"questions/text-input-xsd-string"
+	]
+}
