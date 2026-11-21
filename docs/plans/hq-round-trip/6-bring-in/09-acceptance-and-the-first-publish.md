@@ -99,7 +99,7 @@ changes a byte Nova emits or what an App Test journey replays, so nothing here m
     way is decided in section 11.4: read exactly, refused, or declared by a register entry
     (section 10).
 16. **`FIRST_PUBLISH_CHANGES` holds 42 entries**, each with its predicate over the reading, the
-    stored-source paths it allows and whether it touches workers. Thirty-seven sentences say them
+    stored-source paths it allows and whether it touches workers. Thirty-eight sentences say them
     (section 11).
 17. **Per candidate change the decision is one of three**: read the original's behavior exactly, refuse,
     or declare. Section 11.4 gives the decision for every candidate the research, the manifest,
