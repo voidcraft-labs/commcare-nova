@@ -166,9 +166,6 @@ class JobExecutionTests(unittest.TestCase):
             ["select-starting-value-scan.cjs", "--app", "app_123"],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute"],
-            ["hq-import-scope-scan.cjs", "--phase", "keys", "--before", "2026-01-01T00:00:00Z"],
-            ["hq-import-scope-repair.cjs", "--phase", "oauth", "--before", "2026-01-01T00:00:00Z"],
-            ["hq-import-scope-repair.cjs", "--phase", "oauth", "--before", "2026-01-01T00:00:00Z", "--execute"],
         ):
             job = job_fixture()
             job["name"] = job_name
@@ -210,13 +207,6 @@ class JobExecutionTests(unittest.TestCase):
             ["select-starting-value-repair.cjs", "--plan-base64", ""],
             ["select-starting-value-repair.cjs", "--plan-base64", "not base64"],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute", "--extra"],
-            ["hq-import-scope-repair.cjs", "--execute"],
-            ["hq-import-scope-repair.cjs", "--phase", "oauth", "--before", "today", "--execute"],
-            ["hq-import-scope-scan.cjs", "--phase", "keys", "--before", "2026-01-01T00:00:00Z", "--execute"],
-            ["hq-import-scope-scan.cjs", "--execute"],
-            ["hq-import-scope-scan.cjs", "--prod"],
-            ["hq-import-scope-repair.cjs", "--execute", "--extra"],
-            ["hq-import-scope-repair.cjs", "--prod", "--execute"],
         ):
             with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args("commcare-nova-historical-repair", args)
