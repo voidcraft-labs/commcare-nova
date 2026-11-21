@@ -8,6 +8,7 @@ import tarfile
 import pytest
 
 from proof.ci import replay
+from proof.diagnostics import host
 
 
 @pytest.fixture
@@ -62,6 +63,16 @@ def test_an_ordinary_unsampled_queue_uses_the_named_blocks_membership(sample):
         replay.selection(record, raw, emission, **args)
 
 
+def test_fresh_mode_preserves_the_requested_draw_count_including_refusals():
+    by_source = {"fuzz:xform": 2, "fuzz:suite": 2, "fuzz:expression": 8, "fuzz:advanced": 7}
+    refused = [{"source": {"generator": family}} for family in ("xform", "advanced")]
+    index = {"seed": 23, "sample": 21, "entropy": "seeded",
+             "census": {"sample": {"documents": 21, "bySource": by_source, "refused": refused}}}
+    assert replay.original_emission_parameters(index) == {"seed": 23, "requestedSample": 5}
+    with pytest.raises(ValueError, match="incomplete"):
+        replay.original_emission_parameters(dict(index, sample=22))
+
+
 def test_artifact_names_and_source_cover_pr_and_reusable_lanes():
     assert replay.artifact_names("proof-progress-shard-1-2-19.json", "2") == (
         "shard-1", "proof-queue-2.json", "proof-corpus-2.tar.zst")
@@ -109,9 +120,13 @@ def test_the_host_returns_only_the_selected_native_bytes_and_refuses_changed_out
     output = tmp_path / "output"
     stage = output / "blocks" / ("d" * 64) / "diagnostics" / "stage-1"
     (stage / "blobs").mkdir(parents=True)
+    info = output.stat()
+    host.status_path(output).write_text(json.dumps({
+        "status": "finished", "exit": 0, "sealed": True, "output": [info.st_dev, info.st_ino], "dockerCleanup": None,
+    }))
     blob = b"native screenshot"
     (stage / "blobs" / hashlib.sha256(blob).hexdigest()).write_bytes(blob)
-    native = b'{"held":true}'
+    native = json.dumps({"capture": {"sha256:" + hashlib.sha256(blob).hexdigest(): {"held": True}}}).encode()
     (stage / "native.json").write_bytes(native)
     status = dict(receipt["request"], status="observed", observedInputSha256="a" * 64, inputMatchesReference=True,
                   outputSha256=hashlib.sha256(native).hexdigest(), blobs=1)
@@ -127,6 +142,14 @@ def test_the_host_returns_only_the_selected_native_bytes_and_refuses_changed_out
     (stage / "native.json").write_bytes(b"changed")
     with pytest.raises(ValueError, match="result digest differs"):
         replay.report(again, output, successful=True)
+    unreferenced = tmp_path / "unreferenced"
+    unreferenced.mkdir()
+    (unreferenced / "receipt.json").write_text(json.dumps(receipt))
+    unnamed = b'{"held":true}'
+    (stage / "native.json").write_bytes(unnamed)
+    (stage / "stage.json").write_text(json.dumps(dict(status, outputSha256=hashlib.sha256(unnamed).hexdigest())))
+    with pytest.raises(ValueError, match="does not name this attachment"):
+        replay.report(unreferenced, output, successful=True)
     (stage / "native.json").write_bytes(native)
     status.update(observedInputSha256="c" * 64, inputMatchesReference=False)
     (stage / "stage.json").write_text(json.dumps(status))
@@ -142,6 +165,21 @@ def test_the_host_returns_only_the_selected_native_bytes_and_refuses_changed_out
     (stage / "stage.json").write_text(json.dumps(dict(status, mode="fresh")))
     replay.report(fresh, output, successful=True)
     assert json.loads((fresh / "report" / "stage-1" / "stage.json").read_text())["inputMatchesReference"] is False
+
+
+def test_collection_requires_the_finished_external_receipt_before_reading_any_output(tmp_path):
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / "host-status.json").write_text('{"sealed": true}')
+    with pytest.raises(FileNotFoundError):
+        replay.report(tmp_path, output, successful=False)
+    stat = output.stat()
+    for received in ("", "{}", json.dumps(dict(sealed=True, status="timed-out", exit=124, dockerCleanup=False,
+                                                  output=[stat.st_dev, stat.st_ino]))):
+        host.status_path(output).write_text(received)
+        with pytest.raises(ValueError):
+            replay.report(tmp_path, output, successful=False)
+    assert not (tmp_path / "report").exists()
 
 
 @pytest.mark.parametrize(("name", "kind"), [("../outside", tarfile.REGTYPE), ("linked", tarfile.SYMTYPE)])

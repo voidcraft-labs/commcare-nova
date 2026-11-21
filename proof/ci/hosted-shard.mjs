@@ -40,7 +40,7 @@ export function hostedCutoffs(
 	return { stopAt, hostSeconds: stopAt + HOST_GRACE_SECONDS - now };
 }
 
-export function stopHostedWriter() {
+export function stopHostedWriter(container = HOSTED_CONTAINER) {
 	const docker = (...args) =>
 		execFileSync("docker", args, {
 			encoding: "utf8",
@@ -53,16 +53,17 @@ export function stopHostedWriter() {
 			"--all",
 			"--quiet",
 			"--filter",
-			`name=^/${HOSTED_CONTAINER}$`,
+			`name=^/${container}$`,
 		).trim() !== "";
 	if (!exists()) return;
 	console.error(
 		"The hosted harness is still present. Removing it before sealing its output.",
 	);
 	try {
-		docker("rm", "--force", HOSTED_CONTAINER);
+		docker("rm", "--force", container);
 	} catch (error) {
 		// A --rm container can finish between listing it and removing it.
 		if (exists()) throw error;
 	}
+	if (exists()) throw new Error("The Docker writer is still present.");
 }

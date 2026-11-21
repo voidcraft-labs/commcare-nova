@@ -51,6 +51,7 @@ it("executes one checkout at the replay dispatch's own commit", async () => {
 		"persist-credentials": false,
 	});
 	expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
+	expect(workflow["cache-mode"]).toBe("read");
 });
 
 it("queues full reader workflows together without blocking a pin update on its child image build", async () => {

@@ -1218,8 +1218,11 @@ The default `reproduce` mode checks the prior digest before entering the native 
 
 The requested deadline covers 1–1200 seconds of preparation and native work. The local
 launcher also enforces a host deadline with ten minutes allowed for a cold start,
-20 seconds for shutdown and up to 15 seconds for container cleanup.
-`host-status.json` in its output records the host outcome.
+20 seconds for graceful shutdown, up to 20 seconds to confirm its process group exited,
+15 seconds for container cleanup and up to three minutes to confirm the writer is gone and seal the files.
+The adjacent `<output-directory>.host-status.json` records the host outcome. After the launcher
+group has exited, the host verifies that Docker removed the reader and seals its output. An
+interrupted run can supply diagnostic files only when that check completed.
 
 The output’s `blocks/*/diagnostics/stage-*/stage.json` records preparation, entry into
 the native call, actual input, elapsed time, and completion or interruption. An abrupt
@@ -6234,8 +6237,9 @@ source identities. Its stage record reports the observed input digest and whethe
 the earlier one.
 
 The `proof-replay-<attempt>` artifact holds the input source, stage status, native result and its
-checked attachments when the operation finished. A surviving host status describes setup or
-shutdown even if the native stage never produced its record. The release gate reads the
+checked attachments when the operation finished. The supervisor’s host status describes setup or
+shutdown even if the native stage never produced its record. Collection requires the supervisor’s
+completed seal, including confirmed absence of the reader on the Docker daemon. The release gate reads the
 original complete proof groups.
 
 ### The gate

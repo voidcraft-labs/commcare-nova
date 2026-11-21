@@ -598,12 +598,11 @@ async function ownerState(owner) {
  */
 async function removeFinishedRuns(runs) {
 	for (const entry of await readdir(runs, { withFileTypes: true })) {
-		const id = entry.name.endsWith(".owner")
-			? entry.name.slice(0, -".owner".length)
-			: entry.name;
+		const id = entry.name.replace(/(?:\.owner|\.host-status\.json)$/, "");
 		const owner = join(runs, `${id}.owner`);
 		if ((await ownerState(owner)) === "live") continue;
 		await rm(join(runs, id), { recursive: true, force: true });
+		await rm(join(runs, `${id}.host-status.json`), { force: true });
 		await rm(owner, { force: true });
 	}
 }
@@ -936,6 +935,7 @@ function watchMemory(output, project) {
 		await writeFile(
 			join(output, "memory.json"),
 			`${JSON.stringify({ peaks: found, machineLowestFree: hostLowest, samples }, null, "\t")}\n`,
+			{ flag: "wx", mode: 0o600 },
 		).catch(() => {});
 		const summary = Object.entries(found).map(
 			([name, peak]) => `${name} ${gib(peak.cgroup ?? peak.sampled)}`,
@@ -1151,7 +1151,7 @@ export async function main(
 				"--",
 				...pytestArguments(lane.pytest),
 			],
-		}).finally(() => sealed(output));
+		}).finally(() => (replayProject ? undefined : sealed(output)));
 		return refusedOutputs.has(output) ? SEAL_REFUSED : code;
 	} finally {
 		if (replayProject && modulesForCleanup === `${replayProject}-modules`) {
@@ -1587,6 +1587,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	};
 	if (command === "--surface") {
 		surface().then(done, failed);
+	} else if (command === "--seal-replay" && rest.length === 2) {
+		const [project, output] = rest;
+		if (!/^nova-proof-replay-[a-f0-9]{16}$/.test(project))
+			throw new Error("Invalid diagnostic project.");
+		// Only the named harness mounts /out. The supervisor has already reaped the launcher group.
+		stopHostedWriter(`${project}-reader`);
+		sealOutput(resolve(output)).then(
+			(foreign) => done(foreign.length > 0 ? SEAL_REFUSED : 0),
+			failed,
+		);
 	} else if (
 		(command === "--seal" || command === "--seal-hosted") &&
 		rest.length === 1

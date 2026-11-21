@@ -49,6 +49,8 @@ on:
         default: 300
         required: true
 
+cache-mode: read
+
 permissions:
   contents: read
   actions: read
@@ -134,14 +136,12 @@ jobs:
         run: |
           if [ -n "$PROOF_ANDROID_RUNTIME" ]; then export PROOF_ANDROID_JDK="$JAVA_HOME"; fi
           node proof/run.mjs --workers 1 proof/diagnostics/replay.py::test_selected_stage
-      - name: Seal the diagnostic output
+      - name: Collect the host-certified diagnostic
         id: seal
         if: ${{ !cancelled() && steps.observe.outcome != 'skipped' }}
         env:
           OBSERVATION_OUTCOME: ${{ steps.observe.outcome }}
-        run: |
-          node proof/run.mjs --seal "$PROOF_OUT_DIR"
-          python3 -m proof.ci.replay report "$RUNNER_TEMP/replay"
+        run: python3 -m proof.ci.replay report "$RUNNER_TEMP/replay"
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         with:

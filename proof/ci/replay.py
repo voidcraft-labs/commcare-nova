@@ -11,6 +11,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+from proof.observe.record import BLOB_PREFIX, blob_references
+
 
 def require(condition, message):
     if not condition:
@@ -139,6 +141,20 @@ def file_digest(path):
     return h.hexdigest()
 
 
+def original_emission_parameters(index):
+    # emit.ts adds fixed expression and advanced samples to the requested XForm and suite draws.
+    # Count each original draw, including documents refused during emission.
+    require(index["entropy"] == "seeded" and type(index["seed"]) is int and not index.get("selection"),
+            "Fresh emission requires a complete seeded corpus index.")
+    census = index["census"]["sample"]
+    emitted = census["bySource"]
+    refused = [row["source"]["generator"] for row in census["refused"]]
+    require(census["documents"] == index["sample"] == sum(emitted.values()) + len(refused),
+            "The original corpus sample is incomplete.")
+    sample = sum(emitted.get("fuzz:" + family, 0) + refused.count(family) for family in ("xform", "suite"))
+    return {"seed": index["seed"], "requestedSample": sample}
+
+
 def prepare(root):
     env = os.environ
     checkpoint_name = env["CHECKPOINT"]
@@ -164,7 +180,8 @@ def prepare(root):
     mode = env["MODE"]
     require(mode in ("reproduce", "fresh"), "Choose reproduce or fresh.")
     receipt["request"]["mode"] = mode
-    receipt["emission"] = {k: emission[k] for k in ("seed", "sample", "entropy")}
+    if mode == "fresh":
+        receipt["emission"] = original_emission_parameters(emission)
     (root / "receipt.json").write_text(json.dumps(receipt))
 
 
@@ -206,14 +223,19 @@ def runtime(root):
 
 def report(root, output, *, successful):
     """Keep only the selected native record and its content-addressed bytes after the host has sealed output."""
+    from proof.diagnostics.host import certified_output
+
+    with certified_output(output, successful) as host:
+        _collect(root, output, successful, host)
+
+
+def _collect(root, output, successful, host):
     dest = root / "report"
     dest.mkdir()
     source = root / "receipt.json"
     request = json.loads(source.read_text())["request"]
     shutil.copyfile(source, dest / "source.json")
-    host = output / "host-status.json"
-    if host.is_file():
-        shutil.copyfile(host, dest / host.name)
+    (dest / "host-status.json").write_text(json.dumps(host))
     stages = list(output.glob("blocks/*/diagnostics/stage-*"))
     if not stages:
         require(not successful, "The runner succeeded without a native stage receipt.")
@@ -239,10 +261,12 @@ def report(root, output, *, successful):
         shutil.copyfile(native, held / native.name)
         blobs = list((stage / "blobs").iterdir())
         require(len(blobs) == status["blobs"], "The diagnostic lacks its native attachments.")
+        referenced = set(blob_references(json.loads(native.read_bytes())))
         (held / "blobs").mkdir()
         for blob in blobs:
             require(blob.is_file() and re.fullmatch("[a-f0-9]{64}", blob.name)
                     and file_digest(blob) == blob.name, "Native attachment digest differs.")
+            require(BLOB_PREFIX + blob.name in referenced, "The native record does not name this attachment.")
             shutil.copyfile(blob, held / "blobs" / blob.name)
 
 
@@ -275,12 +299,12 @@ def main():
     elif command == "emit":
         receipt = json.loads((root / "receipt.json").read_text())
         emission = receipt["emission"]
-        require(receipt["request"]["mode"] == "fresh" and emission["entropy"] == "seeded"
-                and type(emission["seed"]) is int and type(emission["sample"]) is int,
+        require(receipt["request"]["mode"] == "fresh" and type(emission["seed"]) is int
+                and type(emission["requestedSample"]) is int,
                 "Generating new diagnostic inputs needs the original seeded corpus sample.")
         subprocess.run(["node", "--conditions=react-server", "--import", "./proof/corpus/entropy.mts", "--import", "tsx",
                         "proof/corpus/emit.ts", "--out", root / "fresh", "--seed", str(emission["seed"]),
-                        "--sample", str(emission["sample"]), "--jobs", "4"], check=True)
+                        "--sample", str(emission["requestedSample"]), "--jobs", "4"], check=True)
     elif command == "report":
         report(root, Path(os.environ["PROOF_OUT_DIR"]), successful=os.environ["OBSERVATION_OUTCOME"] == "success")
     else:

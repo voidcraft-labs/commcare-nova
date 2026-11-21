@@ -14,6 +14,7 @@ import os
 import re
 from pathlib import Path
 
+from proof.observe.record import blob_references
 from proof.store import disk
 
 MAX_BYTES = 32 << 20
@@ -198,6 +199,8 @@ def decoded(data):
         or disk.canonical(parsed) != record
     ):
         raise ValueError("Expected a canonical ordinary part record.")
+    if set(names[1:]).difference(blob_references(parsed)):
+        raise ValueError("The ordinary part does not name every supplied attachment.")
     return header, chunks
 
 

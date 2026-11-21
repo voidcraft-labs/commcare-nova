@@ -10,11 +10,12 @@ import zipfile
 
 import pytest
 
-from proof.store import audit, checkpoint, disk, runtime
+from proof.store import checkpoint, disk
 
 
 def test_a_killed_worker_leaves_a_reusable_ordinary_part_without_a_completed_group(tmp_path, monkeypatch):
     from proof.checks import cases, corpus
+    from proof.store import audit, runtime
 
     # Use the actual emitted files, configuration and hook inputs of the same synthetic HQ document as the lane.
     source = cases.load_corpus().document("hq-plain")
@@ -163,6 +164,18 @@ os.kill(os.getpid(), signal.SIGKILL)
     with pytest.raises(ValueError, match="Changed document or reader inputs"):
         checkpoint.restore([received], refused, **args)
     assert not refused.exists()
+
+
+def test_completed_part_rejects_an_unreferenced_attachment(tmp_path):
+    delta = disk.Delta(tmp_path / "store")
+    stored = "6" * 64
+    record = delta.put_blob(disk.canonical({"kind": "a"}))
+    extra = delta.put_blob(b"unrelated fixture")
+    delta.put("parts", stored, {"record": record, "blobs": [extra]})
+    checkpoint.Stager(delta, "corpus:hq-plain", "b" * 64, {}, {}).settled(b"k" * 32, stored)
+    [capsule] = tmp_path.glob(".reader-part-*.bin")
+    with pytest.raises(ValueError, match="does not name every supplied attachment"):
+        checkpoint.decoded(capsule.read_bytes())
 
 
 def test_size_omissions_name_the_complete_part_and_keep_its_ordinary_store_entry(tmp_path, monkeypatch):
