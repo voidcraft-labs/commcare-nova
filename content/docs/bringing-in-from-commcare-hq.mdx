@@ -88,8 +88,8 @@ Under the list Nova says: When you check again, Nova may find more to name.
 
 Nova can't bring in an app whose case list column, filter, display condition or
 search setting calls a function such as `int()` or `substr()`. It lists each one
-with where it sits in your app. Expressions inside forms can use every function
-CommCare runs.
+with where it sits in your app. Inside a form, Nova can bring in calculations
+that use `int()` or `substr()`.
 
 Two more things are listed with where they sit, since Nova would save or find
 something different from what CommCare HQ does today:
@@ -109,6 +109,21 @@ Nova keeps no copy of the list. **Copy the list** lets you take it with you, and
 **Check again** reads the app afresh whenever you like.
 
 Nova doesn't bring in part of an app.
+
+Nova reads only so much of an app's lookup tables: a table holding more data
+than Nova reads for one table is listed under **Nova can't hold this yet**, and
+an app whose tables together hold more lookup data than Nova brings in is too.
+That limit is Nova's, not the app's.
+
+Nova also gives each app only so much checking for its size. An app that takes
+more checking than that is listed under **Nova can't hold this yet** as an app
+that takes more checking than Nova gives one app. That limit is Nova's too, and
+it counts the checking itself rather than time, so checking again gives the same
+answer. Looking for changes made in CommCare HQ works within the same limit.
+
+When Nova is reading several apps from CommCare HQ at once, it may ask you to
+try again in a minute or two. If this happens during your read, you can choose
+**Check again** to have Nova read the app afresh.
 
 ## After it's in
 
@@ -142,6 +157,22 @@ takes the form's name, Nova writes each form's case settings and each case
 list's settings in its own way, and a choice with no name leaves a case list's
 Sort by on Android.
 
+If a CommCare Connect app has Auto Capture Location off in CommCare HQ, the
+first publish turns it on for every form. Android asks for location permission
+if needed. When the worker grants it and the device gets a GPS fix, the
+submitted form includes that location. If a delivery form reaches CommCare
+Connect, its visit records the location. If the opportunity checks for missing
+GPS, the visit passes that check. If you turn off Connect before you
+publish, Nova leaves Auto Capture Location as it is in CommCare HQ.
+
+When the app was available in Web Apps and had no setting for incomplete
+forms, the Web Apps home screen counted it as showing incomplete forms.
+Publishing with this setting off hides the Incomplete Forms tile unless another
+app available to the worker shows it. To keep the tile for this app, open
+**App settings**, then **Saved and incomplete forms**, and turn on **Show
+incomplete forms** before publishing. The worker's saved sessions stay in
+CommCare HQ.
+
 The list follows the choice you make for where the app runs, and a change only
 Android shows stays off it while the app runs in Web Apps only. Where nothing
 in it changes what workers see or do, the list says so.
@@ -150,7 +181,9 @@ in it changes what workers see or do, the list says so.
 
 An admin or owner of the Project can choose **Stop publishing here** on the
 project space's card. The app in CommCare HQ stays as it is, this app stops
-publishing to it, and it can be brought in again as a new app.
+publishing to it, and it can be brought in again as a new app once any publish
+to it that was running has finished. If a publish is still finishing when you
+bring that app in, Nova says so, and you can try again in a few minutes.
 
 ## From an agent
 

@@ -7,15 +7,21 @@
 #   proof/remote/run.sh <ssh host> --provision [--android-licenses <directory>]
 #   proof/remote/run.sh <ssh host> [--slot S] --fetch
 #
-# The working tree is copied to ~/proof-remote/<slot> on the host (rsync,
-# without .git, node_modules or .proof, so uncommitted edits are included),
-# its node_modules hard-linked from the one install of its lock provision.sh
+# The working tree's files git lists (tracked, and untracked but not ignored,
+# so uncommitted edits are included; never an ignored file such as an .env or
+# a key, and never .git) are copied to ~/proof-remote/<slot> on the host
+# (rsync, which also removes there any file git ignores here), with that
+# list as .proof/checkout-files, the files the run there shows its container
+# (proof/run.mjs::checkoutView); its node_modules hard-linked from the one
+# install of its lock provision.sh
 # made (or installed into the slot where the lock differs), the slot's
 # earlier runs cleared (the lane's container writes them as root), and
 # `npm run proof -- <arguments>` run there with the Android reader's runtime
 # and its JDK (PROOF_ANDROID_RUNTIME, PROOF_ANDROID_JDK) and each --env.
 # The run's output comes back to .proof/remote/<slot>-<stamp>/ (without the
-# store's blobs or the emitted corpus), and the exit status is the run's.
+# store's blobs or the emitted corpus, and as plain files and directories
+# only: a link or any other entry is not copied), and the exit status is the
+# run's.
 # The slot (this tree's directory name by default) keeps two trees' runs on
 # one host apart. --provision copies the tree and runs provision.sh on the
 # host; --fetch brings the slot's latest run back.
@@ -59,13 +65,32 @@ on_host() {
   "${ssh_command[@]}" "$host" "bash -lc $(printf '%q' "$line")"
 }
 
+# Every path git ignores here, each as an rsync rule anchored at the tree's root (its wildcard characters
+# escaped), so the copy holds exactly the files git lists, and a file the slot holds at an ignored path from an
+# earlier copy is removed (--delete-excluded). The slot's own node_modules and .proof are protected.
 sync_tree() {
-  on_host mkdir -p "$remote"
+  local rules files
+  rules="$(mktemp)"
+  files="$(mktemp)"
+  git -C "$here" ls-files -z --others --ignored --exclude-standard --directory \
+    | python3 -I -c '
+import sys
+for path in sys.stdin.buffer.read().split(b"\0"):
+    if path:
+        escaped = path.decode("utf-8", "surrogateescape")
+        for character in "\\[*?":
+            escaped = escaped.replace(character, "\\" + character)
+        sys.stdout.write("- /" + escaped + "\n")
+' > "$rules"
+  git -C "$here" ls-files -z --cached --others --exclude-standard > "$files"
+  on_host mkdir -p "$remote/.proof"
   on_host sudo rm -rf "$remote/.proof/runs" "$remote/.proof/out"
-  rsync -a --delete -e "${PROOF_REMOTE_SSH:-ssh}" \
-    --exclude .git --exclude node_modules --exclude .proof --exclude .next --exclude __pycache__ \
-    --exclude .source --exclude '*.tsbuildinfo' --exclude .claude/worktrees \
+  rsync -a --delete --delete-excluded -e "${PROOF_REMOTE_SSH:-ssh}" \
+    --filter 'P /node_modules/' --filter 'P /.proof/' --exclude /.git \
+    --exclude-from "$rules" \
     "$here/" "$host:$remote/"
+  rsync -t -e "${PROOF_REMOTE_SSH:-ssh}" "$files" "$host:$remote/.proof/checkout-files"
+  rm -f "$rules" "$files"
 }
 
 link_dependencies() {
@@ -88,7 +113,8 @@ fetch_output() {
   local destination
   destination="$here/.proof/remote/$slot-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$destination"
-  rsync -a -e "${PROOF_REMOTE_SSH:-ssh}" --exclude store/blobs --exclude 'corpus/' \
+  # -rt: directories and plain files with their times, never a link, a device or a special file.
+  rsync -rt -e "${PROOF_REMOTE_SSH:-ssh}" --exclude store/blobs --exclude 'corpus/' \
     "$host:$remote/.proof/out/" "$destination/" || true
   echo "proof/remote/run.sh: the run's output is at $destination"
 }

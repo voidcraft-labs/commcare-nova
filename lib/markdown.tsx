@@ -8,10 +8,20 @@
  *   stray elements (the model's thinking routinely contains XML-ish tokens like
  *   `<mother>` — without `disableParsingRawHTML` those parse to unknown DOM
  *   elements and crash the render).
- * - **Preview** (`PreviewMarkdown`) — links (`target="_blank"`) + images allowed,
- *   raw HTML still rendered as inert text. Used for form labels, validation
- *   errors, and select option labels (SA-authored, so the same raw-HTML guard
- *   applies; markdown links/images come from markdown syntax, not raw tags).
+ * - **Label** (`PreviewMarkdown`, and `LabelContent` through it): a label,
+ *   hint, help text, choice or Search subtitle as the runtime Preview plays
+ *   formats it. Its text is not only the author's: in the running preview a
+ *   value is substituted into the label before the whole is formatted, as
+ *   Core does before Web Apps or Android draws it
+ *   (`FormEntryCaption.getSpecialFormQuestionText` →
+ *   `FormDef.fillTemplateString`), and a lookup-backed choice's label is a
+ *   lookup row's cell. So formatting inside a case property or an answer
+ *   shows as it does on a device, and one policy holds whoever wrote the
+ *   text (`labelMarkdownOptions`): label text makes the builder's page do
+ *   nothing a device's label cannot do, and nothing without a click. A bare
+ *   address is text, as on both runtimes; a link opens only a web address;
+ *   a picture is drawn only from inside the label itself, never fetched, so
+ *   label text causes no network request; raw HTML stays inert text.
  *
  * Both variants support `breaks: true` semantics (single newlines → `<br>`)
  * via a custom `renderRule`, since markdown-to-jsx has no native breaks option.
@@ -25,7 +35,15 @@
  */
 
 import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
-import { Children, createElement, Fragment, type ReactNode } from "react";
+import {
+	Children,
+	createElement,
+	Fragment,
+	type ReactNode,
+	useMemo,
+} from "react";
+import { isInlinePicture } from "@/lib/links/inlinePicture";
+import { isOpenableAddress } from "@/lib/links/openableAddress";
 
 /* ---------------------------------------------------------------------------
  * Table key workaround
@@ -98,7 +116,7 @@ function breaksRenderRule(
  * of breaks handling without either knowing about the other.
  * ------------------------------------------------------------------------ */
 
-type RenderRule = NonNullable<MarkdownToJSX.Options["renderRule"]>;
+export type RenderRule = NonNullable<MarkdownToJSX.Options["renderRule"]>;
 
 export function composeRenderRules(
 	...rules: (MarkdownToJSX.Options["renderRule"] | undefined)[]
@@ -149,29 +167,6 @@ const CHAT_SECURITY_OVERRIDES: MarkdownToJSX.Overrides = {
 };
 
 /* ---------------------------------------------------------------------------
- * Preview link override
- *
- * Links open in a new tab with noopener/noreferrer — standard CommCare
- * behavior for user-authored content.
- * ------------------------------------------------------------------------ */
-
-function ExternalLink({
-	children,
-	href,
-	...rest
-}: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
-	return (
-		<a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
-			{children}
-		</a>
-	);
-}
-
-const PREVIEW_LINK_OVERRIDES: MarkdownToJSX.Overrides = {
-	a: { component: ExternalLink },
-};
-
-/* ---------------------------------------------------------------------------
  * Stable options objects
  *
  * Module-level constants so markdown-to-jsx's internal useMemo sees the same
@@ -190,22 +185,6 @@ export const CHAT_OPTIONS: MarkdownToJSX.Options = {
 	disableParsingRawHTML: true,
 };
 
-/** Options for preview surfaces — links open in new tab, images allowed (both
- *  from markdown syntax); raw `<tag>` HTML is escaped to text, same guard as
- *  chat (these labels are SA-authored). */
-export const PREVIEW_OPTIONS: MarkdownToJSX.Options = {
-	overrides: { ...TABLE_KEY_OVERRIDES, ...PREVIEW_LINK_OVERRIDES },
-	renderRule: breaksRenderRule,
-	slugify: noSlug,
-	disableParsingRawHTML: true,
-};
-
-/** Preview with forceInline — for rendering inside <span> contexts. */
-const PREVIEW_OPTIONS_INLINE: MarkdownToJSX.Options = {
-	...PREVIEW_OPTIONS,
-	forceInline: true,
-};
-
 /* ---------------------------------------------------------------------------
  * Label rendering per runtime
  *
@@ -213,14 +192,15 @@ const PREVIEW_OPTIONS_INLINE: MarkdownToJSX.Options = {
  * renderer: Web Apps with markdown-it (`breaks: true`, raw HTML shown as
  * written), Android with Markwon. The running preview draws the platform it
  * plays (`lib/preview/platform.ts`, `labelMarkdown`), so these three choices
- * reshape the preview options:
+ * reshape the label options:
  *
  * - `singleNewline: "space"` drops the breaks rule, so a single newline
  *   inside a paragraph reads as a space;
  * - `html: "dropped"` removes raw HTML tags and keeps their text;
  * - `images: "alt-text"` draws an image as its alt text, with no image.
  *
- * `PREVIEW_LABEL_RENDERING` is today's preview rendering, the Web Apps one.
+ * `PREVIEW_LABEL_RENDERING` is the Web Apps one, which the builder's edit
+ * mode shows.
  * ------------------------------------------------------------------------ */
 
 export interface LabelMarkdownRendering {
@@ -268,34 +248,81 @@ function labelTextRule(rendering: LabelMarkdownRendering): RenderRule {
 	};
 }
 
-function AltTextImage({ alt }: { alt?: string }) {
+/* ---------------------------------------------------------------------------
+ * What label text may make the page do
+ *
+ * A link opens in a new tab, as both runtimes open one, and only where its
+ * address is a web address (`lib/links/openableAddress.ts`, the guard the
+ * link column holds too): any other scheme (`file:`, `intent:`, `tel:`, a
+ * relative path) draws the link's words with no anchor. A picture is drawn
+ * only where its address is inside the label, an image `data:` address of a
+ * kind markdown-it draws (`validateLink`'s `GOOD_DATA_RE`: GIF, PNG, JPEG,
+ * WebP); a picture at any other address draws its description, as Android
+ * draws every picture, so no label text, the author's or a value's, makes the
+ * builder's page request anything.
+ * ------------------------------------------------------------------------ */
+
+function LabelLink({
+	children,
+	href,
+	...rest
+}: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+	if (href === undefined || !isOpenableAddress(href)) return <>{children}</>;
+	return (
+		<a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+			{children}
+		</a>
+	);
+}
+
+function DescribedPicture({ alt }: { alt?: string }) {
 	return <>{alt ?? ""}</>;
 }
 
-const renderingOptionsCache = new Map<string, MarkdownToJSX.Options>();
+/** The picture of a label the runtime draws pictures for. */
+function InlinePicture({
+	alt,
+	src,
+	title,
+}: {
+	alt?: string;
+	src?: string;
+	title?: string;
+}) {
+	if (src === undefined || !isInlinePicture(src))
+		return <DescribedPicture alt={alt} />;
+	// biome-ignore lint/performance/noImgElement: a markdown picture drawn from its own data address, never fetched
+	return <img alt={alt ?? ""} src={src} title={title} />;
+}
 
-/** The preview options for one label rendering, built once per combination
- *  so markdown-to-jsx keeps seeing the same object. */
-export function previewOptionsFor(
-	rendering: LabelMarkdownRendering = PREVIEW_LABEL_RENDERING,
+const labelOptionsCache = new Map<string, MarkdownToJSX.Options>();
+
+/** The options a label renders with on one runtime: the runtime's own
+ *  formatting rules, and what label text may make the page do (above). Built
+ *  once per combination so markdown-to-jsx keeps seeing the same object. */
+export function labelMarkdownOptions(
+	rendering: LabelMarkdownRendering,
 	inline = false,
 ): MarkdownToJSX.Options {
 	const key = `${rendering.singleNewline}:${rendering.html}:${rendering.images}:${inline}`;
-	const cached = renderingOptionsCache.get(key);
+	const cached = labelOptionsCache.get(key);
 	if (cached !== undefined) return cached;
 	const options: MarkdownToJSX.Options = {
-		...PREVIEW_OPTIONS,
 		overrides: {
 			...TABLE_KEY_OVERRIDES,
-			...PREVIEW_LINK_OVERRIDES,
-			...(rendering.images === "alt-text"
-				? { img: { component: AltTextImage } }
-				: {}),
+			a: { component: LabelLink },
+			img: {
+				component:
+					rendering.images === "shown" ? InlinePicture : DescribedPicture,
+			},
 		},
 		renderRule: labelTextRule(rendering),
+		slugify: noSlug,
+		disableParsingRawHTML: true,
+		disableAutoLink: true,
 		...(inline ? { forceInline: true } : {}),
 	};
-	renderingOptionsCache.set(key, options);
+	labelOptionsCache.set(key, options);
 	return options;
 }
 
@@ -331,27 +358,33 @@ export function ChatMarkdown({ children }: { children: string }) {
 
 interface PreviewMarkdownProps {
 	children: string;
+	/** How the runtime the text is shown for renders a label
+	 *  (`lib/preview/platform.ts`, `labelMarkdown`); the builder's edit mode
+	 *  passes `PREVIEW_LABEL_RENDERING`. */
+	rendering: LabelMarkdownRendering;
 	/**
 	 * When true, forces inline rendering (no block elements like <p>).
 	 * Use when the markdown content lives inside a <span> or other inline context.
 	 */
 	inline?: boolean;
-	/** How the runtime Preview plays renders a label; absent is today's
-	 *  preview rendering. */
-	rendering?: LabelMarkdownRendering;
+	/** A text-node rule layered on the label's own (`withChipInjection`):
+	 *  `LabelContent`'s reference chips. Keep its identity stable across
+	 *  renders, as markdown-to-jsx re-parses on a new options object. */
+	textRule?: RenderRule;
 }
 
-/** Render markdown for preview surfaces (links/images allowed). */
+/** Render a label, hint, help text, choice or Search subtitle under the one
+ *  label policy (`labelMarkdownOptions`). */
 export function PreviewMarkdown({
 	children,
-	inline,
 	rendering,
+	inline,
+	textRule,
 }: PreviewMarkdownProps) {
-	const options =
-		rendering === undefined
-			? inline
-				? PREVIEW_OPTIONS_INLINE
-				: PREVIEW_OPTIONS
-			: previewOptionsFor(rendering, inline);
+	const base = labelMarkdownOptions(rendering, inline);
+	const options = useMemo(
+		() => (textRule === undefined ? base : withChipInjection(base, textRule)),
+		[base, textRule],
+	);
 	return <Markdown options={options}>{children}</Markdown>;
 }

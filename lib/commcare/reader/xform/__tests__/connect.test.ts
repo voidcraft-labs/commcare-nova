@@ -115,14 +115,20 @@ const deliverUnit = (
 	options: {
 		entityCalculate?: boolean;
 		workArea?: string;
+		/** Text written into the `work_area_id` leaf, a fixed id. */
+		workAreaText?: string;
 		relevant?: string;
 		name?: string;
 		path?: string;
 	} = {},
 ) => {
 	const path = options.path ?? `/data/${id}`;
+	const workArea =
+		options.workAreaText === undefined
+			? "<work_area_id/>"
+			: `<work_area_id>${options.workAreaText}</work_area_id>`;
 	return {
-		data: `<${id} vellum:role="ConnectDeliverUnit"><deliver ${CONNECT} id="${id}"><name>${options.name ?? "Visit"}</name><entity_id/><entity_name/><work_area_id/></deliver></${id}>`,
+		data: `<${id} vellum:role="ConnectDeliverUnit"><deliver ${CONNECT} id="${id}"><name>${options.name ?? "Visit"}</name><entity_id/><entity_name/>${workArea}</deliver></${id}>`,
 		binds: [
 			`<bind nodeset="${path}"${options.relevant === undefined ? "" : ` relevant="${options.relevant}"`}/>`,
 			`<bind nodeset="${path}/deliver/entity_id"${options.entityCalculate === false ? "" : ' calculate="/data/q"'}/>`,
@@ -488,6 +494,15 @@ describe("each refusal row", () => {
 			Q("connect-deliver-unit-work-area-id-expression"),
 		],
 		[
+			"a fixed work area id, which Connect files the visit under",
+			withBlocks(
+				deliverUnit("visit", {
+					workAreaText: "3f2c0c1e-9a4b-4c8e-8d2f-5b7a1e6c9d01",
+				}),
+			),
+			Q("connect-deliver-unit-work-area-id-expression"),
+		],
+		[
 			"a deliver unit and a task in one form",
 			withBlocks(deliverUnit("visit"), task("follow")),
 			Q("connect-deliver-unit-and-task-in-one-form"),
@@ -600,6 +615,55 @@ describe("each refusal row", () => {
 			expect(forms[0]?.xform?.connectBlocks).toHaveLength(1);
 		},
 	);
+
+	it("refuses a fixed work area id whole, with no deliver unit held and nothing left unclaimed", async () => {
+		const { forms, findings } = await readApp([
+			withBlocks(
+				deliverUnit("visit", {
+					workAreaText: "3f2c0c1e-9a4b-4c8e-8d2f-5b7a1e6c9d01",
+				}),
+			),
+		]);
+		// The form's own places: the menu's keys are a later stage's, which this reading stops before.
+		expect(
+			findings
+				.filter(
+					(finding) =>
+						finding.place.kind === "form" || finding.place.kind === "question",
+				)
+				.map((finding) => finding.code),
+		).toEqual([Q("connect-deliver-unit-work-area-id-expression")]);
+		expect(forms[0]?.xform?.connectBlocks).toEqual([]);
+	});
+
+	// The block the emitter writes for the slots read is held only where it is the stored block
+	// whole: anything else the stored block holds is left unclaimed, whatever the slots read.
+	it.each([
+		[
+			"an attribute on a leaf",
+			(data: string) => data.replace("<name>", '<name lang="fr">'),
+		],
+		[
+			"an attribute on the wrapper",
+			(data: string) =>
+				data.replace(
+					'vellum:role="ConnectDeliverUnit"',
+					'vellum:role="ConnectDeliverUnit" note="kept"',
+				),
+		],
+		[
+			"text under a calculated leaf",
+			(data: string) =>
+				data.replace("<entity_id/>", "<entity_id>fixed</entity_id>"),
+		],
+	])("leaves a deliver unit holding %s unclaimed", async (_, edit) => {
+		const block = deliverUnit("visit");
+		const { forms, findings } = await readApp([
+			withBlocks({ ...block, data: edit(block.data) }),
+		]);
+		expect(findings.map((finding) => finding.code)).toContain("unrecognized");
+		expect(forms[0]?.xform?.connectBlocks).toEqual([]);
+	});
 
 	it("leaves a block whose wrapper is not named for its id unclaimed", async () => {
 		const block = learnModule("lesson");

@@ -4,6 +4,8 @@
  * project space's text HQ's build merges into an app's `default` strings,
  * held to the catalogs the surface's `ui-string:` items name. Pure.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	defaultAppStringsHeldText,
@@ -24,6 +26,9 @@ function sample(pattern: string): string {
 	return pattern.replaceAll("*", "x_1").replaceAll("#", "12");
 }
 
+/** No language codes. */
+const NO_CODES: ReadonlySet<string> = new Set();
+
 describe("translationKeyOwner", () => {
 	it("reads every generated pattern of the surface but the target's own", () => {
 		expect(PATTERNS).toContain("homescreen.title");
@@ -35,7 +40,7 @@ describe("translationKeyOwner", () => {
 
 	it("classes a key every generated pattern names as generated", () => {
 		for (const pattern of GENERATED_APP_STRING_PATTERNS)
-			expect(translationKeyOwner(sample(pattern), []), pattern).toBe(
+			expect(translationKeyOwner(sample(pattern), NO_CODES), pattern).toBe(
 				"generated",
 			);
 		for (const key of [
@@ -46,24 +51,103 @@ describe("translationKeyOwner", () => {
 			"m0_select_text",
 			"m2_no_items_text",
 		])
-			expect(translationKeyOwner(key, []), key).toBe("generated");
+			expect(translationKeyOwner(key, NO_CODES), key).toBe("generated");
 	});
 
 	it("leaves the package name and every runtime catalog key to the target", () => {
 		for (const key of ["android.package.name.x", "home.start", "sync.button"])
-			expect(translationKeyOwner(key, ["en"]), key).toBe("target");
+			expect(translationKeyOwner(key, new Set(["en"])), key).toBe("target");
 	});
 
 	it("matches a pattern at the key's start, as HQ's `re.match` does", () => {
 		// `modules.m%d` names `modules.m0.extra` too; `%d` needs a digit.
-		expect(translationKeyOwner("modules.m0.extra", [])).toBe("generated");
-		expect(translationKeyOwner("modules.mx", [])).toBe("target");
-		expect(translationKeyOwner("xmodules.m0", [])).toBe("target");
+		expect(translationKeyOwner("modules.m0.extra", NO_CODES)).toBe("generated");
+		expect(translationKeyOwner("modules.mx", NO_CODES)).toBe("target");
+		expect(translationKeyOwner("xmodules.m0", NO_CODES)).toBe("target");
+	});
+
+	it("asks the language codes one lookup a key, never a walk of them", () => {
+		// Plausible failure: a key judged by walking every language, which an HQ app's long
+		// language list makes keys times languages on every read and publish of it.
+		class Unwalkable extends Set<string> {
+			override [Symbol.iterator](): SetIterator<string> {
+				throw new Error("The codes were walked.");
+			}
+			override forEach(): void {
+				throw new Error("The codes were walked.");
+			}
+		}
+		const codes = new Unwalkable(["en", "fra"]);
+		expect(translationKeyOwner("fra", codes)).toBe("language-name");
+		expect(translationKeyOwner("home.start", codes)).toBe("target");
 	});
 
 	it("names a language's wire code as its name, and only a current one", () => {
-		expect(translationKeyOwner("fra", ["en", "fra"])).toBe("language-name");
-		expect(translationKeyOwner("fra", ["en"])).toBe("target");
+		expect(translationKeyOwner("fra", new Set(["en", "fra"]))).toBe(
+			"language-name",
+		);
+		expect(translationKeyOwner("fra", new Set(["en"]))).toBe("target");
+	});
+
+	/* HQ's build writes `key.strip()` on one line (`commcare_translations.py::dumps`),
+	 * so a key is the string it sets there: an override of a generated string
+	 * with a space before it is the generated string's, and a key that is no
+	 * one locale record of its own name is no one's to carry. */
+	it("judges a key as HQ's build writes it, stripped", () => {
+		const nbsp = String.fromCharCode(0xa0);
+		expect(translationKeyOwner(" modules.m0", NO_CODES)).toBe("generated");
+		expect(translationKeyOwner(`${nbsp}forms.m0f0`, NO_CODES)).toBe(
+			"generated",
+		);
+		expect(translationKeyOwner("\tfra", new Set(["en", "fra"]))).toBe(
+			"language-name",
+		);
+		expect(translationKeyOwner(" home.start ", new Set(["en"]))).toBe("target");
+	});
+
+	it("gives a key that sets another string than its own name, or none, to no one", () => {
+		for (const key of [
+			"x=y\nmodules.m0",
+			"modules.m0\rx",
+			"a=b",
+			"a#b",
+			"",
+			"   ",
+			`home.start${String.fromCharCode(0x01)}`,
+		])
+			expect(
+				translationKeyOwner(key, new Set(["en"])),
+				JSON.stringify(key),
+			).toBe("not-its-own");
+	});
+
+	/* The proof lane judges what Nova's publish and archive carry back by its
+	 * own reading of this rule (`proof/checks/compare/app_strings.py::
+	 * translation_key_owner`), which `proof/checks/test_translation_keys.py`
+	 * holds to the same rows: a mirror that drifts from Nova's rule fails there
+	 * or here. */
+	it("answers every row the proof lane's mirror is held to", () => {
+		const fixture = JSON.parse(
+			readFileSync(
+				join(
+					process.cwd(),
+					"proof/checks/fixtures/translation-key-owners.json",
+				),
+				"utf8",
+			),
+		) as {
+			readonly vectors: readonly {
+				readonly key: string;
+				readonly codes: readonly string[];
+				readonly owner: string;
+			}[];
+		};
+		expect(fixture.vectors.length).toBeGreaterThan(0);
+		for (const vector of fixture.vectors)
+			expect(
+				translationKeyOwner(vector.key, new Set(vector.codes)),
+				JSON.stringify(vector.key),
+			).toBe(vector.owner);
 	});
 });
 

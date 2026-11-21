@@ -1012,27 +1012,22 @@ class State:
     served: dict | None = None
 
 
-def not_hq_own(differences, stored, made_in_hq):
-    """The differences a save made that no member of ``HQ_OWN_REPORTS`` names as HQ's own, asked of the stored app
-    the save was made over (``stored``, its app document) and of whether the document was made in HQ
-    (``made_in_hq``): what a save makes of an app HQ made whatever Nova's publish over it wrote (the settings page
-    writing each setting such an app holds no value for, ``settings_page_writes_unset_settings``) is no change of
-    Nova's next publish. Each report is asked with its artifact as the save names it (``<artifact>@<editor>``),
-    before the B and configuration are added."""
+def not_hq_own(differences, added_settings):
+    """Each difference other than an exact reading of an originally absent setting HQ's editor just added."""
     return [
         difference
         for difference in differences
-        if hq_own_reports.held(difference.artifact, difference.path, difference, stored, made_in_hq) is None
+        if hq_own_reports.held(difference.artifact, difference.path, difference, added_settings) is None
     ]
 
 
 class _Judged:
     """One B's record judged: its differences, named by the B and configuration, and its saves."""
 
-    def __init__(self, document, record, blobs, over, b_build, lookup_upload=None, *, made_in_hq=False):
+    def __init__(self, document, record, blobs, over, b_build, lookup_upload=None, *, authored=None):
         self.document = document
-        # Whether the document's A is an app HQ made (``Document.hq_authored``), which HQ's own reports ask.
-        self.made_in_hq = made_in_hq
+        # The original HQ app when HQ authored this document. A value A held cannot be called originally unset.
+        self.authored = authored
         # What HQ answered B's lookup workbook upload (``observations``' ``lookup_uploads``), which the bar reports.
         self.lookup_upload = lookup_upload
         self.record = record
@@ -1095,16 +1090,21 @@ class _Judged:
             stored_json = apply_patch(base.stored_json, self._blob(entry["stored"]))
             after = stored_from(stored_json)
             stored = stored_differences(base.stored, after, document=self.document, editor=editor, readings=readings)
-            stored = not_hq_own(stored, base.stored_json, self.made_in_hq)
+            added_settings = (
+                hq_own_reports.settings_added(self.authored, base.stored.doc, after.doc)
+                if editor == hq_own_reports.SETTINGS_PAGE
+                else {}
+            )
+            stored = not_hq_own(stored, added_settings)
             save["stored_changed"] = bool(stored)
             found += stored
             built = outcome_from_delta(entry["build"], base.build, self.blobs, f"B after {editor} ({scope.name})")
             differences = build_differences(base.build, built, document=self.document, editor=editor, readings=readings)
             save["built"] = True
-            found += not_hq_own(differences, base.stored_json, self.made_in_hq)
+            found += not_hq_own(differences, added_settings)
             if differences:
                 behavior, save["ran"] = self.behavior_differences(editor, base, built, entry.get("trace"))
-                found += not_hq_own(behavior, base.stored_json, self.made_in_hq)
+                found += not_hq_own(behavior, added_settings)
             trace = entry.get("trace")
             served = entry.get("served")
             if served is not None and "refused" in served:
@@ -1264,11 +1264,11 @@ class _Judged:
         return self
 
 
-def judge_b(document, record, blobs, over: Over, b_build, lookup_upload=None, *, made_in_hq=False):
+def judge_b(document, record, blobs, over: Over, b_build, lookup_upload=None, *, authored=None):
     """Proof 4's differences and saves over one B (``record``: its ``proof4`` record; ``b_build``: build(B);
     ``lookup_upload``: what HQ answered B's lookup workbook upload, None where Nova's publish sent none;
-    ``made_in_hq``: whether the document's A is an app HQ made)."""
-    judged = _Judged(document, record, blobs, over, b_build, lookup_upload, made_in_hq=made_in_hq).judge()
+    ``authored``: the original app document for an app made in HQ)."""
+    judged = _Judged(document, record, blobs, over, b_build, lookup_upload, authored=authored).judge()
     return judged.differences, judged.saves
 
 
@@ -1379,7 +1379,7 @@ def document_editability(document, records):
             over,
             b_build,
             view.lookup_uploads.get(state),
-            made_in_hq=document.hq_authored,
+            authored=view.a.doc if document.authored is not None and view.a is not None else None,
         )
         found += differences
         saves += judged
@@ -1390,7 +1390,11 @@ def document_editability(document, records):
         ]
     from proof.checks import android
 
-    phone = android.editability(document.id, android.document_record(records))
-    tablet = android.editability(document.id, android.document_record(records, tablet=True), device=android.TABLET)
+    phone = android.editability(document.id, android.document_record(records, hq_authored=document.authored is not None))
+    tablet = android.editability(
+        document.id,
+        android.document_record(records, tablet=True, hq_authored=document.authored is not None),
+        device=android.TABLET,
+    )
     found += phone + android.tablet_only(phone, tablet)
     return found + observations.soft_assertion_differences(records, CHECK), saves

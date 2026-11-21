@@ -16,6 +16,7 @@ import "server-only";
  */
 
 import { randomUUID } from "node:crypto";
+import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
@@ -26,11 +27,16 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
-import { HqAppAlreadyClaimedError } from "@/lib/db/hqAppClaims";
+import {
+	HqAppAlreadyClaimedError,
+	HqAppWriteInFlightError,
+} from "@/lib/db/hqAppClaims";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
+import { getHqCredentials } from "@/lib/db/settings";
 import type { Mutation } from "@/lib/doc/types";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { ownRecordValue } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
 import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
@@ -39,7 +45,7 @@ import {
 	circumstanceFinding,
 	type ReadCircumstance,
 } from "@/lib/publish/hqFindings";
-import { readHqAppClaims } from "../store";
+import { settleFinishedMediaJobs } from "../remoteWrites";
 import { broughtInAppId } from "./appId";
 import {
 	adoptedAppReceipt,
@@ -49,6 +55,7 @@ import {
 } from "./birth";
 import {
 	checkFetched,
+	claimOfSeen,
 	type Gathered,
 	type GatherFacts,
 	gatherReading,
@@ -64,6 +71,7 @@ import {
 import { BroughtInTableChangedError } from "./projectData/lookupTableStore";
 import { publishKeptReadingMedia } from "./projectData/mediaStore";
 import type { BringInActor } from "./read";
+import { type BringInRoom, noRoomFinding, withBringInRoom } from "./room";
 import type {
 	BringInInput,
 	CreateAnswer,
@@ -76,10 +84,6 @@ import type {
 // ---------------------------------------------------------------------------
 // Developer messages (thrown or logged; none holds a word of an app)
 // ---------------------------------------------------------------------------
-
-function formWithNoRealId(appId: string): string {
-	return `The reading ${appId} holds a form that has no real CommCare HQ id. A reading with a menu CommCare HQ could not summarize should have ended as an account. Look at gather.ts, step 4.`;
-}
 
 function bindingsMoved(appId: string, count: number): string {
 	return `The reading ${appId} bound ${count} of its lookup tables one way before the person answered and another way after. No answer the review offers may move a binding the reader read. Look at lib/deployment/reading/projectData/lookupTables.ts::resolveLookupBindings.`;
@@ -123,14 +127,11 @@ export function movedBindingCount(
 			moved += 1;
 			continue;
 		}
-		const fields = Object.hasOwn(lookupFields, tag)
-			? (lookupFields[tag] ?? [])
-			: [];
+		const fields = ownRecordValue(lookupFields, tag) ?? [];
 		const columnOf = (
 			columns: typeof before.columns,
 			field: string,
-		): string | undefined =>
-			Object.hasOwn(columns, field) ? columns[field] : undefined;
+		): string | undefined => ownRecordValue(columns, field);
 		if (
 			fields.some(
 				(field) =>
@@ -163,6 +164,9 @@ const NO_FACTS: GatherFacts = {
 	checkMs: 0,
 	longestPieceMs: 0,
 	longestPieceAt: "",
+	workUnits: 0,
+	longestPieceUnits: 0,
+	longestPieceUnitsAt: "",
 	mediaTotal: 0,
 	expressionRounds: null,
 };
@@ -188,11 +192,28 @@ function heldFileCount(gathered: Gathered): number {
 	).length;
 }
 
-/** One create. It takes no `cancel`: once asked, it runs to its end. */
-export async function createFromReview(
+/**
+ * One create. It takes no `cancel`: once asked, it runs to its end. Where the process has no
+ * room for what it reads (`room.ts`), it stops reading, writes nothing, and answers `held` with
+ * `nova-busy`. Every write comes after `beginWrites`, after which nothing stops it.
+ */
+export function createFromReview(
 	actor: BringInActor,
 	input: BringInInput,
 	options: { readonly onEvent: (event: ReadingEvent) => void },
+): Promise<CreateAnswer> {
+	return withBringInRoom(
+		"create",
+		(room) => createInRoom(actor, input, options, room),
+		() => ({ kind: "held", finding: noRoomFinding() }),
+	);
+}
+
+async function createInRoom(
+	actor: BringInActor,
+	input: BringInInput,
+	options: { readonly onEvent: (event: ReadingEvent) => void },
+	room: BringInRoom,
 ): Promise<CreateAnswer> {
 	if (input.projectId !== actor.projectId)
 		throw new Error(KEY_IN_ANOTHER_PROJECT);
@@ -225,6 +246,8 @@ export async function createFromReview(
 			elapsedMs: Math.round(performance.now() - started),
 			checkMs: Math.round(facts.checkMs),
 			longestPieceMs: Math.round(facts.longestPieceMs),
+			workUnits: facts.workUnits,
+			longestPieceUnits: facts.longestPieceUnits,
 			sourceBytes: facts.sourceBytes,
 			mediaTotal: facts.mediaTotal,
 			...(answer.kind === "changed" &&
@@ -303,6 +326,7 @@ export async function createFromReview(
 		appId,
 		keepMedia: true,
 		onEvent,
+		cancel: room.signal,
 	});
 	facts = gathering.facts;
 	const { result } = gathering;
@@ -357,7 +381,8 @@ export async function createFromReview(
 	if (moved > 0)
 		return checkFailed("bindings", [], bindingsMoved(appId, moved));
 
-	/* 7. Publish. */
+	/* 7. Publish: the first write, so the room stops nothing from here on. */
+	room.beginWrites();
 	let plan = gathered.media;
 	const held = heldFileCount(gathered);
 	if (held > 0) {
@@ -398,10 +423,17 @@ export async function createFromReview(
 		facts = {
 			...facts,
 			checkMs: facts.checkMs + checked.facts.checkMs,
+			workUnits: facts.workUnits + checked.facts.workUnits,
 			...(checked.facts.longestPieceMs > facts.longestPieceMs
 				? {
 						longestPieceMs: checked.facts.longestPieceMs,
 						longestPieceAt: checked.facts.longestPieceAt,
+					}
+				: {}),
+			...(checked.facts.longestPieceUnits > facts.longestPieceUnits
+				? {
+						longestPieceUnits: checked.facts.longestPieceUnits,
+						longestPieceUnitsAt: checked.facts.longestPieceUnitsAt,
 					}
 				: {}),
 		};
@@ -436,14 +468,23 @@ export async function createFromReview(
 		chosen,
 		candidate,
 	});
-	if (!deployment.ok)
-		return checkFailed("identity", [], formWithNoRealId(appId));
 	const projectData = readingProjectDataWrite(
 		born.fetched.data,
 		born.reads,
 		born.draft.doc,
 		mintingResolver(appId),
 	);
+	/* A media job another Nova app's publish left running on this HQ app
+	 * keeps the claim from being granted while it may still save the app;
+	 * one HQ reports done is settled here, so the claim waits only for what
+	 * may really still land. */
+	const credentials = await getHqCredentials(actor.userId, key.domain);
+	if (credentials.ok && credentials.creds.server === key.server)
+		await settleFinishedMediaJobs(credentials.creds, {
+			server: key.server,
+			domain: key.domain,
+			remoteAppId: key.remoteAppId,
+		});
 	const runId = randomUUID();
 	const at = new Date();
 	const birthStarted = performance.now();
@@ -460,14 +501,21 @@ export async function createFromReview(
 					remoteAppId: key.remoteAppId,
 				},
 				projectData,
-				deployment: deployment.write,
+				deployment,
 				at,
 			}),
 		);
 	} catch (error) {
 		if (isAppIdConflict(error)) return answered(await readBack());
 		if (error instanceof HqAppAlreadyClaimedError)
-			return settle({ kind: "changed", now: await claimedNow(actor, key) });
+			return settle({
+				kind: "changed",
+				now: await claimedNow(actor, gathered.fetched.seen),
+			});
+		/* A write the app that stopped publishing there let out has not
+		 * settled: the review stands, and the person can try again shortly. */
+		if (error instanceof HqAppWriteInFlightError)
+			return refused("publish_in_flight");
 		if (
 			error instanceof BroughtInTableChangedError ||
 			(error instanceof LookupError &&
@@ -509,7 +557,8 @@ export async function createFromReview(
 		tables: projectData.tables.length,
 		places: projectData.places?.places.length ?? 0,
 		mediaFiles: new Set(born.mediaFiles.map((file) => file.assetId)).size,
-		identityRows: deployment.write.identities.length,
+		identityRows: deployment.targetIdentity.entities.length,
+		keyedCaseIds: deployment.targetIdentity.keyedCaseIds.length,
 	});
 	return answered({
 		kind: "created",
@@ -528,21 +577,14 @@ async function appRowExists(appId: string): Promise<boolean> {
 	return row !== undefined;
 }
 
-/** The stop `already-in-nova` as it stands now, its holder from a fresh read of the claims. */
+/** The stop `already-in-nova` as it stands now, its holder from a fresh read of the claims of
+ *  the app CommCare HQ answered with in this request. */
 async function claimedNow(
 	actor: BringInActor,
-	key: ReadingKey,
+	seen: HqAppsSeen,
 ): Promise<Extract<ReadingAnswer, { kind: "stop" }>> {
-	const [holder] = await readHqAppClaims({
-		viewerUserId: actor.userId,
-		server: key.server,
-		domain: key.domain,
-		remoteAppIds: [key.remoteAppId],
-	});
-	const detail =
-		holder === undefined
-			? {}
-			: (({ remoteAppId: _remoteAppId, ...claim }) => ({ claim }))(holder);
+	const claim = await claimOfSeen(actor.userId, seen);
+	const detail = claim === null ? {} : { claim };
 	return {
 		kind: "stop",
 		finding: circumstanceFinding("already-in-nova", { kind: "app" }, detail),

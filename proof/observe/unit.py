@@ -229,9 +229,9 @@ def _first_publish(root, directory, prefix=""):
 
 
 def hq_authored(document) -> bool:
-    """Whether ``document`` is an app made in CommCare HQ (``Document.hq_authored``): A is HQ's own app, made again
-    from the document's ``authored/`` files, and no first publish exists. A control never is one."""
-    return document.kind != "control" and document.hq_authored
+    """Whether A replays HQ's app from ``authored/`` instead of a Nova first publish, including a control
+    that retained that app and its inputs."""
+    return document.authored is not None if document.kind == "control" else document.hq_authored
 
 
 # The statements of ``hq-side.json`` under which Nova reviews what a person saved in HQ before it republishes.
@@ -380,14 +380,19 @@ def document_inputs(document):
     }
 
 
-def case_databases(document):
-    """The digest of the case database D's sessions run over, and D′'s (``observe.casedata.database_digest``)."""
+def _case_inputs(document):
+    """The actual cases B and B-edit will serve, and their digests for the part keys."""
     from proof.observe.casedata import database_digest, document_case_database
 
-    found = {"b": database_digest(document_case_database(document))}
+    cases = {"b": document_case_database(document)}
     if document.edit is not None:
-        found["b_edit"] = database_digest(document_case_database(document, edit=True))
-    return found
+        cases["b_edit"] = document_case_database(document, edit=True)
+    return cases, {part: database_digest(database) for part, database in cases.items()}
+
+
+def case_databases(document):
+    """The case digests used by callers deriving part keys alone."""
+    return _case_inputs(document)[1]
 
 
 def _module(name):
@@ -576,6 +581,7 @@ class BContext:
     app_id: str
     build: BuildOutcome  # B's build, its previous build saved(build(A))
     hq_build: object  # for saved_build()
+    archive: dict | None  # device archive materialized on the build copy
     sessions: object  # (case database, the lookup workbook capture or None)
     restore: bytes
     core_runner: object
@@ -585,10 +591,11 @@ class BContext:
     # HQ's restore over the document's tables: ``{"served": True}``, or ``{"refused": reason}`` where ``restore``
     # is None (``proof.observe.sessions.hq_restore``).
     restore_outcome: dict
+    declared_inputs: dict
     # The build HQ compared this B's forms with when it built it: saved(build(A)).
     previous_build: object = None
-    # Whether B and each save over it are also served to Formplayer and the Web Apps client
-    # (``proof.observe.served``): where the unit's served hook runs.
+    # Whether B and its editor saves run the served readers. When they do, they take the app's platforms
+    # from the hook's declared inputs, the same values used to derive the part key.
     serve: bool = False
     # The unit's Connect opportunity holder (``proof.observe.connect.Holder``).
     connect: object = None
@@ -712,6 +719,30 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
     return _Built(built.outcome, built.hq_build, found, doc, archive), flags, settings
 
 
+def _aligned_build(unit, ops, app_id, alignment, previous):
+    """Build a copy of B with A's identities. The independent release takes the same pre-build document."""
+    from proof.hq import operations
+    from proof.hq.seams import build_seams
+    from proof.observe.build import build_state
+
+    with unit.fork(), ops("build-aligned", b""):
+        aligned = aligned_app(operations.held_app(unit, app_id), alignment)
+        document = _json(aligned.to_json())
+        # Changing an XForm's ID or namespace queues its source on the wrapped app. Its external blob still
+        # belongs to B. HQ's release wraps a fresh app in another fork, so pass the actual aligned source.
+        changed = {at for at, b, a in (*alignment.form_ids, *alignment.xmlns) if a and b and a != b}
+        attachments = {
+            f"{form.unique_id}.xml": form.source
+            for form in aligned.get_forms()
+            if f"form:{form.get_module().id}.{form.id}" in changed
+        }
+        if attachments:
+            document["_attachments"] = {**document.get("_attachments", {}), **attachments}
+        with build_seams(previous=previous):
+            built, _ = build_state(aligned, unit.record, "B-aligned")
+    return built, document
+
+
 def _state_record(built: _Built, blobs):
     from proof.observe.build import archive_record
 
@@ -758,8 +789,11 @@ class _Unit:
         store,
         blobs,
         timings,
+        cases,
+        declared_inputs,
     ):
         self.document, self.export, self.configuration = document, export, configuration
+        self.cases, self.declared_inputs = cases, declared_inputs
         self.unit, self.core_runner, self.editor_driver = unit, core_runner, editor_driver
         self.store, self.blobs, self.timings = store, blobs, timings
         self.hooks = hook_modules()
@@ -790,7 +824,7 @@ class _Unit:
         if captured.media is None:
             return None
         with ops("media", publish.captured_digest(captured.media)):
-            return publish.upload_media(self.unit, self.app_id, captured.media)
+            return publish.upload_media(self.unit, self.app_id, captured.media, counter=captured.media_save_counter)
 
     def create_a(self, ops, *, full):
         """A, as the ``a`` record's ``create`` (and ``hqSide``, ``apiReads``, ``state``) holds it: Nova's first
@@ -1078,10 +1112,10 @@ class _Unit:
         return None
 
     def b_context(self, ops, name, built, captured):
-        from proof.observe import casedata, sessions
+        from proof.observe import sessions
 
         lookups = self.tables(captured)
-        database = casedata.document_case_database(self.document, edit=name == "B-edit")
+        database = self.cases["b_edit" if name == "B-edit" else "b"]
         outcome, restore = sessions.hq_restore(self.unit, database, lookups, "restore-proof4", ops)
         return BContext(
             document=self.document,
@@ -1092,6 +1126,7 @@ class _Unit:
             app_id=self.app_id,
             build=built.outcome,
             hq_build=built.hq_build,
+            archive=built.archive,
             sessions=(database, lookups),
             restore=restore,
             core_runner=self.core_runner,
@@ -1100,6 +1135,7 @@ class _Unit:
             store=self.store,
             restore_outcome=outcome,
             previous_build=self.saved_a,
+            declared_inputs=self.declared_inputs[name]["proof4"],
             serve=any(hook == "served" for hook, _, _, _ in self.hooks),
             connect=self.connect,
         )
@@ -1176,10 +1212,7 @@ class _Unit:
         app and not Nova's export, so two builds alike say nothing of what a
         worker meets on B.
         """
-        from proof.hq import operations
-        from proof.hq.seams import build_seams
         from proof.observe import builds, sessions
-        from proof.observe.build import build_state
 
         ops = self.ops("b_aligned")
         record = {"kind": "b_aligned"}
@@ -1195,12 +1228,7 @@ class _Unit:
                 "xmlns": [list(entry) for entry in alignment.xmlns],
                 "unmatched": list(alignment.unmatched),
             }
-            with ops("build-aligned", b""):
-                aligned = aligned_app(operations.held_app(self.unit, self.app_id), alignment)
-                # B aligned to A as a stored document, before HQ's build wrote its versions into the app.
-                aligned_doc = _json(aligned.to_json())
-                with build_seams(previous=self.saved_a):
-                    b_aligned, _ = build_state(aligned, self.unit.record, "B-aligned")
+            b_aligned, aligned_doc = _aligned_build(self.unit, ops, self.app_id, alignment, self.saved_a)
             record["aligned"] = outcome_record(b_aligned, self.blobs)
             differs = (
                 builds.raw_builds_differ(self.document.id, self.a_built.outcome, b_aligned, alignment)
@@ -1338,8 +1366,9 @@ def observe_configuration(
     store,
     blobs,
     timings,
+    cases,
+    hooks,
     same_as=True,
-    hooks=None,
     held_only=False,
 ):
     """One configuration's parts, from the store where it holds them and observed in one unit otherwise.
@@ -1404,6 +1433,8 @@ def observe_configuration(
             store,
             blobs,
             timings,
+            cases,
+            hooks,
         )
         closing.append(state.connect)
         if "a" in wanted:
@@ -1554,7 +1585,7 @@ def observe_document(
     # What every key is derived from, which the guard holds to what the document's key names (``guard.KEYS``).
     with guard.observing(document, None, guard.KEYS):
         inputs = document_inputs(document)
-        databases = case_databases(document)
+        cases, databases = _case_inputs(document)
         hooks = hook_inputs(document)
     found = DocumentRecords(document.id, document.kind)
     for name in sorted(document.exports):
@@ -1576,6 +1607,7 @@ def observe_document(
             blobs=found.blobs,
             timings=timings,
             same_as=same_as,
+            cases=cases,
             hooks=hooks,
             held_only=held_only,
         )

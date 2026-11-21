@@ -1,10 +1,16 @@
 /**
  * The publish dialog's read of where a CCZ can be made for, against real
- * Postgres: the Project gate, the ledger's reached deployments, the lines
- * the stored document gives when no project space holds the app, and no
- * target at all for an app that does not declare Android.
+ * Postgres: the Project gate, the ledger's reached deployments, whether each
+ * one can have a CCZ by what its stored baseline keeps, the lines the stored
+ * document gives when no project space holds the app, and no target at all
+ * for an app that does not declare Android.
  */
+import { gzipSync } from "node:zlib";
 import { beforeEach, expect, it, vi } from "vitest";
+import {
+	retainedBodyText,
+	retainedPublishRead,
+} from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { getSession } from "@/lib/auth-utils";
@@ -18,12 +24,15 @@ import {
 	downloadKeptAdvisoryFacts,
 	resolveDownloadTarget,
 } from "../downloadTarget";
+import { normalizeHqAppSource } from "../hqSourceBaseline";
 import {
 	type DeploymentScope,
 	foldDeploymentAttempt,
 	readReachedDeploymentTargets,
 	recordRemoteResource,
 } from "../store";
+import type { AppBaselineWrite } from "../types";
+import { readable } from "./readableRecord";
 
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
 vi.mock("../store", async (original) => {
@@ -57,10 +66,52 @@ async function seed(doc: BlueprintDoc) {
 	await h.seedProjectMember("creator", PROJECT, "owner");
 	await h.seedProjectMember("viewer", PROJECT, "viewer");
 }
+const unreadBaseline = (remoteAppId: string): AppBaselineWrite => ({
+	origin: "unread",
+	remoteAppId,
+	sourceGzip: null,
+	sourceBytes: null,
+	sourceDigest: null,
+	ownership: null,
+	observedAt: AT,
+	discard: null,
+	novaRevision: null,
+	mediaFiles: { kind: "set", files: null },
+	firstPublish: { kind: "set", list: null },
+});
+
+/** A publish's read-back of HQ's retained source, its custom base URL set to `base` (left out where null). */
+function readBackBaseline(
+	remoteAppId: string,
+	base: string | null,
+): AppBaselineWrite {
+	const source = JSON.parse(
+		retainedBodyText(retainedPublishRead("source-live")),
+	);
+	if (base === null) delete source.custom_base_url;
+	else source.custom_base_url = base;
+	const read = normalizeHqAppSource(source);
+	if ("malformed" in read) throw new Error(read.malformed);
+	return {
+		...unreadBaseline(remoteAppId),
+		origin: "push",
+		sourceGzip: gzipSync(Buffer.from(read.text, "utf8")),
+		sourceBytes: read.bytes,
+		sourceDigest: read.digest,
+		ownership: {
+			addOns: [],
+			profileProperties: [],
+			profileCustomProperties: [],
+			autoGpsCapture: false,
+		},
+	};
+}
+
 async function publish(
 	server: "india" | "production",
 	domain: string,
 	adoptedBy?: string,
+	baseline: AppBaselineWrite = unreadBaseline(`${server}-${domain}-app`),
 ) {
 	const target = { server, domain };
 	await foldDeploymentAttempt(
@@ -80,20 +131,8 @@ async function publish(
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
-		baseline: {
-			origin: "unread",
-			remoteAppId: `${server}-${domain}-app`,
-			sourceGzip: null,
-			sourceBytes: null,
-			sourceDigest: null,
-			ownership: null,
-			observedAt: AT,
-			discard: null,
-			novaRevision: null,
-			mediaFiles: { kind: "set", files: null },
-			firstPublish: { kind: "set", list: null },
-		},
-	});
+		baseline,
+	}).then(readable);
 }
 const plainDoc = () =>
 	buildDoc({
@@ -134,8 +173,8 @@ it("gives a viewer every reached project space and no lines", async () => {
 		success: true,
 		data: {
 			targets: expect.arrayContaining([
-				{ server: "india", domain: "clinic" },
-				{ server: "production", domain: "training" },
+				{ server: "india", domain: "clinic", unavailable: null },
+				{ server: "production", domain: "training", unavailable: null },
 			]),
 			heldFromHq: [],
 			webAppsOnly: false,
@@ -143,6 +182,72 @@ it("gives a viewer every reached project space and no lines", async () => {
 	});
 	if (result.success) expect(result.data.targets).toHaveLength(2);
 	expect(readReachedDeploymentTargets).toHaveBeenCalledOnce();
+});
+
+/* A custom base URL elsewhere is a fact the deployment's stored baseline
+ * keeps, so the list says which space has no CCZ from what Nova holds and
+ * asks CommCare HQ nothing; the download reads the same standing, so every
+ * space the list offers is one the download makes, and every space it
+ * refuses is one the download refuses. */
+it("says which published project space has no CCZ from its stored baseline alone, and the download agrees with every row", async () => {
+	const doc = plainDoc();
+	await seed(doc);
+	await publish(
+		"india",
+		"clinic",
+		undefined,
+		readBackBaseline(
+			"india-clinic-app",
+			"https://relay:s3cret@elsewhere.example.org/hq/",
+		),
+	);
+	await publish(
+		"india",
+		"district",
+		undefined,
+		readBackBaseline("india-district-app", "https://india.commcarehq.org/hq/"),
+	);
+	await publish("production", "training");
+	const fetched = vi.spyOn(globalThis, "fetch");
+	try {
+		const result = await readDownloadTargetsAction(APP);
+		if (!result.success) throw new Error(result.message);
+		const byDomain = new Map(
+			result.data.targets.map((target) => [target.domain, target]),
+		);
+		expect(result.data.targets).toHaveLength(3);
+		expect(byDomain.get("clinic")?.unavailable).toEqual({
+			reason: "workers-sent-elsewhere",
+			host: "elsewhere.example.org",
+		});
+		expect(byDomain.get("district")?.unavailable).toBeNull();
+		/* A baseline Nova could not read gives no facts: the space is
+		 * offered, and the download made for it decides. */
+		expect(byDomain.get("training")?.unavailable).toBeNull();
+		expect(JSON.stringify(result.data)).not.toContain("s3cret");
+
+		for (const target of result.data.targets) {
+			const download = await resolveDownloadTarget(OWNER, {
+				format: "ccz",
+				server: target.server,
+				domain: target.domain,
+				doc,
+			});
+			if (target.unavailable === null) {
+				expect(download, target.domain).toMatchObject({ format: "ccz" });
+			} else {
+				expect(download, target.domain).toMatchObject({
+					kind: "refused",
+					reason: target.unavailable.reason,
+				});
+				if (!("kind" in download)) throw new Error("Expected the refusal");
+				expect(download.message).toContain(target.unavailable.host);
+			}
+		}
+		expect(fetched).not.toHaveBeenCalled();
+	} finally {
+		fetched.mockRestore();
+	}
 });
 
 /* Each selection CommCare HQ cannot take chooses several cases, which
@@ -274,6 +379,8 @@ it("makes a CCZ that seeds nothing for a project space an app was brought in fro
 	expect(clinic.target.adopted).toBe(true);
 	expect(downloadKeptAdvisoryFacts(clinic, doc)).toEqual({
 		uiTextFallsBack: false,
+		uiTextNotCarried: false,
+		profileNotCarried: false,
 		androidLogos: false,
 		practiceWorker: false,
 		languageNames: true,

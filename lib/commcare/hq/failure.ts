@@ -122,6 +122,9 @@ export function classifyHqFailure(
 	if (error.edgeRefusal === true) return of("gateway-refused");
 	if (error.cause === "timeout") return of("timed-out");
 	if (error.cause === "network") return of("hq-unavailable");
+	/* A list that changed under every pass is CommCare HQ not answering one
+	 * state; asking again is the next step. */
+	if (error.cause === "moved") return of("hq-unavailable");
 	if (error.cause === "too-large") return of("too-large");
 	if (error.cause === "browser-page" || (status >= 300 && status <= 399))
 		return of("browser-only");
@@ -204,11 +207,15 @@ export function hqReadCircumstance(failure: HqFailure): ReadCircumstance {
 		 * Nova could not read. */
 		case "not-found":
 			return APP_REQUESTS.has(failure.request) ? "app-gone" : "hq-unavailable";
-		/* `too-large` words the app itself; a long list is no app. */
+		/* `too-large` words the app itself; the rows of the tables one request
+		 * reads, together past what Nova brings in, are the app's lookup data;
+		 * a long list is no app. */
 		case "too-large":
 			return APP_BODY_REQUESTS.has(failure.request)
 				? "too-large"
-				: "hq-unavailable";
+				: failure.request === "lookup-rows"
+					? "lookup-data-too-large"
+					: "hq-unavailable";
 		case "hq-unavailable":
 		case "timed-out":
 		case "answer-unreadable":

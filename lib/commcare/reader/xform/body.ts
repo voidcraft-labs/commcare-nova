@@ -1,7 +1,8 @@
 /**
- * A form's body as HQ's form builder reads it (Vellum `parser.js::parseControlTree`): the
- * controls, each finding its data node as `getPathFromControlElement` does, by its `ref`,
- * else its `nodeset`, else the bind its `bind` attribute names.
+ * A form's body, read as HQ's form builder reads its controls (Vellum
+ * `parser.js::parseControlTree`), each control finding its data node as Core finds it
+ * (`coreControlPath`): by the bind its `bind` attribute names, else a repeat by its `nodeset` and
+ * any other control by its `ref`.
  */
 
 import type { Element } from "domhandler";
@@ -84,6 +85,29 @@ function plain(element: Element, name: string): string | undefined {
 		: undefined;
 }
 
+/**
+ * The attribute Core binds a control to its node by, and its text: `bind` wherever the control
+ * holds one, else a repeat's `nodeset` and any other control's `ref`
+ * (`XFormParser.parseControl` and `parseGroup`, which read `bind` first, a repeat's `nodeset`
+ * alone and a group's or a question's `ref` alone). A group that holds only `nodeset` is a group
+ * with no node of its own, bound to its parent's; a repeat that holds only `ref`, and a question
+ * that holds only `nodeset`, have none, and Core refuses to load either. Undefined where the
+ * control names no node, which the attribute it holds instead, if any, is left for the close to
+ * report.
+ */
+export function coreControlPath(
+	element: Element,
+	local: string,
+):
+	| { readonly attribute: "bind" | "ref" | "nodeset"; readonly text: string }
+	| undefined {
+	const bind = plain(element, "bind");
+	if (bind !== undefined) return { attribute: "bind", text: bind };
+	const attribute = local === "repeat" ? "nodeset" : "ref";
+	const text = plain(element, attribute);
+	return text === undefined ? undefined : { attribute, text };
+}
+
 /** Whether a group's appearance is `field-list` in any letter case, which the runtimes read as a
  *  Question List. */
 export function isFieldListAppearance(appearance: string | undefined): boolean {
@@ -149,8 +173,9 @@ export function readControls(input: ReadControlsInput): ReadControls {
 		detail?: FindingDetail,
 	) => {
 		cursor.refuseSubtree(element, claim, formPlace, detail);
-		const ref = plain(element, "ref") ?? plain(element, "nodeset");
-		if (ref === undefined) return;
+		const path = coreControlPath(element, splitName(element.name).local);
+		if (path === undefined || path.attribute === "bind") return;
+		const ref = path.text;
 		const read = readNodePath(ref, tree, base);
 		if (
 			read.kind !== "node" ||
@@ -184,14 +209,10 @@ export function readControls(input: ReadControlsInput): ReadControls {
 		tag: ControlNode["tag"],
 		base: DataNode | null,
 	): { node: DataNode | undefined; path: ControlNode["path"] } | "refused" => {
-		const ref = plain(element, "ref") ?? plain(element, "nodeset");
-		const attribute: ControlNode["path"] =
-			plain(element, "ref") !== undefined
-				? "ref"
-				: plain(element, "nodeset") !== undefined
-					? "nodeset"
-					: undefined;
-		if (ref !== undefined) {
+		const path = coreControlPath(element, tag);
+		if (path === undefined) return { node: undefined, path: undefined };
+		if (path.attribute !== "bind") {
+			const ref = path.text;
 			const read = readNodePath(ref, tree, base);
 			// A control on a node the data tree refused, or past one, stands under that refusal.
 			const refusal = refusalOf(read, tree);
@@ -210,10 +231,9 @@ export function readControls(input: ReadControlsInput): ReadControls {
 				});
 				return "refused";
 			}
-			return { node: read.node, path: attribute };
+			return { node: read.node, path: path.attribute };
 		}
-		const bindId = plain(element, "bind");
-		if (bindId === undefined) return { node: undefined, path: undefined };
+		const bindId = path.text;
 		const named = bindNodes.get(bindId);
 		if (named === undefined) {
 			cursor.refuseSubtree(element, X.controlNoNode, formPlace, {
@@ -301,12 +321,7 @@ export function readControls(input: ReadControlsInput): ReadControls {
 				refuseControl(element, base, X.readonlyInput);
 				continue;
 			}
-			if (
-				tag === "trigger" &&
-				plain(element, "ref") === undefined &&
-				plain(element, "nodeset") === undefined &&
-				plain(element, "bind") === undefined
-			) {
+			if (tag === "trigger" && coreControlPath(element, tag) === undefined) {
 				cursor.refuseSubtree(element, X.reflessTrigger, formPlace);
 				continue;
 			}

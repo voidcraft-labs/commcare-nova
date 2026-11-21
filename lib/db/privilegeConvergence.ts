@@ -237,26 +237,29 @@ const RUNTIME_APPEND_ONLY_TABLES = [
  * (`design_artifact_workspaces`) serializes writers, so no code may row-lock
  * a handle row. A deployment confirmation is inserted on confirm and updated
  * on withdrawal; the two baseline ledgers are upserted only, serialized by
- * the deployment row's lock. None of the three is ever deleted or locked. */
+ * the deployment row's lock. A write Nova lets out to CommCare HQ is inserted
+ * under its admission's locks and updated once when HQ answers. None of them
+ * is ever deleted or locked. */
 const RUNTIME_INSERT_UPDATE_TABLES = [
 	"design_identity_handles",
 	"authoring_session_requests",
 	"app_deployment_confirmations",
 	"app_deployment_baselines",
 	"project_space_resource_baselines",
+	"hq_remote_writes",
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
  * row in place: writers insert, reconcilers delete, and every other path reads.
- * A deployment's identity, media-path and keyed case id rows are inserted when
+ * A deployment's identity, media-path, keyed case id and column word rows are inserted when
  * an app is brought in from CommCare HQ and deleted when the deployment is
  * ended (a stop, or a settle that ends it); a Project move deletes an app's
  * media-path rows and inserts them under the destination Project's asset ids;
- * a bring-in of changes made in CommCare HQ inserts identity and media-path
- * rows for what CommCare HQ added, deleting first the media-path row of a
- * file CommCare HQ replaced and each identity row its reading contradicts (a
- * row of the same entity under other ids, or of another entity under an id
- * or `xmlns` the reading's row takes); no row is ever changed. The app row's lock
+ * a bring-in of changes made in CommCare HQ, and a save there that reads as
+ * the same app, replace the four tables' rows with the record the reading
+ * resolved (`lib/deployment/store.ts::writeTargetIdentityInTransaction`),
+ * deleting each row it no longer holds and inserting each it adds; no row is
+ * ever changed. The app row's lock
  * serializes the ending, the move and the bring-in: a settle and a move hold
  * it `FOR UPDATE`, a stop and a bring-in `FOR SHARE` or `FOR UPDATE` with the
  * deployment row `FOR UPDATE`. The birth writes them for a deployment it
@@ -270,6 +273,7 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"app_deployment_identities",
 	"app_deployment_media_paths",
 	"app_deployment_keyed_case_ids",
+	"app_deployment_column_field_words",
 ] as const;
 
 /** Only a migration writes these, as the migration role: fold baselines,

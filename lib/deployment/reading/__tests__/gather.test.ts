@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 import { isDeclaredSurfaceKey } from "@/lib/commcare/surface/revision";
-import { unrecognizedLogKey } from "../gather";
+import { WorkCancelled } from "@/lib/commcare/workMeter";
+import { editModeTest, Pieces, unrecognizedLogKey } from "../gather";
 
 /** A name an author could write, in characters no word of the closed set holds. */
 const PLANTED = "QZ9_W7Q";
@@ -45,4 +46,11 @@ describe("unrecognizedLogKey", () => {
 			expect(sharesNoCharacter(result, name)).toBe(true);
 		}
 	});
+});
+
+it("propagates cancellation while checking whether to read the edit mode setting", async () => {
+	const request = new AbortController();
+	const check = editModeTest(new Pieces(request.signal), []);
+	request.abort();
+	await expect(check).rejects.toBeInstanceOf(WorkCancelled);
 });

@@ -41,6 +41,7 @@ picture or column changed under a media or case list entry's broad row.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -135,6 +136,35 @@ def _d(check, artifact, path, at, kind):
 
 def _paths(found):
     return sorted(difference.path for difference in found)
+
+
+def test_hiding_an_implicit_incomplete_forms_tile_only_covers_its_removal_from_web_apps():
+    name = "incomplete-forms-tile-hidden"
+    document = _document((name, ("/app/profile/properties/cc-show-incomplete",)))
+    path = "/home/tiles/incomplete"
+    removed = _d("proof3", "webapps@B", path, path, "removed")
+    changed = _d("proof3", "webapps@B", path, path, "changed")
+    other = _d("proof3", "webapps@B", "/home/tiles/sync", "/home/tiles/sync", "removed")
+    held, ids = changes.declared(document, "proof3", [removed, changed, other])
+    assert held == [removed]
+    assert ids == {name}
+    assert changes.declared(_document(), "proof3", [removed])[0] == []
+
+
+def test_the_source_witness_holds_only_two_new_off_settings_at_their_exact_keys():
+    from proof.checks.source import compare_sources
+
+    incomplete = "incomplete-forms-tile-hidden"
+    document = _document(RESIDUE, (incomplete, ("/app/profile/properties/cc-show-incomplete",)))
+    before = {"profile": {}}
+    after = {"profile": {"properties": {"cc-show-saved": "no", "cc-show-incomplete": "no", "other": "no"}}}
+    found = compare_sources(document.id, before, after)
+    held, ids = changes.declared(document, "source", found)
+    assert ids == {RESIDUE, incomplete}
+    assert [d.at for d in found if d not in held] == ["/profile/properties/other"]
+    assert changes.declared(document, "source", compare_sources(document.id, after, before))[0] == []
+    after["profile"]["properties"].update({"cc-show-incomplete": "yes", "cc-show-saved": {"nested": "no"}})
+    assert changes.declared(document, "source", compare_sources(document.id, before, after))[0] == []
 
 
 def test_a_difference_an_applying_entry_declares_is_held_and_one_it_does_not_is_unsaid():
@@ -817,6 +847,68 @@ def test_a_case_name_checked_on_one_form_holds_no_other_form_s_case_block():
     )
 
 
+def test_native_case_name_checks_hold_only_the_declared_form_node_and_java_trim():
+    name = "case-names-checked"
+    position = "0.0"
+    form = ("form", position, "xform", "data")
+    prefix = "/runs/0/steps/3/submissions/0/instance/data/"
+    shape = "/runs/*/steps/*/submissions/*/instance/data/"
+    document = _document((name, ["/form/0.0/xform/data/head_name", "/form/0.0/xform/data/nova_trimmed_head_name"]))
+    for artifact in ("formplayer@B", "formplayer@local.ccz"):
+        node = Difference(
+            "proof3",
+            document.id,
+            artifact,
+            shape + "nova_trimmed_*[*]",
+            prefix + "nova_trimmed_head_name[1]",
+            "added",
+            None,
+            "<nova_trimmed_head_name/>",
+        )
+        case = Difference(
+            "proof3",
+            document.id,
+            artifact,
+            shape + "case[*]/create[*]/case_name[*]/text()",
+            prefix + "case[1]/create[1]/case_name[1]/text()",
+            "changed",
+            "  proof text\t",
+            "proof text",
+        )
+        sites = changes.Sites(
+            served={
+                (artifact, node.at): (*form, "nova_trimmed_head_name"),
+                (artifact, case.at): (*form, "head_name"),
+            }
+        )
+        assert _held_by(document, node, sites) == _held_by(document, case, sites) == {name}
+        child = replace(
+            case,
+            path=case.path.replace("data/case", "data/subcase_*[*]/case"),
+            at=case.at.replace("data/case", "data/subcase_0[1]/case"),
+        )
+        child_sites = changes.Sites(served={(artifact, child.at): (*form, "head_name")})
+        assert _held_by(document, child, child_sites) == {name}
+        assert not _held_by(document, replace(child, after="changed"), child_sites)
+        assert not _held_by(document, child, changes.Sites(served={(artifact, child.at): (*form, "other_name")}))
+        for other in (
+            replace(case, after="new name"),
+            replace(case, before="\xa0proof text"),
+            replace(case, before="   ", after=""),
+            replace(case, before=" " + "😀" * 128, after="😀" * 128),
+            replace(node, kind="removed"),
+        ):
+            assert not _held_by(document, other, sites)
+        unrelated = changes.Sites(
+            served={
+                (artifact, node.at): (*form, "nova_trimmed_unrelated"),
+                (artifact, case.at): ("form", "1.0", "xform", "data", "case", "create", "case_name"),
+            }
+        )
+        assert not _held_by(document, node, unrelated) and not _held_by(document, case, unrelated)
+        assert not _held_by(document, case, changes.NO_SITES)
+
+
 def test_the_split_holds_no_other_form_s_question_of_the_same_name_and_a_title_no_other_form_s():
     split = _document(RESIDUE, (SPLIT, ["/form/2.0/xform/data/visit", "/form/2.0/actions"]))
     answer = _trace("/runs/0/trace/3/submission/data/visit[1]/text()", "/runs/*/trace/*/submission/data/*/text()")
@@ -824,8 +916,9 @@ def test_the_split_holds_no_other_form_s_question_of_the_same_name_and_a_title_n
     moved = _trace("/runs/4/trace/3/submission/data/visit[1]/text()", "/runs/*/trace/*/submission/data/*/text()")
     assert _held_by(split, moved) == {SPLIT}
     titles = _document(RESIDUE, ("form-titles-written", ["/form/2.0/xform/title"]))
-    assert _held_by(titles, _trace("/runs/0/trace/1/title", "/runs/*/trace/*/title")) == frozenset()  # (d)
-    assert _held_by(titles, _trace("/runs/4/trace/1/title", "/runs/*/trace/*/title")) == {"form-titles-written"}
+    title = "/runs/*/trace/*/title/form"
+    assert _held_by(titles, _trace("/runs/0/trace/1/title/form", title)) == frozenset()  # (d)
+    assert _held_by(titles, _trace("/runs/4/trace/1/title/form", title)) == {"form-titles-written"}
 
 
 def _built(artifact, path, at, kind="changed"):
@@ -1314,3 +1407,64 @@ def test_evidence_written_before_it_held_the_checked_differences_is_refused_by_t
     directory.mkdir(parents=True)
     (directory / "corpus-hq-planted.json").write_text(json.dumps(old), encoding="utf-8")
     assert changes.main(["replay", str(tmp_path), "hq-planted"]) == 2
+
+
+def test_the_form_titles_rows_hold_a_forms_title_and_never_a_case_lists():
+    """Planted control for ``form-titles-written``'s ``proof3`` rows in the repository's register: a first publish
+    that wrote a form's title shows it as the form step's title (``/runs/*/trace/*/title/form``), which the rows hold
+    on a base the change applies to, while a case list's title that changed on the same base is no form's title and
+    is left for the other holds. Failure it catches: rows written at the step's ``title`` alone, which a case list
+    and a search share with a form, so a renamed case list would pass as a written form title."""
+    from proof.checks.compare.trace import compare_traces
+
+    def trace(form_title, list_title):
+        steps = [{"screen": "case-list", "title": list_title, "rows": []}, {"screen": "form", "title": form_title}]
+        return {"runs": [{"end": "submitted", "script": [], "trace": steps}]}
+
+    found = compare_traces(
+        trace(None, "Patients"),
+        trace("Followup Form", "Clients"),
+        check="proof3",
+        document="hq-planted",
+        rules=(),
+        artifact="trace@B",
+    )
+    assert _paths(found) == ["/runs/*/trace/*/title/case-list", "/runs/*/trace/*/title/form"]
+    # Both steps stand at form 0.0, so the change's place stands at both titles: only its rows tell them apart.
+    document = _document(RESIDUE, ("form-titles-written", [f"{FORM}/xform/title"]))
+    sites = _run_at_form(0, "0.0", steps=2)
+    held, ids = changes.declared(document, "proof3", found, sites=sites)
+    assert [difference.at for difference in held] == ["/runs/0/trace/1/title/form"]
+    assert ids == {"form-titles-written"}
+
+
+def test_a_native_blank_label_is_filled_only_from_the_first_language_of_that_same_question():
+    from dataclasses import replace
+    from pathlib import Path
+
+    from proof.checks import proof3, xform_parts
+
+    # A's form has a deliberately empty French label. Its Hindi label and its sibling question have their own text.
+    app = json.loads((Path(__file__).parents[1] / "hq-apps" / "hq-languages" / "app.json").read_text())
+    form = app["modules"][1]["forms"][0]
+    parts = xform_parts.parts(app["_attachments"][f"{form['unique_id']}.xml"])
+
+    def read(position):
+        return parts if position == "1.0" else {}
+
+    place = ("form", "1.0", "xform", "data", "crop", ":itext", "label", "fra", "default")
+    difference = Difference(
+        "proof3",
+        "hq-languages",
+        "formplayer@B",
+        "/runs/*/steps/*/tree/*/caption",
+        "/runs/3/steps/4/tree/1/caption",
+        "changed",
+        "",
+        "Crop grown",
+    )
+    assert proof3.first_language_fill(difference, place, app, read)
+    for altered in (replace(difference, before="Cultures"), replace(difference, after="Next crop")):
+        assert not proof3.first_language_fill(altered, place, app, read)
+    for altered in ((), (*place[:-2], "hin", "default"), (*place[:4], "unrelated", *place[5:])):
+        assert not proof3.first_language_fill(difference, altered, app, read)

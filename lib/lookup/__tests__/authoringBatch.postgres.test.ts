@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { applyLookupAuthoringBatchInTransaction } from "../authoringBatch";
 import {
@@ -8,6 +8,7 @@ import {
 	LOOKUP_AUTHORING_ROW_PAGE_MAX_BYTES,
 } from "../service";
 import type { LookupScope } from "../types";
+import { authorizeLookupWriteInTransaction } from "../writerTransaction";
 
 const h = setupAppStateTestDb("lookup_authoring_batch_");
 
@@ -17,13 +18,24 @@ const OWNER: LookupScope = {
 	role: "owner",
 };
 
+/* Every lookup writer reads its member's role on its own transaction. */
+beforeEach(async () => {
+	await h.seedProjectMember(OWNER.actorId, OWNER.projectId, "owner");
+});
+
 function runBatch(
 	input: Parameters<typeof applyLookupAuthoringBatchInTransaction>[2],
 ) {
 	return h
 		.db()
 		.transaction()
-		.execute((tx) => applyLookupAuthoringBatchInTransaction(tx, OWNER, input));
+		.execute(async (tx) =>
+			applyLookupAuthoringBatchInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, OWNER, "delete"),
+				input,
+			),
+		);
 }
 
 describe("lookup atomic authoring batch", () => {
@@ -302,32 +314,36 @@ describe("lookup atomic authoring batch", () => {
 				.transaction()
 				.execute(async (tx) => {
 					try {
-						await applyLookupAuthoringBatchInTransaction(tx, OWNER, {
-							createTables: ["good", "bad"].map((key) => ({
-								key,
-								name: key,
-								tag: key,
-								columns: [
-									{
-										key: "value",
-										wireName: "value",
-										label: "Value",
-										dataType: "int",
-									},
-								],
-								rows: [
-									{
-										key: "row",
-										cells: [
-											{
-												columnKey: "value",
-												value: key === "good" ? 1 : "invalid",
-											},
-										],
-									},
-								],
-							})),
-						});
+						await applyLookupAuthoringBatchInTransaction(
+							tx,
+							await authorizeLookupWriteInTransaction(tx, OWNER, "delete"),
+							{
+								createTables: ["good", "bad"].map((key) => ({
+									key,
+									name: key,
+									tag: key,
+									columns: [
+										{
+											key: "value",
+											wireName: "value",
+											label: "Value",
+											dataType: "int",
+										},
+									],
+									rows: [
+										{
+											key: "row",
+											cells: [
+												{
+													columnKey: "value",
+													value: key === "good" ? 1 : "invalid",
+												},
+											],
+										},
+									],
+								})),
+							},
+						);
 					} catch (error) {
 						// Verify writes really happened before the refusal and before rollback.
 						expect(

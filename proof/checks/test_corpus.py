@@ -107,7 +107,8 @@ ASSUMED_SOURCE_FIELDS = frozenset(
 
 @pytest.fixture
 def copied(tmp_path):
-    source = cases.load_corpus().emitted[0]
+    # These layout controls change both phases of a first publish, its republish, and its maximum configuration.
+    source = cases.load_corpus().document("arithmetic")
     shutil.copytree(source.root, tmp_path / source.id)
     (tmp_path / "index.json").write_text(json.dumps({"seed": 1, "sample": 0, "documents": [{"id": source.id}]}))
     return tmp_path, source.id
@@ -120,10 +121,13 @@ def test_a_document_is_read_with_every_export_and_its_configuration(copied):
     for name, export in document.exports.items():
         assert export.configuration.name == name
         assert export.create.upload().body and export.content.upload().body and export.republish.upload().body
-    # A `.ccz` installs an app on Android, so the corpus writes a local archive exactly where D declares Android.
+    # A `.ccz` installs an app on Android, so the corpus writes a local archive exactly where D declares Android
+    # and Nova's download makes one for its project space; where it refuses one (workers-sent-elsewhere), the
+    # document states the refusal in its place, which the bar holds to A (bar.local_outcome).
     android = corpus.ANDROID in document.platforms()
-    assert (document.local_ccz is not None) == android
-    assert (document.local_again_ccz is not None) == android
+    made = android and document.local_refusal is None
+    assert (document.local_ccz is not None) == made
+    assert (document.local_again_ccz is not None) == made
     assert [language["tag"] for language in document.wire_languages], "every document has a language"
 
 
@@ -612,6 +616,33 @@ def test_every_identity_move_names_a_witness_of_the_corpus():
     assert all(move.documents <= _witnesses() for move in moves)
 
 
+def test_a_sidecars_save_counter_is_read_as_its_peer_counted_and_refused_in_any_other_shape(tmp_path):
+    """Contract (``Captured.save_counter``, ``media_save_counter``): a sidecar names its capture peer's save counter
+    around the write as ``{"before": <counter> or null, "after": <counter>}`` (``proof/corpus/publish.ts::
+    SaveCounterMove``), read as ``(before, after)``, and a sidecar written before the counter was recorded names
+    none. Failures it catches: a malformed record read as a counter (so ``proof.observe.publish`` holds HQ to a
+    number the peer never answered) and an old capture refused for lacking one."""
+    body = tmp_path / "content.body"
+    body.write_text("content")
+
+    def captured(**meta):
+        return corpus.Captured(body, {"contentType": "multipart/form-data", "layout": 2, **meta})
+
+    assert captured(saveCounter={"before": 1, "after": 2}).save_counter == (1, 2)
+    assert captured(saveCounter={"before": None, "after": 1}).save_counter == (None, 1)
+    assert captured(mediaSaveCounter={"before": 2, "after": 3}).media_save_counter == (2, 3)
+    assert captured().save_counter is None and captured().media_save_counter is None
+    for refused in (
+        {"before": 1},
+        {"before": 0, "after": 1},
+        {"before": 1, "after": True},
+        {"before": 1, "after": 2, "acknowledged": 2},
+        [1, 2],
+    ):
+        with pytest.raises(corpus.CorpusLayoutError, match="saveCounter"):
+            _ = captured(saveCounter=refused).save_counter
+
+
 def _emitted_witness(root, source="targeted-migration:5, a migration"):
     """A corpus document of one configuration whose first publish is two imports, the content naming its workbook,
     as the emission writes it; a witness where ``source`` is targeted-migration's."""
@@ -857,12 +888,12 @@ def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits, and one a base CommCare HQ made (``proof/hq-apps/``). Every pull request that adds or removes a
 # document writes the count its sources then give.
-FIXED_DOCUMENTS = 459
+FIXED_DOCUMENTS = 460
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (499 with the default sample of 40). Catches a source that silently stops
+    the floor plus the sample's size (500 with the default sample of 40). Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)

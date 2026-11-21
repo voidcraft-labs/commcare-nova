@@ -494,7 +494,7 @@ describe("runtime row-lock privilege contract", () => {
 		]);
 	});
 
-	it("refuses a row lock and an update on a deployment's identity, media-path and keyed case id rows, and admits their inserts and deletes", () => {
+	it("refuses a row lock and an update on a deployment's identity, media-path, keyed case id and column word rows, and admits their inserts and deletes", () => {
 		/* The app row's lock serializes the ending and the Project move, and the
 		 * birth writes rows no other transaction sees; a lock on one of the rows
 		 * themselves would need UPDATE, which the runtime never holds. */
@@ -502,6 +502,7 @@ describe("runtime row-lock privilege contract", () => {
 			"app_deployment_identities",
 			"app_deployment_media_paths",
 			"app_deployment_keyed_case_ids",
+			"app_deployment_column_field_words",
 		]) {
 			expect(
 				rowLockViolationsInSource(

@@ -135,6 +135,27 @@ def test_a_holding_row_names_holds_as_a_list_that_may_be_empty():
     _refused([{**ROW, "holds": []}], {"made": made}, "refuses and holds")
 
 
+def test_a_row_expecting_the_reading_to_leave_a_key_unclaimed_names_the_key():
+    """Contract: a row may expect the circumstance ``unrecognized``, which names a surface key and no entry, with
+    its standing and place; it names the key (``key``), which its refusal carries for the judge to compare with the
+    finding's name, and no other row names one. The plausible failures: an ``unrecognized`` row met by any key left
+    unclaimed at its place, and a key on an entry's row that the judge would never read."""
+    unclaimed = {**ROW, "entry": registry.UNRECOGNIZED, "key": "schema:Detail.columns", "standing": "not-yet"}
+    path = _rows([unclaimed])
+    try:
+        (variant,) = registry.load_variants(path, named={"made": made})
+    finally:
+        path.unlink()
+    assert [(refusal.entry, refusal.key) for refusal in variant.refusals()] == [
+        (registry.UNRECOGNIZED, "schema:Detail.columns")
+    ]
+    without = {key: value for key, value in unclaimed.items() if key != "key"}
+    _refused([without], {"made": made}, "names the surface key")
+    _refused([{**ROW, "key": "schema:Detail.columns"}], {"made": made}, "no other row names a key")
+    holding = {key: value for key, value in unclaimed.items() if key not in ("standing", "place")}
+    _refused([{**holding, "holds": []}], {"made": made}, "names the surface key")
+
+
 def test_a_row_over_a_base_the_registry_lacks_is_refused():
     _refused([{**ROW, "base": "hq-unknown", "id": "hq-unknown/x"}], {"made": made}, "BASES lacks")
 

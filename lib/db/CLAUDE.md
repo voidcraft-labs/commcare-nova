@@ -33,7 +33,7 @@ supersession arises only from the recreate after an HQ-side deletion, plus
 rows from before in-place updates).
 `lib/deployment/CLAUDE.md` owns the lifecycle.
 
-**The deployment ledger has six more tables, each with its runtime privilege
+**The deployment ledger has seven more tables, each with its runtime privilege
 class** (`privilegeConvergence.ts`, DDL in
 `20261015020000_hq_round_trip_deployment_ledger.ts` and
 `20261201000000_hq_bring_in_ledger.ts`).
@@ -68,6 +68,37 @@ are never deleted from or row-locked. All five per-deployment tables cascade
 with their deployment; `project_space_resource_baselines` has no deletion path at
 all, because no app is hard-deleted at runtime and Project deletion is
 disabled, so the future whole-tenant deletion lifecycle must list it.
+`hq_remote_writes` (each write Nova lets out to CommCare HQ: an app's
+create, import or media bundle, a lookup table workbook, a batch of places, or
+a worker account provisioning makes or updates, open while `settled_at` is
+null and `held_until` is in the future, the one rule `openRemoteWrite.ts`
+states for every reader) is runtime insert-update: inserted by its admission
+and updated when it settles, in the transaction that records what it made or, where it
+made nothing, on its own, never deleted and never row-locked. A record of what
+admitted writes made is authorized by those admissions rather than by the app
+being live or its caller holding edit
+(`lib/deployment/store.ts::lockAppForAdmittedRecord`, which takes the app row
+`FOR SHARE` and reads the ledger rows unlocked). Every deployment
+write takes the app row `FOR SHARE`, then the shared membership gate and the
+member row (`lib/deployment/store.ts::lockAppForDeploymentWrite`), then the
+deployment row `FOR UPDATE`. An admission of an app write takes the HQ app's
+advisory lock (`hqAppClaims.ts::lockHqApp`) before all three, the claim
+protocol's order; a workbook's then takes the publisher's lookup authority
+(the gate again, which it already holds, and the member row), lookup Project
+state and the tables, the app-first lookup order (a bring-in of changes takes
+the app row `FOR UPDATE`, the gate and member row, Project state and the
+tables in its commit, then the deployment row for its record; both hold the
+app row first, so they serialize there and never cross); a worker's and a
+batch of places' take the deployment write's three. A birth's claim and a
+settle's take-back read it under the advisory lock and grant no other app the
+HQ app while one is open, or while an open create on its project space names
+no app yet
+(`HqAppWriteInFlightError`, `SettledClaims.waiting`); a Project move refuses
+under its app row while the app has one open
+(`apps.ts::refuseMoveWhilePublishing`); a hand-back reads it under the table
+row. `app_deployment_resources.pushed_remote_revision` is CommCare HQ's save
+counter as the import that wrote the push fields acknowledged it, which orders
+two publishes of one app.
 `app_deployment_resources.remote_missing_at` is the "CommCare HQ reports this
 app gone" fact, outside the push-token trigger's column list, so writing it
 rotates no push token.
@@ -202,7 +233,9 @@ recently deleted gives up its CommCare HQ app only when another app takes it
 `restoreApp` settles each HQ app the restored app gave up while it was
 deleted: it takes it back, from a holder in recently deleted too, or ends that
 deployment where a live app holds it (`hqAppClaims.ts`), and answers the
-project spaces it stopped publishing to.
+project spaces it stopped publishing to. A claim whose HQ app another app's
+write to CommCare HQ has not settled on stays released, and the app's next
+publish there settles it.
 
 App list/search cursors are admitted by `appPagination.ts` before SQL: their
 sort, composite key, encoding and canonical timestamp must match the emitted
@@ -359,7 +392,10 @@ before synthesizing a finish.
 **Lookup data uses snapshot invalidation, not mutation replay.**
 `lookup_project_state.revision` is the commit-ordered Project clock;
 definition and row revisions on each lookup table form its optimistic token.
-Every lookup writer locks the Project-state row first and its table row second,
+Every lookup writer reads its member's role on its own transaction under the
+membership gate (`lib/lookup/writerTransaction.ts::authorizeLookupWriteInTransaction`,
+whose authority every lookup lock requires), then locks the Project-state row
+and its table row,
 updates the service-maintained counts/bytes, then calls the transactional
 `notifyLookupProject` helper. The shared listener fans lookup pokes only to the
 matching Project; the app SSE route subscribes before its initial read and emits
@@ -427,9 +463,9 @@ session's holder and reservation onto the app row in that transaction. Ordinary
 MCP work records its app activation under its authoring-session owner. Every
 `commitGuardedBatch`, `appendSyntheticBatch`, and `commitAppProjectMove`
 transaction declares lookup writer v1 from the shared runtime manifest. Ordinary
-commits lock the app, compare the caller's required `expectedProjectId`, check
-the dedup latch, take the shared membership gate,
-lock and authorize the actor's exact `auth_member` row in the SAME transaction,
+commits lock the app, compare the caller's required `expectedProjectId`, take
+the shared membership gate, lock and authorize the actor's exact `auth_member`
+row in the SAME transaction, check the dedup latch and the expected head,
 hydrate the fresh doc, reject
 reducer-minted identity mutations, prepare once, lock the union of prior and
 candidate lookup tables, evaluate against that snapshot, run the organization
@@ -455,8 +491,16 @@ schema. Worker-only edits still synchronize even when no schema changed.
 while a batch id already committed answers that commit. The caller's
 `inTransaction` (the deployment's record) runs at the end of its `beforeWrite`
 hook, in the commit's transaction with the sequence it takes, so it commits
-and rolls back with the batch. An editor's kind handed an expected head or
-transaction work, and `hq-changes` with no head, are refused before any write.
+and rolls back with the batch. Its `projectDataWrite` (the kernel's
+`CanonicalCommitTransactionHooks.projectDataWrite`, the twin of genesis's
+`afterAppInsert`) writes the Project data the change newly reads, its lookup
+tables, in the same transaction: after the app row, the head test, the
+Project and membership checks and the dedup return, and immediately before
+`lookupContextForAuthoritativeWrite`, so the gate and the edges read what it
+wrote and a change that is turned back (a moved head, a refused gate, a moved
+baseline, a failed record) creates and changes no table. A dedup hit runs
+neither hook. An editor's kind handed an expected head, transaction work or
+Project data, and `hq-changes` with no head, are refused before any write.
 
 Worker rows use `(app, commcare-user, hq_user_id)` as their semantic identity.
 `syncUsercaseRow` preserves a matching existing row's case id, including the
@@ -1281,9 +1325,11 @@ succeeds and proves the complete run still has no paid work.
 
 
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
-MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
-→ reject when the row no longer matches the caller's required
-`expectedProjectId` → reauth against the fresh Project membership row →
+MCP, auto-save, the cross-Project move): lock the app row → reject when the
+row no longer matches the caller's required `expectedProjectId` → reauth
+against the fresh Project membership row → dedup latch read → the head test of
+a `publish-placement` or `hq-changes` batch (so a batch id's existence and a
+moved head are said only to a caller authorized under the row) →
 while a materialized initial design is unfinished, reject MCP/autosave callers
 that cannot carry its exact live chat holder capability (the durable terminal
 head keeps failed partial builds frozen after their lease is gone) →

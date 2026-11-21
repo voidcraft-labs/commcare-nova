@@ -36,6 +36,7 @@ from functools import cache, cached_property
 
 from lxml import etree
 
+from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
 from proof.observe.manifest import CSQL_HOLES
 from proof.rules._xpath import tokens as xpath_tokens
@@ -108,6 +109,20 @@ def _local(element):
 
 def _children(element):
     return [child for child in element if isinstance(child.tag, str)]
+
+
+def _core_control_path(control):
+    """The attribute Core binds a body element to its node by, and its text: ``bind`` wherever the element holds
+    one, else a repeat's ``nodeset`` and any other element's ``ref`` (``XFormParser.parseControl`` and
+    ``parseGroup`` read ``bind`` first, a repeat's ``nodeset`` alone and a group's or a question's ``ref`` alone;
+    the reader's ``xform/body.ts::coreControlPath``), as ``(attribute, text)``; None where it holds none of them. A
+    group holding only ``nodeset`` binds no node of its own, and a question holding only ``nodeset`` none."""
+    bind = control.get("bind")
+    if bind is not None:
+        return "bind", bind
+    attribute = "nodeset" if _local(control) == "repeat" else "ref"
+    text = control.get(attribute)
+    return None if text is None else (attribute, text)
 
 
 class Form:
@@ -197,18 +212,15 @@ class Form:
 
     @cached_property
     def controls(self):
-        """The body's elements that name a node, by the text of the path they name (``ref``, or a repeat's
-        ``nodeset``, or a ``bind`` id's nodeset)."""
+        """The body's elements that name a node, by the text of the path Core binds each to (``control_path``)."""
         found = {}
         body = self.root.find(f"{{{XHTML}}}body")
         for element in body.iter() if body is not None else ():
             if not isinstance(element.tag, str):
                 continue
-            path = element.get("ref") or element.get("nodeset")
-            if path is None and element.get("bind") in self.binds_by_id:
-                path = self.binds_by_id[element.get("bind")].get("nodeset")
+            path = self.control_path(element)
             if path:
-                found.setdefault(path.strip(), []).append(element)
+                found.setdefault(path, []).append(element)
         return found
 
     def bind(self, path):
@@ -218,9 +230,16 @@ class Form:
         return binds[-1] if binds else None
 
     def control_path(self, control):
-        path = control.get("ref") or control.get("nodeset")
-        if path is None and control.get("bind") in self.binds_by_id:
-            path = self.binds_by_id[control.get("bind")].get("nodeset")
+        """The path Core binds a body element to (``_core_control_path``): its ``bind``'s bind's nodeset, else a
+        repeat's ``nodeset`` or any other element's ``ref``; None where it names none, or names a bind id no bind
+        with a nodeset holds."""
+        found = _core_control_path(control)
+        if found is None:
+            return None
+        attribute, path = found
+        if attribute == "bind":
+            bind = self.binds_by_id.get(path)
+            path = bind.get("nodeset") if bind is not None else None
         return path.strip() if path else None
 
     def control_bind(self, control):
@@ -1272,9 +1291,69 @@ HQ_META_SETVALUES = frozenset(
 )
 
 
+def _core_action_attribute(element, local):
+    """The attribute Core reads as an action's ``local``, as ``(its name, its value)``: the first of that local
+    name in any namespace (``XFormParser.parseSetValueAction`` asks kxml2's ``Element.getAttributeValue(null,
+    local)``, which matches a name whatever its namespace), the form builder's ``vellum:`` shadows left out, since
+    HQ's build and Nova's local archive strip them before a device reads the form (``strip_vellum_ns_attributes``);
+    None where it holds none."""
+    for name, value in element.attrib.items():
+        qualified = etree.QName(name)
+        if qualified.localname == local and qualified.namespace != VELLUM:
+            return name, value
+    return None
+
+
+def _xml_whitespace(text):
+    """Whether ``text`` is XML's whitespace alone, which Core's parser drops between elements (``getXMLDocument``)."""
+    return all(character in " \t\n\r" for character in text or "")
+
+
+SETVALUE_HELD, SETVALUE_OTHER = "held", "other"
+
+
+def _setvalue_spelling(setvalue):
+    """Whether Core reads a setvalue as Nova writes one, the only spelling Nova's reader gives a target
+    (``xform/model.ts::heldSetvalueRef``): no ``bind``, which Core reads in place of ``ref``; a plain ``ref`` that
+    is an absolute path, where Core resolves a relative one from ``/``; a plain ``value``, where Core sets the
+    element's text when it has none; a plain ``event`` or none; and nothing inside it. ``SETVALUE_HELD``,
+    ``SETVALUE_OTHER``, or None where the port of Core's lexer does not read the ``ref``."""
+    if _core_action_attribute(setvalue, "bind") is not None:
+        return SETVALUE_OTHER
+    ref = _core_action_attribute(setvalue, "ref")
+    value = _core_action_attribute(setvalue, "value")
+    event = _core_action_attribute(setvalue, "event")
+    if ref is None or ref[0] != "ref" or value is None or value[0] != "value":
+        return SETVALUE_OTHER
+    if event is not None and event[0] != "event":
+        return SETVALUE_OTHER
+    if len(setvalue) or not _xml_whitespace(setvalue.text):
+        return SETVALUE_OTHER
+    found = xpath_tokens(ref[1])
+    if found is None:
+        return None
+    return SETVALUE_HELD if found and found[0].kind == "SLASH" else SETVALUE_OTHER
+
+
+def _held_ref(setvalue):
+    """A setvalue's ``ref``, stripped, where Core reads it as Nova writes one (``_setvalue_spelling``), else None."""
+    return setvalue.get("ref").strip() if _setvalue_spelling(setvalue) == SETVALUE_HELD else None
+
+
 def _target(form, setvalue):
-    """A setvalue's target node (an element, or ``(element, attribute)``), or None."""
-    return form.node(setvalue.get("ref"))
+    """A setvalue's target node (an element, or ``(element, attribute)``) where Core reads it as Nova writes one
+    (``_held_ref``), or None."""
+    return form.node(_held_ref(setvalue))
+
+
+def _unplaced_target(form, setvalue):
+    """What a class of a setvalue's target says of one ``_target`` places nowhere: False outside the model, and for
+    one Core reads otherwise than Nova writes, which is a form-level setvalue (``form_level_setvalue``) and no
+    question's default; None for a model setvalue in Nova's spelling whose ``ref`` names no node here, or whose
+    ``ref`` the port of Core's lexer does not read."""
+    if not _model_level(form, setvalue) or _setvalue_spelling(setvalue) == SETVALUE_OTHER:
+        return False
+    return None
 
 
 def _target_element(target):
@@ -1312,13 +1391,13 @@ def _model_iteration_setvalue(form, setvalue):
     """Whether a setvalue is one Vellum's model iteration takes as its own (``modeliteration.js``
     ``setvalueData``, matched by event and ref): the container's ``@ids`` and ``@count`` (``xforms-ready``, or
     ``jr-insert`` where the container is nested in a repeat) and its ``item/@index`` and ``item/@id``
-    (``jr-insert``)."""
+    (``jr-insert``), each spelled as Nova writes one (``_held_ref``)."""
     for container in form.model_repeats:
         path = form.paths[container]
         parent = container.getparent()
         nested = parent is not None and parent in form.paths and form.in_repeat(form.paths[parent])
         top = "jr-insert" if nested else "xforms-ready"
-        if (setvalue.get("event"), (setvalue.get("ref") or "").strip()) in {
+        if (setvalue.get("event"), _held_ref(setvalue)) in {
             (top, f"{path}/@ids"),
             (top, f"{path}/@count"),
             ("jr-insert", f"{path}/item/@index"),
@@ -1375,7 +1454,7 @@ def default_event_mismatching_placement(use, manifest):
         return False  # an event on another element of the form, no setvalue
     target = _target(form, setvalue)
     if target is None:
-        return None if _model_level(form, setvalue) else False
+        return _unplaced_target(form, setvalue)
     if not _default_value(form, setvalue, target):
         return False
     inside = form.in_repeat(form.paths[target])
@@ -1386,8 +1465,11 @@ def form_level_setvalue(use, manifest):
     """``questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate``: a setvalue Vellum keeps
     only as a form-level setvalue: one its parser reads (``head > model > setvalue``) that is no question's
     Default Value (``parser.js::parseSetValue``) and that no plugin takes as its own (a model iteration's,
-    ``modeliteration.js``; a SaveToCase create's Case ID, ``saveToCase.js``). What HQ's build writes is no
-    authored setvalue."""
+    ``modeliteration.js``; a SaveToCase create's Case ID, ``saveToCase.js``); and one Core reads otherwise than
+    Nova writes a setvalue (``_setvalue_spelling``: a ``bind``, a relative ``ref``, a ``ref``, ``value`` or
+    ``event`` of another namespace before the plain one, no ``value``, or content), whose target Core and the form
+    builder read apart, so no question's default is what Core sets. What HQ's build writes is no authored
+    setvalue."""
     form, setvalue = _setvalue(use)
     if form is None:
         return None
@@ -1395,6 +1477,8 @@ def form_level_setvalue(use, manifest):
         return False  # an event on another element of the form, no setvalue
     if not _model_level(form, setvalue):
         return False  # an action nested in a control is that row's
+    if _setvalue_spelling(setvalue) == SETVALUE_OTHER:
+        return True
     target = _target(form, setvalue)
     if target is None:
         return None
@@ -1421,7 +1505,7 @@ def savetocase_blank_create_id(use, manifest):
         return False  # an event on another element of the form, no setvalue
     target = _target(form, setvalue)
     if target is None:
-        return None if _model_level(form, setvalue) else False
+        return _unplaced_target(form, setvalue)
     node = _save_to_case_create_id(form, setvalue, target)
     if node is None or form.in_repeat(form.paths[node]) or setvalue.get("event") != "xforms-ready":
         return False
@@ -2003,6 +2087,75 @@ def invalid_or_repeated_code(use, manifest):
     langs = [code for code in at.app.doc.get("langs") or [] if isinstance(code, str)]
     codes = [code for code in langs if code]
     return any(not LANGUAGE_CODE.match(code) for code in codes) or len(set(codes)) != len(codes)
+
+
+def _hq_spelled(text):
+    """A text as HQ's build writes it into an app strings file (``commcare_translations.dumps``,
+    ``lib/commcare/localeFile.ts::hqLocaleFileValue``): a Python-blank text as one non-breaking space, each line break
+    as ``\\n``, then each ``#`` no backslash precedes as ``\\#``."""
+    if not text.strip():
+        return "\u00a0"
+    lines = text.replace("\n", "\\n")
+    return "".join(
+        "\\#" if unit == "#" and (index == 0 or lines[index - 1] != "\\") else unit for index, unit in enumerate(lines)
+    )
+
+
+def _core_locale_key(line):
+    """The key one line of a locale file defines as Core's ``LocalizationUtils.parseAndAdd`` reads it
+    (``lib/commcare/localeFile.ts::readLocaleLineAsCore``): the line trimmed as Java's ``String.trim()`` does, cut at
+    its first ``#`` no backslash precedes, then what stands before its first ``=``; None where no ``=`` stands there or
+    nothing follows it."""
+    read = line.strip(CORE_LINE_END_TRIMMED)
+    start = 0
+    while (at := read.find("#", start)) != -1:
+        if at == 0 or read[at - 1] != "\\":
+            read = read[:at]
+            break
+        start = at + 1
+    equal = read.find("=")
+    if equal == -1 or equal == len(read) - 1:
+        return None
+    return read[:equal]
+
+
+def _key_defined_after_line_end(text):
+    """The app string the rest of a text after a carriage return defines in the file HQ's build writes it into, or
+    None (``lib/commcare/reader/heldText.ts::keyDefinedAfterLineEnd``): ``dumps`` leaves a carriage return as it is,
+    and Core reads each line after it as a line of its own."""
+    if not text.strip():
+        return None
+    for line in _hq_spelled(text).split("\r")[1:]:
+        key = _core_locale_key(line)
+        if key:
+            return key
+    return None
+
+
+def translation_key_not_its_own(use, manifest):
+    """``application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name``: a key of an app
+    language's ``translations`` that is no locale record under its own name (``app_strings.is_locale_file_key``,
+    ``lib/commcare/localeFile.ts::isLocaleFileKey``), which HQ's build writes stripped and on one line, so it sets
+    another string or none (``lib/commcare/reader/appShell.ts::readTranslations``). A language the app does not hold
+    is read by nothing (another class), and a key whose value's rest after a carriage return defines an app string is
+    the carriage-return entry's, which the reader refuses at that key first."""
+    at = _json(use)
+    if at is None or at.key != "translations" or at.scope[-1][0] not in ("Application", "LinkedApplication"):
+        return None
+    translations = at.value
+    if not isinstance(translations, dict):
+        return None
+    langs = at.owner.get("langs")
+    held = {code for code in langs if isinstance(code, str)} if isinstance(langs, list) else set()
+    for lang, strings in translations.items():
+        if lang not in held or not isinstance(strings, dict):
+            continue
+        for key, value in strings.items():
+            if isinstance(value, str) and _key_defined_after_line_end(value) is not None:
+                continue
+            if not is_locale_file_key(key):
+                return True
+    return False
 
 
 def path_not_from_uploader(use, manifest):
@@ -6048,7 +6201,7 @@ def hidden_value_default_read(use, manifest):
     bind = form.bind(path)
     if path is None or bind is None or not (bind.get("calculate") or "").strip():
         return False
-    defaults = [setvalue for setvalue in _model_setvalues(form) if (setvalue.get("ref") or "").strip() == path]
+    defaults = [setvalue for setvalue in _model_setvalues(form) if _held_ref(setvalue) == path]
     if not defaults:
         return False
     row_id = _count_placement_row_id(form, element, path, bind, defaults)
@@ -6062,9 +6215,9 @@ def hidden_value_default_read(use, manifest):
     unsure = False
     for later in loads[loads.index(defaults[0]) + 1 :]:
         value = later.get("value")
-        if not (value or "").strip():
-            continue
-        reads = _tree_reads(form, value, (later.get("ref") or "").strip())
+        if not (value or "").strip() or _held_ref(later) is None:
+            continue  # nothing read, or a setvalue Core reads otherwise than Nova writes, which sets no node here
+        reads = _tree_reads(form, value, _held_ref(later))
         if reads is None:
             unsure = True  # no structure recorded, or a read this does not place
             continue
@@ -7094,11 +7247,12 @@ def choice_name_on_lookup(use, manifest):
 
 def other_bind_id(use, manifest):
     """``questions/any-other-bind-id-named-by-a-control-s-bind``: a control's ``bind`` naming a bind (Core reads the
-    control's node as that bind's nodeset) whose id Vellum does not read as that node's path. Vellum reads ``bind``
-    only on a control with no ``ref`` or ``nodeset``, as a path from the data root where a question stands there,
-    else from its parent control's node (``parser.js::getPathFromControlElement``, ``processPath``). Read on the
-    control's ``bind`` and on the bind's ``id`` alike, a bind no control names being outside the class; an id that
-    names no bind is the bar's (Core refuses the form)."""
+    control's node as that bind's nodeset, whatever ``ref`` or ``nodeset`` it also holds: ``_core_control_path``)
+    whose id does not read as that node's path the way the form builder reads a ``bind``: from the data root where a
+    question stands there, else from its parent control's node (``parser.js::getPathFromControlElement``,
+    ``processPath``). Nova holds a control's ``bind`` only in that spelling, as its reader does
+    (``xform/body.ts``, ``bindIdPath``). Read on the control's ``bind`` and on the bind's ``id`` alike, a bind no
+    control names being outside the class; an id that names no bind is the bar's (Core refuses the form)."""
     form, element = _form_element(use)
     if form is None:
         return None
@@ -7114,10 +7268,8 @@ def other_bind_id(use, manifest):
 
 
 def _bind_read_otherwise(form, control):
-    """Whether Vellum reads a control's ``bind`` as another node than Core does (``other_bind_id``): True, False,
-    or None where the bind's nodeset names no node here."""
-    if control.get("ref") is not None or control.get("nodeset") is not None:
-        return False  # Vellum reads the control's ref (or nodeset), Core the same node through the bind
+    """Whether a control's ``bind`` id reads as another node than the one Core binds it to (``other_bind_id``):
+    True, False, or None where the bind's nodeset names no node here."""
     bind = form.binds_by_id.get(control.get("bind"))
     if bind is None:
         return False
@@ -7151,6 +7303,23 @@ def referenced_unrecognized_source(use, manifest):
         return False
     if instance_source(manifest, element.get("src")) != "instance-source:(none)" or not element.get("id"):
         return False
+    return _reads_declared_instance(document, element.get("id"))
+
+
+def ledger_read(use, manifest):
+    """HQ's ledger scheme, or a read of a declaration Core initializes as the ledger database. Its source
+    may have a different spelling, including a lookup tag containing ledgerdb (generateRoot checks the
+    ledger before fixtures). An unread declaration is inert."""
+    if use.key == "instance-scheme:ledgerdb":
+        return True
+    at = _xml(use)
+    if at is None or not at.element.get("id"):
+        return None
+    return _reads_declared_instance(at.document, at.element.get("id"))
+
+
+def _reads_declared_instance(document, instance_id):
+    """Whether Core's parsed expressions read this id, or None where the record cannot settle a read."""
     if document.readings is None:
         return None
     unsure = False
@@ -7166,7 +7335,7 @@ def referenced_unrecognized_source(use, manifest):
                 continue
             if "error" in parsed:
                 continue
-            if any(path["instance"] == element.get("id") for path in parsed["instancePaths"]):
+            if any(path["instance"] == instance_id for path in parsed["instancePaths"]):
                 return True
             unsure = unsure or "instance" in parsed["functions"]
     return None if unsure else False
@@ -7860,7 +8029,9 @@ def model_iteration_nested(use, manifest):
 
 def _load_setvalues(form):
     """The model's load-time setvalues in the order Core runs them (``xforms-ready``, in document order: README,
-    "Load-time values")."""
+    "Load-time values"). What one sets is read through ``_held_ref``, as Nova's reader reads a form's load
+    (``xform/loadOrder.ts::effectiveLoadOrder``): one Core reads otherwise than Nova writes sets no node here, its
+    form being refused under the form-level setvalue's entry."""
     return [
         setvalue
         for setvalue in form.model.iterfind(f"{{{XFORMS}}}setvalue")
@@ -7871,7 +8042,7 @@ def _load_setvalues(form):
 def _iteration_ids(form, container):
     """The load-time setvalue of a model iteration's ``@ids``, its query (``modeliteration.js``), or None."""
     target = f"{form.paths[container]}/@ids"
-    return next((s for s in _load_setvalues(form) if (s.get("ref") or "").strip() == target), None)
+    return next((s for s in _load_setvalues(form) if _held_ref(s) == target), None)
 
 
 def _relevance(form, element):
@@ -7931,7 +8102,7 @@ def _hidden_at(form, element, earlier):
     nodes = [form.node(path) for path in reads]
     if None in nodes or any(_computed(form, path) for path in reads):
         return None  # a calculated node, or one under a condition, is not followed
-    set_here = {form.node(setvalue.get("ref")) for setvalue in earlier} - {None}
+    set_here = {form.node(_held_ref(setvalue)) for setvalue in earlier} - {None}
     if not any(node in set_here for node in nodes):
         return False  # its condition has not run where the iteration's setvalues run: relevant there
     value = _condition_at(form, form.tree(condition), form.paths[element], earlier)
@@ -7991,7 +8162,7 @@ def _value_at(form, tree, context, earlier):
     if node is None:
         return None
     for setvalue in reversed(earlier):
-        if form.node(setvalue.get("ref")) is node:
+        if form.node(_held_ref(setvalue)) is node:
             value = form.tree(setvalue.get("value"))
             return _value_at(form, value, context, []) if value is not None and value[0] in ("text", "number") else None
     return None
@@ -8006,7 +8177,7 @@ def _blank_at_load(form, path, setvalue):
     element = _target_element(node)
     setvalues = _load_setvalues(form)
     earlier = setvalues[: setvalues.index(setvalue)]
-    if any(form.node(other.get("ref")) == node for other in earlier):
+    if any(form.node(_held_ref(other)) == node for other in earlier):
         return False  # an earlier load-time setvalue gave it its value there
     holder = element
     conditions = False
@@ -8043,7 +8214,7 @@ def model_iteration_reading_blank_answer(use, manifest):
     ids = _iteration_ids(form, container)
     if ids is None:
         return None
-    paths = _tree_reads(form, ids.get("value"), _node_path(form, form.node(ids.get("ref"))))
+    paths = _tree_reads(form, ids.get("value"), _node_path(form, form.node(_held_ref(ids))))
     if paths is None:
         return None
     own = form.paths[container]
@@ -8220,7 +8391,7 @@ def second_default(use, manifest):
         return False  # an event on another element of the form, no setvalue
     target = _target(form, setvalue)
     if target is None:
-        return None if _model_level(form, setvalue) else False
+        return _unplaced_target(form, setvalue)
     if not _default_value(form, setvalue, target):
         return False
     for other in form.model.iterfind(f"{{{XFORMS}}}setvalue"):
@@ -8246,7 +8417,7 @@ def order_a_save_changes(use, manifest):
         return False  # an event on another element of the form, no setvalue
     target = _target(form, setvalue)
     if target is None:
-        return None if _model_level(form, setvalue) else False
+        return _unplaced_target(form, setvalue)
     if not _default_value(form, setvalue, target):
         return False
     tree_order = {element: index for index, element in enumerate(form.data_root.iter())}
@@ -9533,6 +9704,9 @@ VALUE_CLASSES = {
     "application-and-settings/34p-hq-build-spec-below-nova-s-floor": below_floor,
     "application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture": only_hierarchical_fixture,
     "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated": invalid_or_repeated_code,
+    "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
+        translation_key_not_its_own
+    ),
     "application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare": path_not_from_uploader,
     "application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys": custom_property_other,
     "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": setting_outside_choices,
@@ -9750,6 +9924,7 @@ VALUE_CLASSES = {
     "expressions-and-data/session-context-window-width-in-form-logic": window_width_in_form_logic,
     "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": choice_name_on_lookup,
     "expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src": referenced_unrecognized_source,
+    "expressions-and-data/ledgerdb-vellum-id-ledger": ledger_read,
     "expressions-and-data/after-a-named-step-data-a-b": parent_after_named_step,
     "expressions-and-data/or-with-a-time-on-either-side-a-time-answer-property-or-string": time_operand,
     "expressions-and-data/results-read-in-form-expressions-reached-through-a-search-that": (

@@ -31,6 +31,8 @@ export const READING_REFUSAL_COPY: Readonly<Record<ReadingRefusal, string>> = {
 		"A file this app uses was removed from your Project while Nova was creating the app, so Nova stopped before creating it. You can bring it in again, and Nova adds the file back.",
 	app_unavailable:
 		"This app was brought in already, and you can't open it from here. If it's in recently deleted, you can restore it from your apps. If you've left its Project, one of its admins can add you back.",
+	publish_in_flight:
+		"Nova is still finishing a publish to this app in CommCare HQ, so it can't be brought in just yet. You can try again in a few minutes.",
 };
 
 /** One sentence above whatever a create that did not create carries. */

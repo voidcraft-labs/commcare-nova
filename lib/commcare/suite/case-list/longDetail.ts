@@ -68,6 +68,7 @@ import {
 } from "@/lib/domain";
 import { moduleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
+import type { ColumnFieldWordOf } from "../../wireIdentity";
 import { buildColumnField, mergeFieldStrings } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
 import type {
@@ -124,6 +125,8 @@ export function buildLongDetail(args: {
 	readonly caseSource?: "casedb" | "results:inline";
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
+	/** The word the archive's target keeps each column's property under (`CaseListEmitContext.columnFieldWord`). */
+	readonly columnFieldWord?: ColumnFieldWordOf;
 }): {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
@@ -171,6 +174,7 @@ export function buildLongDetail(args: {
 		),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
+		...(args.columnFieldWord && { columnFieldWord: args.columnFieldWord }),
 	};
 
 	const fields: Element[] = [];

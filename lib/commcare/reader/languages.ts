@@ -33,6 +33,7 @@ import {
 	scriptChoices,
 } from "@/lib/domain/languageRegistry";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
+import { recordFromEntries } from "@/lib/domain/records";
 import {
 	snapshotTranslationUnits,
 	storedTranslationValue,
@@ -44,6 +45,7 @@ import {
 	type HqPlace,
 	type ManifestFinding,
 	type Subject,
+	shownPlace,
 } from "@/lib/publish/hqFindings";
 import { expandAppShell } from "../expander";
 import { projectCaseListForHq } from "../hqJson/caseList";
@@ -218,7 +220,7 @@ export function manifestFindingOf(
 		...(entry.standing === "fix-in-hq" && entry.cause !== null
 			? { cause: entry.cause }
 			: {}),
-		place,
+		place: shownPlace(place),
 		subject: entry.subject as Subject,
 		detail: {
 			...(detail.name === undefined
@@ -347,10 +349,12 @@ export function readLanguages(ctx: ReadContext): HqLanguages {
 			sourceLanguage: source,
 			defaultLanguage,
 			languageOrder: order,
-			translations: Object.fromEntries(
-				order.filter((tag) => tag !== source).map((tag) => [tag, {}]),
+			translations: recordFromEntries(
+				order
+					.filter((tag) => tag !== source)
+					.map((tag) => [tag, recordFromEntries<TranslationEntry>([])]),
 			),
-			wireCodes: Object.fromEntries(held),
+			wireCodes: recordFromEntries(held),
 		};
 		/* English alone, coded `en`, is the absent root: the one spelling a
 		 * document holds for it. */
@@ -472,7 +476,7 @@ function printed(value: unknown): unknown {
 	if (value instanceof HqXPath) return hqXPathText(value);
 	if (Array.isArray(value)) return value.map(printed);
 	if (isJsonObject(value))
-		return Object.fromEntries(
+		return recordFromEntries(
 			Object.entries(value).map(([key, one]) => [key, printed(one)]),
 		);
 	return value;
@@ -740,11 +744,10 @@ export function resourcedDocument(
 		requiredDefaultRead !== undefined &&
 		!sameJson(requiredDefaultRead, requiredDefault.unit.source);
 	return withCandidate(doc, (draft) => {
-		const translations: Record<
-			string,
-			Record<string, TranslationEntry>
-		> = Object.fromEntries(
-			order.filter((tag) => tag !== target).map((tag) => [tag, {}]),
+		const translations = recordFromEntries(
+			order
+				.filter((tag) => tag !== target)
+				.map((tag) => [tag, recordFromEntries<TranslationEntry>([])]),
 		);
 		for (const { unit, byLanguage } of texts) {
 			if (requiredDefaultMoves && unit.id === REQUIRED_DEFAULT) continue;

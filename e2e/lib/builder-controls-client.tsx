@@ -150,6 +150,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+import { PREVIEW_LABEL_RENDERING } from "@/lib/markdown";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { runHistoryStep } from "@/lib/routing/historyStep";
 import { BuilderSessionProvider } from "@/lib/session/provider";
@@ -1033,7 +1034,9 @@ function InlineProseFixture() {
 	);
 }
 function MarkdownFixture() {
-	const [value, setValue] = useState<string | undefined>("Hello");
+	const [value, setValue] = useState<string | undefined>(
+		() => new URLSearchParams(location.search).get("subtitle") ?? "Hello",
+	);
 	const [generation, setGeneration] = useState(0);
 	return (
 		<section aria-label="Markdown inspector" style={{ width: 300 }}>
@@ -1502,6 +1505,7 @@ function FormatTextFixtureContent() {
 				<LabelContent
 					label={field.label}
 					isEditMode
+					rendering={PREVIEW_LABEL_RENDERING}
 					className=""
 					plainLabel={field.plainLabel === true}
 				/>

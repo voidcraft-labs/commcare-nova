@@ -3,29 +3,38 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { type HqReadDeadline, withHqRequestDeadline } from "./deadline";
 import {
-	authHeader,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
 	failedResponseError,
 	HQ_REFUSED_BODY_MAX_CHARS,
-	HQ_REFUSED_BODY_READ_MAX_BYTES,
+	type HqAnswer,
 	hqTextShape,
+	readRefusedBody,
 	retryAfterMs,
+	sendHq,
 	unansweredRead,
 } from "./http";
-import { readBoundedBody } from "./readBody";
+import { parseHqJsonText } from "./jsonText";
+import { giveBackHeld } from "./memoryMeter";
 import { HQ_READ_SENDS, readRetryWaitMs } from "./throttle";
 
 export type ReadHqJsonOptions = {
 	/**
-	 * The most bytes of body Nova reads. A longer body is refused whole and
+	 * The most bytes of body Nova reads, a constant of `bounds.ts`. Required: no
+	 * read of CommCare HQ is without one. A longer body is refused whole and
 	 * never cut short and parsed: the bound guards the server's memory against
 	 * a body of any length, and the caller decides what a refusal means.
 	 */
-	readonly maxBytes?: number;
+	readonly maxBytes: number;
 	/** Return a bounded prefix of a refused body as `refusedBody`. */
 	readonly keepRefusedBody?: boolean;
+	/**
+	 * `quiet` where a body past the bound is an answer the caller reads (a
+	 * list's page past what remains of its bound), so the read logs nothing
+	 * of it; otherwise it logs `[commcare] <label> is longer than Nova reads`.
+	 */
+	readonly pastBound?: "log" | "quiet";
 } & (
 	| /** One page of a list read: the list's own deadline. */
 	HqReadDeadline
@@ -65,8 +74,8 @@ export async function readHqJson(
 	creds: CommCareCredentials,
 	url: string,
 	label: string,
-	options: ReadHqJsonOptions = {},
-): Promise<{ readonly data: unknown } | CommCareApiError> {
+	options: ReadHqJsonOptions,
+): Promise<HqJsonRead | CommCareApiError> {
 	if (options.signal !== undefined)
 		return readWithin(creds, url, label, options, options);
 	return withHqRequestDeadline(
@@ -77,25 +86,27 @@ export async function readHqJson(
 	);
 }
 
+/** A 2xx JSON answer: what it parsed to, and how many bytes its body was. */
+export interface HqJsonRead {
+	readonly data: unknown;
+	readonly bytes: number;
+}
+
 async function readWithin(
 	creds: CommCareCredentials,
 	url: string,
 	label: string,
 	options: ReadHqJsonOptions,
 	within: HqReadDeadline,
-): Promise<{ readonly data: unknown } | CommCareApiError> {
+): Promise<HqJsonRead | CommCareApiError> {
 	const { signal, deadline } = within;
 	let resentUnanswered = false;
 	for (let sent = 1; ; ) {
-		let response: Response;
+		let response: HqAnswer;
 		try {
-			response = await fetch(url, {
-				headers: {
-					Authorization: authHeader(creds),
-					Accept: "application/json",
-				},
-				redirect: "manual",
-				cache: "no-store",
+			response = await sendHq(creds, url, {
+				accept: "application/json",
+				noStore: true,
 				signal,
 			});
 		} catch (error) {
@@ -117,7 +128,7 @@ async function readWithin(
 		if (response.ok) return readAnswer(response, label, options, signal);
 		const wait =
 			response.status === 429 && sent < HQ_READ_SENDS
-				? resendWaitMs(response.headers.get("retry-after"))
+				? resendWaitMs(response.header("retry-after"))
 				: null;
 		/* A resend the deadline would cut off is no resend: the 429 is the answer. */
 		if (wait === null || Date.now() + wait >= deadline)
@@ -128,7 +139,7 @@ async function readWithin(
 				options.keepRefusedBody === true,
 				signal,
 			);
-		await response.body?.cancel().catch(() => undefined);
+		await response.discard();
 		log.warn(`[commcare] ${label} rate limited, sending again`, {
 			domain: domainOf(url),
 			request: label,
@@ -160,25 +171,23 @@ function resendWaitMs(retryAfter: string | null): number | null {
  * one the deadline, the network or `cancel` cut off is no answer.
  */
 async function refused(
-	response: Response,
+	response: HqAnswer,
 	label: string,
 	url: string,
 	keepRefusedBody: boolean,
 	signal: AbortSignal,
 ): Promise<CommCareApiError> {
-	const body = await readBoundedBody(response, HQ_REFUSED_BODY_READ_MAX_BYTES);
+	const body = await readRefusedBody(response);
 	if (body.kind === "unavailable")
 		return unansweredRead(label, signal, body.error);
-	const whole = body.kind === "read";
-	const bytes = whole ? body.bytes : body.head;
-	const text = new TextDecoder().decode(bytes);
+	const { text, whole } = body;
 	const error = failedResponseError(response, text);
 	log.warn(`[commcare] ${label} refused`, {
 		domain: domainOf(url),
 		status: response.status,
 		edgeRefusal: error.edgeRefusal === true,
 		body: hqTextShape(text),
-		bodyBytes: whole ? body.bytes.byteLength : body.bytes,
+		bodyBytes: body.bytes,
 		bodyCutOff: !whole,
 	});
 	return keepRefusedBody && whole
@@ -187,13 +196,13 @@ async function refused(
 }
 
 async function readAnswer(
-	response: Response,
+	response: HqAnswer,
 	label: string,
 	options: ReadHqJsonOptions,
 	signal: AbortSignal,
-): Promise<{ readonly data: unknown } | CommCareApiError> {
+): Promise<HqJsonRead | CommCareApiError> {
 	const { maxBytes } = options;
-	const body = await readBoundedBody(response, maxBytes);
+	const body = await response.read(maxBytes, "text");
 	/* The headers came and the body did not: as unanswered as no headers. */
 	if (body.kind === "unavailable")
 		return unansweredRead(label, signal, body.error);
@@ -201,18 +210,30 @@ async function readAnswer(
 		/* A page is a page at any length; only data is too long. */
 		if (hqTextShape(new TextDecoder().decode(body.head)) === "page")
 			return { success: false, status: 502, cause: "browser-page" };
-		log.error(`[commcare] ${label} is longer than Nova reads`, undefined, {
-			bytes: body.bytes,
-			maxBytes: maxBytes ?? null,
-		});
+		if (options.pastBound !== "quiet")
+			log.error(`[commcare] ${label} is longer than Nova reads`, undefined, {
+				bytes: body.bytes,
+				maxBytes,
+			});
 		return { success: false, status: 502, cause: "too-large" };
 	}
-	const text = new TextDecoder().decode(body.bytes);
+	let text: string;
 	try {
-		return { data: JSON.parse(text) };
+		text = new TextDecoder().decode(body.bytes);
+	} catch (error) {
+		/* A body within the bound always decodes; a fault here is the
+		 * runtime's, and the read is no answer rather than a thrown 500. */
+		giveBackHeld("text", body.bytes.byteLength);
+		return unansweredRead(label, signal, error);
+	}
+	try {
+		/* What was parsed stays charged to the request's lease, as the data
+		 * its caller keeps. */
+		return { data: parseHqJsonText(text), bytes: body.bytes.byteLength };
 	} catch {
 		/* HQ answers its sign-in page, its plan page and an inactive project
-		 * space's page as HTML where JSON was asked. */
+		 * space's page as HTML where JSON was asked. Nothing of it is kept. */
+		giveBackHeld("text", body.bytes.byteLength);
 		return {
 			success: false,
 			status: 502,

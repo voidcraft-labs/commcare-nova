@@ -313,6 +313,34 @@ describe("the app around its forms", () => {
 		});
 		expect(form.order).toEqual(["/data/q"]);
 	});
+
+	// Core binds a control by its `bind` before its `ref`, a repeat by its `nodeset` and a group
+	// by its `ref` alone (`XFormParser.parseControl`, `parseGroup`); the oracle follows Core, not
+	// the reader, so it catches a reader that binds another node.
+	it("binds a control holding `ref` and `bind` by its bind", () => {
+		const form = onlyForm(
+			xform(
+				"<a/><b/>",
+				'<bind nodeset="/data/a"/><bind id="the-b" nodeset="/data/b"/>',
+				'<input ref="/data/a" bind="the-b"><label>B</label></input>',
+			),
+		);
+		expect(form.leaves.get("/data/b")?.control).toBe("input");
+		expect(form.leaves.get("/data/a")?.control).toBe("none");
+	});
+
+	it("reads a group holding only `nodeset` as a group with no node, whose context is its parent's", () => {
+		const form = onlyForm(
+			xform(
+				"<g><q/></g><q/>",
+				'<bind nodeset="/data/g/q"/><bind nodeset="/data/q"/>',
+				'<group nodeset="/data/g"><input ref="q"><label>Q</label></input></group>',
+			),
+		);
+		expect([...form.containers.keys()]).toEqual([]);
+		expect(form.leaves.get("/data/q")?.control).toBe("input");
+		expect(form.leaves.get("/data/g/q")?.control).toBe("none");
+	});
 });
 
 describe("a form left out", () => {
@@ -416,12 +444,12 @@ describe("Core's type classes", () => {
 	});
 
 	it("holds each key with and without the xsd prefix", () => {
-		for (const [type, typeClass] of Object.entries(CORE_BIND_TYPE_CLASSES)) {
+		for (const [type, typeClass] of CORE_BIND_TYPE_CLASSES) {
 			const local = type.startsWith("xsd:") ? type.slice(4) : type;
-			expect(CORE_BIND_TYPE_CLASSES[local]).toBe(typeClass);
-			expect(CORE_BIND_TYPE_CLASSES[`xsd:${local}`]).toBe(typeClass);
+			expect(CORE_BIND_TYPE_CLASSES.get(local)).toBe(typeClass);
+			expect(CORE_BIND_TYPE_CLASSES.get(`xsd:${local}`)).toBe(typeClass);
 			expect(coreTypeClass(type)).toBe(typeClass);
 		}
-		expect(Object.keys(CORE_BIND_TYPE_CLASSES)).toHaveLength(52);
+		expect(CORE_BIND_TYPE_CLASSES.size).toBe(52);
 	});
 });

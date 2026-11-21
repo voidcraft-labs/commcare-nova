@@ -73,6 +73,7 @@ import {
 	serveFixtureTables,
 	withIcons,
 } from "./adoptionFixture";
+import { keyedPrefixIn, servedKeyedApp, serveHqApp } from "./servedHqApp";
 
 const seam = vi.hoisted(() => ({
 	beforeBirth: null as
@@ -265,6 +266,17 @@ function serveHeld(
 					};
 		})
 		.times(times);
+}
+
+/** CommCare HQ's answer with the app, once: its resource, its source and its save counter. */
+function serveFixtureAppRead(
+	peer: MockAgent,
+	source: RetainedHqAnswer = fixtureSource(),
+): void {
+	const resource = fixtureResource(source);
+	serveAnswer(peer, FIXTURE_PATHS.application, resource, 1);
+	serveAnswer(peer, FIXTURE_PATHS.source, source, 1);
+	serveAnswer(peer, FIXTURE_PATHS.version, counterOf(resource), 1);
 }
 
 describe("createFromReview", () => {
@@ -474,6 +486,25 @@ describe("createFromReview", () => {
 			await seedProjectDistrict();
 			const answer = await create(createInputFor(KEY, review));
 			expect(answer.kind).toBe("changed");
+		});
+	});
+
+	/* A person edits a keyed create's case id calculation in CommCare HQ's
+	 * form builder between the review and the create: the document reads the
+	 * same, and only the prefix the create's cases stand under moved. The
+	 * birth would record that prefix, which the person never reviewed. */
+	it("answers changed where a keyed create's prefix was edited in CommCare HQ since the review, and writes nothing", async () => {
+		await withHttpPeer(async (peer) => {
+			serveHqApp(peer, servedKeyedApp(2));
+			const review = await read();
+			serveHqApp(peer, servedKeyedApp(2, keyedPrefixIn("prefix-edited-in-hq")));
+			const before = await rowCounts();
+			const answer = await create(createInputFor(KEY, review));
+			if (answer.kind !== "changed" || answer.now.kind !== "review")
+				throw new Error(JSON.stringify(answer));
+			expect(answer.now.readingId).toBe(review.readingId);
+			expect(answer.now.reviewDigest).not.toBe(review.reviewDigest);
+			expect(await rowCounts()).toEqual(before);
 		});
 	});
 
@@ -795,7 +826,7 @@ describe("createFromReview", () => {
 			);
 		});
 
-		it("one held at CommCare HQ's answer for the app, whose own read then meets the other's table, answers the app the other made", async () => {
+		it("one held at CommCare HQ's answer for the app, whose own read then meets the other's claim, answers the app the other made", async () => {
 			const hold = gate();
 			const source = fixtureSource();
 			const resource = fixtureResource(source);
@@ -803,7 +834,9 @@ describe("createFromReview", () => {
 				serveHeld(peer, FIXTURE_PATHS.application, resource, 3, 2, hold);
 				serveAnswer(peer, FIXTURE_PATHS.source, source, 3);
 				serveAnswer(peer, FIXTURE_PATHS.version, counterOf(resource), 3);
-				serveFixtureTables(peer, 3);
+				/* The held create asks Nova's claims once CommCare HQ answers with the app, finds
+				 * the app the other made, and reads no table. */
+				serveFixtureTables(peer, 2);
 				const input = createInputFor(KEY, await read());
 				const held = create(input);
 				try {
@@ -828,6 +861,9 @@ describe("createFromReview", () => {
 		await seedFixtureConnection(SECOND);
 		const { first, second } = await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer, { times: 3 });
+			/* The second create reads the app once more: Nova's claims are asked only once
+			 * CommCare HQ has answered with it, and the claim stops it before the tables. */
+			serveFixtureAppRead(peer);
 			const mine = createInputFor(KEY, await read());
 			const theirs = createInputFor(KEY, await read(SECOND));
 			const first = await create(mine);
@@ -918,9 +954,11 @@ describe("createFromReview", () => {
 		const assets = await count(
 			sql`SELECT count(*)::text AS count FROM media_assets`,
 		);
-		const answer = await withHttpPeer(async () =>
-			create(createInputFor(KEY, review)),
-		);
+		const answer = await withHttpPeer(async (peer) => {
+			/* CommCare HQ answers with the app before the claim is read; no table and no file. */
+			serveFixtureAppRead(peer, iconSource());
+			return create(createInputFor(KEY, review));
+		});
 		expect(answer).toMatchObject({
 			kind: "changed",
 			now: { kind: "stop", finding: { code: "already-in-nova" } },

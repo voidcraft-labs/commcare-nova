@@ -72,8 +72,11 @@ describe("targetFactsFromBaseline", () => {
 				languageNames: null,
 			});
 			expect(
-				targetFactsFromBaseline(baseline(origin, true), false)?.autoGpsCapture,
-			).toBe(false);
+				targetFactsFromBaseline(baseline(origin, true), false),
+			).toMatchObject({
+				autoGpsCapture: true,
+				novaOwnsAutoGpsCapture: true,
+			});
 			expect(targetFactsFromBaseline(baseline(origin), true)).toMatchObject({
 				languageNames: { en: { en: "English" } },
 			});
@@ -103,9 +106,12 @@ const DEFAULTS: TargetFacts = {
 	},
 	uiText: {},
 	uiTextKeys: [],
+	uiTextNotCarried: [],
+	profileNotCarried: false,
 	secureSubmissions: false,
 	customBaseUrl: null,
 	autoGpsCapture: false,
+	novaOwnsAutoGpsCapture: false,
 	androidLogos: [],
 	practiceWorker: false,
 	persistentMenu: false,
@@ -153,7 +159,9 @@ const PLANTED: Readonly<Record<KeptLabelId, Partial<TargetFacts>>> = {
 	"persistent-menu": { persistentMenu: true },
 	"web-apps-breadcrumbs": { breadcrumbs: false },
 	"secure-submissions": { secureSubmissions: true },
-	"custom-base-url": { customBaseUrl: "https://example.org" },
+	"custom-base-url": {
+		customBaseUrl: { host: "example.org", origin: "https://example.org" },
+	},
 	"practice-mobile-worker": { practiceWorker: true },
 	"worker-activity-credential": { credentialLevel: "3MON_ACTIVE" },
 };
@@ -169,6 +177,16 @@ describe("keptListFor", () => {
 		for (const id of KEPT_LABEL_IDS) {
 			expect(keptListFor({ ...DEFAULTS, ...PLANTED[id] }), id).toEqual([id]);
 		}
+	});
+
+	it("keeps Nova-owned location capture out of the kept list and its values digest", () => {
+		expect(
+			deploymentKeptOf({
+				...DEFAULTS,
+				autoGpsCapture: true,
+				novaOwnsAutoGpsCapture: true,
+			}),
+		).toEqual(deploymentKeptOf(DEFAULTS));
 	});
 
 	it("lists every label once where every difference is held", () => {
@@ -231,6 +249,8 @@ describe("keptAdvisoryFacts", () => {
 	it("says nothing for a project space that holds every default", () => {
 		expect(keptAdvisoryFacts(DEFAULTS, ["en", "fra"])).toEqual({
 			uiTextFallsBack: false,
+			uiTextNotCarried: false,
+			profileNotCarried: false,
 			androidLogos: false,
 			practiceWorker: false,
 			languageNames: false,
@@ -251,6 +271,18 @@ describe("keptAdvisoryFacts", () => {
 		expect(keptAdvisoryFacts(facts, ["en", "fra", "hin"]).uiTextFallsBack).toBe(
 			true,
 		);
+	});
+
+	it("says wording is not carried only where a language of the archive left some out, and a setting where one was", () => {
+		const facts: TargetFacts = { ...DEFAULTS, uiTextNotCarried: ["hin"] };
+		expect(keptAdvisoryFacts(facts, ["en", "fra"]).uiTextNotCarried).toBe(
+			false,
+		);
+		expect(keptAdvisoryFacts(facts, ["en", "hin"]).uiTextNotCarried).toBe(true);
+		expect(
+			keptAdvisoryFacts({ ...DEFAULTS, profileNotCarried: true }, ["en"])
+				.profileNotCarried,
+		).toBe(true);
 	});
 
 	it("carries the logos and the practice worker as held", () => {

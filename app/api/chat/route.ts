@@ -2233,7 +2233,10 @@ export async function POST(req: Request) {
 					 * wait (a release + another claim), and the timeout toast two
 					 * minutes in must not name a long-gone holder. */
 					const holderLabel = async (): Promise<string> => {
-						const holder = await loadAppHolder(appId);
+						const holder = await loadAppHolder(appId, {
+							projectId,
+							viewerUserId: userId,
+						});
 						return holder.userId === userId
 							? "your previous request"
 							: `${holder.name}'s request`;
@@ -2699,7 +2702,12 @@ export async function POST(req: Request) {
 							const preAppDesign =
 								designSessionRun !== undefined &&
 								!designSessionRun.materialized;
-							const holder = preAppDesign ? null : await loadAppHolder(appId);
+							const holder = preAppDesign
+								? null
+								: await loadAppHolder(appId, {
+										projectId,
+										viewerUserId: userId,
+									});
 							superseded = {
 								type: "generation_in_progress",
 								message:

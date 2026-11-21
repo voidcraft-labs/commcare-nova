@@ -9,6 +9,7 @@ import {
 } from "@/__tests__/helpers/httpPeer";
 import { log } from "@/lib/logger";
 import { importApp } from "../client";
+import { HQ_IMPORT_ACK_MAX_BYTES } from "../hq/bounds";
 
 const CREDS = {
 	username: "account",
@@ -160,6 +161,34 @@ it("keeps HQ's explicit application rejection distinct from a malformed or lost 
 				...failure,
 			});
 	});
+});
+
+it("takes an acknowledgement longer than Nova reads as an answer it cannot read, never as a refusal", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.reply(
+				200,
+				JSON.stringify({
+					success: true,
+					app_id: "working-app",
+					warnings: ["x".repeat(HQ_IMPORT_ACK_MAX_BYTES)],
+				}),
+			);
+		/* The publish takes a malformed acknowledgement as an import that may
+		 * have landed, as it takes one it could not parse. */
+		expect(await importApp(CREDS, "clinic", "Visits", APP)).toEqual({
+			success: false,
+			status: 502,
+			cause: "malformed",
+		});
+	});
+	expect(log.error).toHaveBeenCalledWith(
+		"[commcare] import acknowledgement is unreadable",
+		undefined,
+		{ domain: "clinic", why: "too-large" },
+	);
 });
 
 it("distinguishes a missing mapped app, an HQ permission refusal and an edge refusal without following redirects", async () => {
@@ -315,6 +344,7 @@ it("logs a refused import by its status and its body's shape and length, never t
 		edgeRefusal: false,
 		body: "json",
 		bodyBytes: bytesOf(refused),
+		bodyCutOff: false,
 	});
 	expect(log.error).toHaveBeenCalledExactlyOnceWith(
 		"[commcare] import failed",

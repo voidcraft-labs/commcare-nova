@@ -7,15 +7,16 @@
  *
  * A review of changes made in CommCare HQ reads the app through that
  * resource, and acceptance holds the reading to HQ's summary
- * (`lib/deployment/reading/summaryAgreement.ts`). The peer models the summary
- * for the forms a content save leaves, which are flat: every control a
- * direct child of the body, each a question HQ's `_get_control_nodes`
- * reads with no group or repeat around it (`repeat` and `group` null), and
- * every other leaf of the data tree a `DataBindOnly` row
- * (`get_questions`' second pass over `_get_leaf_data_nodes`). A form that
- * holds a group, a repeat, an itemset, a label with an output or a control
- * the model has no type for is refused by name: the peer answers only what
- * it models. What it answered is recorded beside the capture
+ * (`lib/deployment/reading/summaryAgreement.ts`). The peer models every
+ * control of the body as `_get_control_nodes` walks it, each group and
+ * repeat giving what it holds its context (a group that holds a repeat
+ * directly is the repeat's wrapper and no question of its own), every other
+ * leaf of the data tree as a `DataBindOnly` row in the innermost repeat and
+ * group around it (`get_questions`' second pass over
+ * `_get_leaf_data_nodes`), and each Save to Case block's `@case_id`,
+ * `@user_id` and `@date_modified` (its last pass). A form that holds an
+ * itemset, a label with an output, a control with no `ref` or one the model
+ * has no type for is refused by name: the peer answers only what it models. What it answered is recorded beside the capture
  * (`BringInRecord.assumedSummary`), for the HQ side to hold to HQ's own
  * answer after the same saves.
  *
@@ -50,7 +51,7 @@ function childNamed(
 
 function refused(xmlns: string | null, what: string): Error {
 	return new Error(
-		`The capture peer models CommCare HQ's question summary of flat forms alone, and the form ${xmlns ?? "with no xmlns"} holds ${what}. Give the targeted document a form the model reads, or model what HQ's XForm.get_questions does with it.`,
+		`The capture peer models only part of CommCare HQ's question summary, and the form ${xmlns ?? "with no xmlns"} holds ${what}, which it doesn't model. Give the targeted document a form the model reads, or model what HQ's XForm.get_questions does with it.`,
 	);
 }
 
@@ -64,6 +65,9 @@ function vellumType(
 	appearance: string | undefined,
 	xmlns: string | null,
 ): string {
+	if (tag === "repeat" && appearance === undefined) return "Repeat";
+	if (tag === "group" && appearance === undefined) return "Group";
+	if (tag === "group" && appearance === "field-list") return "FieldList";
 	if (appearance !== undefined)
 		throw refused(xmlns, `a ${tag} with the appearance ${appearance}`);
 	if (tag === "select1") return "Select";
@@ -169,19 +173,102 @@ function labelTranslations(
 	return found;
 }
 
-/** Each leaf of the data tree by its path, in document order (`_get_leaf_data_nodes`). */
-function leafPaths(root: Element): string[] {
-	const found: string[] = [];
+/** `XForm.resolve_path`: a path against the context the control stands in. */
+function resolvePath(path: string, context: string, root: Element): string {
+	if (path === "") return context;
+	if (path.startsWith("/")) return path;
+	return context === "" ? `/${localName(root)}/${path}` : `${context}/${path}`;
+}
+
+/** Each leaf of the data tree by its path, in document order (`_get_leaf_data_nodes`), with its element. */
+function leafNodes(root: Element): [string, Element][] {
+	const found: [string, Element][] = [];
 	const walk = (node: Element, path: string) => {
 		const kids = children(node);
-		if (kids.length === 0 && path !== `/${root.name}`) found.push(path);
-		for (const kid of kids) walk(kid, `${path}/${kid.name}`);
+		for (const kid of kids) walk(kid, resolvePath(localName(kid), path, root));
+		if (kids.length === 0 && path !== "") found.push([path, node]);
 	};
-	walk(root, `/${root.name}`);
+	walk(root, "");
 	return found;
 }
 
-/** `XForm.get_questions` of one flat form, as `dehydrate_module` asks for it, in `langs`. */
+/** One control `_get_control_nodes` keeps: its element, its path, and the repeat and group around it. */
+interface ControlNode {
+	readonly node: Element;
+	readonly tag: string;
+	readonly path: string;
+	readonly repeat: string | null;
+	readonly group: string | null;
+	readonly isLeaf: boolean;
+}
+
+/**
+ * `_get_control_nodes`: every control of the body in document order, each
+ * group and repeat walked with the context HQ gives what it holds. A group
+ * that holds a repeat directly is the repeat's wrapper and no control of its
+ * own; a group with no `ref` stands at its context's path.
+ */
+function controlNodes(parts: FormParts, xmlns: string | null): ControlNode[] {
+	const found: ControlNode[] = [];
+	const walk = (
+		parent: Element,
+		context: string,
+		repeat: string | null,
+		group: string | null,
+	) => {
+		for (const node of children(parent)) {
+			const tag = localName(node);
+			if (node.name.includes(":") || tag === "label") continue;
+			const written =
+				node.attribs.nodeset ??
+				node.attribs.ref ??
+				(tag === "group" ? "" : undefined);
+			if (written === undefined) throw refused(xmlns, `a ${tag} with no ref`);
+			const path = resolvePath(written, context, parts.dataRoot);
+			if (tag === "group") {
+				const wrapsRepeat = childNamed(node, "repeat") !== undefined;
+				if (!wrapsRepeat)
+					found.push({ node, tag, path, repeat, group, isLeaf: false });
+				walk(node, path, repeat, wrapsRepeat ? group : path);
+			} else if (tag === "repeat") {
+				found.push({ node, tag, path, repeat, group, isLeaf: false });
+				walk(node, path, path, path);
+			} else {
+				found.push({ node, tag, path, repeat, group, isLeaf: true });
+			}
+		}
+	};
+	walk(parts.body, "", null, null);
+	return found;
+}
+
+/** The innermost of `contexts` that holds `path` (`first_elem` over them sorted in reverse). */
+function innermost(contexts: ReadonlySet<string>, path: string): string | null {
+	return (
+		[...contexts]
+			.sort()
+			.reverse()
+			.find((context) => path.startsWith(`${context}/`)) ?? null
+	);
+}
+
+const CASE_XMLNS = "http://commcarehq.org/case/transaction/v2";
+
+/** The nearest `<case>` of the case transaction namespace above `node` (`iterancestors('{cx2}case')`). */
+function caseAncestor(node: Element): Element | undefined {
+	for (let at = node.parent; at !== null && isTag(at); at = at.parent) {
+		if (localName(at) !== "case") continue;
+		let declared: Element | null = at;
+		while (declared !== null && declared.attribs.xmlns === undefined) {
+			const parent: AnyNode | null = declared.parent;
+			declared = parent !== null && isTag(parent) ? parent : null;
+		}
+		if (declared?.attribs.xmlns === CASE_XMLNS) return at;
+	}
+	return undefined;
+}
+
+/** `XForm.get_questions` of one form, as `dehydrate_module` asks for it, in `langs`. */
 export function hqFormQuestions(
 	xml: string,
 	langs: readonly string[],
@@ -189,34 +276,33 @@ export function hqFormQuestions(
 ): HqQuestionSummary[] {
 	const parts = formParts(parseXml(xml), xmlns);
 	const questions: HqQuestionSummary[] = [];
-	const controlled = new Set<string>();
-	for (const control of children(parts.body)) {
-		const tag = localName(control);
-		if (tag === "label") continue;
-		if (tag === "group" || tag === "repeat") throw refused(xmlns, `a ${tag}`);
-		const path = control.attribs.ref ?? control.attribs.nodeset;
-		if (path === undefined) throw refused(xmlns, `a ${tag} with no ref`);
-		if (childNamed(control, "itemset") !== undefined)
+	const controls = controlNodes(parts, xmlns);
+	for (const { node, tag, path, repeat, group, isLeaf } of controls) {
+		if (childNamed(node, "itemset") !== undefined)
 			throw refused(xmlns, "a select over an itemset");
 		const bind = parts.binds.get(path);
-		controlled.add(path);
 		const items =
 			tag === "select1" || tag === "select"
-				? children(control).filter((child) => localName(child) === "item")
+				? children(node).filter((child) => localName(child) === "item")
 				: null;
+		/* `_get_label_translations` reads a repeat's label off the group around it. */
+		const labelled =
+			tag === "repeat" && node.parent !== null && isTag(node.parent)
+				? node.parent
+				: node;
 		questions.push({
 			path,
 			tag,
-			type: vellumType(tag, bind?.type, control.attribs.appearance, xmlns),
-			repeat: null,
-			group: null,
-			isGroup: false,
+			type: vellumType(tag, bind?.type, node.attribs.appearance, xmlns),
+			repeat,
+			group,
+			isGroup: !isLeaf,
 			required: bind?.required === "true()",
 			relevant: bind?.relevant ?? null,
 			constraint: bind?.constraint ?? null,
 			calculate: null,
 			setvalue: parts.setvalues.get(path) ?? null,
-			labelTranslations: labelTranslations(control, parts, langs, xmlns),
+			labelTranslations: labelTranslations(labelled, parts, langs, xmlns),
 			options:
 				items === null
 					? null
@@ -231,15 +317,39 @@ export function hqFormQuestions(
 						}),
 		});
 	}
-	for (const path of leafPaths(parts.dataRoot)) {
+	const controlled = new Set(controls.map((control) => control.path));
+	const repeats = new Set<string>();
+	const groups = new Set<string>();
+	for (const control of controls) {
+		if (control.repeat !== null) repeats.add(control.repeat);
+		if (control.group !== null) groups.add(control.group);
+		if (control.tag === "repeat") {
+			repeats.add(control.path);
+			groups.add(control.path);
+		}
+		if (control.tag === "group") groups.add(control.path);
+	}
+	/* Each Save to Case block's `<case>`, by its path, with the context of the
+	 * first leaf under it, kept in the order its first leaf comes. */
+	const cases = new Map<
+		string,
+		{
+			readonly node: Element;
+			readonly repeat: string | null;
+			readonly group: string | null;
+		}
+	>();
+	for (const [path, node] of leafNodes(parts.dataRoot)) {
 		if (controlled.has(path)) continue;
 		const bind = parts.binds.get(path);
+		const repeat = innermost(repeats, path);
+		const group = innermost(groups, path);
 		questions.push({
 			path,
 			tag: "hidden",
 			type: "DataBindOnly",
-			repeat: null,
-			group: null,
+			repeat,
+			group,
 			isGroup: false,
 			required: null,
 			relevant: bind?.relevant ?? null,
@@ -249,6 +359,38 @@ export function hqFormQuestions(
 			labelTranslations: {},
 			options: null,
 		});
+		const at = path.indexOf("/case/");
+		if (at === -1) continue;
+		/* The last leaf's context, at the place the first took: a Map keeps a
+		 * key where it was first set, as a Python dict does. */
+		cases.set(`${path.slice(0, at)}/case`, { node, repeat, group });
+	}
+	for (const [casePath, { node, repeat, group }] of cases) {
+		const caseNode = caseAncestor(node);
+		if (caseNode === undefined) continue;
+		for (const attribute of ["case_id", "user_id", "date_modified"]) {
+			if (caseNode.attribs[attribute] === undefined) continue;
+			const path = `${casePath}/@${attribute}`;
+			const bind = parts.binds.get(path);
+			questions.push({
+				path,
+				tag: "hidden",
+				type: "DataBindOnly",
+				repeat,
+				group,
+				isGroup: false,
+				required: null,
+				relevant: bind?.relevant ?? null,
+				constraint: bind?.constraint ?? null,
+				calculate:
+					bind !== undefined
+						? (bind.calculate ?? null)
+						: (parts.setvalues.get(casePath) ?? null),
+				setvalue: null,
+				labelTranslations: {},
+				options: null,
+			});
+		}
 	}
 	return questions;
 }

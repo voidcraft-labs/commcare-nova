@@ -2,7 +2,8 @@
  * The entities of the world an app runs in that a reading brings with it:
  * the project space's organization levels, and the worker and place
  * information its logic reads. Pure: each takes what was read and the
- * reading's identity resolver, and returns entities and findings. Beside
+ * claims of the reading or call it names entities for, and returns entities
+ * and findings. Beside
  * them, the reader's canonical choices over the same entities, each the
  * reading's own function run over what a document's export gives it.
  */
@@ -33,13 +34,16 @@ import {
 	workerFieldNameTargetKey,
 } from "@/lib/domain";
 import type { Term } from "@/lib/domain/expression/types";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import type { HqLocationType } from "../hq/locations";
 import { userPropertySlugVerdict } from "../validator/userPropertySlug";
 import { withCandidate } from "./candidate";
 import {
+	claimsUnder,
 	externalKey,
+	type IdentityClaims,
 	type IdentityMapEntry,
 	type IdentityResolver,
 	matchingResolver,
@@ -96,7 +100,7 @@ function holdable(level: HqLocationType): boolean {
  */
 export function levelsFromHq(
 	levels: readonly HqLocationType[],
-	resolver: IdentityResolver,
+	claims: IdentityClaims,
 ): {
 	readonly levels: readonly OrganizationLevel[];
 	readonly findings: readonly Finding[];
@@ -132,7 +136,7 @@ export function levelsFromHq(
 				notHoldable(level);
 				continue;
 			}
-			const claim = resolver.claim(
+			const claim = claims.claim(
 				externalKey.organizationLevel(level.code),
 				whereText(ORGANIZATION),
 			);
@@ -332,7 +336,7 @@ export function worldEntitiesFromReads(
 		readonly writtenUserFields?: readonly string[];
 		readonly locationDataSlugs: readonly string[];
 	},
-	resolver: IdentityResolver,
+	claims: IdentityClaims,
 ): {
 	readonly userProperties: readonly UserProperty[];
 	readonly locationProperties: readonly LocationProperty[];
@@ -343,10 +347,7 @@ export function worldEntitiesFromReads(
 		worldReads.writtenUserFields ?? [],
 		worldReads.sessionUserFields ?? [],
 	)) {
-		const claim = resolver.claim(
-			externalKey.userProperty(slug),
-			whereText(APP),
-		);
+		const claim = claims.claim(externalKey.userProperty(slug), whereText(APP));
 		if (!claim.ok) continue;
 		userProperties.push({ uuid: claim.uuid, slug, label: slug });
 	}
@@ -354,7 +355,7 @@ export function worldEntitiesFromReads(
 	for (const slug of onePerKey(
 		worldReads.locationDataSlugs.filter(holdsLocationProperty),
 	)) {
-		const claim = resolver.claim(
+		const claim = claims.claim(
 			externalKey.locationProperty(slug),
 			whereText(ORGANIZATION),
 		);
@@ -370,7 +371,7 @@ export function worldEntitiesFromReads(
  *  and parent's code, in the document's order, sharing cases where it owns them and viewing
  *  descendants where its workers' cases reach below. */
 export function levelsAsPublished(doc: BlueprintDoc): HqLocationType[] {
-	const levels = doc.organizationLevels ?? {};
+	const levels = doc.organizationLevels ?? NO_ENTRIES;
 	return (doc.organizationLevelOrder ?? []).flatMap((uuid) => {
 		const level = levels[uuid];
 		if (level === undefined) return [];
@@ -420,7 +421,10 @@ function heldResolver(doc: BlueprintDoc): IdentityResolver {
  */
 export function levelsAsRead(doc: BlueprintDoc): BlueprintDoc {
 	if (doc.organizationLevels === undefined) return doc;
-	const { levels } = levelsFromHq(levelsAsPublished(doc), heldResolver(doc));
+	const { levels } = levelsFromHq(
+		levelsAsPublished(doc),
+		claimsUnder(heldResolver(doc)),
+	);
 	if (sameJson(levels, orderedLevels(doc))) return doc;
 	return withCandidate(doc, (draft) => {
 		if (levels.length === 0) {
@@ -428,7 +432,7 @@ export function levelsAsRead(doc: BlueprintDoc): BlueprintDoc {
 			delete draft.organizationLevelOrder;
 			return;
 		}
-		draft.organizationLevels = Object.fromEntries(
+		draft.organizationLevels = recordFromEntries(
 			levels.map((level) => [level.uuid, level]),
 		) as typeof draft.organizationLevels;
 		draft.organizationLevelOrder = levels.map((level) => level.uuid);
@@ -549,13 +553,13 @@ export function namedWorkerReadsAreProperties(doc: BlueprintDoc): BlueprintDoc {
 		worldReadsOf(doc).byName.filter(holdsWorkerProperty),
 	).filter((slug) => !held.has(foldKey(slug)));
 	if (minted.length === 0) return doc;
-	const resolver = heldResolver(doc);
+	const claims = claimsUnder(heldResolver(doc));
 	const bound = new Map<string, Uuid>();
 	return withCandidate(doc, (draft) => {
 		const properties = { ...(draft.userProperties ?? {}) };
 		const order = [...(draft.userPropertyOrder ?? [])];
 		for (const slug of minted) {
-			const claim = resolver.claim(
+			const claim = claims.claim(
 				externalKey.userProperty(slug),
 				whereText(APP),
 			);
@@ -591,7 +595,7 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 	} = worldReadsOf(doc);
 	const { userProperties, locationProperties } = worldEntitiesFromReads(
 		{ userFields, sessionUserFields, writtenUserFields, locationDataSlugs },
-		heldResolver(doc),
+		claimsUnder(heldResolver(doc)),
 	);
 	const same = <T extends { readonly uuid: Uuid }>(
 		read: readonly T[],
@@ -621,13 +625,13 @@ export function worldPropertiesAsRead(doc: BlueprintDoc): BlueprintDoc {
 		delete draft.locationProperties;
 		delete draft.locationPropertyOrder;
 		if (userProperties.length > 0) {
-			draft.userProperties = Object.fromEntries(
+			draft.userProperties = recordFromEntries(
 				userProperties.map((one) => [one.uuid, one]),
 			) as BlueprintDoc["userProperties"];
 			draft.userPropertyOrder = userProperties.map((one) => one.uuid);
 		}
 		if (locationProperties.length > 0) {
-			draft.locationProperties = Object.fromEntries(
+			draft.locationProperties = recordFromEntries(
 				locationProperties.map((one) => [one.uuid, one]),
 			) as BlueprintDoc["locationProperties"];
 			draft.locationPropertyOrder = locationProperties.map((one) => one.uuid);

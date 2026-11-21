@@ -12,7 +12,10 @@ import {
 	usePreviewSearchContexts,
 	usePreviewStandingSearches,
 } from "@/lib/routing/useClientPath";
-import { usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	usePreviewPlatformRules,
+	usePreviewSessionId,
+} from "@/lib/session/hooks";
 import { searchInputsGivenIn } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { previewSearchArrival, previewSearchScreenOf } from "../searchStanding";
@@ -44,7 +47,7 @@ export function usePreviewSearchArrival(
 	 * list's held form menu onto the list), so the entry's record is an
 	 * arrival as well as the location. */
 	const standingOnEntry = usePreviewStandingSearches();
-	const contextsOnEntry = usePreviewSearchContexts();
+	const contextsOnEntry = usePreviewSearchContexts(usePreviewSessionId());
 	/* The history move the last arrival ran at, with the list it showed: a
 	 * run at the same move on the same screen is the entry's record rewritten
 	 * in place, no arrival, while the list coming on show at that move (its
@@ -74,8 +77,7 @@ export function usePreviewSearchArrival(
 			selections,
 			states: state.previewSearchStates,
 			standing: readCurrentPreviewStandingSearches(),
-			contexts: readCurrentPreviewSearchContexts(),
-			session: state.previewSessionId,
+			contexts: readCurrentPreviewSearchContexts(state.previewSessionId),
 			replay,
 			moved,
 			latest: searchInputsGivenIn(
@@ -83,7 +85,7 @@ export function usePreviewSearchArrival(
 				state.previewSessionId,
 			),
 		});
-		recordPreviewStandingSearches(arrival.standing);
+		recordPreviewStandingSearches(arrival.standing, state.previewSessionId);
 		for (const [moduleUuid, search] of Object.entries(arrival.searches))
 			state.setPreviewSearchState(moduleUuid, search);
 	}, [

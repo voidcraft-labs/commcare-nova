@@ -346,6 +346,15 @@ function readForm(
 			accounting.finding(X.doctype, formPlace);
 			return { refused: X.doctype };
 		}
+		/* A form past what one parse builds (`xmlParse.ts::XmlLimits`) is no
+		 * fault of the reader's: it is unread at the form, as a form whose
+		 * source holds what Nova does not read. */
+		if (parsedXml.kind === "over-limit") {
+			accounting.circumstance("unrecognized", formPlace, {
+				name: "xform:h:html",
+			});
+			return null;
+		}
 		accounting.defect(
 			formPlace,
 			"xform:h:html",
@@ -879,7 +888,7 @@ export function mintFields(ctx: ReadContext): void {
 				for (const field of fields) {
 					const path = fieldPath(field);
 					field.uuid = ctx.accounting.identity(
-						ctx.resolver.claim(
+						ctx.identities.claim(
 							externalKey.field(form.xmlns, path),
 							whereText(field.place),
 						),
@@ -892,7 +901,7 @@ export function mintFields(ctx: ReadContext): void {
 					if (source?.kind === "inline")
 						for (const option of source.options ?? [])
 							option.uuid = ctx.accounting.identity(
-								ctx.resolver.claim(
+								ctx.identities.claim(
 									externalKey.selectOption(form.xmlns, path, option.value),
 									whereText(field.place),
 								),

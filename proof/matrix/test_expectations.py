@@ -32,8 +32,9 @@ each failing by base with what is missing:
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
    differ, but for a row that names a media reference a trace read, a value
    a search sent HQ, the count of cases HQ answered a search with, a form's
-   title, a menu's entry or a case list's header, which no value Core's
-   evaluate answers on A can show (``_shows_a_value``);
+   title, a menu's entry, a Web Apps home tile, or a case list's headers and
+   offered sorts. Neither those screens nor their native counterparts are
+   values Core's evaluate answers on A (``_shows_a_value``);
 6. a multi-select question an expression tests has an expectation answering
    it with two choices;
 7. a base whose app holds more than one language is read under a declaration
@@ -87,13 +88,37 @@ SEARCH_QUERY = "_xpath_query"
 # The last step of a trace path that names how many cases HQ's search view answered one of a search's requests with
 # (``.../requests/*/answered``, ``ProofSessionUtils.java``'s count of HQ's answer).
 SEARCH_ANSWER = ("requests", "*", "answered")
-# The last step of a trace path that names a form's title as Core read it from the form (``FormDef.getTitle``).
-FORM_TITLE = "title"
+# The last steps of a trace path that names a form step's title as Core read it from the form
+# (``FormDef.getTitle``): the comparison keys a step's title by its screen, and a form's is ``title/form``.
+FORM_TITLE = ("title", "form")
 # A trace step's own key that names a screen no expectation opens on A: a menu's entries (``choices``,
 # ``SessionOp.java``'s menu step), which Core's evaluate never shows, and a case list's headers (``headers``,
 # ``SessionOp.java::describeList``), which it shows only where an expectation opens a case list, on the local
 # archive alone (``proof/observe/intent.py``).
 SCREEN_ONLY = frozenset({"choices", "headers"})
+
+
+def _native_screen_only(reader, steps):
+    """Core evaluates a form on A and B. It never runs Web Apps' home, a native menu or media widget,
+    or the installed app's list headers and sort chooser. A question's label and the instance it submits
+    are available to evaluate even where the native reader is the only one with a registered row."""
+    if reader == "webapps":
+        return steps == ["home", "releaseListed"] or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
+    if reader == "formplayer" and steps[:4] == ["runs", "*", "steps", "*"]:
+        content = steps[4:]
+        if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
+            return True
+        tree = content[:2] == ["response", "tree"] or content[:1] == ["tree"]
+        return tree and content[-1] in {"caption_image", "caption_audio", "caption_video"}
+    if reader in ("android", "android-tablet") and steps[:5] == ["walks", "*", "steps", "*", "form"]:
+        return steps[5:] in (
+            ["formTitle"],
+            ["FormEntryInstanceState.getDefaultFormTitle"],
+            ["saved", "records", "*", "FormRecord.getDisplayName"],
+        )
+    if reader in ("android", "android-tablet") and steps[:5] == ["walks", "*", "steps", "*", "list"]:
+        return steps[5:] in (["EntitySelectActivity.getSortOptionsList"], ["sorted", "*"])
+    return False
 
 
 def _shows_a_value(row):
@@ -109,11 +134,19 @@ def _shows_a_value(row):
     reference, request, answer or title. Nor does it show a menu's entries, or a case list's headers on A
     (``SCREEN_ONLY``), so a change whose behavior is the text of a menu's entry (``text-spaces-dropped``) or of a
     list's header (``sort-by-entry-with-a-blank-name-dropped``) is shown so too, each side's text."""
-    steps = row.get("path", "").split("/")
+    # A colon suffix states which change the native observation proved at a screen slot.
+    reader = row.get("artifact", "").partition("@")[0]
+    path = row.get("path", "")
+    native_steps = path.split("/")[1:]
+    if native_steps:
+        native_steps[-1] = native_steps[-1].partition(":")[0]
+    if _native_screen_only(reader, native_steps):
+        return False
+    steps = path.split("/")
     return (
         row.get("check") == "proof3"
         and steps[-1] not in MEDIA_REFERENCES
-        and steps[-1] != FORM_TITLE
+        and tuple(steps[-len(FORM_TITLE) :]) != FORM_TITLE
         and SEARCH_QUERY not in steps[-2:]
         and tuple(steps[-len(SEARCH_ANSWER) :]) != SEARCH_ANSWER
         and not (steps[1:5] == ["runs", "*", "trace", "*"] and len(steps) > 5 and steps[5] in SCREEN_ONLY)
@@ -265,6 +298,21 @@ def claim_logs():
     return {answer["id"]: _claim_records(answer.get("claims")) for answer in answers}
 
 
+def _pair_problems(expectations, changes):
+    problems = []
+    by_id = {expectation.get("id"): expectation for expectation in expectations}
+    for change in sorted(changes):
+        before, after = by_id.get(f"{change}:before"), by_id.get(f"{change}:after")
+        if before is None or after is None:
+            problems.append(f"the first-publish change {change} has no {change}:before and {change}:after pair")
+            continue
+        if before.get("exports") != ["A"] or sorted(after.get("exports") or []) != ["B", "local"]:
+            problems.append(f"{change}:before runs on A alone and {change}:after on B and the archive")
+        if before.get("expect") == after.get("expect"):
+            problems.append(f"{change}:before and {change}:after expect the same values")
+    return problems
+
+
 def _problems(base, claim_log, held, proof3):
     directory = HQ_APPS / base.id
     hand = HAND / base.id
@@ -395,17 +443,8 @@ def _problems(base, claim_log, held, proof3):
                     f"the held entry {entry} is fixed on a case list, and the base is read as Web Apps only"
                 )
 
-    # 5. Each declared change that touches workers, shown before and after.
-    by_id = {expectation.get("id"): expectation for expectation in expectations}
-    for change in sorted(set(expected.get("firstPublish") or []) & proof3):
-        before, after = by_id.get(f"{change}:before"), by_id.get(f"{change}:after")
-        if before is None or after is None:
-            problems.append(f"the first-publish change {change} has no {change}:before and {change}:after pair")
-            continue
-        if before.get("exports") != ["A"] or "A" in (after.get("exports") or EXPORTS):
-            problems.append(f"{change}:before runs on A alone and {change}:after on B and the archive")
-        if before.get("expect") == after.get("expect"):
-            problems.append(f"{change}:before and {change}:after expect the same values")
+    # 5. Every change a value can show, on all three exports.
+    problems.extend(_pair_problems(expectations, set(expected.get("firstPublish") or []) & proof3))
 
     # 6. A multi-select an expression tests, answered with two choices.
     for m, f, path in _multi_selects_tested(app):
@@ -453,7 +492,7 @@ def test_a_change_shown_only_by_what_a_trace_read_or_a_search_sent_needs_no_valu
     assert _shows_a_value(row("/runs/*/trace/*/answered"))
     assert not _shows_a_value(row("/runs/*/trace/*/events/*/image"))
     # A form's title, which Core's evaluate never reads (``form-titles-written``).
-    assert not _shows_a_value(row("/runs/*/trace/*/title"))
+    assert not _shows_a_value(row("/runs/*/trace/*/title/form"))
     assert _shows_a_value(row("/runs/*/trace/*/rows/*"))
     assert _shows_a_value(row("/runs/*/trace/*/params/case_type/*"))
     assert _shows_a_value(row("/runs/*/trace/*/submission/data/*[*]/text()"))
@@ -476,3 +515,42 @@ def test_a_change_shown_only_on_a_menu_or_a_lists_headers_needs_no_value_pair():
     assert _shows_a_value(row("/runs/*/trace/*/events/*/choices/*/text"))
     assert _shows_a_value(row("/runs/*/trace/*/caseDetail/tabs/*/headers/*"))
     assert _shows_a_value(row("/runs/*/trace/*/rows/*/fields/*"))
+
+
+def test_native_screen_differences_do_not_require_values_core_cannot_observe():
+    def shown(reader, path):
+        return _shows_a_value({"check": "proof3", "artifact": reader + "@B", "path": path})
+
+    assert not shown("webapps", "/home/tiles/incomplete")
+    assert not shown("webapps", "/home/releaseListed")
+    assert shown("webapps", "/runs/*/screens/*/form/label")
+    assert not shown("formplayer", "/runs/*/steps/*/tree/*/caption_image:renamed-file")
+    assert not shown("formplayer", "/runs/*/steps/*/response/commands/*/displayText:trimmed")
+    assert not shown("formplayer", "/runs/*/steps/*/response/headers/*:trimmed")
+    assert not shown("android", "/walks/*/steps/*/list/sorted/*:blank-sort-name")
+    assert not shown("android", "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList:blank-sort-name")
+
+    assert not shown("android", "/walks/*/steps/*/form/formTitle:written-title")
+    assert not shown("android", "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle:written-title")
+    assert not shown("android", "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName:written-title")
+    assert shown("android", "/walks/*/steps/*/form/saved/records/*/metaLocation:location")
+    assert shown("android", "/walks/*/steps/*/list/sorted/*/rows/*/fields/*")
+    assert shown("formplayer", "/runs/*/steps/*/response/commands/*/value")
+    assert shown("formplayer", "/runs/*/steps/*/response/headers/*/value")
+    assert shown("formplayer", "/runs/*/steps/*/response/tree/*/caption:filled")
+    assert shown("android", "/walks/*/steps/*/form/screens/*/questions/*/text:filled")
+    assert shown("formplayer", "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty")
+    assert shown("case_blocks", "/runs/*/cases/*/name")
+    assert shown("trace", "/runs/*/trace/*/submission/data/nova_datetime_*[*]/text()")
+
+
+@pytest.mark.parametrize("missing", ["B", "local"])
+def test_a_before_and_after_pair_requires_the_republish_and_the_local_archive(missing):
+    # The real French label is an A/B/local control even though only the native readers register its display.
+    change = "blank-translations-filled"
+    assert change in _proof3_changes()
+    pair = json.loads((HAND / "hq-languages" / "expectations.json").read_text(encoding="utf-8"))
+    assert not _pair_problems(pair, [change])
+    after = next(expectation for expectation in pair if expectation["id"] == f"{change}:after")
+    after["exports"].remove(missing)
+    assert _pair_problems(pair, [change]) == [f"{change}:before runs on A alone and {change}:after on B and the archive"]

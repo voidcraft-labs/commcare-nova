@@ -71,6 +71,7 @@ import {
 	formDisplayCondition,
 	moduleDisplayCondition,
 } from "../../validator/rules/displayConditions";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { noteProperty } from "../caseManagement/catalog";
 import { type HandOffKind, sameJson } from "../jsonCursor";
@@ -456,7 +457,7 @@ function written(
  *  in, the last segment of its surface key. */
 function claimName(key: string): string {
 	const segments = key.split(/[@.:/]/u);
-	return (segments.at(-1) ?? key).slice(0, 200);
+	return segments.at(-1) ?? key;
 }
 
 /** The finding's name for a registration's own claim: a calculated
@@ -473,13 +474,13 @@ function registrationName(
 			const column = config?.columns.find(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
 			);
-			if (column !== undefined) return column.header.slice(0, 200);
+			if (column !== undefined) return column.header;
 		} else if ("member" in ref && "searchInputUuid" in ref.member) {
 			const uuid = ref.member.searchInputUuid;
 			const input = config?.searchInputs.find(
 				(candidate) => candidate.uuid === uuid,
 			);
-			if (input !== undefined) return input.name.slice(0, 200);
+			if (input !== undefined) return input.name;
 		}
 	}
 	return claimName(registration.key);
@@ -1855,7 +1856,8 @@ function relationDestination(
 			caseTypes: doc.caseTypes ?? [],
 			...(origin === undefined ? {} : { currentCaseType: origin }),
 		}).destinationCaseType;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -1865,7 +1867,8 @@ function sharedSyntax(text: string): FormSyntax | undefined {
 	try {
 		const read = sharedFormSyntax(text);
 		return read.ok ? read.node : undefined;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -1909,7 +1912,8 @@ function textSyntax(text: string): FormSyntax | undefined {
 	try {
 		const read = readFormSyntax(text);
 		return read.ok ? read.node : undefined;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -2137,7 +2141,8 @@ function readBack(
 				? { projection: sourceNodeProjection(doc, form, names) }
 				: {}),
 		});
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return candidate;
 	}
 	if (!readFormSyntax(text).ok) return candidate;

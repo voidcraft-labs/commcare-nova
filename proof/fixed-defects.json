@@ -1956,7 +1956,7 @@
 		"part": "form renamed in HQ's editing language",
 		"check": "proof4",
 		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/title",
+		"path": "/runs/*/trace/*/title/form",
 		"control": "localization-bilingual"
 	},
 	{
@@ -6857,7 +6857,7 @@
 		"part": "reserved substrings",
 		"check": "manifest",
 		"artifact": "*form:*",
-		"path": "/instance-source:ledgerdb",
+		"path": "/instance-source:ledgerdb/refused/ledger-read",
 		"control": "targeted-lookup-reserved-tags"
 	},
 	{

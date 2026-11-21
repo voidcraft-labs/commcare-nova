@@ -33,6 +33,7 @@ const NOTHING: HqChangesReview = {
 	kind: "nothing",
 	reason: "unchanged",
 	since: { kind: "published" },
+	hqChanges: [],
 	publishChanges: [],
 	readingId: null,
 	reviewDigest: null,

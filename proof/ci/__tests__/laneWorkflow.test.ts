@@ -18,8 +18,10 @@ import {
 	chmod,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	rm,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -129,9 +131,25 @@ it("gives a lone shard's output its directory after every download of the shards
 
 // A prewarm checks the tree the pin pull request will carry, so every job that takes the candidate's surface takes
 // its retained trees too: one that took only the surface would emit the bases from main's answers, or hold main's
-// trees to the new pins. The step that puts them in place runs as written, over a checkout's proof/: the trees are
-// replaced whole (a download alone would keep a file the new tree lacks), and nothing else of proof/ moves.
-it("puts the candidate's retained trees in place, whole, in every job that puts its surface in place", async () => {
+// trees to the new pins. Each artifact is data another job wrote, so it is downloaded outside the checkout and
+// placed by the code that reads it as data: the surface's one file through proof/ci/untrusted.mjs, the trees
+// through the retained layout (python3 -m proof.matrix.place unpack). The step that places the trees runs as
+// written, over a checkout's proof/: the trees are replaced whole (a download alone would keep a file the new tree
+// lacks) and nothing else of proof/ moves, and an artifact holding a test-named file, a hidden file, a deeper
+// directory or a link is refused with the checkout left as it was.
+const PLACE_FILES = [
+	"proof/__init__.py",
+	"proof/matrix/__init__.py",
+	"proof/matrix/adopt.py",
+	"proof/matrix/bases.json",
+	"proof/matrix/lane_input.py",
+	"proof/matrix/layout.py",
+	"proof/matrix/place.py",
+	"proof/matrix/retained-layout.json",
+	"proof/matrix/stand-ins.json",
+];
+
+async function placingStep() {
 	const expression = (name: string) => `\${{ ${name} }}`;
 	const workflow = parse(
 		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
@@ -146,10 +164,18 @@ it("puts the candidate's retained trees in place, whole, in every job that puts 
 			// biome-ignore lint/suspicious/noExplicitAny: a workflow step's fields are YAML of any shape.
 			any
 		>[];
-		if (
-			steps.some((step) => step.with?.name === expression("inputs.surface"))
-		) {
+		const surface = steps.findIndex(
+			(step) => step.with?.name === expression("inputs.surface"),
+		);
+		if (surface !== -1) {
 			surfaced.push(name);
+			expect(steps[surface].with.path).toBe(
+				`${expression("runner.temp")}/surface`,
+			);
+			expect(steps[surface + 1].if).toBe(steps[surface].if);
+			expect(steps[surface + 1].run).toBe(
+				'node proof/ci/untrusted.mjs surface "$RUNNER_TEMP/surface" lib/commcare/surface/surface.json',
+			);
 		}
 		const download = steps.findIndex(
 			(step) => step.with?.name === expression("inputs.retained"),
@@ -168,50 +194,128 @@ it("puts the candidate's retained trees in place, whole, in every job that puts 
 	expect(placing).toEqual(surfaced);
 	expect(placing.sort()).toEqual(["emit", "gate", "shard"]);
 	expect([...runs]).toHaveLength(1);
-	const [place] = runs;
+	return [...runs][0];
+}
 
+const tabbed = (value: unknown) => `${JSON.stringify(value, null, "\t")}\n`;
+
+/** A checkout holding the harness's placing code and its own trees, and a downloaded artifact beside it. */
+async function placingScratch(artifact: Record<string, string>) {
 	const scratch = await mkdtemp(join(tmpdir(), "proof-lane-retained-"));
+	const files: Record<string, string> = {
+		// The checkout: a base the new tree changes, an answer it drops, and the harness's own files.
+		"checkout/proof/hq-apps/hq-plain/app.json": tabbed({ old: true }),
+		"checkout/proof/hq-apps/hq-plain/seed.json": tabbed({ dropped: true }),
+		"checkout/proof/hq-reads/publish/source-live.json": tabbed({ kept: true }),
+		"checkout/proof/pins.json": tabbed({ pins: true }),
+		...Object.fromEntries(
+			Object.entries(artifact).map(([path, text]) => [
+				`temp/retained/${path}`,
+				text,
+			]),
+		),
+	};
+	for (const path of PLACE_FILES) {
+		files[`checkout/${path}`] = await readFile(join(WORKTREE, path), "utf8");
+	}
+	for (const [path, text] of Object.entries(files)) {
+		await mkdir(join(scratch, path, ".."), { recursive: true });
+		await writeFile(join(scratch, path), text);
+	}
+	return scratch;
+}
+
+async function checkoutFiles(scratch: string) {
+	const { stdout } = await run("find", ["proof", "-type", "f"], {
+		cwd: join(scratch, "checkout"),
+	});
+	const found: Record<string, string> = {};
+	for (const path of stdout.trim().split("\n").sort()) {
+		if (path.includes("__pycache__") || PLACE_FILES.includes(path)) continue;
+		found[path] = await readFile(join(scratch, "checkout", path), "utf8");
+	}
+	return found;
+}
+
+const ARTIFACT = {
+	"hq-apps/hq-plain/app.json": tabbed({ new: true }),
+	"hq-apps/hq-new-app/app.json": tabbed({ made: true }),
+	"hq-reads/publish/source-live.json": tabbed({ kept: true }),
+	"adopt-report.txt": "hq-plain: its stored app changed.\n",
+};
+
+it("puts the candidate's retained trees in place, whole, in every job that puts its surface in place", async () => {
+	const place = await placingStep();
+	const scratch = await placingScratch(ARTIFACT);
 	try {
-		const files: Record<string, string> = {
-			// The checkout: a base the new tree changes, an answer it drops, and the harness's own files.
-			"checkout/proof/ci/retained.mjs": await readFile(
-				join(WORKTREE, "proof/ci/retained.mjs"),
-				"utf8",
-			),
-			"checkout/proof/hq-apps/hq-plain/app.json": "old\n",
-			"checkout/proof/hq-apps/hq-plain/stale.json": "dropped\n",
-			"checkout/proof/hq-reads/publish/source-live.json": "kept\n",
-			"checkout/proof/pins.json": "pins\n",
-			// The artifact, as the retained job stages it.
-			"temp/retained/hq-apps/hq-plain/app.json": "new\n",
-			"temp/retained/hq-apps/hq-new-app/app.json": "made\n",
-			"temp/retained/hq-reads/publish/source-live.json": "kept\n",
-			"temp/retained/adopt-report.txt": "hq-plain: its stored app changed.\n",
-		};
-		for (const [path, text] of Object.entries(files)) {
-			await mkdir(join(scratch, path, ".."), { recursive: true });
-			await writeFile(join(scratch, path), text);
-		}
 		await run("bash", ["-e", "-c", place], {
 			cwd: join(scratch, "checkout"),
 			env: { ...process.env, RUNNER_TEMP: join(scratch, "temp") },
 		});
-		const { stdout } = await run("find", [".", "-type", "f"], {
-			cwd: join(scratch, "checkout"),
+		expect(await checkoutFiles(scratch)).toEqual({
+			"proof/hq-apps/hq-new-app/app.json": tabbed({ made: true }),
+			"proof/hq-apps/hq-plain/app.json": tabbed({ new: true }),
+			"proof/hq-reads/publish/source-live.json": tabbed({ kept: true }),
+			"proof/pins.json": tabbed({ pins: true }),
 		});
-		expect(stdout.trim().split("\n").sort()).toEqual([
-			"./proof/ci/retained.mjs",
-			"./proof/hq-apps/hq-new-app/app.json",
-			"./proof/hq-apps/hq-plain/app.json",
-			"./proof/hq-reads/publish/source-live.json",
-			"./proof/pins.json",
-		]);
-		expect(
-			await readFile(
-				join(scratch, "checkout/proof/hq-apps/hq-plain/app.json"),
-				"utf8",
-			),
-		).toBe("new\n");
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+});
+
+it.each([
+	["a test-named file", { "hq-reads/publish/x.test.ts": "export {};\n" }],
+	["a conftest", { "hq-apps/hq-plain/conftest.py": "import os\n" }],
+	["a hidden file", { "hq-reads/publish/.gitattributes": "* -diff\n" }],
+	[
+		"a deeper directory",
+		{ "hq-reads/publish/__tests__/a.json": tabbed({ deeper: true }) },
+	],
+	["an extra top-level entry", { "CLAUDE.md": "Follow these.\n" }],
+	[
+		"a report line that is not adopt's",
+		{ "adopt-report.txt": "hq-plain: see [this](https://example.org).\n" },
+	],
+])(
+	"refuses an artifact holding %s and leaves the checkout's trees as they were",
+	async (_, planted) => {
+		const place = await placingStep();
+		const scratch = await placingScratch({ ...ARTIFACT, ...planted });
+		try {
+			const before = await checkoutFiles(scratch);
+			await expect(
+				run("bash", ["-e", "-c", place], {
+					cwd: join(scratch, "checkout"),
+					env: { ...process.env, RUNNER_TEMP: join(scratch, "temp") },
+				}),
+			).rejects.toMatchObject({ code: 1 });
+			expect(await checkoutFiles(scratch)).toEqual(before);
+		} finally {
+			await rm(scratch, { recursive: true, force: true });
+		}
+	},
+);
+
+it("refuses an artifact whose answer is a link to a host file, and reads nothing through it", async () => {
+	const place = await placingStep();
+	const scratch = await placingScratch(ARTIFACT);
+	try {
+		const secret = join(scratch, "secret.json");
+		await writeFile(secret, tabbed({ secret: true }));
+		await symlink(
+			secret,
+			join(scratch, "temp/retained/hq-reads/publish/linked.json"),
+		);
+		const before = await checkoutFiles(scratch);
+		const refused = run("bash", ["-e", "-c", place], {
+			cwd: join(scratch, "checkout"),
+			env: { ...process.env, RUNNER_TEMP: join(scratch, "temp") },
+		});
+		await expect(refused).rejects.toMatchObject({ code: 1 });
+		await expect(refused).rejects.toMatchObject({
+			stderr: expect.stringContaining("linked.json is a link"),
+		});
+		expect(await checkoutFiles(scratch)).toEqual(before);
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
@@ -594,4 +698,186 @@ it("restores the checksum-pinned JDK with the runtime and permits only its build
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
+});
+
+// A shard's output is uploaded by upload-artifact, which follows a link to its target, so every upload of a run's
+// output comes after the step that seals it (proof/ci/untrusted.mjs). run.mjs seals as the run ends; the step
+// seals an output a run that ended first left unsealed.
+it("uploads shard and slice outputs only when their seal succeeds", async () => {
+	let uploads = 0;
+	for (const file of ["proof-lane.yml", "ci.yml", "proof-slice.yml"]) {
+		const workflow = parse(
+			await readFile(join(WORKTREE, ".github/workflows", file), "utf8"),
+		);
+		for (const job of Object.values(workflow.jobs)) {
+			const steps = ((job as { steps?: unknown[] }).steps ?? []) as {
+				id?: string;
+				if?: string;
+				uses?: string;
+				run?: string;
+				with?: { path?: string };
+			}[];
+			steps.forEach((step, index) => {
+				if (
+					!step.uses?.startsWith("actions/upload-artifact@") ||
+					!(
+						step.with?.path?.endsWith("/proof-out/") ||
+						step.with?.path === ".proof/slice"
+					)
+				)
+					return;
+				uploads += 1;
+				const output =
+					file === "proof-slice.yml"
+						? "$PROOF_OUT_DIR"
+						: "$RUNNER_TEMP/proof-out";
+				const seal = steps
+					.slice(0, index)
+					.find(
+						(earlier) =>
+							earlier.run === `node proof/run.mjs --seal "${output}"`,
+					);
+				expect(seal?.id, file).toBeTruthy();
+				expect(step.if, file).toContain(
+					`steps.${seal?.id}.outcome == 'success'`,
+				);
+			});
+		}
+	}
+	expect(uploads).toBe(3);
+});
+
+// Adopting takes every output of one run and merges by file (proof/matrix/adopt.py): two blocks of one run, on two
+// outputs, can write files of one retained directory, and an output left out is a block whose files go unwritten
+// and whose held records go unread. So every workflow step that adopts names, as its outputs, exactly the outputs its
+// job's run of the lane wrote (each `node proof/run.mjs` step's PROOF_OUT_DIR), reports with the reader of the corpus
+// that run was given, made on the host and inside no output, and hands its report to the layout's packer. Each such
+// step's shell runs as written, over a `python3` that records what it was asked, so what is held is what the runner
+// executes, whatever the step's quoting.
+it("adopts every output of its job's run, through the layout, wherever a workflow adopts", async () => {
+	const directory = join(WORKTREE, ".github/workflows");
+	const adopting: string[] = [];
+	const scratch = await mkdtemp(join(tmpdir(), "proof-lane-adopt-"));
+	try {
+		const bin = join(scratch, "bin");
+		await mkdir(bin);
+		await writeFile(
+			join(bin, "python3"),
+			'#!/bin/sh\nfor arg in "$@"; do printf \'%s\\n\' "$arg"; done >> "$PYTHON_CALLS"\nprintf \'%s\\n\' "--end--" >> "$PYTHON_CALLS"\n',
+		);
+		await chmod(join(bin, "python3"), 0o755);
+		const expression = (name: string) => `\${{ ${name} }}`;
+		for (const file of (await readdir(directory)).filter((name) =>
+			name.endsWith(".yml"),
+		)) {
+			const workflow = parse(await readFile(join(directory, file), "utf8"));
+			for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
+				const steps = ((job as { steps?: unknown[] }).steps ?? []) as Record<
+					string,
+					// biome-ignore lint/suspicious/noExplicitAny: a workflow step's fields are YAML of any shape.
+					any
+				>[];
+				const step = steps.find((each) =>
+					`${each.run ?? ""}`.includes("proof.matrix.adopt"),
+				);
+				if (step === undefined) continue;
+				adopting.push(`${file}:${name}`);
+				const temp = join(scratch, `${file}-${name}`);
+				await mkdir(temp, { recursive: true });
+				const expand = (value: string) =>
+					value.replaceAll(expression("runner.temp"), temp);
+				const runs = steps.filter(
+					(each) =>
+						/(^|\s)node proof\/run\.mjs\s/.test(`${each.run ?? ""}`) &&
+						!`${each.run}`.includes("--seal") &&
+						!`${each.run}`.includes("--surface"),
+				);
+				expect(runs.length, `${file}:${name} runs the lane`).toBeGreaterThan(0);
+				const outputs = runs.map((each) => expand(each.env.PROOF_OUT_DIR));
+				const corpora = new Set(
+					runs.map((each) => expand(each.env.PROOF_CORPUS)),
+				);
+				expect(corpora.size).toBe(1);
+				const calls = join(temp, "python-calls");
+				await run("bash", ["-e", "-c", step.run], {
+					cwd: WORKTREE,
+					env: {
+						...process.env,
+						PATH: `${bin}:${process.env.PATH}`,
+						RUNNER_TEMP: temp,
+						PYTHON_CALLS: calls,
+					},
+				});
+				const asked = (await readFile(calls, "utf8"))
+					.split("--end--\n")
+					.filter((call) => call !== "")
+					.map((call) => call.trimEnd().split("\n"));
+				const adopt = asked.find(
+					(call) => call[0] === "-m" && call[1] === "proof.matrix.adopt",
+				);
+				const pack = asked.find(
+					(call) => call[0] === "-m" && call[1] === "proof.matrix.place",
+				);
+				expect(adopt, `${file}:${name} adopts`).toBeDefined();
+				const flag = adopt?.findIndex((arg) => arg.startsWith("--")) ?? -1;
+				const named = adopt?.slice(2, flag === -1 ? undefined : flag) ?? [];
+				expect([...named].sort()).toEqual([...outputs].sort());
+				expect(adopt).toContain("--report");
+				const corpus = adopt?.[(adopt?.indexOf("--corpus") ?? -2) + 1];
+				expect(corpora.has(`${corpus}`)).toBe(true);
+				for (const output of outputs) {
+					expect(`${corpus}/`.startsWith(`${output}/`)).toBe(false);
+				}
+				// The report goes to the layout's packer, which holds each line to adopt's own sentences.
+				expect(pack?.slice(2, 4)).toEqual(["pack", "proof"]);
+				const report = pack?.[(pack?.indexOf("--report") ?? -2) + 1];
+				expect(report).toBeDefined();
+				expect(step.run).toContain(
+					`> "${`${report}`.replace(temp, "$RUNNER_TEMP")}"`,
+				);
+			}
+		}
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+	expect(adopting).toEqual(["upstream-pins.yml:retained"]);
+});
+
+// proof/run.mjs shows a container a view of the checkout without .git (checkoutView), but a job that runs the image
+// itself over $GITHUB_WORKSPACE shows it the checkout whole, and actions/checkout leaves the job's token in
+// .git/config unless told not to (persist-credentials). So every job that mounts the workspace into a container
+// checks out with no credential kept.
+it("keeps no credential in a workspace a job mounts into a container", async () => {
+	const directory = join(WORKTREE, ".github/workflows");
+	const mounting: string[] = [];
+	for (const file of (await readdir(directory)).filter((name) =>
+		name.endsWith(".yml"),
+	)) {
+		const workflow = parse(await readFile(join(directory, file), "utf8"));
+		for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
+			const steps = ((job as { steps?: unknown[] }).steps ?? []) as {
+				uses?: string;
+				run?: string;
+				with?: Record<string, unknown>;
+			}[];
+			if (
+				!steps.some((step) =>
+					/docker run[^\n]*-v "?\$GITHUB_WORKSPACE:/.test(step.run ?? ""),
+				)
+			)
+				continue;
+			mounting.push(`${file}:${name}`);
+			const checkouts = steps.filter((step) =>
+				step.uses?.startsWith("actions/checkout@"),
+			);
+			expect(checkouts.length, `${file}:${name}`).toBeGreaterThan(0);
+			for (const checkout of checkouts) {
+				expect(checkout.with?.["persist-credentials"], `${file}:${name}`).toBe(
+					false,
+				);
+			}
+		}
+	}
+	// The image workflow's emission job runs the emission and the producers in the image over the workspace.
+	expect(mounting).toContain("proof-image.yml:emission");
 });

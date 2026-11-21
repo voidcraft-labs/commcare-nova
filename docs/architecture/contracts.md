@@ -461,6 +461,30 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ## Architecture contracts
 
+### Who an answer is for
+
+- A cookie session answers a request that can change something (any method but
+  GET, HEAD and OPTIONS) only from Nova's own pages: `Sec-Fetch-Site` is
+  `same-origin` or `none`, or, where a browser sends none, `Origin` names the
+  request's own host. One place refuses the rest, the session read every route
+  handler shares (`lib/auth-utils.ts::getSessionSafe`); Server Actions compare
+  Origin and Host themselves, `/api/auth/*` is Better Auth's own check, and the
+  MCP route takes a bearer, never a cookie.
+- An MCP scope means exactly what its consent row says, for as long as a grant
+  of it stands: new authority is a new scope, never a widened sentence, and a
+  standing grant or API key holds a new scope only once a person approves it.
+  A tool needs the scope that covers everything its answers can carry, a
+  refusal and a changed review included (`lib/mcp/scopes.ts::TOOL_SCOPES`, held
+  by `lib/mcp/scopedTool.ts::registerScopedTool`).
+- What Nova holds about another Project (who manages an HQ app there) is
+  released only on CommCare HQ's own answer, in the same request, that the
+  caller's key reaches that app (`lib/commcare/hq/appsSeen.ts::HqAppsSeen`),
+  never on what Nova stored about the key earlier.
+- Everything one answer says about an app's deployments was true at one
+  moment, for a caller authorized at that moment
+  (`lib/deployment/store.ts::withDeploymentReadSnapshot`), and a conflict
+  about an app is reported only to a caller re-authorized under its row.
+
 ### What the commit gate may read
 
 **Validator findings are document-derived. Case-data-derived facts are surfaced,

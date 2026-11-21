@@ -16,6 +16,7 @@ import type {
 	ReadingAnswer,
 } from "@/lib/deployment";
 import { accountOfOne } from "@/lib/deployment/reading/answers";
+import type { ReviewTable } from "@/lib/deployment/reading/types";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import type { BringInLocation } from "@/lib/routing/bringInLocation";
 import {
@@ -1104,6 +1105,24 @@ describe("carryAnswers", () => {
 			splitDatetime: false,
 			tableChoices: { crops: "use-commcare-hq" },
 		});
+	});
+
+	it("asks a table again whose review entry changed though its answer is still offered, and keeps one whose entry is the same", () => {
+		const districts = choiceTable("districts", { hq: true, project: true });
+		const grown: ReviewTable = {
+			...districts,
+			choice: districts.choice && {
+				...districts.choice,
+				apps: [{ appId: "stock-app", appName: "Stock counts", deleted: false }],
+			},
+		};
+		const now = review({
+			...before,
+			tables: [grown, choiceTable("crops", { hq: true, project: true })],
+		});
+		const carried = carryAnswers(previous, before, now, DIGEST_3);
+		expect(carried.dropped).toBe(true);
+		expect(carried.answers.tableChoices).toEqual({ crops: "use-commcare-hq" });
 	});
 
 	it("drops a table answer whose table no longer asks a choice", () => {

@@ -38,9 +38,24 @@ name: Upstream pins
 # (python3 -m proof.matrix.adopt), which the report job commits only beside
 # the lock, since the trees answer the new image.
 #
+# What a container or another job wrote is data. proof/run.mjs seals each
+# run's output before any step uploads it (plain files and directories only;
+# one holding anything else is moved aside and the run fails), and reads the
+# extraction's surface without following a link, within a bound and as JSON;
+# the retained trees move only through the retained layout
+# (proof/matrix/layout.py, by python3 -m proof.matrix.place), which refuses
+# every name, type and size it does not declare, and the adopt report only
+# where every line is one of adopt's own sentences.
+#
+# Scheduled and manual runs use the triggering commit of main as their executable
+# source. The candidate is one child of that commit, and each job applies only
+# the verified proof/pins.json whose upstream commit SHAs changed. A manual
+# dispatch on another ref stops before any checkout or branch update.
+#
 # The workflow never merges. The jobs that run upstream code (the surface
 # extraction, the retained trees, the prewarm, the readers' lane) hold only a
-# read token; the jobs that write run none.
+# read token; the jobs that write run none, and commit only files the
+# retained layout admits, read by main's own code in the job that commits.
 on:
   # Monday, just after midnight. The shared FIFO concurrency group waits for the weekly audit if it is still
   # running, and the image comparison waits for this run (proof/README.md, "The other workflows").
@@ -65,10 +80,16 @@ jobs:
       pull-requests: read
     outputs:
       action: ${{ steps.plan.outputs.action }}
+      commit: ${{ steps.plan.outputs.commit }}
     steps:
+      - name: Require main for a weekly pin update
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::Choose main when running Upstream pins. It updates the weekly pin branch from the main commit that started the run."
+          exit 1
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -83,6 +104,7 @@ jobs:
           result="$(node proof/upstream/pins.mjs plan)"
           echo "$result"
           echo "action=$(echo "$result" | jq -r .action)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(echo "$result" | jq -r '.commit // empty')" >> "$GITHUB_OUTPUT"
 
   image:
     name: Build the image at the new pins
@@ -97,11 +119,12 @@ jobs:
       issues: write
     uses: ./.github/workflows/proof-image.yml
     with:
-      ref: upstream/pins
+      ref: ${{ github.sha }}
+      pin-candidate: ${{ needs.plan.outputs.commit }}
 
   surface:
     name: Regenerate the surface at the new pins
-    needs: image
+    needs: [plan, image]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -109,7 +132,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: upstream/pins
+          ref: ${{ github.sha }}
+      - name: Apply the planned pins
+        env:
+          PIN_COMMIT: ${{ needs.plan.outputs.commit }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -130,7 +157,7 @@ jobs:
   # its native products, is emitted first, so the run and adopt's report read the one reader bundle it carries.
   retained:
     name: Make the retained HQ answers and apps again at the new pins
-    needs: image
+    needs: [plan, image]
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:
@@ -138,7 +165,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: upstream/pins
+          ref: ${{ github.sha }}
+      - name: Apply the planned pins
+        env:
+          PIN_COMMIT: ${{ needs.plan.outputs.commit }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -191,27 +222,42 @@ jobs:
             proof/editors/test_retained_reads.py || code=$?
           case $code in
             0|1) ;;
+            6)
+              echo "::error::The run that makes the retained trees wrote something other than plain files into its output, so nothing of it is adopted or uploaded; proof/run.mjs named each entry above and moved the output to retained-out.refused."
+              exit "$code"
+              ;;
             *)
               echo "::error::The run that makes the retained trees ended with exit $code before its tests finished; its output is above."
               exit "$code"
               ;;
           esac
+      # The run's output as proof/run.mjs sealed it, sealed again here in case the run ended before it could; one
+      # holding anything but plain files and directories is moved to retained-out.refused and is not uploaded.
+      - name: Seal the run's output
+        id: seal
+        if: ${{ !cancelled() }}
+        run: node proof/run.mjs --seal "$RUNNER_TEMP/retained-out"
+      # Adopting takes every output of one run and merges them by file, through the retained layout
+      # (proof/matrix/adopt.py). The run above is one run of the lane on this machine, which writes one output, so
+      # that one is every output of it; proof/ci/__tests__/laneWorkflow.test.ts holds each adopting step to the
+      # outputs its job's runs write.
       - name: Adopt what HQ made into the retained trees
         run: |
-          mkdir -p "$RUNNER_TEMP/upstream-retained"
+          mkdir -p "$RUNNER_TEMP/adopt"
           python3 -m proof.matrix.adopt "$RUNNER_TEMP/retained-out" --report --corpus "$RUNNER_TEMP/corpus" \
-            > "$RUNNER_TEMP/upstream-retained/adopt-report.txt"
-          cat "$RUNNER_TEMP/upstream-retained/adopt-report.txt"
-          node proof/ci/retained.mjs proof "$RUNNER_TEMP/upstream-retained"
+            > "$RUNNER_TEMP/adopt/adopt-report.txt"
+          cat "$RUNNER_TEMP/adopt/adopt-report.txt"
+          python3 -m proof.matrix.place pack proof "$RUNNER_TEMP/upstream-retained" \
+            --report "$RUNNER_TEMP/adopt/adopt-report.txt"
+      # A retained tree holds no hidden file (proof/matrix/retained-layout.json), so the upload carries none.
       - uses: actions/upload-artifact@v7
         with:
           name: upstream-retained
           path: ${{ runner.temp }}/upstream-retained/
           if-no-files-found: error
-          include-hidden-files: true
           retention-days: 7
       - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         with:
           name: upstream-retained-run
           path: |
@@ -224,13 +270,14 @@ jobs:
   # made them, and main's otherwise, as the report job commits them.
   prewarm:
     name: Prewarm main's evidence store for the candidate image
-    needs: [image, surface, retained]
+    needs: [plan, image, surface, retained]
     if: ${{ !cancelled() && needs.image.result == 'success' && needs.surface.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
-      ref: upstream/pins
+      ref: ${{ github.sha }}
+      pin-candidate: ${{ needs.plan.outputs.commit }}
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
       surface: upstream-surface
       retained: ${{ needs.retained.result == 'success' && 'upstream-retained' || '' }}
@@ -245,13 +292,14 @@ jobs:
   # After the prewarm, whatever it found: the two together would hold more than fourteen runners.
   readers:
     name: Every reader on the candidate image
-    needs: [image, surface, retained, prewarm]
+    needs: [plan, image, surface, retained, prewarm]
     if: ${{ !cancelled() && needs.image.result == 'success' && needs.surface.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
-      ref: upstream/pins
+      ref: ${{ github.sha }}
+      pin-candidate: ${{ needs.plan.outputs.commit }}
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
       surface: upstream-surface
       retained: ${{ needs.retained.result == 'success' && 'upstream-retained' || '' }}
@@ -276,8 +324,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
-          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: pin-candidate
+      - name: Apply the planned pins
+        working-directory: pin-candidate
+        env:
+          PIN_COMMIT: ${{ needs.plan.outputs.commit }}
+        run: node "$GITHUB_WORKSPACE/proof/upstream/pins.mjs" apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -293,6 +350,7 @@ jobs:
           name: upstream-retained
           path: ${{ runner.temp }}/upstream-retained
       - name: Commit the lock, surface and retained trees, and update the pull request
+        working-directory: pin-candidate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_RESULT: ${{ needs.image.result }}
@@ -303,7 +361,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          node proof/upstream/pins.mjs report \
+          node "$GITHUB_WORKSPACE/proof/upstream/pins.mjs" report \
             --image-result "$IMAGE_RESULT" \
             --digest "$DIGEST" \
             --surface-result "$SURFACE_RESULT" \

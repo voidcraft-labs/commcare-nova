@@ -26,6 +26,8 @@ import {
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource, HqMediaMapItem } from "@/lib/commcare/hq/appSource";
+import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
+import { HQ_BRING_IN_READING_MAX_XML_NODES } from "@/lib/commcare/hq/bounds";
 import { type HqFailure, hqReadCircumstance } from "@/lib/commcare/hq/failure";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
 import {
@@ -54,8 +56,18 @@ import {
 } from "@/lib/commcare/surface/inventory";
 import { isDeclaredSurfaceKey } from "@/lib/commcare/surface/revision";
 import { targetFactsFromSource } from "@/lib/commcare/targetFacts";
-import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import {
+	targetWireIdentity,
+	type WireIdentity,
+} from "@/lib/commcare/wireIdentity";
+import {
+	rethrowWorkStop,
+	underMeter,
+	WorkCancelled,
+	WorkMeter,
+} from "@/lib/commcare/workMeter";
 import { fieldKindBindType } from "@/lib/commcare/xform/bindType";
+import { heldXmlParse } from "@/lib/commcare/xmlParse";
 import { getHqCredentials } from "@/lib/db/settings";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
@@ -79,6 +91,7 @@ import {
 } from "@/lib/domain/multimedia";
 import { PLATFORM_FEATURE_IDS } from "@/lib/domain/platforms";
 import { unavailableUses } from "@/lib/domain/platformUses";
+import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import type {
 	LookupFixtureDataSnapshot,
@@ -89,6 +102,7 @@ import {
 	type CircumstanceFinding,
 	circumstanceFinding,
 	type Finding,
+	type HqAppClaimDetail,
 	type HqPlace,
 	type ReadCircumstance,
 } from "@/lib/publish/hqFindings";
@@ -96,18 +110,24 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type AdoptedMediaFile,
 	adoptedBaselineOwnershipSteps,
-	adoptedIdentityRows,
 	adoptedSourceTree,
 	adoptionPlanFeatureConfirmations,
-	assignMediaPaths,
 } from "../adoption";
 import { readHqAppClaims } from "../store";
 import { keptListFor } from "../targetFacts";
+import {
+	canonicalTargetIdentity,
+	EMPTY_TARGET_IDENTITY,
+	observedTargetIdentity,
+	resolveTargetIdentity,
+	type TargetIdentity,
+} from "../targetIdentity";
 import { type AcceptedReading, acceptReadingSteps } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
 import { readingAppStrings } from "./appStrings";
 import { reviewDigestOf } from "./digest";
 import { reviewMediaId } from "./mediaIds";
+import { claimDetail } from "./picker";
 import {
 	projectDataReadsOf,
 	type ReaderProjectDataReads,
@@ -139,6 +159,7 @@ import {
 import { projectDataReview } from "./projectData/review";
 import { handOffSettlements } from "./projectData/settlements";
 import type { BringInActor } from "./read";
+import { holdReading, noRoomFinding } from "./room";
 import {
 	READING_MAX_LISTED_FINDINGS,
 	type ReadingAnswer,
@@ -171,6 +192,8 @@ export interface Fetched {
 	readonly modules: readonly HqAlignedModule[];
 	/** The save counter both ends of the bracketed read held. */
 	readonly hqVersion: number;
+	/** CommCare HQ's answer, in this request, that the key reaches the app. */
+	readonly seen: HqAppsSeen;
 	/** ISO 8601: when the bracketed read answered. */
 	readonly readAt: string;
 	/** The Project data, bound with no answer of the person's. */
@@ -196,6 +219,13 @@ export interface Gathered {
 	readonly media: ReadingMediaPlan;
 	/** One entry per referenced path of every held file. */
 	readonly mediaFiles: readonly AdoptedMediaFile[];
+	/**
+	 * Where the source project space keeps what the document doesn't hold,
+	 * as the birth records it: the reading resolved over nothing
+	 * (`targetIdentity.ts::resolveTargetIdentity`), the value the digest
+	 * binds.
+	 */
+	readonly targetIdentity: TargetIdentity;
 	readonly review: ReadingReview;
 	readonly reviewDigest: string;
 }
@@ -218,16 +248,34 @@ export interface GatherFacts {
 	readonly checkMs: number;
 	readonly longestPieceMs: number;
 	readonly longestPieceAt: string;
+	/** The work meter's units over every piece, the most one piece did, and what that one was
+	 *  part of: the count a reading's work limit is held to, which no clock moves. */
+	readonly workUnits: number;
+	readonly longestPieceUnits: number;
+	readonly longestPieceUnitsAt: string;
 	readonly mediaTotal: number;
 	/** `ReadFacts.expressionRounds` where the reader gave a draft. */
 	readonly expressionRounds: number | null;
 }
 
-/** What steps 1 and 2 resolve before anything of the app is read. */
+/** What step 1 resolves before anything of the app is read. */
 export interface GatherSources {
 	readonly creds: CommCareCredentials;
 	/** The Project's side of the read. Production's is `postgresProjectSide`. */
 	readonly project: ReadingProjectSide;
+	/** Which Nova app already holds the app, asked only once CommCare HQ has
+	 *  answered with its document in this request. Production's reads the
+	 *  claims (`claimOfSeen`); the proof lane's reading has none. */
+	readonly claimOf?: (seen: HqAppsSeen) => Promise<HqAppClaimDetail | null>;
+}
+
+/** The claim view of the one app HQ just answered about, for `GatherSources.claimOf`. */
+export async function claimOfSeen(
+	viewerUserId: string,
+	seen: HqAppsSeen,
+): Promise<HqAppClaimDetail | null> {
+	const [holder] = await readHqAppClaims({ viewerUserId, seen });
+	return holder === undefined ? null : claimDetail(holder);
 }
 
 /** What the reader claimed in one gather, with each media reference Nova leaves out filed under
@@ -295,19 +343,46 @@ export function unrecognizedLogKey(name: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Times each synchronous piece of a request, and lets the event loop turn
- * before each one, so no two pieces run in one turn. A review of changes
- * made in CommCare HQ times its own pieces with it.
+ * Times and meters each synchronous piece of a request, and lets the event
+ * loop turn before each one, so no two pieces run in one turn. A review of
+ * changes made in CommCare HQ times its own pieces with it.
+ *
+ * Every piece runs under the request's work meter (`workMeter.ts`), which a
+ * reading's own meter charges as its parent, so `units` is the work of every
+ * piece and `longestUnits` the most one piece did between two turns: the
+ * deterministic twin of `longest`. The meter counts and never stops a piece by
+ * itself; a run of steps given an allowance (`steps`, the change planner's)
+ * runs under a meter of its own whose parent it is.
+ * Where the request's `cancel` has aborted, the next piece does not run: it
+ * throws `WorkCancelled`, as a charge inside a running piece does, so a
+ * request whose caller went away stops working at its next step.
  */
 export class Pieces {
 	total = 0;
 	longest = 0;
 	/** What the longest piece was part of, as `at` named it. */
 	longestAt = "";
+	/** The most units one piece did, and what it was part of. */
+	longestUnits = 0;
+	longestUnitsAt = "";
 	/** What the pieces now running are part of. */
 	private part = "";
 	/** The emissions this request's readings share (`heldExpansions.ts`). */
 	readonly expansions = new HeldExpansions();
+	/** The request's work meter. */
+	readonly meter: WorkMeter;
+
+	constructor(cancel?: AbortSignal) {
+		this.meter = new WorkMeter({
+			limit: Number.POSITIVE_INFINITY,
+			...(cancel !== undefined && { signal: cancel }),
+		});
+	}
+
+	/** Every unit the request's pieces did. */
+	get units(): number {
+		return this.meter.units;
+	}
 
 	/** Names what the pieces that follow are part of, for the facts that
 	 *  name the longest. */
@@ -316,11 +391,13 @@ export class Pieces {
 		return this;
 	}
 
-	async run<T>(piece: () => T): Promise<T> {
+	async run<T>(piece: () => T, meter: WorkMeter = this.meter): Promise<T> {
 		await nextTurn();
+		meter.check();
 		const started = performance.now();
+		const before = this.meter.units;
 		try {
-			return piece();
+			return underMeter(meter, piece);
 		} finally {
 			const took = performance.now() - started;
 			this.total += took;
@@ -328,13 +405,27 @@ export class Pieces {
 				this.longest = took;
 				this.longestAt = this.part;
 			}
+			const units = this.meter.units - before;
+			if (units > this.longestUnits) {
+				this.longestUnits = units;
+				this.longestUnitsAt = this.part;
+			}
 		}
 	}
 
-	/** Runs `steps` to their end, each step its own piece. */
-	async steps<T>(steps: Generator<void, T, void>): Promise<T> {
+	/** Runs `steps` to their end, each step its own piece. Given `allowance`, the steps together
+	 *  do at most that many units, and one that would pass it throws `WorkLimitReached` there:
+	 *  for a step a request makes only within a limit of its own (the change planner's). */
+	async steps<T>(
+		steps: Generator<void, T, void>,
+		allowance?: number,
+	): Promise<T> {
+		const meter =
+			allowance === undefined
+				? this.meter
+				: new WorkMeter({ limit: allowance, parent: this.meter });
 		for (;;) {
-			const step = await this.run(() => steps.next());
+			const step = await this.run(() => steps.next(), meter);
 			if (step.done) return step.value;
 		}
 	}
@@ -352,6 +443,9 @@ function factsOf(pieces: Pieces, tally: Tally): GatherFacts {
 		checkMs: pieces.total,
 		longestPieceMs: pieces.longest,
 		longestPieceAt: pieces.longestAt,
+		workUnits: pieces.units,
+		longestPieceUnits: pieces.longestUnits,
+		longestPieceUnitsAt: pieces.longestUnitsAt,
 		mediaTotal: tally.mediaTotal,
 		expressionRounds: tally.expressionRounds,
 	};
@@ -573,6 +667,8 @@ async function runReader(
 			}),
 		);
 	} catch (error) {
+		// A cancelled request is no break of the reader's contract.
+		if (error instanceof WorkCancelled) throw error;
 		return { kind: "contract", broke: { at, thrown: thrownName(error) } };
 	}
 	if (outcome.kind === "read" && outcome.draft.declaration.kind !== "choices")
@@ -949,10 +1045,7 @@ export function keptMediaClassClaims(
 		);
 	const held = new Set<string>();
 	for (const file of media?.files ?? [])
-		if (
-			Object.hasOwn(media?.verdicts ?? {}, file.key) &&
-			media?.verdicts[file.key]?.kind === "held"
-		)
+		if (ownRecordValue(media?.verdicts, file.key)?.kind === "held")
 			for (const path of file.paths) held.add(path);
 	const records: ClaimRecord[] = [];
 	for (const item of map ?? []) {
@@ -983,7 +1076,7 @@ function gatherClaimsOf(
 	settled: SettledReads,
 	source: HqAppSource,
 ): GatherClaims {
-	const counts: Record<string, number> = { ...claims.counts };
+	const counts = recordFromEntries(Object.entries(claims.counts));
 	const filed: ClaimRecord[] = [];
 	for (const record of [
 		...settledClaims(settled),
@@ -992,19 +1085,19 @@ function gatherClaimsOf(
 		counts[record.entry] = (counts[record.entry] ?? 0) + 1;
 		filed.push(record);
 	}
-	for (const claim of mediaClaims) {
-		const sites = new Map<string, { artifact: string; where: string }>();
-		for (const handOff of claims.handOffs) {
-			if (
-				handOff.to !== "media-reference" ||
-				handOff.subject !== claim.reference.path
-			)
-				continue;
-			sites.set(JSON.stringify([handOff.artifact, handOff.where]), {
-				artifact: handOff.artifact,
-				where: handOff.where,
-			});
+	/* The places each media path was handed off at, by the path, so a claim looks its own up. */
+	const sitesByPath = new Map<string, Set<string>>();
+	for (const handOff of claims.handOffs) {
+		if (handOff.to !== "media-reference") continue;
+		let sites = sitesByPath.get(handOff.subject);
+		if (sites === undefined) {
+			sites = new Set();
+			sitesByPath.set(handOff.subject, sites);
 		}
+		sites.add(JSON.stringify([handOff.artifact, handOff.where]));
+	}
+	for (const claim of mediaClaims) {
+		const sites = sitesByPath.get(claim.reference.path) ?? new Set();
 		const standing = inventoryIndex().entry(claim.entry)?.standing;
 		if (standing === undefined)
 			throw new Error(
@@ -1039,7 +1132,7 @@ function gatherClaimsOf(
 }
 
 // ---------------------------------------------------------------------------
-// Steps 1 and 2, then the rest
+// Step 1, then the rest
 // ---------------------------------------------------------------------------
 
 const NO_FACTS: GatherFacts = {
@@ -1047,11 +1140,15 @@ const NO_FACTS: GatherFacts = {
 	checkMs: 0,
 	longestPieceMs: 0,
 	longestPieceAt: "",
+	workUnits: 0,
+	longestPieceUnits: 0,
+	longestPieceUnitsAt: "",
 	mediaTotal: 0,
 	expressionRounds: null,
 };
 
-/** Steps 1 and 2 from Nova's own store, then `gatherFromHq`. What both requests call. */
+/** Step 1 from Nova's own store, then `gatherFromHq`, which asks Nova's claims (step 3's
+ *  advice) only after CommCare HQ answered with the app. What both requests call. */
 export async function gatherReading(
 	input: GatherInput,
 ): Promise<{ readonly result: GatherResult; readonly facts: GatherFacts }> {
@@ -1079,21 +1176,6 @@ export async function gatherReading(
 	if (credentials.creds.server !== key.server)
 		return { result: stopOf(atApp("not-connected")), facts: NO_FACTS };
 
-	/* 2. The claim, as advice: the birth's own claim decides. */
-	const [holder] = await readHqAppClaims({
-		viewerUserId: actor.userId,
-		server: key.server,
-		domain: key.domain,
-		remoteAppIds: [key.remoteAppId],
-	});
-	if (holder !== undefined) {
-		const { remoteAppId: _remoteAppId, ...claim } = holder;
-		return {
-			result: stopOf(circumstanceFinding("already-in-nova", APP, { claim })),
-			facts: NO_FACTS,
-		};
-	}
-
 	const { result, facts } = await gatherFromHq({
 		key,
 		readingId: input.readingId,
@@ -1108,6 +1190,7 @@ export async function gatherReading(
 			appId: input.appId,
 			origin: { server: key.server, domain: key.domain },
 		}),
+		claimOf: (seen) => claimOfSeen(actor.userId, seen),
 		actorUserId: actor.userId,
 	});
 	return { result, facts };
@@ -1119,17 +1202,44 @@ export async function gatherReading(
  * given, joins the request's log lines to the person; the proof lane's
  * reading has none.
  */
-export async function gatherFromHq(
-	input: Omit<GatherInput, "actor"> &
-		GatherSources & {
-			/** Counts alone by default, as every request keeps them. The proof lane asks `full`. */
-			readonly claims?: "counts" | "full";
-			readonly actorUserId?: string;
-		},
-): Promise<{
+export async function gatherFromHq(input: GatherFromHqInput): Promise<{
 	readonly result: GatherResult;
 	readonly facts: GatherFacts;
 	/** Null where the reader never ran: a stop before step 6. */
+	readonly claims: GatherClaims | null;
+}> {
+	const pieces = new Pieces(input.cancel);
+	try {
+		return await gatherFromHqWith(input, pieces);
+	} catch (error) {
+		if (!(error instanceof WorkCancelled)) throw error;
+		/* A reading whose caller cancelled it stops at its next step, and answers as a read of
+		 * CommCare HQ the same signal cut off answers. */
+		return {
+			result: stopOf(atApp("hq-unavailable")),
+			facts: factsOf(pieces, {
+				sourceBytes: null,
+				mediaTotal: 0,
+				expressionRounds: null,
+			}),
+			claims: null,
+		};
+	}
+}
+
+type GatherFromHqInput = Omit<GatherInput, "actor"> &
+	GatherSources & {
+		/** Counts alone by default, as every request keeps them. The proof lane asks `full`. */
+		readonly claims?: "counts" | "full";
+		readonly actorUserId?: string;
+	};
+
+async function gatherFromHqWith(
+	input: GatherFromHqInput,
+	pieces: Pieces,
+): Promise<{
+	readonly result: GatherResult;
+	readonly facts: GatherFacts;
 	readonly claims: GatherClaims | null;
 }> {
 	const { key, appId, creds, onEvent, cancel } = input;
@@ -1140,7 +1250,6 @@ export async function gatherFromHq(
 		userId: input.actorUserId ?? null,
 		operation: input.keepMedia ? "create" : "read",
 	};
-	const pieces = new Pieces();
 	const tally: Tally = {
 		sourceBytes: null,
 		mediaTotal: 0,
@@ -1181,14 +1290,40 @@ export async function gatherFromHq(
 		case "read":
 			break;
 	}
-	const { source, modules, version: hqVersion } = reading;
-	tally.sourceBytes = Buffer.byteLength(JSON.stringify(source.raw));
+	const { source, modules, version: hqVersion, seen } = reading;
+
+	/* The claim, as advice, once CommCare HQ has answered that the key reaches
+	 * the app: a key HQ refuses learns nothing of who holds it. It still comes
+	 * before any file is read, so its advice finds a holder first; the birth's
+	 * own claim decides. */
+	if (input.claimOf !== undefined) {
+		const claim = await input.claimOf(seen);
+		if (claim !== null)
+			return answer(
+				stopOf(circumstanceFinding("already-in-nova", APP, { claim })),
+			);
+	}
+	const sourceBytes = await pieces
+		.at("the source's size")
+		.run(() => Buffer.byteLength(JSON.stringify(source.raw)));
+	tally.sourceBytes = sourceBytes;
+	/* The reading's room, before the source is read as one. */
+	if (!holdReading(sourceBytes)) return answer(stopOf(noRoomFinding()));
 	const appName = source.name;
 
+	/* The forms, parsed once each before anything reads them: a reading whose
+	 * forms hold more than one reading parses is too large, whatever its bytes. */
+	if (!(await formsWithinReading(pieces, source)))
+		return answer(accountOf([atApp("too-large")], appName, false));
+
 	let saveOnlyEditedApplied: boolean | undefined;
-	const holdsEditMode = await pieces
-		.at("the edit mode test")
-		.run(() => sourceHoldsEditMode(publishedCaseBlocks(source.raw)));
+	const holdsEditMode = await editModeTest(pieces, [source]);
+	if (holdsEditMode === "fault")
+		return answer(
+			readerFault(scope, "contract", appName, false, {
+				broke: { at: "input", thrown: null },
+			}),
+		);
 	if (holdsEditMode) {
 		const flag = await readHqSaveOnlyEditedAnswers(creds, key.domain, {
 			cancel,
@@ -1227,6 +1362,7 @@ export async function gatherFromHq(
 		source,
 		modules,
 		hqVersion,
+		seen,
 		readAt,
 		data: current,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
@@ -1405,6 +1541,61 @@ export async function gatherFromHq(
 }
 
 // ---------------------------------------------------------------------------
+// The forms, before the reader
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the forms of `source` hold, together, no more nodes than one reading
+ * parses (`HQ_BRING_IN_READING_MAX_XML_NODES`). Each form text is parsed here,
+ * one piece each, through the parse every later reader of it shares
+ * (`xmlParse.ts::heldXmlParse`), and the count stops at the first form past
+ * the total. A form that does not parse counts nothing: the reader reads it as
+ * a form it cannot read, at that form.
+ */
+export async function formsWithinReading(
+	pieces: Pieces,
+	source: HqAppSource,
+): Promise<boolean> {
+	let nodes = 0;
+	for (const menu of source.modules)
+		for (const form of menu.forms) {
+			const text = form.attachment;
+			if (text === null || text === "") continue;
+			const parsed = await pieces
+				.at("the forms' size")
+				.run(() => heldXmlParse(text));
+			if (!("doc" in parsed)) continue;
+			nodes += parsed.nodes;
+			if (nodes > HQ_BRING_IN_READING_MAX_XML_NODES) return false;
+		}
+	return true;
+}
+
+/**
+ * Whether a published case change of any of `sources` is saved only where
+ * its answer changed, which asks CommCare HQ for the project space's flag;
+ * `fault` where the test itself threw, which is Nova's own failure and is
+ * answered as the reader's.
+ */
+export async function editModeTest(
+	pieces: Pieces,
+	sources: readonly HqAppSource[],
+): Promise<boolean | "fault"> {
+	try {
+		return await pieces
+			.at("the edit mode test")
+			.run(() =>
+				sources.some((one) =>
+					sourceHoldsEditMode(publishedCaseBlocks(one.raw)),
+				),
+			);
+	} catch (error) {
+		rethrowWorkStop(error);
+		return "fault";
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Steps 8 and 9
 // ---------------------------------------------------------------------------
 
@@ -1430,11 +1621,18 @@ export async function checkFetched(input: {
 	readonly facts: GatherFacts;
 }> {
 	const pieces = new Pieces();
+	const sourceBytes = Buffer.byteLength(
+		JSON.stringify(input.fetched.source.raw),
+	);
 	const tally: Tally = {
-		sourceBytes: Buffer.byteLength(JSON.stringify(input.fetched.source.raw)),
+		sourceBytes,
 		mediaTotal: input.media.files.length,
 		expressionRounds: null,
 	};
+	/* The second reading of the source, counted beside the first's: a create
+	 * checks once more only after it began to write, when the room refuses no
+	 * charge, so this one is counted and never refused. */
+	holdReading(sourceBytes);
 	const { result } = await checkWith(input, pieces, tally, {
 		appId: input.appId,
 		projectId: input.key.projectId,
@@ -1651,15 +1849,26 @@ async function checkWith(
 		);
 	}
 
-	/* 9. A clean read's values: the review and its digest. */
-	const identityRows = adoptedIdentityRows(draft.identities, fetched.modules);
-	if (!identityRows.ok)
+	/* 9. A clean read's values: the record the birth writes, the review and its digest. */
+	const observed = observedTargetIdentity({
+		read: draft.identities,
+		aligned: fetched.modules,
+		mediaFiles,
+		mediaMap: fetched.source.multimediaMap ?? [],
+		doc: draft.doc,
+	});
+	if (!observed.ok)
 		return none(
 			readerFault(scope, "identity-rows", appName, true, {
 				why: formWithNoRealId(appId),
 			}) as Exclude<GatherResult, { kind: "stop" }>,
 			judgedPlan.claims,
 		);
+	const targetIdentity = resolveTargetIdentity(
+		EMPTY_TARGET_IDENTITY,
+		observed.observed,
+		draft.doc,
+	);
 	const review = await pieces.at("the review").steps(
 		reviewOf({
 			appId,
@@ -1674,25 +1883,46 @@ async function checkWith(
 			accepted,
 			lookup,
 			mediaFiles,
-			identityRows: identityRows.rows,
+			identity: targetWireIdentity(
+				targetIdentity.entities,
+				targetIdentity.columnWords,
+			),
 		}),
 	);
 	const reviewDigest = await pieces.at("the review digest").run(() => {
 		const contentId = new Map<MediaAssetId, MediaAssetId>(
 			mediaFiles.map((file) => [file.assetId, reviewMediaId(file.contentHash)]),
 		);
+		/* The record the birth writes, each file named by its content: the
+		 * one rule over the same observation, with two media documents of one
+		 * content (two provisional ids at the read, one published file at the
+		 * create) one file, as the create will hold them. */
+		const byContent = observedTargetIdentity({
+			read: draft.identities,
+			aligned: fetched.modules,
+			mediaFiles: mediaFiles.map((file) => ({
+				...file,
+				assetId: reviewMediaId(file.contentHash),
+			})),
+			mediaMap: fetched.source.multimediaMap ?? [],
+			doc: draft.doc,
+		});
+		if (!byContent.ok)
+			throw new Error(
+				`The reading ${appId} observed its menus and forms once and then found a form with no real CommCare HQ id. The two observations read one draft, so look at targetIdentity.ts::observedTargetIdentity.`,
+			);
 		return reviewDigestOf({
-			v: 1,
+			v: 2,
 			review,
 			document: canonicalJsonDigest(
 				remapAssetRefs(toPersistableDoc(draft.doc), contentId),
 			),
-			identities: identityRows.rows,
-			mediaPaths: assignMediaPaths(
-				mediaFiles.map((file) => ({
-					...file,
-					assetId: reviewMediaId(file.contentHash),
-				})),
+			targetIdentity: canonicalTargetIdentity(
+				resolveTargetIdentity(
+					EMPTY_TARGET_IDENTITY,
+					byContent.observed,
+					draft.doc,
+				),
 			),
 		});
 	});
@@ -1707,6 +1937,7 @@ async function checkWith(
 				lookup,
 				media: plan,
 				mediaFiles,
+				targetIdentity,
 				review,
 				reviewDigest,
 			},
@@ -1734,7 +1965,8 @@ function* reviewOf(input: {
 	readonly accepted: Extract<AcceptedReading, { ok: true }>;
 	readonly lookup: LookupFixtureDataSnapshot;
 	readonly mediaFiles: readonly AdoptedMediaFile[];
-	readonly identityRows: Parameters<typeof targetWireIdentity>[0];
+	/** The ids and column words the birth's first import prints under. */
+	readonly identity: WireIdentity;
 }): Generator<void, ReadingReview, void> {
 	const { appId, key, fetched, draft, plan, choices, accepted } = input;
 	const { source } = fetched;
@@ -1822,7 +2054,7 @@ function* reviewOf(input: {
 		source,
 		prepared,
 		target,
-		identity: targetWireIdentity(input.identityRows),
+		identity: input.identity,
 	});
 	yield;
 	const facts = targetFactsFromSource(normalized, {

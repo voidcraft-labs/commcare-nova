@@ -63,24 +63,24 @@ def _offered(authoring, app_id, view, target):
 
 
 def save_view(authoring, app_id, view, target):
-    """Every section ``view`` offers for ``target`` saved from one load of the page, each save kept: the run is
-    made between operations, each of the page's requests its own (``unit.request``)."""
+    """Save each offered section against the app left by its predecessor, as a person reopening the page does."""
     from proof.editors import pages
     from proof.editors.hq import HQAnswers
 
-    sections = _offered(authoring, app_id, view, target)
-    if not sections:
-        return None
-    spec = pages.ViewSpec(view, app_id, target, sections=sections)
-    run = pages.run_view(authoring.driver, HQAnswers(authoring.state), spec, on_section=lambda _index: nullcontext())
-    for page, saved in zip(sections, run.sections, strict=True):
+    # Each save stays in the app and advances its version. A one-section view and its independently audited
+    # fresh save therefore both start from the app left by every earlier section.
+    for page in _offered(authoring, app_id, view, target):
+        spec = pages.ViewSpec(view, app_id, target, sections=(page,))
+        run = pages.run_view(
+            authoring.driver, HQAnswers(authoring.state), spec, on_section=lambda _index: nullcontext()
+        )
+        (saved,) = run.sections
         if saved.save is None or saved.refused:
             raise MatrixChangeRefused(
                 f"HQ's {page.name} section did not take the save the lane makes with nothing changed while it"
                 f" authors {authoring.base} ({saved.unsent or saved.response}). The lane saves it as a person does;"
                 " look at what the page now holds of the app."
             )
-    return run
 
 
 def build(authoring) -> str:

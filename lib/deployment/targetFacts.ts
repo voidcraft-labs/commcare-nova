@@ -3,8 +3,9 @@
  * Nova leaves to CommCare HQ, projected from the stored app baseline.
  *
  * No column holds the facts and nothing backfills them: they are a pure
- * projection of the baseline's source, so a baseline that is absent, unread
- * or a shell's gives none and Nova's own values stand. Pure, with no store
+ * projection of a verified observation. A source at a publish's acknowledged
+ * version can supply them even when an extra save leaves its drift baseline
+ * unread. No observation or an empty shell gives none. Pure, with no store
  * and no `server-only`, so tests and the proof capture call it too.
  */
 
@@ -85,7 +86,8 @@ const LISTED_WHEN: Readonly<
 	"language-names": (facts) => facts.languageNames !== null,
 	"android-logos": (facts) => facts.androidLogos.length > 0,
 	"mobile-report-version": (facts) => facts.mobileReportVersion !== "2.0",
-	"location-with-every-form": (facts) => facts.autoGpsCapture,
+	"location-with-every-form": (facts) =>
+		facts.autoGpsCapture && !facts.novaOwnsAutoGpsCapture,
 	"persistent-menu": (facts) => facts.persistentMenu,
 	"web-apps-breadcrumbs": (facts) => !facts.breadcrumbs,
 	"secure-submissions": (facts) => facts.secureSubmissions,
@@ -106,15 +108,20 @@ export function keptListFor(facts: TargetFacts): readonly KeptLabelId[] {
 
 /**
  * The kept list these facts give: the labels `keptListFor` names, the date of
- * the read, and a digest of every value the facts hold but that date. Two
+ * the read, and a digest of the values the project space keeps. Two
  * lists with the same labels can stand for different values (a sign-in that
  * lasts an hour where it lasted a day, a second screen reworded), and the
  * digest is what tells them apart (`keptChanged`).
  */
 export function deploymentKeptOf(facts: TargetFacts): DeploymentKept {
+	const { novaOwnsAutoGpsCapture, ...values } = facts;
 	return {
 		labels: keptListFor(facts),
-		valuesDigest: canonicalJsonDigest({ ...facts, observedAt: null }),
+		valuesDigest: canonicalJsonDigest({
+			...values,
+			autoGpsCapture: facts.autoGpsCapture && !novaOwnsAutoGpsCapture,
+			observedAt: null,
+		}),
 		observedAt: facts.observedAt,
 	};
 }
@@ -129,6 +136,10 @@ export function keptAdvisoryFacts(
 		uiTextFallsBack: facts.uiTextKeys.some((key) =>
 			languageCodes.some((code) => facts.uiText[code]?.[key] === undefined),
 		),
+		uiTextNotCarried: facts.uiTextNotCarried.some((code) =>
+			languageCodes.includes(code),
+		),
+		profileNotCarried: facts.profileNotCarried,
 		androidLogos: facts.androidLogos.length > 0,
 		practiceWorker: facts.practiceWorker,
 		languageNames:

@@ -1,4 +1,9 @@
-import type { Locator, Page } from "@playwright/test";
+import type {
+	Browser,
+	BrowserContextOptions,
+	Locator,
+	Page,
+} from "@playwright/test";
 import {
 	appsThatReadIt,
 	CONNECT_TO_REFRESH_TABLE,
@@ -7,6 +12,7 @@ import {
 	MANAGED_PLACES_NO_PERSONA,
 	MANAGED_TABLE_BADGE,
 	MANAGEMENT_NEEDS_ADMIN,
+	MANAGEMENT_REVIEW_MOVED,
 	managedInNovaBanner,
 	managedPlacesLevelsNote,
 	managedTableBanner,
@@ -26,9 +32,11 @@ import { createSmokeContext } from "../../lib/smokeNetwork";
  * space's: the table page says where the table lives and offers no edit, the
  * owner (connected on that server) is offered Refresh, Open in CommCare HQ
  * and Manage in Nova, and an editor with no connection is invited to connect
- * instead of refreshing. Manage in Nova names the app that reads the table,
- * and once confirmed the grid is editable in this tab and in a second one
- * without a reload. Organization says where the places live, offers no
+ * instead of refreshing. Manage in Nova names the app that reads the table;
+ * where a teammate makes a second app read it while the dialog is open, the
+ * confirmation changes nothing, says why and names both apps; confirmed
+ * again, the grid is editable in this tab and in a second one without a
+ * reload. Organization says where the places live, offers no
  * place control, says what Nova assumed of the levels, and Users invites a
  * persona.
  *
@@ -63,6 +71,69 @@ async function expectNoTableEdits(page: Page): Promise<void> {
 		await expect(main.getByRole("button", { name, exact: true })).toHaveCount(
 			0,
 		);
+	}
+}
+
+/**
+ * In a teammate's own session, the second app's choice question takes its
+ * choices from the managed table, and the edit is saved.
+ */
+async function makeReaderAppReadTable(
+	browser: Browser,
+	baseURL: string | undefined,
+	storageState: BrowserContextOptions["storageState"],
+	managedData: {
+		readonly tableId: string;
+		readonly readerAppId: string;
+		readonly routes: { readonly readerQuestion: string };
+	},
+): Promise<void> {
+	const context = await createSmokeContext(browser, { baseURL, storageState });
+	try {
+		const teammate = await context.newPage();
+		const guard = await attachErrorGuard(teammate, baseURL);
+		try {
+			await openBuilder(teammate, managedData.routes.readerQuestion);
+			const source = teammate.locator('[data-field-id="options-source"]');
+			await source
+				.getByRole("combobox", {
+					name: "Where the choices come from",
+					exact: true,
+				})
+				.click();
+			await teammate
+				.getByRole("option", { name: seed.table.name, exact: true })
+				.click();
+			await source
+				.getByRole("combobox", { name: "Value that gets saved", exact: true })
+				.click();
+			await teammate.getByRole("option", { name: "code", exact: true }).click();
+			await source
+				.getByRole("combobox", { name: "Value people see", exact: true })
+				.click();
+			await teammate.getByRole("option", { name: "name", exact: true }).click();
+			const saved = teammate.waitForResponse((response) => {
+				const request = response.request();
+				return (
+					new URL(response.url()).pathname ===
+						`/api/apps/${managedData.readerAppId}` &&
+					request.method() === "PUT" &&
+					(request.postData() ?? "").includes(managedData.tableId)
+				);
+			});
+			const [response] = await Promise.all([
+				saved,
+				source
+					.getByRole("button", { name: "Use this table", exact: true })
+					.click(),
+			]);
+			expect(response.ok()).toBe(true);
+		} finally {
+			await closePageWithUnload(teammate);
+			await guard.assertNoErrors();
+		}
+	} finally {
+		await context.close();
 	}
 }
 
@@ -174,9 +245,38 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 					{ exact: true },
 				),
 			).toBeVisible();
-			await dialog
-				.getByRole("button", { name: MANAGE_IN_NOVA, exact: true })
-				.click();
+
+			/* While the owner decides, a teammate makes another app of the
+			 * Project read the table. */
+			await makeReaderAppReadTable(
+				browser,
+				baseURL,
+				fixture.viewerStorageState,
+				managedData,
+			);
+
+			/* The answer was given over the review the dialog showed, so
+			 * nothing changes: the dialog says why and names both apps now. */
+			const confirm = dialog.getByRole("button", {
+				name: MANAGE_IN_NOVA,
+				exact: true,
+			});
+			await confirm.click();
+			await expect(dialog.getByRole("alert")).toHaveText(
+				MANAGEMENT_REVIEW_MOVED,
+			);
+			await expect(
+				dialog.getByText(
+					appsThatReadIt([
+						{ appName: seed.appName, deleted: false },
+						{ appName: seed.readerApp.name, deleted: false },
+					]) ?? "",
+					{ exact: true },
+				),
+			).toBeVisible();
+			await expectNoTableEdits(page);
+			await expect(confirm).toBeEnabled();
+			await confirm.click();
 			await expect(dialog).toHaveCount(0);
 			await expect(
 				main.getByRole("button", { name: "Add row", exact: true }),

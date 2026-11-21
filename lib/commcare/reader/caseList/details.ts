@@ -32,6 +32,7 @@ import {
 	columnSortLabelShows,
 } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { emptyShortListColumns } from "../../hqJson/caseList";
@@ -58,7 +59,12 @@ import {
 } from "../heldText";
 import { externalKey } from "../identity";
 import { reReadUuidOf } from "../identityMap";
-import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
+import {
+	isJsonObject,
+	type JsonCursor,
+	objectMembers,
+	sameJson,
+} from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sameXPathText } from "../syntaxCompare";
@@ -287,7 +293,7 @@ const LOOKUP_KEYS = [
 
 const LOOKUP_OFF_KEYS = defineClaims(
 	"caseList.details.lookupOff",
-	Object.fromEntries(
+	recordFromEntries(
 		LOOKUP_KEYS.map((key) => [
 			key,
 			drop(`${A}lookup-enabled-false-with-stale-keys`, `schema:Detail.${key}`),
@@ -313,7 +319,7 @@ const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
 
 const LOOKUP_LONG_KEYS = defineClaims(
 	"caseList.details.lookupLong",
-	Object.fromEntries(
+	recordFromEntries(
 		CALLOUT_KEYS.map((key) => [
 			key,
 			refuse(
@@ -327,7 +333,7 @@ const LOOKUP_LONG_KEYS = defineClaims(
 /** HQ builds no callout on an `icon_text_grid` list (`case_tiles.py::build_case_tile_detail`). */
 const LOOKUP_GRID_KEYS = defineClaims(
 	"caseList.details.lookupGrid",
-	Object.fromEntries(
+	recordFromEntries(
 		CALLOUT_KEYS.map((key) => [
 			key,
 			drop(
@@ -396,7 +402,7 @@ export interface JoinedDetails {
  *  and the kind's own slots. */
 function sameProposal(a: ColumnProposal, b: ColumnProposal): boolean {
 	const slots = (proposal: ColumnProposal) =>
-		Object.fromEntries(
+		recordFromEntries(
 			Object.entries(proposal.column).filter(([key]) => key !== "header"),
 		);
 	const restA = slots(a);
@@ -750,16 +756,24 @@ function listNeeded(
 		search.properties.length > 0
 	)
 		return "needed";
+	return parentsChosen(ctx).has(module.uniqueId) ? "parent" : "unread";
+}
+
+/** The ids of the menus another menu chooses a parent from, worked out once a reading's menus
+ *  rather than once a menu. */
+const parentsChosenOf = new WeakMap<object, ReadonlySet<unknown>>();
+
+function parentsChosen(ctx: ReadContext): ReadonlySet<unknown> {
+	const known = parentsChosenOf.get(ctx.draft.modules);
+	if (known !== undefined) return known;
+	const chosen = new Set<unknown>();
 	for (const other of ctx.draft.modules) {
 		const parent = other.json.peek("parent_select");
-		if (
-			isJsonObject(parent) &&
-			parent.active === true &&
-			parent.module_id === module.uniqueId
-		)
-			return "parent";
+		if (isJsonObject(parent) && parent.active === true)
+			chosen.add(parent.module_id);
 	}
-	return "unread";
+	parentsChosenOf.set(ctx.draft.modules, chosen);
+	return chosen;
 }
 
 /**
@@ -776,28 +790,16 @@ function filterChangesBuild(short: JsonCursor, index: number): boolean {
 	const columns = Array.isArray(stored) ? stored : [];
 	const column = columns[index];
 	if (!isJsonObject(column)) return false;
-	const sorts = short.peek("sort_elements");
-	const elements = Array.isArray(sorts) ? sorts.filter(isJsonObject) : [];
-	if (index === 0 && elements.length === 0) return true;
+	const sorts = sortFacts(short);
+	if (index === 0 && sorts.count === 0) return true;
 	const field = column.field;
 	if (
 		typeof field === "string" &&
-		elements.some((element) => element.field === field) &&
-		!columns
-			.slice(0, index)
-			.some((earlier) => isJsonObject(earlier) && earlier.field === field)
+		sorts.fields.has(field) &&
+		sorts.firstColumnOf.get(field) === index
 	)
 		return true;
-	if (
-		elements.some((element) => {
-			const named =
-				typeof element.field === "string"
-					? CALCULATED_FIELD.exec(element.field)
-					: null;
-			return named !== null && Number(named[1]) > index;
-		})
-	)
-		return true;
+	if (sorts.lastCalculated > index) return true;
 	const template = short.peek("case_tile_template");
 	return (
 		typeof template === "string" &&
@@ -806,6 +808,50 @@ function filterChangesBuild(short: JsonCursor, index: number): boolean {
 		typeof column.case_tile_field === "string" &&
 		column.case_tile_field !== ""
 	);
+}
+
+/** What `filterChangesBuild` reads of a detail's sort elements and columns, worked out once a
+ *  detail rather than once a column: how many sort elements it holds, the fields they sort by,
+ *  the greatest `_cc_calculated_<n>` they name, and each field's first column. */
+interface SortFacts {
+	readonly count: number;
+	readonly fields: ReadonlySet<string>;
+	readonly lastCalculated: number;
+	readonly firstColumnOf: ReadonlyMap<string, number>;
+}
+
+const sortFactsOf = new WeakMap<JsonCursor, SortFacts>();
+
+function sortFacts(short: JsonCursor): SortFacts {
+	const known = sortFactsOf.get(short);
+	if (known !== undefined) return known;
+	const elements = objectMembers(short.peek("sort_elements")) ?? [];
+	const fields = new Set<string>();
+	let lastCalculated = Number.NEGATIVE_INFINITY;
+	for (const element of elements) {
+		if (typeof element.field !== "string") continue;
+		fields.add(element.field);
+		const named = CALCULATED_FIELD.exec(element.field);
+		if (named !== null)
+			lastCalculated = Math.max(lastCalculated, Number(named[1]));
+	}
+	const stored = short.peek("columns");
+	const firstColumnOf = new Map<string, number>();
+	for (const [at, column] of (Array.isArray(stored) ? stored : []).entries())
+		if (
+			isJsonObject(column) &&
+			typeof column.field === "string" &&
+			!firstColumnOf.has(column.field)
+		)
+			firstColumnOf.set(column.field, at);
+	const facts = {
+		count: elements.length,
+		fields,
+		lastCalculated,
+		firstColumnOf,
+	};
+	sortFactsOf.set(short, facts);
+	return facts;
 }
 
 /** How many columns of each format a detail holds. */
@@ -893,7 +939,7 @@ function readDetailTexts(
 		D.noItemsDefault,
 		D.noItemsOther,
 		screen === "short"
-			? Object.fromEntries(codes.map((code) => [code, NO_ITEMS_DEFAULT]))
+			? recordFromEntries(codes.map((code) => [code, NO_ITEMS_DEFAULT]))
 			: { en: NO_ITEMS_DEFAULT },
 	);
 	texts("select_text", SELECT_DEFAULT, D.selectDefault, D.selectOther, {
@@ -1003,7 +1049,7 @@ function readDetailKeys(
 	}
 	ok = readDetailTexts(ctx, detail, appCodes(ctx), screen) && ok;
 	const stored = detail.peek("tabs");
-	const tabs = Array.isArray(stored) ? stored.filter(isJsonObject) : [];
+	const tabs = objectMembers(stored) ?? [];
 	if (tabs.length > 0) {
 		// Every kind the tabs hold is a finding; the first kind of the tabs themselves claims the key.
 		const start = tabs[0]?.starting_index;
@@ -1308,7 +1354,7 @@ function declareShownChoices(
 				"prose",
 				translatedTexts(
 					ctx,
-					Object.fromEntries(
+					recordFromEntries(
 						Object.entries(option.labels).map(([code, text]) => [
 							code,
 							proseText(text),
@@ -1496,7 +1542,7 @@ export function readCaseDetails(
 		const n = seen.get(pairKey) ?? 0;
 		seen.set(pairKey, n + 1);
 		const minted = ctx.accounting.identity(
-			ctx.resolver.claim(
+			ctx.identities.claim(
 				externalKey.caseListColumn(
 					module.uniqueId,
 					column.proposal.column.kind,
@@ -1850,7 +1896,7 @@ function headerTexts(
 ): Record<string, string> {
 	const languages = doc.localization?.languageOrder ?? ["source"];
 	const unit = makeTranslationUnitId("column", column.uuid, "header");
-	return Object.fromEntries(
+	return recordFromEntries(
 		languages.map((language) => {
 			const entry = onDetail
 				? (

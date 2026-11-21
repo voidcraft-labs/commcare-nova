@@ -19,6 +19,7 @@ import type {
 	CaseSearchConfig,
 	OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
+import { recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { withCandidate } from "../candidate";
@@ -43,7 +44,7 @@ import {
 	searchRowProperties,
 	searchRowRelations,
 } from "../expressions/scanReads";
-import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { isJsonObject, type JsonCursor, objectMembers } from "../jsonCursor";
 import { manifestFindingOf } from "../languages";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
@@ -75,7 +76,7 @@ import {
 	hqAutoSelects,
 	ownersWithoutClauseRegistration,
 	readSearchSettings,
-	runtimeGuardEnding,
+	runtimeGuardEndings,
 	SETTING_CLAIMS,
 	settleSearchSettings,
 	spelledAsShown,
@@ -172,7 +173,7 @@ const C = SEARCH_CLAIMS;
  */
 const INACTIVE_KEYS = defineClaims(
 	"search.inactive",
-	Object.fromEntries(
+	recordFromEntries(
 		[
 			"additional_case_types",
 			"additional_registry_cases",
@@ -287,7 +288,7 @@ function readDefaultFilters(
 	markersOnly: boolean;
 } {
 	const stored = cursor.peek("default_properties");
-	const entries = Array.isArray(stored) ? stored.filter(isJsonObject) : [];
+	const entries = objectMembers(stored) ?? [];
 	const markersOnly =
 		!hasPrompts &&
 		entries.length > 0 &&
@@ -348,7 +349,7 @@ function readDefaultFilters(
 		if (typeof value !== "string" || value.trim() === "") {
 			row.refuseWhole(
 				C.noValue,
-				property === "" ? undefined : { name: property.slice(0, 200) },
+				property === "" ? undefined : { name: property },
 			);
 			if (property !== "" && property !== "_xpath_query")
 				addName(property, row);
@@ -363,7 +364,7 @@ function readDefaultFilters(
 				ownersExpression,
 				relatedPropertySet,
 			);
-			const detail = { name: property.slice(0, 200) };
+			const detail = { name: property };
 			row.refuse("property", claim, detail);
 			// A key HQ's request carries twice is a class of the row and of the search's own key
 			// beside it, so the refusal stands at that key too.
@@ -468,7 +469,7 @@ function recordInactiveSearchRespellings(
 	cursor: JsonCursor,
 ): void {
 	const codes = appCodes(ctx);
-	const blank = Object.fromEntries(codes.map((code) => [code, ""]));
+	const blank = recordFromEntries(codes.map((code) => [code, ""] as const));
 	for (const key of ["title_label", "description"] as const)
 		if (!spelledAsShown(cursor.peek(key), blank, codes))
 			sameState(
@@ -984,7 +985,7 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
  * Each Search field's check whose message told nothing of Nova's runtime guard and whose rule the
  * expression stage refused (`prompts.ts::ValidationReading.untold`, `PendingExpression.deferRefusal`),
  * settled over the menu's placed rows. Where the stored test ends with the guard Nova's projection
- * joins to the field's check (`settings.ts::runtimeGuardEnding`), the guard is Nova's and what
+ * joins to the field's check (`settings.ts::runtimeGuardEndings`), the guard is Nova's and what
  * keeps the field out is its message: Nova prints the guard's sentence after the field's own in
  * the source language and no language's message ends with it, so the field is `unrecognized` at
  * `schema:Assertion.text` and the expression stage's refusal of the guard's reads is dropped. The
@@ -996,13 +997,19 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
 function settleUntoldChecks(ctx: ReadContext, reading: SearchReading): void {
 	const doc = ctx.doc;
 	const mod = doc?.modules[reading.module.uuid];
-	for (const prompt of reading.prompts) {
+	const untold = reading.prompts.filter((prompt) => {
 		const index = prompt.validationRule;
-		if (index === undefined || !refusalDeferred(ctx, index)) continue;
-		const ending =
-			doc === undefined || mod === undefined
-				? undefined
-				: runtimeGuardEnding(ctx, doc, mod, prompt);
+		return index !== undefined && refusalDeferred(ctx, index);
+	});
+	// One projection of the menu for every untold field, never one a field.
+	const endings =
+		doc === undefined || mod === undefined || untold.length === 0
+			? new Map<PromptReading, { readonly rule?: string } | undefined>()
+			: runtimeGuardEndings(ctx, doc, mod, untold);
+	for (const prompt of untold) {
+		const index = prompt.validationRule;
+		if (index === undefined) continue;
+		const ending = endings.get(prompt);
 		if (doc === undefined || ending === undefined) {
 			settleDeferredRefusal(ctx, index);
 			continue;

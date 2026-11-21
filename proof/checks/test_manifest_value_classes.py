@@ -196,7 +196,8 @@ def _protected_form(
     )
     extra = " mediatype='image/*'" if control == "upload" else ""
     choices = "<item><label>A</label><value>a</value></item>" if control in ("select", "select1") else ""
-    body = f"<{control} ref={quoteattr(source)}{extra}><label>Q</label>{choices}</{control}>"
+    binding = "nodeset" if control == "repeat" else "ref"
+    body = f"<{control} {binding}={quoteattr(source)}{extra}><label>Q</label>{choices}</{control}>"
     label_ref = f'jr:itext("{base}")'
     body += f"<input ref={quoteattr(carrier)}><label ref={quoteattr(label_ref)}/></input>"
     if nested:
@@ -597,6 +598,62 @@ def test_setvalues_vellum_keeps_as_defaults_its_plugins_take_and_the_rest(manife
     ]
     assert verdicts(classes.form_level_setvalue, nested) == [False]
     assert verdicts(classes.action_nested_in_control, nested + model[:1]) == [True, False]
+
+
+def test_a_setvalue_core_reads_otherwise_than_nova_writes_is_form_level_and_no_default(manifest):
+    """Core reads a setvalue's ``bind`` before its ``ref``, a relative ``ref`` from ``/``, an attribute of the name
+    in any namespace (the form builder's ``vellum:`` shadows stripped before a device reads the form), and the
+    element's text where there is no ``value`` (``XFormParser.parseSetValueAction``), while the form builder reads
+    the plain ``ref`` alone. Nova's reader holds a setvalue's target only where the two agree, in the spelling Nova
+    writes (``xform/model.ts::heldSetvalueRef``), and refuses every other model setvalue under the form-level
+    setvalue's entry, so the classes read it so too: form-level, and no question's default, first or second. The
+    plausible failure is the form builder's reading, which takes the first five as defaults of ``top``."""
+    xml = _form(
+        data="<top/><other/>",
+        model="""<bind nodeset="/data/other" id="other_bind"/>
+          <setvalue event="xforms-ready" ref="/data/top" bind="other_bind" value="1"/>
+          <setvalue event="xforms-ready" ref="data/top" value="1"/>
+          <setvalue event="xforms-ready" x:ref="/data/other" ref="/data/top" value="1"/>
+          <setvalue event="xforms-ready" ref="/data/top">1</setvalue>
+          <setvalue x:event="xforms-revalidate" event="xforms-ready" ref="/data/top" value="1"/>
+          <setvalue event="xforms-ready" vellum:ref="#form/top" ref="/data/top" value="1"/>
+          <setvalue event="xforms-ready" ref="/data/top" value="2"/>""",
+        body="""<input ref="/data/top"/><input ref="/data/other"/>""",
+    )
+    uses = [use for use in _uses(xml, manifest, "jr-action:setvalue") if "/model[1]/" in use.where]
+    assert len(uses) == 7
+    assert [classes.form_level_setvalue(use, manifest) for use in uses] == [True] * 5 + [False, False]
+    assert [classes.default_event_mismatching_placement(use, manifest) for use in uses] == [False] * 7
+    # The sixth is the first default of ``top`` Core and the form builder agree on, so the seventh is its second.
+    assert [classes.second_default(use, manifest) for use in uses] == [False] * 6 + [True]
+
+
+def test_a_body_element_binds_to_its_node_as_core_binds_it(manifest):
+    """Core binds a control by its ``bind`` wherever it holds one, a repeat by its ``nodeset`` and any other control
+    by its ``ref`` (``XFormParser.parseControl``, ``parseGroup``); a group holding only ``nodeset`` binds none of its
+    own. The plausible failure is the form builder's order (``ref``, else ``nodeset``, else ``bind``), which binds
+    the first input to ``a`` and the group to ``g``."""
+    xml = _form(
+        data="<a/><b/><g><c/></g><r><d/></r>",
+        model="""<bind nodeset="/data/a"/><bind nodeset="/data/b" id="b_bind"/><bind ref="/data/c" id="c_bind"/>""",
+        body="""<input ref="/data/a" bind="b_bind"/><group nodeset="/data/g"><input ref="/data/g/c"/></group>
+          <repeat nodeset="/data/r"><input ref="/data/r/d"/></repeat><repeat ref="/data/r"/>
+          <input nodeset="/data/a"/><input bind="c_bind"/>""",
+    )
+    form = classes.Form(etree.fromstring(xml), "form:0.0")
+    body = form.root.find("{http://www.w3.org/1999/xhtml}body")
+    controls = [element for element in body if isinstance(element.tag, str)]
+    assert [form.control_path(control) for control in controls] == [
+        "/data/b",  # its bind, before its ref
+        None,  # a group holding only nodeset
+        "/data/r",  # a repeat's nodeset
+        None,  # a repeat holding only ref
+        None,  # a question holding only nodeset
+        None,  # a bind holding only ref has no path
+    ]
+    assert [classes._local(control) for control in form.question_controls("/data/b")] == ["input"]
+    assert form.question_controls("/data/a") == []
+    assert form.question_controls("/data/g") == []
 
 
 def test_hqs_build_output_is_in_no_source_class_of_a_setvalue(manifest):
@@ -1582,6 +1639,7 @@ def _settings_and_forms():
 
     case_id = "instance('commcaresession')/session/data/case_id"
     workflow = "/modules/0/forms/0/post_form_workflow"
+    translations = "schema:Application.translations"
     return {
         # Application and settings
         "application-and-settings/34p-hq-build-spec-below-nova-s-floor": (
@@ -1616,6 +1674,19 @@ def _settings_and_forms():
             refused("app", app(langs=["en", "EN-us"]), "schema:Application.langs", "/langs"),
             refused("app", app(langs=["en", "fr", "en"]), "schema:Application.langs", "/langs"),
             accepted("app", app(langs=["en", "pt-br"]), "schema:Application.langs", "/langs"),
+        ),
+        "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
+            refused("app", app(translations={"en": {" home.start": "Begin"}}), translations, "/translations"),
+            refused(
+                "app", app(translations={"en": {"home.sync\nmodules.m0": "Rounds"}}), translations, "/translations"
+            ),
+            refused("app", app(translations={"en": {"tourn#e": "Tour"}}), translations, "/translations"),
+            refused("app", app(translations={"en": {"x=y": "Begin"}}), translations, "/translations"),
+            accepted("app", app(translations={"en": {"home.start": "Begin"}}), translations, "/translations"),
+            # A language the app does not hold is read by nothing.
+            accepted("app", app(translations={"fra": {" home.start": "Commencer"}}), translations, "/translations"),
+            # The rest after a carriage return defines a string: the carriage-return entry refuses the key first.
+            accepted("app", app(translations={"en": {"x=y": "Begin\rhome.start=Go"}}), translations, "/translations"),
         ),
         "application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare": (
             refused(
@@ -5243,6 +5314,12 @@ def _data_binds_and_itext():
         model="""<instance id="odd" src="jr://elsewhere/odd"/><instance id="idle" src="jr://elsewhere/idle"/>
           <bind nodeset="/data/a" calculate="count(instance('odd')/root/row)"/>""",
     )
+    ledger_sources = form(
+        data="<v/>",
+        model="""<instance id="stock" src="jr://fixture/item-list:stock_ledgerdb_codes"/>
+          <instance id="unused" src="jr://instance/ledgerdb"/>
+          <bind nodeset="/data/v" calculate="count(instance('stock')/rows/row)"/>""",
+    )
     images = form(
         data="<q/><s/>",
         model="""<itext><translation lang="en" default="">
@@ -5646,6 +5723,10 @@ def _data_binds_and_itext():
         "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": (
             refused("form", functions, "jr-handler:jr:choice-name", "bind[2]/@calculate", readings=True),
             accepted("form", functions, "jr-handler:jr:choice-name", "bind[3]/@calculate", readings=True),
+        ),
+        "expressions-and-data/ledgerdb-vellum-id-ledger": (
+            refused("form", ledger_sources, "instance-source:ledgerdb", "instance[4]/@src", readings=True),
+            accepted("form", ledger_sources, "instance-source:ledgerdb", "instance[5]/@src", readings=True),
         ),
         "expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src": (
             refused("form", sources, "instance-source:(none)", "instance[4]/@src", readings=True),

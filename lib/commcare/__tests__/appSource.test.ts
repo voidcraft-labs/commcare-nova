@@ -19,7 +19,13 @@ import {
 	retainedPublishRead,
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { type ReadHqAppSourceOptions, readHqAppSource } from "../hq/appSource";
+import { log } from "@/lib/logger";
+import {
+	type HqAppSourceParseNote,
+	parseHqAppSource,
+	type ReadHqAppSourceOptions,
+	readHqAppSource,
+} from "../hq/appSource";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
 const HOST = "https://india.commcarehq.org";
@@ -345,6 +351,44 @@ describe("readHqAppSource", () => {
 				unreadable: false,
 			},
 		]);
+	});
+
+	it("notes a media map's unreadable entries once, with their count and the first five positions, and logs one line for the read", async () => {
+		const answer = retainedGroupRead("case-list-inline/app-source-after-media");
+		const body = structuredClone(retainedBodyJson(answer));
+		const unreadable = 10_000;
+		body.multimedia_map = Object.fromEntries(
+			Array.from({ length: unreadable }, (_, index) => [
+				`jr://file/commcare/${index}.png`,
+				"file",
+			]),
+		);
+		const notes: HqAppSourceParseNote[] = [];
+		const parsed = parseHqAppSource(body, {
+			onNote: (note) => notes.push(note),
+		});
+		expect(parsed.kind).toBe("source");
+		expect(notes).toEqual([
+			{
+				kind: "media-entries-unreadable",
+				count: unreadable,
+				firstIndexes: [0, 1, 2, 3, 4],
+			},
+		]);
+		await withHttpPeer(async (peer) => {
+			serveAnswer(peer, { ...answer, body: JSON.stringify(body) });
+			sourceOf(await read());
+		});
+		expect(log.warn).toHaveBeenCalledExactlyOnceWith(
+			"[commcare] media map entries are unreadable",
+			{
+				domain: "clinic",
+				request: "app-source",
+				appId: "working-app",
+				count: unreadable,
+				firstIndexes: [0, 1, 2, 3, 4],
+			},
+		);
 	});
 
 	it("reads no name, no save time and no media map where HQ sent none, and refuses nothing for them", async () => {

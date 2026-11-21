@@ -231,10 +231,15 @@ test("turning on Connect says it sets the app to Android only", {
 	await openAppSettings(page);
 	await page.getByRole("button", { name: "Set up", exact: true }).click();
 	// App settings is itself a dialog and may stay open beneath this one.
-	await expect(
-		page.getByRole("dialog", { name: "CommCare Connect", exact: true }),
-	).toContainText(
+	const manager = page.getByRole("dialog", {
+		name: "CommCare Connect",
+		exact: true,
+	});
+	await expect(manager).toContainText(
 		"Connect workers open this app in the Connect app on Android, so turning on Connect sets it to run on Android only.",
+	);
+	await expect(manager).toContainText(
+		"every form a worker submits includes the device's location if CommCare has location permission and the device gets a GPS fix",
 	);
 });
 
@@ -250,6 +255,12 @@ test("turning off Connect keeps the app on Android only", {
 	});
 	await expect(manager).toContainText(
 		"Turning off Connect keeps this app running on Android only. You can change where it runs in App settings.",
+	);
+	await expect(manager).toContainText(
+		"Turning off Connect leaves Auto Capture Location as it is in each app on CommCare HQ.",
+	);
+	await expect(manager).toContainText(
+		"build and release a new version for workers to install",
 	);
 	const turnedOff = page.waitForResponse(
 		(response) =>

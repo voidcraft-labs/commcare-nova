@@ -11,6 +11,7 @@ import {
 	entryPointIdProblem,
 	type Uuid,
 } from "@/lib/domain";
+import { recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { validEntryPoints } from "../../validator/rules/app";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
@@ -31,7 +32,7 @@ function byClass<C extends string, U extends Claim["use"]>(
 	entry: string,
 	field: string,
 ): Readonly<Record<C, Claim<U>>> {
-	return Object.fromEntries(
+	return recordFromEntries(
 		classes.map((cls) => [cls, make(entry, `schema:${cls}.${field}`)]),
 	) as Record<C, Claim<U>>;
 }
@@ -149,7 +150,7 @@ const ENTRY_POINTS = {
 
 defineClaims(
 	"menus.entryPoints",
-	Object.fromEntries(
+	recordFromEntries(
 		Object.entries(ENTRY_POINTS).flatMap(([name, one]) =>
 			"use" in one
 				? [[name, one as unknown as Claim]]
@@ -207,7 +208,7 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 		name: string,
 	) =>
 		ctx.accounting.identity(
-			ctx.resolver.claim(key, whereText(place)),
+			ctx.identities.claim(key, whereText(place)),
 			place,
 			name,
 		);

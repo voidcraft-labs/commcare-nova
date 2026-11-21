@@ -21,6 +21,8 @@ import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
 import type { HqLocationType } from "../hq/locations";
+import type { ColumnFieldWordRow } from "../wireIdentity";
+import type { WorkKind } from "../workMeter";
 import type { GeneratedNodePurpose } from "../xform/generatedNodes";
 import type { ClaimLog } from "./accounting";
 import type { ReaderDefectWhy } from "./defects";
@@ -38,14 +40,22 @@ export interface ReaderInput {
 	/** The aligned menus, each form's real id and HQ's own question summary. */
 	readonly modules: readonly HqAlignedModule[];
 	/** `mintingResolver(appId)` for a reading; `matchingResolver` for a re-read
-	 *  that must give a known document's identities back. */
+	 *  that must give a known document's identities back. It holds nothing: what a
+	 *  reading claims is the reading's own (`context.ts`, `ReadContext.identities`). */
 	readonly resolver: IdentityResolver;
 	readonly lookup: ReaderLookupCatalog;
 	readonly organization: ReaderOrganization;
 	readonly media: ReaderMediaIndex;
-	/** The local app strings Nova's build gives a document, or `null` where Nova's gate refuses
-	 *  the document, which Nova's build cannot write. Pure. */
-	readonly appStrings: (doc: BlueprintDoc) => AppStringTable | null;
+	/** The local app strings Nova's build gives a document, each case list column named by the
+	 *  word `columnWords` says its source keeps it under (the reading's
+	 *  `ReadMenuAndFormIdentities.columnFieldWords`), or `null` where Nova's gate refuses the
+	 *  document, which Nova's build cannot write. The reader asks it of its document under the
+	 *  declaration it proposes (`assemble.ts::underProposedDeclaration`), the document the gate
+	 *  judges the reading as. Pure. */
+	readonly appStrings: (
+		doc: BlueprintDoc,
+		columnWords: readonly ColumnFieldWordRow[],
+	) => AppStringTable | null;
 	/** Whether the record dialect prints a tree and reads it back. Pure. */
 	readonly recordDialect: RecordDialectJudge;
 	/** Whether the source project space applies "save only if changed", as the probe of it
@@ -109,6 +119,15 @@ export interface ReaderOptions {
 	 * emission. Absent, every emission is made afresh.
 	 */
 	readonly heldExpansions?: HeldExpansions;
+	/**
+	 * The request's signal: once it aborts, the reading stops at its next
+	 * charge of the work meter or its next part, and the stop
+	 * (`workMeter.ts::WorkCancelled`) is thrown to the caller.
+	 */
+	readonly signal?: AbortSignal;
+	/** The reading's work limit in place of `work.ts::readWorkLimit` of the source's size: for a
+	 *  test that reads an app to its limit. */
+	readonly workLimit?: number;
 }
 
 /** The tables of the source project space the app may read, with the ids project data gives them. */
@@ -198,6 +217,12 @@ export interface ReadMenuAndFormIdentities {
 		readonly caseType: string;
 		readonly prefix: string;
 	}[];
+	/** Every case list column the document holds whose source column over the case's name, its
+	 *  opening date or its external id stores the property under one of the two words CommCare
+	 *  HQ names it by (`suite/wire.ts::columnFieldWordOf`), with that word, by screen: the word
+	 *  HQ's build names the column's app strings by. A column the source holds on both screens
+	 *  has a row for each. */
+	readonly columnFieldWords: readonly ColumnFieldWordRow[];
 }
 
 export interface ReadDraft {
@@ -221,11 +246,16 @@ export interface ReaderDefect {
 }
 
 /** Work done, a function of the input alone: JSON values and XML nodes visited, texts read with
- *  `readFormSyntax`, and expected trees built for a generated node. */
+ *  `readFormSyntax`, expected trees built for a generated node, and the work meter's units
+ *  (`workMeter.ts`), by the door that charged them, beside the reading's limit
+ *  (`work.ts::readWorkLimit`). */
 export interface ReadWork {
 	readonly nodes: number;
 	readonly syntaxReads: number;
 	readonly rebuilds: number;
+	readonly units: number;
+	readonly byKind: Readonly<Record<WorkKind, number>>;
+	readonly limit: number;
 }
 
 export interface ReadFacts {
@@ -284,7 +314,8 @@ export const SAME_STATE_REGISTERS = [
 
 /**
  * The register's rows a reading records under that are no same-state rule of
- * a comparison: a date and time a Save to Case value wrote in Nova's earlier
+ * a comparison: an app whose missing incomplete-forms setting still shows the shared
+ * Web Apps tile (`appShell.ts::readProfile`), a date and time a Save to Case value wrote in Nova's earlier
  * spelling, a registration label read as the words CommCare HQ's build
  * writes for one with no text, a menu's or form's name map read as the
  * text HQ's build shows in each language where Nova prints another map
@@ -300,10 +331,13 @@ export const SAME_STATE_REGISTERS = [
  * calculation alone (`xform/afterBinding.ts`), and a sort element whose
  * display names an `invisible` column in Android's Sort by under a header
  * blank in every language, an entry the first publish drops
- * (`caseList/order.ts::readSortElements`), and a form whose `<h:title>` holds
- * other text than the name Nova writes there (`assemble.ts::recordTitleRewrites`).
+ * (`caseList/order.ts::readSortElements`), a form whose `<h:title>` holds
+ * other text than the name Nova writes there (`assemble.ts::recordTitleRewrites`),
+ * and a form declaring a fixture no expression reads that the project space may
+ * not serve, a declaration Nova does not write (`provisional.ts::claimDeclarations`).
  */
 export const FIRST_PUBLISH_READING_RECORDS = [
+	"incomplete-forms-tile-hidden",
 	"date-and-time-saved-as-hq-stores-it",
 	"registration-label-fixed",
 	"names-respelled",
@@ -313,6 +347,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
+	"unread-fixture-declarations-dropped",
 ] as const;
 
 export type SameStateRegister =

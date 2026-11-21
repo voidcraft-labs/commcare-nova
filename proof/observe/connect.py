@@ -200,6 +200,10 @@ class Forwarder:
         self.opportunity.views = self.views
         self.opportunity.put_back()
         watched = views or self.served.hq
+        # A local archive is opened as installed and with the lane's worker input. Both phones forward
+        # to this opportunity, each under the context in which HQ actually received its submission.
+        if reader == "android" and self._reader == "android@as-is":
+            reader = self._reader
         self._run = (reader or self._reader, watched, len(watched.exchanges), name)
 
     def end(self, label: bytes):
@@ -266,6 +270,8 @@ class Forwarder:
     def reading(self, reader: str):
         """Inside the block, each run that reaches HQ's receiver is kept as ``reader``'s."""
         held, self._reader = self._reader, reader
+        if reader == "android@as-is":
+            self.runs.setdefault(reader, [])
         try:
             yield self
         finally:

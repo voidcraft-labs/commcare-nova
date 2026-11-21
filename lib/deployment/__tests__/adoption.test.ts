@@ -32,13 +32,17 @@ import {
 	type AdoptedMediaFile,
 	adoptedAppBaselineWrite,
 	adoptedIdentityRows,
-	adoptedKeyedCaseIdRows,
 	adoptionPlanFeatureConfirmations,
 	assignMediaPaths,
+	heldMediaPathRows,
 	isHoldableWirePath,
 	keyedCaseIdPrefixesFor,
 } from "../adoption";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
+import {
+	EMPTY_TARGET_IDENTITY,
+	resolveTargetIdentity,
+} from "../targetIdentity";
 
 const TARGET = { server: "production", domain: "field-ops" } as const;
 
@@ -204,18 +208,30 @@ describe("keyed case ids", () => {
 		operationUuid: create.uuid,
 		caseType: create.caseType,
 	});
-	const rows = adoptedKeyedCaseIdRows({
-		keyedCreates: [
+	/* What a birth records of the reading: its keyed creates resolved over
+	 * nothing (`targetIdentity.ts::resolveTargetIdentity`). */
+	const recordOf = (prefix: string) =>
+		resolveTargetIdentity(
+			EMPTY_TARGET_IDENTITY,
 			{
-				operationUuid: create.uuid,
-				formUuid,
-				caseType: create.caseType,
-				prefix: sourcePrefix,
+				entities: [],
+				keyedCreates: [
+					{
+						operationUuid: create.uuid,
+						formUuid,
+						caseType: create.caseType,
+						prefix,
+					},
+				],
+				mediaPaths: [],
+				hqPaths: [],
+				columnWords: [],
 			},
-		],
-	});
+			doc,
+		).keyedCaseIds;
+	const rows = recordOf(sourcePrefix);
 
-	it("records one row per keyed create the reading keeps, and refuses one listed twice", () => {
+	it("records one row per keyed create the reading keeps, and none for one under the document's own derivation", () => {
 		expect(rows).toEqual([
 			{
 				operationUuid: create.uuid,
@@ -223,15 +239,16 @@ describe("keyed case ids", () => {
 				prefix: sourcePrefix,
 			},
 		]);
-		const twice = {
-			operationUuid: create.uuid,
-			formUuid,
-			caseType: create.caseType,
-			prefix: sourcePrefix,
-		};
-		expect(() =>
-			adoptedKeyedCaseIdRows({ keyedCreates: [twice, twice] }),
-		).toThrow(/two keyed creates/);
+		expect(
+			recordOf(
+				authoredCaseIdPrefix({
+					appId: doc.appId,
+					formUuid,
+					operationUuid: create.uuid,
+					caseType: create.caseType,
+				}),
+			),
+		).toEqual([]);
 	});
 
 	it("prints the source's prefix for a kept keyed create, and the derivation everywhere else", () => {
@@ -440,12 +457,14 @@ describe("assignMediaPaths", () => {
 		]);
 	});
 
-	it("re-derives a path with `..`, with no directory, or with a space at either end", () => {
+	it("re-derives every path the archive, the media suite or HQ cannot address", () => {
 		for (const path of [
 			"media/../logo.png",
 			"logo.png",
 			" media/logo.png",
 			"media/logo.png ",
+			"media/lo\ufffego.png",
+			"media/lo\uffffgo.png",
 		]) {
 			expect(assignMediaPaths([file(path)])).toEqual({
 				rows: [],
@@ -460,6 +479,38 @@ describe("assignMediaPaths", () => {
 				],
 			});
 		}
+	});
+
+	/* A `.ccz` packs media beside its own files, and a language or a form can
+	 * be added after the path is held, so a name of their shape is never held. */
+	it("re-derives a path a CCZ gives one of its own files, in any letter case, whatever languages the app holds", () => {
+		for (const path of [
+			"default/app_strings.txt",
+			"FRA/App_Strings.txt",
+			"modules-0/forms-0.xml",
+			"suite.xml/x.png",
+			"en/app_strings.txt/x.png",
+		]) {
+			expect(assignMediaPaths([file(path)]), path).toEqual({
+				rows: [],
+				collapsed: [],
+				rederived: [
+					{
+						assetId: ASSET_A,
+						from: path,
+						to: wirePathFor(HASH_A, ".png"),
+						why: "not-holdable",
+					},
+				],
+			});
+		}
+		/* Beside another path of the same file, the other is held. */
+		expect(
+			assignMediaPaths([
+				file("default/app_strings.txt"),
+				file("media/strings.png"),
+			]).rows,
+		).toEqual([{ assetId: ASSET_A, wirePath: "media/strings.png" }]);
 	});
 
 	it("throws on a path outside jr://file/, naming the asset and never the path", () => {
@@ -525,6 +576,20 @@ describe("assignMediaPaths", () => {
 				},
 			),
 		);
+	});
+});
+
+describe("heldMediaPathRows", () => {
+	it("holds each row the rule holds and names the asset of each it does not", () => {
+		expect(
+			heldMediaPathRows([
+				{ assetId: ASSET_A, wirePath: "media/logo.png" },
+				{ assetId: ASSET_B, wirePath: "default/app_strings.txt" },
+			]),
+		).toEqual({
+			held: new Map([[ASSET_A, "media/logo.png"]]),
+			notHoldable: [ASSET_B],
+		});
 	});
 });
 
@@ -686,9 +751,15 @@ describe("adoptedAppBaselineWrite", () => {
 			of: "first-publish",
 		} as const;
 		expect(write.firstPublish).toEqual({ kind: "set", list: stored });
-		expect(firstPublishViewFromStored(stored, undefined)).toEqual(
-			FIRST_PUBLISH,
-		);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
+		).toEqual(FIRST_PUBLISH);
 	});
 
 	it("owns the needed add-ons and the two settings Nova always writes, and no custom profile property", () => {

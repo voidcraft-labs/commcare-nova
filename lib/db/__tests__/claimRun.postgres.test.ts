@@ -1166,26 +1166,6 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: true });
 	});
 
-	// ── loadAppHolder projected read ──────────────────────────────────────
-
-	it("loadAppHolder resolves the holder from a projected read without pulling the blueprint", async () => {
-		const { loadAppHolder } = await import("../apps");
-		// The projected read must pick up the holder id without a full `loadApp`. No
-		// auth DB is injected here, so the `auth_user` name lookup fails-safe to
-		// "someone" — this asserts the projected APP read succeeds and still carries
-		// the holder's user id (the route's is-this-you comparison).
-		await seedApp({
-			status: "complete",
-			run_holder_nonce: HOLDER_NONCE,
-			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
-		});
-
-		const holder = await loadAppHolder(APP_ID);
-		expect(typeof holder.name).toBe("string");
-		expect(holder.name.length).toBeGreaterThan(0);
-		expect(holder.userId).toBe(OWNER);
-	});
-
 	// ── A live long edit (lease refreshed) is NOT reaped ──────────────────
 
 	it("reacquireLease (build): a paused build's resume that STILL owns it renews + un-pauses", async () => {

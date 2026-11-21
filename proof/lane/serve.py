@@ -2,7 +2,7 @@
 
     python -m proof.lane.serve --out DIR [--workers K] [--label NAME]
         [--early-queue FILE] [--queue FILE] [--claim static | '<command> {block}'] [--bin I/N]
-        [--wait-for '<command>'] [--command-env NAME,...] [--worker-base N] [-- PYTEST ARGS...]
+        [--wait-for '<command>'] [--worker-base N] [-- PYTEST ARGS...]
 
 The server (this process) boots HQ (``proof.hq.boot``), restores HQ's
 template database (``proof.hq.database.restore_template``), compiles the
@@ -85,8 +85,10 @@ anything else stops every claim; the shard finishes what it owns and fails.
 It claims in queue order, or with ``--bin I/N`` its own bin's blocks first
 and then every other bin's (``proof.checks.sharding.claim_order``), so the
 shards of one run start on different blocks.
-The variables ``--command-env`` names are taken out of the server's
-environment and given only to these commands, never to a worker.
+In CI the claim and wait commands are the relay (``proof.lane.relay``),
+which asks the host to run the real command outside the container
+(``proof/ci/hostCommands.mjs``), so no credential the commands use is ever
+in this process's environment or memory.
 
 Workers fail apart: a worker that ends while running a group fails that
 group with the reason, a group it was handed and had not started goes to
@@ -255,7 +257,6 @@ class Server:
         self.k = options.workers
         self.base = options.worker_base
         self.label = options.label
-        self.command_env = {}
         self.broker = Broker(sharding.estimate(sharding.load_timings()))
         self.phases: dict[str, PhaseInfo] = {}
         self.workers: dict[int, Worker] = {}
@@ -347,9 +348,6 @@ class Server:
                     f"--queue runs the corpus's documents, and PROOF_CORPUS ({corpus or 'unset'}) names no corpus"
                     " (index.json); a shard never emits one. Download the corpus and name it with PROOF_CORPUS."
                 )
-        for name in options.command_env:
-            if name in os.environ:
-                self.command_env[name] = os.environ.pop(name)
 
     def _refuse_profile(self, queue: lane_blocks.Queue, path: Path):
         """Refuse a queue built for another set of readers: its groups and keys are that set's."""
@@ -476,7 +474,7 @@ class Server:
             group = processes.ProcessGroup(
                 ["sh", "-c", text],
                 cwd=str(WORKTREE),
-                env={**os.environ, **self.command_env, **extra.pop("env", {})},
+                env={**os.environ, **extra.pop("env", {})},
                 stdout=output,
                 stderr=subprocess.STDOUT,
             )
@@ -1279,12 +1277,6 @@ def parse_arguments(argv):
         help="run bin I of N of the blocks (--claim static), or claim them first (a claim command)",
     )
     parser.add_argument("--wait-for", help="a command that exits 0 once the main queue and the corpus are in place")
-    parser.add_argument(
-        "--command-env",
-        default="",
-        type=lambda text: [name for name in text.split(",") if name],
-        help="variables only the claim and wait commands see, comma-separated",
-    )
     parser.add_argument(
         "--worker-base",
         type=int,

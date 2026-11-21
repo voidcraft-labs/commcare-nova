@@ -86,11 +86,15 @@ import {
 	type StoppedPublishingView,
 	withdrawDeploymentConfirmationAction,
 } from "@/lib/deployment/actions";
-import { remoteAppReportedGone } from "@/lib/deployment/resources";
+import {
+	activeRemoteApp,
+	remoteAppReportedGone,
+} from "@/lib/deployment/resources";
 import type {
 	DeploymentConfirmationKey,
 	DeploymentKept,
 } from "@/lib/deployment/types";
+import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
 import {
 	broughtInFromLine,
 	notPublishedYetLine,
@@ -195,6 +199,8 @@ export function DeploymentStatus({
 	workers?: ReactNode;
 }) {
 	const record = view.deployment.deployment;
+	/* The HQ app a stop from this card names: the one this record shows. */
+	const stopHqAppId = activeRemoteApp(view.deployment)?.remoteId ?? null;
 	/* An app with no lookup tables and no places has no data rung: drawing
 	 * it would leave a step permanently unticked at preflight and then tick
 	 * it on upload for work that never ran. The artifact is the honest
@@ -559,13 +565,20 @@ export function DeploymentStatus({
 					>
 						{STOP_PUBLISHING_HELPER}
 					</p>
-					<StopPublishingDialog
-						open={stopOpen}
-						onOpenChange={setStopOpen}
-						target={{ appId, server: record.server, domain: record.domain }}
-						onStopped={handleStopped}
-						onRecordsStale={noteDeploymentRecordsChanged}
-					/>
+					{stopHqAppId !== null ? (
+						<StopPublishingDialog
+							open={stopOpen}
+							onOpenChange={setStopOpen}
+							target={{
+								appId,
+								server: record.server,
+								domain: record.domain,
+								hqAppId: stopHqAppId,
+							}}
+							onStopped={handleStopped}
+							onRecordsStale={noteDeploymentRecordsChanged}
+						/>
+					) : null}
 				</div>
 			) : null}
 		</section>
@@ -795,13 +808,13 @@ function LeftBehindNotice({
 }
 
 /**
- * What a person confirmed about this project space that a publish goes by,
+ * What a person confirmed when publishing or making workers in this project space,
  * with who and when, and a Withdraw for each where this viewer may edit.
  *
  * No API key reads a project space's plan or these settings, so a publish
  * goes by what someone said here, and Nova cannot see the plan change
  * later. Withdrawing is how somebody takes an answer back: the row is kept
- * with who withdrew it, and the next publish asks again.
+ * with who withdrew it, and the next operation that needs it asks again.
  */
 function ConfirmationsOnRecord({
 	appId,
@@ -814,7 +827,10 @@ function ConfirmationsOnRecord({
 	onWithdrawn?: (next: DeploymentView) => void;
 }) {
 	const record = view.deployment.deployment;
-	const rows = liveConfirmationRows(view.deployment.confirmations);
+	/* A worker-level confirmation stores CommCare HQ's code for the level; the
+	 * app's levels give the name the Workers panel asked by. */
+	const levels = useOrganizationLevels();
+	const rows = liveConfirmationRows(view.deployment.confirmations, levels);
 	const sessionApi = useBuilderSessionApi();
 	const [pending, startTransition] = useTransition();
 	const [withdrawError, setWithdrawError] = useState<string | null>(null);
@@ -856,14 +872,19 @@ function ConfirmationsOnRecord({
 				What this project space has, as confirmed here
 			</h4>
 			<p className="mt-1 text-[13px] leading-relaxed text-nova-text-secondary">
-				Nova can't read these from CommCare HQ, so each publish here goes by
-				what someone confirmed. If one changes there, you can withdraw it and
-				the next publish asks again.
+				Nova can’t read these settings from CommCare HQ. If one changes, you can
+				withdraw its confirmation here. Nova asks about a worker level again
+				when you make workers there, and about other settings when you publish
+				an app that needs them.
 			</p>
 			<ul aria-labelledby={headingId} className="mt-2 flex flex-col gap-1.5">
 				{rows.map((row) => (
 					<li
-						key={row.label}
+						key={
+							row.key.kind === "plan-feature" || row.key.kind === "worker-level"
+								? `${row.key.kind}:${row.key.subject}`
+								: row.key.kind
+						}
 						className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-lg border border-nova-border bg-nova-well px-3 py-1.5 text-[13px] leading-relaxed"
 					>
 						<span className="min-w-0">

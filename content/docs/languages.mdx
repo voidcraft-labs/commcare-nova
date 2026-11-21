@@ -55,7 +55,11 @@ language you remove, the next publish there stops and names it
 CommCare HQ also lets someone translate CommCare's own screen text, such as the
 Start button, under the app's UI translations. A publish keeps those as they
 were in CommCare HQ when it last read your app, and replaces only the names
-Nova holds: the app's name and each language's name.
+Nova holds: the app's name and each language's name. A UI translation whose key
+starts or ends with a space, or holds =, # or a line break, reads on phones as
+another text or as none, so Nova doesn't bring in an app that holds one. When
+you bring in such an app, Nova names the key, and you can remove it or write it
+without those characters in CommCare HQ.
 
 Automatic translation is a separate launch capability. Nova offers it in every
 direction between two distinct members of its checked-in 57-language launch

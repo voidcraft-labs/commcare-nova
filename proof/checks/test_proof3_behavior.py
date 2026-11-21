@@ -115,11 +115,11 @@ ENTRIES = WORKTREE / "lib" / "commcare" / "surface" / "entries"
 @pytest.mark.parametrize("document", cases.document_params("proof3") + cases.control_params("proof3"))
 def test_the_same_sessions_behave_the_same_on_each_build(document, hq, core_runner, editor_driver):
     records = observations.records_for(document, core_runner, editor_driver=editor_driver)
-    found = proof3.document_behavior(document, records)
+    found, sites = proof3.document_behavior_and_sites(document, records)
     cases.hold(
         "proof3",
         document,
-        changes.undeclared(document, "proof3", found, sites=proof3.document_sites(document, records)),
+        changes.undeclared(document, "proof3", found, sites=sites),
         cases.load_register(),
         configurations=sorted(document.exports),
     )
@@ -315,7 +315,9 @@ def control(hq, core_runner, tmp_path_factory):
     scratch = tmp_path_factory.mktemp("proof3-control")
     for document in cases.load_corpus().emitted:
         export = document.exports.get("minimum")
-        if export is None or export.content.lookups is not None or export.republish.lookups is not None:
+        if export is None or export.content is None or export.republish is None:
+            continue
+        if export.content.lookups is not None or export.republish.lookups is not None:
             continue
         records = _observed_without_hooks(document, core_runner, [export.configuration.name])
         observed = observations.republish_view(records, export.configuration.name)
@@ -1119,9 +1121,11 @@ def test_a_document_that_declares_no_android_is_compared_on_hqs_builds_and_never
 ):
     """Nova hands a local archive only to an app that declares Android, so a document that declares Web Apps only is
     compared on HQ's builds alone: its sessions record holds A's baseline and no local side, and nothing reports a
-    missing archive. The same copy declaring nothing (both) and holding no archive is missing one. The plausible
-    failures: a Web Apps-only document losing proof 3's B comparison and the CSQL compiles with its archive, and a
-    document that declares Android whose lost archive goes unreported."""
+    missing archive. The same copy declaring nothing (both) and holding no archive is missing one, unless it states
+    the download's refusal in the archive's place, when its A is still observed and compared. The plausible
+    failures: a Web Apps-only document losing proof 3's B comparison and the CSQL compiles with its archive, a
+    document that declares Android whose lost archive goes unreported, and one whose stated refusal leaves A and B
+    unobserved (the base ``hq-kept-settings``)."""
     source = cases.load_corpus().document("case-list-inline")
     name = "minimum"
     web_apps = _declaring(source, tmp_path / "web-apps" / source.id, "web-apps")
@@ -1152,6 +1156,23 @@ def test_a_document_that_declares_no_android_is_compared_on_hqs_builds_and_never
     )
     assert [d.path for d in missing] == ["/no-local-archive"], missing
 
+    # Where the document states the download's refusal in the archive's place (a project space whose app keeps a
+    # custom base URL elsewhere, Document.local_refusal, which the bar holds to A), its sessions still run A's
+    # baseline with no local side, and proof 3 compares A's and B's and reports no missing archive.
+    both_records = _observed_without_hooks(both, core_runner, [name])
+    both_recorded = observations.sessions_record(both_records, name)
+    assert both_recorded is not None and both_recorded["baseline"]["trace"] and "local" not in both_recorded
+    refused = proof3.behavioral_equivalence(
+        both.id,
+        observations.republish_view(both_records, name),
+        both_recorded,
+        both_records.blobs,
+        has_local=False,
+        platforms=both.platforms(),
+        local_refused=True,
+    )
+    assert not [d for d in refused if d.path == "/no-local-archive" or d.artifact.endswith("@local.ccz")], refused
+
 
 # Lookup tables ---------------------------------------------------------------
 
@@ -1159,7 +1180,7 @@ def test_a_document_that_declares_no_android_is_compared_on_hqs_builds_and_never
 def _lookup_document():
     for document in cases.load_corpus().emitted:
         for export in document.exports.values():
-            if export.content.lookups is not None:
+            if export.content is not None and export.content.lookups is not None:
                 return document, export
     return None
 
@@ -1925,7 +1946,37 @@ def test_a_forms_title_is_compared_only_where_android_runs_both_builds():
         )
 
     blank, named = trace(None, "Patients"), trace("Followup Form", "Patients")
-    assert paths(blank, named, {corpus.ANDROID, corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]
-    assert paths(blank, named, {corpus.ANDROID}) == ["/runs/*/trace/*/title"]
+    assert paths(blank, named, {corpus.ANDROID, corpus.WEB_APPS}) == ["/runs/*/trace/*/title/form"]
+    assert paths(blank, named, {corpus.ANDROID}) == ["/runs/*/trace/*/title/form"]
     assert paths(blank, named, {corpus.WEB_APPS}) == []
-    assert paths(trace(None, "Patients"), trace(None, "Clients"), {corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]
+    assert paths(trace(None, "Patients"), trace(None, "Clients"), {corpus.WEB_APPS}) == [
+        "/runs/*/trace/*/title/case-list"
+    ]
+
+
+def test_a_native_caption_rename_requires_the_original_files_bytes_at_the_exact_new_path():
+    import hashlib
+    from types import SimpleNamespace
+
+    from proof.checks.differences import Difference
+
+    before = "jr://file/old picture.png"
+    digest = hashlib.sha256(b"picture").hexdigest()
+    entry = f"commcare/{digest}.png"
+    path = "/runs/*/steps/*/tree/*/caption_image"
+    row = Difference("proof3", "doc", "formplayer@local.ccz", path, path, "changed", before, f"jr://file/{entry}")
+    source = {"status": 200, "path": before, "sha256": digest, "mediaType": "CommCareImage"}
+    parts = SimpleNamespace(a={"apiReads": {"authored": {"media": [source]}}}, b={})
+    document = SimpleNamespace(
+        authored=SimpleNamespace(media_rows=lambda: [{"path": before, "kind": "image", "extension": "png"}]),
+        exports={"minimum": SimpleNamespace(republish=None)},
+    )
+    records = SimpleNamespace(configurations={"minimum": parts})
+
+    def compared(bytes_):
+        return proof3.verified_caption_renames(document, "minimum", records, {entry: bytes_}, [row])[0].path
+
+    assert compared(b"picture") == f"{path}:renamed-file"
+    assert compared(b"some other picture") == path
+    source["status"] = 404
+    assert compared(b"picture") == path

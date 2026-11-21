@@ -7,7 +7,14 @@
  */
 import "server-only";
 
+import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { inventoryIndex } from "../surface/inventory";
+import {
+	currentWorkMeter,
+	underMeter,
+	WorkLimitReached,
+	WorkMeter,
+} from "../workMeter";
 import { readApplication } from "./appShell";
 import { assembleDocument, assembleDocumentSteps } from "./assemble";
 import { readCaseLists, readCaseListsSteps, settleCaseLists } from "./caseList";
@@ -30,8 +37,13 @@ import {
 import { bindExpressions, bindExpressionsSteps } from "./provisional";
 import { readSearches, settleSearches } from "./search";
 import { readStructure } from "./structure";
-import { countingSyntaxReads } from "./syntaxRead";
-import type { ReaderInput, ReaderOptions, ReadOutcome } from "./types";
+import type {
+	ReaderInput,
+	ReaderOptions,
+	ReadOutcome,
+	ReadWork,
+} from "./types";
+import { readWorkLimit, sourceCharacters } from "./work";
 import { mintFields, readForms, readFormsSteps } from "./xform";
 import { finishForms } from "./xform/afterBinding";
 import { finishText } from "./xform/prose";
@@ -123,6 +135,15 @@ export function readHqApp(
  * reading stops after each until it is resumed, so a caller on a request can
  * let the event loop turn between them: an app at the byte cap is seconds of
  * reading. Nothing outside the reading's own context is held across a stop.
+ *
+ * Every part runs under the reading's work meter (`workMeter.ts`), whose limit
+ * is a function of the source's size (`work.ts::readWorkLimit`, or
+ * `ReaderOptions.workLimit`). A part that passes it ends the reading as an
+ * account of one finding at the app, `too-intricate`; this is the one place a
+ * reading turns that stop into an outcome. A request's signal that aborts
+ * (`ReaderOptions.signal`) stops the reading at its next charge or part, and
+ * the stop is thrown to the caller, who answers the request as it answers one
+ * cancelled during a read of CommCare HQ.
  */
 export function* readHqAppSteps(
 	input: ReaderInput,
@@ -132,22 +153,49 @@ export function* readHqAppSteps(
 		throw new Error(
 			`The reader was given ${input.modules.length} aligned menus for a source that holds ${input.source.modules.length}. Pass the menus of the same reading the source came from.`,
 		);
+	const meter = new WorkMeter({
+		limit:
+			options.workLimit ?? readWorkLimit(sourceCharacters(input.source.raw)),
+		...(options.signal !== undefined && { signal: options.signal }),
+		...(currentWorkMeter() !== undefined && { parent: currentWorkMeter() }),
+	});
+	yield;
 	const ctx = createReadContext(input, options, inventoryIndex());
 	// `onStage` names the part a throw came from.
 	for (const [index, stage] of STAGE_STEPS.entries()) {
 		options.onStage?.(index);
 		const steps = stage(ctx);
-		/* Counted per part, since another reading may run between two. */
-		while (!countingSyntaxReads(ctx.accounting, () => steps.next()).done) yield;
+		for (;;) {
+			let done: boolean | undefined;
+			try {
+				done = underMeter(meter, () => {
+					meter.check();
+					return steps.next().done;
+				});
+			} catch (error) {
+				// The one place a reading turns its own work stop into an outcome; every other
+				// throw, a request's cancel or a parent meter's limit among them, goes on.
+				if (!(error instanceof WorkLimitReached) || error.meter !== meter)
+					throw error;
+				return tooIntricate(ctx, meter);
+			}
+			/* A stop a stage caught and did not rethrow still ends the reading where it stopped. */
+			const stopped = meter.stopped;
+			if (stopped instanceof WorkLimitReached) return tooIntricate(ctx, meter);
+			if (stopped !== undefined) throw stopped;
+			if (done === true) break;
+			yield;
+		}
 		yield;
 	}
 	options.onStage?.("close");
 	const { findings, work, claims, defects } = ctx.close();
+	const metered = meteredWork(work, meter);
 	if (findings.length > 0)
 		return {
 			kind: "account",
 			findings,
-			work,
+			work: metered,
 			claims,
 			defects,
 			unreadTables: [...ctx.facts.unreadTables],
@@ -157,5 +205,45 @@ export function* readHqAppSteps(
 		throw new Error(
 			"The reader closed a reading with no finding and no document. A reading with no finding is assembled into a document by the last of the reader's stages; check that STAGES ends with the assembly stage and that it sets the reading's draft.",
 		);
-	return { kind: "read", draft: ctx.assembled, work, claims, defects };
+	return {
+		kind: "read",
+		draft: ctx.assembled,
+		work: metered,
+		claims,
+		defects,
+	};
+}
+
+/** The accounting's counts with the meter's. */
+function meteredWork(
+	work: Pick<ReadWork, "nodes" | "rebuilds">,
+	meter: WorkMeter,
+): ReadWork {
+	return {
+		nodes: work.nodes,
+		syntaxReads: meter.syntaxReads,
+		rebuilds: work.rebuilds,
+		units: meter.units,
+		byKind: meter.byKind,
+		limit: meter.limit,
+	};
+}
+
+/**
+ * The account of a reading that passed its work limit: one finding at the
+ * app, whatever the stages found before it stopped, since a stage stopped
+ * partway reads nothing it can stand behind. Report only the work and claims
+ * already recorded when the limit interrupted the reading.
+ */
+function tooIntricate(ctx: ReadContext, meter: WorkMeter): ReadOutcome {
+	const { work, claims } = ctx.accounting.workAndClaims();
+	return {
+		kind: "account",
+		findings: [circumstanceFinding("too-intricate", { kind: "app" }, {})],
+		work: meteredWork(work, meter),
+		claims,
+		defects: [],
+		unreadTables: [],
+		readsLocations: false,
+	};
 }

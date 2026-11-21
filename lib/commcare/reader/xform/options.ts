@@ -30,6 +30,12 @@ const ITEM_LIST_SOURCE = "jr://fixture/item-list:";
 /** A select's case choices as the form stage proposes them, decided once the filter is bound. */
 export interface CaseChoicesProposal {
 	readonly itemset: Element;
+	/** The `label` and the `value` the proposal was read from, the only parts of the itemset a
+	 *  held reading claims. Core keeps the last `label` and the last `value` an itemset holds
+	 *  (`XFormParser.parseItemset`, `ItemSetParsingUtils.setLabel`, `setValue`), so any other is
+	 *  left unclaimed and reported. */
+	readonly label: Element;
+	readonly value: Element;
 	readonly select: "select1" | "select";
 	readonly caseType: string;
 	readonly labelProperty: string;
@@ -408,6 +414,8 @@ function readItemset(
 		field.field.optionsSource = { kind: "cases", caseType, labelProperty };
 		return {
 			itemset,
+			label,
+			value,
 			select,
 			caseType,
 			labelProperty,
@@ -435,27 +443,25 @@ function caseTypeTest(predicate: FormSyntax): string | undefined {
  * rebuilds from the proposal equals the source's (`same`) and the label ref is the one it prints
  * for the property, the itemset is held; otherwise it is an itemset of another shape. `filtered`
  * is whether the expression stage holds the nodeset with its filter; one with none is claimed
- * here.
+ * here. A held itemset claims the `label` and the `value` the proposal read and nothing else of
+ * its children, so a second `label` or `value`, which Core would read in place of the first, is
+ * reported at the close.
  */
 export function settleCaseChoices(
 	cursor: XmlCursor,
-	parsed: ParsedXForm,
 	proposal: CaseChoicesProposal,
 	place: HqPlace,
 	same: boolean,
 	filtered: boolean,
 ): void {
-	const { itemset, select } = proposal;
+	const { itemset, select, label, value } = proposal;
 	// The label ref Nova writes for the property: an attribute for a case's own attributes, a
 	// child step for every other property (`builder.ts::buildFieldParts`). A source label that
 	// reads the other node of the same name is no case choices of Nova's.
-	const label = xformsChildren(itemset, parsed, "label")[0];
-	const labelSame =
-		label !== undefined &&
-		sameTree(
-			plain(label, "ref") ?? "",
-			w.context([casePropertyStep(proposal.labelProperty)]),
-		);
+	const labelSame = sameTree(
+		plain(label, "ref") ?? "",
+		w.context([casePropertyStep(proposal.labelProperty)]),
+	);
 	if (!same || !labelSame) {
 		cursor.refuseSubtree(itemset, X.otherItemset, place);
 		return;
@@ -468,10 +474,7 @@ export function settleCaseChoices(
 			{ element: itemset, attribute: "nodeset" },
 			one ? X.caseChoices.select1Nodeset : X.caseChoices.selectNodeset,
 		).value;
-	for (const part of [
-		...xformsChildren(itemset, parsed, "label"),
-		...xformsChildren(itemset, parsed, "value"),
-	]) {
+	for (const part of [label, value]) {
 		cursor.take({ element: part }, element).value;
 		cursor.take({ element: part, attribute: "ref" }, element).value;
 	}

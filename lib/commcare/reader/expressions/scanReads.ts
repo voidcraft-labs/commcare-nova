@@ -16,6 +16,7 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../../formLinkProjection";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
@@ -127,7 +128,8 @@ export function searchRowProperties(text: string): string[] {
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return [];
 	}
 	if (!read.ok || read.node === undefined) return [];
@@ -195,7 +197,8 @@ export function searchRowRelations(
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return { links, properties };
 	}
 	if (!read.ok || read.node === undefined) return { links, properties };
@@ -405,7 +408,8 @@ export function searchRowHoleReads(
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return [];
 	}
 	if (!read.ok || read.node === undefined) return [];

@@ -18,6 +18,7 @@ import {
 	BIRTH_AT,
 	birthAdoptedApp,
 } from "@/lib/deployment/__tests__/adoptedBirth";
+import { readable } from "@/lib/deployment/__tests__/readableRecord";
 import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import {
 	currentResourceIdentities,
@@ -27,14 +28,17 @@ import {
 import {
 	applyDeploymentObservation,
 	foldDeploymentAttempt,
+	holdTargetFacts,
 	readDeployment,
 	readDeploymentNovaRevisions,
 	readTargetFacts,
 	recordCreatedRemoteApp,
 	recordRemoteResource,
+	recordWorkerLevelConfirmations,
 } from "@/lib/deployment/store";
 import { keptListFor } from "@/lib/deployment/targetFacts";
 import type { AppOwnership } from "@/lib/deployment/types";
+import type { OrganizationLevel } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { driftDate } from "@/lib/publish/driftReference";
 import { keptChangedInHqLine } from "@/lib/publish/hqChangesCopy";
@@ -54,7 +58,7 @@ vi.mock("@/lib/deployment/store", async (original) => {
 	const store = await original<typeof import("@/lib/deployment/store")>();
 	return {
 		...store,
-		readTargetFacts: vi.fn(store.readTargetFacts),
+		holdTargetFacts: vi.fn(store.holdTargetFacts),
 		readDeploymentNovaRevisions: vi.fn(store.readDeploymentNovaRevisions),
 	};
 });
@@ -96,7 +100,7 @@ const GET = "get_deployment",
 function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
-	scopes = ["nova.read", "nova.hq.read", "nova.hq.write"],
+	scopes = ["nova.read", "nova.hq.read", "nova.hq.write", "nova.hq.import"],
 ) {
 	return withMcpClient((server) => {
 		const ctx = { userId, scopes, authKind: "oauth" as const };
@@ -205,9 +209,13 @@ async function record(remoteId = "working-app", target = TARGET) {
 			mediaFiles: { kind: "set", files: null },
 			firstPublish: { kind: "set", list: null },
 		},
-	});
+	}).then(readable);
 }
-async function seed(published = true, runsOnlyOn?: "android") {
+async function seed(
+	published = true,
+	runsOnlyOn?: "android",
+	levels: readonly OrganizationLevel[] = [],
+) {
 	const doc = buildDoc({
 		appName: "Visits",
 		modules: [
@@ -225,6 +233,12 @@ async function seed(published = true, runsOnlyOn?: "android") {
 	});
 	if (runsOnlyOn !== undefined)
 		doc.appSettings = { ...doc.appSettings, runsOnlyOn };
+	if (levels.length > 0) {
+		doc.organizationLevels = Object.fromEntries(
+			levels.map((level) => [level.uuid, level]),
+		);
+		doc.organizationLevelOrder = levels.map((level) => level.uuid);
+	}
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,
 		owner: "creator",
@@ -825,6 +839,58 @@ it("names no Web Apps section for an Android-only app", async () => {
 	expect(sections.map((section) => section.id)).not.toContain("web-apps");
 });
 
+it("names a worker level as provisioning asked, by the app's level name with CommCare HQ's code beside it, and a code no level holds as a level no longer in the organization", async () => {
+	const district: OrganizationLevel = {
+		uuid: testUuid("level-district"),
+		code: "District_Level",
+		name: "District",
+		caseFlow: {
+			workers: "assigned",
+			ownsCases: true,
+			descendantCases: { kind: "none" },
+		},
+		addressBook: { reach: "own-branch" },
+	};
+	await seed(true, undefined, [district]);
+	await recordWorkerLevelConfirmations(
+		SCOPE,
+		TARGET,
+		["District_Level", "Block"],
+		{ expectedEndings: 0 },
+	);
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const listed = JSON.parse(
+				resultText(await call(client, GET, { app_id: APP })),
+			);
+			expect(
+				(
+					listed.deployments[0].confirmations as {
+						kind: string;
+						subject: string;
+						label: string;
+					}[]
+				)
+					.filter((confirmation) => confirmation.kind === "worker-level")
+					.map(({ subject, label }) => ({ subject, label }))
+					.sort((a, b) => a.subject.localeCompare(b.subject)),
+			).toEqual([
+				{
+					subject: "Block",
+					label:
+						"Places at the level with code “Block” take workers (the level is no longer in the organization)",
+				},
+				{
+					subject: "District_Level",
+					label:
+						"Places at the level “District” (code “District_Level”) take workers",
+				},
+			]);
+		});
+		expect(urls(peer)).toEqual([]);
+	});
+});
+
 it("lists the confirmations in force by name, and withdraws one so the next upload asks again", async () => {
 	await seed();
 	await foldDeploymentAttempt(
@@ -955,7 +1021,7 @@ it("answers a withdrawal whose reads after it fault as withdrawn, leaving out wh
 	const fault = () =>
 		Object.assign(new Error(`could not read “${words}”`), { code: "57P01" });
 	vi.mocked(currentResourceIdentities).mockRejectedValueOnce(fault());
-	vi.mocked(readTargetFacts).mockRejectedValueOnce(fault());
+	vi.mocked(holdTargetFacts).mockRejectedValueOnce(fault());
 	vi.mocked(readDeploymentNovaRevisions).mockRejectedValueOnce(fault());
 	vi.mocked(setupArtifactFor).mockRejectedValueOnce(fault());
 	await withHttpPeer(async (peer) => {
@@ -1280,21 +1346,17 @@ it("gives the tool's error with its sentence when the caller's connection cannot
 it("answers a kept refresh whose write landed as landed when its list cannot be read after it, leaving `kept` out and saying so", async () => {
 	await seed(false);
 	await publishedWithRead(liveSource());
-	const store = await vi.importActual<typeof import("@/lib/deployment/store")>(
-		"@/lib/deployment/store",
-	);
 	const words = "Mother's Visit Checklist";
 	await withHttpPeer(async (peer) => {
 		await asUser(async (client) => {
 			serveSource(peer, fuzzyOnSource());
-			/* The list before the refresh reads; the one after it faults. */
-			vi.mocked(readTargetFacts)
-				.mockImplementationOnce(store.readTargetFacts)
-				.mockRejectedValueOnce(
-					Object.assign(new Error(`could not read “${words}”`), {
-						code: "57P01",
-					}),
-				);
+			/* The list before the refresh reads in a snapshot of its own; the
+			 * one after it faults. */
+			vi.mocked(holdTargetFacts).mockRejectedValueOnce(
+				Object.assign(new Error(`could not read “${words}”`), {
+					code: "57P01",
+				}),
+			);
 			const answer = await refresh(client, KEPT_ARGS);
 			expect(answer).toMatchObject({
 				app_id: APP,
@@ -1390,7 +1452,7 @@ it("says where an app came from and where Nova stopped publishing, and lets only
 		target: TARGET,
 		remoteAppId: HQ_APP,
 	});
-	const args = { app_id: BROUGHT_IN_APP, ...TARGET };
+	const args = { app_id: BROUGHT_IN_APP, ...TARGET, hq_app_id: HQ_APP };
 	await withHttpPeer(async (peer) => {
 		await asUser(async (client) => {
 			const before = JSON.parse(
@@ -1515,7 +1577,7 @@ it("answers a stop whose reads after the ending fault as stopped, with a null se
 		target: TARGET,
 		remoteAppId: HQ_APP,
 	});
-	const args = { app_id: BROUGHT_IN_APP, ...TARGET };
+	const args = { app_id: BROUGHT_IN_APP, ...TARGET, hq_app_id: HQ_APP };
 	const words = "Mother's Visit Checklist";
 	const service = await vi.importActual<
 		typeof import("@/lib/deployment/service")
@@ -1554,11 +1616,17 @@ it("answers a stop whose reads after the ending fault as stopped, with a null se
 			words,
 		);
 
-		/* The stop landed: a second one finds nothing to stop, and the
-		 * deployment reads back with its setup notes. */
-		expect(errorBody(await call(client, STOP, args))).toMatchObject({
-			error_type: "invalid_input",
-		});
+		/* The stop landed: a second one, as a retry sends it, answers the
+		 * same stop, and the deployment reads back with its setup notes. */
+		const again = JSON.parse(resultText(await call(client, STOP, args)));
+		expect(again).toMatchObject({ state: "ended", ending: stopped.ending });
+		/* A stop of an HQ app this deployment does not publish to stops
+		 * nothing, and its tag says to read the deployment again. */
+		expect(
+			errorBody(
+				await call(client, STOP, { ...args, hq_app_id: "e".repeat(32) }),
+			),
+		).toMatchObject({ error_type: "deployment_changed" });
 		const after = JSON.parse(
 			resultText(await call(client, GET, { app_id: BROUGHT_IN_APP })),
 		);

@@ -6,6 +6,11 @@ import {
 	reconcileBuilderHistoryEntry,
 	scopedBuilderHistoryState,
 } from "../historyPolicy";
+import {
+	NO_PREVIEW_ENTRY_RECORD,
+	type PreviewEntryRecord,
+	previewEntryRecordReader,
+} from "../previewEntryRecords";
 import { builderEntryState, readPreviewHeldMenu } from "../previewHeldMenu";
 
 const active: BuilderHistoryScope = {
@@ -78,24 +83,36 @@ describe("Builder history policy", () => {
 		},
 	);
 
-	it("drops a prior generation's held form menu, which names its cases, and keeps a current one", () => {
+	it("drops a prior generation's entry id, so the session's record of it, held form menu included, is not read, and keeps a current one", () => {
 		const held = {
 			moduleUuid: testUuid("menu"),
 			cases: [{ caseId: "ana" }],
-			session: "worker",
 		};
 		const list = "/build/app-a/module-a/results";
-		/** The menu's entry, pushed after the list's under `scope`. */
-		const heldEntry = (scope: typeof active) =>
-			builderEntryState(
-				{ pathname: list, state: state(scope) },
+		const records = new Map<string, PreviewEntryRecord>();
+		const reader = previewEntryRecordReader(records);
+		/** The menu's entry, pushed after the list's under `scope`, its
+		 *  record filed in the session's records. */
+		const heldEntry = (scope: typeof active) => {
+			const written = builderEntryState(
+				{
+					pathname: list,
+					state: state(scope),
+					record: NO_PREVIEW_ENTRY_RECORD,
+				},
 				{ pathname: list, replace: false, held },
+				reader,
 			);
+			records.set(written.state.__novaEntry as string, written.record);
+			return written.state;
+		};
 		const stale = entry(heldEntry({ ...active, epoch: 1 }), list);
+		expect(readPreviewHeldMenu(stale.state, reader)).toEqual(held);
 		const reconciled = reconcileBuilderHistoryEntry(stale, active, "pop");
-		// The entry it was pushed after goes too: a form's would name the cases.
+		// The entry it was pushed after goes too: it names another
+		// generation's step.
 		expect(reconciled?.state).toEqual(state(active));
-		expect(readPreviewHeldMenu(reconciled?.state)).toBeUndefined();
+		expect(readPreviewHeldMenu(reconciled?.state, reader)).toBeUndefined();
 		const fresh = entry(
 			heldEntry({ ...active, scopeId: "previous-mount" }),
 			list,
@@ -103,6 +120,7 @@ describe("Builder history policy", () => {
 		expect(
 			readPreviewHeldMenu(
 				reconcileBuilderHistoryEntry(fresh, active, "activate")?.state,
+				reader,
 			),
 		).toEqual(held);
 	});

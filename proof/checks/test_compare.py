@@ -1271,6 +1271,31 @@ def test_a_stop_on_a_step_no_form_names_what_it_left_out_by_the_screen_it_reache
     }
 
 
+def test_a_steps_title_is_named_by_the_screen_both_sides_show():
+    """Contract (``trace.titles_by_screen``): a form's title, a case list's and a search's are three texts in three
+    places, so a title that changed on a step both sides show as one screen is reported under that screen
+    (``/runs/*/trace/*/title/<screen>``), and a title beside a step whose screen changed stays at
+    ``/runs/*/trace/*/title``, the screen's own change being the class. Failures it catches: a case list's renamed
+    title reported where a form's renamed title is (so a register row written for the form holds the list too),
+    and a screen named on a step whose two sides show two."""
+
+    def retitled(run, step, title):
+        changed = copy.deepcopy(run)
+        changed["trace"][step]["title"] = title
+        return changed
+
+    form, listed = _filled_run(), _case_list()
+    assert _paths([form], [retitled(form, 0, "Followup Form")]) == {("/runs/*/trace/*/title/form", "changed")}
+    assert _paths([listed], [retitled(listed, 1, "Clients")]) == {("/runs/*/trace/*/title/case-list", "changed")}
+    searched = _search_run()
+    assert _paths([searched], [retitled(searched, 1, "Look up")]) == {("/runs/*/trace/*/title/search", "changed")}
+    # The concrete place names the screen as the path does.
+    (found,) = _found([form], [retitled(form, 0, "Followup Form")])
+    assert found.at == "/runs/0/trace/0/title/form"
+    menu = _counted({"end": "script-ended", "script": [], "trace": [_case_list()["trace"][0]] * 2})
+    assert ("/runs/*/trace/*/title", "added") in _paths([menu], [listed])
+
+
 def test_a_stop_on_a_form_leaves_out_only_what_comes_after_where_its_end_says_it_came():
     """A form's stop leaves out the fields the runner records after where it came, which its run's end names. Core
     raising after it processed a submitted form left out the stack after submit, and the case database where it

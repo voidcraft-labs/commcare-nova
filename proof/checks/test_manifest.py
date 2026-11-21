@@ -911,6 +911,36 @@ def test_a_ui_text_an_archive_writes_back_from_its_project_space_is_not_novas_us
     assert "ui-string:home.start" in uses("en", "Begin a visit", None)
 
 
+def test_a_saved_text_under_a_key_the_target_does_not_own_is_novas_use(manifest):
+    """Nova's publish carries back, and its archive writes back, only a saved text under a key whose owner is the
+    target (``lib/commcare/appStringKeys.ts::translationKeyOwner``, mirrored by ``app_strings.translation_key_owner``):
+    never a key HQ generates, and never one that is no locale record of its own name, which HQ's build writes
+    stripped. So a person's saved ``app.display.name`` at the text the upload or the archive holds, and a saved
+    `` home.start`` (a space before it) at the text the archive writes under ``home.start``, are each Nova's own
+    use; the same texts under the target's own key are carried. The plausible failure: a mirror that judges the key
+    as stored, so the check reads Nova's own text as the target's and holds nothing of it."""
+    app_name = {"uiTranslations": {"en": {"app.display.name": "Clinic"}}}
+    spaced = {"uiTranslations": {"en": {" home.start": "Begin a visit"}}}
+    own = {"uiTranslations": {"en": {"home.start": "Begin a visit"}}}
+
+    def upload(carried):
+        found = manifest_usage.Uses()
+        doc = {"doc_type": "Application", "langs": ["en"], "translations": {"en": {"app.display.name": "Clinic"}}}
+        manifest_usage.app_json_uses(doc, manifest, "app.json", found, carried=carried)
+        return {use.key for use in found.uses}
+
+    def archive(carried):
+        found = manifest_usage.Uses()
+        strings = b"app.display.name=Clinic\nhome.start=Begin a visit\n"
+        manifest_usage.archive_uses({"en/app_strings.txt": strings}, manifest, "local.ccz", found, carried)
+        return {use.key for use in found.uses}
+
+    assert "ui-string:app.display.name" in upload(app_name)
+    assert "ui-string:app.display.name" in archive(app_name)
+    assert "ui-string:home.start" in archive(spaced)
+    assert "ui-string:home.start" not in archive(own)
+
+
 def test_a_feature_is_hqs_setting_or_the_one_its_template_writes_for_every_app(manifest):
     """In a profile, a feature HQ's settings hold is its setting, one HQ's profile template writes for every app is
     that item (``profile-feature:<name>``), held with the parser's own key, and one neither holds keeps the setting
@@ -933,6 +963,33 @@ def test_a_feature_is_hqs_setting_or_the_one_its_template_writes_for_every_app(m
     doc = {"doc_type": "Application", "profile": {"features": {"checkoff": "true"}}}
     manifest_usage.app_json_uses(doc, manifest, "app.json", stored)
     assert "setting:features.checkoff" in {use.key for use in stored.uses}
+
+
+def test_a_collection_of_hqs_objects_holding_a_member_that_is_no_object_is_undecided(manifest):
+    """HQ's wrap keeps a null among a list of its objects (jsonobject's ``JsonArray`` wraps it as the class at its
+    defaults while the stored list keeps the null), and Nova's reader holds such a collection where a class takes it
+    whole or leaves it unclaimed where a stage reads its members (``jsonCursor.ts::objectMembers``). The check reads
+    neither, so the list's use is undecided, resting on every entry naming its key, and every object in it is still
+    read. The plausible failure is the old reading, which held the list as an allowing entry names it, a parity
+    difference wherever the reader left it unclaimed."""
+    column = {"doc_type": "DetailColumn", "field": "name", "header": {"en": "Name"}}
+
+    def columns_use(columns):
+        found = manifest_usage.Uses()
+        app = {"doc_type": "Application", "modules": [{"doc_type": "Module", "case_details": {"short": {}}}]}
+        app["modules"][0]["case_details"]["short"]["columns"] = columns
+        manifest_usage.app_json_uses(app, manifest, "app.json", found)
+        (use,) = [one for one in found.uses if one.where == "/modules/0/case_details/short/columns"]
+        fields = [one.where for one in found.uses if one.key == "schema:DetailColumn.field"]
+        return use, fields
+
+    use, fields = columns_use([column, None])
+    standing, entries = manifest_usage.standing(manifest, use)
+    assert (use.key, standing) == ("schema:Detail.columns", manifest_usage.UNDECIDED)
+    assert {entry.id for entry in entries} == {entry.id for entry in manifest.entries["schema:Detail.columns"]}
+    assert fields == ["/modules/0/case_details/short/columns/0/field"]
+    use, _ = columns_use([column])
+    assert manifest_usage.standing(manifest, use)[0] == manifest_usage.HELD
 
 
 def test_a_use_no_entry_names_is_one_difference_per_artifact_and_key(manifest):

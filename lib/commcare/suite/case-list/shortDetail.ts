@@ -112,6 +112,7 @@ import {
 } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
+import type { ColumnFieldWordOf } from "../../wireIdentity";
 import {
 	buildCarrierField,
 	buildColumnField,
@@ -288,6 +289,8 @@ export function buildShortDetail(args: {
 	 * there does.
 	 */
 	readonly emptyCaseListText?: boolean;
+	/** The word the archive's target keeps each column's property under (`CaseListEmitContext.columnFieldWord`). */
+	readonly columnFieldWord?: ColumnFieldWordOf;
 }): {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
@@ -373,6 +376,7 @@ export function buildShortDetail(args: {
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
+		...(args.columnFieldWord && { columnFieldWord: args.columnFieldWord }),
 	};
 
 	const fields: Element[] = [];

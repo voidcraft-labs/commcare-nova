@@ -61,7 +61,7 @@ export async function client() {
 	if (missing.length > 0) {
 		throw new ArtifactServiceError(
 			`${missing.join(" and ")} ${missing.length === 1 ? "is" : "are"} not set, so this process cannot reach the run's artifact service.\n` +
-				"A workflow step gets them from .github/actions/proof-runtime, which exports them to the steps after it, and the lane's server hands them to its claim and wait commands only (node proof/run.mjs --lane --command-env ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL).",
+				"A workflow step gets them from .github/actions/proof-runtime, which exports them to the steps after it, and node proof/run.mjs --lane runs the claim and wait commands with them on the host, beside the lane's container (proof/ci/hostCommands.mjs).",
 		);
 	}
 	loaded ??= import("./vendor/artifact.bundle.mjs").then(

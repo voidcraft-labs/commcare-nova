@@ -146,6 +146,8 @@ HELD_PATHS = (f"/multimedia_map/*/{HELD}", f"/modules/*/case_details/*/columns/*
 CHANGE_KEYS = frozenset({"change", "placeKinds", "rows"})
 ROW_KEYS = frozenset({"check", "artifact", "path"})
 OPTIONAL_ROW_KEYS = frozenset({"kind"})
+OWNED_PROFILE_SETTINGS = ("/profile/properties/cc-show-saved", "/profile/properties/cc-show-incomplete")
+CASE_SCALAR_TRIM = "".join(chr(unit) for unit in range(0x21))
 # The kinds of place (``lib/deployment/reading/firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS``).
 APP_WIDE = "app-wide"
 PLACE_KINDS = frozenset({APP_WIDE, "app", "menu", "form", "form-node", "form-part", "case"})
@@ -196,6 +198,33 @@ class Change:
     @property
     def app_wide(self) -> bool:
         return self.kinds == (APP_WIDE,)
+
+    def matches_value(self, difference) -> bool:
+        """The value a row permits where its path and kind alone cannot distinguish the declared change."""
+        if self.change in {"web-apps-turned-on", "web-apps-turned-off"} and difference.at in {
+            "/cloudcare_enabled", "/home/releaseListed"
+        }:
+            enabled = self.change == "web-apps-turned-on"
+            return difference.kind == "changed" and difference.before is (not enabled) and difference.after is enabled
+        if (
+            self.change in {"forms-and-settings-rewritten", "incomplete-forms-tile-hidden"}
+            and difference.check == "source"
+            and any(covers(path, difference.path) for path in OWNED_PROFILE_SETTINGS)
+        ):
+            return difference.at in OWNED_PROFILE_SETTINGS and difference.kind == "added" and difference.after == "no"
+        # Formplayer's Java String.trim removes boundary U+0000 through U+0020 (caseScalarTextValueCalculation).
+        if (
+            self.change == "case-names-checked"
+            and difference.artifact.startswith("formplayer@")
+            and difference.kind == "changed"
+            and difference.path.endswith("/case_name[*]/text()")
+        ):
+            return (
+                isinstance(difference.before, str)
+                and difference.after == difference.before.strip(CASE_SCALAR_TRIM)
+                and 0 < len(difference.after.encode("utf-16-le", errors="surrogatepass")) <= 2 * 255
+            )
+        return True
 
 
 def tokens(pointer: str) -> list[str]:
@@ -317,6 +346,8 @@ class Sites:
       (``("suite.xml", "entry[7]")``), by the menu or form it is of, and an app string whose key does not say
       what it is of, ``("app_strings", key)`` in every language's file, by where it stands (a sort-only
       element's header, whose key's number is its order among the sort elements and no column's);
+    - ``served``: a served reader's concrete (artifact, observation pointer), located by its own navigation,
+      submitted instance, or question binding on the side that produced it;
     - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``).
     """
 
@@ -326,6 +357,7 @@ class Sites:
     cases: Mapping = field(default_factory=dict)
     builds: Mapping = field(default_factory=dict)
     media: Mapping = field(default_factory=dict)
+    served: Mapping = field(default_factory=dict)
 
     def as_json(self):
         """The sites as the ``changes`` check's evidence writes them, each map a list of ``[key, value]``
@@ -348,7 +380,7 @@ class Sites:
         return cls(**{name: {read(key): read(held) for key, held in value.get(name) or ()} for name in SITE_MAPS})
 
 
-SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media")
+SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media", "served")
 NO_SITES = Sites()
 
 
@@ -389,6 +421,17 @@ def _trace_location(difference, sites: Sites) -> tuple[str, ...]:
     database at its type, and anything else of a step under the step's place."""
     steps = unescaped(difference.at)
     artifact = difference.artifact
+    if artifact == "webapps@B" and difference.at == "/home/releaseListed":
+        return ("app", "cloudcare_enabled")
+    if artifact == "webapps@B" and difference.at == "/home/tiles/incomplete":
+        return ("app", "profile", "properties", "cc-show-incomplete")
+    if artifact.startswith(("formplayer@", "android@", "android-tablet@", "connect@")):
+        owner = _site(sites.served, (artifact, difference.at))
+        # The saved device case is attributed to its type and property only once the form that
+        # actually wrote it has also agreed across both readers' records and all configurations.
+        if owner[:1] == ("form",) and owner[2:3] == ("case",):
+            return owner[2:]
+        return owner
     if artifact.startswith("trace@"):
         at = _run_step(steps)
         if at is None:
@@ -941,7 +984,7 @@ def inert_holds(pointer: str, places: ClaimPlaces) -> bool:
 def _held_by(difference, change: Change, places: ClaimPlaces) -> bool:
     """Whether a row of ``change`` names ``difference``'s class, or the inert allowance holds it for
     forms-and-settings-rewritten; never a difference at a place Nova keeps."""
-    if held(difference):
+    if held(difference) or not change.matches_value(difference):
         return False
     if any(row.matches(difference) for row in change.rows):
         return True
@@ -1071,7 +1114,7 @@ def naming(difference, changes, applying) -> str | None:
         (row, change.change)
         for change in changes
         for row in change.rows
-        if len(holders_of[row]) == 1 and row.matches(difference)
+        if len(holders_of[row]) == 1 and row.matches(difference) and change.matches_value(difference)
     ]
     if not matching:
         return None
@@ -1270,6 +1313,8 @@ class _Evidence:
     path: str
     at: str
     kind: str
+    before: object
+    after: object
 
 
 def _evidence(output: Path, document: str):
@@ -1280,7 +1325,15 @@ def _evidence(output: Path, document: str):
             record = json.loads(path.read_text(encoding="utf-8"))
             for difference in record.get("differences") or []:
                 found.append(
-                    _Evidence(check, difference["artifact"], difference["path"], difference["at"], difference["kind"])
+                    _Evidence(
+                        check,
+                        difference["artifact"],
+                        difference["path"],
+                        difference["at"],
+                        difference["kind"],
+                        difference.get("before"),
+                        difference.get("after"),
+                    )
                 )
     return found
 

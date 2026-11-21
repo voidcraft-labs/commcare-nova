@@ -130,12 +130,18 @@ function familyOf(key: string): string {
 	return colon < 0 ? key : key.slice(0, colon);
 }
 
+/** The circumstance a row may expect in place of an entry: the reading leaves something unclaimed, which names a
+ *  surface key (the row's `key`) and no manifest entry (`proof/matrix/registry.py::UNRECOGNIZED`). */
+const UNRECOGNIZED = "unrecognized";
+
+/** The manifest entries a row names: its entry, its second's and each of its also's, but the circumstance
+ *  `unrecognized`, which shows no entry. */
 function namedEntries(row: VariantRow): string[] {
 	return [
 		row.entry,
 		...(row.second === undefined ? [] : [row.second.entry]),
 		...(row.also ?? []).map((one) => one.entry),
-	];
+	].filter((entry) => entry !== UNRECOGNIZED);
 }
 
 /** Each entry a base's `claimed` lists, with the first base (in id order) that lists it. */
@@ -468,10 +474,12 @@ export function rule2(inputs: CoverageInputs): string[] {
 			);
 		if (
 			row.kind !== "setting" ||
-			(row.ccz.does !== "mirrors" && row.ccz.does !== "states")
+			(row.ccz.does !== "mirrors" &&
+				row.ccz.does !== "states" &&
+				row.ccz.does !== "refuses")
 		)
 			continue;
-		const verb = row.ccz.does === "mirrors" ? "mirrors" : "states";
+		const verb = row.ccz.does === "refuses" ? "is refused over" : row.ccz.does;
 		if (base.expected.declaration.runsOnlyOn === "web-apps")
 			problems.push(
 				`${id} is a setting an archive ${verb}, and its base ${row.base} is read as an app that runs on Web Apps only, which Nova hands no archive. Place the row on a base read with Android.`,

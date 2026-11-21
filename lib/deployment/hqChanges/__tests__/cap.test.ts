@@ -32,6 +32,7 @@ import {
 	HQ_BRING_IN_APP_MAX_BYTES,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
+import { readWorkLimit, sourceCharacters } from "@/lib/commcare/reader/work";
 import { prepareGenesisCandidate } from "@/lib/db/appGenesis";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { getHqCredentials } from "@/lib/db/settings";
@@ -60,11 +61,11 @@ import { activeRemoteApp, deploymentEnding } from "../../resources";
 import {
 	readAppBaseline,
 	readDeployment,
-	readDeploymentIdentityOverrides,
-	readDeploymentMediaPaths,
 	readMemberNames,
+	readTargetIdentity,
 	recordHqChangesTaken,
 } from "../../store";
+import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import type {
 	AppBaseline,
 	DeploymentResource,
@@ -91,8 +92,7 @@ vi.mock("@/lib/media/manifest", () => ({
 vi.mock("../../store", () => ({
 	readDeployment: vi.fn(),
 	readAppBaseline: vi.fn(),
-	readDeploymentMediaPaths: vi.fn(async () => new Map()),
-	readDeploymentIdentityOverrides: vi.fn(async () => []),
+	readTargetIdentity: vi.fn(async () => EMPTY_TARGET_IDENTITY),
 	readMemberNames: vi.fn(async () => new Map()),
 	readProjectName: vi.fn(async () => "Cap project"),
 	readFirstPublishStates: vi.fn(async () => new Map()),
@@ -165,7 +165,7 @@ const PATHS = {
 	application: `/a/${DOMAIN}/api/application/v1/${HQ_APP}/`,
 	source: `/a/${DOMAIN}/apps/source/${HQ_APP}/`,
 	version: `/a/${DOMAIN}/apps/view/${HQ_APP}/current_version/`,
-	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=100`,
+	tables: `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`,
 };
 
 /** A Project that holds no table, as the proof lane's reading binds it. */
@@ -366,8 +366,7 @@ beforeEach(() => {
 	vi.mocked(readDeployment).mockResolvedValue(DEPLOYMENT);
 	vi.mocked(activeRemoteApp).mockReturnValue(MAPPING);
 	vi.mocked(deploymentEnding).mockReturnValue(null);
-	vi.mocked(readDeploymentIdentityOverrides).mockResolvedValue([]);
-	vi.mocked(readDeploymentMediaPaths).mockResolvedValue(new Map());
+	vi.mocked(readTargetIdentity).mockResolvedValue(EMPTY_TARGET_IDENTITY);
 	vi.mocked(readMemberNames).mockResolvedValue(new Map());
 	vi.mocked(postgresProjectSide).mockReturnValue(NOTHING);
 	vi.mocked(getHqCredentials).mockResolvedValue({
@@ -381,6 +380,19 @@ afterEach(() => {
 	vi.mocked(readAppBaseline).mockReset();
 	vi.mocked(readOrganizationAuthoringSnapshot).mockReset();
 });
+
+/** The readings one request makes of a source at the cap, whose limits its work is held to a
+ *  quarter of: the base, the source now, the fixed point's re-read, and the plan, which runs
+ *  under an allowance of one reading's limit of both sources. */
+const READINGS = 4;
+
+/**
+ * The most units of work one synchronous piece of a review or bring-in at the cap does: four
+ * times the 911,157 units the most piece of a read at the cap did when the work meter was set,
+ * rounded up, as the read's own cap test holds (a review's most piece, part of the readings, did
+ * 682,773). A change that does more of a review in one piece fails here, whatever the machine.
+ */
+const PIECE_UNITS_AT_MOST = 4_000_000;
 
 describe("a review of changes made in CommCare HQ at the byte cap", () => {
 	it("answers base-too-large for a baseline one byte over the cap, reads it as no source and asks CommCare HQ nothing", async () => {
@@ -450,7 +462,7 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 		expect(sourceFromBaseline).not.toHaveBeenCalled();
 	}, 60_000);
 
-	it("reviews a baseline and a changed source just under the cap and brings the change in, each synchronous piece under five seconds", async () => {
+	it("reviews a baseline and a changed source just under the cap and brings the change in within the work limit, no piece doing more than its share", async () => {
 		const built = nearTheCap();
 		expect(built.menus).toBeGreaterThan(100);
 		const serve =
@@ -507,7 +519,10 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 		vi.mocked(applyBlueprintChange).mockImplementationOnce(commitAtCap);
 		const rows = adoptedIdentityRows(outcome.draft.identities, read.modules);
 		if (!rows.ok) throw new Error(rows.at);
-		vi.mocked(readDeploymentIdentityOverrides).mockResolvedValue(rows.rows);
+		vi.mocked(readTargetIdentity).mockResolvedValue({
+			...EMPTY_TARGET_IDENTITY,
+			entities: rows.rows,
+		});
 		vi.mocked(readAppBaseline).mockResolvedValue(baselineOf(read.source.raw));
 		vi.mocked(readOrganizationAuthoringSnapshot).mockResolvedValue({
 			blueprint: head,
@@ -569,25 +584,44 @@ describe("a review of changes made in CommCare HQ at the byte cap", () => {
 					| {
 							readonly longestPieceMs: number;
 							readonly longestPieceAt: string;
+							readonly workUnits: number;
+							readonly longestPieceUnits: number;
+							readonly longestPieceUnitsAt: string;
 					  }
 					| undefined;
 
+				/* The contract is the work meter's, which no machine moves: each request's work
+				 * within a quarter of `READINGS` readings' limits of the source's size (the base,
+				 * now and fixed-point readings and the plan), and no piece of either doing more
+				 * than `PIECE_UNITS_AT_MOST` between two turns of the event loop. */
+				const characters = sourceCharacters(retainedBodyJson(built.source));
+				const limit = readWorkLimit(characters);
+				console.info(
+					`The review at the cap: ${facts.workUnits} units over ${characters} characters (one reading's limit ${limit}), the most in one piece ${facts.longestPieceUnits} units, part of ${facts.longestPieceUnitsAt}; the longest piece ${Math.round(facts.longestPieceMs)} ms, part of ${facts.longestPieceAt}, the event loop held at most ${Math.round(reviewed.heldMs)} ms. The bring-in: ${bringInFacts?.workUnits} units, the most in one piece ${bringInFacts?.longestPieceUnits} units, part of ${bringInFacts?.longestPieceUnitsAt}; the longest piece ${Math.round(bringInFacts?.longestPieceMs ?? Number.NaN)} ms, part of ${bringInFacts?.longestPieceAt}, the event loop held at most ${Math.round(brought.heldMs)} ms.`,
+				);
+				expect(facts.workUnits).toBeLessThanOrEqual((READINGS * limit) / 4);
+				expect(bringInFacts?.workUnits).toBeLessThanOrEqual(
+					(READINGS * limit) / 4,
+				);
 				expect(
-					facts.longestPieceMs,
-					`The review's longest piece, part of ${facts.longestPieceAt}, took ${Math.round(facts.longestPieceMs)} ms.`,
-				).toBeLessThan(5_000);
+					facts.longestPieceUnits,
+					`The review's piece that did the most, part of ${facts.longestPieceUnitsAt}, did ${facts.longestPieceUnits} units.`,
+				).toBeLessThanOrEqual(PIECE_UNITS_AT_MOST);
+				expect(
+					bringInFacts?.longestPieceUnits,
+					`The bring-in's piece that did the most, part of ${bringInFacts?.longestPieceUnitsAt}, did ${bringInFacts?.longestPieceUnits} units.`,
+				).toBeLessThanOrEqual(PIECE_UNITS_AT_MOST);
+				/* Wall time on a shared machine is no contract: one observation of each
+				 * request's event loop, failing only at four times the five seconds a piece is
+				 * meant to stay under. */
 				expect(
 					reviewed.heldMs,
 					`The review held the event loop ${Math.round(reviewed.heldMs)} ms at once; its longest piece, part of ${facts.longestPieceAt}, took ${Math.round(facts.longestPieceMs)} ms.`,
-				).toBeLessThan(5_000);
-				expect(
-					bringInFacts?.longestPieceMs,
-					`The bring-in's longest piece, part of ${bringInFacts?.longestPieceAt}, took ${Math.round(bringInFacts?.longestPieceMs ?? Number.NaN)} ms.`,
-				).toBeLessThan(5_000);
+				).toBeLessThan(20_000);
 				expect(
 					brought.heldMs,
 					`The bring-in held the event loop ${Math.round(brought.heldMs)} ms at once; its longest piece, part of ${bringInFacts?.longestPieceAt}, took ${Math.round(bringInFacts?.longestPieceMs ?? Number.NaN)} ms.`,
-				).toBeLessThan(5_000);
+				).toBeLessThan(20_000);
 			},
 		);
 		/* Seven whole readings of a source at the cap (the app as brought in, then

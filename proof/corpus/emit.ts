@@ -67,7 +67,12 @@ import {
 	readFuzzSample,
 	TARGETED_MODULE,
 } from "./documents";
-import { ENTROPY_PRELOAD, emissionEnv, WORKTREE } from "./emissionProcess";
+import {
+	ENTROPY_PRELOAD,
+	emissionEnv,
+	VITEST_WRITERS,
+	WORKTREE,
+} from "./emissionProcess";
 import { emitCorpus, type LeftOut, leftOutSchema } from "./emitCorpus";
 import { hqAuthoredDocuments } from "./hqAuthored";
 import { producerDocuments } from "./producers";
@@ -121,13 +126,7 @@ async function runVitestWriters(
 	const sampleDir = join(scratch, "sample");
 	const finished = await run(
 		VITEST,
-		[
-			"run",
-			"lib/commcare/__tests__/expander.test.ts",
-			"proof/corpus/__tests__/fuzzSample.test.ts",
-			"--project",
-			"unit",
-		],
+		VITEST_WRITERS,
 		emissionEnv({
 			// Vitest's own workers load the preload too.
 			NODE_OPTIONS: `--import="${ENTROPY_PRELOAD}"`,

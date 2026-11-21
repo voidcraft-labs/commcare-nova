@@ -100,21 +100,17 @@ def build_state(app, record, state):
 
     for form in app.get_forms():
         form.clear_validation_cache()
-    # The version the build's files name, read before the build: building an app whose multimedia map holds a path
-    # nothing references saves it (``suite_xml/generator.py::MediaSuiteGenerator.media_resources`` asks
-    # ``hqmedia/models.py::ApplicationMediaMixin.multimedia_map_for_build`` with ``remove_unused=True``, whose
-    # ``remove_unused_mappings`` saves the app it pruned), and the save moves ``app.version`` past the version the
-    # profile and the suites were written with.
     version = app.version
     sent_before = len(record.form_validations)
     raised = {}
-    errors = _step(raised, "validate_app", lambda: _json(app.validate_app()))
-    files = _step(raised, "create_all_files", app.create_all_files)
     profile_files = {}
-    for profile_id in sorted(app.build_profiles):
-        built = _step(raised, f"create_all_files:{profile_id}", lambda p=profile_id: app.create_all_files(p))
-        if built is not None:
-            profile_files[profile_id] = built
+    with operations.build_copy_saves(app):
+        errors = _step(raised, "validate_app", lambda: _json(app.validate_app()))
+        files = _step(raised, "create_all_files", app.create_all_files)
+        for profile_id in sorted(app.build_profiles):
+            built = _step(raised, f"create_all_files:{profile_id}", lambda p=profile_id: app.create_all_files(p))
+            if built is not None:
+                profile_files[profile_id] = built
     sent = record.form_validations[sent_before:]
     if "validate_app" not in raised:
         validated = {data_namespace(v.xml) for v in sent}

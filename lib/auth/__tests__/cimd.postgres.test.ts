@@ -253,6 +253,46 @@ it("rebuilds a missing client from its URL", async () => {
 	]);
 });
 
+it("gives a document client a scope added since it was stored, on the next read of its document", async () => {
+	const cookie = await signIn();
+	await authorize(CLAUDE_CODE_ID, cookie);
+	/* The row as an instance from before the import scope stored it. */
+	await database.pool.query(
+		`UPDATE auth_oauth_client SET scopes = $1::jsonb WHERE "clientId" = $2`,
+		[
+			JSON.stringify(["openid", "offline_access", "nova.read", "nova.write"]),
+			CLAUDE_CODE_ID,
+		],
+	);
+	/* A new process, as a deploy starts, holds no cached document. */
+	auth = authModule.createAuth(database.pool, {
+		fetchClientMetadataResource: controlledFetch,
+	});
+	const url = new URL(`${origin}/api/auth/oauth2/authorize`);
+	url.search = new URLSearchParams({
+		client_id: CLAUDE_CODE_ID,
+		redirect_uri: redirectUri,
+		response_type: "code",
+		scope: "openid nova.read nova.hq.import",
+		state: "cimd-state",
+		code_challenge: "a".repeat(43),
+		code_challenge_method: "S256",
+		resource: MCP_RESOURCE_URL,
+	}).toString();
+	const response = await auth.handler(
+		new Request(url, { headers: { cookie, accept: "text/html" } }),
+	);
+	await response.body?.cancel();
+	const location = new URL(response.headers.get("location") ?? "", origin);
+	/* Asked of the person, never granted by the refresh. */
+	expect(location.pathname).toBe("/consent");
+	const { rows } = await database.pool.query<{ scopes: string[] }>(
+		`SELECT scopes FROM auth_oauth_client WHERE "clientId" = $1`,
+		[CLAUDE_CODE_ID],
+	);
+	expect(rows[0]?.scopes).toContain("nova.hq.import");
+});
+
 it("still takes a dynamically registered client to consent", async () => {
 	const cookie = await signIn();
 	const registered = await auth.api.registerOAuthClient({

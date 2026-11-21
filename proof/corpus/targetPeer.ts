@@ -53,15 +53,26 @@
  * - `GET /a/<domain>/apps/source/<app id>/` (`app_manager/views/apps.py::app_source`):
  *   the source the peer holds for the app, 404 before a create. A create
  *   makes it hold the shell's source (`shellSource`), and an update the
- *   source HQ serves after it (`sourceAfterUpdate`): every key the body
- *   carries replaced, and every key it leaves out kept.
+ *   source HQ serves after it (`sourceAfterUpdate`): the content fields the
+ *   body replaces, the stored media map pruned to paths the app references,
+ *   and the fields the project space keeps.
  * - `POST /a/<domain>/apps/api/import_app/`
  *   (`app_manager/views/app_import_api.py::_handle_import_app`): recorded,
  *   and answered as HQ answers a create (201) or an update (200) of the one
  *   app the peer holds, whose id is fixed. The peer counts the imports into
  *   the app's version as HQ does (`ApplicationBase.save` raises it by one):
  *   the create leaves version 1, and the content import that fills it
- *   version 2. The capture takes the peer's state after the first publish
+ *   version 2. An update also saves once more if it prunes unused media
+ *   mappings. Its answer names the final version. A media job that maps a file
+ *   saves the app once more (`hqmedia/tasks.py::process_bulk_upload_zip`),
+ *   and so do a person's saves in HQ (`applyHqSide`), which the model counts
+ *   as one: Nova compares the counter only within one publish, with reads it
+ *   makes after those saves. The capture records the counter around each
+ *   import and each media upload (`saveCounter`), and the HQ side holds
+ *   HQ's own counter's move over the same write to it
+ *   (`proof/observe/publish.py`), so the model cannot drift from HQ's;
+ *   `proof/hq/test_publish.py` holds the facts it models to HQ's own views.
+ *   The capture takes the peer's state after the first publish
  *   (`snapshot`) and puts it back before each later update (`restore`),
  *   since each one stands for a separate next publish over that same app.
  * - `POST /a/<domain>/apps/api/<app id>/multimedia/`
@@ -77,6 +88,11 @@
  *   complete, no errors, and every file of the ZIP matched, each under its
  *   class with the path it was mapped at and the id of the document there
  *   (`matched_files`), which Nova records as the file standing at the path.
+ * - `GET /a/<domain>/apps/view/<app id>/current_version/`
+ *   (`app_manager/views/releases.py::current_app_version`): the app's save
+ *   counter as `currentVersion`, with `latestBuild` and `latestReleasedBuild`
+ *   null, since the peer makes no build; 404 before a create, as HQ answers
+ *   an app it holds no working copy of.
  * - `GET /hq/multimedia/file/<class>/<id>/` (`hqmedia/views.py::ViewMultimediaFile`):
  *   the bytes of the media document the peer holds under that class and
  *   id, 404 for any other, as Nova reads a file to settle a path by its
@@ -118,6 +134,7 @@ import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "@/lib/commcare/projectSpaceComp
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
+import type { HqAnyModule } from "@/lib/commcare/types";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import type { AssetKind } from "@/lib/domain";
 import { ACCEPTED_FORMATS } from "@/lib/domain/multimedia";
@@ -443,8 +460,9 @@ export function withFields(
 
 /**
  * The source HQ serves for an app holding `current` after it applied
- * `application` as an update: each key the body carries replaces HQ's and
- * each key it leaves out keeps HQ's (`models/applications.py::_merge_source_into_app`),
+ * `application` as an update: the content keys the body carries replace HQ's.
+ * HQ keeps its stored multimedia map even if the body supplies one
+ * (`models/applications.py::_merge_source_into_app`). It serves that content
  * with HQ's own CommCare version (an update keeps the app's `build_spec`),
  * and the fields `changed` names, which the capture's caller says hold
  * other values in this project space (`PublishInput.source`).
@@ -455,14 +473,88 @@ export function sourceAfterUpdate(
 	commcareVersion: string,
 	changed: Readonly<Record<string, unknown>> = {},
 ): Record<string, unknown> {
+	const { multimedia_map: _excluded, ...content } = application;
 	return withFields(
-		{ ...structuredClone(current), ...structuredClone(application) },
+		{ ...current, ...content },
 		{
 			doc_type: "Application",
 			"build_spec.version": commcareVersion,
 			...changed,
 		},
 	);
+}
+
+/** The media paths in a Nova content import that HQ keeps in its existing
+ * multimedia_map (hqmedia/models.py::remove_unused_mappings). Every input
+ * here is a Nova export that has passed the form validator. */
+function importedMediaPaths(source: Json): Set<string> {
+	const paths = new Set<string>();
+	function addMenu(media: {
+		media_image?: Record<string, string>;
+		media_audio?: Record<string, string>;
+	}) {
+		for (const path of [
+			...Object.values(media.media_image ?? {}),
+			...Object.values(media.media_audio ?? {}),
+		]) {
+			if (path) paths.add(path);
+		}
+	}
+	for (const logo of Object.values(
+		(source.logo_refs ?? {}) as Record<string, { path: string }>,
+	)) {
+		paths.add(logo.path);
+	}
+	for (const module of (source.modules ?? []) as HqAnyModule[]) {
+		addMenu(module);
+		if (module.case_list?.show) addMenu(module.case_list);
+		if (module.case_list_form?.form_id) addMenu(module.case_list_form);
+		for (const detail of [
+			module.case_details?.short,
+			module.case_details?.long,
+		]) {
+			if (!detail) continue;
+			for (const column of detail.columns) {
+				if (column.format !== "enum-image") continue;
+				// Nova writes the same asset in each app language.
+				for (const item of column.enum) {
+					for (const path of Object.values(item.value)) paths.add(path);
+				}
+			}
+		}
+		for (const form of module.forms) {
+			addMenu(form);
+			const name = `${form.unique_id}.xml`;
+			const xml = attachmentsOf(source)[name];
+			if (xml === undefined)
+				throw contentRefused(`a form with no ${name} attachment`);
+			// XForm.media_references reads only itext media values. An
+			// ordinary label containing a file path does not keep the mapping.
+			let level = elements(parseXml(xml));
+			for (const step of [
+				"html",
+				"head",
+				"model",
+				"itext",
+				"translation",
+				"text",
+			]) {
+				level = level.filter((node) => local(node) === step).flatMap(elements);
+			}
+			for (const value of level) {
+				if (
+					local(value) !== "value" ||
+					!["image", "audio", "video", "video-inline"].includes(
+						value.attribs.form ?? "",
+					)
+				)
+					continue;
+				const first = value.children[0];
+				if (first?.type === "text") paths.add(first.data);
+			}
+		}
+	}
+	return paths;
 }
 
 /** A table's definition as `run_upload.py::table_key` compares two of them. */
@@ -1030,6 +1122,16 @@ export class TargetPeer {
 		};
 	}
 
+	/**
+	 * The app's save counter as `current_app_version` answers it, or null
+	 * before a create, when HQ holds no app to answer for. A capture records
+	 * it around each write so the HQ side holds HQ's own counter's move over
+	 * the same write to the peer's (`proof/observe/publish.py`).
+	 */
+	saveCounter(): number | null {
+		return this.holding.source === undefined ? null : this.holding.version;
+	}
+
 	/** The requests received since `mark`, for one step of a capture. */
 	since(mark: number): readonly PeerRequest[] {
 		return this.requests.slice(mark);
@@ -1156,7 +1258,14 @@ export class TargetPeer {
 				media_type: HQ_MEDIA_NICE_NAME[file.mediaClass],
 			});
 		}
-		this.holding = { ...this.holding, source: next, mediaReport: report };
+		const matched = Object.values(report).flat().length;
+		this.holding = {
+			...this.holding,
+			source: next,
+			mediaReport: report,
+			/* The job saves the app once where it mapped a file. */
+			version: this.holding.version + (matched > 0 ? 1 : 0),
+		};
 	}
 
 	/**
@@ -1319,7 +1428,12 @@ export class TargetPeer {
 			next = this.pageSaved(next);
 		}
 		next = sourceAfterContentSaves(next, saves);
-		this.holding = { ...this.holding, source: next };
+		/* A person's saves leave the save counter past where Nova last read it. */
+		this.holding = {
+			...this.holding,
+			source: next,
+			version: this.holding.version + 1,
+		};
 		if (saves.mediaReplaced !== undefined)
 			this.replaceMedia(saves.mediaReplaced);
 		const kept = saves.lookupTable;
@@ -1537,6 +1651,19 @@ export class TargetPeer {
 				})),
 			});
 		}
+		if (
+			route ===
+			`GET ${domainPath}/apps/view/${this.state.appId}/current_version/`
+		) {
+			if (this.holding.source === undefined) {
+				return { status: 404, contentType: "text/html", body: "Not Found" };
+			}
+			return json(200, {
+				currentVersion: this.holding.version,
+				latestBuild: null,
+				latestReleasedBuild: null,
+			});
+		}
 		if (route === `GET ${domainPath}/apps/source/${this.state.appId}/`) {
 			if (this.holding.source === undefined) {
 				return json(404, "Application not found");
@@ -1570,17 +1697,23 @@ export class TargetPeer {
 			if (!(app instanceof Blob)) {
 				return json(400, { success: false, error: "app_file is required" });
 			}
-			const version = this.holding.version + 1;
-			this.holding = {
-				...this.holding,
-				source: sourceAfterUpdate(
-					this.holding.source,
-					JSON.parse(await app.text()),
-					this.state.commcareVersion,
-					this.state.sourceChanges,
-				),
-				version,
-			};
+			const source = sourceAfterUpdate(
+				this.holding.source,
+				JSON.parse(await app.text()),
+				this.state.commcareVersion,
+				this.state.sourceChanges,
+			);
+			// HQ excludes the stored map from the import, then removes unused
+			// mappings. Removing one or several paths costs one additional save.
+			const entries = Object.entries(this.holding.source.multimedia_map ?? {});
+			let version = this.holding.version + 1;
+			if (entries.length > 0) {
+				const referenced = importedMediaPaths(source);
+				const kept = entries.filter(([path]) => referenced.has(path));
+				source.multimedia_map = Object.fromEntries(kept);
+				if (kept.length < entries.length) version++;
+			}
+			this.holding = { ...this.holding, source, version };
 			return json(200, { success: true, app_id: this.state.appId, version });
 		}
 		const media = `${domainPath}/apps/api/${this.state.appId}/multimedia/`;

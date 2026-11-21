@@ -5,11 +5,20 @@
  * (`cloudcare/js/formplayer/utils/utils.js::CloudcareUrl.setQueryData`), a
  * step forward carries it (`addSelection`), and a submission pushes an
  * address without it (`app.js`'s submit handler: `urlObject.onSubmit()`, then
- * `setUrlToObject`) while the earlier addresses keep theirs.
+ * `setUrlToObject`) while the earlier addresses keep theirs. Each entry's
+ * state names its searches; the context of each, the worker's answers among
+ * it, is in the entry's record, the running Preview session's.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { PreviewSearchState } from "@/lib/session/types";
+import {
+	NO_PREVIEW_ENTRY_RECORD,
+	type PreviewEntryRecord,
+	type PreviewHistoryEntry,
+	previewEntryOf,
+	previewEntryRecordReader,
+} from "../previewEntryRecords";
 import {
 	type BuilderHistoryWrite,
 	builderEntryState,
@@ -33,17 +42,14 @@ const details = `/build/app/${patients}/cases/kofi`;
 const form = `/build/app/${testUuid("visit")}`;
 const menu = `/build/app/${patients}`;
 const others = testUuid("others");
-const SESSION = "session-a";
 
-/** A completed search as an entry records it. */
+/** A completed search as an entry's record holds it. */
 function recorded(
 	submission: string,
 	moduleUuid: string = patients,
-	session: string = SESSION,
 ): RecordedPreviewSearch {
 	return {
 		moduleUuid,
-		session,
 		state: {
 			kind: "completed",
 			attempt: 1,
@@ -54,39 +60,59 @@ function recorded(
 	};
 }
 
-/** A browser history the builder writes into, as `useClientPath.ts` does. */
+/** An entry of nothing but this state. */
+function entryOf(state: Record<string, unknown>): PreviewHistoryEntry {
+	return { state, record: NO_PREVIEW_ENTRY_RECORD };
+}
+
+/** A browser history the builder writes into, as `useClientPath.ts` does:
+ * each entry's record filed by its id in the running session's records.
+ * `newSession` starts a session whose records are empty. */
 function history(first: string) {
 	const entries: { pathname: string; state: Record<string, unknown> }[] = [
-		{ pathname: first, state: {} },
+		{ pathname: first, state: { __novaEntry: "first" } },
 	];
+	let records = new Map<string, PreviewEntryRecord>();
 	let at = 0;
+	const reader = () => previewEntryRecordReader(records);
+	const entryAt = (index: number): PreviewHistoryEntry => ({
+		state: entries[index].state,
+		record: reader()(previewEntryOf(entries[index].state)),
+	});
 	const write = (written: BuilderHistoryWrite) => {
-		const current = entries[at];
+		const current = entryAt(at);
 		const kind =
 			"lens" in written ? "lens" : written.replace ? "replace" : "push";
 		const step = previewSearchHistoryWrite(
-			current.state,
-			builderEntryState(current, written),
+			current,
+			builderEntryState(
+				{ pathname: entries[at].pathname, ...current },
+				written,
+				reader(),
+			),
 			kind,
 		);
-		const entry = { pathname: written.pathname, state: step.written };
+		records.set(previewEntryOf(step.written.state) ?? "", step.written.record);
+		const entry = { pathname: written.pathname, state: step.written.state };
 		if (kind === "replace") {
 			entries[at] = entry;
 			return;
 		}
 		if (step.consumesEnd)
 			entries[at] = {
-				...current,
+				...entries[at],
 				state: withoutPreviewSearchesEnd(current.state),
 			};
 		entries.splice(at + 1, entries.length, entry);
 		at += 1;
 	};
-	/** Rewrite the current entry's state in place, as the record writers do. */
+	/** Rewrite the current entry in place, as the record writers do. */
 	const rewrite = (
-		next: (state: Record<string, unknown>) => Record<string, unknown>,
+		next: (entry: PreviewHistoryEntry) => PreviewHistoryEntry,
 	) => {
-		entries[at] = { ...entries[at], state: next(entries[at].state) };
+		const written = next(entryAt(at));
+		records.set(previewEntryOf(written.state) ?? "", written.record);
+		entries[at] = { ...entries[at], state: written.state };
 	};
 	return {
 		push: (pathname: string) => write({ pathname, replace: false }),
@@ -94,36 +120,42 @@ function history(first: string) {
 		lens: () => write({ pathname: entries[at].pathname, lens: true }),
 		/** A search begun on the current entry (`beginPreviewStandingSearch`). */
 		search: (submission: string, moduleUuid: string = patients) =>
-			rewrite((state) =>
+			rewrite((entry) =>
 				withPreviewSearchBegun(
-					state,
-					readPreviewStandingSearches(state),
+					entry,
+					readPreviewStandingSearches(entry.state),
 					recorded(submission, moduleUuid),
 				),
 			),
 		/** A form submitted on the current entry (`endPreviewStandingSearches`). */
-		submit: () => rewrite(withPreviewSearchesEnded),
+		submit: () =>
+			rewrite((entry) => ({
+				...entry,
+				state: withPreviewSearchesEnded(entry.state),
+			})),
 		back: (steps = 1) => {
 			at -= steps;
 		},
 		forward: () => {
 			at += 1;
 		},
+		newSession: () => {
+			records = new Map();
+		},
 		get standing() {
 			return readPreviewStandingSearches(entries[at].state);
 		},
+		get state() {
+			return entries[at].state;
+		},
 		/** The module searches the screen on this entry holds, over what the
 		 *  session holds now (`previewSearchesOnEntry`). */
-		held(
-			sessionStates: Readonly<Record<string, PreviewSearchState>>,
-			session: string = SESSION,
-		) {
-			const state = entries[at].state;
+		held(sessionStates: Readonly<Record<string, PreviewSearchState>>) {
+			const entry = entryAt(at);
 			return previewSearchesOnEntry(
 				sessionStates,
-				new Set(readPreviewStandingSearches(state)),
-				readPreviewSearchContexts(state),
-				session,
+				new Set(readPreviewStandingSearches(entry.state)),
+				readPreviewSearchContexts(entry),
 			);
 		},
 		get pathname() {
@@ -212,16 +244,23 @@ describe("a submission ends the searches on the screen it lands on alone", () =>
 
 describe("what an entry carries on", () => {
 	it("is every search standing on it, or after a submission's end, those begun since", () => {
-		const entry = withPreviewStandingSearches({ other: 1 }, ["a", "b"]);
-		expect(previewSearchesCarriedOn(entry)).toEqual(["a", "b"]);
-		const ended = withPreviewSearchesEnded(entry);
+		const entry = withPreviewStandingSearches(entryOf({ other: 1 }), [
+			"a",
+			"b",
+		]);
+		expect(previewSearchesCarriedOn(entry.state)).toEqual(["a", "b"]);
+		const ended = withPreviewSearchesEnded(entry.state);
 		expect(ended.other).toBe(1);
 		expect(previewSearchesCarriedOn(ended)).toEqual([]);
-		const rekeyed = withPreviewSearchBegun(ended, ["a", "b"], recorded("b"));
-		expect(readPreviewStandingSearches(rekeyed)).toEqual(["a", "b"]);
-		expect(previewSearchesCarriedOn(rekeyed)).toEqual(["b"]);
+		const rekeyed = withPreviewSearchBegun(
+			{ ...entry, state: ended },
+			["a", "b"],
+			recorded("b"),
+		);
+		expect(readPreviewStandingSearches(rekeyed.state)).toEqual(["a", "b"]);
+		expect(previewSearchesCarriedOn(rekeyed.state)).toEqual(["b"]);
 		expect(
-			previewSearchesCarriedOn(withoutPreviewSearchesEnd(rekeyed)),
+			previewSearchesCarriedOn(withoutPreviewSearchesEnd(rekeyed.state)),
 		).toEqual(["a", "b"]);
 	});
 });
@@ -268,13 +307,29 @@ describe("an entry's search stands where the session has since replaced it", () 
 		const h = history(list);
 		h.search("kofi-search");
 		h.push(form);
-		expect(h.held({}, "session-b")).toEqual({});
 		expect(h.held({})[patients]).toEqual(kofi.state);
+		h.newSession();
+		expect(h.held({})).toEqual({});
+	});
+
+	it("keeps no answer of a search in the entry's state", () => {
+		const h = history(list);
+		h.search("kofi-search");
+		h.push(form);
+		h.submit();
+		const kept = [h.state];
+		h.back();
+		kept.push(h.state);
+		for (const state of kept) {
+			expect(readPreviewStandingSearches(state)).toEqual(["kofi-search"]);
+			// The submission names the search; its answers are the record's.
+			expect(JSON.stringify(state)).not.toContain("patient_name");
+		}
 	});
 
 	it("records the latest context of each search, and none of a search let go", () => {
 		const completed = recorded("kofi-search");
-		const entry = withPreviewSearchBegun({}, [], {
+		const entry = withPreviewSearchBegun(entryOf({}), [], {
 			...completed,
 			state: {
 				kind: "running",
@@ -285,7 +340,7 @@ describe("an entry's search stands where the session has since replaced it", () 
 		});
 		const settled = withPreviewSearchBegun(
 			entry,
-			readPreviewStandingSearches(entry),
+			readPreviewStandingSearches(entry.state),
 			completed,
 		);
 		expect(readPreviewSearchContexts(settled)["kofi-search"]).toEqual(
@@ -293,12 +348,15 @@ describe("an entry's search stands where the session has since replaced it", () 
 		);
 		const letGo = withPreviewStandingSearches(settled, []);
 		expect(readPreviewSearchContexts(letGo)).toEqual({});
-		// A record no Preview wrote holds nothing.
+		// A context a page wrote into the entry's state is no context: only
+		// the session's record holds them.
 		expect(
-			readPreviewSearchContexts({
-				__novaPreviewSearches: ["x"],
-				__novaPreviewSearchContexts: { x: { moduleUuid: patients } },
-			}),
+			readPreviewSearchContexts(
+				entryOf({
+					__novaPreviewSearches: ["x"],
+					__novaPreviewSearchContexts: { x: recorded("x") },
+				}),
+			),
 		).toEqual({});
 	});
 });

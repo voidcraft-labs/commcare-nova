@@ -321,3 +321,149 @@ def test_the_admins_form_is_keyed_without_the_address_connect_answers_at():
     # A browser's own form encoding, which writes a space as + and leaves ~ alone, and the address as it stands.
     assert hq.keyed_body(b"url=http%3A%2F%2F127.2.3.4%2Fapi", (one,)) == b"url=" + hq.DRAWN + b"%2Fapi"
     assert hq.keyed_body(b'{"url": "http://127.2.3.4/api"}', (one,)) == b'{"url": "' + hq.DRAWN + b'/api"}'
+
+
+def test_only_the_delivery_forms_forwarded_device_fix_and_its_missing_gps_flag_belong_to_location_capture():
+    from proof.checks import connect_places
+
+    # The walk starts in a different menu, and the tablet's run must look up its own Android trace.
+    walk = "m0/m0-f0"
+    name = walk + "@tablet"
+    fix = "12.9 77.5 920.0 5.0"
+    old_run = _run(
+        name,
+        payload=_payload(metadata={"instanceID": "@generated:uuid:3", "location": None}),
+        visit={"location": None, "flags": [["gps", "GPS data is missing"], ["pending_task", "t"]]},
+    )
+    new_run = _run(name, payload=_payload(metadata={"instanceID": "@generated:uuid:3", "location": fix}))
+    before, after = _record(android=[old_run]), _record(android=[new_run])
+    base = {"screen": "FormEntryActivity", "session": {"command": "m1-f2"}, "form": {"saved": {"records": [{}]}}}
+    sent = copy.deepcopy(base)
+    permissions = ["android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION"]
+    sent["form"].update(
+        deviceAsked=[
+            {"action": "android.content.pm.action.REQUEST_PERMISSIONS", "data": None, "permissions": permissions}
+        ],
+        deviceGave={"permissions": permissions, "location": fix},
+        saved={"records": [{"metaLocation": fix}]},
+    )
+    old, new = [{"walks": {walk: {"steps": [step]}}} for step in (base, sent)]
+
+    def devices(reader, tablet):
+        assert reader == "android" and tablet
+        return old, new
+
+    def owners():
+        found = connect.differences(before, after, check="proof3", document="d", artifact="connect@B")
+        owned = connect_places.locations(found, before, after, devices)
+        return {difference.path: owned.get((difference.artifact, difference.at)) for difference in found}
+
+    gps = ("form", "1.2", "xform", "data", "meta", "location")
+    assert owners() == {
+        connect_places.LOCATION: gps,
+        connect_places.GPS_FLAG: gps,
+        connect_places.VISIT + "/flags/pending_task": None,
+    }
+    sent["session"]["command"] = "m1-f1"
+    assert not any(owners().values())
+    sent["session"]["command"] = "m1-f2"
+    new_run["posts"][0]["payload"]["metadata"]["location"] = "1 2 3 4"
+    assert not any(owners().values())
+    new_run["posts"][0]["payload"]["metadata"]["location"] = fix
+    new_run["state"]["visits"][0]["location"] = "1 2 3 4"
+    assert not any(owners().values())
+    new_run["state"]["visits"][0]["location"] = fix
+    new_run["state"]["visits"][0]["xform"] = "a different submission"
+    assert not any(owners().values())
+
+
+def test_local_forwarding_compares_both_phones_and_refuses_missing_or_unidentifiable_legacy_contexts():
+    from proof.checks import connect_contexts
+
+    name = "m0/m0-f0"
+    arrived = {
+        "method": "POST",
+        "url_name": "receiver_post_with_app_id",
+        "status": 201,
+        "walk": name,
+        "url": "https://hq.example/a/space/receiver/@app/",
+    }
+    blobs = {"as-is": [arrived], "delivered": [{**arrived, "delivered": "/a/space/receiver/@build/"}]}
+    state = {"connect": "record", "android": {"hq": "as-is"}, "androidDelivered": {"hq": "delivered"}}
+    direct = _run(name, payload=_payload(build_id=None), visit={"entityName": "only the as-installed phone"})
+    supplied = _run(name)
+    for sequence in [[direct, supplied], [supplied, direct]]:
+        blobs["record"] = _record(android=sequence)
+        local, issues = connect_contexts.record(state, blobs.__getitem__, local=True)
+        assert not issues
+        assert local["runs"] == {"android": [supplied], "android@as-is": [direct]}
+        found = connect.differences(
+            _record(android=[supplied]),
+            local,
+            check="proof3",
+            artifact="connect@local.ccz",
+            document="d",
+            readers={"android": "android", "android@as-is": "android"},
+        )
+        assert [(d.at, d.after) for d in found] == [
+            ("/runs/android@as-is:m0~1m0-f0/state/visits/0/entityName", "only the as-installed phone")
+        ]
+    blobs["record"] = {"runs": {"android": [supplied], "android@as-is": [direct]}}
+    assert connect_contexts.record(state, blobs.__getitem__, local=True) == (blobs["record"], [])
+    for record in [
+        _record(android=[direct]),
+        _record(android=[supplied, supplied]),
+        {"runs": {"android": [direct], "android@as-is": [supplied]}},
+        {"runs": {"android": [supplied, supplied], "android@as-is": [direct]}},
+    ]:
+        blobs["record"] = record
+        assert connect_contexts.record(state, blobs.__getitem__, local=True)[1]
+    # Both phones sent to the build: a historical packet carries no evidence that distinguishes their contexts.
+    blobs["record"] = _record(android=[supplied, supplied])
+    blobs["as-is"] = blobs["delivered"]
+    assert connect_contexts.record(state, blobs.__getitem__, local=True)[1]
+
+
+def test_a_successful_phone_or_tablet_receipt_requires_its_own_forwarding_run_on_each_compared_state():
+    from proof.checks import connect_contexts
+
+    walk = "m0/m0-f0"
+    arrived = {
+        "method": "POST",
+        "url_name": "receiver_post_with_app_id",
+        "status": 201,
+        "walk": walk,
+        "url": "https://hq.example/a/space/receiver/@build/",
+    }
+    phone, tablet = _run(walk), _run(walk + "@tablet")
+    blobs = {"hq": [arrived]}
+    for local in (False, True):
+        prefix = "androidDelivered" if local else "android"
+        state = {"connect": "connect", prefix: {"hq": "hq"}, prefix + "Tablet": {"hq": "hq"}}
+        records = {"android": [phone, tablet]}
+        if local:
+            records["android@as-is"] = []
+        blobs["connect"] = {"runs": records}
+        assert connect_contexts.record(state, blobs.__getitem__, local=local)[1] == []
+        for absent in (phone, tablet):
+            blobs["connect"] = {"runs": {**records, "android": [r for r in records["android"] if r is not absent]}}
+            record, issues = connect_contexts.record(state, blobs.__getitem__, local=local)
+            assert [name for name, _ in issues] == [f"android:{absent['run']}"]
+            assert all(r["run"] != absent["run"] for r in record["runs"]["android"])
+        # Losing the entire Connect record while HQ confirmed both submissions is observable too.
+        _, issues = connect_contexts.record(
+            {k: v for k, v in state.items() if k != "connect"}, blobs.__getitem__, local=local
+        )
+        assert {name for name, _ in issues} == {f"android:{walk}", f"android:{walk}@tablet"}
+        # The same walk sends another form. A successful receipt for only its first form cannot cover the pair.
+        blobs["connect"] = {"runs": records}
+        blobs["two"] = [arrived, dict(arrived)]
+        _, issues = connect_contexts.record({**state, prefix + "Tablet": {"hq": "two"}}, blobs.__getitem__, local=local)
+        assert (
+            f"android:{walk}@tablet",
+            "HQ recorded 2 successful submissions; the forwarding run recorded 1.",
+        ) in issues
+    blobs["connect"] = {"runs": {"android": [phone, tablet], "android@as-is": [tablet]}}
+    record, issues = connect_contexts.record(state, blobs.__getitem__, local=True)
+    assert [name for name, _ in issues] == [f"android@as-is:{walk}@tablet"]
+    assert record["runs"]["android@as-is"] == []

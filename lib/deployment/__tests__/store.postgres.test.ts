@@ -18,10 +18,13 @@ import { sql } from "kysely";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { restoreApp, softDeleteApp } from "@/lib/db/apps";
+import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { activeRemoteApp } from "../resources";
 import { deploymentDisplaysAsReached } from "../stateMachine";
 import {
+	admitWorkerWrite,
 	applyDeploymentObservation,
 	beginDeploymentContentWrite,
 	type DeploymentScope,
@@ -30,14 +33,15 @@ import {
 	markResourceBaselinesUnread,
 	readAppBaseline,
 	readDeployment,
-	readDeploymentIdentityOverrides,
 	readDeploymentPreviewRecords,
 	readDeploymentsForApp,
 	readEntryPointEvidence,
 	readReachedDeploymentTargets,
 	readResourceBaselines,
+	readTargetIdentity,
 	recordCreatedRemoteApp,
 	recordEntryPointObservation,
+	recordProvisionedWorkers,
 	recordPushedResources,
 	recordRemoteResource,
 } from "../store";
@@ -45,8 +49,10 @@ import type {
 	AppBaselineWrite,
 	AppOwnership,
 	CanonicalPlace,
+	DeploymentResource,
 	ResourceBaselineWrite,
 } from "../types";
+import { readable } from "./readableRecord";
 
 const h = setupAppStateTestDb("deployments_", {
 	authSchema: "migrated",
@@ -164,7 +170,7 @@ async function publish(
 		uploadedAt: AT,
 		remoteRevision,
 		baseline: unreadBaseline(remoteId),
-	});
+	}).then(readable);
 }
 
 /** Capture the actual accepted push, as the observer does before network I/O. */
@@ -469,7 +475,7 @@ describe("pushed Project data", () => {
 			})),
 			{ status: "complete", kinds: ["location"], pushedAt: AT },
 			NEVER_ENDED,
-		);
+		).then(readable);
 	}
 
 	async function pushTable(
@@ -494,7 +500,7 @@ describe("pushed Project data", () => {
 			],
 			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
 			NEVER_ENDED,
-		);
+		).then(readable);
 	}
 
 	function partialMapping(
@@ -549,7 +555,7 @@ describe("pushed Project data", () => {
 			[partialMapping(TABLE, "hq-districts", "districts")],
 			{ status: "partial" },
 			NEVER_ENDED,
-		);
+		).then(readable);
 		expect(first.deployment.state).toBe("preflight");
 
 		const view = await recordPushedResources(
@@ -558,7 +564,7 @@ describe("pushed Project data", () => {
 			[partialMapping(OTHER_TABLE, "hq-regions", "regions")],
 			{ status: "partial" },
 			NEVER_ENDED,
-		);
+		).then(readable);
 
 		expect(
 			view.active
@@ -681,7 +687,7 @@ describe("pushed Project data", () => {
 			],
 			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
 			NEVER_ENDED,
-		);
+		).then(readable);
 
 		expect(
 			view.active
@@ -789,7 +795,7 @@ describe("pushed Project data", () => {
 			],
 			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
 			NEVER_ENDED,
-		);
+		).then(readable);
 
 		expect(view.deployment.phases.resources).toEqual({
 			status: "succeeded",
@@ -927,7 +933,7 @@ describe("pushed Project data", () => {
 			[place(COLORADO, "colorado"), place(DENVER, "denver")],
 			{ status: "partial" },
 			NEVER_ENDED,
-		);
+		).then(readable);
 
 		// The places really are on the project space, so they are recorded;
 		// the phase did not succeed, so the rung stays where it was.
@@ -945,7 +951,7 @@ describe("pushed Project data", () => {
 			[place(COLORADO, "colorado")],
 			{ status: "partial" },
 			NEVER_ENDED,
-		);
+		).then(readable);
 
 		// A place this call did not name may simply not have been reached
 		// yet, so nothing is superseded and nothing is reported as left
@@ -996,10 +1002,8 @@ describe("provisioned workers", () => {
 		}[],
 		stillUsed: readonly string[],
 	) {
-		return recordPushedResources(
-			scope,
-			TARGET,
-			workers.map((worker) => ({
+		return recordProvisionedWorkers(scope, TARGET, {
+			landed: workers.map((worker) => ({
 				kind: "worker" as const,
 				novaResourceId: worker.personaUuid,
 				remoteId: `hq-${worker.username}`,
@@ -1009,9 +1013,9 @@ describe("provisioned workers", () => {
 				pushedRevision: null,
 				remoteRevision: null,
 			})),
-			{ status: "reconciled", kind: "worker", stillUsed },
-			NEVER_ENDED,
-		);
+			stillUsed,
+			writeIds: [],
+		}).then(readable);
 	}
 
 	it("files the account without folding a rung", async () => {
@@ -1123,6 +1127,129 @@ describe("provisioned workers", () => {
 		expect(
 			view.superseded.find((resource) => resource.kind === "worker"),
 		).toMatchObject({ pushedIdentity: "amina@acme.commcarehq.org" });
+	});
+
+	/* Between a worker write's admission and its record the account is made
+	 * on CommCare HQ; an app deleted, or a caller who lost edit, in that time
+	 * must not leave it unrecorded, or the next call meets Nova's own account
+	 * as a stranger's. */
+	describe("what an admitted write made, recorded on its admission", () => {
+		const landedAs = (personaUuid: string, username: string) => ({
+			kind: "worker" as const,
+			novaResourceId: personaUuid,
+			remoteId: `hq-${username}`,
+			ownership: "nova-created" as const,
+			pushedIdentity: `${username}@acme.commcarehq.org`,
+			adoptedBy: null,
+			pushedRevision: null,
+			remoteRevision: null,
+		});
+		const workerIds = (view: { active: readonly DeploymentResource[] }) =>
+			view.active
+				.filter((resource) => resource.kind === "worker")
+				.map((resource) => resource.novaResourceId)
+				.sort();
+		async function openWrites(appId: string): Promise<number> {
+			const rows = await h
+				.db()
+				.selectFrom("hq_remote_writes")
+				.select("id")
+				.where("app_id", "=", appId)
+				.where(openRemoteWrite)
+				.execute();
+			return rows.length;
+		}
+
+		it("records the account though the app was deleted before the record, settles the write, and holds it once the app is restored", async () => {
+			const scope = await seed();
+			await create(scope);
+			await provision(
+				scope,
+				[{ personaUuid: JOSEPH, username: "joseph" }],
+				[AMINA, JOSEPH],
+			);
+			const writeId = await admitWorkerWrite(scope, TARGET, {
+				...NEVER_ENDED,
+				personaUuid: AMINA,
+			});
+			await softDeleteApp(scope.appId, scope.actorUserId);
+
+			const answer = await recordProvisionedWorkers(scope, TARGET, {
+				landed: [landedAs(AMINA, "amina")],
+				stillUsed: [AMINA],
+				writeIds: [writeId],
+			});
+			/* A deleted app's deployment is read by no one, so its caller is
+			 * told only of the account the call made. */
+			expect(answer.deployment).toBeNull();
+			expect(answer.landed).toEqual([
+				{
+					kind: "worker",
+					novaResourceId: AMINA,
+					remoteId: "hq-amina",
+					pushedIdentity: "amina@acme.commcarehq.org",
+				},
+			]);
+			expect(await openWrites(scope.appId)).toBe(0);
+
+			await restoreApp(scope.appId, scope.actorUserId);
+			const restored = await readDeployment(scope, TARGET);
+			if (restored === null) throw new Error("Expected the deployment");
+			/* The account the call made is Nova's; the deleted app's document
+			 * was not reconciled, so Joseph's stays as it was. */
+			expect(workerIds(restored)).toEqual([AMINA, JOSEPH].sort());
+			expect(
+				restored.active.find((resource) => resource.novaResourceId === AMINA),
+			).toMatchObject({
+				kind: "worker",
+				remoteId: "hq-amina",
+				ownership: "nova-created",
+			});
+		});
+
+		it("records the account for a caller who may only view the Project by the time of the record", async () => {
+			const scope = await seed();
+			await create(scope);
+			const writeId = await admitWorkerWrite(scope, TARGET, {
+				...NEVER_ENDED,
+				personaUuid: AMINA,
+			});
+			await h.seedProjectMember("u1", scope.projectId, "viewer");
+
+			const view = await recordProvisionedWorkers(scope, TARGET, {
+				landed: [landedAs(AMINA, "amina")],
+				stillUsed: [],
+				writeIds: [writeId],
+			}).then(readable);
+			expect(workerIds(view)).toEqual([AMINA]);
+			expect(await openWrites(scope.appId)).toBe(0);
+		});
+
+		it("records nothing on a deleted app for writes another member admitted", async () => {
+			const scope = await seed();
+			await create(scope);
+			await h.seedProjectMember("u2", scope.projectId, "editor");
+			const theirs = await admitWorkerWrite(
+				{ ...scope, actorUserId: "u2", role: "editor" },
+				TARGET,
+				{ ...NEVER_ENDED, personaUuid: AMINA },
+			);
+			await softDeleteApp(scope.appId, scope.actorUserId);
+
+			await expect(
+				recordProvisionedWorkers(scope, TARGET, {
+					landed: [landedAs(AMINA, "amina")],
+					stillUsed: [],
+					writeIds: [theirs],
+				}),
+			).rejects.toMatchObject({ code: "not_found" });
+			expect(await openWrites(scope.appId)).toBe(1);
+			const { rows } = await sql<{ workers: number }>`
+				SELECT count(*)::int AS workers FROM app_deployment_resources
+				WHERE kind = 'worker'
+			`.execute(h.db());
+			expect(rows[0]?.workers).toBe(0);
+		});
 	});
 });
 
@@ -1277,7 +1404,7 @@ describe("the empty app and HQ reporting it gone", () => {
 			...NEVER_ENDED,
 			remoteId: "hq-shell",
 			baseline: unreadBaseline("hq-shell"),
-		});
+		}).then(readable);
 		expect(view.deployment).toEqual(created.deployment);
 		expect(view.active).toEqual([
 			expect.objectContaining({
@@ -1324,7 +1451,7 @@ describe("the empty app and HQ reporting it gone", () => {
 			...NEVER_ENDED,
 			remoteId: "hq-new",
 			baseline: unreadBaseline("hq-new"),
-		});
+		}).then(readable);
 		expect(activeRemoteApp(replaced)).toMatchObject({
 			remoteId: "hq-new",
 			remoteMissingAt: null,
@@ -1357,7 +1484,7 @@ describe("the empty app and HQ reporting it gone", () => {
 			uploadedAt: AT,
 			remoteRevision: null,
 			baseline: unreadBaseline("hq-gone"),
-		});
+		}).then(readable);
 		const goneMapping = activeRemoteApp(gonePublished);
 		if (goneMapping === null) throw new Error("Expected an app mapping");
 		await applyDeploymentObservation(scope, goneTarget, {
@@ -1387,7 +1514,7 @@ describe("the empty app and HQ reporting it gone", () => {
 			...NEVER_ENDED,
 			remoteId: "hq-shell-after",
 			baseline: unreadBaseline("hq-shell-after"),
-		});
+		}).then(readable);
 		expect(deploymentDisplaysAsReached(shellAfter.deployment, "uploaded")).toBe(
 			true,
 		);
@@ -1459,7 +1586,7 @@ describe("the empty app and HQ reporting it gone", () => {
 				...(targetEmptyCaseListText !== undefined && {
 					targetEmptyCaseListText,
 				}),
-			});
+			}).then(readable);
 		expect((await upload()).deployment.targetEmptyCaseListText).toBeNull();
 		expect((await upload(true)).deployment.targetEmptyCaseListText).toBe(true);
 		expect((await upload()).deployment.targetEmptyCaseListText).toBe(true);
@@ -1486,7 +1613,7 @@ describe("the empty app and HQ reporting it gone", () => {
 				xmlns: "http://openrosa.org/formdesigner/hq-own",
 			})
 			.execute();
-		expect(await readDeploymentIdentityOverrides(scope, TARGET)).toEqual([
+		expect((await readTargetIdentity(scope, TARGET)).entities).toEqual([
 			{
 				entityKind: "form",
 				novaEntityUuid: form,
@@ -1495,11 +1622,16 @@ describe("the empty app and HQ reporting it gone", () => {
 			},
 		]);
 		expect(
-			await readDeploymentIdentityOverrides(scope, {
+			await readTargetIdentity(scope, {
 				server: "india",
 				domain: "acme",
 			}),
-		).toEqual([]);
+		).toEqual({
+			entities: [],
+			keyedCaseIds: [],
+			mediaPaths: [],
+			columnWords: [],
+		});
 	});
 });
 
@@ -1636,9 +1768,10 @@ describe("tenancy", () => {
 		const scope = await seed();
 		await create(scope);
 
+		/* Not an empty list: the app is not in that Project, which every read says alike. */
 		await expect(
 			readDeploymentsForApp({ ...scope, projectId: "other-project" }),
-		).resolves.toHaveLength(0);
+		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
 	});
 
 	it("rechecks membership after acquiring an app lock held by another transaction", async () => {
@@ -1671,6 +1804,11 @@ describe("tenancy", () => {
 				"COMMIT",
 			),
 		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
+		/* A read proves membership as a write does, so the record is read once the member is back. */
+		await expect(readDeployment(scope, TARGET)).rejects.toMatchObject({
+			code: "not_found",
+		});
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "owner");
 		expect(await readDeployment(scope, TARGET)).toEqual(before);
 	});
 
@@ -2190,7 +2328,7 @@ describe("what a landed publish read of the target", () => {
 				remoteRevision: null,
 				baseline: unreadBaseline("hq-1"),
 				...(offeredLogoContentHash !== undefined && { offeredLogoContentHash }),
-			});
+			}).then(readable);
 		expect((await land("abc123")).deployment.offeredLogoContentHash).toBe(
 			"abc123",
 		);

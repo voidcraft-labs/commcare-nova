@@ -35,6 +35,7 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { chargeWork, rethrowWorkStop } from "../../workMeter";
 import { readTypesGiven, valueBranches } from "./canonical";
 
 type Temporal = "date" | "datetime" | "time";
@@ -126,7 +127,8 @@ function comparedRequires(
 				? context
 				: expressionContextAtPath(root, context, path);
 		type = scalarDataType(typeOf(other, at)?.data);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return NONE;
 	}
 	if (type === "date" || type === "datetime" || type === "time")
@@ -140,6 +142,18 @@ function comparedRequires(
  * where its position requires that type. It types nothing else and never
  * takes a type away, so a reading's own choices (a comparison of moments
  * folded to an integer) stand.
+ *
+ * One pass, each node visited once: a node's children are visited first with
+ * nothing required of them, then the node types what its own rule requires of
+ * the positions under it from what those visits returned (a comparison's side
+ * by the other side, a range's bounds and subject by one another, a date
+ * function's date, a branch node's branches by the types its branches give).
+ * A requirement reaches a literal only at the position itself or through a
+ * branch node's branches, so `typedBy` descends only there, and each
+ * branch node remembers what its branches were typed by, so a later
+ * requirement types only what that one added. Each visit and each step of a
+ * requirement is a unit of the work meter's `visit` door, and each comparison
+ * charges the walk to its side and the side's size, which the checker types.
  */
 export function typedWhereRequired(
 	expression: Expression,
@@ -154,42 +168,83 @@ export function typedWhereRequired(
 			? new Set([expectation.type])
 			: NONE;
 	const root = expression;
+	/** What each branch node a visit returned has typed its branches by. */
+	const applied = new WeakMap<Expression, ReadonlySet<Temporal>>();
+	/** The nodes of each subtree a visit returned. */
+	const sizes = new WeakMap<object, number>();
+	const sizeOf = (node: object): number => sizes.get(node) ?? 1;
 
-	const visitTerm = (term: Term, path: CheckPath): Term =>
-		mapExpressionChildren(
-			term,
-			(child) =>
-				child.kind === "expression"
-					? visit(child.value, child.path, NONE)
-					: child.kind === "term"
-						? visitTerm(child.value, child.path)
-						: child.value,
+	/** `node`'s children visited, each once, with nothing required of them. */
+	const children = <T extends Expression | Term>(
+		node: T,
+		path: CheckPath,
+	): T => {
+		let size = 1;
+		const out = mapExpressionChildren(
+			node,
+			(child) => {
+				const visited =
+					child.kind === "expression"
+						? visit(child.value, child.path)
+						: child.kind === "term"
+							? children(child.value, child.path)
+							: child.value;
+				if (typeof visited === "object" && visited !== null)
+					size += sizeOf(visited);
+				return visited;
+			},
 			path,
 		);
+		sizes.set(out, size);
+		return out;
+	};
 
-	/** `node`'s children visited, each with what `requires` says its own
-	 *  path requires. */
-	const children = (
+	/** `node`, visited already, with `requiredAt` of each child's path required of that child. */
+	const requireAt = (
 		node: Expression,
 		path: CheckPath,
-		requires: (childPath: CheckPath) => ReadonlySet<Temporal>,
-	): Expression =>
-		mapExpressionChildren(
+		requiredAt: (relative: readonly unknown[]) => ReadonlySet<Temporal>,
+	): Expression => {
+		const out = mapExpressionChildren(
 			node,
 			(child) =>
 				child.kind === "expression"
-					? visit(child.value, child.path, requires(child.path))
-					: child.kind === "term"
-						? visitTerm(child.value, child.path)
-						: child.value,
+					? typedBy(
+							child.value,
+							child.path,
+							requiredAt(child.path.slice(path.length)),
+						)
+					: child.value,
 			path,
 		);
+		sizes.set(out, sizeOf(node));
+		return out;
+	};
 
-	const visit = (
+	/** The relative paths of `node`'s branches, where it is a branch node. */
+	const branchPaths = (
+		node: Expression,
+		path: CheckPath,
+	): ReadonlySet<string> | undefined => {
+		const branching = valueBranches(node, path);
+		return branching === undefined
+			? undefined
+			: new Set(
+					branching.branches.map((branch) =>
+						JSON.stringify(branch.path.slice(path.length)),
+					),
+				);
+	};
+
+	/** `node`, visited already, with `required` required of its value: the literal it is typed,
+	 *  or each branch of a branch node typed by `required` beside what its branches give. */
+	const typedBy = (
 		node: Expression,
 		path: CheckPath,
 		required: ReadonlySet<Temporal>,
 	): Expression => {
+		if (required.size === 0) return node;
+		chargeWork("visit", 1);
 		const shape = untypedTemporal(node);
 		if (shape !== undefined) {
 			if (!required.has(shape) || node.kind !== "term") return node;
@@ -198,63 +253,71 @@ export function typedWhereRequired(
 				term: { ...node.term, data_type: shape } as Term,
 			};
 		}
-		const branching = valueBranches(node, path);
-		if (branching !== undefined) {
-			const branchKeys = new Set(
-				branching.branches.map((branch) => JSON.stringify(branch.path)),
-			);
-			const atBranches =
-				(given: ReadonlySet<Temporal>) => (childPath: CheckPath) =>
-					branchKeys.has(JSON.stringify(childPath)) ? given : NONE;
-			// The branches are read first, so a branch the position types
-			// gives its type to the literals beside it.
-			const read = children(node, path, atBranches(required));
-			const given = new Set<Temporal>(required);
-			for (const type of readTypesGiven(read, path, root, context))
-				given.add(type);
-			return given.size === required.size
-				? read
-				: children(read, path, atBranches(given));
+		const branches = branchPaths(node, path);
+		if (branches === undefined) return node;
+		const before =
+			applied.get(node) ?? readTypesGiven(node, path, root, context);
+		const given = new Set<Temporal>(before);
+		for (const type of required) given.add(type);
+		if (given.size === before.size) return node;
+		const out = requireAt(node, path, (relative) =>
+			branches.has(JSON.stringify(relative)) ? given : NONE,
+		);
+		applied.set(out, given);
+		return out;
+	};
+
+	/** What a side compared at `path` requires of the other, the side's walk and size charged. */
+	const requiredBy = (
+		other: Expression,
+		path: CheckPath,
+		ordering: boolean,
+	): ReadonlySet<Temporal> => {
+		chargeWork("visit", path.length + sizeOf(other));
+		return comparedRequires(other, path, root, context, ordering);
+	};
+
+	/** `node` visited with nothing required of its own value. */
+	const visit = (node: Expression, path: CheckPath): Expression => {
+		chargeWork("visit", 1);
+		if (untypedTemporal(node) !== undefined) return node;
+		const read = children(node, path);
+		const branches = branchPaths(read, path);
+		if (branches !== undefined) {
+			// The branches give their types to the literals beside them.
+			const given = readTypesGiven(read, path, root, context);
+			const out =
+				given.size === 0
+					? read
+					: requireAt(read, path, (relative) =>
+							branches.has(JSON.stringify(relative)) ? given : NONE,
+						);
+			applied.set(out, given);
+			return out;
 		}
-		if (node.kind === "format-date" || node.kind === "date-add") {
-			const date = JSON.stringify([...path, "date"]);
-			return children(node, path, (childPath) =>
-				JSON.stringify(childPath) === date ? BOTH : NONE,
+		if (read.kind === "format-date" || read.kind === "date-add")
+			return requireAt(read, path, (relative) =>
+				relative.length === 1 && relative[0] === "date" ? BOTH : NONE,
 			);
-		}
-		if (COMPARISONS.has(node.kind) && "left" in node && "right" in node) {
-			const ordering = ORDERINGS.has(node.kind);
-			const read = children(node, path, () => NONE) as typeof node;
-			const left = visit(
+		if (COMPARISONS.has(read.kind) && "left" in read && "right" in read) {
+			const ordering = ORDERINGS.has(read.kind);
+			const left = typedBy(
 				read.left,
 				[...path, "left"],
-				comparedRequires(
-					read.right,
-					[...path, "right"],
-					root,
-					context,
-					ordering,
-				),
+				requiredBy(read.right, [...path, "right"], ordering),
 			);
-			const right = visit(
+			const right = typedBy(
 				read.right,
 				[...path, "right"],
-				comparedRequires(read.left, [...path, "left"], root, context, ordering),
+				requiredBy(read.left, [...path, "left"], ordering),
 			);
-			return left === read.left && right === read.right
-				? read
-				: { ...read, left, right };
+			if (left === read.left && right === read.right) return read;
+			const out = { ...read, left, right };
+			sizes.set(out, sizeOf(read));
+			return out;
 		}
-		if (node.kind === "between") {
-			const read = children(node, path, () => NONE);
-			if (read.kind !== "between") return read;
-			const bound = comparedRequires(
-				read.left,
-				[...path, "left"],
-				root,
-				context,
-				true,
-			);
+		if (read.kind === "between") {
+			const bound = requiredBy(read.left, [...path, "left"], true);
 			// The subject is ordered against each bound, as a comparison's side is.
 			const subject = new Set<Temporal>();
 			for (const [side, at] of [
@@ -262,33 +325,21 @@ export function typedWhereRequired(
 				[read.upper, "upper"],
 			] as const)
 				if (side !== undefined)
-					for (const type of comparedRequires(
-						side,
-						[...path, at],
-						root,
-						context,
-						true,
-					))
+					for (const type of requiredBy(side, [...path, at], true))
 						subject.add(type);
-			return children(read, path, (childPath) =>
-				childPath.at(-1) === "lower" || childPath.at(-1) === "upper"
-					? bound
-					: childPath.at(-1) === "left"
-						? subject
-						: NONE,
+			return requireAt(read, path, (relative) =>
+				relative.length !== 1
+					? NONE
+					: relative[0] === "lower" || relative[0] === "upper"
+						? bound
+						: relative[0] === "left"
+							? subject
+							: NONE,
 			);
 		}
-		if (node.kind === "in") {
+		if (read.kind === "in") {
 			// Each value is compared with the subject, typed by now.
-			const read = children(node, path, () => NONE);
-			if (read.kind !== "in") return read;
-			const given = comparedRequires(
-				read.left,
-				[...path, "left"],
-				root,
-				context,
-				false,
-			);
+			const given = requiredBy(read.left, [...path, "left"], false);
 			const values = read.values.map((value) => {
 				if (
 					value.kind !== "literal" ||
@@ -302,12 +353,14 @@ export function typedWhereRequired(
 					? { ...value, data_type: shape }
 					: value;
 			});
-			return values.some((value, index) => value !== read.values[index])
-				? { ...read, values: values as typeof read.values }
-				: read;
+			if (!values.some((value, index) => value !== read.values[index]))
+				return read;
+			const out = { ...read, values: values as typeof read.values };
+			sizes.set(out, sizeOf(read));
+			return out;
 		}
-		return children(node, path, () => NONE);
+		return read;
 	};
 
-	return visit(expression, [], rootRequires);
+	return typedBy(visit(expression, []), [], rootRequires);
 }

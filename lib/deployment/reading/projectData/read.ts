@@ -21,6 +21,7 @@ import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { getAppDb } from "@/lib/db/pg";
 import { projectRoleFor } from "@/lib/db/projectMembership";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { recordFromEntries } from "@/lib/domain/records";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
 import {
 	measureLookupRows,
@@ -142,7 +143,7 @@ export function postgresProjectSide(input: {
 						projectId,
 						projectRevision: all.projectRevision,
 						definitions,
-						rowsByTable: Object.fromEntries(fixture.rowsByTable),
+						rowsByTable: recordFromEntries(fixture.rowsByTable),
 						keptColumns: await readKeptLookupColumnIds(tx, projectId, tableIds),
 					};
 				});
@@ -150,8 +151,9 @@ export function postgresProjectSide(input: {
 		async referencingApps(tableIds) {
 			await viewerRole();
 			const db = await getAppDb();
-			const answers: Record<string, readonly LookupReferencingAppSummary[]> =
-				{};
+			const answers = recordFromEntries<readonly LookupReferencingAppSummary[]>(
+				[],
+			);
 			for (const tableId of tableIds) {
 				answers[tableId] = await readLookupReferencingApps(db, {
 					projectId,
@@ -216,7 +218,9 @@ async function readPlacesOnce(
 			places: {
 				hqLevels: levels,
 				hqPlaces: [],
-				placesPastLimit: { totalCount: places.totalCount },
+				placesPastLimit: {
+					totalCount: places.by === "rows" ? places.totalCount : null,
+				},
 			},
 		};
 	}

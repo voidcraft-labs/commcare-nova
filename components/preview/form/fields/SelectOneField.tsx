@@ -7,7 +7,7 @@ import {
 	type SelectOption,
 	type SingleSelectField,
 } from "@/lib/domain";
-import { PreviewMarkdown } from "@/lib/markdown";
+import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { focusChosenChoice, retainChoiceFocus } from "./choiceLabelActivation";
@@ -74,7 +74,9 @@ export function SelectOneField({
 	const rules = usePreviewPlatformRules();
 	const textForm = useFieldTextForm(field.uuid);
 	const drawChoiceMedia = isEditMode || rules.choiceMedia;
-	const labelRendering = isEditMode ? undefined : rules.labelMarkdown;
+	const labelRendering = isEditMode
+		? PREVIEW_LABEL_RENDERING
+		: rules.labelMarkdown;
 	/* A choice shown as typed (its own `plainLabel`, or its form's
 	 * `plainText`) shows as written in edit mode and where the platform draws
 	 * it so (Android); Web Apps formats every choice (`rules.plainChoice`). */

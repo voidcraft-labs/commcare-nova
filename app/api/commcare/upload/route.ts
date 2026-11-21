@@ -313,6 +313,7 @@ export async function POST(req: NextRequest) {
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const appId = body.appId;
 		const outcome = await publishAppToHq({
+			requireHqImport: null,
 			scope,
 			doc,
 			compiledAtSeq: app.mutation_seq,
@@ -366,12 +367,7 @@ export async function POST(req: NextRequest) {
 		const firstPublish =
 			outcome.deployment === null
 				? null
-				: await landedFirstPublish(
-						scope,
-						outcome.deployment,
-						doc.appSettings.runsOnlyOn,
-						"publish",
-					);
+				: await landedFirstPublish(scope, outcome.deployment, doc, "publish");
 		/* What an earlier publish left on this project space and the app no
 		 * longer points at. Derived here rather than in the dialog: telling a
 		 * rename (something really is sitting there) from a recreate
@@ -401,8 +397,13 @@ export async function POST(req: NextRequest) {
 				}),
 				/* Null when the app has never reached this target: a refused
 				 * first publish leaves nothing durable behind, and the refusal
-				 * below is the whole answer. */
+				 * below is the whole answer. Null on a landed publish too, where
+				 * the publisher was removed from the app's Project, or the app
+				 * was deleted, after the import went: the app is there and
+				 * recorded, and `sent` is what the publish put there. */
 				deployment: outcome.deployment,
+				...(outcome.landed &&
+					outcome.deployment === null && { sent: outcome.sent }),
 				/* Never inferred from `deployment.superseded` by the client:
 				 * a table recreated after being deleted on CommCare HQ
 				 * supersedes its mapping and leaves nothing there. The one

@@ -81,7 +81,7 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"date-and-time-saved-as-hq-stores-it":
 		"A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place.",
 	"connect-app-captures-location":
-		"Every form of this CommCare Connect app will record where it was filled in. Nova turns on Auto Capture Location for the app in CommCare HQ.",
+		"Nova turns on Auto Capture Location for this CommCare Connect app in CommCare HQ. On Android, each submitted form includes the worker's location when the app has location permission and the device gets a GPS fix. When a delivery form reaches CommCare Connect, its visit records that location. If the opportunity checks for missing GPS, the visit passes that check.",
 	"translation-overrides-folded":
 		"A wording set in CommCare HQ's app translations for one of the app's texts, such as a menu's name, a case list column's header or a Search field's label, becomes that text in Nova. Workers read the same words.",
 	"location-list-setting-reset":
@@ -90,6 +90,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"Web Apps is turned off for this app in CommCare HQ, because the app is set to run on Android only.",
 	"web-apps-turned-on":
 		"Web Apps is turned on for this app in CommCare HQ, because the app is set to run in Web Apps.",
+	"incomplete-forms-tile-hidden":
+		"With incomplete forms turned off, this app will stop showing the Incomplete Forms tile on the Web Apps home screen. Workers will still see the tile if another app shows it. To keep it for this app, open Saved and incomplete forms in App settings and turn on Show incomplete forms before publishing.",
 	"date-and-time-questions-split":
 		"Each date and time question becomes a date question and a time question, so the app runs in Web Apps. A case still gets one date and time from the two.",
 	"blank-translations-filled":
@@ -114,6 +116,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"On Android, a case list's Sort by no longer lists a choice with no name. CommCare HQ listed a hidden column there whose name was blank in every language, so workers saw an empty choice. You can give its sort rule a name in Nova to list it again.",
 	"form-titles-written":
 		"Each form's title now holds the form's name. On Android, a saved form a worker opens again shows that name at the top, where it showed no title or an older name before.",
+	"unread-fixture-declarations-dropped":
+		"A form no longer asks for data it never reads, such as a mobile report or the list of places. Where a worker's phone or Web Apps doesn't have that data, the form couldn't open before, and now it opens.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */

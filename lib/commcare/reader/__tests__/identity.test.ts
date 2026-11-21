@@ -4,13 +4,16 @@
  * app a later reading brings in), a kind left out of the name, a minted UUID
  * the document schema refuses, an identity kind nobody classified, a key met
  * twice that mints twice, a matching resolver that answers a known key
- * with anything but its UUID, and one that gives an entity it mints a UUID
+ * with anything but its UUID, one that gives an entity it mints a UUID
  * the map already holds for another (a key renamed in Nova, or an ordinal
- * moved by a removal, beside a key CommCare HQ then added).
+ * moved by a removal, beside a key CommCare HQ then added), and a resolver
+ * that keeps what one reading claimed, so a second reading given it finds
+ * its keys taken.
  */
 import { describe, expect, it } from "vitest";
 import { BLUEPRINT_AUTHORED_IDENTITY_KINDS, uuidSchema } from "@/lib/domain";
 import {
+	claimsUnder,
 	EXTERNAL_ENTITY_KINDS,
 	type ExternalKey,
 	externalKey,
@@ -156,7 +159,7 @@ describe("the key table", () => {
 
 describe("mintingResolver", () => {
 	it("mints each key once and answers a second claim with the first place", () => {
-		const resolver = mintingResolver(APP_ID);
+		const resolver = claimsUnder(mintingResolver(APP_ID));
 		const key = externalKey.selectOption(XMLNS, ["sex"], "f");
 		const first = resolver.claim(key, "form 1, question sex, choice 1");
 		expect(first).toEqual({ ok: true, uuid: mintEntityUuid(APP_ID, key) });
@@ -175,7 +178,7 @@ describe("mintingResolver", () => {
 	});
 
 	it("lists every claimed key in the order of its text", () => {
-		const resolver = mintingResolver(APP_ID);
+		const resolver = claimsUnder(mintingResolver(APP_ID));
 		const keys = [
 			externalKey.userProperty("zone"),
 			externalKey.form(XMLNS),
@@ -190,6 +193,18 @@ describe("mintingResolver", () => {
 			keys.map(externalKeyText).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
 		);
 	});
+
+	it("keeps nothing a reading claimed, so claims under it again start with none taken", () => {
+		const resolver = mintingResolver(APP_ID);
+		const key = externalKey.module("m");
+		const first = claimsUnder(resolver);
+		const second = claimsUnder(resolver);
+		const claimed = first.claim(key, "menu 1");
+		expect(claimed).toEqual({ ok: true, uuid: mintEntityUuid(APP_ID, key) });
+		expect(second.entries()).toEqual([]);
+		expect(second.claim(key, "menu 1")).toEqual(claimed);
+		expect(second.entries()).toEqual(first.entries());
+	});
 });
 
 describe("matchingResolver", () => {
@@ -200,7 +215,7 @@ describe("matchingResolver", () => {
 	];
 
 	it("answers a known key with its UUID and mints an unknown one", () => {
-		const resolver = matchingResolver(APP_ID, known);
+		const resolver = claimsUnder(matchingResolver(APP_ID, known));
 		expect(
 			resolver.claim(
 				externalKey.field(XMLNS, ["household", "head_name"]),
@@ -248,14 +263,15 @@ describe("matchingResolver", () => {
 		const map: IdentityMapEntry[] = [
 			{ kind: b.kind, parts: b.parts, uuid: renamed },
 		];
-		const first = matchingResolver(APP_ID, map);
+		const resolver = matchingResolver(APP_ID, map);
+		const first = claimsUnder(resolver);
 		expect(first.claim(b, "form 1")).toEqual({ ok: true, uuid: renamed });
 		const added = first.claim(a, "form 1");
 		if (!added.ok) throw new Error("The new field was claimed once.");
 		expect(added.uuid).not.toBe(renamed);
 		expect(uuidSchema.parse(added.uuid)).toBe(added.uuid);
 		/* Another reading told the same map gives the same UUID, whatever it claims first. */
-		const second = matchingResolver(APP_ID, map);
+		const second = claimsUnder(resolver);
 		expect(second.claim(a, "form 1")).toEqual(added);
 		expect(second.claim(b, "form 1")).toEqual({ ok: true, uuid: renamed });
 	});
@@ -273,7 +289,7 @@ describe("matchingResolver", () => {
 				uuid: mintEntityUuid(APP_ID, at(1)),
 			},
 		];
-		const resolver = matchingResolver(APP_ID, map);
+		const resolver = claimsUnder(matchingResolver(APP_ID, map));
 		const kept = resolver.claim(at(0), "menu 1");
 		const added = resolver.claim(at(1), "menu 1");
 		expect(kept).toEqual({ ok: true, uuid: mintEntityUuid(APP_ID, at(1)) });

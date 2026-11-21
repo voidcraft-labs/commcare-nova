@@ -21,6 +21,16 @@ def normalizers(artifact: str, rules):
     return tuple(rule.normalize for rule in rules if rule.applies_to(artifact))
 
 
+def menu_image(uri, media, rules):
+    """The URI a native menu reader hands on, with this build's media evidence for the menu-image rules."""
+    if not isinstance(uri, str) or not media:
+        return uri
+    value = {"menuImage": uri, **media}
+    for normalize in normalizers("menu-image", rules):
+        value = normalize(value)
+    return value["menuImage"]
+
+
 def normalized(artifact: str, parsed, rules):
     """A copy of one parsed artifact with each given rule for it applied, in the order given."""
     value = copy.deepcopy(parsed)

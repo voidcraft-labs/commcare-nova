@@ -69,6 +69,8 @@ const LEDGER_TABLES = [
 	"app_deployment_baselines",
 	"app_deployment_media_paths",
 	"app_deployment_keyed_case_ids",
+	"app_deployment_column_field_words",
+	"hq_remote_writes",
 ];
 
 /** The SQLSTATE and constraint a statement fails with, or `undefined` when it succeeds. */
@@ -754,6 +756,36 @@ describe(MIGRATION, () => {
 		const after = await revisions();
 		await runUp(db);
 		expect(await revisions()).toEqual(after);
+
+		// The old writer can still lose its post-import read. Its upsert
+		// replaces all four source fields but cannot clear nova_revision.
+		const oldPush = "01992000-0000-7000-8000-000000000100";
+		await sql`INSERT INTO public.app_deployment_baselines
+			(deployment_id, remote_app_id, origin, observed_at, observed_by)
+			VALUES (${oldPush}::uuid, 'hq-7', 'unread', now(), 'owner')
+			ON CONFLICT (deployment_id) DO UPDATE SET
+				origin = EXCLUDED.origin, source_gzip = EXCLUDED.source_gzip,
+				source_bytes = EXCLUDED.source_bytes, source_digest = EXCLUDED.source_digest,
+				ownership = EXCLUDED.ownership`.execute(db);
+		expect(
+			(
+				await sql`SELECT origin, nova_revision, source_digest FROM public.app_deployment_baselines
+			WHERE deployment_id = ${oldPush}::uuid`.execute(db)
+			).rows,
+		).toEqual([{ origin: "unread", nova_revision: "9", source_digest: null }]);
+		// An observation holding actual bytes, in contrast, may never claim
+		// that those bytes represent a saved revision of the Nova app.
+		expect(
+			await refusal(() =>
+				sql`UPDATE public.app_deployment_baselines
+			SET source_gzip = decode('1f8b','hex'), source_bytes = 2,
+				source_digest = ${"a".repeat(64)}, ownership = '{}'::jsonb
+			WHERE deployment_id = ${oldPush}::uuid`.execute(db),
+			),
+		).toEqual({
+			code: "23514",
+			constraint: "app_deployment_baselines_source_shape",
+		});
 	});
 
 	it("lets the previous revision supersede a released mapping and insert the fresh one beside it", async () => {
@@ -1002,6 +1034,174 @@ describe(MIGRATION, () => {
 			db,
 		);
 		expect(left.rows).toEqual([{ deployment_id: B }]);
+	});
+
+	it("holds a column's field word only where it is one Nova does not write, one per column and screen, gone with its deployment", async () => {
+		const db = database.db;
+		await seedFourApps(db);
+		await runUp(db);
+		const column = "01992000-0000-7000-8000-000000000401";
+		const record = (deployment: string, screen: string, word: string) =>
+			refusal(() =>
+				sql`INSERT INTO public.app_deployment_column_field_words
+					(deployment_id, nova_column_uuid, screen, field_word)
+					VALUES (${deployment}::uuid, ${column}::uuid, ${screen}, ${word})`.execute(
+					db,
+				),
+			);
+		/* The words Nova writes, `name`, `date-opened` and `external_id`, are no row. */
+		for (const word of ["name", "date-opened", "external_id", "status", ""])
+			expect(await record(A, "short", word)).toEqual({
+				code: "23514",
+				constraint: "app_deployment_column_field_words_word",
+			});
+		expect(await record(A, "detail", "case_name")).toEqual({
+			code: "23514",
+			constraint: "app_deployment_column_field_words_screen",
+		});
+		for (const word of ["case_name", "date_opened", "external-id"]) {
+			await sql`DELETE FROM public.app_deployment_column_field_words`.execute(
+				db,
+			);
+			expect(await record(A, "short", word)).toBeUndefined();
+		}
+		expect(await record(A, "short", "case_name")).toEqual({
+			code: "23505",
+			constraint: "app_deployment_column_field_words_pkey",
+		});
+		expect(await record(A, "long", "case_name")).toBeUndefined();
+		expect(await record(B, "short", "case_name")).toBeUndefined();
+
+		await sql`DELETE FROM public.app_deployments WHERE id = ${A}::uuid`.execute(
+			db,
+		);
+		const left = await sql<{ deployment_id: string }>`
+			SELECT deployment_id FROM public.app_deployment_column_field_words`.execute(
+			db,
+		);
+		expect(left.rows).toEqual([{ deployment_id: B }]);
+	});
+
+	it("holds a write Nova let out to CommCare HQ to its deployment's project space, its kind and its resource, gone with its deployment", async () => {
+		const db = database.db;
+		await seedFourApps(db);
+		await runUp(db);
+		const write = (input: {
+			readonly domain?: string;
+			readonly resourceKind?: string;
+			readonly resourceId?: string | null;
+			readonly writeKind?: string;
+			readonly jobId?: string | null;
+			readonly heldUntil?: string;
+		}) =>
+			refusal(() =>
+				sql`INSERT INTO public.hq_remote_writes
+					(deployment_id, server, domain, app_id, project_id, actor_user_id,
+						resource_kind, resource_id, write_kind, held_until, hq_job_id)
+					VALUES (${A}::uuid, 'production', ${input.domain ?? "clinic"},
+						'app-a', 'project-a', 'owner', ${input.resourceKind ?? "app"},
+						${input.resourceId === undefined ? "hq-app" : input.resourceId},
+						${input.writeKind ?? "import"},
+						${sql.raw(input.heldUntil ?? "now() + interval '5 minutes'")},
+						${input.jobId ?? null})`.execute(db),
+			);
+		expect(await write({})).toBeUndefined();
+		/* A create HQ has not answered names no app yet; nothing else may. */
+		expect(
+			await write({ writeKind: "create", resourceId: null }),
+		).toBeUndefined();
+		expect(await write({ resourceId: null })).toEqual({
+			code: "23514",
+			constraint: "hq_remote_writes_resource_named",
+		});
+		expect(await write({ resourceId: " " })).toEqual({
+			code: "23514",
+			constraint: "hq_remote_writes_resource_named",
+		});
+		expect(await write({ writeKind: "media", jobId: "job-1" })).toBeUndefined();
+		expect(await write({ jobId: "job-1" })).toEqual({
+			code: "23514",
+			constraint: "hq_remote_writes_job_is_media",
+		});
+		expect(
+			await write({ resourceKind: "lookup-table", writeKind: "workbook" }),
+		).toBeUndefined();
+		expect(await write({ resourceKind: "lookup-table" })).toEqual({
+			code: "23514",
+			constraint: "hq_remote_writes_kind_pairs",
+		});
+		expect(
+			await write({
+				resourceKind: "location",
+				resourceId: "place-uuid",
+				writeKind: "places",
+			}),
+		).toBeUndefined();
+		expect(
+			await write({ resourceKind: "location", resourceId: "place-uuid" }),
+		).toEqual({
+			code: "23514",
+			constraint: "hq_remote_writes_kind_pairs",
+		});
+		expect(
+			await write({
+				resourceKind: "worker",
+				resourceId: "persona-uuid",
+				writeKind: "worker",
+			}),
+		).toBeUndefined();
+		expect(
+			await write({ resourceKind: "worker", resourceId: "persona-uuid" }),
+		).toEqual({
+			code: "23514",
+			constraint: "hq_remote_writes_kind_pairs",
+		});
+		expect(await write({ heldUntil: "now() - interval '1 second'" })).toEqual({
+			code: "23514",
+			constraint: "hq_remote_writes_held_after_opening",
+		});
+		expect(await write({ domain: "elsewhere" })).toEqual({
+			code: "23503",
+			constraint: "hq_remote_writes_deployment_fk",
+		});
+
+		await sql`DELETE FROM public.app_deployments WHERE id = ${A}::uuid`.execute(
+			db,
+		);
+		const left = await sql<{ n: string }>`
+			SELECT count(*)::text AS n FROM public.hq_remote_writes`.execute(db);
+		expect(left.rows).toEqual([{ n: "0" }]);
+	});
+
+	it("takes a level's code as the subject of a worker-level confirmation, and holds every other kind to its own subject grammar", async () => {
+		const db = database.db;
+		await seedFourApps(db);
+		await runUp(db);
+		const confirm = (kind: string, subject: string) =>
+			refusal(() =>
+				sql`INSERT INTO public.app_deployment_confirmations
+					(deployment_id, kind, subject, confirmed_by)
+					VALUES (${A}::uuid, ${kind}, ${subject}, 'owner')`.execute(db),
+			);
+		expect(await confirm("worker-level", "District_Level")).toBeUndefined();
+		expect(await confirm("worker-level", "_ward-2")).toBeUndefined();
+		expect(await confirm("worker-level", "2nd")).toEqual({
+			code: "23514",
+			constraint: "app_deployment_confirmations_worker_level_subject",
+		});
+		expect(await confirm("worker-level", "a".repeat(51))).toEqual({
+			code: "23514",
+			constraint: "app_deployment_confirmations_worker_level_subject",
+		});
+		expect(await confirm("plan-feature", "District_Level")).toEqual({
+			code: "23514",
+			constraint: "app_deployment_confirmations_subject_check",
+		});
+		expect(await confirm("commtrack-off", "commtrack-off")).toBeUndefined();
+		expect(await confirm("worker-levels", "district")).toEqual({
+			code: "23514",
+			constraint: "app_deployment_confirmations_kind_check",
+		});
 	});
 
 	it("runs again over its own result with its ledger row erased, and changes no catalog row and no data row", async () => {

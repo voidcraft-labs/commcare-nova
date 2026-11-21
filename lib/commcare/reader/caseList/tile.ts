@@ -21,6 +21,7 @@ import {
 	type TileCell,
 	type TileVerticalAlign,
 } from "@/lib/domain/modules";
+import { recordFromEntries } from "@/lib/domain/records";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../../suite/case-list/tileStyle";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { withCandidate } from "../candidate";
@@ -142,7 +143,7 @@ const T = TILE_CLAIMS;
 
 const OFF_TILE = defineClaims(
 	"caseList.tile.off",
-	Object.fromEntries(
+	recordFromEntries(
 		CELL_KEYS.map((key) => [
 			key,
 			drop(
@@ -321,7 +322,7 @@ export function readTile(
 		const identifier = group.index_identifier;
 		if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
 			cursor.refuse("index_identifier", T.groupIdentifierOutside, {
-				name: identifier.slice(0, 200),
+				name: identifier,
 			});
 			ok = false;
 		} else {

@@ -16,16 +16,30 @@
  *   current language's name.
  * - `target`: anything else, every runtime UI-catalog key such as
  *   `home.start` and `android.package.name.*` among them. HQ's value is kept.
+ * - `not-its-own`: a key whose line in HQ's build is not one record under its
+ *   own name, so it sets another string or none: HQ's build writes the key
+ *   stripped (`commcare_translations.py::dumps`, `key.strip()`), and a key
+ *   that then holds `=`, `#` or a line break, or is empty, is read by a device
+ *   as something else (`localeFile.ts::isLocaleFileKey`). It is no one's: a
+ *   publish never carries it, and the drift check sees it as a change.
+ *
+ * A key is judged as HQ's build writes it, stripped: ` modules.m0` sets the
+ * string `modules.m0` names, so it is `generated`, and ` home.start` is the
+ * target's `home.start`.
  *
  * The patterns are data: the surface's `app-string-id:<pattern>` items, one
  * per entry of `REGEXES`, with `*` for HQ's `%s` (any text) and `#` for `%d`
  * (digits). The weekly pin pull request regenerates them from HQ's source.
  */
 
-import { isPythonSpace } from "./localeFile";
+import { isLocaleFileKey, isPythonSpace, pythonStrip } from "./localeFile";
 import surface from "./surface/surface.json";
 
-export type TranslationKeyOwner = "generated" | "language-name" | "target";
+export type TranslationKeyOwner =
+	| "generated"
+	| "language-name"
+	| "target"
+	| "not-its-own";
 
 const APP_STRING_ID_PREFIX = "app-string-id:";
 
@@ -82,17 +96,32 @@ export function generatedAppStringPattern(key: string): string | undefined {
 
 /**
  * The owner of `key` in an app whose languages, Nova's and the target's
- * current ones together, are `codes`.
+ * current ones together, are `codes`, judged on the key as CommCare HQ's
+ * build writes it (`writtenTranslationKey`). `codes` is a set a caller builds
+ * once for every key it judges, so a key costs one lookup whatever the number
+ * of languages.
  */
 export function translationKeyOwner(
 	key: string,
-	codes: Iterable<string>,
+	codes: ReadonlySet<string>,
 ): TranslationKeyOwner {
-	if (GENERATED_MATCHERS.some((matcher) => matcher.test(key))) {
+	const written = writtenTranslationKey(key);
+	if (written === undefined) return "not-its-own";
+	if (GENERATED_MATCHERS.some((matcher) => matcher.test(written))) {
 		return "generated";
 	}
-	for (const code of codes) if (code === key) return "language-name";
-	return "target";
+	return codes.has(written) ? "language-name" : "target";
+}
+
+/**
+ * The string a stored `translations` key sets in CommCare HQ's build, or
+ * undefined where it sets no one string of its own name: `dumps` writes
+ * `key.strip()`, and the line is one record under that name only where it is
+ * a locale file key (`localeFile.ts::isLocaleFileKey`).
+ */
+export function writtenTranslationKey(key: string): string | undefined {
+	const written = pythonStrip(key);
+	return isLocaleFileKey(written) ? written : undefined;
 }
 
 const UI_STRING_PREFIX = "ui-string:";

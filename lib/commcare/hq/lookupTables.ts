@@ -1,3 +1,4 @@
+import { recordFromEntries } from "@/lib/domain/records";
 import { withHqRequestDeadline } from "./deadline";
 import "server-only";
 
@@ -35,16 +36,21 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import {
-	authHeader,
+	HQ_LOOKUP_TABLE_LIST_MAX_BYTES,
+	HQ_LOOKUP_TABLE_LIST_MAX_ROWS,
+	HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES,
+} from "./bounds";
+import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
-	HQ_MALFORMED_ANSWER,
+	type HqAnswer,
 	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
-	isHqCount,
 	isValidDomainSlug,
 	logAndReturnError,
+	readAnswerJson,
+	sendHq,
 	WAF_PADDING,
 	writeMayHaveLanded,
 } from "./http";
@@ -91,23 +97,19 @@ export interface HqFixtureRow {
 }
 
 /**
- * How many tables to ask for at a time.
- *
- * Tastypie caps a page at its own `max_limit`, and asking for more than it
- * allows is answered with a page rather than an error, so the loop below
- * follows `meta.next` regardless of what this asks for.
+ * How many tables to ask for at a time: tastypie's own `max_limit`, which
+ * `LookupTableResource` keeps, so most project spaces' lists are one request
+ * and one evaluation of CommCare HQ's list. HQ serves that list with no
+ * order (`fixtures/models.py::LookupTableManager.by_domain`), so a list of
+ * several pages is the reader's to hold together.
  */
-const LOOKUP_TABLE_PAGE_SIZE = 100;
+const LOOKUP_TABLE_PAGE_SIZE = 1_000;
 
 /**
- * A bound on how many pages Nova will follow.
- *
- * A pagination cursor that never terminates would otherwise spin here
- * forever holding a request open. Twenty pages is far past any plausible
- * project space, so reaching it means the cursor is wrong rather than the
- * data being large.
+ * A bound on how many pages Nova will follow: past the row limit at the page
+ * size, so reaching it means the list never ends rather than being large.
  */
-const MAX_LOOKUP_TABLE_PAGES = 20;
+const MAX_LOOKUP_TABLE_PAGES = 21;
 
 /** An array of strings, `[]` where absent; null for anything else. */
 function stringList(value: unknown): readonly string[] | null {
@@ -165,7 +167,7 @@ function toHqLookupTable(raw: unknown): HqLookupTable | null {
 		properties.push([name, own]);
 	}
 	const fieldProperties: Record<string, readonly string[]> =
-		Object.fromEntries(properties);
+		recordFromEntries(properties);
 	const itemAttributes = stringList(raw.item_attributes);
 	if (itemAttributes === null) return null;
 	return {
@@ -194,34 +196,31 @@ export async function listHqLookupTables(
 ): Promise<readonly HqLookupTable[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
 
-	const rows = await readHqCollection(
-		creds,
-		`${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
-		"lookup table list",
-		MAX_LOOKUP_TABLE_PAGES,
-		{ keepRefusedBody: true, cancel: options.cancel },
-	);
-	if ("success" in rows) return rows;
-	const tables: HqLookupTable[] = [];
-	for (const raw of rows) {
-		const table = toHqLookupTable(raw);
-		if (table === null) {
-			log.error("[commcare] lookup table identity is malformed", undefined, {
-				domain,
-			});
-			return HQ_MALFORMED_ANSWER;
-		}
-		tables.push(table);
-	}
-	return tables;
+	const list = await readHqCollection(creds, {
+		label: "lookup table list",
+		firstUrl: `${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
+		maxPages: MAX_LOOKUP_TABLE_PAGES,
+		maxRows: HQ_LOOKUP_TABLE_LIST_MAX_ROWS,
+		maxBytes: HQ_LOOKUP_TABLE_LIST_MAX_BYTES,
+		row: toHqLookupTable,
+		identity: (table) => table.id,
+		keepRefusedBody: true,
+		cancel: options.cancel,
+	});
+	if ("success" in list) return list;
+	/* A list past Nova's bound cannot establish which tags are free, so it is
+	 * no answer, never a short list. */
+	if ("kind" in list)
+		return { success: false, status: 502, cause: "too-large" };
+	return list.rows;
 }
 
 /**
  * A bound on how many pages of one table's rows Nova will follow. HQ serves
- * at most 1,000 rows a page whatever `limit` asks, so this admits a table of
- * a million rows and stops a cursor that never terminates. Each page has its
- * own request deadline, so a long table is never cut off by one deadline
- * meant for a single request.
+ * at most 1,000 rows a page whatever `limit` asks, and every caller's row
+ * limit stops the read after the first page of a longer table, so reaching it
+ * means the list never ends. Each page has its own request deadline, so a
+ * long table is never cut off by one deadline meant for a single request.
  */
 const MAX_FIXTURE_ROW_PAGES = 1_000;
 
@@ -231,15 +230,13 @@ export const LOOKUP_ROWS_READ_CONCURRENCY = 4;
 function toFixtureRowFields(
 	raw: Record<string, unknown>,
 ): HqFixtureRow["fields"] | null {
-	/* Entries, not bracket assignment: a field named `__proto__` is a field
-	 * like any other, and an assignment would drop its value. */
 	const fields: [string, HqFixtureRow["fields"][string]][] = [];
 	const values = Object.values(raw);
 	/* The two shapes never mix in one row: `FixtureResource.dehydrate_fields`
 	 * falls back to the `field_list` form for the whole row as soon as one of
 	 * its fields holds more than one value. */
 	if (values.every((value) => typeof value === "string")) {
-		return Object.fromEntries(Object.entries(raw) as [string, string][]);
+		return recordFromEntries(Object.entries(raw) as [string, string][]);
 	}
 	for (const [name, value] of Object.entries(raw)) {
 		if (!isHqObject(value) || !Array.isArray(value.field_list)) return null;
@@ -261,13 +258,32 @@ function toFixtureRowFields(
 		}
 		fields.push([name, list]);
 	}
-	return Object.fromEntries(fields);
+	return recordFromEntries(fields);
 }
 
-/** One table's rows, with the total HQ reports for it. */
+/** One table's rows, with the total HQ reports for it and the bytes they were. */
 export interface HqLookupRows {
 	readonly totalCount: number;
 	readonly rows: readonly HqFixtureRow[];
+	/** The bytes of CommCare HQ's answer the rows were read from. */
+	readonly bytes: number;
+}
+
+/** One row of one table, or null where it is not a row of that table as `FixtureResource` serves it. */
+function toHqFixtureRow(raw: unknown, tag: string): HqFixtureRow | null {
+	if (
+		!isHqObject(raw) ||
+		typeof raw.id !== "string" ||
+		raw.id.trim() === "" ||
+		/* `convert_fdt` gives every row its table's tag: a row of another table
+		 * is no row of this one, and a table renamed since the list was read
+		 * makes the list stale. */
+		raw.fixture_type !== tag ||
+		!isHqObject(raw.fields)
+	)
+		return null;
+	const fields = toFixtureRowFields(raw.fields);
+	return fields === null ? null : { id: raw.id, fields };
 }
 
 /**
@@ -276,118 +292,44 @@ export interface HqLookupRows {
  * `sort_key`), with the total HQ reports for it.
  *
  * `FixtureResource` filtered by `fixture_type_id` is the one read that
- * answers a single table's rows. It needs the same API access the table
- * list does. A row that holds a field with no value makes HQ's serializer
- * raise and the whole read fail, which is a refusal here like any other.
+ * answers a single table's rows, at most 1,000 a page (`Meta.limit = 0`
+ * reads as tastypie's `max_limit`), each row naming its table's tag, which
+ * must be `table.tag`. It needs the same API access the table list does. A
+ * row that holds a field with no value makes HQ's serializer raise and the
+ * whole read fail, which is a refusal here like any other.
+ *
+ * `maxRows` and `maxBytes` are required: a table whose first page names more
+ * rows than `maxRows` answers `past-limit` by rows after one request, and one
+ * whose pages pass `maxBytes` answers `past-limit` by bytes. A table of more
+ * than one page is read twice and held to one state
+ * (`readCollection.ts::readHqCollection`); one that changes while it is read
+ * answers `moved`.
  */
-export function readHqLookupTableRows(
-	creds: CommCareCredentials,
-	domain: string,
-	tableId: string,
-	options?: { readonly cancel?: AbortSignal },
-): Promise<HqLookupRows | CommCareApiError>;
-/** With `stopPast`: `past-limit` where the first page's total is over it, and no page after it. */
-export function readHqLookupTableRows(
-	creds: CommCareCredentials,
-	domain: string,
-	tableId: string,
-	options: { readonly cancel?: AbortSignal; readonly stopPast: number },
-): Promise<
-	| HqLookupRows
-	| (HqPastLimit & { readonly totalCount: number })
-	| CommCareApiError
->;
 export async function readHqLookupTableRows(
 	creds: CommCareCredentials,
 	domain: string,
-	tableId: string,
-	options: { readonly cancel?: AbortSignal; readonly stopPast?: number } = {},
-): Promise<
-	| HqLookupRows
-	| (HqPastLimit & { readonly totalCount: number })
-	| CommCareApiError
-> {
-	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(tableId))
+	table: { readonly id: string; readonly tag: string },
+	options: {
+		readonly maxRows: number;
+		readonly maxBytes: number;
+		readonly cancel?: AbortSignal;
+	},
+): Promise<HqLookupRows | HqPastLimit | CommCareApiError> {
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(table.id))
 		return INVALID_DOMAIN_SLUG;
-	const firstUrl = `${baseUrl(creds)}/a/${domain}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(tableId)}`;
-	const reported: { totalCount: number | null } = { totalCount: null };
-	const collectionOptions = {
-		deadline: "page" as const,
+	const read = await readHqCollection(creds, {
+		label: "lookup table rows",
+		firstUrl: `${baseUrl(creds)}/a/${domain}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(table.id)}`,
+		maxPages: MAX_FIXTURE_ROW_PAGES,
+		maxRows: options.maxRows,
+		maxBytes: options.maxBytes,
+		row: (raw) => toHqFixtureRow(raw, table.tag),
+		identity: (row) => row.id,
+		deadline: "page",
 		cancel: options.cancel,
-		onMeta: (meta: Readonly<Record<string, unknown>>) => {
-			if (reported.totalCount === null && isHqCount(meta.total_count))
-				reported.totalCount = meta.total_count;
-		},
-	};
-	const { stopPast } = options;
-	const raw =
-		stopPast === undefined
-			? await readHqCollection(
-					creds,
-					firstUrl,
-					"lookup table rows",
-					MAX_FIXTURE_ROW_PAGES,
-					collectionOptions,
-				)
-			: await readHqCollection(
-					creds,
-					firstUrl,
-					"lookup table rows",
-					MAX_FIXTURE_ROW_PAGES,
-					{ ...collectionOptions, stopPast },
-				);
-	if ("success" in raw) return raw;
-	if ("kind" in raw) {
-		/* A row read needs the total its pages name, so a list past the limit
-		 * that named none disagrees with its total like any other. */
-		if (raw.totalCount !== null)
-			return { kind: "past-limit", totalCount: raw.totalCount };
-		return rowsDisagreeWithTotal(domain, null);
-	}
-	const rows: HqFixtureRow[] = [];
-	for (const value of raw) {
-		if (
-			!isHqObject(value) ||
-			typeof value.id !== "string" ||
-			value.id.trim() === "" ||
-			!isHqObject(value.fields)
-		) {
-			log.error("[commcare] lookup table row is malformed", undefined, {
-				domain,
-			});
-			return HQ_MALFORMED_ANSWER;
-		}
-		const fields = toFixtureRowFields(value.fields);
-		if (fields === null) {
-			log.error("[commcare] lookup table row fields are malformed", undefined, {
-				domain,
-			});
-			return HQ_MALFORMED_ANSWER;
-		}
-		rows.push({ id: value.id, fields });
-	}
-	/* The total is the first page's, and the pages together must hold
-	 * exactly that many rows: a table that changed between two pages is a
-	 * read that cannot be compared, never a short list. */
-	const { totalCount } = reported;
-	if (totalCount === null || totalCount !== rows.length)
-		return rowsDisagreeWithTotal(domain, rows.length);
-	return { totalCount, rows };
-}
-
-function rowsDisagreeWithTotal(
-	domain: string,
-	rows: number | null,
-): CommCareApiError {
-	log.error(
-		"[commcare] lookup table rows disagree with their total",
-		undefined,
-		{
-			domain,
-			rows,
-		},
-	);
-	return HQ_MALFORMED_ANSWER;
+	});
+	if ("success" in read || "kind" in read) return read;
+	return { totalCount: read.totalCount, rows: read.rows, bytes: read.bytes };
 }
 
 /**
@@ -545,15 +487,17 @@ export async function uploadLookupTableWorkbook(
 	form.append("replace", options.replace ? "true" : "false");
 
 	return withHqRequestDeadline(async (signal) => {
-		let res: Response;
+		let res: HqAnswer;
 		try {
-			res = await fetch(`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`, {
-				method: "POST",
-				headers: { Authorization: authHeader(creds) },
-				body: form,
-				redirect: "manual",
-				signal,
-			});
+			res = await sendHq(
+				creds,
+				`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`,
+				{
+					method: "POST",
+					body: form,
+					signal,
+				},
+			);
 		} catch (error) {
 			log.error("[commcare] lookup table upload unreachable", undefined, {
 				domain,
@@ -592,8 +536,8 @@ export async function uploadLookupTableWorkbook(
 		 * `JsonResponse`). The one OK answer that is not JSON is the plan
 		 * page the privilege check serves before the view runs, so nothing
 		 * was written. */
-		if (namesNonJsonMediaType(res.headers.get("content-type"))) {
-			await res.body?.cancel();
+		if (namesNonJsonMediaType(res.header("content-type"))) {
+			await res.discard();
 			log.warn("[commcare] lookup table upload needs a plan upgrade", {
 				domain,
 			});
@@ -605,15 +549,19 @@ export async function uploadLookupTableWorkbook(
 				upgradeRequired: true,
 			};
 		}
-		let body: unknown;
-		try {
-			body = await res.json();
-		} catch {
-			log.error("[commcare] lookup table upload returned non-JSON", undefined, {
-				domain,
-			});
-			/* CommCare HQ answered something Nova cannot read, which says
-			 * nothing about what it did with the workbook. */
+		const verdict = await readAnswerJson(res, HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES);
+		if (verdict.kind === "unreadable") {
+			log.error(
+				"[commcare] lookup table upload verdict is unreadable",
+				undefined,
+				{
+					domain,
+					why: verdict.why,
+				},
+			);
+			/* CommCare HQ answered something Nova cannot read, a verdict longer
+			 * than Nova reads among them, which says nothing about what it did
+			 * with the workbook. */
 			return {
 				success: false,
 				status: signal.aborted ? 503 : 502,
@@ -622,6 +570,7 @@ export async function uploadLookupTableWorkbook(
 				upgradeRequired: false,
 			};
 		}
+		const body = verdict.data;
 		if (
 			!isHqObject(body) ||
 			(body.code !== FIXTURE_UPLOAD_SUCCESS_CODE &&

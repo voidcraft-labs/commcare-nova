@@ -13,22 +13,26 @@
 /**
  * Why Nova can't bring in CommCare HQ's changes there: the app was never
  * published to that project space, or publishing there stopped, so nothing
- * there is this app's; the app is in recently deleted and another Nova app
- * took its CommCare HQ app there; or Nova can't tell CommCare HQ's changes from this
+ * there is this app's; the app is in recently deleted; another Nova app took
+ * its CommCare HQ app there while it was, and it has not published there
+ * since its restore; or Nova can't tell CommCare HQ's changes from this
  * app's: no reference to compare against, a baseline it couldn't read, a
- * base reading it can't make, one too large to compare, a document Nova
- * updated or moved since, or a change that didn't fit, which is Nova's own
+ * base reading it can't make, one too large to compare, a comparison that
+ * takes more work than Nova gives one app, a document Nova updated or moved
+ * since, or a change that didn't fit, which is Nova's own
  * defect.
  */
 export const HQ_CHANGES_UNAVAILABLE = [
 	"not-published",
 	"publishing-stopped",
 	"app-deleted",
+	"hq-app-taken",
 	"no-reference",
 	"baseline-unread",
 	"base-needs-project-data",
 	"base-unreadable",
 	"base-too-large",
+	"comparison-too-intricate",
 	"nova-updated",
 	"app-moved",
 	"nova-defect",

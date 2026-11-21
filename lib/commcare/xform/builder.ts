@@ -344,8 +344,9 @@ export const CONNECT_BLOCK_SHAPES = {
 >;
 
 /** A Connect block's wrapper named `id`, its own element and its leaves in the order its
- *  shape gives, each leaf holding the text `texts` gives it, or nothing. */
-function connectBlockData(
+ *  shape gives, each leaf holding the text `texts` gives it, or nothing. The reader of CommCare
+ *  HQ's forms holds a stored block only where this builds it whole. */
+export function connectBlockData(
 	shape: (typeof CONNECT_BLOCK_SHAPES)[keyof typeof CONNECT_BLOCK_SHAPES],
 	id: string,
 	texts: Readonly<Record<string, string>>,

@@ -14,10 +14,11 @@ When your client signs in to Nova, you see a consent screen listing what it's as
 | Create and edit apps on your behalf | Build new apps and modify existing ones. |
 | See your CommCare HQ project connection | Look up which HQ project spaces your stored API key can reach. Used to preview the target before an upload. |
 | Deploy your apps to CommCare HQ on your behalf | Upload finished apps to a chosen HQ project space. |
+| Read apps and data in your CommCare HQ project spaces, see who in Nova manages them, and bring them into your Projects on your behalf | List a project space's apps and read one, with its lookup tables and places, using your stored API key, see who in Nova already manages an app there, and bring it into a Nova Project, where every member of that Project can see it. This permission also lets a client bring in later changes, refresh HQ-managed tables and places during an upload, and refresh the settings HQ keeps for an app. |
 | See the members of your Projects — names and emails | List who's in your shared Projects and which invitations are pending. (Listing the Projects themselves rides the base connection; this row is about the member roster.) |
 | Create Projects, invite teammates, and change member roles on your behalf | Create shared Projects, send invitations, change member roles, and move apps between Projects — acts that give other people access to your work. |
 
-The HQ rows are separate from the rest because CommCare HQ is a different system: having Nova access doesn't automatically grant HQ access. The Projects rows are separate because they reach beyond your own account — one exposes other members' names and emails, the other hands out access. Each of these permissions stands alone (the write side doesn't include the read side), so check every row your client needs. If your client connected without one, the affected tools refuse with a clear error and you'll need to reauthorize.
+The HQ rows are separate from the rest because CommCare HQ is a different system: having Nova access doesn't automatically grant HQ access. The Projects rows are separate because they reach beyond your own account — one exposes other members' names and emails, the other hands out access. Each of these permissions stands alone (the write side doesn't include the read side, and neither includes bringing apps in), so check every row your client needs. A connection made before bringing apps in had its own row, and that could already see your CommCare HQ connection and deploy to it, can bring apps in too: it picks that up the next time your client renews its sign-in, with nothing to approve. Any other connection, a new one included, is asked when a tool needs a permission it doesn't hold, the same as any permission you haven't granted. If your client can't ask, the affected tools refuse with a clear error and you can reauthorize.
 
 ## Disconnecting
 
@@ -35,7 +36,9 @@ If your client does not open that screen, you can sign out and back in. The new 
 
 When Nova adds a new permission, how a client picks it up depends on how the client identifies itself. An app that identifies itself by a web address (the consent screen shows it as **Identified by**) picks up newly added permissions on its own, the next time Nova re-reads the app's details. Signing out and back in is all you need.
 
-An app that registered with Nova the older way asked for the permission set that existed when it registered, so signing out and back in offers the same old set, and requesting a newer permission fails with `invalid_scope`. For those apps only, you can remove the Nova server from the client and add it again. The fresh registration picks up the full current set.
+Nova added the permission to bring apps in from CommCare HQ to existing client registrations, including older registrations. If your connection already had both HQ permissions when this feature arrived, it picks up the third when it renews. Otherwise your client can ask you to grant it.
+
+For other new permissions, an app registered the older way may still offer only the permissions it requested when it registered. If it receives `invalid_scope`, you can remove the Nova server from the client and add it again to register with the current set.
 
 ## Temporary service interruptions
 

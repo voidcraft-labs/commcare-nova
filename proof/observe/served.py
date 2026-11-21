@@ -115,7 +115,10 @@ def client_reads(doc) -> str:
     from corehq.apps.cloudcare.utils import format_app_doc
 
     shown = format_app_doc(doc)
-    return "sha256:" + hashlib.sha256(canonical({key: shown.get(key) for key in CLIENT_KEYS})).hexdigest()
+    # FormplayerMain filters the release by this switch before formatting the apps the page receives.
+    inputs = {key: shown.get(key) for key in CLIENT_KEYS}
+    inputs["cloudcare_enabled"] = doc["cloudcare_enabled"]
+    return "sha256:" + hashlib.sha256(canonical(inputs)).hexdigest()
 
 
 def _runner():
@@ -223,7 +226,7 @@ class Serving:
         return observe.release_is_the_build(self.served, files)
 
 
-def serving(unit, document, app_id, *, driver, blobs, label, previous=None, change=None, edit=False):
+def serving(unit, document, app_id, *, driver, blobs, label, previous=None, change=None, database=None, platforms=None):
     """``proof.formplayer.hq.serve`` for the unit's state, as a ``Serving`` (a context manager's value). Serving it is
     Formplayer's work (``reading``), and each other reader's inside it is that reader's."""
     from proof.formplayer import hq
@@ -242,7 +245,8 @@ def serving(unit, document, app_id, *, driver, blobs, label, previous=None, chan
                 label=label,
                 previous=previous,
                 change=change,
-                edit=edit,
+                database=database,
+                platforms=platforms,
             ) as served,
         ):
             yield Serving(served, runner, driver, blobs)
@@ -442,9 +446,11 @@ def aligned(
                     # A device on Nova's local archive as Android meets it (its requests to the addresses its
                     # profile names; on a control's pre-fix archive, to Android's own defaults, finding 59), and one
                     # given the input the lane gives Core over that archive.
+                    with connect_.reading(forwarder, "android@as-is"):
+                        as_installed = {"android": held.android("local", local)} if observes_state("android", held.served) else {}
                     recorded["local"] = {
                         "formplayer": local_side,
-                        **({"android": held.android("local", local)} if observes_state("android", held.served) else {}),
+                        **as_installed,
                         **held.devices_on("local:delivered", local, delivered=True),
                     }
                     if forwarder is not None:

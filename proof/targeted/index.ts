@@ -161,6 +161,7 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
+import { styledValue } from "./documents/styledValue";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
@@ -300,6 +301,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hqChangesOrder,
 	hqChangesLocationList,
 	hqChangesMedia,
+	styledValue,
 ];
 
 /** Every targeted document, in a fixed order. */

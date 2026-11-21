@@ -760,10 +760,13 @@ def observe(
     build left it, whose menus A's searches are answered over (``_held_as``).
 
     Nova hands a local archive only to an app that declares Android
-    (``Document.platforms``): for a document that declares none, A's
-    baseline, its CSQL compiles and B's sessions run, and no ``local`` side is
-    recorded. A document that declares Android and holds no archive runs
-    none, as one A is missing or unbuildable for.
+    (``Document.platforms``), and none for a project space whose app keeps a
+    custom base URL elsewhere (``Document.local_refusal``): for a document
+    that holds no archive, A's baseline, its CSQL compiles and B's sessions
+    run, and no ``local`` side is recorded. Whether a document that declares
+    Android may hold none is judged from its files, never here: the bar holds
+    a stated refusal to A (``proof.checks.bar.local_outcome``), and proof 3
+    reports a missing archive no refusal is stated for.
 
     For a document that declares Android every side runs as Android runs it,
     over Android's own strings registered as the default locale's first source
@@ -780,7 +783,7 @@ def observe(
     operation = operation or unit.operation
     android = ANDROID in document.platforms()
     archive = document.local_ccz_for(export.configuration.name) if android else None
-    if a_build is None or unbuildable(a_build) is not None or (android and archive is None):
+    if a_build is None or unbuildable(a_build) is not None:
         return None
     database = casedata.document_case_database(document)
     lookups_a, restore_hq = restore_a

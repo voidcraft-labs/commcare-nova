@@ -5,9 +5,16 @@
  */
 
 import { z } from "zod";
+import { isGeneratedMemberPath } from "@/lib/commcare/cczMembers";
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import { xmlTextIssue } from "@/lib/commcare/xmlText";
 import type { AssetKind, IconRef } from "@/lib/domain";
+import {
+	NO_ENTRIES,
+	ownRecordValue,
+	recordFromEntries,
+} from "@/lib/domain/records";
 
 /** The most code points a held path has, the width of HQ's own path columns. */
 const MAX_WIRE_PATH_CODE_POINTS = 255;
@@ -28,13 +35,20 @@ const STRIPPED_AT_AN_END = /^[\p{Zs}\p{Zl}\p{Zp}]|[\p{Zs}\p{Zl}\p{Zp}]$/u;
  * deployment: a directory and a name, no empty, `.` or `..` segment, no
  * backslash and no control character, at most 255 code points, no character
  * at either end that CommCare HQ's bulk upload strips from every zip entry
- * (`CommCareMultimedia.get_form_path`), and text a UTF-8 zip entry can name.
+ * (`CommCareMultimedia.get_form_path`), and text the media suite can serialize
+ * as XML. The path cannot name a `.ccz`'s own file or stand under one
+ * (`cczMembers.ts::isGeneratedMemberPath`: `<any directory>/app_strings.txt`,
+ * `modules-<n>/forms-<n>.xml`, the root files), compared without letter case.
+ * A `.ccz` packs media beside those files, and a language or a form can be
+ * added after the path is held, so the reservation is by shape.
  */
 export function isHoldableWirePath(path: string): boolean {
-	if (!path.isWellFormed()) return false;
+	if (path.length > 2 * MAX_WIRE_PATH_CODE_POINTS) return false;
 	if ([...path].length > MAX_WIRE_PATH_CODE_POINTS) return false;
-	if (path.includes("\\") || CONTROL.test(path)) return false;
+	if (path.includes("\\") || CONTROL.test(path) || xmlTextIssue(path))
+		return false;
 	if (STRIPPED_AT_AN_END.test(path)) return false;
+	if (isGeneratedMemberPath(path)) return false;
 	const segments = path.split("/");
 	return (
 		segments.length >= 2 &&
@@ -42,6 +56,17 @@ export function isHoldableWirePath(path: string): boolean {
 			(segment) => segment !== "" && segment !== "." && segment !== "..",
 		)
 	);
+}
+
+/**
+ * The key two held paths share where CommCare HQ's media upload reads them
+ * as one: the path with its letters lowered (`toLowerCase`), as the upload
+ * matches a path to the app's references. The one key every decision about
+ * held paths compares by, in TypeScript; the database's folded index is a
+ * floor that folds ASCII letters alone, and no writer matches rows by it.
+ */
+export function wirePathKey(path: string): string {
+	return path.toLowerCase();
 }
 
 /** Wire path (CommCare HQ's path without `jr://file/`) to CommCare HQ's id of the file there. */
@@ -52,7 +77,7 @@ export const hqMediaRecordSchema: z.ZodType<HqMediaRecord> = z
 	.record(
 		z.string().refine(isHoldableWirePath, {
 			message:
-				"A media path Nova keeps is one CommCare HQ's upload can address.",
+				"A media path Nova keeps is one CommCare HQ's upload can address and a CCZ can hold beside its own files.",
 		}),
 		z.string().regex(/^[\w-]+$/),
 	)
@@ -71,7 +96,7 @@ export function hqMediaRecordFromSource(
 	map: readonly HqMediaMapItem[],
 ): HqMediaRecord {
 	const byPath = new Map(map.map((item) => [item.path, item]));
-	const record: Record<string, string> = {};
+	const record = recordFromEntries<string>([]);
 	for (const wirePath of wirePaths) {
 		const id = byPath.get(`${JR_FILE}${wirePath}`)?.multimediaId ?? null;
 		if (id === null) {
@@ -257,12 +282,14 @@ export function nextHqMediaRecord(input: {
 			.filter((path) => path.standing === "absent" && path.hq !== null)
 			.map((path) => path.wirePath),
 	);
-	const record: Record<string, string> = {};
+	const record = recordFromEntries<string>([]);
 	for (const { wirePath } of input.published) {
 		const id =
-			input.reported[wirePath] ??
-			input.learned[wirePath] ??
-			(gone.has(wirePath) ? undefined : input.previous?.[wirePath]);
+			ownRecordValue(input.reported, wirePath) ??
+			ownRecordValue(input.learned, wirePath) ??
+			(gone.has(wirePath)
+				? undefined
+				: ownRecordValue(input.previous ?? undefined, wirePath));
 		if (id !== undefined) record[wirePath] = id;
 	}
 	return record;
@@ -277,10 +304,10 @@ export function hqMediaRecordMoves(
 	previous: HqMediaRecord | null,
 	next: HqMediaRecord,
 ): boolean {
-	const before = previous ?? {};
+	const before = previous ?? NO_ENTRIES;
 	const paths = Object.keys(next);
 	return (
 		paths.length !== Object.keys(before).length ||
-		paths.some((path) => before[path] !== next[path])
+		paths.some((path) => ownRecordValue(before, path) !== next[path])
 	);
 }

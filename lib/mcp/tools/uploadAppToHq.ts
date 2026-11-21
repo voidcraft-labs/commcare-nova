@@ -42,8 +42,9 @@
  * producing a distinct envelope so MCP clients can branch cleanly:
  *
  *   1. `scope_missing`:           the access token lacks `nova.hq.write`.
- *                                 Pre-gate 0; cuts off ownership probing
- *                                 before any app-state read.
+ *                                 Checked by its registration
+ *                                 (`registerScopedTool`) before any
+ *                                 app-state read.
  *   2. `hq_not_configured`:       the user has not stored CommCare HQ
  *                                 credentials in Settings.
  *   3. `domain_not_authorized`:   `domain` was supplied but the key can't
@@ -220,6 +221,7 @@ import {
 	PLAN_FEATURE_ID_LIST,
 	type PublishPlacements,
 } from "@/lib/deployment/types";
+import { orderedOrganizationLevels } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import {
 	acceptPlacementMovesSchema,
@@ -241,7 +243,8 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId } from "../runId";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
+import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
 import { landedNovaRevisions, landedResourceIdentities } from "./landedReads";
@@ -625,12 +628,13 @@ export function registerUploadAppToHq(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"upload_app_to_hq",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. Where Nova stopped publishing the app to that project space, an upload makes a new app beside the one that stays there, which `check_project_space_compatibility` says in `new_app_beside` before the upload. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If an application profile of the app on CommCare HQ includes a language the app no longer has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay the `message` and its `url`, and upload again once the user has changed the profile there. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. If the app, a lookup table or a place it publishes changed in CommCare HQ since Nova last published it, the call returns `hq_changed` before sending anything: show the user each entry of `remote_changes` (its `name`, `hq_name` and `parts`, or that Nova couldn't tell what changed when `baseline_known` is false) and send them back in `discard_hq_changes` only for the ones the user said to write over. If the app changed while Nova was publishing its lookup tables and places, `hq_changed` comes after those were sent and before the app's content, with `remote_changes` empty; uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. If a lookup table the app reads is managed in CommCare HQ and changed there in a way the app depends on, the call returns `hq_managed_data_changed` before sending anything: relay the `message`, which names each table, what changed and what the user can do, and upload again once that is done. To publish Nova's copy of a table instead, the user can hand it to Nova with `set_lookup_table_management`: show what that does and ask first. `managed_table_handed_back` means a table was handed back to CommCare HQ while the upload was getting ready, and Nova stopped before sending any lookup table or the app's content: upload again, and Nova leaves that table as it is. An app brought in from CommCare HQ updates the app it came from, keeping every menu's and form's ID there. `hq_changed` then measures changes since the app was brought in: each change's `since` says which (`published`, `brought-in` with `at`, or `changes-brought-in`), and a date in a message is the UTC day. When the app's change has `can_bring_in` true, you can read what changed with `read_hq_changes` and bring it in with `bring_in_hq_changes`, or publish over it by naming it in `discard_hq_changes`. Ask the user which. `publishing_stopped` means someone stopped publishing this app to that project space while the upload was getting ready; relay the `message`, which says whether anything was sent, and do not upload again unless the user wants a new app there. If the app needs something of the project space that no API key can read (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off, CommCare Supply turned off) and nobody has confirmed it there, the call returns `hq_confirmation_needed` before sending anything: show the user each entry of `confirmations_needed` (its `label`, `plans`, `consequence`, `reasons` and `where_missing`, what the user can do where the project space lacks it) and send back only the ones the user said the project space has, in `confirm_plan_features`, `confirm_flat_location_fixture`, `confirm_connect_forwarder`, `confirm_form_entry_sync_off` and `confirm_commtrack_off`; a confirmation is kept once an upload goes ahead, so resend it with each attempt until one does. The first upload of a case change records where CommCare HQ keeps it, which changes the saved app (`placements.recorded`); work begun with `begin_work` before then has to begin again. If a refusal carries `placement_moves`, show the user each move's `sentence`, and send `accept_placement_moves` with its `reason` and `digest` only when the user agrees: the move changes where CommCare HQ keeps those answers in every project space the app is published to. `hq_placement_moves_changed` means the offer changed since; show the new one. `app_changed_while_publishing` means the app kept changing while Nova prepared the upload; upload again. If the app's Web App setting on CommCare HQ differs from where the app runs, the call returns `hq_web_apps_change` before sending anything: relay its message, and send `confirm_web_apps` with `web_apps_change.to` only when the user says to change it. If CommCare HQ made the new app with Web Apps off for an app that runs in Web Apps, the call returns `hq_plan_lacks_web_apps`: relay its message, and leave `web-apps` out of `confirm_plan_features` until the user says the plan now includes it. If the app on CommCare HQ is set to a CommCare version below the one Nova's apps need, the call returns `hq_app_version_below_floor` with the app's `url`; relay its message. A success returns the same checked `project_space_compatibility` report, the durable deployment state and `logo_step` (the app's logo, which an upload never sends, with `instructions` to relay when `changed` is true). Where Nova couldn't read back the deployment's `kept` list or `nova_revision` after the app landed, that field is left out and the upload still succeeded: `get_deployment` reads them again.",
+				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. Where Nova stopped publishing the app to that project space, an upload makes a new app beside the one that stays there, which `check_project_space_compatibility` says in `new_app_beside` before the upload. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If an application profile of the app on CommCare HQ includes a language the app no longer has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay the `message` and its `url`, and upload again once the user has changed the profile there. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. If the app, a lookup table or a place it publishes changed in CommCare HQ since Nova last published it, the call returns `hq_changed` before sending anything: show the user each entry of `remote_changes` (its `name`, `hq_name` and `parts`, or that Nova couldn't tell what changed when `baseline_known` is false) and send them back in `discard_hq_changes` only for the ones the user said to write over. If the app changed while Nova was publishing its lookup tables and places, `hq_changed` comes after those were sent and before the app's content, with `remote_changes` empty; uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. Refreshing a lookup table or places managed in CommCare HQ during upload also requires HQ Import. If a lookup table the app reads is managed in CommCare HQ and changed there in a way the app depends on, the call returns `hq_managed_data_changed` before sending anything: relay the `message`, which names each table, what changed and what the user can do, and upload again once that is done. To publish Nova's copy of a table instead, the user can hand it to Nova with `set_lookup_table_management`: show what that does and ask first. `managed_table_handed_back` means a table was handed back to CommCare HQ while the upload was getting ready, and Nova stopped before sending any lookup table or the app's content: upload again, and Nova leaves that table as it is. An app brought in from CommCare HQ updates the app it came from, keeping every menu's and form's ID there. `hq_changed` then measures changes since the app was brought in: each change's `since` says which (`published`, `brought-in` with `at`, or `changes-brought-in`), and a date in a message is the UTC day. When the app's change has `can_bring_in` true, you can read what changed with `read_hq_changes` and bring it in with `bring_in_hq_changes`, or publish over it by naming it in `discard_hq_changes`. Ask the user which. `publishing_stopped` means someone stopped publishing this app to that project space while the upload was getting ready; relay the `message`, which says whether anything was sent, and do not upload again unless the user wants a new app there. If the app needs something of the project space that no API key can read (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off, CommCare Supply turned off) and nobody has confirmed it there, the call returns `hq_confirmation_needed` before sending anything: show the user each entry of `confirmations_needed` (its `label`, `plans`, `consequence`, `reasons` and `where_missing`, what the user can do where the project space lacks it) and send back only the ones the user said the project space has, in `confirm_plan_features`, `confirm_flat_location_fixture`, `confirm_connect_forwarder`, `confirm_form_entry_sync_off` and `confirm_commtrack_off`; a confirmation is kept once an upload goes ahead, so resend it with each attempt until one does. The first upload of a case change records where CommCare HQ keeps it, which changes the saved app (`placements.recorded`); work begun with `begin_work` before then has to begin again. If a refusal carries `placement_moves`, show the user each move's `sentence`, and send `accept_placement_moves` with its `reason` and `digest` only when the user agrees: the move changes where CommCare HQ keeps those answers in every project space the app is published to. `hq_placement_moves_changed` means the offer changed since; show the new one. `app_changed_while_publishing` means the app, or where it publishes, kept changing while Nova prepared the upload, and nothing more was sent; relay the `message`, which says when to upload again. If the app's Web App setting on CommCare HQ differs from where the app runs, the call returns `hq_web_apps_change` before sending anything: relay its message, and send `confirm_web_apps` with `web_apps_change.to` only when the user says to change it. If CommCare HQ made the new app with Web Apps off for an app that runs in Web Apps, the call returns `hq_plan_lacks_web_apps`: relay its message, and leave `web-apps` out of `confirm_plan_features` until the user says the plan now includes it. If the app on CommCare HQ is set to a CommCare version below the one Nova's apps need, the call returns `hq_app_version_below_floor` with the app's `url`; relay its message. A success returns the same checked `project_space_compatibility` report, the durable deployment state and `logo_step` (the app's logo, which an upload never sends, with `instructions` to relay when `changed` is true). Where Nova couldn't read back the deployment's `kept` list or `nova_revision` after the app landed, that field is left out and the upload still succeeded: `get_deployment` reads them again. Where the user was removed from the app's Project, or the app was deleted, while the upload ran, a success carries `deployment` null and `sent`, what this upload put on CommCare HQ: tell the user it landed and was recorded. A refusal after something went says so in its `message`.",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -704,15 +708,6 @@ export function registerUploadAppToHq(
 			const appId = args.app_id;
 
 			try {
-				/* Pre-gate 0: scope. Runs BEFORE ownership so a token without
-				 * `nova.hq.write` cannot probe whether an app id exists or
-				 * is owned by the caller: scope failure leaks nothing about
-				 * the user's data, ownership failure does (collapsed at the
-				 * wire to `not_found`, but still a probe channel that's
-				 * cheaper to cut off entirely). Throws `McpScopeError`;
-				 * the surrounding catch stamps `app_id` from `ctx`. */
-				assertScope(ctx, SCOPES.hqWrite, "upload_app_to_hq");
-
 				/* Pre-gate 1: Project edit access + blueprint load in one
 				 * read. `loadAppBlueprint` throws `McpAccessError` on
 				 * cross-tenant probe or vanished row; both collapse to
@@ -796,6 +791,8 @@ export function registerUploadAppToHq(
 					 * omitted and whitespace-only inputs to the blueprint's
 					 * denormalized name, which the schema keeps non-blank. */
 					const outcome = await publishAppToHq({
+						requireHqImport: () =>
+							assertScope(ctx, SCOPES.hqImport, "upload_app_to_hq"),
 						scope: {
 							appId,
 							projectId: access.projectId,
@@ -1128,39 +1125,22 @@ export function registerUploadAppToHq(
 						);
 					}
 
-					const record = outcome.deployment.deployment;
-					const remote = activeRemoteApp(outcome.deployment);
-					const hqAppId = remote?.remoteId ?? null;
+					const landedRecord = outcome.deployment;
+					/* The HQ app this upload imported: the record's live mapping, or,
+					 * for a caller who may no longer read the record, what the upload
+					 * sent. */
+					const hqAppId =
+						landedRecord === null
+							? (outcome.sent.find((resource) => resource.kind === "app")
+									?.remoteId ?? null)
+							: (activeRemoteApp(landedRecord)?.remoteId ?? null);
 					call.current?.progress.notify(
 						"upload_complete",
 						`Uploaded. HQ app id ${hqAppId ?? "unknown"}`,
 						{ app_id: appId, hq_app_id: hqAppId },
 					);
 
-					const deploymentScope = {
-						appId,
-						projectId: access.projectId,
-						role: access.role,
-						actorUserId: ctx.userId,
-					};
-					/* The app has landed, so what Nova could not read just now
-					 * is left out of the answer rather than failing it and
-					 * inviting a second upload. */
-					const [identities, kept, novaRevisions] = await Promise.all([
-						landedResourceIdentities(
-							deploymentScope,
-							doc,
-							record.domain,
-							"publish",
-						),
-						landedDeploymentKept(
-							deploymentScope,
-							outcome.deployment,
-							"publish",
-						),
-						landedNovaRevisions(deploymentScope, record.domain, "publish"),
-					]);
-					const payload = {
+					const shared = {
 						stage: "upload_complete",
 						app_id: appId,
 						hq_app_id: hqAppId,
@@ -1183,21 +1163,67 @@ export function registerUploadAppToHq(
 						url: outcome.hqAppUrl,
 						warnings: outcome.warnings,
 						project_space_compatibility: outcome.projectSpaceCompatibility,
-						deployment_state: record.state,
-						deployment: describeDeployment(
-							outcome.deployment,
-							identities,
-							kept,
-							novaRevisions,
-						),
-						setup_artifact: outcome.artifact,
-						/* What this upload recorded of where CommCare HQ keeps
-						 * the app's case changes. */
-						placements: {
-							recorded: outcome.placements.recorded,
-							moved: outcome.placements.moved,
-						},
 					};
+					/* What this upload recorded of where CommCare HQ keeps the
+					 * app's case changes. */
+					const placements = {
+						recorded: outcome.placements.recorded,
+						moved: outcome.placements.moved,
+					};
+					let payload: Record<string, unknown>;
+					if (landedRecord === null) {
+						/* The caller was removed from the app's Project, or the app
+						 * was deleted, after the import was admitted: the app landed
+						 * and Nova recorded it, and the answer says what this upload
+						 * sent and nothing of a deployment the caller may no longer
+						 * read. */
+						payload = {
+							...shared,
+							deployment: null,
+							sent: outcome.sent.map((resource) => ({
+								kind: resource.kind,
+								nova_id: resource.novaResourceId,
+								hq_id: resource.remoteId,
+								hq_name: resource.pushedIdentity,
+							})),
+							setup_artifact: outcome.artifact,
+							placements,
+						};
+					} else {
+						const record = landedRecord.deployment;
+						const deploymentScope = {
+							appId,
+							projectId: access.projectId,
+							role: access.role,
+							actorUserId: ctx.userId,
+						};
+						/* The app has landed, so what Nova could not read just now
+						 * is left out of the answer rather than failing it and
+						 * inviting a second upload. */
+						const [identities, kept, novaRevisions] = await Promise.all([
+							landedResourceIdentities(
+								deploymentScope,
+								doc,
+								record.domain,
+								"publish",
+							),
+							landedDeploymentKept(deploymentScope, landedRecord, "publish"),
+							landedNovaRevisions(deploymentScope, record.domain, "publish"),
+						]);
+						payload = {
+							...shared,
+							deployment_state: record.state,
+							deployment: describeDeployment(
+								landedRecord,
+								identities,
+								kept,
+								novaRevisions,
+								orderedOrganizationLevels(doc),
+							),
+							setup_artifact: outcome.artifact,
+							placements,
+						};
+					}
 
 					/* Record the upload success on the event log as a
 					 * `tool-result` conversation event. `toolCallId` is a fresh

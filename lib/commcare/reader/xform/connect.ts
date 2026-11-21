@@ -11,9 +11,14 @@ import { type Element, isTag } from "domhandler";
 import { CONNECT_ID_MAX_LENGTH, type Uuid } from "@/lib/domain";
 import type { FormStructureConnect } from "@/lib/domain/expression/formStructure";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
+import { recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { connectIdProblem } from "../../connectSlugs";
-import { CONNECT_BLOCK_SHAPES, CONNECT_XMLNS } from "../../xform/builder";
+import {
+	CONNECT_BLOCK_SHAPES,
+	CONNECT_XMLNS,
+	connectBlockData,
+} from "../../xform/builder";
 import {
 	attributeNamespace,
 	elementNamespace,
@@ -28,7 +33,8 @@ import {
 	pendingPlaceholder,
 } from "../pendingExpressions";
 import { appPlace } from "../place";
-import type { XmlCursor } from "../xmlCursor";
+import { builtScopes, sameElementWhole } from "../sameElement";
+import type { XmlCursor, XmlNode } from "../xmlCursor";
 import { X } from "./claims";
 import type { NodeRole, ReadConnectBlock } from "./index";
 import { type BindFacts, type DataNode, insideRepeat } from "./model";
@@ -170,20 +176,18 @@ const SLOTS: Readonly<
 	Partial<
 		Record<
 			Block,
-			Readonly<
-				Record<
-					string,
-					"assessment_user_score" | "deliver_entity_id" | "deliver_entity_name"
-				>
-			>
+			readonly (readonly [
+				string,
+				"assessment_user_score" | "deliver_entity_id" | "deliver_entity_name",
+			])[]
 		>
 	>
 > = {
-	assessment: { user_score: "assessment_user_score" },
-	deliver_unit: {
-		entity_id: "deliver_entity_id",
-		entity_name: "deliver_entity_name",
-	},
+	assessment: [["user_score", "assessment_user_score"]],
+	deliver_unit: [
+		["entity_id", "deliver_entity_id"],
+		["entity_name", "deliver_entity_name"],
+	],
 };
 
 const LEARN: ReadonlySet<Block> = new Set(["learn_module", "assessment"]);
@@ -240,12 +244,27 @@ function wholeNumber(text: string): number | undefined {
 	return Number.isSafeInteger(value) ? value : undefined;
 }
 
+/** Whether a text is blank to Core, which drops a data node's text of XML's whitespace alone. */
+function isBlank(text: string): boolean {
+	for (const character of text)
+		if (
+			character !== " " &&
+			character !== "\t" &&
+			character !== "\n" &&
+			character !== "\r"
+		)
+			return false;
+	return true;
+}
+
 /**
  * Reads the form's Connect blocks (its root children with a Connect role): each block's
- * subtree is claimed under its entry, or refused where Nova's document cannot hold it; a block
- * whose shape is not the emitter's, or whose wrapper is not named for its id, is left
- * unclaimed. Registrations of the block's calculates are returned, not made: the app's Connect
- * kind decides which hold.
+ * subtree is claimed under its entry where the block Nova's emitter writes for the slots read
+ * (`xform/builder.ts::connectBlockData`) is the stored block whole (`sameElement.ts`), or
+ * refused where Nova's document cannot hold it; a block whose shape is not the emitter's, whose
+ * wrapper is not named for its id, or that holds anything the emitter's does not (an attribute,
+ * a text no slot holds) is left unclaimed. Registrations of the block's calculates are returned,
+ * not made: the app's Connect kind decides which hold.
  */
 export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 	const { parsed, cursor, accounting, formPlace } = input;
@@ -257,7 +276,8 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 		);
 	});
 	const blocks: ReadConnectBlock[] = [];
-	const config: Partial<Record<Block, Record<string, unknown>>> = {};
+	const config: Partial<Record<Block, Record<string, unknown>>> =
+		recordFromEntries([]);
 	const registrations: ConnectRegistration[] = [];
 	const ofKind = (block: Block) =>
 		wrappers.filter((node) => {
@@ -290,16 +310,27 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 		const leaf = (name: string) =>
 			own.children.find((child) => child.name === name) as DataNode;
 		const wrapperBind = input.binds.get(wrapper);
-		// A refused block is refused whole: its nodes, and what each node's bind says it does.
+		// A refused block is refused whole: its nodes, and what each node's bind says it does. Its
+		// record stands at `at` where the refusal is a fact about that node alone.
 		const refuseBlock = (
 			claim: Parameters<XmlCursor["refuseSubtree"]>[1],
 			name?: string,
+			at?: XmlNode,
 		) => {
 			const refusal: StandingRefusal =
 				name === undefined
 					? { claim, place: formPlace }
 					: { claim, place: formPlace, detail: { name } };
-			cursor.refuseSubtree(wrapper.element, claim, formPlace, refusal.detail);
+			if (at === undefined)
+				cursor.refuseSubtree(wrapper.element, claim, formPlace, refusal.detail);
+			else
+				cursor.refuseSubtreeAt(
+					wrapper.element,
+					at,
+					claim,
+					formPlace,
+					refusal.detail,
+				);
 			const walk = (node: DataNode) => {
 				const bind = input.binds.get(node);
 				if (bind !== undefined)
@@ -347,10 +378,10 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 			continue;
 		}
 		// What each leaf holds.
-		const slots: Record<string, unknown> = { id };
+		const slots = recordFromEntries<unknown>([["id", id]]);
 		let held = true;
 		const blockRegistrations: ConnectRegistration[] = [];
-		for (const [name, slot] of Object.entries(SLOTS[block] ?? {})) {
+		for (const [name, slot] of SLOTS[block] ?? []) {
 			const bind = input.binds.get(leaf(name));
 			const calculate = bind?.logic.calculate;
 			if (bind === undefined || calculate === undefined) {
@@ -395,6 +426,18 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 			slots.description = elementText(leaf("description").element);
 		}
 		if (block === "deliver_unit") {
+			// Connect's receiver files the visit under the work area a submitted `work_area_id`
+			// names (`form_receiver/processor.py::process_deliver_unit`), and Nova's document
+			// holds no work area, so a fixed id is refused as an expression there is.
+			const workAreaLeaf = leaf("work_area_id").element;
+			if (!isBlank(elementText(workAreaLeaf))) {
+				refuseBlock(
+					C["connect-deliver-unit-work-area-id-expression"],
+					undefined,
+					{ element: workAreaLeaf },
+				);
+				continue;
+			}
 			slots.name = elementText(leaf("name").element);
 			const workArea = input.binds.get(leaf("work_area_id"));
 			if (workArea?.logic.calculate !== undefined)
@@ -404,6 +447,28 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 					formPlace,
 				);
 		}
+		// The block the emitter writes for the slots read is the stored one, whole, or the block
+		// holds something no slot does and is left unclaimed.
+		const texts = recordFromEntries<string>([]);
+		for (const name of ["name", "description"] as const)
+			if (typeof slots[name] === "string") texts[name] = slots[name];
+		if (typeof slots.time_estimate === "number")
+			texts.time_estimate = String(slots.time_estimate);
+		const built = connectBlockData(CONNECT_BLOCK_SHAPES[block], id, texts);
+		const parent = wrapper.element.parent;
+		const outer = new Map(
+			parent !== null && isTag(parent) ? parsed.scope(parent) : [],
+		);
+		outer.set("vellum", VELLUM_NS);
+		if (
+			!sameElementWhole(
+				wrapper.element,
+				parsed.scope,
+				built,
+				builtScopes(built, outer),
+			)
+		)
+			continue;
 		cursor.takeSubtree(wrapper.element, HELD[block]).value;
 		recordBlock(cursor, wrapper.element, HELD[block], input.parsed.scope);
 		for (const name of ["name", "description"] as const) {
@@ -426,7 +491,8 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 			C["connect-deliver-unit-and-task-in-one-form"],
 			formPlace,
 		);
-	const connect: Record<string, { readonly id: string }> = {};
+	const connect: Partial<Record<Block, { readonly id: string }>> =
+		recordFromEntries([]);
 	for (const one of blocks) connect[one.block] = { id: one.id };
 	return { blocks, config, connect, registrations };
 }
@@ -473,7 +539,7 @@ export function readConnectType(ctx: ReadContext): void {
 	ctx.writeDraft(() => {
 		ctx.draft.connectType = kind;
 		for (const { form, connect } of read) {
-			const kept = Object.fromEntries(
+			const kept = recordFromEntries(
 				Object.entries(connect.config).filter(
 					([block]) => kind !== null && connectKindOf(block as Block) === kind,
 				),

@@ -17,6 +17,7 @@
  * rule admitted a backslash before `#`).
  */
 import AdmZip from "adm-zip";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -30,7 +31,11 @@ import { expandDoc } from "../expander";
 import {
 	appStringValueIssue,
 	hqLocaleFileValue,
+	isLocaleFileKey,
+	isLocaleFileValue,
+	localeFileText,
 	localeFileValueIssue,
+	readLocaleFileAsCore,
 } from "../localeFile";
 import { commCareLocalization } from "../localization";
 import { targetFactsFromSource } from "../targetFacts";
@@ -124,6 +129,87 @@ function deviceShows(text: string): string | undefined {
 		.split("\\n")
 		.join("\n");
 }
+
+/* The characters a locale line reads apart: the line's ends, its comment,
+ * its split, the escapes, both trims' spaces and a letter. */
+const LINE_CHARACTERS = [
+	"a",
+	"k",
+	".",
+	"=",
+	"#",
+	"\\",
+	"n",
+	" ",
+	"\t",
+	"\n",
+	"\r",
+	String.fromCharCode(0x01),
+	NBSP,
+	NEL,
+];
+const lineText = fc
+	.array(fc.constantFrom(...LINE_CHARACTERS), { maxLength: 6 })
+	.map((units) => units.join(""));
+
+describe("localeFileText, read as Core reads a locale file", () => {
+	it("gives each admitted record back as one record under its key, at the text a device shows, and no other", () => {
+		fc.assert(
+			fc.property(
+				fc.uniqueArray(
+					fc.tuple(
+						lineText.filter(isLocaleFileKey),
+						lineText.filter(isLocaleFileValue),
+					),
+					{ selector: ([key]) => key, maxLength: 5 },
+				),
+				(records) => {
+					const read = readLocaleFileAsCore(localeFileText(new Map(records)));
+					expect([...read.keys()].sort()).toEqual(
+						records.map(([key]) => key).sort(),
+					);
+					for (const [key, value] of records)
+						expect(read.get(key)).toBe(deviceShows(value));
+				},
+			),
+			{ numRuns: 400 },
+		);
+	});
+
+	it.each([
+		["an empty key", "", "x"],
+		["a key holding =", "a=b", "x"],
+		["a key holding #", "a#b", "x"],
+		["a key holding a line feed", "a\nb", "x"],
+		["a key holding a carriage return", "a\rb", "x"],
+		["a key with a space before it", " modules.m0", "x"],
+		["a key with a non-breaking space after it", `modules.m0${NBSP}`, "x"],
+		[
+			"a key with a control character after it",
+			`a${String.fromCharCode(0x01)}`,
+			"x",
+		],
+		["a value holding a carriage return", "a", "x\rforms.m0f0=y"],
+		["a value of control characters alone", "a", String.fromCharCode(0x01)],
+	])(
+		"throws for %s, which a device reads as another record or none",
+		(_, key, value) => {
+			expect(() => localeFileText(new Map([[key, value]]))).toThrow(
+				/Nova's compiler was about to write an app string/,
+			);
+		},
+	);
+
+	it("reads a carriage return then a line feed as one line ending, and a later key over an earlier one", () => {
+		expect([
+			...readLocaleFileAsCore("a=1\r\nb=2\rc=3\n  a=4  \n#d=5\ne=\nf"),
+		]).toEqual([
+			["a", "4"],
+			["b", "2"],
+			["c", "3"],
+		]);
+	});
+});
 
 describe("the gate's rule for an app string, read against a device", () => {
 	/** [the sequence, a text holding it, what a device shows of that text]. */

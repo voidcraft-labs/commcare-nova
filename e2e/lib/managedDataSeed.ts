@@ -66,6 +66,20 @@ export const MANAGED_DATA_SEED = {
 	},
 	/** When the bring-in read CommCare HQ. */
 	broughtInAt: "2026-11-10T09:00:00.000Z",
+	/**
+	 * A second app of the Project, made in Nova, that does not read the
+	 * table: a member makes its one choice question read it while Manage in
+	 * Nova is open, so the review the dialog shows moves under it.
+	 */
+	readerApp: {
+		name: "Smoke — Supply rounds",
+		moduleUuid: testUuid("managed-data-reader-module"),
+		moduleName: "Rounds",
+		formUuid: testUuid("managed-data-reader-form"),
+		formName: "Supply round",
+		fieldUuid: testUuid("managed-data-reader-field"),
+		questionLabel: "Facility visited",
+	},
 } as const;
 
 /** CommCare HQ's table as `listHqLookupTables` reads it. */
@@ -196,9 +210,49 @@ export function buildManagedDataBlueprint(
 	return doc;
 }
 
+/** The second app: one survey whose question offers its own two choices. */
+export function buildManagedDataReaderBlueprint(appId: string): BlueprintDoc {
+	const reader = MANAGED_DATA_SEED.readerApp;
+	const doc = buildDoc({
+		appName: reader.name,
+		modules: [
+			{
+				uuid: reader.moduleUuid,
+				name: reader.moduleName,
+				forms: [
+					{
+						uuid: reader.formUuid,
+						name: reader.formName,
+						type: "survey",
+						fields: [
+							{
+								uuid: reader.fieldUuid,
+								id: "facility_visited",
+								kind: "single_select" as const,
+								label: proseText(reader.questionLabel),
+								options: [
+									{ value: "north", label: "North" },
+									{ value: "south", label: "South" },
+								],
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.appId = appId;
+	return doc;
+}
+
 /** Where the journey opens each screen. */
-export function managedDataRoutes(appId: string, tableId: LookupTableId) {
+export function managedDataRoutes(
+	appId: string,
+	tableId: LookupTableId,
+	readerAppId: string,
+) {
 	const base = `/build/${appId}`;
+	const reader = MANAGED_DATA_SEED.readerApp;
 	return {
 		tables: buildUrl(base, { kind: "project-data" }),
 		table: buildUrl(base, { kind: "project-data", tableId }),
@@ -207,5 +261,12 @@ export function managedDataRoutes(appId: string, tableId: LookupTableId) {
 			section: "organization",
 		}),
 		users: buildUrl(base, { kind: "app-setup", section: "users" }),
+		/** The second app's choice question, selected in its form. */
+		readerQuestion: buildUrl(`/build/${readerAppId}`, {
+			kind: "form",
+			moduleUuid: reader.moduleUuid,
+			formUuid: reader.formUuid,
+			selectedUuid: reader.fieldUuid,
+		}),
 	};
 }

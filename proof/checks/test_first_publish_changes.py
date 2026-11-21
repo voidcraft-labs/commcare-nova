@@ -68,13 +68,14 @@ if CHANGES:
     @pytest.mark.parametrize("document", CHANGES)
     def test_the_first_publish_register_is_closed_both_ways(document, hq, core_runner, editor_driver):
         records = _records(document, core_runner, editor_driver)
+        behavior, native_and_core_sites = proof3.document_behavior_and_sites(document, records)
         checked = {
             "source": source.differences(document, records),
             "proof1": proof1.document_identity(document, records),
             "proof2": proof2.document_build_equivalence(document, records),
-            "proof3": proof3.document_behavior(document, records),
+            "proof3": behavior,
         }
-        sites = changes.merged_sites(proof2.document_sites(document, records), proof3.document_sites(document, records))
+        sites = changes.merged_sites(proof2.document_sites(document, records), native_and_core_sites)
         places = parity.claim_places_of(document, records)
         observed = readers.named()
         found = changes.differences(document, checked, places=places, sites=sites, readers=observed)

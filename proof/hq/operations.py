@@ -65,6 +65,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from email.parser import BytesHeaderParser
 from typing import NamedTuple
+from unittest.mock import patch
 
 from proof.hq import buildcache
 from proof.hq import requests as hq_requests
@@ -98,6 +99,10 @@ class CapturedSourceNotHeld(HarnessRefusal):
 
 class CapturedResourcesNotHeld(HarnessRefusal):
     """HQ holds lookup tables other than the ones a captured publish read before it decided what to send."""
+
+
+class CapturedCounterNotHeld(HarnessRefusal):
+    """HQ's save counter moved over a write otherwise than the capture's peer counted it over the same write."""
 
 
 # The app id a capture's content import and updates name, and a local archive's runtime URLs
@@ -807,6 +812,54 @@ def current_version_read(state, app_id, credential: ApiCredential) -> HqAnswer:
     return api_request(state, "GET", f"/a/{state.domain}/apps/view/{app_id}/current_version/", credential=credential)
 
 
+def save_counter(state, app_id) -> int:
+    """The app's save counter as ``views/releases.py::current_app_version`` serves it as ``currentVersion``: the read
+    that view makes (``dbaccessors.py::get_current_app_version``), with no request and no key, so a state holds no
+    user it would not hold otherwise. ``proof/hq/test_publish.py`` holds the view's answer to it through HQ's
+    URLconf."""
+    from corehq.apps.app_manager.dbaccessors import get_current_app_version
+
+    return get_current_app_version(state.domain, app_id)
+
+
+def hold_save_counter(state, app_id, recorded, before, what, *, acknowledged=None) -> int:
+    """Holds HQ's save counter's move over one write the harness applied to the capture peer's over the same write
+    (``recorded``, a sidecar's ``(before, after)``: ``proof/checks/corpus.py::Captured.save_counter``), and returns
+    the counter after it.
+
+    ``before`` is HQ's counter read right before the write, None for a create. A create is held by where it leaves
+    the counter, which is the peer's ``after``; any other write by how far it moves it. Where HQ acknowledged an
+    import's version (``acknowledged``), it must be the counter right after it, whatever the capture recorded. With
+    nothing recorded (a capture made before the peer's counter was recorded) only that acknowledgement is held.
+    Refuses with ``CapturedCounterNotHeld`` naming both counts: a publish binds its baseline to this counter
+    (``lib/commcare/hq/appSourceAtVersion.ts``), so a peer that counts a write otherwise than HQ answered the
+    capture with a counter Nova would never read."""
+    after = save_counter(state, app_id)
+    if acknowledged is not None and acknowledged != after:
+        raise CapturedCounterNotHeld(
+            f"HQ acknowledged {what} at version {acknowledged}, and its save counter read right after it is {after}."
+            " Nova binds a publish's read back to the version an import acknowledges, so HQ's acknowledgement must"
+            " be its counter; look at views/app_import_api.py::_handle_import_app and ApplicationBase.save at the pin."
+        )
+    if recorded is None:
+        return after
+    peer_before, peer_after = recorded
+    if peer_before is None:
+        held = before is None and after == peer_after
+        hq_move, peer_move = f"to {after}", f"to {peer_after}"
+    else:
+        held = before is not None and after - before == peer_after - peer_before
+        hq_move, peer_move = f"from {before} to {after}", f"from {peer_before} to {peer_after}"
+    if not held:
+        raise CapturedCounterNotHeld(
+            f"HQ's save counter moved {hq_move} over {what}, and the capture's peer counted it {peer_move} over the"
+            " same write (the sidecar's saveCounter). Nova's publish binds its baseline to that counter, so the peer"
+            " models a write otherwise than HQ: correct how proof/corpus/targetPeer.ts counts this write, as"
+            " proof/hq/test_publish.py::test_hqs_save_counter_moves_as_a_publish_binds_its_baseline reads HQ's."
+        )
+    return after
+
+
 def _resource_read(state, path, credential: ApiCredential) -> HqAnswer:
     """A GET of a tastypie resource through ``api_request``, with a lookup that found nothing answered as tastypie
     answers it on a server: 404, alone.
@@ -985,6 +1038,27 @@ class Build:
         return copy
 
 
+@contextmanager
+def build_copy_saves(app):
+    """Render at the working app's address with the save semantics of HQ's build copy.
+
+    make_build renders a copy whose copy_of is set. ApplicationBase.save therefore leaves its version alone
+    when validation adds missing menu ids or the media suite prunes unused mappings. Keep HQ's actual save,
+    including those changes, at every such call. Other objects and explicit version decisions keep their own
+    behavior.
+    """
+    model = type(app)
+    save = model.save
+
+    def save_build(candidate, response_json=None, increment_version=None, **params):
+        if candidate is app and increment_version is None:
+            increment_version = False
+        return save(candidate, response_json=response_json, increment_version=increment_version, **params)
+
+    with patch.object(model, "save", save_build):
+        yield
+
+
 class FormNotValidated(AssertionError):
     """A form of the app did not reach Formplayer's validation during its build."""
 
@@ -1009,9 +1083,10 @@ def build(app, record):
     for form in app.get_forms():
         form.clear_validation_cache()
     sent_before = len(record.form_validations)
-    errors = app.validate_app()
-    files = app.create_all_files()
-    profile_files = {profile_id: app.create_all_files(profile_id) for profile_id in app.build_profiles}
+    with build_copy_saves(app):
+        errors = app.validate_app()
+        files = app.create_all_files()
+        profile_files = {profile_id: app.create_all_files(profile_id) for profile_id in app.build_profiles}
     sent = record.form_validations[sent_before:]
     validated = {_xmlns_of(v.xml) for v in sent}
     missing = [form.unique_id for form in app.get_forms() if form.source and form.xmlns not in validated]

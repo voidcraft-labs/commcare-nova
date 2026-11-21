@@ -31,7 +31,6 @@ import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import { readDeploymentsAction } from "../actions";
 import { firstPublishOf } from "../resources";
 import {
-	endDeployment,
 	readAppBaseline,
 	readDeployment,
 	readFirstPublishStates,
@@ -40,6 +39,8 @@ import {
 } from "../store";
 import type { AppBaselineWrite } from "../types";
 import { birthAdoptedApp, OWNERSHIP, READ_AT, SOURCE } from "./adoptedBirth";
+import { readable } from "./readableRecord";
+import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
 
@@ -129,7 +130,7 @@ async function push(
 		remoteRevision: 42,
 		uploadedAt: baseline.observedAt,
 		baseline,
-	});
+	}).then(readable);
 }
 
 describe("the stored first-publish list", () => {
@@ -143,7 +144,10 @@ describe("the stored first-publish list", () => {
 			firstPublishOf(
 				birth.deployment,
 				states.get(birth.deployment.deployment.id),
-				"android",
+				{
+					connectType: null,
+					appSettings: { runsOnlyOn: "android", showIncompleteForms: false },
+				},
 			),
 		).toEqual({
 			ids: ["forms-and-settings-rewritten", "web-apps-turned-off"],
@@ -248,7 +252,15 @@ describe("the stored first-publish list", () => {
 		const states = await readFirstPublishStates(viewerScope);
 		const state = states.get(deployment.deployment.id);
 		expect(state).toEqual({ remoteAppId: OTHER_HQ_APP, stored: next });
-		expect(firstPublishOf(deployment, state, undefined)).toEqual({
+		expect(
+			firstPublishOf(deployment, state, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
+		).toEqual({
 			ids: ["case-settings-respelled", "web-apps-turned-on"],
 			touchesWorkers: true,
 			of: "next-publish",
@@ -359,7 +371,7 @@ describe("the stored first-publish list", () => {
 			},
 		]);
 
-		await endDeployment(birth.scope, TARGET);
+		await stopHere(birth.scope, TARGET);
 		expect((await readDeployment(birth.scope, TARGET))?.active).toEqual([]);
 		const after = await readDeploymentsAction(APP);
 		if (!after.success) throw new Error(after.message);

@@ -10,6 +10,7 @@
  * for is handed to project data with its node, and its slot stays absent.
  */
 import type { MediaKind } from "@/lib/domain";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading } from "../appShell";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
@@ -158,7 +159,7 @@ const CLAIMS: Readonly<Record<MediaClass, ClassClaims>> = {
 
 defineClaims(
 	"menus.navMedia",
-	Object.fromEntries(
+	recordFromEntries(
 		Object.entries(CLAIMS).flatMap(([cls, claims]) =>
 			Object.entries(claims).map(([name, one]) => [`${name}@${cls}`, one]),
 		),
@@ -201,7 +202,7 @@ export function shownNavMedia(
 	forAll: unknown,
 	langs: readonly string[],
 ): Readonly<Record<string, string>> | undefined {
-	const map = isJsonObject(stored) ? stored : {};
+	const map = isJsonObject(stored) ? stored : NO_ENTRIES;
 	for (const value of Object.values(map))
 		if (value !== null && typeof value !== "string") return undefined;
 	const pathOf = (lang: string): string => {
@@ -211,7 +212,7 @@ export function shownNavMedia(
 	const first = langs[0] ?? "en";
 	const strict = (lang: string): string =>
 		pathOf(forAll === true ? first : lang);
-	const out: Record<string, string> = {};
+	const out = recordFromEntries<string>([]);
 	if (!langs.some((lang) => strict(lang) !== "")) {
 		for (const lang of langs) out[lang] = "";
 		return out;
@@ -255,7 +256,7 @@ function recordRespelling(
 	same: Claim<"take">,
 ): void {
 	const stored = node.peek(key);
-	const map = isJsonObject(stored) ? stored : {};
+	const map = isJsonObject(stored) ? stored : NO_ENTRIES;
 	const printed = Object.entries(shown).filter(([, path]) => path !== "");
 	const exact =
 		Object.keys(map).length === printed.length &&

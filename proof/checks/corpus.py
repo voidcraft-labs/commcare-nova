@@ -43,6 +43,12 @@ way, where a run's sample leaves documents out, ``proof.store.queue.sampled``),
   compiled for its flags (``Document.local_ccz_for``), and a control retained
   before the archives were compiled per configuration holds ``local.ccz``
   alone, which is then every configuration's;
+- ``local-refused.json``, in place of the local archives, where the project
+  space's app keeps a custom base URL that sends phones elsewhere than the
+  server, for which Nova's download makes no ``.ccz``: the download's refusal
+  (``{reason: "workers-sent-elsewhere", host, server}``,
+  ``Document.local_refusal``), which the bar holds to A
+  (``proof.checks.bar.local_outcome``);
 - ``import-file.zip``: the HQ import file for D, as Nova's
   ``/api/compile/json`` builds it (``Document.import_file``);
 - ``edit/``: ``batch.json`` (the edit batch and its footprint),
@@ -119,6 +125,11 @@ BASE_CONFIGURATIONS = ("minimum", "maximum")
 # (proof/corpus/inputs.ts::EMPTY_LIST_TEXT_FLAG, ::EMPTY_LIST_TEXT_ARCHIVE).
 EMPTY_LIST_TEXT_FLAG = "USH_EMPTY_CASE_LIST_TEXT"
 EMPTY_LIST_TEXT_ARCHIVE = "local-empty-list-text.ccz"
+# What a document states in place of a local archive Nova's download refuses for its project space
+# (proof/corpus/inputs.ts::LOCAL_REFUSED): ``{reason, host, server}``.
+LOCAL_REFUSED = "local-refused.json"
+# The one reason a published project space has no local archive (lib/deployment/runtimeTarget.ts::CczUnavailable).
+WORKERS_SENT_ELSEWHERE = "workers-sent-elsewhere"
 # The platforms an app declares it runs on (``appSettings.runsOnlyOn``, absent for both; proof/CLAUDE.md, "A reader
 # reads an app on the platforms it declares").
 WEB_APPS = "web-apps"
@@ -129,6 +140,27 @@ BOTH = frozenset(PLATFORMS)
 
 class CorpusLayoutError(ValueError):
     """A corpus or control directory is not in the layout the checks read."""
+
+
+def _local_refusal(directory: Path):
+    """The refusal ``directory`` states in place of its local archive (``LOCAL_REFUSED``), or None where it states
+    none. A statement is ``{reason, host, server}``, its reason the download's one (``WORKERS_SENT_ELSEWHERE``);
+    anything else is refused by name."""
+    path = directory / LOCAL_REFUSED
+    if not path.exists():
+        return None
+    stated = _read_json(path)
+    if (
+        not isinstance(stated, dict)
+        or set(stated) != {"reason", "host", "server"}
+        or stated.get("reason") != WORKERS_SENT_ELSEWHERE
+        or not all(isinstance(stated[key], str) and stated[key] for key in ("host", "server"))
+    ):
+        raise CorpusLayoutError(
+            f"{path} states a refusal of the local archive as {stated!r}; the entry writer writes"
+            f' {{"reason": "{WORKERS_SENT_ELSEWHERE}", "host", "server"}} (proof/corpus/entryWriter.ts).'
+        )
+    return stated
 
 
 def _read_json(path: Path):
@@ -367,6 +399,38 @@ class Captured:
         )
 
     @property
+    def save_counter(self):
+        """The capture peer's save counter around this import, ``(before, after)``, ``before`` None for a create
+        (the sidecar's ``saveCounter``, ``proof/corpus/publish.ts::SaveCounterMove``), or None where the sidecar
+        names none: a capture made before the peer's counter was recorded."""
+        return self._counter_move("saveCounter")
+
+    @property
+    def media_save_counter(self):
+        """The capture peer's save counter around the media upload sent after this import, as ``save_counter``
+        reads it (the sidecar's ``mediaSaveCounter``), or None where it names none."""
+        return self._counter_move("mediaSaveCounter")
+
+    def _counter_move(self, key):
+        move = self.meta.get(key)
+        if move is None:
+            return None
+        before = move.get("before") if isinstance(move, dict) else None
+        after = move.get("after") if isinstance(move, dict) else None
+
+        def counter(value):
+            return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+        if not (isinstance(move, dict) and set(move) == {"before", "after"} and counter(after)) or not (
+            before is None or counter(before)
+        ):
+            raise CorpusLayoutError(
+                f"{self.body_path.with_suffix('.json')} names its {key} as {move!r}; it is"
+                ' {"before": <counter> or null, "after": <counter>}, each counter a whole number from 1.'
+            )
+        return before, after
+
+    @property
     def brought_in(self):
         """What the publish read and took of the changes a person made in HQ before it was sent, or None where it
         was sent with no review of them (``proof/corpus/publish.ts::BringInRecord``, the sidecar's ``broughtIn``):
@@ -584,6 +648,11 @@ class Edit:
         path = self.root / "local.ccz"
         return path if path.exists() else None
 
+    @property
+    def local_refusal(self):
+        """The refusal D' states in place of its local archive (``edit/local-refused.json``), or None."""
+        return _local_refusal(self.root)
+
 
 # The directory of a document made in CommCare HQ that holds what HQ made (``Document.authored``).
 AUTHORED = "authored"
@@ -661,9 +730,10 @@ class Document:
     @cached_property
     def authored(self) -> Authored | None:
         """What stands where a first publish stood on a document made in HQ (``authored/``), or None on any other
-        document. Refuses a document made in HQ that lacks ``authored/app.json``."""
+        document. A retained control with its own ``authored/`` replays these same HQ inputs.
+        Refuses a document made in HQ that lacks ``authored/app.json``."""
         root = self.root / AUTHORED
-        if not self.hq_authored:
+        if not self.hq_authored and not (self.kind == "control" and root.is_dir()):
             return None
         if not (root / "app.json").is_file():
             raise CorpusLayoutError(
@@ -969,6 +1039,13 @@ class Document:
     def local_again_ccz(self):
         path = self.root / "local-again.ccz"
         return path if path.exists() else None
+
+    @property
+    def local_refusal(self):
+        """The refusal D states in place of its local archive (``local-refused.json``: Nova's download makes no
+        ``.ccz`` for a project space whose app keeps a custom base URL elsewhere, ``workers-sent-elsewhere``), or
+        None. ``proof.checks.bar.local_outcome`` holds it to A."""
+        return _local_refusal(self.root)
 
     @property
     def local_empty_list_text_ccz(self):

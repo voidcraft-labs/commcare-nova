@@ -9,7 +9,10 @@ over A's source. Each import is applied only while HQ serves the app with
 every field of the source the capture assumed (``CapturedSourceNotHeld``
 names each that differs), so the peer's shell source is held to HQ's own read
 of the shell. And a configuration's case search, with sync on form entry, is
-what HQ's own readers (``case_search/models.py``) see.
+what HQ's own readers (``case_search/models.py``) see. Each write moves HQ's
+save counter as the capture's peer counted it over the same write (the
+sidecars' ``saveCounter``), which ``proof.observe.publish`` holds wherever the
+lane applies a capture.
 
 The plausible failures: an update applied to another app, or over a source
 Nova would not have read (so A or B is not what Nova's publish leaves), a
@@ -167,6 +170,41 @@ def test_a_captured_import_over_a_source_hq_does_not_hold_is_refused(hq, core_ru
                 state, create, content, {**content_source, "build_spec.version": "9.9.9"}, update, assumed
             )
         assert _apps(state) == [("Clinic visits", 1)]
+
+
+def test_each_write_moves_hqs_save_counter_as_the_capture_peer_counted_it(hq, core_runner, captures, native_capture):
+    """Contract (``proof.observe.publish``, ``operations.hold_save_counter``): the capture records its peer's save
+    counter around each write (``proof/corpus/publish.ts::SaveCounterMove``), and HQ's own counter moves the same
+    way over the same write: the create leaves 1, each import moves it by one and acknowledges the counter after
+    it, and a media upload that maps a file moves it by one more. A planted record of a create that left 2, and of
+    an import that moved the counter by two, is refused by name. The plausible failures: a peer whose counter
+    drifts from HQ's (so the capture's publish read back a counter HQ never serves, and its baseline is one Nova
+    would never store), and a hold that passes whatever the record says."""
+    import dataclasses
+
+    from proof.observe import publish
+
+    directory = captures / "clinic-visits" / "minimum"
+    create = native_capture("clinic-visits", "create.import")
+    content = native_capture("clinic-visits", "content.import")
+    update = native_capture("clinic-visits", "update-edited.import")
+    assert (create.save_counter, content.save_counter, update.save_counter) == ((None, 1), (1, 2), (2, 3))
+    media = native_capture("search-lookup-media", "content.import")
+    assert media.save_counter == (1, 2) and media.media_save_counter == (2, 3)
+    with hq_check(_configuration(directory)) as (state, _):
+        app_id = operations.apply_upload(state, create.upload()).response["app_id"]
+        assert operations.hold_save_counter(state, app_id, create.save_counter, None, "the create") == 1
+        with state.fork():
+            other = operations.apply_upload(state, create.upload()).response["app_id"]
+            with pytest.raises(operations.CapturedCounterNotHeld, match="moved to 1 over the planted create"):
+                operations.hold_save_counter(state, other, (None, 2), None, "the planted create")
+        assert publish.update(state, app_id, content, "content") == (None, None)
+        with state.fork():
+            planted = dataclasses.replace(update, meta={**update.meta, "saveCounter": {"before": 2, "after": 4}})
+            with pytest.raises(operations.CapturedCounterNotHeld, match="from 2 to 3 over the captured planted"):
+                publish.update(state, app_id, planted, "planted")
+        assert publish.update(state, app_id, update, "update-edited") == (None, None)
+        assert operations.save_counter(state, app_id) == 3
 
 
 def test_a_search_capture_runs_where_case_search_is_on(hq, core_runner, captures):

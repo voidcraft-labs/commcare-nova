@@ -940,13 +940,12 @@ export function previewCaseListReturn(
 
 /** A case list's own form menu, held with its chosen cases: the step of
  *  the session between choosing the cases on the list and choosing a form,
- *  which Preview keeps on its own history entry
- *  (`lib/routing/previewHeldMenu.ts`). `session` is the worker's Preview
- *  session that took the step (the session store's `previewSessionId`). */
+ *  which Preview keeps on its own history entry, the cases in that entry's
+ *  record in the worker's Preview session that took the step
+ *  (`lib/routing/previewHeldMenu.ts`, `previewEntryRecords.ts`). */
 export interface PreviewHeldCaseListMenu {
 	readonly moduleUuid: Uuid;
 	readonly cases: readonly PreviewCaseChoice[];
-	readonly session: string;
 }
 
 /**
@@ -959,9 +958,10 @@ export interface PreviewHeldCaseListMenu {
  * session waits for a command, `shouldPopNext`), and a step back off the
  * menu reaches the list with nothing chosen. A list that continues into a
  * menu of its own (a module with submenus) holds the case on that menu
- * instead, so its list holds nothing here. A step another session took holds
- * nothing either: a case the previous worker, platform or Preview run chose
- * has no standing in the session running now.
+ * instead, so its list holds nothing here. `held` is what the entry shows in
+ * the session running now, so a step another session took is not there: a
+ * case the previous worker, platform or Preview run chose has no standing in
+ * the session running now.
  */
 export function previewCaseListHeldChoices(
 	held: PreviewHeldCaseListMenu | undefined,
@@ -970,15 +970,12 @@ export function previewCaseListHeldChoices(
 		/** What choosing a case on the list goes on to
 		 *  (`previewCaseListContinuation`). */
 		readonly continuation: PreviewCaseListContinuation;
-		/** The worker's Preview session running now. */
-		readonly session: string;
 	},
 ): readonly PreviewCaseChoice[] | undefined {
 	if (
 		held === undefined ||
 		list.continuation !== "form-menu" ||
 		held.moduleUuid !== list.moduleUuid ||
-		held.session !== list.session ||
 		held.cases.length === 0
 	)
 		return undefined;

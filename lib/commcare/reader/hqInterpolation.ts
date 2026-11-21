@@ -18,6 +18,7 @@ import {
 } from "../formLinkProjection";
 import type { HqInterpolation } from "../hqJson/xpath";
 import { sessionDatumRequiresSelection } from "../session";
+import { rethrowWorkStop } from "../workMeter";
 import type { FormSyntax } from "../xpath/formSyntax";
 import { readFormSyntax } from "./syntaxRead";
 
@@ -161,7 +162,8 @@ export function syntaxOf(
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(interpolated);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return { ok: false, reason: "syntax" };
 	}
 	if (!read.ok || read.node === undefined)

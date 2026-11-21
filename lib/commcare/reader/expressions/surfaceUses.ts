@@ -11,7 +11,10 @@ import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { recordFromEntries } from "@/lib/domain/records";
+import { type SourceTable, tableOf } from "../../sourceKeys";
 import { inventoryIndex } from "../../surface/inventory";
+import { rethrowWorkStop } from "../../workMeter";
 import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import {
@@ -71,7 +74,7 @@ function surfaceUseEntries(): Record<string, readonly UseRow[]> {
 		else if (!list.some((known) => known.entryId === row.entryId))
 			list.push(row);
 	}
-	return Object.fromEntries(
+	return recordFromEntries(
 		[...rows].map(([key, list]) => [
 			key,
 			list.length === 1
@@ -124,23 +127,22 @@ class Uses {
 
 // ── Form and HQ JSON expressions ─────────────────────────────────────
 
-const BINARY: Readonly<Record<string, { token: string; expression: string }>> =
-	{
-		and: { token: "AND", expression: "XPathBoolExpr" },
-		or: { token: "OR", expression: "XPathBoolExpr" },
-		"=": { token: "EQ", expression: "XPathEqExpr" },
-		"!=": { token: "NEQ", expression: "XPathEqExpr" },
-		"<": { token: "LT", expression: "XPathCmpExpr" },
-		"<=": { token: "LTE", expression: "XPathCmpExpr" },
-		">": { token: "GT", expression: "XPathCmpExpr" },
-		">=": { token: "GTE", expression: "XPathCmpExpr" },
-		"+": { token: "PLUS", expression: "XPathArithExpr" },
-		"-": { token: "MINUS", expression: "XPathArithExpr" },
-		"*": { token: "MULT", expression: "XPathArithExpr" },
-		div: { token: "DIV", expression: "XPathArithExpr" },
-		mod: { token: "MOD", expression: "XPathArithExpr" },
-		"|": { token: "UNION", expression: "XPathUnionExpr" },
-	};
+const BINARY: SourceTable<{ token: string; expression: string }> = tableOf({
+	and: { token: "AND", expression: "XPathBoolExpr" },
+	or: { token: "OR", expression: "XPathBoolExpr" },
+	"=": { token: "EQ", expression: "XPathEqExpr" },
+	"!=": { token: "NEQ", expression: "XPathEqExpr" },
+	"<": { token: "LT", expression: "XPathCmpExpr" },
+	"<=": { token: "LTE", expression: "XPathCmpExpr" },
+	">": { token: "GT", expression: "XPathCmpExpr" },
+	">=": { token: "GTE", expression: "XPathCmpExpr" },
+	"+": { token: "PLUS", expression: "XPathArithExpr" },
+	"-": { token: "MINUS", expression: "XPathArithExpr" },
+	"*": { token: "MULT", expression: "XPathArithExpr" },
+	div: { token: "DIV", expression: "XPathArithExpr" },
+	mod: { token: "MOD", expression: "XPathArithExpr" },
+	"|": { token: "UNION", expression: "XPathUnionExpr" },
+});
 /** Operators and literals the manifest splits by whether a time stands on a
  *  side; the checker refuses a time ordered, and that refusal is the slot's
  *  own claim, so a use is the class every other operand is in. */
@@ -462,7 +464,7 @@ function xpathUses(
 				visit(node.value, node);
 				return;
 			case "binary": {
-				const operator = BINARY[node.op];
+				const operator = BINARY.get(node.op);
 				if (operator !== undefined) {
 					token(operator.token);
 					expression(operator.expression);
@@ -844,21 +846,37 @@ export function expressionSurfaceUses(
 }
 
 /** The claim of a form's `<instance>` declaration no held expression of the
- *  form reads: INERT, since Nova writes a form's declarations from what its
- *  printed expressions read, so an unread one is not written back. The key is
- *  the declaration's source as the lane names it (`instance-source:<src>`). */
+ *  form reads, which Nova does not write back, since it writes a form's
+ *  declarations from what its printed expressions read. Core initializes
+ *  every declared instance when the form opens (`FormDef.initialize`), so the
+ *  class is what that initialization does: a source that loads nothing, or
+ *  cannot fail (`casedb`, `ledgerdb`, session and the rest), and a table the
+ *  project space's list holds (project data refuses one it lacks) or
+ *  `user-groups`, which CommCare HQ serves every worker, are INERT; any other
+ *  fixture (`locations`, which HQ serves only where the project space uses
+ *  places, `commcare:reports`, `commtrack:*`) stops the form opening where the
+ *  project space does not serve it (`loadFixtureRoot`), which no export says,
+ *  so the reading drops it and the first publish says so
+ *  (`provisional.ts::claimDeclarations`, `unread-fixture-declarations-dropped`).
+ *  The key is the declaration's source as the lane names it
+ *  (`instance-source:<src>`). */
 export function unreadDeclarationUse(src: string): SurfaceUse {
+	const item = instanceSourceItem(src);
 	const servedFixture =
 		src.startsWith("jr://fixture/item-list:") ||
-		src === "jr://fixture/locations" ||
 		src === "jr://fixture/user-groups";
 	return {
-		key: `instance-source:${instanceSourceItem(src)}`,
-		entryId: servedFixture
-			? C["declared-unreferenced-fixture-instance-item-list-locations-user"]
-					.entry
-			: C["declared-unreferenced-instance-whose-source-loads-no-data-casedb"]
-					.entry,
+		key: `instance-source:${item}`,
+		entryId:
+			item !== "fixture"
+				? C["declared-unreferenced-instance-whose-source-loads-no-data-casedb"]
+						.entry
+				: servedFixture
+					? C["declared-unreferenced-fixture-instance-item-list-locations-user"]
+							.entry
+					: C[
+							"declared-unreferenced-fixture-instance-the-project-space-may-not"
+						].entry,
 	};
 }
 
@@ -885,7 +903,8 @@ export function instanceIdsRead(text: string): readonly string[] {
 	let read: ReturnType<typeof sharedFormSyntax>;
 	try {
 		read = sharedFormSyntax(text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return [];
 	}
 	if (!read.ok || read.node === undefined) return [];

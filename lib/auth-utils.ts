@@ -20,6 +20,7 @@ import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
 import { getAuthDb } from "./auth/db";
 import { ensurePersonalProject } from "./auth/provisionProject";
+import { CROSS_ORIGIN_REFUSAL } from "./auth-public";
 import { isUserActive } from "./db/api-keys";
 import { AppAccessError, resolveProjectAccess } from "./db/appAccess";
 import { log } from "./logger";
@@ -287,15 +288,46 @@ export async function readSession(req: Request): Promise<Session | null> {
 	}
 }
 
+/** The methods a browser sends from another page without the page reading the answer. */
+const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Whether a request that can change something came from one of Nova's own
+ * pages. The session cookie is `SameSite=Lax`, so a page on another site
+ * never sends it on a POST; a page on another host of the same site would,
+ * and could start work with the person's sign-in without reading the answer.
+ * A browser names where a request came from: `Sec-Fetch-Site` (every current
+ * browser), else `Origin`, whose host must be the request's own. A request
+ * with neither is not a browser's, and holds the cookie only because the
+ * person gave it to the client, so it passes.
+ */
+export function isOwnOriginRequest(req: Request): boolean {
+	if (SAFE_METHODS.has(req.method.toUpperCase())) return true;
+	const site = req.headers.get("sec-fetch-site");
+	if (site !== null) return site === "same-origin" || site === "none";
+	const origin = req.headers.get("origin");
+	if (origin === null) return true;
+	const host = req.headers.get("host");
+	try {
+		return host !== null && new URL(origin).host === host;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Safely attempt to retrieve the session from a request.
  *
  * Returns null for a signed-out caller ({@link readSession}), so the universal
  * revocation lock applies to every API route that authenticates through here.
  * A sign-in check that could not run is a 503, never a null: nothing was
- * decided about the caller.
+ * decided about the caller. A request that can change something and came
+ * from a page that is not Nova's own is a 403 before the cookie is read
+ * ({@link isOwnOriginRequest}), so every route handler that takes a session
+ * refuses it in one place.
  */
 export async function getSessionSafe(req: Request): Promise<Session | null> {
+	if (!isOwnOriginRequest(req)) throw new ApiError(CROSS_ORIGIN_REFUSAL, 403);
 	try {
 		return await readSession(req);
 	} catch (error) {

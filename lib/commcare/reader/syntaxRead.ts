@@ -1,20 +1,21 @@
 /**
  * The reader's one door to the XPath grammar: every text a stage reads with
  * `readFormSyntax` goes through here, so a reading counts each such read in
- * its `ReadWork` (`syntaxReads`). The count goes to the accounting of the
- * reading in progress (`countingSyntaxReads`, which `readHqApp` runs its
- * stages under); a read outside one, as in a test that calls a stage's helper
- * on its own, is counted nowhere. The scope is set and restored around one
- * synchronous reading, so no count outlives the reading that made it.
+ * its `ReadWork` (`syntaxReads`) and charges its characters to the work meter
+ * (`workMeter.ts`, kind `parse`) of the piece running now, which `readHqApp`
+ * sets around each part of a stage; a read outside one, as in a test that
+ * calls a stage's helper on its own, is counted nowhere.
  *
  * The grammar's answer is a function of the text alone, so a text read again
  * is answered from the tree it gave before (`heldByText.ts`) without a second
- * parse; each read is counted all the same. Every read is given its own copy
- * of that tree, as a fresh parse gives, since a stage may tell two reads'
- * nodes apart by identity (`expressions/readExpression.ts`' plain nodes).
+ * parse; each read is counted and charged all the same, since it copies the
+ * tree. Every read is given its own copy of that tree, as a fresh parse gives,
+ * since a stage may tell two reads' nodes apart by identity
+ * (`expressions/readExpression.ts`' plain nodes).
  */
 
 import { HeldByText, SYNTAX_TEXTS_HELD_CHARACTERS } from "../heldByText";
+import { chargeSyntaxRead } from "../workMeter";
 import {
 	type FormSyntaxResult,
 	readFormSyntax as readSyntax,
@@ -44,17 +45,17 @@ function copied<T>(value: T): T {
 		return out as T;
 	}
 	const source = value as Record<string, unknown>;
-	const out: Record<string, unknown> = {};
+	const out = Object.create(Object.getPrototypeOf(source)) as Record<
+		string,
+		unknown
+	>;
 	for (const key of Object.keys(source)) out[key] = copied(source[key]);
 	return out as T;
 }
 
-/** The counter of the reading in progress, or undefined outside one. */
-let current: { noteSyntaxRead(): void } | undefined;
-
 /** `text` read with the XPath grammar, counted against the reading in progress. */
 export function readFormSyntax(text: string): FormSyntaxResult {
-	current?.noteSyntaxRead();
+	chargeSyntaxRead(text.length);
 	return copied(
 		heldReadings.of(text, (source) => frozenWhole(readSyntax(source))),
 	);
@@ -64,20 +65,6 @@ export function readFormSyntax(text: string): FormSyntaxResult {
  *  every read of the text shares: for a reader that only walks it and tells no two reads' nodes
  *  apart (the uses a text's syntax makes). */
 export function sharedFormSyntax(text: string): FormSyntaxResult {
-	current?.noteSyntaxRead();
+	chargeSyntaxRead(text.length);
 	return heldReadings.of(text, (source) => frozenWhole(readSyntax(source)));
-}
-
-/** `run`'s answer, every grammar read it makes through this module counted by `counter`. */
-export function countingSyntaxReads<T>(
-	counter: { noteSyntaxRead(): void },
-	run: () => T,
-): T {
-	const outer = current;
-	current = counter;
-	try {
-		return run();
-	} finally {
-		current = outer;
-	}
 }

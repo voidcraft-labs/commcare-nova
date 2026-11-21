@@ -540,6 +540,7 @@ it("prints each keyed create of an app brought in from CommCare HQ under the pre
 			identity: [],
 			mediaPaths: new Map<string, string>(),
 			keyedCaseIds,
+			columnWords: [],
 		};
 		const republished = await capturePublish({
 			create: document,
@@ -556,7 +557,7 @@ it("prints each keyed create of an app brought in from CommCare HQ under the pre
 		const archive = await localCcz(document, configuration.domain, undefined, {
 			adopted,
 		});
-		if (archive === null)
+		if (!Buffer.isBuffer(archive))
 			throw new Error(
 				"Nova made no local archive of an app that runs on Android.",
 			);

@@ -460,7 +460,8 @@ function ImageFormattingDialog({
 					<DialogHeader>
 						<DialogTitle>Insert image</DialogTitle>
 						<DialogDescription>
-							Add an image from a web address
+							Add an image from a web address. Web Apps shows the image, and
+							Preview shows its description.
 						</DialogDescription>
 					</DialogHeader>
 					<DialogBody className="grid gap-4">

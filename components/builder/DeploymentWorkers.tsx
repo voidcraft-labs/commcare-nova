@@ -104,6 +104,9 @@ export function DeploymentWorkers({
 	const [names, setNames] = useState<Readonly<Record<string, string>>>({});
 	const [chosen, setChosen] = useState<readonly string[]>([]);
 	const [adopting, setAdopting] = useState<readonly string[]>([]);
+	/* The codes of the levels a person ticked as taking workers, which ride
+	 * the next call. */
+	const [confirming, setConfirming] = useState<readonly string[]>([]);
 	/* Everything a call answered with — the accounts made (passwords
 	 * included) and the latest refusal — is held in the builder session,
 	 * not here. This panel unmounts on an ordinary App setup section
@@ -145,6 +148,7 @@ export function DeploymentWorkers({
 						username: usernameFor(row),
 					})),
 					...(adopting.length > 0 && { adoptPersonaUuids: adopting }),
+					...(confirming.length > 0 && { confirmWorkerLevels: confirming }),
 				});
 				if (!response.success) {
 					setRequestError(response.message);
@@ -168,6 +172,14 @@ export function DeploymentWorkers({
 				 * ticks that answered THIS refusal must not ride along into
 				 * the next call and take over an account nobody asked about. */
 				setAdopting((current) => current.filter((uuid) => !done.has(uuid)));
+				/* A level a call no longer asks about is on record, or no worker
+				 * stands at it any more, so its tick rides along no further. */
+				const stillAsked = new Set(
+					(response.data.refusal?.levels ?? []).map((level) => level.code),
+				);
+				setConfirming((current) =>
+					current.filter((code) => stillAsked.has(code)),
+				);
 				if (response.data.view !== null) onUpdated(response.data.view);
 			} catch {
 				setRequestError(
@@ -182,6 +194,7 @@ export function DeploymentWorkers({
 		rows,
 		chosen,
 		adopting,
+		confirming,
 		usernameFor,
 		onUpdated,
 		sessionApi,
@@ -278,6 +291,22 @@ export function DeploymentWorkers({
 									adopt
 										? [...current, personaUuid]
 										: current.filter((uuid) => uuid !== personaUuid),
+								)
+							}
+						/>
+					) : null}
+
+					{outcome?.refusal?.levels !== undefined &&
+					outcome.refusal.levels.length > 0 ? (
+						<WorkerLevelChoice
+							levels={outcome.refusal.levels}
+							domain={record.domain}
+							confirming={confirming}
+							onConfirmChange={(code, confirm) =>
+								setConfirming((current) =>
+									confirm
+										? [...current, code]
+										: current.filter((held) => held !== code),
 								)
 							}
 						/>
@@ -429,7 +458,8 @@ function WorkerAdoptionChoice({
 		<div className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3">
 			<p className="text-[13px] leading-relaxed text-nova-text">
 				Pick any of these accounts that already belong to this app. Nova will
-				keep them in step with their persona and leave the rest alone.
+				change only the worker information and places their persona names, and
+				leave the rest of each account as it is.
 			</p>
 			<ul className="mt-2.5 flex flex-col gap-1">
 				{conflicts.map((conflict) => (
@@ -460,6 +490,66 @@ function WorkerAdoptionChoice({
 				Leave one unticked and that account stays untouched on{" "}
 				{domain || "the project space"}. Give the persona a username nobody has
 				yet to make one of your own instead.
+			</p>
+		</div>
+	);
+}
+
+/**
+ * A level a person is asked about before anybody stands at it.
+ *
+ * CommCare HQ's level API doesn't say which levels take workers, and its own
+ * pages refuse a worker at one that doesn't, so where CommCare HQ manages the
+ * app's places Nova asks before it assigns anyone there. A tick stays on
+ * record for the project space until someone withdraws it from the card.
+ */
+function WorkerLevelChoice({
+	levels,
+	domain,
+	confirming,
+	onConfirmChange,
+}: {
+	levels: NonNullable<ProvisionWorkersView["refusal"]>["levels"];
+	domain: string;
+	confirming: readonly string[];
+	onConfirmChange: (code: string, confirm: boolean) => void;
+}) {
+	return (
+		<div className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3">
+			<p className="text-[13px] leading-relaxed text-nova-text">
+				You can tick each level whose places take workers in{" "}
+				{domain || "the project space"}. CommCare HQ's Organization Levels page
+				shows this as Has Users.
+			</p>
+			<ul className="mt-2.5 flex flex-col gap-1">
+				{levels.map((level) => (
+					<li key={level.code}>
+						<label
+							htmlFor={`worker-level-${level.code}`}
+							className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+						>
+							<Checkbox
+								id={`worker-level-${level.code}`}
+								checked={confirming.includes(level.code)}
+								onCheckedChange={(next) =>
+									onConfirmChange(level.code, next === true)
+								}
+							/>
+							<span>
+								{level.name}
+								<span className="text-nova-text-secondary">
+									{" "}
+									({level.personaNames.join(", ")})
+								</span>
+							</span>
+						</label>
+					</li>
+				))}
+			</ul>
+			<p className="mt-1 text-[12px] leading-relaxed text-nova-text-secondary">
+				Nova can make or update the selected workers once every level they need
+				is confirmed. You can also leave those personas out or change their
+				places.
 			</p>
 		</div>
 	);

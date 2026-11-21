@@ -26,6 +26,7 @@ import {
 import { formField, matchAll, term } from "@/lib/domain/expression/builders";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
 	type FindingDetail,
@@ -60,7 +61,6 @@ import { type CaseOperationPlaceKey, externalKey } from "../identity";
 import {
 	isJsonObject,
 	type JsonCursor,
-	pointerToken,
 	registerUndeclaredKeys,
 	sameJson,
 } from "../jsonCursor";
@@ -511,7 +511,7 @@ const INACTIVE_ROWS = {
  */
 const INACTIVE = defineClaims(
 	"caseManagement.basicActions.inactive",
-	Object.fromEntries(
+	recordFromEntries(
 		Object.entries(INACTIVE_ROWS).flatMap(([row, entry]) =>
 			INACTIVE_ACTIONS.map((action) => [
 				`${row}.${action}`,
@@ -683,7 +683,7 @@ function withoutSpelling(expression: unknown): unknown {
 	if (Array.isArray(expression)) return expression.map(withoutSpelling);
 	if (typeof expression !== "object" || expression === null) return expression;
 	const record = expression as Readonly<Record<string, unknown>>;
-	return Object.fromEntries(
+	return recordFromEntries(
 		Object.entries(record)
 			.filter(([key]) => !(record.kind === "field" && key === "spelling"))
 			.map(([key, value]) => [key, withoutSpelling(value)]),
@@ -1480,18 +1480,19 @@ function readUpdateMap(
 	} = {
 		writes: [],
 	};
+	/* A map holding a bare string is the legacy shape HQ's load refuses: the
+	 * map is refused whole at its key, the first such entry named, and no entry
+	 * of it is read. A map holding any other value that is no object is no map
+	 * of the class, which `map` leaves unclaimed for the close. */
 	const stored = parent.peek("update");
+	const bare = isJsonObject(stored)
+		? Object.entries(stored).find(([, value]) => typeof value === "string")
+		: undefined;
+	if (bare !== undefined) {
+		parent.refuse("update", BASIC_CLAIMS.bareString, { name: bare[0] });
+		return out;
+	}
 	const values = parent.map("update", "ConditionalCaseUpdate", mapClaim);
-	if (isJsonObject(stored))
-		for (const [key, value] of Object.entries(stored))
-			if (!isJsonObject(value))
-				finding(
-					r.ctx,
-					BASIC_CLAIMS.bareString,
-					r.form.place,
-					`${parent.pointer}/update/${pointerToken(key)}`,
-					{ name: key },
-				);
 	const loads = r.type === "followup" || r.type === "close";
 	for (const [key, cursor] of values) {
 		if (slot === "usercase") {
@@ -1653,7 +1654,7 @@ function mint(
 	n: number,
 ): Uuid | undefined {
 	return r.ctx.accounting.identity(
-		r.ctx.resolver.claim(
+		r.ctx.identities.claim(
 			externalKey.caseOperation(r.form.xmlns, place, action, n),
 			whereText(r.form.place),
 		),
@@ -1674,10 +1675,12 @@ export function readBasicActions(
 ): void {
 	const json = form.json;
 	const stored = json.peek("actions");
-	const actions = isJsonObject(stored) ? stored : {};
+	const actions = isJsonObject(stored) ? stored : NO_ENTRIES;
 	const requires = json.peek("requires") ?? "none";
 	const active = activeActions(actions, requires);
-	const openCase = isJsonObject(actions.open_case) ? actions.open_case : {};
+	const openCase = isJsonObject(actions.open_case)
+		? actions.open_case
+		: NO_ENTRIES;
 	const menu = {
 		case_details: module.json.peek("case_details"),
 		search_config: module.json.peek("search_config"),
@@ -1851,7 +1854,9 @@ export function readBasicActions(
 	else A.derived("open_case", inactiveClaim(inactive, "open_case"));
 
 	// `update_case`.
-	const update = isJsonObject(actions.update_case) ? actions.update_case : {};
+	const update = isJsonObject(actions.update_case)
+		? actions.update_case
+		: NO_ENTRIES;
 	const updateType = conditionType(update.condition);
 	if (row.type === "survey")
 		A.derived("update_case", inactiveClaim(inactive, "update_case"));
@@ -1943,7 +1948,9 @@ export function readBasicActions(
 	}
 
 	// `close_case`.
-	const close = isJsonObject(actions.close_case) ? actions.close_case : {};
+	const close = isJsonObject(actions.close_case)
+		? actions.close_case
+		: NO_ENTRIES;
 	if (active.has("close_case")) {
 		if (loads && !defaultCaseManagement)
 			A.drop("close_case", BASIC_CLAIMS.multiSelectNoClose);
@@ -2064,7 +2071,7 @@ export function readBasicActions(
 	// `usercase_update`.
 	const usercase = isJsonObject(actions.usercase_update)
 		? actions.usercase_update
-		: {};
+		: NO_ENTRIES;
 	if (active.has("usercase_update")) {
 		const W = A.object(
 			"usercase_update",
@@ -2216,7 +2223,7 @@ function readSubcases(
 			// finding too.
 			const properties = isJsonObject(subcase.case_properties)
 				? subcase.case_properties
-				: {};
+				: NO_ENTRIES;
 			const scalars: [unknown, string][] = [
 				[subcase.name_update, "name"],
 				[properties.external_id, "external_id"],

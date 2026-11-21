@@ -5,7 +5,7 @@
 // per-call snapshots could mix generations.
 
 import { Client } from "pg";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
@@ -28,6 +28,12 @@ const OWNER_B: LookupScope = {
 	actorId: "owner-b",
 	role: "owner",
 };
+
+/* Every lookup writer reads its member's role on its own transaction. */
+beforeEach(async () => {
+	await h.seedProjectMember(OWNER_A.actorId, OWNER_A.projectId, "owner");
+	await h.seedProjectMember(OWNER_B.actorId, OWNER_B.projectId, "owner");
+});
 
 const MISSING_TABLE_ID = lookupTableIdSchema.parse(
 	"018f0f43-7b7c-7abc-8def-0123456789ab",

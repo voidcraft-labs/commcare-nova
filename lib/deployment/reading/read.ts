@@ -11,6 +11,7 @@ import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
 import { log } from "@/lib/logger";
 import { broughtInAppId } from "./appId";
 import { type GatherFacts, type GatherResult, gatherReading } from "./gather";
+import { noRoomFinding, withBringInRoom } from "./room";
 import type { ReadingAnswer, ReadingEvent, ReadingKey } from "./types";
 
 declare const bringInAuthorized: unique symbol;
@@ -41,8 +42,34 @@ export async function authorizeBringIn(
 	return { userId, projectId } as BringInActor;
 }
 
-/** One whole read. Mints the reading's id, derives the app's, and answers. Writes nothing. */
-export async function readHqAppForReview(
+/**
+ * One whole read. Mints the reading's id, derives the app's, and answers. Writes nothing.
+ * Where the process has no room for what it reads (`room.ts`), it stops reading and answers
+ * `nova-busy`.
+ */
+export function readHqAppForReview(
+	actor: BringInActor,
+	key: ReadingKey,
+	options: {
+		readonly onEvent: (event: ReadingEvent) => void;
+		readonly cancel?: AbortSignal;
+	},
+): Promise<ReadingAnswer> {
+	return withBringInRoom(
+		"review",
+		(room) =>
+			readInRoom(actor, key, {
+				onEvent: options.onEvent,
+				cancel:
+					options.cancel === undefined
+						? room.signal
+						: AbortSignal.any([options.cancel, room.signal]),
+			}),
+		() => ({ kind: "stop", finding: noRoomFinding() }),
+	);
+}
+
+async function readInRoom(
 	actor: BringInActor,
 	key: ReadingKey,
 	options: {
@@ -116,6 +143,8 @@ function logAnswered(
 		elapsedMs: Math.round(scope.elapsedMs),
 		checkMs: Math.round(facts.checkMs),
 		longestPieceMs: Math.round(facts.longestPieceMs),
+		workUnits: facts.workUnits,
+		longestPieceUnits: facts.longestPieceUnits,
 		sourceBytes: facts.sourceBytes,
 		mediaTotal: facts.mediaTotal,
 		...(answer.kind === "account" && {

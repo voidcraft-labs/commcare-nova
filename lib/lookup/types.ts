@@ -23,11 +23,15 @@ export type LookupDataType = (typeof LOOKUP_DATA_TYPES)[number];
 export type LookupCellValue = string | number;
 export type LookupRowValues = Record<LookupColumnId, LookupCellValue>;
 
-/** Freshly-authorized scope; attribution is deliberately not an access gate. */
+/**
+ * A request's authorized scope: enough for a read. A write never trusts
+ * `role`: every lookup writer reads the member's role again on its own
+ * transaction (`writerTransaction.ts::authorizeLookupWriteInTransaction`).
+ */
 export interface LookupScope {
 	projectId: string;
 	actorId: string;
-	/** Persisted Better Auth role string; may be comma-joined. */
+	/** Persisted Better Auth role string as the request read it; may be comma-joined. */
 	role: string;
 }
 

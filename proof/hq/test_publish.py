@@ -43,6 +43,12 @@ a corpus document's own capture (``proof/hq/conftest.py::DOCUMENTS``):
   failures: a shell HQ could build (a build would hold HQ-minted ids), an
   update that leaves another app than it describes, and a reading of "gone"
   HQ does not give.
+- The save counter a publish binds its baseline to, read as Nova reads it
+  (``current_app_version``): a create leaves 1, an update's acknowledged
+  version is the counter right after it, one higher for the import plus
+  a second increment if HQ prunes unused multimedia mappings, and one save in HQ's editors adds exactly one. The capture's
+  peer models the same counter, and ``proof.observe.publish`` holds its
+  moves to HQ's over every import the lane applies.
 - No multimedia map: an import with no map draws no warning under
   ``CAUTIOUS_MULTIMEDIA`` and the media upload maps every file, and a build
   made before the upload names no medium and installs, where one made from
@@ -168,7 +174,19 @@ def test_an_import_that_carries_a_map_claims_its_media(hq, core_runner):
         assert created.status == 201
         assert state.couch.mock_docs["media-image-1"]["valid_domains"] == [state.domain]
         assert list(operations.held_app(state, app_id).multimedia_map) == [path]
-    assert validator.calls == 2
+        assert validator.calls == 2
+        # The import excludes multimedia_map and prunes paths its new content no longer uses.
+        source["modules"][0]["media_image"] = {}
+        body = nova_shaped_upload(source, "Media app", app_id=app_id)
+        before = operations.save_counter(state, app_id)
+        updated = operations.apply_upload(state, body)
+        assert updated.response["version"] == operations.save_counter(state, app_id) == before + 2
+        assert not operations.held_app(state, app_id).multimedia_map
+        # Restoring the reference and supplying the original map cannot restore a mapping on an update.
+        source["modules"][0]["media_image"] = {"en": path}
+        restored = operations.apply_upload(state, nova_shaped_upload(source, "Media app", app_id=app_id))
+        assert restored.response["version"] == operations.save_counter(state, app_id) == before + 3
+        assert not operations.held_app(state, app_id).multimedia_map
 
 
 def _png():
@@ -376,6 +394,77 @@ def test_a_shell_create_then_an_update_leaves_what_the_update_describes(hq, core
         again = operations.apply_upload(state, update)
         assert (again.status, again.response["version"]) == (200, 3)
         assert _held_ids(operations.held_app(state, app_id)) == _sent_ids(content)
+
+
+def _counter(state, app_id, member):
+    """The app's save counter as Nova reads it: ``views/releases.py::current_app_version``'s ``currentVersion``,
+    through HQ's URLconf and decorators with the member's key (``operations.current_version_read``)."""
+    import json
+
+    answer = operations.current_version_read(state, app_id, member)
+    assert answer.status == 200, answer.retained()
+    return json.loads(answer.body)["currentVersion"]
+
+
+def test_hqs_save_counter_moves_as_a_publish_binds_its_baseline(hq, core_runner, documents):
+    """A publish binds what it stores as the app's baseline to HQ's save counter
+    (``lib/commcare/hq/appSourceAtVersion.ts``, ``lib/deployment/service.ts::appBaselineFor``), on three facts
+    read from HQ's source, each run here through the views Nova and a person reach:
+
+    - a create leaves the counter at 1 (``models/applications.py::_import_app``: ``export_json`` drops the
+      ``version`` with the other ``_meta_fields``, and the new document's one save, at the end of
+      ``save_attachments``' ``atomic_blobs``, is ``ApplicationBase.save``'s first, which sets 1);
+    - an update's acknowledged ``version`` is the counter read right after it
+      (``views/app_import_api.py::_handle_import_app`` answers ``app.version`` of the app ``overwrite_app_from_source``
+      saved through ``save_attachments``), one past the counter right before it when the app has no stale media mapping;
+    - one save in HQ's editors adds exactly one (``ApplicationBase.save``, ``self.version + 1``): a menu's name
+      (``views/modules.py::edit_module_attr``), a form's settings (``views/forms.py::edit_form_attr``) and the form
+      builder's save of a form's source (``views/forms.py::patch_xform``), each saving the app once, each posted as
+      its page posts it (``proof.observe.hqside``).
+
+    The plausible failures: a second save on an ordinary update with no media cleanup, an acknowledgement that is not the
+    counter a read after it serves (every read back stored unread), a create that leaves another number (an empty
+    app's read never bound), and an editor save that does not move the counter or moves it by more (a person's save
+    unseen, or one seen as several)."""
+    import json
+
+    from proof.observe import hqside
+
+    export = documents["navigation-base"].exports["minimum"]
+    assert export.two_imports
+    with hq_check(export.configuration.hq()) as (state, _), _api(state):
+        member = operations.seed_api_user(state, MEMBER)
+        created = operations.import_request(state, export.create.upload(), member)
+        assert created.status == 201, created.retained()
+        app_id = json.loads(created.body)["app_id"]
+        assert _counter(state, app_id, member) == 1
+        update = operations.with_app_id(export.content.upload(), app_id)
+        for _ in range(2):
+            before = _counter(state, app_id, member)
+            answered = operations.import_request(state, update, member)
+            assert answered.status == 200, answered.retained()
+            acknowledged = json.loads(answered.body)["version"]
+            assert acknowledged == before + 1
+            assert _counter(state, app_id, member) == acknowledged
+        saves = {
+            "a menu's name": lambda: hqside.module_attribute(state, app_id, {"module": 0, "name": "Renamed in HQ"}),
+            "a form's settings": lambda: hqside.form_attribute(
+                state, app_id, {"module": 0, "form": 0, "attributes": {"post_form_workflow": "default"}}
+            ),
+            "the form builder's save": lambda: hqside.questions(
+                state,
+                app_id,
+                {
+                    "module": 0,
+                    "form": 0,
+                    "xform": operations.held_app(state, app_id).get_module(0).get_form(0).source,
+                },
+            ),
+        }
+        for what, save in saves.items():
+            before = _counter(state, app_id, member)
+            save()
+            assert _counter(state, app_id, member) == before + 1, what
 
 
 def test_what_hq_answers_for_an_app_that_is_gone_linked_or_missing(hq, core_runner, documents):

@@ -135,6 +135,7 @@ import { adoptedAppBaselineWrite } from "@/lib/deployment/adoption";
 import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
 import { publishAppToHq } from "@/lib/deployment/service";
 import { recordAdoptedDeploymentInTransaction } from "@/lib/deployment/store";
+import { canonicalTargetIdentity } from "@/lib/deployment/targetIdentity";
 import type {
 	DeploymentConfirmationKey,
 	RemoteChangeDiscard,
@@ -392,6 +393,7 @@ async function attempt(
 ) {
 	const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: SCOPE,
 		doc: loaded.doc,
 		compiledAtSeq: loaded.app.mutation_seq,
@@ -676,6 +678,8 @@ const EVERYTHING: PublishConfiguration = {
  */
 async function seedSearchLookupMedia(): Promise<PublishDocument> {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	/* A lookup writer reads its member's role on its own transaction. */
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const table = await createLookupTable(scope, {
 		name: "Facilities",
 		tag: "facilities",
@@ -1004,7 +1008,7 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	});
 	expect(held.compiledAtSeq).toBe(document.compiledAtSeq + 1);
 	const local = await localCcz(held, DOMAIN);
-	if (local === null)
+	if (!Buffer.isBuffer(local))
 		throw new Error("The app declares Android, and has no CCZ.");
 	// The profile's uniqueid is derived from the app's id and the project
 	// space alone, so the two archives carry one though they name other HQ
@@ -1067,6 +1071,8 @@ const MANAGED_FACILITIES_HELD: PeerTable = {
 
 it("captures the managed-data edge's reads of a table CommCare HQ manages in the project space, and sends no workbook for it", async () => {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	/* A lookup writer reads its member's role on its own transaction. */
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const copy = await makeManagedCopy(h, scope, MANAGED_FACILITIES, {
 		server: PROOF_SERVER,
 		domain: DOMAIN,
@@ -1149,6 +1155,8 @@ it("captures the managed-data edge's reads of a table CommCare HQ manages in the
 
 it("ends the capture by name where the peer holds a managed table otherwise than Nova's copy", async () => {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	/* A lookup writer reads its member's role on its own transaction. */
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const copy = await makeManagedCopy(h, scope, MANAGED_FACILITIES, {
 		server: PROOF_SERVER,
 		domain: DOMAIN,
@@ -1847,7 +1855,7 @@ it("publishes over an app brought in from CommCare HQ as the capture does, under
 						domain: DOMAIN,
 					}),
 					target,
-					identity: targetWireIdentity(facts.identity),
+					identity: targetWireIdentity(facts.identity, facts.columnWords),
 					novaRevision: loaded.app.mutation_seq,
 					mediaFiles: {},
 					observedAt: "2026-11-10T09:29:00.000Z",
@@ -1857,9 +1865,12 @@ it("publishes over an app brought in from CommCare HQ as the capture does, under
 						of: "first-publish",
 					},
 				}),
-				identities: facts.identity,
-				mediaPaths: [],
-				keyedCaseIds: facts.keyedCaseIds,
+				targetIdentity: canonicalTargetIdentity({
+					entities: facts.identity,
+					mediaPaths: [],
+					keyedCaseIds: facts.keyedCaseIds,
+					columnWords: facts.columnWords,
+				}),
 				confirmations: [],
 				at: new Date("2026-11-10T09:30:00.000Z"),
 			});
@@ -1884,6 +1895,7 @@ it("publishes over an app brought in from CommCare HQ as the capture does, under
 				identity: facts.identity,
 				mediaPaths: facts.mediaPaths,
 				keyedCaseIds: facts.keyedCaseIds,
+				columnWords: facts.columnWords,
 			},
 		});
 		expect(capture.status).toBe("republished");

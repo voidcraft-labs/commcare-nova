@@ -12,9 +12,21 @@ import "server-only";
  * chance to get one wrong.
  */
 
+import { validateHeaderValue } from "node:http";
 import { log } from "@/lib/logger";
 import { COMMCARE_SERVERS, type CommCareServer } from "../servers";
+import { HQ_REFUSED_BODY_READ_MAX_BYTES } from "./bounds";
 import { hqDeadlineReached } from "./deadline";
+import { parseHqJsonText } from "./jsonText";
+import {
+	currentMemoryLease,
+	giveBackHeld,
+	type HeldAs,
+	MemoryMeterFullError,
+} from "./memoryMeter";
+import { type BoundedBody, readBoundedBody } from "./readBody";
+
+export { HQ_REFUSED_BODY_READ_MAX_BYTES } from "./bounds";
 
 /**
  * Error from a CommCare HQ API call — just the status code.
@@ -36,11 +48,19 @@ export interface CommCareApiError {
 	 * Why a read synthesized its status: no answer reached Nova (`network`,
 	 * 503), the deadline ran out (`timeout`, 503), the body was longer than
 	 * the read's bound (`too-large`, 502), the answer was a page for a browser
-	 * where JSON was asked (`browser-page`, 502), or it could not be read as
+	 * where JSON was asked (`browser-page`, 502), it could not be read as
 	 * what was asked for (`malformed`, 502, or 508 for a list whose cursor
-	 * never ends). Absent on a status CommCare HQ or its edge answered.
+	 * never ends), or a list changed while its pages were read, in every
+	 * pass Nova made (`moved`, 503). Absent on a status CommCare HQ or its
+	 * edge answered.
 	 */
-	cause?: "network" | "timeout" | "malformed" | "too-large" | "browser-page";
+	cause?:
+		| "network"
+		| "timeout"
+		| "malformed"
+		| "too-large"
+		| "browser-page"
+		| "moved";
 	/**
 	 * The wait the response's `Retry-After` asked for, in milliseconds, when
 	 * it was a count of seconds (`retryAfterMs`). Absent when the response
@@ -59,8 +79,6 @@ export interface CommCareApiError {
 
 /** The most characters of a refused answer's body a read keeps as `refusedBody`. */
 export const HQ_REFUSED_BODY_MAX_CHARS = 2_048;
-/** The most bytes of a refused answer's body a read takes in before it cuts `refusedBody`. */
-export const HQ_REFUSED_BODY_READ_MAX_BYTES = 64 * 1024;
 
 /**
  * The failure of a request whose answer Nova could not read as what was
@@ -135,7 +153,7 @@ export function apiRefusalSentence(
 		return null;
 	let body: unknown;
 	try {
-		body = JSON.parse(error.refusedBody);
+		body = parseHqJsonText(error.refusedBody);
 	} catch {
 		return null;
 	}
@@ -199,7 +217,11 @@ export function baseUrl(creds: CommCareCredentials): string {
  * API key scheme, distinct from Basic or Bearer auth.
  */
 export function authHeader(creds: CommCareCredentials): string {
-	return `ApiKey ${creds.username}:${creds.apiKey}`;
+	const value = `ApiKey ${creds.username}:${creds.apiKey}`;
+	// Node's validator reports only the header name. Fetch's exception can
+	// include the supplied value, and network exceptions reach the logs.
+	validateHeaderValue("Authorization", value);
+	return value;
 }
 
 /**
@@ -267,12 +289,171 @@ export function retryAfterMs(header: string | null): number | null {
 	return Number.isFinite(ms) ? ms : null;
 }
 
+/**
+ * One answer of CommCare HQ, as every driver holds it: its status, its
+ * headers, and its body only through `read`, whose bound is required. No
+ * driver holds a `Response`, so no body is read whole by `.json()` or
+ * `.text()`; `sendHq` is the one `fetch` for CommCare HQ, and a lint rule
+ * keeps it so.
+ */
+export interface HqAnswer {
+	readonly status: number;
+	readonly ok: boolean;
+	/** The header's value, or null where the answer sent none. */
+	header(name: string): string | null;
+	/**
+	 * The body, at most `maxBytes` of it, a whole number from one to
+	 * `bounds.ts::HQ_BODY_BOUND_CEILING` (anything else throws). A body past it
+	 * is cancelled at the stream and answers `too-long`. `held` is what the
+	 * caller keeps it as, which its bytes are charged as to the request's
+	 * lease (`memoryMeter.ts`); a charge the lease refuses answers
+	 * `unavailable`. Read at most once; after `discard` it answers
+	 * `unavailable`.
+	 */
+	read(maxBytes: number, held: HeldAs): Promise<BoundedBody>;
+	/** Let the body go unread. Never throws. */
+	discard(): Promise<void>;
+}
+
+/** What a request to CommCare HQ carries beyond its URL and credentials. */
+export interface HqRequest {
+	readonly method?: "GET" | "POST" | "PUT" | "PATCH";
+	/** The `Accept` header, where the request names one. */
+	readonly accept?: string;
+	/** The `Content-Type` of a JSON body; a `FormData` body sets its own. */
+	readonly contentType?: string;
+	readonly body?: string | FormData;
+	readonly signal: AbortSignal;
+	/** `no-store` on every read; a write leaves it out. */
+	readonly noStore?: boolean;
+}
+
+/**
+ * Send one request to CommCare HQ with the credentials' own header and no
+ * redirect followed, and answer what came back. It rejects where `fetch`
+ * does: no answer began, or the signal ended it first; and, sending nothing,
+ * with a `MemoryMeterFullError` where the request's lease has refused a
+ * charge, since nothing it reads now could be kept.
+ */
+export async function sendHq(
+	creds: CommCareCredentials,
+	url: string,
+	request: HqRequest,
+): Promise<HqAnswer> {
+	if (currentMemoryLease()?.exhausted === true)
+		throw new MemoryMeterFullError();
+	const headers = {
+		Authorization: authHeader(creds),
+		...(request.accept !== undefined && { Accept: request.accept }),
+		...(request.contentType !== undefined && {
+			"Content-Type": request.contentType,
+		}),
+	};
+	const response = await fetch(url, {
+		method: request.method ?? "GET",
+		headers,
+		...(request.body === undefined ? {} : { body: request.body }),
+		redirect: "manual",
+		...(request.noStore === true ? { cache: "no-store" as const } : {}),
+		signal: request.signal,
+	});
+	let body: "unread" | "read" | "discarded" = "unread";
+	return {
+		status: response.status,
+		ok: response.ok,
+		header: (name) => response.headers.get(name),
+		async read(maxBytes, held) {
+			if (body === "read")
+				throw new Error(
+					"A CommCare HQ answer's body was read twice. Each answer is read once.",
+				);
+			if (body === "discarded")
+				return {
+					kind: "unavailable",
+					error: new Error("The answer's body was let go unread."),
+				};
+			body = "read";
+			const length = response.headers.get("content-length");
+			const hint =
+				length !== null && /^\d+$/.test(length.trim())
+					? Number(length.trim())
+					: null;
+			return readBoundedBody(response.body, maxBytes, hint, held);
+		},
+		async discard() {
+			if (body !== "unread") return;
+			body = "discarded";
+			await response.body?.cancel().catch(() => undefined);
+		},
+	};
+}
+
+/**
+ * A refused answer's body as text, at most `HQ_REFUSED_BODY_READ_MAX_BYTES`
+ * of it (its head where it is longer), and whether the whole of it arrived.
+ * A body the network or the deadline cut off is `unavailable`. The bytes are
+ * given back to the request's lease once decoded: a caller keeps at most
+ * `HQ_REFUSED_BODY_MAX_CHARS` of the text.
+ */
+export async function readRefusedBody(answer: HqAnswer): Promise<
+	| {
+			readonly kind: "text";
+			readonly text: string;
+			readonly whole: boolean;
+			readonly bytes: number;
+	  }
+	| { readonly kind: "unavailable"; readonly error: unknown }
+> {
+	const body = await answer.read(HQ_REFUSED_BODY_READ_MAX_BYTES, "text");
+	if (body.kind === "unavailable") return body;
+	const whole = body.kind === "read";
+	const kept = whole ? body.bytes : body.head;
+	const text = new TextDecoder().decode(kept);
+	if (whole) giveBackHeld("text", kept.byteLength);
+	return {
+		kind: "text",
+		text,
+		whole,
+		bytes: whole ? body.bytes.byteLength : body.bytes,
+	};
+}
+
+/**
+ * A 2xx body read to its bound and parsed as JSON: `json`, or `unreadable`
+ * where it passed the bound, did not arrive whole, or is no JSON. An
+ * acknowledgement's caller takes `unreadable` as its write's answer Nova
+ * cannot read, which says the write may have landed.
+ */
+export async function readAnswerJson(
+	answer: HqAnswer,
+	maxBytes: number,
+): Promise<
+	| { readonly kind: "json"; readonly data: unknown }
+	| {
+			readonly kind: "unreadable";
+			readonly why: "too-large" | "unavailable" | "not-json";
+	  }
+> {
+	const body = await answer.read(maxBytes, "text");
+	if (body.kind === "too-long") return { kind: "unreadable", why: "too-large" };
+	if (body.kind === "unavailable")
+		return { kind: "unreadable", why: "unavailable" };
+	try {
+		return {
+			kind: "json",
+			data: parseHqJsonText(new TextDecoder().decode(body.bytes)),
+		};
+	} catch {
+		return { kind: "unreadable", why: "not-json" };
+	}
+}
+
 /** The error a refused answer is, from its status, its `Retry-After` and its body, logging nothing. */
 export function failedResponseError(
-	res: Response,
+	res: HqAnswer,
 	body: string,
 ): CommCareApiError {
-	const wait = retryAfterMs(res.headers.get("retry-after"));
+	const wait = retryAfterMs(res.header("retry-after"));
 	return {
 		success: false,
 		status: res.status,
@@ -318,33 +499,45 @@ export function hqTextFacts(text: string): {
  * edge refused it, and its body's shape and length, never its text.
  */
 function refusedResponseContext(
-	res: Response,
-	body: string,
+	res: HqAnswer,
+	body: {
+		readonly text: string;
+		readonly whole: boolean;
+		readonly bytes: number;
+	},
 	error: CommCareApiError,
 ) {
-	const facts = hqTextFacts(body);
 	return {
 		status: res.status,
 		edgeRefusal: error.edgeRefusal === true,
-		body: facts.shape,
-		bodyBytes: facts.bytes,
+		body: hqTextShape(body.text),
+		bodyBytes: body.bytes,
+		bodyCutOff: !body.whole,
 	};
+}
+
+/** A refused answer's body, its head where it is longer than refusals are read, `""` where it did not arrive. */
+async function refusedBodyOf(res: HqAnswer): Promise<{
+	readonly text: string;
+	readonly whole: boolean;
+	readonly bytes: number;
+}> {
+	const body = await readRefusedBody(res);
+	return body.kind === "text" ? body : { text: "", whole: false, bytes: 0 };
 }
 
 /**
  * Log a failed CommCare HQ response for server-side debugging, by its
- * status and its body's shape and length (`hqTextFacts`). The body is never
- * logged, returned to callers or shown to users.
+ * status and its body's shape and length (`hqTextFacts`), its body read at
+ * most `HQ_REFUSED_BODY_READ_MAX_BYTES` far. The body is never logged,
+ * returned to callers or shown to users.
  */
 export async function logAndReturnError(
 	context: string,
-	res: Response,
+	res: HqAnswer,
 ): Promise<CommCareApiError> {
-	let body = "";
-	try {
-		body = await res.text();
-	} catch {}
-	const error = failedResponseError(res, body);
+	const body = await refusedBodyOf(res);
+	const error = failedResponseError(res, body.text);
 	log.error(
 		`[commcare] ${context}`,
 		undefined,
@@ -365,13 +558,10 @@ export async function logAndReturnError(
  */
 export async function warnAndReturnError(
 	context: string,
-	res: Response,
+	res: HqAnswer,
 ): Promise<CommCareApiError> {
-	let body = "";
-	try {
-		body = await res.text();
-	} catch {}
-	const error = failedResponseError(res, body);
+	const body = await refusedBodyOf(res);
+	const error = failedResponseError(res, body.text);
 	log.warn(`[commcare] ${context}`, refusedResponseContext(res, body, error));
 	return error;
 }

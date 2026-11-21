@@ -17,8 +17,10 @@
  * changes made in Nova: true is refused where the review lists none, and
  * false where it lists some, before anything is taken.
  *
- * Scope: `nova.hq.write`, checked before any read: it changes the app and
- * the deployment's record. Nothing is sent to CommCare HQ. Kept off the
+ * Scope: `nova.hq.import`, checked by its registration before anything runs:
+ * every answer but `brought-in` and `recorded` can carry what CommCare HQ
+ * holds of the app now (a changed review's first page, the gate's findings),
+ * and it brings that into the app. Nothing is sent to CommCare HQ. Kept off the
  * Solutions Architect, as every deployment tool is.
  */
 
@@ -50,8 +52,15 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import {
+	arrayItemChars,
+	cutPage,
+	fitPiece,
+	PAGE_LIMIT_CHARS,
+	toolText,
+} from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import {
 	type DeploymentProjection,
@@ -59,7 +68,7 @@ import {
 	describeFirstPublish,
 	type FirstPublishProjection,
 } from "./deploymentProjection";
-import { landedNovaRevisions } from "./landedReads";
+import { landedNovaRevisions, landedOrganizationLevels } from "./landedReads";
 import {
 	describeHqChangesReview,
 	type HqChangesCall,
@@ -114,20 +123,25 @@ export type HqChangesOutcomeProjection =
 			readonly message: string;
 			/** Null where Nova could not read the record after the bring-in landed. */
 			readonly deployment: LandedDeploymentProjection | null;
+			/** Where to see the deployment when its details exceed one reply. */
+			readonly next?: string;
 	  }
 	| {
 			readonly kind: "recorded";
 			readonly message: string;
 			/** Null where Nova could not read the record after the record landed. */
 			readonly deployment: LandedDeploymentProjection | null;
+			/** Where to see the deployment when its details exceed one reply. */
+			readonly next?: string;
 	  }
 	| {
 			readonly kind: "changed";
 			/** That the review moved while it was read (`hqChangesMovedLine`) over a list or nothing to
 			 *  bring in; otherwise that nothing was brought in. */
 			readonly message: string;
-			/** The member whose edit moved the app, by name, where that is what changed. */
-			readonly edited_by: string | null;
+			/** The member whose edit moved the app, by name, where that is what changed. Present only
+			 *  beside a `now` that lists changes or has nothing to bring in. */
+			readonly edited_by?: string | null;
 			/** The review as it now stands, to show the user before asking again. */
 			readonly now: HqChangesReviewProjection;
 			/** Where `now` is a first page, how to read the rest; otherwise null. */
@@ -136,8 +150,10 @@ export type HqChangesOutcomeProjection =
 	| {
 			readonly kind: "gate";
 			readonly message: string;
-			/** Each finding's own sentence. */
+			/** Each finding's own sentence, as many as one answer holds beside the rest. */
 			readonly findings: readonly string[];
+			/** How many findings the gate made, of which `findings` holds the first. */
+			readonly findings_total: number;
 			readonly next: string;
 	  }
 	| { readonly kind: "refused"; readonly message: string };
@@ -145,8 +161,9 @@ export type HqChangesOutcomeProjection =
 /**
  * The record a landed bring-in answers with, with its left-behind list as the
  * bring-in derived it and the revision CommCare HQ's copy now matches, left
- * out where Nova could not read it after the bring-in committed; null where
- * the bring-in could not read the record itself.
+ * out where Nova could not read it after the bring-in committed, and each
+ * level a confirmation names read from the app as the bring-in left it; null
+ * where the bring-in could not read the record itself.
  */
 async function landedDeployment(
 	call: HqChangesCall,
@@ -160,6 +177,17 @@ async function landedDeployment(
 		null,
 		view.kept,
 		await landedNovaRevisions(call.scope, call.target.domain, "bring-in"),
+		/* Only a worker-level confirmation reads the app's levels, so the app is
+		 * read again only for a record that holds one. */
+		view.deployment.confirmations.some(
+			(confirmation) => confirmation.kind === "worker-level",
+		)
+			? await landedOrganizationLevels(
+					call.scope,
+					call.target.domain,
+					"bring-in",
+				)
+			: [],
 	);
 	return {
 		...projected,
@@ -195,25 +223,45 @@ export async function describeHqChangesOutcome(
 ): Promise<HqChangesOutcomeProjection> {
 	switch (outcome.kind) {
 		case "brought-in":
-			return {
-				kind: "brought-in",
-				seq: outcome.seq,
-				discarded: outcome.discarded,
-				message: broughtInLine(outcome.discarded),
+		case "recorded": {
+			const receipt =
+				outcome.kind === "recorded"
+					? { kind: outcome.kind, message: RECORDED_LINE }
+					: {
+							kind: outcome.kind,
+							seq: outcome.seq,
+							discarded: outcome.discarded,
+							message: broughtInLine(outcome.discarded),
+						};
+			const answer = {
+				...receipt,
 				deployment: await landedDeployment(call, outcome.deployment),
 			};
-		case "recorded":
+			if (JSON.stringify(answer).length <= PAGE_LIMIT_CHARS) return answer;
 			return {
-				kind: "recorded",
-				message: RECORDED_LINE,
-				deployment: await landedDeployment(call, outcome.deployment),
+				...receipt,
+				deployment: null,
+				next: "The deployment details exceed one answer. Open Publishing in the Nova app to see them.",
 			};
+		}
 		case "changed": {
+			const changedMessage =
+				"editedBy" in outcome
+					? hqChangesMovedLine(outcome.editedBy)
+					: HQ_CHANGES_NOTHING_TAKEN_LINE;
 			const now = describeHqChangesReview(outcome.now, reviewHead(call), {
 				projectId: call.scope.projectId,
 				remoteAppId:
 					outcome.now.kind === "account" ? await liveRemoteAppId(call) : null,
 				page: { from: 0, restarted: false },
+				/* The page is cut against the whole answer it goes out in. */
+				envelope: (projected) => ({
+					kind: "changed",
+					message: changedMessage,
+					...("editedBy" in outcome && { edited_by: outcome.editedBy }),
+					now: projected,
+					next: CHANGED_NOW_PAGED_NEXT,
+				}),
 			});
 			return {
 				kind: "changed",
@@ -221,22 +269,35 @@ export async function describeHqChangesOutcome(
 				 * with nothing to bring in. Over any other review (a failed read of CommCare
 				 * HQ, an account, a held or unavailable change) nothing need
 				 * have moved, and `now` says why nothing was brought in. */
-				message:
-					outcome.now.kind === "changes" || outcome.now.kind === "nothing"
-						? hqChangesMovedLine(outcome.editedBy)
-						: HQ_CHANGES_NOTHING_TAKEN_LINE,
-				edited_by: outcome.editedBy,
+				message: changedMessage,
+				...("editedBy" in outcome && { edited_by: outcome.editedBy }),
 				now,
 				next: nextPageOf(now) === null ? null : CHANGED_NOW_PAGED_NEXT,
 			};
 		}
-		case "gate":
-			return {
-				kind: "gate",
+		case "gate": {
+			/* A gate's answer is no list a client reads again, so it holds as
+			 * many of the findings as one answer holds and says how many there
+			 * are. */
+			const shell = {
+				kind: "gate" as const,
 				message: HQ_CHANGES_GATE_LEAD,
-				findings: outcome.details,
+				findings: [] as string[],
+				findings_total: outcome.details.length,
 				next: HQ_CHANGES_GATE_NEXT,
 			};
+			const findings: string[] = [];
+			const fitted = (index: number) =>
+				fitPiece(outcome.details[index] as string);
+			cutPage({
+				count: outcome.details.length,
+				from: 0,
+				shellChars: JSON.stringify(shell).length,
+				pieceChars: (index, taken) => arrayItemChars(fitted(index), taken),
+				take: (index) => findings.push(fitted(index)),
+			});
+			return { ...shell, findings };
+		}
 		case "refused":
 			return { kind: "refused", message: outcome.message };
 	}
@@ -246,10 +307,11 @@ export function registerBringInHqChanges(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"bring_in_hq_changes",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
 				"Bring the changes `read_hq_changes` listed in to this Nova app. Send back its `reading_id` and `review_digest`. Set `discard_nova_changes` to false when `nova_changes` was empty. When it was not empty, bringing the changes in removes every change listed there and Nova can't put them back: set it to true only after the user has read that list and said yes. It also records a `nothing` review that holds a `review_digest`: the answer is `recorded`, and the app is unchanged. An answer of `changed` brought nothing in: `now` is the review as it stands now, and its own message says why (CommCare HQ or the app moved since the read, or reading CommCare HQ again stopped). Show the user `message` and `now`, and ask again. Where `next` is not null, `now` is only the first page of its lists: read the rest with `read_hq_changes`, passing the `next_page` in `now` as `page`, and show the user every line before you ask again. `gate` lists what would stop working; the user can change that in Nova and you can read again.",
 			inputSchema: z.strictObject({
@@ -284,7 +346,6 @@ export function registerBringInHqChanges(
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				assertScope(ctx, SCOPES.hqWrite, "bring_in_hq_changes");
 				const call = await openHqChangesCall(
 					ctx.userId,
 					args.app_id,
@@ -315,9 +376,7 @@ export function registerBringInHqChanges(
 					content: [
 						{
 							type: "text",
-							text: JSON.stringify(
-								await describeHqChangesOutcome(outcome, call),
-							),
+							text: toolText(await describeHqChangesOutcome(outcome, call)),
 						},
 					],
 				};

@@ -524,3 +524,202 @@ def test_a_run_that_left_the_walk_keeps_no_search_outcome_and_a_one_question_end
     assert left and not [path for path, _ in left if "oneQuestion" in path]
     stopped = screens(menu, whole, stopped={"after": 2, "screen": whole})
     assert ("/runs/*/oneQuestion", "removed") in compared(one, stopped)
+
+
+def test_formplayer_location_metadata_class_only_covers_the_empty_hq_element():
+    def trace(location):
+        instance = '<data xmlns="urn:app"><meta xmlns="http://openrosa.org/jr/xforms">' + location + "</meta></data>"
+        return {"runs": [{"steps": [{"response": {"instanceXml": {"output": instance}}}]}]}
+
+    def paths(element):
+        found = compare.formplayer_differences(
+            trace(""), trace(element), check="proof3", document="d", artifact="formplayer@B"
+        )
+        return [difference.path for difference in found]
+
+    prefix = "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]"
+    tag = '<location xmlns="http://commcarehq.org/xforms"'
+    assert paths(tag + "/>") == [prefix + ":empty"]
+    for element in (
+        tag + ">1 2 3 4</location>",
+        tag + ' source="gps"/>',
+        tag + "><extra/></location>",
+        '<location xmlns="urn:another"/>',
+    ):
+        [path] = paths(element)
+        assert not path.endswith(":empty")
+
+
+def test_formplayer_menu_images_use_their_own_archive_and_leave_unresolved_images_visible():
+    from proof.checks.compare.trace import INSTALLED_MEDIA, MEDIA_FILES
+    from proof.rules import RULES
+
+    first, second = "jr://file/a.png", "jr://file/b.png"
+
+    def response(uri=None):
+        return {
+            "runs": [{"steps": [{"response": {"type": "commands", "commands": [{"imageUri": uri} if uri else {}]}}]}]
+        }
+
+    def differences(a, b, left, right):
+        return compare.formplayer_differences(
+            response(a),
+            response(b),
+            check="proof3",
+            document="doc",
+            artifact="formplayer@B",
+            media=(left, right),
+            rules=RULES,
+        )
+
+    shared = {MEDIA_FILES: {first: "same", second: "same"}, INSTALLED_MEDIA: [first, second]}
+    different = {MEDIA_FILES: {first: "one", second: "two"}, INSTALLED_MEDIA: [first, second]}
+    assert not differences(second, first, shared, different)
+    assert differences(second, first, different, shared)
+    assert not differences(second, None, {INSTALLED_MEDIA: []}, None)
+    assert differences(second, None, None, {INSTALLED_MEDIA: []})
+    assert differences("http://images.example/icon.png", None, {INSTALLED_MEDIA: []}, None)
+
+
+def test_an_offered_root_menu_name_requires_matching_commands_language_and_text_on_both_sides():
+    from dataclasses import replace
+
+    from proof.checks import changes, formplayer_menus
+    from proof.checks.differences import Difference
+
+    row = Difference(
+        "proof3",
+        "d",
+        "formplayer@B",
+        formplayer_menus.DISPLAY,
+        "/runs/0/steps/0/response/commands/1/displayText",
+        "changed",
+        " Visits",
+        "Visits",
+    )
+    target = (row.artifact, row.at)
+
+    def evidence(ids, labels, *, language="fra", selections=None, offered=None, differing=(), before=True):
+        core = {"runs": [{"trace": [{"screen": "menu", "root": "root", "choices": [{"command": c} for c in ids]}]}]}
+        # The suite's document order differs from Core's actual root menu order.
+        menus = "".join(f'<menu id="{c}"><text><locale id="modules.{c}"/></text></menu>' for c in sorted(ids))
+        files = {
+            "suite.xml": f"<suite>{menus}</suite>",
+            "fra/app_strings.txt": "\n".join(f"modules.{c}={t}" for c, t in zip(ids, labels, strict=True)),
+        }
+        commands = [{"index": i, "displayText": t} for i, t in enumerate(offered or labels)]
+        step = {
+            "request": {"locale": language, "selections": selections or []},
+            "response": {"type": "commands", "breadcrumbs": ["Home"], "selections": [], "commands": commands},
+        }
+        trace = {"locale": "en", "runs": [{"steps": [step]}]}
+        return changes.Sites(
+            served={target: formplayer_menus.locations([row], trace, core, files, differing, before=before).get(target)}
+        )
+
+    ids = ["m7", "m2"]
+    old = evidence(ids, ["Carnet", " Visits"])
+    new = evidence(ids, ["Carnet", "Visits"], before=False)
+    agreed = changes.merged_sites(old, new).served[target]
+    assert agreed == ("menu", "2", "name") and formplayer_menus.is_trimmed_menu(row, agreed)
+    # Identical displayed wording at the same index can belong to a different menu on the next build.
+    swapped = evidence(["m2", "m7"], ["Carnet", "Visits"], before=False)
+    assert not formplayer_menus.is_trimmed_menu(row, changes.merged_sites(old, swapped).served[target])
+    # No inferred owner for a submenu, another language, ambiguous choices, a divergence from the files,
+    # or evidence from a release whose strings differ from the build Core opened.
+    for other in (
+        evidence(ids, ["Carnet", " Visits"], selections=["0"]),
+        evidence(ids, ["Carnet", " Visits"], language="de"),
+        evidence(ids, [" Visits", " Visits"]),
+        evidence(ids, ["Renamed", " Visits"], offered=["Carnet", " Visits"]),
+        evidence(ids, ["Carnet", " Visits"], differing=["fra/app_strings.txt"]),
+    ):
+        assert not formplayer_menus.is_trimmed_menu(row, changes.merged_sites(old, other).served[target])
+    for before, after in ((" Visits", "VISITS"), ("A  B", "A B"), ("\u00a0Visits", "Visits"), ("Visits", " Visits")):
+        assert not formplayer_menus.is_trimmed_menu(replace(row, before=before, after=after), agreed)
+
+
+def test_a_new_worker_release_compares_its_workers_to_the_ordinary_release_and_its_preview_to_a():
+    from dataclasses import replace
+
+    from proof.checks import changes
+
+    app = {"kind": "default", "name": "Visit", "icon": None}
+    sync = {"kind": "sync", "name": "Sync", "icon": None}
+    choices = [{"menu": 0}]
+    trace = {"runs": [{"script": choices, "end": "submitted"}]}
+    run = {"script": choices, "screens": [{"commands": [{"text": "Visit"}], "alerts": []}], "submit": "submitted"}
+    preview = {**copy.deepcopy(run), "viewport": "preview"}
+    before = {"build": {"workerApp": {"name": "Visit", "listed": False}}, "home": {"apps": [sync]}, "runs": [preview]}
+    after = {
+        "build": {"workerApp": {"name": "Visit", "listed": True}},
+        "home": {"apps": [app, sync]},
+        "runs": [run, {**copy.deepcopy(run), "viewport": "small"}, copy.deepcopy(preview)],
+    }
+    published = copy.deepcopy(after)
+
+    def compare_to(other, first=before, ordinary=published):
+        return compare.webapps_differences(
+            first, other, check="proof3", document="d", artifact="webapps@B", traces=(trace, trace), published=ordinary
+        )
+
+    [availability] = compare_to(after)
+    assert (availability.at, availability.before, availability.after) == ("/home/releaseListed", False, True)
+    register = changes.load()
+    applying = {"web-apps-turned-on": ("/app/cloudcare_enabled",)}
+    assert changes.holders(availability, register, applying) == ["web-apps-turned-on"]
+    assert changes.holders(availability, register, {}) == []
+    assert changes.holders(availability, register, {"web-apps-turned-off": ("/app/cloudcare_enabled",)}) == []
+    for original, next_ in ((True, False), (False, 1), (None, True)):
+        assert changes.holders(replace(availability, before=original, after=next_), register, applying) == []
+
+    for side, index in ((before, 0), (after, 0), (after, 1), (after, 2), (published, 0)):
+        wrong = copy.deepcopy(side)
+        wrong["runs"][index]["screens"][0]["alerts"] = ["Different worker feedback"]
+        if side is before:
+            found = compare_to(after, first=wrong)
+        elif side is after:
+            found = compare_to(wrong)
+        else:
+            found = compare_to(after, ordinary=wrong)
+        window_index = 2 if side is before else index
+        assert {d.at for d in found} == {"/home/releaseListed", f"/runs/{window_index}/screens/0/alerts/0"}
+
+    for mutation in ("missing-run", "missing-screen", "early-stop", "missing-submit", "wrong-app", "same-setting"):
+        wrong = copy.deepcopy(after)
+        if mutation == "missing-run":
+            del wrong["runs"][1]
+        elif mutation == "missing-screen":
+            wrong["runs"][0]["screens"] = []
+        elif mutation == "early-stop":
+            wrong["runs"][0]["stopped"] = {"after": 0, "at": "start", "screen": {}}
+        elif mutation == "missing-submit":
+            wrong["runs"][0]["submit"] = "disabled"
+        elif mutation == "wrong-app":
+            wrong["home"]["apps"][0]["name"] = "Another app"
+        else:
+            wrong["build"]["workerApp"]["listed"] = False
+        found = compare_to(wrong)
+        assert found and not any(changes.holders(d, register, applying) for d in found), mutation
+
+    # Repeated client tile kinds leave the app list unkeyed. A same-name tile of another kind
+    # cannot then stand for the newly listed release.
+    wrong = copy.deepcopy(after)
+    wrong["home"]["apps"] = [{"kind": "settings", "name": "Visit"}, sync, sync]
+    assert "/home/releaseListed" not in {d.at for d in compare_to(wrong)}
+
+    wrong = copy.deepcopy(after)
+    wrong["build"]["smallHome"] = {**wrong["home"], "alerts": ["Phone only"]}
+    assert {d.at for d in compare_to(wrong)} == {"/home/releaseListed", "/smallHome"}
+
+    extra = copy.deepcopy(published)
+    extra["runs"].insert(0, {**run, "script": [{"menu": 1}]})
+    assert compare_to(after, ordinary=extra) == [availability]
+
+    wrong = copy.deepcopy(after)
+    wrong["home"]["apps"][0]["icon"] = "/unrelated-logo.png"
+    wrong["home"]["apps"].append({"kind": "default", "name": "Another app", "icon": None})
+    wrong["home"]["apps"][1]["name"] = "Changed Sync"
+    found = compare_to(wrong)
+    assert {d.at for d in found} == {"/home/releaseListed", "/home/newAppTile", "/home/apps/0", "/home/tiles/sync/name"}
+    assert [d.at for d in found if changes.holders(d, register, applying)] == ["/home/releaseListed"]

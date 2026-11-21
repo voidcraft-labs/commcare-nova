@@ -137,6 +137,8 @@ it("does not repair while a generation holds the app", async () => {
 
 it("finds lookup-derived starting values and refuses missing definitions", async () => {
 	const projectId = "starting-value-project";
+	/* A lookup writer reads its member's role on its own transaction. */
+	await h.seedProjectMember("owner-test", projectId, "owner");
 	const table = await createLookupTable(
 		{ projectId, actorId: "owner-test", role: "owner" },
 		{

@@ -148,9 +148,12 @@ const EVERY_VALUE_KEPT: TargetFacts = {
 	},
 	uiText: { en: { "home.start": "Begin" } },
 	uiTextKeys: ["home.start"],
+	uiTextNotCarried: [],
+	profileNotCarried: false,
 	secureSubmissions: true,
-	customBaseUrl: "https://hq.example.org",
+	customBaseUrl: { host: "hq.example.org", origin: "https://hq.example.org" },
 	autoGpsCapture: true,
+	novaOwnsAutoGpsCapture: false,
 	androidLogos: ["home"],
 	practiceWorker: true,
 	persistentMenu: true,
@@ -166,9 +169,12 @@ const NOTHING_KEPT: TargetFacts = {
 	profileProperties: {},
 	uiText: {},
 	uiTextKeys: [],
+	uiTextNotCarried: [],
+	profileNotCarried: false,
 	secureSubmissions: false,
 	customBaseUrl: null,
 	autoGpsCapture: false,
+	novaOwnsAutoGpsCapture: false,
 	androidLogos: [],
 	practiceWorker: false,
 	persistentMenu: false,
@@ -203,6 +209,8 @@ describe("the advisories KEPT_AT_HQ names", () => {
 		const given = new Set(
 			exportAdvisories(buildDoc({ appName: "Kept values" }), "known", {
 				uiTextFallsBack: true,
+				uiTextNotCarried: true,
+				profileNotCarried: true,
 				androidLogos: true,
 				practiceWorker: true,
 				languageNames: true,
@@ -238,7 +246,9 @@ describe("the code KEPT_AT_HQ's cells name", () => {
 	const named = [
 		...new Set(
 			Object.values(KEPT_AT_HQ).flatMap((row) => [
-				...(row.ccz.does === "mirrors" ? [row.ccz.by] : []),
+				...(row.ccz.does === "mirrors" || row.ccz.does === "refuses"
+					? [row.ccz.by]
+					: []),
 				...(row.preview.does === "reads" ? [row.preview.by] : []),
 			]),
 		),

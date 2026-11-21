@@ -37,6 +37,8 @@
 		"application-and-settings/profile-feature-checkoff",
 		"application-and-settings/rev-domain-copy-of-version",
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
+		"application-and-settings/translations-app-display-name",
+		"application-and-settings/translations-generated-key-over-one-text",
 		"expressions-and-data/xpath-location-paths",
 		"expressions-and-data/xpath-operators-and-literals",
 		"forms-and-case-writes/a-writer-question-with-no-case-preload-update-only",
@@ -119,6 +121,7 @@
 		"case-names-checked",
 		"sort-rule-kept-as-hidden-column",
 		"list-settings-respelled",
+		"translation-overrides-folded",
 		"sort-by-entry-with-a-blank-name-dropped"
 	]
 }

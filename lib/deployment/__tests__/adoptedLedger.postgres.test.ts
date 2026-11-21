@@ -9,6 +9,7 @@ import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { seenByHq } from "@/lib/commcare/hq/appsSeen";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { softDeleteApp } from "@/lib/db/apps";
 import { HqAppAlreadyClaimedError } from "@/lib/db/hqAppClaims";
@@ -19,17 +20,17 @@ import {
 	foldDeploymentAttempt,
 	readAppBaseline,
 	readDeployment,
-	readDeploymentIdentityOverrides,
-	readDeploymentKeyedCaseIds,
-	readDeploymentMediaPaths,
 	readHqAppClaims,
 	readReachedDeploymentTargets,
+	readTargetIdentity,
 	recordRefreshedAppBaseline,
 	recordRemoteResource,
 } from "../store";
+import { EMPTY_TARGET_IDENTITY } from "../targetIdentity";
 import {
 	BIRTH_AT,
 	birthAdoptedApp,
+	HELD_COLUMN,
 	HELD_PATH,
 	MEDIA_FILES,
 	OWNERSHIP,
@@ -70,6 +71,7 @@ async function count(
 		| "app_deployment_identities"
 		| "app_deployment_media_paths"
 		| "app_deployment_keyed_case_ids"
+		| "app_deployment_column_field_words"
 		| "app_deployment_confirmations",
 ): Promise<number> {
 	const row = await h
@@ -254,37 +256,37 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			},
 		]);
 		expect(await previewProjectSpaceFor(birth.scope)).toBe("clinic");
-		expect(await readDeploymentIdentityOverrides(birth.scope, TARGET)).toEqual([
-			{
-				entityKind: "form",
-				novaEntityUuid: birth.formUuid,
-				uniqueId: "b".repeat(32),
-				xmlns:
-					"http://openrosa.org/formdesigner/5A2C1F0E-0000-4000-8000-000000000001",
-			},
-			{
-				entityKind: "module",
-				novaEntityUuid: birth.moduleUuid,
-				uniqueId: "a".repeat(32),
-				xmlns: null,
-			},
-		]);
-		expect(await readDeploymentMediaPaths(birth.scope, TARGET)).toEqual(
-			new Map([[birth.assetId, HELD_PATH]]),
-		);
-		expect(await readDeploymentKeyedCaseIds(birth.scope, TARGET)).toEqual([
-			{
-				operationUuid: birth.operationUuid,
-				caseType: "patient",
-				prefix: birth.prefix,
-			},
-		]);
+		expect(await readTargetIdentity(birth.scope, TARGET)).toEqual({
+			entities: [
+				{
+					entityKind: "form",
+					novaEntityUuid: birth.formUuid,
+					uniqueId: "b".repeat(32),
+					xmlns:
+						"http://openrosa.org/formdesigner/5A2C1F0E-0000-4000-8000-000000000001",
+				},
+				{
+					entityKind: "module",
+					novaEntityUuid: birth.moduleUuid,
+					uniqueId: "a".repeat(32),
+					xmlns: null,
+				},
+			],
+			keyedCaseIds: [
+				{
+					operationUuid: birth.operationUuid,
+					caseType: "patient",
+					prefix: birth.prefix,
+				},
+			],
+			mediaPaths: [{ assetId: birth.assetId, wirePath: HELD_PATH }],
+			columnWords: [
+				{ columnUuid: HELD_COLUMN, screen: "short", word: "case_name" },
+			],
+		});
 		const elsewhere = { server: "india" as const, domain: "clinic" };
-		expect(await readDeploymentMediaPaths(birth.scope, elsewhere)).toEqual(
-			new Map(),
-		);
-		expect(await readDeploymentKeyedCaseIds(birth.scope, elsewhere)).toEqual(
-			[],
+		expect(await readTargetIdentity(birth.scope, elsewhere)).toEqual(
+			EMPTY_TARGET_IDENTITY,
 		);
 	});
 
@@ -437,6 +439,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			"app_deployment_identities",
 			"app_deployment_media_paths",
 			"app_deployment_keyed_case_ids",
+			"app_deployment_column_field_words",
 			"app_deployment_confirmations",
 		] as const) {
 			expect(await count(table)).toBe(0);
@@ -477,9 +480,7 @@ describe("readHqAppClaims", () => {
 	async function claims(viewerUserId: string, remoteAppIds: string[]) {
 		return readHqAppClaims({
 			viewerUserId,
-			server: "production",
-			domain: "clinic",
-			remoteAppIds,
+			seen: seenByHq("production", "clinic", remoteAppIds),
 		});
 	}
 

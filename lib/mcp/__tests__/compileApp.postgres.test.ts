@@ -19,6 +19,7 @@ import type { HqApplication } from "@/lib/commcare/types";
 import { derivedFormXmlns } from "@/lib/commcare/wireIdentity";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import { readable } from "@/lib/deployment/__tests__/readableRecord";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import { WEB_APPS_ONLY_HAS_NO_CCZ } from "@/lib/deployment/runtimeTarget";
 import {
@@ -122,7 +123,7 @@ async function publish(
 			mediaFiles: { kind: "set", files: null },
 			firstPublish: { kind: "set", list: null },
 		},
-	});
+	}).then(readable);
 }
 /** A first publish that stopped after making the empty app. */
 async function shellOnly(server: "india" | "production", domain: string) {
@@ -399,7 +400,10 @@ it("exports a shared viewer's actual committed version as HQ JSON and an install
 it.each([false, true])(
 	"carries referenced lookup rows in both formats, with uploaded media: %s",
 	async (withMedia) => {
-		const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+		/* The Project's data is written by a member who may edit it: a lookup
+		 * writer reads its member's role on its own transaction. */
+		const scope = { projectId: PROJECT, actorId: "creator", role: "owner" };
+		await h.seedProjectMember("creator", PROJECT, "owner");
 		const table = await createLookupTable(scope, {
 			name: "Facilities",
 			tag: "facilities",

@@ -297,14 +297,27 @@ def _addressed(trace, rules):
     return trace
 
 
-def comparable_trace(trace):
+def comparable_trace(trace, *, media=None, rules=()):
     """Formplayer's trace as it is compared (the module's first list)."""
+    from proof.checks.compare.spelling import menu_image
+
     shown = _unnumbered(copy.deepcopy(trace))
     for name in ("derived", "generated"):
         shown.pop(name, None)
     for run in shown.get("runs") or []:
         if not isinstance(run, dict):
             continue
+        for step in run.get("steps") or ():
+            response = step.get("response") if isinstance(step, dict) else None
+            if media and isinstance(response, dict) and response.get("type") == "commands":
+                for command in response.get("commands") or ():
+                    if isinstance(command, dict) and "imageUri" in command:
+                        uri = menu_image(command["imageUri"], media, rules)
+                        if uri is None and command["imageUri"] is not None:
+                            # Command omits imageUri when the menu names no picture.
+                            del command["imageUri"]
+                        else:
+                            command["imageUri"] = uri
         run["steps"] = [
             _form_step(step) if isinstance(step, dict) and "answers" in step else step
             for step in run.get("steps") or []
@@ -417,6 +430,9 @@ def one_screen(before, after):
 def comparable_screens(record):
     """The client's screens as they are compared: without the runtime and the build's version."""
     shown = {key: copy.deepcopy(value) for key, value in record.items() if key not in ("runtime", "build")}
+    small_home = record.get("build", {}).get("smallHome")
+    if small_home is not None and small_home != record.get("home"):
+        shown["smallHome"] = copy.deepcopy(small_home)
     return _tiles_by_kind(_rows_by_case(_without(shown, SCREEN_LEFT_OUT)))
 
 
@@ -565,8 +581,22 @@ def _named_by(value, text_ids):
     return value
 
 
+def empty_meta_location_class(difference):
+    """HQ's location block on Formplayer adds an empty element. A coordinate, child, attribute or another
+    namespace is observed separately, including on a later publish whose review gives no places."""
+    if difference.kind != "added" or difference.path not in (
+        "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
+        "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
+    ):
+        return difference
+    root = parse_xml(difference.after)
+    if root.tag == "{http://commcarehq.org/xforms}location" and not (root.text or root.attrib or len(root)):
+        return replace(difference, path=difference.path + ":empty")
+    return difference
+
+
 def formplayer_differences(
-    before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None, rules=()
+    before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None, rules=(), media=(None, None)
 ):
     """Every difference between two of Formplayer's traces, as ``artifact``: ``before`` the baseline state's.
 
@@ -582,8 +612,8 @@ def formplayer_differences(
     if text_ids:
         after = _named_by(after, text_ids)
     shown_before, shown_after = one_symptom(
-        normalized(FORMPLAYER, _addressed(comparable_trace(before), rules), rules),
-        normalized(FORMPLAYER, _addressed(map_strings(comparable_trace(after), xmlns), rules), rules),
+        normalized(FORMPLAYER, _addressed(comparable_trace(before, media=media[0], rules=rules), rules), rules),
+        normalized(FORMPLAYER, _addressed(map_strings(comparable_trace(after, media=media[1], rules=rules), xmlns), rules), rules),
     )
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(shown_before, "", "", documents_before)
@@ -621,13 +651,90 @@ def formplayer_differences(
         for difference in compared:
             path = structural if difference.path == "/" else f"{structural}{difference.path}"
             at = pointer if difference.at == "/" else f"{pointer}{difference.at}"
-            found.append(replace(difference, path=path, at=at))
+            found.append(empty_meta_location_class(replace(difference, path=path, at=at)))
     return found
 
 
-def webapps_differences(before, after, *, check, document, artifact):
+def _newly_listed(before, after, a, b, traces, published):
+    """Compare the same workers' options across a first publish that makes an HQ app available.
+    App Preview runs on either release. For newly reachable workers, compare B aligned to A to the
+    ordinary B release's independently derived browser walk, one complete run per Formplayer script."""
+    from collections import defaultdict, deque
+
+    from proof.observe import walks
+    from proof.observe.record import canonical
+
+    first = before.get("build", {}).get("workerApp", {})
+    second = after.get("build", {}).get("workerApp", {})
+    if first.get("listed") is not False or second.get("listed") is not True or first.get("name") != second.get("name"):
+        return
+    if (published or {}).get("build", {}).get("workerApp") != second:
+        return
+    name = second["name"]
+    apps_a = a["home"].get("apps", [])
+    apps_b = b["home"].get("apps", [])
+    new_tiles = [tile for tile in apps_b if tile.get("name") == name]
+    if any(tile.get("name") == name for tile in apps_a) or len(new_tiles) != 1 or new_tiles[0].get("kind") != APP_TILE:
+        return
+    for state, trace, listed in ((a, traces[0], False), (b, traces[1], True)):
+        runs = state["runs"]
+        for window in (None, "small", "preview"):
+            actual = [run for run in runs if run.get("viewport") == window]
+            expected = []
+            if listed or window == "preview":
+                expected = [run for _, run in walks.runs_for(trace["runs"], "small" if window == "small" else None)]
+            if (listed or window == "preview") and not expected:
+                return
+            if [run["script"] for run in actual] != [run["script"] for run in expected]:
+                return
+            if (
+                listed
+                and window != "preview"
+                and any(
+                    not run.get("screens")
+                    or "stopped" in run
+                    or (walk.get("end") == "submitted" and run.get("submit") != "submitted")
+                    for run, walk in zip(actual, expected, strict=True)
+                )
+            ):
+                return
+        if any(run.get("viewport") not in (None, "small", "preview") for run in runs):
+            return
+    # Ordinary B can derive further scripts. Pair each newly reached aligned worker run with an
+    # independently walked ordinary B run at its exact choices and viewport, irrespective of order.
+    by_script = defaultdict(deque)
+    for run in comparable_screens(published)["runs"]:
+        by_script[(run.get("viewport"), canonical(run["script"]))].append(run)
+    workers = []
+    for run in b["runs"]:
+        if run.get("viewport") == "preview":
+            continue
+        matches = by_script[(run.get("viewport"), canonical(run["script"]))]
+        if not matches:
+            return
+        workers.append(matches.popleft())
+    # Only the named release's default tile is explained. A custom image or additional tile fields
+    # stay visible, as do other apps, home commands, errors and every screen of App Preview.
+    [tile] = new_tiles
+    apps_b.remove(tile)
+    rest = {
+        key: value
+        for key, value in tile.items()
+        if key not in ("kind", "name", "icon") or (key == "icon" and value is not None)
+    }
+    if rest:
+        b["home"]["newAppTile"] = rest
+    a["home"]["releaseListed"] = False
+    b["home"]["releaseListed"] = True
+    a["runs"] = workers + a["runs"]
+
+
+def webapps_differences(before, after, *, check, document, artifact, traces=None, published=None):
     """Every difference between the client's screens on two states, as ``artifact``: ``before`` the baseline's."""
-    shown_before, shown_after = one_screen(comparable_screens(before), comparable_screens(after))
+    shown_before, shown_after = comparable_screens(before), comparable_screens(after)
+    if traces is not None:
+        _newly_listed(before, after, shown_before, shown_after, traces, published)
+    one_screen(shown_before, shown_after)
     return compare_json(
         shown_before, shown_after, check=check, document=document, artifact=artifact, data_maps=SCREEN_DATA_MAPS
     )

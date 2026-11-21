@@ -1,31 +1,13 @@
 /** History metadata and URL policy. The browser adapter performs the returned
  * replacement synchronously before notifying path subscribers. */
+import {
+	type BuilderHistoryScope,
+	PROJECT_SCOPE_STATE_KEY,
+	readBuilderHistoryScope,
+} from "./builderHistoryState";
 import { withoutPreviewHistorySteps } from "./previewHeldMenu";
 
-export interface BuilderHistoryScope {
-	scopeId: string;
-	appId: string | null;
-	epoch: number;
-}
-
-const PROJECT_SCOPE_STATE_KEY = "__novaProjectScope";
-
-function scopeStamp(state: unknown): BuilderHistoryScope | null {
-	if (typeof state !== "object" || state === null) return null;
-	const stamp = (state as Record<string, unknown>)[PROJECT_SCOPE_STATE_KEY];
-	if (
-		typeof stamp !== "object" ||
-		stamp === null ||
-		typeof (stamp as { scopeId?: unknown }).scopeId !== "string" ||
-		!(
-			(stamp as { appId?: unknown }).appId === null ||
-			typeof (stamp as { appId?: unknown }).appId === "string"
-		) ||
-		typeof (stamp as { epoch?: unknown }).epoch !== "number"
-	)
-		return null;
-	return stamp as BuilderHistoryScope;
-}
+export type { BuilderHistoryScope } from "./builderHistoryState";
 
 export function scopedBuilderHistoryState(
 	state: unknown,
@@ -56,7 +38,7 @@ export function reconcileBuilderHistoryEntry(
 	event: "activate" | "pop",
 ): { url: string; state: Record<string, unknown> } | undefined {
 	if (!active) return undefined;
-	const stamp = scopeStamp(entry.state);
+	const stamp = readBuilderHistoryScope(entry.state);
 	const stale =
 		stamp?.scopeId === active.scopeId &&
 		stamp.appId === active.appId &&
@@ -72,8 +54,9 @@ export function reconcileBuilderHistoryEntry(
 	const state = scopedBuilderHistoryState(entry.state, active);
 	return {
 		url: `${pathname}${entry.search}`,
-		/* A held menu, and the one an entry was pushed after, name cases of
-		 * the older generation's Project too. */
+		/* An older generation's entry loses its id, so nothing the session
+		 * holds for it is read under the new one, and the entry it was pushed
+		 * after, which names another generation's step. */
 		state: stale ? withoutPreviewHistorySteps(state) : state,
 	};
 }

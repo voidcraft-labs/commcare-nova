@@ -49,7 +49,7 @@ export const FIXTURE_PATHS = {
 	application: `/a/${FIXTURE_DOMAIN}/api/application/v1/${FIXTURE_REMOTE_APP_ID}/`,
 	source: `/a/${FIXTURE_DOMAIN}/apps/source/${FIXTURE_REMOTE_APP_ID}/`,
 	version: `/a/${FIXTURE_DOMAIN}/apps/view/${FIXTURE_REMOTE_APP_ID}/current_version/`,
-	tables: `/a/${FIXTURE_DOMAIN}/api/lookup_table/v1/?limit=100`,
+	tables: `/a/${FIXTURE_DOMAIN}/api/lookup_table/v1/?limit=1000`,
 	rows: `/a/${FIXTURE_DOMAIN}/api/fixture/v1/?fixture_type_id=${FIXTURE_TABLE_ID}`,
 	media: (multimediaId: string) =>
 		`/hq/multimedia/file/CommCareImage/${multimediaId}/`,

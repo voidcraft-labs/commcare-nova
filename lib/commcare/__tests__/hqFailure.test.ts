@@ -12,6 +12,7 @@ import {
 	READ_CIRCUMSTANCES,
 	type ReadCircumstance,
 } from "@/lib/publish/hqFindings";
+import { HQ_APPLICATION_MAX_BYTES } from "../hq/bounds";
 import {
 	classifyHqFailure,
 	HQ_FAILURE_KINDS,
@@ -72,6 +73,11 @@ describe("classifyHqFailure, first match", () => {
 		["an edge's 504", error(504, { edgeRefusal: true }), "gateway-refused"],
 		["the deadline", error(503, { cause: "timeout" }), "timed-out"],
 		["no answer", error(503, { cause: "network" }), "hq-unavailable"],
+		[
+			"a list that moved under every pass",
+			error(503, { cause: "moved" }),
+			"hq-unavailable",
+		],
 		["a body over the bound", error(502, { cause: "too-large" }), "too-large"],
 		[
 			"a page for a browser",
@@ -225,7 +231,7 @@ describe("hqReadCircumstance", () => {
 			);
 	});
 
-	it("returns exactly the thirteen codes a failed read can be", () => {
+	it("returns exactly the fourteen codes a failed read can be", () => {
 		expect([...new Set(everyFailure().map(hqReadCircumstance))].sort()).toEqual(
 			[
 				"hq-gateway-refused",
@@ -240,6 +246,7 @@ describe("hqReadCircumstance", () => {
 				"rate-limited",
 				"hq-unavailable",
 				"too-large",
+				"lookup-data-too-large",
 				"browser-only",
 			].sort(),
 		);
@@ -257,7 +264,7 @@ describe("hqReadCircumstance", () => {
 			);
 	});
 
-	it("words a body over the bound as the app's size only for the app's own bodies", () => {
+	it("words a body over the bound as the app's size for the app's own bodies, and as its lookup data for the rows of a bring-in's tables", () => {
 		for (const request of HQ_REQUEST_KINDS)
 			expect(
 				hqReadCircumstance({ kind: "too-large", request, status: 502 }),
@@ -265,7 +272,9 @@ describe("hqReadCircumstance", () => {
 			).toBe(
 				["application", "app-source"].includes(request)
 					? "too-large"
-					: "hq-unavailable",
+					: request === "lookup-rows"
+						? "lookup-data-too-large"
+						: "hq-unavailable",
 			);
 	});
 
@@ -355,6 +364,7 @@ describe("CommCare HQ's retained answers", () => {
 			);
 			const result = await readHqJson(CREDS, HOST + PATH, "application", {
 				keepRefusedBody: true,
+				maxBytes: HQ_APPLICATION_MAX_BYTES,
 			});
 			if (!("success" in result)) throw new Error("HQ's answer was read");
 			return classifyHqFailure(

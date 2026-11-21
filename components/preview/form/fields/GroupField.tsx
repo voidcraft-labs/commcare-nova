@@ -45,6 +45,7 @@ import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { useFormLayout } from "../FormLayoutContext";
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -91,6 +92,10 @@ export function GroupField({
 	position,
 }: GroupFieldProps) {
 	const { language } = useBuilderLanguage();
+	/* The running label renders as the platform Preview plays renders it
+	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
+	const labelRendering = usePreviewPlatformRules().labelMarkdown;
+
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
 	// the engine state for resolved label/hint rendering: path-keyed so
@@ -162,6 +167,7 @@ export function GroupField({
 										label={field.label}
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
+										rendering={labelRendering}
 										plainLabel={labelShowsAsTyped(textForm, field)}
 										className={FIELD_STYLES.label}
 									/>

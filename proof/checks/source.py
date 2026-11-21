@@ -18,8 +18,8 @@ holds is one difference at ``/_attachments/*``. The parts are read with the
 app's languages (both apps' ``langs``), so a translation in a language neither
 holds is one part, and a slot's expression written another way is its own part
 apart from a change of it (``xform_parts``, ``:respelled``). A language's
-strings only one app holds are compared key by key, each key the app string
-of HQ's build it names, so a change of one key stands where that key does.
+strings only one app holds are compared key by key, as are profile settings when
+one app has no stored properties, so a change stands at the specific key.
 
 Two things are compared another way, each for its reason at source:
 
@@ -193,6 +193,13 @@ class _Walk:
                 child_path, child_at = f"{path}/{step}", f"{at}/{pointer_token(key)}"
                 if child_path == TRANSLATIONS and (key not in a or key not in b):
                     self.strings(a.get(key), b.get(key), child_path, child_at)
+                elif (
+                    child_path == "/profile/properties"
+                    and (key not in a or key not in b)
+                    and isinstance(properties := a.get(key, b.get(key)), dict)
+                    and properties
+                ):
+                    self.compare(a.get(key, {}), b.get(key, {}), child_path, child_at)
                 elif key not in b:
                     self.add(child_path, child_at, "removed", a[key], None)
                 elif key not in a:

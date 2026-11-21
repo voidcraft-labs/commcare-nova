@@ -15,12 +15,13 @@ import {
 	type HqMediaFileRead,
 	readHqMediaFile,
 } from "@/lib/commcare/hq/media";
+import { giveBackHeld } from "@/lib/commcare/hq/memoryMeter";
 import {
 	asMediaAssetId,
 	MAX_MEDIA_EXPORT_ASSETS,
-	type MediaAssetId,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
+import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import { publishReadyMedia } from "@/lib/media/publishReadyMedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
@@ -47,6 +48,10 @@ type PlanFile = ReadingMediaPlan["files"][number];
  * its verdict is in. Over `MAX_MEDIA_EXPORT_ASSETS` files no file starts, and
  * once the held files pass Nova's media budget no further file starts: those
  * in flight finish and the answer is `done` with the plan as it then stands.
+ * With `keep`, the plan keeps one buffer per distinct content, in the same
+ * entry the budget counts it by, so what a create holds is exactly what the
+ * budget counted; a held file whose bytes another already holds keeps none.
+ * The bytes are the read's own, never a copy.
  * A file CommCare HQ could not send ends the call: the requests in flight are
  * aborted and the answer is `failed`, so no verdict stands for it.
  */
@@ -72,15 +77,18 @@ export async function judgeReadingMedia(input: {
 		input.cancel === undefined
 			? stop.signal
 			: AbortSignal.any([input.cancel, stop.signal]);
-	const verdicts: Record<string, HqMediaVerdict> = {};
-	const kept = new Map<string, Buffer>();
-	/** The held files, one per content, as the budget counts them. */
+	const verdicts = recordFromEntries<HqMediaVerdict>([]);
+	/** The held files, one per content: the row the budget counts and, in a
+	 *  create, the one buffer kept for it. */
 	const held = new Map<
 		string,
 		{
-			readonly status: "ready";
-			readonly kind: MediaKind;
-			readonly sizeBytes: number;
+			readonly row: {
+				readonly status: "ready";
+				readonly kind: MediaKind;
+				readonly sizeBytes: number;
+			};
+			readonly bytes: Buffer | null;
 		}
 	>();
 	let failure: HqFailure | null = null;
@@ -115,7 +123,12 @@ export async function judgeReadingMedia(input: {
 		else if (read.kind === "too-large")
 			verdict = { kind: "over-limit", mediaKind: file.kind, capBytes };
 		else {
-			const bytes = Buffer.from(read.bytes);
+			/* A view of the read's own bytes: a file fetched once is held once. */
+			const bytes = Buffer.from(
+				read.bytes.buffer,
+				read.bytes.byteOffset,
+				read.bytes.byteLength,
+			);
 			const judged = await validateSniffedMediaBytes(bytes);
 			if (!judged.ok)
 				verdict = {
@@ -132,13 +145,24 @@ export async function judgeReadingMedia(input: {
 					judged.validated,
 				);
 				verdict = { kind: "held", file: heldFile };
-				held.set(heldFile.contentHash, {
-					status: "ready",
-					kind: heldFile.kind,
-					sizeBytes: heldFile.sizeBytes,
-				});
-				if (keep) kept.set(file.key, bytes);
+				if (!held.has(heldFile.contentHash))
+					held.set(heldFile.contentHash, {
+						row: {
+							status: "ready",
+							kind: heldFile.kind,
+							sizeBytes: heldFile.sizeBytes,
+						},
+						bytes: keep ? bytes : null,
+					});
 			}
+			/* Bytes this call read and keeps no buffer of are let go here, and
+			 * given back to the request's lease; bytes an earlier step handed
+			 * in stay with the step that holds them. */
+			const kept =
+				verdict.kind === "held" &&
+				held.get(verdict.file.contentHash)?.bytes === bytes;
+			if (answered === undefined && !kept)
+				giveBackHeld("bytes", read.bytes.byteLength);
 		}
 		verdicts[file.key] = verdict;
 		done += 1;
@@ -155,7 +179,7 @@ export async function judgeReadingMedia(input: {
 		failure === null &&
 		thrown === null &&
 		!signal.aborted &&
-		exportBudgetExcess([...held.values()]) === null;
+		exportBudgetExcess([...held.values()].map((entry) => entry.row)) === null;
 	for (;;) {
 		while (next < total && mayStart() && fits(plan.files[next] as PlanFile)) {
 			const file = plan.files[next] as PlanFile;
@@ -187,6 +211,9 @@ export async function judgeReadingMedia(input: {
 				"media-file",
 			),
 		};
+	const kept = new Map<string, Buffer>();
+	for (const [contentHash, entry] of held)
+		if (entry.bytes !== null) kept.set(contentHash, entry.bytes);
 	return {
 		kind: "done",
 		plan: { ...plan, verdicts, kept, published: { ...plan.published } },
@@ -197,12 +224,13 @@ export async function judgeReadingMedia(input: {
 export const BRING_IN_MEDIA_PUBLISH_CONCURRENCY = 2;
 
 /**
- * Publishes the kept bytes of each held file to the Project's library. A
- * create alone calls it. Each held file the plan has not published yet is
+ * Publishes the kept bytes of each held content to the Project's library,
+ * once per content: each content hash the plan has not published yet is
  * published under a fresh id, or found by its bytes where the Project already
- * holds them; its asset is recorded under the file's key and its bytes leave
- * the plan. Throws what the publication throws, after the publications in
- * flight settle.
+ * holds them, and its asset is recorded under every file key whose held
+ * verdict has that hash; its bytes then leave the plan. A create alone calls
+ * it. Throws what the publication throws, after the publications in flight
+ * settle.
  */
 export async function publishKeptReadingMedia(input: {
 	readonly projectId: string;
@@ -212,41 +240,56 @@ export async function publishKeptReadingMedia(input: {
 }): Promise<ReadingMediaPlan> {
 	const { plan, onProgress } = input;
 	const heldFiles = plan.files.flatMap((file) => {
-		const verdict = Object.hasOwn(plan.verdicts, file.key)
-			? plan.verdicts[file.key]
-			: undefined;
+		const verdict = ownRecordValue(plan.verdicts, file.key);
 		return verdict?.kind === "held" ? [{ file, judged: verdict.file }] : [];
 	});
-	const published: Record<string, MediaAssetId> = { ...plan.published };
+	const published = recordFromEntries(Object.entries(plan.published));
 	const kept = new Map(plan.kept);
-	const waiting = heldFiles.filter(
-		({ file }) => !Object.hasOwn(published, file.key),
-	);
-	for (const { file } of waiting) {
-		if (!kept.has(file.key)) {
+	/* Each content not yet published, with the file keys that hold it. */
+	const byContent = new Map<
+		string,
+		{
+			readonly judged: (typeof heldFiles)[number]["judged"];
+			readonly keys: string[];
+		}
+	>();
+	for (const { file, judged } of heldFiles) {
+		if (Object.hasOwn(published, file.key)) continue;
+		const content = byContent.get(judged.contentHash);
+		if (content === undefined)
+			byContent.set(judged.contentHash, { judged, keys: [file.key] });
+		else content.keys.push(file.key);
+	}
+	const waiting = [...byContent.entries()];
+	for (const [contentHash, { keys }] of waiting) {
+		if (!kept.has(contentHash)) {
 			throw new Error(
-				`The held media file ${file.key} has no bytes to publish. A create judges its files with keep: true, which holds each held file's bytes until it is published.`,
+				`The held media file ${keys[0]} has no bytes to publish. A create judges its files with keep: true, which holds each held content's bytes until it is published.`,
 			);
 		}
 	}
+	const publishedCount = () =>
+		heldFiles.filter(({ file }) => Object.hasOwn(published, file.key)).length;
 	let failed: { readonly error: unknown } | null = null;
 	let next = 0;
 	const worker = async (): Promise<void> => {
 		while (failed === null && next < waiting.length) {
-			const { file, judged } = waiting[next] as (typeof waiting)[number];
+			const [contentHash, { judged, keys }] = waiting[
+				next
+			] as (typeof waiting)[number];
 			next += 1;
 			try {
 				const answer = await publishReadyMedia({
 					actorUserId: input.actorUserId,
 					projectId: input.projectId,
-					bytes: kept.get(file.key) as Buffer,
+					bytes: kept.get(contentHash) as Buffer,
 					validated: judged,
 					originalFilename: judged.originalFilename,
 					assetId: asMediaAssetId(randomUUID()),
 				});
-				published[file.key] = answer.assetId;
-				kept.delete(file.key);
-				onProgress(Object.keys(published).length, heldFiles.length);
+				for (const key of keys) published[key] = answer.assetId;
+				kept.delete(contentHash);
+				onProgress(publishedCount(), heldFiles.length);
 			} catch (error) {
 				failed ??= { error };
 			}

@@ -160,7 +160,10 @@ harness keeps, each with its reason.
   worker through the client's own Log in as, which HQ draws only where the
   plan has Log In As, so App Preview's runs alone state that it has
   (`proof/hq/seams.py::also_granted`, as Connect's Data Forwarding is
-  stated). Never copy a
+  stated). Where the build omits breadcrumbs, its menu offers no language
+  switch. The worker opens the app with their HQ account's Language setting
+  and the admin uses App Preview's Settings before Start. The native replay
+  verifies the first navigation's locale in both cases. Never copy a
   client function into a test or call the client's code from a step: a step
   clicks what a worker clicks, gives what a worker gives through the
   browser itself (a file chosen in the file chooser, a stroke of the
@@ -280,7 +283,13 @@ harness keeps, each with its reason.
 - **The capture moves with publish.** A change to what `publishAppToHq` reads
   or sends changes `proof/corpus/publish.ts` in the same pull request, the
   peer answers a read only with what the HQ side then holds to HQ's own view,
-  and retained controls replay the layout they were captured in. So does a
+  and retained controls replay the layout they were captured in. That holds
+  HQ's save counter too, which a publish binds its baseline to: the capture
+  records the peer's counter around each import and media upload, including
+  the extra save when an import prunes an unused media mapping. The HQ side
+  compares the change in HQ's own counter over the same write
+  (`proof/observe/publish.py`, `operations.hold_save_counter`), the facts the
+  model rests on held to HQ's views by `proof/hq/test_publish.py`. So does a
   change to the review or the bring-in of changes made in CommCare HQ
   (`lib/deployment/hqChanges`): the capture runs them over the peer where a
   document states `brings-in` or `records` (`bringInOverPeer`), the peer
@@ -389,6 +398,12 @@ harness keeps, each with its reason.
   control (the privileges its oracle grants it) takes the symptom off the
   control with no configuration left that shows it, and its control is never
   retained again, nor is a control a held stop's `control` entry names.
+  Retaining an HQ-authored app preserves the native files under `authored/` that
+  recreate A, and the case database from its original seed. Its control still
+  runs only the checks its register entries name. In a Formplayer submission,
+  `case-names-checked` can account for a generated helper at its declared
+  form node and a case name changed by exactly Java `String.trim()` at the
+  declared case write.
   Every directory under `proof/controls/` is named by an entry of one of the
   two registers or by a `control` entry of `proof/walk-stops.json`, so a
   control never stops running unnoticed. Never skip, mark, loosen a comparator or widen a path to make the
@@ -665,8 +680,10 @@ harness keeps, each with its reason.
   and Nova refuses what a declared platform cannot run, so what a reader
   shows on a platform the app does not declare reaches no worker (decision
   19, read for platforms). The Web Apps client, in App Preview too, replays
-  a state only where its app declares Web Apps, a device reads one only
-  where its app declares Android, and proof 3 compares Nova's local archive
+  a state only where its app declares Web Apps. On an HQ-authored A with Web Apps off,
+  the desktop and phone each read HQ’s worker page and confirm the release is absent from
+  its app list and the client’s tiles. App Preview opens the working app independently
+  and still replays every script. A device reads a state only where its app declares Android, and proof 3 compares Nova's local archive
   with HQ's build only for an app that declares Android, the only app Nova
   hands one (`proof/lane/readers.py::PLATFORM_OF`,
   `proof/observe/served.py`). Formplayer reads every app: its walk is how
@@ -738,7 +755,12 @@ harness keeps, each with its reason.
   (`proof/observe/connect.py`); each run meets Connect as that opportunity
   stood, as each run meets HQ as the unit's fork leaves it. Connect is the
   reader, so the judge compares what Connect did (its answers, tasks and
-  rows) and never a payload (`proof/checks/connect.py`). What stands in for
+  rows) (`proof/checks/connect.py`). The phone on the local archive as installed and
+  the phone with the lane’s worker and delivery inputs each compare to the phone
+  on HQ’s release. Each tablet compares to the release tablet. A first-publish GPS
+  change on a delivery visit requires the fix the device saved, HQ’s accepted
+  form and successful forward, and a matching visit for that form and deliver
+  unit in Connect. What stands in for
   a person or a machine the lane does not have is named where it is done
   (the opportunity's rows, the 404 retry production's Connect forwarder
   gets, Data Forwarding on the
@@ -761,6 +783,34 @@ harness keeps, each with its reason.
   by a serializer spells its apostrophes another way. A state the harness
   makes of B (aligned to A) keeps B's own bytes but for the namespace's
   name (`proof/observe/alignment.py::renamespace_xform`).
+- **What a container or another job wrote is data.** The lane's container
+  runs upstream code at its pins, and an artifact holds whatever the job that
+  uploaded it wrote, so the host follows no link in either, runs nothing from
+  either, and promotes into the repository only plain files at paths the
+  retained layout names (`proof/matrix/retained-layout.json`), within its
+  bounds. The container sees only the files git lists of the checkout
+  (`proof/run.mjs::checkoutView`: never `.git`, an `.env` or a key) with
+  `node_modules` read-only, and no credential: a shard's claim and wait
+  commands run on the host (`proof/ci/hostCommands.mjs`, through
+  `proof/lane/relay.py`). Only their exit status returns to the container.
+  Their diagnostics go to the host job log for credential masking. A successful
+  seal of the run's output gates its upload and adoption
+  (`proof/ci/untrusted.mjs`). A surface is read without following
+  a link and as JSON, and the retained trees move only through
+  `proof/matrix/layout.py` (`adopt`, `place`, `lane_input`), which checks
+  every name before a byte is read and refuses the whole tree by name;
+  adopting merges every output of one run by file through it, and reads the
+  run's held records with `layout.read_held`, each able to name only a file
+  its directory may hold. A tool the container runs that would write into
+  the view or `node_modules` is pointed at its own temporary directory or the
+  output by its own switch (Vitest's writers:
+  `proof/corpus/emissionProcess.ts::VITEST_WRITER_OPTIONS`). Never
+  copy a run's output or an artifact with `cp`, `rglob` or a download
+  straight into the checkout, never join a path from a value a container
+  wrote, and never give the container a writable host path but its output
+  and the relay's requests directory, of which the host reads names alone.
+  No test runner discovers in a retained tree or in a run's output
+  (`vitest.config.mts`'s exclude, `proof/pytest.ini`'s `norecursedirs`).
 - **The repository is public.** Nothing here describes an HQ route usable
   without a credential or any other HQ weakness, holds client data, or
   references a scratch directory or private script.

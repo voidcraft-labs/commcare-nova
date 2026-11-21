@@ -246,7 +246,13 @@ from urllib.parse import quote, urlsplit
 from lxml import etree
 
 from proof.checks import observations
-from proof.checks.compare.app_strings import parse_app_strings, read_back
+from proof.checks.compare.app_strings import (
+    is_locale_file_key,
+    is_locale_file_value,
+    parse_app_strings,
+    read_back,
+    translation_key_owner,
+)
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     VALUE_CLASSES,
@@ -430,6 +436,9 @@ class Use:
     artifact: str
     where: str
     at: object = field(default=None, compare=False, repr=False)
+    # A collection of HQ's objects holding a member that is no object (``_walk_object``), whose standing the check
+    # does not read (``standing``).
+    holds_non_object: bool = field(default=False, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -462,8 +471,8 @@ class Uses:
     roots: set = field(default_factory=set)
     documents: list = field(default_factory=list)  # [Form | Runtime]
 
-    def add(self, key, artifact, where, at=None):
-        self.uses.append(Use(key, artifact, where, at))
+    def add(self, key, artifact, where, at=None, *, holds_non_object=False):
+        self.uses.append(Use(key, artifact, where, at, holds_non_object))
 
     def expression(
         self, artifact, where, text, instances=(), *, grammar=False, at=None, schemes_only=False, schemes=None
@@ -498,14 +507,22 @@ def without_carried(app: dict, hq_side) -> dict:
     """``app`` without the values an upload carries back from the target: each UI translation and add-on at the
     value the document's ``hq-side.json`` says a person saved in HQ (``uiTranslations``, ``addOns``). Nova's
     publish carries the target's own part of ``translations`` and ``add_ons`` as HQ held it
-    (``lib/commcare/targetOverlay.ts``), so such a value is the target's, not a use of Nova's."""
+    (``lib/commcare/targetOverlay.ts``), so such a value is the target's, not a use of Nova's. A translation is the
+    target's only under a key whose owner is the target (``app_strings.translation_key_owner``, as
+    ``projectTranslationsForTarget`` judges it over the app's languages): Nova's publish never carries a key HQ
+    generates, a language's name or a key that sets another string than its own, so a value under one of those is
+    Nova's own wherever a person saved the same text."""
     if not hq_side:
         return app
     app = copy.deepcopy(app)
     translations = app.get("translations") if isinstance(app.get("translations"), dict) else {}
+    langs = app.get("langs") if isinstance(app.get("langs"), list) else []
+    codes = frozenset(code for code in langs if isinstance(code, str))
     for lang, texts in (hq_side.get("uiTranslations") or {}).items():
         held = translations.get(lang)
         for key, text in texts.items():
+            if translation_key_owner(key, codes) != "target":
+                continue
             if isinstance(held, dict) and held.get(key) == text:
                 del held[key]
     add_ons = app.get("add_ons") if isinstance(app.get("add_ons"), dict) else {}
@@ -599,15 +616,12 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
         if item is None or _undeclared_member(item):
             found.add(schema_key(manifest, cls, key), artifact, at, slot)
             continue
-        if "default" not in item or not _same(child, item["default"]):
-            found.add(f"schema:{cls}.{key}", artifact, at, slot)
-        _special(cls, key, child, at, manifest, artifact, found, slot)
-        _slot_expression(cls, key, child, at, manifest, artifact, found, slot)
         item_type = item.get("itemType")
-        if item_type is None or manifest.item(f"schema:{item_type}") is None:
-            continue
+        of_objects = item_type is not None and manifest.item(f"schema:{item_type}") is not None
         kind = item.get("type")
-        if kind == "ObjectProperty":
+        if not of_objects:
+            children = []
+        elif kind == "ObjectProperty":
             children = [(at, child)]
         elif kind == "ListProperty" and isinstance(child, list):
             children = [(f"{at}/{index}", element) for index, element in enumerate(child)]
@@ -615,6 +629,15 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
             children = [(f"{at}/{pointer_token(k)}", element) for k, element in child.items()]
         else:
             children = []
+        # HQ's wrap keeps a member of a collection of its objects that is no object (a null wraps as the class at its
+        # defaults, while the stored list keeps the null: jsonobject's ``JsonArray``), and Nova's reader reads such a
+        # collection whole under a class that takes it whole, or leaves it unclaimed where it reads its members
+        # (``lib/commcare/reader/jsonCursor.ts::objectMembers``); the check reads neither, so it decides nothing of it.
+        holds_non_object = kind != "ObjectProperty" and any(not isinstance(element, dict) for _, element in children)
+        if "default" not in item or not _same(child, item["default"]):
+            found.add(f"schema:{cls}.{key}", artifact, at, slot, holds_non_object=holds_non_object)
+        _special(cls, key, child, at, manifest, artifact, found, slot)
+        _slot_expression(cls, key, child, at, manifest, artifact, found, slot)
         for where, element in children:
             if not isinstance(element, dict):
                 continue
@@ -827,17 +850,27 @@ def _ui_string_prefixes(manifest):
     )
 
 
-def carried_app_strings(hq_side, directory) -> dict:
+def carried_app_strings(hq_side, directory, codes=frozenset()) -> dict:
     """The texts an archive's ``<directory>/app_strings.txt`` writes back from its project space, by id: each
     UI translation the document's ``hq-side.json`` says a person saved in HQ (``uiTranslations``, by language
     code), as HQ's reader reads back what HQ's build writes of it (``read_back``). A language's strings take the
     texts saved in that language, and ``default``, which HQ's build merges from every language
-    (``app_strings.py::AppStringsBase.create_default_app_strings``), the texts saved in any."""
+    (``app_strings.py::AppStringsBase.create_default_app_strings``), the texts saved in any.
+
+    The archive carries a saved text as ``lib/commcare/targetFacts.ts::targetFactsFromSource`` admits it: under a
+    key that is one locale record of its own name (``app_strings.is_locale_file_key``) whose owner is the target
+    (``app_strings.translation_key_owner`` over ``codes``, the archive's languages), with a text that is not empty
+    and that one line carries (``app_strings.is_locale_file_value``). Any other saved text is no text the archive
+    writes back, so the same id at it is the archive's own use."""
     saved = (hq_side or {}).get("uiTranslations") or {}
     languages = saved.values() if directory == "default" else (saved.get(directory) or {},)
     carried = {}
     for texts in languages:
         for key, text in texts.items():
+            if not is_locale_file_key(key) or translation_key_owner(key, codes) != "target":
+                continue
+            if not isinstance(text, str) or not text or not is_locale_file_value(text):
+                continue
             carried.setdefault(key, set()).add(read_back(key, text))
     return carried
 
@@ -1847,7 +1880,9 @@ def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses, 
     """The surface items a local ``.ccz`` uses, from the entries the manifest reads (``{name: bytes}``,
     ``proof.observe.manifest.read_entry``): its suites, profile, app strings and forms. ``carried`` is the
     document's ``hq-side.json``, whose saved UI translations the archive writes back from its project space and
-    does not use (``carried_app_strings``)."""
+    does not use (``carried_app_strings``, over the archive's languages: each directory but ``default``)."""
+    strings = [name.rpartition("/")[0] for name in entries if name.endswith("/app_strings.txt")]
+    codes = frozenset(directory for directory in strings if directory != "default")
     for name in sorted(entries):
         data = entries[name]
         if not read_entry(name):
@@ -1858,7 +1893,9 @@ def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses, 
             runtime_xml_uses(data, "ProfileParser", manifest, f"{artifact}/{name}", found)
         elif name.endswith("/app_strings.txt"):
             directory = name.rpartition("/")[0]
-            app_strings_uses(data, manifest, f"{artifact}/{name}", found, carried_app_strings(carried, directory))
+            app_strings_uses(
+                data, manifest, f"{artifact}/{name}", found, carried_app_strings(carried, directory, codes)
+            )
         else:
             xform_uses(data, manifest, f"{artifact}/form:{_form_position(name)}", found)
     link_entry_suites(found, artifact, f"{artifact}/")
@@ -2187,10 +2224,19 @@ def standing(manifest: Manifest, use: Use):
     A HELD-NEW class that shares its key with an allowing class is judged
     where it has a reader (``VALUE_CLASSES``), and is otherwise not judged: a
     use of the key is then held whichever class it is in.
+
+    A collection of HQ's objects holding a member that is no object
+    (``Use.holds_non_object``) is ``UNDECIDED``, resting on every entry naming
+    its key: HQ's wrap keeps such a member, and whether Nova's reader holds
+    the collection (a class it takes whole) or leaves it unclaimed (a stage
+    that reads its members, ``jsonCursor.ts::objectMembers``) is the reader's
+    stage's, which no class the check reads says.
     """
     plan = _standing_plan(manifest, use.key, is_build(use.artifact))
     if plan is None:
         return UNNAMED, ()
+    if use.holds_non_object:
+        return UNDECIDED, plan.entries
     if plan.static is not None:
         return plan.static
     verdicts = {}

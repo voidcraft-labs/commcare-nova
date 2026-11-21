@@ -16,6 +16,7 @@ import type { MockAgent } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { MemoryMeter, runInLease } from "@/lib/commcare/hq/memoryMeter";
 import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain";
 import { type HqMediaPath, hqMediaStandings } from "../hqMedia";
 import { settleHqMedia } from "../hqMediaSettle";
@@ -175,10 +176,17 @@ describe("settleHqMedia", () => {
 			["commcare/big.png", "doc-big"],
 			["commcare/gone.png", "doc-gone"],
 		]);
+		const meter = new MemoryMeter({ heap: 1 << 30, external: 1 << 30 });
+		const lease = meter.open();
 		await withHttpPeer(async (peer) => {
 			serve(peer);
-			const settled = await settleHqMedia(CREDS, paths, { retain: true });
+			const settled = await runInLease(lease, () =>
+				settleHqMedia(CREDS, paths, { retain: true }),
+			);
 			if (settled.kind !== "settled") throw new Error("Expected settled");
+			/* The request's lease holds what was retained, and nothing of the
+			 * file past its limit or of the refusal. */
+			expect(lease.held()).toEqual({ heap: 0, external: OTHER.byteLength });
 			expect(settled.paths.map((path) => path.standing)).toEqual([
 				"replaced",
 				"replaced",
@@ -195,12 +203,20 @@ describe("settleHqMedia", () => {
 				expect(Buffer.from(other.bytes).equals(OTHER)).toBe(true);
 			expect(settled.reads.get("doc-gone")).toEqual({ kind: "missing" });
 		});
+		lease.end();
+		const unretained = meter.open();
 		await withHttpPeer(async (peer) => {
 			serve(peer);
-			const settled = await settleHqMedia(CREDS, paths, {});
+			const settled = await runInLease(unretained, () =>
+				settleHqMedia(CREDS, paths, {}),
+			);
 			if (settled.kind !== "settled") throw new Error("Expected settled");
 			expect(settled.reads.size).toBe(0);
+			/* Each file hashed and let go, given back where it was let go. */
+			expect(unretained.held()).toEqual({ heap: 0, external: 0 });
 		});
+		unretained.end();
+		expect(meter.held()).toEqual({ heap: 0, external: 0 });
 	});
 
 	it("asks once per id however many paths name it, and nothing for a path an id settles", async () => {

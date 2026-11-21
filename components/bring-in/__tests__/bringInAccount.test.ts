@@ -375,13 +375,14 @@ describe("STOP_ACTIONS", () => {
 		"remote-app": ["choose-another-app", "go-to-apps"],
 		"app-deleted": ["check-again", "choose-another-app"],
 		"already-in-nova": ["choose-another-app", "check-again"],
+		"nova-busy": ["check-again", "go-to-apps"],
 	} satisfies Record<StopCircumstance, readonly StopAction["kind"][]>;
 
 	it("has a row for every code that ends a read, and no other", () => {
 		const stops = READ_CIRCUMSTANCES.filter(
 			(code) => CIRCUMSTANCE_STANDINGS[code].standing === "stop",
 		);
-		expect(stops).toHaveLength(19);
+		expect(stops).toHaveLength(20);
 		expect(Object.keys(STOP_ACTIONS).sort()).toEqual([...stops].sort());
 	});
 

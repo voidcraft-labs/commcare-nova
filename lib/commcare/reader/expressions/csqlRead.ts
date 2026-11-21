@@ -56,9 +56,12 @@ import {
 	type EmissionRewriteId,
 } from "../../emissionRewrites";
 import { caseListStepDatumId } from "../../formLinkProjection";
+import { parseHqJsonText } from "../../hq/jsonText";
 import { lookupWireNaming } from "../../lookup/naming";
+import { type SourceTable, tableOf } from "../../sourceKeys";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
@@ -523,23 +526,22 @@ interface BindState {
 	readonly tableReads: Set<FormSyntax>;
 }
 
-const COMPARISONS: Readonly<Record<string, ComparisonKind>> = {
+const COMPARISONS: SourceTable<ComparisonKind> = tableOf({
 	"=": "eq",
 	"!=": "neq",
 	">": "gt",
 	">=": "gte",
 	"<": "lt",
 	"<=": "lte",
-};
+});
 const ORDERINGS: ReadonlySet<string> = new Set([">", ">=", "<", "<="]);
-const MATCH_MODES: Readonly<
-	Record<string, Extract<Expression, { kind: "match" }>["mode"]>
-> = {
-	"starts-with": "starts-with",
-	"fuzzy-match": "fuzzy",
-	"phonetic-match": "phonetic",
-	"fuzzy-date": "fuzzy-date",
-};
+const MATCH_MODES: SourceTable<Extract<Expression, { kind: "match" }>["mode"]> =
+	tableOf({
+		"starts-with": "starts-with",
+		"fuzzy-match": "fuzzy",
+		"phonetic-match": "phonetic",
+		"fuzzy-date": "fuzzy-date",
+	});
 
 /** Whether HQ orders by a text: a number `float()` reads, or a date or a
  *  date and time its parsers read. */
@@ -785,7 +787,7 @@ class CsqlBinder {
 						clauses: clauses as [Expression, ...Expression[]],
 					};
 				}
-				const kind = COMPARISONS[at.op];
+				const kind = COMPARISONS.get(at.op);
 				if (kind === undefined)
 					refuseWith(HQ_REFUSES, `csql:operator:${at.op}`);
 				return this.comparison(kind, at.op, at.left, at.right, rowType);
@@ -1240,7 +1242,7 @@ class CsqlBinder {
 				at.kind === "binary" &&
 				at.op !== "and" &&
 				at.op !== "or" &&
-				!COMPARISONS[at.op]
+				!COMPARISONS.has(at.op)
 			)
 				refuseWith(HQ_REFUSES, "csql:arithmetic");
 			unrecognizedRow();
@@ -1500,8 +1502,9 @@ class CsqlBinder {
 		if (json === undefined) unrecognizedRow();
 		let items: unknown;
 		try {
-			items = JSON.parse(json);
-		} catch {
+			items = parseHqJsonText(json);
+		} catch (error) {
+			rethrowWorkStop(error);
 			unrecognizedRow();
 		}
 		if (!Array.isArray(items) || items.length === 0) unrecognizedRow();
@@ -1580,7 +1583,7 @@ class CsqlBinder {
 						false,
 						rowType,
 					),
-					mode: MATCH_MODES[at.name] as Extract<
+					mode: MATCH_MODES.get(at.name) as Extract<
 						Expression,
 						{ kind: "match" }
 					>["mode"],
@@ -1841,7 +1844,8 @@ function bindCsqlParts(
 		let read: ReturnType<typeof readFormSyntax>;
 		try {
 			read = readFormSyntax(assembled.text);
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			read = { ok: false, issues: [] };
 		}
 		if (!read.ok || read.node === undefined) {
@@ -1856,6 +1860,7 @@ function bindCsqlParts(
 		);
 		return new CsqlBinder(state, markers).query(read.node, rowType);
 	} catch (stop) {
+		rethrowWorkStop(stop);
 		if (stop instanceof Stop) return stop.outcome;
 		throw stop;
 	}
@@ -2375,7 +2380,8 @@ export function readSearchFilterRow(
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return unparsed;
 	}
 	if (!read.ok || read.node === undefined) return unparsed;
@@ -2459,7 +2465,8 @@ export function readSearchFilterRow(
 						...types,
 					};
 				tree = emitCsqlTree(bound, withheld);
-			} catch {
+			} catch (error) {
+				rethrowWorkStop(error);
 				continue;
 			}
 			const level = guards(row, tree, prefix);
@@ -2562,7 +2569,8 @@ export function searchRowLevel(
 		)
 			? "guards"
 			: undefined;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }

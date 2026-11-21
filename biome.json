@@ -49,6 +49,26 @@
 			"includes": ["**/e2e/tests/**", "**/e2e/react-profile/**"]
 		},
 		{
+			"path": "./lib/lint/workStopCatch.grit",
+			"includes": [
+				"**/lib/commcare/reader/**",
+				"!**/lib/commcare/reader/index.ts",
+				"!**/__tests__/**"
+			]
+		},
+		{
+			"path": "./lib/lint/sourceKeyedRecord.grit",
+			"includes": [
+				"**/lib/commcare/reader/**",
+				"**/lib/commcare/hq/**",
+				"**/lib/commcare/xmlParse.ts",
+				"**/lib/deployment/reading/**",
+				"**/lib/deployment/hqChanges/**",
+				"**/lib/deployment/hqMedia.ts",
+				"!**/__tests__/**"
+			]
+		},
+		{
 			"path": "./lib/lint/randomUuid.grit",
 			"includes": [
 				"**/components/**",
@@ -72,6 +92,8 @@
 				"app/**",
 				"components/**",
 				"!lib/agent/openaiProvider.ts",
+				"!lib/commcare/hq/apps.ts",
+				"!lib/commcare/hq/appReading.ts",
 				"!**/__tests__/**"
 			],
 			"linter": {
@@ -89,7 +111,13 @@
 											"OpenAIToolOptions"
 										]
 									}
-								}
+								},
+								"patterns": [
+									{
+										"group": ["**/appsSeen", "**/appsSeen.ts"],
+										"message": "An HqAppsSeen says CommCare HQ answered, in this request, that a key reaches these apps, and only lib/commcare/hq/apps.ts (the app list) and lib/commcare/hq/appReading.ts (the app's own read) may make one. Import the type from @/lib/commcare/hq/apps."
+									}
+								]
 							}
 						}
 					}
@@ -136,7 +164,13 @@
 											"OpenAIToolOptions"
 										]
 									}
-								}
+								},
+								"patterns": [
+									{
+										"group": ["**/appsSeen", "**/appsSeen.ts"],
+										"message": "An HqAppsSeen says CommCare HQ answered, in this request, that a key reaches these apps, and only lib/commcare/hq/apps.ts (the app list) and lib/commcare/hq/appReading.ts (the app's own read) may make one. Import the type from @/lib/commcare/hq/apps."
+									}
+								]
 							}
 						}
 					}
@@ -209,6 +243,10 @@
 									{
 										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
 										"message": "lib/commcare is the CommCare boundary, the one package that speaks CommCare's wire vocabulary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/casePlacements, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/identityMoves, lib/doc/languageMutations, lib/doc/moduleKindMoves, lib/doc/mutations/pathRewrite, lib/doc/placementHolds, lib/doc/placementMoves, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryFindings, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+									},
+									{
+										"group": ["**/appsSeen", "**/appsSeen.ts"],
+										"message": "An HqAppsSeen says CommCare HQ answered, in this request, that a key reaches these apps, and only lib/commcare/hq/apps.ts (the app list) and lib/commcare/hq/appReading.ts (the app's own read) may make one. Import the type from @/lib/commcare/hq/apps."
 									}
 								]
 							}
@@ -305,8 +343,34 @@
 									{
 										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
 										"message": "lib/commcare is the CommCare boundary, the one package that speaks CommCare's wire vocabulary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/casePlacements, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/identityMoves, lib/doc/languageMutations, lib/doc/moduleKindMoves, lib/doc/mutations/pathRewrite, lib/doc/placementHolds, lib/doc/placementMoves, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryFindings, lib/export/boundaryValidation, lib/export/localArchive, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+									},
+									{
+										"group": ["**/appsSeen", "**/appsSeen.ts"],
+										"message": "An HqAppsSeen says CommCare HQ answered, in this request, that a key reaches these apps, and only lib/commcare/hq/apps.ts (the app list) and lib/commcare/hq/appReading.ts (the app's own read) may make one. Import the type from @/lib/commcare/hq/apps."
 									}
 								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"lib/commcare/**",
+				"lib/deployment/**",
+				"!lib/commcare/hq/http.ts",
+				"!**/__tests__/**"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedGlobals": {
+							"level": "error",
+							"options": {
+								"deniedGlobals": {
+									"fetch": "Reach CommCare HQ through lib/commcare/hq/http.ts::sendHq, whose answer is read only through read(maxBytes) with a bound from lib/commcare/hq/bounds.ts."
+								}
 							}
 						}
 					}

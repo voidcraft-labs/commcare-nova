@@ -9,8 +9,11 @@
  * Contract: the tree holds every base the lane's registry names; each base
  * is emitted whole, a document of the fixed floor with nothing refused, its
  * first publish, its republish, its expectations, its local archive exactly
- * where its declaration includes Android, and its edit exactly where its
- * hand directory states one. The plausible failures: a retained tree the
+ * where its declaration includes Android and its project space's app keeps no
+ * custom base URL elsewhere, the download's refusal in the archive's place
+ * exactly where it keeps one (`inputs.ts::LOCAL_REFUSED`,
+ * `workers-sent-elsewhere`, as `hq-kept-settings` does), and its edit
+ * exactly where its hand directory states one. The plausible failures: a retained tree the
  * emission cannot read (the lane's emission then stops at that base and no
  * document of the corpus is checked), a base Nova's publish, its local
  * export or its commit gate refuses though its reader accepted it, and a
@@ -38,11 +41,15 @@ import {
 	retainedBase,
 } from "@/__tests__/helpers/retainedHqApps";
 import type { HqMediaType } from "@/lib/commcare/hq/appSource";
+import { targetFactsFromSource } from "@/lib/commcare/targetFacts";
 import { provisionalReadingMediaId } from "@/lib/deployment/reading/mediaIds";
+import { workersSentElsewhere } from "@/lib/deployment/runtimeTarget";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { WORKTREE } from "../emissionProcess";
 import { emitCorpus } from "../emitCorpus";
 import { HQ_HAND, hqAuthoredDocument } from "../hqAuthored";
+import { LOCAL_REFUSED } from "../inputs";
+import { PROOF_SERVER } from "../publish";
 
 /*
  * A base's emission is its reading, its first publish, its edit and the
@@ -88,9 +95,27 @@ it.each(RETAINED_BASES)(
 			])
 				expect(existsSync(join(root, file)), `${id}/${file}`).toBe(true);
 			const declaration = document.hqAuthored?.declaration;
-			expect(existsSync(join(root, "local.ccz")), `${id}/local.ccz`).toBe(
-				declaration?.runsOnlyOn !== "web-apps",
+			const android = declaration?.runsOnlyOn !== "web-apps";
+			const facts = targetFactsFromSource(
+				JSON.parse(app.source.body ?? "null"),
+				{
+					observedAt: "2026-11-01T00:00:00.000Z",
+					novaOwnsAutoGpsCapture: false,
+					adopted: true,
+				},
 			);
+			const elsewhere =
+				workersSentElsewhere(
+					{ server: PROOF_SERVER },
+					facts?.customBaseUrl ?? null,
+				) !== null;
+			expect(existsSync(join(root, "local.ccz")), `${id}/local.ccz`).toBe(
+				android && !elsewhere,
+			);
+			expect(
+				existsSync(join(root, LOCAL_REFUSED)),
+				`${id}/${LOCAL_REFUSED}`,
+			).toBe(android && elsewhere);
 			expect(existsSync(join(root, "edit")), `${id}/edit`).toBe(
 				existsSync(join(WORKTREE, HQ_HAND, id, "edit.ts")),
 			);

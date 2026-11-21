@@ -5,8 +5,8 @@
  * the UTC day.
  *
  * An account, or a review's lookup tables, longer than one answer is cut
- * into pages, each under `PAGE_LIMIT_CHARS` of JSON, below the tool's
- * registered result ceiling. Nothing is kept between calls, so a page's
+ * into pages by the one pager (`../paging.ts`), each at most
+ * `PAGE_LIMIT_CHARS` of JSON, below the tool's registered result ceiling. Nothing is kept between calls, so a page's
  * cursor carries the digest of the account or review it was cut from, and a
  * fresh read with another digest answers from its start rather than stitching
  * two versions of an app into one list.
@@ -51,10 +51,11 @@ import {
 	findingLine,
 	placeLine,
 } from "@/lib/publish/hqFindingCopy";
-import type {
-	CircumstanceFinding,
-	Finding,
-	FindingStanding,
+import {
+	type CircumstanceFinding,
+	cutFindingName,
+	type Finding,
+	type FindingStanding,
 } from "@/lib/publish/hqFindings";
 import {
 	moreFindingsLine,
@@ -85,13 +86,11 @@ import {
 import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { BringInToolError } from "../errors";
+import { arrayItemChars, cutPage, fitPiece } from "../paging";
 import {
 	describeFirstPublish,
 	type FirstPublishProjection,
 } from "./deploymentProjection";
-
-/** The most characters of JSON one answer holds, under `MAX_RESULT_SIZE_CHARS`. */
-export const PAGE_LIMIT_CHARS = 80_000;
 
 type Standing = FindingStanding;
 
@@ -253,9 +252,9 @@ export function utcDay(iso: string): string {
 	return driftDate(iso);
 }
 
-/** A name CommCare HQ holds, or null where it holds an empty one. */
+/** A name CommCare HQ holds, cut as a finding's name is, or null where it holds an empty one. */
 function hqName(name: string | null): string | null {
-	return name === null || name.trim() === "" ? null : name;
+	return name === null || name.trim() === "" ? null : cutFindingName(name);
 }
 
 /** What `circumstanceBlock` fills a block from over MCP: the server's label, the project space, the app, the UTC day. */
@@ -437,21 +436,26 @@ function accountProjection(
 		note: answer.mediaChecked ? null : MEDIA_CHECKED_LATER,
 	};
 	/* The whole answer's JSON with no finding, then each finding's own JSON and
-	 * the comma before it: the page takes findings while their sum stays under
-	 * the limit, and always one, so following the cursors reaches the end. */
-	let size = measure(shell);
+	 * the comma before it (`paging.ts::cutPage`). */
+	const projected = new Map<number, FindingProjection>();
+	const projectedAt = (index: number) => {
+		let one = projected.get(index);
+		if (one === undefined) {
+			one = fitPiece(
+				findingProjection(answer.findings[index] as Finding, key, context),
+			);
+			projected.set(index, one);
+		}
+		return one;
+	};
 	const findings: FindingProjection[] = [];
-	let end = from;
-	while (end < answer.findings.length) {
-		const finding = answer.findings[end] as Finding;
-		const projected = findingProjection(finding, key, context);
-		const added =
-			JSON.stringify(projected).length + (findings.length > 0 ? 1 : 0);
-		if (findings.length > 0 && size + added >= PAGE_LIMIT_CHARS) break;
-		size += added;
-		findings.push(projected);
-		end += 1;
-	}
+	const end = cutPage({
+		count: answer.findings.length,
+		from,
+		shellChars: measure(shell),
+		pieceChars: (index, taken) => arrayItemChars(projectedAt(index), taken),
+		take: (index) => findings.push(projectedAt(index)),
+	});
 	return {
 		...shell,
 		findings,
@@ -615,7 +619,7 @@ function reviewProjection(
 	const asks = firstUploadAsks(review, preselected);
 	const shell: ReviewProjection = {
 		review_digest: reviewDigest,
-		app_name: review.appName,
+		app_name: cutFindingName(review.appName),
 		read_at: review.readAt,
 		creates: {
 			menus: review.creates.menus,
@@ -690,22 +694,25 @@ function reviewProjection(
 			ANOTHER_SPACE_NEW_APP_LINE,
 		],
 	};
-	let size = measure(shell);
+	const projected = new Map<number, ReviewProjection["tables"][number]>();
+	const projectedAt = (index: number) => {
+		let one = projected.get(index);
+		if (one === undefined) {
+			one = fitPiece(
+				tableProjection(review.tables[index] as ReviewTable, project, domain),
+			);
+			projected.set(index, one);
+		}
+		return one;
+	};
 	const tables: ReviewProjection["tables"][number][] = [];
-	let end = from;
-	while (end < review.tables.length) {
-		const projected = tableProjection(
-			review.tables[end] as ReviewTable,
-			project,
-			domain,
-		);
-		const added =
-			JSON.stringify(projected).length + (tables.length > 0 ? 1 : 0);
-		if (tables.length > 0 && size + added >= PAGE_LIMIT_CHARS) break;
-		size += added;
-		tables.push(projected);
-		end += 1;
-	}
+	const end = cutPage({
+		count: review.tables.length,
+		from,
+		shellChars: measure(shell),
+		pieceChars: (index, taken) => arrayItemChars(projectedAt(index), taken),
+		take: (index) => tables.push(projectedAt(index)),
+	});
 	return {
 		...shell,
 		tables,
@@ -729,10 +736,18 @@ export function describeReading(
 		readonly restarted: boolean;
 		/** The name of the Project the app is added to, which the review's sentences name. */
 		readonly project: string;
+		/**
+		 * The whole answer this reading goes out in, where it is part of a larger
+		 * one (`bring_in_hq_app`'s `changed` and `check_failed`): a page is cut
+		 * against that answer's text, never against the reading's alone.
+		 */
+		readonly envelope?: (projected: ReadingProjection) => unknown;
 	},
 ): ReadingProjection {
+	const wrap = options.envelope ?? ((projected) => projected);
 	const appName = appNameOf(answer);
 	const context = circumstanceContextFor(key, appName);
+	const project = cutFindingName(options.project);
 	const head = {
 		project_id: key.projectId,
 		server: key.server,
@@ -754,7 +769,7 @@ export function describeReading(
 					key,
 					context,
 					options.from,
-					(account) => JSON.stringify({ ...head, account }).length,
+					(account) => JSON.stringify(wrap({ ...head, account })).length,
 				),
 			};
 		case "review":
@@ -764,12 +779,13 @@ export function describeReading(
 				review: reviewProjection(
 					answer.review,
 					answer.reviewDigest,
-					options.project,
+					project,
 					key.domain,
 					options.from,
 					(review) =>
-						JSON.stringify({ ...head, reading_id: answer.readingId, review })
-							.length,
+						JSON.stringify(
+							wrap({ ...head, reading_id: answer.readingId, review }),
+						).length,
 				),
 			};
 	}
@@ -784,6 +800,7 @@ const READING_REFUSAL_ERRORS = {
 	choice_missing: { errorType: "invalid_input", namesProject: false },
 	project_changed: { errorType: "bring_in_refused", namesProject: false },
 	app_unavailable: { errorType: "bring_in_refused", namesProject: false },
+	publish_in_flight: { errorType: "bring_in_refused", namesProject: false },
 } as const satisfies Record<
 	ReadingRefusal,
 	{

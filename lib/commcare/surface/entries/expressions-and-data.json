@@ -452,8 +452,9 @@
 		"id": "expressions-and-data/ledgerdb-vellum-id-ledger",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
-		"item": "`ledgerdb` (Vellum id `ledger`)",
-		"surfaceKeys": ["instance-scheme:ledgerdb"],
+		"item": "A read of the ledger database (`ledgerdb`, Vellum id `ledger`)",
+		"surfaceKeys": ["instance-scheme:ledgerdb", "instance-source:ledgerdb"],
+		"valueClass": "ledger-read",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK): ledger data exists only from COMMTRACK-authored ledger blocks or a `commtrack_enabled` restore",
 		"subject": "supply-features",
@@ -1214,9 +1215,10 @@
 		"id": "expressions-and-data/declared-unreferenced-instance-whose-source-loads-no-data-casedb",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
-		"item": "declared, unreferenced instance whose source loads no data (`casedb`, session, remote, search-input, selected entities, or an unrecognized source)",
+		"item": "declared, unreferenced instance whose source loads no data (`casedb`, `ledgerdb`, session, remote, search-input, selected entities, or an unrecognized source)",
 		"surfaceKeys": [
 			"instance-source:casedb",
+			"instance-source:ledgerdb",
 			"instance-source:session",
 			"instance-source:jr://instance/remote",
 			"instance-source:jr://instance/search-input",
@@ -1242,7 +1244,7 @@
 		"id": "expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
-		"item": "declared, unreferenced fixture instance (`item-list:*`, `locations`, `user-groups`) the project space serves",
+		"item": "declared, unreferenced fixture instance (`item-list:*` of a table the project space lists, `user-groups`) the project space serves",
 		"surfaceKeys": [
 			"instance-source:fixture",
 			"xform:model/instance@id",
@@ -1251,6 +1253,30 @@
 		"valueClass": "declared-unreferenced-served",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: Core initializes every declared instance when the form opens (`ExternalDataInstance.initialize` → `CommCareInstanceInitializer.generateRoot`), which succeeds here, and nothing reads it",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "declared, unreferenced fixture instance the project space may not serve (`locations`, `commcare:reports`, `commtrack:*` or any other fixture but a lookup table and `user-groups`)",
+		"surfaceKeys": [
+			"instance-source:fixture",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "declared-unreferenced-may-not-be-served",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form with no declaration of it: Core initializes every declared instance when the form opens (`ExternalDataInstance.initialize` → `CommCareInstanceInitializer.generateRoot`), which loads the fixture where the project space serves it, and nothing reads it, and throws `FixtureInitializationException` where it does not (`loadFixtureRoot`), so the form cannot open; no export says which, and Nova's form, which declares only what it reads, opens on both; the reader drops it and the first publish says so (`unread-fixture-declarations-dropped`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

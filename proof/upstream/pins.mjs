@@ -1,5 +1,5 @@
-// The weekly pin pull request (proof/README.md, "Changing a pin"), in two
-// stages the workflow (.github/workflows/upstream-pins.yml) runs around the
+// The weekly pin pull request (proof/README.md, "Changing a pin"). Its
+// workflow (.github/workflows/upstream-pins.yml) runs these stages around the
 // image build, the surface extraction and the retained trees made again:
 //
 //   node proof/upstream/pins.mjs plan
@@ -7,7 +7,11 @@
 //     proof/pins.json, or the open pin pull request already carries exactly
 //     these heads, it does nothing. Otherwise it commits the new pins to the
 //     branch upstream/pins, one commit on top of main (replacing last week's),
-//     and pushes it, so the image builds from that branch.
+//     and pushes it, so the image can build from the planned pins.
+//
+//   node proof/upstream/pins.mjs apply COMMIT
+//     From the triggering main checkout, validate the candidate's single
+//     parent, file and upstream identities, then apply just its pin data.
 //
 //   node proof/upstream/pins.mjs report --image-result <result> [--digest <d>]
 //       --surface-result <result> [--surface <file>]
@@ -15,9 +19,18 @@
 //     Adds the image lock and the regenerated surface to that one commit when
 //     both succeeded (the pins alone otherwise), and beside them the retained
 //     trees made again at the new pins (proof/hq-apps/ and proof/hq-reads/,
-//     from the artifact `--retained` names, proof/ci/retained.mjs) when that
-//     job succeeded too: the trees answer the new image, so they are never
-//     committed without its lock. It opens the pull request or updates the
+//     from the artifact `--retained` names) when that job succeeded too: the
+//     trees answer the new image, so they are never committed without its
+//     lock. Both artifacts are data another job wrote, and this job holds
+//     the write token, so the surface is read without following a link,
+//     within a bound and as JSON (proof/ci/untrusted.mjs::readSurface), and
+//     the trees and the adopt report are read whole through the retained
+//     layout by main's own code (python3 -m proof.matrix.place unpack) before
+//     anything is staged: a surface it refuses is handled as a failed
+//     extraction and trees it refuses as a failed retained job, the
+//     description says which was refused (never what the artifact named,
+//     which this job's log holds), and the stage exits non-zero once the
+//     pull request is updated. It opens the pull request or updates the
 //     open one, and requests the reviewer's review. GitHub holds CI on a pull
 //     request the workflow's own token opened until a person approves its
 //     run or updates the branch, and a run dispatched on the branch does not
@@ -33,14 +46,10 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import {
-	ADOPT_REPORT,
-	placeRetained,
-	RETAINED_TREES,
-} from "../ci/retained.mjs";
+import { readSurface } from "../ci/untrusted.mjs";
 
 const execute = promisify(execFile);
 
@@ -51,6 +60,14 @@ const SURFACE = "lib/commcare/surface/surface.json";
 const ENTRIES = "lib/commcare/surface/entries";
 const IMAGE = "ghcr.io/voidcraft-labs/commcare-nova-proof";
 const TITLE = "Move the upstream pins";
+/** The retained trees, by their directory under proof/. */
+const RETAINED_TREES = ["hq-apps", "hq-reads"];
+/** The checkout this script is part of: `python3 -m proof.matrix.place` runs from it, main's own code. */
+const OWN_CHECKOUT = resolve(
+	dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+);
 
 async function run(command, args, cwd) {
 	const { stdout } = await execute(command, args, {
@@ -144,12 +161,105 @@ export async function plan(cwd) {
 			reason: `the open pin pull request already carries these heads`,
 		};
 	}
-	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "origin/main");
+	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "HEAD");
 	await writeFile(join(cwd, PINS), formatted(candidate));
 	await git(cwd, "add", PINS);
 	await git(cwd, "commit", "--quiet", "-m", TITLE);
 	await git(cwd, "push", "--quiet", "--force", "origin", BRANCH);
-	return { action: "update", pins: candidate };
+	return {
+		action: "update",
+		commit: (await git(cwd, "rev-parse", "HEAD")).trim(),
+		base: (await git(cwd, "rev-parse", "HEAD^")).trim(),
+		pins: candidate,
+	};
+}
+
+/**
+ * Put the exact pin commit's data into a checkout of the trusted workflow SHA.
+ * Only a regular proof/pins.json whose upstream commits changed is restored.
+ * The soft reset then gives the build and the report the candidate's identity
+ * without checking out a candidate executable, recipe or Git configuration.
+ */
+async function applyPins(cwd, candidate) {
+	if (!/^[0-9a-f]{40}$/.test(candidate ?? "")) {
+		throw new Error("The pin plan must name one full commit SHA.");
+	}
+	const base = (await git(cwd, "rev-parse", "HEAD")).trim();
+	await git(
+		cwd,
+		"fetch",
+		"--quiet",
+		"--no-tags",
+		"--depth=2",
+		"origin",
+		candidate,
+	);
+	const parent = (
+		await git(cwd, "show", "-s", "--format=%P", candidate)
+	).trim();
+	if (parent !== base) {
+		throw new Error(
+			"The pin commit must have the workflow checkout as its only parent.",
+		);
+	}
+	const changed = await git(
+		cwd,
+		"diff",
+		"--no-renames",
+		"--name-status",
+		base,
+		candidate,
+		"--",
+	);
+	const entry = await git(cwd, "ls-tree", candidate, "--", PINS);
+	if (changed !== `M\t${PINS}\n` || !entry.startsWith("100644 blob ")) {
+		throw new Error(
+			`The pin commit must change only the regular file ${PINS}.`,
+		);
+	}
+	const previous = JSON.parse(await git(cwd, "show", `${base}:${PINS}`));
+	const candidatePins = `${candidate}:${PINS}`;
+	// Every changed value is a full SHA. The plan writes canonically formatted
+	// JSON, so its length is already known before reading the candidate blob.
+	const size = Number(await git(cwd, "cat-file", "-s", candidatePins));
+	if (size !== Buffer.byteLength(formatted(previous))) {
+		throw new Error("The pin commit may change upstream commit SHAs only.");
+	}
+	const text = await git(cwd, "show", candidatePins);
+	const next = JSON.parse(text);
+	const expected = {};
+	for (const [name, pin] of Object.entries(previous)) {
+		const commit = next[name]?.commit;
+		if (typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) {
+			throw new Error(
+				`The pin commit must retain a full upstream SHA for ${name}.`,
+			);
+		}
+		expected[name] = { ...pin, commit };
+	}
+	if (text !== formatted(expected)) {
+		throw new Error("The pin commit may change upstream commit SHAs only.");
+	}
+	if (
+		(await git(cwd, "status", "--porcelain", "--untracked-files=no")).trim()
+	) {
+		throw new Error(
+			"The pin data needs a clean checkout of the workflow commit.",
+		);
+	}
+	await git(cwd, "switch", "--quiet", "--detach", base);
+	await git(
+		cwd,
+		"restore",
+		"--source",
+		candidate,
+		"--staged",
+		"--worktree",
+		"--",
+		PINS,
+	);
+	await git(cwd, "reset", "--soft", candidate);
+	return { commit: candidate, base };
 }
 
 /** Every entry, by the surface keys it names. */
@@ -195,10 +305,10 @@ export async function classify(cwd, before, after) {
 	const removed = [];
 	const changed = [];
 	for (const key of Object.keys(after.items).sort()) {
-		if (!(key in before.items)) added.push({ key });
+		if (!Object.hasOwn(before.items, key)) added.push({ key });
 	}
 	for (const key of Object.keys(before.items).sort()) {
-		if (!(key in after.items)) {
+		if (!Object.hasOwn(after.items, key)) {
 			removed.push({ key, entries: naming(key) });
 			continue;
 		}
@@ -214,6 +324,15 @@ export async function classify(cwd, before, after) {
 	return { added, removed, changed };
 }
 
+/** A name from the extracted surface as one inline code span in the pull request. */
+function surfaceName(name) {
+	const literal = name.replace(
+		/[`\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,
+		(character) => `\\u{${character.codePointAt(0).toString(16)}}`,
+	);
+	return `\`${literal}\``;
+}
+
 function describeEntries(entries) {
 	if (entries.length === 0) return "no entry names it";
 	return entries.map((e) => `\`${e.id}\` (${e.disposition})`).join(", ");
@@ -227,18 +346,23 @@ function describeEntries(entries) {
 function describeRetained(retained) {
 	if (retained === null) return [];
 	const heading = "## Retained HQ answers and apps";
+	if (retained.refused) {
+		return [
+			heading,
+			"",
+			"The retained trees this run made were not committed, because the artifact that carried them holds something a retained tree does not (`proof/matrix/retained-layout.json`). The branch carries main's, so CI holds them to the new pins. The report job's log names each entry `python3 -m proof.matrix.place` refused.",
+			"",
+		];
+	}
 	if (!retained.committed) {
 		return [
 			heading,
 			"",
-			`The job that makes \`proof/hq-apps/\` and \`proof/hq-reads/\` again at the new pins did not succeed (its result: ${retained.result}), so the branch carries main's, and \`proof/matrix/test_retained.py\` and the retained reads hold them to the new pins. The job's log in the run says why. Once a run makes them, \`python3 -m proof.matrix.adopt <its output> --report\` adopts them on this branch.`,
+			`The job that makes \`proof/hq-apps/\` and \`proof/hq-reads/\` again at the new pins did not succeed (its result: ${retained.result}), so the branch carries main's, and \`proof/matrix/test_retained.py\` and the retained reads hold them to the new pins. The job's log in the run says why. Once a run makes them, \`python3 -m proof.matrix.adopt <every output of that run> --report --corpus <a corpus made on your machine>\` adopts them on this branch.`,
 			"",
 		];
 	}
-	const report = retained.report
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean);
+	const report = retained.report ?? [];
 	return [
 		heading,
 		"",
@@ -288,7 +412,7 @@ function describe({
 			"",
 			"Each is refused wherever an app uses it until an entry names it. The proof lane's manifest check fails when HQ reads a new toggle while building one of Nova's exports.",
 			"",
-			...added.map(({ key }) => `- \`${key}\``),
+			...added.map(({ key }) => `- ${surfaceName(key)}`),
 			"",
 		);
 	}
@@ -297,7 +421,8 @@ function describe({
 			"### Removed",
 			"",
 			...removed.map(
-				({ key, entries }) => `- \`${key}\`: ${describeEntries(entries)}`,
+				({ key, entries }) =>
+					`- ${surfaceName(key)}: ${describeEntries(entries)}`,
 			),
 			"",
 		);
@@ -306,10 +431,12 @@ function describe({
 		lines.push(
 			"### Changed",
 			"",
-			...changed.map(
-				({ key, attributes, entries }) =>
-					`- \`${key}\` (${attributes.join(", ")}): ${describeEntries(entries)}`,
-			),
+			...changed.map(({ key, attributes, entries }) => {
+				const fields = attributes.map((name) =>
+					/^[a-z][a-z0-9_-]*$/i.test(name) ? name : surfaceName(name),
+				);
+				return `- ${surfaceName(key)} (${fields.join(", ")}): ${describeEntries(entries)}`;
+			}),
 			"",
 		);
 	}
@@ -321,12 +448,18 @@ function describe({
 const CI_STARTS =
 	"starts when you approve its run on this pull request or update the branch";
 
-function outcomeOf(options) {
+function outcomeOf(options, refusals) {
 	if (options.imageResult !== "success") {
 		return `the image build did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the harness builds at them`;
 	}
+	if (refusals.surface) {
+		return `the surface the extraction made was refused (the report job's log says why), so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the extractor runs at them`;
+	}
 	if (options.surfaceResult !== "success") {
 		return `the surface extraction did not succeed, so the branch carries the new pins alone and CI, which ${CI_STARTS}, is red until the extractor runs at them`;
+	}
+	if (refusals.retained) {
+		return `the image, the lock and the surface are updated, and the retained HQ answers and apps this run made were refused, so CI, which ${CI_STARTS}, holds main's to the new pins`;
 	}
 	if (options.retainedResult !== "success") {
 		return `the image, the lock and the surface are updated, and the retained HQ answers and apps were not made again, so CI, which ${CI_STARTS}, holds main's to the new pins`;
@@ -334,14 +467,43 @@ function outcomeOf(options) {
 	return `the image, the lock, the surface and the retained HQ answers and apps are updated, and CI ${CI_STARTS}`;
 }
 
-/** The retained trees and the adopt report from the artifact at `directory`, put in the checkout; the paths to stage. */
+/** An artifact `place` refused; its message names each entry, for this job's log and never the description. */
+class Refused extends Error {}
+
+/**
+ * The retained trees from the artifact at `directory` read whole through the
+ * retained layout and put in the checkout by main's own code
+ * (`python3 -m proof.matrix.place unpack`), with the adopt report's lines it
+ * read; the paths to stage. A refusal changes nothing in the checkout.
+ */
 async function adoptRetained(cwd, directory) {
 	if (!directory) {
 		throw new Error(
 			"The retained job succeeded, and no --retained names the directory its artifact was downloaded into, so there are no trees to commit. Pass --retained <dir>.",
 		);
 	}
-	await placeRetained(directory, join(cwd, "proof"));
+	let placed;
+	try {
+		const { stdout } = await execute(
+			"python3",
+			[
+				"-m",
+				"proof.matrix.place",
+				"unpack",
+				resolve(directory),
+				join(cwd, "proof"),
+			],
+			{ cwd: OWN_CHECKOUT, maxBuffer: 1024 * 1024 },
+		);
+		placed = JSON.parse(stdout);
+	} catch (error) {
+		if (error.code === 1) {
+			throw new Refused(
+				`${error.stderr ?? ""}`.trim() || "place refused the artifact.",
+			);
+		}
+		throw error;
+	}
 	const staged = [];
 	for (const tree of RETAINED_TREES) {
 		const path = `proof/${tree}`;
@@ -353,21 +515,27 @@ async function adoptRetained(cwd, directory) {
 			staged.push(path);
 		}
 	}
-	let report;
-	try {
-		report = await readFile(join(directory, ADOPT_REPORT), "utf8");
-	} catch (error) {
-		report = `The adopt report could not be read from the artifact (${error.code ?? error.message}).`;
-	}
-	return { staged, report };
+	return { staged, report: placed.report ?? [] };
 }
 
 export async function report(cwd, options) {
 	const date = options.date ?? new Date().toISOString().slice(0, 10);
-	const before = JSON.parse(await git(cwd, "show", `origin/main:${PINS}`));
-	await git(cwd, "fetch", "--quiet", "origin", BRANCH);
-	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "FETCH_HEAD");
+	// The workflow checks this directory out at the plan's exact commit, beside
+	// the separate main checkout that supplies this script and the retained layout.
+	const planned = (await git(cwd, "rev-parse", "HEAD")).trim();
+	const branch = `refs/heads/${BRANCH}`;
+	const remote = (await git(cwd, "ls-remote", "origin", branch))
+		.trim()
+		.split(/\s+/)[0];
+	if (remote !== planned) {
+		throw new Error(
+			`The pin branch moved after this run planned ${planned}. Start a new run to check its current head.`,
+		);
+	}
+	const before = JSON.parse(await git(cwd, "show", `HEAD^:${PINS}`));
 	const after = JSON.parse(await readFile(join(cwd, PINS), "utf8"));
+	const refusals = {};
+	let afterSurface;
 	let classified = null;
 	let retained = null;
 	if (
@@ -375,9 +543,27 @@ export async function report(cwd, options) {
 		options.surfaceResult === "success"
 	) {
 		const beforeSurface = JSON.parse(
-			await git(cwd, "show", `origin/main:${SURFACE}`),
+			await git(cwd, "show", `HEAD^:${SURFACE}`),
 		);
-		const afterSurface = JSON.parse(await readFile(options.surface, "utf8"));
+		// The extractor reads the upstreams named in the committed surface. Its
+		// candidate must carry those same sources at the plan's new revisions.
+		const expected = Object.fromEntries(
+			Object.keys(beforeSurface.pins).map((name) => [name, after[name].commit]),
+		);
+		try {
+			const surface = await readSurface(options.surface);
+			if (stable(expected) !== stable(surface.value.pins)) {
+				throw new Error(
+					"The surface was extracted at different upstream commits from the planned pins.",
+				);
+			}
+			classified = await classify(cwd, beforeSurface, surface.value);
+			afterSurface = surface;
+		} catch (error) {
+			refusals.surface = error.message;
+		}
+	}
+	if (afterSurface) {
 		await writeFile(
 			join(cwd, LOCK),
 			formatted({
@@ -387,22 +573,34 @@ export async function report(cwd, options) {
 				),
 			}),
 		);
-		await writeFile(join(cwd, SURFACE), await readFile(options.surface));
+		await writeFile(join(cwd, SURFACE), afterSurface.bytes);
 		const staged = [LOCK, SURFACE];
 		retained = { committed: false, result: options.retainedResult ?? "none" };
 		if (options.retainedResult === "success") {
-			const adopted = await adoptRetained(cwd, options.retained);
-			staged.push(...adopted.staged);
-			retained = { ...retained, committed: true, report: adopted.report };
+			try {
+				const adopted = await adoptRetained(cwd, options.retained);
+				staged.push(...adopted.staged);
+				retained = { ...retained, committed: true, report: adopted.report };
+			} catch (error) {
+				if (!(error instanceof Refused)) throw error;
+				refusals.retained = error.message;
+				retained = { ...retained, refused: true };
+			}
 		}
 		await git(cwd, "add", "--all", "--", ...staged);
 		await git(cwd, "commit", "--quiet", "--amend", "--no-edit");
-		await git(cwd, "push", "--quiet", "--force", "origin", BRANCH);
-		classified = await classify(cwd, beforeSurface, afterSurface);
+		await git(
+			cwd,
+			"push",
+			"--quiet",
+			`--force-with-lease=${branch}:${planned}`,
+			"origin",
+			`HEAD:${branch}`,
+		);
 	}
 	const body = describe({
 		date,
-		outcome: outcomeOf(options),
+		outcome: outcomeOf(options, refusals),
 		runUrl: options.runUrl,
 		before,
 		after,
@@ -435,6 +633,12 @@ export async function report(cwd, options) {
 	if (options.reviewer) {
 		await gh(cwd, "pr", "edit", number, "--add-reviewer", options.reviewer);
 	}
+	const refused = Object.values(refusals);
+	if (refused.length > 0) {
+		throw new Error(
+			`Pull request #${number} is updated with main's trees where this run's were refused, and the run ends red so a person reads why:\n${refused.join("\n")}`,
+		);
+	}
 	return { number, classified, retained: retained?.committed === true };
 }
 
@@ -453,13 +657,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	const done =
 		stage === "plan"
 			? plan(cwd)
-			: stage === "report"
-				? report(cwd, parseOptions(rest))
-				: Promise.reject(
-						new Error(
-							`Unknown stage ${JSON.stringify(stage)}: run "plan" or "report".`,
-						),
-					);
+			: stage === "apply" && rest.length === 1
+				? applyPins(cwd, rest[0])
+				: stage === "report"
+					? report(cwd, parseOptions(rest))
+					: Promise.reject(
+							new Error(
+								`Unknown stage ${JSON.stringify(stage)}: run "plan", "apply COMMIT" or "report".`,
+							),
+						);
 	done.then(
 		(result) => console.log(JSON.stringify(result)),
 		(error) => {

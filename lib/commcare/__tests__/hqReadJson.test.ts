@@ -9,11 +9,14 @@ import {
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { log } from "@/lib/logger";
+import { HQ_APPLICATION_MAX_BYTES } from "../hq/bounds";
 import {
+	authHeader,
 	HQ_API_ACCESS_REFUSAL,
 	HQ_REFUSED_BODY_MAX_CHARS,
 	HQ_REFUSED_BODY_READ_MAX_BYTES,
 } from "../hq/http";
+import { MemoryMeter, runInLease } from "../hq/memoryMeter";
 import { readHqCollection } from "../hq/readCollection";
 import { readHqJson } from "../hq/readJson";
 import { HQ_READ_SENDS } from "../hq/throttle";
@@ -22,6 +25,8 @@ const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
 const HOST = "https://india.commcarehq.org";
 const APP = "/a/clinic/api/application/v1/working-app/";
 const URL = HOST + APP;
+/** The application resource's own bound, which every read here takes but the one that tests a bound. */
+const BOUND = { maxBytes: HQ_APPLICATION_MAX_BYTES } as const;
 
 afterEach(() => vi.useRealTimers());
 
@@ -55,21 +60,21 @@ describe("a 2xx answer Nova cannot use", () => {
 			intercept(peer).reply(200, "{ not json");
 			intercept(peer).reply(200, `<html>${"x".repeat(64)}</html>`);
 			expect(
-				await readHqJson(CREDS, URL, "application", { maxBytes: 32 }),
+				await readHqJson(CREDS, URL, "application", { ...BOUND, maxBytes: 32 }),
 			).toEqual({ success: false, status: 502, cause: "too-large" });
-			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+			expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 				success: false,
 				status: 502,
 				cause: "browser-page",
 			});
-			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+			expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 				success: false,
 				status: 502,
 				cause: "malformed",
 			});
 			/* A page is a page at any length: only data is too long. */
 			expect(
-				await readHqJson(CREDS, URL, "application", { maxBytes: 32 }),
+				await readHqJson(CREDS, URL, "application", { ...BOUND, maxBytes: 32 }),
 			).toEqual({ success: false, status: 502, cause: "browser-page" });
 			expect(log.error).toHaveBeenCalledOnce();
 			expect(log.error).toHaveBeenCalledWith(
@@ -87,13 +92,16 @@ describe("refusedBody", () => {
 		await withHttpPeer(async (peer) => {
 			replyRetained(intercept(peer), refusal);
 			replyRetained(intercept(peer), refusal);
-			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+			expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 				success: false,
 				status: 401,
 				edgeRefusal: false,
 			});
 			expect(
-				await readHqJson(CREDS, URL, "application", { keepRefusedBody: true }),
+				await readHqJson(CREDS, URL, "application", {
+					...BOUND,
+					keepRefusedBody: true,
+				}),
 			).toEqual({
 				success: false,
 				status: 401,
@@ -108,6 +116,7 @@ describe("refusedBody", () => {
 		await withHttpPeer(async (peer) => {
 			intercept(peer).reply(403, page);
 			const error = await readHqJson(CREDS, URL, "application", {
+				...BOUND,
 				keepRefusedBody: true,
 			});
 			expect(error).toEqual({
@@ -128,12 +137,21 @@ describe("refusedBody", () => {
 	});
 });
 
+it("reports a credential that cannot be sent without including it in the diagnostic", () => {
+	expect(() => authHeader({ ...CREDS, username: "two\nlines" })).toThrow(
+		/^Invalid character in header content \["Authorization"\]$/,
+	);
+});
+
 describe("a refused answer", () => {
 	it("is logged by its status and its body's shape, never its text", async () => {
 		const refusal = retainedReadingRead("application-no-api-access");
 		await withHttpPeer(async (peer) => {
 			replyRetained(intercept(peer), refusal);
-			await readHqJson(CREDS, URL, "application", { keepRefusedBody: true });
+			await readHqJson(CREDS, URL, "application", {
+				...BOUND,
+				keepRefusedBody: true,
+			});
 			expect(log.warn).toHaveBeenCalledWith("[commcare] application refused", {
 				domain: "clinic",
 				status: 401,
@@ -152,9 +170,22 @@ describe("a refused answer", () => {
 		const page = `<html><head><title>403 Forbidden</title></head><body>${"x".repeat(HQ_REFUSED_BODY_READ_MAX_BYTES)}</body></html>`;
 		await withHttpPeer(async (peer) => {
 			intercept(peer).reply(403, page);
-			expect(
-				await readHqJson(CREDS, URL, "application", { keepRefusedBody: true }),
-			).toEqual({ success: false, status: 403, edgeRefusal: true });
+			const lease = new MemoryMeter({ heap: 16_000_000, external: 0 }).open();
+			try {
+				lease.charge("text", 300);
+				const heldBefore = lease.held();
+				expect(
+					await runInLease(lease, () =>
+						readHqJson(CREDS, URL, "application", {
+							...BOUND,
+							keepRefusedBody: true,
+						}),
+					),
+				).toEqual({ success: false, status: 403, edgeRefusal: true });
+				expect(lease.held()).toEqual(heldBefore);
+			} finally {
+				lease.end();
+			}
 			expect(log.warn).toHaveBeenCalledWith(
 				"[commcare] application refused",
 				expect.objectContaining({ body: "page", bodyCutOff: true }),
@@ -176,7 +207,7 @@ describe("a refused answer", () => {
 				);
 			},
 			async () => {
-				expect(await readHqJson(CREDS, URL, "application")).toEqual({
+				expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 					success: false,
 					status: 500,
 					edgeRefusal: false,
@@ -199,6 +230,7 @@ describe("a refused answer", () => {
 				},
 				async () => {
 					pending = readHqJson(CREDS, URL, "application", {
+						...BOUND,
 						keepRefusedBody: true,
 						deadlineMs: 60_000,
 					});
@@ -238,6 +270,7 @@ describe("a refused answer", () => {
 				},
 				async () => {
 					pending = readHqJson(CREDS, URL, "application", {
+						...BOUND,
 						keepRefusedBody: true,
 						cancel: cancel.signal,
 					});
@@ -266,12 +299,15 @@ describe("a 429", () => {
 		await withHttpPeer(async (peer) => {
 			replyRetained(intercept(peer), retainedReadingRead(name));
 			intercept(peer).reply(200, { id: "working-app" });
-			const pending = readHqJson(CREDS, URL, "application");
+			const pending = readHqJson(CREDS, URL, "application", BOUND);
 			await untilWaitScheduled();
 			await vi.advanceTimersByTimeAsync(999);
 			expect(calls(peer)).toHaveLength(1);
 			await vi.advanceTimersByTimeAsync(1);
-			expect(await pending).toEqual({ data: { id: "working-app" } });
+			expect(await pending).toEqual({
+				data: { id: "working-app" },
+				bytes: JSON.stringify({ id: "working-app" }).length,
+			});
 			expect(calls(peer)).toHaveLength(2);
 			expect(log.warn).toHaveBeenCalledWith(
 				"[commcare] application rate limited, sending again",
@@ -285,19 +321,22 @@ describe("a 429", () => {
 		await withHttpPeer(async (peer) => {
 			replyRetained(intercept(peer), throttledFor("2.0"));
 			intercept(peer).reply(200, { id: "working-app" });
-			const pending = readHqJson(CREDS, URL, "application");
+			const pending = readHqJson(CREDS, URL, "application", BOUND);
 			await untilWaitScheduled();
 			await vi.advanceTimersByTimeAsync(1_999);
 			expect(calls(peer)).toHaveLength(1);
 			await vi.advanceTimersByTimeAsync(1);
-			expect(await pending).toEqual({ data: { id: "working-app" } });
+			expect(await pending).toEqual({
+				data: { id: "working-app" },
+				bytes: JSON.stringify({ id: "working-app" }).length,
+			});
 		});
 	});
 
 	it("is the answer at once where its Retry-After is past two seconds", async () => {
 		await withHttpPeer(async (peer) => {
 			replyRetained(intercept(peer), throttledFor("2.5"));
-			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+			expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 				success: false,
 				status: 429,
 				edgeRefusal: false,
@@ -313,7 +352,7 @@ describe("a 429", () => {
 				intercept(peer),
 				throttledFor("Fri, 13 Nov 2026 18:00:00 GMT"),
 			);
-			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+			expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 				success: false,
 				status: 429,
 				edgeRefusal: false,
@@ -327,7 +366,7 @@ describe("a 429", () => {
 		await withHttpPeer(async (peer) => {
 			for (let i = 0; i < HQ_READ_SENDS; i++)
 				replyRetained(intercept(peer), retainedReadingRead("application-429"));
-			const pending = readHqJson(CREDS, URL, "application");
+			const pending = readHqJson(CREDS, URL, "application", BOUND);
 			for (let resend = 1; resend < HQ_READ_SENDS; resend++) {
 				await untilWaitScheduled();
 				await vi.advanceTimersByTimeAsync(1_000);
@@ -347,6 +386,7 @@ describe("a 429", () => {
 			const controller = new AbortController();
 			expect(
 				await readHqJson(CREDS, URL, "application", {
+					...BOUND,
 					signal: controller.signal,
 					deadline: Date.now() + 1_000,
 				}),
@@ -364,7 +404,10 @@ describe("a 429", () => {
 		await withHttpPeer(async (peer) => {
 			replyRetained(intercept(peer), throttledFor("2"));
 			expect(
-				await readHqJson(CREDS, URL, "application", { deadlineMs: 1_500 }),
+				await readHqJson(CREDS, URL, "application", {
+					...BOUND,
+					deadlineMs: 1_500,
+				}),
 			).toEqual({
 				success: false,
 				status: 429,
@@ -398,15 +441,17 @@ describe("a read no answer began for", () => {
 				response.end(JSON.stringify({ id: "working-app" }));
 			},
 			async () => {
-				expect(await readHqJson(CREDS, URL, "application")).toEqual({
+				expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 					data: { id: "working-app" },
+					bytes: JSON.stringify({ id: "working-app" }).length,
 				});
 				/* Until the first connection is idle in the pool, so the next read
 				 * goes out on it. */
 				for (let turn = 0; turn < 5; turn++)
 					await new Promise<void>((resolve) => setImmediate(resolve));
-				expect(await readHqJson(CREDS, URL, "application")).toEqual({
+				expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 					data: { id: "working-app" },
+					bytes: JSON.stringify({ id: "working-app" }).length,
 				});
 			},
 		);
@@ -421,7 +466,7 @@ describe("a read no answer began for", () => {
 		await withHttpPeer(async (peer) => {
 			intercept(peer).replyWithError(new Error("connection lost"));
 			intercept(peer).replyWithError(new Error("connection lost"));
-			expect(await readHqJson(CREDS, URL, "application")).toEqual({
+			expect(await readHqJson(CREDS, URL, "application", BOUND)).toEqual({
 				success: false,
 				status: 503,
 				cause: "network",
@@ -440,7 +485,7 @@ describe("a read no answer began for", () => {
 			intercept(peer).replyWithError(new Error("connection lost"));
 			for (let i = 0; i < HQ_READ_SENDS; i++)
 				replyRetained(intercept(peer), retainedReadingRead("application-429"));
-			const pending = readHqJson(CREDS, URL, "application");
+			const pending = readHqJson(CREDS, URL, "application", BOUND);
 			for (let resend = 1; resend < HQ_READ_SENDS; resend++) {
 				await untilWaitScheduled();
 				await vi.advanceTimersByTimeAsync(1_000);
@@ -476,6 +521,7 @@ describe("deadlineMs and cancel", () => {
 		await withHttpPeer(async (peer) => {
 			const answer = held(peer);
 			const pending = readHqJson(CREDS, URL, "application", {
+				...BOUND,
 				deadlineMs: 60_000,
 			});
 			try {
@@ -484,6 +530,7 @@ describe("deadlineMs and cancel", () => {
 				answer.release();
 				expect(await pending).toEqual({
 					data: { objects: [], meta: { next: null } },
+					bytes: JSON.stringify({ objects: [], meta: { next: null } }).length,
 				});
 				expect(vi.getTimerCount()).toBe(0);
 			} finally {
@@ -499,6 +546,7 @@ describe("deadlineMs and cancel", () => {
 			const answer = held(peer);
 			let settled = false;
 			const pending = readHqJson(CREDS, URL, "application", {
+				...BOUND,
 				deadlineMs: 60_000,
 			}).finally(() => {
 				settled = true;
@@ -543,6 +591,7 @@ describe("deadlineMs and cancel", () => {
 				async () => {
 					let settled = false;
 					pending = readHqJson(CREDS, URL, "application", {
+						...BOUND,
 						deadlineMs: 60_000,
 					}).finally(() => {
 						settled = true;
@@ -583,7 +632,7 @@ describe("deadlineMs and cancel", () => {
 					});
 				},
 				async () => {
-					pending = readHqJson(CREDS, URL, "application");
+					pending = readHqJson(CREDS, URL, "application", BOUND);
 					await reached.promise;
 					expect(await pending).toEqual({
 						success: false,
@@ -606,6 +655,7 @@ describe("deadlineMs and cancel", () => {
 			const answer = held(peer);
 			const cancel = new AbortController();
 			const pending = readHqJson(CREDS, URL, "application", {
+				...BOUND,
 				cancel: cancel.signal,
 			});
 			try {
@@ -625,8 +675,29 @@ describe("deadlineMs and cancel", () => {
 		});
 	});
 
-	const LIST = "/a/clinic/api/lookup_table/v1/?limit=100";
-	const NEXT = "/a/clinic/api/lookup_table/v1/?limit=100&offset=100";
+	const LIST = "/a/clinic/api/lookup_table/v1/?limit=1000";
+
+	/** A list read of `{ id }` rows under the lookup table list's bounds. */
+	function listSpec(
+		deadline: "whole" | "page",
+		cancel: AbortSignal,
+		onRow: () => void = () => {},
+	) {
+		return {
+			label: "lookup table list",
+			firstUrl: HOST + LIST,
+			maxPages: 5,
+			maxRows: 100,
+			maxBytes: 1024 * 1024,
+			row: (raw: unknown) => {
+				onRow();
+				return raw as { readonly id: string };
+			},
+			identity: (row: { readonly id: string }) => row.id,
+			deadline,
+			cancel,
+		};
+	}
 
 	it.each(["whole", "page"] as const)(
 		"sends a %s list read no further page once cancel aborts",
@@ -634,15 +705,14 @@ describe("deadlineMs and cancel", () => {
 			await withHttpPeer(async (peer) => {
 				intercept(peer, LIST).reply(200, {
 					objects: [{ id: "one" }],
-					meta: { next: NEXT },
+					meta: { next: "more", offset: 0, total_count: 2 },
 				});
 				const cancel = new AbortController();
 				expect(
-					await readHqCollection(CREDS, HOST + LIST, "lookup table list", 5, {
-						deadline,
-						cancel: cancel.signal,
-						onMeta: () => cancel.abort(),
-					}),
+					await readHqCollection(
+						CREDS,
+						listSpec(deadline, cancel.signal, () => cancel.abort()),
+					),
 				).toEqual({ success: false, status: 503, cause: "network" });
 				expect(calls(peer).map((call) => call.fullUrl)).toEqual([HOST + LIST]);
 				expect(log.warn).not.toHaveBeenCalled();
@@ -658,10 +728,7 @@ describe("deadlineMs and cancel", () => {
 				const cancel = new AbortController();
 				const pending = readHqCollection(
 					CREDS,
-					HOST + LIST,
-					"lookup table list",
-					5,
-					{ deadline, cancel: cancel.signal },
+					listSpec(deadline, cancel.signal),
 				);
 				try {
 					await answer.reached;

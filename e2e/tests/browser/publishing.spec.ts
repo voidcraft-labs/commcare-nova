@@ -9,6 +9,7 @@ import { endpointWireFixture } from "@/lib/commcare/__tests__/endpointWireFixtur
 import type {
 	DeploymentActionResult,
 	DeploymentView,
+	DownloadTargetsView,
 	KeptRefreshView,
 } from "@/lib/deployment/actions";
 import { hqPlaceUrl } from "@/lib/deployment/hqPlaceUrl";
@@ -18,7 +19,10 @@ import {
 	HQ_CHANGED_MESSAGE,
 	LOOKUP_ADOPTION_NOTE,
 } from "@/lib/deployment/remoteChanges";
-import { WEB_APPS_ONLY_HAS_NO_CCZ } from "@/lib/deployment/runtimeTarget";
+import {
+	cczUnavailableLine,
+	WEB_APPS_ONLY_HAS_NO_CCZ,
+} from "@/lib/deployment/runtimeTarget";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
 import {
 	type DeploymentConfirmationNeeded,
@@ -89,6 +93,7 @@ import {
 	endedLine,
 	PUBLISH_PLAN_CREATES_BESIDE,
 	STOP_PUBLISHING_ACTION,
+	STOP_PUBLISHING_CANCEL,
 	STOP_PUBLISHING_CONFIRM,
 	STOP_PUBLISHING_HELPER,
 	stopPublishingConfirmTitle,
@@ -171,7 +176,7 @@ async function open(page: Page, query = "", review = true) {
 			json: {
 				success: true,
 				data: {
-					targets: [{ server: "india", domain: "alpha" }],
+					targets: [{ server: "india", domain: "alpha", unavailable: null }],
 					heldFromHq: [],
 					webAppsOnly: false,
 				},
@@ -815,7 +820,7 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 			server: "production",
 			domain: "alpha",
 			hqAppId: null,
-			locations: [],
+			organization: { locations: [] },
 		}),
 		leftBehind: [],
 		kept: null,
@@ -899,7 +904,7 @@ test("native CCZ download is made for a project space the app is published to", 
 		),
 	).toBeVisible();
 	await expect(
-		page.getByRole("combobox", { name: "Project space", exact: true }),
+		page.getByRole("radiogroup", { name: "Project space", exact: true }),
 	).toHaveCount(0);
 	await expect(
 		page.getByRole("button", { name: "Download CCZ", exact: true }),
@@ -930,12 +935,12 @@ test("native CCZ download is made for a project space the app is published to", 
 	).toHaveCount(0);
 
 	await targets({
-		targets: [{ server: "india", domain: "alpha" }],
+		targets: [{ server: "india", domain: "alpha", unavailable: null }],
 		heldFromHq: [],
 	});
 	await expect(
-		page.getByRole("combobox", { name: "Project space", exact: true }),
-	).toHaveText("alpha on India");
+		page.getByRole("radio", { name: "alpha on India", exact: true }),
+	).toBeChecked();
 	if (
 		await page
 			.getByRole("button", { name: "Continue", exact: true })
@@ -950,15 +955,15 @@ test("native CCZ download is made for a project space the app is published to", 
 
 	await targets({
 		targets: [
-			{ server: "india", domain: "alpha" },
-			{ server: "production", domain: "alpha" },
+			{ server: "india", domain: "alpha", unavailable: null },
+			{ server: "production", domain: "alpha", unavailable: null },
 		],
 		heldFromHq: [],
 	});
 	await expect(
 		page.getByRole("button", { name: "Continue", exact: true }),
 	).toBeDisabled();
-	await choose(page, "Project space", "alpha on US");
+	await page.getByRole("radio", { name: "alpha on US", exact: true }).click();
 	if (
 		await page
 			.getByRole("button", { name: "Continue", exact: true })
@@ -970,6 +975,113 @@ test("native CCZ download is made for a project space the app is published to", 
 		page.getByText("Mobile app file downloaded", { exact: true }),
 	).toBeVisible();
 	expect(asked.at(-1)).toEqual({ server: "production", domain: "alpha" });
+});
+
+test("native CCZ shows a project space whose app sends phones elsewhere with its reason, never chooses it, and reads the list again after a refused download", async ({
+	page,
+}) => {
+	const asked: { server: string | null; domain: string | null }[] = [];
+	let cczOk = true;
+	await page.route("**/publishing/download/ccz?*", (route) => {
+		const url = new URL(route.request().url());
+		asked.push({
+			server: url.searchParams.get("server"),
+			domain: url.searchParams.get("domain"),
+		});
+		return route.fulfill({ json: { ok: cczOk } });
+	});
+	const elsewhere = {
+		reason: "workers-sent-elsewhere",
+		host: "relay.example.org",
+	} as const;
+	const reasonLine = cczUnavailableLine(elsewhere);
+	let reads = 0;
+	let listed: DownloadTargetsView["targets"] = [
+		{ server: "india", domain: "alpha", unavailable: elsewhere },
+	];
+	await open(page, "", false);
+	await page.route("**/publishing/download-targets", (route) => {
+		reads++;
+		return route.fulfill({
+			json: {
+				success: true,
+				data: { targets: listed, heldFromHq: [], webAppsOnly: false },
+			},
+		});
+	});
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+
+	/* The only space it is published to has no CCZ: it is listed with why,
+	 * it is not chosen, and the dialog offers to close. */
+	const alpha = page.getByRole("radio", {
+		name: "alpha on India",
+		exact: true,
+	});
+	await expect(alpha).toHaveAccessibleDescription(reasonLine);
+	await expect(alpha).toHaveAttribute("aria-disabled", "true");
+	await expect(alpha).not.toBeChecked();
+	/* A press on a row that cannot be chosen changes nothing. Playwright
+	 * waits for an `aria-disabled` control to be enabled, so the press is
+	 * forced past that wait. */
+	await alpha.click({ force: true });
+	await expect(alpha).not.toBeChecked();
+	await expect(
+		page.getByRole("button", { name: "Continue", exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page
+			.getByRole("dialog")
+			.locator('[data-slot="dialog-footer"]')
+			.getByRole("button", { name: "Close", exact: true }),
+	).toBeVisible();
+
+	/* Beside a space that can have one, that one is chosen for the person and
+	 * is the space the CCZ is made for. */
+	listed = [
+		{ server: "india", domain: "alpha", unavailable: elsewhere },
+		{ server: "production", domain: "beta", unavailable: null },
+	];
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	const beta = page.getByRole("radio", { name: "beta on US", exact: true });
+	await expect(beta).toBeChecked();
+	await expect(alpha).toHaveAccessibleDescription(reasonLine);
+	await alpha.click({ force: true });
+	await expect(alpha).not.toBeChecked();
+	await expect(beta).toBeChecked();
+	await reviewDestination(page);
+	await page.getByRole("button", { name: "Download CCZ", exact: true }).click();
+	await expect(
+		page.getByText("Mobile app file downloaded", { exact: true }),
+	).toBeVisible();
+	expect(asked.at(-1)).toEqual({ server: "production", domain: "beta" });
+
+	/* A download the space's facts refused since the list was read sends
+	 * the dialog to read the list again, which then shows the space as the
+	 * download found it. */
+	await page
+		.getByRole("button", { name: "Another destination", exact: true })
+		.click();
+	await reviewDestination(page);
+	cczOk = false;
+	listed = [
+		{ server: "india", domain: "alpha", unavailable: elsewhere },
+		{ server: "production", domain: "beta", unavailable: elsewhere },
+	];
+	const readsBefore = reads;
+	await page.getByRole("button", { name: "Download CCZ", exact: true }).click();
+	await expect.poll(() => reads).toBe(readsBefore + 1);
+	await expect(
+		page.getByRole("heading", { name: "Choose a destination", exact: true }),
+	).toBeVisible();
+	await expect(beta).toHaveAccessibleDescription(reasonLine);
+	await expect(beta).not.toBeChecked();
+	await expect(
+		page.getByRole("button", { name: "Continue", exact: true }),
+	).toHaveCount(0);
 });
 
 test("native CCZ offers the project space a publish just reached, without reopening", async ({
@@ -1004,7 +1116,7 @@ test("native CCZ offers the project space a publish just reached, without reopen
 			json: {
 				success: true,
 				data: {
-					targets: [{ server: "india", domain: "alpha" }],
+					targets: [{ server: "india", domain: "alpha", unavailable: null }],
 					heldFromHq: [],
 					webAppsOnly: false,
 				},
@@ -1023,8 +1135,8 @@ test("native CCZ offers the project space a publish just reached, without reopen
 	).toBeVisible();
 	await choose(page, "Publish option", "CommCare mobile app file", false);
 	await expect(
-		page.getByRole("combobox", { name: "Project space", exact: true }),
-	).toHaveText("alpha on India");
+		page.getByRole("radio", { name: "alpha on India", exact: true }),
+	).toBeChecked();
 	await expect(
 		page.getByRole("button", { name: "Continue", exact: true }),
 	).toBeEnabled();
@@ -1130,7 +1242,7 @@ function landedView(
 			server: "production",
 			domain: "alpha",
 			hqAppId: null,
-			locations: [],
+			organization: { locations: [] },
 		}),
 		leftBehind: [],
 		kept: null,
@@ -1994,7 +2106,7 @@ test("native CCZ of an app that runs in Web Apps only says why there is none", a
 		page.getByText(WEB_APPS_ONLY_HAS_NO_CCZ, { exact: true }),
 	).toBeVisible();
 	await expect(
-		page.getByRole("combobox", { name: "Project space", exact: true }),
+		page.getByRole("radiogroup", { name: "Project space", exact: true }),
 	).toHaveCount(0);
 	await expect(
 		page.getByRole("button", { name: "Download CCZ", exact: true }),
@@ -2532,7 +2644,12 @@ test("a brought-in record says where it came from and that Nova hasn't published
 		page.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true }),
 	).toHaveCount(0);
 	expect(stops).toEqual([
-		{ appId: "native-publishing", server: "production", domain: "alpha" },
+		{
+			appId: "native-publishing",
+			server: "production",
+			domain: "alpha",
+			hqAppId: "hq-app",
+		},
 	]);
 });
 
@@ -2789,6 +2906,275 @@ test("Stop publishing here is offered to an admin and not to an editor", async (
 	).toHaveCount(0);
 });
 
+/* The stop names the HQ app the card showed when the dialog opened. Where the
+ * deployment publishes to another HQ app by then, the server stops nothing and
+ * says so; the section reads the records again, and the open dialog keeps
+ * naming the app it opened over, so only closing it and opening it again
+ * stops the app the card shows now. */
+test("a stop over an HQ app the deployment no longer publishes to stops nothing, and only a stop opened again names the app it publishes to now", async ({
+	page,
+}) => {
+	const elsewhere =
+		"This app publishes to a different app in “alpha” than the one you were looking at, so Nova didn't stop anything. Have another look, and stop it from there if you still want to.";
+	const movedView = (): DeploymentView => {
+		const view = broughtInView();
+		return {
+			...view,
+			deployment: {
+				...view.deployment,
+				active: [{ ...broughtInMapping(), remoteId: "hq-app-2" }],
+			},
+		};
+	};
+	const stops: { hqAppId?: unknown }[] = [];
+	let moved = false;
+	let stopped = false;
+	await page.route("**/publishing/stop", (route) => {
+		const body = route.request().postDataJSON() as { hqAppId?: unknown };
+		stops.push(body);
+		/* Someone published this app to a new HQ app in "alpha" before the
+		 * first stop arrived. */
+		moved = true;
+		if (body.hqAppId !== "hq-app-2")
+			return route.fulfill({
+				json: { success: false, code: "invalid_input", message: elsewhere },
+			});
+		stopped = true;
+		return route.fulfill({
+			json: { success: true, data: { view: stoppedView(), preview: null } },
+		});
+	});
+	let reads = 0;
+	await openSection(page, "admin", () => {
+		reads++;
+		return [stopped ? stoppedView() : moved ? movedView() : broughtInView()];
+	});
+	const broughtIn = await cardDate(page, BROUGHT_IN_AT);
+	await expect(
+		page.getByText(broughtInFromLine("alpha", broughtIn, "Ada Lovelace"), {
+			exact: true,
+		}),
+	).toBeVisible();
+	const confirm = page.getByRole("alertdialog");
+	const stopNow = confirm.getByRole("button", {
+		name: STOP_PUBLISHING_CONFIRM,
+		exact: true,
+	});
+
+	const before = reads;
+	await page
+		.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true })
+		.click();
+	await stopNow.click();
+	await expect(confirm.getByRole("alert")).toHaveText(elsewhere);
+	await expect.poll(() => reads).toBeGreaterThan(before);
+	await expect(stopNow).toBeEnabled();
+
+	/* The records read again name the new HQ app; the open dialog still
+	 * names the one it opened over. */
+	await stopNow.click();
+	await expect.poll(() => stops.length).toBe(2);
+	await expect(confirm.getByRole("alert")).toHaveText(elsewhere);
+	await expect(stopNow).toBeEnabled();
+	expect(stopped).toBe(false);
+
+	await confirm
+		.getByRole("button", { name: STOP_PUBLISHING_CANCEL, exact: true })
+		.click();
+	await expect(page.getByRole("alertdialog")).toHaveCount(0);
+	await page
+		.getByRole("button", { name: STOP_PUBLISHING_ACTION, exact: true })
+		.click();
+	await expect(confirm.getByRole("alert")).toHaveCount(0);
+	await stopNow.click();
+	const stoppedOn = await cardDate(page, STOPPED_AT);
+	await expect(
+		page.getByText(
+			endedLine(
+				{ byName: "Ada Lovelace", reason: "stopped", heldByAnotherApp: false },
+				stoppedOn,
+			),
+			{ exact: true },
+		),
+	).toBeVisible();
+	expect(stops.map((stop) => stop.hqAppId)).toEqual([
+		"hq-app",
+		"hq-app",
+		"hq-app-2",
+	]);
+});
+
+/* Where CommCare HQ manages the app's places, nobody stands at a level of
+ * them until a person has said that level takes workers in the project
+ * space. The panel asks one checkbox per level, sends only the ticked ones,
+ * and the card keeps the answer with a way to take it back, naming the level
+ * as the panel asked: by its name, with CommCare HQ's code beside it, since
+ * the peer's app holds the level "District" under the code "District_Level". */
+test("a persona at a level CommCare HQ manages is asked about with one checkbox per level, nobody is made while it is unticked, and the card lists the answer by the level's name and withdraws it", async ({
+	page,
+}) => {
+	const level = {
+		code: "District_Level",
+		name: "District",
+		personaNames: ["Nurse"],
+	};
+	/* The refusal as `workers.ts` words it for one level and one persona. */
+	const levelRefusal = {
+		code: "worker_levels_unconfirmed",
+		message:
+			"CommCare HQ doesn't tell Nova which levels take workers in “alpha”. Nurse would stand at a place at the level District. You can check Organization Levels in CommCare HQ, then confirm that level takes workers and provision again.",
+		details: ["District (District_Level): Nurse"],
+		conflicts: [],
+		levels: [level],
+	};
+	const confirmedView = (): DeploymentView => {
+		const view = broughtInView();
+		return {
+			...view,
+			deployment: {
+				...view.deployment,
+				confirmations: [
+					{
+						kind: "worker-level",
+						subject: level.code,
+						confirmedByName: "Ada Lovelace",
+						confirmedAt: BROUGHT_IN_AT,
+					},
+				],
+			},
+		};
+	};
+	const provisions: { confirmWorkerLevels?: unknown }[] = [];
+	const withdrawals: unknown[] = [];
+	let confirmed = false;
+	await page.route("**/publishing/provision", (route) => {
+		const body = route.request().postDataJSON() as {
+			confirmWorkerLevels?: unknown;
+		};
+		provisions.push(body);
+		/* The server makes nobody who stands at a level no one confirmed. */
+		if (body.confirmWorkerLevels === undefined)
+			return route.fulfill({
+				json: {
+					success: true,
+					data: {
+						refusal: levelRefusal,
+						workers: [],
+						unconfirmed: [],
+						view: null,
+					},
+				},
+			});
+		confirmed = true;
+		return route.fulfill({
+			json: {
+				success: true,
+				data: {
+					refusal: null,
+					workers: [
+						{
+							personaUuid: "0199a000-0000-7000-8000-00000000a001",
+							personaName: "Nurse",
+							username: "nurse@alpha.commcarehq.org",
+							userId: "hq-user-1",
+							created: true,
+							adopted: false,
+							password: "pw-at-district",
+						},
+					],
+					unconfirmed: [],
+					view: confirmedView(),
+				},
+			},
+		});
+	});
+	await page.route("**/publishing/withdraw", (route) => {
+		withdrawals.push(route.request().postDataJSON());
+		confirmed = false;
+		return route.fulfill({ json: { success: true, data: broughtInView() } });
+	});
+	await openSection(
+		page,
+		"admin",
+		() => [confirmed ? confirmedView() : broughtInView()],
+		"persona=true",
+	);
+	const workers = page.getByRole("region", { name: "Workers", exact: true });
+	const make = workers.getByRole("button", {
+		name: "Make 1 worker",
+		exact: true,
+	});
+	await workers.getByRole("checkbox", { name: "Nurse", exact: true }).check();
+	await make.click();
+
+	/* One checkbox per level, unticked, with the question's own words. */
+	await expect(workers.getByRole("alert")).toContainText(levelRefusal.message);
+	await expect(
+		workers.getByText(
+			"You can tick each level whose places take workers in alpha. CommCare HQ's Organization Levels page shows this as Has Users.",
+			{ exact: true },
+		),
+	).toBeVisible();
+	await expect(
+		workers.getByText(
+			"Nova can make or update the selected workers once every level they need is confirmed. You can also leave those personas out or change their places.",
+			{ exact: true },
+		),
+	).toBeVisible();
+	const district = workers.getByRole("checkbox", {
+		name: "District (Nurse)",
+		exact: true,
+	});
+	await expect(district).not.toBeChecked();
+
+	/* Left unticked, the next call confirms nothing, and nobody is made. */
+	await make.click();
+	await expect.poll(() => provisions.length).toBe(2);
+	await expect(district).not.toBeChecked();
+	await expect(workers.getByRole("alert")).toContainText(levelRefusal.message);
+	await expect(workers.getByText(/pw-at-district/)).toHaveCount(0);
+
+	/* Ticked, the call carries the level, and the worker is made. */
+	await district.check();
+	await make.click();
+	await expect(workers.getByText(/pw-at-district/)).toBeVisible();
+	await expect(
+		workers.getByRole("checkbox", { name: "District (Nurse)", exact: true }),
+	).toHaveCount(0);
+	expect(provisions.map((body) => body.confirmWorkerLevels)).toEqual([
+		undefined,
+		undefined,
+		[level.code],
+	]);
+
+	/* The card lists the answer, with who gave it, and withdraws it. */
+	const label =
+		"Places at the level “District” (code “District_Level”) take workers";
+	const onRecord = page.getByRole("list", {
+		name: "What this project space has, as confirmed here",
+		exact: true,
+	});
+	/* The row's label is said once more inside its Withdraw button, for a
+	 * screen reader. */
+	await expect(onRecord.getByRole("listitem")).toHaveText([
+		`${label}Confirmed by Ada Lovelace on ${await cardDate(page, BROUGHT_IN_AT)}Withdraw ${label}`,
+	]);
+	await onRecord
+		.getByRole("button", { name: `Withdraw ${label}`, exact: true })
+		.click();
+	await expect(page.getByText(label, { exact: true })).toHaveCount(0);
+	expect(withdrawals).toEqual([
+		{
+			appId: "native-publishing",
+			server: "production",
+			domain: "alpha",
+			confirmation: { kind: "worker-level", subject: level.code },
+		},
+	]);
+	/* The password this page holds stays after the answer is withdrawn. */
+	await expect(workers.getByText(/pw-at-district/)).toBeVisible();
+});
+
 test("the review step says what the first publish over a brought-in app changes, workers' lines first, and nothing for an app Nova made", async ({
 	page,
 }) => {
@@ -2925,7 +3311,12 @@ test("a change made in CommCare HQ to the app offers an admin Stop publishing he
 		page.getByRole("checkbox", { name: "Publish over this Clinic visits" }),
 	).toHaveCount(0);
 	expect(stops).toEqual([
-		{ appId: "native-publishing", server: "production", domain: "alpha" },
+		{
+			appId: "native-publishing",
+			server: "production",
+			domain: "alpha",
+			hqAppId: "hq-app",
+		},
 	]);
 });
 

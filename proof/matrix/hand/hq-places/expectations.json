@@ -24,6 +24,37 @@
 		]
 	},
 	{
+		"id": "report-opens-beside-the-unread-list",
+		"entry": "expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/report_note",
+					"value": "Pump fixed"
+				}
+			],
+			"expressions": [
+				"/data/report_note",
+				"count(instance('locations')/locations/location)"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Pump fixed"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "6"
+			}
+		]
+	},
+	{
 		"id": "worker-village-named",
 		"entry": "expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
 		"form": {

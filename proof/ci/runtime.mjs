@@ -4,12 +4,14 @@
 //
 // The runner gives ACTIONS_RUNTIME_TOKEN and ACTIONS_RESULTS_URL to the
 // processes of actions, never to `run` steps, and the proof lane's claim and
-// wait commands (proof/ci/claim.mjs, proof/ci/wait.mjs) run
-// from a `run` step, inside the lane's container. So this appends both to the
-// file GITHUB_ENV names, each in the runner's delimited form, which makes them
-// part of every later step's environment, and asks the runner to mask the
-// token in logs. The lane's server passes them on to its claim and wait
-// commands alone (--command-env), never to the processes that run HQ.
+// wait commands (proof/ci/claim.mjs, proof/ci/wait.mjs) run from a `run`
+// step. So this appends both to the file GITHUB_ENV names, each in the
+// runner's delimited form, which makes them part of every later step's
+// environment, and asks the runner to mask the token in logs. The commands
+// run on the host beside the lane's container (proof/ci/hostCommands.mjs),
+// and run.mjs passes the container only the PROOF_ variables it names, so
+// neither credential reaches the container, where HQ and every other
+// upstream runs at its pins.
 
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";

@@ -879,14 +879,19 @@ jobs:
             --early-queue "$RUNNER_TEMP/lane/proof-early-queue-$ATTEMPT.json" \
             --queue "$RUNNER_TEMP/lane/queue/queue.json" \
             "${claim[@]}" \
-            --wait-for "node proof/ci/wait.mjs --queue proof-queue-$ATTEMPT.json --corpus proof-corpus-$ATTEMPT.tar.zst --failed proof-emission-failed-$ATTEMPT" \
-            --command-env ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL
+            --wait-for "node proof/ci/wait.mjs --queue proof-queue-$ATTEMPT.json --corpus proof-corpus-$ATTEMPT.tar.zst --failed proof-emission-failed-$ATTEMPT"
           code=$?
           # 0: every item passed; 1: an item failed, which the gate reports
           # with every other shard's. Anything else is the shard's own failure.
           case $code in 0|1) exit 0 ;; *) exit $code ;; esac
-      - name: Upload the shard's output
+      # run.mjs seals the output as the run ends; sealed again here in case it ended before it could, so the upload
+      # (which follows a link to its target) meets plain files and directories only.
+      - name: Seal the shard's output
+        id: seal
         if: ${{ !cancelled() && steps.left.outputs.left == 'true' }}
+        run: node proof/run.mjs --seal "$RUNNER_TEMP/proof-out"
+      - name: Upload the shard's output
+        if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: proof-out-${{ github.run_attempt }}-${{ matrix.shard }}

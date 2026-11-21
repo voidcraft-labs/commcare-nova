@@ -30,6 +30,7 @@ import {
 } from "./projectData/reviewTypes";
 
 export type { ReviewPlaces, ReviewTable } from "./projectData/reviewTypes";
+export { keptTableChoices } from "./projectData/reviewTypes";
 
 // ---------------------------------------------------------------------------
 // The key, and what a read answers
@@ -189,7 +190,9 @@ export type CreateAnswer =
 
 /**
  * Every refusal of a bring-in: the two a route meets before its stream opens,
- * and the five that only ever ride a `CreateAnswer`. `no_project_access` is
+ * and the six that only ever ride a `CreateAnswer`. `publish_in_flight` is a
+ * create whose claim met a write another Nova app let out to the HQ app that
+ * has not settled: the review stands, and the person can try again shortly. `no_project_access` is
  * both: the route's 403, and the birth's own check of `edit` after the stream
  * is open.
  */
@@ -201,6 +204,7 @@ export const READING_REFUSALS = [
 	"choice_missing",
 	"project_changed",
 	"app_unavailable",
+	"publish_in_flight",
 ] as const;
 export type ReadingRefusal = (typeof READING_REFUSALS)[number];
 
@@ -213,6 +217,7 @@ export const READING_REFUSAL_STATUS = {
 	choice_missing: 200,
 	project_changed: 200,
 	app_unavailable: 200,
+	publish_in_flight: 200,
 } as const satisfies Record<ReadingRefusal, 200 | 400 | 403>;
 
 // ---------------------------------------------------------------------------

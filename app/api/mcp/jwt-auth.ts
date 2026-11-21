@@ -93,11 +93,11 @@ export const handleJwtMcp: (req: Request) => Promise<Response> =
 			audience: MCP_RESOURCE_URL,
 			/* The protected handler's semantics are "token must carry
 			 * ALL listed scopes, extras allowed" (source of truth:
-			 * `@better-auth/core/dist/oauth2/verify.d.mts`). The HQ scopes
-			 * (`nova.hq.read`, `nova.hq.write`) deliberately stay OUT of
-			 * this list: they're orthogonal to read/write and enforced
-			 * per-tool inside the HQ handlers via `assertScope`, so a
-			 * client without HQ scopes can still call non-HQ tools.
+			 * `@better-auth/core/dist/oauth2/verify.d.mts`). The HQ and
+			 * Projects scopes deliberately stay OUT of this list: they're
+			 * orthogonal to read/write and enforced per tool by
+			 * `lib/mcp/scopedTool.ts::registerScopedTool`, so a client
+			 * without them can still call the other tools.
 			 *
 			 * `NOVA_MCP_FLOOR_SCOPES` is the single source of truth
 			 * for the read/write floor: same constant the API-key path's

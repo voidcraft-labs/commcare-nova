@@ -34,6 +34,7 @@ import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import type { Uuid } from "@/lib/domain/uuid";
 import { inventoryIndex } from "../../surface/inventory";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
 import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
@@ -683,6 +684,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	),
 	"declared-unreferenced-fixture-instance-item-list-locations-user": drop(
 		"expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user",
+		"instance-source:fixture",
+	),
+	"declared-unreferenced-fixture-instance-the-project-space-may-not": take(
+		"expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-may-not",
 		"instance-source:fixture",
 	),
 	abs: take("expressions-and-data/abs", "jr-fn:abs"),
@@ -1871,7 +1876,8 @@ function spannedSyntax(
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(slice);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 	return read.ok ? read.node : undefined;
@@ -2105,7 +2111,8 @@ function pathAroundSpan(
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(pending.text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 	if (!read.ok || read.node === undefined) return undefined;

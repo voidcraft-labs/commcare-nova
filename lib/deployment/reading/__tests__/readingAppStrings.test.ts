@@ -69,7 +69,7 @@ describe("readingAppStrings", () => {
 		expect(corpus.length).toBeGreaterThan(10);
 		for (const { document, doc } of corpus) {
 			const context = lookupContextOf(document.lookup);
-			expect(readingAppStrings(context)(doc), document.id).toEqual(
+			expect(readingAppStrings(context)(doc, []), document.id).toEqual(
 				localAppStringTable(
 					doc,
 					context.kind === "available" ? context.definitions : [],
@@ -94,7 +94,7 @@ describe("readingAppStrings", () => {
 			throw new Error(`${document.id} holds both questions.`);
 		doc.fields[first] = { ...question, id: sibling.id };
 		const context = lookupContextOf(document.lookup);
-		expect(readingAppStrings(context)(doc)).toBeNull();
+		expect(readingAppStrings(context)(doc, [])).toBeNull();
 		/* Nova's build of that document, asked without the gate, throws. */
 		expect(() =>
 			localAppStringTable(
@@ -122,7 +122,7 @@ describe("readingAppStrings", () => {
 						document,
 						referenced.filter((table) => table.id !== lacking.id),
 					),
-				)(doc),
+				)(doc, []),
 				document.id,
 			).toBeNull();
 			const unread: LookupTableDefinition = {
@@ -133,7 +133,7 @@ describe("readingAppStrings", () => {
 			};
 			const answer = readingAppStrings(
 				contextWith(document, [...referenced, unread]),
-			)(doc);
+			)(doc, []);
 			expect(answer, document.id).not.toBeNull();
 			expect(answer, document.id).toEqual(localAppStringTable(doc, referenced));
 		}

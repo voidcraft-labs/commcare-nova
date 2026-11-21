@@ -7,10 +7,12 @@
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
+import { chargeWork, rethrowWorkStop } from "../../workMeter";
 import { FormPath } from "../../xform/formPath";
 import {
 	elementNamespace,
 	JAVAROSA_NS,
+	type NamespaceScope,
 	namespacedAttribute,
 	splitName,
 	VELLUM_NS,
@@ -52,7 +54,8 @@ export function formPathOf(node: DataNode): FormPath | undefined {
 		let path = FormPath.root();
 		for (const name of node.path) path = path.child(name);
 		return path;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -80,7 +83,8 @@ export interface BindFacts {
 export interface SetvalueFacts {
 	readonly element: Element;
 	readonly event: string;
-	/** The path `ref` names, an attribute as a last step `@name`; undefined where it names none. */
+	/** The path `ref` names, an attribute as a last step `@name`; undefined where it names none,
+	 *  or where the setvalue is spelled otherwise than Nova writes one (`heldSetvalueRef`). */
 	readonly target: readonly string[] | undefined;
 	readonly value: string | undefined;
 	/** The refusal of the data tree its `ref` reaches, where it reaches a node the tree refused
@@ -102,8 +106,8 @@ export interface DataTree {
 	readonly nodes: ReadonlyMap<string, DataNode>;
 	/** The nodes in document order. */
 	readonly order: readonly DataNode[];
-	/** The data root's own children. */
-	readonly top: readonly DataNode[];
+	/** First child of this name in document order. A null parent is the data root. */
+	childOf(parent: DataNode | null, name: string): DataNode | undefined;
 	/** Each node a refusal of the tree itself covers (two siblings of one name, an authored
 	 *  `meta` block), with everything under it, and the Save to Case block a refused node stands
 	 *  in, to the refusal. Every bind, setvalue and control that reaches one stands under it, so
@@ -285,8 +289,7 @@ export function readNodePath(
 			continue;
 		}
 		parentsAllowed = false;
-		const children: readonly DataNode[] = at === null ? tree.top : at.children;
-		const next = children.find((child) => child.name === step);
+		const next: DataNode | undefined = tree.childOf(at, step);
 		if (next === undefined)
 			return at === null ? { kind: "none" } : { kind: "none", through: at };
 		at = next;
@@ -314,9 +317,7 @@ export function refusalBesidePredicates(
 	let at: DataNode | undefined;
 	for (const step of steps.slice(2)) {
 		if (step.startsWith("@") || step === "." || step === "..") break;
-		const children: readonly DataNode[] =
-			at === undefined ? tree.top : at.children;
-		const next = children.find((child) => child.name === step);
+		const next: DataNode | undefined = tree.childOf(at ?? null, step);
 		if (next === undefined) break;
 		at = next;
 		const refusal = tree.refused.get(at);
@@ -380,6 +381,8 @@ export function readDataTree(
 ): DataTree {
 	const nodes = new Map<string, DataNode>();
 	const order: DataNode[] = [];
+	const childrenByName = new Map<DataNode | null, Map<string, DataNode>>();
+	const duplicateSiblings = new Set<DataNode>();
 	const build = (element: Element, parent: DataNode | null): DataNode => {
 		const children: DataNode[] = [];
 		const elementChildren = element.children.filter(isTag);
@@ -405,7 +408,20 @@ export function readDataTree(
 			text: elementChildren.length === 0 ? ownText(element) : "",
 		};
 		order.push(node);
-		if (!nodes.has(node.path.join("/"))) nodes.set(node.path.join("/"), node);
+		const path = node.path.join("/");
+		chargeWork("visit", path.length + 1);
+		if (!nodes.has(path)) nodes.set(path, node);
+		let siblings = childrenByName.get(parent);
+		if (siblings === undefined) {
+			siblings = new Map();
+			childrenByName.set(parent, siblings);
+		}
+		const first = siblings.get(node.name);
+		if (first === undefined) siblings.set(node.name, node);
+		else {
+			duplicateSiblings.add(first);
+			duplicateSiblings.add(node);
+		}
 		for (const child of elementChildren) children.push(build(child, node));
 		return node;
 	};
@@ -413,7 +429,13 @@ export function readDataTree(
 		.filter(isTag)
 		.map((element) => build(element, null));
 	const refused = new Map<DataNode, NodeRefusal>();
-	const tree: DataTree = { root: parsed.dataRoot, nodes, order, top, refused };
+	const tree: DataTree = {
+		root: parsed.dataRoot,
+		nodes,
+		order,
+		childOf: (parent, name) => childrenByName.get(parent)?.get(name),
+		refused,
+	};
 	const refuseUnder = (node: DataNode, refusal: NodeRefusal) => {
 		refused.set(node, refusal);
 		for (const child of node.children) refuseUnder(child, refusal);
@@ -487,12 +509,7 @@ export function readDataTree(
 	}
 
 	for (const node of order) {
-		const siblings: readonly DataNode[] =
-			node.parent === null ? top : node.parent.children;
-		if (
-			!refused.has(node) &&
-			siblings.filter((sibling) => sibling.name === node.name).length > 1
-		) {
+		if (!refused.has(node) && duplicateSiblings.has(node)) {
 			const detail = { name: node.name };
 			cursor.refuseSubtree(
 				node.element,
@@ -538,16 +555,17 @@ export function readDataTree(
 	return tree;
 }
 
-/** A bind's path: its `nodeset`, else its `ref`, with the attribute's name as written. */
+/** A bind's path: its `nodeset`, the one attribute Core reads a bind's node from
+ *  (`XFormParser.processStandardBindAttributes`, which refuses a bind with none). A bind that
+ *  names its node by `ref` alone is a form no device loads, so it has no path here and is left
+ *  for the close to report. */
 function bindPath(
 	element: Element,
-):
-	| { readonly attribute: "nodeset" | "ref"; readonly text: string }
-	| undefined {
+): { readonly attribute: "nodeset"; readonly text: string } | undefined {
 	const nodeset = plainAttribute(element, "nodeset");
-	if (nodeset !== undefined) return { attribute: "nodeset", text: nodeset };
-	const ref = plainAttribute(element, "ref");
-	return ref === undefined ? undefined : { attribute: "ref", text: ref };
+	return nodeset === undefined
+		? undefined
+		: { attribute: "nodeset", text: nodeset };
 }
 
 /** A bind whose path ends in an attribute of a node, for the reader that owns that node. */
@@ -556,7 +574,7 @@ export interface AttributeBind {
 	readonly node: DataNode;
 	readonly attribute: string;
 	/** The attribute of the bind that holds its path. */
-	readonly pathAttribute: "nodeset" | "ref";
+	readonly pathAttribute: "nodeset";
 }
 
 export interface ReadBinds {
@@ -687,22 +705,96 @@ export function readBinds(
 
 type BindFactsLogicKey = keyof BindFacts["logic"];
 
-/** The model's `setvalue` children in document order, each `ref` read as a bind's path is. */
+/**
+ * The attribute Core reads as an action's `local`: the first of that local name in any namespace
+ * (`XFormParser.parseSetValueAction` asks kxml2's `Element.getAttributeValue(null, local)`, which
+ * matches a name whatever its namespace), the form builder's `vellum:` shadows left out, since
+ * CommCare HQ's build and Nova's local archive strip them before a device reads the form
+ * (`strip_vellum_ns_attributes`, `xform/deviceForm.ts`).
+ */
+function coreActionAttribute(
+	element: Element,
+	scope: NamespaceScope,
+	local: string,
+): { readonly name: string; readonly value: string } | undefined {
+	for (const [name, value] of Object.entries(element.attribs)) {
+		if (name === "xmlns" || name.startsWith("xmlns:")) continue;
+		const split = splitName(name);
+		if (split.local !== local) continue;
+		if (split.prefix !== "" && scope.get(split.prefix) === VELLUM_NS) continue;
+		return { name, value };
+	}
+	return undefined;
+}
+
+/**
+ * The `ref` of a setvalue spelled as Nova writes one, read as Core reads it, or undefined where
+ * it is spelled otherwise. Core sets the node a `bind` attribute's bind names in preference to
+ * `ref`, resolves a relative `ref` from the document's root `/` (not from the data root, as the
+ * form builder reads a bind's path), and, where there is no `value` attribute, sets the element's
+ * text as a literal (`XFormParser.parseSetValueAction`, over `getAbsRef(…,
+ * TreeReference.rootRef())`). Nova writes a setvalue with no `bind`, an absolute `ref`, a `value`
+ * and no content (`xform/builder.ts`, `xform/caseOps.ts`), so only a setvalue whose attributes Core
+ * reads are exactly those, with nothing inside it, names a node here: any other is no default and
+ * no setvalue of Nova's own, and its reader refuses it (`logic.ts::readDefaults`).
+ */
+export function heldSetvalueRef(
+	element: Element,
+	scope: NamespaceScope,
+): string | undefined {
+	if (coreActionAttribute(element, scope, "bind") !== undefined)
+		return undefined;
+	const ref = coreActionAttribute(element, scope, "ref");
+	const value = coreActionAttribute(element, scope, "value");
+	const event = coreActionAttribute(element, scope, "event");
+	if (ref?.name !== "ref" || value?.name !== "value") return undefined;
+	if (event !== undefined && event.name !== "event") return undefined;
+	for (const child of element.children)
+		if (child.type !== "text" || !isXmlWhitespace(child.data)) return undefined;
+	return pathSteps(ref.value)?.[0] === "/" ? ref.value : undefined;
+}
+
+/** XML's whitespace, which Core's parser drops between elements (`getXMLDocument`). */
+function isXmlWhitespace(text: string): boolean {
+	for (const character of text)
+		if (
+			character !== " " &&
+			character !== "\t" &&
+			character !== "\n" &&
+			character !== "\r"
+		)
+			return false;
+	return true;
+}
+
+/** The model's `setvalue` children in document order. A setvalue names a target only where
+ *  `heldSetvalueRef` reads it in Nova's spelling, and its absolute `ref` is then read as a
+ *  bind's path is. */
 export function readSetvalues(
 	parsed: ParsedXForm,
 	tree: DataTree,
 ): readonly SetvalueFacts[] {
 	return parsed.setvalues.map((element) => {
-		const ref = plainAttribute(element, "ref");
+		const plainRef = plainAttribute(element, "ref");
+		const held = heldSetvalueRef(element, parsed.scope(element));
+		// The data tree's refusal reaches a setvalue whose own `ref` names a node it refused, read
+		// from the root as Core reads an absolute one; a relative `ref` names no node of the tree.
+		const ref =
+			plainRef !== undefined && pathSteps(plainRef, "pass")?.[0] === "/"
+				? plainRef
+				: undefined;
 		const read = ref === undefined ? undefined : readNodePath(ref, tree, null);
+		const heldRead = held === undefined ? undefined : read;
 		return {
 			element,
 			event: plainAttribute(element, "event") ?? "",
 			target:
-				read?.kind === "node"
+				heldRead?.kind === "node"
 					? [
-							...read.node.path,
-							...(read.attribute === undefined ? [] : [`@${read.attribute}`]),
+							...heldRead.node.path,
+							...(heldRead.attribute === undefined
+								? []
+								: [`@${heldRead.attribute}`]),
 						]
 					: undefined,
 			value: plainAttribute(element, "value"),

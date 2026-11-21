@@ -345,6 +345,69 @@ describe("a form's secondary instances", () => {
 	);
 });
 
+/**
+ * `hq-lookups` with two declarations no expression reads put after its form's last, the tables
+ * its choice lists read: Core initializes every declared instance when the form opens
+ * (`FormDef.initialize`), and a fixture whose project space may not serve it (the mobile reports)
+ * stops the form opening there (`CommCareInstanceInitializer.loadFixtureRoot`), while the ledger
+ * loads nothing that can fail. The plausible failures are a declaration claimed
+ * under the class of the one before it (the claims of one key were taken in turn, and a table a
+ * choice list reads took none, so each later declaration took its neighbour's), and a fixture the
+ * project space may not serve dropped as one it serves, with no first-publish change.
+ */
+describe("a form's declarations no expression reads", () => {
+	it(
+		"stand under the class Core's load of each gives them, and a fixture the project space may not serve is a first-publish change",
+		async () => {
+			const base = retainedBase("hq-lookups");
+			const source = JSON.parse(base.source.body as string);
+			const name = `${source.modules[0].forms[0].unique_id}.xml`;
+			const last =
+				'<instance src="jr://fixture/item-list:crop-types" id="item-list:crop-types" />';
+			const text: string = source._attachments[name];
+			expect(text.split(last)).toHaveLength(2);
+			source._attachments[name] = text.replace(
+				last,
+				`${last}<instance id="commcare:reports" src="jr://fixture/commcare:reports"/>` +
+					'<instance id="ledger" src="jr://instance/ledgerdb"/>',
+			);
+			const input = laneInputOf({
+				...base,
+				source: { ...base.source, body: JSON.stringify(source) },
+			});
+			const reading = await readForLane(input);
+			if (reading.kind !== "read")
+				throw new Error(`The base reads as ${reading.kind}.`);
+			const all = reading.claims
+				.split("\n")
+				.filter((line) => line.trim() !== "")
+				.map((line) => JSON.parse(line) as Record);
+			const mayNot = `${E}/declared-unreferenced-fixture-instance-the-project-space-may-not`;
+			const noData = `${E}/declared-unreferenced-instance-whose-source-loads-no-data-casedb`;
+			const declared = (n: number) => [
+				...at(all, "form:0.0", `${MODEL}/instance[${n}]/@id`),
+				...at(all, "form:0.0", `${MODEL}/instance[${n}]/@src`),
+			];
+			expect(declared(6)).toEqual([
+				`xform:model/instance@id ${mayNot}`,
+				`instance-source:fixture ${mayNot}`,
+			]);
+			expect(declared(7)).toEqual([
+				`xform:model/instance@id ${noData}`,
+				`instance-source:ledgerdb ${noData}`,
+			]);
+			expect(declared(2)).toEqual([
+				`xform:model/instance@id ${E}/declared-unreferenced-fixture-instance-item-list-locations-user`,
+				`instance-source:fixture ${E}/declared-unreferenced-fixture-instance-item-list-locations-user`,
+			]);
+			expect(reading.firstPublish).toContain(
+				"unread-fixture-declarations-dropped",
+			);
+		},
+		READING_MS,
+	);
+});
+
 describe("a form's Save to Case region", () => {
 	it(
 		"stands at each node under the key the lane names it by, with the uses of the emitter's own texts",

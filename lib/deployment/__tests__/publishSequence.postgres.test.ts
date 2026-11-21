@@ -22,9 +22,11 @@ import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	readMultipartRequest,
-	withHttpPeer,
-} from "@/__tests__/helpers/httpPeer";
+	HqSaveCounter,
+	isSaveCounterPath,
+	withHqPeer,
+} from "@/__tests__/helpers/hqSaveCounter";
+import { readMultipartRequest } from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedPublishRead,
 	replyRetained,
@@ -56,6 +58,7 @@ import {
 	operationHold,
 	removeKid,
 } from "@/lib/db/__tests__/heldPlacementApp";
+import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -74,8 +77,12 @@ import { attachmentUrlTarget } from "../attachmentTarget";
 import { resolveDownloadTarget } from "../downloadTarget";
 import { getEntryPointLink } from "../entryPointLinks";
 import { ABSENT_RESOURCE_DIGEST } from "../hqResourceBaseline";
-import { previewProjectSpaceFor } from "../previewSpace";
 import {
+	previewProjectSpaceFor,
+	readPreviewDeploymentAnswer,
+} from "../previewSpace";
+import {
+	APP_CHANGED_DURING_PUBLISH_WARNING,
 	APP_PREVIEW_NOTE,
 	APP_READ_BACK_FAILED_WARNING,
 	BASELINE_UNKNOWN_SENTENCE,
@@ -88,6 +95,7 @@ import {
 import {
 	activeRemoteApp,
 	deploymentEnding,
+	leftBehindResources,
 	nextPublishAction,
 } from "../resources";
 import {
@@ -99,12 +107,15 @@ import {
 } from "../service";
 import {
 	applyDeploymentObservation,
-	endDeployment,
+	readAppBaseline,
 	readDeployment,
-	readDeploymentIdentityOverrides,
+	readDeploymentNovaRevisions,
+	readTargetFacts,
+	readTargetIdentity,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
+import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
@@ -116,6 +127,13 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 const h = setupAppStateTestDb("publish_sequence_", { authSchema: "migrated" });
+
+/** HQ's save counter for the apps the peer stands for, which each accepted import moves. */
+const saves = new HqSaveCounter();
+beforeEach(() => saves.reset());
+function withPeer<T>(run: (peer: MockAgent) => Promise<T>): Promise<T> {
+	return withHqPeer(saves, HOST, run);
+}
 const APP = "sequence-app",
 	PROJECT = "program",
 	ACTOR = "editor";
@@ -131,10 +149,10 @@ const IMPORT = "/a/clinic/apps/api/import_app/";
 const HQ_APP = "working-app";
 const sourcePath = (appId = HQ_APP) => `/a/clinic/apps/source/${appId}/`;
 const SOURCE = sourcePath();
-const TABLES = "/a/clinic/api/lookup_table/v1/?limit=100";
+const TABLES = "/a/clinic/api/lookup_table/v1/?limit=1000";
 const WORKBOOK = "/a/clinic/fixtures/fixapi/";
 const LEVELS = "/a/clinic/api/location_type/v1/?limit=1000";
-const PLACES = "/a/clinic/api/location/v2/?limit=1000";
+const PLACES = "/a/clinic/api/location/v2/?limit=5000";
 const PLACE_PUSH = "/a/clinic/api/location/v2/";
 const ROWS = "/a/clinic/api/fixture/v1/?fixture_type_id=hq-table";
 const CREATED = "Nova created the app there, and it is empty for now.";
@@ -183,6 +201,7 @@ function publish(
 	discardRemoteChanges?: readonly RemoteChangeDiscard[],
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: SCOPE,
 		...TARGET,
 		doc,
@@ -221,12 +240,13 @@ function accepted(
 				app: JSON.parse(await file.text()),
 			});
 		}
+		if (status === 201) saves.create(appId);
 		return {
 			statusCode: status,
 			data: JSON.stringify({
 				success: true,
 				app_id: appId,
-				version: status === 201 ? 1 : 2,
+				...(status === 200 && { version: saves.save(appId) }),
 			}),
 		};
 	});
@@ -239,11 +259,14 @@ const EMPTY_LIST_FLAG = `${PROJECT_SPACES}&feature_flag=empty_case_list_text`;
  * Every request the publish sent to the app's own endpoints, in order. The
  * project-space list reads preflight makes for the empty-list text flag are
  * left out: they change no step of the sequence, and the flag's own cases
- * below hold them.
+ * below hold them. So are the save counter's reads, which the cases of the
+ * counter binding hold (`publishBinding.postgres.test.ts`).
  */
 function requests(peer: MockAgent): string[] {
 	return allRequests(peer).filter(
-		(line) => !line.startsWith(`GET ${PROJECT_SPACES}`),
+		(line) =>
+			!line.startsWith(`GET ${PROJECT_SPACES}`) &&
+			!isSaveCounterPath(line.slice("GET ".length)),
 	);
 }
 function allRequests(peer: MockAgent): string[] {
@@ -302,6 +325,8 @@ const remoteTable = {
 
 async function lookupDocument(withPlace = false): Promise<BlueprintDoc> {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	/* A lookup writer reads its member's role on its own transaction. */
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const table = await createLookupTable(scope, {
 		name: "Facilities",
 		tag: "facilities",
@@ -476,7 +501,7 @@ describe("a first publish", () => {
 			.execute();
 		vi.mocked(downloadAssetBytes).mockResolvedValue(png);
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201, HQ_APP, bodies);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200, HQ_APP, bodies);
@@ -558,7 +583,7 @@ describe("a first publish", () => {
 		const module = doc.modules[doc.moduleOrder[0]];
 		const form = doc.forms[doc.formOrder[module.uuid][0]];
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
@@ -617,7 +642,7 @@ describe("a first publish", () => {
 	it("pushes a lookup table and a place after the shell's read, and reads the app again before the update", async () => {
 		const doc = await seed(await lookupDocument(true));
 		await seedPlace();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			emptyInventory(peer);
 			accepted(peer, 201);
@@ -651,7 +676,7 @@ describe("a first publish", () => {
 
 	it("keeps the mapped shell when the read after the create fails, and fills that same app once a person publishes over it", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			request(peer, SOURCE).reply(403, "");
@@ -750,7 +775,7 @@ describe("a first publish", () => {
 
 	it("says the app it made is empty when the read after the create answers a bare 500", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			request(peer, SOURCE).reply(500, "");
 			expect(refusal(await publish(doc)).failure.message).toBe(
@@ -761,7 +786,7 @@ describe("a first publish", () => {
 
 	it("records no rung past preflight when the shell's workbook is refused, and the retry pushes the table and fills that app", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
@@ -938,7 +963,7 @@ describe("a stop at a table or place push", () => {
 					tableRows(peer);
 				}
 			};
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				// The first publish: the shell, then the stop.
 				preflight(peer, false);
 				accepted(peer, 201);
@@ -992,7 +1017,7 @@ describe("a failure after the shell is mapped", () => {
 		await sql`CREATE TRIGGER refuse_app_mapping BEFORE INSERT ON app_deployment_resources FOR EACH ROW EXECUTE FUNCTION refuse_app_mapping()`.execute(
 			h.db(),
 		);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			await expect(publish(doc)).rejects.toThrow();
@@ -1018,7 +1043,7 @@ describe("a failure after the shell is mapped", () => {
 		"keeps the shell when the update is answered with %s, and the next publish updates that app and reports it created",
 		async (answer) => {
 			const doc = await seed();
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				accepted(peer, 201);
 				serve(peer, SOURCE, "source-shell");
 				if (answer === "the retained 404")
@@ -1052,7 +1077,7 @@ describe("a failure after the shell is mapped", () => {
 	it("keeps the shell when the update never answers inside its deadline", async () => {
 		const doc = await seed();
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const sent = Promise.withResolvers<void>();
 			const release = Promise.withResolvers<void>();
 			accepted(peer, 201);
@@ -1086,7 +1111,7 @@ describe("a failure after the shell is mapped", () => {
 		"keeps the shell when the second read answers HQ's %s, and the next publish reads that app rather than creating one",
 		async (answer) => {
 			const doc = await seed(await lookupDocument());
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				emptyTables(peer);
 				accepted(peer, 201);
 				serve(peer, SOURCE, "source-shell");
@@ -1142,7 +1167,7 @@ describe("a 429 on the update", () => {
 	it("waits out HQ's short Retry-After once and lands", async () => {
 		const doc = await seed();
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			replyRetained(
@@ -1170,7 +1195,7 @@ describe("a 429 on the update", () => {
 		async (mode) => {
 			const doc = await seed();
 			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				accepted(peer, 201);
 				serve(peer, SOURCE, "source-shell");
 				const answers =
@@ -1217,7 +1242,7 @@ describe("the app on HQ at the target-app edge", () => {
 		"records the app gone on HQ's %s answer, and the next publish creates a new app in its place",
 		async (answer) => {
 			const doc = await seed();
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				await landed(doc, peer);
 				serve(peer, SOURCE, answer);
 				expect(refusal(await publish(doc))).toMatchObject({
@@ -1253,7 +1278,7 @@ describe("the app on HQ at the target-app edge", () => {
 
 	it("refuses a linked app before writing anything, and says so", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await landed(doc, peer);
 			const unchanged = await snapshot();
 			serve(peer, SOURCE, "source-linked");
@@ -1277,7 +1302,7 @@ describe("the app on HQ at the target-app edge", () => {
 		"refuses at the target-app read when the app's %s is not the shape HQ writes, and sends nothing",
 		async (key, value) => {
 			const doc = await seed();
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				await landed(doc, peer);
 				const unchanged = await snapshot();
 				serveEdited(peer, SOURCE, "source-live", (source) => {
@@ -1310,7 +1335,7 @@ describe("the app on HQ at the target-app edge", () => {
 		"refuses at preflight with today's sentence when the read of an app that was there answers %i",
 		async (status, message) => {
 			const doc = await seed();
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				await landed(doc, peer);
 				request(peer, SOURCE).reply(status, "");
 				expect(refusal(await publish(doc))).toMatchObject({
@@ -1329,7 +1354,7 @@ describe("readers of a shell or a gone app", () => {
 		"offers no HQ app link and no entry point link for a %s deployment",
 		async (shape) => {
 			const doc = await seed(await lookupDocument());
-			await withHttpPeer(async (peer) => {
+			await withPeer(async (peer) => {
 				emptyTables(peer);
 				accepted(peer, 201);
 				serve(peer, SOURCE, "source-shell");
@@ -1413,7 +1438,7 @@ function hqChangesCheck(outcome: PublishOutcome) {
 describe("changes made in CommCare HQ", () => {
 	it("lands three publishes of an unchanged app in a row, saying what it compared", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
@@ -1439,7 +1464,7 @@ describe("changes made in CommCare HQ", () => {
 
 	it("stops before any write over a changed app, refuses an older digest, and lands over the state a person was shown", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
@@ -1532,7 +1557,7 @@ describe("changes made in CommCare HQ", () => {
 
 	it("lands an app whose read back failed, and the next publish asks before writing over it", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
@@ -1563,7 +1588,7 @@ describe("changes made in CommCare HQ", () => {
 				version: "2.60.0",
 			};
 		};
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			request(peer, IMPORT, "POST").reply(500, "");
@@ -1595,7 +1620,7 @@ describe("changes made in CommCare HQ", () => {
 
 	it("carries the App Preview statement on the first publish over a baseline the cutover recorded", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
@@ -1618,7 +1643,7 @@ describe("changes made in CommCare HQ", () => {
 
 	it("stops at the upload when the app's compared keys moved during the push, and not when only an ignored key did", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
@@ -1665,7 +1690,7 @@ describe("changes made in CommCare HQ", () => {
 	it("stops at the upload when the shell this publish made is given a menu during the push", async () => {
 		const doc = await seed(await lookupDocument());
 		const live = retainedBodyJson(retainedPublishRead("source-live"));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
@@ -1697,7 +1722,7 @@ describe("changes made in CommCare HQ", () => {
 
 	it("stops on a table CommCare HQ no longer has, and makes it again once a person publishes over that", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
@@ -1763,7 +1788,7 @@ describe("changes made in CommCare HQ", () => {
 
 	it("refuses with the table's own sentence when its rows cannot be read", async () => {
 		const doc = await seed(await lookupDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
@@ -1820,7 +1845,7 @@ describe("the deployment facts a download reads", () => {
 
 	it("records the empty-list text flag each publish reads, keeps it over a refused read, and hands it to the download", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			projectSpaces(peer, "on");
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
@@ -1879,7 +1904,7 @@ describe("the deployment facts a download reads", () => {
 				uniqueId: profile.attributes.uniqueid,
 			};
 		};
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
@@ -1934,6 +1959,7 @@ describe("the placements a publish records", () => {
 	): Promise<PublishOutcome> {
 		const { head = await reloadHead(), ...rest } = extra;
 		return publishAppToHq({
+			requireHqImport: null,
 			scope: SCOPE,
 			...TARGET,
 			doc: head.doc,
@@ -2003,14 +2029,15 @@ describe("the placements a publish records", () => {
 	it("a first publish records its placements before the shell create, with nothing sent at the record", async () => {
 		const app = heldPlacementApp();
 		await seed(app.doc);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			let sentAtUploadStart: string[] | null = null;
 			let changesAtCreate: { seq: number; kind: string }[] | null = null;
 			request(peer, IMPORT, "POST").reply(async () => {
 				changesAtCreate = await changeKinds();
+				saves.create(HQ_APP);
 				return {
 					statusCode: 201,
-					data: JSON.stringify({ success: true, app_id: HQ_APP, version: 1 }),
+					data: JSON.stringify({ success: true, app_id: HQ_APP }),
 				};
 			});
 			serve(peer, SOURCE, "source-shell");
@@ -2044,7 +2071,7 @@ describe("the placements a publish records", () => {
 
 	it("pushed_revision and the manifest's sequence are the record's", async () => {
 		await seed(heldPlacementApp().doc);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			firstPublishAnswers(peer);
 			expect((await publishHead()).landed).toBe(true);
 		});
@@ -2062,7 +2089,7 @@ describe("the placements a publish records", () => {
 	it("an autosave restoring the hold the publish recorded is admitted after the publish", async () => {
 		const app = heldPlacementApp();
 		await seed(app.doc);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			firstPublishAnswers(peer);
 			expect((await publishHead()).landed).toBe(true);
 		});
@@ -2092,7 +2119,7 @@ describe("the placements a publish records", () => {
 		const emitted = await reloadHead();
 		await edit([{ kind: "setAppName", name: "Renamed" }]);
 		let reloads = 0;
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			firstPublishAnswers(peer);
 			const outcome = await publishHead({
 				head: emitted,
@@ -2123,7 +2150,7 @@ describe("the placements a publish records", () => {
 		const emitted = await reloadHead();
 		await edit([{ kind: "setAppName", name: "Renamed once" }]);
 		let reloads = 0;
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const outcome = await publishHead({
 				head: emitted,
 				/* Someone saves again each time the publish reads the head. */
@@ -2167,7 +2194,7 @@ describe("the placements a publish records", () => {
 	it("a version-floor stop keeps the holds", async () => {
 		const app = heldPlacementApp();
 		await seed(app.doc);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			shellBelowFloor(peer);
 			const outcome = await publishHead();
@@ -2194,7 +2221,7 @@ describe("the placements a publish records", () => {
 	it("an accepted Save to Case offer records, drops the need and lands in one request", async () => {
 		const app = savedToCase();
 		await seed(app.doc);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const asked = refusal(
 				await publishHead({ confirm: CONFIRM_BUT_SAVE_TO_CASE }),
 			);
@@ -2259,7 +2286,7 @@ describe("the placements a publish records", () => {
 	it("a stale digest refuses hq_placement_moves_changed with the current offer", async () => {
 		const app = savedToCase();
 		await seed(app.doc);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const shown =
 				refusal(await publishHead({ confirm: CONFIRM_BUT_SAVE_TO_CASE }))
 					.placementMoves ?? fail();
@@ -2300,7 +2327,7 @@ describe("the placements a publish records", () => {
 	it("a retry naming an offer already recorded goes on", async () => {
 		const app = savedToCase();
 		await seed(app.doc);
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			const offer =
 				refusal(await publishHead({ confirm: CONFIRM_BUT_SAVE_TO_CASE }))
 					.placementMoves ?? fail();
@@ -2424,7 +2451,7 @@ async function bringIn(
 		},
 		target: TARGET,
 		identity: targetWireIdentity(
-			await readDeploymentIdentityOverrides(SCOPE, TARGET),
+			(await readTargetIdentity(SCOPE, TARGET)).entities,
 		),
 		novaRevision: 0,
 		mediaFiles: HELD_MEDIA_FILES,
@@ -2487,7 +2514,7 @@ describe("a publish over an app Nova brought in", () => {
 	it("updates the app it came from under the ids HQ holds, keeps the mapping adopted, records the files it publishes, and says so", async () => {
 		const doc = await seed();
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
-		const read = await withHttpPeer(async (peer) => {
+		const read = await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			const write = await bringIn(peer, doc);
 			const sent = requests(peer).length;
@@ -2548,7 +2575,7 @@ describe("a publish over an app Nova brought in", () => {
 
 	it("says App Preview may keep refusing the app after a publish over changes brought in from CommCare HQ", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			await bringIn(peer, doc);
 			/* The baseline a bring-in of changes made in CommCare HQ leaves: the
@@ -2650,7 +2677,7 @@ describe("a publish over an app Nova brought in", () => {
 			});
 		};
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
@@ -2743,7 +2770,7 @@ describe("a publish over an app Nova brought in", () => {
 				],
 			}),
 		);
-		const read = await withHttpPeer(async (peer) => {
+		const read = await withPeer(async (peer) => {
 			/* The project space holds Search and the large-Search setting, on
 			 * every preflight. */
 			const visible = {
@@ -2775,6 +2802,7 @@ describe("a publish over an app Nova brought in", () => {
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-live");
 			const outcome = await publishAppToHq({
+				requireHqImport: null,
 				scope: SCOPE,
 				...TARGET,
 				doc: head.doc,
@@ -2803,7 +2831,7 @@ describe("a publish over an app Nova brought in", () => {
 	it("keeps a language's name and a setting HQ holds no value for as HQ has them", async () => {
 		const doc = await seed();
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			await bringIn(peer, doc, withoutSeed);
 
@@ -2829,7 +2857,7 @@ describe("a publish over an app Nova brought in", () => {
 	it("compares a language's name and seeds a setting HQ holds no value for on a deployment Nova created", async () => {
 		const doc = await seed();
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc, withoutSeed);
 
 			const edited = (source: Record<string, unknown>) => {
@@ -2870,7 +2898,7 @@ describe("a publish over an app Nova brought in", () => {
 
 	it("names the day it was brought in, in the reader's zone, when HQ's copy changed since", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			await bringIn(peer, doc);
 			const sent = requests(peer).length;
@@ -2892,6 +2920,7 @@ describe("a publish over an app Nova brought in", () => {
 			serveEdited(peer, SOURCE, "source-live", renamedInHq);
 			const auckland = refusal(
 				await publishAppToHq({
+					requireHqImport: null,
 					scope: SCOPE,
 					...TARGET,
 					doc,
@@ -2921,13 +2950,13 @@ describe("a publish while someone stops publishing there", () => {
 	it("refuses publishing_stopped when the ending lands before anything is sent, and records nothing more", async () => {
 		const doc = await seed();
 		await seedAdmin();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			await bringIn(peer, doc);
 			const sent = requests(peer).length;
 
 			request(peer, SOURCE).reply(async () => {
-				await endDeployment(ADMIN_SCOPE, TARGET);
+				await stopHere(ADMIN_SCOPE, TARGET);
 				const answer = retainedPublishRead("source-live");
 				return {
 					statusCode: answer.status,
@@ -2961,16 +2990,20 @@ describe("a publish while someone stops publishing there", () => {
 	it("says CommCare HQ may hold what was sent when the ending lands during the import", async () => {
 		const doc = await seed();
 		await seedAdmin();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			await bringIn(peer, doc);
 
 			serve(peer, SOURCE, "source-live");
 			request(peer, IMPORT, "POST").reply(async () => {
-				await endDeployment(ADMIN_SCOPE, TARGET);
+				await stopHere(ADMIN_SCOPE, TARGET);
 				return {
 					statusCode: 200,
-					data: JSON.stringify({ success: true, app_id: HQ_APP, version: 2 }),
+					data: JSON.stringify({
+						success: true,
+						app_id: HQ_APP,
+						version: saves.save(HQ_APP),
+					}),
 				};
 			});
 			serve(peer, SOURCE, "source-live");
@@ -2979,7 +3012,7 @@ describe("a publish while someone stops publishing there", () => {
 				failure: {
 					code: "publishing_stopped",
 					message:
-						"Someone stopped publishing this app to “clinic” while this publish was running. CommCare HQ may hold what this publish had already sent, and Nova keeps no record of it. Publishing again makes a new app there.",
+						"Someone stopped publishing this app to “clinic” while this publish was running. CommCare HQ may hold part of what this publish had already sent there. Publishing again makes a new app there.",
 				},
 			});
 		});
@@ -2992,10 +3025,10 @@ describe("a publish while someone stops publishing there", () => {
 		const module = doc.modules[doc.moduleOrder[0]];
 		const form = doc.forms[doc.formOrder[module.uuid][0]];
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			await bringIn(peer, doc);
-			await endDeployment(ADMIN_SCOPE, TARGET);
+			await stopHere(ADMIN_SCOPE, TARGET);
 
 			/* HQ refuses the create: the attempt passed preflight, made no app,
 			 * and the deployment still stands at its ending. */
@@ -3041,7 +3074,7 @@ describe("a publish while someone stops publishing there", () => {
 describe("a publish over an app another Nova app took while this one was in recently deleted", () => {
 	it("settles the released mapping before asking CommCare HQ anything, and Preview names the project space only after", async () => {
 		const doc = await seed();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			await h
 				.db()
@@ -3072,6 +3105,251 @@ describe("a publish over an app another Nova app took while this one was in rece
 			expect(releasedAtFirstRead).toEqual([null]);
 		});
 		expect(await previewProjectSpaceFor(SCOPE)).toBe(TARGET.domain);
+	});
+});
+
+// ── CommCare HQ's save counter binds what a publish records ─────────────
+
+describe("the save counter a publish's reads are bound to", () => {
+	/** A retained read, answered after `before` stands for something HQ did first. */
+	function serveAfter(
+		peer: MockAgent,
+		name: RetainedPublishRead,
+		before: () => void,
+	) {
+		request(peer, SOURCE).reply(() => {
+			before();
+			const answer = retainedPublishRead(name);
+			return {
+				statusCode: answer.status,
+				data: retainedBodyText(answer),
+				responseOptions: { headers: { ...answer.headers } },
+			};
+		});
+	}
+	async function mapping() {
+		return h
+			.db()
+			.selectFrom("app_deployment_resources")
+			.select(["pushed_revision", "pushed_remote_revision"])
+			.where("kind", "=", "app")
+			.where("superseded_at", "is", null)
+			.executeTakeFirstOrThrow();
+	}
+	async function openWrites() {
+		return h
+			.db()
+			.selectFrom("hq_remote_writes")
+			.select(["write_kind", "resource_id"])
+			.where(openRemoteWrite)
+			.execute();
+	}
+
+	it("records a push baseline only for a read the counter proves is what the import left, and the counter HQ acknowledged", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			expect((await baselineRow()).origin).toBe("push");
+			expect(await mapping()).toEqual({
+				pushed_revision: "0",
+				pushed_remote_revision: "2",
+			});
+
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			const landed = await publish(doc);
+			expect(landed).toMatchObject({ landed: true });
+			expect(landed.warnings).not.toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+			expect((await baselineRow()).origin).toBe("push");
+			expect((await mapping()).pushed_remote_revision).toBe("3");
+			expect([...(await readDeploymentNovaRevisions(SCOPE)).values()]).toEqual([
+				0,
+			]);
+			// The pre-migration writer updates pushed_revision while the new
+			// nova_revision column on the prior row retains the backfilled value.
+			await h
+				.db()
+				.updateTable("app_deployment_resources")
+				.set({ pushed_revision: 1 })
+				.where("kind", "=", "app")
+				.execute();
+			expect((await readDeploymentNovaRevisions(SCOPE)).size).toBe(0);
+		});
+		/* Every write HQ answered settled when it did. */
+		expect(await openWrites()).toEqual([]);
+	});
+
+	it("records no push baseline where HQ saved the app between the import and the read back, says so, and the next publish asks", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200);
+			/* A person saves in HQ's editor before Nova's read back reaches it. */
+			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
+			const landed = await publish(doc);
+			expect(landed).toMatchObject({ landed: true });
+			expect(landed.warnings).toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+			expect((await baselineRow()).origin).toBe("unread");
+			expect(await readTargetFacts(SCOPE, TARGET)).toBeNull();
+
+			serve(peer, SOURCE, "source-live");
+			expect(refusal(await publish(doc)).remoteChanges).toEqual([
+				expect.objectContaining({ kind: "app", baselineKnown: false }),
+			]);
+		});
+	});
+
+	it("keeps the target settings at the acknowledged version after an extra save and asks before publishing over it", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			/* The save lands after the counter was read and before the import. */
+			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
+			accepted(peer, 200);
+			const heldSettings = (source: Record<string, unknown>) => {
+				source.secure_submissions = true;
+				const profile = source.profile as {
+					properties: Record<string, unknown>;
+				};
+				profile.properties["cc-fuzzy-search-enabled"] = "yes";
+			};
+			serveEdited(peer, SOURCE, "source-live", heldSettings);
+			const landed = await publish(doc);
+			expect(landed).toMatchObject({ landed: true });
+			expect(landed.warnings).toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+			expect(await baselineRow()).toMatchObject({
+				origin: "unread",
+				nova_revision: null,
+			});
+			const baseline = await readAppBaseline(SCOPE, TARGET);
+			expect(baseline).toMatchObject({ origin: "unread", novaRevision: null });
+			expect(baseline).not.toHaveProperty("source");
+			expect((await readDeploymentNovaRevisions(SCOPE)).size).toBe(0);
+			expect(
+				await resolveDownloadTarget(SCOPE, { format: "ccz", doc }),
+			).toMatchObject({
+				format: "ccz",
+				targetFacts: {
+					secureSubmissions: true,
+					profileProperties: { "cc-fuzzy-search-enabled": "yes" },
+				},
+			});
+			expect(await readPreviewDeploymentAnswer(SCOPE)).toMatchObject({
+				targetFacts: { fuzzyListSearch: true },
+			});
+			serveEdited(peer, SOURCE, "source-live", heldSettings);
+			expect(refusal(await publish(doc)).remoteChanges).toEqual([
+				expect.objectContaining({ kind: "app", baselineKnown: false }),
+			]);
+		});
+	});
+
+	it.each(["no counter", "an unchanged counter"] as const)(
+		"records no push baseline or target settings for an update HQ acknowledged with %s",
+		async (acknowledgement) => {
+			const doc = await seed();
+			await withPeer(async (peer) => {
+				await publishFresh(peer, doc);
+				serve(peer, SOURCE, "source-live");
+				request(peer, IMPORT, "POST").reply(() => {
+					const version =
+						acknowledgement === "an unchanged counter"
+							? saves.at(HQ_APP)
+							: undefined;
+					return {
+						statusCode: 200,
+						data: JSON.stringify({ success: true, app_id: HQ_APP, version }),
+					};
+				});
+				if (acknowledgement === "an unchanged counter")
+					serve(peer, SOURCE, "source-live");
+				const landed = await publish(doc);
+				expect(landed).toMatchObject({ landed: true });
+				expect(landed.warnings).toContain(APP_READ_BACK_FAILED_WARNING);
+				expect((await baselineRow()).origin).toBe("unread");
+				expect(await readTargetFacts(SCOPE, TARGET)).toBeNull();
+			});
+		},
+	);
+
+	it.each(["before the first read", "during the source read"] as const)(
+		"keeps the empty app mapped and stops before sending content when HQ saved it %s",
+		async (when) => {
+			const doc = await seed();
+			await withPeer(async (peer) => {
+				if (when === "before the first read") {
+					request(peer, IMPORT, "POST").reply(() => {
+						saves.create(HQ_APP);
+						saves.save(HQ_APP);
+						return { statusCode: 201, data: { success: true, app_id: HQ_APP } };
+					});
+					serve(peer, SOURCE, "source-shell");
+				} else {
+					accepted(peer, 201);
+					serveAfter(peer, "source-shell", () => saves.save(HQ_APP));
+				}
+				expect(refusal(await publish(doc))).toMatchObject({
+					phase: "resources",
+					failure: {
+						code: "hq_app_state_unknown",
+						message: `The new app on “clinic” changed in CommCare HQ while Nova was reading it, so Nova stopped before sending the app's content. ${CREATED} You can publish again, and Nova asks before it writes over that change.`,
+					},
+				});
+				expect(activeRemoteApp((await state()) ?? fail())?.remoteId).toBe(
+					HQ_APP,
+				);
+				expect((await baselineRow()).origin).toBe("unread");
+			});
+		},
+	);
+
+	it("keeps an import HQ never answered open for its grace, and settles every write HQ answered", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			serve(peer, SOURCE, "source-live");
+			request(peer, IMPORT, "POST").replyWithError(new Error("socket hang up"));
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "upload",
+				failure: { code: "hq_rejected_upload" },
+			});
+		});
+		expect(await openWrites()).toEqual([
+			{ write_kind: "import", resource_id: HQ_APP },
+		]);
+	});
+
+	it("names the empty app a create made as the deployment was ended, beside the ending", async () => {
+		const doc = await seed();
+		await h.seedProjectMember(ADMIN, PROJECT, "admin");
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			/* HQ reports the app gone, so the next publish makes a new one. */
+			serve(peer, SOURCE, "source-missing");
+			expect(refusal(await publish(doc)).failure.code).toBe(
+				"remote_app_missing",
+			);
+			const shell = "new-shell";
+			request(peer, IMPORT, "POST").reply(async () => {
+				/* An admin stops publishing here while HQ makes the new app. */
+				await stopHere(ADMIN_SCOPE, TARGET);
+				saves.create(shell);
+				return {
+					statusCode: 201,
+					data: JSON.stringify({ success: true, app_id: shell }),
+				};
+			});
+			expect(refusal(await publish(doc))).toMatchObject({
+				failure: { code: "publishing_stopped" },
+			});
+			const view = (await state()) ?? fail();
+			expect(deploymentEnding(view)).toMatchObject({ hqAppId: HQ_APP });
+			expect(leftBehindResources(view, new Map())).toEqual([
+				expect.objectContaining({ kind: "app", remoteId: shell }),
+			]);
+		});
 	});
 });
 

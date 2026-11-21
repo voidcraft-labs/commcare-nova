@@ -40,7 +40,7 @@ function stop(code: ReadCircumstance): HqAppPicker {
 }
 
 /** The view's claim with the id it was keyed by dropped. */
-function claimDetail(view: HqAppClaimView): HqAppClaimDetail {
+export function claimDetail(view: HqAppClaimView): HqAppClaimDetail {
 	if (view.kind === "open") {
 		return { kind: "open", appId: view.appId, appName: view.appName };
 	}
@@ -86,9 +86,7 @@ export async function listHqAppsForPicker(
 
 	const claims = await readHqAppClaims({
 		viewerUserId: actor.userId,
-		server: creds.server,
-		domain,
-		remoteAppIds: listed.map((app) => app.appId),
+		seen: listed.seen,
 	});
 	const claimOf = new Map(
 		claims.map((view) => [view.remoteAppId, claimDetail(view)]),
@@ -97,7 +95,7 @@ export async function listHqAppsForPicker(
 		kind: "apps",
 		server: creds.server,
 		domain,
-		apps: listed.map((app) => ({
+		apps: listed.listings.map((app) => ({
 			remoteAppId: app.appId,
 			name: app.name,
 			claim: claimOf.get(app.appId) ?? null,

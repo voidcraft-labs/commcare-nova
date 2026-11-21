@@ -125,8 +125,8 @@ import {
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
-	FIRST_PUBLISH_ANDROID_ONLY,
 	FIRST_PUBLISH_CHANGE_IDS,
+	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
 	firstPublishViewFromStored,
@@ -514,6 +514,26 @@ function withBlankTitle(xml: string): string {
 	return serializeXml(document);
 }
 
+/** The form declaring the mobile reports fixture before its first bind, read by nothing, as a
+ *  form CommCare HQ's form builder kept a declaration of holds it. */
+function withDeclaredReports(xml: string): string {
+	const document = parseXml(xml);
+	const bind = findOne(
+		(element: Element) => element.name === "bind",
+		document.children.filter(isTag),
+		true,
+	);
+	if (bind === null) throw new Error("The export holds no <bind>.");
+	prepend(
+		bind,
+		new Element("instance", {
+			id: "commcare:reports",
+			src: "jr://fixture/commcare:reports",
+		}),
+	);
+	return serializeXml(document);
+}
+
 /** A survey whose Hidden Value `h` is calculated, beside a question `n` with a default. */
 function calculatedDoc(): BlueprintDoc {
 	return buildDoc({
@@ -572,7 +592,61 @@ describe("the register", () => {
 			]);
 	});
 
-	it("works out the two Web Apps lines from the declaration, and each line a worker meets on Android alone from its reading", () => {
+	it("keeps the incomplete forms notice for a later return to Web Apps", async () => {
+		const id = "incomplete-forms-tile-hidden";
+		const facts = await PAIRS[id].on();
+		const android = firstPublishChangesFor({
+			...facts,
+			choice: { ...facts.choice, runsOnlyOn: "android" },
+		});
+		expect(android.ids).not.toContain(id);
+		const stored = {
+			...firstPublishListToStore(android, facts.facts),
+			webAppsOnInHq: true,
+		};
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: "android",
+					showIncompleteForms: false,
+				},
+			}).ids,
+		).not.toContain(id);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: "web-apps",
+					showIncompleteForms: false,
+				},
+			}).ids,
+		).toContain(id);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: { showIncompleteForms: true },
+			}).ids,
+		).not.toContain(id);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: { showIncompleteForms: false },
+			}).ids,
+		).toContain(id);
+		for (const [cloudcare, properties] of [
+			[false, {}],
+			[true, { "cc-show-incomplete": "yes" }],
+			[true, { "cc-show-incomplete": "no" }],
+		] as const) {
+			const reading = await readAs(registrationDoc(), {
+				root: { cloudcare_enabled: cloudcare, profile: { properties } },
+			});
+			expect(firstPublishChangesFor(factsOf(reading)).ids).not.toContain(id);
+		}
+	});
+
+	it("works out the two Web Apps lines from the declaration, and each line a worker meets on one platform alone from its reading", () => {
 		expect(
 			FIRST_PUBLISH_CHANGE_IDS.filter(
 				(id) =>
@@ -584,8 +658,8 @@ describe("the register", () => {
 			FIRST_PUBLISH_CHANGE_IDS.filter(
 				(id) => FIRST_PUBLISH_CHANGES[id].recorded !== undefined,
 			),
-		).toEqual([...FIRST_PUBLISH_ANDROID_ONLY]);
-		for (const id of FIRST_PUBLISH_ANDROID_ONLY)
+		).toEqual([...FIRST_PUBLISH_PLATFORM.keys()]);
+		for (const id of FIRST_PUBLISH_PLATFORM.keys())
 			expect([id, FIRST_PUBLISH_CHANGES[id].scope]).toEqual([
 				id,
 				"declaration",
@@ -888,25 +962,31 @@ describe("over CommCare HQ's retained sources", () => {
 					throw new Error("The birth stores no list.");
 				const stored = written.firstPublish.list;
 				expect(stored.of).toBe("first-publish");
-				expect(firstPublishViewFromStored(stored, choice.runsOnlyOn)).toEqual(
-					view,
-				);
+				expect(firstPublishViewFromStored(stored, facts.doc)).toEqual(view);
 				const moving = new Set<FirstPublishChangeId>([
 					"web-apps-turned-off",
 					"web-apps-turned-on",
-					...FIRST_PUBLISH_ANDROID_ONLY,
+					...FIRST_PUBLISH_PLATFORM.keys(),
 				]);
-				const recorded = [...FIRST_PUBLISH_ANDROID_ONLY].filter((id) =>
+				const recorded = [...FIRST_PUBLISH_PLATFORM.keys()].filter((id) =>
 					FIRST_PUBLISH_CHANGES[id].recorded?.(reading.draft.facts),
 				);
 				for (const runsOnlyOn of ["android", "web-apps", undefined] as const) {
-					const other = firstPublishViewFromStored(stored, runsOnlyOn);
+					const other = firstPublishViewFromStored(stored, {
+						connectType: facts.doc.connectType,
+						appSettings: { ...facts.doc.appSettings, runsOnlyOn },
+					});
 					expect(other.ids.filter((id) => !moving.has(id))).toEqual(
 						view.ids.filter((id) => !moving.has(id)),
 					);
 					expect(
-						other.ids.filter((id) => FIRST_PUBLISH_ANDROID_ONLY.has(id)),
-					).toEqual(runsOnlyOn === "web-apps" ? [] : recorded);
+						other.ids.filter((id) => FIRST_PUBLISH_PLATFORM.has(id)),
+					).toEqual(
+						recorded.filter(
+							(id) =>
+								!runsOnlyOn || FIRST_PUBLISH_PLATFORM.get(id) === runsOnlyOn,
+						),
+					);
 				}
 				choices++;
 			}
@@ -920,12 +1000,28 @@ describe("over CommCare HQ's retained sources", () => {
 			webAppsOnInHq: true,
 			of: "next-publish",
 		} as const;
-		expect(firstPublishViewFromStored(next, undefined)).toEqual({
+		expect(
+			firstPublishViewFromStored(next, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
+		).toEqual({
 			ids: ["case-settings-respelled"],
 			touchesWorkers: false,
 			of: "next-publish",
 		});
-		expect(firstPublishViewFromStored(next, "android")).toEqual({
+		expect(
+			firstPublishViewFromStored(next, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: "android",
+					showIncompleteForms: false,
+				},
+			}),
+		).toEqual({
 			ids: ["case-settings-respelled", "web-apps-turned-off"],
 			touchesWorkers: true,
 			of: "next-publish",
@@ -977,11 +1073,33 @@ describe("over CommCare HQ's retained sources", () => {
 			webAppsOnInHq: recorded.source.cloudcareEnabled,
 			of: "first-publish",
 		} as const;
-		expect(firstPublishViewFromStored(stored, "web-apps").ids).not.toContain(
-			id,
-		);
-		expect(firstPublishViewFromStored(stored, "android").ids).toContain(id);
-		expect(firstPublishViewFromStored(stored, undefined).ids).toContain(id);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: "web-apps",
+					showIncompleteForms: false,
+				},
+			}).ids,
+		).not.toContain(id);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: "android",
+					showIncompleteForms: false,
+				},
+			}).ids,
+		).toContain(id);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}).ids,
+		).toContain(id);
 		// A reading that records no such rule stores no line.
 		const plain = await PAIRS[id].off();
 		expect(
@@ -1806,6 +1924,9 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		on: () => webAppsFacts("android", true),
 		off: () => webAppsFacts(undefined, true),
 	},
+	"incomplete-forms-tile-hidden": editedPair(registrationDoc, {
+		root: { cloudcare_enabled: true, profile: { properties: {} } },
+	}),
 	"web-apps-turned-on": {
 		on: () => webAppsFacts(undefined, false),
 		off: () => webAppsFacts("android", false),
@@ -1973,6 +2094,10 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	),
 	// A form whose title holds no text, as CommCare HQ's new form holds it.
 	"form-titles-written": editedPair(followUpDoc, { xml: withBlankTitle }),
+	// A form declaring a fixture nothing reads that the project space may not serve.
+	"unread-fixture-declarations-dropped": editedPair(followUpDoc, {
+		xml: withDeclaredReports,
+	}),
 };
 
 /** A media map item as CommCare HQ stores one for an image. */

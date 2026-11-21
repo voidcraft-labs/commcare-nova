@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NOVA_API_KEY_SCOPES } from "@/lib/auth-public";
 import { deriveCapabilities } from "../capabilities";
 
 describe("deriveCapabilities", () => {
@@ -29,6 +30,7 @@ describe("deriveCapabilities", () => {
 		const scopes = [
 			"nova.hq.read",
 			"nova.hq.write",
+			"nova.hq.import",
 			"nova.projects.read",
 			"nova.projects.write",
 		];
@@ -45,4 +47,13 @@ describe("deriveCapabilities", () => {
 			{ key: "unknown:vendor.extra", label: "Access to vendor.extra" },
 		]);
 	});
+
+	it.each(NOVA_API_KEY_SCOPES)(
+		"gives %s a sentence of its own, never the catch-all row",
+		(scope) => {
+			const [row] = deriveCapabilities([scope]);
+			expect(row?.key).toBe(scope);
+			expect(row?.label).not.toMatch(/^Access to /);
+		},
+	);
 });

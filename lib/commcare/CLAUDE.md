@@ -36,7 +36,20 @@ localized variables. Direct-CCZ app-string values are spelled byte for byte as
 HQ's build spells them (`localeFile.ts::hqLocaleFileValue`, which is
 `commcare_translations.py::dumps`: a Python-blank text as a non-breaking space,
 a line break as `\n`, a `#` no backslash precedes as `\#`), so a worker reads
-one string from either archive. The writer is total; the gate
+one string from either archive. Every `app_strings.txt` is written by one
+function, `localeFileText`, whose every line Core's `LocalizationUtils`
+reads as exactly one record of the compiler's table, under its key, at the
+text a device shows of its value: a key is a locale file key
+(`isLocaleFileKey`: not empty, no `=`, `#` or line break, nothing Java's
+`trim()` or Python's `strip()` drops at either end) and a value carries one
+record (`isLocaleFileValue`: no carriage return, not only control
+characters), and anything else throws as a compiler defect. The text a
+project space holds is admitted to those rules where every route reads it,
+`targetFacts.ts::targetFactsFromSource`, and what is left out is said
+(`TargetFacts.uiTextNotCarried`, the download advisory
+`kept_ui_text_not_carried`); Core's reader is ported once, as
+`localeFile.ts::readLocaleFileAsCore`, which the reader of HQ's apps reads
+lines through. The value writer is total; the gate
 (`APP_STRING_VALUE_UNREPRESENTABLE`, `localeFile.ts::localeFileValueIssue`)
 refuses every sequence an author can type that a device shows otherwise after
 both writers and Core's locale reader: a backslash followed by `n` (a line
@@ -129,10 +142,18 @@ the HQ JSON path read, since HQ writes its own URLs when it builds); `expandDoc`
 direct publishing supplies its selected server and domain. Every `.ccz` is
 made for one published project space, and its profile names that space's
 four server properties (`ota-restore-url`, `PostURL`, `key_server` and
-`cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`), on the
-scheme and netloc of the project space's custom base URL as HQ's `urljoin`
-keeps them (`targetFacts.ts::hqUrlBase`: the netloc exactly as stored) and on
-its secure receiver where its app holds them; an app that is published nowhere is offered no `.ccz`. The
+`cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`), always on
+the base URL of the server the deployment is on, and on its secure receiver
+where its app holds it: the function reads `secureSubmissions` and nothing
+else of the facts, so no value CommCare HQ keeps can name where a phone sends
+a worker's name and password or a form. A project space whose app holds a
+custom base URL that is not exactly the server's own origin
+(`targetFacts.ts::HeldBaseUrl`, a host to show and never its user
+information) has no `.ccz` (`lib/deployment/runtimeTarget.ts::workersSentElsewhere`,
+the download refusal `workers-sent-elsewhere`, whose sentence names the
+host, and the publish dialog's row for that space, which cannot be chosen): HQ moves a project space's phones to another environment with it, and
+neither a file that follows it nor one that ignores it is one Nova can stand
+behind. An app that is published nowhere is offered no `.ccz`. The
 archive writes what that project space keeps of the values Nova leaves to
 CommCare HQ (`CompileOptions.targetFacts`, `targetFacts.ts::TargetFacts`, read
 from the deployment's baseline), as HQ's build there does: the kept profile
@@ -150,6 +171,17 @@ app that does not declare
 Android has no `.ccz` at all (`runtimeTarget.ts::chooseDownloadTarget`,
 `not-declared-for-android`): a `.ccz` installs an app on Android. The HQ import
 file carries derived ids and no target.
+
+Every member of a `.ccz` is written once, under a name no other member
+shares in any letter case and that names no other member's directory
+(`zipMembers.ts::zipMembers`, which the HQ import file's archive uses too):
+the compiler names its own files only through `cczMembers.ts` (the root
+files, `<dir>/app_strings.txt`, `modules-<m>/forms-<f>.xml`), and a media
+file's held path is never of one of those shapes in any letter case
+(`cczMembers.ts::isGeneratedMemberPath`, applied by
+`lib/deployment/hqMedia.ts::isHoldableWirePath`), whatever languages and
+forms the app gains later, so two members meeting in one name is a compiler
+defect and throws, in the standing of the suite oracle.
 
 A local `.ccz` names something stable. Its profile's `uniqueid` is Nova's own
 id for the app on one project space (`runtimeTarget.ts::profileUniqueId`, from
@@ -289,7 +321,8 @@ id here only where the reader needs the switch or the report.
 ### The reader
 
 `reader/index.ts::readHqApp` is the one function that turns an HQ app into a
-document. It is pure and reads only its arguments. Admission is an accounting:
+document. It is pure: it reads only its arguments and changes none of them, so
+one input read twice reads alike (`reader/CLAUDE.md`, "Pure"). Admission is an accounting:
 every JSON key at a value other than HQ's default and every XML element and
 attribute must be claimed against a manifest entry
 (`reader/claims.ts::defineClaims`), the entry's standing decides whether the
@@ -320,7 +353,12 @@ name their entry, so one table is one finding whichever slot read it; the
 caller settles each and acceptance holds none is left. A table a form only
 declares is no read: nothing of it comes in, and project data refuses it only
 where the project space's list lacks it, since Core loads every declared
-instance when the form opens. A table a choice list's itemset reads is a
+instance when the form opens. Any other fixture a form only declares, but
+`user-groups`, which HQ serves every worker, is dropped and the first publish
+says so (`unread-fixture-declarations-dropped`): its load stops the form where
+the project space does not serve it (`locations`, `commcare:reports`), which no
+export says, and Nova's form, declaring only what it reads, opens either way
+(`expressions/surfaceUses.ts::unreadDeclarationUse`). A table a choice list's itemset reads is a
 read: the read and the table's declaration are claimed under Nova's typed
 lookup carrier (`xform/options.ts`, `provisional.ts::claimDeclarations`). The
 stages run in the order of `reader/index.ts::STAGES`: structure and forms, menus, case
@@ -354,7 +392,9 @@ values Nova's emitter writes for a document, which the canonical row
 `source-language-is-as-read` reads; the reader's `CLAUDE.md` lists the places.
 
 A form is read as HQ's form builder reads it (`reader/xform/`): data tree,
-binds, setvalues, then the control tree, joined by path. A field's kind comes
+binds, setvalues, then the control tree, joined by path; what each element
+does is read as Core reads it (a setvalue's target, a control's node and a
+bind's), and only Nova's one spelling of it is held (`reader/CLAUDE.md`). A field's kind comes
 from one table (`xform/kinds.ts`). Text is found by what references it, never
 by an itext id. A node Nova generates is recognized by rebuilding it with the
 emitter's own function and comparing parsed trees (`xform/generated.ts`), with
@@ -364,7 +404,14 @@ one tree. Logic is never read as text here: each attribute is registered as a
 pending expression the expression reader binds. Two XPath texts are compared in
 one place, `reader/syntaxCompare.ts::sameXPathText`, and every reader module reads
 XPath text through `reader/syntaxRead.ts`, which counts each read in the
-reading's `ReadWork`.
+reading's `ReadWork`. A reading's work is counted by the work meter
+(`workMeter.ts`), whose doors are the grammar read, the candidate document, the
+XPath and XML serializers and the emission plan (charged only inside a metered
+reading, so an export or a publish counts nothing), and the reader's two
+comparisons; past the limit its source's size gives
+(`reader/work.ts::readWorkLimit`) a reading is the account of one
+`too-intricate` finding, never a clock's verdict (`reader/CLAUDE.md`, "The work
+a reading does").
 
 ### Reading expressions
 
@@ -402,13 +449,82 @@ reading fields; its modules stay unread until `hqApplicationModules` types
 them, so a summary Nova cannot read never stops a status check. JSON `null`
 remains an unavailable HQ answer rather than an internal exception.
 
-The XML reader counts decompressed HTTP body bytes as it streams, accepts at most
-20,000,000 bytes, and cancels an oversized body before buffering more. UTF-8
-decoding spans chunks; the 30-second deadline owns headers and body consumption.
-Resource consumers still own XML syntax and selected-build identity checks.
+### One way to a body, with a bound
+
+`hq/http.ts::sendHq` is the one `fetch` for CommCare HQ: it sets the
+credentials' header after checking it with Node's value validator, whose error names only the header. It follows no redirect and answers an `HqAnswer` whose body
+is reachable only through `read(maxBytes)`, with `maxBytes` required, a whole
+number from one to `bounds.ts::HQ_BODY_BOUND_CEILING` (anything else throws),
+counted on the stream (`hq/readBody.ts`), so no driver holds a `Response` and
+no body is read whole. A Biome `noRestrictedGlobals` rule denies `fetch` in
+`lib/commcare` and `lib/deployment` outside `hq/http.ts`, and `readHqJson`'s
+`maxBytes` is a required option, so an unbounded read of an HQ body neither
+typechecks through the adapter nor lints outside it. Every bound Nova reads
+CommCare HQ under, refused bodies and every write's acknowledgement included, is
+a named constant of `hq/bounds.ts` with its reason. A refused body, of a read
+or a write, is read at most `HQ_REFUSED_BODY_READ_MAX_BYTES` far
+(`http.ts::readRefusedBody`). A write's acknowledgement is read through
+`http.ts::readAnswerJson`, and one past its bound, cut off or no JSON is that
+write's answer Nova cannot read, which says the write may have landed: an
+import's `HQ_MALFORMED_ANSWER`, a workbook's or a place batch's
+`mayHaveLanded`, a worker write's unconfirmed outcome that keeps the generated
+password. A `Content-Length` within the bound only sizes the one array a body
+is read into, so a file is held once rather than as chunks and their join; it
+never bounds anything.
+
+Every body is also charged, as it is read, to the lease of the request it
+runs under (`hq/memoryMeter.ts`, through an `AsyncLocalStorage` the request's
+room sets, `lib/deployment/reading/room.ts`): `read(maxBytes, held)` names what
+the caller keeps it as, `text` (parsed, on V8's heap) or `bytes` (a file,
+outside it), and the meter weighs each by measured rates
+(`TEXT_HEAP_PER_WIRE_BYTE`, `READING_HEAP_PER_SOURCE_BYTE`, and for a changes review's
+second reading `SECOND_READING_HEAP_PER_SOURCE_BYTE`). The array a size
+hint makes is charged before it is made. A charge the lease refuses cancels
+the stream and answers `unavailable` with `MemoryMeterFullError`, and once a
+lease is refused `sendHq` sends nothing more for it. What the reader drops it
+gives back (a too-long or broken body whole), and so do the callers where they
+let a body go (a refused body once decoded, an answer that is no JSON, a media
+file hashed or judged and not kept, and the pages of a discarded collection pass). The meter and the lease live on
+`globalThis`, so one process meets one bound whatever copies of the module its
+bundles make. A request with no lease (a publish, a status check) is not
+metered. The bounds are `processMemoryBounds`, which states its arithmetic:
+half the heap V8 sizes from `process.constrainedMemory()` and a quarter of
+that memory for files.
+
+The build resource reader reads a profile or a suite through the same answer,
+at most `HQ_BUILD_RESOURCE_MAX_BYTES` (20,000,000 bytes) of the decompressed
+body; the 30-second deadline owns headers and body. Resource consumers still own
+XML syntax and selected-build identity checks.
+
+### One list reader
+
+`hq/readCollection.ts::readHqCollection` reads every list (project spaces,
+lookup tables, a table's rows, levels, places) under a spec whose limits are all
+required: the pages, `maxRows`, `maxBytes` across a pass, a row parser and the
+row's identity. Nova builds each page's URL itself, the first page's URL with
+`offset` set to the rows read so far, and reads `meta.next` as "more" or "no
+more", so no selector CommCare HQ names is ever followed. A first page whose
+`meta.total_count` passes `maxRows` answers `past-limit` by rows after one
+request, holding no row; a pass whose pages pass `maxBytes` answers
+`past-limit` by bytes, each page read at most as far as what remains. A list of
+several pages names its total on every page, the first page's, and every page
+the offset asked; no identity appears twice and the rows read equal the total.
+CommCare HQ evaluates each page afresh, and serves the table and place lists
+with no order, so a list of more than one page is read a second time, digested
+and dropped, and taken only where both passes agree on every row in order; a
+third pass is compared with the second, and a list that moved under both is
+`HQ_LIST_MOVED` (cause `moved`, `hq-unavailable`). Two agreeing passes prove a
+state CommCare HQ held unless a row changed and changed back between them,
+which no API a key reaches can rule out (no table revision is served). Each
+list asks its resource's largest page: 1,000 tables, 1,000 rows (HQ's
+`max_limit` for `FixtureResource`'s `limit = 0`), 1,000 levels, 5,000 places. A
+row of a table's rows must name that table's tag as its `fixture_type`. A
+caller that cannot use a list past its bound (a publish's table list, level list
+or place inventory, the project space list) answers it as `too-large`: an
+inventory Nova did not read whole says nothing is absent.
 
 JSON source, application, version, app-list, project-space and collection reads
-share `hq/readJson.ts`: native fetch, no redirects, no cache, an owned deadline
+share `hq/readJson.ts`: `sendHq`, no cache, a required bound, an owned deadline
 through body consumption, and five causes told apart (no answer, the deadline,
 a body over the bound, a page for a browser, an answer Nova cannot read). A 429
 is sent again by one rule (`hq/throttle.ts`): three sends at most, a
@@ -438,11 +554,12 @@ A 2xx body past the bound that opens as a page is `browser-page`, not
 could not use names its cause; a request Nova will not send (a slug or an id it
 cannot put in a URL) is a bare 400. Every failed answer is classified once, by
 `hq/failure.ts::classifyHqFailure`; no caller writes its own status ladder.
-Paginated reads carry one deadline, its signal and its instant, through the
-full list. A deadline belongs to one call or one list and is never shared
+Each pass of a paginated read carries one deadline, its signal and its
+instant, through the full list. A deadline belongs to one call or one list and is never shared
 between reads; a caller's `cancel` stops a read early and is no deadline;
-compatibility retains its shorter five-second deadline. Project-space pages
-must retain their count, unique valid names, exact endpoint and private filter.
+compatibility retains its shorter five-second deadline, which every pass of its
+project space list shares. Project-space pages hold their count, unique valid
+names, exact endpoint and private filter through the list reader.
 Discovery awaits every started probe in its eight-request window before
 returning a failure. App-access success requires the HQ `status: success` /
 `applications` envelope (`hq/apps.ts::readHqAppListEnvelope`); the rows are
@@ -459,12 +576,12 @@ project-space dots, colons and underscores remain supported.
 The same response boundary applies to publishing. Import acknowledgements
 validate the verdict, remote identity, optional version and warnings before
 the deployment service records them; an update cannot return a different app.
-Lookup and organization inventories validate every identity and an explicit pagination cursor,
-and stays within the selected project space and resource path. Inventory reads
+Lookup and organization inventories validate every identity and every page
+against the list reader's rules, and ask only their own URLs. Inventory reads
 and app imports do not follow redirects. Unknown lookup-upload verdicts retain
 the possibility that rows landed, so the service re-reads ownership evidence.
 The shared collection reader owns one 30-second deadline across every page and
-body read. Location levels resolve parent resource URIs across the full list;
+body read of a pass. Location levels resolve parent resource URIs across the full list;
 an unresolved parent or cycle refuses the inventory. Place reads preserve all
 foreign JSON metadata for the replacement write. Atomic place acknowledgements
 must be HTTP 202 with unique positional ids, and every update must return its
@@ -559,7 +676,7 @@ worker's restore carries every table. Each rule asks the
 emitter's own decision over the form link context `expandDoc` builds, so the
 answer and the wire cannot disagree. HQ's slugs stay inside `lib/commcare`; `lib/publish/planFeatures.ts`
 holds what a person reads. No API key reads a plan, so these are confirmed by
-the person, never probed, and a lane test holds `planPrivilegePlans.json` to
+the person, never probed, and a lane test holds `surface/planPrivilegePlans.json` to
 HQ's own plan lists.
 The large-search performance check is advisory: it controls only whether Nova
 can add its derived Search optimization and never blocks publishing or removes
@@ -618,7 +735,15 @@ HQ's import replaces every top-level key an update's body carries and keeps
 every key it leaves out (`models/applications.py::_merge_source_into_app`), so
 three keys need the target's current value: `profile`, `translations` and
 `add_ons`. Every read of the app's source goes through one reader
-(`hq/appSource.ts::readHqAppSource`), and
+(`hq/appSource.ts::readHqAppSource`); a read that must say which save it
+shows goes through `hq/appSourceAtVersion.ts::readHqAppSourceAtVersion`, the
+source and then HQ's save counter, whose branded `source-at` answer is the
+only one a deployment stores as what a write left. An update import acknowledges
+its final counter (`app_import_api.py::_handle_import_app`'s `version`).
+Removing a media mapping the new app no longer uses can add a second save
+(`hqmedia/models.py::remove_unused_mappings`). `uploadAppMediaBundle` names the job HQ accepted
+(`onAccepted`) before it watches it, so a caller can read it later by that id
+(`readAppMediaBundleStatus`). And
 `targetOverlay.ts::projectApplicationForTarget` projects all three against the
 one read the publish hands it, its last before the import
 (`lib/deployment/CLAUDE.md` says which): it carries what the target owns,
@@ -637,7 +762,10 @@ read, the empty app a first publish makes included, so no body is sent blind.
 ### Reading an app from CommCare HQ
 
 `hq/apps.ts::listHqApps` reads `views/cli.py::list_apps`: every working app of a project space by
-id, name and save counter. A row carries no kind, no date and no build fact, so a linked or a
+id, name and save counter, with the `HqAppsSeen` (`hq/appsSeen.ts`) that says HQ answered, in this
+request, that the key reaches them; `readHqAppForReading`'s `read` answer carries one for the app it
+returned. Those two make every such value (a `noRestrictedImports` pattern in `biome.json` refuses
+any other production importer), and it is what Nova's view of who holds an HQ app demands. A row carries no kind, no date and no build fact, so a linked or a
 remote app looks like any other until it is read. `hq/apps.ts::probeHqApiAccess` asks the lookup
 table list for one row, after the list answered. API access is read from two sentences of
 `api/resources/__init__.py::HqBaseResource.dispatch` that `hq/http.ts::apiRefusalSentence` matches
@@ -678,7 +806,7 @@ calls and none is added to another: the application resource and the source have
 reads early with `cancel`, which is no deadline. An app body over `HQ_BRING_IN_APP_MAX_BYTES` is
 refused before it is parsed. The throttled reads of one bring-in run one at a time. For a
 bring-in, a table's row read and the place list stop once they are certain to pass Nova's limit
-(`stopPast`).
+(the row read's `maxRows`, the place list's `stopPast`), or pass their byte bound.
 
 `client.ts::readHqSaveOnlyEditedAnswers` reads the one flag a bring-in needs of the source
 project space, by the two lists the publish probe reads, and answers a failure where a publish's
@@ -693,6 +821,12 @@ Its view (`hqmedia/views.py::ViewMultimediaFile`) asks no key, plan or permissio
 or plan.
 `HQ_MEDIA_READ_CONCURRENCY` and `HQ_MEDIA_IN_FLIGHT_MAX_BYTES` bound how many files, and how
 many bytes of them at their limits, are in flight at once.
+
+A loop over what CommCare HQ sent logs after the loop, one line with a count and the first few
+cases, never a line per item: the length is an app author's. The source parser reports a media
+map's unreadable entries as one note (`appSource.ts::HqAppSourceParseNote`,
+`media-entries-unreadable`, with the count and the first `UNREADABLE_MEDIA_ENTRY_POSITIONS`
+positions), which `readHqAppSource` logs once.
 
 HQ's answers to these reads are retained under `proof/hq-reads/reading/` and held byte for byte
 by `proof/hq/test_retained_reads.py`.
@@ -1301,7 +1435,21 @@ and tab/LF/CR in attributes. It refuses characters outside XML 1.0's repertoire.
 namespace scope and XML character decoding. Never use an HTML parser or
 serializer on these resources: their XML modes can still substitute C1
 characters or normalize authored attribute whitespace incorrectly. DTDs and
-XML 1.1 declarations are outside Nova's generated resource vocabulary. `tryParseXml` names which of the three a failure is (`doctype`, `xml-version`, `malformed`), and no caller reads a message to tell.
+XML 1.1 declarations are outside Nova's generated resource vocabulary. Every parse counts what it
+builds before it builds it and stops past `xmlParse.ts::XmlLimits` (`hq/bounds.ts`: 250,000 nodes,
+elements nested 256 deep and 512 namespace declarations a document), since a text's length bounds
+none of them: `<a/>` is a node in four characters and each declaring element copies its scope.
+`tryParseXml` names which of the four a failure is (`doctype`, `xml-version`, `malformed`,
+`over-limit`), answers the nodes a parse built, and no caller reads a message to tell. Every form
+text CommCare HQ holds is parsed through `heldXmlParse`, whose process-wide cache is weighed by
+those nodes (`PARSED_FORM_NODES_HELD`, about 64 MiB of trees), and a bring-in counts its forms'
+nodes before anything reads them, refusing an app past `HQ_BRING_IN_READING_MAX_XML_NODES` as
+`too-large` (`lib/deployment/reading/gather.ts::formsWithinReading`). Every JSON text CommCare HQ
+wrote becomes values through one function, `hq/jsonText.ts::parseHqJsonText` (an answer's body, a
+write's acknowledgement, a stored baseline, the JSON a form's source holds): each object of it has
+no prototype, and so does each element's attributes a parse builds, so a name an app
+supplies reads only what HQ wrote, and a value nested past `HQ_JSON_MAX_DEPTH`, deeper than HQ's
+own copy of an app can be, is text that is no JSON.
 
 `APP_TEXT_UNREPRESENTABLE` gates app names, module/form/field definitions,
 case catalogs and translation values before every commit, including dormant
@@ -1399,7 +1547,7 @@ checks the stored text on both local CCZ and HQ-regenerated forms
 (`CaseOperationRuntimeTest`, and `StoredInstantRuntimeTest` in every device
 zone).
 
-Typed `Form.caseOperations` take the placement `planPlacements` gives them, emitted by `casePlacementPlan.ts`: a basic slot or an advanced action is HQ's form actions, and `xform/caseOps.ts` writes every Save to Case placement into the authored XForm source, so HQ upload and local `.ccz` compilation consume the same cx2 blocks; it is not another `FormActions` post-process. Nova reserves no question names. Each generated node is named `nova_`, then its purpose and its owner's id, by `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`, which suffixes on a collision with an authored sibling; the containers are groups (`nova_operations`, `nova_condition_<operation>`), and guards are update-only Save to Case blocks. Each Save to Case block is a Vellum-recognizable `SaveToCase` wrapper carrying `vellum:case_type`. A leaf of a case block carries no `type` and no `constraint`. Singular operations live in the form root container, which is prepended before authored fields. Repeated operations are appended into the referenced repeat's exact iteration template after its authored children. Because CommCare Core executes case blocks in XML document order and a repeated effect cannot leave that template, the only representable cross-scope sequence is root followed by repeat scopes in post-order field traversal; `lib/doc/caseOperationOrder.ts` is the shared validator/planner proof of that constraint. On local compilation, the blocks of HQ's basic `FormActions` are spliced where HQ's build writes them ("Repeat-context subcase splice" below), and an advanced form's by `xform/advancedCaseBlocks.ts` ("Advanced modules" below): the form's own `case` (an advanced form's root `case_<tag>` blocks) after the authored field tree, so it executes after every Save to Case block. Where a form's own close cannot share the own arm's place, it takes a block of its own and `close_case.condition` is `never`: `nova_close` inside the group `nova_condition_close`, whose `relevant` is the close condition, or in a several-case form a close-only block of each selected case, `nova_close_selected_cases`, in that row's `nova_operations` group: inside the row's `nova_condition_close` group, whose `relevant` is the close condition, where the form closes under one (Save to Case shape `selected-cases/selected-case/operations/condition/block`), and directly in the operations group where it closes every selected case (`selected-cases/selected-case/operations/block`). No bind is written on a close-only block's `case/close`. A row whose condition group is not relevant submits no block (Core leaves a non-relevant node and its children out of the submission, `XFormSerializingVisitor::serializeNode` over `TreeElement::setRelevant`'s inheritance), so CommCare HQ sees no case block for a case the condition leaves open and records no transaction for it (`casexml/apps/case/xform.py::_extract_case_blocks`); a bind on `case/close` would leave the block, with no action in it, and HQ would move the case's `modified_on` and record a transaction for it (`backends/sql/update_strategy.py::SqlCaseUpdateStrategy.update_from_case_update`, over `_apply_case_update` and `add_transaction_for_form`). A held place whose length is not the shape's is an inexpressible hold (`HELD_PLACEMENT_INEXPRESSIBLE`, reason `block-shape`), and the plan places the block at its shape; a document that recorded the place before the condition group is repaired once by `scripts/migrate-several-case-close-places.ts`. The rolling type proof includes the basic blocks as final consumers: a write of the own arm and every basic child's parent index require the session case to retain the module type. A write-free close block needs only the case id and remains type-agnostic. The proof keeps every transition rather than only the latest nominal type, so a conditional restore cannot hide the branch where the case still has the prior transitioned type.
+Typed `Form.caseOperations` take the placement `planPlacements` gives them, emitted by `casePlacementPlan.ts`: a basic slot or an advanced action is HQ's form actions, and `xform/caseOps.ts` writes every Save to Case placement into the authored XForm source, so HQ upload and local `.ccz` compilation consume the same cx2 blocks; it is not another `FormActions` post-process. Nova reserves no question names. Each generated node is named `nova_`, then its purpose and its owner's id, by `lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`, which suffixes on a collision with an authored sibling; the containers are groups (`nova_operations`, `nova_condition_<operation>`), and guards are update-only Save to Case blocks. Each Save to Case block is a Vellum-recognizable `SaveToCase` wrapper carrying `vellum:case_type`. A leaf of a case block carries no `type` and no `constraint`. Singular operations live in the form root container, which is prepended before authored fields. Repeated operations are appended into the referenced repeat's exact iteration template after its authored children. Because CommCare Core executes case blocks in XML document order and a repeated effect cannot leave that template, the only representable cross-scope sequence is root followed by repeat scopes in post-order field traversal; `lib/doc/caseOperationOrder.ts` is the shared validator/planner proof of that constraint. On local compilation, the blocks of HQ's basic `FormActions` are spliced where HQ's build writes them ("Repeat-context subcase splice" below), and an advanced form's by `xform/advancedCaseBlocks.ts` ("Advanced modules" below): the form's own `case` (an advanced form's root `case_<tag>` blocks) after the authored field tree, so it executes after every Save to Case block. Where a form's own close cannot share the own arm's place, it takes a block of its own and `close_case.condition` is `never`: `nova_close` inside the group `nova_condition_close`, whose `relevant` is the close condition, or in a several-case form a close-only block of each selected case, `nova_close_selected_cases`, in that row's `nova_operations` group: inside the row's `nova_condition_close` group, whose `relevant` is the close condition, where the form closes under one (Save to Case shape `selected-cases/selected-case/operations/condition/block`), and directly in the operations group where it closes every selected case (`selected-cases/selected-case/operations/block`). No bind is written on a close-only block's `case/close`. A row whose condition group is not relevant submits no block (Core leaves a non-relevant node and its children out of the submission, `XFormSerializingVisitor::serializeNode` over `TreeElement::setRelevant`'s inheritance), so CommCare HQ sees no case block for a case the condition leaves open and records no transaction for it (`casexml/apps/case/xform.py::_extract_case_blocks`); a bind on `case/close` would leave the block, with no action in it, and HQ would move the case's `modified_on` and record a transaction for it (`backends/sql/update_strategy.py::SqlCaseUpdateStrategy.update_from_case_update`, over `_apply_case_update` and `add_transaction_for_form`). A held place whose length is not the shape's is an inexpressible hold (`HELD_PLACEMENT_INEXPRESSIBLE`, reason `block-shape`), and the plan places the block at its shape. The rolling type proof includes the basic blocks as final consumers: a write of the own arm and every basic child's parent index require the session case to retain the module type. A write-free close block needs only the case id and remains type-agnostic. The proof keeps every transition rather than only the latest nominal type, so a conditional restore cannot hide the branch where the case still has the prior transitioned type.
 
 `placement.ts::planPlacements(doc, formUuid)` gives every operation and a form's own close its placement: a hold first, then the simplest placement that can express it, by the closed eligibility conditions of `placement.ts`. Which of the own arm and the creates take a basic slot is the domain's one answer, `lib/domain/basicCaseSlots.ts::basicCaseSlots`, because the entry's session values read it too: HQ gives a registration's new case its `case_id_new_<type>_0` datum only where `open_case` is active, and a child its datum only as a basic subcase outside a repeat (`suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta`), so `entryDatumSupplies` and `planFormCaseWire`'s datums cannot disagree. HQ's build appends a basic slot's element by name beside whatever the parent holds (`subcase_<i>`, `commcare_usercase`; `xform.py::XForm._create_casexml`, `_add_usercase`), where a question of that name would share its bind and its path with the case block, so an unheld slot whose element an authored name takes is not eligible (`basicCaseSlots.ts::appendedNameTaken`, reason `appended-name-taken`) and its change takes Save to Case; a held slot keeps its name, and `HELD_BLOCK_PATH_TAKEN` refuses the question, offering the next free id. A registration whose own arm takes Save to Case opens no case and requires none in HQ's terms, so its `update_case` is `never` like a survey's (HQ's build raises `CaseError` for an active update there, `xform.py::XForm._create_casexml`, which the HQ JSON oracle's `HQJSON_UPDATE_WITHOUT_CASE` holds), and neither HQ's build nor the local archive writes its form-level `case` block. It therefore supplies no `new-case` datum: the checker refuses a read of that case or the cases above it (`SESSION_DATUM_NOT_SUPPLIED`, reason `own-case-save-to-case`), its own close block and its operations read its block's id, and it cannot be a menu's case list registration form (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`, since HQ's build admits a case-list form only with `open_case` active, `FormBase.is_registration_form`). HQ counts `open_case` and every root subcase of the list's type and admits exactly one (`Form.get_registration_actions`), so a form that also creates a same-type child at its root is refused too (reason `several-registrations`), for both arms. `casePlacementPlan.ts::planFormCaseWire` turns those placements into everything the wire needs (the basic or advanced form actions, the Save to Case blocks, their generated nodes, the entry's datums, the local blocks), so the action list, the datum list and the block paths cannot disagree. The own case's change is independent of every other operation's: no other operation writes, retypes or closes what the own arm writes (`validator/rules/caseOperations.ts`, `CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case` and `CASE_OPERATION_CLOSES_OWN_CASE`), so the own arm means the same wherever its block runs.
 
@@ -1553,7 +1701,7 @@ The OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`
 
 `addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep: one splice-into-`<data>`/`<model>` path, one instance set their printed reads join, one `serializeXml` escaping authority.
 
-For a Connect app, and for an app whose project space captures location with every form (`TargetFacts.autoGpsCapture`), the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture` or that fact): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
+For a Connect app, and for an app whose project space captures location with every form (`TargetFacts.autoGpsCapture` from the last verified source, including after Connect is disabled), the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture` or that fact): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
 
 ### Form reads
 
@@ -2284,7 +2432,22 @@ localized app name differs from `appName`, and it writes every current
 language's name; `android.package.name.*`, every runtime UI-catalog key and
 any other key keep HQ's value verbatim, and a generated key is never carried
 (`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides,
-and a `.ccz` made for the project space carries the ones it holds.
+and a `.ccz` made for the project space carries the ones it holds. A key is
+judged as HQ's build writes it, stripped and on one line
+(`commcare_translations.py::dumps`): ` modules.m0` is the generated
+`modules.m0`, and a key that is then no locale record of its own name (one
+holding `=`, `#` or a line break) is `not-its-own`, which no publish carries
+and the drift check reads as Nova's part, so one stored in CommCare HQ is a
+change it lists. The reader of HQ's apps refuses every key of an app
+language that is no locale record under its own name, ` home.start` among
+them, under
+`application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name`,
+naming the key, and the proof lane's manifest check reads the same class
+(`proof/checks/manifest_value_classes.py::translation_key_not_its_own`); the
+lane judges what an upload and an archive carry back by its own copy of the
+ownership rule (`proof/checks/compare/app_strings.py::translation_key_owner`),
+held with Nova's to one table of keys
+(`proof/checks/fixtures/translation-key-owners.json`).
 `add_ons` sets needed slugs `true` and keeps the rest; `auto_gps_capture` is
 `true` for a Connect app and otherwise omitted. `profile`, `translations` and
 `add_ons` are the three keys an update projects against the target's current

@@ -18,7 +18,12 @@ directory (``proof/hq/test_retained_reads.py`` and
 the files of a test that did not reach its comparison removed, one block's
 answer silently chosen over another's, a base Nova did not read committed as
 if retained, and a report that says nothing changed of a base whose app
-changed. Standard library only: it runs with no image.
+changed. A run's output is what a container wrote, so every output is read
+through the retained layout: a name outside it, a link anywhere, or a held
+record naming a path outside its directory's layout (which would make
+adopting remove a host file) is refused whole, in any output, before
+anything under ``proof/`` changes, and the report runs no reader inside any
+output. Standard library only: it runs with no image.
 """
 
 from __future__ import annotations
@@ -27,7 +32,9 @@ import json
 import tempfile
 from pathlib import Path
 
-from proof.matrix import adopt
+import pytest
+
+from proof.matrix import adopt, layout
 
 
 def _write(root: Path, files: dict[str, bytes]):
@@ -48,7 +55,7 @@ def _run(scratch: Path):
         proof,
         {
             "hq-apps/hq-plain/app.json": b'{"old": true}\n',
-            "hq-apps/hq-plain/stale.json": b"{}\n",
+            "hq-apps/hq-plain/places.json": b"{}\n",
             "hq-apps/hq-new-app/app.json": b'{"kept": true}\n',
             "hq-reads/reading/application.json": b'{"status": 200}\n',
             "hq-reads/publish/source-live.json": b'{"status": 200}\n',
@@ -60,8 +67,8 @@ def _run(scratch: Path):
             "blocks/a/hq-apps/hq-plain/app.json": b'{"new": true}\n',
             "blocks/a/hq-apps/hq-plain/media/0.png": b"\x89PNG",
             "blocks/a/hq-apps/hq-plain/expected.json": b'{"reads": true}\n',
-            # test_retained.py's comparison of hq-plain found stale.json committed and did not make it.
-            "blocks/a/retained-held/hq-apps/hq-plain/test_retained.json": b'{"extra": ["stale.json"]}\n',
+            # test_retained.py's comparison of hq-plain found places.json committed and did not make it.
+            "blocks/a/retained-held/hq-apps/hq-plain/test_retained.json": b'{"extra": ["places.json"]}\n',
             "blocks/b/hq-apps/hq-plain/app-source.json": b'{"status": 200}\n',
             "blocks/b/hq-reads/reading/application.json": b'{"status": 404}\n',
         },
@@ -188,9 +195,10 @@ def test_the_report_names_a_base_whose_reading_changed():
 def test_the_report_refuses_a_corpus_that_carries_no_reader():
     with tempfile.TemporaryDirectory() as scratch:
         proof, output = _run(Path(scratch))
+        (Path(scratch) / "corpus").mkdir()
         before = _tree(proof)
         try:
-            adopt.adopt(output, proof=proof, report=True)
+            adopt.adopt(output, proof=proof, report=True, corpus=Path(scratch) / "corpus")
         except adopt.AdoptRefused as refusal:
             assert "native/reader/reader.mjs" in str(refusal)
         else:
@@ -206,24 +214,24 @@ def _shards(scratch: Path):
     _write(
         proof,
         {
-            "hq-reads/navigation-base/app-source.json": b"old\n",
-            "hq-reads/navigation-base/app-source-gone.json": b"gone\n",
-            "hq-reads/navigation-base/app-source-after-menu-save.json": b"old save\n",
-            "hq-reads/navigation-base/app-source-after-gone-save.json": b"gone save\n",
+            "hq-reads/navigation-base/app-source.json": b'["old"]\n',
+            "hq-reads/navigation-base/app-source-gone.json": b'["gone"]\n',
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b'["old save"]\n',
+            "hq-reads/navigation-base/app-source-after-gone-save.json": b'["gone save"]\n',
         },
     )
     hq, editors = scratch / "proof-out-1", scratch / "proof-out-2"
     _write(
         hq,
         {
-            "blocks/h/hq-reads/navigation-base/app-source.json": b"new\n",
+            "blocks/h/hq-reads/navigation-base/app-source.json": b'["new"]\n',
             "blocks/h/retained-held/hq-reads/navigation-base/hq.json": b'{"extra": ["app-source-gone.json"]}\n',
         },
     )
     _write(
         editors,
         {
-            "blocks/e/hq-reads/navigation-base/app-source-after-menu-save.json": b"new save\n",
+            "blocks/e/hq-reads/navigation-base/app-source-after-menu-save.json": b'["new save"]\n',
             "blocks/e/retained-held/hq-reads/navigation-base/editors.json": (
                 b'{"extra": ["app-source-after-gone-save.json"]}\n'
             ),
@@ -237,8 +245,8 @@ def test_a_sharded_run_is_adopted_from_every_output_by_file_each_test_removing_o
         proof, hq, editors = _shards(Path(scratch))
         lines = adopt.adopt([hq, editors], proof=proof)
         assert _tree(proof) == {
-            "hq-reads/navigation-base/app-source.json": b"new\n",
-            "hq-reads/navigation-base/app-source-after-menu-save.json": b"new save\n",
+            "hq-reads/navigation-base/app-source.json": b'["new"]\n',
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b'["new save"]\n',
         }
         assert lines == ["Adopted 0 directories of proof/hq-apps/.", "Adopted 1 directory of proof/hq-reads/."]
 
@@ -249,9 +257,9 @@ def test_adopting_one_shard_keeps_what_another_test_writes_into_the_same_directo
         proof, hq, editors = _shards(Path(scratch))
         adopt.adopt(hq, proof=proof)
         assert _tree(proof) == {
-            "hq-reads/navigation-base/app-source.json": b"new\n",
-            "hq-reads/navigation-base/app-source-after-menu-save.json": b"old save\n",
-            "hq-reads/navigation-base/app-source-after-gone-save.json": b"gone save\n",
+            "hq-reads/navigation-base/app-source.json": b'["new"]\n',
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b'["old save"]\n',
+            "hq-reads/navigation-base/app-source-after-gone-save.json": b'["gone save"]\n',
         }
         # The other shard adopted after it gives what adopting both at once gives.
         adopt.adopt(editors, proof=proof)
@@ -269,16 +277,16 @@ def test_a_test_that_did_not_reach_its_comparison_removes_nothing_and_a_file_ano
         _write(hq, {"blocks/i/retained-held/hq-reads/navigation-base/hq.json": b'{"extra": ["app-source.json"]}\n'})
         adopt.adopt([hq, editors], proof=proof)
         assert _tree(proof) == {
-            "hq-reads/navigation-base/app-source.json": b"new\n",
-            "hq-reads/navigation-base/app-source-after-menu-save.json": b"new save\n",
-            "hq-reads/navigation-base/app-source-after-gone-save.json": b"gone save\n",
+            "hq-reads/navigation-base/app-source.json": b'["new"]\n',
+            "hq-reads/navigation-base/app-source-after-menu-save.json": b'["new save"]\n',
+            "hq-reads/navigation-base/app-source-after-gone-save.json": b'["gone save"]\n',
         }
 
 
 def test_two_shards_that_wrote_one_file_apart_are_refused_and_an_output_that_is_no_run_is_named():
     with tempfile.TemporaryDirectory() as scratch:
         proof, hq, editors = _shards(Path(scratch))
-        _write(editors, {"blocks/f/hq-reads/navigation-base/app-source.json": b"other\n"})
+        _write(editors, {"blocks/f/hq-reads/navigation-base/app-source.json": b'["other"]\n'})
         before = _tree(proof)
         try:
             adopt.adopt([hq, editors], proof=proof)
@@ -301,15 +309,15 @@ def test_what_a_comparison_records_is_what_adopting_removes(tmp_path, monkeypatc
     another test's files left out) and for ``differences`` (every file, with its suffix)."""
     from proof.matrix import retained
 
-    assert retained.HELD == adopt.HELD
+    assert retained.HELD == layout.load().held
     proof = tmp_path / "proof"
     _write(
         proof,
         {
-            "hq-reads/shell/app-source.json": b"old\n",
-            "hq-reads/shell/gone.json": b"gone\n",
+            "hq-reads/shell/app-source.json": b'["old"]\n',
+            "hq-reads/shell/gone.json": b'["gone"]\n',
             "hq-reads/shell/app-source-after-app-settings-save.json": b"the editors' save\n",
-            "hq-apps/hq-plain/app.json": b"old\n",
+            "hq-apps/hq-plain/app.json": b'["old"]\n',
             "hq-apps/hq-plain/media/9.png": b"gone",
         },
     )
@@ -346,9 +354,9 @@ def test_two_tests_comparing_one_directory_each_write_their_own_record_and_read_
     _write(
         proof,
         {
-            "hq-reads/shell/app-source.json": b"old\n",
-            "hq-reads/shell/gone-read.json": b"gone\n",
-            "hq-reads/shell/app-source-after-gone-save.json": b"gone save\n",
+            "hq-reads/shell/app-source.json": b'["old"]\n',
+            "hq-reads/shell/gone-read.json": b'["gone"]\n',
+            "hq-reads/shell/app-source-after-gone-save.json": b'["gone save"]\n',
         },
     )
     monkeypatch.setenv("PROOF_OUT", str(tmp_path / "out" / "blocks" / "a"))
@@ -394,14 +402,14 @@ def test_a_comparison_that_finds_nothing_extra_leaves_another_test_s_extra_to_re
     from proof.matrix import retained
 
     proof = tmp_path / "proof"
-    _write(proof, {"hq-reads/shell/app-source.json": b"old\n", "hq-reads/shell/gone-read.json": b"gone\n"})
+    _write(proof, {"hq-reads/shell/app-source.json": b'["old"]\n', "hq-reads/shell/gone-read.json": b'["gone"]\n'})
     monkeypatch.setenv("PROOF_OUT", str(tmp_path / "out" / "blocks" / "a"))
     for test, extra in (("proof/hq/test_a.py::test_a", ["gone-read.json"]), ("proof/editors/test_b.py::test_b", [])):
         monkeypatch.setenv("PYTEST_CURRENT_TEST", f"{test} (call)")
         retained.Retained("shell").record_held(extra)
-    _write(tmp_path / "out", {"blocks/a/hq-reads/shell/app-source.json": b"new\n"})
+    _write(tmp_path / "out", {"blocks/a/hq-reads/shell/app-source.json": b'["new"]\n'})
     adopt.adopt(tmp_path / "out", proof=proof)
-    assert _tree(proof) == {"hq-reads/shell/app-source.json": b"new\n"}
+    assert _tree(proof) == {"hq-reads/shell/app-source.json": b'["new"]\n'}
 
 
 def test_a_record_takes_its_name_only_once_it_is_whole(tmp_path, monkeypatch):
@@ -498,7 +506,7 @@ def test_a_file_at_the_top_of_a_block_s_tree_is_refused_and_one_a_directory_down
         try:
             adopt.adopt(output, proof=proof)
         except adopt.AdoptRefused as refusal:
-            assert f"stray.json is a file at the top of {tree}/" in str(refusal), refusal
+            assert "stray.json is a file at the top of the tree" in str(refusal), refusal
             assert "Left out" not in str(refusal)
         else:
             raise AssertionError(f"adopt took a file at the top of {tree}/")
@@ -511,6 +519,7 @@ def test_a_file_at_the_top_of_a_block_s_tree_is_refused_and_one_a_directory_down
 
 def test_a_file_under_the_held_records_that_is_no_record_is_refused(tmp_path):
     proof, output = _run(tmp_path)
+    # A record as the run once wrote it, one a directory beside the directories (``<directory>.json``).
     _write(output, {"blocks/b/retained-held/hq-reads/reading.json": b'{"extra": []}\n'})
     try:
         adopt.adopt(output, proof=proof)
@@ -518,3 +527,212 @@ def test_a_file_under_the_held_records_that_is_no_record_is_refused(tmp_path):
         assert "is no held record" in str(refusal)
     else:
         raise AssertionError("adopt read a held record outside a directory's own records")
+
+
+@pytest.mark.parametrize("where", [None, "out/corpus", "out"])
+def test_the_report_runs_no_reader_the_runs_container_wrote(where):
+    # A local run emits its corpus inside its container, into the run's output: the host runs nothing from there.
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, output = _run(Path(scratch))
+        _write(output, {"corpus/native/reader/reader.mjs": b"process.exit(0)\n"})
+        before = _tree(proof)
+        corpus = None if where is None else Path(scratch) / where
+        with pytest.raises(adopt.AdoptRefused) as refused:
+            adopt.adopt(output, proof=proof, report=True, corpus=corpus)
+        assert ("inside the run's output" if where else "name it with --corpus") in str(refused.value)
+        assert _tree(proof) == before
+
+
+def _refused(output: Path, proof: Path) -> str:
+    before = _tree(proof)
+    with pytest.raises(adopt.AdoptRefused) as refused:
+        adopt.adopt(output, proof=proof)
+    # Refused whole, before anything under proof/ changed.
+    assert _tree(proof) == before
+    return str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("planted", "named"),
+    [
+        ("blocks/a/hq-apps/hq-plain/evil.test.ts", "evil.test.ts is not a file a retained tree holds"),
+        ("blocks/a/hq-reads/reading/conftest.py", "conftest.py is not a file a retained tree holds"),
+        ("blocks/a/hq-reads/reading/.gitattributes", ".gitattributes is a hidden name"),
+        ("blocks/a/hq-reads/reading/CLAUDE.md", "CLAUDE.md is not a file a retained tree holds"),
+    ],
+)
+def test_a_run_that_wrote_a_name_outside_the_layout_is_refused_whole(planted, named):
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, output = _run(Path(scratch))
+        _write(output, {planted: b"{}\n"})
+        assert named in _refused(output, proof)
+
+
+@pytest.mark.parametrize("kind", ["member", "block", "tree"])
+def test_a_link_the_run_left_is_refused_and_its_target_is_copied_nowhere(kind):
+    with tempfile.TemporaryDirectory() as scratch:
+        scratch = Path(scratch)
+        proof, output = _run(scratch)
+        secret = scratch / "host"
+        _write(secret, {"reading/key.json": b'{"secret": true}\n'})
+        if kind == "member":
+            (output / "blocks/b/hq-reads/reading/key.json").symlink_to(secret / "reading/key.json")
+            named = "key.json is a link"
+        elif kind == "block":
+            (output / "blocks/c").symlink_to(secret)
+            named = "blocks/c is a link"
+        else:
+            (output / "blocks/d").mkdir()
+            (output / "blocks/d/hq-reads").symlink_to(secret)
+            named = "hq-reads is a link"
+        assert named in _refused(output, proof)
+        assert not any(data == b'{"secret": true}\n' for data in _tree(proof).values())
+
+
+@pytest.mark.parametrize("named", ["../app.json", "/etc/hosts", "media/9.png"])
+def test_a_media_row_naming_no_media_file_of_its_base_is_refused(named):
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, output = _run(Path(scratch))
+        rows = [{"path": "jr://file/a.png", "file": "media/0.png"}, {"path": "jr://file/b.png", "file": named}]
+        _write(output, {"blocks/a/hq-apps/hq-plain/media.json": json.dumps(rows).encode()})
+        assert f"names {json.dumps(named)}, which is not one of the base's media files" in _refused(output, proof)
+
+
+def test_each_report_line_is_one_of_adopts_own_sentences_with_a_listed_base():
+    bases = {"hq-plain", "hq-new-app"}
+    for line in [
+        adopt.report_line("left-out", base="hq-plain"),
+        adopt.report_line("adopted", count=1, tree="hq-reads"),
+        adopt.report_line("adopted", count=22, tree="hq-apps"),
+        adopt.report_line("new", base="hq-new-app"),
+        adopt.report_line("changed", base="hq-plain", what="stored app and its answers"),
+        adopt.report_line("reading", base="hq-plain"),
+    ]:
+        assert adopt.is_report_line(line, bases), line
+    for line in [
+        "hq-plain: see [this](https://example.org).",
+        "hq-other: new.",
+        "Adopted 2 directory of proof/hq-apps/.",
+        "Adopted 01 directories of proof/hq-apps/.",
+        "Adopted 2 directories of proof/elsewhere/.",
+        "hq-plain: its everything changed.",
+        "Left out hq-plain: something else.",
+        "",
+    ]:
+        assert not adopt.is_report_line(line, bases), line
+
+
+@pytest.mark.parametrize(
+    ("record", "data", "named"),
+    [
+        ("hq-apps/hq-plain/t.json", b'{"extra": ["../../../.env"]}\n', 'lists "../../../.env", which no directory'),
+        ("hq-apps/hq-plain/t.json", b'{"extra": ["conftest.py"]}\n', 'lists "conftest.py", which no directory'),
+        ("hq-reads/reading/t.json", b'{"extra": ["/etc/hosts"]}\n', 'lists "/etc/hosts", which no directory'),
+        ("hq-reads/reading/t.json", b'{"extra": "application.json"}\n', "is not an object whose one key extra"),
+        ("hq-reads/reading/t.json", b'{"extra": [], "more": []}\n', "is not an object whose one key extra"),
+        ("hq-apps/not-a-base/t.json", b'{"extra": ["app.json"]}\n', "not-a-base holds the records of no directory"),
+        ("hq-reads/reading/.hidden.json", b'{"extra": []}\n', ".hidden.json is a hidden name"),
+        ("hq-reads/reading/t.txt", b'{"extra": []}\n', "t.txt is no held record"),
+        ("hq-reads/reading/.t.json.7.partial/x.json", b'{"extra": []}\n', ".t.json.7.partial is a hidden name"),
+    ],
+)
+def test_a_held_record_that_names_anything_outside_its_directory_is_refused_whole(record, data, named):
+    # A held record says which committed files adopting removes, so a name it carries outside the layout would
+    # remove a host file; it is refused on the second shard as on the first, before anything is written.
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, hq, editors = _shards(Path(scratch))
+        _write(editors, {f"blocks/e/retained-held/{record}": data})
+        before = _tree(proof)
+        with pytest.raises(adopt.AdoptRefused) as refused:
+            adopt.adopt([hq, editors], proof=proof)
+        assert named in str(refused.value)
+        assert _tree(proof) == before
+
+
+def test_a_held_record_that_is_a_link_is_refused_and_one_named_alike_on_disk_is_taken():
+    with tempfile.TemporaryDirectory() as scratch:
+        scratch = Path(scratch)
+        proof, hq, editors = _shards(scratch)
+        record = editors / "blocks/e/retained-held/hq-reads/navigation-base/editors.json"
+        record.unlink()
+        _write(scratch / "host", {"record.json": b'{"extra": ["app-source-after-gone-save.json"]}\n'})
+        record.symlink_to(scratch / "host" / "record.json")
+        before = _tree(proof)
+        with pytest.raises(adopt.AdoptRefused) as refused:
+            adopt.adopt([hq, editors], proof=proof)
+        assert "editors.json is a link" in str(refused.value)
+        assert _tree(proof) == before
+        record.unlink()
+        record.write_bytes((scratch / "host" / "record.json").read_bytes())
+        adopt.adopt([hq, editors], proof=proof)
+        assert "hq-reads/navigation-base/app-source-after-gone-save.json" not in _tree(proof)
+
+
+def test_a_name_outside_the_layout_on_any_shard_refuses_the_whole_run():
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, hq, editors = _shards(Path(scratch))
+        _write(editors, {"blocks/e/hq-reads/navigation-base/conftest.py": b""})
+        before = _tree(proof)
+        with pytest.raises(adopt.AdoptRefused) as refused:
+            adopt.adopt([hq, editors], proof=proof)
+        assert "conftest.py is not a file a retained tree holds" in str(refused.value)
+        assert _tree(proof) == before
+
+
+def test_the_report_runs_no_reader_inside_any_output_of_the_run():
+    with tempfile.TemporaryDirectory() as scratch:
+        proof, hq, editors = _shards(Path(scratch))
+        _write(editors, {"corpus/native/reader/reader.mjs": b"process.exit(0)\n"})
+        before = _tree(proof)
+        with pytest.raises(adopt.AdoptRefused) as refused:
+            adopt.adopt([hq, editors], proof=proof, report=True, corpus=editors / "corpus")
+        assert "inside the run's output" in str(refused.value)
+        assert _tree(proof) == before
+
+
+def test_the_report_reads_each_base_as_adopting_leaves_it_before_anything_is_written(monkeypatch):
+    # The new reading is of the base merged by file (committed files kept, the held ones removed, the made ones
+    # written over), made before proof/ changes, so a reader that fails leaves it as it was.
+    with tempfile.TemporaryDirectory() as scratch:
+        scratch = Path(scratch)
+        proof, output = _run(scratch)
+        _write(proof, {"hq-apps/hq-plain/base.json": b"{}\n", "hq-apps/hq-plain/seed.json": b"[]\n"})
+        _write(output, {"blocks/a/hq-apps/hq-plain/base.json": b"{}\n"})
+        _write(scratch / "corpus", {"native/reader/reader.mjs": b""})
+        read = []
+
+        def readings(reader, bases):
+            read.append({base: sorted(members) for base, members in bases.items()})
+            return {base: {"id": base, "files": sorted(members)} for base, members in bases.items()}
+
+        monkeypatch.setattr(adopt, "readings", readings)
+        lines = adopt.adopt(output, proof=proof, report=True, corpus=scratch / "corpus")
+        assert read == [
+            {"hq-plain": ["app.json", "base.json", "places.json", "seed.json"]},
+            {
+                "hq-plain": [
+                    "app-source.json",
+                    "app.json",
+                    "base.json",
+                    "expected.json",
+                    "media/0.png",
+                    "seed.json",
+                ]
+            },
+        ]
+        assert lines == [
+            "Adopted 1 directory of proof/hq-apps/.",
+            "Adopted 1 directory of proof/hq-reads/.",
+            "hq-plain: its stored app and its answers changed.",
+            "hq-plain: Nova's reading of it changed.",
+        ]
+
+        def failing(reader, bases):
+            raise adopt.AdoptRefused("Nova's reader exited with 1 reading the bases' answers")
+
+        monkeypatch.setattr(adopt, "readings", failing)
+        before = _tree(proof)
+        _write(output, {"blocks/a/hq-apps/hq-plain/app.json": b'{"newer": true}\n'})
+        with pytest.raises(adopt.AdoptRefused):
+            adopt.adopt(output, proof=proof, report=True, corpus=scratch / "corpus")
+        assert _tree(proof) == before

@@ -829,6 +829,27 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
 		]);
 	});
+
+	// Core keeps the last `label` and the last `value` an itemset holds
+	// (`XFormParser.parseItemset`, `ItemSetParsingUtils.setLabel` and `setValue`), so a held
+	// itemset claims the two its reading read and no other: the case's `dob` shown and its
+	// `external_id` stored would otherwise read as its name shown and its id stored.
+	it("leaves a second label and value of a case choices itemset unclaimed", async () => {
+		const value = '<value ref="@case_id"/>';
+		const { atQuestion, outcome } = await questionFindings(undefined, {
+			xml: (xml) => {
+				expect(xml).toContain(value);
+				return xml.replace(
+					value,
+					`${value}<label ref="dob"/><value ref="external_id"/>`,
+				);
+			},
+		});
+		expect(outcome.kind).toBe("account");
+		expect(atQuestion).toEqual(
+			expect.arrayContaining([expect.stringMatching(/^unrecognized /)]),
+		);
+	});
 });
 
 /** What a reading holds of one field: the slots the kind table and the containers set. */

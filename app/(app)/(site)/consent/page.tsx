@@ -132,14 +132,13 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const signed = await isSignedConsentRequest(sp, secret);
 	const requestValid = Boolean(clientId && scopes.length > 0 && signed);
 
-	/* The HQ scopes (`nova.hq.read` / `nova.hq.write`) are real grants
+	/* The HQ scopes (`nova.hq.read` / `nova.hq.write` / `nova.hq.import`) are real grants
 	 * regardless of whether the user has connected a CommCare HQ API key:
 	 * the OAuth client gains effective access the moment a key is added
 	 * later, with no second consent cycle. We still want to surface that
 	 * dormancy so the user isn't surprised when the connecting app's HQ
 	 * features look broken until setup completes. */
-	const hqScopeRequested =
-		scopes.includes("nova.hq.read") || scopes.includes("nova.hq.write");
+	const hqScopeRequested = scopes.some((scope) => scope.startsWith("nova.hq."));
 
 	/* Fetch the public client display + the HQ-configured flag in parallel.
 	 * Both are display-only, both gated on `requestValid`, and neither

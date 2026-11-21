@@ -9,7 +9,9 @@
  * manifest's Appearances rows.
  */
 
+import { recordFromEntries } from "@/lib/domain/records";
 import { circumstanceFinding, type HqPlace } from "@/lib/publish/hqFindings";
+import { type SourceTable, tableOf } from "../../sourceKeys";
 import { inventoryIndex } from "../../surface/inventory";
 import surface from "../../surface/surface.json";
 import {
@@ -57,23 +59,29 @@ interface AppearanceRule extends AppearanceRead {
 	readonly datatypes: ReadonlySet<string>;
 }
 
-const ITEMS = (
-	surface as unknown as {
-		readonly items: Readonly<
-			Record<
-				string,
-				{
-					readonly reads?: readonly SurfaceRead[];
-					readonly core?: { readonly passes?: readonly string[] };
-					readonly datatypes?: readonly string[];
-				}
-			>
-		>;
-	}
-).items;
+const ITEMS: SourceTable<{
+	readonly reads?: readonly SurfaceRead[];
+	readonly core?: { readonly passes?: readonly string[] };
+	readonly datatypes?: readonly string[];
+}> = tableOf(
+	(
+		surface as unknown as {
+			readonly items: Readonly<
+				Record<
+					string,
+					{
+						readonly reads?: readonly SurfaceRead[];
+						readonly core?: { readonly passes?: readonly string[] };
+						readonly datatypes?: readonly string[];
+					}
+				>
+			>;
+		}
+	).items,
+);
 
 /** Every appearance read the surface records, one rule each, in key order. */
-const RULES: readonly AppearanceRule[] = Object.keys(ITEMS)
+const RULES: readonly AppearanceRule[] = [...ITEMS.keys()]
 	.filter((key) => key.startsWith("appearance:"))
 	.sort()
 	.flatMap((key) => {
@@ -81,7 +89,7 @@ const RULES: readonly AppearanceRule[] = Object.keys(ITEMS)
 		const slash = rest.indexOf("/");
 		const reader = rest.slice(0, slash);
 		const token = rest.slice(slash + 1);
-		return (ITEMS[key]?.reads ?? []).map((read) => ({
+		return (ITEMS.get(key)?.reads ?? []).map((read) => ({
 			key,
 			reader,
 			token,
@@ -168,21 +176,21 @@ export function appearanceKeysMatching(value: string): readonly string[] {
 }
 
 /** The control type Core gives an upload by its media type (`XFormParser.parseUpload`). */
-const UPLOAD_CONTROLS: Readonly<Record<string, string>> = {
+const UPLOAD_CONTROLS: SourceTable<string> = tableOf({
 	[UPLOAD_MEDIATYPE_BY_CAPTURE_KIND.image]: "CONTROL_IMAGE_CHOOSE",
 	[UPLOAD_MEDIATYPE_BY_CAPTURE_KIND.audio]: "CONTROL_AUDIO_CAPTURE",
 	[UPLOAD_MEDIATYPE_BY_CAPTURE_KIND.video]: "CONTROL_VIDEO_CAPTURE",
 	[UPLOAD_MEDIATYPE_BY_CAPTURE_KIND.file]: "CONTROL_DOCUMENT_UPLOAD",
-};
+});
 
 /** What Core builds of a control, as `element_facts` reads it from the surface. */
 export function appearanceFacts(
 	control: ControlNode,
 	bind: BindFacts | undefined,
 ): AppearanceFacts {
-	const passes = (ITEMS[`jr-control:${control.tag}`]?.core?.passes ?? []).map(
-		(constant) => constant.slice(constant.lastIndexOf(".") + 1),
-	);
+	const passes = (
+		ITEMS.get(`jr-control:${control.tag}`)?.core?.passes ?? []
+	).map((constant) => constant.slice(constant.lastIndexOf(".") + 1));
 	if (
 		passes.some(
 			(one) => one === "CONTAINER_GROUP" || one === "CONTAINER_REPEAT",
@@ -195,15 +203,15 @@ export function appearanceFacts(
 		return { holder: null, control: null, datatype: null };
 	const type =
 		control.tag === "upload"
-			? UPLOAD_CONTROLS[control.mediaType ?? ""]
+			? UPLOAD_CONTROLS.get(control.mediaType ?? "")
 			: undefined;
 	const written = bind?.type;
 	const datatype =
 		written === undefined
 			? "DATATYPE_NULL"
-			: (ITEMS[
-					`jr-type:${written.includes(":") ? written.slice(written.indexOf(":") + 1) : written}`
-				]?.datatypes?.[0] ?? "DATATYPE_UNSUPPORTED");
+			: (ITEMS.get(
+					`jr-type:${written.includes(":") ? written.slice(written.indexOf(":") + 1) : written}`,
+				)?.datatypes?.[0] ?? "DATATYPE_UNSUPPORTED");
 	return { holder: "question", control: type ?? first, datatype };
 }
 
@@ -330,7 +338,7 @@ export interface AppearanceRow {
 /** One row's claim, registered under the entry's id less its area. */
 function rowClaim(id: string, key: string): Claim<"account"> {
 	const claim = account(`questions/${id}`, key);
-	defineClaims("xform-appearance", { [id]: claim });
+	defineClaims("xform-appearance", recordFromEntries([[id, claim]]));
 	return claim;
 }
 
@@ -903,14 +911,14 @@ function appearanceWords(
 
 /** The values Android matches inside an appearance, by the widget family that reads them
  *  (`manifest_value_classes.py::ANDROID_INSIDE`). */
-const ANDROID_INSIDE: Readonly<Record<string, ReadonlySet<string>>> = {
+const ANDROID_INSIDE: SourceTable<ReadonlySet<string>> = tableOf({
 	select1: new Set(["compact", "quick", "-", "combobox", "multiword", "fuzzy"]),
 	select: new Set(["compact", "-"]),
 	barcode: new Set(["editable"]),
 	date: new Set(["gregorian", "cancel"]),
 	image: new Set(["acquire", "overlay-small"]),
 	audio: new Set(["legacy"]),
-};
+});
 
 /** A port of `_android_kind`. */
 function androidKind(facts: AppearanceFacts): string | undefined {
@@ -960,7 +968,7 @@ function androidInsideMatchOther(
 	if (inside.size === 0) return false;
 	const kind = androidKind(facts);
 	if (kind === undefined) return undefined;
-	const known = ANDROID_INSIDE[kind] ?? new Set<string>();
+	const known = ANDROID_INSIDE.get(kind) ?? new Set<string>();
 	if ([...inside].some((token) => !known.has(token))) return undefined;
 	if (kind === "select1") {
 		if (
@@ -1038,28 +1046,27 @@ function perRowHoldingAnotherReadValue(
 
 /** The lowercase values whose case variant two runtimes read differently, with the controls whose
  *  row names each. */
-const CASE_VARIANT_REFUSED: Readonly<Record<string, ReadonlySet<RowControl>>> =
-	{
-		numeric: new Set(["text", "secret", "barcode"]),
-		short: new Set([...INPUTS, "secret"]),
-		ethiopian: new Set(["date"]),
-	};
+const CASE_VARIANT_REFUSED: SourceTable<ReadonlySet<RowControl>> = tableOf({
+	numeric: new Set(["text", "secret", "barcode"]),
+	short: new Set([...INPUTS, "secret"]),
+	ethiopian: new Set(["date"]),
+});
 /** The lowercase values whose case variant every runtime reads alike, with their controls. */
-const CASE_VARIANT_ALIKE: Readonly<Record<string, ReadonlySet<RowControl>>> = {
+const CASE_VARIANT_ALIKE: SourceTable<ReadonlySet<RowControl>> = tableOf({
 	numbers: new Set(["text", "secret"]),
 	nepali: new Set(["date"]),
 	maps: new Set(["geopoint"]),
 	acquire: new Set(["video"]),
 	compact: new Set(["group"]),
-};
+});
 
 function caseVariantOf(
 	value: string,
 	control: RowControl,
-	table: Readonly<Record<string, ReadonlySet<RowControl>>>,
+	table: SourceTable<ReadonlySet<RowControl>>,
 ): boolean {
 	const lowered = value.toLowerCase();
-	return lowered !== value && (table[lowered]?.has(control) ?? false);
+	return lowered !== value && (table.get(lowered)?.has(control) ?? false);
 }
 
 /** The intents of a form an `intent:<id>` appearance is read against. */

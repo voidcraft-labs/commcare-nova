@@ -9,11 +9,11 @@ import "server-only";
  *
  * They differ in three inputs: the source, its aligned menus, and the media
  * index. Both sources are read in the key order a baseline stores, so a map
- * the reader reads in its key order reads alike on both sides. Each takes a fresh `matchingResolver` over the reference
+ * the reader reads in its key order reads alike on both sides. Both take one `matchingResolver` over the reference
  * document's identities under the identity a publish to this deployment
- * sends, so an entity CommCare HQ still holds under the key Nova published
- * it with carries Nova's UUID in both, and one CommCare HQ added is minted
- * the same in both.
+ * sends, which holds nothing a reading claims, so an entity CommCare HQ still
+ * holds under the key Nova published it with carries Nova's UUID in both, and
+ * one CommCare HQ added is minted the same in both.
  *
  * Both passes share the request's held emissions (`ReaderOptions.heldExpansions`), so a later
  * reading of the request that emits a document either pass emitted under the same inputs (the
@@ -83,10 +83,12 @@ export interface HqChangeReadings {
 
 /** Why there is no base: the Project's data changed under the base source (it reads a table,
  *  a column or a level the Project's data no longer has, or what it reads has a finding of its
- *  own now: a table CommCare HQ no longer lists, a table or places Nova cannot hold), or
+ *  own now: a table CommCare HQ no longer lists, a table or places Nova cannot hold), its
+ *  reading passed the work limit Nova gives a reading of its size (`reader/work.ts`), or
  *  nothing says so, which is Nova's to fix. */
 export type HqChangeBaseUnavailable =
 	| "base-needs-project-data"
+	| "comparison-too-intricate"
 	| "base-unreadable";
 
 export type HqChangeReadingsResult =
@@ -110,7 +112,7 @@ export interface HqChangeReadingsInput {
 	/** The flag answer where the source now holds a write saved only if changed. */
 	readonly saveOnlyEditedApplied?: boolean;
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
-	/** `store.ts::readDeploymentIdentityOverrides` of the deployment. */
+	/** The entities of the deployment's target-identity record (`store.ts::readTargetIdentity`). */
 	readonly overrides: readonly WireIdentityOverride[];
 	readonly media: {
 		/** Every file the reference publishes to the deployment, settled against the source now
@@ -276,13 +278,17 @@ export function* makeHqChangeReadingsSteps(
 	input: HqChangeReadingsInput,
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
-	const map = externalIdentityMap(
-		reference.identityDoc,
-		targetWireIdentity(input.overrides),
+	const resolver = matchingResolver(
+		appId,
+		externalIdentityMap(
+			reference.identityDoc,
+			targetWireIdentity(input.overrides),
+		),
 	);
 	const shared = {
 		appId,
 		target: input.target,
+		resolver,
 		lookup: data.lookups,
 		organization: data.organization,
 		appStrings: readingAppStrings(readerLookupContext(data)),
@@ -292,7 +298,7 @@ export function* makeHqChangeReadingsSteps(
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,
 		}),
-	} satisfies Omit<ReaderInput, "source" | "modules" | "resolver" | "media">;
+	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 
 	const baseSource = sourceFromBaseline(input.baselineSource);
 	yield;
@@ -300,7 +306,6 @@ export function* makeHqChangeReadingsSteps(
 		...shared,
 		source: baseSource,
 		modules: alignedFromSource(baseSource),
-		resolver: matchingResolver(appId, map),
 		media: baseIndex(
 			baseSource,
 			appId,
@@ -314,7 +319,6 @@ export function* makeHqChangeReadingsSteps(
 		...shared,
 		source: nowSource,
 		modules: input.now.modules,
-		resolver: matchingResolver(appId, map),
 		media: nowIndex(nowSource, appId, input.media.published, input.media.now),
 	};
 
@@ -326,14 +330,15 @@ export function* makeHqChangeReadingsSteps(
 	if (base.kind === "account")
 		return {
 			kind: "no-base",
-			reason:
-				base.findings.some(readsProjectDataNotThere) ||
-				readingProjectDataFindingsFor(
-					data,
-					projectDataReadsOf(data, base),
-					null,
-					matchingResolver(appId, map),
-				).length > 0
+			reason: base.findings.some((finding) => finding.code === "too-intricate")
+				? "comparison-too-intricate"
+				: base.findings.some(readsProjectDataNotThere) ||
+						readingProjectDataFindingsFor(
+							data,
+							projectDataReadsOf(data, base),
+							null,
+							resolver,
+						).length > 0
 					? "base-needs-project-data"
 					: "base-unreadable",
 		};

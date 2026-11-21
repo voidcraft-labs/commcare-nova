@@ -32,7 +32,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { rethrowAsMcpProjectAccess } from "../ownership";
-import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
+import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
 const updateMemberRoleInputSchema = z.strictObject({
@@ -60,21 +60,17 @@ export function registerUpdateMemberRole(
 	server: McpServer,
 	ctx: ToolContext,
 ): void {
-	server.registerTool(
+	registerScopedTool(
+		server,
+		ctx,
 		"update_member_role",
 		{
-			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsWrite),
 			description:
 				"Change a member's role in a shared Nova Project (viewer, editor, or admin). Requires an admin or owner role in the Project. Takes the member_id from list_members. The Project owner's role can't be changed, and setting the role a member already holds succeeds without a write.",
 			inputSchema: updateMemberRoleInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				/* Per-tool scope gate — before any data read, so a
-				 * missing-scope credential can't probe whether the Project
-				 * exists. */
-				assertScope(ctx, SCOPES.projectsWrite, "update_member_role");
-
 				let updated: UpdatedMemberRole;
 				try {
 					updated = await updateProjectMemberRole({

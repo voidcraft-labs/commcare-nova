@@ -77,10 +77,14 @@ def _documents(loaded=None):
         None,
     )
     targeted = next((d for d in documents if d.targeted and d.local_ccz is not None), None)
+    samples = [("edited", edited), ("targeted", targeted)]
+    # A control from an app made in HQ replays that app and its own seed. Exercise this layout even when
+    # the ordinary targeted sample came from Nova and the runner selected its documents in another order.
+    if not any(d is not None and d.hq_authored for _, d in samples):
+        authored = next((d for d in documents if d.hq_authored and d.local_ccz is not None), None)
+        samples.append(("hq-authored", authored))
     return [
-        pytest.param(Retained(d, d.group if d.id in checked else None), id=name)
-        for name, d in (("edited", edited), ("targeted", targeted))
-        if d is not None
+        pytest.param(Retained(d, d.group if d.id in checked else None), id=name) for name, d in samples if d is not None
     ]
 
 
@@ -93,6 +97,7 @@ def test_a_document_the_run_leaves_out_is_retained_in_this_packages_group():
         return SimpleNamespace(
             id=identifier,
             group=f"corpus:{identifier}",
+            hq_authored=False,
             targeted=targeted,
             edit=SimpleNamespace() if edit else None,
             local_ccz=Path("local.ccz") if local else None,
@@ -155,7 +160,17 @@ def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(
         _ = control.document
     # The observation keys and runs a control's sessions over the cases its document's did.
     assert unit.case_databases(control) == unit.case_databases(document)
-    assert set(unit.computed_inputs(control)["configurations"]) == set(document.exports)
+    replay = unit.computed_inputs(control)["configurations"]
+    assert set(replay) == set(document.exports)
+    if document.hq_authored:
+        assert control.authored is not None and not control.hq_authored
+        original = unit.computed_inputs(document)["configurations"]
+        for configuration, parts in replay.items():
+            # The case seed, original app, privileges and optional native sidecars for A replay byte for byte.
+            # Only Nova's document is replaced with the facts the control retains in derived.json.
+            assert {k: v for k, v in parts["a"].items() if k != "document"} == {
+                k: v for k, v in original[configuration]["a"].items() if k != "document"
+            }
 
 
 @pytest.mark.parametrize("with_case_types", [False, True])

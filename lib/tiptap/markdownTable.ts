@@ -1,7 +1,7 @@
-import { getHTMLFromFragment } from "@tiptap/core";
 import { Table } from "@tiptap/extension-table";
-import { Fragment, type Node } from "@tiptap/pm/model";
+import { type DOMOutputSpec, DOMSerializer, type Node } from "@tiptap/pm/model";
 import type { MarkdownNodeSpec } from "tiptap-markdown";
+import { serializedProseReferencePart } from "./commcareRefNode";
 
 function fitsPipeTable(table: Node): boolean {
 	let fits = true;
@@ -27,16 +27,39 @@ function fitsPipeTable(table: Node): boolean {
 const markdown: MarkdownNodeSpec = {
 	serialize(state, node, parent) {
 		if (!fitsPipeTable(node)) {
-			const html = getHTMLFromFragment(Fragment.from(node), node.type.schema);
-			if (parent.type === node.type.schema.topNodeType) {
-				const container = document.createElement("div");
-				container.innerHTML = html;
-				const table = container.firstElementChild;
-				if (table) {
-					table.innerHTML = `\n${table.innerHTML}\n`;
-					state.write(table.outerHTML);
-				}
-			} else state.write(html);
+			/* The fallback is stored HTML for the worker's app. Serialize native
+			 * image addresses in a document with no browsing context, so saving
+			 * the table keeps its pictures without requesting any of them. */
+			const inert = document.implementation.createHTMLDocument();
+			const schema = DOMSerializer.fromSchema(node.type.schema);
+			/* These two nodes write Markdown directly. Hold their places in the
+			 * HTML, so escaping a DOM attribute cannot rewrite authored text. */
+			const parts: string[] = [];
+			const placeholder = (source: string): DOMOutputSpec => [
+				"span",
+				{ "data-nova-table-slot": parts.push(source) - 1 },
+			];
+			const serializer = new DOMSerializer(
+				{
+					...schema.nodes,
+					image: (image) => ["img", image.attrs],
+					commcareRef: (ref) =>
+						placeholder(serializedProseReferencePart(ref.attrs.part)),
+					labelHtml: (html) => placeholder(html.textContent),
+				},
+				{ ...schema.marks, link: (link) => ["a", link.attrs, 0] },
+			);
+			const table = serializer.serializeNode(node, {
+				document: inert,
+			}) as HTMLTableElement;
+			if (parent.type === node.type.schema.topNodeType)
+				table.innerHTML = `\n${table.innerHTML}\n`;
+			state.write(
+				table.outerHTML.replace(
+					/<span data-nova-table-slot="(\d+)"><\/span>/g,
+					(_slot, position: string) => parts[Number(position)],
+				),
+			);
 			state.closeBlock(node);
 			return;
 		}

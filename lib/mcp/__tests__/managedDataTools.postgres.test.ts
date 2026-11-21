@@ -39,6 +39,7 @@ import {
 	letHqManageTitle,
 	MANAGED_TABLE_REFRESHED_ROWS,
 	MANAGEMENT_NEEDS_ADMIN,
+	MANAGEMENT_REVIEW_MOVED,
 	managedInNovaBanner,
 	manageInNovaBody,
 	manageInNovaTitle,
@@ -103,7 +104,13 @@ function asUser<T>(userId: string, run: (client: Client) => Promise<T>) {
 	return withMcpClient((server) => {
 		const ctx = {
 			userId,
-			scopes: ["nova.read", "nova.write", "nova.hq.read", "nova.hq.write"],
+			scopes: [
+				"nova.read",
+				"nova.write",
+				"nova.hq.read",
+				"nova.hq.write",
+				"nova.hq.import",
+			],
 			authKind: "oauth" as const,
 		};
 		registerRefreshManagedData(server, ctx);
@@ -223,7 +230,6 @@ it("previews a change of who manages a table in its confirmation's words, with t
 					project_id: PROJECT,
 					table_id: copy.tableId,
 					managed_by: "nova",
-					confirmed: false,
 				}),
 			).toEqual({
 				project_id: PROJECT,
@@ -238,6 +244,7 @@ it("previews a change of who manages a table in its confirmation's words, with t
 					appsThatReadIt(readers),
 				],
 				apps: [{ app_id: APP, app_name: "Facility visits", deleted: false }],
+				review_digest: expect.stringMatching(/^[0-9a-f]{64}$/),
 			});
 			/* Handing back a table CommCare HQ already manages changes nothing. */
 			expect(
@@ -245,7 +252,6 @@ it("previews a change of who manages a table in its confirmation's words, with t
 					project_id: PROJECT,
 					table_id: copy.tableId,
 					managed_by: "commcare-hq",
-					confirmed: false,
 				}),
 			).toMatchObject({ title: null, lines: [] });
 		});
@@ -262,11 +268,11 @@ it("lets only an admin hand a table to Nova, and previews the hand-back once Nov
 		managed_by: "nova",
 	};
 	await asUser(EDITOR, async (client) => {
-		for (const confirmed of [false, true]) {
+		for (const digest of [{}, { review_digest: "a".repeat(64) }]) {
 			expect(
 				await answer(client, "set_lookup_table_management", {
 					...args,
-					confirmed,
+					...digest,
 				}),
 			).toEqual({
 				project_id: PROJECT,
@@ -280,10 +286,11 @@ it("lets only an admin hand a table to Nova, and previews the hand-back once Nov
 	expect(await managedBy(copy)).toBe("commcare-hq");
 
 	await asUser(ADMIN, async (client) => {
+		const preview = await answer(client, "set_lookup_table_management", args);
 		expect(
 			await answer(client, "set_lookup_table_management", {
 				...args,
-				confirmed: true,
+				review_digest: preview.review_digest,
 			}),
 		).toEqual({
 			project_id: PROJECT,
@@ -298,7 +305,6 @@ it("lets only an admin hand a table to Nova, and previews the hand-back once Nov
 			await answer(client, "set_lookup_table_management", {
 				...args,
 				managed_by: "commcare-hq",
-				confirmed: false,
 			}),
 		).toMatchObject({
 			managed_by: "nova",
@@ -312,6 +318,53 @@ it("lets only an admin hand a table to Nova, and previews the hand-back once Nov
 	expect(await managedBy(copy)).toBe("nova");
 });
 
+it("changes nothing over a preview another app's reading has moved, and answers the change as it stands now", async () => {
+	const copy = await seed();
+	const args = {
+		project_id: PROJECT,
+		table_id: copy.tableId,
+		managed_by: "nova",
+	};
+	await asUser(ADMIN, async (client) => {
+		const preview = await answer(client, "set_lookup_table_management", args);
+		/* Another app starts reading the table after the user read the preview. */
+		const second = await h.seedApp({
+			id: "second-app",
+			project_id: PROJECT,
+			app_name: "Stock counts",
+		});
+		await h
+			.db()
+			.insertInto("lookup_table_references")
+			.values({ project_id: PROJECT, table_id: copy.tableId, app_id: second })
+			.execute();
+		const moved = await answer(client, "set_lookup_table_management", {
+			...args,
+			review_digest: preview.review_digest,
+		});
+		expect(moved).toMatchObject({
+			ok: false,
+			reason: "review-moved",
+			message: MANAGEMENT_REVIEW_MOVED,
+			managed_by: "commcare-hq",
+			apps: [
+				{ app_id: APP, app_name: "Facility visits", deleted: false },
+				{ app_id: second, app_name: "Stock counts", deleted: false },
+			],
+		});
+		expect(moved.review_digest).not.toBe(preview.review_digest);
+		expect(await managedBy(copy)).toBe("commcare-hq");
+		/* The answer's own digest is the one the change is then made under. */
+		expect(
+			await answer(client, "set_lookup_table_management", {
+				...args,
+				review_digest: moved.review_digest,
+			}),
+		).toMatchObject({ ok: true, managed_by: "nova" });
+	});
+	expect(await managedBy(copy)).toBe("nova");
+});
+
 it("finds no Project the caller is not a member of", async () => {
 	const copy = await seed();
 	await h.seedProjectMember("stranger", "another-project", "owner");
@@ -321,7 +374,6 @@ it("finds no Project the caller is not a member of", async () => {
 				project_id: PROJECT,
 				table_id: copy.tableId,
 				managed_by: "nova",
-				confirmed: false,
 			}),
 		).toEqual({
 			error_type: "not_found",

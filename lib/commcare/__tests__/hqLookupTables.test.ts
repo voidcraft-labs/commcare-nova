@@ -14,6 +14,11 @@ import {
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { log } from "@/lib/logger";
+import {
+	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+	HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES,
+	HQ_REFUSED_BODY_READ_MAX_BYTES,
+} from "../hq/bounds";
 import { classifyHqFailure } from "../hq/failure";
 import {
 	listHqLookupTables,
@@ -29,8 +34,13 @@ const CREDS = {
 } as const;
 const DOMAIN = "clinic",
 	HOST = "https://india.commcarehq.org";
-const LIST = "/a/clinic/api/lookup_table/v1/?limit=100",
+const LIST = "/a/clinic/api/lookup_table/v1/?limit=1000",
 	UPLOAD = "/a/clinic/fixtures/fixapi/";
+/** The limits every row read here takes: Nova's row cap and one table's byte bound. */
+const LIMITS = {
+	maxRows: 5_000,
+	maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+} as const;
 const AUTH = { authorization: "ApiKey account:fixture-key" };
 function workbook() {
 	const book = XLSX.utils.book_new();
@@ -42,13 +52,14 @@ function workbook() {
 	return XLSX.write(book, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
-it("reads each inventory page from the selected space and projects all returned table identities", async () => {
+it("reads each inventory page from the selected space by its own offset, twice, and projects all returned table identities", async () => {
 	await withHttpPeer(async (peer) => {
 		peer
 			.get(HOST)
 			.intercept({ path: LIST, method: "GET", headers: AUTH })
 			.reply(200, {
-				meta: { next: "?limit=100&offset=100" },
+				/* Nova reads `next` as "more" and asks its own offset. */
+				meta: { next: "https://outside.invalid/", offset: 0, total_count: 2 },
 				objects: [
 					{
 						id: "one",
@@ -57,20 +68,22 @@ it("reads each inventory page from the selected space and projects all returned 
 						fields: [{ field_name: "code" }, { name: "label" }],
 					},
 				],
-			});
+			})
+			.times(2);
 		peer
 			.get(HOST)
 			.intercept({
-				path: "/a/clinic/api/lookup_table/v1/?limit=100&offset=100",
+				path: `${LIST}&offset=1`,
 				method: "GET",
 				headers: AUTH,
 			})
 			.reply(200, {
-				meta: { next: null },
+				meta: { next: null, offset: 1, total_count: 2 },
 				objects: [
 					{ id: "two", tag: "villages", is_global: false, fields: ["name"] },
 				],
-			});
+			})
+			.times(2);
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual([
 			{
 				id: "one",
@@ -96,7 +109,9 @@ it("reads each inventory page from the selected space and projects all returned 
 				.map((call) => call.fullUrl),
 		).toEqual([
 			HOST + LIST,
-			`${HOST}/a/clinic/api/lookup_table/v1/?limit=100&offset=100`,
+			`${HOST}${LIST}&offset=1`,
+			HOST + LIST,
+			`${HOST}${LIST}&offset=1`,
 		]);
 	});
 });
@@ -108,12 +123,24 @@ it("accepts an explicitly complete empty inventory and rejects malformed envelop
 			[],
 			{},
 			{ objects: [] },
-			{ objects: [], meta: {} },
-			{ objects: "none", meta: { next: null } },
-			{ objects: [null], meta: { next: null } },
-			{ objects: [{ id: "", tag: "facilities" }], meta: { next: null } },
-			{ objects: [{ id: "one", tag: null }], meta: { next: null } },
+			{ objects: [], meta: { total_count: "0" } },
+			{ objects: "none", meta: { next: null, total_count: 0 } },
+			{ objects: [null], meta: { next: null, total_count: 1 } },
+			{
+				objects: [{ id: "", tag: "facilities" }],
+				meta: { next: null, total_count: 1 },
+			},
+			{
+				objects: [{ id: "one", tag: null }],
+				meta: { next: null, total_count: 1 },
+			},
+			/* A page that names a total its rows do not reach, or another offset. */
+			{ objects: [], meta: { next: null, total_count: 1 } },
+			{ objects: [], meta: { next: null, offset: 5, total_count: 0 } },
 		];
+		/* `next` is "more" or "no more", never a URL Nova asks for: a page with
+		 * more to come that holds no row, or names no offset, is malformed,
+		 * whatever `next` names. */
 		for (const next of [
 			"",
 			7,
@@ -124,7 +151,10 @@ it("accepts an explicitly complete empty inventory and rejects malformed envelop
 			"http://[",
 			`${LIST}#fragment`,
 		])
-			malformed.push({ objects: [], meta: { next } });
+			malformed.push({
+				objects: [],
+				meta: { next, offset: 0, total_count: 0 },
+			});
 		for (const data of malformed)
 			peer
 				.get(HOST)
@@ -133,7 +163,7 @@ it("accepts an explicitly complete empty inventory and rejects malformed envelop
 		peer
 			.get(HOST)
 			.intercept({ path: LIST, method: "GET" })
-			.reply(200, { objects: [], meta: { next: null } });
+			.reply(200, { objects: [], meta: { next: null, total_count: 0 } });
 		for (const data of malformed)
 			expect(
 				await listHqLookupTables(CREDS, DOMAIN),
@@ -151,14 +181,22 @@ it("accepts an explicitly complete empty inventory and rejects malformed envelop
 
 it("does not turn a late failed page into a partial inventory or follow an endless cursor forever", async () => {
 	await withHttpPeer(async (peer) => {
-		const page = {
-			objects: [{ id: "one", tag: "known" }],
-			meta: { next: LIST },
-		};
-		peer.get(HOST).intercept({ path: LIST, method: "GET" }).reply(200, page);
+		const table = (id: string) => ({
+			id,
+			tag: id,
+			is_global: true,
+			fields: ["code"],
+		});
 		peer
 			.get(HOST)
 			.intercept({ path: LIST, method: "GET" })
+			.reply(200, {
+				objects: [table("one")],
+				meta: { next: "more", offset: 0, total_count: 2 },
+			});
+		peer
+			.get(HOST)
+			.intercept({ path: `${LIST}&offset=1`, method: "GET" })
 			.reply(403, "No API access");
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
 			success: false,
@@ -166,17 +204,34 @@ it("does not turn a late failed page into a partial inventory or follow an endle
 			edgeRefusal: false,
 			refusedBody: "No API access",
 		});
+		/* A list that names more on every page, each page a new table, ends
+		 * at the page bound. */
 		peer
 			.get(HOST)
-			.intercept({ path: LIST, method: "GET" })
-			.reply(200, page)
-			.times(20);
+			.intercept({
+				path: (requested) =>
+					requested.startsWith("/a/clinic/api/lookup_table/v1/"),
+				method: "GET",
+			})
+			.reply((request) => {
+				const offset = Number(
+					new URL(request.path, HOST).searchParams.get("offset") ?? "0",
+				);
+				return {
+					statusCode: 200,
+					data: JSON.stringify({
+						objects: [table(`table-${offset}`)],
+						meta: { next: "more", offset, total_count: 20_000 },
+					}),
+				};
+			})
+			.times(21);
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
 			success: false,
 			status: 508,
 			cause: "malformed",
 		});
-		expect(peer.getCallHistory()?.calls()).toHaveLength(22);
+		expect(peer.getCallHistory()?.calls()).toHaveLength(23);
 	});
 });
 
@@ -211,7 +266,7 @@ it("does not follow an inventory redirect to another project space", async () =>
 			.get(HOST)
 			.intercept({ path: LIST, method: "GET" })
 			.reply(302, "Moved", {
-				headers: { location: "/a/other/api/lookup_table/v1/?limit=100" },
+				headers: { location: "/a/other/api/lookup_table/v1/?limit=1000" },
 			});
 		expect(await listHqLookupTables(CREDS, DOMAIN)).toEqual({
 			success: false,
@@ -440,11 +495,20 @@ function retained(name: string): RetainedAnswer {
 	return JSON.parse(readFileSync(path.join(LOOKUPS, name), "utf8"));
 }
 
-/** Serve one retained answer; a view that raised answers 500, as HQ does. */
-function serve(peer: MockAgent, requestPath: string, answer: RetainedAnswer) {
+/** Serve one retained answer `times` times; a view that raised answers 500, as HQ does. */
+function serve(
+	peer: MockAgent,
+	requestPath: string,
+	answer: RetainedAnswer,
+	times = 1,
+) {
 	const route = peer.get(HOST).intercept({ path: requestPath, method: "GET" });
-	if ("exception" in answer) route.reply(500, "Internal Server Error");
-	else route.reply(answer.status, answer.body, { headers: answer.headers });
+	if ("exception" in answer)
+		route.reply(500, "Internal Server Error").times(times);
+	else
+		route
+			.reply(answer.status, answer.body, { headers: answer.headers })
+			.times(times);
 }
 
 function rowsPath(tableId: string): string {
@@ -478,22 +542,20 @@ it("reads each table's field properties and row attributes from HQ's definition 
 	expect(rich.itemAttributes.length).toBeGreaterThan(0);
 });
 
-it("follows the relative cursor across both retained pages of a 1,005-row table and stops at its count", async () => {
+it("reads both retained pages of a 1,005-row table by its own offset, twice, and stops at its count", async () => {
 	const long = tableTagged(await retainedTables(), "long");
-	const first = retained("fixture-rows-long-1.json");
-	if ("exception" in first) throw new Error("the first page is an answer");
-	const next = (JSON.parse(first.body) as { meta: { next: string } }).meta.next;
 	const result = await withHttpPeer(async (peer) => {
-		serve(peer, rowsPath(long.id), first);
+		serve(peer, rowsPath(long.id), retained("fixture-rows-long-1.json"), 2);
 		serve(
 			peer,
-			new URL(next, `${HOST}${rowsPath(long.id)}`).pathname +
-				new URL(next, `${HOST}${rowsPath(long.id)}`).search,
+			`${rowsPath(long.id)}&offset=1000`,
 			retained("fixture-rows-long-2.json"),
+			2,
 		);
-		return readHqLookupTableRows(CREDS, DOMAIN, long.id);
+		return readHqLookupTableRows(CREDS, DOMAIN, long, LIMITS);
 	});
-	if ("success" in result) throw new Error("the rows read failed");
+	if ("success" in result || "kind" in result)
+		throw new Error("the rows read failed");
 	expect(result.totalCount).toBe(1005);
 	expect(result.rows).toHaveLength(1005);
 	expect(new Set(result.rows.map((row) => row.id)).size).toBe(1005);
@@ -505,10 +567,6 @@ it("gives each page of a table's rows its own deadline, and still stops a page t
 	const second = retained("fixture-rows-long-2.json");
 	if ("exception" in first || "exception" in second)
 		throw new Error("the long pages are answers");
-	const next = new URL(
-		(JSON.parse(first.body) as { meta: { next: string } }).meta.next,
-		`${HOST}${rowsPath(long.id)}`,
-	);
 	/* Two pages of 20 seconds each outlast one 30-second deadline, and a
 	 * page of 31 seconds outlasts its own. */
 	for (const [secondPageMs, expected] of [
@@ -518,19 +576,29 @@ it("gives each page of a table's rows its own deadline, and still stops a page t
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		try {
 			await withHttpPeer(async (peer) => {
+				/* The read of a table of two pages makes two passes; one whose
+				 * second page stalls ends with the first pass. */
+				const passes = secondPageMs > 30_000 ? 1 : 2;
 				peer
 					.get(HOST)
 					.intercept({ path: rowsPath(long.id), method: "GET" })
 					.reply(first.status, first.body, { headers: first.headers })
-					.delay(20_000);
+					.delay(20_000)
+					.times(passes);
 				peer
 					.get(HOST)
-					.intercept({ path: next.pathname + next.search, method: "GET" })
+					.intercept({
+						path: `${rowsPath(long.id)}&offset=1000`,
+						method: "GET",
+					})
 					.reply(second.status, second.body, { headers: second.headers })
-					.delay(secondPageMs);
-				const read = readHqLookupTableRows(CREDS, DOMAIN, long.id);
-				await vi.advanceTimersByTimeAsync(20_000);
-				await vi.advanceTimersByTimeAsync(secondPageMs);
+					.delay(secondPageMs)
+					.times(passes);
+				const read = readHqLookupTableRows(CREDS, DOMAIN, long, LIMITS);
+				for (let pass = 0; pass < passes; pass++) {
+					await vi.advanceTimersByTimeAsync(20_000);
+					await vi.advanceTimersByTimeAsync(secondPageMs);
+				}
 				expect(await read).toMatchObject(expected);
 			});
 		} finally {
@@ -543,9 +611,10 @@ it("parses both of HQ's row shapes", async () => {
 	const rich = tableTagged(await retainedTables(), "rich");
 	const result = await withHttpPeer(async (peer) => {
 		serve(peer, rowsPath(rich.id), retained("fixture-rows-rich.json"));
-		return readHqLookupTableRows(CREDS, DOMAIN, rich.id);
+		return readHqLookupTableRows(CREDS, DOMAIN, rich, LIMITS);
 	});
-	if ("success" in result) throw new Error("the rows read failed");
+	if ("success" in result || "kind" in result)
+		throw new Error("the rows read failed");
 	const shapes = result.rows.map((row) =>
 		Object.values(row.fields).every((value) => typeof value === "string")
 			? "single"
@@ -568,7 +637,9 @@ it("refuses a failed page and any row shape HQ does not serve", async () => {
 			rowsPath(plain.id),
 			retained("fixture-rows-plain-after-column-added.json"),
 		);
-		expect(await readHqLookupTableRows(CREDS, DOMAIN, plain.id)).toMatchObject({
+		expect(
+			await readHqLookupTableRows(CREDS, DOMAIN, plain, LIMITS),
+		).toMatchObject({
 			success: false,
 			status: 500,
 		});
@@ -576,19 +647,33 @@ it("refuses a failed page and any row shape HQ does not serve", async () => {
 	const answer = retained("fixture-rows-plain.json");
 	if ("exception" in answer) throw new Error("the plain rows are an answer");
 	const body = JSON.parse(answer.body) as {
-		objects: { fields: Record<string, unknown> }[];
+		objects: Record<string, unknown>[];
 	};
-	for (const fields of [{ code: 7 }, { code: { values: ["a"] } }]) {
+	for (const edit of [
+		(row: Record<string, unknown>) => {
+			row.fields = { code: 7 };
+		},
+		(row: Record<string, unknown>) => {
+			row.fields = { code: { values: ["a"] } };
+		},
+		/* A row of another table is no row of this one. */
+		(row: Record<string, unknown>) => {
+			row.fixture_type = "rich";
+		},
+		(row: Record<string, unknown>) => {
+			delete row.fixture_type;
+		},
+	]) {
 		const edited = structuredClone(body);
 		const [row] = edited.objects;
-		if (row !== undefined) row.fields = fields;
+		if (row !== undefined) edit(row);
 		await withHttpPeer(async (peer) => {
 			serve(peer, rowsPath(plain.id), {
 				...answer,
 				body: JSON.stringify(edited),
 			});
 			expect(
-				await readHqLookupTableRows(CREDS, DOMAIN, plain.id),
+				await readHqLookupTableRows(CREDS, DOMAIN, plain, LIMITS),
 			).toMatchObject({ success: false, status: 502 });
 		});
 	}
@@ -614,7 +699,10 @@ it("reads a field named __proto__ like any other field, in the definition and in
 	if ("success" in tables) throw new Error("the edited list did not parse");
 	const [table] = tables;
 	expect(table?.fields).toEqual(["__proto__", "code"]);
-	expect(Object.getPrototypeOf(table?.fieldProperties)).toBe(Object.prototype);
+	// No prototype: an index by a field's name answers that field alone.
+	expect(Object.getPrototypeOf(table?.fieldProperties)).toBeNull();
+	const proto = "__proto__";
+	expect(table?.fieldProperties[proto]).toEqual(["lang"]);
 	expect(Object.entries(table?.fieldProperties ?? {})).toEqual([
 		["__proto__", ["lang"]],
 		["code", []],
@@ -647,11 +735,12 @@ it("reads a field named __proto__ like any other field, in the definition and in
 		row.fields = JSON.parse(fields);
 		const read = await withHttpPeer(async (peer) => {
 			serve(peer, rowsPath(plain.id), { ...rows, body: JSON.stringify(body) });
-			return readHqLookupTableRows(CREDS, DOMAIN, plain.id);
+			return readHqLookupTableRows(CREDS, DOMAIN, plain, LIMITS);
 		});
-		if ("success" in read) throw new Error("the edited rows did not parse");
+		if ("success" in read || "kind" in read)
+			throw new Error("the edited rows did not parse");
 		const read0 = read.rows[0]?.fields;
-		expect(Object.getPrototypeOf(read0)).toBe(Object.prototype);
+		expect(Object.getPrototypeOf(read0)).toBeNull();
 		expect(Object.entries(read0 ?? {})).toEqual(expected);
 	}
 });
@@ -709,9 +798,10 @@ it("tells rows that hold other than one value in a field from rows that hold one
 		const table = tableTagged(await retainedTables(), tag);
 		const result = await withHttpPeer(async (peer) => {
 			serve(peer, rowsPath(table.id), retained(file));
-			return readHqLookupTableRows(CREDS, DOMAIN, table.id);
+			return readHqLookupTableRows(CREDS, DOMAIN, table, LIMITS);
 		});
-		if ("success" in result) throw new Error(`${file} did not read`);
+		if ("success" in result || "kind" in result)
+			throw new Error(`${file} did not read`);
 		return result.rows;
 	};
 	expect(
@@ -722,40 +812,68 @@ it("tells rows that hold other than one value in a field from rows that hold one
 	).toBe(false);
 });
 
-it("stops a row read past the caller's limit at the first page's total, and reads every page without one", async () => {
+it("stops a row read past the caller's row limit at the first page's total, and reads every page twice at it", async () => {
 	const long = tableTagged(await retainedTables(), "long");
 	const first = retained("fixture-rows-long-1.json");
-	if ("exception" in first) throw new Error("the first page is an answer");
-	const next = new URL(
-		(JSON.parse(first.body) as { meta: { next: string } }).meta.next,
-		`${HOST}${rowsPath(long.id)}`,
-	);
 	await withHttpPeer(async (peer) => {
 		serve(peer, rowsPath(long.id), first);
 		expect(
-			await readHqLookupTableRows(CREDS, DOMAIN, long.id, { stopPast: 1004 }),
-		).toEqual({ kind: "past-limit", totalCount: 1005 });
+			await readHqLookupTableRows(CREDS, DOMAIN, long, {
+				...LIMITS,
+				maxRows: 1004,
+			}),
+		).toEqual({ kind: "past-limit", by: "rows", totalCount: 1005 });
 		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
 	});
-	/* With no `stopPast`, as a publish reads, and with a limit the total
-	 * reaches but does not pass, both pages are read. */
-	for (const read of [
-		() => readHqLookupTableRows(CREDS, DOMAIN, long.id),
-		() => readHqLookupTableRows(CREDS, DOMAIN, long.id, { stopPast: 1005 }),
-	]) {
-		await withHttpPeer(async (peer) => {
-			serve(peer, rowsPath(long.id), first);
-			serve(
-				peer,
-				next.pathname + next.search,
-				retained("fixture-rows-long-2.json"),
-			);
-			const whole = await read();
-			expect(whole).toMatchObject({ totalCount: 1005 });
-			expect("rows" in whole && whole.rows).toHaveLength(1005);
-			expect(peer.getCallHistory()?.calls()).toHaveLength(2);
+	await withHttpPeer(async (peer) => {
+		serve(peer, rowsPath(long.id), first, 2);
+		serve(
+			peer,
+			`${rowsPath(long.id)}&offset=1000`,
+			retained("fixture-rows-long-2.json"),
+			2,
+		);
+		const whole = await readHqLookupTableRows(CREDS, DOMAIN, long, {
+			...LIMITS,
+			maxRows: 1005,
 		});
-	}
+		expect(whole).toMatchObject({ totalCount: 1005 });
+		expect("rows" in whole && whole.rows).toHaveLength(1005);
+		expect(peer.getCallHistory()?.calls()).toHaveLength(4);
+	});
+});
+
+it("stops a row read whose pages pass its byte bound, and holds no row of it", async () => {
+	const long = tableTagged(await retainedTables(), "long");
+	const first = retained("fixture-rows-long-1.json");
+	if ("exception" in first) throw new Error("the first page is an answer");
+	const firstBytes = Buffer.byteLength(first.body);
+	/* The first page alone passes the bound: no total was read. */
+	await withHttpPeer(async (peer) => {
+		serve(peer, rowsPath(long.id), first);
+		expect(
+			await readHqLookupTableRows(CREDS, DOMAIN, long, {
+				...LIMITS,
+				maxBytes: firstBytes - 1,
+			}),
+		).toEqual({ kind: "past-limit", by: "bytes", totalCount: null });
+	});
+	/* The second page passes what remains of it: the first page's total. */
+	await withHttpPeer(async (peer) => {
+		serve(peer, rowsPath(long.id), first);
+		serve(
+			peer,
+			`${rowsPath(long.id)}&offset=1000`,
+			retained("fixture-rows-long-2.json"),
+		);
+		expect(
+			await readHqLookupTableRows(CREDS, DOMAIN, long, {
+				...LIMITS,
+				maxBytes: firstBytes + 10,
+			}),
+		).toEqual({ kind: "past-limit", by: "bytes", totalCount: 1005 });
+		expect(peer.getCallHistory()?.calls()).toHaveLength(2);
+	});
 });
 
 /*
@@ -882,10 +1000,54 @@ it("logs a refused workbook by HQ's code and its message's shape and length, and
 				edgeRefusal: false,
 				body: "page",
 				bodyBytes: bytesOf(failed),
+				bodyCutOff: false,
 			},
 		],
 	]);
 	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
 		"maternal_visit_sites",
 	);
+});
+
+it("reads a refused workbook's body only as far as refusals are read, and still says what may have landed", async () => {
+	const page = `<html>${"x".repeat(HQ_REFUSED_BODY_READ_MAX_BYTES * 4)}</html>`;
+	await withHttpPeer(async (peer) => {
+		peer.get(HOST).intercept({ path: UPLOAD, method: "POST" }).reply(500, page);
+		expect(
+			await uploadLookupTableWorkbook(CREDS, DOMAIN, workbook(), {
+				replace: true,
+			}),
+		).toMatchObject({ success: false, status: 500, mayHaveLanded: true });
+	});
+	expect(vi.mocked(log.error).mock.calls).toEqual([
+		[
+			"[commcare] lookup table upload failed",
+			undefined,
+			expect.objectContaining({ bodyCutOff: true }),
+		],
+	]);
+});
+
+it("takes a verdict longer than Nova reads as an answer it cannot read, which may have landed", async () => {
+	const verdict = JSON.stringify({
+		code: 200,
+		message: "x".repeat(HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES),
+	});
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: UPLOAD, method: "POST" })
+			.reply(200, verdict, { headers: { "content-type": "application/json" } });
+		expect(
+			await uploadLookupTableWorkbook(CREDS, DOMAIN, workbook(), {
+				replace: true,
+			}),
+		).toEqual({
+			success: false,
+			status: 502,
+			message: "",
+			mayHaveLanded: true,
+			upgradeRequired: false,
+		});
+	});
 });

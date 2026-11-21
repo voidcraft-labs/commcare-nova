@@ -163,3 +163,42 @@ it.each([
 		});
 	},
 );
+
+it("refuses a cookie request that can change something from a page that isn't Nova's, before reading the session", async () => {
+	getSession.mockResolvedValue(cached("user"));
+	const post = (headers: Record<string, string>) =>
+		new Request("http://localhost/api/commcare/changes/check", {
+			method: "POST",
+			headers: { host: "localhost", ...headers },
+		});
+	for (const site of ["same-site", "cross-site"]) {
+		await expect(
+			requireSession(post({ "sec-fetch-site": site })),
+		).rejects.toMatchObject({ status: 403 });
+		expect(
+			await resolveOpenAIKey(post({ "sec-fetch-site": site })),
+		).toMatchObject({ ok: false, status: 403 });
+	}
+	await expect(
+		requireSession(post({ origin: "https://docs.commcare.app" })),
+	).rejects.toMatchObject({ status: 403 });
+	expect(getSession).not.toHaveBeenCalled();
+
+	/* Nova's own page, a page's GET, and a client that is no browser all pass. */
+	expect(
+		(await requireSession(post({ "sec-fetch-site": "same-origin" }))).user.id,
+	).toBe("actor");
+	expect(
+		(await requireSession(post({ origin: "http://localhost" }))).user.id,
+	).toBe("actor");
+	expect((await requireSession(post({}))).user.id).toBe("actor");
+	expect(
+		(
+			await requireSession(
+				new Request("http://localhost/api/apps", {
+					headers: { "sec-fetch-site": "cross-site" },
+				}),
+			)
+		).user.id,
+	).toBe("actor");
+});

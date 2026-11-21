@@ -66,7 +66,7 @@ it("retains only accessible memberships with exact display names on the selected
 	});
 });
 
-it("reads current unpaginated membership and older same-endpoint pages without guessing a missing page", async () => {
+it("reads current unpaginated membership and older same-endpoint pages, each by its own offset, without guessing a missing page", async () => {
 	await withHttpPeer(async (peer) => {
 		peer
 			.get(HOST)
@@ -75,19 +75,22 @@ it("reads current unpaginated membership and older same-endpoint pages without g
 				200,
 				memberships(["alpha"], {
 					total_count: 2,
+					offset: 0,
 					next: "?limit=100&offset=100",
 				}),
-			);
+			)
+			.times(2);
 		peer
 			.get(HOST)
 			.intercept({
-				path: "/api/user_domains/v1/?limit=100&offset=100",
+				path: "/api/user_domains/v1/?limit=100&offset=1",
 				method: "GET",
 			})
 			.reply(200, {
-				meta: { total_count: 2, next: null },
+				meta: { total_count: 2, offset: 1, next: null },
 				objects: [{ domain_name: "beta", project_name: null }],
-			});
+			})
+			.times(2);
 		expect(await listDomains(CREDS)).toEqual([
 			{ name: "alpha", displayName: "alpha display" },
 			{ name: "beta", displayName: "beta" },
@@ -97,7 +100,7 @@ it("reads current unpaginated membership and older same-endpoint pages without g
 			.intercept({ path: LIST, method: "GET" })
 			.reply(200, memberships([]));
 		expect(await discoverAccessibleDomains(CREDS)).toEqual([]);
-		expect(peer.getCallHistory()?.calls()).toHaveLength(3);
+		expect(peer.getCallHistory()?.calls()).toHaveLength(5);
 	});
 });
 
@@ -177,8 +180,8 @@ it("refuses malformed or changed pagination targets and HTTP redirects without f
 	});
 });
 
-it("refuses a count that moves between pages, and a cursor that never ends, as answers Nova cannot read", async () => {
-	const NEXT = "/api/user_domains/v1/?limit=100&offset=100";
+it("answers a count that moves between pages as a list that moved, and a cursor that never ends as one Nova cannot read", async () => {
+	const NEXT = "/api/user_domains/v1/?limit=100&offset=1";
 	await withHttpPeer(async (peer) => {
 		peer
 			.get(HOST)
@@ -187,28 +190,45 @@ it("refuses a count that moves between pages, and a cursor that never ends, as a
 				200,
 				memberships(["alpha"], {
 					total_count: 2,
+					offset: 0,
 					next: "?limit=100&offset=100",
 				}),
 			);
 		peer
 			.get(HOST)
 			.intercept({ path: NEXT, method: "GET" })
-			.reply(200, memberships(["beta"], { total_count: 3, next: null }));
+			.reply(
+				200,
+				memberships(["beta"], { total_count: 3, offset: 1, next: null }),
+			);
 		expect(await listDomains(CREDS)).toEqual({
 			success: false,
-			status: 502,
-			cause: "malformed",
+			status: 503,
+			cause: "moved",
 		});
 
-		/* Every page names the next, and none holds a project space. */
+		/* Every page names more, each a new project space. */
 		peer
 			.get(HOST)
-			.intercept({ path: LIST, method: "GET" })
-			.reply(200, memberships([], { next: "?limit=100&offset=100" }));
-		peer
-			.get(HOST)
-			.intercept({ path: NEXT, method: "GET" })
-			.reply(200, memberships([], { next: "?limit=100&offset=100" }))
+			.intercept({
+				path: (requested) => requested.startsWith("/api/user_domains/v1/"),
+				method: "GET",
+			})
+			.reply((request) => {
+				const offset = Number(
+					new URL(request.path, HOST).searchParams.get("offset") ?? "0",
+				);
+				return {
+					statusCode: 200,
+					data: JSON.stringify(
+						memberships([`space-${offset}`], {
+							total_count: 5_000,
+							offset,
+							next: "more",
+						}),
+					),
+				};
+			})
 			.persist();
 		expect(await listDomains(CREDS)).toEqual({
 			success: false,
@@ -219,12 +239,9 @@ it("refuses a count that moves between pages, and a cursor that never ends, as a
 			.getCallHistory()
 			?.calls()
 			.map((call) => call.fullUrl);
-		/* Two pages for the moving count, then the fifty pages the reader follows at most. */
-		expect(sent).toHaveLength(52);
-		expect(sent?.slice(2)).toEqual([
-			HOST + LIST,
-			...Array(49).fill(HOST + NEXT),
-		]);
+		/* Two pages for the moving count, then the fifty-one pages the reader follows at most. */
+		expect(sent).toHaveLength(53);
+		expect(sent?.slice(2, 4)).toEqual([HOST + LIST, `${HOST}${NEXT}`]);
 	});
 });
 

@@ -249,17 +249,39 @@ it("writes the same bytes on every run for a seed, sends every publish of a docu
 		).toMatchObject({
 			layout: 2,
 			fields: ["waf_padding", "app_name", "app_file"],
+			// The peer's save counter: the create leaves 1, each import one more.
+			saveCounter: { before: null, after: 1 },
 		});
 		expect(
 			JSON.parse(body("clinic-visits/none/content.import.json").toString()),
 		).toMatchObject({
 			layout: 2,
 			placeholderAppId: "nova-proof-placeholder-app",
+			saveCounter: { before: 1, after: 2 },
 			assumedSource: {
 				doc_type: "Application",
 				"build_spec.version": "2.57.0",
 				profile: {},
 			},
+		});
+
+		// A media upload that maps a file saves the app once more, and the
+		// next publish starts over the app the first publish left.
+		expect(
+			JSON.parse(
+				body("search-lookup-media/minimum/content.import.json").toString(),
+			),
+		).toMatchObject({
+			saveCounter: { before: 1, after: 2 },
+			mediaSaveCounter: { before: 2, after: 3 },
+		});
+		expect(
+			JSON.parse(
+				body("search-lookup-media/minimum/update.import.json").toString(),
+			),
+		).toMatchObject({
+			saveCounter: { before: 3, after: 4 },
+			mediaSaveCounter: { before: 4, after: 5 },
 		});
 
 		// Nova's derived ids reach the files: every publish sends the same ones.

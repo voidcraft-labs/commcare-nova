@@ -29,7 +29,11 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import {
+	HqSaveCounter,
+	isSaveCounterPath,
+	withHqPeer,
+} from "@/__tests__/helpers/hqSaveCounter";
 import {
 	type RetainedPublishRead,
 	replyRetained,
@@ -40,15 +44,22 @@ import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { softDeleteApp } from "@/lib/db/apps";
+import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import type { BlueprintDoc, MediaAssetId } from "@/lib/domain";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
-import { HQ_CHANGED_DURING_PUSH_MESSAGE } from "../remoteChanges";
+import {
+	HQ_CHANGED_DURING_PUSH_MESSAGE,
+	MEDIA_NOT_SENT_AFTER_ACCESS_WARNING,
+	MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
+} from "../remoteChanges";
 import { type PublishOutcome, publishAppToHq } from "../service";
-import { endDeployment, recordDeploymentMediaFiles } from "../store";
+import { readDeployment, recordDeploymentMediaFiles } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
+import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
@@ -60,6 +71,13 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 const h = setupAppStateTestDb("publish_media_", { authSchema: "migrated" });
+
+/** HQ's save counter for the apps the peer stands for, which each accepted import moves. */
+const saves = new HqSaveCounter();
+beforeEach(() => saves.reset());
+function withPeer<T>(run: (peer: MockAgent) => Promise<T>): Promise<T> {
+	return withHqPeer(saves, HOST, run);
+}
 const APP = "media-app",
 	PROJECT = "program",
 	ACTOR = "editor";
@@ -76,7 +94,7 @@ const HQ_APP = "working-app";
 const SOURCE = `/a/clinic/apps/source/${HQ_APP}/`;
 const MEDIA = `/a/clinic/apps/api/${HQ_APP}/multimedia/`;
 const STATUS = `${MEDIA}status/media-job/`;
-const TABLES = "/a/clinic/api/lookup_table/v1/?limit=100";
+const TABLES = "/a/clinic/api/lookup_table/v1/?limit=1000";
 const WORKBOOK = "/a/clinic/fixtures/fixapi/";
 const ROWS = "/a/clinic/api/fixture/v1/?fixture_type_id=hq-table";
 const PROJECT_SPACES = "/api/user_domains/v1/?limit=100";
@@ -163,6 +181,7 @@ function publish(
 	discardRemoteChanges?: readonly RemoteChangeDiscard[],
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: SCOPE,
 		...TARGET,
 		doc,
@@ -217,10 +236,16 @@ function serveWithMap(
 }
 /** An accepted import: 201 for a create, 200 for an update. */
 function accepted(peer: MockAgent, status: 200 | 201) {
-	request(peer, IMPORT, "POST").reply(status, {
-		success: true,
-		app_id: HQ_APP,
-		version: status === 201 ? 1 : 2,
+	request(peer, IMPORT, "POST").reply(() => {
+		if (status === 201) saves.create(HQ_APP);
+		return {
+			statusCode: status,
+			data: JSON.stringify({
+				success: true,
+				app_id: HQ_APP,
+				...(status === 200 && { version: saves.save(HQ_APP) }),
+			}),
+		};
 	});
 }
 /** The file CommCare HQ serves for `id`. */
@@ -300,11 +325,25 @@ function requests(peer: MockAgent, from = 0): string[] {
 			.getCallHistory()
 			?.calls()
 			.map(({ method, fullUrl }) => `${method} ${fullUrl.replace(HOST, "")}`)
-			.filter((line) => !line.startsWith(`GET ${PROJECT_SPACES}`)) ?? []
+			.filter(
+				(line) =>
+					!line.startsWith(`GET ${PROJECT_SPACES}`) &&
+					!isSaveCounterPath(line.slice("GET ".length)),
+			) ?? []
 	).slice(from);
 }
 function sentCount(peer: MockAgent): number {
 	return requests(peer).length;
+}
+/** The media writes of the app still open, with the job id each is polled by. */
+async function openMediaWrites() {
+	return h
+		.db()
+		.selectFrom("hq_remote_writes")
+		.select("hq_job_id")
+		.where("write_kind", "=", "media")
+		.where(openRemoteWrite)
+		.execute();
 }
 async function record() {
 	const row = await h
@@ -348,7 +387,7 @@ function republishLands(
 describe("a file replaced in CommCare HQ", () => {
 	it("stops the publish with one media part before anything is sent, and keeps the record", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 			const sent = sentCount(peer);
@@ -377,7 +416,7 @@ describe("a file replaced in CommCare HQ", () => {
 
 	it("uploads over it where the person chose to publish over, and records the id CommCare HQ reported", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-person" });
 			file(peer, "doc-person", PERSONS_FILE);
@@ -411,7 +450,7 @@ describe("a file replaced in CommCare HQ", () => {
 
 	it("asks again about a file replaced again after the person was shown the stop", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-person" });
 			file(peer, "doc-person", PERSONS_FILE);
@@ -440,7 +479,7 @@ describe("a file replaced in CommCare HQ", () => {
 describe("a path Nova holds no record for", () => {
 	it("is settled by its content with one file request and recorded, and the next publish asks for no file", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			/* An upload whose report names no ids leaves the path unrecorded. */
 			await publishFirst(peer, doc, null);
 			expect(await record()).toEqual({});
@@ -470,7 +509,7 @@ describe("a path Nova holds no record for", () => {
 
 	it("is settled the same way on a deployment that holds no record at all", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			await h
 				.db()
@@ -488,7 +527,7 @@ describe("a path Nova holds no record for", () => {
 describe("a file Nova cannot read", () => {
 	it("blocks with nothing sent, in one sentence for an outage and a refusal alike", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			for (const [status, message] of [
 				[500, READ_REFUSED],
@@ -518,7 +557,7 @@ describe("a file Nova cannot read", () => {
 describe("a read with no media map", () => {
 	it("blocks an app that publishes a file", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			const sent = sentCount(peer);
 			serveWithMap(peer, "source-live", null);
@@ -532,7 +571,7 @@ describe("a read with no media map", () => {
 
 	it("passes an app that publishes none, and records no file", async () => {
 		const doc = await seed(clinicVisitsDocument());
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			accepted(peer, 201);
 			serve(peer, "source-shell");
 			accepted(peer, 200);
@@ -552,15 +591,17 @@ describe("a read with no media map", () => {
 describe("the record after an upload", () => {
 	it("keeps the previous record where the upload failed or reported errors", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			request(peer, MEDIA, "POST").reply(500, "");
+			request(peer, MEDIA, "POST").reply(504, "");
 			expect((await publish(doc)).landed).toBe(true);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+			/* HQ may have accepted the bundle, but its gateway gave us no job id. */
+			expect(await openMediaWrites()).toEqual([{ hq_job_id: null }]);
 
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
 			accepted(peer, 200);
@@ -575,7 +616,7 @@ describe("the record after an upload", () => {
 
 	it("keeps the previous record where the upload's processing was not confirmed in time", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
@@ -616,19 +657,29 @@ describe("the record after an upload", () => {
 				await pending.catch(() => undefined);
 			}
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+			/* HQ took the bundle and may still save the app when its job runs:
+			 * the write stays open, polled by the job's id. */
+			expect(await openMediaWrites()).toEqual([{ hq_job_id: "media-job" }]);
+
+			/* The next publish reads the job by its id before it reads the app,
+			 * and settles it where HQ reports it done. */
+			request(peer, STATUS).reply(200, statusAnswer("doc-late", []));
+			republishLands(peer, { [WIRE]: "doc-nova" }, "doc-nova");
+			expect((await publish(doc)).landed).toBe(true);
+			expect(await openMediaWrites()).toEqual([]);
 		});
 	});
 
 	it("lands and writes no record where someone stopped publishing there during the upload", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
 		await h.seedProjectMember("admin", PROJECT, "admin");
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
 			accepted(peer, 200);
 			serve(peer, "source-live");
 			request(peer, MEDIA, "POST").reply(async () => {
-				await endDeployment(
+				await stopHere(
 					{ ...SCOPE, actorUserId: "admin", role: "admin" },
 					TARGET,
 				);
@@ -643,9 +694,141 @@ describe("the record after an upload", () => {
 		expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 	});
 
+	/* The import lands on CommCare HQ while the app goes to recently deleted,
+	 * or its publisher is made a viewer or removed from the Project: the
+	 * record rests on the import's admission, so it lands, and nothing more is
+	 * sent. The answer holds the record only for a publisher who may still
+	 * read it; anyone else is told what the publish sent, and nothing of a
+	 * record that names the Project's other members. */
+	const COLLEAGUE = "colleague-who-confirmed";
+	it.each([
+		["deleted", () => softDeleteApp(APP, "creator"), false],
+		[
+			"left to a publisher who can only view it",
+			() => h.seedProjectMember(ACTOR, PROJECT, "viewer"),
+			true,
+		],
+		[
+			"left to a publisher removed from its Project",
+			() => h.removeProjectMember(ACTOR, PROJECT),
+			false,
+		],
+	] as const)(
+		"lands, records the import and sends no media where the app is %s while CommCare HQ takes its content",
+		async (loss, lose, mayRead) => {
+			const doc = await seed(withImage(clinicVisitsDocument()));
+			await h.seedProjectMember(COLLEAGUE, PROJECT, "editor");
+			await withPeer(async (peer) => {
+				await publishFirst(peer, doc);
+				/* What the first publish confirmed stands as another member's. */
+				await h
+					.db()
+					.updateTable("app_deployment_confirmations")
+					.set({ confirmed_by: COLLEAGUE })
+					.execute();
+				const sent = sentCount(peer);
+				serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+				let acknowledged = 0;
+				request(peer, IMPORT, "POST").reply(async () => {
+					await lose();
+					acknowledged = saves.save(HQ_APP);
+					return {
+						statusCode: 200,
+						data: JSON.stringify({
+							success: true,
+							app_id: HQ_APP,
+							version: acknowledged,
+						}),
+					};
+				});
+				serve(peer, "source-live");
+				const outcome = await publish(doc);
+				if (!outcome.landed) throw new Error("Expected the publish to land");
+				expect(outcome.warnings).toContain(MEDIA_NOT_SENT_AFTER_ACCESS_WARNING);
+				expect(requests(peer, sent)).not.toContain(`POST ${MEDIA}`);
+				expect(outcome.sent).toEqual([
+					expect.objectContaining({
+						kind: "app",
+						novaResourceId: APP,
+						remoteId: HQ_APP,
+					}),
+				]);
+				expect(outcome.hqAppUrl).toContain(HQ_APP);
+				if (mayRead) {
+					expect(outcome.deployment?.confirmations).toContainEqual(
+						expect.objectContaining({ confirmedByName: COLLEAGUE }),
+					);
+				} else {
+					expect(outcome.deployment).toBeNull();
+					expect(JSON.stringify(outcome)).not.toContain(COLLEAGUE);
+				}
+				/* The record is whole for a member who may read it. */
+				if (loss !== "deleted") {
+					const theirs = await readDeployment(
+						{ ...SCOPE, actorUserId: COLLEAGUE },
+						TARGET,
+					);
+					expect(theirs?.confirmations).toContainEqual(
+						expect.objectContaining({ confirmedByName: COLLEAGUE }),
+					);
+					expect(theirs?.active).toContainEqual(
+						expect.objectContaining({ kind: "app", remoteId: HQ_APP }),
+					);
+				}
+				const mapping = await h
+					.db()
+					.selectFrom("app_deployment_resources")
+					.select("pushed_remote_revision")
+					.where("kind", "=", "app")
+					.where("superseded_at", "is", null)
+					.executeTakeFirstOrThrow();
+				expect(mapping.pushed_remote_revision).toBe(String(acknowledged));
+				const open = await h
+					.db()
+					.selectFrom("hq_remote_writes")
+					.select("id")
+					.where(openRemoteWrite)
+					.execute();
+				expect(open).toEqual([]);
+			});
+		},
+	);
+
+	it("leaves the later publish's media in place when its import has already replaced this one", async () => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			await publishFirst(peer, doc);
+			const sent = sentCount(peer);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			request(peer, IMPORT, "POST").reply(async () => {
+				const earlier = saves.save(HQ_APP);
+				const later = saves.save(HQ_APP);
+				await h
+					.db()
+					.updateTable("app_deployment_resources")
+					.set({ pushed_remote_revision: later, pushed_at: new Date() })
+					.where("kind", "=", "app")
+					.where("superseded_at", "is", null)
+					.execute();
+				return {
+					statusCode: 200,
+					data: { success: true, app_id: HQ_APP, version: earlier },
+				};
+			});
+			serve(peer, "source-live");
+			const outcome = await publish(doc);
+			expect(outcome.landed).toBe(true);
+			expect(outcome.warnings).toContain(
+				MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
+			);
+			expect(requests(peer, sent)).not.toContain(`POST ${MEDIA}`);
+			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+		});
+	});
+
 	it("writes only over the baseline its publish wrote, and leaves a later one as it was", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 		});
 		const row = await h
@@ -654,8 +837,20 @@ describe("the record after an upload", () => {
 			.select("source_digest")
 			.executeTakeFirstOrThrow();
 		const digest = row.source_digest ?? fail();
+		const pushToken = async () =>
+			(
+				await h
+					.db()
+					.selectFrom("app_deployment_resources")
+					.select("push_token")
+					.where("kind", "=", "app")
+					.where("superseded_at", "is", null)
+					.executeTakeFirstOrThrow()
+			).push_token;
+		const firstPush = await pushToken();
 		const write = (input: {
 			remoteAppId?: string;
+			pushToken?: string;
 			sourceDigest: string | null;
 			files: Readonly<Record<string, string>>;
 		}) =>
@@ -663,6 +858,7 @@ describe("the record after an upload", () => {
 				expectedEndings: 0,
 				remoteAppId: input.remoteAppId ?? HQ_APP,
 				sourceDigest: input.sourceDigest,
+				pushToken: input.pushToken ?? firstPush,
 				files: input.files,
 			});
 
@@ -682,10 +878,31 @@ describe("the record after an upload", () => {
 		await write({ sourceDigest: digest, files: { [WIRE]: "doc-written" } });
 		expect(await record()).toEqual({ [WIRE]: "doc-written" });
 
+		// A new acknowledgement of the same remote app and same bytes rotates
+		// the mapping token. A late response from the first upload must not
+		// overwrite the newer one's returned media id.
+		await h
+			.db()
+			.updateTable("app_deployment_resources")
+			.set({ pushed_at: new Date() })
+			.where("kind", "=", "app")
+			.where("superseded_at", "is", null)
+			.execute();
+		const laterPush = await pushToken();
+		expect(laterPush).not.toBe(firstPush);
+		await write({ sourceDigest: digest, files: { [WIRE]: "old-response" } });
+		expect(await record()).toEqual({ [WIRE]: "doc-written" });
+		await write({
+			sourceDigest: digest,
+			pushToken: laterPush,
+			files: { [WIRE]: "new-response" },
+		});
+		expect(await record()).toEqual({ [WIRE]: "new-response" });
+
 		/* A publish whose read-back failed wrote an unread baseline, which has
 		 * no digest, and records what its upload reported against that. */
-		await withHttpPeer(async (peer) => {
-			serveWithMap(peer, "source-live", { [WIRE]: "doc-written" });
+		await withPeer(async (peer) => {
+			serveWithMap(peer, "source-live", { [WIRE]: "new-response" });
 			accepted(peer, 200);
 			request(peer, SOURCE).reply(500, "");
 			mediaTaken(peer, "doc-unread");
@@ -712,6 +929,8 @@ describe("a file whose id moved while the Project's data went", () => {
 	 *  publish pushes the table and reads the app's source a second time. */
 	async function seedWithTable() {
 		const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+		/* A lookup writer reads its member's role on its own transaction. */
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		const table = await createLookupTable(scope, {
 			name: "Facilities",
 			tag: "facilities",
@@ -817,7 +1036,7 @@ describe("a file whose id moved while the Project's data went", () => {
 
 	it("stops at the upload where the file there is not this app's, with neither the content nor the file sent", async () => {
 		const doc = await seedWithTable();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirstWithTable(peer, doc);
 			const sent = sentCount(peer);
 
@@ -845,7 +1064,7 @@ describe("a file whose id moved while the Project's data went", () => {
 
 	it("lands where Nova's own earlier upload mapped its file between the two reads, and records that file's id", async () => {
 		const doc = await seedWithTable();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirstWithTable(peer, doc);
 
 			/* The earlier upload's processing outlived its poll: the first read
@@ -863,7 +1082,7 @@ describe("a file whose id moved while the Project's data went", () => {
 
 	it("stops at the upload where the file there could not be read, in the media read's own sentence", async () => {
 		const doc = await seedWithTable();
-		await withHttpPeer(async (peer) => {
+		await withPeer(async (peer) => {
 			await publishFirstWithTable(peer, doc);
 			const sent = sentCount(peer);
 

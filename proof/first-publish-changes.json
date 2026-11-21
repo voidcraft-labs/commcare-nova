@@ -31,7 +31,12 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/profile/properties"
+				"path": "/profile/properties/cc-show-incomplete"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/profile/properties/cc-show-saved"
 			},
 			{
 				"check": "source",
@@ -399,6 +404,54 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/submission/data/*/nova_trimmed_*[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1040,6 +1093,42 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/*/text()",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_datetime_*[*]/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/update[*]/*/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/saved/cases/*:stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_datetime_*[*]/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/update[*]/*/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/saved/cases/*:stored-datetime",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1063,6 +1152,90 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/submission/data/meta[*]/location[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/deviceAsked:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/deviceGave:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]:empty",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/deviceAsked:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/deviceGave:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]:empty",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@local.ccz",
+				"path": "/runs/*/state/visits/*/flags/gps:captured",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@local.ccz",
+				"path": "/runs/*/state/visits/*/location:captured",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@B",
+				"path": "/runs/*/state/visits/*/flags/gps:captured",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@B",
+				"path": "/runs/*/state/visits/*/location:captured",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1182,6 +1355,29 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/cloudcare_enabled"
+			},
+			{
+				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/home/releaseListed",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "incomplete-forms-tile-hidden",
+		"placeKinds": ["app"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/profile/properties/cc-show-incomplete"
+			},
+			{
+				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/home/tiles/incomplete",
+				"kind": "removed"
 			}
 		]
 	},
@@ -1269,6 +1465,54 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/screens/*/questions/*/text:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/screens/*/shown/*/text:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/screens/*/questions/*/text:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/screens/*/shown/*/text:filled",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1490,6 +1734,30 @@
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/events/*/image",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/tree/*/caption_image:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/tree/*/caption_image:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/tree/*/caption_image:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/tree/*/caption_image:renamed-file",
 				"kind": "changed"
 			}
 		]
@@ -1930,6 +2198,18 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/choices/*/text",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/commands/*/displayText:trimmed",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/commands/*/displayText:trimmed",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1986,6 +2266,30 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/headers/*",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList:blank-sort-name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/list/sorted/*:blank-sort-name",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList:blank-sort-name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/list/sorted/*:blank-sort-name",
+				"kind": "removed"
 			}
 		]
 	},
@@ -2001,14 +2305,61 @@
 			{
 				"check": "proof3",
 				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/title",
+				"path": "/runs/*/trace/*/title/form",
 				"kind": "changed"
 			},
 			{
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
-				"path": "/runs/*/trace/*/title",
+				"path": "/runs/*/trace/*/title/form",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/formTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/formTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName:written-title",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "unread-fixture-declarations-dropped",
+		"placeKinds": ["form-part"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
 			}
 		]
 	}

@@ -796,6 +796,27 @@ def form_level_setvalue(authoring, app_id):
     _model(authoring, app_id, "form-level-setvalue", '<setvalue event="xforms-revalidate" ref="/data/age" value="1" />')
 
 
+def setvalue_bind_redirected(authoring, app_id):
+    """A default on ``age``, as the form builder reads its ``ref``, whose ``bind`` names the bind of ``full_name``,
+    which Core sets in its place (``XFormParser.parseSetValueAction`` reads ``bind`` before ``ref``). The bind's id
+    is its node's path, which ``full_name``'s control names, as ``bind_id_by_path`` writes it."""
+    _edit(
+        authoring,
+        app_id,
+        "setvalue-bind-redirected",
+        lambda text: _with_model(
+            _replaced(
+                text,
+                [
+                    (FULL_NAME_BIND, 'id="full_name" ' + FULL_NAME_BIND, 1),
+                    (FULL_NAME_INPUT, '<input bind="full_name">', 1),
+                ],
+            ),
+            '<setvalue event="xforms-ready" ref="/data/age" bind="full_name" value="\'Ann\'" />',
+        ),
+    )
+
+
 def action_inside_control(authoring, app_id):
     """A setvalue inside the control of ``full_name``."""
     _change(
@@ -2006,6 +2027,17 @@ def deliver_work_area_expression(authoring, app_id):
             'nodeset="/data/visit_unit/deliver/work_area_id" calculate="/data/household_id"',
             1,
         ),
+    )
+
+
+def deliver_work_area_fixed_id(authoring, app_id):
+    """The deliver unit's work area id written as a fixed id in its data node, which Connect files every visit
+    under (``form_receiver/processor.py::process_deliver_unit``)."""
+    _change(
+        authoring,
+        app_id,
+        "deliver-work-area-fixed-id",
+        ("<work_area_id />", "<work_area_id>5b2f7d1e-8c3a-4e6b-9d0f-1a2b3c4d5e6f</work_area_id>", 1),
     )
 
 

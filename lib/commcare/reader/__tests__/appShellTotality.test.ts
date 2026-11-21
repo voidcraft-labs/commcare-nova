@@ -90,6 +90,70 @@ describe("readApplication with a key HQ never wrote", () => {
 		},
 	);
 
+	/* HQ's build writes a key stripped and on one line, so these set another
+	 * string than their own name there, which no document holds and no
+	 * publish carries: each is refused under its own entry at the translations,
+	 * naming the key, and never read as inert. */
+	it.each([
+		" modules.m0",
+		"x=y\nmodules.m0",
+		"a#b",
+		"\thome.start",
+		" home.start",
+	])(
+		"refuses a key %j that HQ's build writes as another string, at the translations",
+		async (key) => {
+			const body = retainedSourceBody("shell/app-source");
+			const translations = (body.translations ?? {}) as Record<string, object>;
+			const closed = await readPlanted({
+				...body,
+				translations: {
+					...translations,
+					en: { ...translations.en, [key]: "Smuggled" },
+				},
+			});
+			expect(closed.findings).toMatchObject([
+				{
+					code: `${A}/translations-key-that-is-no-locale-record-under-its-own-name`,
+					standing: "fix-in-hq",
+					cause: "either",
+					place: { kind: "app" },
+					detail: { name: key },
+				},
+			]);
+			expect(entriesAt(closed, "/translations")).toContain(
+				`${A}/translations-key-that-is-no-locale-record-under-its-own-name`,
+			);
+			expect(entriesAt(closed, "/translations")).not.toContain(
+				`${A}/translations-key-no-runtime-reads`,
+			);
+		},
+	);
+
+	/* A key that is its own record, the target's runtime text, reads as it did. */
+	it("reads a key that is its own record of the target's runtime text with no finding", async () => {
+		const body = retainedSourceBody("shell/app-source");
+		const translations = (body.translations ?? {}) as Record<string, object>;
+		const closed = await readPlanted({
+			...body,
+			translations: {
+				...translations,
+				en: { ...translations.en, "home.start": "Begin" },
+			},
+		});
+		expect(
+			closed.findings.filter(
+				(finding) =>
+					finding.code ===
+						`${A}/translations-key-that-is-no-locale-record-under-its-own-name` ||
+					finding.code === "unrecognized",
+			),
+		).toEqual([]);
+		expect(entriesAt(closed, "/translations")).not.toContain(
+			`${A}/translations-key-that-is-no-locale-record-under-its-own-name`,
+		);
+	});
+
 	it("refuses a root key naming a read-only member of Application, and keeps HQ's dynamic keys inert", async () => {
 		const body = retainedSourceBody("shell/app-source");
 		const closed = await readPlanted({

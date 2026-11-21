@@ -44,6 +44,7 @@ import {
 	isStandardCaseListProperty,
 } from "@/lib/domain/standardCaseProperties";
 import { declaredTypeHolds } from "../../validator/rules/fieldKindMatchesPropertyType";
+import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
 import { defineClaims, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
@@ -648,7 +649,8 @@ export function settleWriterTypes(
 	try {
 		opinions = concreteCasePropertyWriterTypes(doc);
 		verdicts = hiddenWriterVerdicts(doc);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return;
 	}
 	const found = new Set<string>();
@@ -901,7 +903,8 @@ function recordComparedTypes(
 		let context: ReturnType<typeof slotContext>;
 		try {
 			context = slotContext(doc, value.ref, new Map());
-		} catch {
+		} catch (error) {
+			rethrowWorkStop(error);
 			context = undefined;
 		}
 		if (context?.ruleSet !== "record") continue;

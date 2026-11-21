@@ -12,6 +12,7 @@ import { log } from "@/lib/logger";
 import type { LookupScope } from "@/lib/lookup/types";
 import { OrganizationError } from "@/lib/organization/errors";
 import type { OrganizationScope } from "@/lib/organization/types";
+import { MANAGEMENT_REVIEW_MOVED } from "@/lib/publish/managedData";
 import {
 	LOOKUP_TABLE_NOT_FOUND,
 	letHqManageLookupTable,
@@ -29,17 +30,21 @@ import {
  * refresh, Manage in Nova and the hand-back, the table page's view, and the
  * places' refresh and view.
  *
- * Every action takes plain JSON (a Project id and a table id, or an app id),
- * authenticates, and resolves the Project freshly from the id it was given,
+ * Every action takes plain JSON (a Project id and a table id, or an app id,
+ * and for a change of who manages a table the review digest the table's view
+ * answered), authenticates, and resolves the Project freshly from the id it
+ * was given,
  * never the person's active Project, so a stale tab acts on the Project it
  * shows. The scope is built here from what that resolution read; the
- * services decide the capability each action needs. A caller with no
+ * services decide the capability each action needs, and read the member's
+ * role again on the transaction that writes. A caller with no
  * session, or no role in that Project, finds nothing there, as for a table
  * or an app that is not there.
  */
 
 const projectIdSchema = z.string().trim().min(1).max(255);
 const appIdSchema = z.string().trim().min(1).max(255);
+const reviewDigestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 /** The sentence `lib/organization`'s actions give an app the caller cannot reach. */
 const APP_NOT_AVAILABLE =
@@ -136,23 +141,41 @@ export async function refreshManagedLookupTableAction(
 	return tableAction("refresh", projectId, tableId, refreshManagedLookupTable);
 }
 
+/** The review digest a confirmation carries back, or null where it is no digest. */
+function parsedReviewDigest(input: unknown): string | null {
+	const parsed = reviewDigestSchema.safeParse(input);
+	return parsed.success ? parsed.data : null;
+}
+
+/** The answer to a confirmation that carried no digest the view gave. */
+const REVIEW_NOT_READ: ManagedTableOutcome = {
+	ok: false,
+	reason: "review-moved",
+	message: MANAGEMENT_REVIEW_MOVED,
+};
+
 export async function manageLookupTableInNovaAction(
 	projectId: string,
 	tableId: string,
+	reviewDigest: string,
 ): Promise<ManagedTableOutcome> {
-	return tableAction(
-		"manage in Nova",
-		projectId,
-		tableId,
-		manageLookupTableInNova,
+	const digest = parsedReviewDigest(reviewDigest);
+	if (digest === null) return REVIEW_NOT_READ;
+	return tableAction("manage in Nova", projectId, tableId, (scope, id) =>
+		manageLookupTableInNova(scope, id, digest),
 	);
 }
 
 export async function letHqManageLookupTableAction(
 	projectId: string,
 	tableId: string,
+	reviewDigest: string,
 ): Promise<ManagedTableOutcome> {
-	return tableAction("hand back", projectId, tableId, letHqManageLookupTable);
+	const digest = parsedReviewDigest(reviewDigest);
+	if (digest === null) return REVIEW_NOT_READ;
+	return tableAction("hand back", projectId, tableId, (scope, id) =>
+		letHqManageLookupTable(scope, id, digest),
+	);
 }
 
 export async function readManagedLookupTableViewAction(

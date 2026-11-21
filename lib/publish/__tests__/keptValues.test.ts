@@ -48,6 +48,8 @@ const keptAdvisories = exportAdvisories(
 	"known",
 	{
 		uiTextFallsBack: true,
+		uiTextNotCarried: true,
+		profileNotCarried: true,
 		androidLogos: true,
 		practiceWorker: true,
 		languageNames: true,
@@ -172,6 +174,8 @@ describe("the voice of every string", () => {
 	it("reads every kept advisory", () => {
 		expect(keptAdvisories.map((advisory) => advisory.id)).toEqual([
 			"kept_ui_text_falls_back",
+			"kept_ui_text_not_carried",
+			"kept_profile_values_not_carried",
 			"kept_android_logos_absent",
 			"kept_practice_worker_absent",
 			"kept_language_names_differ",

@@ -21,8 +21,10 @@ import {
 	readDeploymentNovaRevisions,
 } from "@/lib/deployment/store";
 import type { DeploymentWithResources } from "@/lib/deployment/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, orderedOrganizationLevels } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import type { ConfirmationLevels } from "@/lib/publish/planFeatures";
+import { loadAppBlueprint } from "../loadApp";
 
 /** The write whose answer a read serves, as each logged line names it. */
 export type LandedWrite =
@@ -120,5 +122,36 @@ export async function landedSetupArtifact(
 			error,
 		);
 		return null;
+	}
+}
+
+/**
+ * The app's organization levels as the write left them, which name the level
+ * a worker-level confirmation stores by its code, for an answer that holds no
+ * document of its own (a bring-in of changes made in CommCare HQ, which can
+ * rename a level); `unread` where the app could not be read, which names each
+ * such level by its code alone.
+ */
+export async function landedOrganizationLevels(
+	scope: DeploymentScope,
+	domain: string,
+	after: LandedWrite,
+): Promise<ConfirmationLevels> {
+	try {
+		const { doc } = await loadAppBlueprint(
+			scope.appId,
+			scope.actorUserId,
+			"view",
+		);
+		return orderedOrganizationLevels(doc);
+	} catch (error) {
+		logLandedFault(
+			"[deployment] organization levels unavailable after a write landed",
+			scope,
+			domain,
+			after,
+			error,
+		);
+		return "unread";
 	}
 }

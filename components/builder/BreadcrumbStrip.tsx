@@ -260,6 +260,7 @@ export function BreadcrumbStrip() {
 			);
 			recordPreviewStandingSearches(
 				current.filter((submission) => kept.has(submission)),
+				state.previewSessionId,
 			);
 		};
 		/* Re-enter the case selection as a route back from the form does: the
@@ -324,11 +325,10 @@ export function BreadcrumbStrip() {
 				return () => {
 					letGo(item);
 					if (caseListMenu !== undefined && caseListMenu.length > 0) {
-						navigate.reopenPreviewHeldMenu({
-							moduleUuid: holder,
-							cases: caseListMenu,
-							session: sessionApi.getState().previewSessionId,
-						});
+						navigate.reopenPreviewHeldMenu(
+							{ moduleUuid: holder, cases: caseListMenu },
+							sessionApi.getState().previewSessionId,
+						);
 						return;
 					}
 					setPreviewCaseTarget(

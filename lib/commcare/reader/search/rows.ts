@@ -35,6 +35,7 @@ import {
 	type SearchInputMode,
 	type SimpleSearchInputDef,
 } from "@/lib/domain/modules";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { advancedFormLoads } from "../../advancedSelections";
@@ -48,6 +49,7 @@ import {
 } from "../../expressionContext";
 import { projectCaseListForHq } from "../../hqJson/caseList";
 import { HqXPath, hqXPath, hqXPathText } from "../../hqJson/xpath";
+import { type SourceTable, tableOf } from "../../sourceKeys";
 import {
 	deriveSimpleArmPredicate,
 	simpleArmNeedsXPathQueryEmission,
@@ -58,6 +60,7 @@ import { dateAddOnDeviceCompatibility } from "../../validator/rules/case-list/da
 import { matchModeOnDeviceCompatibility } from "../../validator/rules/case-list/matchModeOnDeviceCompatibility";
 import { onDeviceExpressionCompatibility } from "../../validator/rules/case-list/onDeviceExpressionCompatibility";
 import { unguardedSearchInputReads } from "../../validator/rules/case-list/searchInputRefUsesWhenInputPresent";
+import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import type { ClaimSite } from "../accounting";
 import { withCandidate } from "../candidate";
@@ -371,7 +374,8 @@ function derivedField(
 					slot: "search_input_predicate",
 					member: { searchInputUuid: input.uuid },
 				});
-			} catch {
+			} catch (error) {
+				rethrowWorkStop(error);
 				conditionContext = null;
 			}
 		if (conditionContext === null) return false;
@@ -393,7 +397,8 @@ function derivedField(
 			let derived: Expression;
 			try {
 				derived = deriveSimpleArmPredicate(candidate, caseType, context);
-			} catch {
+			} catch (error) {
+				rethrowWorkStop(error);
 				continue;
 			}
 			if (sameJson(derived, conjunct))
@@ -422,7 +427,8 @@ function withTypedPath(
 			currentCaseType: caseType,
 		});
 		return sameJson(via, field.via) ? field : { ...field, via };
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return field;
 	}
 }
@@ -999,7 +1005,8 @@ function refCaseType(
 			caseTypes: effectiveCaseTypes(doc),
 			currentCaseType: origin,
 		}).destinationCaseType;
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -1166,7 +1173,7 @@ export function rowEarlyReads(
 		}
 		if (!read.ok) continue;
 		out.push(...read.types);
-		const scratch = over.userProperties ?? {};
+		const scratch = over.userProperties ?? NO_ENTRIES;
 		for (const conjunct of read.conjuncts)
 			walkExpressionTerms(conjunct, (term) => {
 				// A field CommCare HQ writes on every worker's own case
@@ -1206,7 +1213,8 @@ function sessionUserDataNames(text: string): string[] {
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(text);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return [];
 	}
 	if (!read.ok || read.node === undefined) return [];
@@ -1277,7 +1285,7 @@ function withSessionUserFields(
 	const adding = names.filter((name) => !declared.has(name));
 	if (adding.length === 0) return doc;
 	return withCandidate(doc, (draft) => {
-		const properties = draft.userProperties ?? {};
+		const properties = draft.userProperties ?? recordFromEntries([]);
 		const order = draft.userPropertyOrder ?? [];
 		for (const slug of adding) {
 			const uuid = mintEntityUuid(doc.appId, externalKey.userProperty(slug));
@@ -1328,7 +1336,8 @@ function fieldConditionContext(
 			slot: "search_input_predicate",
 			member: { searchInputUuid: prompt.uuid },
 		});
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -1355,7 +1364,8 @@ function listFilterText(
 			: typeof filter === "string"
 				? filter
 				: "";
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return undefined;
 	}
 }
@@ -1391,14 +1401,14 @@ function withInstantSpellings(
 }
 
 /** The mirror of each comparison kind: the same test with its sides swapped. */
-const MIRRORED: Readonly<Record<string, Expression["kind"]>> = {
+const MIRRORED: SourceTable<Expression["kind"]> = tableOf({
 	eq: "eq",
 	neq: "neq",
 	gt: "lt",
 	gte: "lte",
 	lt: "gt",
 	lte: "gte",
-};
+});
 
 /** `clause` with each comparison `other` holds with its sides swapped written as `other` writes it:
  *  a search row writes a comparison with the case's property on its left
@@ -1407,12 +1417,12 @@ const MIRRORED: Readonly<Record<string, Expression["kind"]>> = {
 function withOrientationOf(clause: Expression, other: Expression): Expression {
 	const held: Expression[] = [];
 	walkExpressionNodes(other, (node) => {
-		if (node.kind in MIRRORED) held.push(node);
+		if (MIRRORED.has(node.kind)) held.push(node);
 	});
 	const holds = (node: Expression) => held.some((one) => sameJson(one, node));
 	return mapExpressionAst(clause, {
 		mapExpression: (node) => {
-			const kind = MIRRORED[node.kind];
+			const kind = MIRRORED.get(node.kind);
 			if (kind === undefined || !("left" in node) || !("right" in node))
 				return undefined;
 			const mirrored = {

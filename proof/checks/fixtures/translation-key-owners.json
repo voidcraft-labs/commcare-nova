@@ -1,0 +1,31 @@
+{
+	"about": "Who owns one key of an app's translations, judged on the key as CommCare HQ's build writes it, stripped (commcare_translations.py::dumps). lib/commcare/appStringKeys.ts::translationKeyOwner and proof/checks/compare/app_strings.py::translation_key_owner each answer every row; codes are the app's language codes.",
+	"vectors": [
+		{ "key": "modules.m0", "codes": [], "owner": "generated" },
+		{ "key": "m2_no_items_text", "codes": [], "owner": "generated" },
+		{ "key": "modules.m0.extra", "codes": [], "owner": "generated" },
+		{ "key": "app.display.name", "codes": ["en"], "owner": "generated" },
+		{ "key": " modules.m0", "codes": [], "owner": "generated" },
+		{ "key": " forms.m0f0", "codes": [], "owner": "generated" },
+		{ "key": "modules.mx", "codes": [], "owner": "target" },
+		{ "key": "xmodules.m0", "codes": [], "owner": "target" },
+		{ "key": "home.start", "codes": ["en"], "owner": "target" },
+		{ "key": " home.start ", "codes": ["en"], "owner": "target" },
+		{
+			"key": "android.package.name.org.commcare.dalvik.reminders",
+			"codes": ["en"],
+			"owner": "target"
+		},
+		{ "key": "fra", "codes": ["en", "fra"], "owner": "language-name" },
+		{ "key": "\tfra", "codes": ["en", "fra"], "owner": "language-name" },
+		{ "key": "fra", "codes": ["en"], "owner": "target" },
+		{ "key": "x=y\nmodules.m0", "codes": ["en"], "owner": "not-its-own" },
+		{ "key": "modules.m0\rx", "codes": ["en"], "owner": "not-its-own" },
+		{ "key": "a=b", "codes": ["en"], "owner": "not-its-own" },
+		{ "key": "a#b", "codes": ["en"], "owner": "not-its-own" },
+		{ "key": "", "codes": ["en"], "owner": "not-its-own" },
+		{ "key": "   ", "codes": ["en"], "owner": "not-its-own" },
+		{ "key": "home.start\u0001", "codes": ["en"], "owner": "not-its-own" },
+		{ "key": "\u0001home.start", "codes": ["en"], "owner": "not-its-own" }
+	]
+}

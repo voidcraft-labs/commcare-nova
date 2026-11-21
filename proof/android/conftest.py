@@ -33,6 +33,7 @@ DOCUMENTS = (
     "targeted-plain-help",
     "targeted-plain-labels",
     "targeted-preview-android-renders",
+    "targeted-styled-value",
     "targeted-tile-hidden-order",
 )
 

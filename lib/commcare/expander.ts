@@ -75,6 +75,7 @@ import {
 	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleShowsFormsInMenuAbove,
+	orderedColumns,
 	projectedModulePreorder,
 	type Uuid,
 } from "@/lib/domain";
@@ -518,14 +519,28 @@ export function* expandDocSteps(
 			doc,
 			assets,
 			opts.lookupNaming,
+			undefined,
+			undefined,
+			identity.columnFieldWord,
 		);
 		// A menu with no case list of its own (a survey menu, the hidden menu
 		// of a no-matches form) still holds the one `name` column every new
 		// menu gets in HQ on both screens, so its Case List page has a column
-		// to save from and HQ builds what it built of a menu made there.
+		// to save from and HQ builds what it built of a menu made there. That
+		// column keeps the word its first plain column over the case's name is
+		// kept under, the column a reading of the pair returns.
 		const caseDetails = hasCases
 			? projection.caseDetails
-			: emptyListDetailPair(localization.languages);
+			: emptyListDetailPair(
+					localization.languages,
+					mod.caseListConfig === undefined
+						? undefined
+						: orderedColumns(mod.caseListConfig, "list").find(
+								(column) =>
+									column.kind === "plain" && column.field === "case_name",
+							)?.uuid,
+					identity.columnFieldWord,
+				);
 		// Every menu's empty-list text, in every app language: HQ's model
 		// default holds `en` alone, and its module settings save writes the
 		// page's language as an empty text, which reads blank in an app with

@@ -12,9 +12,11 @@
  *
  * Every `plans` literal is the current plans whose feature list carries the
  * feature, as the list names them. `lib/commcare/__tests__/planPrivileges.test.ts`
- * holds each to `lib/commcare/planPrivilegePlans.json`, and the proof lane
+ * holds each to `lib/commcare/surface/planPrivilegePlans.json`, and the proof lane
  * holds that file to HQ's own plan lists.
  */
+
+import type { DeploymentConfirmationKind } from "@/lib/deployment/types";
 
 export type PlanFeatureId =
 	| "web-apps"
@@ -231,6 +233,71 @@ export const PROJECT_SPACE_SETTINGS: Readonly<
 	"form-entry-sync-off": FORM_ENTRY_SYNC_OFF,
 	"commtrack-off": COMMTRACK_OFF,
 };
+
+/**
+ * A level of the app's organization, as a worker-level confirmation names it:
+ * CommCare HQ's code for it, which the confirmation stores, and the name a
+ * person reads.
+ */
+export interface ConfirmedLevel {
+	readonly code: string;
+	readonly name: string;
+}
+
+/**
+ * The levels a worker-level confirmation's code is read through: the app's
+ * organization levels, which are the project space's own where CommCare HQ
+ * manages its places, or `unread` where Nova could not read them.
+ */
+export type ConfirmationLevels = readonly ConfirmedLevel[] | "unread";
+
+/**
+ * What a confirmation that places at one level take workers in a project space
+ * is called. Provisioning asks it where CommCare HQ manages the app's places
+ * there, since HQ's level API doesn't say, and asks by the level's name, so
+ * every surface names the level that way, with CommCare HQ's code beside it
+ * where the two differ. A code no level holds now is said as the code, with
+ * the words that the level left the organization, and a code read with no
+ * levels at all is said as the code alone.
+ */
+export function workerLevelConfirmationLabel(
+	levelCode: string,
+	levels: ConfirmationLevels,
+): string {
+	if (levels === "unread")
+		return `Places at the level with code “${levelCode}” take workers`;
+	const level = levels.find((candidate) => candidate.code === levelCode);
+	if (level === undefined)
+		return `Places at the level with code “${levelCode}” take workers (the level is no longer in the organization)`;
+	return level.name === levelCode
+		? `Places at the level “${level.name}” take workers`
+		: `Places at the level “${level.name}” (code “${levelCode}”) take workers`;
+}
+
+/**
+ * What a confirmation on record is called, as the row that asked for it named
+ * it: every surface that lists one (the Publishing card and its Withdraw
+ * control, MCP's `confirmations`) reads it here. A plan feature Nova no
+ * longer knows reads as its id.
+ */
+export function confirmationLabel(
+	confirmation: {
+		readonly kind: DeploymentConfirmationKind;
+		readonly subject: string;
+	},
+	levels: ConfirmationLevels,
+): string {
+	switch (confirmation.kind) {
+		case "plan-feature":
+			return isPlanFeatureId(confirmation.subject)
+				? PLAN_FEATURES[confirmation.subject].label
+				: confirmation.subject;
+		case "worker-level":
+			return workerLevelConfirmationLabel(confirmation.subject, levels);
+		default:
+			return PROJECT_SPACE_SETTINGS[confirmation.kind].label;
+	}
+}
 
 /** Whether a confirmation is on record for the target, as a check reports it. */
 export type PlanFeatureCheckState = "confirmed" | "needs_confirmation";

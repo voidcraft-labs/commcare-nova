@@ -44,8 +44,8 @@ import {
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import {
-	FIRST_PUBLISH_ANDROID_ONLY,
 	FIRST_PUBLISH_CHANGE_IDS,
+	FIRST_PUBLISH_PLATFORM,
 	type FirstPublishChangeId,
 } from "@/lib/publish/firstPublishChangeIds";
 import { KEPT_AT_HQ, type KeptRow } from "../keptAtHq";
@@ -526,14 +526,12 @@ describe("the register ids rule 3 reads from a base's firstPublish", () => {
 			const change = FIRST_PUBLISH_CHANGES[key];
 			for (const runsOnlyOn of [null, ...PLATFORMS]) {
 				const under = `${id} where the app runs on ${runsOnlyOn ?? "every platform"}`;
-				// Web Apps shows no change a worker meets on Android alone.
-				const met = !(
-					FIRST_PUBLISH_ANDROID_ONLY.has(key) && runsOnlyOn === "web-apps"
-				);
+				const platform = FIRST_PUBLISH_PLATFORM.get(key);
+				const met = !platform || !runsOnlyOn || platform === runsOnlyOn;
 				expect(change.applies(facts([id], runsOnlyOn)), under).toBe(met);
 				expect(change.applies(facts([], runsOnlyOn)), under).toBe(false);
 			}
-			if (FIRST_PUBLISH_ANDROID_ONLY.has(key)) {
+			if (FIRST_PUBLISH_PLATFORM.has(key)) {
 				expect(change.recorded?.(facts([id], null).facts), id).toBe(true);
 				expect(change.recorded?.(facts([], null).facts), id).toBe(false);
 			}

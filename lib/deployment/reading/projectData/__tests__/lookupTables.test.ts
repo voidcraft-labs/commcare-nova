@@ -9,6 +9,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
 import {
 	type HqFixtureRow,
 	type HqLookupTable,
@@ -25,6 +26,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { columnLabelFor } from "@/lib/lookup/managedRules";
 import type {
 	LookupColumn,
@@ -108,7 +110,7 @@ async function retainedTables(
 		peer
 			.get(HOST)
 			.intercept({
-				path: "/a/clinic/api/lookup_table/v1/?limit=100",
+				path: "/a/clinic/api/lookup_table/v1/?limit=1000",
 				method: "GET",
 			})
 			.reply(answer.status, body, { headers: answer.headers });
@@ -119,9 +121,10 @@ async function retainedTables(
 }
 
 async function retainedRows(
-	tableId: string,
+	table: HqLookupTable,
 	relative: string,
 ): Promise<readonly HqFixtureRow[]> {
+	const tableId = table.id;
 	return withHttpPeer(async (peer) => {
 		const answer = retainedBody(relative);
 		peer
@@ -131,8 +134,12 @@ async function retainedRows(
 				method: "GET",
 			})
 			.reply(answer.status, answer.body, { headers: answer.headers });
-		const rows = await readHqLookupTableRows(CREDS, "clinic", tableId);
-		if ("success" in rows) throw new Error(`${relative} did not read`);
+		const rows = await readHqLookupTableRows(CREDS, "clinic", table, {
+			maxRows: LOOKUP_MAX_ROWS,
+			maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+		});
+		if ("success" in rows || "kind" in rows)
+			throw new Error(`${relative} did not read`);
 		return rows.rows;
 	});
 }
@@ -151,11 +158,8 @@ beforeAll(async () => {
 	};
 	plainTable = tagged("plain");
 	richTable = tagged("rich");
-	plainRows = await retainedRows(
-		plainTable.id,
-		"lookups/fixture-rows-plain.json",
-	);
-	richRows = await retainedRows(richTable.id, "lookups/fixture-rows-rich.json");
+	plainRows = await retainedRows(plainTable, "lookups/fixture-rows-plain.json");
+	richRows = await retainedRows(richTable, "lookups/fixture-rows-rich.json");
 });
 
 function readOf(
@@ -1525,7 +1529,14 @@ describe("projectDataReadsOf", () => {
 	it("reads an account's unread tags and places, and a document's tables through the bindings", () => {
 		const data = gather([plain()]);
 		const binding = bindingOf(data, "plain");
-		const work = { nodes: 0, syntaxReads: 0, rebuilds: 0 };
+		const work = {
+			nodes: 0,
+			syntaxReads: 0,
+			rebuilds: 0,
+			units: 0,
+			byKind: { parse: 0, propose: 0, print: 0, compare: 0, visit: 0 },
+			limit: 0,
+		};
 		const claims = {
 			counts: {},
 			handOffs: [],
@@ -1567,7 +1578,13 @@ describe("projectDataReadsOf", () => {
 			kind: "read",
 			draft: {
 				doc: selectDoc(binding),
-				identities: { modules: [], forms: [], keyedCreates: [], entries: [] },
+				identities: {
+					modules: [],
+					forms: [],
+					keyedCreates: [],
+					columnFieldWords: [],
+					entries: [],
+				},
 				declaration: { kind: "none", blocking: [] },
 				facts: {
 					webAppsOnInHq: false,

@@ -18,6 +18,7 @@ import {
 	asMediaAssetId,
 	MAX_MEDIA_EXPORT_BYTES,
 } from "@/lib/domain/multimedia";
+import { log } from "@/lib/logger";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { provisionalReadingMediaId } from "../../mediaIds";
 import {
@@ -257,6 +258,43 @@ describe("planReadingMedia", () => {
 		expect(media.findings.map((finding) => finding.code)).toEqual([
 			"expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install",
 		]);
+	});
+});
+
+describe("planReadingMedia's log", () => {
+	it("reports every reference of another kind as a finding, and logs them in one line with their count", () => {
+		const count = 1_000;
+		const map: HqMediaMapItem[] = [];
+		const references: HqMediaReference[] = [];
+		for (let index = 0; index < count; index++) {
+			const path = `jr://file/sound-${index}.png`;
+			map.push({
+				path,
+				mediaType: "CommCareAudio",
+				multimediaId: `sound-${index}`,
+				unreadable: false,
+			});
+			references.push(ref(path));
+		}
+		const { media } = planReadingMedia({
+			source: { multimediaMap: map, profile: {} },
+			appId: APP,
+			references,
+			runsOn: ["web-apps", "android"],
+		});
+		expect(media.findings).toHaveLength(count);
+		expect(log.error).toHaveBeenCalledExactlyOnceWith(
+			"[bring-in:media] media slots name a file of another kind",
+			undefined,
+			{
+				count,
+				samples: Array.from({ length: 5 }, () => ({
+					slot: "form",
+					kind: "image",
+					mediaType: "CommCareAudio",
+				})),
+			},
+		);
 	});
 });
 

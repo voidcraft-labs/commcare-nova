@@ -33,8 +33,8 @@ Never ``inputs.json``: a control's part keys and the evidence store's guard
 read its input files from the files themselves
 (``proof.observe.unit.input_files``, ``computed_inputs``), so a control edited
 by hand is keyed and guarded by what it holds, and its observation and
-judgments are stored as a document's are; nor an export's ``outcome.json``,
-which no check reads.
+judgments are stored as a document's are. A stopped republish takes its refusal
+from the export's ``outcome.json``; a sent request takes its inputs from its captured files.
 
 A directory a fixed-defect entry or a held stop's ``control`` entry
 (``proof/walk-stops.json``) names is never retained again: its bytes are the
@@ -70,7 +70,7 @@ from pathlib import Path
 from proof.checks import corpus, registers, stops
 from proof.checks.intent import document_intent, intent_json
 from proof.checks.proof1 import lookup_tags
-from proof.observe.casedata import case_database, database_json
+from proof.observe.casedata import database_json, document_case_database
 
 # The checks that read a document's edit: B-edit's publish, build and editors (the bar, the intent and manifest
 # checks, proofs 1 and 4) and the edit's footprint (proofs 1 and 5). Proof 2, proof 3 and configuration
@@ -89,9 +89,8 @@ ARCHIVE_READERS = {
     "edit/local.ccz": frozenset({"bar", "intent", "manifest", "proof5"}),
     corpus.EMPTY_LIST_TEXT_ARCHIVE: frozenset({"bar", "intent", "manifest", "proof1", "proof3", "proof5"}),
 }
-# What a control never keeps: the input manifest, each export's outcome, and D's and D''s documents.
+# The observations derive their inputs from the retained files and read no Nova document.
 NOT_KEPT = frozenset({"inputs.json", "document.json", "edit/document.json"})
-NOT_KEPT_NAMES = frozenset({"outcome.json"})
 BATCH = "edit/batch.json"
 BATCH_KEYS = ("footprint", "footprintParts")
 # Where each migration witness's retained A is kept, and the imports of the first publish it holds per configuration.
@@ -232,7 +231,7 @@ def derived(document, *, edit=True) -> dict:
             "wire": document_json.get("wire"),
             "intent": intent_json(document_intent(document_json)),
             "lookupTags": lookup_tags(document_json),
-            "caseDatabase": database_json(case_database(document_json)),
+            "caseDatabase": database_json(document_case_database(document, edit=edit)),
             "caseTypes": document.case_types(edit=edit),
             "platforms": sorted(document.platforms(edit=edit)),
         }
@@ -256,7 +255,9 @@ def kept(document, checks) -> list:
     found = []
     for path in sorted(p for p in document.root.rglob("*") if p.is_file()):
         relative = path.relative_to(document.root).as_posix()
-        if relative in NOT_KEPT or path.name in NOT_KEPT_NAMES:
+        if relative in NOT_KEPT:
+            continue
+        if path.name == "outcome.json" and corpus.republish_stop(path.parent) is None:
             continue
         if relative in ARCHIVE_READERS and not checks & ARCHIVE_READERS[relative]:
             continue

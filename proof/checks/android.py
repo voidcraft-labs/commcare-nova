@@ -15,7 +15,10 @@ absent where the document has no such state. ``B`` is B aligned to A, served whe
 A's (proof 3's B); proof 4's states are B and B-edit as the unit served them. ``local`` is Nova's local archive
 on a device each configuration's unit served: one archive, but its device's network is that configuration's
 HQ (its searches compiled by that HQ under that configuration's flags, its restore that state's), so it is
-compared with the same configuration's A. Nothing here runs the reader: every function reads the records.
+compared with the same configuration's A. A document whose project space's app keeps a custom base URL
+elsewhere has no local archive, for Nova's download makes none (``Document.local_refusal``), so its records hold
+no ``local`` device and nothing of one is compared; the bar holds that refusal to A
+(``proof.checks.bar.local_outcome``). Nothing here runs the reader: every function reads the records.
 
 A walk is named by what it chose (``proof/android/README.md``): its menus' commands, a list's action
 (``@action:<n>``), the case it opened at its first list (``@case:<id>``), and, for a walk in a language other than
@@ -79,8 +82,10 @@ from __future__ import annotations
 
 import copy
 import json
+import math
+from dataclasses import replace
 
-from proof.checks import hq_own_reports
+from proof.checks import changes, hq_own_reports
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.spelling import normalized
 from proof.checks.differences import ANDROID, ANDROID_TABLET, Difference, pointer_token
@@ -156,11 +161,22 @@ def _list(step: dict) -> None:
                 searches[name] = {term: _joined(found) for term, found in searches[name].items()}
 
 
-def _menu(step: dict) -> None:
+def _menu(step: dict, media, rules) -> None:
     """A menu as compared: its items by their ids, and the order it shows them in as one value."""
     held = step.get("menu")
     if not isinstance(held, dict) or not isinstance(held.get("items"), list):
         return
+    from proof.checks.compare.spelling import menu_image
+
+    for entry in held["items"]:
+        image = entry.get("image")
+        if not isinstance(image, dict) or set(image) != {"uri", "held"}:
+            continue
+        uri = menu_image(image["uri"], media, rules)
+        if uri is not None:
+            image["uri"] = uri
+        elif image["held"] is False:
+            entry["image"] = None
     held["order"] = _joined(entry["id"] for entry in held["items"])
     held["items"] = {
         entry["id"]: {name: value for name, value in entry.items() if name != "id"} for entry in held["items"]
@@ -180,7 +196,7 @@ def _form(step: dict) -> None:
         }
 
 
-def comparable_app(answer: dict | None) -> dict | None:
+def comparable_app(answer: dict | None, *, media=None, rules=()) -> dict | None:
     """An ``app`` answer as it is compared (the module's last paragraphs)."""
     if answer is None:
         return None
@@ -205,8 +221,11 @@ def comparable_app(answer: dict | None) -> dict | None:
         if isinstance(walk.get("raised"), dict):
             walk["raised"] = {name: value for name, value in walk["raised"].items() if name != "stack"}
         for step in walk.get("steps") or []:
+            if isinstance(step.get("alert"), dict):
+                # Reader provenance: _advised_picker_rows checks it on the original answers.
+                step["alert"].pop("languagePicker", None)
             _list(step)
-            _menu(step)
+            _menu(step, media, rules)
             _form(step)
     return found
 
@@ -491,11 +510,54 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
     return before, after
 
 
-def app_differences(before, after, *, check, document, artifact, rules=()) -> list:
+_LOCATION_PERMISSIONS = ["android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION"]
+
+
+def saved_device_fix(form):
+    """The grant, the fix Sensors.allow supplied and the one record this form's save changed (Forms.changedSince).
+    A missing fix, a different saved point, ambiguous records or a request for additional permissions is
+    still observable as a difference. The fix's coordinates come from the device in this walk."""
+    if form.get("deviceAsked") != [{
+        "action": "android.content.pm.action.REQUEST_PERMISSIONS", "data": None, "permissions": _LOCATION_PERMISSIONS,
+    }]:
+        return False
+    gave = form.get("deviceGave")
+    if not isinstance(gave, dict) or set(gave) != {"location", "permissions"}:
+        return False
+    if gave["permissions"] != _LOCATION_PERMISSIONS:
+        return False
+    fix = gave["location"]
+    if not isinstance(fix, str):
+        return False
+    try:
+        lat, lon, alt, accuracy = map(float, fix.split())
+    except ValueError:
+        return False
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180 and math.isfinite(alt) and 0 <= accuracy < math.inf):
+        return False
+    saved = form.get("saved")
+    records = saved.get("records") if isinstance(saved, dict) else None
+    return (isinstance(records, list) and len(records) == 1 and isinstance(records[0], dict)
+            and records[0].get("metaLocation") == fix)
+
+
+def location_permission_class(difference, observed):
+    """Classify only the location prompt, grant and saved fix this form and its device demonstrate together."""
+    if difference.kind != "added" or difference.path not in {
+        "/walks/*/steps/*/form/deviceAsked", "/walks/*/steps/*/form/deviceGave",
+        "/walks/*/steps/*/form/saved/records/*/metaLocation",
+    }:
+        return difference
+    path = changes.unescaped(difference.at)
+    form = observed["walks"][path[1]]["steps"][int(path[3])]["form"]
+    return replace(difference, path=difference.path + ":location") if saved_device_fix(form) else difference
+
+
+def app_differences(before, after, *, check, document, artifact, rules=(), media=(None, None)) -> list:
     """Every difference between what a device shows of two archives: ``before`` the baseline's ``app`` answer,
     ``after`` the other's, each address of a request the device sends HQ read by the spelling rules given
     (``_addressed``)."""
-    a, b = comparable_app(before), comparable_app(after)
+    a, b = comparable_app(before, media=media[0], rules=rules), comparable_app(after, media=media[1], rules=rules)
     if a is None or b is None:
         return []
     a, b = _addressed(a, rules), _addressed(b, rules)
@@ -503,7 +565,8 @@ def app_differences(before, after, *, check, document, artifact, rules=()) -> li
         a, b = {"install": a.get("install")}, {"install": b.get("install")}
     else:
         a, b = one_symptom(a, b)
-    return compare_json(a, b, check=check, document=document, artifact=artifact, data_maps=DATA_MAPS)
+    found = compare_json(a, b, check=check, document=document, artifact=artifact, data_maps=DATA_MAPS)
+    return [location_permission_class(difference, b) for difference in found]
 
 
 # Proof 3 ------------------------------------------------------------------------------------------------------
@@ -612,43 +675,100 @@ def tablet_only(phone: list, tablet: list) -> list:
     return [d for d in tablet if (d.check, d.artifact.removeprefix(f"{TABLET}@"), d.at) not in shown]
 
 
-def behavior(document: str, record: dict, *, device: str = ANDROID, rules=()) -> list:
+def _advised_picker_rows(app, pairs, side):
+    """Exact device-reported positions and wire codes whose displayed text matches that side's label."""
+    found = {}
+
+    def rows(path, codes, names):
+        if not isinstance(codes, list) or not isinstance(names, list) or len(codes) != len(names):
+            return
+        for index, (code, name) in enumerate(zip(codes, names)):
+            if isinstance(code, str) and code in pairs and name == pairs[code][side]:
+                found[f"{path}/{index}"] = code
+
+    locale = (app.get("profile") or {}).get("locale") or {}
+    rows(
+        "/profile/locale/ChangeLocaleUtil.getLocaleNames",
+        locale.get("ChangeLocaleUtil.getLocaleCodes"),
+        locale.get("ChangeLocaleUtil.getLocaleNames"),
+    )
+    for name, walk in (app.get("walks") or {}).items():
+        lang = walk.get("language") or {}
+        path = f"/walks/{pointer_token(name)}"
+        rows(f"{path}/language/rows", lang.get("offered"), lang.get("rows"))
+        for index, step in enumerate(walk.get("steps") or []):
+            alert = step.get("alert") or {}
+            # The native reader records object identity with the fragment opened by the worker's Change Language tap.
+            if alert.get("languagePicker") is True and alert.get("choiceItems") == lang.get("rows"):
+                rows(f"{path}/steps/{index}/alert/choiceItems", lang.get("offered"), alert["choiceItems"])
+    return found
+
+
+def behavior(document: str, record: dict, *, device: str = ANDROID, rules=(), media=None, picker_names=None) -> list:
     """Proof 3's differences in what one kind of device (``device``: ``android``, a phone, or ``TABLET``) did,
     each address of a request a device sends HQ read by the spelling rules given (``rules``)."""
+    found = []
+    for name, held in sorted((record.get("configurations") or {}).items()):
+        found += configuration_behavior(
+            document, held, device=device, rules=rules, menus=(media or {}).get(name, {}),
+            picker_names=(picker_names or {}).get(name),
+        )
+    return found
+
+
+def configuration_behavior(document, held, *, device=ANDROID, rules=(), menus, picker_names=None):
+    """Compare a phone or tablet on this configuration's native A, B and local archives."""
     local_artifact, a_artifact, republish = (f"{device}@local.ccz", f"{device}@A", f"{device}@B")
     found = []
-    for name in sorted(record.get("configurations") or {}):
-        held = record["configurations"][name]
-        local = (held.get("local") or {}).get("app")
-        found += _applied("proof3", document, local_artifact, local)
-        a = (held.get("A") or {}).get("app")
-        if a is None:
-            continue
-        refused = refused_searches(a, (held.get("A") or {}).get("hq"))
-        found += [
-            Difference("proof3", document, a_artifact, path, at, "error", None, value) for path, at, value, _ in refused
-        ]
-        # Each request of the device's HQ's own views refused while A was served (a search a device built from
-        # a typed answer, compiled by HQ's own search view, among them), judged against what HQ's views refused
-        # Formplayer's walk of the same state: a refusal of the same view, status and cause is Formplayer's
-        # symptom (``formplayer@A``), and the device's own is what Formplayer's walk never met. HQ's refusal of
-        # a search that sent the placeholder is that search's symptom, reported with it just above.
-        from proof.checks import served
+    local = (held.get("local") or {}).get("app")
+    found += _applied("proof3", document, local_artifact, local)
+    a = (held.get("A") or {}).get("app")
+    if a is None:
+        return found
+    refused = refused_searches(a, (held.get("A") or {}).get("hq"))
+    found += [
+        Difference("proof3", document, a_artifact, path, at, "error", None, value) for path, at, value, _ in refused
+    ]
+    # Each request of the device's HQ's own views refused while A was served (a search a device built from
+    # a typed answer, compiled by HQ's own search view, among them), judged against what HQ's views refused
+    # Formplayer's walk of the same state: a refusal of the same view, status and cause is Formplayer's
+    # symptom (``formplayer@A``), and the device's own is what Formplayer's walk never met. HQ's refusal of
+    # a search that sent the placeholder is that search's symptom, reported with it just above.
+    from proof.checks import served
 
-        found += served.refusal_differences(
-            device_only_refusals(held.get("A") or {}, beside={place for *_, place in refused}),
-            check="proof3",
-            document=document,
-            artifact=a_artifact,
+    found += served.refusal_differences(
+        device_only_refusals(held.get("A") or {}, beside={place for *_, place in refused}),
+        check="proof3",
+        document=document,
+        artifact=a_artifact,
+    )
+    found += _applied("proof3", document, a_artifact, a)
+    if local is not None:
+        compared = app_differences(
+            a, local, check="proof3", document=document, artifact=local_artifact, rules=rules,
+            media=(menus.get("A"), menus.get("local")),
         )
-        found += _applied("proof3", document, a_artifact, a)
-        if local is not None:
-            found += app_differences(a, local, check="proof3", document=document, artifact=local_artifact, rules=rules)
-        found += signed_in_differences(document, a, (held.get("local") or {}).get("asIs"))
-        b = (held.get("B") or {}).get("app")
-        if b is not None:
-            found += _applied("proof3", document, republish, b)
-            found += app_differences(a, b, check="proof3", document=document, artifact=republish, rules=rules)
+        if picker_names:
+            before = _advised_picker_rows(a, picker_names, 0)
+            after = _advised_picker_rows(local, picker_names, 1)
+            compared = [
+                d for d in compared
+                if not (
+                    d.kind == "changed"
+                    and d.at in before
+                    and before[d.at] == after.get(d.at)
+                    and (d.before, d.after) == picker_names[before[d.at]]
+                )
+            ]
+        found += compared
+    found += signed_in_differences(document, a, (held.get("local") or {}).get("asIs"))
+    b = (held.get("B") or {}).get("app")
+    if b is not None:
+        found += _applied("proof3", document, republish, b)
+        found += app_differences(
+            a, b, check="proof3", document=document, artifact=republish, rules=rules,
+            media=(menus.get("A"), menus.get("B")),
+        )
     return found
 
 
@@ -696,7 +816,7 @@ def editability(document: str, record: dict, *, device: str = ANDROID) -> list:
                 artifact = f"{device}@{save['editor']}@{state}@{name}"
                 over = left.get(save.get("over"), base)
                 found += _applied("proof4", document, artifact, save["app"])
-                found += app_differences(over, save["app"], check="proof4", document=document, artifact=artifact)
+                compared = app_differences(over, save["app"], check="proof4", document=document, artifact=artifact)
                 left[save["label"]] = save["app"]
                 update = save.get("update")
                 if update is not None and update.get("install") == INSTALLED:
@@ -708,7 +828,19 @@ def editability(document: str, record: dict, *, device: str = ANDROID) -> list:
                             )
                     for setting, own, after in settings_replaced(update, save.get("nextBuild")):
                         path = f"/update/workerSettings/{pointer_token(setting)}"
-                        found.append(Difference("proof4", document, artifact, path, path, "changed", own, after))
+                        compared.append(Difference("proof4", document, artifact, path, path, "changed", own, after))
+                for difference in compared:
+                    if save.get("addedSettings") and hq_own_reports.held(
+                        f"{device}@{save['editor']}",
+                        difference.path,
+                        difference,
+                        save["addedSettings"],
+                        over,
+                        save["app"],
+                        save.get("nextBuild"),
+                    ):
+                        continue
+                    found.append(difference)
     return found
 
 
@@ -930,7 +1062,14 @@ def _editor(view, section) -> str:
     return f"{section['section']}{place}"
 
 
-def _saves(proof4: dict, blobs, key: str = "android") -> list:
+def _added_settings(authored, before, patch):
+    """Settings absent in both the original HQ app and Nova's republish, then added by HQ's settings page."""
+    from proof.observe.proof4 import apply_patch
+
+    return hq_own_reports.settings_added(authored, before["doc"], apply_patch(before, patch)["doc"])
+
+
+def _saves(proof4: dict, blobs, key: str = "android", *, authored=None) -> list:
     """Each editor save of a proof 4 record a device read, as ``{label, editor, over, app, update, nextBuild}``
     (``nextBuild``: the update of a device on the state it was saved over to that state's own next build): ``over``
     the label of the save it was made over (None: the state the record is of). A save whose app was not served
@@ -941,16 +1080,19 @@ def _saves(proof4: dict, blobs, key: str = "android") -> list:
         served = saved.get("served") if isinstance(saved, dict) else None
         if not isinstance(served, dict) or "refused" in served or not served.get(key):
             return False
-        found.append(
-            {
-                "label": label,
-                "editor": editor,
-                "over": over,
-                "app": _answer(served[key], blobs),
-                "update": _answer(served.get("androidUpdate"), blobs) if key == "android" else None,
-                "nextBuild": _answer(served.get("androidNextBuild"), blobs) if key == "android" else None,
-            }
-        )
+        read = {
+            "label": label,
+            "editor": editor,
+            "over": over,
+            "app": _answer(served[key], blobs),
+            "update": _answer(served.get("androidUpdate"), blobs) if key == "android" else None,
+            "nextBuild": _answer(served.get("androidNextBuild"), blobs) if key == "android" else None,
+        }
+        if authored is not None and editor == hq_own_reports.SETTINGS_PAGE and saved.get("stored") is not None:
+            read["addedSettings"] = _added_settings(
+                authored, blobs.get_json(proof4["stored"]), blobs.get_json(saved["stored"])
+            )
+        found.append(read)
         return True
 
     for view in proof4.get("views") or ():
@@ -966,38 +1108,49 @@ def _saves(proof4: dict, blobs, key: str = "android") -> list:
     return found
 
 
-def document_record(records, *, tablet: bool = False) -> dict:
+def walks_record(parts, blobs, *, tablet=False):
+    """One configuration's A, B and local worker walks, without opening later install or editor-save records."""
+    key, delivered = ("androidTablet", "androidDeliveredTablet") if tablet else ("android", "androidDelivered")
+    held = {}
+    served_a = (((parts.a or {}).get("hooks") or {}).get("served") or {}).get("A") or {}
+    a = _answer(served_a.get(key), blobs)
+    if a is not None:
+        held["A"] = {
+            "app": a,
+            "hq": _asked(served_a.get(key), blobs),
+            "formplayerHq": (served_a.get("formplayer") or {}).get("hq") or [],
+        }
+    aligned = (parts.b_aligned or {}).get("served") or {}
+    b = _answer((aligned.get("B") or {}).get(key), blobs)
+    if b is not None:
+        held["B"] = {"app": b}
+    # The local archive's device given the input the lane gives Core over it is the one its walks are
+    # compared from; the one that meets Android's own defaults is judged for where it signs in.
+    served_local = aligned.get("local") or {}
+    local = {}
+    walked = _answer(served_local.get(delivered), blobs)
+    if walked is not None:
+        local["app"] = walked
+    own = None if tablet else _answer(served_local.get("android"), blobs)
+    if own is not None:
+        local["asIs"] = own
+    if local:
+        held["local"] = local
+    return held
+
+
+def document_record(records, *, tablet: bool = False, hq_authored: bool = False) -> dict:
     """One document's devices as the judges read them (the module's docstring), gathered from its part
     records: the phones', or with ``tablet`` the tablets' (which install, sign in and update as phones do, so
     the installs, the update and the local archive's own sign-in are the phones' alone)."""
     blobs = records.blobs
-    key, delivered = ("androidTablet", "androidDeliveredTablet") if tablet else ("android", "androidDelivered")
+    key = "androidTablet" if tablet else "android"
     found = {"configurations": {}}
     for name in sorted(records.configurations):
         parts = records.configurations[name]
-        held = {}
-        served_a = (((parts.a or {}).get("hooks") or {}).get("served") or {}).get("A") or {}
-        a = _answer(served_a.get(key), blobs)
-        if a is not None:
-            held["A"] = {
-                "app": a,
-                "hq": _asked(served_a.get(key), blobs),
-                "formplayerHq": (served_a.get("formplayer") or {}).get("hq") or [],
-            }
+        held = walks_record(parts, blobs, tablet=tablet)
         aligned = (parts.b_aligned or {}).get("served") or {}
-        b = _answer((aligned.get("B") or {}).get(key), blobs)
-        if b is not None:
-            held["B"] = {"app": b}
-        # The local archive's device given the input the lane gives Core over it is the one its walks are
-        # compared from; the one that meets Android's own defaults is judged for where it signs in.
-        served_local = aligned.get("local") or {}
-        local = {}
-        walked = _answer(served_local.get(delivered), blobs)
-        if walked is not None:
-            local["app"] = walked
-        own = None if tablet else _answer(served_local.get("android"), blobs)
-        if own is not None:
-            local["asIs"] = own
+        local = held.get("local") or {}
         devices = {} if tablet else aligned.get("devices") or {}
         for role, target in (("local", local), ("republish", held)):
             pair = devices.get(role) or {}
@@ -1014,6 +1167,8 @@ def document_record(records, *, tablet: bool = False) -> dict:
             if base is None:
                 continue
             held.setdefault("proof4", {})[state] = {"app": base}
-            held.setdefault("saves", {})[state] = _saves(proof4, blobs, key)
+            original = ((parts.a or {}).get("state") or {}).get("doc") if hq_authored else None
+            authored = blobs.get_json(original) if original is not None else None
+            held.setdefault("saves", {})[state] = _saves(proof4, blobs, key, authored=authored)
         found["configurations"][name] = held
     return found

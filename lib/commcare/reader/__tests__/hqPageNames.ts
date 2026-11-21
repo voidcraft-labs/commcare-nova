@@ -1,18 +1,20 @@
 /**
  * The rule a finding's `detail.name` keeps: it holds only words a person knows
  * from CommCare HQ's pages, never a surface key, a column HQ named for itself
- * or a closed word HQ stores where its page shows a label (`HQ_PAGE_LABELS`).
+ * or a closed word HQ stores where its page shows a label (`hqPageLabels.ts`).
  * `hqPageLabels.test.ts` holds the rule; the suites that read HQ's own shapes
  * and formats read through `namingFromHqPages`, so every finding they meet is
  * held to it too.
  */
 import { expect } from "vitest";
 import type { Finding } from "@/lib/publish/hqFindings";
-import { HQ_PAGE_LABELS } from "../hqPageLabels";
+import { COLUMN_FORMAT_LABELS, WORKFLOW_LABELS } from "../hqPageLabels";
 
-/** Every word a map of `HQ_PAGE_LABELS` holds: the stored words a finding must never show. */
+/** Every word a map of `hqPageLabels.ts` holds: the stored words a finding must never show. */
 const STORED_WORDS: ReadonlySet<string> = new Set(
-	Object.values(HQ_PAGE_LABELS).flatMap((labels) => Object.keys(labels)),
+	[COLUMN_FORMAT_LABELS, WORKFLOW_LABELS].flatMap((labels) => [
+		...labels.keys(),
+	]),
 );
 
 /** A manifest finding's name a person would not know from HQ's pages, or undefined. */

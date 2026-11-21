@@ -18,6 +18,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { getSession } from "@/lib/auth-utils";
+import { seenByHq } from "@/lib/commcare/hq/appsSeen";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { changeUnderEachTry } from "@/lib/db/__tests__/heldAppRow";
 import { restoreApp, softDeleteApp } from "@/lib/db/apps";
@@ -57,6 +58,7 @@ import {
 } from "../store";
 import type { AppBaselineWrite } from "../types";
 import { type AdoptedBirth, birthAdoptedApp } from "./adoptedBirth";
+import { readable } from "./readableRecord";
 
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
 
@@ -93,6 +95,7 @@ async function member(
 	return { appId: APP, projectId: PROJECT, role, actorUserId: userId };
 }
 
+/** The record's rows; a birth writes five: two ids, a media path, a keyed prefix and a column word. */
 async function heldRows(): Promise<number> {
 	const db = h.db();
 	const counts = await Promise.all(
@@ -101,6 +104,7 @@ async function heldRows(): Promise<number> {
 				"app_deployment_identities",
 				"app_deployment_media_paths",
 				"app_deployment_keyed_case_ids",
+				"app_deployment_column_field_words",
 			] as const
 		).map(async (table) => {
 			const row = await db
@@ -136,17 +140,17 @@ describe("endDeployment", () => {
 		const viewer = await member("a-viewer", "viewer");
 		const before = await readDeployment(editor, TARGET);
 
-		await expect(endDeployment(editor, TARGET)).rejects.toMatchObject({
+		await expect(endDeployment(editor, TARGET, HQ_APP)).rejects.toMatchObject({
 			name: "DeploymentError",
 			code: "not_permitted",
 			message: NOT_PERMITTED,
 		});
-		await expect(endDeployment(viewer, TARGET)).rejects.toMatchObject({
+		await expect(endDeployment(viewer, TARGET, HQ_APP)).rejects.toMatchObject({
 			name: "DeploymentError",
 			code: "not_found",
 		});
 		expect(await readDeployment(editor, TARGET)).toEqual(before);
-		expect(await heldRows()).toBe(4);
+		expect(await heldRows()).toBe(5);
 	});
 
 	async function stopsAs(role: "admin" | "owner"): Promise<void> {
@@ -154,7 +158,7 @@ describe("endDeployment", () => {
 		const stopper = await member(`a-${role}`, role);
 		expect(await previewProjectSpaceFor(stopper)).toBe("clinic");
 
-		const view = await endDeployment(stopper, TARGET);
+		const view = await endDeployment(stopper, TARGET, HQ_APP);
 
 		expect(view.deployment).toMatchObject({
 			state: "ended",
@@ -210,9 +214,7 @@ describe("endDeployment", () => {
 		expect(
 			await readHqAppClaims({
 				viewerUserId: OWNER,
-				server: "production",
-				domain: "clinic",
-				remoteAppIds: [HQ_APP],
+				seen: seenByHq("production", "clinic", [HQ_APP]),
 			}),
 		).toEqual([]);
 		await withAppTx((tx) =>
@@ -229,20 +231,83 @@ describe("endDeployment", () => {
 		stopsAs,
 	);
 
-	it("answers a second stop that there is nothing to stop, and a target with no deployment that there is none", async () => {
+	it("answers a repeated stop as the stop that landed, writing nothing, and a target with no deployment that there is none", async () => {
 		const birth = await born();
-		await endDeployment(birth.scope, TARGET);
-		await expect(endDeployment(birth.scope, TARGET)).rejects.toMatchObject({
+		const stopped = await endDeployment(birth.scope, TARGET, HQ_APP);
+		const again = await endDeployment(birth.scope, TARGET, HQ_APP);
+		expect(again).toEqual(stopped);
+		expect(again.deployment.endings).toBe(1);
+		await expect(
+			endDeployment(birth.scope, { server: "india", domain: "clinic" }, HQ_APP),
+		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
+	});
+
+	it("refuses a stop naming an HQ app the deployment does not publish to as stale, and changes nothing", async () => {
+		const birth = await born();
+		const before = await readDeployment(birth.scope, TARGET);
+		await expect(
+			endDeployment(birth.scope, TARGET, "f".repeat(32)),
+		).rejects.toMatchObject({
+			name: "DeploymentError",
+			code: "stale",
+			message:
+				"This app publishes to a different app in “clinic” than the one you were looking at, so Nova didn't stop anything. Have another look, and stop it from there if you still want to.",
+		});
+		expect(await readDeployment(birth.scope, TARGET)).toEqual(before);
+		expect(await heldRows()).toBe(5);
+	});
+
+	/* A stop decided over one HQ app, sent again after a teammate's stop and
+	 * a republish made a new app there, ends the new app's mapping neither by
+	 * mistake nor at all: the new app is a later decision. */
+	it("leaves a later publish's new HQ app live when a stop of the earlier one arrives after it", async () => {
+		const birth = await born();
+		await endDeployment(birth.scope, TARGET, HQ_APP);
+		const fresh = "e".repeat(32);
+		await foldDeploymentAttempt(
+			birth.scope,
+			TARGET,
+			"preflight",
+			{ status: "succeeded", at: "2026-11-12T00:00:00.000Z" },
+			{ expectedEndings: 1 },
+		);
+		await recordCreatedRemoteApp(birth.scope, TARGET, {
+			expectedEndings: 1,
+			remoteId: fresh,
+			baseline: unreadBaseline(fresh),
+		});
+		const republished = await readDeployment(birth.scope, TARGET);
+
+		expect(await endDeployment(birth.scope, TARGET, HQ_APP)).toEqual(
+			republished,
+		);
+		expect((await readDeployment(birth.scope, TARGET))?.active).toEqual([
+			expect.objectContaining({ kind: "app", remoteId: fresh }),
+		]);
+
+		const ended = await endDeployment(birth.scope, TARGET, fresh);
+		expect(ended.active).toEqual([]);
+		expect(ended.deployment.endings).toBe(2);
+	});
+
+	it("answers a deployment that never mapped an HQ app that there is nothing to stop", async () => {
+		const birth = await born();
+		const beta = { server: "production" as const, domain: "beta" };
+		await foldDeploymentAttempt(
+			birth.scope,
+			beta,
+			"preflight",
+			{ status: "succeeded", at: "2026-11-12T00:00:00.000Z" },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		await expect(
+			endDeployment(birth.scope, beta, HQ_APP),
+		).rejects.toMatchObject({
 			name: "DeploymentError",
 			code: "invalid",
 			message:
-				"Nova isn't publishing this app to “clinic”, so there's nothing to stop.",
+				"Nova isn't publishing this app to “beta”, so there's nothing to stop.",
 		});
-		await expect(
-			endDeployment(birth.scope, { server: "india", domain: "clinic" }),
-		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
-		const view = await readDeployment(birth.scope, TARGET);
-		expect(view?.deployment.endings).toBe(1);
 	});
 
 	it("refuses every fenced write of a publish that read the deployment before it ended, writing nothing", async () => {
@@ -254,7 +319,7 @@ describe("endDeployment", () => {
 		const generation = await beginDeploymentContentWrite(scope, TARGET, {
 			expectedEndings: 0,
 		});
-		await endDeployment(scope, TARGET);
+		await endDeployment(scope, TARGET, HQ_APP);
 		const before = await readDeployment(scope, TARGET);
 		const baselineBefore = await readAppBaseline(scope, TARGET);
 		const fence = { expectedEndings: 0 } as const;
@@ -387,7 +452,7 @@ describe("endDeployment", () => {
 
 	it("lets a publish that read the ending go on as a first publish, the ending still standing", async () => {
 		const birth = await born();
-		await endDeployment(birth.scope, TARGET);
+		await endDeployment(birth.scope, TARGET, HQ_APP);
 		const passed = await foldDeploymentAttempt(
 			birth.scope,
 			TARGET,
@@ -417,6 +482,7 @@ describe("a released claim", () => {
 		expect(await settleReleasedClaims(editor)).toEqual({
 			settled: true,
 			stoppedPublishing: [],
+			waiting: [],
 		});
 
 		expect(await previewProjectSpaceFor(birth.scope)).toBe("clinic");
@@ -424,7 +490,7 @@ describe("a released claim", () => {
 		expect(view?.active).toEqual([
 			expect.objectContaining({ remoteId: HQ_APP, releasedAt: null }),
 		]);
-		expect(await heldRows()).toBe(4);
+		expect(await heldRows()).toBe(5);
 	});
 
 	it("ends the deployment where a live Nova app publishes to the HQ app now, and names the project space", async () => {
@@ -442,6 +508,7 @@ describe("a released claim", () => {
 		expect(await settleReleasedClaims(birth.scope)).toEqual({
 			settled: true,
 			stoppedPublishing: [{ server: "production", domain: "clinic" }],
+			waiting: [],
 		});
 		const view = await readDeployment(birth.scope, TARGET);
 		expect(view?.deployment).toMatchObject({ state: "ended", endings: 1 });
@@ -508,6 +575,7 @@ describe("a released claim", () => {
 
 		const outcome = await churned(() =>
 			publishAppToHq({
+				requireHqImport: null,
 				scope: birth.scope,
 				...TARGET,
 				doc: emptyBlueprintDoc(APP),
@@ -601,7 +669,12 @@ describe("stopPublishingAction", () => {
 	function signedInAs(userId: string): void {
 		vi.mocked(getSession).mockResolvedValue({ user: { id: userId } } as never);
 	}
-	const input = { appId: APP, server: "production", domain: "clinic" };
+	const input = {
+		appId: APP,
+		server: "production",
+		domain: "clinic",
+		hqAppId: HQ_APP,
+	};
 
 	it("answers an editor not_permitted with who can, a viewer not_found, and an admin the ended record", async () => {
 		await born();
@@ -620,7 +693,7 @@ describe("stopPublishingAction", () => {
 			success: false,
 			code: "not_found",
 		});
-		expect(await heldRows()).toBe(4);
+		expect(await heldRows()).toBe(5);
 
 		signedInAs("an-admin");
 		const stopped = await stopPublishingAction(input);
@@ -642,12 +715,29 @@ describe("stopPublishingAction", () => {
 			hqAppId: HQ_APP,
 		});
 
-		expect(await stopPublishingAction(input)).toEqual({
+		/* A repeat, as a lost answer's retry sends, answers the same stop. */
+		const repeated = await stopPublishingAction(input);
+		if (!repeated.success) throw new Error(repeated.message);
+		expect(repeated.data.view?.deployment.deployment.endings).toBe(1);
+
+		/* A stop of an HQ app this deployment does not publish to stops
+		 * nothing, and says to look again. */
+		expect(
+			await stopPublishingAction({ ...input, hqAppId: "f".repeat(32) }),
+		).toEqual({
 			success: false,
 			code: "invalid_input",
 			message:
-				"Nova isn't publishing this app to “clinic”, so there's nothing to stop.",
+				"This app publishes to a different app in “clinic” than the one you were looking at, so Nova didn't stop anything. Have another look, and stop it from there if you still want to.",
 		});
+		/* A request that names no HQ app is no stop. */
+		expect(
+			await stopPublishingAction({
+				appId: APP,
+				server: "production",
+				domain: "clinic",
+			}),
+		).toMatchObject({ success: false, code: "invalid_input" });
 	});
 
 	/* With the app live on two project spaces Preview names neither. Stopping
@@ -758,17 +848,20 @@ describe("stopPublishingAction", () => {
 		const read = await readDeployment(birth.scope, TARGET);
 		if (read === null) throw new Error("Expected the deployment");
 		expect(read.deployment.state).toBe("ended");
+		/* The retry the person makes answers the stop that landed. */
 		expect(await stopPublishingAction(input)).toMatchObject({
-			success: false,
-			code: "invalid_input",
+			success: true,
 		});
+		expect(
+			(await readDeployment(birth.scope, TARGET))?.deployment.endings,
+		).toBe(1);
 	});
 });
 
 describe("readers of an ended deployment", () => {
 	it("Check status says publishing stopped there instead of checking", async () => {
 		const birth = await born();
-		await endDeployment(birth.scope, TARGET);
+		await endDeployment(birth.scope, TARGET, HQ_APP);
 		await expect(
 			refreshDeployment(birth.scope, TARGET, emptyBlueprintDoc(APP)),
 		).rejects.toMatchObject({
@@ -785,7 +878,7 @@ describe("readers of an ended deployment", () => {
 	 * app's live one, and no surface may tell anyone to remove it. */
 	it("never names as left behind a stopped HQ app another Nova app brought in, until that app stops too", async () => {
 		const birth = await born();
-		await endDeployment(birth.scope, TARGET);
+		await endDeployment(birth.scope, TARGET, HQ_APP);
 		const taker = await birthAdoptedApp(h, {
 			appId: testUuid("bringer-app"),
 			projectId: PROJECT,
@@ -814,7 +907,7 @@ describe("readers of an ended deployment", () => {
 			expectedEndings: 1,
 			remoteId: NEW_APP,
 			baseline: unreadBaseline(NEW_APP),
-		});
+		}).then(readable);
 		expect(deploymentEnding(republished)).toBeNull();
 		expect(republished.superseded).toEqual([
 			expect.objectContaining({
@@ -829,7 +922,7 @@ describe("readers of an ended deployment", () => {
 		expect(leftBehindResources(read, null)).toEqual([]);
 
 		/* Once no Nova app publishes to it, it is left behind here. */
-		await endDeployment(taker.scope, TARGET);
+		await endDeployment(taker.scope, TARGET, HQ_APP);
 		const freed = await readDeployment(birth.scope, TARGET);
 		if (freed === null) throw new Error("Expected the deployment");
 		expect(leftBehindResources(freed, new Map())).toEqual([

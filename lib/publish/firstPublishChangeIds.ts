@@ -10,6 +10,7 @@
  */
 
 import { z } from "zod";
+import type { AppSettings, BlueprintDoc } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 
 /** Every change a first publish can make, in registry order. */
@@ -39,6 +40,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"location-list-setting-reset",
 	"web-apps-turned-off",
 	"web-apps-turned-on",
+	"incomplete-forms-tile-hidden",
 	"date-and-time-questions-split",
 	"blank-translations-filled",
 	"media-paths-joined",
@@ -53,6 +55,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
+	"unread-fixture-declarations-dropped",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
@@ -103,6 +106,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"location-list-setting-reset": false,
 	"web-apps-turned-off": true,
 	"web-apps-turned-on": true,
+	"incomplete-forms-tile-hidden": true,
 	"date-and-time-questions-split": true,
 	"blank-translations-filled": true,
 	"media-paths-joined": false,
@@ -117,6 +121,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"hidden-value-defaults-dropped": false,
 	"sort-by-entry-with-a-blank-name-dropped": true,
 	"form-titles-written": true,
+	"unread-fixture-declarations-dropped": true,
 };
 
 /** Ids another entry's sentence says to a person. */
@@ -148,23 +153,22 @@ export function firstPublishSentenceId(
 	return isSaidByAnother(id) ? FIRST_PUBLISH_SAID_BY[id] : id;
 }
 
-/**
- * The ids of a change a worker meets on Android alone. A list keeps such an
- * id wherever the reading gives it, whatever the app then declared, and shows
- * it only where the app runs on Android, since where the app runs is an edit
- * a person can make after the birth.
- */
-export const FIRST_PUBLISH_ANDROID_ONLY: ReadonlySet<FirstPublishChangeId> =
-	new Set<FirstPublishChangeId>([
-		"sort-by-entry-with-a-blank-name-dropped",
-		"form-titles-written",
-	]);
+/** A reading keeps each change that workers meet on just one platform, so a later
+ * declaration can show the changes for the platforms the app now runs on. */
+export const FIRST_PUBLISH_PLATFORM: ReadonlyMap<
+	FirstPublishChangeId,
+	Platform
+> = new Map<FirstPublishChangeId, Platform>([
+	["incomplete-forms-tile-hidden", "web-apps"],
+	["sort-by-entry-with-a-blank-name-dropped", "android"],
+	["form-titles-written", "android"],
+]);
 
 /** What a baseline keeps of a list. */
 export interface StoredFirstPublish {
 	/**
 	 * The ids that applied under the chosen declaration, less the two Web Apps
-	 * ids, and each id of `FIRST_PUBLISH_ANDROID_ONLY` the reading gives under
+	 * ids, and each id of `FIRST_PUBLISH_PLATFORM` the reading gives under
 	 * any declaration.
 	 */
 	readonly ids: readonly FirstPublishChangeId[];
@@ -185,18 +189,25 @@ export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish> =
 		of: firstPublishKindSchema,
 	});
 
+export interface FirstPublishApp {
+	readonly appSettings: Pick<AppSettings, "runsOnlyOn" | "showIncompleteForms">;
+	readonly connectType: BlueprintDoc["connectType"];
+}
+
 /**
  * The list as it stands for an app that now declares `runsOnlyOn`: the
  * stored ids, with `web-apps-turned-off` where CommCare HQ held Web Apps on
  * and the app runs on Android only, `web-apps-turned-on` where HQ held it off
- * and the app runs in Web Apps, and without an id of
- * `FIRST_PUBLISH_ANDROID_ONLY` where the app runs in Web Apps only, all in
- * registry order. Where the app runs is the one edit that changes the list,
- * so neither Web Apps line is stored.
+ * and the app runs in Web Apps, and each platform-specific id shown where the app runs on its platform, all in
+ * registry order. The current incomplete-forms setting also determines whether the tile can disappear,
+ * and turning off Connect leaves the existing location setting on HQ alone.
  */
 export function firstPublishViewFromStored(
 	stored: StoredFirstPublish,
-	runsOnlyOn: Platform | undefined,
+	{
+		appSettings: { runsOnlyOn, showIncompleteForms },
+		connectType,
+	}: FirstPublishApp,
 ): FirstPublishView {
 	const present = new Set<FirstPublishChangeId>(stored.ids);
 	present.delete("web-apps-turned-off");
@@ -207,9 +218,12 @@ export function firstPublishViewFromStored(
 	if (!stored.webAppsOnInHq && runsOnlyOn !== "android") {
 		present.add("web-apps-turned-on");
 	}
-	if (runsOnlyOn === "web-apps") {
-		for (const id of FIRST_PUBLISH_ANDROID_ONLY) present.delete(id);
+	if (runsOnlyOn !== undefined) {
+		for (const [id, platform] of FIRST_PUBLISH_PLATFORM)
+			if (platform !== runsOnlyOn) present.delete(id);
 	}
+	if (showIncompleteForms) present.delete("incomplete-forms-tile-hidden");
+	if (connectType === null) present.delete("connect-app-captures-location");
 	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => present.has(id));
 	return {
 		ids,

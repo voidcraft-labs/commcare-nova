@@ -1,11 +1,15 @@
 import { type AnyNode, isTag } from "domhandler";
 import { encodeXML } from "entities";
+import { chargeWork } from "./workMeter";
 import { xmlTextIssue } from "./xmlText";
 
 /** The one encoder for raw XML values. XML normalizes literal CR in text and
  * all literal whitespace in attributes, so those characters require numeric
  * references even though they are legal XML characters. */
 function value(text: string, attribute: boolean): string {
+	// The work meter's `print` door (`workMeter.ts`): one unit a character written, in a
+	// metered reading only.
+	chargeWork("print", text.length + 1);
 	const issue = xmlTextIssue(text);
 	if (issue !== undefined) throw new Error(`XML text contains ${issue}.`);
 	const encoded = encodeXML(text);

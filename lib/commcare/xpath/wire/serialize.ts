@@ -2,6 +2,7 @@ import { decodeHTML } from "entities";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import { instanceScanCuts } from "../../hqInstanceScan";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
+import { chargeWork } from "../../workMeter";
 import { w } from "./builders";
 import { InstanceSink } from "./instances";
 import { needsWireGrouping, wireGrouping } from "./precedence";
@@ -427,5 +428,8 @@ export function serializeWire(
 	}
 
 	const text = print(expr, false);
+	// The work meter's `print` door (`workMeter.ts`): one unit a character written, in a
+	// metered reading only.
+	chargeWork("print", text.length + 1);
 	return { text, instances: new Set(instances.declarations()) };
 }

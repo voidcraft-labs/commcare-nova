@@ -21,6 +21,7 @@ import {
 	usePreviewMenuCaseSelections,
 	usePreviewPlatformRules,
 	usePreviewSelectedCase,
+	usePreviewSessionId,
 } from "@/lib/session/hooks";
 import {
 	type BuilderSessionStoreApi,
@@ -70,8 +71,7 @@ export function returnPreviewSelectionsOnArrival(
 	const arrival = previewSelectionsArrival({
 		replay,
 		atHome: getBuilderPathSegmentsSnapshot().length === 0,
-		onEntry: readCurrentPreviewSelections(),
-		session: state.previewSessionId,
+		onEntry: readCurrentPreviewSelections(state.previewSessionId),
 		task: state.previewTaskId,
 		current: sessionSelections(state),
 	});
@@ -84,28 +84,31 @@ export function returnPreviewSelectionsOnArrival(
 	else state.replayPreviewSelections(recorded);
 }
 
-/** The current history entry records the selections the session holds: a
- *  screen shown with them, once its entry's arrival has returned its own. */
+/** The current history entry's record, in the running Preview session,
+ *  holds the selections the session holds: a screen shown with them, once
+ *  its entry's arrival has returned its own. */
 export function recordSessionSelections(session: BuilderSessionStoreApi): void {
 	recordPreviewSelections(() => {
 		const state = session.getState();
 		return {
 			session: state.previewSessionId,
-			task: state.previewTaskId,
-			...sessionSelections(state),
+			selections: { task: state.previewTaskId, ...sessionSelections(state) },
 		};
 	});
 }
 
 /**
- * Each Preview history entry records the case selections it was shown with,
+ * The session keeps, for each Preview history entry, the case selections it
+ * was shown with (the entry's record, in memory: `lib/routing/previewEntryRecords.ts`),
  * and Back or Forward puts them back on Web Apps wherever the session holds
  * others (past Home, taking up the entry's task again), as Formplayer
  * replays a popped address's selections
  * (`lib/routing/previewSelectionsHistory.ts`).
  *
- * The record follows the session on every screen but Home (a layout
- * effect, after each write and each change of the selections). The return
+ * The record follows the session on every screen but Home on Web Apps (a
+ * layout effect, after each write and each change of the selections).
+ * Android shows every entry with the session as it stands, so nothing reads
+ * a record there and none is kept. The return
  * happens on the popstate itself, before the screens render the entry
  * (`useClientPath.ts::subscribeBuilderHistoryPop`): a screen that reads the
  * selections as it mounts (a menu asking for its parent case, a form binding
@@ -133,12 +136,14 @@ export function usePreviewSelectionsArrival(
 	);
 
 	/* The record follows the entry and the session's selections. */
-	const snapshot = usePreviewSelectionsSnapshot();
+	const previewSessionId = usePreviewSessionId();
+	const snapshot = usePreviewSelectionsSnapshot(previewSessionId);
 	const menu = usePreviewMenuCaseSelections();
 	const target = usePreviewCaseTarget();
 	const selected = usePreviewSelectedCase();
 	useLayoutEffect(() => {
-		if (mode !== "preview" || loc.kind === "home") return;
+		if (mode !== "preview" || loc.kind === "home" || replay !== "address")
+			return;
 		void snapshot;
 		void menu;
 		void target;
@@ -147,5 +152,5 @@ export function usePreviewSelectionsArrival(
 		 * before this; whatever the session holds now is what the entry
 		 * shows, so the entry records it. */
 		recordSessionSelections(session);
-	}, [loc, menu, mode, selected, session, snapshot, target]);
+	}, [loc, menu, mode, replay, selected, session, snapshot, target]);
 }

@@ -43,8 +43,10 @@ import { operationCaseType } from "@/lib/domain/forms";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
+	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
 	type FirstPublishView,
@@ -264,16 +266,16 @@ export interface FirstPublishChange {
 	 * `declaration`: the predicate reads `choice.runsOnlyOn`, which a person can
 	 * change in the builder afterwards, so the id is worked out again from what
 	 * a list stores: a Web Apps line from the stored Web App setting, and an id
-	 * a worker meets on Android alone from its `recorded` part, which the list
+	 * a worker meets on one platform alone from its `recorded` part, which the list
 	 * stores wherever the reading gives it. `reading`: every other entry. Its
 	 * id is stored at the birth.
 	 */
 	readonly scope: "reading" | "declaration";
 	applies(facts: FirstPublishFacts): boolean;
 	/**
-	 * For a `declaration` entry a worker meets on Android alone
-	 * (`FIRST_PUBLISH_ANDROID_ONLY`): whether the reading gives it, under any
-	 * declaration. It applies where that holds and the app runs on Android.
+	 * For a `declaration` entry a worker meets on one platform alone
+	 * (`FIRST_PUBLISH_PLATFORM`): whether the reading gives it, under any
+	 * declaration. It applies where that holds and the app runs on the named platform.
 	 */
 	readonly recorded?: (facts: ReadFacts) => boolean;
 	/**
@@ -508,23 +510,26 @@ function inactiveAutoLaunchRespelled(facts: FirstPublishFacts): boolean {
 }
 
 /**
- * The entry of a change a worker meets on Android alone
- * (`FIRST_PUBLISH_ANDROID_ONLY`) that a reading records under `id`: the
+ * The entry of a change a worker meets on one platform alone
+ * (`FIRST_PUBLISH_PLATFORM`) that a reading records under `id`: the
  * reading gives it wherever it records a rewrite under the id, under any
  * declaration (`recorded`), and it applies where it is given and the app runs
- * on Android (`firstPublishViewFromStored` drops it under Web Apps alone by
- * the same rule).
+ * on the platform that shows it (`firstPublishViewFromStored` uses the same rule).
  */
-function androidOnlyRecorded(
+function platformOnlyRecorded(
 	id: FirstPublishChangeId,
 	entry: Pick<FirstPublishChange, "touchesWorkers" | "paths" | "at">,
 ): FirstPublishChange {
 	const recorded = recordedIn(id);
+	const platform = FIRST_PUBLISH_PLATFORM.get(id);
+	if (!platform) throw new Error(`The change ${id} has no worker platform.`);
 	return {
 		...entry,
 		scope: "declaration",
 		applies: (facts) =>
-			facts.choice.runsOnlyOn !== "web-apps" && recorded(facts.facts),
+			(facts.choice.runsOnlyOn === null ||
+				facts.choice.runsOnlyOn === platform) &&
+			recorded(facts.facts),
 		recorded,
 	};
 }
@@ -838,7 +843,7 @@ function caseSettingPlaces(facts: FirstPublishFacts): string[] {
 function asRecord(value: unknown): Readonly<Record<string, unknown>> {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
 		? (value as Record<string, unknown>)
-		: {};
+		: NO_ENTRIES;
 }
 
 /** The value of the stored app at `pointer`, or undefined. */
@@ -846,7 +851,7 @@ function storedAt(root: unknown, pointer: string): unknown {
 	let value = root;
 	for (const step of placeSteps(pointer)) {
 		if (Array.isArray(value)) value = value[Number(step)];
-		else value = asRecord(value)[step];
+		else value = ownRecordValue(asRecord(value), step);
 		if (value === undefined) return undefined;
 	}
 	return value;
@@ -1124,7 +1129,8 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/*/columns/*/field",
 			"/created_from_template",
 			"/media_form_errors",
-			"/profile/properties",
+			"/profile/properties/cc-show-incomplete",
+			"/profile/properties/cc-show-saved",
 			...DETAIL_COLUMN_PAGE_KEYS.map(
 				(key) => `/modules/*/case_details/*/columns/*/${key}`,
 			),
@@ -1521,6 +1527,21 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/cloudcare_enabled"],
 	},
+	/** Web Apps' app list shows Incomplete Forms unless every listed app explicitly stores no
+	 * (cloudcare/apps/controller.js). A missing setting and no already agree in HQ's build. */
+	"incomplete-forms-tile-hidden": platformOnlyRecorded(
+		"incomplete-forms-tile-hidden",
+		{
+			touchesWorkers: true,
+			at: {
+				kinds: ["app"],
+				places: () => [
+					placeOf("app", "profile", "properties", "cc-show-incomplete"),
+				],
+			},
+			paths: ["/profile/properties/cc-show-incomplete"],
+		},
+	),
 	/** The split a person chose at the review (`lib/doc/datetimeSplit.ts`). */
 	"date-and-time-questions-split": {
 		touchesWorkers: true,
@@ -1762,7 +1783,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 * Web Apps shows no Sort by entry for an invisible column, so a worker meets
 	 * the change only where the app runs on Android.
 	 */
-	"sort-by-entry-with-a-blank-name-dropped": androidOnlyRecorded(
+	"sort-by-entry-with-a-blank-name-dropped": platformOnlyRecorded(
 		"sort-by-entry-with-a-blank-name-dropped",
 		{
 			touchesWorkers: true,
@@ -1786,7 +1807,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	 * change is shown only where the app runs on Android. Recorded by
 	 * `reader/assemble.ts::recordTitleRewrites`.
 	 */
-	"form-titles-written": androidOnlyRecorded("form-titles-written", {
+	"form-titles-written": platformOnlyRecorded("form-titles-written", {
 		touchesWorkers: true,
 		at: {
 			kinds: ["form-part"],
@@ -1797,6 +1818,30 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/_attachments/*"],
 	}),
+	/**
+	 * A form whose source declares a fixture no expression reads that the
+	 * project space may not serve (`locations`, `commcare:reports`, any but a
+	 * lookup table and `user-groups`): Core initializes every declared
+	 * instance when the form opens (`FormDef.initialize`), and one whose
+	 * fixture the device does not hold throws
+	 * (`CommCareInstanceInitializer.loadFixtureRoot`), so the form cannot open
+	 * there, on Android and Web Apps alike. Nova writes a form's declarations
+	 * from what it reads, so the declaration goes and the form opens wherever
+	 * it could not. Recorded by `reader/provisional.ts::claimDeclarations`.
+	 */
+	"unread-fixture-declarations-dropped": {
+		touchesWorkers: true,
+		scope: "reading",
+		applies: sameStateRecorded("unread-fixture-declarations-dropped"),
+		at: {
+			kinds: ["form-part"],
+			places: (facts) =>
+				recordedForms(facts, "unread-fixture-declarations-dropped").map(
+					(position) => placeOf("form", position, "xform", ":instance"),
+				),
+		},
+		paths: ["/_attachments/*"],
+	},
 };
 
 /**
@@ -1889,9 +1934,9 @@ export function storedInAList(id: FirstPublishChangeId): boolean {
 /**
  * The list a baseline stores of a reading's list under the chosen
  * declaration: its ids a list keeps (`storedInAList`), with each id a worker
- * meets on Android alone taken from the reading itself (`recorded`), whatever
+ * meets on one platform alone taken from the reading itself (`recorded`), whatever
  * the chosen declaration, so `firstPublishViewFromStored` can show it again
- * once the app runs on Android. In registry order.
+ * once the app runs on that platform. In registry order.
  */
 export function firstPublishListToStore(
 	chosen: FirstPublishView,

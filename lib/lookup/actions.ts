@@ -109,7 +109,9 @@ function internalFailure(): LookupFailure<LookupActionErrorCode> {
 }
 
 /** Authenticate, parse the explicit Project id, authorize its exact capability,
- * and contain every expected rejection in the Server Action result wire. */
+ * and contain every expected rejection in the Server Action result wire. The
+ * capability here is the boundary's early answer; each write reads the
+ * member's role again on its own transaction. */
 async function runLookupAction<Value, Input>(
 	projectIdInput: unknown,
 	input: unknown,
@@ -208,9 +210,9 @@ async function runLookupGovernanceAction<Input>(
 		if (!inputResult.success) return invalidInput(inputResult.error);
 
 		/* `delete` on the EXPLICIT Project id from the displayed state, never the
-		 * caller's active Project. The governance seam re-checks the same
-		 * capability before it takes a lock, so an insufficient role collapses to
-		 * the same not-found shape on both gates. */
+		 * caller's active Project. The governance transaction reads the member's
+		 * role again before it takes a lock, so a role that fell since, or an
+		 * insufficient one, collapses to the same not-found shape on both gates. */
 		const access = await resolveProjectAccess(
 			session.user.id,
 			projectResult.data,

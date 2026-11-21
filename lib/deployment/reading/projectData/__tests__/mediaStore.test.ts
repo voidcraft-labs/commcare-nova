@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import type { HqMediaType } from "@/lib/commcare/hq/appSource";
 import { classifyHqFailure } from "@/lib/commcare/hq/failure";
+import { MemoryMeter, runInLease } from "@/lib/commcare/hq/memoryMeter";
 import {
 	ASSET_SIZE_CAPS_BYTES,
 	MAX_MEDIA_EXPORT_ASSETS,
@@ -303,15 +304,94 @@ describe("judgeReadingMedia", () => {
 					kind: "wrong-kind",
 					sniffedKind: "image",
 				});
+				const held = result.plan.verdicts["CommCareImage/held"];
+				if (held?.kind !== "held") throw new Error("the file was not held");
+				/* Kept by the content the budget counts, not by the file's key. */
 				expect([...result.plan.kept.keys()]).toEqual(
-					keep ? ["CommCareImage/held"] : [],
+					keep ? [held.file.contentHash] : [],
 				);
 				if (keep)
-					expect(result.plan.kept.get("CommCareImage/held")).toEqual(
+					expect(result.plan.kept.get(held.file.contentHash)).toEqual(
 						BYTES.image,
 					);
 			});
 		}
+	});
+
+	it("keeps one buffer for files of three ids that hold the same bytes, exactly what the budget counts", async () => {
+		const plan = planOf([
+			["image", "one"],
+			["image", "two"],
+			["image", "three"],
+		]);
+		await withPeer(async (peer) => {
+			const { answer } = judge(peer, plan, { keep: true });
+			await peer.until(() => peer.open().length === 3);
+			for (const held of peer.open()) peer.answer(held, 200);
+			const result = await answer;
+			if (result.kind !== "done") throw new Error("the files were not judged");
+			const hashes = new Set(
+				Object.values(result.plan.verdicts).map((verdict) =>
+					verdict.kind === "held" ? verdict.file.contentHash : null,
+				),
+			);
+			expect(hashes.size).toBe(1);
+			expect(result.plan.kept.size).toBe(1);
+			const kept = [...result.plan.kept.values()];
+			expect(kept.reduce((sum, bytes) => sum + bytes.byteLength, 0)).toBe(
+				BYTES.image.byteLength,
+			);
+		});
+	});
+
+	it("leaves the request's lease charged for exactly the buffers it keeps: one per content in a create, none in a review", async () => {
+		for (const keep of [true, false]) {
+			const meter = new MemoryMeter({ heap: 64 * MIB, external: 64 * MIB });
+			const lease = meter.open();
+			const plan = planOf([
+				["image", "one"],
+				["image", "two"],
+				["audio", "three"],
+			]);
+			await withPeer(async (peer) => {
+				const { answer } = runInLease(lease, () => judge(peer, plan, { keep }));
+				await peer.until(() => peer.open().length === 3);
+				for (const held of peer.open())
+					peer.answer(
+						held,
+						200,
+						held.id === "three" ? BYTES.audio : BYTES.image,
+					);
+				const result = await answer;
+				if (result.kind !== "done")
+					throw new Error("the files were not judged");
+				const kept = [...result.plan.kept.values()].reduce(
+					(sum, bytes) => sum + bytes.byteLength,
+					0,
+				);
+				expect(kept).toBe(
+					keep ? BYTES.image.byteLength + BYTES.audio.byteLength : 0,
+				);
+				expect(lease.held()).toEqual({ heap: 0, external: kept });
+			});
+			lease.end();
+			expect(meter.held()).toEqual({ heap: 0, external: 0 });
+		}
+	});
+
+	it("keeps a file an earlier step read as that read's own bytes, never a copy", async () => {
+		const plan = planOf([["image", "settled"]]);
+		const read = new Uint8Array(BYTES.image);
+		const result = await judgeReadingMedia({
+			creds: CREDS,
+			plan,
+			keep: true,
+			onProgress: () => {},
+			fetched: new Map([["settled", { kind: "read", bytes: read }]]),
+		});
+		if (result.kind !== "done") throw new Error("the file was not judged");
+		const [kept] = [...result.plan.kept.values()];
+		expect(kept?.buffer).toBe(read.buffer);
 	});
 
 	it("asks for nothing over Nova's count of files", async () => {

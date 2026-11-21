@@ -26,10 +26,11 @@ export type AuthKind = "oauth" | "api-key";
  *
  * The route's verify layer checks the floor scopes (`nova.read`,
  * `nova.write`) before any handler runs; orthogonal scopes
- * (`nova.hq.read` / `nova.hq.write`, `nova.projects.read` /
- * `nova.projects.write`) layer on top via OAuth HTTP scope challenges and per-tool
- * `assertScope` calls inside their handlers. This context carries
- * the full scope set so those per-tool checks can read it without
+ * (`nova.hq.read` / `nova.hq.write` / `nova.hq.import`,
+ * `nova.projects.read` / `nova.projects.write`) layer on top through
+ * `scopedTool.ts::registerScopedTool`, which declares each tool's OAuth
+ * scope challenge and checks its scopes before the handler runs. This
+ * context carries the full scope set so that check can read it without
  * re-parsing the credential, plus an `authKind` tag so
  * `McpScopeError` can land the user on the right "where do I fix
  * this?" surface.
@@ -42,11 +43,9 @@ export interface ToolContext {
 	 * Typed as `readonly string[]` not `Scope[]` because OAuth tokens
 	 * may carry third-party scopes (`openid`, `profile`,
 	 * `offline_access`) Nova doesn't own but must preserve alongside
-	 * its own. Bespoke MCP-only tool register functions (e.g.
-	 * `upload_app_to_hq`, `invite_member`) call `assertScope`
-	 * against this list at the top of their handler to gate
-	 * orthogonal scopes like `nova.hq.write` and
-	 * `nova.projects.write`. Shared
+	 * its own. `registerScopedTool` checks a tool's orthogonal scopes
+	 * (`scopes.ts::TOOL_SCOPES`) against this list before its handler
+	 * runs. Shared
 	 * SA tools never see scopes — the route's verify layer already
 	 * enforced the floor (`nova.read`, `nova.write`) before any tool
 	 * body runs.

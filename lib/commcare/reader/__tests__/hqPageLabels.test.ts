@@ -3,7 +3,7 @@
  *
  * Contract: a finding's `detail.name` holds only words a person knows from
  * CommCare HQ's pages: a name they typed there, or the label HQ's own page
- * shows for a closed word (`HQ_PAGE_LABELS`), never the stored word itself, a
+ * shows for a closed word (`hqPageLabels.ts`), never the stored word itself, a
  * surface key or a column HQ named for itself. A finding at a workflow word
  * carries the end-of-form menu's label, and one at a column format the
  * format menu's. The battery reads Nova's emission with one key changed as

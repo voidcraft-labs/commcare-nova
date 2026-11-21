@@ -2523,12 +2523,15 @@ from the declaration. Publish writes no
 takes out only an entry whose only key is `path`, which HQ's own uploader never
 stores. `cc-show-saved` and
 `cc-show-incomplete` are app content (`appSettings`), written as a key-level
-overlay, and they are the only two profile settings Nova owns on HQ. The
-fifteen other explicit settings, constants at today's device behavior, are
-seeded on HQ only where the target's profile holds no value (absent, null or
-empty) and never written over a value the target holds, because Nova does not
-yet hold them as settings an author sets, and writing over a person's choice
-in HQ would undo it at every publish; the local `.ccz` writes all seventeen.
+overlay, and they are the only two profile settings Nova owns on HQ.
+Web Apps reads the stored `cc-show-incomplete` when it draws its home
+screen. An app missing this setting can show Incomplete Forms even though
+its built profile says `no`. Nova discloses when the first publish would
+remove the app's contribution to the tile. Turning on Show incomplete
+forms preserves it. The fifteen other settings keep the project space's
+values. A newly created target receives Nova's defaults for missing
+settings. A target Nova brought in keeps them absent on both an HQ update
+and an archive built for that target.
 In `translations`, of the keys HQ generates Nova writes only
 `app.display.name` and `homescreen.title`, each only in a language whose
 localized app name differs from `appName`, and it writes every current
@@ -2536,7 +2539,11 @@ language's name; `android.package.name.*`, every runtime UI-catalog key and
 any other key keep HQ's value verbatim, and a generated key is never carried
 (`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides.
 `add_ons` sets needed slugs `true` and keeps the rest; `auto_gps_capture` is
-`true` for a Connect app and otherwise omitted.
+`true` for a Connect app and otherwise omitted. If someone turns off
+Connect in Nova, the next update leaves capture at HQ's stored value. A
+project-space archive uses that observed value even if Nova set it while
+Connect was on. Android records a location when it has permission and a
+GPS fix. Web Apps submits an empty location element.
 A publish reads the current HQ app source before it imports: in preflight for
 an app that is already there, after the create for one it makes, and once more
 where it pushed a lookup table or a place in between.
@@ -2676,10 +2683,11 @@ is answered with every finding it met, and nothing is created.
 ("Readings", "Accepting a reading", "One HQ app, one Nova app", "Ending a
 deployment") own the detail. The binding facts:
 
-- **Nothing is kept until the app exists.** A read answers a stop, an account
-  or a review and stores nothing. A create reads the app again and creates it,
-  in one transaction, only where the digest of what it read is the one the
-  person reviewed (`lib/deployment/reading`).
+- **A read stores nothing.** It answers a stop, an account or a review. A
+  create reads the app again and checks the digest against the review. It
+  publishes accepted media to the Project library before the birth transaction
+  commits the app, its media references, lookup tables, places and deployment
+  claim. Ready files can survive a failed birth (`lib/deployment/reading`).
 - **The source and the resource are read as one bracket.** The stored source
   and the application resource share no revision
   (`corehq/apps/app_manager/models/applications.py`: `ApplicationBase._meta_fields`
@@ -3154,9 +3162,11 @@ and a second reaches the case list with nothing chosen. Preview marks that targe
 `formChosenAfterCase` with the list that chose the case: a list whose own form menu listed the
 form holds that menu with the case on a history entry of its own at the list's URL, so a step
 back off the form shows it and a step back off the menu shows the list with nothing chosen
-(`previewCaseListHeldChoices`, `lib/routing/previewHeldMenu.ts`); the entry stands only in the
-Preview session that took it, so after a change of worker, platform or Preview run Back shows the
-list, as a case the previous worker chose has no standing in the next one's session;
+(`previewCaseListHeldChoices`, `lib/routing/previewHeldMenu.ts`); the entry carries its own id
+and the held cases are kept with the Preview session that took the step, in memory
+(`lib/routing/previewEntryRecords.ts`), never in the browser's history, so an entry of an earlier
+session has none and after a change of worker, platform or Preview run Back shows the list, as a
+case the previous worker chose has no standing in the next one's session;
 a menu screen holds it in its selection, the trail reads menu, case, form as Web Apps' does, each
 crumb cutting the session back to its screen and keeping every selection named before it
 (`lib/routing/previewBreadcrumbs.ts::previewBreadcrumbLetGo`) and naming one
@@ -3171,8 +3181,9 @@ submenu's command, goes on the submenu's own crumb, the same selections deciding
 stands as where a case does (`lib/preview/searchStanding.ts::previewSearchPathModules`), while a submission lets every search go on the screen it lands on and leaves the earlier
 history entries theirs, as Web Apps clears the query data only of the address it pushes after one
 (`app.js`'s submit handler, `onSubmit`), and Home lets them go (`clearExceptApp`;
-`lib/preview/searchStanding.ts`, each history entry recording the searches standing on it,
-`lib/routing/previewSearchHistory.ts`). A history entry records only that its search stands: Web
+`lib/preview/searchStanding.ts`, each history entry naming the searches standing on it by id and
+the session keeping, per entry, each search's context, `lib/routing/previewSearchHistory.ts`). A
+history entry records only that its search stands: Web
 Apps runs it with the answers the worker last gave its query, which the page keeps per query key
 and no submission, crumb or Home clears (`CloudcareUrl.fromJson` over `Utils.getCurrentQueryInputs`,
 written by every `setQueryData`: a Search press and a field changed as the client checks it, each
@@ -3192,8 +3203,10 @@ answers (`lib/preview/platform.ts::searchReplay`). Home also leaves every earlie
 `selections`, and Web Apps routes a popped address to Formplayer's `navigate_menu`, which replays
 them (`router.js::listMenus` → `menus/controller.js::selectMenu`,
 `MenuSessionRunnerService.advanceSessionWithSelections`), so Back past Home shows that screen with
-its cases, and so does Back within one task after a crumb let a case go: each Preview history entry
-records the selections it was shown with and the task of the session it was shown in, and a
+its cases, and so does Back within one task after a crumb let a case go: the Preview session keeps,
+per history entry, the selections it was shown with and the task it was shown in (in memory, never
+in the entry's state, which holds identifiers and topology only,
+`lib/routing/builderHistoryState.ts`), and a
 popstate onto an entry whose selections differ from the session's returns them on Web Apps before
 the screen renders, taking up the entry's task again where Home ended it
 (`lib/routing/previewSelectionsHistory.ts`, `lib/preview/platform.ts::poppedEntrySelections`);

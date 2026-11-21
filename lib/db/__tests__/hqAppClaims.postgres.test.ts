@@ -574,6 +574,7 @@ describe("restoreApp settles what the app gave up", () => {
 			endDeploymentInTransaction(tx, {
 				deploymentId: deploymentB,
 				appId: "app-b",
+				remoteAppId: K1.remoteAppId,
 				byUserId: ACTOR,
 				reason: "stopped",
 				at: new Date("2026-11-12T00:00:00.000Z"),

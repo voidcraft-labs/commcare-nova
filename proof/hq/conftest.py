@@ -79,6 +79,17 @@ class _Named(dict):
         )
 
 
+@pytest.fixture(scope="module")
+def native_capture(captures):
+    """Read a request from the publish-test apps in the native product that the package key names."""
+    from proof.checks.corpus import _captured
+
+    def read(document, name):
+        return _captured(captures / document / "minimum", name)
+
+    return read
+
+
 def load_corpus():
     """The corpus the run checks (``proof.checks.cases.load_corpus``), for a test of this package that collects its
     parameters from it (``test_branches.py``): every corpus read of the package goes through this module, which
@@ -179,16 +190,9 @@ def hq_test_app() -> dict:
 def hq_test_app_with_menu_ids() -> dict:
     """HQ's suite-test app with an id on each menu, as every app Nova publishes holds one.
 
-    HQ's app leaves its menu without a ``unique_id``, and HQ's build of such an
-    app first gives its menus ids and saves it
-    (``models/applications.py::Application.validate_app``, whose
-    ``ModuleIdMissingException`` arm runs ``ensure_module_unique_ids`` with
-    ``should_save``). HQ builds a copy of the app (``make_build``), whose save
-    keeps its version (``ApplicationBase.save`` increments only where
-    ``copy_of`` is unset), so its files name the app's version; the lane builds
-    the app itself, and the same save moves it one past the version the build
-    started at. A test that holds a build's versions to the app's starts from
-    an app whose build saves nothing before it writes its files."""
+    A stable id here also keeps two publishes of this fixture from acquiring different menu ids during
+    validation (Application.ensure_module_unique_ids).
+    """
     app = hq_test_app()
     for index, module in enumerate(app["modules"]):
         module["unique_id"] = f"{index + 1:032x}"

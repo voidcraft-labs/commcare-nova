@@ -13,18 +13,24 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { getSession } from "@/lib/auth-utils";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { commitGuardedBatch } from "@/lib/db/apps";
+import { commitGuardedBatch, restoreApp, softDeleteApp } from "@/lib/db/apps";
+import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
+import { stopHere } from "@/lib/deployment/__tests__/stopHere";
 import { provisionWorkersAction } from "@/lib/deployment/actions";
+import { deploymentNotFound } from "@/lib/deployment/errors";
 import {
 	applyDeploymentObservation,
-	endDeployment,
 	foldDeploymentAttempt,
 	readDeployment,
 	recordCreatedRemoteApp,
 	recordPushedResources,
 	recordRemoteResource,
+	recordWorkerLevelConfirmations,
 } from "@/lib/deployment/store";
-import { provisionWorkers } from "@/lib/deployment/workers";
+import {
+	appDeletedBetweenAccounts,
+	provisionWorkers,
+} from "@/lib/deployment/workers";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -332,6 +338,15 @@ it.each(["refused", "lost", "malformed"])(
 				);
 				expect(result.workers).toHaveLength(1);
 				expect(result.workers[0].password).toBe(sent[0]?.password);
+				expect(
+					await h
+						.db()
+						.selectFrom("hq_remote_writes")
+						.select("resource_id")
+						.where("resource_kind", "=", "worker")
+						.where(openRemoteWrite)
+						.execute(),
+				).toEqual(failure === "refused" ? [] : [{ resource_id: JOSEPH }]);
 				if (failure === "refused") {
 					expect(result.unconfirmed_workers).toBeUndefined();
 					expect(result.message).toContain("Username is already taken");
@@ -540,10 +555,7 @@ it.each([
 it("refuses a project space someone stopped publishing to, saying so and asking HQ nothing", async () => {
 	await seed();
 	await h.seedProjectMember("admin", PROJECT, "admin");
-	await endDeployment(
-		{ ...SCOPE, actorUserId: "admin", role: "admin" },
-		TARGET,
-	);
+	await stopHere({ ...SCOPE, actorUserId: "admin", role: "admin" }, TARGET);
 	const before = await snapshot();
 	await withHttpPeer(async (peer) => {
 		await asUser(async (client) => {
@@ -779,6 +791,266 @@ it("clears an existing worker's places only for an app with an organization, and
 				?.calls()
 				.map((call) => call.method),
 		).toEqual(["GET", "POST", "POST", "GET", "PUT"]);
+	});
+});
+
+it("takes over an existing account in an app with an organization changing only what its persona states: no places cleared, no worker information blanked", async () => {
+	await seed({ organization: true });
+	const found = {
+		objects: [
+			{ id: "foreign-amina", username: "amina@clinic.commcarehq.org" },
+			{ id: "foreign-joseph", username: "joseph@clinic.commcarehq.org" },
+		],
+	};
+	const sent = new Map<string, unknown>();
+	await withHttpPeer(async (peer) => {
+		search(peer, found);
+		for (const id of ["foreign-amina", "foreign-joseph"])
+			wire(peer, id).reply(async (request) => {
+				sent.set(
+					id,
+					JSON.parse((await readHttpRequestBody(request)).toString()),
+				);
+				return { statusCode: 200, data: JSON.stringify({ id }) };
+			});
+		await asUser(async (client) => {
+			const adopted = body(
+				await call(client, { adopt_personas: [AMINA, JOSEPH] }),
+			);
+			expect(adopted.workers).toHaveLength(2);
+		});
+	});
+	// Amina states her cadre and stands nowhere; Joseph states nothing. An
+	// empty list would remove every place the worker holds
+	// (`api/user_updates.py::_update_location`), and an empty value would
+	// replace the worker's own.
+	expect(sent.get("foreign-amina")).toEqual({
+		user_data: { cadre: "community" },
+	});
+	expect(sent.get("foreign-joseph")).toEqual({});
+});
+
+it("records every account made before someone stopped publishing mid-call, keeps a Project move waiting while one may still land, and makes no more", async () => {
+	await seed();
+	await h.seedProjectMember("admin", PROJECT, "admin");
+	const openWorkerWrites = () =>
+		h
+			.db()
+			.selectFrom("hq_remote_writes")
+			.select("resource_id")
+			.where("resource_kind", "=", "worker")
+			.where(openRemoteWrite)
+			.execute();
+	let password: unknown;
+	await withHttpPeer(async (peer) => {
+		search(peer);
+		wire(peer).reply(async (request) => {
+			password = JSON.parse(
+				(await readHttpRequestBody(request)).toString(),
+			).password;
+			// While the account may land, its write is open, which a Project
+			// move waits for.
+			expect(await openWorkerWrites()).toEqual([{ resource_id: AMINA }]);
+			// Someone stops publishing here while CommCare HQ makes Amina.
+			await stopHere({ ...SCOPE, actorUserId: "admin", role: "admin" }, TARGET);
+			return { statusCode: 201, data: '{"id":"hq-amina"}' };
+		});
+		await asUser(async (client) => {
+			const result = body(await call(client), true);
+			expect(result.error_type).toBe("app_not_published");
+			expect(result.workers).toEqual([
+				expect.objectContaining({
+					persona_uuid: AMINA,
+					hq_user_id: "hq-amina",
+					password,
+				}),
+			]);
+		});
+		// Joseph's account was never sent.
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.method),
+		).toEqual(["GET", "POST"]);
+	});
+	// The ended deployment keeps the worker mapping, as an ending keeps every
+	// worker mapping, so the next call meets Amina's account as Nova's.
+	const record = await readDeployment(SCOPE, TARGET);
+	expect(
+		record?.active
+			.filter((row) => row.kind === "worker")
+			.map((row) => [row.novaResourceId, row.remoteId]),
+	).toEqual([[AMINA, "hq-amina"]]);
+	expect(await openWorkerWrites()).toEqual([]);
+});
+
+/* The app goes to recently deleted, or its caller is made a viewer, while
+ * CommCare HQ makes the first account. That account is real and its password
+ * exists only in the answer, so it is recorded on its admission and answered;
+ * no further account is sent. */
+it.each([
+	["deleted", appDeletedBetweenAccounts("clinic")],
+	["left to a caller who can only view it", deploymentNotFound().message],
+] as const)(
+	"records and answers the account made before the app was %s mid-call, and makes no more",
+	async (loss, message) => {
+		await seed();
+		let password: unknown;
+		await withHttpPeer(async (peer) => {
+			search(peer);
+			wire(peer).reply(async (request) => {
+				password = JSON.parse(
+					(await readHttpRequestBody(request)).toString(),
+				).password;
+				if (loss === "deleted") await softDeleteApp(APP, "creator");
+				else await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+				return { statusCode: 201, data: '{"id":"hq-amina"}' };
+			});
+			await asUser(async (client) => {
+				const result = body(await call(client), true);
+				expect(result).toMatchObject({ error_type: "not_found", message });
+				expect(result.workers).toEqual([
+					expect.objectContaining({
+						persona_uuid: AMINA,
+						hq_user_id: "hq-amina",
+						password,
+					}),
+				]);
+			});
+			// Joseph's account was never sent.
+			expect(
+				peer
+					.getCallHistory()
+					?.calls()
+					.map((call) => call.method),
+			).toEqual(["GET", "POST"]);
+		});
+		if (loss === "deleted") await restoreApp(APP, "creator");
+		else await h.seedProjectMember(ACTOR, PROJECT, "editor");
+		const record = await readDeployment(SCOPE, TARGET);
+		expect(
+			record?.active
+				.filter((row) => row.kind === "worker")
+				.map((row) => [row.novaResourceId, row.remoteId]),
+		).toEqual([[AMINA, "hq-amina"]]);
+		expect(
+			await h
+				.db()
+				.selectFrom("hq_remote_writes")
+				.select("id")
+				.where(openRemoteWrite)
+				.execute(),
+		).toEqual([]);
+	},
+);
+
+/* The caller loses the deployment between the last account's admission and
+ * the call's record: the record rests on the admissions, so the account is
+ * recorded all the same, and the answer holds the record only for a caller
+ * who may still read it, never the names it holds of the Project's other
+ * members. */
+it.each([
+	["made a viewer", true],
+	["removed from the Project", false],
+] as const)(
+	"records the account a caller %s after its admission made, and answers the record only where they may still read it",
+	async (loss, mayRead) => {
+		await seed();
+		const colleague = "colleague-who-confirmed";
+		await h.seedProjectMember(colleague, PROJECT, "editor");
+		await recordWorkerLevelConfirmations(
+			{ ...SCOPE, actorUserId: colleague },
+			TARGET,
+			["district"],
+			{ expectedEndings: 0 },
+		);
+		const { doc } = await loadAppBlueprint(APP, ACTOR, "edit");
+		await withHttpPeer(async (peer) => {
+			search(peer);
+			let password: unknown;
+			wire(peer).reply(async (request) => {
+				password = JSON.parse(
+					(await readHttpRequestBody(request)).toString(),
+				).password;
+				if (mayRead) await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+				else await h.removeProjectMember(ACTOR, PROJECT);
+				return { statusCode: 201, data: '{"id":"hq-amina"}' };
+			});
+			const outcome = await provisionWorkers({
+				scope: SCOPE,
+				doc,
+				locations: [],
+				...TARGET,
+				workers: [{ personaUuid: AMINA, username: "amina" }],
+			});
+			expect(outcome.refusal, loss).toBeNull();
+			expect(outcome.workers).toEqual([
+				expect.objectContaining({ userId: "hq-amina", password }),
+			]);
+			if (mayRead)
+				expect(outcome.deployment?.confirmations).toContainEqual(
+					expect.objectContaining({ confirmedByName: colleague }),
+				);
+			else {
+				expect(outcome.deployment).toBeNull();
+				expect(JSON.stringify(outcome)).not.toContain(colleague);
+			}
+		});
+		const theirs = await readDeployment(
+			{ ...SCOPE, actorUserId: colleague },
+			TARGET,
+		);
+		expect(
+			theirs?.active
+				.filter((row) => row.kind === "worker")
+				.map((row) => [row.novaResourceId, row.remoteId]),
+		).toEqual([[AMINA, "hq-amina"]]);
+		expect(theirs?.confirmations).toContainEqual(
+			expect.objectContaining({ confirmedByName: colleague }),
+		);
+		expect(
+			await h
+				.db()
+				.selectFrom("hq_remote_writes")
+				.select("id")
+				.where(openRemoteWrite)
+				.execute(),
+		).toEqual([]);
+	},
+);
+
+it("answers the browser the account made before the app was deleted mid-call, with the deletion beside it", async () => {
+	await seed();
+	session();
+	await withHttpPeer(async (peer) => {
+		search(peer);
+		let password: unknown;
+		wire(peer).reply(async (request) => {
+			password = JSON.parse(
+				(await readHttpRequestBody(request)).toString(),
+			).password;
+			await softDeleteApp(APP, "creator");
+			return { statusCode: 201, data: '{"id":"hq-amina"}' };
+		});
+		const result = await provisionWorkersAction({
+			appId: APP,
+			...TARGET,
+			workers: requested.map((worker) => ({
+				personaUuid: worker.persona_uuid,
+				username: worker.username,
+			})),
+		});
+		if (!result.success) throw new Error(result.message);
+		expect(result.data.refusal).toMatchObject({
+			code: "app_not_available",
+			message: appDeletedBetweenAccounts("clinic"),
+		});
+		expect(result.data.workers.map((worker) => worker.password)).toEqual([
+			password,
+		]);
+		expect(result.data.view).toBeNull();
+		expect(vi.mocked(log.error)).not.toHaveBeenCalled();
 	});
 });
 

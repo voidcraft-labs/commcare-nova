@@ -131,8 +131,7 @@ def _run(command, *, shown, log: Path, env=None, stdout=None, timeout=PRODUCER_T
 def produce_family(family, directory: Path, log: Path, *, vitest_lock=None, timeout=PRODUCER_TIMEOUT_SECONDS):
     """Run ``family``'s producer into ``directory``, its output in ``log``: (exit status, why it failed or None).
 
-    A Vitest writer runs under ``vitest_lock``: Vitest's writers share its
-    module cache in ``node_modules``, so one runs at a time.
+    A Vitest writer runs under ``vitest_lock``, one at a time.
     """
     directory.mkdir(parents=True, exist_ok=True)
     environment = dict(os.environ)

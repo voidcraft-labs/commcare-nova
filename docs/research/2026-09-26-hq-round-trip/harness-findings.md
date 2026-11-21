@@ -362,8 +362,10 @@ symptom.
     (`proof/android`), a form opened from home keeps its header either way
     (home hands form entry the menu's text, and the title is read only where
     it hands none), and the record of a completed save is named "Register"
-    before the save in HQ and "Registrar" after. Defect 14's fix for the
-    data node's name assumes the title is right. *Documents:*
+    before the save in HQ and "Registrar" after. On the HQ-authored `hq-new-app`, the follow-up
+    form starts with an empty title. Android gives a new save no default title and its completed
+    record the installed definition's fallback name, `NAME`. After the first publish both take the
+    form's name. Defect 14's fix for the data node's name assumes the title is right. *Documents:*
     `localization-bilingual`, `localization-escaped`, `localization-stale`.
 
 47. **HQ's form builder warns about reads of case properties no form writes.**
@@ -643,6 +645,16 @@ that no build comparison and no session of Core's or Formplayer's could:
     in Web Apps no longer has the Incomplete Forms screen.
     *Documents:* every document; observed on `targeted-survey-menu`.
 
+    The same stored-property read matters when an app comes in from HQ.
+    An app already available in Web Apps can lack this property even though
+    its built profile says `no`. Nova reads the setting as off. Its first
+    publish writes `no`, so this app stops contributing the Incomplete
+    Forms tile; another listed app can still show it. Existing saved sessions
+    survive. The first-publish review names the tile while the app runs in
+    Web Apps with the setting off. Turning on Show incomplete forms keeps it.
+    The pinned Web Apps client observes the home tile at `/home/tiles/incomplete`
+    on `hq-plain`, `hq-questions`, `hq-menus` and `hq-kept-settings`.
+
 What the same runs show of earlier findings, each on the client
 (`proof/webapps/test_*.py`):
 
@@ -760,7 +772,14 @@ device meets it, on the documents the register names:
   nothing. Allowed, as a worker allows it, the permission lets the
   device's GPS give HQ's build's form its fix, which `PollSensorAction`
   writes into the saved form's meta (`deviceGave`, `metaLocation`); B's
-  and the local archive's saved forms hold no location.
+  and the local archive's saved forms hold no location. When Nova turns on
+  Auto Capture Location for a brought-in Connect app, it enables the sensor
+  on every form. An Android submission carries a location when permission
+  is granted and the device supplies a fix. Formplayer submits the empty
+  location element. Turning Connect off omits the HQ setting on the next
+  upload, so an archive made for that project space still follows its last
+  observed value, including when Nova set it earlier. Ownership determines
+  whether Nova lists capture among settings kept in HQ (`keptArchive.test.ts`).
 - **Defect 12 (single-date prompt), typed.** After the Case List save the
   single-date prompt is a text box on Android; a worker who types into it
   sends what they typed inside the search's CSQL
@@ -2399,6 +2418,16 @@ false`, and a `name` step in an app's text binds the case property called `name`
 declares where nothing writes it. `ReaderSpellingRuntimeTest` keeps the pair as a negative control:
 `name` reads blank and `case_name` reads the case's name.
 
+An update through HQ's app import API can advance the working app's save
+counter twice. The response returns the final `app.version`
+(`app_import_api.py::_handle_import_app`). When HQ prunes unused media
+paths, `hqmedia/models.py::remove_unused_mappings` saves the app again if
+the map changed. The same counter difference can come from a concurrent
+edit, so a landed publish with an extra increment leaves an unread baseline.
+The next publish asks before overwriting the app. A post-import read whose
+bracketing versions both equal the acknowledgment still supplies the target's
+kept settings for download, Preview and the deployment card.
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's
@@ -2424,7 +2453,10 @@ declares where nothing writes it. `ReaderSpellingRuntimeTest` keeps the pair as 
     every publish before step 4 and every control retained then; an app
     declaring Android only is stored with it false and listed nowhere.
     Defect 21's selector then shows only on documents that declare Web Apps.
-    *Documents:* every document.
+    *Step 6:* `hq-new-app` was authored with Web Apps off. Its worker home pages on desktop and
+    phone omit it, while HQ's App Preview can open its forms. After the confirmed first publish
+    enables Web Apps, both worker home pages list the app and the worker scripts can run there.
+    App Preview runs the same scripts on both states. *Documents:* every document.
 
 ## Equivalences, each proven by running its readers
 

@@ -8,6 +8,7 @@ import {
 	readFile,
 	readlink,
 	rm,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,8 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
 	androidRuntime,
+	checkoutView,
+	HARNESS_PATHS,
 	laneOptions,
 	proofMatrix,
 	refreshTimings,
@@ -56,7 +59,16 @@ interface FakeDocker {
 	held?: boolean;
 	/** Exit code of `docker pull` (it makes the image held on 0). */
 	pull?: number;
+	/** What the surface extraction writes as surface.json: JSON text, or a link to this path. */
+	surfaceFile?: { text: string } | { link: string };
+	/** A link the lane's server leaves in its output, at this path under /out, to this target. */
+	outputLink?: { path: string; target: string };
+	/** Requests the lane's server makes through its relay before it exits: each one's answer is recorded. */
+	relay?: string[];
 }
+
+/** `value` as one word of a POSIX shell command. */
+const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** The id `docker image inspect` gives the fake's image. */
 const IMAGE_ID = `sha256:${"ab".repeat(32)}`;
@@ -71,7 +83,7 @@ async function fakeDocker(behavior: FakeDocker) {
 	await writeFile(
 		script,
 		`#!/usr/bin/env node
-const { appendFileSync, existsSync, mkdirSync, writeFileSync } = require("node:fs");
+const { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } = require("node:fs");
 const { dirname } = require("node:path");
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
@@ -94,14 +106,41 @@ if (args[0] === "pull") {
 	if ((behavior.pull ?? 0) === 0) writeFileSync(pulled, "");
 	process.exit(behavior.pull ?? 0);
 }
+// What the container is shown at /work, read-only: every path under it, as the run saw it.
+const work = args.find((arg, index) => args[index - 1] === "-v" && arg.endsWith(":/work:ro"));
+if (work) {
+	const source = work.slice(0, -":/work:ro".length);
+	appendFileSync(${JSON.stringify(join(scratch, "work-seen.log"))}, JSON.stringify(readdirSync(source, { recursive: true }).sort()) + "\\n");
+}
 if (args[0] === "run" && args.includes("test")) process.exit(behavior.installed);
 if (args[0] === "run" && args.includes("ci")) process.exit(behavior.npmCi);
-if (args[0] === "compose" && args.includes("run")) process.exit(behavior.harness);
+if (args[0] === "compose" && args.includes("run")) {
+	if (behavior.outputLink) {
+		symlinkSync(behavior.outputLink.target, mount("/out") + "/" + behavior.outputLink.path);
+	}
+	if (behavior.relay) {
+		const requests = mount("/lane/requests");
+		const answers = args.find((arg, index) => args[index - 1] === "-v" && arg.endsWith(":/lane/answers:ro")).slice(0, -":/lane/answers:ro".length);
+		const answered = {};
+		for (const name of behavior.relay) writeFileSync(requests + "/" + name + ".request", "");
+		const deadline = Date.now() + 20000;
+		while (Object.keys(answered).length < behavior.relay.length && Date.now() < deadline) {
+			for (const name of behavior.relay) {
+				if (existsSync(answers + "/" + name + ".code")) answered[name] = readFileSync(answers + "/" + name + ".code", "utf8").trim();
+			}
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+		}
+		writeFileSync(${JSON.stringify(join(scratch, "relayed.json"))}, JSON.stringify({ answered, files: readdirSync(answers).sort() }));
+	}
+	process.exit(behavior.harness);
+}
 if (args[0] === "run" && args.includes("proof.lane.extraction")) {
 	if (behavior.surface !== 0) process.exit(behavior.surface);
 	const out = mount("/out");
 	mkdirSync(out, { recursive: true });
-	writeFileSync(out + "/surface.json", JSON.stringify({ generated: true }) + "\\n");
+	const surfaceFile = behavior.surfaceFile ?? { text: JSON.stringify({ items: { generated: {} } }) + "\\n" };
+	if ("link" in surfaceFile) symlinkSync(surfaceFile.link, out + "/surface.json");
+	else writeFileSync(out + "/surface.json", surfaceFile.text);
 	writeFileSync(out + "/extraction.json", JSON.stringify({ image: "the id given" }) + "\\n");
 	process.exit(0);
 }
@@ -148,9 +187,39 @@ function environmentOf(given: Record<string, string>): NodeJS.ProcessEnv {
 }
 
 /**
+ * A copy of a checkout without git, as proof/remote/run.sh leaves one: the
+ * files it lists in .proof/checkout-files, beside an ignored .env it does
+ * not list. The runner's view of it is what the container is shown.
+ */
+async function smallCheckout() {
+	const checkout = join(scratch, "checkout");
+	await mkdir(join(checkout, ".proof"), { recursive: true });
+	await mkdir(join(checkout, "proof"), { recursive: true });
+	await writeFile(join(checkout, "package-lock.json"), "{}\n");
+	await writeFile(join(checkout, "proof", "pytest.ini"), "[pytest]\n");
+	await writeFile(join(checkout, ".env"), "SECRET=not for the container\n");
+	await writeFile(
+		join(checkout, ".proof", "checkout-files"),
+		"package-lock.json\0proof/pytest.ini\0",
+	);
+	return checkout;
+}
+
+/** Every path the container was shown at /work, one list per container started. */
+async function workSeen(): Promise<string[][]> {
+	const text = await readFile(join(scratch, "work-seen.log"), "utf8").catch(
+		() => "",
+	);
+	return text
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line));
+}
+
+/**
  * Runs one of the runner's entry points (`main` for `npm run proof`, `shard`
  * for `--lane`) as its command line would, writing into an output directory
- * of the test's own.
+ * of the test's own, over a small checkout of the test's own.
  */
 async function runner(
 	entry: "main" | "shard",
@@ -169,7 +238,11 @@ async function runner(
 				"--input-type=module",
 				"-e",
 				CALL_RUNNER,
-				JSON.stringify([RUNNER, entry, [args, { platform }]]),
+				JSON.stringify([
+					RUNNER,
+					entry,
+					[args, { platform, checkout: await smallCheckout() }],
+				]),
 			],
 			{ cwd: WORKTREE, env: environment },
 		);
@@ -210,6 +283,13 @@ const mountOf = (call: string[] | undefined, target: string) =>
 			(arg, index) => call[index - 1] === "-v" && arg.endsWith(`:${target}`),
 		)
 		?.slice(0, -(target.length + 1));
+/** The source of the read-only mount at `target`. */
+const readOnlyMountOf = (call: string[] | undefined, target: string) =>
+	call
+		?.find(
+			(arg, index) => call[index - 1] === "-v" && arg.endsWith(`:${target}:ro`),
+		)
+		?.slice(0, -(target.length + 4));
 /** The fork server's own arguments: everything after `python -m proof.lane.serve`. */
 const served = (call: string[] | undefined) =>
 	call?.slice(call.indexOf("proof.lane.serve") + 1);
@@ -231,8 +311,18 @@ it("fills a Linux node_modules volume once, serves the selected checks under /wo
 	expect(volume).toMatch(/^nova-proof-node-modules-[0-9a-f]{16}$/);
 
 	const harness = invoked.find(composeRun);
-	expect(harness).toContain(`${WORKTREE}:/work:ro`);
-	expect(harness).toContain(`${volume}:/work/node_modules`);
+	// The container sees a view of the checkout: the files it lists and an empty node_modules for the install's
+	// mount, never the ignored .env, and the view is gone once the run ends.
+	const view = readOnlyMountOf(harness, "/work");
+	expect(view?.startsWith(join(WORKTREE, ".proof", "views"))).toBe(true);
+	expect(existsSync(view as string)).toBe(false);
+	expect((await workSeen()).at(-1)).toEqual([
+		"node_modules",
+		"package-lock.json",
+		"proof",
+		"proof/pytest.ini",
+	]);
+	expect(harness).toContain(`${volume}:/work/node_modules:ro`);
 	expect(harness?.slice(harness.indexOf("harness") + 1, -1)).toEqual([
 		"python",
 		"-m",
@@ -329,7 +419,7 @@ it("mounts the checkout's own node_modules on Linux instead of a volume", async 
 	const invoked = await calls(log);
 	expect(invoked.some((call) => call[0] === "run")).toBe(false);
 	expect(invoked.find(composeRun)).toContain(
-		`${join(WORKTREE, "node_modules")}:/work/node_modules`,
+		`${join(WORKTREE, "node_modules")}:/work/node_modules:ro`,
 	);
 });
 
@@ -651,9 +741,12 @@ it("keeps a run whose owner file is still being written or cannot be read, and a
 	}
 });
 
-it("runs a CI shard over the queues: commands inside, the main queue's directory and the corpus writable, the store read-only, no node_modules", async () => {
+const BLOCK = "a".repeat(64);
+const OTHER = "b".repeat(64);
+
+it("runs a CI shard over the queues: commands on the host through the relay, the queue's directory, the corpus and the store read-only, no node_modules, no credential", async () => {
 	const early = join(scratch, "early-queue.json");
-	await writeFile(early, "{}\n");
+	await writeFile(early, `${JSON.stringify({ blocks: [{ id: BLOCK }] })}\n`);
 	const queue = join(scratch, "arrives", "queue.json");
 	const corpus = join(scratch, "corpus-to-come");
 	const store = join(scratch, "store", "read");
@@ -672,8 +765,6 @@ it("runs a CI shard over the queues: commands inside, the main queue's directory
 			"node proof/ci/claim.mjs {block}",
 			"--wait-for",
 			"node proof/ci/wait.mjs proof-queue",
-			"--command-env",
-			"ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL",
 		],
 		"linux",
 		{
@@ -691,23 +782,34 @@ it("runs a CI shard over the queues: commands inside, the main queue's directory
 	expect(invoked.some((call) => call[0] === "run")).toBe(false); // no node_modules install or probe
 	const harness = invoked.find(composeRun);
 	expect(mountOf(harness, "/work/node_modules")).toBeUndefined();
-	expect(harness).toContain(`${WORKTREE}:/work:ro`);
+	expect(readOnlyMountOf(harness, "/work")).toBeDefined();
+	// A shard is shown the harness and the surface alone.
+	expect((await workSeen()).at(-1)).toEqual([
+		"node_modules",
+		"package-lock.json",
+		"proof",
+		"proof/pytest.ini",
+	]);
 	expect(harness).toContain(`${early}:/lane/early-queue.json:ro`);
-	expect(harness).toContain(`${join(scratch, "arrives")}:/lane/queue`);
-	expect(harness).toContain(`${corpus}:/corpus`);
+	expect(harness).toContain(`${join(scratch, "arrives")}:/lane/queue:ro`);
+	expect(harness).toContain(`${corpus}:/corpus:ro`);
 	expect(harness).toContain(`${store}:/store:ro`);
+	expect(mountOf(harness, "/lane/requests")).toBeDefined();
+	expect(readOnlyMountOf(harness, "/lane/answers")).toBeDefined();
 	expect(flagValue(harness, "PROOF_STORE")).toBe("/store");
 	expect(existsSync(corpus) && existsSync(join(scratch, "arrives"))).toBe(true);
+	// No credential reaches the container: the commands that use them run on the host.
 	expect(passed(harness).sort()).toEqual([
-		"ACTIONS_RESULTS_URL",
-		"ACTIONS_RUNTIME_TOKEN",
 		"PROOF_CORPUS",
 		"PROOF_FINGERPRINTS",
 		"PROOF_IMAGE_ID",
 		"PROOF_READERS",
 		"PROOF_STORE",
 	]);
+	expect(JSON.stringify(harness)).not.toContain("token");
 	expect(flagValue(harness, "PROOF_READERS")).toBe("0");
+	const relay =
+		"python -m proof.lane.relay --requests /lane/requests --answers /lane/answers";
 	expect(served(harness)).toEqual([
 		"--out",
 		"/out",
@@ -720,13 +822,153 @@ it("runs a CI shard over the queues: commands inside, the main queue's directory
 		"--queue",
 		"/lane/queue/queue.json",
 		"--claim",
-		"node proof/ci/claim.mjs {block}",
+		`${relay} claim {block}`,
 		"--wait-for",
-		"node proof/ci/wait.mjs proof-queue",
-		"--command-env",
-		"ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL",
+		`${relay} wait`,
 	]);
 	expect(invoked.filter(composeDown)).toHaveLength(1);
+});
+
+// The relay's other half, end to end over the runner's own broker: the container names a request, and the host
+// runs the command with the job's credentials and answers with its status. The plausible failures: a credential
+// handed into the container, a command run for a block no queue holds (so a container could make the host claim,
+// or run, anything), and a request left unanswered, which would hold the server for ever.
+it("runs a shard's claims on the host with its credentials, for the queue's blocks alone, and answers every request", async () => {
+	const early = join(scratch, "early-queue.json");
+	await writeFile(early, `${JSON.stringify({ blocks: [{ id: BLOCK }] })}\n`);
+	const ran = join(scratch, "ran");
+	await mkdir(ran);
+	const log = await fakeDocker({
+		installed: 0,
+		npmCi: 0,
+		harness: 0,
+		relay: [`claim-${BLOCK}`, `claim-${OTHER}`, "claim-not-a-block", "wait"],
+	});
+	const result = await runner(
+		"shard",
+		[
+			"--early-queue",
+			early,
+			"--claim",
+			`printf '%s %s' "$PROOF_LANE_BLOCK" "$ACTIONS_RUNTIME_TOKEN" > ${quoted(ran)}/{block}; exit 1`,
+		],
+		"linux",
+		{ ACTIONS_RUNTIME_TOKEN: "token", ACTIONS_RESULTS_URL: "https://x" },
+	);
+	expect(result.code).toBe(0);
+	// The early queue's block ran on the host with the token, and answered with the command's own status (taken);
+	// a block no queue names, a name that is no block, and a wait this shard was given no command for were refused
+	// and ran nothing.
+	expect(
+		JSON.parse(await readFile(join(scratch, "relayed.json"), "utf8")),
+	).toEqual({
+		answered: {
+			[`claim-${BLOCK}`]: "1",
+			[`claim-${OTHER}`]: "2",
+			"claim-not-a-block": "2",
+			wait: "2",
+		},
+		files: [
+			`claim-${BLOCK}.code`,
+			`claim-${OTHER}.code`,
+			"claim-not-a-block.code",
+			"wait.code",
+		].sort(),
+	});
+	expect(await readdir(ran)).toEqual([BLOCK]);
+	expect(await readFile(join(ran, BLOCK), "utf8")).toBe(`${BLOCK} token`);
+	expect(passed((await calls(log)).find(composeRun))).not.toContain(
+		"ACTIONS_RUNTIME_TOKEN",
+	);
+});
+
+// What a container wrote is data. The plausible failure: a link the container left in its output is followed by
+// a later host step (an upload follows links), so a host file is published. The output is moved aside instead.
+it("moves aside an output the container left a link in, names it, and exits with the seal's status", async () => {
+	const secret = join(scratch, "secret.txt");
+	await writeFile(secret, "a host file\n");
+	await fakeDocker({
+		installed: 0,
+		npmCi: 0,
+		harness: 0,
+		outputLink: { path: "leak.txt", target: secret },
+	});
+	const result = await proof([], "darwin");
+	expect(result.code).toBe(6);
+	expect(result.stderr).toContain("leak.txt, which is a link and not a file");
+	expect(existsSync(join(scratch, "out"))).toBe(false);
+	expect(existsSync(join(scratch, "out.refused", "leak.txt"))).toBe(true);
+});
+
+it("keeps an output of plain files in place and returns the server's status", async () => {
+	await fakeDocker({ installed: 0, npmCi: 0, harness: 1 });
+	expect((await proof([], "darwin")).code).toBe(1);
+	expect(existsSync(join(scratch, "out"))).toBe(true);
+	expect(existsSync(join(scratch, "out.refused"))).toBe(false);
+});
+
+// The container is shown what git lists of the checkout and nothing it ignores. The plausible failures: an ignored
+// .env or key, or .git with a persisted credential, mounted into a container that runs upstream code with a network;
+// an uncommitted edit left out of the run it was made for.
+it("shows the container the files git lists, an uncommitted edit among them, and nothing git ignores", async () => {
+	const root = join(scratch, "repository");
+	await mkdir(join(root, "proof"), { recursive: true });
+	const git = (...args: string[]) =>
+		run("git", ["-C", root, ...args], {
+			env: {
+				...process.env,
+				GIT_CONFIG_GLOBAL: "/dev/null",
+				GIT_CONFIG_NOSYSTEM: "1",
+				GIT_AUTHOR_NAME: "test",
+				GIT_AUTHOR_EMAIL: "test@example.org",
+				GIT_COMMITTER_NAME: "test",
+				GIT_COMMITTER_EMAIL: "test@example.org",
+			},
+		});
+	await git("init", "--quiet");
+	await writeFile(join(root, ".gitignore"), ".env*\n*.pem\n");
+	await writeFile(join(root, "proof", "run.mjs"), "tracked\n");
+	await writeFile(join(root, "gone.txt"), "removed since\n");
+	await symlink("proof/run.mjs", join(root, "AGENTS.md"));
+	await git("add", ".");
+	await git("commit", "--quiet", "-m", "base");
+	await rm(join(root, "gone.txt"));
+	await writeFile(join(root, "proof", "new.py"), "an uncommitted edit\n");
+	await writeFile(join(root, ".env"), "SECRET=1\n");
+	await writeFile(join(root, "proof", "key.pem"), "a key\n");
+	const view = await checkoutView(join(scratch, "view"), { root });
+	const { stdout } = await run("find", [".", "-not", "-type", "d"], {
+		cwd: view,
+	});
+	expect(stdout.trim().split("\n").sort()).toEqual([
+		"./.gitignore",
+		"./AGENTS.md",
+		"./proof/new.py",
+		"./proof/run.mjs",
+	]);
+	expect(await readlink(join(view, "AGENTS.md"))).toBe("proof/run.mjs");
+	expect(existsSync(join(view, "node_modules"))).toBe(true);
+	// A shard's view holds the harness alone.
+	const harness = await checkoutView(join(scratch, "harness"), {
+		root,
+		only: HARNESS_PATHS,
+	});
+	const shown = await run("find", [".", "-not", "-type", "d"], {
+		cwd: harness,
+	});
+	expect(shown.stdout.trim().split("\n").sort()).toEqual([
+		"./proof/new.py",
+		"./proof/run.mjs",
+	]);
+});
+
+it("refuses to show a container a checkout whose files cannot be listed", async () => {
+	const root = join(scratch, "copy");
+	await mkdir(root);
+	await writeFile(join(root, ".env"), "SECRET=1\n");
+	await expect(checkoutView(join(scratch, "view"), { root })).rejects.toThrow(
+		"is no git checkout and holds no .proof/checkout-files",
+	);
 });
 
 it("refuses a shard with no queue, a main queue without a corpus, a missing early queue, or an option without its value", async () => {
@@ -973,7 +1215,11 @@ it("reads a container's memory as docker stats prints it", () => {
 
 /** `npm run surface`, writing the extraction into the test's own `output` and the surface to `destination`. */
 async function regenerate(destination: string, output: string) {
-	const call = JSON.stringify([RUNNER, "surface", [{ destination, output }]]);
+	const call = JSON.stringify([
+		RUNNER,
+		"surface",
+		[{ destination, output, checkout: await smallCheckout() }],
+	]);
 	try {
 		await run(
 			process.execPath,
@@ -996,12 +1242,14 @@ it("regenerates the surface offline and writes it where the manifest keeps it", 
 	const destination = join(scratch, "surface.json");
 	const output = join(scratch, "extraction");
 	expect(await regenerate(destination, output)).toBe(0);
-	expect(await readFile(destination, "utf8")).toBe('{"generated":true}\n');
+	expect(await readFile(destination, "utf8")).toBe(
+		'{"items":{"generated":{}}}\n',
+	);
 	const extraction = (await calls(log)).find((call) =>
 		call.includes("proof.lane.extraction"),
 	);
 	expect(extraction?.slice(0, 4)).toEqual(["run", "--rm", "--network", "none"]);
-	expect(extraction).toContain(`${WORKTREE}:/work:ro`);
+	expect(readOnlyMountOf(extraction, "/work")).toBeDefined();
 	// The extraction, its timings and its key stay together, so PROOF_SURFACE_EXTRACTION can name the directory.
 	expect(mountOf(extraction, "/out")).toBe(output);
 	expect(flagValue(extraction, "PROOF_IMAGE_ID")).toBe(IMAGE_ID);
@@ -1017,9 +1265,40 @@ it("leaves the committed surface alone when the extraction fails", async () => {
 	expect(await readFile(destination, "utf8")).toBe("committed\n");
 });
 
+// What the extraction wrote is data: a surface that is a link, or no surface JSON, never reaches the checkout.
+it.each([
+	["a link to a host file", "link", 6],
+	["not JSON", "text", 1],
+	["JSON with no items", "itemless", 1],
+] as const)(
+	"leaves the committed surface alone when the extraction's surface is %s",
+	async (_, kind, code) => {
+		const secret = join(scratch, "secret.json");
+		await writeFile(secret, '{"items":{"secret":{}}}\n');
+		await fakeDocker({
+			installed: 0,
+			npmCi: 0,
+			harness: 0,
+			surface: 0,
+			surfaceFile:
+				kind === "link"
+					? { link: secret }
+					: { text: kind === "text" ? "not json\n" : '{"generated":true}\n' },
+		});
+		const destination = join(scratch, "surface.json");
+		await writeFile(destination, "committed\n");
+		expect(await regenerate(destination, join(scratch, "extraction"))).toBe(
+			code,
+		);
+		expect(await readFile(destination, "utf8")).toBe("committed\n");
+	},
+);
+
 // Execute the workflow's actual shell and the runner's real CLI; Docker alone is controlled.
 // This catches a cold cache being refused before the server starts, and shell status mapping
-// hiding that refusal as a check failure. No HQ image or long-running proof is needed.
+// hiding that refusal as a check failure. No HQ image or long-running proof is needed. The CLI
+// fingerprints this checkout and makes the container's view of its harness, seconds each on a
+// shared runner, where the default five would decide by the runner's load.
 it.each([
 	{ readers: "0", warm: false, server: 0, missingQueue: false, expected: 0 },
 	{ readers: "all", warm: false, server: 0, missingQueue: false, expected: 0 },
@@ -1099,4 +1378,5 @@ it.each([
 			],
 		).toBe("error");
 	},
+	30_000,
 );

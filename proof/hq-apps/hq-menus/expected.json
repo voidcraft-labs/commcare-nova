@@ -130,6 +130,7 @@
 		"case-names-checked",
 		"list-settings-respelled",
 		"link-held-case-guards-added",
-		"registration-label-fixed"
+		"registration-label-fixed",
+		"incomplete-forms-tile-hidden"
 	]
 }

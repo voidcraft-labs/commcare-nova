@@ -7,8 +7,10 @@
  * The list is the reader's own choices (`assemble.ts::READER_CANONICAL_CHOICES`,
  * each written by the reader module that makes it) and the print collisions
  * of one expression slot (`expressions/canonical.ts::canonicalExpression`),
- * applied to every slot of the document. Nothing here parses or prints: each
- * row is a rewrite over the typed document.
+ * applied to every slot of the document. Nothing here parses: each row is a
+ * rewrite over the typed document, and each rewrite of a slot is taken only
+ * where the slot's production print is the same before and after it
+ * (`canonicalSlots`).
  */
 
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -39,15 +41,27 @@ import {
 	canonicalExpression,
 	workerPropertyNamed,
 } from "./expressions/canonical";
-import { slotPrintUnder } from "./expressions/readExpression";
+import { printSlotUnder, slotPrintUnder } from "./expressions/readExpression";
 import { sameJson } from "./jsonCursor";
+
+/** A rewrite of an expression slot the slot's print refused: the row's two members print
+ *  differently there, which is Nova's own defect. Names the row and the slot's kind, never the
+ *  expression. */
+export interface WithheldRewrite {
+	readonly rowId: string;
+	readonly slot: string;
+}
 
 export interface Canonicalization {
 	readonly id: string;
 	/** `one-wire`: two documents print the same bytes. `not-carried`: content no export holds. */
 	readonly kind: "one-wire" | "not-carried";
-	/** The document with every instance of the pair replaced by the member the reader returns. */
-	apply(doc: BlueprintDoc): BlueprintDoc;
+	/** The document with every instance of the pair replaced by the member the reader returns;
+	 *  `withheld` is told each rewrite a slot's print refused. */
+	apply(
+		doc: BlueprintDoc,
+		withheld?: (rewrite: WithheldRewrite) => void,
+	): BlueprintDoc;
 }
 
 /** The slot a menu's case list filter is held in. */
@@ -79,9 +93,15 @@ function carriers(doc: BlueprintDoc): ExpressionCarrierRef[] {
  * condition does. Each slot is canonicalized in its own context over
  * `doc`, with no Project lookup types (a slot's print collisions never read a
  * column's type) and under the identity lookup naming, which binds the same
- * questions in a Save to Case block's place as any naming does.
+ * questions in a Save to Case block's place as any naming does. Each rewrite
+ * of a slot is taken only where the slot's print under that naming
+ * (`readExpression.ts::printSlotUnder`) is the same with the rewritten node
+ * in place; a rewrite the print refuses is left out and told to `withheld`.
  */
-function canonicalSlots(doc: BlueprintDoc): BlueprintDoc {
+function canonicalSlots(
+	doc: BlueprintDoc,
+	withheld?: (rewrite: WithheldRewrite) => void,
+): BlueprintDoc {
 	const naming = identityLookupWireNaming();
 	const lookupTypes = new Map();
 	const replacements = new Map<string, Expression[]>();
@@ -95,6 +115,7 @@ function canonicalSlots(doc: BlueprintDoc): BlueprintDoc {
 		const trees: Expression[] = [];
 		for (const { ref, expression } of expressionSlotValues(doc, owner)) {
 			const context = slotContext(doc, ref, lookupTypes);
+			const told = new Set<string>();
 			const tree =
 				context === undefined
 					? expression
@@ -102,6 +123,15 @@ function canonicalSlots(doc: BlueprintDoc): BlueprintDoc {
 							expression,
 							context,
 							slotPrintUnder(doc, ref, naming),
+							{
+								print: (candidate) =>
+									printSlotUnder(doc, ref, candidate, naming),
+								withheld: (rowId) => {
+									if (told.has(rowId)) return;
+									told.add(rowId);
+									withheld?.({ rowId, slot: ref.slot });
+								},
+							},
 						);
 			if (
 				ref.entity === "module" &&
@@ -289,7 +319,8 @@ export const CANONICALIZATIONS: readonly Canonicalization[] = [
 		 *  read (`proseNamedReadsAsProperties`). */
 		id: "expression-print-collisions",
 		kind: "one-wire",
-		apply: (doc) => proseNamedReadsAsProperties(canonicalSlots(doc)),
+		apply: (doc, withheld) =>
+			proseNamedReadsAsProperties(canonicalSlots(doc, withheld)),
 	},
 ];
 
@@ -300,8 +331,11 @@ function stored(doc: BlueprintDoc): unknown {
 }
 
 /** Every row applied in list order, repeated until none changes the document. */
-export function canonDocument(doc: BlueprintDoc): BlueprintDoc {
-	const steps = canonDocumentSteps(doc);
+export function canonDocument(
+	doc: BlueprintDoc,
+	withheld?: (rewrite: WithheldRewrite) => void,
+): BlueprintDoc {
+	const steps = canonDocumentSteps(doc, withheld);
 	for (;;) {
 		const step = steps.next();
 		if (step.done) return step.value;
@@ -315,12 +349,13 @@ export function canonDocument(doc: BlueprintDoc): BlueprintDoc {
  */
 export function* canonDocumentSteps(
 	doc: BlueprintDoc,
+	withheld?: (rewrite: WithheldRewrite) => void,
 ): Generator<void, BlueprintDoc, void> {
 	let current = doc;
 	for (let pass = 0; pass < CANONICALIZATIONS.length; pass++) {
 		let next = current;
 		for (const row of CANONICALIZATIONS) {
-			next = row.apply(next);
+			next = row.apply(next, withheld);
 			yield;
 		}
 		if (sameJson(stored(next), stored(current))) return current;

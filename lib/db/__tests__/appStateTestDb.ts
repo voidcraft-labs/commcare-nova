@@ -141,6 +141,8 @@ export interface AppStateTestDb {
 		projectId: string,
 		role?: "viewer" | "editor" | "admin" | "owner",
 	): Promise<void>;
+	/** Remove a Project membership, as a person removed from the Project is. */
+	removeProjectMember(userId: string, projectId: string): Promise<void>;
 	/**
 	 * Move an app (and its case rows) to another Project the way the database
 	 * requires. A bare `UPDATE apps SET project_id` is refused: the app-Project
@@ -538,6 +540,16 @@ export function setupAppStateTestDb(
 		`.execute(db());
 	}
 
+	async function removeProjectMember(
+		userId: string,
+		projectId: string,
+	): Promise<void> {
+		await sql`
+			DELETE FROM auth_member
+			WHERE "userId" = ${userId} AND "organizationId" = ${projectId}
+		`.execute(db());
+	}
+
 	async function moveAppToProject(
 		appId: string,
 		toProjectId: string,
@@ -842,6 +854,7 @@ export function setupAppStateTestDb(
 		seedRawApp,
 		seedAppWithBlueprint,
 		seedProjectMember,
+		removeProjectMember,
 		moveAppToProject,
 		seedCreditMonth,
 		readConsumed,

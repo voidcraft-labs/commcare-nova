@@ -10,19 +10,26 @@ import {
 	type Transaction,
 } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
+import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
 	type TargetFacts,
 	targetFactsFromSource,
 } from "@/lib/commcare/targetFacts";
-import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
+import type { ColumnFieldWordRow } from "@/lib/commcare/wireIdentity";
 import {
+	admitRemoteWritesInTransaction,
 	endDeploymentInTransaction,
 	HqAppAlreadyClaimedError,
+	type HqRemoteWriteKind,
 	isHqAppClaimIndexViolation,
+	lockHqApp,
 	lockReleasedClaimsInTransaction,
+	type SettledClaims,
 	settleReleasedClaimsInTransaction,
 } from "@/lib/db/hqAppClaims";
+import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import {
 	type AppDatabase,
 	type AppDeploymentResourcesTable,
@@ -32,9 +39,9 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
+import { lockLookupTablesForPublishInTransaction } from "@/lib/lookup/managed";
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
 	type FirstPublishChangeId,
@@ -43,12 +50,12 @@ import {
 	storedFirstPublishSchema,
 } from "@/lib/publish/firstPublishChangeIds";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
+import { heldMediaPathRows } from "./adoption";
+import type { PublishedEntryPointManifest } from "./entryPointTypes";
 import {
-	type AdoptedKeyedCaseId,
-	type AdoptedMediaFile,
-	assignMediaPaths,
-} from "./adoption";
-import {
+	APP_DELETED_READ,
+	APP_DELETED_WRITE,
+	DeploymentAppDeletedError,
 	DeploymentEndedError,
 	DeploymentError,
 	deploymentNotFound,
@@ -62,6 +69,12 @@ import {
 	clearObservationOutcomes,
 	deploymentDisplaysAsReached,
 } from "./stateMachine";
+import {
+	canonicalTargetIdentity,
+	EMPTY_TARGET_IDENTITY,
+	sameTargetIdentity,
+	type TargetIdentity,
+} from "./targetIdentity";
 import {
 	type AppBaseline,
 	type AppBaselineWrite,
@@ -120,8 +133,50 @@ export interface DeploymentTargetKey {
 }
 
 /**
+ * The one authorization every deployment read and write makes of the app row
+ * it read, so the two answer a deleted app alike and cannot disagree on who
+ * is told. A missing app, an app in another Project than the scope's, and a
+ * caller who is no member there or lacks `capability` are the plain
+ * not-found, in that order and before the deletion is looked at; only then is
+ * an app in recently deleted `DeploymentAppDeletedError`, in `act`'s words, so
+ * nobody but a member allowed the act learns the app was deleted.
+ *
+ * `roleIn` reads the caller's role in the app's Project in the caller's
+ * transaction: a write locks the membership it reads, a read-only snapshot
+ * cannot. Answers the role, as `auth_member` stores it (possibly several
+ * roles, comma-joined), for a caller that asks more of it than `capability`.
+ */
+async function authorizeDeploymentApp(
+	app:
+		| {
+				readonly project_id: string | null;
+				readonly deleted_at: Date | null;
+		  }
+		| undefined,
+	scope: DeploymentScope,
+	capability: AppCapability,
+	act: "read" | "write",
+	roleIn: (projectId: string) => Promise<string | null>,
+): Promise<string> {
+	if (
+		app === undefined ||
+		app.project_id === null ||
+		app.project_id !== scope.projectId
+	)
+		throw deploymentNotFound();
+	const role = await roleIn(app.project_id);
+	if (role === null || !roleAllowsApp(role, capability))
+		throw deploymentNotFound();
+	if (app.deleted_at !== null)
+		throw new DeploymentAppDeletedError(
+			act === "read" ? APP_DELETED_READ : APP_DELETED_WRITE,
+		);
+	return role;
+}
+
+/**
  * Take the app row, then re-prove the caller against the Project the lock
- * just froze.
+ * just froze (`authorizeDeploymentApp`, as a write).
  *
  * This is `lib/db`'s existing app-first lock prefix, not a new one: a
  * deployment write and a blueprint commit serialize on the same app row
@@ -129,10 +184,6 @@ export interface DeploymentTargetKey {
  * worthless if the app changed tenant in between, so the Project is
  * compared again here and the role is re-read rather than trusted from
  * the scope.
- *
- * Answers the role it read under the lock, as `auth_member` stores it
- * (possibly several roles, comma-joined), for a caller that asks more of it
- * than `capability`.
  */
 async function lockAppForDeploymentWrite(
 	tx: Transaction<AppDatabase>,
@@ -145,27 +196,125 @@ async function lockAppForDeploymentWrite(
 		.where("id", "=", scope.appId)
 		.forShare()
 		.executeTakeFirst();
-
-	// A missing app, a soft-deleted app, and an app that moved out from
-	// under the caller's snapshot collapse to one shape on purpose.
-	if (
-		app === undefined ||
-		app.deleted_at !== null ||
-		app.project_id === null ||
-		app.project_id !== scope.projectId
-	) {
-		throw deploymentNotFound();
-	}
-
-	const role = await projectRoleForInTransaction(
-		tx,
-		scope.actorUserId,
-		app.project_id,
+	return authorizeDeploymentApp(app, scope, capability, "write", (projectId) =>
+		projectRoleForInTransaction(tx, scope.actorUserId, projectId),
 	);
-	if (role === null || !roleAllowsApp(role, capability)) {
-		throw deploymentNotFound();
+}
+
+declare const DEPLOYMENT_READ_SNAPSHOT: unique symbol;
+
+/**
+ * One moment of an app's deployments, read by a caller authorized at that
+ * moment. Made only by `withDeploymentReadSnapshot`, which proves, as its
+ * first statement inside the snapshot, that the app is the scope's Project's,
+ * not deleted, and that the caller holds the capability there, so every read
+ * that takes one answers from that one generation for a caller allowed to see
+ * it. A ledger, a name or a baseline loaded by a deployment's id (which
+ * outlives a Project move) is read only through one of these or through a
+ * write transaction that holds the app and deployment rows
+ * (`withDeploymentRow`).
+ */
+export interface DeploymentReadSnapshot {
+	readonly scope: DeploymentScope;
+	readonly db: Transaction<AppDatabase>;
+	/** The caller's role as the snapshot read it. */
+	readonly role: string;
+	readonly [DEPLOYMENT_READ_SNAPSHOT]: true;
+}
+
+/** Where a deployment read reads: its own snapshot opened for `scope`, or the caller's. */
+export type DeploymentReadFrom = DeploymentScope | DeploymentReadSnapshot;
+
+/**
+ * Run `body` in one read-only repeatable-read snapshot of the app's
+ * deployments, authorized inside it at `capability`. A missing app, one in
+ * another Project, and a caller who is no member there or lacks the
+ * capability are the existing not-found; an app in recently deleted, for a
+ * caller who passes all of that, is `DeploymentAppDeletedError`, so a surface
+ * can tell its member the app was deleted. It takes no row lock, so it
+ * neither waits behind a commit nor holds one up, and it pins one pooled
+ * connection for a few short statements: no request to CommCare HQ is ever
+ * made inside it.
+ */
+export async function withDeploymentReadSnapshot<T>(
+	scope: DeploymentScope,
+	capability: AppCapability,
+	body: (snapshot: DeploymentReadSnapshot) => Promise<T>,
+): Promise<T> {
+	if (!roleAllowsApp(scope.role, capability)) throw deploymentNotFound();
+	return withAppTx(
+		async (tx) => {
+			await sql`SET TRANSACTION READ ONLY`.execute(tx);
+			const app = await tx
+				.selectFrom("apps")
+				.select(["project_id", "deleted_at"])
+				.where("id", "=", scope.appId)
+				.executeTakeFirst();
+			const role = await authorizeDeploymentApp(
+				app,
+				scope,
+				capability,
+				"read",
+				async (projectId) => {
+					const member = await sql<{ role: string }>`
+						SELECT role FROM auth_member
+						WHERE "userId" = ${scope.actorUserId}
+							AND "organizationId" = ${projectId}
+					`.execute(tx);
+					return member.rows[0]?.role ?? null;
+				},
+			);
+			return body({ scope, db: tx, role } as DeploymentReadSnapshot);
+		},
+		{ isolationLevel: "repeatable read" },
+	);
+}
+
+/**
+ * Why a not-found met by a long act (a publish, whose reads outside this
+ * store answer a deleted app as missing) is one: the app's deletion, told as
+ * `authorizeDeploymentApp` tells it, where the caller is a member allowed
+ * `capability`, and null for every other cause, which stays the plain
+ * not-found.
+ */
+export async function deploymentAppDeletion(
+	scope: DeploymentScope,
+	capability: AppCapability,
+): Promise<DeploymentAppDeletedError | null> {
+	try {
+		await withDeploymentReadSnapshot(scope, capability, async () => undefined);
+		return null;
+	} catch (error) {
+		if (error instanceof DeploymentAppDeletedError) return error;
+		if (error instanceof DeploymentError && error.code === "not_found")
+			return null;
+		throw error;
 	}
-	return role;
+}
+
+/** `body` over `from`: in the caller's snapshot where it hands one, else in one of its own. */
+async function readingIn<T>(
+	from: DeploymentReadFrom,
+	capability: AppCapability,
+	body: (snapshot: DeploymentReadSnapshot) => Promise<T>,
+): Promise<T> {
+	if (!("db" in from))
+		return withDeploymentReadSnapshot(from, capability, body);
+	if (!roleAllowsApp(from.role, capability)) throw deploymentNotFound();
+	return body(from);
+}
+
+/** A write transaction holding the app and deployment rows, as a ledger reader takes it. */
+declare const LOCKED_LEDGER: unique symbol;
+type LockedLedger = Transaction<AppDatabase> & {
+	readonly [LOCKED_LEDGER]: true;
+};
+
+/** What may load a ledger by deployment id: an authorized snapshot or a locked write. */
+type LedgerReader = DeploymentReadSnapshot | LockedLedger;
+
+function ledgerDb(reader: LedgerReader): Transaction<AppDatabase> {
+	return "scope" in reader ? reader.db : reader;
 }
 
 function isoOrNull(value: Date | null): string | null {
@@ -350,10 +499,11 @@ const NO_DEPLOYMENT_LEDGER: DeploymentLedger = {
  * no longer exists reads as a former member.
  */
 async function loadResources(
-	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	reader: LedgerReader,
 	deploymentIds: readonly string[],
 ): Promise<Map<string, DeploymentLedger>> {
 	if (deploymentIds.length === 0) return new Map();
+	const db = ledgerDb(reader);
 	const ids = [...deploymentIds];
 	/* A superseded `app` mapping whose HQ app another deployment now holds by
 	 * the claim's own predicate (live, unreleased) belongs to that Nova app,
@@ -398,7 +548,7 @@ async function loadResources(
 		.orderBy("confirmed_at", "asc")
 		.orderBy("id", "asc")
 		.execute();
-	const names = await confirmerNames(db, [
+	const names = await confirmerNames(reader, [
 		...confirmationRows.map((row) => row.confirmed_by),
 		...resourceRows.flatMap((row) =>
 			[row.adopted_by, row.ended_by].filter(
@@ -432,14 +582,14 @@ async function loadResources(
 
 /** `auth_user.name` for each user the ledger names who still exists. */
 async function confirmerNames(
-	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	reader: LedgerReader,
 	userIds: readonly string[],
 ): Promise<ReadonlyMap<string, string>> {
 	const distinct = [...new Set(userIds)];
 	if (distinct.length === 0) return new Map();
 	const rows = await sql<{ id: string; name: string }>`
 		SELECT id, name FROM auth_user WHERE id = ANY(${distinct}::text[])
-	`.execute(db);
+	`.execute(ledgerDb(reader));
 	return new Map(rows.rows.map((row) => [row.id, row.name]));
 }
 
@@ -447,12 +597,14 @@ async function confirmerNames(
  * The name of each member a deployment's surface names by user id, as
  * `adoptedByName` resolves one: `auth_user.name` where the user still
  * exists, and no entry where not. A review of changes made in CommCare HQ
- * names who changed the app since the publish, and who moved its head.
+ * names who changed the app since the publish, and who moved its head,
+ * each read in the caller's authorized snapshot.
  */
 export async function readMemberNames(
+	snapshot: DeploymentReadSnapshot,
 	userIds: readonly string[],
 ): Promise<ReadonlyMap<string, string>> {
-	return confirmerNames(await getAppDb(), userIds);
+	return confirmerNames(snapshot, userIds);
 }
 
 /**
@@ -473,41 +625,34 @@ export async function readProjectName(scope: DeploymentScope): Promise<string> {
 	return name;
 }
 
-/** The one row query both list readers share, so they cannot drift. */
-async function readDeploymentRowsForApp(
-	scope: DeploymentScope,
-): Promise<Selectable<AppDeploymentsTable>[]> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
-	return db
-		.selectFrom("app_deployments")
-		.selectAll()
-		.where("app_id", "=", scope.appId)
-		.where("project_id", "=", scope.projectId)
-		.orderBy("updated_at", "desc")
-		.execute();
-}
-
 /**
- * Every deployment of one app, newest activity first.
- *
- * Reads authorize through the caller's already-resolved scope rather than
- * taking the app lock: a deployment list is advisory, and holding the app
- * row to render one would serialize reads against every commit.
+ * Every deployment of one app, newest activity first, each with its ledger,
+ * all from one authorized snapshot (`withDeploymentReadSnapshot`): a move or
+ * a stop that commits while it reads is wholly before it or wholly after it,
+ * never a record from one Project with a ledger written in another. It takes
+ * no lock, so rendering a list never serializes against a commit.
  */
 export async function readDeploymentsForApp(
-	scope: DeploymentScope,
+	from: DeploymentReadFrom,
 ): Promise<readonly DeploymentWithResources[]> {
-	const rows = await readDeploymentRowsForApp(scope);
-	const db = await getAppDb();
-	const resources = await loadResources(
-		db,
-		rows.map((row) => row.id),
-	);
-	return rows.map((row) => ({
-		deployment: toDeploymentRecord(row),
-		...(resources.get(row.id) ?? NO_DEPLOYMENT_LEDGER),
-	}));
+	return readingIn(from, "view", async (snapshot) => {
+		const { scope } = snapshot;
+		const rows = await snapshot.db
+			.selectFrom("app_deployments")
+			.selectAll()
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId)
+			.orderBy("updated_at", "desc")
+			.execute();
+		const resources = await loadResources(
+			snapshot,
+			rows.map((row) => row.id),
+		);
+		return rows.map((row) => ({
+			deployment: toDeploymentRecord(row),
+			...(resources.get(row.id) ?? NO_DEPLOYMENT_LEDGER),
+		}));
+	});
 }
 
 /**
@@ -522,19 +667,29 @@ export async function readDeploymentsForApp(
  * belongs here even though Preview ignores it.
  */
 export async function readDeploymentPreviewRecords(
-	scope: DeploymentScope,
+	from: DeploymentReadFrom,
 ): Promise<
 	readonly Pick<
 		DeploymentRecord,
 		"state" | "resumePhase" | "server" | "domain"
 	>[]
 > {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
+	return readingIn(from, "view", (snapshot) => previewRecordsIn(snapshot));
+}
+
+async function previewRecordsIn(
+	snapshot: DeploymentReadSnapshot,
+): Promise<
+	readonly Pick<
+		DeploymentRecord,
+		"state" | "resumePhase" | "server" | "domain"
+	>[]
+> {
+	const { scope } = snapshot;
 	/* A deployment whose live app mapping is released still displays as
 	 * uploaded, but no publish goes there until a settle takes the HQ app
 	 * back, so Preview does not name its project space. */
-	const rows = await db
+	const rows = await snapshot.db
 		.selectFrom("app_deployments as d")
 		.select(["d.state", "d.resume_phase", "d.server", "d.domain"])
 		.where("d.app_id", "=", scope.appId)
@@ -577,27 +732,29 @@ export async function readDeploymentPreviewRecords(
 	});
 }
 
-/** One deployment by target, or `null` when the app has never had one. */
+/** One deployment by target with its ledger, from one authorized snapshot, or `null` when the
+ *  app has never had one. */
 export async function readDeployment(
-	scope: DeploymentScope,
+	from: DeploymentReadFrom,
 	target: DeploymentTargetKey,
 ): Promise<DeploymentWithResources | null> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const row = await db
-		.selectFrom("app_deployments")
-		.selectAll()
-		.where("app_id", "=", scope.appId)
-		.where("project_id", "=", scope.projectId)
-		.where("server", "=", target.server)
-		.where("domain", "=", target.domain)
-		.executeTakeFirst();
-	if (row === undefined) return null;
-	const resources = await loadResources(db, [row.id]);
-	return {
-		deployment: toDeploymentRecord(row),
-		...(resources.get(row.id) ?? NO_DEPLOYMENT_LEDGER),
-	};
+	return readingIn(from, "view", async (snapshot) => {
+		const { scope } = snapshot;
+		const row = await snapshot.db
+			.selectFrom("app_deployments")
+			.selectAll()
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId)
+			.where("server", "=", target.server)
+			.where("domain", "=", target.domain)
+			.executeTakeFirst();
+		if (row === undefined) return null;
+		const resources = await loadResources(snapshot, [row.id]);
+		return {
+			deployment: toDeploymentRecord(row),
+			...(resources.get(row.id) ?? NO_DEPLOYMENT_LEDGER),
+		};
+	});
 }
 
 /**
@@ -615,11 +772,16 @@ export async function readDeployment(
  * no fold or publish needs it. It reads no source.
  */
 export async function readDeploymentNovaRevisions(
-	scope: DeploymentScope,
+	from: DeploymentReadFrom,
 ): Promise<ReadonlyMap<string, number>> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const rows = await db
+	return readingIn(from, "view", (snapshot) => novaRevisionsIn(snapshot));
+}
+
+async function novaRevisionsIn(
+	snapshot: DeploymentReadSnapshot,
+): Promise<ReadonlyMap<string, number>> {
+	const { scope } = snapshot;
+	const rows = await snapshot.db
 		.selectFrom("app_deployment_baselines as b")
 		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
 		.innerJoin("app_deployment_resources as r", (join) =>
@@ -632,7 +794,15 @@ export async function readDeploymentNovaRevisions(
 		.where("d.project_id", "=", scope.projectId)
 		.where("r.kind", "=", "app")
 		.where("r.superseded_at", "is", null)
-		.where("b.origin", "<>", "unread")
+		.where((eb) =>
+			eb.or([
+				eb("b.origin", "in", ["read", "changes"]),
+				eb.and([
+					eb("b.origin", "=", "push"),
+					eb("b.nova_revision", "=", eb.ref("r.pushed_revision")),
+				]),
+			]),
+		)
 		.where("b.nova_revision", "is not", null)
 		.execute();
 	const revisions = new Map<string, number>();
@@ -644,31 +814,69 @@ export async function readDeploymentNovaRevisions(
 }
 
 /**
- * The ids this target holds that are not Nova's derivation, for every
- * entity that has one. Empty for a target this app has no deployment on.
+ * What a deployment on `target` holds of where CommCare HQ keeps things
+ * (`targetIdentity.ts::TargetIdentity`): the ids of its menus and forms that
+ * are not the derivation, the prefix each keyed create's cases stand under,
+ * and the path each media file is kept at, each media row read through
+ * `adoption.ts::heldMediaPathRows` (a row the rule refuses is logged and its
+ * file takes its derived path). The empty record for a target this app has no
+ * deployment on. THE ONE READER: a publish, a `.ccz`, the HQ import file,
+ * preflight and a review of changes made in CommCare HQ read it, and
+ * `targetIdentity.ts::exportIdentityOf` is what each prints under.
  *
- * Kept out of `DeploymentWithResources` on purpose: only the two readers
- * that emit an app for a target (a publish and a `.ccz` made for one
- * project space) need them, and no status read should carry them.
+ * Kept out of `DeploymentWithResources` on purpose: no status read carries it.
  */
-export async function readDeploymentIdentityOverrides(
-	scope: DeploymentScope,
+export async function readTargetIdentity(
+	from: DeploymentReadFrom,
 	target: DeploymentTargetKey,
-): Promise<readonly DeploymentIdentityOverride[]> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("app_deployment_identities as i")
-		.innerJoin("app_deployments as d", "d.id", "i.deployment_id")
-		.select(["i.entity_kind", "i.nova_entity_uuid", "i.unique_id", "i.xmlns"])
-		.where("d.app_id", "=", scope.appId)
-		.where("d.project_id", "=", scope.projectId)
-		.where("d.server", "=", target.server)
-		.where("d.domain", "=", target.domain)
-		.orderBy("i.entity_kind")
-		.orderBy("i.nova_entity_uuid")
-		.execute();
-	return rows.map((row) => {
+): Promise<TargetIdentity> {
+	return readingIn(from, "view", async (snapshot) => {
+		const { scope } = snapshot;
+		const deployment = await snapshot.db
+			.selectFrom("app_deployments")
+			.select("id")
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId)
+			.where("server", "=", target.server)
+			.where("domain", "=", target.domain)
+			.executeTakeFirst();
+		if (deployment === undefined) return EMPTY_TARGET_IDENTITY;
+		return readTargetIdentityRows(snapshot.db, deployment.id, {
+			appId: scope.appId,
+			server: target.server,
+		});
+	});
+}
+
+/** The record's rows of one deployment, through `db` or a caller's transaction. */
+async function readTargetIdentityRows(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	deploymentId: string,
+	context: { readonly appId: string; readonly server: string },
+): Promise<TargetIdentity> {
+	const [entityRows, keyedRows, pathRows, wordRows] = await Promise.all([
+		db
+			.selectFrom("app_deployment_identities")
+			.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
+			.where("deployment_id", "=", deploymentId)
+			.execute(),
+		db
+			.selectFrom("app_deployment_keyed_case_ids")
+			.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
+			.where("deployment_id", "=", deploymentId)
+			.execute(),
+		db
+			.selectFrom("app_deployment_media_paths")
+			.select(["media_asset_id", "wire_path"])
+			.where("deployment_id", "=", deploymentId)
+			.execute(),
+		db
+			.selectFrom("app_deployment_column_field_words")
+			.select(["nova_column_uuid", "screen", "field_word"])
+			.where("deployment_id", "=", deploymentId)
+			.execute(),
+	]);
+	const entities = entityRows.map((row): DeploymentIdentityOverride => {
 		if (row.entity_kind !== "module" && row.entity_kind !== "form") {
 			throw new Error(
 				`A deployment records an id for a "${row.entity_kind}", which Nova does not know.`,
@@ -681,31 +889,216 @@ export async function readDeploymentIdentityOverrides(
 			xmlns: row.xmlns,
 		};
 	});
+	const { held, notHoldable } = heldMediaPathRows(
+		pathRows.map((row) => ({
+			assetId: row.media_asset_id,
+			wirePath: row.wire_path,
+		})),
+	);
+	if (notHoldable.length > 0)
+		/* The assets alone: a path is the app's own words. */
+		log.error(
+			"[deployment] a held media path is no path a file can keep",
+			undefined,
+			{
+				appId: context.appId,
+				server: context.server,
+				assetIds: notHoldable,
+			},
+		);
+	return canonicalTargetIdentity({
+		entities,
+		keyedCaseIds: keyedRows.map((row) => ({
+			operationUuid: asUuid(row.nova_operation_uuid),
+			caseType: row.case_type,
+			prefix: row.case_id_prefix,
+		})),
+		mediaPaths: [...held].map(([assetId, wirePath]) => ({
+			assetId,
+			wirePath,
+		})),
+		columnWords: wordRows.map((row): ColumnFieldWordRow => {
+			if (row.screen !== "short" && row.screen !== "long")
+				throw new Error(
+					`A deployment records a case list column's word on a "${row.screen}" screen, which CommCare HQ does not have.`,
+				);
+			return {
+				columnUuid: row.nova_column_uuid,
+				screen: row.screen,
+				word: row.field_word,
+			};
+		}),
+	});
 }
 
 /**
- * The path CommCare HQ keeps each media file under on this target, by
- * asset; empty where the target holds none, which is every target this app
- * was not brought in from. A publish and a `.ccz` made for the target name
- * each held file at its path.
+ * The record a reading resolved (`targetIdentity.ts::resolveTargetIdentity`)
+ * did not resolve over what the deployment holds now: another write moved it
+ * between the read that resolved and this one. Nothing was written.
  */
-export async function readDeploymentMediaPaths(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-): Promise<ReadonlyMap<MediaAssetId, string>> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("app_deployment_media_paths as p")
-		.innerJoin("app_deployments as d", "d.id", "p.deployment_id")
-		.select(["p.media_asset_id", "p.wire_path"])
-		.where("d.app_id", "=", scope.appId)
-		.where("d.project_id", "=", scope.projectId)
-		.where("d.server", "=", target.server)
-		.where("d.domain", "=", target.domain)
-		.orderBy("p.media_asset_id")
+class TargetIdentityMovedError extends Error {
+	constructor(deploymentId: string) {
+		super(
+			`Deployment ${deploymentId} holds other ids, keyed case prefixes, media paths or case list column words than the reading that is being recorded resolved over, so nothing was recorded. Another write landed in between; the caller works the record out again over what is stored now.`,
+		);
+		this.name = "TargetIdentityMovedError";
+	}
+}
+
+/**
+ * THE ONE WRITER of a deployment's target-identity record, inside a caller's
+ * transaction that holds the deployment row (a birth's new row, or the row
+ * `FOR UPDATE`): where the rows stored are still `read`, the record the caller
+ * resolved over, it writes the difference to `next`, deleting each row
+ * `next` does not hold and inserting each it adds, so a row the record keeps
+ * keeps its date. Otherwise it throws `TargetIdentityMovedError` and writes
+ * nothing. The runtime role inserts and deletes these rows and updates none.
+ * An ending and a Project move are the only other writers of these tables.
+ */
+export async function writeTargetIdentityInTransaction(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	context: { readonly appId: string; readonly server: string },
+	write: { readonly read: TargetIdentity; readonly next: TargetIdentity },
+): Promise<void> {
+	const stored = await readTargetIdentityRows(tx, deploymentId, context);
+	if (!sameTargetIdentity(stored, write.read))
+		throw new TargetIdentityMovedError(deploymentId);
+	const next = canonicalTargetIdentity(write.next);
+	const entityKey = (row: DeploymentIdentityOverride) =>
+		JSON.stringify([
+			row.entityKind,
+			row.novaEntityUuid,
+			row.uniqueId,
+			row.xmlns,
+		]);
+	const keyedKey = (row: TargetIdentity["keyedCaseIds"][number]) =>
+		JSON.stringify([row.operationUuid, row.caseType, row.prefix]);
+	const pathKey = (row: TargetIdentity["mediaPaths"][number]) =>
+		JSON.stringify([row.assetId, row.wirePath]);
+	const wordKey = (row: TargetIdentity["columnWords"][number]) =>
+		JSON.stringify([row.columnUuid, row.screen, row.word]);
+	const without = <T>(
+		rows: readonly T[],
+		others: readonly T[],
+		key: (row: T) => string,
+	) => {
+		const kept = new Set(others.map(key));
+		return rows.filter((row) => !kept.has(key(row)));
+	};
+
+	/* Every stored row, read whole: a media row the read rule refused is no
+	 * row of `stored`, and it goes too. */
+	const storedPathRows = await tx
+		.selectFrom("app_deployment_media_paths")
+		.select(["media_asset_id", "wire_path"])
+		.where("deployment_id", "=", deploymentId)
 		.execute();
-	return new Map(rows.map((row) => [row.media_asset_id, row.wire_path]));
+	const goneEntities = without(stored.entities, next.entities, entityKey);
+	for (const row of goneEntities)
+		await tx
+			.deleteFrom("app_deployment_identities")
+			.where("deployment_id", "=", deploymentId)
+			.where("entity_kind", "=", row.entityKind)
+			.where("nova_entity_uuid", "=", row.novaEntityUuid)
+			.execute();
+	const goneKeyed = without(stored.keyedCaseIds, next.keyedCaseIds, keyedKey);
+	if (goneKeyed.length > 0)
+		await tx
+			.deleteFrom("app_deployment_keyed_case_ids")
+			.where("deployment_id", "=", deploymentId)
+			.where(
+				"nova_operation_uuid",
+				"in",
+				goneKeyed.map((row) => row.operationUuid),
+			)
+			.execute();
+	const keptPaths = new Set(next.mediaPaths.map(pathKey));
+	const gonePaths = storedPathRows.filter(
+		(row) =>
+			!keptPaths.has(
+				pathKey({ assetId: row.media_asset_id, wirePath: row.wire_path }),
+			),
+	);
+	if (gonePaths.length > 0)
+		await tx
+			.deleteFrom("app_deployment_media_paths")
+			.where("deployment_id", "=", deploymentId)
+			.where(
+				"media_asset_id",
+				"in",
+				gonePaths.map((row) => row.media_asset_id),
+			)
+			.execute();
+
+	const goneWords = without(stored.columnWords, next.columnWords, wordKey);
+	for (const row of goneWords)
+		await tx
+			.deleteFrom("app_deployment_column_field_words")
+			.where("deployment_id", "=", deploymentId)
+			.where("nova_column_uuid", "=", row.columnUuid)
+			.where("screen", "=", row.screen)
+			.execute();
+
+	const newEntities = without(next.entities, stored.entities, entityKey);
+	if (newEntities.length > 0)
+		await tx
+			.insertInto("app_deployment_identities")
+			.values(
+				newEntities.map((row) => ({
+					deployment_id: deploymentId,
+					entity_kind: row.entityKind,
+					nova_entity_uuid: row.novaEntityUuid,
+					unique_id: row.uniqueId,
+					xmlns: row.xmlns,
+				})),
+			)
+			.execute();
+	const newKeyed = without(next.keyedCaseIds, stored.keyedCaseIds, keyedKey);
+	if (newKeyed.length > 0)
+		await tx
+			.insertInto("app_deployment_keyed_case_ids")
+			.values(
+				newKeyed.map((row) => ({
+					deployment_id: deploymentId,
+					nova_operation_uuid: row.operationUuid,
+					case_type: row.caseType,
+					case_id_prefix: row.prefix,
+				})),
+			)
+			.execute();
+	const storedPaths = new Set(
+		storedPathRows.map((row) =>
+			pathKey({ assetId: row.media_asset_id, wirePath: row.wire_path }),
+		),
+	);
+	const newPaths = next.mediaPaths.filter(
+		(row) => !storedPaths.has(pathKey(row)),
+	);
+	if (newPaths.length > 0)
+		await tx
+			.insertInto("app_deployment_media_paths")
+			.values(
+				newPaths.map((row) => ({
+					deployment_id: deploymentId,
+					media_asset_id: row.assetId,
+					wire_path: row.wirePath,
+				})),
+			)
+			.execute();
+	const newWords = without(next.columnWords, stored.columnWords, wordKey);
+	if (newWords.length > 0)
+		await tx
+			.insertInto("app_deployment_column_field_words")
+			.values(
+				newWords.map((row) => ({
+					deployment_id: deploymentId,
+					nova_column_uuid: row.columnUuid,
+					screen: row.screen,
+					field_word: row.word,
+				})),
+			)
+			.execute();
 }
 
 /** One live lookup-table mapping another app of the Project holds on a project space. */
@@ -792,35 +1185,6 @@ export async function readSiblingLookupMappings(
 	});
 }
 
-/**
- * The id prefix each keyed create's cases stand under on this target, with
- * the case type it was derived with, by operation; empty where the target
- * holds none. `adoption.ts::keyedCaseIdPrefixesFor` keeps the rows whose
- * operation still creates that type.
- */
-export async function readDeploymentKeyedCaseIds(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-): Promise<readonly AdoptedKeyedCaseId[]> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("app_deployment_keyed_case_ids as k")
-		.innerJoin("app_deployments as d", "d.id", "k.deployment_id")
-		.select(["k.nova_operation_uuid", "k.case_type", "k.case_id_prefix"])
-		.where("d.app_id", "=", scope.appId)
-		.where("d.project_id", "=", scope.projectId)
-		.where("d.server", "=", target.server)
-		.where("d.domain", "=", target.domain)
-		.orderBy("k.nova_operation_uuid")
-		.execute();
-	return rows.map((row) => ({
-		operationUuid: asUuid(row.nova_operation_uuid),
-		caseType: row.case_type,
-		prefix: row.case_id_prefix,
-	}));
-}
-
 /** A project space this app's content is on, with the HQ app that holds it. */
 export interface ReachedDeploymentTargetRow {
 	readonly server: CommCareServer;
@@ -844,9 +1208,9 @@ export interface ReachedDeploymentTargetRow {
  * among them, whatever the record displays.
  */
 export async function readReachedDeploymentTargets(
-	scope: DeploymentScope,
+	from: DeploymentReadFrom,
 ): Promise<readonly ReachedDeploymentTargetRow[]> {
-	const deployments = await readDeploymentsForApp(scope);
+	const deployments = await readDeploymentsForApp(from);
 	return deployments.flatMap((view) => {
 		const remote = publishedRemoteApp(view);
 		if (
@@ -910,17 +1274,19 @@ interface HqAppClaimRow {
  *
  * Advice for the picker and the reading, never authority: the claim itself
  * is decided by `lib/db/hqAppClaims.ts::claimHqAppInTransaction` in the
- * birth's transaction. The caller has proven a key that reaches the project
- * space; this reads nothing of CommCare HQ. For a Project the viewer is not
- * part of, neither the Project's name nor the app's is returned.
+ * birth's transaction. It answers only about apps CommCare HQ itself said,
+ * in this request, the key reaches (`seen`, which only HQ's list and HQ's
+ * answer with an app's document make), so a key HQ no longer answers learns
+ * nothing of who holds an app; this reads nothing of CommCare HQ. For a
+ * Project the viewer is not part of, neither the Project's name nor the
+ * app's is returned.
  */
 export async function readHqAppClaims(input: {
 	readonly viewerUserId: string;
-	readonly server: CommCareServer;
-	readonly domain: string;
-	readonly remoteAppIds: readonly string[];
+	readonly seen: HqAppsSeen;
 }): Promise<readonly HqAppClaimView[]> {
-	const remoteAppIds = [...new Set(input.remoteAppIds)];
+	const { server, domain } = input.seen;
+	const remoteAppIds = [...input.seen.remoteAppIds];
 	if (remoteAppIds.length === 0) return [];
 	const db = await getAppDb();
 	/* The person is whoever began the mapping: the adopter of an adopted one,
@@ -955,7 +1321,7 @@ export async function readHqAppClaims(input: {
 				THEN mapping.adopted_by ELSE deployment.created_by END AS person_id
 		) AS holder
 		LEFT JOIN auth_user AS person ON person.id = holder.person_id
-		WHERE mapping.server = ${input.server} AND mapping.domain = ${input.domain}
+		WHERE mapping.server = ${server} AND mapping.domain = ${domain}
 			AND mapping.remote_id = ANY(${remoteAppIds}::text[])
 			AND mapping.kind = 'app' AND mapping.superseded_at IS NULL
 			AND mapping.released_at IS NULL
@@ -997,11 +1363,31 @@ async function loadWithinTransaction(
 		.where("id", "=", deploymentId)
 		.executeTakeFirst();
 	if (row === undefined) throw deploymentNotFound();
-	const resources = await loadResources(tx, [deploymentId]);
+	/* Every caller holds the app row and the deployment row in `tx`. */
+	const resources = await loadResources(tx as LockedLedger, [deploymentId]);
 	return {
 		deployment: toDeploymentRecord(row),
 		...(resources.get(deploymentId) ?? NO_DEPLOYMENT_LEDGER),
 	};
+}
+
+/** The deployment row of the scope's app on the target, `FOR UPDATE`. */
+async function lockDeploymentRow(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<Selectable<AppDeploymentsTable>> {
+	const row = await tx
+		.selectFrom("app_deployments")
+		.selectAll()
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.where("server", "=", target.server)
+		.where("domain", "=", target.domain)
+		.forUpdate()
+		.executeTakeFirst();
+	if (row === undefined) throw deploymentNotFound();
+	return row;
 }
 
 /**
@@ -1063,16 +1449,7 @@ async function withDeploymentRow<T>(
 				)
 				.execute();
 		}
-		const row = await tx
-			.selectFrom("app_deployments")
-			.selectAll()
-			.where("app_id", "=", scope.appId)
-			.where("project_id", "=", scope.projectId)
-			.where("server", "=", target.server)
-			.where("domain", "=", target.domain)
-			.forUpdate()
-			.executeTakeFirst();
-		if (row === undefined) throw deploymentNotFound();
+		const row = await lockDeploymentRow(tx, scope, target);
 		if (
 			options.expectedEndings !== undefined &&
 			options.expectedEndings !== row.endings
@@ -1090,6 +1467,215 @@ async function withDeploymentRow<T>(
 /** The count of endings a publish read first, which each of its store writes carries. */
 export interface DeploymentFence {
 	readonly expectedEndings: number;
+}
+
+/** Refuse a publish's write where the deployment was ended since the publish read it. */
+function holdFence(
+	row: Selectable<AppDeploymentsTable>,
+	expectedEndings: number,
+): void {
+	if (row.endings !== expectedEndings)
+		throw new DeploymentEndedError(row.id, expectedEndings, row.endings);
+}
+
+/** How CommCare HQ ended some of the writes a record states the outcome of. */
+export interface WritesEnded {
+	readonly writeIds: readonly string[];
+	readonly how: RemoteWriteSettlement;
+}
+
+/**
+ * The admitted writes a record states the outcome of, which authorize it:
+ * what a write Nova let out to CommCare HQ made is recorded on the authority
+ * of that write's admission (`lockAppForAdmittedRecord`), whether or not the
+ * app is still live and its caller may still edit it. `settle` says how
+ * CommCare HQ ended the writes this record is the last word on, and they are
+ * settled in the record's own transaction, so each stays open, holding off
+ * every transition its admission holds off, until what it made is recorded.
+ */
+export interface AdmittedRecord {
+	readonly writeIds: readonly string[];
+	readonly settle: readonly WritesEnded[];
+}
+
+/**
+ * What the caller of a record may do with the deployment now, read in the
+ * record's own transaction by the one authorization every deployment read and
+ * write makes (`authorizeDeploymentApp`): `read` where the app is live in the
+ * scope's Project and the caller is a member allowed to view it, `edit` where
+ * they may also edit it. A record with no admission behind it is authorized
+ * at `edit`, so its caller holds both.
+ */
+interface RecordAccess {
+	readonly read: boolean;
+	readonly edit: boolean;
+}
+
+/** One thing a caller's admitted writes put on CommCare HQ, as their record names it. */
+export interface LandedResource {
+	readonly kind: DeploymentResourceKind;
+	/** The Nova app, table, place or persona it stands for. */
+	readonly novaResourceId: string;
+	/** Its id on CommCare HQ. */
+	readonly remoteId: string;
+	/** Its name there, for the kinds that have one: a table's tag, a place's site code, a worker's username. */
+	readonly pushedIdentity: string | null;
+}
+
+/**
+ * What a record of a caller's writes answers that caller. `landed` is what
+ * the writes it records put on CommCare HQ, which is the caller's own work
+ * and always theirs to know. `deployment` is the record as it now stands,
+ * only where the caller may read the deployment now (`RecordAccess`): a
+ * record rests on the admissions of the writes it states, not on the caller
+ * still belonging to the app's Project, so a publisher removed from it, or
+ * whose app was deleted, between the admission and the record still has what
+ * they made recorded, and is answered `null`, never the record's other
+ * members' names, confirmations or history.
+ */
+export interface RecordAnswer {
+	readonly landed: readonly LandedResource[];
+	readonly deployment: DeploymentWithResources | null;
+}
+
+/**
+ * What the record of an import answers: `RecordAnswer`, and the tables and
+ * places the imported content stands on as the record holds them once it
+ * lands, which the publish's entry-point manifest names whether or not its
+ * caller may read the deployment. Never answered to a person: it is the
+ * publish's own evidence for a later deep-link check.
+ */
+export interface RecordedImport extends RecordAnswer {
+	/** This import's mapping token, or null when a later import already stood there. */
+	readonly pushToken: string | null;
+	readonly dependencies: PublishedEntryPointManifest["dependencies"];
+}
+
+/** The live table and place mappings of a deployment, as an entry-point manifest names them. */
+async function contentDependencies(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+): Promise<PublishedEntryPointManifest["dependencies"]> {
+	const rows = await tx
+		.selectFrom("app_deployment_resources")
+		.select(["kind", "nova_resource_id", "remote_id", "pushed_identity"])
+		.where("deployment_id", "=", deploymentId)
+		.where("kind", "in", ["lookup-table", "location"])
+		.where("superseded_at", "is", null)
+		.orderBy("created_at", "asc")
+		.execute();
+	return rows.flatMap((row) =>
+		row.kind === "lookup-table" || row.kind === "location"
+			? [
+					{
+						kind: row.kind,
+						novaResourceId: row.nova_resource_id,
+						remoteId: row.remote_id,
+						pushedIdentity: row.pushed_identity,
+					},
+				]
+			: [],
+	);
+}
+
+/** The answer to a record of `landed`, in its own transaction, for a caller with `access`. */
+async function answerRecord(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	access: RecordAccess,
+	landed: readonly LandedResource[],
+): Promise<RecordAnswer> {
+	return {
+		landed,
+		deployment: access.read
+			? await loadWithinTransaction(tx, deploymentId)
+			: null,
+	};
+}
+
+/** What one recorded mapping put on CommCare HQ, without who adopted it. */
+function landedResource(input: RecordRemoteResourceInput): LandedResource {
+	return {
+		kind: input.kind,
+		novaResourceId: input.novaResourceId,
+		remoteId: input.remoteId,
+		pushedIdentity: input.pushedIdentity ?? null,
+	};
+}
+
+/**
+ * `body` over the deployment row, as the record of what admitted writes made.
+ * Where `record.admitted` names writes, the record rests on their admissions
+ * (`lockAppForAdmittedRecord`); otherwise it is authorized as every deployment
+ * write is (`lockAppForDeploymentWrite`, `edit` on a live app), so a record
+ * with no admission behind it is refused for a deleted app or a caller who
+ * may no longer edit. It holds no fence: `body` reads `row.endings`, since an
+ * ending keeps some records and refuses others. `body` is told what the
+ * caller may do with the deployment now (`RecordAccess`): whether they may
+ * edit the live app, which a reconcile against the document needs, and
+ * whether they may read it, which decides what the record answers them
+ * (`answerRecord`). The writes `admitted.settle` names are settled in the
+ * same transaction, and also where `body` throws `DeploymentEndedError`, once
+ * it has rolled back, since no record of them comes after that.
+ */
+async function withRecordRow<T>(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	record: {
+		readonly admitted: AdmittedRecord | undefined;
+		/** The kinds of admitted write this record states the outcome of. */
+		readonly writeKinds: readonly HqRemoteWriteKind[];
+	},
+	body: (
+		tx: Transaction<AppDatabase>,
+		row: Selectable<AppDeploymentsTable>,
+		access: RecordAccess,
+	) => Promise<T>,
+): Promise<T> {
+	const writeIds = record.admitted?.writeIds ?? [];
+	const settle = record.admitted?.settle ?? [];
+	if (
+		settle.some((ended) => ended.writeIds.some((id) => !writeIds.includes(id)))
+	) {
+		throw new Error(
+			"A record settles only the writes it rests on, and was asked to settle one it does not name in its writeIds.",
+		);
+	}
+	try {
+		return await withAppTx(async (tx) => {
+			let access: RecordAccess = { read: true, edit: true };
+			if (writeIds.length === 0)
+				await lockAppForDeploymentWrite(tx, scope, "edit");
+			else
+				access = await lockAppForAdmittedRecord(
+					tx,
+					scope,
+					target,
+					writeIds,
+					record.writeKinds,
+				);
+			const row = await lockDeploymentRow(tx, scope, target);
+			const result = await body(tx, row, access);
+			for (const ended of settle)
+				await settleRemoteWritesIn(tx, ended.writeIds, ended.how);
+			return result;
+		});
+	} catch (error) {
+		if (error instanceof DeploymentEndedError) {
+			for (const ended of settle) {
+				try {
+					await settleRemoteWrites(ended.writeIds, ended.how);
+				} catch (settleError) {
+					log.error(
+						"[deployment] could not settle a write whose record an ending refused",
+						settleError,
+						{ writes: ended.writeIds.length, how: ended.how.kind },
+					);
+				}
+			}
+		}
+		throw error;
+	}
 }
 
 function progressUpdate(
@@ -1210,7 +1796,7 @@ export async function foldDeploymentAttempt(
  * writes may confirm is the caller's rule: a passed preflight's fold, and the
  * birth of an app brought in from CommCare HQ.
  */
-export async function insertDeploymentConfirmationsInTransaction(
+async function insertDeploymentConfirmationsInTransaction(
 	tx: Transaction<AppDatabase>,
 	deploymentId: string,
 	actorUserId: string,
@@ -1279,13 +1865,13 @@ export interface AdoptedDeploymentWrite {
 	/** The birth's sequence. */
 	readonly pushedRevision: number;
 	readonly baseline: AppBaselineWrite & { readonly origin: "read" };
-	readonly identities: readonly DeploymentIdentityOverride[];
-	readonly mediaPaths: readonly {
-		readonly assetId: MediaAssetId;
-		readonly wirePath: string;
-	}[];
-	/** The prefix each keyed create's cases stand under in the source project space. */
-	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
+	/**
+	 * Where the source project space keeps the app's menus and forms, keyed
+	 * creates and media files: the reading resolved over nothing
+	 * (`targetIdentity.ts::resolveTargetIdentity`), the value the review's
+	 * digest bound.
+	 */
+	readonly targetIdentity: TargetIdentity;
 	readonly confirmations: readonly DeploymentConfirmationKey[];
 	readonly at: Date;
 }
@@ -1364,48 +1950,12 @@ export async function recordAdoptedDeploymentInTransaction(
 		throw error;
 	}
 	await writeAppBaseline(tx, deploymentId, write.actorUserId, write.baseline);
-	if (write.identities.length > 0) {
-		await tx
-			.insertInto("app_deployment_identities")
-			.values(
-				write.identities.map((identity) => ({
-					deployment_id: deploymentId,
-					entity_kind: identity.entityKind,
-					nova_entity_uuid: identity.novaEntityUuid,
-					unique_id: identity.uniqueId,
-					xmlns: identity.xmlns,
-					recorded_at: write.at,
-				})),
-			)
-			.execute();
-	}
-	if (write.mediaPaths.length > 0) {
-		await tx
-			.insertInto("app_deployment_media_paths")
-			.values(
-				write.mediaPaths.map((path) => ({
-					deployment_id: deploymentId,
-					media_asset_id: path.assetId,
-					wire_path: path.wirePath,
-					recorded_at: write.at,
-				})),
-			)
-			.execute();
-	}
-	if (write.keyedCaseIds.length > 0) {
-		await tx
-			.insertInto("app_deployment_keyed_case_ids")
-			.values(
-				write.keyedCaseIds.map((keyed) => ({
-					deployment_id: deploymentId,
-					nova_operation_uuid: keyed.operationUuid,
-					case_type: keyed.caseType,
-					case_id_prefix: keyed.prefix,
-					recorded_at: write.at,
-				})),
-			)
-			.execute();
-	}
+	await writeTargetIdentityInTransaction(
+		tx,
+		deploymentId,
+		{ appId: write.appId, server: write.target.server },
+		{ read: EMPTY_TARGET_IDENTITY, next: write.targetIdentity },
+	);
 	await insertDeploymentConfirmationsInTransaction(
 		tx,
 		deploymentId,
@@ -1427,40 +1977,36 @@ export async function recordAdoptedDeploymentInTransaction(
  * them, then the settle, with the scope's actor as the one who ended what it
  * ends. Where the claims changed between the read and the locks, the
  * transaction ends having written nothing and another starts, three in all;
- * after the third, nothing was written and the answer is `settled: false`.
+ * after the third, nothing was written and the answer is `settled: false`. A
+ * claim whose HQ app another app's write has not settled on stays released
+ * (`waiting`).
  */
 export async function settleReleasedClaims(scope: DeploymentScope): Promise<
 	| {
 			readonly settled: true;
 			/** The project spaces the settle ended, because a live Nova app publishes there now. */
-			readonly stoppedPublishing: readonly {
-				readonly server: string;
-				readonly domain: string;
-			}[];
+			readonly stoppedPublishing: SettledClaims["stopped"];
+			/**
+			 * The project spaces whose claim stays released, because a write
+			 * another app let out to that HQ app has not settled yet.
+			 */
+			readonly waiting: SettledClaims["waiting"];
 	  }
 	/** Three tries each found the claims changed under their locks. Nothing was written. */
 	| { readonly settled: false }
 > {
 	for (let attempt = 0; attempt < SETTLE_CLAIM_TRIES; attempt++) {
-		const stoppedPublishing = await withAppTx(async (tx) => {
+		const settled = await withAppTx(async (tx) => {
 			const locks = await lockReleasedClaimsInTransaction(tx, scope.appId);
 			if (locks === null) return null;
-			const app = locks.app;
-			if (
-				app === undefined ||
-				app.deleted_at !== null ||
-				app.project_id !== scope.projectId
-			) {
-				throw deploymentNotFound();
-			}
-			const role = await projectRoleForInTransaction(
-				tx,
-				scope.actorUserId,
-				app.project_id,
+			await authorizeDeploymentApp(
+				locks.app,
+				scope,
+				"edit",
+				"write",
+				(projectId) =>
+					projectRoleForInTransaction(tx, scope.actorUserId, projectId),
 			);
-			if (role === null || !roleAllowsApp(role, "edit")) {
-				throw deploymentNotFound();
-			}
 			return settleReleasedClaimsInTransaction(tx, {
 				appId: scope.appId,
 				actorUserId: scope.actorUserId,
@@ -1468,8 +2014,12 @@ export async function settleReleasedClaims(scope: DeploymentScope): Promise<
 				locks,
 			});
 		});
-		if (stoppedPublishing !== null) {
-			return { settled: true, stoppedPublishing };
+		if (settled !== null) {
+			return {
+				settled: true,
+				stoppedPublishing: settled.stopped,
+				waiting: settled.waiting,
+			};
 		}
 	}
 	return { settled: false };
@@ -1485,12 +2035,26 @@ const SETTLE_CLAIM_TRIES = 3;
  * apps; an editor sees the deployment and may publish to it, so the answer to
  * an editor names who can (`not_permitted`) rather than hiding it. A viewer
  * or a stranger finds nothing to stop. CommCare HQ is not asked anything: the
- * HQ app stays exactly as it is, and the HQ app is free to be brought in
- * again the moment this commits.
+ * HQ app stays exactly as it is.
+ *
+ * The stop names the HQ app the person looked at, and ends that mapping or
+ * nothing, decided under the deployment row's lock:
+ *
+ *   - a live mapping of that HQ app is ended;
+ *   - a mapping of it an ending already superseded answers the deployment as
+ *     it stands, writing nothing: the stop landed before, and a repeat of it
+ *     is the same stop, whatever a publish since made there;
+ *   - a deployment that publishes to another HQ app now, or that superseded
+ *     that one without an ending, refuses `stale`, writing nothing;
+ *   - a deployment with no app mapping at all has nothing to stop.
+ *
+ * Another Nova app is granted the HQ app only once every write this app let
+ * out to it has settled (`lib/db/hqAppClaims.ts::claimHqAppInTransaction`).
  */
 export async function endDeployment(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
+	hqAppId: string,
 ): Promise<DeploymentWithResources> {
 	return withAppTx(async (tx) => {
 		const role = await lockAppForDeploymentWrite(tx, scope, "edit");
@@ -1500,30 +2064,42 @@ export async function endDeployment(
 				"Only an admin or owner of this Project can stop publishing here. You can ask one of them to.",
 			);
 		}
-		const row = await tx
-			.selectFrom("app_deployments")
-			.select("id")
-			.where("app_id", "=", scope.appId)
-			.where("project_id", "=", scope.projectId)
-			.where("server", "=", target.server)
-			.where("domain", "=", target.domain)
-			.forUpdate()
-			.executeTakeFirst();
-		if (row === undefined) throw deploymentNotFound();
+		const row = await lockDeploymentRow(tx, scope, target);
 		const { ended } = await endDeploymentInTransaction(tx, {
 			deploymentId: row.id,
 			appId: scope.appId,
+			remoteAppId: hqAppId,
 			byUserId: scope.actorUserId,
 			reason: "stopped",
 			at: new Date(),
 		});
-		if (!ended) {
+		if (ended) return loadWithinTransaction(tx, row.id);
+		const mappings = await tx
+			.selectFrom("app_deployment_resources")
+			.select(["remote_id", "superseded_at", "ended_reason"])
+			.where("deployment_id", "=", row.id)
+			.where("kind", "=", "app")
+			.execute();
+		if (mappings.length === 0) {
 			throw new DeploymentError(
 				"invalid",
 				`Nova isn't publishing this app to “${target.domain}”, so there's nothing to stop.`,
 			);
 		}
-		return loadWithinTransaction(tx, row.id);
+		/* An ending superseded that HQ app's mapping: the stop landed, and
+		 * where a publish since made a new app there, that publish is a later
+		 * decision this stop does not undo. */
+		if (
+			mappings.some(
+				(mapping) =>
+					mapping.remote_id === hqAppId && mapping.ended_reason !== null,
+			)
+		)
+			return loadWithinTransaction(tx, row.id);
+		throw new DeploymentError(
+			"stale",
+			`This app publishes to a different app in “${target.domain}” than the one you were looking at, so Nova didn't stop anything. Have another look, and stop it from there if you still want to.`,
+		);
 	});
 }
 
@@ -1596,22 +2172,71 @@ export interface RecordRemoteAppInput
  * recorded the remote app but not the `uploaded` state cannot exist.
  * `writeResourceMapping` owns the update-versus-supersede rule.
  *
+ * Two publishes of one HQ app record in CommCare HQ's save order, not in the
+ * order their transactions commit: where the live mapping of that HQ app
+ * holds a push HQ acknowledged at a higher save counter than this one, this
+ * publish's import was overwritten by that one's, so its mapping, baseline
+ * and state are left as they are and the record answers as it stands. An
+ * acknowledgement that carried no counter cannot be ordered and records.
+ *
  * The record's observation history is cleared in the same write, because
  * those answers described what the target held before this publish, not
  * what it holds now.
+ *
+ * `admitted` is the import's admission, which authorizes the record and is
+ * settled with it: an app deleted, or a publisher who lost edit or left the
+ * Project, since the import was admitted still has it recorded, and is
+ * answered the record only where they may still read it (`RecordAnswer`).
+ * Under the fence all the same: an ending since throws `DeploymentEndedError`
+ * and records nothing, since the ending took this deployment off that HQ app.
  */
 export async function recordRemoteResource(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	input: RecordRemoteAppInput,
-): Promise<DeploymentWithResources> {
-	return withDeploymentRow(
+	admitted?: AdmittedRecord,
+): Promise<RecordedImport> {
+	const landed = [landedResource(input)];
+	return withRecordRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: input.expectedEndings },
-		async (tx, row) => {
+		{ admitted, writeKinds: ["import"] },
+		async (tx, row, access) => {
+			holdFence(row, input.expectedEndings);
+			const answer = async (
+				pushToken: string | null,
+			): Promise<RecordedImport> => ({
+				pushToken,
+				...(await answerRecord(tx, row.id, access, landed)),
+				dependencies: await contentDependencies(tx, row.id),
+			});
+			const live = await tx
+				.selectFrom("app_deployment_resources")
+				.select(["remote_id", "pushed_remote_revision"])
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", input.kind)
+				.where("nova_resource_id", "=", input.novaResourceId)
+				.where("superseded_at", "is", null)
+				.executeTakeFirst();
+			const recorded =
+				live === undefined ? null : numberOrNull(live.pushed_remote_revision);
+			if (
+				live?.remote_id === input.remoteId &&
+				recorded !== null &&
+				input.remoteRevision !== null &&
+				input.remoteRevision < recorded
+			) {
+				log.info("[deployment] a later publish recorded first", {
+					appId: scope.appId,
+					domain: target.domain,
+					hqAppId: input.remoteId,
+					remoteRevision: input.remoteRevision,
+					recordedRemoteRevision: recorded,
+				});
+				return answer(null);
+			}
 			const now = new Date();
-			await writeResourceMapping(tx, row.id, input, now);
+			const pushToken = await writeResourceMapping(tx, row.id, input, now);
 			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
 
 			const record = toDeploymentRecord(row);
@@ -1638,7 +2263,7 @@ export async function recordRemoteResource(
 				.execute();
 			await notifyAppDeployments(tx, scope.appId);
 
-			return loadWithinTransaction(tx, row.id);
+			return answer(pushToken);
 		},
 	);
 }
@@ -1652,6 +2277,16 @@ export async function recordRemoteResource(
  * rung: the deployment is not `uploaded` until the update fills the app,
  * and saying so earlier would make it observable and a download target.
  * A mapping CommCare HQ reported gone is superseded by this one.
+ *
+ * `admitted` is the create's admission, which authorizes the record and is
+ * settled with it, naming the app: until then no other Nova app takes any HQ
+ * app on the project space (`hqAppClaims.ts::openWriteSettlesAt`). On an app
+ * deleted since the admission the mapping is recorded live and unreleased, as
+ * if it had landed before the deletion, so the app holds the new HQ app as an
+ * app in recently deleted holds every HQ app it published to. The caller is
+ * answered the record only where they may still read it (`RecordAnswer`).
+ * Under the fence: an ending since throws `DeploymentEndedError`, and the
+ * publish names the app with `recordOrphanedRemoteApp`.
  */
 export async function recordCreatedRemoteApp(
 	scope: DeploymentScope,
@@ -1661,29 +2296,404 @@ export async function recordCreatedRemoteApp(
 		/** The read after the create as the `create` baseline, or `unread` when it failed. */
 		readonly baseline: AppBaselineWrite;
 	},
-): Promise<DeploymentWithResources> {
+	admitted?: AdmittedRecord,
+): Promise<RecordAnswer> {
+	const mapping: RecordRemoteResourceInput = {
+		kind: "app",
+		novaResourceId: scope.appId,
+		remoteId: input.remoteId,
+		ownership: "nova-created",
+		pushedRevision: null,
+		remoteRevision: null,
+	};
+	return withRecordRow(
+		scope,
+		target,
+		{ admitted, writeKinds: ["create"] },
+		async (tx, row, access) => {
+			holdFence(row, input.expectedEndings);
+			await writeResourceMapping(tx, row.id, mapping, new Date());
+			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
+			await notifyAppDeployments(tx, scope.appId);
+			return answerRecord(tx, row.id, access, [landedResource(mapping)]);
+		},
+	);
+}
+
+/**
+ * Record the empty app a first publish created on CommCare HQ after the
+ * deployment was ended while CommCare HQ made it, so that no app Nova made
+ * stands there unnamed: a superseded mapping of it, dated the moment the
+ * publish began, which is before the ending that fenced it. The ending stays
+ * the deployment's latest, and the left-behind report names this app beside
+ * it. It writes nothing where the deployment already names that HQ app.
+ * `admitted` is the create's admission, which authorizes the record and is
+ * settled with it, so a deleted app holds the record too and its restore
+ * reports the app.
+ */
+export async function recordOrphanedRemoteApp(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: { readonly remoteId: string; readonly publishStartedAt: Date },
+	admitted?: AdmittedRecord,
+): Promise<void> {
+	await withRecordRow(
+		scope,
+		target,
+		{ admitted, writeKinds: ["create"] },
+		async (tx, row) => {
+			const named = await tx
+				.selectFrom("app_deployment_resources")
+				.select("id")
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", "app")
+				.where("remote_id", "=", input.remoteId)
+				.executeTakeFirst();
+			if (named !== undefined) return;
+			await tx
+				.insertInto("app_deployment_resources")
+				.values({
+					deployment_id: row.id,
+					kind: "app",
+					nova_resource_id: scope.appId,
+					remote_id: input.remoteId,
+					ownership: "nova-created",
+					pushed_revision: null,
+					pushed_at: null,
+					remote_revision: null,
+					remote_observed_at: null,
+					superseded_at: input.publishStartedAt,
+				})
+				.execute();
+			await notifyAppDeployments(tx, scope.appId);
+		},
+	);
+}
+
+/**
+ * How long a write stays open, in seconds, when the process that sent it
+ * never says how it ended: the request's own deadline, then the time CommCare
+ * HQ may still be applying a request whose answer never reached Nova.
+ */
+const REMOTE_WRITE_HOLD_SECONDS = {
+	/** The import's 60-second deadline, then five minutes. */
+	import: 60 + 5 * 60,
+	/** The create is an import of the empty app: the same. */
+	create: 60 + 5 * 60,
+	/** The upload's minute and the status reads' 45 seconds, then the hour HQ keeps a job's status. */
+	media: 60 + 45 + 60 * 60,
+	/** The workbook upload's deadline, then five minutes. */
+	workbook: 60 + 5 * 60,
+	/** One batch of places: its 30-second deadline, then five minutes. */
+	places: 30 + 5 * 60,
+	/** A worker's create and its places' update, 30 seconds each, then five minutes. */
+	worker: 2 * 30 + 5 * 60,
+} as const;
+
+/** How long a write stays open once CommCare HQ's answer was lost: the import's grace. */
+const UNANSWERED_WRITE_GRACE_SECONDS = 5 * 60;
+/** How long a media job HQ accepted stays open: the hour HQ keeps its status (`hqmedia/cache.py`). */
+const MEDIA_JOB_HOLD_SECONDS = 60 * 60;
+
+/** What an admission of a write to the deployment's HQ app answered. */
+export type AppWriteAdmission =
+	| { readonly kind: "admitted"; readonly writeId: string }
+	/**
+	 * The deployment's live app mapping no longer names that HQ app, or another
+	 * Nova app took it: this publish no longer publishes there. Nothing was
+	 * recorded, and nothing may be sent.
+	 */
+	| { readonly kind: "mapping-moved" };
+
+/**
+ * Admit one write to the HQ app the deployment publishes to, immediately
+ * before it is sent: an import or a media bundle. One transaction, in the
+ * claim protocol's order: the HQ app's advisory lock, the app row with the
+ * Project and the role proved, then the deployment row `FOR UPDATE`. Under
+ * them it holds the fence (an ending since throws `DeploymentEndedError`) and
+ * the deployment's live, unreleased app mapping naming that HQ app, and only
+ * then records the write, open for its hold.
+ *
+ * An ending takes the deployment row, so it commits wholly before or after
+ * this; a birth's claim takes the advisory lock, so it either sees this write
+ * open or finds the mapping it would release already ended. Either way no
+ * other Nova app is granted the HQ app while a write this one let out to it
+ * may still change it.
+ */
+export async function admitAppWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: DeploymentFence & {
+		readonly remoteAppId: string;
+		readonly writeKind: "import" | "media";
+	},
+): Promise<AppWriteAdmission> {
+	return withAppTx(async (tx) => {
+		await lockHqApp(tx, {
+			server: target.server,
+			domain: target.domain,
+			remoteAppId: input.remoteAppId,
+		});
+		await lockAppForDeploymentWrite(tx, scope, "edit");
+		const row = await lockDeploymentRow(tx, scope, target);
+		if (row.endings !== input.expectedEndings) {
+			throw new DeploymentEndedError(
+				row.id,
+				input.expectedEndings,
+				row.endings,
+			);
+		}
+		const live = await tx
+			.selectFrom("app_deployment_resources")
+			.select(["remote_id", "released_at"])
+			.where("deployment_id", "=", row.id)
+			.where("kind", "=", "app")
+			.where("superseded_at", "is", null)
+			.executeTakeFirst();
+		if (
+			live === undefined ||
+			live.remote_id !== input.remoteAppId ||
+			live.released_at !== null
+		) {
+			return { kind: "mapping-moved" };
+		}
+		const [writeId] = await admitRemoteWritesInTransaction(tx, [
+			{
+				deploymentId: row.id,
+				server: target.server,
+				domain: target.domain,
+				appId: scope.appId,
+				projectId: scope.projectId,
+				actorUserId: scope.actorUserId,
+				resourceKind: "app",
+				resourceId: input.remoteAppId,
+				writeKind: input.writeKind,
+				holdSeconds: REMOTE_WRITE_HOLD_SECONDS[input.writeKind],
+			},
+		]);
+		if (writeId === undefined) {
+			throw new Error("An admitted write to CommCare HQ returned no id.");
+		}
+		return { kind: "admitted", writeId };
+	});
+}
+
+/**
+ * Admit the create of a new app on CommCare HQ, immediately before it is
+ * sent. It crosses no claim, since no Nova app names an app HQ has not made,
+ * so it holds only the fence under the deployment row; its record keeps a
+ * Project move waiting while the create may still land. Answers the write's
+ * id, whose HQ app is named once HQ answers (`settleRemoteWrites`).
+ */
+export async function admitAppCreate(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	fence: DeploymentFence,
+): Promise<string> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false, expectedEndings: fence.expectedEndings },
+		async (tx, row) => {
+			const [writeId] = await admitRemoteWritesInTransaction(tx, [
+				{
+					deploymentId: row.id,
+					server: target.server,
+					domain: target.domain,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					actorUserId: scope.actorUserId,
+					resourceKind: "app",
+					resourceId: null,
+					writeKind: "create",
+					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.create,
+				},
+			]);
+			if (writeId === undefined) {
+				throw new Error("An admitted create on CommCare HQ returned no id.");
+			}
+			return writeId;
+		},
+	);
+}
+
+/** What an admission of a lookup table workbook answered. */
+export type WorkbookAdmission =
+	| { readonly kind: "admitted"; readonly writeIds: readonly string[] }
+	/** Tables handed back to CommCare HQ from this project space, by tag in tag order. Nothing was recorded. */
+	| { readonly kind: "handed-back"; readonly tags: readonly string[] };
+
+/**
+ * Admit a lookup table workbook, immediately before it is sent. One
+ * transaction: the app row and the deployment row (the fence), then the
+ * Project's lookup state and every table of the workbook `FOR UPDATE`, in the
+ * lookup writers' order. A table handed back to CommCare HQ from this project
+ * space refuses the workbook, and otherwise each table's write is recorded,
+ * open for its hold. A hand-back takes the same table row and waits while a
+ * workbook carrying the table is open
+ * (`lib/lookup/managed.ts::refreshManagedLookupTableInTransaction`), so a
+ * table is never handed back while Nova's copy of it may still be written
+ * over CommCare HQ's.
+ */
+export async function admitWorkbookWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: DeploymentFence & { readonly tableIds: readonly string[] },
+): Promise<WorkbookAdmission> {
 	return withDeploymentRow(
 		scope,
 		target,
 		{ ensure: false, expectedEndings: input.expectedEndings },
 		async (tx, row) => {
-			await writeResourceMapping(
+			const tables = await lockLookupTablesForPublishInTransaction(
 				tx,
-				row.id,
-				{
-					kind: "app",
-					novaResourceId: scope.appId,
-					remoteId: input.remoteId,
-					ownership: "nova-created",
-					pushedRevision: null,
-					remoteRevision: null,
-				},
-				new Date(),
+				{ projectId: scope.projectId, actorId: scope.actorUserId },
+				input.tableIds,
 			);
-			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
-			await notifyAppDeployments(tx, scope.appId);
-			return loadWithinTransaction(tx, row.id);
+			const handedBack = tables
+				.filter(
+					(table) =>
+						table.hqServer === target.server &&
+						table.hqDomain === target.domain &&
+						!table.takenOver,
+				)
+				.map((table) => table.tag)
+				.sort();
+			if (handedBack.length > 0)
+				return { kind: "handed-back", tags: handedBack };
+			const writeIds = await admitRemoteWritesInTransaction(
+				tx,
+				tables.map((table) => ({
+					deploymentId: row.id,
+					server: target.server,
+					domain: target.domain,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					actorUserId: scope.actorUserId,
+					resourceKind: "lookup-table" as const,
+					resourceId: table.id,
+					writeKind: "workbook" as const,
+					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.workbook,
+				})),
+			);
+			return { kind: "admitted", writeIds };
 		},
+	);
+}
+
+/**
+ * Admit one batch of places, immediately before it is sent: under the fence
+ * (an ending since throws `DeploymentEndedError` and sends nothing), and only
+ * for a live app whose caller may edit it, it records one write per place,
+ * open for its hold, which keeps a Project move of the app waiting until the
+ * places the batch makes are recorded (`recordPushedResources`).
+ */
+export async function admitPlacesWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: DeploymentFence & { readonly locationUuids: readonly string[] },
+): Promise<readonly string[]> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false, expectedEndings: input.expectedEndings },
+		async (tx, row) =>
+			admitRemoteWritesInTransaction(
+				tx,
+				input.locationUuids.map((locationUuid) => ({
+					deploymentId: row.id,
+					server: target.server,
+					domain: target.domain,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					actorUserId: scope.actorUserId,
+					resourceKind: "location" as const,
+					resourceId: locationUuid,
+					writeKind: "places" as const,
+					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.places,
+				})),
+			),
+	);
+}
+
+/** How a write CommCare HQ was sent ended, as `settleRemoteWrites` records it. */
+export type RemoteWriteSettlement =
+	| { readonly kind: "settled"; readonly resourceId?: string }
+	| { readonly kind: "unanswered"; readonly resourceId?: string }
+	| { readonly kind: "media-job"; readonly jobId: string };
+
+/**
+ * Say how a write ended, once its process knows: `settled` where CommCare HQ
+ * answered and is done with it, `unanswered` where the answer never reached
+ * Nova and HQ may still apply it, `media-job` where HQ accepted a media
+ * bundle whose job Nova stopped watching. `settled` sets `settled_at`, which
+ * closes the write for every reader whatever its transaction's clock; the
+ * other two set the hold's end, and leave a write already settled closed.
+ * `resourceId` names the HQ app a create made. Outside any lock: the row is
+ * never locked, and only the process that admitted the write moves it.
+ */
+export async function settleRemoteWrites(
+	writeIds: readonly string[],
+	how: RemoteWriteSettlement,
+): Promise<void> {
+	if (writeIds.length === 0) return;
+	await settleRemoteWritesIn(await getAppDb(), writeIds, how);
+}
+
+/** `settleRemoteWrites` through `db`, or a caller's transaction that records what the writes made. */
+async function settleRemoteWritesIn(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	writeIds: readonly string[],
+	how: RemoteWriteSettlement,
+): Promise<void> {
+	if (writeIds.length === 0) return;
+	const holdSeconds =
+		how.kind === "unanswered"
+			? UNANSWERED_WRITE_GRACE_SECONDS
+			: MEDIA_JOB_HOLD_SECONDS;
+	await db
+		.updateTable("hq_remote_writes")
+		.set({
+			...(how.kind === "settled"
+				? { settled_at: sql<Date>`now()` }
+				: {
+						held_until: sql<Date>`greatest(opened_at, now() + make_interval(secs => ${holdSeconds}))`,
+					}),
+			...(how.kind !== "media-job" &&
+				how.resourceId !== undefined && { resource_id: how.resourceId }),
+			...(how.kind === "media-job" && { hq_job_id: how.jobId }),
+		})
+		.where("id", "in", [...writeIds])
+		.execute();
+}
+
+/** A media job CommCare HQ accepted for an HQ app whose write is still open, to poll by its id. */
+export interface OpenMediaJob {
+	readonly writeId: string;
+	readonly jobId: string;
+}
+
+/** The open media jobs of one HQ app, whichever Nova app sent them, oldest first. */
+export async function readOpenMediaJobs(key: {
+	readonly server: string;
+	readonly domain: string;
+	readonly remoteAppId: string;
+}): Promise<readonly OpenMediaJob[]> {
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("hq_remote_writes")
+		.select(["id", "hq_job_id"])
+		.where("resource_kind", "=", "app")
+		.where("server", "=", key.server)
+		.where("domain", "=", key.domain)
+		.where("resource_id", "=", key.remoteAppId)
+		.where("write_kind", "=", "media")
+		.where("hq_job_id", "is not", null)
+		.where(openRemoteWrite)
+		.orderBy("opened_at")
+		.execute();
+	return rows.flatMap((row) =>
+		row.hq_job_id === null ? [] : [{ writeId: row.id, jobId: row.hq_job_id }],
 	);
 }
 
@@ -1740,6 +2750,16 @@ export async function recordRefreshedAppBaseline(
 		readonly nextPublish?: HqChangesFirstPublish;
 		/** The media record with an id a review learned. Absent: it stays. */
 		readonly mediaFiles?: HqMediaRecord;
+		/**
+		 * The target-identity record a review that read the same app
+		 * resolved, and the record it resolved over, written whether or not
+		 * the source is (`writeTargetIdentityInTransaction`). Absent: it
+		 * stays.
+		 */
+		readonly targetIdentity?: {
+			readonly read: TargetIdentity;
+			readonly next: TargetIdentity;
+		};
 	},
 ): Promise<{
 	readonly outcome: "current" | "superseded";
@@ -1797,12 +2817,36 @@ export async function recordRefreshedAppBaseline(
 				row.id,
 				stored.first_publish_changes,
 			);
+			/* Where CommCare HQ keeps things is no part of the source's digest
+			 * (a form's id normalizes out), so the record goes where the fences
+			 * pass, whether or not the source does. */
+			if (input.targetIdentity !== undefined) {
+				try {
+					await writeTargetIdentityInTransaction(
+						tx,
+						row.id,
+						{ appId: scope.appId, server: target.server },
+						input.targetIdentity,
+					);
+				} catch (error) {
+					if (error instanceof TargetIdentityMovedError) return superseded();
+					throw error;
+				}
+			}
 			/* The stored baseline already holds what this read saw: another
 			 * refresh that read the same landed first, or a publish whose
 			 * read-back is byte for byte this read. The row is current either
 			 * way, and only a later date moves it. */
 			if (stored.source_digest === input.read.sourceDigest) {
 				if (stored.observed_at.getTime() >= readAt) {
+					if (
+						input.targetIdentity !== undefined &&
+						!sameTargetIdentity(
+							input.targetIdentity.read,
+							input.targetIdentity.next,
+						)
+					)
+						await notifyAppDeployments(tx, scope.appId);
 					return {
 						outcome: "current",
 						deployment: await loadWithinTransaction(tx, row.id),
@@ -1853,37 +2897,63 @@ export async function recordRefreshedAppBaseline(
  * stands at each path the publish sent. `edit`.
  *
  * It writes only where the baseline row still names that HQ app and the
- * digest of the baseline this publish wrote, so a later publish's baseline,
+ * live mapping's unique push token and the digest this publish wrote, so a later publish's baseline,
  * which that publish records its own files beside, is left alone. A publish
- * whose read-back failed wrote an `unread` baseline, whose digest is null,
+ * whose read-back failed wrote an `unread` baseline with a null digest,
  * and passes null. On a deployment someone stopped since the publish began
  * it writes nothing and throws nothing: the app had already landed, which
  * the publish reports, as `finishDeploymentContentWrite` holds it.
+ *
+ * `admitted` names the import, and the media bundle where one went, which
+ * authorize the record: an app deleted, or a publisher who lost edit, since
+ * the import keeps the record of what it and the bundle left. It settles
+ * neither: the import settled with its own record, and a bundle settles by
+ * its job.
  */
 export async function recordDeploymentMediaFiles(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
-		/** The digest of the baseline this publish wrote; null for an `unread` one. */
+		readonly pushToken: string | null;
+		/** The digest of the baseline this publish wrote; null when HQ returned no verifiable source. */
 		readonly sourceDigest: string | null;
 		readonly files: HqMediaRecord;
+		readonly admitted?: AdmittedRecord;
 	},
 ): Promise<void> {
-	await withDeploymentRow(scope, target, { ensure: false }, async (tx, row) => {
-		if (row.endings !== input.expectedEndings) return;
-		await tx
-			.updateTable("app_deployment_baselines")
-			.set({ media_files: JSON.stringify(input.files) })
-			.where("deployment_id", "=", row.id)
-			.where("remote_app_id", "=", input.remoteAppId)
-			.where((eb) =>
-				input.sourceDigest === null
-					? eb("source_digest", "is", null)
-					: eb("source_digest", "=", input.sourceDigest),
-			)
-			.execute();
-	});
+	await withRecordRow(
+		scope,
+		target,
+		{ admitted: input.admitted, writeKinds: ["import", "media"] },
+		async (tx, row) => {
+			const { pushToken } = input;
+			if (row.endings !== input.expectedEndings || pushToken === null) return;
+			await tx
+				.updateTable("app_deployment_baselines")
+				.set({ media_files: JSON.stringify(input.files) })
+				.where("deployment_id", "=", row.id)
+				.where("remote_app_id", "=", input.remoteAppId)
+				.where((eb) =>
+					eb.exists(
+						tx
+							.selectFrom("app_deployment_resources as r")
+							.select("r.id")
+							.where("r.deployment_id", "=", row.id)
+							.where("r.kind", "=", "app")
+							.where("r.remote_id", "=", input.remoteAppId)
+							.where("r.superseded_at", "is", null)
+							.where("r.push_token", "=", pushToken),
+					),
+				)
+				.where((eb) =>
+					input.sourceDigest === null
+						? eb("source_digest", "is", null)
+						: eb("source_digest", "=", input.sourceDigest),
+				)
+				.execute();
+		},
+	);
 }
 
 /** Which of the baseline's facts a bring-in of changes found moved under its lock. */
@@ -1891,7 +2961,8 @@ export type HqChangesBaselineFence =
 	| "source-digest"
 	| "nova-revision"
 	| "remote-app"
-	| "observed-at";
+	| "observed-at"
+	| "target-identity";
 
 /**
  * Thrown by `recordHqChangesTaken` where the baseline, its revision or the
@@ -1913,9 +2984,10 @@ export class HqChangesBaselineMovedError extends Error {
 			"nova-revision": "Nova revision",
 			"remote-app": "CommCare HQ app",
 			"observed-at": "read no later than",
+			"target-identity": "target identity",
 		}[fence];
 		super(
-			`The deployment's baseline is not the one this plan read (expected ${what} ${expected}, found ${found ?? "none"}), so nothing was recorded. A publish landed in between; the caller answers the review as it now stands.`,
+			`The deployment's baseline is not the one this plan read (expected ${what} ${expected}, found ${found ?? "none"}), so nothing was recorded. Another write landed in between; the caller answers the review as it now stands.`,
 		);
 		this.name = "HqChangesBaselineMovedError";
 		this.fence = fence;
@@ -1985,28 +3057,6 @@ function hqChangesFirstPublishList(
 	};
 }
 
-/**
- * Each row with every id equal to its derivation left out, and a row that
- * then holds none dropped: a target holds only the ids that differ.
- */
-function identityOverridesOnly(
-	rows: readonly DeploymentIdentityOverride[],
-): readonly DeploymentIdentityOverride[] {
-	const overrides: DeploymentIdentityOverride[] = [];
-	for (const row of rows) {
-		const uuid = asUuid(row.novaEntityUuid);
-		const uniqueId =
-			row.uniqueId === derivedUniqueId(uuid) ? null : row.uniqueId;
-		const xmlns =
-			row.entityKind === "form" && row.xmlns === derivedFormXmlns(uuid)
-				? null
-				: row.xmlns;
-		if (uniqueId === null && xmlns === null) continue;
-		overrides.push({ ...row, uniqueId, xmlns });
-	}
-	return overrides;
-}
-
 /** What a bring-in of changes made in CommCare HQ records beside its commit. */
 export interface HqChangesTaken extends DeploymentFence {
 	readonly scope: DeploymentScope;
@@ -2030,10 +3080,16 @@ export interface HqChangesTaken extends DeploymentFence {
 	readonly ownership: AppOwnership;
 	/** Which CommCare HQ file stands at each path the app publishes. */
 	readonly mediaFiles: HqMediaRecord;
-	/** The menus and forms of the reading now, with the ids CommCare HQ holds for them. */
-	readonly identities: readonly DeploymentIdentityOverride[];
-	/** Each file CommCare HQ added or replaced that the app now holds, at the path HQ holds it under. */
-	readonly mediaPaths: readonly AdoptedMediaFile[];
+	/**
+	 * The deployment's target-identity record as the take read it (`read`)
+	 * and as the reading resolves it (`next`,
+	 * `targetIdentity.ts::resolveTargetIdentity`), the record the take's export
+	 * and ownership were computed over.
+	 */
+	readonly targetIdentity: {
+		readonly read: TargetIdentity;
+		readonly next: TargetIdentity;
+	};
 	readonly firstPublish: HqChangesFirstPublish;
 }
 
@@ -2065,10 +3121,9 @@ export type HqChangesRecordAt =
  *    `HqChangesBaselineMovedError`;
  * 2. writes the baseline of origin `changes` at the revision, with the
  *    ownership and the media record the caller computed;
- * 3. inserts an identity row for each menu and form whose CommCare HQ id is
- *    not its derivation and that holds none yet, and a media path row for
- *    each file CommCare HQ added or replaced whose path is kept, deleting
- *    first the row of another file at that path: a row is never updated;
+ * 3. writes the target-identity record the reading resolved
+ *    (`writeTargetIdentityInTransaction`), where the stored one is still the
+ *    one it resolved over, else it throws `HqChangesBaselineMovedError`;
  * 4. keeps the next publish's list by `hqChangesFirstPublishList`.
  *
  * The mapping's pushed revision, the deployment's state and its phase
@@ -2088,16 +3143,7 @@ export async function recordHqChangesTaken(
 	}
 	const { tx } = at;
 	await lockAppForDeploymentWrite(tx, input.scope, "edit");
-	const row = await tx
-		.selectFrom("app_deployments")
-		.select(["id", "endings"])
-		.where("app_id", "=", input.scope.appId)
-		.where("project_id", "=", input.scope.projectId)
-		.where("server", "=", input.target.server)
-		.where("domain", "=", input.target.domain)
-		.forUpdate()
-		.executeTakeFirst();
-	if (row === undefined) throw deploymentNotFound();
+	const row = await lockDeploymentRow(tx, input.scope, input.target);
 	if (row.endings !== input.expectedEndings) {
 		throw new DeploymentEndedError(row.id, input.expectedEndings, row.endings);
 	}
@@ -2188,153 +3234,39 @@ async function recordHqChangesInTransaction(
 		},
 	});
 
-	// 3. What CommCare HQ added: its ids, and the paths of its files.
-	await insertTakenIdentities(tx, deploymentId, input.identities);
-	await insertTakenMediaPaths(tx, deploymentId, input.mediaPaths);
+	// 3. Where CommCare HQ keeps the app's menus, forms, keyed creates and files.
+	await writeTakenTargetIdentity(tx, deploymentId, input);
 
 	await notifyAppDeployments(tx, scope.appId);
 	return loadWithinTransaction(tx, deploymentId);
 }
 
 /**
- * An identity row for each override no row holds yet. The reading is what
- * CommCare HQ holds now, so a stored row it contradicts is deleted first: a
- * row of the same entity that holds other ids (a menu or form removed and
- * made again in CommCare HQ, whose key mints the same UUID), and a row of
- * another entity that holds an id or an `xmlns` an override takes (a form
- * CommCare HQ now keeps under another `xmlns` reads as a new form, and its
- * old entity no longer holds that id). A row the reading agrees with is left
- * as it is, and a row it does not name is kept: an undo that brings its
- * entity back sends it under the ids CommCare HQ knew it by.
+ * The record a take resolved, written where the stored one is still the one it
+ * resolved over: otherwise another write moved it between the review and the
+ * take, and the take is the review again (`HqChangesBaselineMovedError`).
  */
-async function insertTakenIdentities(
+async function writeTakenTargetIdentity(
 	tx: Transaction<AppDatabase>,
 	deploymentId: string,
-	identities: readonly DeploymentIdentityOverride[],
+	input: Pick<HqChangesTaken, "scope" | "target" | "targetIdentity">,
 ): Promise<void> {
-	const overrides = identityOverridesOnly(identities);
-	if (overrides.length === 0) return;
-	const existing = await tx
-		.selectFrom("app_deployment_identities")
-		.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
-		.where("deployment_id", "=", deploymentId)
-		.execute();
-	const keyOf = (kind: string, uuid: string) => `${kind}:${uuid}`;
-	const held = new Map(
-		existing.map((row) => [keyOf(row.entity_kind, row.nova_entity_uuid), row]),
-	);
-	const fresh = overrides.filter((override) => {
-		const row = held.get(keyOf(override.entityKind, override.novaEntityUuid));
-		return !(
-			row !== undefined &&
-			row.unique_id === override.uniqueId &&
-			row.xmlns === override.xmlns
+	try {
+		await writeTargetIdentityInTransaction(
+			tx,
+			deploymentId,
+			{ appId: input.scope.appId, server: input.target.server },
+			input.targetIdentity,
 		);
-	});
-	if (fresh.length === 0) return;
-	const freshKeys = new Set(
-		fresh.map((override) =>
-			keyOf(override.entityKind, override.novaEntityUuid),
-		),
-	);
-	const takenIds = new Set(
-		fresh.flatMap((override) =>
-			override.uniqueId === null
-				? []
-				: [keyOf(override.entityKind, override.uniqueId)],
-		),
-	);
-	const takenXmlns = new Set(
-		fresh.flatMap((override) =>
-			override.xmlns === null ? [] : [override.xmlns],
-		),
-	);
-	const contradicted = existing.filter(
-		(row) =>
-			freshKeys.has(keyOf(row.entity_kind, row.nova_entity_uuid)) ||
-			(row.unique_id !== null &&
-				takenIds.has(keyOf(row.entity_kind, row.unique_id))) ||
-			(row.xmlns !== null && takenXmlns.has(row.xmlns)),
-	);
-	for (const row of contradicted) {
-		await tx
-			.deleteFrom("app_deployment_identities")
-			.where("deployment_id", "=", deploymentId)
-			.where("entity_kind", "=", row.entity_kind)
-			.where("nova_entity_uuid", "=", row.nova_entity_uuid)
-			.execute();
+	} catch (error) {
+		if (error instanceof TargetIdentityMovedError)
+			throw new HqChangesBaselineMovedError(
+				"target-identity",
+				"the record the review resolved over",
+				null,
+			);
+		throw error;
 	}
-	await tx
-		.insertInto("app_deployment_identities")
-		.values(
-			fresh.map((override) => ({
-				deployment_id: deploymentId,
-				entity_kind: override.entityKind,
-				nova_entity_uuid: override.novaEntityUuid,
-				unique_id: override.uniqueId,
-				xmlns: override.xmlns,
-			})),
-		)
-		.execute();
-}
-
-/**
- * A media path row for each file CommCare HQ added or replaced, at the path
- * `assignMediaPaths` keeps for it. Another file's row at that path, which
- * is the replaced file's own, is deleted first, matched as CommCare HQ's
- * upload matches a path, without letter case. A file that already holds a
- * path on this deployment keeps it and touches no other file's row, as the
- * held paths the bring-in's export boundary reads do, and a path the
- * assignment does not keep leaves its file at its derived path.
- */
-async function insertTakenMediaPaths(
-	tx: Transaction<AppDatabase>,
-	deploymentId: string,
-	files: readonly AdoptedMediaFile[],
-): Promise<void> {
-	const assigned = assignMediaPaths(files).rows;
-	if (assigned.length === 0) return;
-	const holding = new Set(
-		(
-			await tx
-				.selectFrom("app_deployment_media_paths")
-				.select("media_asset_id")
-				.where("deployment_id", "=", deploymentId)
-				.where(
-					"media_asset_id",
-					"in",
-					assigned.map((row) => row.assetId),
-				)
-				.execute()
-		).map((row) => row.media_asset_id),
-	);
-	const rows = assigned.filter((row) => !holding.has(row.assetId));
-	for (const row of rows) {
-		await tx
-			.deleteFrom("app_deployment_media_paths")
-			.where("deployment_id", "=", deploymentId)
-			.where("media_asset_id", "<>", row.assetId)
-			.where(
-				sql<string>`lower(wire_path COLLATE "C")`,
-				"=",
-				sql<string>`lower(${row.wirePath}::text COLLATE "C")`,
-			)
-			.execute();
-	}
-	if (rows.length === 0) return;
-	await tx
-		.insertInto("app_deployment_media_paths")
-		.values(
-			rows.map((row) => ({
-				deployment_id: deploymentId,
-				media_asset_id: row.assetId,
-				wire_path: row.wirePath,
-			})),
-		)
-		.onConflict((conflict) =>
-			conflict.columns(["deployment_id", "media_asset_id"]).doNothing(),
-		)
-		.execute();
 }
 
 /**
@@ -2503,20 +3435,28 @@ async function writeResourceBaselines(
 /**
  * Record that Nova could not read back some of the tables and places a push
  * may have changed, so the next publish asks before writing over them.
+ *
+ * `admitted` names the push's writes, which authorize the record and are
+ * settled with it, with no fence: an ending keeps every table and place
+ * mapping, and these baselines are what CommCare HQ holds of them. With
+ * nothing admitted it is under the fence and needs a live app and `edit`.
  */
 export async function markResourceBaselinesUnread(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	refs: readonly ResourceBaselineRef[],
 	fence: DeploymentFence,
+	admitted?: AdmittedRecord,
 ): Promise<void> {
-	if (refs.length === 0) return;
+	if (refs.length === 0 && (admitted?.settle ?? []).length === 0) return;
 	const observedAt = new Date().toISOString();
-	await withDeploymentRow(
+	await withRecordRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: fence.expectedEndings },
-		async (tx) => {
+		{ admitted, writeKinds: ["workbook", "places"] },
+		async (tx, row) => {
+			if (admitted === undefined || admitted.writeIds.length === 0)
+				holdFence(row, fence.expectedEndings);
 			await writeResourceBaselines(
 				tx,
 				scope,
@@ -2581,7 +3521,12 @@ export async function readAppBaseline(
 		mediaFiles: storedMediaFiles(row.deployment_id, row.media_files),
 	};
 	if (row.origin === "unread") {
-		return { origin: "unread", storedOrigin: "unread", ...observed };
+		return {
+			origin: "unread",
+			storedOrigin: "unread",
+			...observed,
+			novaRevision: null,
+		};
 	}
 	const origin = knownReadOrigin(row.deployment_id, row.origin);
 	const verified = verifiedBaselineSource(row);
@@ -2676,7 +3621,7 @@ function verifiedBaselineSource(row: {
 	}
 	let source: unknown;
 	try {
-		source = JSON.parse(text.toString("utf8"));
+		source = parseHqJsonText(text.toString("utf8"));
 	} catch {
 		return unverified("json");
 	}
@@ -2735,11 +3680,16 @@ function rememberTargetFacts(key: string, facts: TargetFacts | null): void {
  * page and no publish.
  */
 export async function readFirstPublishStates(
-	scope: DeploymentScope,
+	from: DeploymentReadFrom,
 ): Promise<ReadonlyMap<string, FirstPublishState>> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const rows = await db
+	return readingIn(from, "view", (snapshot) => firstPublishStatesIn(snapshot));
+}
+
+async function firstPublishStatesIn(
+	snapshot: DeploymentReadSnapshot,
+): Promise<ReadonlyMap<string, FirstPublishState>> {
+	const { scope } = snapshot;
+	const rows = await snapshot.db
 		.selectFrom("app_deployment_baselines as b")
 		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
 		.select(["b.deployment_id", "b.remote_app_id", "b.first_publish_changes"])
@@ -2810,20 +3760,61 @@ function storedFirstPublish(
 /**
  * What the project space holds of the values Nova leaves to CommCare HQ,
  * projected from this target's stored app baseline, or null where there is
- * no baseline, it is `unread` or a shell's, or it does not verify.
+ * no observed source, the source is an empty shell's, or it does not verify.
  *
  * `view`, where `readAppBaseline` takes `edit`: this returns the typed
  * projection and never the source, and every value of it is one a viewer's
- * own `.ccz` carries. It reads in two steps so a page load does not unzip
- * the source each time: the row without its bytes first, then the bytes
- * only for a projection this instance has not made before.
+ * own `.ccz` carries. It reads the stored bytes in its own snapshot
+ * (`holdTargetFacts`) and verifies and projects them once that snapshot has
+ * given its connection back (`targetFactsOf`).
  */
 export async function readTargetFacts(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 ): Promise<TargetFacts | null> {
-	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
-	const db = await getAppDb();
+	return targetFactsOf(
+		await withDeploymentReadSnapshot(scope, "view", (snapshot) =>
+			holdTargetFacts(snapshot, target),
+		),
+	);
+}
+
+/**
+ * A target's kept facts as one snapshot read them: the projection itself,
+ * where there is none to make or this instance already made it for the
+ * stored digest, or the stored row's bytes, which `targetFactsOf` verifies
+ * and projects. The bytes are the row the snapshot authorized, read in it,
+ * so projecting them after the snapshot is released answers from that one
+ * generation all the same: nothing read later goes into the answer.
+ */
+export type HeldTargetFacts =
+	| { readonly kind: "made"; readonly facts: TargetFacts | null }
+	| {
+			readonly kind: "bytes";
+			readonly deploymentId: string;
+			readonly sourceGzip: Buffer | null;
+			readonly sourceDigest: string | null;
+			readonly ownership: unknown;
+			readonly observedAt: Date;
+			readonly adopted: boolean;
+	  };
+
+/**
+ * Read inside `snapshot` what `targetFactsOf` needs for one target's kept
+ * facts. It reads in two steps so a page load does not unzip the source each
+ * time: the row without its bytes first, then the bytes only for a
+ * projection this instance has not made before. Both name the scope's app and
+ * Project, so the bytes are the row the first step authorized, whatever a
+ * move or a publish commits between them. It does no CPU work over the
+ * bytes: the gunzip, the digest and the parse of up to the largest source
+ * Nova reads wait until the snapshot's pooled connection is given back.
+ */
+export async function holdTargetFacts(
+	snapshot: DeploymentReadSnapshot,
+	target: DeploymentTargetKey,
+): Promise<HeldTargetFacts> {
+	if (!roleAllowsApp(snapshot.role, "view")) throw deploymentNotFound();
+	const { scope, db } = snapshot;
 	const row = await db
 		.selectFrom("app_deployment_baselines as b")
 		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
@@ -2846,12 +3837,17 @@ export async function readTargetFacts(
 		.where("d.server", "=", target.server)
 		.where("d.domain", "=", target.domain)
 		.executeTakeFirst();
-	if (row === undefined || row.origin === "unread") return null;
-	if (knownReadOrigin(row.deployment_id, row.origin) === "create") return null;
+	const none = { kind: "made", facts: null } as const;
+	if (row === undefined || row.source_digest === null) return none;
+	if (
+		row.origin !== "unread" &&
+		knownReadOrigin(row.deployment_id, row.origin) === "create"
+	)
+		return none;
 	const observedAt = row.observed_at.toISOString();
 	const adopted = row.app_ownership === "adopted";
 	const ownership = appOwnershipFromRow(row.ownership);
-	if (row.source_digest !== null && ownership !== null) {
+	if (ownership !== null) {
 		const key = targetFactsCacheKey(
 			row.deployment_id,
 			row.source_digest,
@@ -2861,7 +3857,10 @@ export async function readTargetFacts(
 		if (targetFactsCache.has(key)) {
 			const facts = targetFactsCache.get(key) ?? null;
 			rememberTargetFacts(key, facts);
-			return facts === null ? null : { ...facts, observedAt };
+			return {
+				kind: "made",
+				facts: facts === null ? null : { ...facts, observedAt },
+			};
 		}
 	}
 
@@ -2869,38 +3868,60 @@ export async function readTargetFacts(
 	 * refresh that rewrote the baseline between the two statements is
 	 * answered from the read it stored, never from the first row's date. */
 	const bytes = await db
-		.selectFrom("app_deployment_baselines")
+		.selectFrom("app_deployment_baselines as b")
+		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
 		.select([
-			"origin",
-			"source_gzip",
-			"source_digest",
-			"ownership",
-			"observed_at",
+			"b.origin",
+			"b.source_gzip",
+			"b.source_digest",
+			"b.ownership",
+			"b.observed_at",
 		])
-		.where("deployment_id", "=", row.deployment_id)
+		.where("b.deployment_id", "=", row.deployment_id)
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
 		.executeTakeFirst();
-	if (bytes === undefined || bytes.origin === "unread") return null;
-	if (knownReadOrigin(row.deployment_id, bytes.origin) === "create") {
-		return null;
-	}
-	const verified = verifiedBaselineSource({
-		deployment_id: row.deployment_id,
-		source_gzip: bytes.source_gzip,
-		source_digest: bytes.source_digest,
+	if (bytes === undefined || bytes.source_digest === null) return none;
+	if (
+		bytes.origin !== "unread" &&
+		knownReadOrigin(row.deployment_id, bytes.origin) === "create"
+	)
+		return none;
+	return {
+		kind: "bytes",
+		deploymentId: row.deployment_id,
+		sourceGzip: bytes.source_gzip,
+		sourceDigest: bytes.source_digest,
 		ownership: bytes.ownership,
-	});
-	if (verified === null || bytes.source_digest === null) return null;
-	const facts = targetFactsFromSource(verified.source, {
-		observedAt: bytes.observed_at.toISOString(),
-		novaOwnsAutoGpsCapture: verified.ownership.autoGpsCapture,
+		observedAt: bytes.observed_at,
 		adopted,
+	};
+}
+
+/**
+ * The kept facts `holdTargetFacts` read, verified and projected outside any
+ * snapshot, and remembered for the stored digest.
+ */
+export function targetFactsOf(held: HeldTargetFacts): TargetFacts | null {
+	if (held.kind === "made") return held.facts;
+	const verified = verifiedBaselineSource({
+		deployment_id: held.deploymentId,
+		source_gzip: held.sourceGzip,
+		source_digest: held.sourceDigest,
+		ownership: held.ownership,
+	});
+	if (verified === null || held.sourceDigest === null) return null;
+	const facts = targetFactsFromSource(verified.source, {
+		observedAt: held.observedAt.toISOString(),
+		novaOwnsAutoGpsCapture: verified.ownership.autoGpsCapture,
+		adopted: held.adopted,
 	});
 	rememberTargetFacts(
 		targetFactsCacheKey(
-			row.deployment_id,
-			bytes.source_digest,
+			held.deploymentId,
+			held.sourceDigest,
 			verified.ownership.autoGpsCapture,
-			adopted,
+			held.adopted,
 		),
 		facts,
 	);
@@ -3025,7 +4046,7 @@ async function writeResourceMapping(
 	deploymentId: string,
 	input: RecordRemoteResourceInput,
 	now: Date,
-): Promise<void> {
+): Promise<string> {
 	const adopted = input.ownership === "adopted";
 	const adoptedBy = input.adoptedBy ?? null;
 	/* The ledger's CHECK says the same thing, and hitting it would surface
@@ -3091,11 +4112,16 @@ async function writeResourceMapping(
 		.where("remote_id", "!=", input.remoteId)
 		.execute();
 
+	/* The save counter the import that wrote these push fields acknowledged,
+	 * which orders two publishes of one app (`recordRemoteResource`). */
+	const pushedRemoteRevision =
+		input.pushedRevision === null ? null : input.remoteRevision;
+
 	/* `remote_revision`/`remote_observed_at` are written in BOTH arms:
 	 * a republish always lands in the conflict arm, so an insert-only
 	 * write would silently drop the version an in-place update
 	 * reported. */
-	await tx
+	const pushed = await tx
 		.insertInto("app_deployment_resources")
 		.values({
 			deployment_id: deploymentId,
@@ -3105,6 +4131,7 @@ async function writeResourceMapping(
 			...attribution,
 			pushed_revision: input.pushedRevision,
 			pushed_at: input.pushedRevision === null ? null : now,
+			pushed_remote_revision: pushedRemoteRevision,
 			remote_revision: input.remoteRevision,
 			remote_observed_at: input.remoteRevision === null ? null : now,
 		})
@@ -3117,6 +4144,7 @@ async function writeResourceMapping(
 					...conflictAttribution,
 					pushed_revision: input.pushedRevision,
 					pushed_at: input.pushedRevision === null ? null : now,
+					pushed_remote_revision: pushedRemoteRevision,
 					remote_revision: input.remoteRevision,
 					remote_observed_at: input.remoteRevision === null ? null : now,
 					/* A write that landed on this remote id is CommCare HQ
@@ -3124,7 +4152,9 @@ async function writeResourceMapping(
 					remote_missing_at: null,
 				}),
 		)
-		.execute();
+		.returning("push_token")
+		.executeTakeFirstOrThrow();
+	return pushed.push_token;
 }
 
 /**
@@ -3163,27 +4193,6 @@ export type ResourcePushOutcome =
 			 * because the phase did not succeed.
 			 */
 			readonly status: "partial";
-	  }
-	| {
-			/**
-			 * Not a push at all: an act OUTSIDE the publish that wrote some
-			 * of one kind's resources and separately knows which of that
-			 * kind the app still has.
-			 *
-			 * Provisioning workers is the case. Somebody names three
-			 * personas and gets three accounts, which says nothing about the
-			 * other twelve personas — so supersession cannot be read off
-			 * what the call named, the way a publish's can. What it CAN be
-			 * read off is the document: a persona that no longer exists has
-			 * an account on the project space that nothing in Nova names any
-			 * more, and `stillUsed` is what tells the ledger to stop claiming
-			 * it and start reporting it. No rung folds, because provisioning
-			 * is not a rung.
-			 */
-			readonly status: "reconciled";
-			readonly kind: DeploymentResourceKind;
-			/** Every Nova resource of that kind the app still has. */
-			readonly stillUsed: readonly string[];
 	  };
 
 /**
@@ -3199,15 +4208,28 @@ export type ResourcePushOutcome =
  *
  * A COMPLETE push is also the AUTHORITATIVE statement of which resources
  * of its kinds this app still uses, so any mapping it does not name is
- * superseded here. A RECONCILED write says the same thing about one kind
- * from a list it was handed rather than from what it wrote, which is what
- * an act outside the publish needs. Dropping the last select that read a table, or
+ * superseded here (provisioning, which is no publish, says the same of its
+ * one kind from the personas the app still has: `recordProvisionedWorkers`).
+ * Dropping the last select that read a table, or
  * archiving a place, leaves that resource sitting on the project space
  * under Nova's own claim, and without this its row would stay live forever
  * and `leftBehindResources` — which only ever scans superseded rows —
  * would never mention it. Superseding is the whole fix: Nova still deletes
  * nothing on CommCare HQ, it just stops claiming the resource and starts
  * reporting it.
+ *
+ * `write.admitted` names the push's writes (the workbook's, or each batch of
+ * places'), which authorize the record and are settled with it: an app
+ * deleted, or a publisher who lost edit, since the push was admitted keeps the
+ * mappings and baselines of what it made, and a complete push still says
+ * which resources of its kinds the app it published uses; the caller is
+ * answered the record only where they may still read it (`RecordAnswer`).
+ * Its record is fenced only in what an ending changes: an ending keeps every table and place
+ * mapping, so what the push made is recorded all the same, as a `partial`
+ * push that supersedes nothing and folds no rung, since the ending is the
+ * deployment's latest word. A record with nothing admitted (an app that
+ * stopped carrying a kind) needs a live app and `edit`, and an ending since
+ * throws `DeploymentEndedError`.
  */
 export async function recordPushedResources(
 	scope: DeploymentScope,
@@ -3217,21 +4239,27 @@ export async function recordPushedResources(
 	write: DeploymentFence & {
 		/** HQ's reads of what the push left, written with the mappings whatever the outcome. */
 		readonly baselines?: readonly ResourceBaselineWrite[];
+		readonly admitted?: AdmittedRecord;
 	},
-): Promise<DeploymentWithResources> {
-	return withDeploymentRow(
+): Promise<RecordAnswer> {
+	const admitted =
+		write.admitted !== undefined && write.admitted.writeIds.length > 0;
+	const landed = inputs.map(landedResource);
+	return withRecordRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: write.expectedEndings },
-		async (tx, row) => {
+		{ admitted: write.admitted, writeKinds: ["workbook", "places"] },
+		async (tx, row, access) => {
+			const ended = row.endings !== write.expectedEndings;
+			if (ended && !admitted) holdFence(row, write.expectedEndings);
 			const now = new Date();
 			for (const input of inputs) {
 				await writeResourceMapping(tx, row.id, input, now);
 			}
 			await writeResourceBaselines(tx, scope, target, write.baselines ?? []);
-			if (outcome.status === "partial") {
+			if (outcome.status === "partial" || ended) {
 				await notifyAppDeployments(tx, scope.appId);
-				return loadWithinTransaction(tx, row.id);
+				return answerRecord(tx, row.id, access, landed);
 			}
 			const supersede = async (
 				kind: DeploymentResourceKind,
@@ -3248,11 +4276,6 @@ export async function recordPushedResources(
 					)
 					.execute();
 			};
-			if (outcome.status === "reconciled") {
-				await supersede(outcome.kind, outcome.stillUsed);
-				await notifyAppDeployments(tx, scope.appId);
-				return loadWithinTransaction(tx, row.id);
-			}
 			for (const kind of outcome.kinds) {
 				await supersede(
 					kind,
@@ -3274,9 +4297,218 @@ export async function recordPushedResources(
 					.execute();
 			}
 			await notifyAppDeployments(tx, scope.appId);
-			return loadWithinTransaction(tx, row.id);
+			return answerRecord(tx, row.id, access, landed);
 		},
 	);
+}
+
+/**
+ * Record the levels a person confirmed take workers in the project space,
+ * immediately before provisioning writes the first account there. Under the
+ * fence: an ending since throws `DeploymentEndedError` and records nothing.
+ * One already in force is kept as it is, so its first confirmer stays on
+ * record.
+ */
+export async function recordWorkerLevelConfirmations(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	levelCodes: readonly string[],
+	fence: DeploymentFence,
+): Promise<void> {
+	if (levelCodes.length === 0) return;
+	await withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false, expectedEndings: fence.expectedEndings },
+		async (tx, row) => {
+			await insertDeploymentConfirmationsInTransaction(
+				tx,
+				row.id,
+				scope.actorUserId,
+				levelCodes.map((subject) => ({ kind: "worker-level", subject })),
+			);
+			await notifyAppDeployments(tx, scope.appId);
+		},
+	);
+}
+
+/**
+ * Admit one worker account's write, immediately before it is sent: under the
+ * fence (an ending since throws `DeploymentEndedError` and sends nothing), it
+ * records the write open for its hold, which keeps a Project move of the app
+ * waiting until the account it may make is recorded
+ * (`recordProvisionedWorkers`).
+ */
+export async function admitWorkerWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: DeploymentFence & { readonly personaUuid: string },
+): Promise<string> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false, expectedEndings: input.expectedEndings },
+		async (tx, row) => {
+			const [writeId] = await admitRemoteWritesInTransaction(tx, [
+				{
+					deploymentId: row.id,
+					server: target.server,
+					domain: target.domain,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					actorUserId: scope.actorUserId,
+					resourceKind: "worker",
+					resourceId: input.personaUuid,
+					writeKind: "worker",
+					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.worker,
+				},
+			]);
+			if (writeId === undefined) {
+				throw new Error("An admitted worker write returned no id.");
+			}
+			return writeId;
+		},
+	);
+}
+
+/**
+ * Record the worker accounts a provisioning call made or updated, reconcile
+ * the worker mappings against the personas the app still has, and settle the
+ * call's admitted writes, in one transaction.
+ *
+ * Under no fence: an ending keeps every worker mapping
+ * (`hqAppClaims.ts::endDeploymentInTransaction`), since the accounts are still
+ * on the project space, so an account made while someone stopped publishing is
+ * recorded like any other rather than left as a stranger's for the next
+ * call to stop over. The admissions kept a Project move waiting, so the app is
+ * where the call found it.
+ *
+ * What the call's writes made is recorded on the authority of their
+ * admissions (`lockAppForAdmittedRecord`): an app deleted since, or a caller
+ * who lost edit since, still gets the accounts the call made recorded, since
+ * they are on the project space either way and only the record says they are
+ * Nova's. The reconciliation is the document's and is made only by a caller
+ * who may edit a live app, so it waits for the next call where either changed.
+ * The caller is answered the record only where they may still read it
+ * (`RecordAnswer`); the accounts and their passwords are the call's own answer.
+ */
+export async function recordProvisionedWorkers(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: {
+		readonly landed: readonly RecordRemoteResourceInput[];
+		/** The personas the app still has. */
+		readonly stillUsed: readonly string[];
+		/** The call's admitted writes, settled here except for a write whose outcome is still unknown. */
+		readonly writeIds: readonly string[];
+		readonly unansweredWriteId?: string;
+	},
+): Promise<RecordAnswer> {
+	for (const landed of input.landed) {
+		if (landed.kind !== "worker") {
+			throw new Error(
+				`Provisioning records worker accounts only, and was handed a ${landed.kind} mapping.`,
+			);
+		}
+	}
+	const settle: WritesEnded[] = [
+		{
+			writeIds: input.writeIds.filter((id) => id !== input.unansweredWriteId),
+			how: { kind: "settled" },
+		},
+	];
+	if (input.unansweredWriteId !== undefined) {
+		settle.push({
+			writeIds: [input.unansweredWriteId],
+			how: { kind: "unanswered" },
+		});
+	}
+	return withRecordRow(
+		scope,
+		target,
+		{
+			admitted: { writeIds: input.writeIds, settle },
+			writeKinds: ["worker"],
+		},
+		async (tx, row, access) => {
+			const now = new Date();
+			for (const landed of input.landed) {
+				await writeResourceMapping(tx, row.id, landed, now);
+			}
+			if (access.edit)
+				await tx
+					.updateTable("app_deployment_resources")
+					.set({ superseded_at: now })
+					.where("deployment_id", "=", row.id)
+					.where("kind", "=", "worker")
+					.where("superseded_at", "is", null)
+					.$if(input.stillUsed.length > 0, (qb) =>
+						qb.where("nova_resource_id", "not in", input.stillUsed),
+					)
+					.execute();
+			await notifyAppDeployments(tx, scope.appId);
+			return answerRecord(tx, row.id, access, input.landed.map(landedResource));
+		},
+	);
+}
+
+/**
+ * Lock the app row for recording what admitted writes made, on the authority
+ * of those admissions: each must be a write of one of `writeKinds` this caller
+ * admitted for this app, Project and project space (`admitAppCreate`,
+ * `admitAppWrite`, `admitWorkbookWrite`, `admitPlacesWrite`,
+ * `admitWorkerWrite`), and the app must still be in that Project, which a
+ * move cannot change while an admission is open. Neither the app's deletion
+ * nor the caller's role since decides whether it records: the record states
+ * what the writes already made. Both decide what the caller may do now, read
+ * here by the authorization every deployment read and write makes
+ * (`authorizeDeploymentApp`, with the membership locked as a write locks it):
+ * a record that reconciles against the document needs `edit`, and a record
+ * answers the deployment only to a caller who may `read` it.
+ */
+async function lockAppForAdmittedRecord(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	writeIds: readonly string[],
+	writeKinds: readonly HqRemoteWriteKind[],
+): Promise<RecordAccess> {
+	const app = await tx
+		.selectFrom("apps")
+		.select(["project_id", "deleted_at"])
+		.where("id", "=", scope.appId)
+		.forShare()
+		.executeTakeFirst();
+	if (app === undefined || app.project_id !== scope.projectId)
+		throw deploymentNotFound();
+	const admitted = await tx
+		.selectFrom("hq_remote_writes")
+		.select("id")
+		.where("id", "in", writeIds)
+		.where("app_id", "=", scope.appId)
+		.where("project_id", "=", scope.projectId)
+		.where("actor_user_id", "=", scope.actorUserId)
+		.where("server", "=", target.server)
+		.where("domain", "=", target.domain)
+		.where("write_kind", "in", [...writeKinds])
+		.execute();
+	if (admitted.length !== new Set(writeIds).size) throw deploymentNotFound();
+	try {
+		const role = await authorizeDeploymentApp(
+			app,
+			scope,
+			"view",
+			"read",
+			(projectId) =>
+				projectRoleForInTransaction(tx, scope.actorUserId, projectId),
+		);
+		return { read: true, edit: roleAllowsApp(role, "edit") };
+	} catch (error) {
+		/* A deleted app (`DeploymentAppDeletedError`) is a not-found too. */
+		if (error instanceof DeploymentError && error.code === "not_found")
+			return { read: false, edit: false };
+		throw error;
+	}
 }
 
 export interface ApplyObservationInput {
@@ -3421,18 +4653,26 @@ export async function beginDeploymentContentWrite(
  * A deployment ended since the publish read it answers false and writes
  * nothing: the ending already cleared the manifest and rotated the
  * generation.
+ *
+ * `admitted` names every write the publish let out, which authorize the
+ * write: the manifest is the record of what the import made, so an app
+ * deleted, or a publisher who lost edit, since keeps it. It settles none.
  */
 export async function finishDeploymentContentWrite(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	generation: string,
-	manifest: import("./entryPointTypes").PublishedEntryPointManifest | null,
+	manifest: PublishedEntryPointManifest | null,
 	fence: DeploymentFence,
+	admitted?: AdmittedRecord,
 ): Promise<boolean> {
-	return withDeploymentRow(
+	return withRecordRow(
 		scope,
 		target,
-		{ ensure: false },
+		{
+			admitted,
+			writeKinds: ["create", "import", "media", "workbook", "places"],
+		},
 		async (tx, row) => {
 			if (row.endings !== fence.expectedEndings) return false;
 			if (row.content_generation !== generation) {
