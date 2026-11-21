@@ -4,6 +4,7 @@ from lxml import etree
 
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
 from proof.checks.xform_parts import XFORMS
+from proof.rules import _xpath
 
 SUBMISSION = "/runs/*/steps/*/submissions/*/instance/data/"
 CREATE = "case[*]/create[*]/case_name[*]/text()"
@@ -16,6 +17,15 @@ def _one(elements):
     return elements[0] if len(elements) == 1 else None
 
 
+def children_named(parent, tag):
+    """Native XML pointers number all local-name siblings. A namesake in a different namespace is ambiguous."""
+    if parent is None:
+        return None
+    local = etree.QName(tag).localname
+    found = [child for child in parent if isinstance(child.tag, str) and etree.QName(child).localname == local]
+    return found if all(child.tag == tag for child in found) else None
+
+
 def leaves(node, parent):
     path = (*parent, etree.QName(node).localname)
     if not len(node):
@@ -25,8 +35,58 @@ def leaves(node, parent):
             yield from leaves(child, path)
 
 
+def _absolute(ref, context):
+    if _xpath.plain_path(ref):
+        return ref
+    # Core resolves a model bind relative to the main instance root, and a setvalue ref relative to /.
+    step = ref.removeprefix("./")
+    if step and not ref.startswith("/") and _xpath.plain_path("/" + step):
+        return context + "/" + step
+    return None
+
+
+def _context(model):
+    instance = model.find(XF + "instance")
+    return "/" + etree.QName(instance[0]).localname if instance is not None and len(instance) == 1 else ""
+
+
+def bindings_at(model, target):
+    """XFormParser.parseModel dispatches direct model children by local name, including a foreign bind."""
+    context = _context(model)
+    return [b for b in model.findall("{*}bind") if _absolute(b.get("nodeset") or "", context) == target]
+
+
+def setvalue_targets(form, model):
+    """Fixed targets of native actions. An unresolved write could replace the observed calculation.
+
+    XFormParser.parseModel and parseControlChildren both dispatch actions by local name. A data element
+    called setvalue inside the instance is ordinary data. parseSetValueAction uses the bind ID before ref.
+    """
+    context = _context(model)
+    binds = model.findall("{*}bind")
+    if any(b.get("calculate") is not None and _absolute(b.get("nodeset") or "", context) is None for b in binds):
+        return None
+    targets = set()
+    for action in form.iter("{*}setvalue"):
+        parent = action.getparent()
+        if parent is not model and (
+            model in action.iterancestors()
+            or etree.QName(parent).localname not in {"input", "secret", "select", "select1", "trigger", "upload"}
+        ):
+            continue
+        if (identifier := action.get("bind")) is not None:
+            bind = _one([b for b in binds if b.get("id") == identifier])
+            target = _absolute(bind.get("nodeset") or "", context) if bind is not None else None
+        else:
+            target = _absolute(action.get("ref") or "", "")
+        if target is None:
+            return None
+        targets.add(target)
+    return targets
+
+
 def calculation_at(model, target):
-    bind = _one([node for node in model.findall(XF + "bind") if node.get("nodeset") == target])
+    bind = _one(bindings_at(model, target))
     return bind.get("calculate") if bind is not None else None
 
 
@@ -53,6 +113,10 @@ def question(difference, location, submission, form_file, *, before):
     branch = [f"{{{ns}}}{step}" for step in case_path[1:-3]] + [CASE + step for step in case_path[-3:]]
     name = _one(instance.findall("/".join(branch)))
     if name is None or name.text != (difference.before if before else difference.after):
+        return None
+    target = "/" + "/".join(case_path)
+    targets = setvalue_targets(form, model)
+    if targets is None or target in targets or (not before and calculation_at(model, target) in targets):
         return None
     answer = bound_answer(model, case_path, leaves(instance, ()), name.text, before=before)
     if answer is None or answer[1] != difference.before:

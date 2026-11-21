@@ -165,3 +165,39 @@ def test_repeat_name_never_holds_an_authored_interior_change_or_another_field():
     ]
     rows, sites = judged(rows=original)
     assert rows == original and not sites.served
+
+
+def test_competing_native_writers_use_local_names_and_their_actual_targets():
+    path = "/data/member/nova_trimmed_full"
+
+    def with_writer(element, **attributes):
+        def mutate(_data, installed, *_):
+            etree.SubElement(installed.find(XF + "model"), "{urn:other}" + element, **attributes)
+
+        return mutate
+
+    # Core's model handler dispatches both these foreign-namespace elements. Referencing the
+    # case via the model's instance-relative path also resolves to the same native node.
+    for mutation in (
+        with_writer("bind", nodeset="member/case/create/case_name", calculate="'Ada   Doe'"),
+        with_writer("bind", nodeset=path, calculate="'Ada   Doe'"),
+        with_writer("setvalue", ref=CASE_PATH, value="'Ada   Doe'", event="xforms-ready"),
+        with_writer("setvalue", ref=path, value="'Ada   Doe'", event="xforms-ready"),
+    ):
+        rows, sites = judged(mutate=mutation)
+        assert rows == [TRACE_ROW, BLOCK_ROW] and not sites.served
+
+    def unrelated(_data, installed, *_):
+        model = installed.find(XF + "model")
+        etree.SubElement(model, "{urn:other}bind", id="comment", nodeset="member/other")
+        etree.SubElement(
+            model,
+            "{urn:other}setvalue",
+            bind="comment",
+            event="xforms-ready",
+            value="'other'",
+        )
+        etree.SubElement(model.find(XF + "instance")[0], "{urn:form}setvalue", ref=CASE_PATH)
+
+    rows, sites = judged(mutate=unrelated)
+    assert all(r.path.endswith(names.TRIMMED) for r in rows) and len(sites.served) == 2
