@@ -409,7 +409,10 @@ harness keeps, each with its reason.
   runs only the checks its register entries name. In a Formplayer submission,
   `case-names-checked` can account for a generated helper at its declared
   form node and a case name changed by exactly Java `String.trim()` at the
-  declared case write.
+  declared case write. Core's submission and HQ's processed block can also
+  show that trim on a repeated child case. Both builds must agree on the
+  source field, form, case type, repeat occurrence and case ID. The case
+  block must agree with the submitted write on each side.
   Every directory under `proof/controls/` is named by an entry of one of the
   two registers or by a `control` entry of `proof/walk-stops.json`, so a
   control never stops running unnoticed. Never skip, mark, loosen a comparator or widen a path to make the

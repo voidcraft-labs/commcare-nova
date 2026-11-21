@@ -1418,7 +1418,7 @@ def advised_picker_names(app, hq_files, local_files, labels):
 def document_behavior(document, records, *, native_sites=None):
     """Proof 3's differences on one document: each configuration it is exported under, judged from its records,
     each against the local archive Nova compiles for that configuration's project space."""
-    from proof.checks import android, observations, served_places
+    from proof.checks import android, observations, repeated_case_names, served_places
 
     found = []
     compared = set()
@@ -1438,7 +1438,7 @@ def document_behavior(document, records, *, native_sites=None):
         ):
             labels = (document.document.get("wire") or {}).get("advisedPickerLabels")
             picker_names = advised_picker_names(observed.a.doc, observed.a.build.files, local_files, labels)
-        found += behavioral_equivalence(
+        core = behavioral_equivalence(
             document.id,
             observed,
             sessions,
@@ -1450,6 +1450,18 @@ def document_behavior(document, records, *, native_sites=None):
             always_b=document.authored is not None,
             local_refused=document.local_refusal is not None,
         )
+        if any(repeated_case_names.candidate(d) for d in core) and (review := served_places.review_read(document)):
+            core, places = repeated_case_names.classify(
+                core,
+                records=records,
+                configuration=name,
+                observed=observed,
+                local_files=local_files,
+                source=served_places.reviewed_source(records, name, review),
+            )
+            if native_sites is not None:
+                native_sites.append(places)
+        found += core
         if (sessions or {}).get("local", {}).get("trace") is not None:
             compared.add("trace@local.ccz")
         served_b = ((records.configurations[name].b_aligned or {}).get("served") or {}).get("B")

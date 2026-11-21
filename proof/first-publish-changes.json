@@ -312,6 +312,18 @@
 			{
 				"check": "proof3",
 				"artifact": "case_blocks@B",
+				"path": "/runs/*/blocks/*/*~1case/*/create/case_name:trimmed",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/blocks/*/*~1case/*/create/case_name:trimmed",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
 				"path": "/runs/*/cases/*/name",
 				"kind": "changed"
 			},
@@ -379,6 +391,18 @@
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/submission/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/*/case[*]/create[*]/case_name[*]/text():trimmed",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/*/case[*]/create[*]/case_name[*]/text():trimmed",
 				"kind": "changed"
 			},
 			{

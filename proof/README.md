@@ -792,6 +792,18 @@ command ids Core actually offered. Both builds must identify the same menu,
 and the new label must equal the old label with the exact end characters
 removed by Nova's reader (`proof/checks/formplayer_menus.py`).
 
+For a child case created inside a repeat, Core’s submission and HQ’s processed
+block can both show the same first-publish change to its name. The judge
+follows the child-case action in the reviewed HQ source to its repeat, case
+type and name field. Each installed form must open under the same command
+and bind that child’s name to the original field on A and its checked
+sibling after publish. It compares the raw text, repeat occurrence and case ID
+on both sides. For a processed block, the ID, block path, type and name must
+also agree with the submission. Only removal of boundary characters by
+Java `String.trim()` can match the declared field. The pre-fix
+`case-capture-repeat` control still exhibits defect 33 on its original builds
+(`proof/checks/repeated_case_names.py`).
+
 - A `source` row is one of the entry's paths in the typed register, a JSON
   Pointer over HQ's stored app (`*` for a position or an app's own key), that
   covers everything under it. It matches a difference of the stored-app
