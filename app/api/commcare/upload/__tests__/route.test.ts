@@ -299,7 +299,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		);
 	});
 
-	it("answers with the first-publish list the record keeps, read for where the app runs", async () => {
+	it("returns the first-publish list for the saved blueprint it published", async () => {
 		const firstPublish = {
 			ids: ["forms-and-settings-rewritten"] as const,
 			touchesWorkers: false,
@@ -312,10 +312,11 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		).json()) as { first_publish: unknown };
 
 		expect(body.first_publish).toEqual(firstPublish);
+		const [[{ doc }]] = vi.mocked(publishAppToHq).mock.calls;
 		expect(landedFirstPublish).toHaveBeenCalledWith(
 			expect.objectContaining({ appId: "app-1", projectId: "proj-1" }),
 			deploymentView("uploaded"),
-			undefined,
+			doc,
 			"publish",
 		);
 	});

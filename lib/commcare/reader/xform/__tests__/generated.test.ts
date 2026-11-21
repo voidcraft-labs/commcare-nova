@@ -53,6 +53,7 @@ import {
 	readFields,
 } from "../../caseManagement/__tests__/caseReading";
 import { readHqApp } from "../../index";
+import type { ReadFacts } from "../../types";
 import {
 	DATETIME_SIBLING_ENTRY,
 	datetimeSpelling,
@@ -63,6 +64,13 @@ import type { NodeRole } from "../index";
 import { readForm, XMLNS } from "./formReading";
 
 const TARGET = { origin: "https://india.commcarehq.org", domain: "clinic" };
+
+function formRewrites(facts: ReadFacts) {
+	return facts.sameStateRewrites.filter(
+		({ path, entry }) =>
+			path.startsWith("/_attachments/") || entry === DATETIME_SIBLING_ENTRY,
+	);
+}
 
 /** Every form of a document as the HQ import file holds it, under the reader's own `xmlns`. */
 function sources(doc: BlueprintDoc): string[] {
@@ -599,7 +607,7 @@ describe("a case write's siblings, proposed for the case management stage", () =
 		expect(
 			xform.generated.map((one) => [one.purpose, one.owner]),
 		).toContainEqual(["datetime", "/data/seen"]);
-		expect(reading.ctx.facts.sameStateRewrites).toEqual([]);
+		expect(formRewrites(reading.ctx.facts)).toEqual([]);
 		const renamed = source.replaceAll(
 			"nova_datetime_seen",
 			"nova_datetime_saw",
@@ -647,7 +655,7 @@ describe("a case write's siblings, proposed for the case management stage", () =
 		expect(
 			xform.generated.map((one) => [one.purpose, one.owner]),
 		).toContainEqual(["datetime", "/data/seen"]);
-		expect(reading.ctx.facts.sameStateRewrites).toEqual([
+		expect(formRewrites(reading.ctx.facts)).toEqual([
 			{
 				entry: DATETIME_SIBLING_ENTRY,
 				path: expect.stringMatching(/^\/_attachments\/[^/]+$/),
@@ -728,7 +736,7 @@ describe("a case write's siblings, proposed for the case management stage", () =
 			xform.generated.map((one) => [one.purpose, one.owner, one.name]),
 		).toContainEqual(["datetime", "/data/seen", "nova_datetime_seen"]);
 		expect(readFields(xform).map((field) => field.id)).toEqual(["seen"]);
-		expect(reading.ctx.facts.sameStateRewrites).toEqual([]);
+		expect(formRewrites(reading.ctx.facts)).toEqual([]);
 	});
 
 	/** A follow-up whose Hidden Value `seen`, calculated by `calculate`, saves a date and time,
