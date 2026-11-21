@@ -51,9 +51,10 @@ import subprocess
 
 import pytest
 
+from proof.checks.corpus import Document
 from proof.observe import unit
 from proof.store import fingerprints, keys, queue
-from proof.store.conftest import CHECKOUT_FILES, document_of, write_files, write_inputs
+from proof.store.conftest import CHECKOUT_FILES, document_of, smallest_control, write_files, write_inputs
 
 PARTS = ("a", "b", "b_aligned", "b_edit")
 KEYS = (
@@ -280,6 +281,77 @@ def test_a_part_key_names_its_inputs_and_no_fingerprint_so_every_image_draws_the
         keys.part_key("b", a.hex(), inputs)
 
 
+def test_only_the_served_edits_declared_platforms_change_its_part_key(tmp_path, monkeypatch):
+    from proof.observe import proof4
+
+    root = tmp_path / "subject"
+    write_files(root, {"document.json": '{"doc":{}}', "edit/batch.json": "[]"})
+    parts = {"configurations": {"minimum": {part: {} for part in ("a", "b", "b_edit")}}, "local": {}}
+
+    def keys_for(settings, name):
+        write_files(root, {"edit/document.json": json.dumps({"doc": {"name": name, "appSettings": settings}})})
+        document = Document(id=root.name, source="fixture", root=root)
+        held = {state: {"proof4": proof4.inputs(document, state)} for state in ("B", "B-edit")}
+        return held["B-edit"]["proof4"], unit.part_keys(parts, "minimum", DATABASES, held)
+
+    monkeypatch.setenv("PROOF_READERS", "all")
+    both, original = keys_for({}, "First")
+    edited, changed = keys_for({"runsOnlyOn": "android"}, "First")
+    assert both["platforms"] == ["android", "web-apps"] and edited["platforms"] == ["android"]
+    assert {part for part in original if original[part] != changed[part]} == {"b_edit"}
+    assert keys_for({"runsOnlyOn": "android"}, "Another name")[1] == changed
+    monkeypatch.setenv("PROOF_READERS", "0")
+    unserved, before = keys_for({}, "First")
+    assert "platforms" not in unserved and keys_for({"runsOnlyOn": "android"}, "First")[1] == before
+
+
+def test_an_editor_release_serves_the_keyed_cases_and_platforms_without_reopening_the_edit(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from proof.formplayer import hq
+    from proof.observe import proof4, served, sessions
+    from proof.observe.record import Blobs
+
+    root = tmp_path / "subject"
+    write_files(
+        root,
+        {
+            "document.json": '{"doc":{},"catalog":[]}',
+            "edit/batch.json": "[]",
+            "edit/document.json": json.dumps(
+                {
+                    "doc": {"appSettings": {"runsOnlyOn": "android"}, "userProperties": {"id": {"slug": "team"}}},
+                    "catalog": [],
+                }
+            ),
+        },
+    )
+    monkeypatch.setenv("PROOF_READERS", "all")
+    monkeypatch.setattr(unit, "HOOKS", unit.hooks())
+    document = Document(root.name, "producer:fixture", root)
+    cases, _ = unit._case_inputs(document)
+    declared = {"B-edit": {"proof4": proof4.inputs(document, "B-edit")}}
+    assert dict(cases["b_edit"].user_data)["team"] == "proof team"
+    # The guard withholds this file outside key derivation. Use a fresh document so a previous read cannot
+    # make an accidental dependency pass, and withhold the source before constructing proof 4's context.
+    (root / "edit/document.json").unlink()
+    cold = Document(document.id, document.source, root)
+    export = SimpleNamespace(configuration=SimpleNamespace(name="minimum"), content=SimpleNamespace(lookups=None))
+    observation = unit._Unit(cold, export, None, None, None, None, None, Blobs(), {}, cases, declared)
+    monkeypatch.setattr(sessions, "hq_restore", lambda *_: ({"served": True}, b"restore"))
+    built = SimpleNamespace(outcome=None, hq_build=None, archive=None)
+    context = observation.b_context(None, "B-edit", built, None)
+    assert context.serve
+    # The native HQ endpoint consumes only these two resolved inputs. D or D′ here would let it read the
+    # unkeyed source a second time after the real release was built.
+    monkeypatch.setattr(served, "_runner", lambda: None)
+    monkeypatch.setattr(hq, "serve", lambda _unit, raw, app_id, **inputs: nullcontext((raw, inputs)))
+    with proof4._Observation(context, None)._serving("proof4-save", None) as connection:
+        raw, inputs = connection.served
+        assert raw is None and inputs["database"] is cases["b_edit"] and inputs["platforms"] == {"android"}
+
+
 def test_each_part_that_drives_a_browser_names_the_browsers_code_in_its_key(tmp_path, corpus):
     # A browser reaches an observation only through the contexts the unit gives its hooks: the served hook's at A
     # (the Web Apps client's screens) and proof 4's at B and B-edit (HQ's editors, and the client after a save).
@@ -289,10 +361,11 @@ def test_each_part_that_drives_a_browser_names_the_browsers_code_in_its_key(tmp_
     assert driving == {"served": ("A",), "proof4": ("B", "B-edit")}
     browser = importlib.import_module("proof.observe.browser")
     # Each declares the driver's code among what it reads, which joins those parts' keys.
+    document = smallest_control()
     for name, states in driving.items():
         hook = importlib.import_module(f"proof.observe.{name}")
         for state in states:
-            assert browser.browser_fingerprint() in json.dumps(hook.inputs(document_of(corpus, "one"), state))
+            assert browser.browser_fingerprint() in json.dumps(hook.inputs(document, state))
     root = tmp_path / "checkout"
     shutil.copytree(fingerprints.WORKTREE / "proof/editors/driver", root / "proof/editors/driver")
     before = browser.browser_fingerprint(root)

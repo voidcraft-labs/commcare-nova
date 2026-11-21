@@ -81,7 +81,7 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"date-and-time-saved-as-hq-stores-it":
 		"A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place.",
 	"connect-app-captures-location":
-		"Nova turns on Auto Capture Location for this CommCare Connect app in CommCare HQ. On Android, each submitted form includes the worker's location when the app has location permission and the device gets a GPS fix.",
+		"Nova turns on Auto Capture Location for this CommCare Connect app in CommCare HQ. On Android, each submitted form includes the worker's location when the app has location permission and the device gets a GPS fix. When a delivery form reaches CommCare Connect, its visit records that location. If the opportunity checks for missing GPS, the visit passes that check.",
 	"translation-overrides-folded":
 		"A wording set in CommCare HQ's app translations for one of the app's texts, such as a menu's name, a case list column's header or a Search field's label, becomes that text in Nova. Workers read the same words.",
 	"location-list-setting-reset":

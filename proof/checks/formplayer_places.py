@@ -10,6 +10,7 @@ import re
 
 from lxml import etree
 
+from proof.checks import formplayer_case_names
 from proof.checks.changes import command_place, unescaped
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
 from proof.checks.served import comparable_trace
@@ -98,7 +99,7 @@ def _place(step, previous, rest, namespaces):
     return ("form", position, "xform", *path, *((":itext",) if rest[-1] == "caption" else ()))
 
 
-def locations(differences, trace, form_namespaces):
+def locations(differences, trace, form_namespaces, *, files=None, differing=(), before=False):
     """Concrete native differences by (artifact, at), located in this side's instance and question bindings.
     A missing or ambiguous namespace cannot locate a form. The caller merges agreement across sides and
     configurations. An added XML child is located by the side that actually contains it."""
@@ -122,6 +123,14 @@ def locations(differences, trace, form_namespaces):
         if number >= len(steps):
             continue
         place = _place(steps[number], steps[number - 1] if number else None, pointer[4:], form_namespaces)
+        if place and difference.path in formplayer_case_names.NAMES:
+            module, form = place[1].split(".")
+            file = f"modules-{module}/forms-{form}.xml"
+            index = int(pointer[5])
+            submission = steps[number]["submissions"][index]["instance"]
+            place = formplayer_case_names.question(
+                difference, place, submission, (files or {}).get(file) if file not in differing else None, before=before
+            )
         if place and place[-1] == ":itext":
             # The walker changes Web Apps' locale on an explicit navigation, retaining it until the next one.
             locale = next(

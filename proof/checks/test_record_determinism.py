@@ -586,11 +586,15 @@ def _lane_unit(document, name, core_runner):
     from proof.observe.record import NULL_STORE
 
     export = document.exports[name]
-    inputs, databases = unit.document_inputs(document), unit.case_databases(document)
-    keys = unit.part_keys(inputs, name, databases, unit.hook_inputs(document))
+    inputs = unit.document_inputs(document)
+    cases, databases = unit._case_inputs(document)
+    hooks = unit.hook_inputs(document)
+    keys = unit.part_keys(inputs, name, databases, hooks)
     configuration = export.configuration.hq()
     with hq_unit(configuration, root_key=keys["a"]) as held:
-        yield unit._Unit(document, export, configuration, held, core_runner, None, NULL_STORE, Blobs(), {})
+        yield unit._Unit(
+            document, export, configuration, held, core_runner, None, NULL_STORE, Blobs(), {}, cases, hooks
+        )
 
 
 def _hq_media(state):

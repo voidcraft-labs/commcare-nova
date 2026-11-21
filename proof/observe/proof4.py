@@ -195,8 +195,13 @@ def _json(value):
 
 
 def inputs(document, state):
-    """What proof 4's record reads beyond its B's part: the browser's code (the image holds the rest)."""
-    return {"browser": browser_fingerprint()}
+    """The editor browser's code, and the state's platform choice when its saves are served to readers."""
+    from proof.lane import readers
+
+    selected = {"browser": browser_fingerprint()}
+    if readers.served():
+        selected["platforms"] = sorted(document.platforms(edit=state == "B-edit"))
+    return selected
 
 
 # The stored app as JSON, and patches over it ------------------------------------------------------------
@@ -1246,14 +1251,15 @@ class _Observation:
 
         return served.serving(
             self.unit,
-            self.ctx.document,
+            None,
             self.app_id,
             driver=self.driver,
             blobs=self.blobs,
             label=label,
             previous=previous,
             change=change,
-            edit=self.ctx.over == "B-edit",
+            database=self.database,
+            platforms=frozenset(self.ctx.declared_inputs["platforms"]),
         )
 
     def _forwarded(self, held, label):

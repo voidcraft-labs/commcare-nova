@@ -425,6 +425,12 @@
 			},
 			{
 				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
 				"artifact": "formplayer@local.ccz",
 				"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_trimmed_*[*]",
 				"kind": "added"
@@ -439,6 +445,12 @@
 				"check": "proof3",
 				"artifact": "formplayer@local.ccz",
 				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
 				"kind": "changed"
 			}
 		]
@@ -1081,6 +1093,42 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/*/text()",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_datetime_*[*]/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/update[*]/*/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/saved/cases/*:stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_datetime_*[*]/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/update[*]/*/text():stored-datetime",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/saved/cases/*:stored-datetime",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1164,6 +1212,30 @@
 				"artifact": "formplayer@local.ccz",
 				"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty",
 				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@local.ccz",
+				"path": "/runs/*/state/visits/*/flags/gps:captured",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@local.ccz",
+				"path": "/runs/*/state/visits/*/location:captured",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@B",
+				"path": "/runs/*/state/visits/*/flags/gps:captured",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "connect@B",
+				"path": "/runs/*/state/visits/*/location:captured",
+				"kind": "changed"
 			}
 		]
 	},

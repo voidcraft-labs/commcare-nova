@@ -753,7 +753,12 @@ harness keeps, each with its reason.
   (`proof/observe/connect.py`); each run meets Connect as that opportunity
   stood, as each run meets HQ as the unit's fork leaves it. Connect is the
   reader, so the judge compares what Connect did (its answers, tasks and
-  rows) and never a payload (`proof/checks/connect.py`). What stands in for
+  rows) (`proof/checks/connect.py`). The phone on the local archive as installed and
+  the phone with the lane’s worker and delivery inputs each compare to the phone
+  on HQ’s release. Each tablet compares to the release tablet. A first-publish GPS
+  change on a delivery visit requires the fix the device saved, HQ’s accepted
+  form and successful forward, and a matching visit for that form and deliver
+  unit in Connect. What stands in for
   a person or a machine the lane does not have is named where it is done
   (the opportunity's rows, the 404 retry production's Connect forwarder
   gets, Data Forwarding on the

@@ -5,7 +5,7 @@ Each question widget reports its prompt's own TreeReference on both the first an
 (Forms.questions); the form supplies its actual language, including on a walk in the default language.
 """
 
-from proof.checks import changes, xform_parts
+from proof.checks import changes, served_datetimes, xform_parts
 
 
 def _at(values, index):
@@ -25,7 +25,7 @@ def _question_node(reference):
     return xform_parts.node_steps("/" + "/".join(steps))
 
 
-def locations(differences, trace, form_namespaces=None):
+def locations(differences, trace, form_namespaces=None, *, writes_at=None):
     """Map the concrete differences whose observed form and owner the device identifies. An unplaced screen
     or ambiguous path provides no owning slot; a caller merging sides keeps any conflict as unknown."""
     found = {}
@@ -42,7 +42,8 @@ def locations(differences, trace, form_namespaces=None):
             "/walks/*/steps/*/form/deviceGave:location",
             "/walks/*/steps/*/form/saved/records/*/metaLocation:location",
         )
-        if not (question or gps):
+        saved_time = writes_at is not None and difference.path == served_datetimes.CASES and served_datetimes.candidate(difference)
+        if not (question or gps or saved_time):
             continue
         key = (difference.artifact, difference.at)
         found[key] = None
@@ -53,6 +54,22 @@ def locations(differences, trace, form_namespaces=None):
         owner = changes.command_place((step.get("session") or {}).get("command"))
         form = step.get("form")
         if owner[:1] != ("form",) or not isinstance(form, dict):
+            continue
+        if saved_time:
+            prop = served_datetimes.saved_property(difference)
+            cases = (form.get("saved") or {}).get("cases") or []
+            matching = [c for c in cases if isinstance(c, dict) and c.get("id") == rest[-1]]
+            # Android records the entire installed case store after a save. Only the case that
+            # EntitySelectActivity actually handed this form can witness its direct update.
+            index = int(path[3])
+            prior = walk["steps"][index - 1] if index else {}
+            selected = prior.get("session") or {}
+            if (prop and len(matching) == 1 and matching[0].get("type") == prop[0]
+                    and selected.get("command") == step["session"].get("command")
+                    and selected.get("datum") == "case_id" and (prior.get("list") or {}).get("chose") == rest[-1]
+                    and prop in writes_at(owner[1])):
+                # Keep the writer in the witness until both sides and all configurations have agreed.
+                found[key] = (*owner, "case", *prop)
             continue
         if gps:
             found[key] = (*owner, "xform", "data", "meta", "location")

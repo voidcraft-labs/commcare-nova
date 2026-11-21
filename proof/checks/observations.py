@@ -379,6 +379,30 @@ def _owned(document):
         _CACHE["owner"] = owner
 
 
+def _refusal_key(document, store, core_runner, editor_driver):
+    """A seeded whole-document request under the run's own snapshot, block, observation code and inputs.
+    Compute it only after a refused read, just as the store keys completed records after observing them."""
+    try:
+        document_key = store.document_key(document)
+    except OSError:
+        # A document changing on disk has no stable read to share; keep the original observation's error.
+        return None
+    return (
+        os.getpid(),
+        os.environ.get("PROOF_OUT"),
+        store.snapshot.root,
+        store.delta.root,
+        store.fresh,
+        os.environ.get("PROOF_VERIFY_MEMOS"),
+        os.environ.get("PROOF_EDITOR_AUDIT"),
+        document.root,
+        document.source,
+        document_key,
+        core_runner,
+        editor_driver,
+    )
+
+
 def _write_timings(document, found, piece=None):
     """What the observation observed and how long each part took, beside the block's evidence: a document's as
     ``observe/<kind>-<id>.json``, and a piece's under its configuration's name too (``@<configuration>``)."""
@@ -413,22 +437,39 @@ def records_for(document, core_runner, *, editor_driver=None, store=None):
     records are read from that store and nothing is observed: each piece
     kept its configuration's parts there, and a part none kept fails the
     check that asks (``proof.observe.unit.PartsNotHeld``) rather than being
-    observed here in the pieces' place.
+    observed here in the pieces' place. If the read guard refuses a seeded full observation,
+    each subsequent check of that exact request in this worker raises the same diagnostic.
     """
     _owned(document)
     if "records" not in _CACHE:
         from proof.observe.unit import observe_document
-        from proof.store import runtime
+        from proof.store import guard, runtime
 
-        store = runtime.session_store(document) if store is None else store
-        found = observe_document(
-            document,
-            core_runner=core_runner,
-            editor_driver=editor_driver,
-            store=store,
-            same_as=runtime.same_as(store),
-            held_only=bool(runtime.pieces()),
-        )
+        session = store is None
+        store = runtime.session_store(document) if session else store
+        held_only = bool(runtime.pieces())
+        share_refusal = session and isinstance(store, runtime.Store) and store.seeded and not held_only
+        refusal = _CACHE.get("refusal")
+        if share_refusal and refusal and refusal[0] == _refusal_key(document, store, core_runner, editor_driver):
+            error = guard.UndeclaredRead(refusal[1])
+            error.add_note(f"The same observation failed earlier in this worker ({refusal[2]}).")
+            raise error
+        try:
+            found = observe_document(
+                document,
+                core_runner=core_runner,
+                editor_driver=editor_driver,
+                store=store,
+                same_as=runtime.same_as(store),
+                held_only=held_only,
+            )
+        except guard.UndeclaredRead as error:
+            if share_refusal:
+                # Retain the diagnostic, never the traceback with the native observation's resources.
+                key = _refusal_key(document, store, core_runner, editor_driver)
+                if key is not None:
+                    _CACHE["refusal"] = (key, str(error), os.environ.get("PYTEST_CURRENT_TEST", document.group))
+            raise
         runtime.recorded(store, document, found)
         _write_timings(document, found)
         _CACHE["records"] = found

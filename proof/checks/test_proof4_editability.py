@@ -288,6 +288,7 @@ def suite_b(configuration, prepares, core_runner, editor_driver, *, store=None, 
             blobs=Blobs(),
             store=store or _Store(),
             restore_outcome=outcome,
+            declared_inputs={},
         )
         yield ctx, mark
 

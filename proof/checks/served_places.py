@@ -14,8 +14,11 @@ from functools import cache
 from proof.checks import (
     android_places,
     changes,
+    connect_contexts,
+    connect_places,
     formplayer_menus,
     formplayer_places,
+    served_datetimes,
     xform_parts,
 )
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
@@ -56,7 +59,7 @@ def form_namespaces(files):
     return found
 
 
-def sites(records, name, differences, observed, local_files):
+def sites(records, name, differences, observed, local_files, *, document=None):
     """Read each side's witness from this configuration. An absent contributor cannot borrow its peer's site."""
     parts = records.configurations[name]
     baseline = (((parts.a or {}).get("hooks") or {}).get("served") or {}).get("A") or {}
@@ -75,6 +78,16 @@ def sites(records, name, differences, observed, local_files):
             return {}
         return form_namespaces(files or {})
 
+    @cache
+    def reviewed_app_and_case_types():
+        read = review_read(document) if document is not None else None
+        return (_source(records, name, read), document.case_types()) if read else ({}, {})
+
+    @cache
+    def writes_at(position):
+        app, case_types = reviewed_app_and_case_types()
+        return served_datetimes.writes(app, position, case_types)
+
     get_json = cache(records.blobs.get_json)
     results = []
     for reader, release_key, local_key, payload in READERS:
@@ -90,7 +103,10 @@ def sites(records, name, differences, observed, local_files):
                 locations = {}
                 if blob and reader == FORMPLAYER:
                     trace = get_json(blob)
-                    locations = formplayer_places.locations(contributed, trace, namespaces(which))
+                    locations = formplayer_places.locations(
+                        contributed, trace, namespaces(which), files=files,
+                        differing=(state.get("releaseDiffers") or {}).get("differing") or (), before=old,
+                    )
                     menus = [d for d in contributed if formplayer_menus.trimmed(d)]
                     if menus:
                         core = (sessions.get(session) or {}).get("trace")
@@ -104,10 +120,31 @@ def sites(records, name, differences, observed, local_files):
                         )
                         locations.update({(d.artifact, d.at): menu_sites.get((d.artifact, d.at)) for d in menus})
                 elif blob:
-                    locations = android_places.locations(contributed, get_json(blob), {})
+                    locations = android_places.locations(contributed, get_json(blob), writes_at=writes_at)
                 results.append(
                     changes.Sites(served={(d.artifact, d.at): locations.get((d.artifact, d.at)) for d in contributed})
                 )
+    for side in ("local.ccz", "B"):
+        selected = [d for d in differences if d.artifact == f"connect@{side}" and connect_places.candidate(d)]
+        source, target = baseline.get("connect"), by_side[side][0].get("connect")
+        if not selected:
+            continue
+        if not source or not target:
+            results.append(changes.Sites(served={(d.artifact, d.at): None for d in selected}))
+            continue
+
+        def devices(reader, tablet, *, side=side):
+            key = "androidTablet" if tablet else "android"
+            other = ("androidDeliveredTablet" if tablet else "androidDelivered") if side == "local.ccz" else key
+            if reader == connect_contexts.AS_INSTALLED:
+                other = "android"
+            refs = ((baseline.get(key) or {}).get("answer"), (by_side[side][0].get(other) or {}).get("answer"))
+            return tuple(get_json(ref) if ref else {} for ref in refs)
+
+        first, _ = connect_contexts.record(baseline, get_json)
+        candidate, _ = connect_contexts.record(by_side[side][0], get_json, local=side == "local.ccz")
+        locations = connect_places.locations(selected, first, candidate, devices)
+        results.append(changes.Sites(served=locations))
     return changes.merged_sites(*results)
 
 
@@ -172,6 +209,11 @@ def text_candidate(difference):
     )
 
 
+def needs_classification(difference):
+    return (text_candidate(difference) or served_datetimes.candidate(difference)
+            or (difference.artifact.startswith("connect@") and connect_places.candidate(difference)))
+
+
 def _source_menu_name(app, position, text):
     """Attribute a trim to the stored menu name only. An override of the generated key has a different owner."""
     if not position.isdigit():
@@ -214,10 +256,21 @@ def classify(document, records, name, differences, places):
         file = (app.get("_attachments") or {}).get(f"{forms[form].get('unique_id')}.xml")
         return (xform_parts.parts(file) or {}) if isinstance(file, str) else {}
 
+    @cache
+    def writes_at(position):
+        return served_datetimes.writes(source(), position, document.case_types())
+
     found = []
     for difference in differences:
         owner = places.served.get((difference.artifact, difference.at)) or ()
-        if formplayer_menus.is_trimmed_menu(difference, owner) and _source_menu_name(
+        if owner and difference.artifact.startswith("connect@") and connect_places.candidate(difference):
+            difference = replace(difference, path=difference.path + ":captured")
+        elif owner and served_datetimes.candidate(difference) and (
+            (difference.path == served_datetimes.CASES and owner[0] == "form" and owner[2:3] == ("case",))
+            or served_datetimes.submission(owner, writes_at)
+        ):
+            difference = replace(difference, path=difference.path + ":stored-datetime")
+        elif formplayer_menus.is_trimmed_menu(difference, owner) and _source_menu_name(
             source(), owner[1], difference.before
         ):
             difference = replace(difference, path=formplayer_menus.TRIMMED)

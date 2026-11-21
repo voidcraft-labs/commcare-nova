@@ -160,7 +160,9 @@ Sort by on Android.
 If a CommCare Connect app has Auto Capture Location off in CommCare HQ, the
 first publish turns it on for every form. Android asks for location permission
 if needed. When the worker grants it and the device gets a GPS fix, the
-submitted form includes that location. If you turn off Connect before you
+submitted form includes that location. If a delivery form reaches CommCare
+Connect, its visit records the location. If the opportunity checks for missing
+GPS, the visit passes that check. If you turn off Connect before you
 publish, Nova leaves Auto Capture Location as it is in CommCare HQ.
 
 When the app was available in Web Apps and had no setting for incomplete

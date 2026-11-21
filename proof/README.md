@@ -1040,7 +1040,10 @@ restores HQ's migrated database as a template, compiles the Core runner, warms
 HQ and forks `k` pytest workers (1 by default), each with its own database
 clone, Core runner JVM and editor driver. The items of one corpus document are
 one group and run together on one worker, so the document's records are
-observed once for all its checks.
+observed once for all its checks. If the store's read guard refuses an input
+during a seeded whole-document observation, each check asking for that same
+observation fails with the original diagnostic. The worker keeps the
+refusal in memory for that document. A changed input gets a new attempt.
 
 The server collects each phase before it forks, and every worker collects it
 again in the server's memory; a worker whose items or groups differ stops the
@@ -1639,6 +1642,8 @@ declares"). A document declares the platforms on which none of its uses is
 unavailable, as Nova's own rule gives its content
 (`lib/domain/platformUses.ts::contentRunsOn`), or what a targeted document
 states for its witness; a declaration is never chosen to make the lane pass.
+Proof 4 keys a served B or B-edit by the platform set D or D′ declares.
+Every release after an editor save takes that set and the case database used to derive the part key.
 Every corpus source of a document narrower than both writes its declaration
 in the module that builds it (the producer fixtures in
 `lib/commcare/__tests__/`, the expander documents and the targeted specs),

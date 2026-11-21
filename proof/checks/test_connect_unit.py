@@ -128,9 +128,10 @@ def test_every_state_of_a_connect_app_reaches_the_one_opportunity(observed):
         assert _every(_answers(states[state], "android"), 200), state
     # The local archive, made for the deployment, names the app in its profile's PostURL: Formplayer submits from
     # it and every device on it posts there, so both readers reach Connect.
-    assert sorted(states["local"]["runs"]) == ["android", "formplayer"]
+    assert sorted(states["local"]["runs"]) == ["android", "android@as-is", "formplayer"]
     assert _answers(states["local"], "formplayer") == [200, 200]
     assert _every(_answers(states["local"], "android"), 200)
+    assert _answers(states["local"], "android@as-is") == [200, 200]
     # After the edit that renames the deliver unit in the first form and the task in the second, the opportunity
     # made before it refuses each delivery, and takes the task form's payload, which completes nothing.
     assert _answers(states["b_edit"], "formplayer") == [400, 200]

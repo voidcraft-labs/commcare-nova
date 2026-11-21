@@ -418,8 +418,13 @@ def _trace_location(difference, sites: Sites) -> tuple[str, ...]:
     artifact = difference.artifact
     if artifact == "webapps@B" and difference.at == "/home/tiles/incomplete":
         return ("app", "profile", "properties", "cc-show-incomplete")
-    if artifact.startswith(("formplayer@", "android@", "android-tablet@")):
-        return _site(sites.served, (artifact, difference.at))
+    if artifact.startswith(("formplayer@", "android@", "android-tablet@", "connect@")):
+        owner = _site(sites.served, (artifact, difference.at))
+        # The saved device case is attributed to its type and property only once the form that
+        # actually wrote it has also agreed across both readers' records and all configurations.
+        if owner[:1] == ("form",) and owner[2:3] == ("case",):
+            return owner[2:]
+        return owner
     if artifact.startswith("trace@"):
         at = _run_step(steps)
         if at is None:

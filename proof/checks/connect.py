@@ -200,7 +200,7 @@ def _flag_consequences(before: dict, after: dict) -> None:
 ROWS_BY_FORM = ("completedModules", "assessments", "visits")
 
 
-def _as_received(state, posts):
+def as_received(state, posts):
     """The state with each list of rows a form made in the order Connect received the forms in (``posts``, the
     run's payloads in turn), a form's own rows as the record lists them, and a row of no payload of the run's
     after them."""
@@ -223,7 +223,7 @@ def comparable(run) -> dict:
                 {"task": task["task"].rsplit(".", 1)[-1], "state": task["state"], "error": task.get("error")}
                 for task in run.get("tasks") or []
             ],
-            "state": _rows(_as_received(run.get("state"), run.get("posts"))),
+            "state": _rows(as_received(run.get("state"), run.get("posts"))),
         }
     )
 

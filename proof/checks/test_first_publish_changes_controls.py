@@ -853,9 +853,7 @@ def test_native_case_name_checks_hold_only_the_declared_form_node_and_java_trim(
     form = ("form", position, "xform", "data")
     prefix = "/runs/0/steps/3/submissions/0/instance/data/"
     shape = "/runs/*/steps/*/submissions/*/instance/data/"
-    document = _document(
-        (name, ["/form/0.0/xform/**/case/create/case_name", "/form/0.0/xform/data/nova_trimmed_head_name"])
-    )
+    document = _document((name, ["/form/0.0/xform/data/head_name", "/form/0.0/xform/data/nova_trimmed_head_name"]))
     for artifact in ("formplayer@B", "formplayer@local.ccz"):
         node = Difference(
             "proof3",
@@ -880,10 +878,19 @@ def test_native_case_name_checks_hold_only_the_declared_form_node_and_java_trim(
         sites = changes.Sites(
             served={
                 (artifact, node.at): (*form, "nova_trimmed_head_name"),
-                (artifact, case.at): (*form, "case", "create", "case_name"),
+                (artifact, case.at): (*form, "head_name"),
             }
         )
         assert _held_by(document, node, sites) == _held_by(document, case, sites) == {name}
+        child = replace(
+            case,
+            path=case.path.replace("data/case", "data/subcase_*[*]/case"),
+            at=case.at.replace("data/case", "data/subcase_0[1]/case"),
+        )
+        child_sites = changes.Sites(served={(artifact, child.at): (*form, "head_name")})
+        assert _held_by(document, child, child_sites) == {name}
+        assert not _held_by(document, replace(child, after="changed"), child_sites)
+        assert not _held_by(document, child, changes.Sites(served={(artifact, child.at): (*form, "other_name")}))
         for other in (
             replace(case, after="new name"),
             replace(case, before="\xa0proof text"),
