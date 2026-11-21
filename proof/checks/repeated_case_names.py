@@ -4,13 +4,19 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from functools import cache
 
-from lxml import etree
-
 from proof.checks import changes, served_places
 from proof.checks.compare.trace import generated_labels
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
 from proof.checks.differences import pointer_token
-from proof.checks.formplayer_case_names import CASE, XF, bound_answer, calculation_at, leaves
+from proof.checks.formplayer_case_names import (
+    CASE,
+    XF,
+    bound_answer,
+    calculation_at,
+    children_named,
+    leaves,
+    setvalue_targets,
+)
 from proof.rules import _xpath
 
 TRACE = "/runs/*/trace/*/submission/data/*/case[*]/create[*]/case_name[*]/text()"
@@ -34,13 +40,6 @@ class Write:
     name: str
 
 
-def _children(parent, tag):
-    """A concrete XML pointer counts siblings by local name. A foreign namesake makes this path ambiguous."""
-    local = etree.QName(tag).localname
-    found = [child for child in parent if isinstance(child.tag, str) and etree.QName(child).localname == local]
-    return found if all(child.tag == tag for child in found) else []
-
-
 def writes(submission, form_file, form, position, *, before, labels=None):
     """Each uniquely identified case create directly under its declared repeat, reading that occurrence's name."""
     if not form_file or not submission:
@@ -60,14 +59,9 @@ def writes(submission, form_file, form, position, *, before, labels=None):
         or instance[0].tag != root.tag
     ):
         return {}
-    # A setvalue can supersede a bind. Only fixed, unambiguous action targets let this proof identify
-    # the sole writer of the case name and its generated helper.
-    targets = set()
-    for action in installed.iter(XF + "setvalue"):
-        target = action.get("ref") or ""
-        if action.get("bind") is not None or not _xpath.plain_path(target):
-            return {}
-        targets.add(target)
+    targets = setvalue_targets(installed, model)
+    if targets is None:
+        return {}
     actions = {}
     for action in (form.get("actions") or {}).get("subcases") or []:
         path, kind = action.get("repeat_context"), action.get("case_type")
@@ -93,16 +87,19 @@ def writes(submission, form_file, form, position, *, before, labels=None):
         target = "/" + "/".join(case_path)
         if target in targets or (not before and calculation_at(model, target) in targets):
             continue
-        for ordinal, occurrence in enumerate(_children(root, f"{{{namespace}}}{repeat}"), 1):
-            cases = _children(occurrence, CASE + "case")
+        for ordinal, occurrence in enumerate(children_named(root, f"{{{namespace}}}{repeat}") or [], 1):
+            cases = children_named(occurrence, CASE + "case") or []
             if len(cases) != 1:
                 continue
             case = cases[0]
             case_id = labels.get(case.get("case_id"), case.get("case_id"))
-            creates = _children(case, CASE + "create")
+            creates = children_named(case, CASE + "create") or []
             if not case_id or identities[case_id] != 1 or len(creates) != 1:
                 continue
-            names, types = _children(creates[0], CASE + "case_name"), _children(creates[0], CASE + "case_type")
+            names, types = (
+                children_named(creates[0], CASE + "case_name") or [],
+                children_named(creates[0], CASE + "case_type") or [],
+            )
             if len(types) != 1 or types[0].text != kind or len(names) != 1 or len(names[0]) or not names[0].text:
                 continue
             name = names[0].text
