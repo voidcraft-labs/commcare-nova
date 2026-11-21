@@ -2276,10 +2276,10 @@ Rules, held by `proof/matrix/test_expectations.py`:
   the list's own filter box, not HQ's case search. Proof 2 (the suite's remote request) and proof 3
   with the readers hold it, where Formplayer and a device search through HQ's search view on A and
   on B.
-- Every register id a base's `expected.json` lists in `firstPublish` whose entry holds a `proof3`
-  row in `proof/first-publish-changes.json` (which only an entry whose `touchesWorkers` is true
-  may: part 09's Vitest holds that) has a pair of expectations named `<id>:before` (run on A alone)
-  and `<id>:after` (run on B and the archive), whose values differ: the declared change, shown.
+- Every register id a base's `expected.json` lists in `firstPublish` with at least one `proof3`
+  row in `proof/first-publish-changes.json` whose value Core can evaluate on A has a pair of hand
+  expectations named `<id>:before` (run on A alone) and `<id>:after` (run on B and the archive where
+  the app has one). Their values differ.
   This is the second half of hold 3 (9.3). A `proof3` row that names a media reference a trace read
   (its path ending `/image`, `/audio` or `/video`: `media-files-renamed`, `broken-pictures-removed`)
   asks no pair: Core's evaluate, which runs an expectation, answers expressions, answers and a case
@@ -2290,7 +2290,10 @@ Rules, held by `proof/matrix/test_expectations.py`:
   evaluate opens no menu, and opens a case list only on the local archive (`proof/observe/intent.py`),
   so no `:before` on A can show either (`text-spaces-dropped` on `hq-languages`,
   `sort-by-entry-with-a-blank-name-dropped` on `hq-case-lists`), and proof 3's comparison holds each
-  side's text.
+  side's text. The native comparisons also hold the Web Apps home tile; Formplayer's menu labels,
+  list headers and question media; and Android's blank sort option and the rows shown under that option.
+  Core's hand form opens none of those screens on A. A change with any hand-evaluable row still
+  needs both expectations, including a question's French label or a submitted instance value.
 - A multi-select question an expression tests has an expectation answering it with two choices.
 - A base whose `app.json` holds more than one language is read under a declaration that includes
   Android (its `expected.json`'s `declaration.runsOnlyOn` is not `web-apps`), so proof 3 compares
@@ -3225,8 +3228,9 @@ kept key beside it.
    the known register), and from no list of ids.
 3. **Behavior only where behavior is declared.** A `proof3` difference is matched only by a `proof3`
    row, and part 09's Vitest admits a `proof3` row only under an entry whose `touchesWorkers` is
-   true, but a row of a value a search sends HQ (`_xpath_query`), whose cut no worker meets. The other half is 6.4's rule: each such entry on a base has a before and after pair of
-   value expectations that shows it.
+   true, but a row of a value a search sends HQ (`_xpath_query`), whose cut no worker meets. Section 6.4 requires a before and after pair
+   whenever Core's hand evaluation on A can show a value of the change; native screen comparisons
+   show the remaining changes on the readers that display them.
 
 What the places leave open: a list's header and a search's request name no column and no Search
 field, so they stand at the list or the search and any change placed in it holds them.
