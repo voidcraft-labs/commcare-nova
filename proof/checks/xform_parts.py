@@ -461,6 +461,35 @@ def parts(text: str, languages=None) -> dict[str, tuple[str, object]] | None:
     return None if found is None else found.found
 
 
+def unshown_media_sites(text, artifact):
+    """A built itext value can stand only at its one source slot. Never assign a shared text to one of its readers."""
+    parsed = _parsed(text)
+    if parsed is None:
+        return {}
+    sites = {}
+    for identity, language, kind, value in parsed.itext:
+        readers = parsed.texts.get(identity) or []
+        if kind not in ("image", "audio", "video") or len(readers) != 1 or len(value):
+            continue
+        steps, role = readers[0]
+        if not steps or steps[0] != "data":
+            continue
+        if role == "label":
+            pointer = "".join("/" + pointer_token(step) for step in steps)
+            control = parsed.found.get(pointer + "/:control")
+            if not control or control[1] not in ("group", "repeat"):
+                continue
+        elif role not in ("hint", "constraintMsg"):
+            continue
+        uri = (value.text or "").strip()
+        if not uri.startswith("jr://file/"):
+            continue
+        key = artifact, language, identity, kind, uri
+        place = ("form", artifact.rpartition("/")[2][5:], "xform", *steps, ":itext", role, language, kind)
+        sites[key] = place if key not in sites else None
+    return sites
+
+
 def _parsed(text: str, languages=None):
     try:
         root = ElementTree.fromstring(text)

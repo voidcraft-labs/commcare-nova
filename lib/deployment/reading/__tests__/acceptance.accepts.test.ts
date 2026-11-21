@@ -40,6 +40,7 @@ import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { type AcceptReadingInput, acceptReading } from "../acceptance";
+import { hqMediaReferencesOf, planHqMedia } from "../projectData/media";
 import {
 	acceptanceInput,
 	DOMAIN,
@@ -403,10 +404,13 @@ describe("acceptReading over sources CommCare HQ could hold", () => {
 				key: handOff.key,
 				by: "inert-claim" as const,
 			})),
-			mediaLeftOut: {
-				undrawn: read.outcome.claims.handOffs.length,
-				brokenPictures: 0,
-			},
+			mediaClaims: planHqMedia({
+				references: hqMediaReferencesOf(read.outcome.draft.facts),
+				multimediaMap: [],
+				runsOn: ["web-apps"],
+				contentValid: null,
+				lazyLoadVideos: false,
+			}).claims,
 		});
 	});
 

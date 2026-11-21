@@ -1589,6 +1589,7 @@ describe("projectDataReadsOf", () => {
 				facts: {
 					webAppsOnInHq: false,
 					mediaReferences: [],
+					unheldMedia: [],
 					pendingMedia: [],
 					unreadTables: [
 						{ tag: "gone", place: { kind: "lookup-table", tag: "gone" } },

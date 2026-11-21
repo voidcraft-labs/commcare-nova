@@ -139,6 +139,7 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 	return {
 		webAppsOnInHq: input.source.cloudcareEnabled,
 		mediaReferences: [],
+		unheldMedia: [],
 		pendingMedia: [],
 		unreadTables: [],
 		foldedTranslationKeys: [],

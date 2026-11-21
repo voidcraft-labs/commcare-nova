@@ -53,7 +53,11 @@ import type {
 import { type BlueprintDoc, PLATFORMS, type Platform } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
-import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
+import {
+	NO_ENTRIES,
+	ownRecordValue,
+	recordFromEntries,
+} from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import {
 	builtinAssetRows,
@@ -105,10 +109,9 @@ import {
 } from "../reading/projectData";
 import {
 	adoptedMediaFiles,
-	hqMediaReferencesOf,
-	mediaLeftOutOf,
+	type HqMediaVerdict,
+	mediaReadLimit,
 	narrowDeclarationsByMedia,
-	planReadingMedia,
 	type ReadingMediaPlan,
 	readingMediaFindings,
 	readingMediaRows,
@@ -154,6 +157,8 @@ import {
 	type HqChangeReadings,
 	type HqChangeReadingsResult,
 	makeHqChangeReadingsSteps,
+	ownPathsBase,
+	planChangeReadingMedia,
 } from "./readings";
 import {
 	loadReferenceDocument,
@@ -553,24 +558,6 @@ function appDeclaration(
 
 const JR_FILE = "jr://file/";
 
-/** `planReadingMedia` over a draft's references less the paths `own` names. */
-function plannedMedia(
-	source: HqAppSource,
-	appId: string,
-	draft: ReadDraft,
-	own: ReadonlySet<string>,
-	runsOn: readonly Platform[],
-) {
-	return planReadingMedia({
-		source,
-		appId,
-		references: hqMediaReferencesOf(draft.facts).filter(
-			(reference) => !own.has(reference.path),
-		),
-		runsOn,
-	});
-}
-
 /** The paths the reading now names Nova's own file by: published and `recorded` or `absent`. */
 function ownPathsNow(published: readonly HqMediaPath[]): ReadonlySet<string> {
 	return new Set(
@@ -582,19 +569,19 @@ function ownPathsNow(published: readonly HqMediaPath[]): ReadonlySet<string> {
 	);
 }
 
-/** Every path the reference publishes, which the base reading names Nova's own file by. */
-function ownPathsBase(published: readonly HqMediaPath[]): ReadonlySet<string> {
-	return new Set(published.map((path) => `${JR_FILE}${path.wirePath}`));
-}
-
 /** The two plans' files, each once by key, as one plan to judge. */
-function unionPlan(
+export function unionPlan(
 	base: ReadingMediaPlan,
 	now: ReadingMediaPlan,
 ): ReadingMediaPlan {
-	const files = new Map<string, ReadingMediaPlan["files"][number]>();
-	for (const file of [...base.files, ...now.files])
-		if (!files.has(file.key)) files.set(file.key, file);
+	const files = new Map(base.files.map((file) => [file.key, file]));
+	for (const file of now.files) {
+		const previous = files.get(file.key);
+		// A slot that holds the file needs its bytes. For the same use on both sides,
+		// its current paths supply the name the Project library will show.
+		if (!previous || !file.availabilityOnly || previous.availabilityOnly)
+			files.set(file.key, file);
+	}
 	return {
 		files: [...files.values()].sort((a, b) => compareText(a.key, b.key)),
 		verdicts: NO_ENTRIES,
@@ -608,12 +595,23 @@ export function withJudged(
 	plan: ReadingMediaPlan,
 	judged: Pick<ReadingMediaPlan, "verdicts" | "kept" | "published">,
 ): ReadingMediaPlan {
-	return {
-		files: plan.files,
-		verdicts: judged.verdicts,
-		kept: judged.kept,
-		published: judged.published,
-	};
+	const verdicts = recordFromEntries<HqMediaVerdict>([]);
+	const kept = new Map<string, Buffer>();
+	const published = recordFromEntries<MediaAssetId>([]);
+	for (const file of plan.files) {
+		const verdict = ownRecordValue(judged.verdicts, file.key);
+		if (verdict === undefined) continue;
+		verdicts[file.key] =
+			file.availabilityOnly && verdict.kind !== "missing"
+				? { kind: "available" }
+				: verdict;
+		if (file.availabilityOnly || verdict.kind !== "held") continue;
+		const bytes = judged.kept.get(verdict.file.contentHash);
+		if (bytes !== undefined) kept.set(verdict.file.contentHash, bytes);
+		const asset = ownRecordValue(judged.published, file.key);
+		if (asset !== undefined) published[file.key] = asset;
+	}
+	return { files: plan.files, verdicts, kept, published };
 }
 
 /** Nova's own files at the paths the reading now names them by, as acceptance's emission takes them. */
@@ -1143,14 +1141,14 @@ async function computeWith(
 		);
 	const runsOn = declaredBy(reference.doc.appSettings.runsOnlyOn);
 	const planned = await pieces.at("the media plan").run(() => ({
-		base: plannedMedia(
+		base: planChangeReadingMedia(
 			baseSource,
 			scope.appId,
 			baseFirst.draft,
 			ownPathsBase(published),
 			runsOn,
 		),
-		now: plannedMedia(
+		now: planChangeReadingMedia(
 			source,
 			scope.appId,
 			nowFirst.draft,
@@ -1167,6 +1165,8 @@ async function computeWith(
 
 	/* 11. The files both sources name, each fetched once and judged. */
 	const union = unionPlan(planned.base.plan, planned.now.plan);
+	const readLimit = mediaReadLimit(union.files);
+	if (readLimit) return answer(accountReview([readLimit]));
 	let judged: Pick<ReadingMediaPlan, "verdicts" | "kept" | "published"> = union;
 	if (union.files.length > 0) {
 		onEvent({ type: "stage", stage: "checking-media" });
@@ -1374,7 +1374,7 @@ export async function checkHqChanges(
 				]),
 			};
 		const draft = now.draft;
-		const hqPlan = plannedMedia(
+		const hqPlan = planChangeReadingMedia(
 			fetched.source,
 			appId,
 			draft,
@@ -1472,7 +1472,7 @@ export async function checkHqChanges(
 				...files.findings,
 			]),
 			lookup: readingLookupSnapshot(data, readsNow),
-			mediaLeftOut: mediaLeftOutOf(judgedPlan.claims),
+			mediaClaims: judgedPlan.claims,
 			media: {
 				files: [...adoptedMediaFiles(media.now), ...ownMediaFiles(fetched)],
 				rows,

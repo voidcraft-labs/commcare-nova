@@ -1385,7 +1385,7 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 					forms: formsOf(baseDraft),
 					attachmentTarget: readings.inputs.base.target,
 					mediaFiles: [],
-					mediaLeftOut: readings.baseMediaLeftOut,
+					mediaClaims: readings.baseMediaClaims,
 					choice: {
 						runsOnlyOn: baseChoice.runsOnlyOn ?? null,
 						split: baseChoice.split,

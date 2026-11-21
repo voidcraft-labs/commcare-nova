@@ -157,7 +157,6 @@ import {
 	type ProjectSpaceCompatibilityReport,
 	projectSpaceCompatibilityProbePlan,
 } from "@/lib/commcare/projectSpaceCompatibility";
-import type { ReadOutcome } from "@/lib/commcare/reader";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
@@ -192,7 +191,11 @@ import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
 import { requiredConfirmations } from "@/lib/deployment/confirmations";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
 import { hqChangesReviewDigest } from "@/lib/deployment/hqChanges/digest";
-import { makeHqChangeReadings } from "@/lib/deployment/hqChanges/readings";
+import {
+	makeHqChangeReadings,
+	ownPathsBase,
+	planChangeReadingMedia,
+} from "@/lib/deployment/hqChanges/readings";
 import type { ReferenceDocument } from "@/lib/deployment/hqChanges/reference";
 import {
 	accountReview,
@@ -203,6 +206,7 @@ import {
 	type PairedBaseline,
 	projectDataFindingsNow,
 	publishChangeSentences,
+	unionPlan,
 	withJudged,
 } from "@/lib/deployment/hqChanges/review";
 import type { HqChangesReview } from "@/lib/deployment/hqChanges/types";
@@ -239,12 +243,12 @@ import {
 	planLookupResourcePush,
 } from "@/lib/deployment/lookupResourcePlan";
 import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
+import { firstPublishChangePlaces } from "@/lib/deployment/reading/firstPublishChanges";
 import { Pieces } from "@/lib/deployment/reading/gather";
 import { projectDataReadsOf } from "@/lib/deployment/reading/projectData";
 import {
 	adoptedMediaFiles,
-	hqMediaReferencesOf,
-	planReadingMedia,
+	mediaReadLimit,
 	type ReadingMediaPlan,
 } from "@/lib/deployment/reading/projectData/media";
 import { judgeReadingMedia } from "@/lib/deployment/reading/projectData/mediaStore";
@@ -2524,6 +2528,8 @@ const CAPTURE_DEPLOYMENT = { id: "proof-capture", endings: 0 } as const;
  */
 export interface BringInRecord {
 	readonly review: HqChangesReview;
+	/** Exact places in the current reading when the review newly lists the removal of unshown form media. */
+	readonly unshownMediaPlaces?: readonly string[];
 	/** `brought-in`: the change was committed; `recorded`: nothing in the app changed. */
 	readonly taken: "brought-in" | "recorded";
 	/** Whether the bring-in removed changes made in Nova (the plan applied to the published document). */
@@ -2976,26 +2982,16 @@ async function reviewOverPeer(input: {
 		head.doc.appSettings.runsOnlyOn === undefined
 			? PLATFORMS
 			: [head.doc.appSettings.runsOnlyOn];
-	const planned = (
-		reading: HqAppSource,
-		draft: Extract<ReadOutcome, { readonly draft: unknown }>["draft"],
-		own: ReadonlySet<string>,
-	) =>
-		planReadingMedia({
-			source: reading,
-			appId,
-			references: hqMediaReferencesOf(draft.facts).filter(
-				(reference) => !own.has(reference.path),
-			),
-			runsOn,
-		});
-	const base = planned(
+	const base = planChangeReadingMedia(
 		baseSource,
+		appId,
 		baseFirst.draft,
-		new Set(published.map((path) => `${JR_FILE}${path.wirePath}`)),
+		ownPathsBase(published),
+		runsOn,
 	);
-	const now = planned(
+	const now = planChangeReadingMedia(
 		source,
+		appId,
 		nowFirst.draft,
 		new Set(
 			published
@@ -3004,6 +3000,7 @@ async function reviewOverPeer(input: {
 				)
 				.map((path) => `${JR_FILE}${path.wirePath}`),
 		),
+		runsOn,
 	);
 	if (projectFindings.length > 0 || now.media.findings.length > 0) {
 		return {
@@ -3017,17 +3014,16 @@ async function reviewOverPeer(input: {
 
 	/* The files both sources name, each fetched once from the peer and judged:
 	 * a file settling a published path read is not asked for again. */
-	const files = new Map<string, ReadingMediaPlan["files"][number]>();
-	for (const file of [...base.plan.files, ...now.plan.files])
-		if (!files.has(file.key)) files.set(file.key, file);
-	const union: ReadingMediaPlan = {
-		files: [...files.values()].sort((a, b) =>
-			a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
-		),
-		verdicts: {},
-		kept: new Map(),
-		published: {},
-	};
+	const union = unionPlan(base.plan, now.plan);
+	const readLimit = mediaReadLimit(union.files);
+	if (readLimit)
+		return {
+			review: accountReview([readLimit]),
+			basis,
+			fetched,
+			checked: null,
+			summary,
+		};
 	let judged: Pick<ReadingMediaPlan, "verdicts" | "kept" | "published"> = union;
 	if (union.files.length > 0) {
 		const read = await judgeReadingMedia({
@@ -3426,6 +3422,14 @@ async function bringInOverPeer(input: {
 		targetIdentity,
 		record: {
 			review,
+			...(checked?.plan.publishChanges.includes(
+				"unshown-form-media-removed",
+			) && {
+				unshownMediaPlaces: firstPublishChangePlaces(
+					checked.declaration.firstPublishFacts,
+					["unshown-form-media-removed"],
+				)[0].places,
+			}),
 			taken: committed ? "brought-in" : "recorded",
 			discarded:
 				plan !== null &&

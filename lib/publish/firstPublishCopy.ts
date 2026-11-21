@@ -103,7 +103,9 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"media-references-with-no-file-removed":
 		"References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there.",
 	"broken-pictures-removed":
-		"Icons that have no file in CommCare HQ are removed. Web Apps showed an empty or broken picture in their place, and Android showed nothing. You can choose a new icon in Nova.",
+		"Nova removes icons whose files are missing from CommCare HQ. Where Web Apps showed an empty or broken picture, it may show a default icon instead. A missing icon can stop a fresh Android installation if the release requires its file. Removing it can let workers install the new release. You can choose a replacement icon in Nova.",
+	"unshown-form-media-removed":
+		"Some hints, validation messages, and labels for groups or repeats reference pictures, sounds or videos that workers never saw or heard there. Nova removes those references. The files stay in CommCare HQ.",
 	"unused-media-entries-removed":
 		"CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ.",
 	"text-spaces-dropped":

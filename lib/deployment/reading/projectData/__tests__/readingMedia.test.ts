@@ -247,6 +247,21 @@ describe("planReadingMedia", () => {
 		expect(ids("1d6d2c0b-6a0a-4f33-8a1f-7a0e3d9c1b22")).not.toEqual(ids(APP));
 	});
 
+	it("reads only HQ’s explicit string preference as a lazy video registration", () => {
+		for (const value of ["true", true, "false", undefined]) {
+			const { media } = planReadingMedia({
+				source: {
+					multimediaMap: null,
+					profile: { properties: { "lazy-load-video-files": value } },
+				},
+				appId: APP,
+				references: [],
+				runsOn: ["android"],
+			});
+			expect(media.lazyLoadVideos).toBe(value === "true");
+		}
+	});
+
 	it("reads a media check at install that the source does not hold as on", () => {
 		const { media } = planReadingMedia({
 			source: { multimediaMap: null, profile: {} },

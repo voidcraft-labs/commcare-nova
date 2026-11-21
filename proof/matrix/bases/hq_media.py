@@ -22,6 +22,8 @@ template loader makes for a file (``_pages.attach_media``). It holds:
   a label's picture at ``jr://file/loose_picture.png``, a path of one
   segment HQ's bulk upload cannot address; and a label's picture at a path
   in Nova's derived shape (``commcare/<sha256>.png``) that names other bytes;
+- a mapped picture used only in the Notes form's count hint, whose text both readers show while the picture
+  is left out of the first publish (``unshown-form-media-removed``);
 - a ``multimedia_map`` entry nothing references (``unused-media-entries-removed``);
 - an icon chosen on the second menu's page whose file was never uploaded,
   so the map holds no entry for it, on a menu with no audio label, which no
@@ -61,6 +63,7 @@ LOWER_CASE_IMAGE = "jr://file/commcare/image/data/place.png"
 LOOSE_IMAGE = "jr://file/loose_picture.png"
 # A path in Nova's derived shape whose digest is another file's.
 DERIVED_SHAPE_IMAGE = "jr://file/commcare/" + hashlib.sha256(b"hq-media: another picture").hexdigest() + ".png"
+HINT_IMAGE = "jr://file/commcare/image/data/note_count_hint.png"
 UNUSED_IMAGE = "jr://file/commcare/image/data/unused_picture.png"
 # The second menu's icon, whose file is never uploaded.
 MISSING_MENU_IMAGE = "jr://file/commcare/image/module1_en.png"
@@ -68,7 +71,7 @@ MISSING_MENU_IMAGE = "jr://file/commcare/image/module1_en.png"
 
 def _add_media(xform, media):
     """Each ``(form, path)`` of ``media[<text id>]`` added under that text of the form's one translation as a
-    ``<value form="<form>">`` after its text, as HQ's form builder writes a label's media."""
+    ``<value form="<form>">`` after its text, as HQ's form builder writes an itext's media."""
     from lxml import etree
 
     namespaces = xform.ns
@@ -110,14 +113,16 @@ def animals_source(name):
 
 def notes_source(name):
     """The second menu's form: a text question whose label's picture is at a path in Nova's derived shape that
-    names other bytes, a whole number, and a hidden value doubling it."""
+    names other bytes, a whole number with a picture in its hint, and a hidden value doubling it."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
     xform = XFormBuilder(name)
     xform.new_question("note_text", "Note", "string")
-    xform.new_question("note_count", "How many", "int")
+    xform.new_question("note_count", "How many", "int", hint="Count each note once.")
     xform.new_question("note_count_doubled", None, None, calculate="/data/note_count * 2")
-    _add_media(xform, {"note_text-label": (("image", DERIVED_SHAPE_IMAGE),)})
+    _add_media(
+        xform, {"note_text-label": (("image", DERIVED_SHAPE_IMAGE),), "note_count-hint": (("image", HINT_IMAGE),)}
+    )
     return xform.tostring(xml_declaration=True).decode("utf-8")
 
 
@@ -150,6 +155,7 @@ def build(authoring) -> str:
         _pages.attach_media(authoring, app_id, path)
     # The form's icon is the menu's own file: get_by_data finds the document the menu's attach made.
     _pages.attach_media(authoring, app_id, FORM_IMAGE, like=MENU_IMAGE)
+    _pages.attach_media(authoring, app_id, HINT_IMAGE)
     return app_id
 
 
@@ -160,6 +166,7 @@ BASE = Base(
     exhibits=(
         "application-and-settings/multimedia-map",
         "questions/label-image-audio-video-same-asset-every-language",
+        "questions/hint-media-other-than-a-missing-file-the-media-section-refuses",
         "questions/choice-image",
         "questions/choice-audio-video",
         "menus-and-case-lists/media-image-media-audio-same-asset-in-every-language",

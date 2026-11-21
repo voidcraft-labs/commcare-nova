@@ -49,7 +49,12 @@ if BROUGHT_IN:
             "proof3": proof3.document_behavior(document, records),
         }
         observed = readers.named()
-        found = changes.differences(document, checked, readers=observed)
+        sites = (
+            proof2.document_sites(document, records)
+            if changes.UNSHOWN_MEDIA in document.next_publish
+            else changes.NO_SITES
+        )
+        found = changes.differences(document, checked, readers=observed, sites=sites)
         applying = changes.placed(document, changes.load())
         try:
             cases.hold(
@@ -57,7 +62,7 @@ if BROUGHT_IN:
                 document,
                 found,
                 cases.load_register(),
-                **changes.evidence(applying, checked, readers=observed),
+                **changes.evidence(applying, checked, readers=observed, sites=sites),
             )
         except AssertionError as error:
             lines = [

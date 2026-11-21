@@ -99,7 +99,7 @@ import {
 	identityDifferencesSteps,
 	sourceApplication,
 } from "./identityAgreement";
-import type { MediaLeftOut } from "./projectData/media";
+import type { HqMediaClaim } from "./projectData/media";
 import type { HandOffSettlement } from "./projectData/settlements";
 import { differenceSignature, documentPathKinds } from "./signature";
 import { sourcePlaces } from "./sourcePlaces";
@@ -156,8 +156,8 @@ export interface AcceptReadingInput {
 	 * document reads no table.
 	 */
 	readonly lookup: LookupFixtureDataSnapshot;
-	/** Media references with no file, left out (`mediaLeftOutOf`). */
-	readonly mediaLeftOut: MediaLeftOut;
+	/** Each omitted media reference and what its file verdict says a worker saw. */
+	readonly mediaClaims: readonly HqMediaClaim[];
 	/**
 	 * Every referenced file, held and judged before acceptance is called.
 	 * `rows` is the map `exportReadinessFindings` takes as its third argument
@@ -599,7 +599,7 @@ export function* acceptReadingSteps(
 					forms,
 					attachmentTarget: input.reader.target,
 					mediaFiles: input.media.files,
-					mediaLeftOut: input.mediaLeftOut,
+					mediaClaims: input.mediaClaims,
 					choice: { runsOnlyOn, split: choice.split },
 				}),
 			);

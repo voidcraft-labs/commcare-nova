@@ -468,14 +468,15 @@ class BroughtIn:
     assumed_summary: list
     document: dict
     reading: dict | None = None
+    unshown_media_places: tuple[str, ...] = ()
 
     @classmethod
     def from_json(cls, value, where):
-        if not isinstance(value, dict) or set(value) - {BROUGHT_IN_READING} != BROUGHT_IN_KEYS:
+        if not isinstance(value, dict) or set(value) - {BROUGHT_IN_READING, "unshownMediaPlaces"} != BROUGHT_IN_KEYS:
             raise CorpusLayoutError(
                 f"{where} names its broughtIn as {sorted(value) if isinstance(value, dict) else value!r}; a"
                 f" bring-in's record holds exactly {sorted(BROUGHT_IN_KEYS)}, and {BROUGHT_IN_READING} where the"
-                " review read CommCare HQ's app."
+                " review read CommCare HQ's app, and unshownMediaPlaces where it newly listed that removal."
             )
         if value["taken"] not in ("brought-in", "recorded"):
             raise CorpusLayoutError(f"{where} records a bring-in that took {value['taken']!r}.")
@@ -483,6 +484,11 @@ class BroughtIn:
             if not isinstance(value[key], dict) or not isinstance(value[key].get("kind", ""), str):
                 raise CorpusLayoutError(f"{where} records the bring-in's {key} as {value[key]!r}.")
         reading = value.get(BROUGHT_IN_READING)
+        media_places = value.get("unshownMediaPlaces", [])
+        if not isinstance(media_places, list) or not all(
+            isinstance(p, str) and p.startswith("/") for p in media_places
+        ):
+            raise CorpusLayoutError(f"{where} records unshownMediaPlaces without exact places in the current reading.")
         if reading is not None and (
             not isinstance(reading, dict)
             or not isinstance(reading.get("doc"), dict)
@@ -503,6 +509,7 @@ class BroughtIn:
             assumed_summary=value["assumedSummary"],
             document=value["document"],
             reading=reading,
+            unshown_media_places=tuple(media_places),
         )
 
     @property
@@ -1119,6 +1126,16 @@ class Document:
             return ()
         self.republished_as_stated()
         return tuple(saves["publishChanges"])
+
+    @property
+    def unshown_media_places(self):
+        """The current review's exact places, the same across exports. An absent or disagreeing record cannot
+        authorize removing a sibling's picture. Read only when the review newly listed this change."""
+        records = (export.brought_in for export in self.exports.values())
+        places = {record.unshown_media_places if record else () for record in records}
+        if len(places) != 1 or not next(iter(places)):
+            raise CorpusLayoutError(f"{self.root} has no consistent unshownMediaPlaces in its next-publish review.")
+        return next(iter(places))
 
     def republished_as_stated(self):
         """Holds every export's republish to what ``hq-side.json`` states of it, as its sidecar records it

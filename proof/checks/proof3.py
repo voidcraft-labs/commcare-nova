@@ -1479,11 +1479,21 @@ def document_behavior(document, records, *, native_sites=None):
         )
         if "A" in phone_record and (phone_record.get("local") or {}).get("app") is not None:
             compared.add(android.LOCAL)
-        native += phone + android.tablet_only(phone, tablet)
+        from proof.checks import missing_android_media
+
+        separate = android.tablet_only(phone, tablet)
+        native += phone + separate
+        duplicated = [d for d in tablet if missing_android_media.candidate(d) and d not in separate]
+        native, media_sites = missing_android_media.classify(
+            document, records, name, native, local_files, rules=RULES, menus=menus, tablet_rows=duplicated
+        )
+        if native_sites is not None:
+            native_sites.append(media_sites)
         if native and served_places.review_read(document):
             # A place and the text at that place belong to the configuration that actually reported the
             # difference. The same walk index in another configuration can lead to a different form.
             needed = native if native_sites is not None else [d for d in native if served_places.needs_classification(d)]
+            needed = [d for d in needed if (d.artifact, d.at) not in media_sites.served]
             places = served_places.sites(records, name, needed, observed, local_files, document=document)
             native = served_places.classify(document, records, name, native, places)
             if native_sites is not None:

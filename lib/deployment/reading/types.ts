@@ -139,9 +139,9 @@ export interface ReadingReview {
 	readonly tables: readonly ReviewTable[];
 	/** The places the app's logic reads, or null where it reads none. */
 	readonly places: ReviewPlaces | null;
-	/** How many media references point at no file, no worker sees anything for, and are left
-	 *  out. An icon Web Apps showed broken is left out too, and `firstPublish` says so
-	 *  (`broken-pictures-removed`). */
+	/** Count of omitted references with no worker-visible effect. An omitted icon that
+	 *  Web Apps showed broken or Android required to install has its own worker-facing
+	 *  first-publish disclosure (`broken-pictures-removed`). */
 	readonly mediaLeftOut: number;
 	/** The preselected choice's list: `runsOn`'s preselected entry holds the same. */
 	readonly firstPublish: FirstPublishView;

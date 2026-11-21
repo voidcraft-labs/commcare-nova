@@ -121,8 +121,8 @@ function withMedia(
 
 /**
  * Reads the media forms of one text for one slot. Each slot that references the text reads its
- * media as its own; the first claims the values, makes the hand-offs and lists the references,
- * and a later slot raises its own finding where the media is refused.
+ * media as its own. Each slot records its use and raises its own finding where refused. The
+ * first owner claims or hands off the shared XML values once.
  */
 function readSlotMedia(
 	ctx: ReadContext,
@@ -152,15 +152,37 @@ function readSlotMedia(
 			continue;
 		}
 		if (slot.media === "unheld") {
-			if (!first) continue;
 			for (const value of values.values()) {
 				const path = ownText(value).trim();
 				const resolution = ctx.input.media.resolve(path);
 				if (resolution.kind === "asset") {
-					cursor.accountSubtree(value, unheldClaim(slot, kind), place);
+					if (first)
+						cursor.accountSubtree(value, unheldClaim(slot, kind), place);
+					const translation = value.parent?.parent;
+					if (
+						!translation ||
+						!isTag(translation) ||
+						translation.attribs.lang === undefined
+					)
+						throw new Error(
+							"The itext reader returned a media value outside its translation.",
+						);
+					ctx.facts.unheldMedia.push({
+						path,
+						mediaKind: kind,
+						place,
+						slot: "unheld_itext",
+						languageCode: translation.attribs.lang,
+						role:
+							slot.owner.slot === "validate_msg"
+								? "constraintMsg"
+								: slot.owner.slot === "hint"
+									? "hint"
+									: "label",
+					});
 					continue;
 				}
-				cursor.handOffSubtree(value, "media-reference", path, key);
+				if (first) cursor.handOffSubtree(value, "media-reference", path, key);
 				ctx.facts.pendingMedia.push({
 					path,
 					mediaKind: kind,

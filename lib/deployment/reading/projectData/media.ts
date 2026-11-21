@@ -71,6 +71,8 @@ export type HqMediaSlot = (typeof HQ_MEDIA_SLOTS)[number];
 
 /** One reference in the app's source. */
 export interface HqMediaReference {
+	/** The stored app's source pointer when a JSON value names this file. A question's itext is located by its node. */
+	readonly pointer?: string;
 	/** The path as the source spells it. */
 	readonly path: string;
 	/** The kind of slot it stands in. */
@@ -106,7 +108,11 @@ const SLOT_OF_READER_SLOT: SourceTable<HqMediaSlot> = tableOf({
 export function hqMediaReferencesOf(
 	facts: ReadFacts,
 ): readonly HqMediaReference[] {
-	return [...facts.mediaReferences, ...facts.pendingMedia].map((read) => {
+	return [
+		...facts.mediaReferences,
+		...facts.unheldMedia,
+		...facts.pendingMedia,
+	].map((read) => {
 		const slot = SLOT_OF_READER_SLOT.get(read.slot);
 		if (slot === undefined) {
 			throw new Error(
@@ -118,6 +124,7 @@ export function hqMediaReferencesOf(
 			kind: read.mediaKind,
 			slot,
 			place: read.place,
+			...(read.pointer !== undefined && { pointer: read.pointer }),
 		};
 	});
 }
@@ -135,16 +142,35 @@ const KIND_OF_MEDIA_TYPE: Readonly<Record<HqFileMediaType, MediaKind>> = {
 	CommCareVideo: "video",
 };
 
-export interface HqMediaFile {
+interface FileUse {
+	/** Only source itext that no runtime draws names this file. Test its availability, without adopting its bytes. */
+	readonly availabilityOnly?: true;
+}
+
+/** A single source or a pair of HQ reads takes at most as many distinct file requests as a full export. */
+export function mediaReadLimit(files: readonly FileUse[]): Finding | null {
+	if (files.length <= MAX_MEDIA_EXPORT_ASSETS) return null;
+	return circumstanceFinding("too-large", { kind: "app" }, {});
+}
+
+function fileCountLimit(files: readonly FileUse[]): Finding | null {
+	if (files.length <= MAX_MEDIA_EXPORT_ASSETS) return null;
+	const count = files.filter((file) => !file.availabilityOnly).length;
+	return count > MAX_MEDIA_EXPORT_ASSETS
+		? fileCountFinding(count)
+		: mediaReadLimit(files);
+}
+
+export interface HqMediaFile extends FileUse {
 	/** `<mediaType>/<multimediaId>`: the key a verdict is filed under. */
 	readonly key: string;
 	readonly mediaType: HqFileMediaType;
 	readonly multimediaId: string;
 	/** The kind Nova fetches it as: Image, Audio or Video by `mediaType`. */
 	readonly kind: MediaKind;
-	/** Every referenced path that names it, in code-unit order. */
+	/** Paths a held slot names it by, or its source-only paths when there is no held slot. In code-unit order. */
 	readonly paths: readonly string[];
-	/** The references whose `kind` is this file's `kind`. Never empty. */
+	/** All source references, including those that only check this file's availability. Never empty. */
 	readonly references: readonly HqMediaReference[];
 }
 
@@ -154,9 +180,8 @@ export interface HqMediaClaim {
 	readonly reference: HqMediaReference;
 	readonly entry: string;
 	/**
-	 * Whether Web Apps shows the reference as a broken picture, which leaving it
-	 * out takes away, so the first publish says so: an icon with a map entry and
-	 * no file. Otherwise no platform the app runs on draws anything for it.
+	 * An omitted icon with a worker-facing change: Web Apps showed a broken
+	 * picture, or Android had to download a file HQ no longer serves.
 	 */
 	readonly brokenPicture: boolean;
 }
@@ -165,7 +190,7 @@ export interface HqMediaClaim {
 export interface MediaLeftOut {
 	/** References no worker sees anything for. */
 	readonly undrawn: number;
-	/** Icons Web Apps showed as a broken picture (`HqMediaClaim.brokenPicture`). */
+	/** Omitted icons whose broken picture or required download affected workers. */
 	readonly brokenPictures: number;
 }
 
@@ -190,6 +215,8 @@ export interface HqMediaPlan {
 	readonly references: readonly HqMediaReference[];
 	readonly runsOn: readonly Platform[];
 	readonly contentValid: string | null;
+	/** HQ defers only videos, and only when the source explicitly selects lazy loading. */
+	readonly lazyLoadVideos: boolean;
 }
 
 const JR_FILE = "jr://file/";
@@ -252,11 +279,15 @@ function loggedOnce(): {
 
 export function planHqMedia(input: {
 	readonly references: readonly HqMediaReference[];
+	/** Published Nova assets take no HQ file read. Their slots still belong to the app Android verifies. */
+	readonly ownPaths?: ReadonlySet<string>;
 	readonly multimediaMap: readonly HqMediaMapItem[];
 	/** The platforms of the declaration the draft proposes: what the app runs on. */
 	readonly runsOn: readonly Platform[];
 	/** `profile.properties["cc-content-valid"]` as the source holds it, or null. */
 	readonly contentValid: string | null;
+	/** HQ defers only videos, and only when the source explicitly selects lazy loading. */
+	readonly lazyLoadVideos: boolean;
 }): HqMediaPlan {
 	const { references, runsOn, contentValid } = input;
 	const byPath = new Map(input.multimediaMap.map((item) => [item.path, item]));
@@ -269,7 +300,6 @@ export function planHqMedia(input: {
 		{
 			readonly mediaType: HqFileMediaType;
 			readonly multimediaId: string;
-			readonly paths: Set<string>;
 			readonly references: HqMediaReference[];
 		}
 	>();
@@ -280,6 +310,7 @@ export function planHqMedia(input: {
 			references,
 			runsOn,
 			contentValid,
+			false,
 		);
 		if (outcome.kind === "finding") findings.push(outcome.finding);
 		else {
@@ -288,6 +319,7 @@ export function planHqMedia(input: {
 		}
 	};
 	for (const reference of references) {
+		if (input.ownPaths?.has(reference.path)) continue;
 		const item = byPath.get(reference.path);
 		if (item !== undefined && !reference.path.startsWith(JR_FILE)) {
 			findings.push(
@@ -324,7 +356,7 @@ export function planHqMedia(input: {
 			continue;
 		}
 		const fileKind = KIND_OF_MEDIA_TYPE[item.mediaType];
-		if (fileKind !== reference.kind) {
+		if (reference.slot !== "unheld-itext" && fileKind !== reference.kind) {
 			if (reference.kind === "audio" && item.mediaType === "CommCareVideo") {
 				findings.push(
 					manifestFinding(
@@ -353,27 +385,34 @@ export function planHqMedia(input: {
 			file = {
 				mediaType: item.mediaType,
 				multimediaId: item.multimediaId,
-				paths: new Set(),
 				references: [],
 			};
 			files.set(key, file);
 		}
-		file.paths.add(reference.path);
 		file.references.push(reference);
 	}
 	logged.flush();
 	const planned: HqMediaFile[] = [...files.entries()]
 		.sort(([a], [b]) => compareCodeUnits(a, b))
-		.map(([key, file]) => ({
-			key,
-			mediaType: file.mediaType,
-			multimediaId: file.multimediaId,
-			kind: KIND_OF_MEDIA_TYPE[file.mediaType],
-			paths: [...file.paths].sort(compareCodeUnits),
-			references: file.references,
-		}));
-	if (planned.length > MAX_MEDIA_EXPORT_ASSETS)
-		findings.push(fileCountFinding(planned.length));
+		.map(([key, file]) => {
+			const adopted = file.references.filter(
+				(ref) => ref.slot !== "unheld-itext",
+			);
+			const paths = (adopted.length ? adopted : file.references).map(
+				(ref) => ref.path,
+			);
+			return {
+				...(adopted.length === 0 && { availabilityOnly: true as const }),
+				key,
+				mediaType: file.mediaType,
+				multimediaId: file.multimediaId,
+				kind: KIND_OF_MEDIA_TYPE[file.mediaType],
+				paths: [...new Set(paths)].sort(compareCodeUnits),
+				references: file.references,
+			};
+		});
+	const countLimit = fileCountLimit(planned);
+	if (countLimit) findings.push(countLimit);
 	return {
 		files: planned,
 		findings: distinct(findings),
@@ -382,6 +421,7 @@ export function planHqMedia(input: {
 		references,
 		runsOn,
 		contentValid,
+		lazyLoadVideos: input.lazyLoadVideos,
 	};
 }
 
@@ -398,8 +438,8 @@ function mediaFileKey(mediaType: HqMediaType, multimediaId: string): string {
 type MissingFile = "no-entry" | "no-file";
 
 /**
- * Whether a platform draws something for a missing file of this kind in this
- * slot. Android draws the missing-file prompt, an audio button or the archive
+ * Whether an already running app draws something for a missing file of this kind in
+ * this slot. Downloading a release's required resources precedes these screens. Android draws the missing-file prompt, an audio button or the archive
  * icon for a question's or a choice's media and a list's image, and nothing
  * for a menu's, a form's, a case list menu item's or the Register action's
  * icon or audio, the logo or an itext form no slot holds. Web Apps never
@@ -494,8 +534,8 @@ type NoFileOutcome =
 	| { readonly kind: "finding"; readonly finding: Finding }
 	| { readonly kind: "inert"; readonly claim: HqMediaClaim };
 
-/** The slots whose only drawing of a picture with an entry and no file is Web Apps' broken
- *  picture: Android draws nothing there (`mediaSlotDrawnOn`). */
+/** The icon slots the reading can omit and disclose. Web Apps can show a broken picture.
+ * A media-suite resource can stop a fresh Android installation before a menu is shown. */
 const BROKEN_PICTURE_SLOTS: ReadonlySet<HqMediaSlot> = new Set([
 	"tile",
 	"register-action",
@@ -504,11 +544,10 @@ const BROKEN_PICTURE_SLOTS: ReadonlySet<HqMediaSlot> = new Set([
 
 /**
  * A reference with no entry or no file, by the first rule that matches: one
- * Android's install check reaches stops the app; an icon with an entry and no
- * file, which Web Apps shows as a broken picture and Android not at all, is
- * left out, and the first publish says so (`brokenPicture`); one a platform
- * draws with no entry is the source's to fix; one a platform draws with no
- * file is CommCare HQ's server holding none; anything else is inert.
+ * Android's content verification reaches stops the reading. An icon missing
+ * from the worker's Web Apps screen or required Android downloads is omitted
+ * and disclosed. Other missing files that a runtime draws or needs to install
+ * are the source's to fix. An incomplete map entry has no verified download.
  */
 function noFileOutcome(
 	reference: HqMediaReference,
@@ -516,6 +555,7 @@ function noFileOutcome(
 	all: readonly HqMediaReference[],
 	runsOn: readonly Platform[],
 	contentValid: string | null,
+	requiredDownload: boolean,
 ): NoFileOutcome {
 	if (
 		runsOn.includes("android") &&
@@ -535,7 +575,7 @@ function noFileOutcome(
 		mediaSlotDrawnOn(reference.slot, reference.kind, platform, missing),
 	);
 	if (
-		drawn &&
+		(drawn || requiredDownload) &&
 		missing === "no-file" &&
 		reference.kind === "image" &&
 		BROKEN_PICTURE_SLOTS.has(reference.slot)
@@ -544,7 +584,7 @@ function noFileOutcome(
 			kind: "inert",
 			claim: { reference, entry: ENTRY.nothingDraws, brokenPicture: true },
 		};
-	if (drawn) {
+	if (drawn || requiredDownload) {
 		return {
 			kind: "finding",
 			finding:
@@ -583,6 +623,7 @@ export interface JudgedMediaFile {
 
 export type HqMediaVerdict =
 	| { readonly kind: "held"; readonly file: JudgedMediaFile }
+	| { readonly kind: "available" }
 	| { readonly kind: "missing" }
 	| {
 			readonly kind: "over-limit";
@@ -782,6 +823,11 @@ export function mediaFindings(input: {
 						plan.references,
 						plan.runsOn,
 						plan.contentValid,
+						// HQ's media suite registers each used mapping as a download. Only
+						// videos can be lazy (MediaSuiteGenerator.media_resources). This
+						// verdict comes from HQ's 404 at the mapped class and id.
+						plan.runsOn.includes("android") &&
+							!(file.mediaType === "CommCareVideo" && plan.lazyLoadVideos),
 					);
 					if (outcome.kind === "finding") findings.push(outcome.finding);
 					else {
@@ -789,6 +835,8 @@ export function mediaFindings(input: {
 						claims.push(outcome.claim);
 					}
 				}
+				break;
+			case "available":
 				break;
 			case "held":
 				if (
@@ -842,11 +890,11 @@ function fileCountFinding(count: number): Finding {
  * Nova takes. Null where neither.
  */
 export function mediaBudgetFinding(
-	plan: { readonly files: readonly { readonly key: string }[] },
+	plan: { readonly files: readonly (FileUse & { readonly key: string })[] },
 	verdicts: Readonly<Record<string, HqMediaVerdict>>,
 ): Finding | null {
-	if (plan.files.length > MAX_MEDIA_EXPORT_ASSETS)
-		return fileCountFinding(plan.files.length);
+	const countLimit = fileCountLimit(plan.files);
+	if (countLimit) return countLimit;
 	const rows = new Map<
 		string,
 		{
@@ -885,8 +933,8 @@ export function mediaCapBytes(kind: MediaKind): number {
 
 /** The media of one request. Never stored. */
 export interface ReadingMediaPlan {
-	/** One per file the document references, in `key` order. */
-	readonly files: readonly {
+	/** One per referenced HQ file the reading must check, in `key` order. */
+	readonly files: readonly (FileUse & {
 		readonly key: string;
 		readonly mediaType: HqMediaFile["mediaType"];
 		readonly multimediaId: string;
@@ -895,7 +943,7 @@ export interface ReadingMediaPlan {
 		/** `provisionalReadingMediaId(appId, mediaType, multimediaId)`: the id the document names
 		 *  the file by until the file is published. It never reaches storage. */
 		readonly provisionalId: MediaAssetId;
-	}[];
+	})[];
 	readonly verdicts: Readonly<Record<string, HqMediaVerdict>>;
 	/** In a create: the bytes of each held file, by its content hash (a held verdict's
 	 *  `file.contentHash`), one buffer however many files hold those bytes, from the verdict
@@ -963,20 +1011,26 @@ export function planReadingMedia(input: {
 	};
 	readonly appId: string;
 	readonly references: readonly HqMediaReference[];
+	/** Published Nova assets take no HQ file read. Their slots still belong to the app Android verifies. */
+	readonly ownPaths?: ReadonlySet<string>;
 	/** The platforms of the declaration the draft proposes (`planHqMedia`'s `runsOn`). */
 	readonly runsOn: readonly Platform[];
 }): { readonly plan: ReadingMediaPlan; readonly media: HqMediaPlan } {
 	const contentValid = input.source.profile.properties?.["cc-content-valid"];
 	const media = planHqMedia({
 		references: input.references,
+		ownPaths: input.ownPaths,
 		multimediaMap: input.source.multimediaMap ?? [],
 		runsOn: input.runsOn,
 		contentValid: typeof contentValid === "string" ? contentValid : null,
+		lazyLoadVideos:
+			input.source.profile.properties?.["lazy-load-video-files"] === "true",
 	});
 	return {
 		media,
 		plan: {
 			files: media.files.map((file) => ({
+				...(file.availabilityOnly && { availabilityOnly: true as const }),
 				key: file.key,
 				mediaType: file.mediaType,
 				multimediaId: file.multimediaId,
@@ -1095,7 +1149,7 @@ export function narrowDeclarationsByMedia(
  */
 export function readingMediaRows(
 	plan: ReadingMediaPlan,
-): Parameters<typeof exportReadinessFindings>[2] {
+): ReadonlyMap<string, MediaRow> {
 	const rows = new Map<string, MediaRow>();
 	for (const file of plan.files) {
 		const verdict = verdictOf(plan.verdicts, file.key);

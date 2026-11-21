@@ -15,6 +15,7 @@ from proof.checks import (
     android_places,
     android_titles,
     blank_sort,
+    broken_menu_images,
     changes,
     connect_contexts,
     connect_places,
@@ -105,9 +106,39 @@ def sites(records, name, differences, observed, local_files, *, document=None):
 
     get_json = cache(records.blobs.get_json)
     results = []
+    for side in ("local.ccz", "B"):
+        pictures = [
+            d for d in differences if d.artifact.endswith(f"@{side}") and broken_menu_images.candidate(d)
+        ]
+        if not pictures:
+            continue
+        state, _, session = by_side[side]
+        read = review_read(document) if document is not None else None
+        reads = (((parts.a or {}).get("apiReads") or {}).get(read) or {}).get("media") or []
+        missing = broken_menu_images.missing_images(reviewed_app(), reads)
+        old_core = (sessions.get("baseline") or {}).get("trace")
+        new_core = (sessions.get(session) or {}).get("trace")
+        old_fp = (baseline.get("formplayer") or {}).get("trace")
+        new_fp = (state.get("formplayer") or {}).get("trace")
+        if not (missing and old_core and new_core and old_fp and new_fp):
+            continue
+        if any(
+            path in ("suite.xml", "media_suite.xml") or path.endswith("/app_strings.txt")
+            for s in (baseline, state) for path in (s.get("releaseDiffers") or {}).get("differing") or ()
+        ):
+            continue
+        web = None
+        if side == "B" and baseline.get("webapps") and state.get("webapps"):
+            web = get_json(baseline["webapps"]), get_json(state["webapps"])
+        results.append(changes.Sites(served=broken_menu_images.locations(
+            pictures, reviewed_app(), missing, (get_json(old_core), get_json(old_fp)),
+            (get_json(new_core), get_json(new_fp)), web=web,
+        )))
     for reader, release_key, local_key, payload in READERS:
         for side in ("local.ccz", "B"):
-            selected = [d for d in differences if d.artifact == f"{reader}@{side}"]
+            selected = [
+                d for d in differences if d.artifact == f"{reader}@{side}" and not broken_menu_images.candidate(d)
+            ]
             sorts = [d for d in selected if blank_sort.candidate(d)]
             if sorts:
                 state, files, _ = by_side[side]
@@ -258,6 +289,7 @@ def needs_classification(difference):
     return (
         text_candidate(difference)
         or blank_sort.candidate(difference)
+        or broken_menu_images.candidate(difference)
         or android_titles.candidate(difference)
         or served_datetimes.candidate(difference)
         or (difference.artifact.startswith("connect@") and connect_places.candidate(difference))
@@ -319,6 +351,8 @@ def classify(document, records, name, differences, places):
             and owner[2:] == ("case_details", "short", "sort_elements", "0", "display")
         ):
             difference = replace(difference, path=difference.path + ":blank-sort-name")
+        elif broken_menu_images.candidate(difference) and owner[-1:] == ("media_image",):
+            difference = replace(difference, path=difference.path + broken_menu_images.SUFFIX)
         elif android_titles.candidate(difference) and owner[:1] == ("form",) and owner[2:] == ("xform", "title"):
             difference = replace(difference, path=difference.path + ":written-title")
         elif owner and difference.artifact.startswith("connect@") and connect_places.candidate(difference):

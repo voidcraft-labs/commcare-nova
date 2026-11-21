@@ -4451,8 +4451,11 @@ changes its review lists for the next publish (`publishChanges`), which the
 capture holds to the review's own list (`proof/corpus/publish.ts::bringInOverPeer`)
 and `proof/checks/corpus.py::Document.next_publish` reads. A document made in
 HQ states no saves, so a document has the first-publish list, this one, or
-none (`changes.py::placed`). The review names no place, so each listed change
-stands everywhere. On such a document, proofs 1, 2 and 3 accept
+none (`changes.py::placed`). A review that newly lists `unshown-form-media-removed`
+records the current reading's exact itext, form media listing and mapping places
+in the capture. A media value can disappear only at its own language and slot.
+A file can leave the form listing or app map only when the reading gave that exact place.
+The other next-publish changes stand across the app. On such a document, proofs 1, 2 and 3 accept
 exactly the differences a row of a listed change names (`proof/checks/changes.py::undeclared`, called before the
 register), and the check `changes` (`proof/checks/test_next_publish_changes.py`)
 holds the list strict both ways over the three proofs together: a difference
@@ -4743,6 +4746,13 @@ The rules whose readers reach past HQ's build and Core:
   The comparison applies the same rule to Formplayer's command image URI and Android's menu image.
   Android must also report the file absent. On HQ's builds, a path present in the saved media map stays
   visible to the comparison, including a mapped image whose download fails.
+
+  A mapped menu picture that HQ returned 404 for can be a declared first-publish change.
+  Core identifies the root command in each build. Formplayer must show its original image URI
+  and then the same command without an image. On Web Apps the browser must show the URL for
+  that same missing file, followed by the default icon for the command’s navigation state.
+  The judge attributes these observations to the original menu or form’s image field
+  (`proof/checks/broken_menu_images.py`).
 
 - **`media-path-of-a-shared-file`** (`media_path_of_a_shared_file`): an image,
   sound or video in Core's trace whose build installs the same file under

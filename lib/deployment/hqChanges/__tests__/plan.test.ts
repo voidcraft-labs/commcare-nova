@@ -385,7 +385,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 				base: baseOutcome,
 				now: readHqApp(now),
 				inputs: { base, now },
-				baseMediaLeftOut: { undrawn: 0, brokenPictures: 0 },
+				baseMediaClaims: [],
 			},
 		};
 	}
