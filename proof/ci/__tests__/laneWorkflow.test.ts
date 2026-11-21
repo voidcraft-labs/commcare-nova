@@ -60,6 +60,26 @@ it("queues full reader workflows together without blocking a pin update on its c
 	);
 });
 
+it.each([
+	["ci.yml", "proofs-gate", "proof"],
+	["proof-lane.yml", "gate", "shard"],
+])(
+	"records the hosted shard result in the %s verdict even when a shard could not upload",
+	async (file, job, dependency) => {
+		const workflow = parse(
+			await readFile(join(WORKTREE, ".github/workflows", file), "utf8"),
+		);
+		const gate = (
+			workflow.jobs[job].steps as {
+				run?: string;
+				env?: Record<string, string>;
+			}[]
+		).find((step) => step.run?.includes("python3 -m proof.lane.gate"));
+		expect(gate?.env?.SHARDS_RESULT).toBe(`\${{ needs.${dependency}.result }}`);
+		expect(gate?.run).toContain('--shards-result "$SHARDS_RESULT"');
+	},
+);
+
 it("runs as many of a lane's shards at once as the planner fills its rounds with", async () => {
 	const workflow = parse(
 		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
@@ -731,11 +751,25 @@ it("uploads shard and slice outputs only when their seal succeeds", async () => 
 					file === "proof-slice.yml"
 						? "$PROOF_OUT_DIR"
 						: "$RUNNER_TEMP/proof-out";
+				const command = file === "proof-slice.yml" ? "--seal" : "--seal-hosted";
+				if (file !== "proof-slice.yml") {
+					expect(steps[0]?.run).toContain("PROOF_SHARD_STARTED_AT=$(date +%s)");
+					expect(
+						steps
+							.slice(0, index)
+							.some((earlier) =>
+								earlier.run?.includes("node proof/run.mjs --hosted-lane"),
+							),
+					).toBe(true);
+					expect((job as Record<string, unknown>)["timeout-minutes"]).toBe(
+						`\${{ matrix.jobDeadline }}`,
+					);
+				}
 				const seal = steps
 					.slice(0, index)
 					.find(
 						(earlier) =>
-							earlier.run === `node proof/run.mjs --seal "${output}"`,
+							earlier.run === `node proof/run.mjs ${command} "${output}"`,
 					);
 				expect(seal?.id, file).toBeTruthy();
 				expect(step.if, file).toContain(

@@ -99,6 +99,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from proof.lane import progress
 from proof.observe.browser import browser_fingerprint
 from proof.observe.build import archive_record, device_archive
 from proof.observe.outcome import BuildOutcome
@@ -1137,6 +1138,7 @@ class _Observation:
         self.serves = bool(getattr(ctx, "serve", False))
         self.walk = None
         self.served_kept = {}
+        self.partition = getattr(ctx, "editor_partition", None)
         # The unit's Connect opportunity (``proof.observe.connect``), which B and each save forward to, and
         # Core's sessions on B as their submissions are posted to it.
         self.connect = getattr(ctx, "connect", None)
@@ -1177,16 +1179,35 @@ class _Observation:
             plan, entries = self.read_app(
                 lambda app: (self.plan(app), _form_entries(app)), "the views and forms it runs"
             )
+            if self.partition is not None:
+                self.partition.plan(plan, entries)
             plan = [entry for entry in plan if views is None or views(entry[0], entry[2])]
             found = {}
             for index in self.order(range(len(plan))):
-                found[index] = self.view(*plan[index])
-            record["views"] = [found[index] for index in range(len(plan))]
+                if self.partition is not None and not self.partition.owns("views", index):
+                    continue
+                view, target, scope = plan[index]
+                position = ".".join(str(n) for n in scope if n is not None)
+                with progress.activity(f"HQ {view} {position}".rstrip()):
+                    if self.partition is None:
+                        found[index] = self.view(view, target, scope)
+                    else:
+                        self.partition.run("views", index, self.unit._log, self.view, view, target, scope)
+            if self.partition is None:
+                record["views"] = [found[index] for index in range(len(plan))]
             entries = [entry for entry in entries if forms is None or forms([entry[0], entry[1]])]
             found = {}
             for index in self.order(range(len(entries))):
-                found[index] = self.vellum(*entries[index])
-            record["vellum"] = [found[index] for index in range(len(entries))]
+                if self.partition is not None and not self.partition.owns("vellum", index):
+                    continue
+                m, f, target = entries[index]
+                with progress.activity(f"Vellum form {m}.{f}"):
+                    if self.partition is None:
+                        found[index] = self.vellum(m, f, target)
+                    else:
+                        self.partition.run("vellum", index, self.unit._log, self.vellum, m, f, target)
+            if self.partition is None:
+                record["vellum"] = [found[index] for index in range(len(entries))]
         return record
 
     def plan(self, app):
@@ -1343,6 +1364,8 @@ class _Observation:
         if not differs and reads == over.served_reads:
             return unchanged
         key = (files_key(outcome), reads, over.served_trace, over.served_reads)
+        if self.partition is not None:
+            self.partition.served_keys.add(digest([key[0].hex(), *key[1:]]))
         kept = self.served_kept.get(key)
         if kept is not None and not self.verify:
             return kept, kept["formplayer"]["trace"], reads
@@ -1713,7 +1736,8 @@ class _Observation:
 
     @contextmanager
     def section_fork(self, saved, position, editor):
-        with self.unit.fork():
+        # The section name belongs to the harness page spec, never to the app.
+        with progress.activity(f"save {editor}", count="native"), self.unit.fork():
             yield
             saved[position], _ = self.after_save(self.b, editor)
 
@@ -1729,12 +1753,14 @@ class _Observation:
             return found
         found["offer"] = OFFERED
         with self.unit.fork():
-            first, left = self.vellum_run(form_unique_id, self.b, VELLUM)
+            with progress.activity("first save", count="native"):
+                first, left = self.vellum_run(form_unique_id, self.b, VELLUM)
             runs = [first]
             # The second open and save is over what the first left, and recorded against it, so only where the first
             # saved.
             if first["saved"]:
-                runs.append(self.vellum_run(form_unique_id, left, VELLUM_AGAIN)[0])
+                with progress.activity("second save", count="native"):
+                    runs.append(self.vellum_run(form_unique_id, left, VELLUM_AGAIN)[0])
             else:
                 found["again"] = {"offer": SKIPPED, "reason": "Vellum did not save the form before"}
         found["runs"] = [{key: value for key, value in run.items() if key != "saved"} for run in runs]

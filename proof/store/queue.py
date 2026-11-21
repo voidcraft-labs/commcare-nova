@@ -231,6 +231,8 @@ class Group:
     document: str | None = None
     # The configurations a document or control is exported under, by name.
     configurations: tuple[str, ...] = ()
+    # This document can run its two independent sets of editor saves, all readers together.
+    partition_editors: bool = False
     # The pieces this group follows (``split``): it runs after them, reading what they observed.
     after: tuple[str, ...] = ()
     # Whether the group is a piece: one configuration of a document, observed.
@@ -521,6 +523,18 @@ class Builder:
         (``proof.store.keys.group_judge``)."""
         group = Group(name, self.whole(name), fresh=self.fresh, signatures=signatures(root))
         group.configurations = configuration_names(root)
+        if (
+            name == lane_blocks.EDITOR_DOCUMENT
+            and group.configurations == ("minimum",)
+            and self.readers == lane_readers.EVERY
+            and keys.environment(self.environ)["PROOF_HQ_DETERMINISM"] == "on"
+            and self.workers >= 2
+            and not (root / "edit").exists()
+            and (root / "export/minimum/republish.body").is_file()
+        ):
+            # The observation also verifies that HQ's actual A and B have no Connect opportunity before partitioning.
+            source = json.loads((root / "document.json").read_bytes())
+            group.partition_editors = source["doc"]["connectType"] is None
         group.units = configurations_of(root)
         files = files if files is not None else keys.files_digest(root)
         group.key = keys.document_key(self.document_scope, name, files)
@@ -572,23 +586,33 @@ def split(groups: list[Group], builder: Builder) -> list[Group]:
     found = []
     for group in groups:
         whole = group.observed_estimate
+        configurations = group.configurations
+        if group.partition_editors:
+            # Hosted run 44891780213 spent 312 minutes on this single-configuration group before the job's
+            # deadline. No complete timing was recorded. Budget 170 worker-minutes per half, including the
+            # repeated B baseline, until a completed run supplies actual timings for the individual pieces.
+            names = lane_blocks.EDITOR_PIECES
+            unmeasured = 170 * 60 / builder.workers
+            threshold_seconds = max(whole * builder.workers, 312 * 60)
+        else:
+            names = tuple(f"{group.name}@{configuration}" for configuration in configurations)
+            unmeasured = whole * sharding.piece_share(len(names)) if len(names) > 1 else 0
+            threshold_seconds = whole * builder.workers
         if (
             group.piece
             or not group.name.startswith(lane_blocks.DOCUMENT_KINDS)
             or group.status != "observed"
-            or len(group.configurations) < 2
-            or whole * builder.workers <= builder.split_above
+            or len(names) < 2
+            or threshold_seconds <= builder.split_above
         ):
             found.append(group)
             continue
-        share = sharding.piece_share(len(group.configurations))
         pieces = []
-        for configuration in group.configurations:
-            name = f"{group.name}@{configuration}"
+        for name in names:
             measured = builder.timings.get(name)
             piece = Group(
                 name,
-                round(float(measured) if measured is not None else whole * share, 3),
+                round(float(measured) if measured is not None else unmeasured, 3),
                 fresh=group.fresh,
                 signatures=group.signatures,
                 piece=True,

@@ -279,6 +279,21 @@ def test_a_queue_names_the_pieces_collected_and_with_none_every_configuration_is
     assert cases.queued_pieces({}) is None
 
 
+def test_each_editor_partition_is_collected_once_with_its_own_rerunnable_item(monkeypatch):
+    doc = SimpleNamespace(kind="corpus", id="starter-agriculture", group=lane_blocks.EDITOR_DOCUMENT, exports={"minimum": {}})
+    monkeypatch.setenv("PROOF_READERS", "all")
+    monkeypatch.setenv("PROOF_HQ_DETERMINISM", "1")
+    assert [p.group for p in cases.pieces([doc], [], None)] == [f"{doc.group}@minimum"]
+    pieces = cases.pieces([doc], [], frozenset(lane_blocks.EDITOR_PIECES))
+    assert [(piece.configuration, piece.editor_partition) for piece in pieces] == [("minimum", 1), ("minimum", 2)]
+    for name, piece in zip(lane_blocks.EDITOR_PIECES, pieces, strict=True):
+        assert name == piece.group and sharding.piece_item(name).endswith(f"[{piece.id}]")
+    single = (lane_blocks.EDITOR_PIECES[0],)
+    assert pieces[0] in cases.pieces([doc], [], None, manual_partitions=single)
+    monkeypatch.setenv("PROOF_READERS", "0")
+    assert [p.group for p in cases.pieces([doc], [], None, manual_partitions=single)] == [f"{doc.group}@minimum"]
+
+
 def test_a_queue_naming_a_piece_the_corpus_does_not_hold_fails_the_collection(tmp_path, monkeypatch):
     document = _two_configurations()
     groups = (

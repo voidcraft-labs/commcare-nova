@@ -1589,6 +1589,12 @@ What a failure calls for:
 
 A worker that failed to run a group says why in `block.json` and its log; a
 problem of the run itself (a fork, a claim, the corpus) is in `serve.json`.
+While a group runs, the fork server prints its current observation part and
+reader operation to the job log every two minutes, with elapsed time and the
+last completed native operation and observation part. HQ editor positions, Web Apps
+viewports and device walk ordinals locate slow work without logging scripts or
+form values. The server can report a worker waiting on a reader even if the
+worker produces no more output.
 
 ## The corpus
 
@@ -3068,7 +3074,9 @@ missing lookup table's message, is one runtime's on each side: `proof/observe/se
 scripted session's trace: every screen, command, row, question with its
 prompt, answer, the submission, the case database after it and the stack;
 answers come from a fixed table per question type, `proof/core/answers.json`,
-with up to three tried where Core refuses one), `evaluate` (an intent
+with up to three tried where Core refuses one. If an optional question’s constraint
+refuses the candidates, the runner then sends a null answer to the same controller. The
+trace keeps each refusal and the result of clearing the answer), `evaluate` (an intent
 expectation), `formShape`, and the XPath readings the judges compare by
 (`xpathParse`, `xpathStrings`, `xpathSame`). A session's and an evaluation's
 case database reads cases' indices through a case index table answered from
@@ -5985,6 +5993,17 @@ existing jobs:
   run its blocks; whether the proofs hold is the gate's. Its deadline, twice
   what the plan expects the longest shard to take and never under twenty
   minutes, ends only a stuck shard, which fails the lane ("Timings and what the lane is expected to take").
+  Both hosted shard workflows start that clock before checkout. At the work
+  deadline the fork server records acknowledged groups and marks unfinished
+  groups failed before it stops its workers. The host allows three minutes
+  for shutdown. The GitHub job reserves fifteen minutes beyond its original
+  work deadline for shutdown, sealing and artifact upload, including on a
+  timeout. A fallback seal stops any surviving harness container before
+  inspecting the files. Partial observations remain available for diagnosis;
+  only completed, passing group receipts can supply a cached outcome. The
+  gate also refuses an interrupted server that finished its last group
+  just before the cutoff. Its hosted verdict includes the matrix job result,
+  so a shard that dies before its first upload also fails the lane.
 - **`proofs-gate`** ("Proofs") is the lane's one check, whatever its shard
   count.
 - **`proof-store`** saves this pull request's evidence store beside the gate:
@@ -6289,6 +6308,20 @@ as long as its whole observation, so a worker that holds a piece is handed
 nothing ahead: handed the document's other piece at its start, it would
 carry the whole document while the others stood idle. It asks again when the
 piece ends (`proof/lane/broker.py`).
+
+The seeded lane with every reader also divides the single minimum configuration of
+`starter-agriculture`. Its original hosted worker spent 312 minutes on the group
+before the job deadline, with no finished observation to measure. Two workers in
+the same block now run disjoint sets of HQ editor saves over B. Each view keeps
+all its sections together, and both Vellum saves of a form run on the same worker.
+Every state each worker serves goes through the same native readers. The whole
+document's group requires both completed partitions in the current run's store
+and judges the assembled record. Neither an earlier snapshot nor one successful
+partition supplies a missing one. Readerless runs and the weekly run with
+unseeded HQ draws keep their ordinary configuration observation. The planner
+allocates 170 worker-minutes to each editor partition until a finished run
+measures it. `--split-above none` still requests the whole configuration on
+one worker.
 
 The profile's budget is three hours a shard and its threshold half of that
 (`proof/timings.json`, `execution.budget` and `execution.split`, set from

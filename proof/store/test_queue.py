@@ -792,6 +792,37 @@ def test_a_heavy_observed_document_is_queued_in_pieces_with_its_own_group_after_
     assert (tmp_path / "again.json").read_bytes() == (tmp_path / "split.json").read_bytes() and again == split
 
 
+def test_the_timed_out_single_configuration_gets_two_named_whole_reader_editor_pieces(tmp_path, lane):
+    checkout, corpus = lane
+    name = lane_blocks.EDITOR_DOCUMENT
+    root = corpus / name.partition(":")[2]
+    shutil.copytree(corpus / "one", root)
+    shutil.rmtree(root / "edit")
+
+    def allocated(readers="all", determinism="1", split_above=5400, measured=None):
+        builder = queue.Builder(
+            [], fingerprints.compute(checkout, arch="amd64"), measured or {},
+            fresh=True, environ={"PROOF_READERS": readers, "PROOF_HQ_DETERMINISM": determinism},
+            workers=2, split_above=split_above,
+        )
+        return queue.split([builder.document(name, root)], builder)
+
+    (root / "document.json").write_text(json.dumps({"doc": {"connectType": None}}))
+    first, second, whole = allocated()
+    assert (first.name, second.name) == whole.after == lane_blocks.EDITOR_PIECES
+    assert first.fresh and second.fresh and not whole.fresh
+    assert first.estimate == second.estimate == 5100  # 170 worker-minutes on a two-worker runner
+    assert [g.estimate for g in allocated(measured={first.name: 125, second.name: 150, name: 1})] == [125, 150, 1]
+    assert lane_blocks.piece_problems([
+        lane_blocks.QueuedGroup(first.name), lane_blocks.QueuedGroup(name, after=(first.name,))
+    ])
+    assert [g.name for g in allocated(readers="0")] == [name]
+    assert [g.name for g in allocated(determinism="0")] == [name]
+    assert [g.name for g in allocated(split_above=None)] == [name]
+    (root / "document.json").write_text(json.dumps({"doc": {"connectType": "learn"}}))
+    assert [g.name for g in allocated()] == [name]
+
+
 def test_a_document_the_store_holds_is_not_split_and_the_audit_sample_is(tmp_path, lane):
     checkout, corpus = lane
     _two_configurations(corpus, "two")

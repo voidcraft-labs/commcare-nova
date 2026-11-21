@@ -17,6 +17,11 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
+	HOSTED_CONTAINER,
+	hostedBudget,
+	hostedCutoffs,
+} from "../ci/hosted-shard.mjs";
+import {
 	androidRuntime,
 	checkoutView,
 	HARNESS_PATHS,
@@ -1023,6 +1028,8 @@ it("plans CI's shards on the execution's runner, or as many as asked for", () =>
 		total: 14,
 		workers: 4,
 		runner: "ubuntu-24.04-arm",
+		deadline: 330,
+		jobDeadline: 345,
 	});
 	expect(matrix.include.at(-1)?.shard).toBe(14);
 	expect(proofMatrix("3", timings).include.map((entry) => entry.total)).toEqual(
@@ -1055,11 +1062,80 @@ it("prints the matrix of a planned count, with the plan's deadline where it give
 		workers: 4,
 		runner: "ubuntu-24.04",
 		deadline: 300,
+		jobDeadline: 315,
 	});
 	const counted = proofMatrix("default", timings);
 	expect(counted.include).toHaveLength(16);
-	expect(counted.include[0]).not.toHaveProperty("deadline");
+	expect(counted.include[0]).toMatchObject(hostedBudget());
 	expect(() => proofMatrix("auto", timings)).toThrow("The shard count");
+});
+
+it("keeps the work deadline from preparation and gives an interrupted host time to write and upload its records", async () => {
+	expect(hostedBudget(345)).toEqual({ deadline: 345, jobDeadline: 360 });
+	expect(hostedCutoffs(100, 20, 140)).toEqual({
+		stopAt: 1300,
+		hostSeconds: 1340,
+	});
+	expect(hostedCutoffs(100, 20, 1500).hostSeconds).toBeLessThan(0);
+	for (const invalid of [0, 0.5, 346, NaN])
+		expect(() => hostedBudget(invalid)).toThrow();
+	for (const invalid of [0, 99.5, NaN, 141])
+		expect(() => hostedCutoffs(invalid, 20, 140)).toThrow();
+	// The workflow reserves status 1 for completed checks; a bad job clock must fail the shard itself.
+	await expect(
+		run(process.execPath, [RUNNER, "--hosted-lane"], {
+			env: {
+				...process.env,
+				PROOF_SHARD_STARTED_AT: "bad",
+				PROOF_SHARD_MINUTES: "20",
+			},
+		}),
+	).rejects.toMatchObject({ code: 2 });
+});
+
+it("reports a killed host as a signal even after the shard has launched", async () => {
+	// Exercise the OS child-exit signal, which has no numeric exit code for the runner to read.
+	await writeFile(join(scratch, "timeout"), "#!/bin/sh\nkill -KILL $$\n", {
+		mode: 0o755,
+	});
+	await expect(
+		run(process.execPath, [RUNNER, "--hosted-lane"], {
+			env: environmentOf({
+				PROOF_SHARD_STARTED_AT: String(Math.floor(Date.now() / 1000)),
+				PROOF_SHARD_MINUTES: "20",
+			}),
+		}),
+	).rejects.toMatchObject({ code: 137 });
+});
+
+it("stops a surviving hosted Docker writer before sealing, and fails the seal when Docker cannot stop it", async () => {
+	const output = join(scratch, "out");
+	const writer = join(scratch, "running");
+	await mkdir(output);
+	await writeFile(join(output, "worker.log"), "completed observation");
+	await writeFile(writer, "");
+	await writeFile(
+		join(scratch, "docker"),
+		[
+			"#!/bin/sh",
+			'case "$1" in',
+			`  ps) [ "$5" = 'name=^/${HOSTED_CONTAINER}$' ] || exit 3; [ ! -f "$WRITER" ] || echo abcd ;;`,
+			`  rm) [ "$3" = '${HOSTED_CONTAINER}' ] && [ "$REMOVABLE" = yes ] && rm "$WRITER" || exit 2 ;;`,
+			"  *) exit 3 ;;",
+			"esac",
+		].join("\n"),
+		{ mode: 0o755 },
+	);
+	const seal = (removable: string) =>
+		run(process.execPath, [RUNNER, "--seal-hosted", output], {
+			env: environmentOf({ WRITER: writer, REMOVABLE: removable }),
+		});
+	await expect(seal("no")).rejects.toMatchObject({ code: 1 });
+	await seal("yes");
+	await expect(readFile(writer)).rejects.toMatchObject({ code: "ENOENT" });
+	expect(await readFile(join(output, "worker.log"), "utf8")).toBe(
+		"completed observation",
+	);
 });
 
 it("writes each group's box-seconds the workers measured, averaging runs, with the servers' fixed costs", async () => {
@@ -1304,6 +1380,13 @@ it.each([
 	{ readers: "all", warm: false, server: 0, missingQueue: false, expected: 0 },
 	{ readers: "0", warm: true, server: 1, missingQueue: false, expected: 0 },
 	{ readers: "0", warm: false, server: 3, missingQueue: false, expected: 3 },
+	{
+		readers: "0",
+		warm: false,
+		server: 130,
+		missingQueue: false,
+		expected: 130,
+	},
 	{ readers: "0", warm: false, server: 0, missingQueue: true, expected: 2 },
 ])(
 	"holds the shard workflow boundary: $readers, warm=$warm, server=$server, missingQueue=$missingQueue",
@@ -1325,6 +1408,13 @@ it.each([
 		const lane = steps.find((step) => step.name === "Proof lane");
 		expect(prepare?.run).toBeDefined();
 		expect(lane?.run).toBeDefined();
+		const clock = String(Math.floor(Date.now() / 1000));
+		// The host uses Ubuntu's GNU timeout. Other test platforms can still exercise the exact workflow command.
+		await writeFile(
+			join(scratch, "timeout"),
+			'#!/bin/sh\n[ "$1" = "--kill-after=30s" ] || exit 127\nshift 2\nexec "$@"\n',
+			{ mode: 0o755 },
+		);
 		const store = join(scratch, "store/main");
 		if (warm) {
 			await mkdir(store, { recursive: true });
@@ -1338,6 +1428,8 @@ it.each([
 			);
 		const log = await fakeDocker({ installed: 0, npmCi: 0, harness: server });
 		const env = environmentOf({
+			PROOF_SHARD_STARTED_AT: clock,
+			PROOF_SHARD_MINUTES: "20",
 			RUNNER_TEMP: scratch,
 			LABEL: "audit",
 			ATTEMPT: "1",

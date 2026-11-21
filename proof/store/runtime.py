@@ -142,7 +142,7 @@ class Store:
         self.audit_directory = Path(audit_directory)
         self.transcripts = Transcripts(self)
         # The last part read whole (``_held``): the observation asks for its record, then for its blobs.
-        self._last: tuple[bytes, bytes, Blobs] | None = None
+        self._last: tuple[bytes, bytes, Blobs, bool] | None = None
         delta.record_fingerprints({"fingerprints": self.fingerprints, "environment": self.environment})
 
     # Parts ---------------------------------------------------------------------------------------
@@ -162,9 +162,12 @@ class Store:
 
     def _held(self, key: bytes):
         """The record held under ``key`` and its blobs, or (None, None) when nothing whole is held."""
-        if self._last is not None and self._last[0] == key:
+        if self._last is not None and self._last[0] == key and not self._last[3]:
             return json.loads(self._last[1]), self._last[2]
         entry, read = self._held_entry(self.storage_key(key))
+        return self._read_entry(key, entry, read)
+
+    def _read_entry(self, key, entry, read, *, fragment=False):
         if entry is None:
             return None, None
         content = read(entry["record"])
@@ -176,14 +179,36 @@ class Store:
             if blob is None:
                 return None, None
             blobs.put(blob)
-        self._last = (key, content, blobs)
+        self._last = (key, content, blobs, fragment)
         return json.loads(content), blobs
 
     def lookup(self, key: bytes) -> dict | None:
         record, _ = self._held(key)
         return record
 
+    def lookup_current(self, key: bytes, *, fragment: bool = False) -> dict | None:
+        """A producer's record and every named blob, verified in this run's delta alone."""
+        self._last = None
+        kind = "fragments" if fragment else "parts"
+        entry = self.delta.get(kind, self.storage_key(key))
+        record, _ = self._read_entry(key, entry, self.delta.blob, fragment=fragment)
+        return record
+
+    def put_fragment(self, key: bytes, record: dict, blobs: Blobs) -> None:
+        """Publish a completed editor partition atomically to this run's other worker(s).
+
+        Only the assembled B is a cacheable record part. The packer copies neither these entries nor
+        any intermediate blobs that are unreachable from the ordinary parts, judgments and transcripts.
+        """
+        named = blobs.refs()
+        for name in named:
+            self.delta.put_blob(blobs.get(name))
+        self.delta.put_blob(canonical(record))
+        self.delta.put("fragments", self.storage_key(key), {"record": digest(record), "blobs": named})
+
     def blobs(self, key: bytes) -> Blobs:
+        if self._last is not None and self._last[0] == key:
+            return self._last[2]
         _, found = self._held(key)
         return found if found is not None else Blobs()
 

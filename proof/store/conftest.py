@@ -212,7 +212,9 @@ def write_serve(output: Path, *, pytest_arguments=(), addopts=None, environment=
     recorded = {name: None for name in keys.SELECTION_ENVIRONMENT}
     recorded.update(LANE_RUN_ENVIRONMENT if environment is None else environment)
     selection = {"pytest": list(pytest_arguments), "addopts": addopts, "environment": recorded}
-    lane_blocks.write_json(Path(output) / lane_blocks.SERVE, {"version": 1, "phases": [], "selection": selection})
+    lane_blocks.write_json(
+        Path(output) / lane_blocks.SERVE, {"version": 1, "exit": 0, "phases": [], "selection": selection}
+    )
     return Path(output)
 
 

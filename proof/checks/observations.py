@@ -447,7 +447,16 @@ def records_for(document, core_runner, *, editor_driver=None, store=None):
 
         session = store is None
         store = runtime.session_store(document) if session else store
-        held_only = bool(runtime.pieces())
+        from proof.lane import blocks
+
+        following = runtime.pieces()
+        held_only = bool(following)
+        if any(name in blocks.EDITOR_PIECES for name in following):
+            if document.group != blocks.EDITOR_DOCUMENT or sorted(following) != sorted(blocks.EDITOR_PIECES):
+                raise ValueError(f"{document.group} needs both editor partitions of its own observation, got {following!r}")
+            from proof.observe.unit import join_partitions
+
+            join_partitions(document, "minimum", len(following), store=store)
         share_refusal = session and isinstance(store, runtime.Store) and store.seeded and not held_only
         refusal = _CACHE.get("refusal")
         if share_refusal and refusal and refusal[0] == _refusal_key(document, store, core_runner, editor_driver):
@@ -476,7 +485,7 @@ def records_for(document, core_runner, *, editor_driver=None, store=None):
     return _CACHE["records"]
 
 
-def observe_piece(document, configuration, core_runner, *, editor_driver=None, store=None):
+def observe_piece(document, configuration, core_runner, *, editor_driver=None, store=None, editor_partition=None):
     """One configuration of the document observed whole, in a unit of its own, into the run's evidence store, with
     the document's ``local`` part: what one piece does (``proof.checks.pieces``), for the document's own group to
     read (``records_for``). Returns what it observed (``proof.observe.record.DocumentRecords``).
@@ -504,15 +513,29 @@ def observe_piece(document, configuration, core_runner, *, editor_driver=None, s
             f" {document.group} reads it, and this run keeps none (PROOF_STORE=off, or no PROOF_FINGERPRINTS or"
             " PROOF_OUT). Run the lane with its store, or build its queue without pieces (--split-above none)."
         )
-    found = observe_document(
-        document,
-        core_runner=core_runner,
-        editor_driver=editor_driver,
-        store=store,
-        configurations=(configuration,),
-        same_as=runtime.same_as(store),
-    )
-    _write_timings(document, found, piece=configuration)
+    suffix = configuration
+    if editor_partition is None:
+        found = observe_document(
+            document,
+            core_runner=core_runner,
+            editor_driver=editor_driver,
+            store=store,
+            configurations=(configuration,),
+            same_as=runtime.same_as(store),
+        )
+    else:
+        from proof.lane import blocks
+        from proof.observe.unit import observe_partition
+
+        total = len(blocks.EDITOR_PIECES)
+        if document.group != blocks.EDITOR_DOCUMENT or configuration != "minimum" or not 1 <= editor_partition <= total:
+            raise ValueError(f"No editor partition {editor_partition} of {document.group}@{configuration}")
+        found = observe_partition(
+            document, configuration, editor_partition, total,
+            core_runner=core_runner, editor_driver=editor_driver, store=store
+        )
+        suffix = blocks.EDITOR_PIECES[editor_partition - 1].partition("@")[2]
+    _write_timings(document, found, piece=suffix)
     return found
 
 

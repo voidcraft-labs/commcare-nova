@@ -107,6 +107,7 @@ def _read(
 ) -> dict:
     from proof.android.hq import DevicePeer
     from proof.formplayer.hq import DEVICE_REPORT
+    from proof.lane import progress
     from proof.observe import services
 
     reader = services.android()
@@ -121,10 +122,16 @@ def _read(
             arguments = {"archives": [arguments.pop("first"), arguments.pop("second")], **arguments}
         drawn = Path(directory, "drawn")
         drawn.mkdir()
-        try:
-            answer = reader.request(op, peer=peer, drawn=drawn, worker=worker(served), **arguments)
-        finally:
-            peer.close()
+        # The request label may come from a stand-alone reader test. Log only the harness's state vocabulary.
+        source = label.split(":", 1)[0]
+        state = source if source in ("A", "B", "B-edit", "local", "save", "republish") else "archive"
+        device = "tablet" if options.get("device") == "tablet" else "phone"
+        delivery = " delivered" if delivered else ""
+        with progress.activity(f"{state} {op}{delivery} {device}", count="native"):
+            try:
+                answer = reader.request(op, peer=peer, drawn=drawn, worker=worker(served), **arguments)
+            finally:
+                peer.close()
         # Each picture the device drew, as a blob the record names (a record names every blob it reads).
         pictures = sorted(blobs.put(path.read_bytes()) for path in drawn.glob("*.png"))
     if sent is not None:

@@ -108,10 +108,11 @@ import hashlib
 import importlib
 import json
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 
-from proof.checks.corpus import DERIVED, EMPTY_LIST_TEXT_ARCHIVE
+from proof.checks.corpus import BASE_CONFIGURATIONS, DERIVED, EMPTY_LIST_TEXT_ARCHIVE
+from proof.lane import progress
 from proof.observe.alignment import align_positions, aligned_app
 from proof.observe.outcome import BuildOutcome, outcome_from_record, outcome_record
 from proof.observe.record import (
@@ -599,6 +600,7 @@ class BContext:
     serve: bool = False
     # The unit's Connect opportunity holder (``proof.observe.connect.Holder``).
     connect: object = None
+    editor_partition: object = None
 
 
 # Observation -----------------------------------------------------------------------
@@ -623,7 +625,10 @@ class OperationLog:
     def __call__(self, label, input_digest, **about):
         started = time.perf_counter()
         first = len(self.record.flags)
-        with self.unit.operation(label, input_digest) as scope:
+        # These top-level operations have fixed names. Hook labels may contain reader inputs.
+        native = label in ("build", "create", "media", "publish", "save-build")
+        activity = progress.activity(f"HQ {label}", count="native") if native else nullcontext()
+        with activity, self.unit.operation(label, input_digest) as scope:
             yield scope
         reads = self.record.flags[first:]
         # The key and depth the operation ran under: its entropy and its clock (``proof.hq.branch``).
@@ -1102,11 +1107,18 @@ class _Unit:
             ops.timings.setdefault("hooks", {})[name] = round(time.perf_counter() - started, 4)
         return found
 
-    def run_proof4(self, ops, name, built, captured, mark):
+    def run_proof4(self, ops, name, built, captured, mark, partition=None):
         """``proof4.observe_b`` at B or B-edit, from ``mark`` and leaving the unit there; None without it."""
         for hook, module, function, states in self.hooks:
             if hook == "proof4" and name in states:
-                found = getattr(module, function)(self.b_context(ops, name, built, captured))
+                ctx = self.b_context(ops, name, built, captured)
+                if partition is not None:
+                    from proof.observe.connect import is_connect
+
+                    if is_connect(built.outcome.files) or self.connect.opportunity is not None:
+                        raise ValueError("A Connect opportunity must remain in one complete observation.")
+                    ctx.editor_partition = partition
+                found = getattr(module, function)(ctx)
                 self.unit.restore(mark)
                 return found
         return None
@@ -1153,7 +1165,7 @@ class _Unit:
         media = None if refusal is not None else self.upload_media(ops, captured)
         return _publish_record(refusal, lookups, media)
 
-    def observe_b(self, part, captured, name, stopped=None):
+    def observe_b(self, part, captured, name, stopped=None, *, partition=None):
         """B (``captured`` the republish) or B-edit (the update) over A, as the ``b`` or ``b_edit`` record.
 
         Both take the same steps (publish, the reads of HQ's API where
@@ -1181,7 +1193,7 @@ class _Unit:
             record["flagsReadByBuild"] = flags
             mark = self.unit.mark()
             record["hooks"] = self.run_hooks(ops, name, built, mark)
-            proof4 = self.run_proof4(ops, name, built, captured, mark)
+            proof4 = self.run_proof4(ops, name, built, captured, mark, partition)
             if proof4 is not None:
                 record["proof4"] = proof4
             self.b_built, self.mark_b = built, mark
@@ -1370,6 +1382,7 @@ def observe_configuration(
     hooks,
     same_as=True,
     held_only=False,
+    partition=None,
 ):
     """One configuration's parts, from the store where it holds them and observed in one unit otherwise.
 
@@ -1386,9 +1399,16 @@ def observe_configuration(
     export = document.exports[name]
     with guard.observing(document, name, "configuration", hooks):
         configuration = export.configuration.hq()
-    held = {part: _held(store, key, blobs) for part, key in keys.items()}
     same = same_as and keys.get("b_edit") is not None and keys["b_edit"] == keys["b"]
-    wanted = [part for part in PARTS if part in keys and (store.fresh or held[part] is None)]
+    if partition is None:
+        held = {part: _held(store, key, blobs) for part, key in keys.items()}
+        wanted = [part for part in PARTS if part in keys and (store.fresh or held[part] is None)]
+    else:
+        wanted = ["a", "b", "b_aligned"] if partition.index == 1 else ["b"]
+        # A partial B must never borrow the complete B or its blobs. Only the first worker audits A and aligned B.
+        held = {
+            part: _held(store, key, blobs) if part != "b" and part in wanted else None for part, key in keys.items()
+        }
     if same and "b_edit" in wanted:
         wanted.remove("b_edit")
     for part in keys:
@@ -1409,13 +1429,22 @@ def observe_configuration(
     started = time.perf_counter()
     observed = []
     core_runner = _TimedRunner(core_runner)
+    configuration_label = name
+    if name not in BASE_CONFIGURATIONS:
+        single_flags = sorted(set(document.exports) - set(BASE_CONFIGURATIONS))
+        configuration_label = f"single flag {single_flags.index(name) + 1}"
 
     def settled(part, observe):
         part_started = time.perf_counter()
-        with guard.observing(document, name, part, hooks):
-            setattr(records, part, observe())
-        timings.setdefault(part, {})["seconds"] = round(time.perf_counter() - part_started, 4)
-        _settle(store, keys[part], getattr(records, part), blobs, held[part])
+        with progress.activity(f"{configuration_label}/{part}", count="part"):
+            with guard.observing(document, name, part, hooks):
+                setattr(records, part, observe())
+            timings.setdefault(part, {})["seconds"] = round(time.perf_counter() - part_started, 4)
+            if part == "b" and partition is not None:
+                fragment, named = partition.fragment(records.b, blobs)
+                store.put_fragment(partition.key, fragment, named)
+            else:
+                _settle(store, keys[part], getattr(records, part), blobs, held[part])
         observed.append(part)
 
     with (
@@ -1440,13 +1469,34 @@ def observe_configuration(
         if "a" in wanted:
             settled("a", state.observe_a)
         else:
-            with guard.observing(document, name, "a", hooks):
-                state.recreate_a(records.a)
+            with progress.activity(f"{configuration_label}/recreate A"), guard.observing(document, name, "a", hooks):
+                if partition is not None:
+                    # A sibling independently observes the full A. B needs its real persisted app and saved
+                    # build, exactly what the first step of recreate_a reconstructs under a stored A.
+                    from proof.observe.connect import is_connect
+
+                    state.create_a(state.ops("recreate"), full=False)
+                    if (
+                        state.a_built is None
+                        or not state.a_built.outcome.files
+                        or is_connect(state.a_built.outcome.files)
+                    ):
+                        raise ValueError("Editor partitions require a buildable non-Connect A.")
+                else:
+                    state.recreate_a(records.a)
+        if partition is not None and state.app_id is None:
+            raise ValueError("Editor partitions require a successful A.")
         if state.app_id is not None:
             if "b" in wanted:
-                settled("b", lambda: state.observe_b("b", export.republish, "B", export.republish_stopped))
+                settled(
+                    "b",
+                    lambda: state.observe_b("b", export.republish, "B", export.republish_stopped, partition=partition),
+                )
             elif "b_aligned" in wanted:
-                with guard.observing(document, name, "b", hooks):
+                with (
+                    progress.activity(f"{configuration_label}/recreate B"),
+                    guard.observing(document, name, "b", hooks),
+                ):
                     state.recreate_b(records.b, export.republish)
             if "b_aligned" in wanted:
                 settled("b_aligned", lambda: state.observe_b_aligned(records.a, records.b))
@@ -1513,7 +1563,9 @@ def local_archives(document):
     return dict(document.local_archives)
 
 
-def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timings=None, hooks=None, held_only=False):
+def observe_local(
+    document, *, core_runner, store=NULL_STORE, blobs=None, timings=None, hooks=None, held_only=False, force=False
+):
     """Core's admission of each local archive the document carries, its reading of each stack step value in
     its suite (``read_stack_values``), and each local hook's record (``observe_local(ctx)``, ``LocalContext``),
     as the ``local`` record, and its key. ``hooks`` is ``hook_inputs(document)``, computed where not given. With
@@ -1527,7 +1579,7 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
         hooks = hook_inputs(document) if hooks is None else hooks
         key = local_key(document_inputs(document), hooks)
     held = _held(store, key, blobs)
-    if held is not None and not store.fresh:
+    if held is not None and not (store.fresh or force):
         return held, key, False
     if held_only:
         raise PartsNotHeld(document, [LOCAL])
@@ -1535,27 +1587,117 @@ def observe_local(document, *, core_runner, store=NULL_STORE, blobs=None, timing
     reports, readings = {}, {}
     archives = local_archives(document)
     observed, seconds = {}, {}
-    with guard.observing(document, None, LOCAL, hooks):
-        for name, path in archives.items():
-            # A local archive is read by CommCare Android alone (Nova hands one only an app that runs there), which
-            # admits it over its own strings (``proof/core/src/nova/proof/core/Admission.java``).
-            reports[name] = admit(core_runner, path, runtime_defaults=ANDROID_DEFAULT_STRINGS)
-            readings[name] = read_stack_values(core_runner, path)
-        for name, module, function, states in hook_modules():
-            if LOCAL not in states:
-                continue
-            hook_started = time.perf_counter()
-            observed[name] = getattr(module, function)(LocalContext(document, archives, core_runner, blobs))
-            seconds[name] = round(time.perf_counter() - hook_started, 4)
-    record = {"kind": "local", "admissions": reports, "stackValues": readings, "hole": HOLE}
-    if observed:
-        record["hooks"] = observed
-    _settle(store, key, record, blobs, held)
+    with progress.activity("local/Core admission", count="part"):
+        with guard.observing(document, None, LOCAL, hooks):
+            for name, path in archives.items():
+                # A local archive is read by CommCare Android alone (Nova hands one only an app that runs there), which
+                # admits it over its own strings (``proof/core/src/nova/proof/core/Admission.java``).
+                reports[name] = admit(core_runner, path, runtime_defaults=ANDROID_DEFAULT_STRINGS)
+                readings[name] = read_stack_values(core_runner, path)
+            for name, module, function, states in hook_modules():
+                if LOCAL not in states:
+                    continue
+                hook_started = time.perf_counter()
+                observed[name] = getattr(module, function)(LocalContext(document, archives, core_runner, blobs))
+                seconds[name] = round(time.perf_counter() - hook_started, 4)
+        record = {"kind": "local", "admissions": reports, "stackValues": readings, "hole": HOLE}
+        if observed:
+            record["hooks"] = observed
+        _settle(store, key, record, blobs, held)
     if timings is not None:
         timings["local"] = round(time.perf_counter() - started, 4)
         if seconds:
             timings["localHooks"] = seconds
     return record, key, True
+
+
+def _partition_inputs(document, configuration, store):
+    from proof.lane import readers
+    from proof.store import guard
+
+    with guard.observing(document, None, guard.KEYS):
+        if (
+            document.kind != "corpus"
+            or document.edit is not None
+            or list(document.exports) != [configuration]
+            or document.document["doc"].get("connectType") is not None
+            or not getattr(store, "seeded", False)
+            or readers.named() != readers.EVERY
+            or store.environment[readers.VARIABLE] != "all"
+        ):
+            raise ValueError(
+                "Editor partitions require all readers and one seeded, non-Connect configuration without an edit."
+            )
+        inputs = document_inputs(document)
+        cases, databases = _case_inputs(document)
+        hooks = hook_inputs(document)
+        keys = part_keys(inputs, configuration, databases, hooks)
+        keys.pop("b_edit", None)
+    return keys, local_key(inputs, hooks), cases, hooks
+
+
+def observe_partition(document, configuration, index, total, *, core_runner, editor_driver, store):
+    """A fresh slice of B's editor saves. Only worker one also produces the whole A, aligned B, and local parts."""
+    from proof.observe.editor_slices import Capture
+
+    keys, _, cases, hooks = _partition_inputs(document, configuration, store)
+    partition = Capture(keys["b"], index, total)
+    found = DocumentRecords(document.id, document.kind)
+    records = ConfigurationRecords(configuration, keys)
+    timings = found.timings.setdefault(configuration, {})
+    made = observe_configuration(
+        document,
+        configuration,
+        keys,
+        records,
+        core_runner=core_runner,
+        editor_driver=editor_driver,
+        store=store,
+        blobs=found.blobs,
+        timings=timings,
+        cases=cases,
+        hooks=hooks,
+        partition=partition,
+    )
+    found.observed = [
+        f"{configuration}/{part}" if part != "b" else f"{configuration}/b~{index}of{total}" for part in made
+    ]
+    if index == 1:
+        found.local, found.local_key, _ = observe_local(
+            document,
+            core_runner=core_runner,
+            store=store,
+            blobs=found.blobs,
+            timings=found.timings,
+            hooks=hooks,
+            force=True,
+        )
+        found.observed.append("local")
+    return found
+
+
+def join_partitions(document, configuration, total, *, store):
+    """Seal the ordinary B from the current workers' complete handoff and their independently observed baselines."""
+    from proof.observe import editor_slices
+
+    keys, local, _, _ = _partition_inputs(document, configuration, store)
+    for part, key in (("a", keys["a"]), ("b_aligned", keys["b_aligned"]), ("local", local)):
+        if store.lookup_current(key) is None:
+            raise PartsNotHeld(document, [f"{configuration}/{part}"])
+    blobs = Blobs()
+    fragments = []
+    for index in range(1, total + 1):
+        key = editor_slices.key_for(keys["b"], index, total)
+        fragment = store.lookup_current(key, fragment=True)
+        if fragment is None:
+            raise PartsNotHeld(document, [f"{configuration}/b~{index}of{total}"])
+        named = store.blobs(key)
+        if named.refs() != fragment["blobIds"]:
+            raise ValueError("The supplied blobs differ from those the native editor partition captured.")
+        blobs.merge(named)
+        fragments.append(fragment)
+    b = editor_slices.merge(keys["b"], fragments)
+    _settle(store, keys["b"], b, blobs, store.lookup(keys["b"]))
 
 
 def observe_document(

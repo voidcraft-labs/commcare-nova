@@ -749,15 +749,18 @@ jobs:
     # A failure deadline only: twice what the plan expects the longest shard
     # to take from its start, never under twenty minutes (proof.lane.plan).
     # It ends a shard that is stuck, which fails the lane; it never decides
-    # what the lane verifies.
-    timeout-minutes: ${{ matrix.deadline }}
+    # what the lane verifies. The job reserves additional time to seal and upload.
+    timeout-minutes: ${{ matrix.jobDeadline }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.proof-plan.outputs.matrix) }}
     env:
       ATTEMPT: ${{ github.run_attempt }}
       SHARD: ${{ matrix.shard }}/${{ matrix.total }}
+      PROOF_SHARD_MINUTES: ${{ matrix.deadline }}
     steps:
+      - name: Start the shard's work clock
+        run: echo "PROOF_SHARD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           sparse-checkout: |
@@ -875,7 +878,7 @@ jobs:
             steal) claim=(--claim "node proof/ci/claim.mjs --mode steal --shard $SHARD --by shard-$SHARD --listing-cache /tmp/proof-claims.json proof-claim-$ATTEMPT-{block}" --bin "$SHARD") ;;
             *) claim=(--claim "node proof/ci/claim.mjs --by shard-$SHARD --listing-cache /tmp/proof-claims.json proof-claim-$ATTEMPT-{block}" --bin "$SHARD") ;;
           esac
-          node proof/run.mjs --lane --label "shard-${SHARD%/*}" --workers "$WORKERS" \
+          node proof/run.mjs --hosted-lane --label "shard-${SHARD%/*}" --workers "$WORKERS" \
             --early-queue "$RUNNER_TEMP/lane/proof-early-queue-$ATTEMPT.json" \
             --queue "$RUNNER_TEMP/lane/queue/queue.json" \
             "${claim[@]}" \
@@ -889,7 +892,7 @@ jobs:
       - name: Seal the shard's output
         id: seal
         if: ${{ !cancelled() && steps.left.outputs.left == 'true' }}
-        run: node proof/run.mjs --seal "$RUNNER_TEMP/proof-out"
+        run: node proof/run.mjs --seal-hosted "$RUNNER_TEMP/proof-out"
       - name: Upload the shard's output
         if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         uses: actions/upload-artifact@v7
@@ -986,6 +989,8 @@ jobs:
           restore-keys: ${{ steps.store.outputs.scope }}
       - name: The shards ran every block once and held every difference to the register
         if: ${{ !cancelled() && needs.proof-plan.result == 'success' }}
+        env:
+          SHARDS_RESULT: ${{ needs.proof.result }}
         run: |
           if [ ! -f "$RUNNER_TEMP/queues/proof-queue-$GITHUB_RUN_ATTEMPT.json" ]; then
             echo "::error::The run holds no main queue: \"Proof corpus\" did not emit the proof corpus or build the queue, so no corpus document ran. That job's failed step says which one and why."
@@ -995,11 +1000,7 @@ jobs:
             "$RUNNER_TEMP/store/main" "$RUNNER_TEMP/store/scope"
           shopt -s nullglob
           outputs=("$RUNNER_TEMP"/proof-shards/proof-out-*)
-          if [ ${#outputs[@]} -eq 0 ]; then
-            echo "::error::No proof shard uploaded an output, so no block ran."
-            exit 1
-          fi
-          python3 -m proof.lane.gate "${outputs[@]}" \
+          python3 -m proof.lane.gate "${outputs[@]}" --shards-result "$SHARDS_RESULT" \
             --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$GITHUB_RUN_ATTEMPT.json" \
             --queue "$RUNNER_TEMP/queues/proof-queue-$GITHUB_RUN_ATTEMPT.json" \
             --store "$RUNNER_TEMP/store/read" --summary "$RUNNER_TEMP/verdict/verdict.json"

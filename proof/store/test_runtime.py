@@ -109,6 +109,28 @@ def test_a_part_kept_by_one_worker_is_a_hit_for_another_with_exactly_its_blobs(t
     assert second.lookup(records.configurations["minimum"].keys["b"]) is not None
 
 
+def test_only_current_complete_editor_fragments_can_be_joined_and_none_is_packed(tmp_path, corpus):
+    document = document_of(corpus, "one")
+    key = records_of(document).configurations["minimum"].keys["b"]
+    first = runtime.session_store(document, _environ(tmp_path / "previous"))
+    blobs = Blobs()
+    ref = blobs.put(b"native reader result")
+    record = {"file": ref}
+    first.put(key, record, blobs)
+    snapshot = pack.write(pack.gather([tmp_path / "previous"]), tmp_path / "snapshot")
+
+    out = tmp_path / "current"
+    second = runtime.session_store(document, _environ(out, store=snapshot))
+    assert second.lookup(key) == record
+    assert second.lookup_current(key) is None
+    assert second.lookup_current(key, fragment=True) is None
+    second.put_fragment(key, record, blobs)
+    assert second.lookup_current(key, fragment=True) == record and second.blobs(key).get(ref) == b"native reader result"
+    assert not pack.gather([out]).index["parts"]
+    disk.blob_path(second.delta.root, ref).unlink()
+    assert second.lookup_current(key, fragment=True) is None  # same blob is available from the prior snapshot
+
+
 def test_another_record_kept_under_a_held_key_fails_with_both_written(tmp_path, corpus):
     one = document_of(corpus, "one")
     store = runtime.session_store(one, _environ(tmp_path / "out"))

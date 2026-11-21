@@ -42,6 +42,8 @@ from __future__ import annotations
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 
+from proof.lane import progress
+
 # What the device's own messages ask (Peer.java).
 RUN = "run"
 BASE = "base"
@@ -112,6 +114,7 @@ class DevicePeer:
     _stack: object = None
     _device: object = None
     _bases: int = 0
+    _walks: int = 0
 
     def __post_init__(self):
         from proof.formplayer.hq import HqViews
@@ -146,7 +149,9 @@ class DevicePeer:
         from proof.hq import redis as hq_redis
 
         stack = ExitStack()
+        self._walks += 1
         try:
+            stack.enter_context(progress.activity(f"walk {self._walks}"))
             stack.enter_context(self.served.unit.fork())
             hq_redis.flush()
             self._views.begin(f"android|{self.label}|walk|{name}".encode(), None)

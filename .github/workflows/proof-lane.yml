@@ -326,7 +326,8 @@ jobs:
     # in every language the app holds. A sized matrix gives each shard twice
     # the work it is expected to run (python3 -m proof.lane.plan size); a
     # counted one, five and a half hours, which only ends a stuck shard.
-    timeout-minutes: ${{ matrix.deadline || 330 }}
+    # The job adds time for finalization after that work deadline.
+    timeout-minutes: ${{ matrix.jobDeadline }}
     strategy:
       fail-fast: false
       # Fourteen of this call's shards at once; the rest wait, and waiting is
@@ -338,7 +339,10 @@ jobs:
     env:
       ATTEMPT: ${{ github.run_attempt }}
       SHARD: ${{ matrix.shard }}/${{ matrix.total }}
+      PROOF_SHARD_MINUTES: ${{ matrix.deadline }}
     steps:
+      - name: Start the shard's work clock
+        run: echo "PROOF_SHARD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -434,7 +438,7 @@ jobs:
             *) claim=(--claim "node proof/ci/claim.mjs --by $LABEL-shard-$SHARD --listing-cache /tmp/proof-claims.json proof-claim-$LABEL-$ATTEMPT-{block}" --bin "$SHARD") ;;
           esac
           set +e
-          node proof/run.mjs --lane --label "$LABEL-shard-${SHARD%/*}" --workers "$WORKERS" \
+          node proof/run.mjs --hosted-lane --label "$LABEL-shard-${SHARD%/*}" --workers "$WORKERS" \
             --early-queue "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$ATTEMPT.json" \
             --queue "$RUNNER_TEMP/lane/queue/queue.json" \
             "${claim[@]}" \
@@ -446,7 +450,7 @@ jobs:
       - name: Seal the shard's output
         id: seal
         if: ${{ !cancelled() }}
-        run: node proof/run.mjs --seal "$RUNNER_TEMP/proof-out"
+        run: node proof/run.mjs --seal-hosted "$RUNNER_TEMP/proof-out"
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         with:
@@ -562,12 +566,13 @@ jobs:
         continue-on-error: ${{ !inputs.verdict }}
         env:
           FRESH: ${{ inputs.fresh }}
+          SHARDS_RESULT: ${{ needs.shard.result }}
         run: |
           shopt -s nullglob
           # A lane queued against main's store reads its cached groups' evidence from it.
           store=()
           if [ "$FRESH" != true ]; then store=(--store "$RUNNER_TEMP/store/main"); fi
-          python3 -m proof.lane.gate \
+          python3 -m proof.lane.gate --shards-result "$SHARDS_RESULT" \
             "$RUNNER_TEMP"/proof-shards/proof-out-* \
             --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
             --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \

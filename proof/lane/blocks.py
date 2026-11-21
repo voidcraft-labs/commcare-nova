@@ -144,6 +144,9 @@ CORPUS_PACKAGES = (
     "proof/webapps",
 )
 SINGLE_GROUPS = ("proof", "surface")
+# One measured scheduling exception. Both workers run all the readers against the same minimum configuration.
+EDITOR_DOCUMENT = "corpus:starter-agriculture"
+EDITOR_PIECES = tuple(f"{EDITOR_DOCUMENT}@minimum~{index}of2" for index in (1, 2))
 # The outcomes of one item's run (``proof.lane.plugin``) that fail the lane.
 FAILING = ("failed", "error")
 # A block's output compared where two runs of it differ: its evidence and the surface extraction.
@@ -197,6 +200,8 @@ def group_problem(name) -> str | None:
             document, _, configuration = rest.partition("@")
             if not document or any(character.isspace() for character in rest):
                 return f"{name!r} names no document"
+            if "~" in configuration and name not in EDITOR_PIECES:
+                return f"{name!r} names an unknown editor partition"
             if "@" in rest and (not configuration or "@" in configuration):
                 return f"{name!r} names no one configuration of its document ({kind}<id>@<configuration>)"
             return None
@@ -524,6 +529,8 @@ def piece_problems(groups: Iterable[QueuedGroup]) -> list[str]:
                 problems.append(
                     f"{queued.group} follows {name}, which is no piece of it ({queued.group}@<configuration>)"
                 )
+        if any(name in EDITOR_PIECES for name in queued.after) and set(queued.after) != set(EDITOR_PIECES):
+            problems.append(f"{queued.group} must follow both editor partitions together")
         if len(set(queued.after)) != len(queued.after):
             problems.append(f"{queued.group} names a piece twice in its after")
         if queued.after and queued.fresh:
