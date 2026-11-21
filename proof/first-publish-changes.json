@@ -476,6 +476,42 @@
 				"artifact": "formplayer@local.ccz",
 				"path": "/runs/*/steps/*/submissions/*/instance/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/*/nova_trimmed_*[*]:checked-name",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/*/nova_trimmed_*[*]:checked-name",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/update[*]/case_name[*]/text():checked-name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/*/nova_trimmed_*[*]:checked-name",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/*/nova_trimmed_*[*]:checked-name",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/update[*]/case_name[*]/text():checked-name",
+				"kind": "changed"
 			}
 		]
 	},

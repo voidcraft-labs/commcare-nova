@@ -406,10 +406,15 @@ harness keeps, each with its reason.
   retained again, nor is a control a held stop's `control` entry names.
   Retaining an HQ-authored app preserves the native files under `authored/` that
   recreate A, and the case database from its original seed. Its control still
-  runs only the checks its register entries name. In a Formplayer submission,
-  `case-names-checked` can account for a generated helper at its declared
-  form node and a case name changed by exactly Java `String.trim()` at the
-  declared case write. Core's submission and HQ's processed block can also
+  runs only the checks its register entries name. Formplayer exposes its
+  form instance when it opens and sends another instance on submission.
+  For a nested `case-names-checked` helper, both native records being
+  compared must identify the declared source field and the case action
+  that reads it. The installed binds, relevance, case ID and repeat
+  occurrence tie the helper to that write. An initially empty repeat
+  reveals its helper only after the worker adds a row. A submitted case
+  name can change by exactly Java `String.trim()` at its declared write.
+  Core's submission and HQ's processed block can also
   show that trim on a repeated child case. Both builds must agree on the
   source field, form, case type, repeat occurrence and case ID. The case
   block must agree with the submitted write on each side.
