@@ -3,10 +3,10 @@
 These plans carry out the HQ round-trip research
 ([`docs/research/2026-09-26-hq-round-trip/`](../../research/2026-09-26-hq-round-trip/README.md)):
 The goal is to bring in any app CommCare HQ's editors can build, hold it as
-a typed Nova document, edit it and publish it back. The research is the design. Its "Order of work"
-gives seven steps, each with one cutover. These plans follow that order with
-at most one cutover a step: step 6 has none, for the reason "Rules every plan
-follows" gives. Where a plan cites a defect, a section or a contract row, it
+a typed Nova document, edit it and publish it back. The research gives seven steps. Steps 1–6 shipped.
+Step 6 used additive migrations while the previous revision served. In the final step each feature group
+is a unit for the cutover rule. Groups that change a stored shape incompatibly use one direct maintenance
+cutover for that shape. Where a plan cites a defect, a section or a contract row, it
 means the research's "Defects in Nova today", its section of that name, or its
 "Contracts this work changes" table.
 
@@ -18,7 +18,7 @@ means the research's "Defects in Nova today", its section of that name, or its
 | 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
 | 5 | Case writes, forms and navigation | done: ["Step 5 is done"](#step-5-is-done) |
 | 6 | Bringing an app in from CommCare HQ | done: ["Step 6 is done"](#step-6-is-done) |
-| 7 | [The rest of the model](7-rest-of-model.md) | outline: the model Nova does not hold yet, in eight groups with a default order |
+| 7 | [The rest of the model](7-rest-of-model.md) | implementation plan for all eight remaining groups, with shared dependencies, proof and cutover |
 
 ## Step 1 is done
 
@@ -508,8 +508,8 @@ for each finding. A later change in HQ can come back into the same Nova app.
 - [Gates](../../research/2026-09-26-hq-round-trip/inventory/gates.md)
   records which HQ features depend on a plan privilege or project-space setting.
 
-[Step 7](7-rest-of-model.md) owns the eight groups of features that the reader
-reports as “Nova can't hold this yet.”
+[Step 7](7-rest-of-model.md) is the final step. Its four design chapters cover the eight groups of
+features that the reader reports as “Nova can't hold this yet.”
 
 ## Why each later step is planned when the one before it exits
 
