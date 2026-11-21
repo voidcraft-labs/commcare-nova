@@ -36,7 +36,7 @@ are decisions for those schemas.
 | Text, password, barcode | Keep `keypad: numbers` for `numeric` and add `keypad: android-numbers` for `numbers` where that control reads it. `addressLookup` selects Web Apps' address finder on text or barcode. `inputWidth` offers short and medium for the inputs Web Apps narrows. | Web Apps' numeric password entry shows the answer as typed. Android masks it. Android reads short's keyboard action only on a matching whole appearance and applicable input. Keep barcode scanning available on Android where Web Apps uses a text input. |
 | Text and choice receivers, address and upload senders | `sendTopics` is the ordered set of channels to which this entry publishes. `receiveFrom` holds one channel and one returned field. Pick existing channels or name a channel on the form. Translate the outer tokens `broadcast-…` and `receive-…-…` in the CommCare boundary. | An address selection and an upload's filename notify the subscribed text, barcode, radio or search-box entry. Clearing the sender clears a receiver as the upstream entry does. Web Apps does not subscribe a dropdown or choice buttons. Android ignores this mechanism. Test the same channel on two separate form sessions. |
 | Hint | `hintPlacement: placeholder` on visible questions. A question that otherwise shows its hint but whose widget cannot show a placeholder takes the explicit value `hidden-on-web` when it has that wire reading. | Show the hint as the entry's placeholder only on a widget which consumes it. Test an empty and a populated input, an address, a password, both search and dropdown selects, and a checkbox list. Android still shows its ordinary hint. |
-| Barcode, date, time, location | `scanOnOpen` and `canEditScan` select `quick` and `editable`. `calendar` selects Ethiopian, Nepali, Gregorian, or Gregorian with Cancel. `clock: twelve-hour` selects `12-hour`. `locationPicker: map` selects `maps`. | Barcode quick is a whole-value test on Android while editable is a substring test. Exercise accepting and cancelling a scan and date selection. Calendar display changes the picker while the submitted date stays the civil date it selected. Web Apps runs Ethiopian and 12-hour, Android runs Nepali, Gregorian, and the map picker. |
+| Barcode, date, time, location | `scanOnOpen` and `canEditScan` select `quick` and `editable`. `calendar` selects Ethiopian, Nepali, Gregorian, or Gregorian with Cancel. `clock: twelve-hour` selects `12-hour`. `locationPicker: map` selects `maps`. | Barcode quick is a whole-value test on Android while editable is a substring test. Exercise accepting and cancelling a scan and date selection. Calendar display changes the picker while the submitted date stays the civil date it selected. The exact appearance `ethiopian` opens the Ethiopian calendar on both platforms. Web Apps runs the 12-hour clock. Android runs the Nepali and Gregorian settings and the map picker. |
 | Image, audio, video | `captureSource` offers camera only for image and video (`acquire`) and record or choose for audio (`acquire-or-upload`). `overlaySize: small`, `recorder: legacy` and `longRecording` select their respective widgets. | Use the same staging and submission paths as ordinary captures. Android supplies these differences. The long setting applies at API 24 or later. Web Apps keeps the existing capture control. Compare camera/chooser affordances and accepted staged bytes independently. |
 | Label | `selectableText` and `banner` (good, caution, bad, hidden) choose `selectable`, the three exact floating values and `floating-hidden`. Each replaces the label's normal `minimal`. | Android offers selection or the matching banner. Other strings beginning with `floating-` hide the label there. Preserve later Web Apps settings that still take effect. A trigger requiring an acknowledgment belongs to group 8's question kind, including when one extra token changes `minimal` into an interactive trigger on Android. |
 | Group, repeat layout and alignment | `compact`, `collapse` (closed, open), `border`. Use `itemsPerRow` on a visible question or eligible container, `repeatsPerRow` on the outer group with a direct repeat, and `textAlignment` (center, right) on the controls named by the classifier. `group.fieldList` and a section keep their present one-screen semantics where Core recognizes them. | Web Apps groups, borders, aligns and lays out the row. Android runs a compact group on its whole appearance. Web Apps reads the first applicable count, parses its leading decimal digits and rounds 12 divided by the count. Do not clamp valid counts to 12. Confirm zero, enormous counts and invalid widths on the real browser as separate classes, representing their effective layout by a finite value when a count cannot be stored exactly. |
@@ -79,6 +79,15 @@ whitespace and normalize a parseable prefixed row count only when all readers an
 Keep `minimal foo`, position-changing junk, a nonnumeric leading per-row component, an unmatched inside-token or
 whitespace that changes a widget as the existing specific findings. Test an untouched field and a user changing
 just the exceptional setting back to its standard value.
+
+The Ethiopian calendar needs a paired HQ-authored date base. On Web Apps, `getEntry` calls `stylesContains`,
+which compares each space-separated token to the lowercase `ethiopian`. Android's `WidgetFactory.buildBasicWidget`
+compares the **entire** lowercased appearance to that word. In the base, use `ethiopian` on one date and
+`ethiopian 2-per-row` on the other. Web Apps uses the Ethiopian picker on both and the two-per-row layout on the
+second. Android uses the Ethiopian picker on the first and its ordinary date picker on the second. The combined
+setting's platform note identifies that difference. After a Vellum save and publish-back, exercise each picker
+in both runtimes and Preview. Select the same civil day and compare the submitted dates, including after removing
+the row setting in Builder. An uppercase-only `ETHIOPIAN` takes the existing case-variant finding.
 
 **Gated Web Apps behavior.** HQ `cloudcare/views.py::has_geocoder_privs` requires both `CASE_SEARCH_ADVANCED`
 and `GEOCODER`. Without that pair `getEntry` constructs `UnsupportedEntry`. Represent this in the platform table
@@ -407,7 +416,15 @@ and iteration preserve the order chosen by the worker.
 
 **Lookup session fact.** Core `SessionInstanceBuilder.addUserQueryData` adds `fingerprintquery` only when the
 stored selection step supplies the callout result count. Introduce a typed `case-list-lookup-count` observation
-tied to its supplying selection, paralleling `case-list-search-text`. Print the existing missing-node count
+tied to its supplying selection only when **every reachable launch frame has a single possible supplier**.
+Core appends one identically named node per step with a result, skips steps without one, and carries no
+supplier ID in that node. When parent and child can both perform the lookup, a single returned node could
+belong to either one. No positional selector can recover the supplier. For a form that reads the full
+ordered observation, offer a separate typed sequence of result counts with equivalent native nodeset
+semantics. Return only present counts in frame order, omitting steps that supplied none. Refuse a request for one particular supplier when call paths make the
+attribution ambiguous. Recompute this rule on mirror-menu, link, form and selection edits as for
+`caseListSearchTextAdmission`. Prove both results, parent only, child only and neither across a parent/child
+form launched through two menus and an advanced form with additional loads. Print the existing missing-node count
 guard where absence is valid. Distinguish absent, zero, one and many; use the captured selection step when the
 case list has been left and its form is running. A dependent read is unavailable on Web Apps even though the
 mere lookup is ignored there. The count is the size of the ordered result-key table in the selection step,

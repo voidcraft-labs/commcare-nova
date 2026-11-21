@@ -528,9 +528,10 @@ before it exits, against the code as it then stands.
   from CommCare HQ" and its verb is "bring in", never "import", which already names the files Nova
   sends to CommCare HQ and a CSV that replaces a table's rows. In code the reader produces a reading, with findings
   in an account or choices in a review. Adoption creates the app.
-- At most one cutover per step. A step that changes the stored shape of Nova documents
-  migrates all of that step's changes in one direct maintenance cutover
-  (`docs/architecture/contracts.md`), with its production scan first, and
+- A unit with incompatible persisted changes uses one direct maintenance cutover. Each of steps 1–6 is
+  one unit. The research makes each feature group in step 7 its own unit for this rule. Groups with a
+  shared incompatible representation land it together in one window. The cutover starts with the
+  production scan (see `docs/architecture/contracts.md`) and
   leaves every document valid. One-off data migrations ship as a read-only scan
   script plus a separate migrate script in `scripts/`, which are removed after
   they run. Step 6 uses four ledgered migrations that apply while the previous

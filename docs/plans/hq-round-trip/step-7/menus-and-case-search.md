@@ -85,6 +85,14 @@ into a build dependency. Prove the ordinary and mirror deep links independently 
 path. A Connect launch has the platform and arguments of its actual entry point.
 
 Builder offers **Show forms from another menu**, choices of included forms, and editable menu-only properties.
+A mirror’s form endpoint takes its function arguments from the source form, including when the source form
+has no endpoint of its own. HQ’s form settings save that function list independently of the ordinary endpoint
+ID. Permit and retain the computed supply for a mirror-only launch. Relevancy works differently: an ordinary
+endpoint can explicitly bypass it, while the mirror endpoint still checks it. Keep that choice on the route
+that supplied it. Test a hidden source form with an ordinary bypass, a mirror route to the same form with the
+same computed argument, and the excluded-form variant. Verify the worker is admitted or refused on the correct
+route in the native launch, including when only the mirror endpoint exists.
+
 Opening a listed form identifies its source menu. The shared tools expose source menu, excluded forms and mirror
 endpoints by reference, show the dependent changes before saving, and include the route in link destinations. A
 mirror cannot acquire an accidentally empty editable form list through an ordinary form edit.
@@ -99,7 +107,11 @@ HQ's `views/modules.py::get_modules_with_parent_case_type` offers menus of other
 multi-select; catalog ancestry merely marks likely parents. The selected module must be usable at this location.
 `entries.py::get_parent_filter` matches any direct **non-extension** index to the selected id. This remains true
 when the chosen menu lists the extension's host type: an extension-only edge contributes zero eligible rows. An
-advanced named index follows that exact index, with its declared type and relationship. Reuse group 4's relation
+advanced parent predicate matches only the named index and the selected parent's case ID. The enclosing
+nodeset still selects its candidate case types and state. Preserve relation/type information for authoring
+without adding it as a runtime predicate on that edge. In M2 and group 7, seed an edge with the same name
+and ID but a different stored relationship. Compare the basic non-extension path with the named advanced
+path in both the native selector and the SQL case list. Reuse group 4's relation
 index and checkers, keep cycle and datum conflicts guarded, and use `QueryArgs.parentCases` for every
 page/count. Validate the entire parent id set in the same app and Project. Include ordinary child edge,
 extension-only edge, no edge, other record type, other Project and bare-list-parent controls.
@@ -284,6 +296,34 @@ count/page, preserve `heldOnDevice` and claim on the existing paths. The cases, 
 lookup and joined lookup fixtures each carry their authoritative app/Project constraints. A request's domain
 criterion can exclude this app's rows but cannot select another organization's or Project's data.
 
+**Scores and cutoff ties.** HQ uses Elasticsearch hit score and physical document order as the default
+sort (`case_search/utils.py::_apply_sort`). A fuzzy and an exact match can receive different scores.
+`es/case_search.py::wrap_case_search_hit` projects the returned hit score into
+`commcare_search_score` when requested, replacing any case property with that name in the result. Keep
+the result-only score separate from the persisted property and the device restore. A boolean SQL match
+alone cannot supply that score. For Nova’s ordinary case-result query, derive proven matching/ordering
+classes from the typed request and available target facts. A sufficient explicit order with a unique cutoff
+determines membership. An unspecified tie entirely inside a returned set can be compared as a set wherever
+no later step observes its order. Use the device detail order when it specifies how to show that set.
+HQ's fuzzy query also caps candidate term expansions at 100 (`es/queries.py::fuzzy`). That choice depends
+on the index vocabulary. A per-row edit-distance predicate cannot certify membership merely because fewer
+than the result cap were returned. For exact native-fuzzy membership require the equivalent indexed corpus
+and term-ranking semantics or the authoritative scoped result. A verified exact-query branch or an
+index-independent exclusion can still answer its own question. When fuzzy expansion could change the set,
+apply the same explicit unavailable outcome below, even below the result cap. Prove a synthetic index
+with over 100 eligible near terms, a distinct exact-token control, and cases on both sides of the expansion
+boundary. App Test must never mark a guessed match as having completed the worker’s search.
+
+When actual score values, ordering between differently scored hits or an unresolved tie at the cap could
+alter what the worker can read, select or claim, require authoritative worker-bound results for that
+observation or show that the exact result is unavailable in Preview. Offer a narrower filter or an explicit
+sort distinguishing the boundary. A local tie-breaker cannot certify HQ's `_doc` order. Do not issue a
+partial claim, count or export of search results on that uncertain input. The app can still run the typed
+search against HQ. Pair 501 tied matches at a 500-row cap with 499 matches and with a unique sort crossing
+the cap. Include an exact and a fuzzy hit, a stored property colliding with the score, an inline filter that
+removes only the last candidate, and a post-search display that reads score. Compare actual covered rows and
+score values where promised, and the precise unavailability outcome elsewhere.
+
 A native search filter holds an ordered typed request entry with a stable UUID, target (property, typed ancestor
 path, owner, case id, project-space name or named reverse index) and a device-evaluated value. The Search
 action's own display condition remains a boolean in the pre-selection screen context: use the same session,
@@ -467,7 +507,16 @@ reads, include, or use HQ's detail-based selection). Canonicalize readings whose
 identical. `case_search/utils.py::get_and_tag_related_cases` expands the custom property first, obtains related
 records for the combined initial cases, removes duplicate and primary ids, and tags supporting rows. The false
 arm can still return records via search-detail paths or child-case tabs. Supporting rows can supply a property
-or tab without becoming selectable primary results. A search-only owner exclusion is independent of
+or tab without becoming selectable primary results. On the detail-based arm, build the union of eligible
+non-XPath search-detail relationship paths and child tab types across every search-enabled menu for the
+requested case types, including sibling menus. Return the terminal records of each requested path. An
+intermediate used only for traversal belongs in the fixture only when independently requested. Read
+custom expansion from the dynamic property and preserve each supporting row’s actual status. The open-case
+predicate on primary hits does not apply to all supporting rows. Replace the unconditional open status in
+`searchResultsXPathInstance` with the observed primary/supporting row status. Prove two searches of the same
+type with a relation path named only by the sibling, an unrequested intermediate, a closed terminal, a
+separately requested intermediate, and a cross-Project edge. Compare the returned tagged instance, counts,
+selectable rows and claims independently. A search-only owner exclusion is independent of
 `CaseSearchConfig.excludedOwnerIds`'s current both-surfaces availability semantics. Use the S2 canonical
 override convention, preserve the no-search owner-only arm, respect the worker-restore restriction on browse,
 and ensure a dedicated owner exclusion and a default owner-exclusion filter cannot create the broken duplicate
@@ -525,6 +574,17 @@ request sorting/related expansion here. HQ's ordinary and inline endpoint nodese
 elements directly, bypassing normal case type/related and inline list-filter narrowing; the tagged and
 mixed-field test detects an accidental fallback.
 
+Keep the endpoint’s raw response, the fixture installed in the session and the case selection distinct.
+In an inline endpoint, `EntriesHelper.get_datum_meta_module` begins with the returned case nodes, then
+appends the parent predicate and the fixture-selection predicate when their owning route emits them.
+The ordinary endpoint action in `post_process/remote_requests.py` has a separate result nodeset.
+Use the exact selector for each. Use the Elasticsearch provider for rows with and without the requested non-extension
+parent edge. ProjectDB serializes each returned column as text in a single child. Even a column named
+`index` cannot supply a nested edge. Test that its inline parent selector excludes such a row, then use
+the same row in an ordinary endpoint action without the parent predicate. Observe which rows were returned,
+which the worker can choose, and which case ID reaches the form. Use ordinary parent selection as the admitted inline case. Exercise a fixture-selection predicate only as
+an upstream negative control for the existing refused, retiring fixture-selection feature.
+
 On bring-in, record and review the observed id for the source **only**. Where HQ later changes the id, show the
 target dependency and parameter/result contract change, reread under the same version and review digest, and
 replace that target's mapping atomically with the accepted app change/baseline. Multiple uses may split or
@@ -565,7 +625,7 @@ filter/owner exclusions and an old after-empty-search form. Check read, mutation
 canon across both shapes. Additive database migrations own target bindings, Preview facts and retained
 cleared-index state. Apply the existing schema admission and runtime invariant checks. The read-only preflight
 measures cleared-index coverage as specified in S2 and validates existing tenant references. Apply and verify
-all actual conversion work under the step's single cutover contract. Successful deployment must preserve
+all actual conversion work under the group's cutover contract. Successful deployment must preserve
 accumulated target ids, prior case rows and claims, receipts and the ability to reread the prior app history.
 
 For each newly held value class change its reader claim, inventory source, authored manifest entry, Python
@@ -584,7 +644,7 @@ plugin as required by the shared delivery plan.
 | Core and Android | Extend `MenuScreensRuntimeTest`, `NestedMenuRuntimeTest`, `EndpointRuntimeTest`, `RegisterFromListRuntimeTest` and `SearchPromptRuntimeTest`. Record exact command/datum/query sequence, match and selected case ids, claim, visible fields and Back. Test the first menu's retained case and a synthetic stale case, the parent search with and without its selection, a checkbox with a removed choice, a badge with four characters, unsupported address and shown hidden input on Android. Check the actual Android view and intent readers for platform-specific cells. |
 | Formplayer and Web Apps | Use the served worker and Chromium to exercise opening/registering from a mirror, duplicate field names on distinct query steps, required/validation without messages, geocoder receiver/fallback, checkbox, hidden match on manual/default search and desktop/mobile-width Clear. Capture observable values, including counts and field errors, then compare Nova's worker run. For a changed provider response use a controlled provider boundary with a genuine component result, plus a provider-failure state. |
 | Server search and tenancy | Use pinned HQ case-search builder and query execution on synthetic records, including domain-specific matcher settings, numeric/date/exact nested sort and index removal. Compare ids, order where the sort defines it, primary/supporting tags, query cap, empty and malformed runtime value to the production Kysely-backed search against real Postgres. Seed two Projects, two apps, worker-owned and other-owner open cases, closed cases, repeated lookup ids/labels, a parent outside the restore, an index pointing to an out-of-scope id and tagged expansion duplicates. A foreign parent/set/id must yield neither a matching row nor a count, detail, option, claim or write. Run the date boundary across both DST changes and worker/target zones on opposite calendar days. |
-| External endpoint | Independent HQ bases run both actual providers with typed arguments; capture request parameter multimap, unfiltered fixture, returned case id and claim. Check same-target republish, changed source id, second target whose same integer belongs elsewhere, targetless archive refusal, role-checked target confirmation and App Test/Preview's external-search stop. Compare source identity and published binding separately. |
+| External endpoint | Independent HQ bases run both actual providers with typed arguments; capture request parameter multimap, raw returned fixture, selected nodes after route-specific predicates, actual case id and claim. Check same-target republish, changed source id, second target whose same integer belongs elsewhere, targetless archive refusal, role-checked target confirmation and App Test/Preview's external-search stop. Compare source identity and published binding separately. |
 | Exit | Every mapped class has its exact base witness or an explicitly narrowed inert/refused class with a retained counterexample. Mutation/deletion guards, stable readback and a changed-HQ review cover each new stored identity. Keep the intent, first-publish, served reader, platform/register, manifest and coverage checks live through CI and the scheduled served lane. |
 
 ## Manifest assignment

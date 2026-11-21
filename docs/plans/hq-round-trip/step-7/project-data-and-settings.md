@@ -70,6 +70,28 @@ and provides no table filter. Do not collect unrelated rows. Retain fixed origin
 duplicate/missing row checks, cancellation and bounded retries in `lib/commcare/hq`. A moving read restarts or
 asks for another review. It never yields a partial table.
 
+Row discovery and row decoding have different contracts. A source can supply a valid device fixture even
+when the ordered table list cannot enumerate a page containing a zero-occurrence field. Its selected-table
+workbook can also be unavailable for a genuinely absent row field. Treat a failed or truncated page as an
+incomplete inventory. A person’s list of known row IDs, a historical ledger or a partial workbook cannot
+prove that these are all rows. See `fixtures/resources/v0_1.py::FixtureResource.dehydrate_fields`,
+`LookupTableRow.fields_without_attributes`, `fixtures/download.py::_prepare_fixture` and
+`ItemListsProvider.to_xml`.
+
+For a **verified global** table there is a second, bounded completeness check. Obtain an authenticated full
+restore for this exact server/domain and fixture tag and take the complete sequence’s cardinality
+independently. Obtain candidate row IDs from the scoped deployment ledger or an editor-supplied HQ export.
+Page through authorized details, require distinct IDs all under the same remote table, and require exactly
+the independently observed count. Order the verified details by HQ’s sort key and remote ID and compare
+their device projection, including multiplicity, with the complete global fixture. This proves coverage by
+distinct IDs and count without assigning identities by value. Recheck the definition and repeat the
+observations bracketing acceptance or a resumed write. If no authoritative count/fixture or complete ID
+set is available, offer the managed reference and explicit refresh or HQ repair. Only a verified worker
+projection may execute. Block editable takeover, general export and cross-target duplication until
+completeness can be established. For an assigned-row table even a full worker restore samples a subset and
+cannot supply a table-wide count. A usable birth must still pass the choice-source checks below. Never widen
+the credential’s read to unrelated tables to obtain missing IDs.
+
 The table/row APIs omit index flags and owner lists. Store **source-managed, unobserved** separately from
 observed false, empty or an authored setting. In the source space a reviewed reference reads its own fixture and
 a publish writes no table. Project data can take a selected-table workbook downloaded by a person through HQ’s
@@ -87,16 +109,56 @@ completeness of its facts. Page available rows from an authorized, revision-boun
 assignment needed to determine a worker’s choices is unknown, Preview offers the worker-specific fixture from an
 authorized restore or asks for the assignment workbook. Until then the dependent worker action explicitly
 reports unavailable data. A Project data editor may inspect the authorized source inventory. It must never
-become a device fixture for every worker. A refreshed restore identifies its source table, target and worker and
-grants no access to other personas. A source reference with no readable row snapshot similarly offers refresh
+become a device fixture for every worker. Use a full authenticated restore for the specified server, domain and worker, or
+replay a continuous delta chain onto a verified full base for exactly that identity. Record the base and
+continuation tokens, bind the table's fixture tag to the contemporaneous scoped definition, and resolve an
+omitted delta fixture from the base. HQ's `ItemListsProvider.__call__` selects modified tables on an
+incremental restore. Omission by itself establishes neither an empty fixture nor revocation. The device
+fixture identifies its source by tag and worker and carries ordered row elements with values/attributes.
+It supplies no remote table or row UUID. Store that exact worker-visible projection, preserving duplicates.
+Never infer a row mapping, owner assignment or another worker's visibility by matching equal-looking rows.
+Reacquire a full restore on missing continuity, ambiguous binding or a worker change. A source reference with no readable row snapshot offers refresh
 and an explicit unavailable state. Expired credentials keep the last verified snapshot labeled as such and stop
 any publish that requires freshness.
+
+A previously downloaded fixture or assignment workbook is historical as soon as HQ can change a worker or
+row assignment without changing the table API digest. Show its time, scope and provenance only in the
+authorized historical inspection. Current worker Preview, a fresh install and target verification must
+acquire a fresh authenticated worker restore (or an authoritative current assignment projection for the
+complete worker scope) and check access at use. Invalidate cached selections, pages, fixture files and
+derived download grants on a known membership or assignment change. If the current projection is unavailable,
+stop that worker action and offer refresh/reconnect. Never serve the old rows as current because their
+content digest is unchanged.
+
+Use one streaming choice-source validator from `lib/commcare/lookup/selectSourceRows.ts` and
+`lib/deployment/reading/projectData/index.ts::readingProjectDataFindingsFor` for both question and Search
+itemsets. Distinguish missing fixture (unavailable), a verified complete worker fixture with no source rows
+(the required base path cannot resolve), and a valid populated base path whose author filter has no matches
+(show zero choices). Check the unfiltered rows the worker *can receive* before applying that filter.
+Reject missing or empty value, an XML whitespace character in a value, a missing or whitespace-only label,
+or duplicate lexical values visible together. Identical labels are legal. Preserve exact lexical equality.
+Count all violations through the last page, retaining bounded example positions. A disk-backed grouping or
+SQL index compares keys across pages. Allow duplicate values visible exclusively to disjoint worker
+populations only when verified assignments and group/location membership prove that exclusivity across the
+delivery scope. Two different owners can grant the same worker a row. Revalidate on membership changes.
+For a general publish prove usable sources for each required worker population, or use a sufficient
+population-independent proof including source-path availability. When only a single worker’s complete
+fixture is known, only that worker’s result can be established. Unknown/unread data, an empty base, or a
+bad later page cannot mark a general export ready. Name the failing source and worker scope, offering HQ
+row/assignment repair and refresh, or choosing another source. Core’s
+`ItemSetUtils.populateDynamicChoices` and `RemoteQuerySessionManager.populateItemSetChoices` own the
+positive filtered-empty and negative missing/empty-path witnesses.
 
 Use distinct projections for a worker’s **assigned lookup rows** and **case-sharing groups**.
 `fixtures/models.py::LookupTableRowManager.iter_by_user` grants a row through the worker ID, any HQ group
 membership, or a location on the primary location’s path. The latter includes ancestors. Union and deduplicate
 matching *rows*, then apply HQ’s row order. Additional assigned locations and the case-sharing flag alone do not
-grant lookup rows. Keep target principals typed and scoped by server/domain, with explicit per-target bindings
+grant lookup rows. Bind worker scope to the restore’s principal kind independently of platform. HQ’s
+`corehq/ex-submodules/casexml/apps/phone/models.py::OTARestoreCommCareUser.get_fixture_data_items` calls
+`iter_by_user`. `OTARestoreWebUser.get_fixture_data_items` returns no assigned rows even for a group or
+place that would supply rows to a mobile worker. A mobile worker signed into Web Apps remains a mobile
+worker. Positive controls restore a global table for both principals, and a private row only for the
+assigned mobile worker. Keep target principals typed and scoped by server/domain, with explicit per-target bindings
 to Nova persona, group or place identities. Resolve assignments in authorized server reads before the worker
 payload is built. A public or offline archive can embed global fixtures. An assigned-row table in an installable
 archive declares the runtime fixture and requires the named space’s authenticated restore. A portable HQ app
@@ -123,12 +185,42 @@ terminal counts/digest. Revalidate the source before promoting that generation. 
 app reading read-only and never retains an unaccepted app review. A body, device, storage or deadline failure
 names the failed operation. It cannot turn a missing page into a completed snapshot.
 
+**Authoring an admitted large table.** Treat the old row, column and byte thresholds as limits on one inline
+change or batch only. Remove the post-update `data_bytes > LOOKUP_MAX_TABLE_BYTES` checks in
+`lib/lookup/service.ts` and `authoringBatch.ts`, the DB total/row checks, and any limit on the number of
+pre-existing rows that a small edit loads. Use a table/row/occurrence ID and expected revision to patch only
+the changed values, counting exact stored deltas in the transaction. A one-character reduction of a >8 MiB
+table must succeed in Project data and shared tool authoring, as must a small add within the Project budget.
+A large-cell replacement can stage bounded ordered chunks, including UTF-8 sequences split at a boundary,
+verify final length/digest and lexical type, and swap its value reference once. To edit a small part of a
+large cell, accept a revision/digest-bound byte span at valid character boundaries, stream-reuse untouched
+chunks and assemble the validated replacement. Neither API needs the whole row in one request. Retry with
+the same operation ID returns its prior result. Prove a cancelled, stale or over-budget edit leaves the old
+value, references and table/Project revisions intact.
+
+**Physical work and storage.** Add a Project budget row and an idempotent reservation per import, upload,
+refresh, export and retained download. Start with a configurable 32 GiB of physically stored payloads and
+two simultaneous bulk jobs per Project, within a separate process-wide job/buffer and temporary-disk budget.
+These are service capacity choices. A Project needing more capacity can retain a source reference. Count
+actual bytes of immutable stored chunks and retained artifacts once per physical Project object, including
+partly staged, current, replaced-but-still-pinned and pending-delete objects. Track SQL metadata/row bytes
+with database-returned measurements, plus conservative reservation for indexes and temporary work.
+Reserve projected growth under the Project lock before accepting each bounded chunk, settle actual measured
+bytes there, and never reserve the same chunk twice on retry. Release a reservation on promotion only after
+transferring its charge to live/retained storage. Reserve limited compaction/rewrite headroom for shrink
+edits, and stream cleanup if a large input exhausts headroom. Never spend an old generation’s apparent
+savings while a reader or recovery still pins it. A canceled, expired or failed job releases unused work slots,
+and a recovery sweep deletes only verified unreferenced objects after outstanding writes/readers settle.
+Refund charged bytes on confirmed deletion. Reconcile orphaned uploads, incomplete commits and lost deletion
+acknowledgements against the same object IDs. Test two concurrent jobs competing for the final reservation,
+a process exit at each transition, a live reader of the old generation and repeated GC with exact totals.
+
 Plan the **carrier per table and destination** before writes.
 
 | Preconditions | Delivery and verification |
 |---|---|
 | Complete global or assigned table representable in HQ’s workbook | Build text-only sheets in HQ’s header conventions for properties, repeated fields, indexing, row attributes and owners. Resolve target user names, group names and site codes before writing. Pack whole tables into independent workbooks of at most 500,000 physical rows including the definition and all headers. One definition and one item sheet leave 499,997 data rows for one table. Keep each table whole when using replacement. HQ leaves unmentioned tables alone. Journal per-workbook content digest, affected tables and result. Re-read after uncertain writes before resuming. An unresolved owner can leave a written row with a warning. Treat that result as incomplete. |
-| Newly provisioned, proven global and unindexed definition/rows cannot travel losslessly in a workbook | Add a narrowly scoped JSON resource writer to the resources phase. `LookupTableResource.obj_create` accepts the tag, fields, field properties, row attributes and globality. `LookupTableItemResource.obj_create` accepts exact ordered field lists and item attributes and appends its own sort key. This handles, for example, a plain global table tagged `types`, over-workbook-size tables and whitespace or repeated empty values. Write only to a reviewed vacant tag this deployment creates. Record the new table and each appended remote ID and ordered prefix. After a lost acknowledgement require a unique matching prefix and expected tail before resuming. Stop on another writer’s change or ambiguous duplicate. Never clear a pre-existing same-tag table to restart. Verify every row through the detail API before app content. For the manual package, generate the table and ordered rows plus an authenticated, resumable installer using the same create/read-back contract. Keep credentials out of the package. HQ’s own positive request/response witnesses are in `api/tests/lookup_table_resources.py::TestLookupTableResource.test_create` and `TestLookupTableItemResourceV06.test_create`. An unacknowledged table creation without a recorded table ID re-enters the existing named-resource ownership review. Equal contents cannot establish who created it. |
+| Proven global, unindexed table whose complete contents cannot travel in a workbook | Use the JSON resource lifecycle below for a new vacant tag or an existing table and rows held in its destination ledger. It carries `types`, rows beyond the workbook limit, and exact whitespace or repeated empty values. Both direct publish and the manual package’s authenticated, resumable installer use this contract. The package contains no credentials. |
 | The source owns facts a carrier cannot represent or Nova cannot verify | Offer a source-managed reference. The project-space admin prepares the equivalent target table and resolves every target principal, and supplies the target’s selected-table export or a worker’s authorized restore for the facts it demonstrates. The review compares table tag, definition, order and values from the API plus supplied indexes/assignments or that particular worker’s fixture. A worker sample proves only that worker. If table-wide assignments cannot be attested, the destination stays incomplete, with the source app usable. Project data also offers an explicit new target design with authored index/assignment choices, a reviewed change with a named effect. Neither action silently replaces source behavior. |
 
 HQ’s `fixtures/upload/{const,workbook,validation,run_upload}.py` and
@@ -141,6 +233,58 @@ cannot fix it. The JSON table API has no index setter and its row API has no ass
 fallback is consequently conditional. Do not send a private table as global or drop an index to make a
 destination succeed. A description remains HQ metadata outside the workbook and the device. Name its loss on a
 reviewed transfer that replaces the definition.
+
+**Repeated JSON publishes.** Keep a destination ledger keyed by Project, HQ server/domain and Nova table
+UUID. Record the exact remote table ID, stable tag, Nova-row UUID to remote-row ID mappings, canonical
+definition, ordered row hashes and acknowledged per-operation before/after states. Share the mapping across
+publishing apps in that Project. A second publish with the same definition, contents and order sends zero
+writes. Source-managed rows at their own origin are always read-only.
+
+1. Under the Project/table write fence, bind the intended batch to the reviewed local revisions, reader apps,
+   target mapping and complete remote baseline. Read and compare the definition and all ordered row IDs and
+   values. A moved/recreated table, unexpected row ID, unknown index state before a field-definition write,
+   changed owner policy or changed row goes back to resource review. Serialize cooperating Nova publishers
+   across all apps using this target table, and recheck authority and the remote precondition per operation.
+   HQ exposes separate commits for each REST request. A multi-row rewrite affecting existing workers needs
+   a coordinated interval without editing or syncing that shared table, or the separate-table path below.
+   A local lock alone cannot establish that interval.
+2. Create only at a reviewed vacant tag. HQ’s `fixtures/resources/v0_1.py::LookupTableResource.obj_create`
+   makes the definition. `LookupTableItemResource.obj_create` appends to the largest integer sort key.
+   Use the v0.6 row resource which returns the minted ID. Record each ID before the next operation.
+   An ambiguous create without an acknowledged remote ID needs explicit review and adoption of that precise
+   resource, even when a row looks identical. Never retry an ambiguous POST by counting equal values.
+3. Reconcile by Nova row UUID and its recorded remote ID. Append new rows, PUT changed retained rows to their
+   exact detail IDs with the same `data_type_id`, complete fields, item attributes and intended integer
+   `sort_key`, and DELETE only reviewed removed IDs owned by this table. A move uses the same
+   full row PUT, including unchanged values. The row resource hydrates `sort_key` and saves when fields or
+   attributes were supplied. The list orders by sort key then row ID (`fixtures/models.py::_iter_sorted`).
+   Assign distinct target ranks in order, verify every retained ID and the resulting sequence, and never use
+   a rank or value hash as row identity. If there is no integer append headroom, compact owned ranks in the
+   coordinated interval first. Keep a table when the last app drops its reference, as the deployment
+   ownership contract requires. Removing a row from a table the Project still manages is a separate operation.
+4. For same-tag compatible schema changes, PUT the held table ID and tag, explicitly including the intended
+   definition fields and row attributes. HQ refuses a tag change, and writing fields rebuilds its field
+   definitions. Verify fresh evidence for the index/assignment facts that operation could discard, then keep
+   the old/new shapes usable through the change. Backfill a newly required row attribute before declaring it.
+   Remove an old attribute declaration before removing the stored row keys. Stage new field occurrences
+   before exposing a new field and retire an old field after its readers have moved. Confirm the result
+   through definitions, row details and the target fixture. A schema whose intermediate states cannot be
+   served safely uses the coordinated interval or **Create a separate table**. The editor chooses a vacant
+   tag, creates a separate Project table with the desired schema, installs and verifies it, then reviews the
+   app mutations that rebind selected readers by UUID. The old table, rows, assignments and other apps
+   remain usable. A required stable external tag or assigned/indexed table that cannot take these writes
+   uses HQ-managed target setup and observed/supplemented evidence from section 1B. The exact outstanding
+   mismatch blocks publishing that app until resolved. Never replace a whole same-tag table as a repair.
+5. Journal one admitted request at a time with its exact target ID and intended state. On a partial failure
+   retain the last verified operations. After an uncertain PUT or DELETE let the pending request settle,
+   re-read its exact ID and enclosing inventory, and compare against both the pre- and post-operation state.
+   Advance for the intended result, retry only a known unapplied request at its unchanged precondition, and
+   return to review on any other outcome. A rejected/missing permission or pending earlier write cannot
+   advance the ledger. Compare the full definition, ordered rows and assignment/index evidence before app
+   upload. The manual installer resumes from its own target-scoped receipt and follows the same ownership
+   checks. HQ’s `api/tests/lookup_table_resources.py` exercises keyed table/row create and update, row
+   field hydration and missing rows. Add native checks for persistent sort changes, same-ID schema update,
+   exact-ID deletion and shared-table drift through these real methods.
 
 A plain Nova table adopted by matching a target tag has no HQ origin today. Offer **Use the table from CommCare
 HQ** on that table’s Project data page. Enumerate its live mappings, let the editor select the source, show
@@ -169,6 +313,21 @@ external ID, parent, level, `administrative`, `shares_cases` and `view_descendan
 expansion settings remain explicit setup/defaults. Verify a level or metadata key actually read as an XML name
 at its consumer. Model unknown/empty source fields explicitly where HQ admits them.
 
+For external site IDs join the authorized v0.5 `LocationResource` (published as v1) and the v0.6
+inventory (v2) by exact server/domain and durable `location_id`. The v1 resource lists `external_id`.
+The v2 resource’s field set and `_update` exclude it, though the worker fixture emits it. Compare the
+overlapping identity and revision fields and require complete matching inventories on a stable read.
+An unknown, mismatched or inaccessible v1 value cannot become empty. Before a target write, preflight
+each required value against the mapped destination location’s v1 detail. For a vacant or unequal value
+use HQ’s authorized bulk organization workflow. Generate the target’s location workbook with its own
+location ID/update identifiers and intended external ID, preserve other target values and show the exact
+affected places. `locations/bulk_management.py` parses and saves `external_id` in the location stub’s
+`meta_data_attrs` and strips workbook input. Use the workbook only when it can reproduce the intended
+string. The administrator applies it in HQ. Re-read v1 by target location ID and compare the exact result
+and fixture text before advancing. A destination already holding the right value needs no write. Where
+the supported writer cannot produce the required spelling, keep the origin usable and report that
+destination mismatch until an explicitly reviewed alternative mapping is available.
+
 Remove `places-over-nova-limit`. Split `place-not-holdable` by cause. Additional valid HQ data now comes in. An
 inconsistent read (missing parent, cycle or missing level) rereads once and then reports inconsistent source
 data. A stored spelling the destination’s own create API would fold, refuse or conflate is usable at its origin.
@@ -192,6 +351,36 @@ accept it, name that file, offer the target’s own media upload, re-read the ma
 digest before marking complete. An origin publish reuses already matched media. No cross-Project digest match
 authorizes a read. No signed URL, workbook or restore credential goes in app history, a chat transcript or proof
 artifacts.
+
+**Protected exports.** Introduce the explicit MCP bearer/API-key scope `nova.projects.data.export`, with
+consent explaining that the client can download private Project lookup assignments and worker-scoped
+installation data for targets the person can access. Require it in addition to current Project editor
+authority and the relevant target/worker evidence. The current app-read, app-write, Project membership and
+HQ read, import or deploy grants do not include that new export authority, even in combination. Do not
+backfill standing consents, refresh grants or API keys. Changing the actor or Project invalidates the
+download. Register the new scope with consent, client/API-key selection, discovery and the shared MCP
+scope enforcement. Check the required scope before the protected operation can return a manifest, inline
+data, signed reference, refusal detail, resource bytes or a range. For a browser session, check the current
+editor and the same target/worker authority at preparation and redemption. Existing ordinary packages and
+direct publishes continue under their existing grants. Test a new opted-in grant, an old bearer with every
+previous scope, a viewer, an expired or revoked grant, and an authorized editor who loses membership before
+the next range. Check both response content and absence of a downloadable object on denied preparation.
+
+**Delivering artifacts.** The two HTTP paths `app/api/compile/route.ts` and `app/api/compile/json/route.ts`
+and `lib/mcp/tools/compileApp.ts` use the same revision-bound
+plan. Preserve the existing small generic JSON and small ordinary target-bound CCZ responses for previously
+authorized global data, including the base64 wrapper and the applicable manual-import guide. Above a 1 MiB
+binary inline limit, or for an installer or package containing newly protected data at any size, return a bounded
+manifest plus a private authenticated download resource. Record Project, app/document and data revisions,
+scope, target, actor/grant, expiry, length and digest. Stream the completed artifact from object storage
+with backpressure. Browser downloads, MCP resource retrieval and resumed range reads reauthorize current
+membership, app permission, export grant and target/worker scope. Use an authenticated gateway with
+revocable access rather than a long-lived public object URL. A changed generation or revoked grant
+requires a new authorized build and returns no further ranges. Revoke known in-flight grants and expire
+retained bytes through the Project budget. The reusable HQ install package carries global data and
+instructions for binding private target resources. An editor-authorized package for a named destination
+contains only its reviewed mappings/data. Neither packages a named worker’s restore. Serve any authorized
+worker fixture only through that worker-scoped current projection.
 
 ## 2. Settings Nova owns
 
@@ -314,6 +503,21 @@ excludes `build_profiles` in `ApplicationBase._update_excluded_fields`. HQ’s o
 `app_manager/views/releases.py::LanguageProfilesView` replaces the profile map in an authorized browser edit and
 checks the plan and practice user. A file sent as an update cannot do that edit.
 
+A nonempty profile-specific practice-worker binding has two independent prerequisites. The target must
+support profiles, and `Application.enable_practice_users` requires both `supports_practice_users` (CommCare
+2.26 in `app_manager/feature_support.py`, below Nova’s 2.57 floor) and the target’s
+`PRACTICE_MOBILE_WORKERS` privilege. Confirm the privilege before creating or editing profiles that bind a
+worker. Resolve the named target ID to an active, undeleted practice worker in the same domain as
+`app_manager/util.py::get_and_assert_practice_user_in_domain` requires. A profile with no practice binding
+does not need that extra privilege. On create the raw JSON may carry a worker string even when the target
+build would omit its restore. On browser edit `LanguageProfilesView.post` saves an empty practice-worker
+string when the effective gate is off. `Application.create_practice_user_restore` also returns no restore
+when it is off. In both paths stop before claiming the desired binding, explain which target condition
+must change, and permit an explicitly reviewed removal of that binding. Do not drop it during a name or
+language edit. Verify the actual selected profile and its restore on HQ’s build, without retaining its data.
+Add the nonempty-profile entry to the existing `privilege/practice_mobile_workers`,
+`build-version/supports_practice_users` and frozen `toggle/MOBILE_USER_DEMO_MODE` evidence where applicable.
+
 On a mismatch give the person the exact desired names, language orders and practice-worker bindings, plus the
 target app’s Language Profiles page. Record the reviewed target state. On retry read the full profiles,
 correlate new target-generated keys only via a unique reviewed binding, and advance when the complete observed
@@ -387,23 +591,39 @@ circumstances and language ordering have no inventory slug.
 2. Show own-space publish makes zero writes to HQ-managed resources. Exercise a portable table in a vacant
    second space, JSON-created `types`, a prepared rich target with independently compared data, an unavailable
    source-only target, a partial workbook upload, an unknown row-create acknowledgement, and the absence of a
-   source-table write after a concurrent hand-back. Test two worker fixtures with disjoint assignments through
+   source-table write after a concurrent hand-back. Publish the same JSON-managed table twice, then append,
+   change, reorder and remove rows and change its schema. Assert preserved row IDs, exact order, retained
+   unrelated table, and no writes on unchanged retry. Interrupt each verb, introduce a target edit or a
+   same-tag replacement between reads, and prove the affected request stops or resumes exactly once. Test
+   a separate-table migration with a second live app still reading the original. Test two worker fixtures
+   with disjoint assignments, duplicate-looking source rows assigned to different workers, and an incremental
+   restore that omits the unchanged table with and without the correct base, through
    endpoints, cache, exports and search. Use actual HQ fixture provider, upload validator/reader and native
    Core. Test sizes on both sides of every old cap, the exact 500,000/500,001 physical-row boundary and a table
    with one row too many for one workbook. Check peak memory stays bounded as total members/rows rise. Keep very
    large generated rows and media temporary. Test 10,001 places with a small worker footprint,
    renamed/reparented source place, mixed case codes, unsupported target parentage, and zero/one/two possible
-   owners.
+   owners. Include two targets with different external IDs, a v2-only read, a v1/v2 race, an already
+   matching location and a bulk-workbook repair verified by v1 and a rebuilt restore. For both question
+   and Search choices exercise a missing fixture, empty worker base, filtered-empty populated base, blank
+   label/value, XML whitespace and a duplicate found on the last page, including disjoint and overlapping
+   owner grants. Exercise a table with a single zero-list row and a mixed table with an absent field.
+   Require identical visible element counts/order to Core, prove full ID coverage independently or report
+   the source-only stop, and introduce a row change during supplementary verification. Revoke an assignment
+   without moving the table API digest and demonstrate that neither Preview nor download serves the old worker’s rows. Drive small and oversized real HTTP and MCP exports,
+   two named targets, interrupted range retrieval, expired artifact and revoked Project membership.
 3. Exercise zero/one/multiple case-sharing groups with explicit owner, unowned extension and auto-owner paths.
    Compare served HQ/Web Apps and Android grid behavior, missing/installed Android dependencies, app/form GPS
    combinations and both platform outcomes, plus profiles with different first languages. Observe a profile-only
    rename, a missing target practice worker, inaccessible target, changed source mid-review, and a language
    replacement across an interrupted profile edit. Demonstrate new-source, local archive and live HQ decisions
-   separately.
+   separately. Cross profile create and editor update with practice support on/off, its privilege on/off
+   and a profile with/without a worker. Observe the effective build restore and HQ’s saved worker field.
+   Include a stale, ordinary or foreign worker and a revoked privilege on a profile rename.
 4. Update platform rows and Preview cells, `KEPT_AT_HQ`, inventory, public guides, nearest contracts, tool
    catalogue, plugin guidance and versioned model/runtime context with their respective changes. Regenerate gate
-   relationships for `lookup_tables`, `locations`, `case_sharing_groups`, `app_dependencies`, `build_profiles`
-   and `enable_auto_gps`. Search’s existing project-space and sync gates still apply to a lookup-backed search
+   relationships for `lookup_tables`, `locations`, `case_sharing_groups`, `app_dependencies`, `build_profiles`,
+   `practice_mobile_workers`, `supports_practice_users` and `enable_auto_gps`. Search’s existing project-space and sync gates still apply to a lookup-backed search
    prompt. The proof lane checks the exact review/first-publish changes, including the retained Connect GPS,
    generated-text fold and flat-location-setting entries. Independently deny a missing privilege or a worker’s
    missing assignment to demonstrate sensitivity. General app-body or malformed-source stops remain specific.

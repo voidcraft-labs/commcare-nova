@@ -131,6 +131,37 @@ and fails the proof. It cannot close a feature group.
   make a fixture round-trip. Use a migration baseline when the existing replay horizon cannot carry the new
   shape. [Delivery and storage contracts](../../architecture/contracts.md)
 
+### A fold preserves each live deployment’s comparison point
+
+A deployment’s published revision can precede a later editor change. The current
+[reference loader](../../../lib/deployment/hqChanges/reference.ts) rejects a published revision older than the
+latest immutable fold. Advancing the published revision to the fold sequence would incorrectly mark the
+editor’s intervening change as published. Before an incompatible cutover creates a new fold, materialize a
+**deployment reference at the fold**, separately for every live baseline/reference pair that is usable in the
+old store. Keep the original published revision, mapping and source digest intact.
+
+Under the same app and deployment locks, run the old reference fold to the cutover boundary. Capture its
+server-folded published document **before** overlaying head-only values, the effective Project, whether there
+was an intervening editor change, the composed property renames and participating actors. Persist its
+converted document and these facts with the exact deployment, baseline digest, published revision and new
+fold sequence. Verify before committing that applying the head-only projection and identity collision rules
+reproduces the pre-cutover comparison after representation conversion. Preserve a prior unavailable outcome
+with its reason. A target missing or changing an input required to certify a previously usable reference
+blocks the migration. Keep the immutable app log and existing fold baseline as historical evidence.
+
+Extend `usablePair` and `loadReferenceDocument` to use this saved reference only for a matching deployment,
+digest, original revision and fold. Resume server-only folding and compose rename, actor and editor-before-move
+state from the subsequent rows. Apply head-only fields and identity disambiguation at the current head.
+A later incompatible fold advances a verified saved reference the same way. Superseding the baseline, ending
+the deployment or deleting the mapping invalidates the reference in the same transaction. No grant or lookup
+crosses its app, Project and deployment identity.
+
+Exercise a real Postgres app published to two targets at different revisions, with a Nova edit, chained rename
+and independent HQ edit across the fold. Compare the conflict, actor attribution, current identity and publish
+effects on both sides of the conversion, including an unpublished first/next-publish list and the first
+publish after conversion. Verify exact counts for usable, already unavailable and migrated pairs before and
+after; stale or mismatched checkpoint identity must refuse. Group 8’s Connect conversion uses this procedure.
+
 ## What proves completion
 
 Each row that becomes authorable gets an HQ-authored base with a non-default value. Its saved source, the first
@@ -155,7 +186,7 @@ alongside the smaller controls.
 
 | Synthetic worker journey | Compare independently |
 | --- | --- |
-| Two workers open the same grid menu in different languages. Its case list and form both use localized media and a question draws choices from an assigned lookup table. A third worker has no assignment. | Compare the restore’s permitted row IDs, language-specific asset bytes and visible choices for each persona with Preview and the native clients. Inspect a general archive for cross-worker rows. Change a media translation in HQ and bring it back. |
+| Two workers open the same grid menu in different languages. Its case list and form both use localized media and a question draws choices from an assigned lookup table. A third worker has no assignment. | Compare ordered fixture attributes/values using distinct business keys and a duplicate-looking pair, language-specific asset bytes, and each worker’s visible choices. Use a full worker restore or a verified base plus deltas. An omitted incremental fixture proves no change to the base. The restore supplies no remote row UUID. Inspect a general archive for cross-worker rows. Change a media translation in HQ and bring it back. |
 | A child form opens from its parent’s search, where a related case supplies a displayed value. A second menu reuses the form with another valid selection. | Record the chosen case IDs and search inputs, result order, entry datums, the namespace submitted and exactly which case row changed. Reorder the menus in Nova and edit the search in HQ. Both paths must still select the intended cases without borrowing another menu’s context. |
 | Publish an HQ-adopted multilingual app after a Nova edit while a second app reads its lookup table. Try its manual package and a second destination with incomplete bindings. | Compare both apps’ source identities, management rights and shared rows before and after. Changed review inputs require renewed consent. Check the second destination’s setup refusal before a write, then complete the supported setup and verify the resulting worker behavior. |
 

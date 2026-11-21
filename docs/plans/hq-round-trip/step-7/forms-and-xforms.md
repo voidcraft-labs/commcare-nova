@@ -28,6 +28,19 @@ resolving any wire name. Never infer one of two choices from the case type, sour
 array index. Keep list identities distinct from entry-supply identities. An edit to an order or label leaves all
 references intact.
 
+The expected case type on an automatic action belongs to the editor and its catalog. For a raw ID, worker-data,
+lookup-row or earlier-index supply, resolve the ID against the worker's authorized case snapshot. Preserve HQ's
+count/existence assertion. An existing case of another type can satisfy it. The built automatic datum has no
+case-type predicate. The worker-record mode has its own type predicate. Neither the expected type nor an ID
+can grant access to a case. Evaluate reads against the reached row and keep its actual type for downstream
+effects. Apply F4’s admissibility rules when a write would violate that case’s stored type or property
+semantics. An absent ID, inaccessible case and an ID of another type each get the native outcome appropriate
+to the supply. Prove this with a declared household supply whose ID resolves to a visit, independently through
+a raw expression, worker data, a table and an earlier index. Compare it with the worker-record mode, an empty
+value and an out-of-snapshot ID. Verify the emitted datum and assertion, the Preview entry and the exact row
+touched by a submission. See pinned `EntriesHelper.get_auto_select_datums_and_assertions`,
+`get_auto_select_assertions` and `get_datum_meta_assertions_advanced`.
+
 Absence of an explicit selection list keeps the existing derivation from the menu chain plus the worker load. An
 explicit empty list means no loads. Derive repeatable synthetic identities for the implicit entries from form
 UUID, supplier UUID and role, including the automatic worker. Materializing the list on the first edit keeps
@@ -87,7 +100,13 @@ last type equal to the module type and same final tag. Keep advanced multi-selec
 list menu item never auto-selects. Refuse Web Apps on a datum that can auto-select its single row with a confirm
 detail, regardless of the current row count. A future single row suffices. Offer Android, removing the
 auto-select or removing the confirmation where meaningful. In Preview, walk ordered, UUID-keyed list steps on
-real data. Backing up invalidates only dependent later values; deep-link launches bind the same supplies. Test
+real data. Back truncates the executed prefix to the manual-input boundary. Discard every value from that
+boundary forward, including independent manual selections, auto-selected datum values and generated values.
+Retain authoring UUIDs and the prior prefix. Re-execute the suffix against the current scope, as Core
+`CommCareSession.stepBack` unwinds non-user-input steps and Formplayer replays the selected prefix. Deep-link
+launches bind the same supplies. Select A and B at two independent lists, generate a value and back up to A.
+Choose A2. Ask for B again, generate a fresh value, and assert the submission reaches A2/B2 and neither former
+target. Test
 zero, one and two matches, confirm/no-confirm, same-list choices with distinct IDs, parent realignment, first
 worker load, missing automatic row, missing computed input, a registration that loads another case and a handset
 opening the module's list menu item.
@@ -145,8 +164,7 @@ declared property/facet safely. For an open destination, only the common text/fa
 permitted type has a catch-all branch. A schema-incompatible write names the alternatives and lets the author
 constrain the relation or choose a common storage type. Reference indexing covers every branch and any
 open-world dependency. No missing index implicitly means the current worker. `user/p` walks an index named
-`user` from the loaded case, subject to the relevant project privilege. Missing or wrong-Project targets fail
-atomically. Match HQ's separate restrictions on indexed loads, basic forms opening their own cases and preloads.
+`user` from the loaded case, subject to the relevant project privilege. Apply the target rules below to each emitted effect. Match HQ's separate restrictions on indexed loads, basic forms opening their own cases and preloads.
 
 Expose name, owner, external ID and supported special keys as typed effects at the reached case, including an
 ancestor's name/owner via the original action key. A dynamic relationship reads a non-repeat question by UUID
@@ -178,6 +196,34 @@ with the question and checks node presence; a newly created case, absent propert
 mapped to `case_name` must get the same row-presence decisions. Do not substitute a dirty UI bit or
 unconditional write. Retain the separate inert class in a space without `SAVE_ONLY_EDITED_FORM_FIELDS`; apply
 existing publish confirmation and adoption checks.
+
+The existing `lib/case-store/postgres/submissionEnvelope.ts` uses the current SQL transaction's pre-effect
+rows. Native initialized forms can retain an older device view. At entry issue a server-authenticated snapshot
+handle for this form/entry, revision, selected data, tenant, member and effective worker, with the resolved
+targets, lookup revision and typed read set needed by its bounded expressions (authorized rows/relations and
+absent reads, including repeat/query evaluation). Bind a versioned, signed snapshot manifest to the already
+authorized restore projection by content digest. Return the signed evidence with the bounded projection and
+keep it beside the tab's running form or its authorized saved draft; verify audience, digest, entry and
+current access at submit. For arbitrary supported lookups evaluate against the signed immutable row set
+through typed SQL values within the transaction. A resumed draft keeps its original evidence. A mismatched or
+unavailable snapshot requires reopening and never falls back to current rows. No shared server form session
+is required. Bind answers/new rows to this entry
+and evaluate preloads, source lookup, indexed target resolution and only-if-edited comparisons using this view.
+SQL resolves the actual emitted effects and rechecks the *current* tenant, worker access, existence/allowed type
+and rolling schema under the write lock. It does not recalculate whom a submitted id meant from a later index.
+An obsolete/inaccessible target rejects atomically. The receipt binds entry, revision, submitted effects and
+instance id to the idempotency key. A retry with the same content returns its original result; differing
+content under that key rejects. Check postconditions with independent row/history observations.
+
+Seed property A, enter and preload A, then another submission saves B. An unchanged A omits the leaf and keeps B.
+An edited C emits a write to the originally reached authorized id. Relink the child from P1 to P2 between entry
+and submit; the scoped action still addresses P1, never P2. If P1 leaves authorized scope the whole submitted
+write fails. Ordinary missing-index reads yield blank. A legacy save *through* an absent parent index sends no
+ancestor write while the own-case write succeeds (`submissionEnvelope.postgres.test.ts`, household without a
+parent). A false block condition produces no target validation. A present case block with a blank id has a
+device submission error. A supplied or substituted id from a different Project cannot be read, minted as an
+authorized target, or written. Exercise each branch concurrently, including retries after a committed response
+is lost. No newly written case row changes an earlier read of the entry snapshot.
 
 Keep preloads at their actual stage. Add ordered, typed form opening assignments with a field UUID destination,
 selection/worker source and named relation/property path, and attachment to its owning basic/advanced load.
@@ -230,7 +276,7 @@ failed.
 Pin independent ordering oracles. Core's `CaseXmlParser` walks blocks in XML order. HQ's
 `casexml/apps/case/xform.py::{get_case_updates,order_updates}` groups by target id and stably sorts blocks by
 the first action kind in HQ's priority order. `update_strategy.py::_apply_create_action` and Core's
-create-overwrite path can change the type of an existing id. An empty update/touch still has case history. Do
+create-overwrite path can change the type of an existing id. See X3 for the distinct device and server effects of empty blocks. Do
 not sort the authored operations merely to placate the current reader: preserve the exact submitted blocks, and
 admit a shared outcome where the concrete aliasable effects commute or run in the same order. Model disjoint
 literal IDs, fresh IDs, repeat-local create references, distinct keyed namespaces and proven different targets
@@ -269,15 +315,49 @@ HQ's `XForm.resolve_path` uses the actual root; Vellum's `parseDataTree` preserv
 addresses for descendants; present the existing publication-impact review before it commits. Default placement
 for existing documents gives the identical XML addresses/order.
 
-Allow `case`, `registration`, `script` (including the Vellum warning variants) where the actual editor/build
-permits them. Retain the independent restrictions on meta, parse-breaking names, colliding generated blocks and
-a root own-namespace `case` consumed as the form's actual case block by HQ `XForm.case_node`. Split that last
-incompatible case under `questions/question-id-conflicts-with-built-own-case` where HQ’s XForm._create_casexml
-raises on the existing root case when adding its nonempty basic case block. A same-named node in a group or a
-survey with no such block is the control. A warning emitted on a supported name must match the equivalent
-HQ-authored control, separate from an editor error. Add a Hidden Value's explicit data namespace URI, including
-the distinction between inherited and explicitly empty namespace when meaningful. Resolve nodes by namespace and
-local name when classifying roles. Add a lock flag on supported fields; Vellum `src/lock.js` writes it on the
+Classify submitted data names at two different boundaries. Retain the HQ build refusal
+`questions/question-id-conflicts-with-built-own-case` when HQ `XForm.case_node` finds an own-namespace root
+child named `case` and `_create_casexml` must add the form's nonempty basic case block. Removing that case
+action avoids the build error. Runtime submission still has its own checks. In the generated primary *instance*
+walk each reachable submitted descendant, including group/repeat wrappers, hidden nodes with custom
+namespaces, embedded integration wrappers and children generated by HQ. Start at the children of the data
+envelope, as Core `DataModelPullParser.parseBlock` does. Simulate the receiving parser's dispatch and where it
+stops descending. Distinguish data belonging to a recognized transaction from an ordinary node accidentally
+consumed as one. Apply this check at every authoring/import gate and to the built projections for each entry.
+
+* Android `FormRecordProcessor` offers only stock-namespace nodes and case-insensitive `case` names to its
+  transaction factory. Core `CaseXmlParser` requires a case id and modification date. Formplayer's normal and
+  bulk submission factories also dispatch `case` ignoring case; a custom namespace or nested position does
+  not make an ordinary case question usable. HQ's `casexml/apps/case/xform.py::_extract_case_blocks` tests
+  the exact JSON key `case`, stops descending there, and yields only candidates with a case id; the version
+  parser then checks the namespace/shape. A `case` group with no case id around a genuine nested case
+  transaction can hide the latter from HQ. An ordinary submitted `case` answer, including `Case`, is
+  REFUSED as `questions/submitted-node-consumed-as-case` independently of whether the app builds.
+* Formplayer's `CommCareTransactionParserFactory` also dispatches `registration` ignoring case to
+  `UserXmlParser`. It requires ordered username/password/uuid/date and commits a user. A normal question
+  does not satisfy that contract. Android's form submission filter descends through the same ordinary group,
+  and HQ's case extractor also descends through it. Offer ordinary `registration` on Android-only apps with
+  an ordinary form namespace and no other dispatch conflict. On Web Apps refuse the ambiguous node, including
+  a group shaped like a real user transaction. Do not represent a submitted worker registration as survey
+  data. Keep the separate treatment of genuine form-wide registration namespaces.
+* Also cover the rest of Formplayer's actual dispatch table. Case-insensitive `fixture` and `schema` need a
+  fixture id and consume their subtrees. An ordinary field missing it fails; an actual fixture store write
+  cannot stand for an ordinary field. Permit these ordinary names on Android under the same conditions as
+  `registration`. Web `sync` dispatches only in `http://commcarehq.org/sync` (expects `restore_id`).
+  A stock-namespace ordinary node is intercepted on both clients before local-name dispatch; only recognized
+  ledger instructions belong in that namespace. Never classify those as namespace decoration. A different
+  ordinary namespace with `sync`, or an ordinary `script` field on either platform, has no such dispatch.
+  Retain Vellum's warning if present and the separate meta, invalid name, and generated-address guards.
+
+Use Vellum-saved nested text, a group enclosing a real submitted change, a custom-namespace hidden field and a
+generated wrapper as independent fixtures. Compare the emitted XML, Android's actual record processing and
+device state, both Formplayer case modes and sandbox state, and a separate POST to HQ followed by its saved
+form and case history. The survey question named `case` must reach its runtime refusal even when its build succeeds.
+Positive controls are `case_note` and `script` retaining their answers and the nested change, and Android-only
+`registration` with that same change. Check web refuses `Registration` and accepts a sibling spelling,
+and that the server alone can miss the change under `case`. For a Hidden Value preserve its explicit namespace
+URI, including inherited versus explicitly empty where meaningful. Resolve nodes by namespace and local name
+under the actual owning parser. Add a lock flag on supported fields; Vellum `src/lock.js` writes it on the
 bind, or the data node for its data-only kinds. It governs editing in HQ and the target's lock privilege. It
 grants no Nova Project authority; an authorized Nova editor can change the setting with the consequence visible.
 
@@ -302,9 +382,32 @@ unmapped referenced head and dangling callout rows at their existing standings. 
 show the target app and evaluated extras to the current worker and offer two local actions: return values for
 the declared response fields or cancel. Commit returned answers through the normal form event and relevance
 pipeline; cancel leaves them alone. No package launch, server request to an action URI, or fabricated successful
-response occurs. On Android itself the device dispatches the intent. Device proof uses a controlled activity
-returning multiple fields and a cancelled activity returning none. Exercise an absent Android handler as a real
-runtime outcome and verify destinations and recomputation across an incomplete-form resume.
+response occurs. On Android itself the device dispatches the intent. The response contract has two parts. Android
+`IntentWidget.loadCurrentAnswerToIntent` sends the invoking widget's nonblank current answer as
+`odk_intent_data` on relaunch. In a noncancelled valid generic response, `IntentCallout.processOdkResponse`
+first writes that primary string to the invoking input with its actual datatype, clearing the old primary when
+the extra is absent. An auxiliary ordinary input referencing the same action is itself the invoking input.
+Then process only present named keys from the result bundle if one exists, otherwise from the intent extras.
+An absent named key leaves its destinations alone; present null is an empty input to their individual casts.
+A returned primary empty string is present even if its typed value becomes blank. Keep presence distinct from
+the return flag: a bundle-only mapped update with absent primary can write a destination while the generic
+handler reports unsuccessful. Direct named extras processed without a bundle report success. Quick advance
+uses the returned flag. A cancelled, missing-handler or invalid-intent result does not run the generic writes.
+Contextualize each mapped reference at the invoking row. Apply the normal typed answer conversion to scalars.
+For a binary destination Android copies the file/content URI into the form and stores its filename; blank,
+missing or unreadable input clears that destination. Preview uses an explicitly chosen local capture for this
+result and the existing attachment boundary. Android routes recognized identity registration/verification/identification parcels to
+`IdentityCalloutHandler` first and a Simprints registration parcel to `SimprintsCalloutProcessing` next.
+Give each recognized protocol its corresponding typed result adapter for Preview and proof. Use synthetic
+guid/match/confidence and opaque template fixtures and compare mapped answers and invoking text to the
+relevant pinned handler. Use the generic adapter for an ordinary Android result. These special branches are
+selected by returned parcel shape, not by an arbitrary label or intent action name.
+
+Use a controlled Android activity with two invoking inputs and two repeat rows, nonblank prior primary and
+named destinations, one key mapped to two different destination types, a named binary result, and success,
+cancellation and an unavailable handler. Assert sent previous answer and extras, the invoked answer on return,
+kept/cleared/cast answers, copied file bytes and unchanged sibling row, quick advance, re-invocation and
+incomplete-form resume. Mirror these outcomes in browser Preview with local result entry or cancel.
 
 Add localized first/subsequent add captions to the repeat; required/hint to supported label/acknowledge
 configurations; validation plus its localized message to geopoint, image/audio/video/signature/file, face
@@ -353,21 +456,23 @@ ordering. Core sources are `FormDef.initialize`, `SetValueAction.processAction`,
 
 For a model iteration, the loaded row-id sequence is a snapshot. Put ids/count at ready, row index/id on insert,
 and the condition on the item. Do not live-requery after an answer changes. A **new** query that is meant to
-follow answers keeps count placement. For an imported or held model iteration, analyze its actual load position,
-read dependencies, initialized answers and ancestor relevance. Propagate blank/nonblank/unknown and literal
-truth values through the same event graph with typed evaluation of closed terms, symbolic inputs for
-session/case/clock and row scope, and explicit dependencies from calculated nodes and ancestor relevance. A
-dependency on an answer that an earlier setvalue has already initialized does not by itself invalidate
-iteration. Refuse the three researched classes: nested model iteration, a query reading an answer certainly
-blank on every opening at this point, and an ancestor that can be irrelevant here and become relevant later in
-that opening. A permanently irrelevant ancestor is distinct from a late-relevant one. An undecided case must not
-be called certainly blank. For a potentially late ancestor require a safety certificate (invariant relevance,
-relevant at capture, or irrelevance persistent until close); if a supported typed expression leaves that
-property unprovable, name the structural limit under a distinct
-`questions/model-iteration-relevance-not-statically-established` untypeable class with its expression and
-equivalent counted-repeat option. Meter dependency work; distinguish the existing work-limit stop from a product
-verdict. Validate this boundary on dependent defaults before/after the repeat, both values of a persona flag, a
-later relevance toggle, and a nested second outer row. Move a previously held placement only with the
+follow answers keeps count placement. For an imported or held model iteration, retain the typed query and its exact evaluation
+point, including earlier initialized answers, blank inputs, current persona/cases and ancestor relevance. At that
+event evaluate once with Core-equivalent semantics and freeze the actual ordered result, including an empty
+result. A use of a blank input does not prove that it suppresses any row. Accept a blank-insensitive predicate,
+an explicit fallback and a conditional that produces different valid snapshots for different workers. An
+undecided static truth value is an ordinary runtime input. No proof of universal relevance or of every answer
+being nonblank is required. Keep distinct researched failure classes only where their *observed effect* applies:
+the nested absolute index can address the wrong inner row; a query that must use a later answer to return the
+intended rows can be exhausted before that answer exists; an irrelevant ancestor that suppresses the only
+initialization cannot populate the later-displayed result. Contrast an intentionally empty captured set with
+the missing initialization/effect. A typed, representable load-time query remains admissible even if subsequent
+edits would change a fresh evaluation. Offer an explicit counted repeat to follow those edits, retaining review
+for changed published addresses. Distinguish an unsupported expression/slot and a metered work-limit stop from
+those data-dependent outcomes. Test both branches of a fallback, a predicate true for either blank or nonblank,
+defaults before and after capture, both persona values, ancestor toggled after load and a second nested outer
+row. Check row ids, ordering and values at open, after each answer/edit and after resume using each platform's
+actual opening/insert events. Move a previously held placement only with the
 identity-move review. Keep the count-repeat's extra-row/blank-id guards and old submitted row addresses.
 
 ## X3. A case change at an authored position
@@ -383,9 +488,20 @@ the same node. Never equate a reference across different iterations.
 
 Represent a group's target id, declared catalog context, open/update, zero or more conditional
 property/owner/index effects and an optional close of that same target. The whole-block condition, create
-condition and close-leaf condition are distinct. An eligible close-only block touches the case even when its
-conditional close is absent. Preserve one transaction block on the wire, including a close beside a
-create/update/link. An irrelevant ancestor removes the whole group. Serialize root authored create IDs by
+condition and close-leaf condition are distinct. If a close-only block is present but its close leaf is absent, the device receives a
+valid, childless case element. Core's normal parser does not resolve, change or persist the case unless a
+recognized action loads or creates it. The bulk parser may prefetch the id but leaves it out of the write log.
+HQ constructs a `CaseNoopAction` when its case parser finds no actions and records the form against that
+case. Project one submission into distinct device-before-sync and HQ history/restore results. Never manufacture
+an empty update to obtain that history. An actual `<update/>` loads the existing case, changes its device
+modification timestamp and fails if the device lacks the case. Include four independent submissions against an
+existing known row: a true close, a false close leaving a childless block, a real empty update, and an
+irrelevant ancestor omitting the entire block. Check XML, device timestamp and open state before sync, HQ
+transaction/form IDs and dates, and the restored device snapshot after sync. Repeat the latter three with an
+id absent from the local snapshot but existing on HQ. The childless block can reach the server while the empty
+update fails locally. If the id expression itself becomes empty because the ancestor supplying it is absent,
+the present case block fails its mandatory-id check; if the block's own ancestor is absent there is no
+transaction at all. Preserve one block for a close beside create/update/link. Serialize root authored create IDs by
 ready-time setvalue, row create IDs by the in-repeat calculate; keep Nova's existing keyed-create wrapper where
 its identity is already held. Distinguish fresh UUID, Nova's keyed-id derivation with its deployment-held
 prefix, and a general typed expression supplying the exact external id. Never add a prefix to an imported
@@ -483,13 +599,49 @@ under the lexically first id. Reject an edit that would erase an active setting,
 or allow the author to change either text. Don't treat the presence of an id in source XML alone as active.
 Positive/negative pairs: auto-submit on a question vs choice label, two roles with identical text, same source
 text with a differing translation, two simultaneous Preview sessions on one volatility key, suppressed
-sync/ordinary sync, and an Android saved incomplete entry reopened by its translated descriptor. Reuse Preview's
-true server-backed session lifecycle for cross-session settings.
+sync/ordinary sync, and an Android saved incomplete entry reopened by its translated descriptor. The current `lib/session` provides tab-local runtime state
+and an Android sync timestamp. Add a narrowly scoped expiring presence store for Web Apps Preview.
+
+Formplayer `FormSession.setVolatilityIndicators` evaluates the localized key and optional entity title in the
+initialized root context and uses `FormInit-<effective form xmlns>-<resolved key>-v2`. A null key creates no
+record. Salt that effective identity by authorized (Project, app) in Nova; shadow entries sharing a form use the
+same effective namespace. Keep one current event per key, with effective worker, display title, opened/submitted
+time, integer window and expiry. Store an opaque keyed digest for the upstream composite key and bound payload
+size. The browser starts a Web run through `resolveAuthorizedPreviewContext`; server actions verify membership
+and current revision, resolve worker/actor impersonation, derive the form namespace and check the evaluated key
+and title against that form's authorized entry snapshot. The title can describe a protected case, so return a
+notice only to a member authorized to open that form on that row. Every read, write, sync and deletion includes
+the Project and app. Stale personas or lost access cannot read a notice.
+
+In Postgres, serialize an open/submit on its scoped key, treating an expired row as absent and cleaning expired
+rows by indexed expiry. Open reads the prior unexpired row and replaces it with the new opened event unless the
+prior event was submitted. Only another effective worker sees the prior notice. Opens are eligible regardless
+of last sync. A submitted event after the reading worker's last successful restore warns of stale data; one
+before the restore is silent; equal timestamps still show the submitted notice without the stale-data warning.
+The submitted row keeps precedence even on a silent open. After successful form XML processing and before
+optional autosync, submit replaces the record and restarts expiry (reuse an existing same-worker record's
+title and TTL). Cancellation and failed validation never mark submitted. Use server time in milliseconds and
+a successful Web restore watermark per authorized app/Project, signed-in actor and effective worker, shared
+between browser instances for that identity. Initialize from the first actual restore, advance on a completed
+manual/configured sync and expire after ten days as Formplayer `RestoreFactory` does. Keep Android's separate
+device clock and tab-local answers, navigation, draft and normal session state. No presence on Android.
+
+`FormVolatilityRecord.setTimeout` caps seconds at 3,600. Java integer parse failure, overflow or absent window
+defaults to 300. A parsed positive value uses the smaller of itself and 3,600. Nonpositive integers reach
+the Redis seconds-expiry write (the pinned Spring Data `DefaultValueOperations.set` calls `SETEX`), which
+rejects them. Report a Web failure for that value; don't silently substitute a positive TTL. Test two real
+browser profiles with independent authorized workers A/B, the same effective worker from two profiles, aliases
+sharing an effective form, different forms/keys and the same source xmlns in another Project. Compare with
+served Formplayer's `MenuSessionRunnerService.establishVolatility`, `FormSubmissionHelper.updateVolatility` and
+`FormVolatilityRecord.getNotificationIfRelevant`: open A/open B, submit A/open B on both sides of B's sync
+and at equality, repeated same-worker opens, cancellation, revoked membership, expired record and a requested
+7,200 seconds live at 3,599 and gone at 3,600. Check the server's selected notice and real Web client display.
 
 ## X6. Connect blocks are content in a form
 
-Give each Connect block a UUID and one of five typed kinds (learning module, assessment, delivery unit, task,
-work-area update). Use a non-interactive question-tree node at its authored position like X3, with data
+Recognize five typed kinds at the wire boundary (learning module, assessment, delivery unit, task and work-area
+update). Give each admissible block a UUID. Preserve the fifth kind in the reader and its refusal evidence for
+the HQ forwarding path described below. Use a non-interactive question-tree node at its authored position like X3, with data
 identity, enclosing group/row and display condition. Rework `lib/domain/connectIds.ts::connectBlocks` to
 enumerate actual nodes in submission order. The wrapper and inner Connect id take the same nodeID in Vellum's
 writer. Model that one authored ID and preserve it across ordinary edits; a stored mismatch that a Vellum save
@@ -499,34 +651,114 @@ typed blocks. Permit learn and deliver roles together in the app. A role alone n
 opportunity, worker assignment or payment unit exists. Group 2 owns effective GPS and X6 reads it.
 
 A delivery can hold a blank entity input and an optional constant or typed work-area-id expression. Preserve a
-deliberate blank independently of a default from Nova's old configuration. A work-area update has expressions
-for the area id, requested status, reason, optional details and photo evidence. Preserve an observed fixed value
-as a literal expression when its Vellum save produces the same submission. If authored inline data and a bind
-differ, compare the saved Vellum form and classify dependence on that data before accepting. Keep zero learn
-time estimates. Apply limits to the reader that owns the value: learning/task slug at most 50, delivery at most
-100, assessment id under the applicable question grammar. Plural assessments in one submission (including
-multiple repeat rows) remain refused; the receiver keys an assessment by submission and returns an error on the
-second. Retain the existing separate incompatibility for a delivery and a task in one form: Connect's
-process_deliver_form checks the visit before it completes that submission's assigned task. The still-assigned
-task can turn away the visit. Use a task form before the delivery form. Do not reject learn and deliver in
-different forms of the same app. Respect repeated wrappers, conditional absence and the recursive receiver's
-reserved names; preserve its exact namespace and node shape.
+deliberate blank independently of a former default. Keep zero learning-time estimates. Learn/task slugs have a
+50-character limit, delivery slugs 100, and assessment ids use the question grammar. Keep each Vellum-saved
+inline value or calculation that determines the submission. The receiving unit must already have its payment
+unit configured. A rename can create an unpaid unit and never repoints historical payments by itself.
 
-Pinned Connect `form_receiver/processor.py::process_xform` looks up deliver and learn roles independently and
-its per-role processors traverse the submission recursively. `process_work_area_update` requires a real assigned
-area, a supported status transition, reason, matching attachment and no prior pending request.
-`process_deliver_unit` associates a nonblank work area and a configured payment unit;
-`get_or_create_learn_module` and `process_task_modules` use a block's slug. These are decisions of the receiver
-and manager, outside the blueprint. Preview shows the actual submitted blocks, target area and files;
-confirmation of payment or acceptance comes only from that receiver. The current not-yet variant
-`proof/matrix/variants/questions.py::connect_work_area_update` injects a learn form node with an inner
-`work_area` and no required fields. Vellum emits `work_area_update` and Connect matches that exact name. Keep
-the old shape as a malformed negative, then create the accepting base through Vellum in a deliver app with all
-five child nodes and a real matched attachment. The proof receiver needs both opportunity-role associations for
-a mixed app. Include successful delivery, an invalid area, missing photo, a second pending request, two
-deliveries in distinct repeat rows, a condition suppressing one, zero estimated hours and a rename of a paid
-unit with a retained old-id control. An edit/rename never silently repoints real Connect history. The HQ
-forwarding and Connect receiver evidence is necessary even when both device traces agree.
+**Decide multiplicity for a submission, across the entire tree.** Expand the actual potentially submitted rows,
+conditions and receiver field values. Check mutually exclusive guards and bounds on repetitions; a row position
+alone cannot make the value supplied to Connect unique. In the canonical document enforce the following four
+admissible kinds and give an app stopped on the fifth its exact forwarding diagnosis.
+
+* Learning completions must have distinct module slugs within one submission for one opportunity access. One
+  Vellum module at a repeated position uses the same slug on every row. Admit a maximum-one-row or
+  mutually-exclusive placement, and any number of distinct module identities. For two jointly reachable rows
+  of the same slug, refuse `questions/connect-repeats-module-completion-key`. A new form can put the module
+  outside the repeat or submit separate forms for independently earned completions.
+* Distinguish repetitions of a delivery by the receiver key `(xform_id, entity_id, deliver_unit)`. Within a
+  submission, each emitted non-null entity string must be unique *per unit*. Two distinct unit slugs may
+  deliver to the same entity. Same-unit rows may take demonstrably distinct entity ids, for example one
+  non-repeated, injectively selected case id per visit with no duplicate occurrence across outer repeats.
+  For arbitrary typed entity expressions also admit an existing, worker-enforced full-form constraint that
+  compares all reachable same-unit ids with exactly the receiver's equality. For new authoring provide that
+  visible rule or let the author change the unit/row selection. A Preview-only check cannot make an unsafe
+  imported form eligible. Jointly possible duplicate non-null ids without a preserving worker constraint
+  are REFUSED as `questions/connect-deliveries-share-receiver-key`. A blank XML element forwarded as the empty
+  string is a non-null key, so two such rows collide. The receiver uses `dict.get`: an omitted or JSON-null
+  field becomes SQL NULL, whose unique constraint allows multiple visits. Keep these value classes distinct,
+  including when re-posting one xform id. Do not manufacture NULL on export: Vellum's normal delivery writes
+  the entity child, and only a proven HQ-editor-stable projection with a truly missing value can use that case.
+  Repeated NULL visits can reference one `CompletedWork` for a given access/payment unit, and duplicate flags
+  and payout follow Connect's opportunity rules; a new submission id is also a different unique key.
+* Permit at most one reachable assessment per submission, independently of slug. The second sees the same
+  assessment and raises `ProcessingError`. Sibling alternatives proven exclusive are admissible. For tasks,
+  the receiver completes at most the one still-assigned task per slug and access. A second same-slug occurrence
+  is a no-op after the first, absent assignment is also a no-op. Represent “complete the assigned task” with
+  that idempotent meaning, show the repeated submitted blocks and only one completion. Do not promise two
+  separately recorded task completions for one slug. Different assigned tasks can complete together.
+* The receiver processes *all* deliveries before tasks, irrespective of placement. Co-emitted delivery and
+  task can reject the visit while the task is still assigned and then complete the task. Retain the separate
+  incompatibility for that combination. Allow proven mutually exclusive arms, or a task form completed before
+  the delivery form. Permit learn and deliver roles in the same app including forms with compatible blocks of
+  both roles. Keep the recursive namespace, reserved names and distinct receiver stages.
+
+Share the reachability, key and NULL rules among importer, mutations and exporter. Check each changed repeat,
+guard, id source, validation and placement transitively. A gate can prove cardinality one from the repeat
+bounds, disjoint static unit/slug values, a structural row uniqueness guarantee across enclosing repeats, or a
+preserved final uniqueness rule enforced at the real submission boundary on every declared worker (including
+skip-full-validation paths). Otherwise present the two possible row paths and the conflicting key; attaching
+a silent new rule on bring-in would change worker behavior. In the submission evaluator use stable field/row
+identities to construct the exact worker instance and a nullable, length-bounded (255 for entity id) string
+projection for the actual Connect keys. Validate the Nova submission's finalized program on the SQL side within
+the existing scoped receipt transaction before committing any case mutation. A receiver-sensitive non-null
+entity string longer than 255 is another delivery typed-input failure on insertion; constrain a new entry or
+honor a preserving constraint, with 255 and 256-character submitted controls. Run the same duplicate witnesses
+through emitted HQ/Vellum-built Web and Android forms; the supported worker-enforced uniqueness control must
+prevent submission, not just flag the already-sent form. Preview shows submitted facts; only the real receiver
+can attest the actual completed work, flags or payment.
+
+**Trace actual receive and commit.** Connect `config/settings/base.py` enables `ATOMIC_REQUESTS`.
+`form_receiver/processor.py::process_xform` runs delivery role first (one savepoint per visit, then one for the
+task batch, then work areas), learning role second (one savepoint for module creation and bulk completions,
+then assessments). `opportunity/models.py` defines `unique_xform_entity_deliver_unit` and
+`unique_xform_completed_module`. `FormReceiver.post` catches exactly these named uniqueness errors and an
+older work-area constraint name and returns HTTP 200. A failed visit rolls back its *inner* savepoint;
+earlier visits, completed-work/payment bookkeeping and their on-commit callbacks can commit when the view
+returns. Later deliveries, tasks, work areas and both learning stages never run. For a duplicate module the
+*whole* collection of completions/module creations and access updates in that savepoint rolls back. Prior
+successful delivery-role work can commit; assessments are skipped. Under ordinary validation
+`ProcessingError` instead reaches the DRF exception handler, marks the request for rollback and returns 400.
+A second assessment or missing work-area photo therefore rolls back earlier staged visits/assessments/tasks
+and drops their deferred callbacks. Do not use the receiver's HTTP acknowledgement as proof of a stored row.
+
+Prove through `proof/connect/{hq,driver}.py`, actual HQ forwarding, the real HTTP view, and committed
+Postgres state outside the request. For learn use a distinct good module plus the repeated slug, another
+distinct module, and a subsequent assessment, with an earlier valid delivery role. Expect the earlier visit
+only, HTTP 200, no new module completions or assessment, and no learn progress. Restore unique slugs and
+expect every permitted row. For delivery submit same unit/ids A,A,B plus independently observable trailing
+work and learning modules. Expect exactly the first A visit and its derived records, no B or trailing work
+despite 200. Contrast A,B, same id on distinct units, identical empty strings and two true NULLs supplied to
+the direct receiver. Repost the identical instance id in each class. Check visit identities, status, shared or
+distinct completed-work rows, accrued amount, module rows, assignment status and callbacks after commit.
+Include mutually exclusive rows, a genuine pre-existing worker constraint and two outer repeats with locally
+unique but globally duplicated inner ids. Choose verification limits and assignment fixtures explicitly, so
+each assertion exposes its intended mechanism.
+
+**Work-area updates.** Vellum writes `work_area_update` with expressions for the area id, requested status,
+reason, details and photo evidence. `process_work_area_update` accepts an assigned NOT_VISITED area, the
+REQUEST_FOR_INACCESSIBLE transition, nonblank reason and photo filename, a matching top-level attachment and
+no prior pending request. The current microplanning constraint is on a *pending request per area*.
+HQ `corehq/apps/api/resources/v0_4.py::XFormInstanceResource.dehydrate_attachments` produces top-level
+attachment metadata containing content type, length and URL. `ConnectFormRepeaterPayloadGenerator.get_payload` in
+`corehq/motech/repeaters/repeater_generators.py` keeps six metadata fields and reconstructs only paths to
+nodes whose `@xmlns` equals the Connect namespace. It drops the top-level attachment map. Even a real photo
+arriving at HQ cannot reach the prescribed receiver lookup. Classify an active update on the HQ forwarding
+path as `questions/connect-work-area-update-photo-not-forwarded` (REFUSED, broken at runtime on both workers).
+Author repair is a delivery referencing the area if that is the intended operation, or leave inaccessible-area
+requests in the existing separate service/workflow. A deliver-unit area *association* alone is admissible and
+does not perform this status transition. The stop can retire only when that forwarder carries evidence through
+the receiver without changing the saved address or identity.
+
+Keep `proof/matrix/variants/questions.py::connect_work_area_update`'s malformed learn-form `work_area` as
+a negative for a different reason. Create the correctly shaped form in Vellum, submit it through each device
+with real photo bytes and an earlier valid delivery. Observe the HQ attachment, the actual forwarded filename
+and missing manifest, Connect's 400, and no committed earlier visit/request or changed area. In a separate
+direct receiver control provide the matching top-level attachment; confirm committed request, status transition
+and queued download. Compare invalid area, wrong worker, blank reason, second pending request and missing photo.
+A later learn block is not processed on rejection. Include the independent Vellum-saved delivery-unit area id
+as a full accepting HQ-forwarded neighbor. Correct the formerly broad not-yet row and its retained controls in
+the implementation PR.
 
 ## Changes to saved data, releases and permanent evidence
 
@@ -553,9 +785,18 @@ identities. Cover an app with a role and zero blocks. A read-only scan identifie
 horizon and replayable suffix, project-bearing fold baselines, active/saved app-test state and adopted targets
 affected. Compare the before/after real projections; include local archive, HQ source, Connect registry/delivery
 keys and replay. Apply under the [direct-cutover contract](../../../architecture/contracts.md), with an
-app-sequence lock and immutable, Project-bearing fold starts, one atomic change per changed app, idempotent
-rerun, restore point, post-scan and old/new reader incompatibility check. Default root/order/hidden fields for
-documents without the new settings need no invented migration values. Advance runtime and model context versions
+app-sequence lock and immutable, Project-bearing fold starts. Materialize each usable target’s converted
+reference under the [shared fold procedure](../7-rest-of-model.md#a-fold-preserves-each-live-deployments-comparison-point)
+before advancing the app horizon. Use one atomic change per changed app, idempotent
+rerun, restore point, post-scan and old/new reader incompatibility check. Scan every live app for earlier ordinary/derived
+names newly recognized as submission dispatch (including Web fixture/schema), reachable duplicate receiver
+keys, existing data-path collisions and affected declared platforms. Keep existing submitted identities and
+rows intact. If an existing app triggers one of these real upstream failures, report the exact affected
+deployment, form, field, platform and repair with before/after submission evidence. Do not auto-rename a
+published address or change the app's platforms in a migration. An affected owner chooses the scoped
+repair in the ordinary mutation flow under the current schema, with the first-publish review for any address
+move. Run the read-only scan again before the stricter validator cutover. Default root/order/hidden fields on documents without the new settings need no invented
+migration values. Advance runtime and model context versions
 for their actual changes, update retained snapshots and dependent plugin guidance in the coordinated release
 order.
 
