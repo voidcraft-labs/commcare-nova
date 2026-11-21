@@ -3122,7 +3122,10 @@ Rules that complete the table:
 - **Media on a slot Nova holds none for** (a hint, a validation message, a group's, repeat's or
   section's label). The three `account` entries of the `image`, `audio`, `video` row each say "other
   than a missing file", so the claim is made only where `input.media.resolve(path)` answers `asset`;
-  the asset reaches no slot and is not listed. Where it answers `no-entry` or `unreadable`, the
+  the reference reaches no editable media slot. The reader records its question path, itext role,
+  language, media kind and file path in `ReadFacts.unheldMedia`. HQ's
+  `XForm.media_references` includes these itext values in the source form's media. Part 11
+  checks the file and part 09's `unshown-form-media-removed` names the omitted reference. Where it answers `no-entry` or `unreadable`, the
   `value` is handed off (`"media-reference"`) as a `PendingMedia` of slot `unheld_itext` (12.4):
   Android's install check reaches every itext media form, held slot or not, so part 11's rule must
   see it (its 3.2, row 1).
@@ -3272,7 +3275,7 @@ export interface PendingMedia {
 }
 ```
 
-Part 11's `hqMediaReferencesOf(facts)` (its 2.1) is the one bridge from these two lists to its own
+Part 11's `hqMediaReferencesOf(facts)` (its 2.1) is the one bridge from the held, unheld and pending references to its own
 `HqMediaReference`, and its table of slot strings is the contract: this part writes exactly
 `field_media_bundle`, `option_media`, `app_logo` and `unheld_itext`.
 
@@ -4285,8 +4288,13 @@ stage 7 they read `ctx.doc` and patch it by assigning a new frozen document (2.3
 export interface ReadFacts {
 	/** HQ's `cloudcare_enabled`. */
 	readonly webAppsOnInHq: boolean;
-	/** Every media reference whose path resolved to an asset. */
+	/** Resolved references on slots Nova holds. */
 	readonly mediaReferences: readonly ReadMediaReference[];
+	/** Resolved references on itext slots the form uses but neither client shows. */
+	readonly unheldMedia: readonly (Omit<PendingMedia, "resolution"> & {
+		readonly role: "hint" | "constraintMsg" | "label";
+		readonly languageCode: string;
+	})[];
 	/** Every media reference handed off: no file for its path (12.4). */
 	readonly pendingMedia: readonly PendingMedia[];
 	/** Every itemset over a table the catalog does not hold, handed off (10.1), and each tag an
@@ -4375,7 +4383,7 @@ reach the reader as `input.organization` (2.2), and the structure stage puts the
 
 What the reader gives back, for part 11's rules to judge in the same request:
 
-- `facts.mediaReferences` and `facts.pendingMedia` (12.4), which part 11's `hqMediaReferencesOf`
+- `facts.mediaReferences`, `facts.unheldMedia` and `facts.pendingMedia` (12.2 and 12.4), which part 11's `hqMediaReferencesOf`
   turns into its `HqMediaReference` list for `planHqMedia`;
 - `facts.unreadTables` (10.1), which with the table ids the document holds
   (`lib/doc/lookupReferences.ts::extractLookupReferenceTargets`) is what part 11's

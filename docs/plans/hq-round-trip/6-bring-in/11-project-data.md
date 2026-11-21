@@ -56,12 +56,12 @@ part adds, and this part adds no document slot.
 3. **A file's bytes are judged in the read and kept nowhere** (2.2). The create fetches them again,
    keeps them in memory until its digest and its answers have passed, and then publishes them
    (4.1). Nothing is staged between the two requests (Departure 1).
-4. **A reference with no file is judged by where it is drawn** (3). In an app that runs on Android,
+4. **A reference with no file is judged at installation and where it is drawn** (3). In an app that runs on Android,
    a question's, a choice's and an image column's missing file is a `fix-in-hq` finding; so is a
    question's missing sound or video in an app that runs in Web Apps, where the player shows with
    nothing to play, and an image column's picture with no map entry there, which shows broken (run
    R2); and so is any reference Android's media check at install reaches while that check is on. A
-   menu's, a form's or the Register action's icon or audio label with no file is inert and listed
+   menu's, a form's or the Register action's icon or audio label with no map entry is otherwise inert and listed
    in the review, and so, in an app that runs in Web Apps only, is a question's picture with no map
    entry and a choice's media.
 5. **Files are published as ordinary ready rows before the birth transaction, by the code MCP's
@@ -531,7 +531,9 @@ export interface HqMediaFile {
 	readonly multimediaId: string;
 	/** The kind Nova fetches it as: Image, Audio or Video by `mediaType`. */
 	readonly kind: MediaKind;
-	/** Every referenced path that names it, in code-unit order. */
+	/** An existing file referenced only from unheld itext needs an availability check. */
+	readonly availabilityOnly?: true;
+	/** Paths on held slots in code-unit order, or the unheld paths if none are held. */
 	readonly paths: readonly string[];
 	/** The references whose `kind` is this file's `kind`. Never empty. */
 	readonly references: readonly HqMediaReference[];
@@ -590,7 +592,9 @@ the file would be fetched as a video, judged `held`, and handed to an audio slot
 `admitExactMediaReferences` refuses ("the wrong kind for its authored slot",
 `lib/db/canonicalCommitKernel.ts`): a gate refusal at creation, which 4.3 rules out.
 
-More than `MAX_MEDIA_EXPORT_ASSETS` files is a finding at once, with no fetch (4.3).
+More than `MAX_MEDIA_EXPORT_ASSETS` distinct files referenced by held slots is the export asset-count finding
+(4.3). All distinct HQ file reads, including availability checks, share the same ceiling. When
+only that read ceiling is exceeded the request returns `too-large` before fetching any file.
 
 ### 2.2 The fetch
 
@@ -599,6 +603,10 @@ credential Nova already stores, bounded, with one resend, under the file's own d
 bring-in requests fetch and judge every file the document references, once by `(mediaType,
 multimediaId)`, through one function. A read judges each file and keeps nothing of it. A create
 judges each file again and keeps the bytes of the held ones for its publish (4.1).
+For a file referenced only from an unheld itext slot, the bounded file read needs only the HTTP
+verdict. An available file reaches no asset validation, export budget or storage. A confirmed
+missing file goes through section 3, including the refusal for a required Android download.
+A file also used in a held slot goes through ordinary byte validation once.
 
 ```ts
 /** `lib/deployment/reading/projectData/media.ts`. What judging a file's bytes found. */
@@ -616,6 +624,7 @@ export interface JudgedMediaFile {
 }
 export type HqMediaVerdict =
 	| { readonly kind: "held"; readonly file: JudgedMediaFile }
+	| { readonly kind: "available" }
 	| { readonly kind: "missing" }
 	| { readonly kind: "over-limit"; readonly mediaKind: MediaKind; readonly capBytes: number }
 	| { readonly kind: "refused"; readonly reason: ValidationFailureReason;
@@ -641,8 +650,10 @@ export function judgeReadingMedia(input: {
 For each file:
 
 1. `readHqMediaFile(creds, file.mediaType, file.multimediaId, { maxBytes:
-   ASSET_SIZE_CAPS_BYTES[file.kind], cancel })`.
-2. `missing` is the verdict `missing`. `too-large` is `over-limit` with that kind and cap. A
+   file.availabilityOnly ? 1 : ASSET_SIZE_CAPS_BYTES[file.kind], cancel })`.
+2. `missing` is the verdict `missing`. For an availability-only read a successful response,
+   including a body larger than the one-byte cap, settles the file as `available` and ends its
+   check. For an adopted file `too-large` is `over-limit` with that kind and cap. A
    `CommCareApiError` ends the call: the requests in flight are aborted and the answer is `failed`
    with `classifyHqFailure(error, "media-file")`. A file CommCare HQ could not send this minute is
    no fact about the app, so part 12 ends the request with `hqReadCircumstance`'s code and no
@@ -760,15 +771,15 @@ export function mediaFindings(input: {
 
 A `missing` verdict is known only once the bytes are asked for, after `planHqMedia` made its
 `inert` and `claims`, and the reader then hands each of those references off (`readingMediaIndex`
-answers `unreadable`). One that row 4 places (an Android-only app's menu icon whose file CommCare
-HQ lost, say) is no finding, so without a claim of its own no settlement would hold it and part
-09's check 1 would refuse the reading. `mediaFindings` therefore answers the row-4 references of
+answers `unreadable`). A missing icon covered by row 2b or an undrawn reference covered by row 4
+has a claim of its own, so part 09's check 1 can settle it. `mediaFindings` returns those references of
 missing files and their claims beside its findings, and `readingMediaFindings` passes them on
 (14.2): part 12 files those claims in the claim log as it files `HqMediaPlan.claims`, and
 `handOffSettlements` (14.3) settles them as it settles `HqMediaPlan.claims`.
 
 | Verdict | Finding | Standing | Place and `detail.name` |
 |---|---|---|---|
+| `available` | none. The mapped file exists and only an unheld itext slot uses it | | |
 | `over-limit` | `expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app` | not-yet | `{ kind: "media", path: file.paths[0] }`; name `"<path> (over <cap> MB, the most Nova takes for <a picture / a sound / a video>)"` |
 | `refused`, by `hqMediaRefusalEntry` (below) | the format's own REFUSED entry | fix-in-hq, cause `breaks-when-run` | the media place; name the path |
 | `refused`, no entry | `unrecognized` | not-yet | name the path; logged at error with the reason and the sniffed type |
@@ -821,7 +832,7 @@ HQ does not serve: a null `multimedia_id`, the verdict `missing`, or an `unreada
 
 ### 3.1 What each runtime does, read at source
 
-| Slot, kind | Web Apps, no entry | Web Apps, no file | Android, either |
+| Slot, kind | Web Apps, no entry | Web Apps, no file | Android, once installed |
 |---|---|---|---|
 | `form`, image | nothing: the `resourceMap` reply returns `undefined` for a path the map lacks (`formplayer/app.js`), and the `<img>` is `visible: mediaSrc(...)` (`multimedia.html`, `help_multimedia.html`) | the reply builds an address from the entry, so the picture shows broken | the missing-file prompt (`MediaLayout.setupImage` to `showMissingMediaView`) |
 | `form`, audio or video | a player with nothing to play: the `<audio controls>` and `<video controls>` are `visible: caption_audio`, `caption_video`, `help_audio` and `help_video`, the paths formplayer sends whatever the map holds (`PromptToJson.parseCaption`, `parseQuestion`) | the same player, with an address that has no file | audio shows its button for any reference (`setupStandardAudio`); a video shows the download icon and a toast (`setupVideoButton`) |
@@ -832,7 +843,15 @@ HQ does not serve: a null `multimedia_id`, the verdict `missing`, or an `unreada
 | `logo` | nothing (`cloudcare/utils.py` hands the path to the same reply) | a picture with no file | Android ignores this slot (the entry's platform cell) |
 | `unheld-itext` | no runtime draws it (`lib/media/CLAUDE.md`) | the same | the same |
 
-And Android's media check at install, which runs while `cc-content-valid` is not `yes`
+A fresh device first has to install the resources the build requires. HQ's
+`MediaSuiteGenerator.media_resources` writes the remote download address for a used map entry.
+An image whose required download returns 404 can stop installation before a menu opens.
+Only a referenced mapping with a usable media class and id and a 404 from the actual file view
+provides this evidence. HQ defers only videos when `lazy-load-video-files` is explicitly true.
+Part 14, section 6.3, observes both Android
+devices refusing the WASH starter for the mapped icon.
+
+Android's subsequent media verification runs while `cc-content-valid` is not `yes`
 (`CommCareApp.areMMResourcesValidated`; the setting is kept at CommCare HQ's value, part 01's
 `application-and-settings/17-properties-cc-content-valid`): it checks every `image`, `audio` and
 `video` form of every itext entry in every language (`XFormAndroidInstaller.verifyInstallation`),
@@ -875,9 +894,9 @@ For a reference with no entry or no file, first match:
 | # | When | Result |
 |---|---|---|
 | 1 | the app runs on Android, `contentValid !== "yes"`, and `androidInstallCheckReaches` | finding `expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install` (REFUSED, `fix-in-hq`) at the reference's place, name the path |
-| 2b | an image on a `tile`, `register-action` or `logo` slot whose entry names no file, which Web Apps alone draws, as an empty or broken picture | inert as row 4, its claim marked `brokenPicture`, and the first publish says so under `broken-pictures-removed` (touches workers) |
+| 2b | an image on a `tile`, `register-action` or `logo` slot whose entry names no file, leaving Web Apps with a broken picture or Android with a required download it cannot complete | inert as row 4, its claim marked `brokenPicture`, and the first publish says so under `broken-pictures-removed` (touches workers) |
 | 2 | some platform the app runs on draws it (`mediaSlotDrawnOn`) and there is no entry | finding `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws` (new, REFUSED, `fix-in-hq`; 13.1) |
-| 3 | some platform the app runs on draws it and there is no file | the circumstance `media-file-unreadable` at `{ kind: "media", path }`, name the path, made through part 01's `circumstanceFinding` as every circumstance of this part is (13) |
+| 3 | a file is missing and a platform the app runs on draws it or requires its download | the circumstance `media-file-unreadable` at `{ kind: "media", path }`, name the path, made through part 01's `circumstanceFinding` as every circumstance of this part is (13) |
 | 4 | otherwise | inert: the reference is in `HqMediaPlan.inert`, the reader assembles the slot with no media (its `no-entry` and `unreadable` arms put no asset in a slot), and `HqMediaPlan.claims` files the reference under the INERT entry `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` (13.1) |
 
 "The app runs on" is `runsOn`, the declaration the draft proposes: what the content runs on,
@@ -886,10 +905,9 @@ who would rather declare Web Apps only cannot pick that to pass row 2, because t
 before the review; the finding's next step is the one that also fixes the app for its workers.
 
 Row 2b comes before row 2: CommCare HQ's own starter app keeps the template's map entry for a
-form's icon with no file in the project space, and Web Apps then draws an icon with nothing behind
-it while Android draws nothing, so the app reads, the icon is left out, and the first publish's
-`broken-pictures-removed` says the empty icon goes (`mediaLeftOut.brokenPictures`, counted by
-`projectData/media.ts::mediaLeftOutOf`). Row 3 keeps a question's, a choice's and a list's image
+form's icon with no file in the project space. Web Apps requests the broken picture. The released
+Android media suite requires it and HQ returns 404, so a fresh installation cannot finish. The
+app reads and `broken-pictures-removed` discloses leaving the icon out of the first publish (the claim for this icon has `brokenPicture: true`). Row 3 keeps a question's, a choice's and a list's image
 and every sound, which a runtime draws as a prompt, a player with nothing to play or the archive
 icon.
 
@@ -897,8 +915,7 @@ Row 4's references are listed in the review ("What Nova leaves out", Copy R3). T
 then removes those paths from the forms and menus, and CommCare HQ drops their map entries
 (`remove_unused_mappings`). Nothing a worker sees changes, by 3.1, so the first-publish register
 needs no entry that touches workers; part 09's `FIRST_PUBLISH_CHANGES` (its section 11.2) holds
-the entry `media-references-with-no-file-removed` (predicate: `mediaLeftOut.undrawn`, row 4's
-references, is above zero; touches workers: no), so the lane's observed difference
+the entry `media-references-with-no-file-removed` (predicate: a row-4 media claim with `brokenPicture: false`; touches workers: no), so the lane's observed difference
 has a name. Its `MEDIA_REFERENCE_PATHS` are the slots `hqMediaReferencesOf` reads (2.1).
 
 ---
@@ -1013,7 +1030,7 @@ in the meantime is theirs. This is what a failed Project move leaves, for the sa
 `expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app` at
 `{ kind: "app" }`, whose entry is `not-yet` under `project-data-at-hq-size`, when:
 
-- the plan holds more than `MAX_MEDIA_EXPORT_ASSETS` files: known from the source, so it is in
+- the plan holds more than `MAX_MEDIA_EXPORT_ASSETS` distinct files for held slots: known from the source, so it is in
   `planHqMedia`'s findings before any file is fetched; `detail.name` is `"<n> media files (Nova
   takes 500 in one app)"`;
 - or `exportBudgetExcess` over the files held so far (as rows `{ status: "ready", kind, sizeBytes
@@ -1022,7 +1039,9 @@ in the meantime is theirs. This is what a failed Project move leaves, for the sa
 
 The same two limits bound what one request fetches, so no new number is made:
 
-- Over the count, `judgeReadingMedia` starts no file.
+- Over the total number of distinct planned file reads, including files used only on unheld slots,
+  `judgeReadingMedia` starts no file. The same ceiling covers the union of both sources in a
+  review of changes made in HQ.
 - Once the held files pass `MAX_MEDIA_EXPORT_BYTES`, it starts no further file. Those in flight
   finish, and it answers `done` with the plan as it then stands. `readingMediaFindings` (14.2)
   answers `complete: false` for such a plan, with the budget finding among its findings.
@@ -4614,8 +4633,8 @@ weighed and not taken, as "Not done", so that an implementer who reaches for it 
 9. **From part 05's media read (its section 9: a body is "returned as bytes with the declared type
    as a hint").** The response's content type is not passed to `lib/media`. A hint that may not
    change the verdict is a second input with no reader.
-10. **A reference with no file is judged by slot, kind and platform, each read at source** (3.1):
-    inert and listed where no runtime the app runs on draws it, and a finding otherwise. Every
+10. **A reference with no file is judged by the build's required downloads and by slot, kind and platform** (3.1).
+    Section 3.2 distinguishes source repairs from the first-publish change for a broken icon. Every
     cell was read to a verdict: the Register action's on Android (nothing is drawn:
     `EntityActionViewUtils.setupActionAudio`, `setupActionImage`), a choice's in Web Apps (nothing
     is drawn: `PromptToJson.parseSelect` sends no media), and a question's sound or video in Web
