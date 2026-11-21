@@ -271,7 +271,8 @@ def document_sites(document, records):
     """``build_sites`` of each build proof 2 compares on one document, A's and B's aligned to A under each
     configuration, and ``header_sites`` of the two stored apps they are built from, as one
     (``changes.merged_sites``: an element two builds place apart is no place)."""
-    from proof.checks import changes, observations
+    from proof.checks import changes, observations, xform_parts
+    from proof.checks.compare.build_files import artifact_for
 
     found = []
     for name in sorted(document.exports):
@@ -279,6 +280,15 @@ def document_sites(document, records):
         if observed.a is not None and observed.a.build is not None:
             found.append(build_sites(observed.a.build.files))
             found.append(header_sites(observed.a.doc))
+            # Only the brought-in saves judge form XML. Tie the removed itext value in A's build to
+            # its own control or bind, including its language, media kind and original file.
+            if changes.UNSHOWN_MEDIA in document.next_publish:
+                build = observed.a.build
+                for profile, files in [(None, build.files), *build.profile_files.items()]:
+                    for path, xml in (files or {}).items():
+                        artifact = artifact_for(path, profile)
+                        if form_artifact(artifact):
+                            found.append(changes.Sites(builds=xform_parts.unshown_media_sites(xml, artifact)))
         if observed.b_aligned is not None:
             found.append(build_sites(observed.b_aligned.files))
         if observed.b is not None:

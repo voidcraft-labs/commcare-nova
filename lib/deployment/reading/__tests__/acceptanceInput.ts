@@ -180,7 +180,7 @@ export function acceptanceInput(
 		choices,
 		settlements: [],
 		lookup: NO_TABLES,
-		mediaLeftOut: { undrawn: 0, brokenPictures: 0 },
+		mediaClaims: [],
 		media: { files: [], rows: new Map() },
 		...overrides,
 	};

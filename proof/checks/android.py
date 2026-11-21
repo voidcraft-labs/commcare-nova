@@ -772,6 +772,38 @@ def configuration_behavior(document, held, *, device=ANDROID, rules=(), menus, p
     return found
 
 
+def recovered_walks(document, artifact, answer):
+    """When A cannot run, a stop common to the recovered walks still needs its own evidence."""
+    prefix = "/after-install"
+    found = []
+
+    def problem(path, at, expected, actual):
+        found.append(Difference("proof3", document, artifact, prefix + path, prefix + at, "error", expected, actual))
+
+    if answer.get("areMMResourcesValidatedAfterInstall") is not True:
+        problem("/media", "/media", True, answer.get("areMMResourcesValidatedAfterInstall"))
+    if signed_in(str(answer.get("signIn"))) != "Success":
+        problem("/sign-in", "/sign-in", "Success", answer.get("signIn"))
+    walks = answer.get("walks") or {}
+    if "root" not in walks:
+        problem("/walks/root", "/walks/root", "root menu walk", None)
+    for name, walk in walks.items():
+        at = "/walks/" + pointer_token(name)
+        if walk.get("raised") or not walk.get("steps"):
+            problem("/walks/*", at, "walked", walk.get("raised"))
+        for index, step in enumerate(walk.get("steps") or []):
+            form = step.get("form")
+            stop = _stopped_at(step)
+            if form is not None:
+                saved = form.get("saved") or {}
+                if (not form.get("loaded") or form.get("ended") not in ("end", "finished")
+                    or saved.get("finishing") is not True or saved.get("resultCode") != -1):
+                    stop = form.get("alert") or saved.get("alert") or form.get("ended") or "form did not load"
+            if stop:
+                problem("/walks/*/steps/*", at + f"/steps/{index}", "completed", stop)
+    return found
+
+
 # Proof 4 ------------------------------------------------------------------------------------------------------
 
 

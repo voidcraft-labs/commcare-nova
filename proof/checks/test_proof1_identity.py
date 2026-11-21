@@ -28,7 +28,7 @@ from proof.checks import cases, changes, observations, proof1, registers
 
 @pytest.mark.parametrize("document", cases.document_params("proof1") + cases.control_params("proof1"))
 def test_identity_survives_the_next_publish(document, hq, core_runner, editor_driver):
-    found = proof1.document_identity(
+    found, sites = proof1.document_identity_and_sites(
         document, observations.records_for(document, core_runner, editor_driver=editor_driver)
     )
     witnesses = {emitted.id for emitted in cases.load_corpus().emitted if emitted.migration_witness}
@@ -36,8 +36,8 @@ def test_identity_survives_the_next_publish(document, hq, core_runner, editor_dr
     # A difference a change that applies to the document declares (proof.checks.changes): on an app made in CommCare
     # HQ, the first-publish register's; on a document whose saves in CommCare HQ are brought in, a change the review
     # lists for the next publish.
-    declared, _ = changes.declared(document, "proof1", found)
-    found = changes.undeclared(document, "proof1", found)
+    declared, _ = changes.declared(document, "proof1", found, sites=sites)
+    found = changes.undeclared(document, "proof1", found, sites=sites)
     cases.hold(
         "proof1",
         document,

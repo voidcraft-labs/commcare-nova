@@ -71,8 +71,9 @@ An entry applies in two places, and on no other document and no control:
   states the republish ``brings-in``), where Nova's review of those saves
   lists it for the next publish (the statement's ``publishChanges``, which the
   capture holds to the review's own list,
-  ``proof/corpus/publish.ts::bringInOverPeer``). The review names no place, so
-  each such change stands everywhere and holds by its rows alone.
+  ``proof/corpus/publish.ts::bringInOverPeer``). Unshown form media stands at
+  the current reading's exact places recorded by that capture. Other changes
+  stand everywhere and hold by their rows.
 
 A document made in HQ states no saves (``proof/corpus/entryWriter.ts`` refuses
 both), so a document has one list or none. The judge is strict both ways
@@ -148,6 +149,7 @@ ROW_KEYS = frozenset({"check", "artifact", "path"})
 OPTIONAL_ROW_KEYS = frozenset({"kind"})
 OWNED_PROFILE_SETTINGS = ("/profile/properties/cc-show-saved", "/profile/properties/cc-show-incomplete")
 CASE_SCALAR_TRIM = "".join(chr(unit) for unit in range(0x21))
+UNSHOWN_MEDIA = "unshown-form-media-removed"
 # The kinds of place (``lib/deployment/reading/firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS``).
 APP_WIDE = "app-wide"
 PLACE_KINDS = frozenset({APP_WIDE, "app", "menu", "form", "form-node", "form-part", "case"})
@@ -202,7 +204,8 @@ class Change:
     def matches_value(self, difference) -> bool:
         """The value a row permits where its path and kind alone cannot distinguish the declared change."""
         if self.change in {"web-apps-turned-on", "web-apps-turned-off"} and difference.at in {
-            "/cloudcare_enabled", "/home/releaseListed"
+            "/cloudcare_enabled",
+            "/home/releaseListed",
         }:
             enabled = self.change == "web-apps-turned-on"
             return difference.kind == "changed" and difference.before is (not enabled) and difference.after is enabled
@@ -425,7 +428,7 @@ def _trace_location(difference, sites: Sites) -> tuple[str, ...]:
         return ("app", "cloudcare_enabled")
     if artifact == "webapps@B" and difference.at == "/home/tiles/incomplete":
         return ("app", "profile", "properties", "cc-show-incomplete")
-    if artifact.startswith(("formplayer@", "android@", "android-tablet@", "connect@")):
+    if artifact.startswith(("formplayer@", "webapps@", "android@", "android-tablet@", "connect@")):
         owner = _site(sites.served, (artifact, difference.at))
         # The saved device case is attributed to its type and property only once the form that
         # actually wrote it has also agreed across both readers' records and all configurations.
@@ -704,6 +707,8 @@ def locate(difference, sites: Sites = NO_SITES) -> tuple[str, ...]:
     if difference.check == "source" or (difference.check == "proof1" and difference.artifact == "app.json"):
         return _app_location(unescaped(difference.at))
     if difference.check == "proof1":
+        if difference.artifact == "android@local.ccz":
+            return _site(sites.served, (difference.artifact, difference.at))
         steps = unescaped(difference.at)
         if difference.artifact.startswith("form:") and _position(difference.artifact[5:]):
             position = difference.artifact[5:]
@@ -723,6 +728,57 @@ def locate(difference, sites: Sites = NO_SITES) -> tuple[str, ...]:
         return _build_location(difference, sites)
     if difference.check == "proof3":
         return _trace_location(difference, sites)
+    return NOWHERE
+
+
+def _unshown_media_location(d, sites):
+    """Only the whole unavailable-to-the-worker slot or its last file reference may disappear. The review
+    supplies exact owners; the comparison must independently show the removal of the right kind of value."""
+    if d.kind != "removed" or d.after is not None:
+        return NOWHERE
+    if d.check == "source" and d.path.startswith("/_attachments/*/data/*/:itext/"):
+        where = locate(d)
+        if (
+            len(where) >= 9
+            and where[-4] == ":itext"
+            and where[-3] in ("hint", "constraintMsg", "label")
+            and where[-1] in ("audio", "image", "video")
+            and isinstance(d.before, str)
+            and d.before.strip().startswith("jr://file/")
+            and "<" not in d.before
+        ):
+            return where
+    if d.path in ("/multimedia_map/*", "/modules/*/forms/*/media/*"):
+        where = locate(d)
+        if not where or not where[-1].startswith("jr://file/"):
+            return NOWHERE
+        if d.check == "source" and isinstance(d.before, dict) and d.before.get("doc_type") == "HQMediaMapItem":
+            return where if d.before.get("multimedia_id") and d.before.get("unique_id") else NOWHERE
+        if d.check == "proof1":
+            expected = {"mapped": True} if d.path.endswith("/media/*") else {}
+            return where if d.before == expected else NOWHERE
+    if d.check != "proof2" or not isinstance(d.before, str):
+        return NOWHERE
+    from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
+
+    try:
+        element = parse_xml(d.before)
+    except XmlNotWellFormed:
+        return NOWHERE
+    steps = _xml_steps(d.at)
+    if d.artifact.rpartition("/")[2] == "media_suite.xml" and len(steps) == 2 and element.tag == "media":
+        resources = element.findall("resource")
+        if len(element) != 1 or len(resources) != 1 or resources[0].get("id") != _identity(steps[1], "[resource/@id="):
+            return NOWHERE
+        where = locate(d, sites)
+        if not where:
+            return NOWHERE
+        local = resources[0].findall("location[@authority='local']")
+        return where if len(local) == 1 and local[0].text == "./" + where[-1].removeprefix("jr://file/") else NOWHERE
+    if len(steps) == 7 and element.tag == "{http://www.w3.org/2002/xforms}value":
+        language, identity, kind = (_identity(steps[4], "[@lang="), _identity(steps[5]), _identity(steps[6], "[@form="))
+        if kind and element.attrib == {"form": kind} and not len(element):
+            return _site(sites.builds, (d.artifact, language, identity, kind, (element.text or "").strip()))
     return NOWHERE
 
 
@@ -911,8 +967,8 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
     """The changes that apply on ``document``, each with the places it stands at: on a document made in HQ, those
     its reading says the first publish makes (``corpus.Document.first_publish_places``), each held to its entry's
     kinds; on a corpus document whose saves in CommCare HQ are brought in, the changes of the next publish Nova's
-    review of them lists (``corpus.Document.next_publish``), each everywhere; none on any other document or on a
-    control."""
+    review of them lists (``corpus.Document.next_publish``). Unshown form media keeps the current reading's
+    exact places. The other next-publish changes stand everywhere. None applies on any other document or control."""
     if getattr(document, "hq_authored", False):
         listed = dict(document.first_publish_places)
         by_id = {change.change: change for change in register}
@@ -943,7 +999,10 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
         return {change_id: tuple(places) for change_id, places in listed.items()}
     if getattr(document, "kind", "corpus") == "control":
         return {}
-    return {change_id: EVERYWHERE for change_id in getattr(document, "next_publish", ()) or ()}
+    return {
+        change_id: tuple(document.unshown_media_places) if change_id == UNSHOWN_MEDIA else EVERYWHERE
+        for change_id in getattr(document, "next_publish", ()) or ()
+    }
 
 
 def _applying(document) -> frozenset[str]:
@@ -1012,7 +1071,12 @@ def holders(
         where = applying.get(change.change)
         if where is None or not _held_by(difference, change, places):
             continue
-        score = _most_exact(where, located)
+        if change.change == UNSHOWN_MEDIA:
+            owner = _unshown_media_location(difference, sites)
+            # A nearby slot or an unknown location anywhere below this form cannot authorize a removal.
+            score = len(owner) if owner and any(tuple(unescaped(place)) == owner for place in where) else None
+        else:
+            score = _most_exact(where, located)
         if score is not None:
             scored.append((change.change, score))
     if not scored:
@@ -1099,7 +1163,7 @@ def _row_exactness(row: Row) -> tuple[int, bool]:
     return len(tokens(row.path)), row.kind is not None
 
 
-def naming(difference, changes, applying) -> str | None:
+def naming(difference, changes, applying, sites=NO_SITES) -> str | None:
     """The one entry that names ``difference`` as a change of its own, where it does not apply: of the rows of the
     register that match the difference (``Row.matches``) and that no other entry holds too (a class two entries
     share names neither), the most exact (``_row_exactness``) belong to one entry, and that entry does not apply.
@@ -1114,7 +1178,10 @@ def naming(difference, changes, applying) -> str | None:
         (row, change.change)
         for change in changes
         for row in change.rows
-        if len(holders_of[row]) == 1 and row.matches(difference) and change.matches_value(difference)
+        if len(holders_of[row]) == 1
+        and row.matches(difference)
+        and change.matches_value(difference)
+        and (change.change != UNSHOWN_MEDIA or _unshown_media_location(difference, sites))
     ]
     if not matching:
         return None
@@ -1150,7 +1217,7 @@ def judged(
             if holding:
                 seen.update(holding)
                 continue
-            change_id = naming(difference, changes, applying)
+            change_id = naming(difference, changes, applying, sites)
             if change_id is not None:
                 found.append(
                     _changes_difference(
@@ -1351,8 +1418,8 @@ def _held_file(output: Path, document: str, name: str):
 
 def _placed_in(output: Path, document: str) -> dict[str, tuple[str, ...]]:
     """The entries that apply on the document as the run's output holds it, each with its places (``placed``): the
-    changes its ``first-publish.json`` lists, where it is made in HQ, and, everywhere, the changes of the next
-    publish its ``hq-side.json`` states its review lists, where it states the republish brings its saves in."""
+    changes its ``first-publish.json`` lists, where it is made in HQ, and the next-publish ids its
+    ``hq-side.json`` lists when it brings in saves. This legacy layout has no places for unshown media."""
     applying: dict[str, tuple[str, ...]] = {}
     first = _held_file(output, document, "first-publish.json")
     if isinstance(first, dict):
@@ -1361,7 +1428,8 @@ def _placed_in(output: Path, document: str) -> dict[str, tuple[str, ...]]:
     saves = _held_file(output, document, "hq-side.json")
     if isinstance(saves, dict) and saves.get("republish") == "brings-in":
         for change_id in saves.get("publishChanges") or ():
-            applying[change_id] = EVERYWHERE
+            # Older replay evidence without exact places cannot authorize removing any source's media.
+            applying[change_id] = () if change_id == UNSHOWN_MEDIA else EVERYWHERE
     return applying
 
 

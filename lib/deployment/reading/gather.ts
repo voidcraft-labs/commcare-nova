@@ -1832,7 +1832,7 @@ async function checkWith(
 				...files.findings,
 			]),
 			lookup,
-			mediaLeftOut: mediaLeftOutOf(judgedPlan.claims),
+			mediaClaims: judgedPlan.claims,
 			media: { files: mediaFiles, rows: readingMediaRows(plan) },
 			heldExpansions: pieces.expansions,
 		}),

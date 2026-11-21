@@ -726,6 +726,30 @@ no longer accepts gets HQ's own refusal whether or not a Nova app holds the
 app; the advice still comes before any table, place or file is read. `read.ts` answers a stop, an account or a
 review with its digest.
 
+HQ includes hint and validation media and group or repeat label media in its
+form media lists even though neither client draws it. A mapped file used only
+there takes an availability check at the same bounded HQ transport, with a
+one-byte limit. A successful file response requires no asset validation,
+storage, or Project media budget. A held slot naming the same file makes the
+one read a full file check. At most 500 distinct media files are read across
+both sides of a changes review. The first publish removes these unshown form
+references (`unshown-form-media-removed`); a path another slot keeps remains
+in its media list. `unused-media-entries-removed` counts only map entries
+already unused in the source app.
+
+HQ's media suite includes used paths with file mappings, including mapped logo
+paths. A non-edge 404 for the mapped file class and id establishes that a
+fresh Android install cannot fetch a required resource. This download happens
+before the separate media content check (`cc-content-valid`) and before a widget
+can draw. When the reading can omit a tile, Register action or Web Apps logo
+image, it discloses the broken Web Apps picture or required Android file as
+`broken-pictures-removed`. Other required missing files, including a menu
+sound, refuse the reading. HQ can defer only videos when
+`lazy-load-video-files` is `true`. A path with no mapping, no usable file id or
+no download verdict supplies no evidence of a failed download. An already
+installed app or a local archive can reach a screen that a fresh install of the
+HQ release cannot.
+
 A reading's lookup rows are bounded per table (`HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`,
 past which the table is a caps finding, "more data than Nova reads for one
 table") and per request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read
@@ -1074,7 +1098,11 @@ request's held emissions (`Pieces.expansions`), so the fixed point's re-read
 of the reading now is answered with that reading's emissions. The readings made
 to learn which files the sources name are the readings the check takes where
 no judged file changes what the media index answers (none missing, none
-published), so a review reads each source once. The files settling a
+published), so a review reads each source once. The comparison uses the same
+file verdict for a path both sources map to the same HQ file. An icon that
+was already missing when the app or its changes came in is accounted for on
+both sides of a later edit. A path the reference publishes still names Nova's
+own asset on the baseline side. The files settling a
 published path by content read are handed to the judge of the files the
 sources name (`settleHqMedia`'s `retain`, `judgeReadingMedia`'s `fetched`),
 so it asks CommCare HQ for each such file once. A bring-in counts its own

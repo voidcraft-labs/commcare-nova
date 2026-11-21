@@ -20,6 +20,7 @@
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
+import { pythonStrip } from "@/lib/commcare/localeFile";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
 	ReadFacts,
@@ -76,7 +77,7 @@ import {
 	sortedPlaces,
 } from "./firstPublishPlaces";
 import { reviewMediaId } from "./mediaIds";
-import type { MediaLeftOut } from "./projectData/media";
+import type { HqMediaClaim } from "./projectData/media";
 
 // ── The generated difference ────────────────────────────────────────────
 
@@ -252,7 +253,7 @@ export interface FirstPublishFacts {
 	/** `assignMediaPaths` over the held files, keyed by content. */
 	readonly media: MediaPathAssignment;
 	/** Media references that point at no file and are left out, by what a worker met before. */
-	readonly mediaLeftOut: MediaLeftOut;
+	readonly mediaClaims: readonly HqMediaClaim[];
 	readonly choice: {
 		readonly runsOnlyOn: Platform | null;
 		readonly split: boolean;
@@ -1000,12 +1001,62 @@ function movedMediaPlaces(
 	return places;
 }
 
-/** The places of every media reference the reading handed off with no file
- *  (`ReadFacts.pendingMedia`), the ones a first publish leaves out. */
-function leftOutMediaPlaces(facts: FirstPublishFacts): string[] {
-	return facts.facts.pendingMedia.flatMap((reference) =>
-		placesOfMediaReference(facts.positions, reference),
-	);
+/** Source-only itext is omitted at its own value. A held slot keeps the form listing or app
+ * mapping whenever that slot still names the path in that form or elsewhere in the app. */
+function unshownMediaPlaces(facts: FirstPublishFacts): string[] {
+	const retained = new Set(logoPaths(facts.source));
+	const inForm = new Map<string, Set<string>>();
+	for (const ref of facts.facts.mediaReferences) {
+		retained.add(ref.path);
+		const place = ref.place;
+		if (place.kind !== "question" && place.kind !== "form") continue;
+		const position = `${place.menu}.${place.form}`;
+		const paths = inForm.get(position) ?? new Set<string>();
+		paths.add(ref.path);
+		inForm.set(position, paths);
+	}
+	return facts.facts.unheldMedia.flatMap((ref) => {
+		const place = ref.place;
+		if (place.kind !== "question") return [];
+		const position = `${place.menu}.${place.form}` as const;
+		const places = [
+			nodePlace(position, `/data/${place.path}`) +
+				placeOf(":itext", ref.role, ref.languageCode, ref.mediaKind),
+		];
+		if (!retained.has(ref.path))
+			places.push(placeOf("app", "multimedia_map", ref.path));
+		if (!inForm.get(position)?.has(ref.path))
+			places.push(placeOf("form", position, "media", ref.path));
+		return places;
+	});
+}
+
+/** Each claim carries the exact source slot whose file verdict classified the removal. */
+function leftOutMediaPlaces(
+	facts: FirstPublishFacts,
+	brokenPicture: boolean,
+): string[] {
+	return facts.mediaClaims
+		.filter((claim) => claim.brokenPicture === brokenPicture)
+		.flatMap((claim) =>
+			placesOfMediaReference(facts.positions, claim.reference),
+		);
+}
+
+/** A source map entry is in use even when the slot or logo that names it has no available file. */
+function unusedMediaPaths(facts: FirstPublishFacts): string[] {
+	// HQ's logo_paths takes the stored value verbatim. ApplicationMediaReference strips surrounding
+	// whitespace from other slots, and remove_unused_mappings compares the actual map keys to those paths.
+	const named = logoPaths(facts.source);
+	for (const reference of [
+		...facts.facts.unheldMedia,
+		...facts.facts.mediaReferences,
+		...facts.facts.pendingMedia,
+	])
+		if (reference.slot !== "app_logo") named.add(pythonStrip(reference.path));
+	return (facts.source.multimediaMap ?? [])
+		.map((item) => item.path)
+		.filter((path) => !named.has(path));
 }
 
 /** The menus whose search the shell's `auto_launch` respells (`inactiveAutoLaunchRespelled`). */
@@ -1600,27 +1651,33 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"media-references-with-no-file-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => facts.mediaLeftOut.undrawn > 0,
+		applies: (facts) => facts.mediaClaims.some((claim) => !claim.brokenPicture),
 		at: {
 			kinds: ["app", "menu", "form", "form-node"],
-			places: leftOutMediaPlaces,
+			places: (facts) => leftOutMediaPlaces(facts, false),
 		},
 		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
 	},
 	/**
-	 * An icon whose map entry names no file CommCare HQ serves, left out of the
-	 * document (`projectData/media.ts::noFileOutcome`): Web Apps showed it as a
-	 * broken picture and shows none after the publish; Android drew nothing.
+	 * A picture whose removal changes what a worker sees on a declared platform
+	 * (`projectData/media.ts::noFileOutcome`).
 	 */
 	"broken-pictures-removed": {
 		touchesWorkers: true,
 		scope: "reading",
-		applies: (facts) => facts.mediaLeftOut.brokenPictures > 0,
+		applies: (facts) => facts.mediaClaims.some((claim) => claim.brokenPicture),
 		at: {
 			kinds: ["app", "menu", "form", "form-node"],
-			places: leftOutMediaPlaces,
+			places: (facts) => leftOutMediaPlaces(facts, true),
 		},
 		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
+	},
+	"unshown-form-media-removed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: (facts) => facts.facts.unheldMedia.length > 0,
+		at: { kinds: ["app", "form", "form-node"], places: unshownMediaPlaces },
+		paths: ["/_attachments/*", "/multimedia_map/*"],
 	},
 	/**
 	 * HQ's import prunes the media map to what the app names and its logo
@@ -1631,30 +1688,13 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"unused-media-entries-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => {
-			const named = new Set(
-				facts.facts.mediaReferences.map((reference) => reference.path),
-			);
-			for (const path of logoPaths(facts.source)) named.add(path);
-			return (facts.source.multimediaMap ?? []).some(
-				(item) => !named.has(item.path),
-			);
-		},
+		applies: (facts) => unusedMediaPaths(facts).length > 0,
 		at: {
 			kinds: ["app"],
-			places: (facts) => {
-				const named = new Set(
-					facts.facts.mediaReferences.map((reference) =>
-						mapPath(reference.path),
-					),
-				);
-				for (const path of logoPaths(facts.source)) named.add(mapPath(path));
-				return (facts.source.multimediaMap ?? []).flatMap((item) =>
-					named.has(mapPath(item.path))
-						? []
-						: [placeOf("app", "multimedia_map", mapPath(item.path))],
-				);
-			},
+			places: (facts) =>
+				unusedMediaPaths(facts).map((path) =>
+					placeOf("app", "multimedia_map", path),
+				),
 		},
 		paths: ["/multimedia_map/*"],
 	},
@@ -1875,7 +1915,7 @@ export function firstPublishFactsOf(input: {
 	readonly attachmentTarget: AttachmentUrlTarget;
 	/** The files the media path assignment is made over. */
 	readonly mediaFiles: readonly AdoptedMediaFile[];
-	readonly mediaLeftOut: MediaLeftOut;
+	readonly mediaClaims: readonly HqMediaClaim[];
 	readonly choice: {
 		readonly runsOnlyOn: Platform | null;
 		readonly split: boolean;
@@ -1919,7 +1959,7 @@ export function firstPublishFactsOf(input: {
 				assetId: reviewMediaId(file.contentHash),
 			})),
 		),
-		mediaLeftOut: input.mediaLeftOut,
+		mediaClaims: input.mediaClaims,
 		choice: input.choice,
 	};
 }

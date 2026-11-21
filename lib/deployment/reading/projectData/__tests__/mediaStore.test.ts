@@ -22,8 +22,17 @@ import {
 } from "@/lib/domain/multimedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
 import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
+import { unionPlan, withJudged } from "../../../hqChanges/review";
 import { provisionalReadingMediaId } from "../../mediaIds";
-import type { ReadingMediaPlan } from "../media";
+import {
+	adoptedMediaFiles,
+	type HqMediaReference,
+	mediaBudgetFinding,
+	planReadingMedia,
+	type ReadingMediaPlan,
+	readingMediaFindings,
+	readingMediaRows,
+} from "../media";
 import { judgeReadingMedia } from "../mediaStore";
 
 vi.mock("@/lib/storage/media", () => ({
@@ -190,6 +199,111 @@ afterEach(() => {
 });
 
 describe("judgeReadingMedia", () => {
+	it("checks an unshown itext file at HQ without adopting it, and reads a shared file once at the held slot's limits", async () => {
+		const hint = "jr://file/commcare/image/hint.png";
+		const shared = "jr://file/commcare/image/shared.png";
+		const gone = "jr://file/commcare/image/gone.png";
+		const place = {
+			kind: "question",
+			menu: 0,
+			form: 0,
+			path: "q",
+			menuName: "Menu",
+			formName: "Form",
+		} as const;
+		const ref = (
+			path: string,
+			slot: HqMediaReference["slot"],
+		): HqMediaReference => ({ path, slot, kind: "image", place });
+		const source = {
+			profile: { properties: { "cc-content-valid": "yes" } },
+			multimediaMap: (
+				[
+					[hint, "file"],
+					[shared, "file"],
+					[gone, "gone"],
+				] as const
+			).map(([path, id]) => ({
+				path,
+				multimediaId: id,
+				mediaType: "CommCareImage" as const,
+				unreadable: false,
+			})),
+		};
+		const planned = (references: HqMediaReference[]) =>
+			planReadingMedia({ source, references, appId: APP, runsOn: ["android"] });
+		const only = planned([
+			ref(hint, "unheld-itext"),
+			ref(gone, "unheld-itext"),
+		]);
+		const both = planned([ref(hint, "unheld-itext"), ref(shared, "form")]);
+		expect(both.plan.files.map((file) => file.paths)).toEqual([[shared]]);
+
+		await withPeer(async (peer) => {
+			const { answer } = judge(peer, only.plan, { keep: true });
+			await peer.until(() => peer.all.length === 2);
+			for (const request of peer.all) {
+				// Invalid image bytes from a successful source-only read still settle availability.
+				peer.answer(
+					request,
+					request.id === "gone" ? 404 : 200,
+					Buffer.from("data"),
+				);
+			}
+			const result = await answer;
+			if (result.kind !== "done") throw new Error("No file verdicts");
+			expect(result.plan.verdicts).toEqual({
+				"CommCareImage/file": { kind: "available" },
+				"CommCareImage/gone": { kind: "missing" },
+			});
+			expect(result.plan.kept.size).toBe(0);
+			expect(vi.mocked(validateSniffedMediaBytes)).not.toHaveBeenCalled();
+			expect(adoptedMediaFiles(result.plan)).toEqual([]);
+			expect(readingMediaRows(result.plan).size).toBe(0);
+			const judged = readingMediaFindings({
+				media: only.media,
+				plan: result.plan,
+				runsOn: ["android"],
+			});
+			expect(
+				judged.findings.map((finding) => [finding.code, finding.place]),
+			).toEqual([["media-file-unreadable", { kind: "media", path: gone }]]);
+			expect(judged.claims).toEqual([]);
+		});
+		const base = planned([ref(hint, "unheld-itext")]).plan;
+		const union = unionPlan(base, both.plan);
+		expect(unionPlan(both.plan, base)).toEqual(union);
+		await withPeer(async (peer) => {
+			const oldHeld = planned([ref(hint, "form")]).plan;
+			const renamed = unionPlan(oldHeld, both.plan);
+			expect(renamed).toEqual(union);
+			const { answer } = judge(peer, renamed, { keep: true });
+			await peer.until(() => peer.all.length === 1);
+			const [request] = peer.all;
+			if (!request) throw new Error("The file request was lost");
+			peer.answer(request, 200);
+			const result = await answer;
+			if (result.kind !== "done") throw new Error("No file verdict");
+			expect(peer.all).toHaveLength(1);
+			expect(vi.mocked(validateSniffedMediaBytes)).toHaveBeenCalledTimes(1);
+			expect(result.plan.verdicts["CommCareImage/file"]).toMatchObject({
+				kind: "held",
+				file: { originalFilename: "shared.png" },
+			});
+			const before = withJudged(base, result.plan);
+			expect(before.verdicts["CommCareImage/file"]).toEqual({
+				kind: "available",
+			});
+			expect(adoptedMediaFiles(before)).toEqual([]);
+			expect(before.kept.size).toBe(0);
+			expect(
+				adoptedMediaFiles(withJudged(both.plan, result.plan)).map(
+					(file) => file.hqPath,
+				),
+			).toEqual([shared]);
+			expect(result.plan.kept.size).toBe(1);
+		});
+	});
 	it("holds every fetch to four requests and 64 MiB of the kinds' limits, a video beside at most one sound", async () => {
 		const order: readonly (readonly [MediaKind, string])[] = [
 			["video", "v1"],
@@ -404,6 +518,19 @@ describe("judgeReadingMedia", () => {
 		await withPeer(async (peer) => {
 			const { answer } = judge(peer, plan);
 			expect(await answer).toEqual({ kind: "done", plan });
+			expect(peer.all).toEqual([]);
+			const only = {
+				...plan,
+				files: plan.files.map((file) => ({
+					...file,
+					availabilityOnly: true as const,
+				})),
+			};
+			expect(mediaBudgetFinding(only, {})).toMatchObject({ code: "too-large" });
+			expect(await judge(peer, only).answer).toEqual({
+				kind: "done",
+				plan: only,
+			});
 			expect(peer.all).toEqual([]);
 		});
 	});

@@ -28,6 +28,7 @@ import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
+	type ReadDraft,
 	type ReaderInput,
 	type ReaderMediaIndex,
 	type ReadOutcome,
@@ -54,9 +55,9 @@ import {
 	readingProjectDataFindingsFor,
 } from "../reading/projectData";
 import {
+	type HqMediaClaim,
 	hqMediaReferencesOf,
-	type MediaLeftOut,
-	mediaLeftOutOf,
+	mediaFindings,
 	planReadingMedia,
 	type ReadingMediaPlan,
 	readingMediaIndex,
@@ -77,8 +78,8 @@ export interface HqChangeReadings {
 	 *  first-publish register over each. */
 	readonly inputs: { readonly base: ReaderInput; readonly now: ReaderInput };
 	/** Media references with no file the base reading leaves out where the app runs: the
-	 *  base's side of the register's `mediaLeftOut`. */
-	readonly baseMediaLeftOut: MediaLeftOut;
+	 *  base's side of the register's `mediaClaims`. */
+	readonly baseMediaClaims: readonly HqMediaClaim[];
 }
 
 /** Why there is no base: the Project's data changed under the base source (it reads a table,
@@ -128,6 +129,30 @@ export interface HqChangeReadingsInput {
 }
 
 const JR_FILE = "jr://file/";
+
+/** Plan the HQ file reads while retaining the app's full set of slots for Android content verification. */
+export function planChangeReadingMedia(
+	source: HqAppSource,
+	appId: string,
+	draft: ReadDraft,
+	own: ReadonlySet<string>,
+	runsOn: readonly Platform[],
+) {
+	return planReadingMedia({
+		source,
+		appId,
+		references: hqMediaReferencesOf(draft.facts),
+		ownPaths: own,
+		runsOn,
+	});
+}
+
+/** Every path the reference publishes, which the base reading names Nova's own file by. */
+export function ownPathsBase(
+	published: readonly HqMediaPath[],
+): ReadonlySet<string> {
+	return new Set(published.map((path) => `${JR_FILE}${path.wirePath}`));
+}
 
 /** The asset of each published path a reading names Nova's own file by, keyed by its path
  *  as a source's map keys it. */
@@ -344,21 +369,34 @@ export function* makeHqChangeReadingsSteps(
 		};
 	const now = yield* readHqAppSteps(nowInput, options);
 	yield;
-	const baseMediaLeftOut = mediaLeftOutOf(
-		planReadingMedia({
-			source: baseSource,
-			appId,
-			references: hqMediaReferencesOf(base.draft.facts),
-			runsOn: declaredBy(reference.doc.appSettings.runsOnlyOn),
-		}).media.claims,
+	const runsOn = declaredBy(reference.doc.appSettings.runsOnlyOn);
+	const { media } = planChangeReadingMedia(
+		baseSource,
+		appId,
+		base.draft,
+		ownPathsBase(input.media.published),
+		runsOn,
 	);
+	// A read or bring-in can record a source that already points at a missing
+	// HQ file. A later edit compares the same file verdict on both sides.
+	const baseMediaClaims =
+		input.media.base === null
+			? media.claims
+			: [
+					...media.claims,
+					...mediaFindings({
+						plan: media,
+						verdicts: input.media.base.verdicts,
+						runsOn,
+					}).claims,
+				];
 	return {
 		kind: "readings",
 		readings: {
 			base,
 			now,
 			inputs: { base: baseInput, now: nowInput },
-			baseMediaLeftOut,
+			baseMediaClaims,
 		},
 	};
 }

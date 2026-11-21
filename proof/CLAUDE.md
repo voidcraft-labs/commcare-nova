@@ -370,7 +370,9 @@ harness keeps, each with its reason.
   one no record places stands nowhere a change's own place is; on a
   document whose saves in CommCare HQ Nova brings in, a change its review
   lists for the next publish (the statement's `publishChanges`), on proofs 1
-  to 3, everywhere, since the review names no place. The `changes` check
+  to 3. A newly listed `unshown-form-media-removed` stands only at the
+  current reading's itext, form listing and media map places recorded by the
+  capture. Other next-publish changes stand everywhere. The `changes` check
   holds each list strict both ways (a change no difference shows at its
   places is unseen, and a difference no applying change holds is unsaid once,
   of the one entry whose own row names it, never of every entry a shared row

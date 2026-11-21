@@ -322,7 +322,7 @@ def local_identity_differences(document, reports):
     return found
 
 
-def document_identity(document, records):
+def document_identity(document, records, *, native_sites=None):
     """Proof 1's differences on one document, judged from its records: every publish, the edit, and the local path
     where the download makes an Android archive."""
     from proof.checks import observations
@@ -345,9 +345,21 @@ def document_identity(document, records):
                 tables_before,
                 tables_after,
             )
-    from proof.checks import android
+    from proof.checks import android, missing_android_media
+    from proof.checks.proof3 import _archive_files
 
-    found += android.identity(document.id, android.document_record(records))
+    devices = android.document_record(records)
+    for name, held in devices["configurations"].items():
+        device_rows = android.identity(document.id, {"configurations": {name: held}})
+        if any(missing_android_media.candidate(row) for row in device_rows) and document.hq_authored:
+            archive, again = document.local_ccz, document.local_again_ccz
+            device_rows, sites = missing_android_media.classify(
+                document, records, name, device_rows, _archive_files(archive) if archive else {},
+                identity=True, again=_archive_files(again) if again else None,
+            )
+            if native_sites is not None:
+                native_sites.append(sites)
+        found += device_rows
     # The bar checks a stated refusal against the app HQ held. If either archive exists,
     # compare the pair even when the document also states a refusal.
     if ANDROID not in document.platforms():
@@ -355,3 +367,12 @@ def document_identity(document, records):
     if document.local_refusal is not None and document.local_ccz is None and document.local_again_ccz is None:
         return found
     return found + local_identity_differences(document.id, observations.local_reports(records))
+
+
+def document_identity_and_sites(document, records):
+    """Identity differences and their exact media owners across all contributing configurations."""
+    from proof.checks import changes
+
+    sites = []
+    found = document_identity(document, records, native_sites=sites)
+    return found, changes.merged_sites(*sites)

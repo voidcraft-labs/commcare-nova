@@ -252,6 +252,7 @@ describe("unreadPlacesFailure", () => {
 			facts: {
 				webAppsOnInHq: false,
 				mediaReferences: [],
+				unheldMedia: [],
 				pendingMedia: [],
 				unreadTables: [],
 				foldedTranslationKeys: [],

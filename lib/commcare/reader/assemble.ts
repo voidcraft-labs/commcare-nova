@@ -2010,6 +2010,7 @@ export function* assembleDocumentSteps(
 	const facts: ReadFacts = {
 		...ctx.facts,
 		mediaReferences: [...ctx.facts.mediaReferences],
+		unheldMedia: [...ctx.facts.unheldMedia],
 		pendingMedia: [...ctx.facts.pendingMedia],
 		unreadTables: [...ctx.facts.unreadTables],
 		forms: [...ctx.facts.forms],

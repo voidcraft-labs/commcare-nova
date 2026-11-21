@@ -1975,6 +1975,100 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/choices/*/image",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/commands/*/imageUri:broken-picture",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/commands/*/imageUri:broken-picture",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/runs/*/screens/*/commands/*/image:broken-picture",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/runs/*/screens/*/commands/*/icon:broken-picture",
+				"kind": "changed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "android@local.ccz",
+				"path": "/installs/*:missing-required-picture",
+				"kind": "changed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "android@local.ccz",
+				"path": "/update:missing-required-picture",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@A",
+				"path": "/hq/hqmedia_download/404/missing-required-picture",
+				"kind": "error"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/install:missing-required-picture",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/install:missing-required-picture",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "unshown-form-media-removed",
+		"placeKinds": ["app", "form", "form-node"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "media_suite.xml",
+				"path": "/suite/media[resource/@id=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "form:*",
+				"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[@form=image]",
+				"kind": "removed"
 			}
 		]
 	},

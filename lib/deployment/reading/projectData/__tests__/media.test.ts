@@ -79,8 +79,15 @@ function plan(
 	multimediaMap: readonly HqMediaMapItem[],
 	runsOn: readonly ("web-apps" | "android")[] = ["web-apps", "android"],
 	contentValid: string | null = "yes",
+	lazyLoadVideos = false,
 ) {
-	return planHqMedia({ references, multimediaMap, runsOn, contentValid });
+	return planHqMedia({
+		references,
+		multimediaMap,
+		runsOn,
+		contentValid,
+		lazyLoadVideos,
+	});
 }
 
 describe("hqMediaReferencesOf", () => {
@@ -95,6 +102,7 @@ describe("hqMediaReferencesOf", () => {
 					slot,
 				},
 			],
+			unheldMedia: [],
 			pendingMedia: [
 				{
 					path: "jr://file/b.mp3",
@@ -343,7 +351,7 @@ describe("planHqMedia", () => {
 		});
 	});
 
-	it("leaves out an icon whose entry names no file, which Web Apps shows as a broken picture and Android not at all, and says so", () => {
+	it("discloses the broken Web Apps picture for an icon whose map entry has no file id", () => {
 		const menu = ref("jr://file/m.png", "image", "tile", MENU_0);
 		const form = ref("jr://file/f.png", "image", "tile", FORM);
 		const register = ref(
@@ -354,7 +362,7 @@ describe("planHqMedia", () => {
 		);
 		const logo = ref("jr://file/logo.png", "image", "logo", { kind: "app" });
 		const icons = [menu, form, register, logo];
-		// HQ's starter app keeps the template's id for a form's icon and holds no file for it.
+		// These entries lack file ids. No Android download has been attempted.
 		const out = plan(
 			icons,
 			icons.map((icon) => entry(icon.path, "CommCareImage", null)),
@@ -434,7 +442,7 @@ describe("the first-match rule over every slot, declaration and install setting"
 		logo: () => false,
 	};
 	const DRAWN_ON_ANDROID = new Set(["form", "choice", "list-image"]);
-	/* An icon with an entry and no file: Web Apps shows a broken picture, and
+	/* An icon whose map entry has no usable file id: Web Apps can show a broken picture, and
 	 * it is left out, said by the first publish. */
 	const brokenPicture = (
 		slot: HqMediaReference["slot"],
@@ -868,7 +876,7 @@ describe("mediaFindings", () => {
 			}),
 		]);
 		expect(out.complete).toBe(true);
-		// On Android alone a form's icon with no file draws nothing: it is left out.
+		// The form icon is absent on HQ's existing download URL. A fresh Android install needs it.
 		const android = mediaFindings({
 			plan: files(["android"]),
 			verdicts: { "CommCareImage/b": { kind: "missing" } },
@@ -882,7 +890,7 @@ describe("mediaFindings", () => {
 			{
 				reference: ref("jr://file/b.png", "image", "tile", FORM),
 				entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
-				brokenPicture: false,
+				brokenPicture: true,
 			},
 		]);
 		// In Web Apps the same icon showed broken: left out, and said.
@@ -898,6 +906,76 @@ describe("mediaFindings", () => {
 				entry: `${E}a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
 				brokenPicture: true,
 			},
+		]);
+	});
+
+	it("requires the download of a registered Android menu sound, independently of the media content check", () => {
+		const sound = ref("jr://file/visits.mp3", "audio", "tile", MENU_0);
+		const mapped = entry(sound.path, "CommCareAudio", "sound");
+		const runsOn = ["android"] as const;
+		const required = plan([sound], [mapped], runsOn);
+		const missing = mediaFindings({
+			plan: required,
+			verdicts: { "CommCareAudio/sound": { kind: "missing" } },
+			runsOn,
+		});
+		expect(missing.findings.map((finding) => finding.code)).toEqual([
+			"media-file-unreadable",
+		]);
+		expect(missing.claims).toEqual([]);
+		expect(
+			mediaFindings({ plan: required, verdicts: {}, runsOn }).complete,
+		).toBe(false);
+		for (const entries of [[], [entry(sound.path, "CommCareAudio", null)]]) {
+			const unregistered = plan([sound], entries, runsOn);
+			expect(unregistered.files).toEqual([]);
+			expect(unregistered.findings).toEqual([]);
+			expect(unregistered.claims.map((claim) => claim.brokenPicture)).toEqual([
+				false,
+			]);
+		}
+		// HQ drops an unused mapping from a release's media suite.
+		expect(plan([], [mapped], runsOn).files).toEqual([]);
+	});
+
+	it("only a video explicitly registered for lazy loading can lack a download at Android install", () => {
+		const runsOn = ["android"] as const;
+		const video = ref("jr://file/video.mp4", "video", "unheld-itext");
+		const audio = ref("jr://file/note.mp3", "audio", "unheld-itext");
+		const mappings = [
+			entry(video.path, "CommCareVideo", "v"),
+			entry(audio.path, "CommCareAudio", "a"),
+		];
+		const verdicts = {
+			"CommCareVideo/v": { kind: "missing" },
+			"CommCareAudio/a": { kind: "missing" },
+		} as const;
+		function judge(lazyLoadVideos: boolean) {
+			return mediaFindings({
+				plan: plan([video, audio], mappings, runsOn, "yes", lazyLoadVideos),
+				verdicts,
+				runsOn,
+			});
+		}
+		expect(judge(false).findings.map((finding) => finding.code)).toEqual([
+			"media-file-unreadable",
+			"media-file-unreadable",
+		]);
+		const lazy = judge(true);
+		expect(lazy.findings.map((finding) => finding.place)).toEqual([
+			{ kind: "media", path: audio.path },
+		]);
+		expect(
+			lazy.claims.map((claim) => [claim.reference.path, claim.brokenPicture]),
+		).toEqual([[video.path, false]]);
+		// A lazy video that a question actually draws still needs its file to play.
+		const visible = mediaFindings({
+			plan: plan([{ ...video, slot: "form" }], mappings, runsOn, "yes", true),
+			verdicts,
+			runsOn,
+		});
+		expect(visible.findings.map((finding) => finding.code)).toEqual([
+			"media-file-unreadable",
 		]);
 	});
 

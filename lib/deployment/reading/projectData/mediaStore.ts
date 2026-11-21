@@ -96,7 +96,9 @@ export async function judgeReadingMedia(input: {
 	let done = 0;
 
 	const judge = async (file: PlanFile): Promise<void> => {
-		const capBytes = mediaCapBytes(file.kind);
+		// HQ's bounded read distinguishes a successful file response from HQ's own 404
+		// even when its body exceeds the limit. No bytes of a source-only file are needed.
+		const capBytes = file.availabilityOnly ? 1 : mediaCapBytes(file.kind);
 		const answered = input.fetched?.get(file.multimediaId);
 		const read: HqMediaFileRead =
 			answered === undefined
@@ -120,7 +122,11 @@ export async function judgeReadingMedia(input: {
 		}
 		let verdict: HqMediaVerdict;
 		if (read.kind === "missing") verdict = { kind: "missing" };
-		else if (read.kind === "too-large")
+		else if (file.availabilityOnly) {
+			verdict = { kind: "available" };
+			if (answered === undefined && read.kind === "read")
+				giveBackHeld("bytes", read.bytes.byteLength);
+		} else if (read.kind === "too-large")
 			verdict = { kind: "over-limit", mediaKind: file.kind, capBytes };
 		else {
 			/* A view of the read's own bytes: a file fetched once is held once. */

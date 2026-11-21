@@ -32,9 +32,9 @@ each failing by base with what is missing:
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
    differ, but for a row that names a media reference a trace read, a value
    a search sent HQ, the count of cases HQ answered a search with, a form's
-   title, a menu's entry, a Web Apps home tile, or a case list's headers and
-   offered sorts. Neither those screens nor their native counterparts are
-   values Core's evaluate answers on A (``_shows_a_value``);
+   title, a menu's entry, a Web Apps home tile, a case list's headers and
+   offered sorts, or an Android install and its missing-resource request.
+   Core's evaluate cannot observe those on A (``_shows_a_value``);
 6. a multi-select question an expression tests has an expectation answering
    it with two choices;
 7. a base whose app holds more than one language is read under a declaration
@@ -97,11 +97,30 @@ FORM_TITLE = ("title", "form")
 # archive alone (``proof/observe/intent.py``).
 SCREEN_ONLY = frozenset({"choices", "headers"})
 
+# Core's form evaluation does not install Android or display the reader's rendered menu icon. Keep the
+# causal qualifier: a generic install failure or an unclassified media change needs its own review.
+MISSING_PICTURE_OBSERVATIONS = {
+    ("formplayer@B", "/runs/*/steps/*/response/commands/*/imageUri:broken-picture", "removed"),
+    ("formplayer@local.ccz", "/runs/*/steps/*/response/commands/*/imageUri:broken-picture", "removed"),
+    ("webapps@B", "/runs/*/screens/*/commands/*/image:broken-picture", "changed"),
+    ("webapps@B", "/runs/*/screens/*/commands/*/icon:broken-picture", "changed"),
+    ("android@A", "/hq/hqmedia_download/404/missing-required-picture", "error"),
+    ("android@B", "/install:missing-required-picture", "changed"),
+    ("android@local.ccz", "/install:missing-required-picture", "changed"),
+}
 
-def _native_screen_only(reader, steps):
+
+def _native_screen_only(row):
     """Core evaluates a form on A and B. It never runs Web Apps' home, a native menu or media widget,
     or the installed app's list headers and sort chooser. A question's label and the instance it submits
     are available to evaluate even where the native reader is the only one with a registered row."""
+    artifact, path = row.get("artifact", ""), row.get("path", "")
+    if (artifact, path, row.get("kind")) in MISSING_PICTURE_OBSERVATIONS:
+        return True
+    reader = artifact.partition("@")[0]
+    steps = path.split("/")[1:]
+    if steps:
+        steps[-1] = steps[-1].partition(":")[0]
     if reader == "webapps":
         return steps == ["home", "releaseListed"] or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
     if reader == "formplayer" and steps[:4] == ["runs", "*", "steps", "*"]:
@@ -134,15 +153,9 @@ def _shows_a_value(row):
     reference, request, answer or title. Nor does it show a menu's entries, or a case list's headers on A
     (``SCREEN_ONLY``), so a change whose behavior is the text of a menu's entry (``text-spaces-dropped``) or of a
     list's header (``sort-by-entry-with-a-blank-name-dropped``) is shown so too, each side's text."""
-    # A colon suffix states which change the native observation proved at a screen slot.
-    reader = row.get("artifact", "").partition("@")[0]
-    path = row.get("path", "")
-    native_steps = path.split("/")[1:]
-    if native_steps:
-        native_steps[-1] = native_steps[-1].partition(":")[0]
-    if _native_screen_only(reader, native_steps):
+    if _native_screen_only(row):
         return False
-    steps = path.split("/")
+    steps = row.get("path", "").split("/")
     return (
         row.get("check") == "proof3"
         and steps[-1] not in MEDIA_REFERENCES
@@ -542,6 +555,22 @@ def test_native_screen_differences_do_not_require_values_core_cannot_observe():
     assert shown("formplayer", "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty")
     assert shown("case_blocks", "/runs/*/cases/*/name")
     assert shown("trace", "/runs/*/trace/*/submission/data/nova_datetime_*[*]/text()")
+
+
+def test_a_missing_menu_picture_is_observed_on_its_native_widget_or_during_installation():
+    def shown(artifact, path, kind):
+        return _shows_a_value({"check": "proof3", "artifact": artifact, "path": path, "kind": kind})
+
+    assert not shown("formplayer@local.ccz", "/runs/*/steps/*/response/commands/*/imageUri:broken-picture", "removed")
+    assert not shown("webapps@B", "/runs/*/screens/*/commands/*/icon:broken-picture", "changed")
+    assert not shown("android@B", "/install:missing-required-picture", "changed")
+    assert not shown("android@A", "/hq/hqmedia_download/404/missing-required-picture", "error")
+    assert shown("formplayer@B", "/runs/*/steps/*/response/commands/*/imageUri", "removed")
+    assert shown("webapps@B", "/runs/*/screens/*/form/icon:broken-picture", "changed")
+    assert shown("android@B", "/install", "changed")
+    assert shown("android@A", "/install:missing-required-picture", "changed")
+    assert shown("android@B", "/install:missing-required-picture", "error")
+    assert shown("android@A", "/hq/hqmedia_download/403/missing-required-picture", "error")
 
 
 @pytest.mark.parametrize("missing", ["B", "local"])

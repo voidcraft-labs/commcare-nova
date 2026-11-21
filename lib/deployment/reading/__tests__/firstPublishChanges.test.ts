@@ -167,8 +167,15 @@ import {
 } from "../firstPublishPlaces";
 import {
 	HQ_MEDIA_SLOTS,
+	type HqMediaClaim,
 	type HqMediaSlot,
-	type MediaLeftOut,
+	hqMediaReferencesOf,
+	mediaFindings,
+	planHqMedia,
+	planReadingMedia,
+	type ReadingMediaPlan,
+	readingMediaFindings,
+	readingMediaIndex,
 } from "../projectData/media";
 import {
 	type RegisterReading,
@@ -225,15 +232,13 @@ function docUnder(
 	).nextDoc;
 }
 
-const NONE_LEFT_OUT: MediaLeftOut = { undrawn: 0, brokenPictures: 0 };
-
 interface FactsChange {
 	readonly choice?: DeclarationChoice;
 	readonly source?: HqAppSource;
 	readonly doc?: BlueprintDoc;
 	readonly facts?: Partial<ReadFacts>;
 	readonly mediaFiles?: readonly AdoptedMediaFile[];
-	readonly mediaLeftOut?: MediaLeftOut;
+	readonly mediaClaims?: readonly HqMediaClaim[];
 }
 
 /** The facts of `reading` under a choice, through the production builder, with `change` made to its input. */
@@ -249,7 +254,7 @@ function factsOf(
 		forms: readingForms(reading.draft),
 		attachmentTarget: reading.input.target,
 		mediaFiles: change.mediaFiles ?? [],
-		mediaLeftOut: change.mediaLeftOut ?? NONE_LEFT_OUT,
+		mediaClaims: change.mediaClaims ?? [],
 		choice: { runsOnlyOn: choice.runsOnlyOn ?? null, split: choice.split },
 	});
 }
@@ -884,6 +889,132 @@ describe("where each change stands", () => {
 				`/menu/0/media/${derived}`,
 			]),
 		);
+	});
+
+	it("places each missing media claim at its own slot and names only unreferenced map entries as unused", async () => {
+		const neutral = {
+			...LEFT_OUT_ICON,
+			path: "jr://file/commcare/image/empty.png",
+		};
+		const broken = {
+			...LEFT_OUT_ICON,
+			place: {
+				kind: "form",
+				menu: 0,
+				form: 0,
+				menuName: "Menu",
+				name: "First",
+			},
+			pointer: "/modules/0/forms/0/media_image",
+			slot: "form_icon",
+			resolution: "unreadable",
+		} as const;
+		// HQ compares the literal map keys, so this relative key stays unused even though its suffix matches.
+		const unused = broken.path.slice("jr://file/".length);
+		const ids = [
+			"media-references-with-no-file-removed",
+			"broken-pictures-removed",
+			"unused-media-entries-removed",
+		] as const;
+		const facts = await missingMediaFacts(
+			[neutral, broken],
+			[broken.path, unused],
+		);
+		expect(firstPublishChangePlaces(facts, ids)).toEqual([
+			{
+				id: ids[0],
+				places: [
+					placeOf("app", "multimedia_map", neutral.path),
+					placeOf("menu", 0, "media", neutral.path),
+					"/menu/0/media_image",
+				],
+			},
+			{
+				id: ids[1],
+				places: [
+					placeOf("app", "multimedia_map", broken.path),
+					placeOf("form", "0.0", "media", broken.path),
+					"/form/0.0/media_image",
+				],
+			},
+			{ id: ids[2], places: [placeOf("app", "multimedia_map", unused)] },
+		]);
+		const referencedOnly = await missingMediaFacts(
+			[neutral, broken],
+			[broken.path],
+		);
+		expect(applies("unused-media-entries-removed", referencedOnly)).toBe(false);
+	});
+
+	it("distinguishes a file referenced only by a hint from an unused map entry", async () => {
+		const reading = await readUnshownHint();
+		const path = HINT_IMAGE;
+		const facts = factsOf(reading);
+		expect(facts.facts.mediaReferences).toEqual([]);
+		expect(facts.facts.pendingMedia).toEqual([]);
+		expect(facts.source.multimediaMap?.map((item) => item.path)).toEqual([
+			path,
+		]);
+		expect(applies("unused-media-entries-removed", facts)).toBe(false);
+		const id = "unshown-form-media-removed";
+
+		const itext = "/form/0.0/xform/data/note/:itext/hint/en/image";
+		expect(firstPublishChangePlaces(facts, [id])).toEqual([
+			{
+				id,
+				places: [
+					placeOf("app", "multimedia_map", path),
+					placeOf("form", "0.0", "media", path),
+					itext,
+				],
+			},
+		]);
+		for (const usage of ["label-and-hint", "shared-text"] as const) {
+			const shared = factsOf(await readUnshownHint(usage));
+			expect(shared.facts.mediaReferences.map((ref) => ref.path)).toEqual([
+				path,
+			]);
+			expect(applies(id, shared)).toBe(true);
+			expect(firstPublishChangePlaces(shared, [id])).toEqual([
+				{ id, places: [itext] },
+			]);
+		}
+	});
+
+	it("discloses only a missing file after rereading a Web Apps hint whose HQ download returned 404", async () => {
+		const first = await readUnshownHint();
+		const runsOn = ["web-apps"] as const;
+		const planned = planReadingMedia({
+			source: first.source,
+			appId: first.draft.doc.appId,
+			references: hqMediaReferencesOf(first.draft.facts),
+			runsOn,
+		});
+		expect(
+			planned.plan.files.map((file) => [file.key, file.availabilityOnly]),
+		).toEqual([["CommCareImage/hint", true]]);
+		const plan = {
+			...planned.plan,
+			verdicts: { "CommCareImage/hint": { kind: "missing" } as const },
+		};
+		const reading = await readUnshownHint("hint", plan);
+		const media = readingMediaFindings({ media: planned.media, plan, runsOn });
+		expect(media.findings).toEqual([]);
+		expect(reading.draft.facts.unheldMedia).toEqual([]);
+		expect(
+			reading.draft.facts.pendingMedia.map((ref) => [ref.path, ref.slot]),
+		).toEqual([[HINT_IMAGE, "unheld_itext"]]);
+		const facts = factsOf(reading, { mediaClaims: media.claims });
+		expect(
+			firstPublishChangesFor(facts).ids.filter((id) =>
+				[
+					"unshown-form-media-removed",
+					"media-references-with-no-file-removed",
+					"broken-pictures-removed",
+					"unused-media-entries-removed",
+				].includes(id),
+			),
+		).toEqual(["media-references-with-no-file-removed"]);
 	});
 
 	it("places a search's guard at the Search field a value it guards comes from, never at another field of the menu", async () => {
@@ -1693,8 +1824,115 @@ const LEFT_OUT_ICON = {
 	resolution: "no-entry",
 	place: { kind: "menu", menu: 0, name: "Menu" },
 	pointer: "/modules/0/media_image",
-	slot: "menu_media",
+	slot: "module_icon",
 } as const;
+
+/** Build the source and collect the same plan and file-verdict claims acceptance hands the register. */
+async function missingMediaFacts(
+	pendingMedia: ReadFacts["pendingMedia"],
+	mapped: readonly string[],
+): Promise<FirstPublishFacts> {
+	const base = await baseReading();
+	const source = await sourceWith(base.source, {
+		multimedia_map: Object.fromEntries(
+			mapped.map((path, index) => [path, mediaMapItem(String(index + 1))]),
+		),
+	});
+	const facts = { ...base.draft.facts, pendingMedia };
+	const runsOn = ["web-apps"] as const;
+	const plan = planHqMedia({
+		references: hqMediaReferencesOf(facts),
+		multimediaMap: source.multimediaMap ?? [],
+		runsOn,
+		contentValid: null,
+		lazyLoadVideos: false,
+	});
+	const files = mediaFindings({
+		plan,
+		verdicts: Object.fromEntries(
+			plan.files.map((file) => [file.key, { kind: "missing" } as const]),
+		),
+		runsOn,
+	});
+	expect([...plan.findings, ...files.findings]).toEqual([]);
+	return factsOf(base, {
+		source,
+		facts,
+		mediaClaims: [...plan.claims, ...files.claims],
+	});
+}
+
+const HINT_IMAGE = "jr://file/commcare/image/hint.png";
+
+async function readUnshownHint(
+	usage: "hint" | "label-and-hint" | "shared-text" = "hint",
+	plan: ReadingMediaPlan | null = null,
+): Promise<RegisterReading> {
+	const path = HINT_IMAGE;
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Menu",
+				forms: [
+					{
+						name: "Form",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: "Note",
+								hint: proseText("Keep this hint"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return readAs(
+		doc,
+		{
+			root: { multimedia_map: { [path]: mediaMapItem("hint") } },
+			xml: (xml) => {
+				const hint = "<value>Keep this hint</value>";
+				const mediaValue = `<value form="image">${path}</value>`;
+				const withHint = xml.replace(hint, `${hint}${mediaValue}`);
+
+				if (usage === "shared-text")
+					return xml
+						.replace(
+							'<text id="note-hint"><value>Keep this hint</value></text>',
+							"",
+						)
+						.replace("&apos;note-hint&apos;", "&apos;note-label&apos;")
+						.replace("<value>Note</value>", `<value>Note</value>${mediaValue}`);
+				return usage === "label-and-hint"
+					? withHint.replace(
+							"<value>Note</value>",
+							`<value>Note</value>${mediaValue}`,
+						)
+					: withHint;
+			},
+		},
+		{
+			media: readingMediaIndex({
+				source: {
+					multimediaMap: [
+						{
+							path,
+							multimediaId: "hint",
+							mediaType: "CommCareImage",
+							unreadable: false,
+						},
+					],
+				},
+				appId: doc.appId,
+				plan,
+			}),
+		},
+	);
+}
 
 const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	"forms-and-settings-rewritten": {
@@ -1983,30 +2221,16 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			}),
 	},
 	"media-references-with-no-file-removed": {
-		on: async () =>
-			factsOf(await baseReading(), {
-				facts: { pendingMedia: [LEFT_OUT_ICON] },
-				mediaLeftOut: { undrawn: 1, brokenPictures: 0 },
-			}),
-		// An icon Web Apps showed broken is said by its own line.
-		off: async () =>
-			factsOf(await baseReading(), {
-				facts: { pendingMedia: [LEFT_OUT_ICON] },
-				mediaLeftOut: { undrawn: 0, brokenPictures: 1 },
-			}),
+		on: () => missingMediaFacts([LEFT_OUT_ICON], []),
+		off: () => missingMediaFacts([LEFT_OUT_ICON], [LEFT_OUT_ICON.path]),
 	},
 	"broken-pictures-removed": {
-		on: async () =>
-			factsOf(await baseReading(), {
-				facts: { pendingMedia: [LEFT_OUT_ICON] },
-				mediaLeftOut: { undrawn: 0, brokenPictures: 1 },
-			}),
-		// A reference no worker saw anything for is said by another line.
-		off: async () =>
-			factsOf(await baseReading(), {
-				facts: { pendingMedia: [LEFT_OUT_ICON] },
-				mediaLeftOut: { undrawn: 1, brokenPictures: 0 },
-			}),
+		on: () => missingMediaFacts([LEFT_OUT_ICON], [LEFT_OUT_ICON.path]),
+		off: () => missingMediaFacts([LEFT_OUT_ICON], []),
+	},
+	"unshown-form-media-removed": {
+		on: async () => factsOf(await readUnshownHint()),
+		off: async () => factsOf(await baseReading()),
 	},
 	"unused-media-entries-removed": {
 		on: async () => {

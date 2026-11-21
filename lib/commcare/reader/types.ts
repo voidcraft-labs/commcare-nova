@@ -261,8 +261,13 @@ export interface ReadWork {
 export interface ReadFacts {
 	/** HQ's `cloudcare_enabled`. */
 	readonly webAppsOnInHq: boolean;
-	/** Every media reference whose path resolved to an asset. */
+	/** Every media slot the draft holds whose path resolved to an asset. */
 	readonly mediaReferences: readonly ReadMediaReference[];
+	/** Each mapped itext reference on a slot that holds no media in Nova. HQ may require the file at install. */
+	readonly unheldMedia: readonly (Omit<PendingMedia, "resolution"> & {
+		readonly role: "hint" | "constraintMsg" | "label";
+		readonly languageCode: string;
+	})[];
 	/** Every media reference handed off: no file for its path. */
 	readonly pendingMedia: readonly PendingMedia[];
 	/** Every itemset over a table the catalog does not hold, handed off, each tag an

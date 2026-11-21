@@ -51,6 +51,7 @@ function plan(
 		references,
 		runsOn: ["android"],
 		contentValid: null,
+		lazyLoadVideos: false,
 	};
 }
 

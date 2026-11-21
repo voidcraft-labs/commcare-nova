@@ -1041,6 +1041,11 @@ planned ("Found while planning step 2").
     never infers them from the fields. The stop is removed, with no
     retained control; `test_the_case_database_seeds_each_property_from_the_effective_catalog`
     holds the seeding boundary.
+    **HQ-authored case seeds.** The WASH starter writes `client.last_reading_date` from an
+    untyped hidden question calculated by `today()`. Its registration form and case update carry
+    an ISO date. Seeding the property as generic text instead made its Meter Reading form raise
+    a date conversion error on the source release as well as the republish. The seed uses the
+    original writing bind to supply date values.
     **Fixed at authoring:** a Hidden Value that saves to a case property
     joins writer agreement, so no writer of Nova's puts text in a property a
     typed question reads back (`HIDDEN_VALUE_WRITER_TYPE_MISMATCH`). A case
@@ -2176,12 +2181,15 @@ part whose check can correct a sentence here says which one under its "Written a
   `caption_video`), which Formplayer sends whatever the media map holds (`api/json/PromptToJson.java`,
   `caption_audio` from `prompt.getAudioText()`). Where the map holds an entry for the path and the
   project space no file, Web Apps also draws a broken picture for an image on a menu's or a form's tile,
-  the Register action or the logo, while Android draws nothing there (HQ's own wash starter keeps such an
-  entry for its first form's icon). *Step 6:* part 11 decides each slot at source: the entry
+  the Register action or the logo. A running Android menu can draw no bitmap, but getting there
+  requires a successful install. On HQ's water and sanitation starter a fresh Android installation of
+  the HQ release stopped when its required form icon returned 404. With that reference removed, the
+  newly published release installed. The media suite makes that image an eager download
+  (`MediaSuiteGenerator.media_resources`), independent of the later media content verification. *Step 6:* part 11 decides each slot at source: the entry
   becomes INERT for the slots nothing draws, beside a new REFUSED entry for the slots a runtime draws
   (its section 3). An image on a tile, Register action or logo slot whose entry names no file is no
-  refusal: Nova leaves it out as it does an inert reference, and the first publish says the broken
-  picture goes (`broken-pictures-removed`, its section 3.2 row 2b); a sound there, and a question's, a
+  refusal: Nova leaves it out as it does an inert reference, and the first publish discloses the removed
+  Web Apps picture or Android installation obstacle (`broken-pictures-removed`, its section 3.2 row 2b); a sound there, and a question's, a
   choice's or a list's image, still stops the reading as a file it cannot read (row 3). Subject to its check R2 (the Android and Web Apps client readers over
   `targeted-missing-media`, in a lane slice on hosted runners): each of its outcomes B to E moves one
   slot between the drawn and the inert side for one platform, with the two entries' `item` cells, and the

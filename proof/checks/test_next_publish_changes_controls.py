@@ -141,6 +141,84 @@ def _paths(found):
     return sorted(difference.path for difference in found)
 
 
+@pytest.mark.parametrize("next_publish", [False, True])
+def test_a_picture_read_only_on_a_hint_is_dropped_while_its_shown_sibling_and_ordinary_text_are_held(next_publish):
+    from dataclasses import replace
+
+    from proof.checks import proof2, source, xform_parts
+    from proof.checks.compare.xml_tree import compare_xml
+
+    change = changes.UNSHOWN_MEDIA
+    uri = "jr://file/commcare/image/count.png"
+    slot = "/form/0.0/xform/data/count/:itext/hint/en/image"
+    form_path = "/form/0.0/media/" + _pointer(uri)
+    map_path = "/app/multimedia_map/" + _pointer(uri)
+    image = f'<value form="image">{uri}</value>'
+    a = f"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
+                    xmlns:jr="http://openrosa.org/javarosa"><h:head><model><instance><data><count/></data></instance>
+          <itext><translation lang="en"><text id="directions"><value>Count once.</value>{image}</text>
+          <text id="name"><value>Items</value>{image}</text></translation></itext></model></h:head>
+          <h:body><input ref="/data/count"><label ref="jr:itext('name')"/><hint ref="jr:itext('directions')"/></input>
+          </h:body></h:html>"""
+
+    def document(*places):
+        if next_publish:
+            return SimpleNamespace(id="example", next_publish=[change], unshown_media_places=places)
+        return SimpleNamespace(id="example", hq_authored=True, first_publish_places=[(change, places)])
+
+    def app(xml):
+        return {"modules": [{"forms": [{"unique_id": "count"}]}], "_attachments": {"count.xml": xml}}
+
+    b = a.replace(image, "", 1)
+    # The same URI is still a label. Capture the real source and XML comparisons, plus the regression
+    # where the renderer also drops the shown label or its ordinary hint text.
+    bad = b.replace(image, "").replace("Count once.", "Something else.")
+    sites = changes.Sites(builds=xform_parts.unshown_media_sites(a, "form:0.0"))
+    for check, compare in (
+        ("source", lambda xml: source.compare_sources("example", app(a), app(xml))),
+        ("proof2", lambda xml: compare_xml(a, xml, check="proof2", document="example", artifact="form:0.0")),
+    ):
+        [hint] = compare(b)
+        assert changes.declared(document(slot), check, compare(bad), sites=sites) == ([hint], {change})
+        assert changes.declared(document(slot), check, [replace(hint, kind="changed", after=NEW)], sites=sites)[0] == []
+        assert changes.declared(document(slot.replace("/en/", "/fr/")), check, [hint], sites=sites)[0] == []
+        assert changes.declared(document("/form/0.0/xform/data/count"), check, [hint], sites=sites)[0] == []
+        assert not changes.declared(_document(), check, [hint], sites=sites)[0]
+    corrupt = replace(hint, before=hint.before.replace(uri, NEW))
+    assert not changes.declared(document(slot), "proof2", [corrupt], sites=sites)[0]
+
+    entry = {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage", "multimedia_id": "old", "unique_id": "key"}
+    [mapping] = source.compare_sources("example", {"multimedia_map": {uri: entry}}, {"multimedia_map": {}})
+    form = Difference(
+        "proof1",
+        "example",
+        "app.json",
+        "/modules/*/forms/*/media/*",
+        "/modules/0/forms/0/media/" + _pointer(uri),
+        "removed",
+        {"mapped": True},
+        None,
+    )
+    suite = (
+        '<suite><media path="../../commcare/image"><resource id="media-key-count.png" version="1">'
+        '<location authority="local">./commcare/image/count.png</location>'
+        '<location authority="remote">https://example.org/count.png</location></resource></media></suite>'
+    )
+    [resource] = compare_xml(suite, "<suite/>", check="proof2", document="example", artifact="media_suite.xml")
+    suite_sites = proof2.build_sites({"media_suite.xml": suite})
+    # With a shown reference the map, suite and form listing must all remain. Dropping the last
+    # reference in just this form authorizes only the form listing. Each comparison is a whole removal.
+    for row, owner in ((mapping, map_path), (form, form_path), (resource, map_path)):
+        assert not changes.declared(document(slot), row.check, [row], sites=suite_sites)[0]
+        assert changes.declared(document(slot, owner), row.check, [row], sites=suite_sites)[0] == [row]
+        assert not changes.declared(document(slot, owner), row.check, [replace(row, kind="added")], sites=suite_sites)[
+            0
+        ]
+    assert not changes.declared(document(slot, form_path), "proof1", [replace(form, before={"mapped": False})])[0]
+    wrong_local = replace(resource, before=resource.before.replace("./commcare/image/count.png", "./elsewhere.png"))
+    assert not changes.declared(document(slot, map_path), "proof2", [wrong_local], sites=suite_sites)[0]
+
+
 def test_the_register_s_rows_hold_the_move_the_media_document_showed_where_its_review_lists_it():
     register = changes.load()
     checked = _moved()

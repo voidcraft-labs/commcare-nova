@@ -531,6 +531,10 @@ through `projectionInputs.ts::keptMediaPaths`, so no comparison depends on which
 first publish keeps one by its own rule (`assignMediaPaths`, which first drops a path it cannot
 hold, and declares each move), not necessarily this one. The media reader
 holds several paths the index resolves to one asset as that one file (`xform/media.ts`).
+Each hint, validation message, group label or repeat label that references an itext file is
+recorded in `unheldMedia` when its path resolves, with its question, role, language, kind and
+path. Project data checks whether HQ serves the file. If a question’s label also uses it, the
+draft keeps the asset on that label and the first publish discloses its removal from the other slot.
 
 A stored text or media map is read as each language shows it, never taken literally. A menu's,
 form's, case list item's or Register button's media map is read through

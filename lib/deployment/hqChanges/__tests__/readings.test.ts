@@ -51,10 +51,17 @@ import {
 } from "../../reading/__tests__/novaReading";
 import { provisionalReadingMediaId } from "../../reading/mediaIds";
 import type { ReadingProjectData } from "../../reading/projectData";
-import type { ReadingMediaPlan } from "../../reading/projectData/media";
+import {
+	type ReadingMediaPlan,
+	readingMediaFindings,
+} from "../../reading/projectData/media";
 import { readBackDifferences } from "../../reading/readBack";
 import { alignedFromSource } from "../baselineSource";
-import { type HqChangeReadingsInput, makeHqChangeReadings } from "../readings";
+import {
+	type HqChangeReadingsInput,
+	makeHqChangeReadings,
+	planChangeReadingMedia,
+} from "../readings";
 
 const APP_ID = "readings-app";
 const TABLE = "018f0000-0000-7000-8000-0000000000a1" as LookupTableId;
@@ -457,6 +464,87 @@ describe("each reading's media index", () => {
 			expect(inputs.base.media.resolve(JR(row.path))).toEqual(row.base);
 			expect(inputs.now.media.resolve(JR(row.path))).toEqual(row.now);
 		});
+});
+
+it("remembers which missing icon an earlier HQ reading already left out", () => {
+	const doc = clinic();
+	const { body } = servedExport(doc);
+	const modules = structuredClone(body.modules) as Record<string, unknown>[];
+	const menu = modules[0] as Record<string, unknown>;
+	const form = (menu.forms as Record<string, unknown>[])[0] as Record<
+		string,
+		unknown
+	>;
+	menu.media_image = { en: JR(PATHS.gone) };
+	form.media_image = { en: JR(PATHS.absent) };
+	const source = {
+		...body,
+		modules,
+		multimedia_map: mediaMap([[PATHS.gone, "gone-icon"]]),
+	};
+	// Both sources refer to the same missing HQ icon. The other path is a
+	// published Nova asset, even though the baseline's media map omits it.
+	const made = readingsOf(
+		doc,
+		source,
+		{ ...source, name: "Clinic after an edit" },
+		{
+			media: {
+				published: [published(PATHS.absent, "absent", null)],
+				base: plan(["gone-icon"]),
+				now: plan(["gone-icon"]),
+			},
+		},
+	);
+	if (made.kind !== "readings") throw new Error(`No base: ${made.reason}`);
+	expect(made.readings.baseMediaClaims).toEqual([
+		expect.objectContaining({
+			brokenPicture: true,
+			reference: expect.objectContaining({ path: JR(PATHS.gone) }),
+		}),
+	]);
+});
+
+it("keeps a published audio label in Android's content check for the neighboring missing icon", () => {
+	const doc = clinic();
+	const { body } = servedExport(doc);
+	const modules = structuredClone(body.modules) as Record<string, unknown>[];
+	const [form] = (modules[0] as Record<string, unknown>).forms as [
+		Record<string, unknown>,
+	];
+	const audio = JR("commcare/audio/nova.mp3");
+	const image = JR(PATHS.gone);
+	form.media_image = { en: image };
+	form.media_audio = { en: audio };
+	const source = {
+		...body,
+		modules,
+		profile: { properties: { "cc-content-valid": "no" } },
+		multimedia_map: {
+			...mediaMap([[PATHS.gone, "gone-icon"]]),
+			[audio]: { media_type: "CommCareAudio", multimedia_id: "nova-audio" },
+		},
+	};
+	const made = readingsOf(doc, source, source);
+	if (made.kind !== "readings" || made.readings.now.kind !== "read")
+		throw new Error("Both sources must admit a media reading.");
+	const { media } = planChangeReadingMedia(
+		made.readings.inputs.now.source,
+		doc.appId,
+		made.readings.now.draft,
+		new Set([audio]),
+		["android"],
+	);
+	expect(media.files.map((file) => file.paths)).toEqual([[image]]);
+	const { claims, findings } = readingMediaFindings({
+		media,
+		plan: plan(["gone-icon"]),
+		runsOn: ["android"],
+	});
+	expect(claims).toEqual([]);
+	expect(findings.map((finding) => finding.code)).toEqual([
+		"expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install",
+	]);
 });
 
 // ── A base that is no base ───────────────────────────────────────────
