@@ -392,7 +392,7 @@ gate reports falls in exactly one class, decided at source:
 | C1: a change Nova's spelling makes on purpose, of a kind the first-publish register is drawn from | the session writes the entry by part 09's section 11.1 type (its predicate over the reading's facts, the pointers the run showed, `touchesWorkers` true where a build file or a served walk differs) and its sentence in the voice of part 09's Copy C2, as part 09's section 11.3 says; its rows come from the run's evidence (9.1) |
 | C2: a change of any other kind that a runtime, HQ's servers or stored data read | the session first reads which side is wrong: where Nova's emitter or reader is, the outcome is B or R. Only where CommCare does something with the shape that Nova's model has no concept for is the entry re-cut so the value is `not-yet` (never for a starter app, where outcome D applies), with its owner, and the shape moves from the base to a row of `proof/matrix/variants.json`. Under part 07's check of a form-builder save, where the builder changed a block's structure: the Save to Case forms leave `hq-nova-then-builder`, which keeps its form without one, and become the row `hq-nova-then-builder/save-to-case-saved`, naming `questions/savetocase-block-outside-nova-s-own-block-shape` with its standing |
 | D: a starter app reads as an account | in this order: the reader misread the app (R); the checker refuses a record expression CommCare runs correctly (the record rule set is widened to it for every author, with the starter as the exhibit, which is part 08's E6); an entry's HELD class is too narrow for a value HQ's own pages write (the entry is re-cut, with the starter as the exhibit); the app holds a concept Nova has no model for (the session builds that concept in this step, with the completeness the top-level file asks of every concept, and dispatches the base again: `../6-bring-in.md`, "Checks before the merge", "A starter app must come in"). No base reads to an account |
-| W: a walk stops | where a worker would go on, the walk is taught. Where the reader ends there on A and on B alike, a `proof/walk-stops.json` entry naming the base and the reader's own reason. Where it stops on B alone, it is R or B |
+| W: a walk stops | where a worker would go on, the walk is taught. Where A has Web Apps off and the confirmed `web-apps-turned-on` change makes it available on B, observe A's desktop and phone home pages with this app absent. Compare App Preview on A and B. Follow every newly available worker script on B, and compare its desktop and phone runs with the independent B release before alignment. Where a reachable walk ends early on A and on B alike, a `proof/walk-stops.json` entry naming the base and the reader's own reason. Where it stops on B alone, it is R or B |
 
 A fix that changes what a base emits dispatches that base again, with `hq-plain`. The stack does not
 merge until the gate of a run over every base passes.
@@ -2290,9 +2290,11 @@ Rules, held by `proof/matrix/test_expectations.py`:
   evaluate opens no menu, and opens a case list only on the local archive (`proof/observe/intent.py`),
   so no `:before` on A can show either (`text-spaces-dropped` on `hq-languages`,
   `sort-by-entry-with-a-blank-name-dropped` on `hq-case-lists`), and proof 3's comparison holds each
-  side's text. The native comparisons also hold the Web Apps home tile; Formplayer's menu labels,
+  side's text. The native comparisons also hold the Web Apps home tile and whether the worker
+  home pages list the released app; Formplayer's menu labels,
   list headers and question media; and Android's blank sort option and the rows shown under that option.
-  Core's hand form opens none of those screens on A. A change with any hand-evaluable row still
+  For `form-titles-written`, the device reads the opened form's title, its default title for a new
+  save and the display name of the resulting record. Core's hand form observes none of these on A. A change with any hand-evaluable row still
   needs both expectations, including a question's French label or a submitted instance value.
 - A multi-select question an expression tests has an expectation answering it with two choices.
 - A base whose `app.json` holds more than one language is read under a declaration that includes
