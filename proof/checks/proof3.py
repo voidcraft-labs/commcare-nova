@@ -1207,7 +1207,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     (``proof.checks.connect``): what stands on its own at A (``connect@A``), and the local archive's and B's
     against A's (``connect@local.ccz``, ``connect@B``).
     """
-    from proof.checks import connect, served
+    from proof.checks import connect, connect_contexts, served
 
     blobs = records.blobs
     menus = menus or {}
@@ -1229,7 +1229,14 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     # A Connect app: what Connect made of A's submissions that stands on its own, and below what it made of the
     # local archive's and of B's against A's (``proof.checks.connect``).
     opportunity = (((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}).get("connect")
-    connect_a = blobs.get_json(a["connect"]) if a.get("connect") else None
+    def forwarded(state, side):
+        record, issues = connect_contexts.record(state, blobs.get_json, local=side == "local.ccz")
+        for run, issue in issues:
+            found.append(Difference(CHECK, document, f"{CONNECT}@{side}", "/runs/*/receiver-context",
+                                    f"/runs/{pointer_token(run)}/receiver-context", "refused", None, issue))
+        return record
+
+    connect_a = forwarded(a, "A") if opportunity is not None else None
     if opportunity is not None:
         found += connect.absolute_differences(
             connect_a, opportunity["catalog"], check=CHECK, document=document, artifact=f"{CONNECT}@A"
@@ -1271,16 +1278,16 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             if local_ccz is not None
             else None,
         )
-        if opportunity is not None and local.get("connect"):
-            # Formplayer's submissions and a device's (the local archive's device given the lane's input, whose
-            # forms HQ takes under the app's id), each against A's from the same reader.
+        if opportunity is not None:
+            # Formplayer, both local phones (as installed and with the lane's worker and receiver input)
+            # and the tablet are each compared with the same reader on HQ's release.
             found += connect.differences(
                 connect_a,
-                blobs.get_json(local["connect"]),
+                forwarded(local, "local.ccz"),
                 check=CHECK,
                 document=document,
                 artifact=f"{CONNECT}@local.ccz",
-                readers={"formplayer": "formplayer", "android": "android"},
+                readers={"formplayer": "formplayer", "android": "android", connect_contexts.AS_INSTALLED: "android"},
             )
     b = aligned.get("B")
     if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
@@ -1307,9 +1314,9 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                     document=document,
                     artifact=f"{WEBAPPS}@B",
                 )
-            if opportunity is not None and b.get("connect"):
+            if opportunity is not None:
                 found += connect.differences(
-                    connect_a, blobs.get_json(b["connect"]), check=CHECK, document=document, artifact=f"{CONNECT}@B"
+                    connect_a, forwarded(b, "B"), check=CHECK, document=document, artifact=f"{CONNECT}@B"
                 )
     return found
 
@@ -1467,8 +1474,8 @@ def document_behavior(document, records, *, native_sites=None):
         if native and served_places.review_read(document):
             # A place and the text at that place belong to the configuration that actually reported the
             # difference. The same walk index in another configuration can lead to a different form.
-            needed = native if native_sites is not None else [d for d in native if served_places.text_candidate(d)]
-            places = served_places.sites(records, name, needed, observed, local_files)
+            needed = native if native_sites is not None else [d for d in native if served_places.needs_classification(d)]
+            places = served_places.sites(records, name, needed, observed, local_files, document=document)
             native = served_places.classify(document, records, name, native, places)
             if native_sites is not None:
                 native_sites.append(places)

@@ -380,14 +380,19 @@ def document_inputs(document):
     }
 
 
-def case_databases(document):
-    """The digest of the case database D's sessions run over, and D′'s (``observe.casedata.database_digest``)."""
+def _case_inputs(document):
+    """The actual cases B and B-edit will serve, and their digests for the part keys."""
     from proof.observe.casedata import database_digest, document_case_database
 
-    found = {"b": database_digest(document_case_database(document))}
+    cases = {"b": document_case_database(document)}
     if document.edit is not None:
-        found["b_edit"] = database_digest(document_case_database(document, edit=True))
-    return found
+        cases["b_edit"] = document_case_database(document, edit=True)
+    return cases, {part: database_digest(database) for part, database in cases.items()}
+
+
+def case_databases(document):
+    """The case digests used by callers deriving part keys alone."""
+    return _case_inputs(document)[1]
 
 
 def _module(name):
@@ -586,10 +591,11 @@ class BContext:
     # HQ's restore over the document's tables: ``{"served": True}``, or ``{"refused": reason}`` where ``restore``
     # is None (``proof.observe.sessions.hq_restore``).
     restore_outcome: dict
+    declared_inputs: dict
     # The build HQ compared this B's forms with when it built it: saved(build(A)).
     previous_build: object = None
-    # Whether B and each save over it are also served to Formplayer and the Web Apps client
-    # (``proof.observe.served``): where the unit's served hook runs.
+    # Whether B and its editor saves run the served readers. When they do, they take the app's platforms
+    # from the hook's declared inputs, the same values used to derive the part key.
     serve: bool = False
     # The unit's Connect opportunity holder (``proof.observe.connect.Holder``).
     connect: object = None
@@ -783,8 +789,11 @@ class _Unit:
         store,
         blobs,
         timings,
+        cases,
+        declared_inputs,
     ):
         self.document, self.export, self.configuration = document, export, configuration
+        self.cases, self.declared_inputs = cases, declared_inputs
         self.unit, self.core_runner, self.editor_driver = unit, core_runner, editor_driver
         self.store, self.blobs, self.timings = store, blobs, timings
         self.hooks = hook_modules()
@@ -1103,10 +1112,10 @@ class _Unit:
         return None
 
     def b_context(self, ops, name, built, captured):
-        from proof.observe import casedata, sessions
+        from proof.observe import sessions
 
         lookups = self.tables(captured)
-        database = casedata.document_case_database(self.document, edit=name == "B-edit")
+        database = self.cases["b_edit" if name == "B-edit" else "b"]
         outcome, restore = sessions.hq_restore(self.unit, database, lookups, "restore-proof4", ops)
         return BContext(
             document=self.document,
@@ -1126,6 +1135,7 @@ class _Unit:
             store=self.store,
             restore_outcome=outcome,
             previous_build=self.saved_a,
+            declared_inputs=self.declared_inputs[name]["proof4"],
             serve=any(hook == "served" for hook, _, _, _ in self.hooks),
             connect=self.connect,
         )
@@ -1356,8 +1366,9 @@ def observe_configuration(
     store,
     blobs,
     timings,
+    cases,
+    hooks,
     same_as=True,
-    hooks=None,
     held_only=False,
 ):
     """One configuration's parts, from the store where it holds them and observed in one unit otherwise.
@@ -1422,6 +1433,8 @@ def observe_configuration(
             store,
             blobs,
             timings,
+            cases,
+            hooks,
         )
         closing.append(state.connect)
         if "a" in wanted:
@@ -1572,7 +1585,7 @@ def observe_document(
     # What every key is derived from, which the guard holds to what the document's key names (``guard.KEYS``).
     with guard.observing(document, None, guard.KEYS):
         inputs = document_inputs(document)
-        databases = case_databases(document)
+        cases, databases = _case_inputs(document)
         hooks = hook_inputs(document)
     found = DocumentRecords(document.id, document.kind)
     for name in sorted(document.exports):
@@ -1594,6 +1607,7 @@ def observe_document(
             blobs=found.blobs,
             timings=timings,
             same_as=same_as,
+            cases=cases,
             hooks=hooks,
             held_only=held_only,
         )

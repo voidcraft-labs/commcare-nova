@@ -513,7 +513,7 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
 _LOCATION_PERMISSIONS = ["android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION"]
 
 
-def _saved_device_fix(form):
+def saved_device_fix(form):
     """The grant, the fix Sensors.allow supplied and the one record this form's save changed (Forms.changedSince).
     A missing fix, a different saved point, ambiguous records or a request for additional permissions is
     still observable as a difference. The fix's coordinates come from the device in this walk."""
@@ -550,7 +550,7 @@ def location_permission_class(difference, observed):
         return difference
     path = changes.unescaped(difference.at)
     form = observed["walks"][path[1]]["steps"][int(path[3])]["form"]
-    return replace(difference, path=difference.path + ":location") if _saved_device_fix(form) else difference
+    return replace(difference, path=difference.path + ":location") if saved_device_fix(form) else difference
 
 
 def app_differences(before, after, *, check, document, artifact, rules=(), media=(None, None)) -> list:

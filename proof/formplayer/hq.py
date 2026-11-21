@@ -823,8 +823,8 @@ def serve(
     previous=None,
     change=None,
     archives=None,
-    edit=False,
     database=None,
+    platforms=None,
 ):
     """The app the unit holds, as HQ serves it to a Formplayer session, inside a fork that puts the unit back.
 
@@ -835,16 +835,18 @@ def serve(
     versions with. ``archives`` are archives HQ does not hold (Nova's local
     export) by the app id Formplayer is given for each. The worker's cases
     are the document's case database (``proof.observe.casedata``), or
-    ``database`` where a test names the cases it turns on. The state carries
-    the platforms D (or D′, ``edit``) declares (``Served.platforms``). A state
-    served with no document is HQ's own app, read as both platforms.
+    ``database`` when given. Proof 4 passes the case database and platforms of
+    the state it keyed (D or D′); other callers take both from their document.
+    An HQ app with no declared platforms is read on both.
     """
     from proof.hq import operations
     from proof.hq import redis as hq_redis
     from proof.hq.seams import build_seams
 
     operation = operation or unit.operation
-    database = database or casedata.document_case_database(document, edit=edit)
+    database = database or casedata.document_case_database(document)
+    if platforms is None:
+        platforms = BOTH if document is None else document.platforms()
     with hq_redis.shared(None if runner is None else runner.redis_address), unit.fork():
         hq_redis.flush()
         with unit.committing():
@@ -882,5 +884,5 @@ def serve(
             build.to_json(),
             runner,
             usercase_id,
-            platforms=BOTH if document is None else document.platforms(edit=edit),
+            platforms=platforms,
         )

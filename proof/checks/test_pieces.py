@@ -62,6 +62,79 @@ def _store(out):
     )
 
 
+def test_each_check_fails_for_one_guarded_observation_until_its_inputs_change(tmp_path, monkeypatch):
+    from proof.checks.corpus import Document
+    from proof.observe.record import DocumentRecords
+    from proof.store import guard
+
+    root = tmp_path / "corpus" / "app"
+    root.mkdir(parents=True)
+    held = root / "edit.json"
+    held.write_text("{}")
+    manifest = root / "inputs.json"
+
+    def inputs(files):
+        manifest.write_text(json.dumps({"configurations": {"minimum": {"a": {}, "b_edit": files}}, "local": {}}))
+
+    inputs({})
+    document = Document("app", "targeted", root)
+    store = _store(tmp_path / "worker")
+    runner, driver = object(), object()
+    calls = []
+    transient = False
+
+    def observe(document, **kwargs):
+        calls.append(kwargs["held_only"])
+        if transient:
+            raise TimeoutError("The reader did not reply.")
+        # The same refusal the audit hook raises when the renderer opens an undeclared edited document.
+        guard._refuse(str(held), guard.part_scope(document, "minimum", "b_edit"))
+        return DocumentRecords(document.id, document.kind)
+
+    monkeypatch.setattr(unit, "observe_document", observe)
+    # The real session store opens a new handle each time over the same snapshot and worker output.
+    monkeypatch.setattr(runtime, "session_store", lambda _: _store(tmp_path / "worker"))
+    monkeypatch.setattr(observations, "_CACHE", {})
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path / "worker"))
+    monkeypatch.delenv(runtime.PIECES_ENVIRONMENT, raising=False)
+    for index in range(10):
+        with pytest.raises(guard.UndeclaredRead) as refused:
+            observations.records_for(document, runner, editor_driver=driver)
+        if index == 0:
+            message = str(refused.value)
+            assert str(held) in message and "minimum/b_edit" in message
+        else:
+            assert str(refused.value) == message and refused.value.__notes__
+    assert calls == [False]
+    assert store.delta.get("documents", store.document_key(document)) is None
+    # A local-only check still reads its independent observation after the full one failed in B-edit.
+    monkeypatch.setattr(unit, "observe_local", lambda *args, **kwargs: ({"kind": "local"}, bytes(32), True))
+    assert observations.local_records_for(document, runner).local == {"kind": "local"}
+
+    # A new browser, an explicit store, and a group reading only parts do not reuse that refusal.
+    for _ in range(2):
+        with pytest.raises(guard.UndeclaredRead):
+            observations.records_for(document, runner, editor_driver=driver, store=store)
+    with pytest.raises(guard.UndeclaredRead):
+        observations.records_for(document, runner, editor_driver=object())
+    monkeypatch.setenv(runtime.PIECES_ENVIRONMENT, "app@minimum")
+    with pytest.raises(guard.UndeclaredRead):
+        observations.records_for(document, runner, editor_driver=driver)
+    assert calls == [False, False, False, False, True]
+    monkeypatch.delenv(runtime.PIECES_ENVIRONMENT)
+    with pytest.raises(guard.UndeclaredRead):
+        observations.records_for(document, runner, editor_driver=driver)
+
+    # The same id and browser over changed corpus inputs get a new attempt. A transient failure is retryable.
+    inputs({"edit update": {"path": held.name}})
+    transient = True
+    with pytest.raises(TimeoutError):
+        observations.records_for(document, runner, editor_driver=driver)
+    transient = False
+    assert observations.records_for(document, runner, editor_driver=driver).document == document.id
+    assert calls == [False, False, False, False, True, False, False, False]
+
+
 def _two_configurations():
     """The corpus's cheapest document exported under two configurations, by the lane's timings."""
     estimate = sharding.estimate(sharding.load_timings())
