@@ -100,6 +100,7 @@ from proof.rules import (  # noqa: E402
     field_list_appearance_case,
     form_filter_blank,
     form_link_fallback,
+    hidden_sort_header,
     hint_validation_markdown_form,
     inactive_parent_select,
     itext_value_order,
@@ -167,6 +168,7 @@ RULES: tuple[SpellingRule, ...] = (
     menu_image_without_media.RULE,
     media_path_of_a_shared_file.RULE,
     field_list_appearance_case.RULE,
+    hidden_sort_header.RULE,
 )
 
 

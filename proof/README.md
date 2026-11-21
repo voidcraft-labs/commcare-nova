@@ -4766,6 +4766,11 @@ The rules whose readers reach past HQ's build and Core:
   served at the original path. At B those bytes must be in the upload HQ matched for the image, and on the
   local side they must be in the archive.
 
+- **`hidden-sort-header`** applies to the list of cases Formplayer sends to Web Apps. A table can carry
+  a single no-break space or an empty header for a sortable column whose two width hints are zero.
+  Web Apps omits its header, cells and column preference in both cases. The rule reads only Formplayer's
+  entity-table response. Android's Sort by chooser reads its own header and can lose a blank choice.
+
 - **`field-list-appearance-case`** (`field_list_appearance_case`): a group's
   appearance `field-list` in another letter case, read in lower case in Core's
   trace (a group event's `appearance`) and in Formplayer's answers (a group's

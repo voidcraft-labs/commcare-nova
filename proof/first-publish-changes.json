@@ -2260,6 +2260,30 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/headers/*",
 				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList:blank-sort-name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/list/sorted/*:blank-sort-name",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList:blank-sort-name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/list/sorted/*:blank-sort-name",
+				"kind": "removed"
 			}
 		]
 	},
