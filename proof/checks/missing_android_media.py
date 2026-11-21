@@ -270,7 +270,7 @@ def classify(
     document, records, name, differences, local, *, identity=False, rules=(), menus=None, tablet_rows=(), again=None
 ):
     """Return the exact classified rows and their source map place for this one configuration."""
-    from proof.checks.served_places import _source
+    from proof.checks.served_places import reviewed_source
 
     rows = [d for d in differences if candidate(d)] + list(tablet_rows)
     placed = {}
@@ -290,7 +290,7 @@ def classify(
     ):
         return differences, changes.Sites()
     reads = ((base.get("apiReads") or {}).get("authored") or {}).get("media") or []
-    cause = _cause(_source(records, name, "authored"), reads, a, b, aligned, local, blobs, again=again)
+    cause = _cause(reviewed_source(records, name, "authored"), reads, a, b, aligned, local, blobs, again=again)
     if cause is None:
         return differences, changes.Sites()
     uri, url = cause

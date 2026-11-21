@@ -222,12 +222,18 @@ class Change:
             and difference.kind == "changed"
             and difference.path.endswith("/case_name[*]/text()")
         ):
-            return (
-                isinstance(difference.before, str)
-                and difference.after == difference.before.strip(CASE_SCALAR_TRIM)
-                and 0 < len(difference.after.encode("utf-16-le", errors="surrogatepass")) <= 2 * 255
-            )
+            return trimmed_case_name(difference.before, difference.after)
         return True
+
+
+def trimmed_case_name(before, after):
+    """The nonempty, bounded name Nova accepts after Java String.trim removes its end characters."""
+    return (
+        isinstance(before, str)
+        and isinstance(after, str)
+        and after == before.strip(CASE_SCALAR_TRIM)
+        and 0 < len(after.encode("utf-16-le", errors="surrogatepass")) <= 510
+    )
 
 
 def tokens(pointer: str) -> list[str]:
@@ -349,7 +355,8 @@ class Sites:
       (``("suite.xml", "entry[7]")``), by the menu or form it is of, and an app string whose key does not say
       what it is of, ``("app_strings", key)`` in every language's file, by where it stands (a sort-only
       element's header, whose key's number is its order among the sort elements and no column's);
-    - ``served``: a served reader's concrete (artifact, observation pointer), located by its own navigation,
+    - ``served``: a concrete (artifact, observation pointer) in a submitted repeat's case-name writer or a served
+      reader, located by its own navigation,
       submitted instance, or question binding on the side that produced it;
     - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``).
     """
@@ -424,6 +431,8 @@ def _trace_location(difference, sites: Sites) -> tuple[str, ...]:
     database at its type, and anything else of a step under the step's place."""
     steps = unescaped(difference.at)
     artifact = difference.artifact
+    if artifact.startswith(("trace@", "case_blocks@")) and difference.path.endswith(":trimmed"):
+        return _site(sites.served, (artifact, difference.at))
     if artifact == "webapps@B" and difference.at == "/home/releaseListed":
         return ("app", "cloudcare_enabled")
     if artifact == "webapps@B" and difference.at == "/home/tiles/incomplete":

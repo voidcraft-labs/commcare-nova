@@ -16,16 +16,16 @@ def _one(elements):
     return elements[0] if len(elements) == 1 else None
 
 
-def _leaves(node, parent):
+def leaves(node, parent):
     path = (*parent, etree.QName(node).localname)
     if not len(node):
         yield path, node.text
     for child in node:
         if isinstance(child.tag, str) and etree.QName(child).namespace == etree.QName(node).namespace:
-            yield from _leaves(child, path)
+            yield from leaves(child, path)
 
 
-def _calculation(model, target):
+def calculation_at(model, target):
     bind = _one([node for node in model.findall(XF + "bind") if node.get("nodeset") == target])
     return bind.get("calculate") if bind is not None else None
 
@@ -54,28 +54,33 @@ def question(difference, location, submission, form_file, *, before):
     name = _one(instance.findall("/".join(branch)))
     if name is None or name.text != (difference.before if before else difference.after):
         return None
-    calculation = _calculation(model, "/" + "/".join(case_path))
+    answer = bound_answer(model, case_path, leaves(instance, ()), name.text, before=before)
+    if answer is None or answer[1] != difference.before:
+        return None
+    return (*location[:3], *answer[0])
+
+
+def bound_answer(model, case_path, instance_leaves, name, *, before):
+    """The original field and raw text of this create bind, from the leaves in the same submission occurrence."""
+    calculation = calculation_at(model, "/" + "/".join(case_path))
     leaves = {}
-    for path, value in _leaves(instance, ()):
+    for path, value in instance_leaves:
         leaves[path] = None if path in leaves else value
     if not before:
         helper = _one(
             [
                 path
                 for path, value in leaves.items()
-                if "/" + "/".join(path) == calculation
-                and path[-1].startswith("nova_trimmed_")
-                and value == difference.after
+                if "/" + "/".join(path) == calculation and path[-1].startswith("nova_trimmed_") and value == name
             ]
         )
         if helper is None:
             return None
-        calculation = _calculation(model, "/" + "/".join(helper))
+        calculation = calculation_at(model, "/" + "/".join(helper))
     answers = []
     for path, value in leaves.items():
         pointer = "/" + "/".join(path)
         expected = pointer if before else rf"replace({pointer}, '^[\x00-\x20]+|[\x00-\x20]+$', '')"
-        if calculation == expected and value == difference.before:
-            answers.append(path)
-    answer = _one(answers)
-    return (*location[:3], *answer) if answer is not None else None
+        if calculation == expected and isinstance(value, str) and (not before or value == name):
+            answers.append((path, value))
+    return _one(answers)

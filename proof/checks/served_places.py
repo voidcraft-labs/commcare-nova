@@ -84,7 +84,7 @@ def sites(records, name, differences, observed, local_files, *, document=None):
     @cache
     def reviewed_app():
         read = review_read(document) if document is not None else None
-        return _source(records, name, read) if read else {}
+        return reviewed_source(records, name, read) if read else {}
 
     @cache
     def case_types():
@@ -261,7 +261,7 @@ def review_read(document):
     return None
 
 
-def _source(records, name, label):
+def reviewed_source(records, name, label):
     reads = (records.configurations[name].a or {}).get("apiReads") or {}
     answer = (reads.get(label) or {}).get("source")
     if isinstance(answer, str):
@@ -323,7 +323,7 @@ def classify(document, records, name, differences, places):
 
     @cache
     def source():
-        return _source(records, name, read)
+        return reviewed_source(records, name, read)
 
     @cache
     def form_parts(position):
