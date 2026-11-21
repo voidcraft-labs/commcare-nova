@@ -1,0 +1,82 @@
+[
+	{
+		"path": "jr://file/commcare/audio/data/convulsions_counseling_message-r5egx3.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "d753edb7-c0a3-11f1-8839-1347c1073402",
+		"status": 200,
+		"sha256": "9c8298ed5286eda815ee97801b4f811294f94dfa826e6247776eea622dfa1903",
+		"length": 523
+	},
+	{
+		"path": "jr://file/commcare/audio/data/headache_counseling_message-1lvvdp.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "d753eda5-c0a3-11f1-8161-1347c1073402",
+		"status": 200,
+		"sha256": "7b2b4a9838ba6994ff617fd14a169b9a9b290885e28606c9069b24a1c19b6217",
+		"length": 520
+	},
+	{
+		"path": "jr://file/commcare/audio/data/rupturing_counseling_message-fbkyqp.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "d753edb1-c0a3-11f1-ad09-1347c1073402",
+		"status": 200,
+		"sha256": "8760a3ba20a80c25c0424993592f6f4c047ba44aba2e3975dbd4d7d52131a1de",
+		"length": 521
+	},
+	{
+		"path": "jr://file/commcare/audio/data/stopped_moving_counseling_message-5ukyct.mp3",
+		"mediaType": "CommCareAudio",
+		"multimediaId": "d753edab-c0a3-11f1-bdb4-1347c1073402",
+		"status": 200,
+		"sha256": "05d5755ea552c21a335b3da8cdcb92105063271b14b8e0f43f9d3cb099611b33",
+		"length": 526
+	},
+	{
+		"path": "jr://file/commcare/image/module0_form0_en.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "d753ed81-c0a3-11f1-8e0e-1347c1073402",
+		"status": 200,
+		"sha256": "49a2ee14d917d58e37f48c6f9b2df171b083a540c71d968a7391f822ce124f50",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/module1_case_list_form_en.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "d753ed8d-c0a3-11f1-8156-1347c1073402",
+		"status": 200,
+		"sha256": "c7eeac4ad48a7ab02a4c810fa58fabdde4e2503b83917d7759e17fa3ef9d376e",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/module1_en.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "d753ed87-c0a3-11f1-b227-1347c1073402",
+		"status": 200,
+		"sha256": "43d16d84835ae30aabf09f7e160d566742c15e98b2d4b9b63c96b089f5a06dcc",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form0_en.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "d753ed93-c0a3-11f1-9a5c-1347c1073402",
+		"status": 200,
+		"sha256": "73b74443a27a742702d2b4701fb49c5af4abcdd37eafcc7ab32371c8060a61a2",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form2_en.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "d753ed99-c0a3-11f1-bb2c-1347c1073402",
+		"status": 200,
+		"sha256": "fabfb8dcad317cad0457d0d4a028440c08cee26fcab5fcc1f1ed0a238fc76752",
+		"length": 69
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form0_en.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "d753ed9f-c0a3-11f1-aece-1347c1073402",
+		"status": 200,
+		"sha256": "4b678e35957610394b622d92690c8f01052a82e77e30769b3165ac2a1a8de412",
+		"length": 69
+	}
+]

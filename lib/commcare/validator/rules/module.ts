@@ -26,6 +26,7 @@ import { caseTileLayout } from "./case-list/caseTileLayout";
 import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
 import { columnNotOnList } from "./case-list/columnNotOnList";
 import { columnReferences } from "./case-list/columnReferences";
+import { columnRelation } from "./case-list/columnRelation";
 import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { dateColumnPattern } from "./case-list/dateColumnPattern";
@@ -43,6 +44,7 @@ import { searchInputReservedName } from "./case-list/searchInputReservedName";
 import { searchInputScreenPredicateTypeCheck } from "./case-list/searchInputScreenPredicateTypeCheck";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
+import { sortLabel } from "./case-list/sortLabel";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { sortPropertyOwnership } from "./case-list/sortPropertyOwnership";
 import { caseListRegistrationForm } from "./case-search/caseListRegistration";
@@ -288,6 +290,7 @@ export const CASE_LIST_ORDER_RULES: readonly ModuleRule[] = [
 	sortPropertyOwnership,
 	caseTileHiddenCalculatedSort,
 	columnNotOnList,
+	sortLabel,
 ];
 
 export const MODULE_RULES: readonly ModuleRule[] = [
@@ -307,6 +310,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	menuAboveSearch,
 	// Case-list-config rules (sit at module scope; the cross-form
 	// kind-vs-property-type rule lives at app scope in `app.ts`).
+	columnRelation,
 	columnReferences,
 	columnKindPropertyType,
 	filterTypeCheck,

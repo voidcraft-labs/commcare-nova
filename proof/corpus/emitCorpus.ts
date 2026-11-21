@@ -4,7 +4,8 @@
  * publish sends under each configuration, its local exports and its input
  * manifest, in the layout the checks read (`proof/checks/corpus.py`):
  *
- *   <out>/index.json                  {seed, sample, entropy, shard?, documents, census}
+ *   <out>/index.json                  {seed, sample, entropy, shard?, documents, census,
+ *                                     setAside?}
  *   <out>/inputs.json                 each document's input manifest digest (`./inputs.ts`)
  *   <out>/timings.json                what each part took (the one file that
  *                                     differs between two emissions)
@@ -16,9 +17,17 @@
  *   <out>/<id>/configurations.json    {minimum, maximum, singleFlag}, without
  *                                     the privileges HQ derives (`./configurations.ts`)
  *   <out>/<id>/verdict.json           Nova's publish verdict for D
- *   <out>/<id>/expected.json          a targeted document's intent values
+ *   <out>/<id>/expected.json          a targeted document's intent values,
+ *                                     or a base's hand-written ones, one a
+ *                                     state each runs at
  *   <out>/<id>/<name>.xml|.json       a targeted document's own files its
- *                                     expectations read (restores)
+ *                                     expectations read (restores), or a
+ *                                     base's hand-written restore
+ *   <out>/<id>/first-publish.json     a base's predicted first-publish ids
+ *   <out>/<id>/authored/              a base's retained app, media, seed,
+ *                                     tables and places, which A is made of
+ *                                     (no `create` or `content` under
+ *                                     `export/`, and `minimum` alone)
  *   <out>/<id>/export/<config>/       create (the empty shell), content (the
  *                                     update that fills it), republish,
  *                                     lookups and media (.body + .json), and
@@ -133,6 +142,7 @@ import {
 	writeJson,
 } from "./entryWriter";
 import { batchFootprint } from "./footprint";
+import type { SetAsideBase } from "./hqAuthored";
 import { writeCorpusInputs } from "./inputs";
 import {
 	exportFindings,
@@ -150,7 +160,7 @@ export interface EmitInput {
 	readonly seed: number;
 	/** The size of the fuzz sample the caller drew. */
 	readonly sample: number;
-	/** The fixed floor: the producers', workforce, expander and targeted documents. */
+	/** The fixed floor: the producers', workforce, expander, targeted and HQ-authored documents. */
 	readonly fixed: readonly CorpusDocument[];
 	/** The fuzz sample. */
 	readonly sampled: readonly CorpusDocument[];
@@ -180,6 +190,12 @@ export interface EmitInput {
 	 * documents leaves it unset.
 	 */
 	readonly leftOut?: LeftOut;
+	/**
+	 * The bases the corpus sets aside (`./hqAuthored.ts::hqAuthoredDocuments`):
+	 * written to `index.json` as `setAside` where any is, which the lane's
+	 * queue builder and gate read (`proof/lane/blocks.py::set_aside_bases`).
+	 */
+	readonly setAside?: readonly SetAsideBase[];
 	/** Further timings the caller measured (the Vitest writers), in seconds. */
 	readonly timings?: Readonly<Record<string, number>>;
 	readonly log?: (line: string) => void;
@@ -199,7 +215,7 @@ export interface RefusedDocument {
 export interface PartCensus {
 	readonly documents: number;
 	readonly emitted: number;
-	/** Emitted documents by source (`producer:<family>`, `workforce`, `expander`, `fuzz:<generator>`, `targeted`). */
+	/** Emitted documents by source (`producer:<family>`, `workforce`, `expander`, `fuzz:<generator>`, `targeted`, `hq-authored`). */
 	readonly bySource: Readonly<Record<string, number>>;
 	readonly refused: readonly RefusedDocument[];
 	/** Documents whose edit batch Nova's publish or local export refuses, so they carry none. */
@@ -231,6 +247,8 @@ export interface CorpusIndex {
 		readonly fixed: PartCensus;
 		readonly sample: PartCensus;
 	};
+	/** Each base the corpus set aside, in id order; absent where it set none aside. */
+	readonly setAside?: readonly SetAsideBase[];
 }
 
 /** What each part of an emission took, written beside the index as `timings.json`. */
@@ -802,6 +820,16 @@ async function writeEntries(
 
 // ── The corpus ───────────────────────────────────────────────────────
 
+/**
+ * Whether a document of this source carries only the edit written for it
+ * (`CorpusDocument.edit`) and is left out of the generated batches: a
+ * targeted document, and a document made in CommCare HQ, whose edit is the
+ * one its base states.
+ */
+function carriesWrittenEditOnly(source: CorpusSource): boolean {
+	return source.kind === "targeted" || source.kind === "hq-authored";
+}
+
 function sourceKey(source: CorpusSource): string {
 	switch (source.kind) {
 		case "producer":
@@ -814,6 +842,8 @@ function sourceKey(source: CorpusSource): string {
 			return `fuzz:${source.generator}`;
 		case "targeted":
 			return "targeted";
+		case "hq-authored":
+			return "hq-authored";
 	}
 }
 
@@ -846,11 +876,12 @@ async function emitPart(
 		perDocument.set(authored.id, performance.now() - t);
 	}
 
-	// A targeted document's symptom is fixed by what it holds, so it carries
-	// no generated edit (only the one written for it, `targetedBatch`), and
-	// the floor's batches are balanced without it.
+	// A targeted document's symptom is fixed by what it holds, and a document
+	// made in CommCare HQ is its base's reading, so neither carries a
+	// generated edit (only the one written for it, `targetedBatch`), and the
+	// floor's batches are balanced without them.
 	const editInputs = admitted
-		.filter(({ document }) => document.source.kind !== "targeted")
+		.filter(({ document }) => !carriesWrittenEditOnly(document.source))
 		.map(({ document }) => ({
 			id: document.id,
 			doc: document.doc,
@@ -882,7 +913,8 @@ async function emitPart(
 			targetedBatch(document, doc, placements, input.seed);
 		let edit: PreparedEdit | undefined;
 		if (batch === undefined) {
-			if (document.source.kind !== "targeted") withoutEdit.push(document.id);
+			if (!carriesWrittenEditOnly(document.source))
+				withoutEdit.push(document.id);
 		} else {
 			const judged = await judgedEdit(document, batch);
 			if ("refused" in judged) {
@@ -1123,6 +1155,8 @@ export async function emitCorpus(input: EmitInput): Promise<EmittedCorpus> {
 		...(input.select !== undefined && { selection: input.select.label }),
 		documents: all.map((entry) => entry.index),
 		census: { fixed: fixed.census, sample: sample.census },
+		...(input.setAside !== undefined &&
+			input.setAside.length > 0 && { setAside: input.setAside }),
 	};
 	const timings: CorpusTimings = {
 		...input.timings,

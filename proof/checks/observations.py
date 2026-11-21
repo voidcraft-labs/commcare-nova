@@ -197,6 +197,84 @@ def sessions_record(records, name):
     return (held or {}).get("sessions")
 
 
+# The answers of HQ's API to the reads Nova's own reading makes of an app, as the unit made them in a fork
+# (``proof.observe.unit._Unit.api_reads``): under ``apiReads`` in a part's record, one entry a label
+# (``published``, ``authored``, ``saved``), each ``{source, application, currentVersion, projectSpaces: {all,
+# flagged}, projectData?: {lookupTables, fixtureRows: {<tag>: answer}, locationTypes?, locations?}, media?: [{path,
+# mediaType, multimediaId, status, sha256, length}], at ``authored`` and ``saved``}``, each answer a blob of the JSON
+# ``proof.hq.operations.HqAnswer.retained()`` writes.
+API_READS = "apiReads"
+API_READ_LABELS = ("published", "authored", "saved")
+
+
+class RecordIncomplete(AssertionError):
+    """A record lacks what its observation always writes."""
+
+
+def _answer(value, blobs, where):
+    if isinstance(value, dict) and isinstance(value.get("status"), int):
+        return value
+    if isinstance(value, str):
+        answer = blobs.get_json(value)
+        if isinstance(answer, dict) and isinstance(answer.get("status"), int):
+            return answer
+    raise RecordIncomplete(
+        f"{where} holds {value!r}, which is no answer of HQ's API as HqAnswer.retained() writes one"
+        " ({status, headers?, body?}) or a blob of one."
+    )
+
+
+def api_reads(records, name, part, label):
+    """HQ's API answers to one labelled read of one configuration's part (``API_READS``), each answer as
+    ``HqAnswer.retained()`` writes it and ``LaneReadInput`` takes it, or None where the part holds no state (HQ
+    refused the publish that makes it, or Nova stopped it) or no such read.
+
+    Returns ``{source, application, currentVersion, projectSpaces?, projectData?, media}``: ``projectData`` as
+    ``LaneReadInput.projectData`` names its answers (without the media), ``media`` the record's rows, or None where
+    the read recorded none (only the ``authored`` and ``saved`` reads read the files)."""
+    record = records.configurations[name].part(part) or {}
+    reads = (record.get(API_READS) or {}).get(label)
+    if reads is None:
+        return None
+    where = f"{records.document}'s {name}/{part} {API_READS}.{label}"
+    blobs = records.blobs
+    found = {
+        key: _answer(reads.get(key), blobs, f"{where}.{key}") for key in ("source", "application", "currentVersion")
+    }
+    spaces = reads.get("projectSpaces")
+    if spaces is not None:
+        found["projectSpaces"] = {
+            key: _answer(spaces.get(key), blobs, f"{where}.projectSpaces.{key}") for key in ("all", "flagged")
+        }
+    data = reads.get("projectData")
+    if data is not None:
+        held = {
+            "lookupTables": _answer(data.get("lookupTables"), blobs, f"{where}.projectData.lookupTables"),
+            "fixtureRows": {
+                tag: _answer(answer, blobs, f"{where}.projectData.fixtureRows.{tag}")
+                for tag, answer in sorted((data.get("fixtureRows") or {}).items())
+            },
+        }
+        for key in ("locationTypes", "locations"):
+            if data.get(key) is not None:
+                held[key] = _answer(data[key], blobs, f"{where}.projectData.{key}")
+        found["projectData"] = held
+    media = reads.get("media")
+    found["media"] = None if media is None else list(media)
+    return found
+
+
+def answer_json(answer):
+    """The parsed body of one retained answer, or None where HQ sent none or it is not JSON."""
+    body = answer.get("body")
+    if not body:
+        return None
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
+
+
 def local_reports(records) -> dict:
     """Core's admission report of each local archive the document carries, by its path in the document."""
     return dict((records.local or {}).get("admissions", {}))
@@ -223,6 +301,7 @@ OPERATION_CHECKS = {
     "restore-local": "proof3",
     "case-processing": "proof3",
     "restore-proof4": "proof4",
+    "reads": "proof6",
 }
 # The check that holds what HQ noted in a hook's operations and requests, where it is not the hook's own name:
 # a state served to Formplayer and the Web Apps client at A or with B aligned to A is proof 3's.

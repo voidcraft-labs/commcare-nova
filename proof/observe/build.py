@@ -100,6 +100,12 @@ def build_state(app, record, state):
 
     for form in app.get_forms():
         form.clear_validation_cache()
+    # The version the build's files name, read before the build: building an app whose multimedia map holds a path
+    # nothing references saves it (``suite_xml/generator.py::MediaSuiteGenerator.media_resources`` asks
+    # ``hqmedia/models.py::ApplicationMediaMixin.multimedia_map_for_build`` with ``remove_unused=True``, whose
+    # ``remove_unused_mappings`` saves the app it pruned), and the save moves ``app.version`` past the version the
+    # profile and the suites were written with.
+    version = app.version
     sent_before = len(record.form_validations)
     raised = {}
     errors = _step(raised, "validate_app", lambda: _json(app.validate_app()))
@@ -125,7 +131,7 @@ def build_state(app, record, state):
             )
     outcome = BuildOutcome(
         state=state,
-        app_version=app.version,
+        app_version=version,
         errors=errors,
         raised=raised,
         files={path: _bytes(content) for path, content in files.items()} if files is not None else None,
@@ -249,10 +255,12 @@ def admission_placeholders(report, path):
     return replacements
 
 
-def admit(core_runner, path):
+def admit(core_runner, path, *, runtime_defaults=None):
     """Core's admission report for an archive or a directory of its entries, its app released, naming neither
-    the archive's path nor the root the runner read it under (``admission_placeholders``)."""
-    report = core_runner.admit(path)
+    the archive's path nor the root the runner read it under (``admission_placeholders``). ``runtime_defaults`` is
+    the client's (``proof.core.client.CoreRunner.admit``): the strings the runtime that alone reads the archive
+    registers as its default locale first."""
+    report = core_runner.admit(path, runtime_defaults=runtime_defaults)
     app = report.pop("app", None)
     report.pop("appHandle", None)
     replacements = admission_placeholders(report, path)

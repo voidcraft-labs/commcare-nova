@@ -182,7 +182,7 @@ export function ColumnEditor({
 	// mismatches surface inline next to the field picker.
 	const applicabilityErrors = useMemo(() => {
 		if (value.kind === "calculated") return [] as const;
-		const property = resolveColumnProperty(ctx, value.field);
+		const property = resolveColumnProperty(ctx, value.field, value.via);
 		const schema = columnCardSchemas[value.kind];
 		if (schema.applicableForProperty(property)) return [] as const;
 		const information =
@@ -291,7 +291,7 @@ function KindPicker({
 	const property =
 		currentValue.kind === "calculated"
 			? undefined
-			: resolveColumnProperty(ctx, currentValue.field);
+			: resolveColumnProperty(ctx, currentValue.field, currentValue.via);
 	const currentKind = currentValue.kind;
 	const currentSchema = columnCardSchemas[currentKind];
 

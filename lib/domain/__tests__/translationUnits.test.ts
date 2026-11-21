@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
+	columnSort,
 	makeTranslationUnitId,
 	NO_SEARCH_SCREEN_TITLE,
 	plainColumn,
@@ -16,7 +17,11 @@ const WEIGHT = testUuid("translation-units-weight");
 
 /** A list whose second column, over `weight`, orders the list and is hidden
  *  from Results, shown on Details or not as `visibleInDetail` says. */
-function listWithHiddenOrderColumn(visibleInDetail: boolean): BlueprintDoc {
+function listWithHiddenOrderColumn(
+	visibleInDetail: boolean,
+	label?: string,
+	visibleInList = false,
+): BlueprintDoc {
 	return buildDoc({
 		appName: "Clinic",
 		modules: [
@@ -28,9 +33,9 @@ function listWithHiddenOrderColumn(visibleInDetail: boolean): BlueprintDoc {
 					columns: [
 						plainColumn(NAME, "case_name", "Name"),
 						plainColumn(WEIGHT, "weight", "Weight", {
-							visibleInList: false,
+							visibleInList,
 							visibleInDetail,
-							sort: { direction: "asc", priority: 0 },
+							sort: columnSort("asc", 0, undefined, label),
 						}),
 					],
 					searchInputs: [],
@@ -64,6 +69,35 @@ describe("a case list column's header unit", () => {
 		expect(
 			translationUnitsById(listWithHiddenOrderColumn(true)).has(header),
 		).toBe(true);
+	});
+});
+
+describe("a sort rule's name in Sort by", () => {
+	const name = makeTranslationUnitId("column", WEIGHT, "sort-label");
+
+	it.each([
+		["hidden from both screens", false],
+		["shown on Details", true],
+	])("is listed for a column hidden from Results and %s", (_case, detail) => {
+		const unit = translationUnitsById(
+			listWithHiddenOrderColumn(detail, "Lightest first"),
+		).get(name);
+		expect(unit).toMatchObject({
+			role: "case-list-sort-label",
+			source: "Lightest first",
+			contentPolicy: "require-nonblank",
+		});
+	});
+
+	it("is not listed where the rule names nothing, or where Results shows the column", () => {
+		expect(
+			translationUnitsById(listWithHiddenOrderColumn(false)).has(name),
+		).toBe(false);
+		expect(
+			translationUnitsById(
+				listWithHiddenOrderColumn(true, "Lightest first", true),
+			).has(name),
+		).toBe(false);
 	});
 });
 

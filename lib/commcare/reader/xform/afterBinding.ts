@@ -10,7 +10,9 @@
  * emitter writes for an unset one, read as unset. Each is compared with the production rule
  * over the document as the expression stage bound it. A check whose inputs a
  * finding withheld is skipped: that finding already sends the person to the
- * question or the form.
+ * question or the form. A Hidden Value holding both a calculate and a
+ * default outside every repeat is the calculate alone where no runtime reads
+ * the default, and refused where one can.
  */
 
 import type { Element } from "domhandler";
@@ -52,10 +54,11 @@ import { formNodeProjection } from "../../xpath/formNodeProjection";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
-import { claimRegistry } from "../claims";
-import type { ReadContext } from "../context";
+import { type Claim, claimRegistry } from "../claims";
+import type { DraftForm, ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
-import { sameJson } from "../jsonCursor";
+import { pointerToken, sameJson } from "../jsonCursor";
+import { manifestFindingOf } from "../languages";
 import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { ownText } from "../xmlCursor";
@@ -216,13 +219,10 @@ function bindTypeClass(
 
 /** Whether the expression stage held what a bind's attribute registered. */
 function held(ctx: ReadContext, element: object, attribute: string): boolean {
-	const list = ctx.pending.list();
-	for (let index = 0; index < list.length; index++) {
-		const at = ctx.pending.site(index).at;
-		if ("element" in at && at.element === element && at.attribute === attribute)
-			return ctx.pending.outcome(index).expression !== undefined;
-	}
-	return false;
+	const index = ctx.pending.firstAt(element, attribute);
+	return (
+		index !== undefined && ctx.pending.outcome(index).expression !== undefined
+	);
 }
 
 /** The load-time order check of one form. */
@@ -248,6 +248,165 @@ function checkLoadOrder(
 	};
 	for (const { reader } of loadOrderConflicts(order, emitted, readsOfStep))
 		ctx.accounting.finding(X.loadOrder, reader.pending?.place ?? formPlace);
+}
+
+/**
+ * Whether no runtime reads the default of a Hidden Value that holds both a calculate and a
+ * default outside every repeat. Core runs a new form's `xforms-ready` setvalues in model order
+ * and then evaluates every calculate, relevant or not (`FormDef.initialize` →
+ * `initAllTriggerables`, `Recalculate.apply`), and resuming a saved form runs no setvalue, so
+ * the calculate replaces the default before any screen. Only a later `xforms-ready` setvalue
+ * that reads the node, directly or through the calculates of the nodes it reads, can see the
+ * default. Any doubt counts as a read: the expression stage not holding the default or the
+ * calculate in its own slot, another setvalue setting the node, or a later setvalue whose reads
+ * no bound tree gives.
+ */
+function defaultUnread(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	xform: ReadXForm,
+	field: DraftField,
+): boolean {
+	const names = xform.sourceNames;
+	const uuid = field.uuid;
+	if (names === undefined || uuid === undefined) return false;
+	const stored = doc.fields[uuid] as Field | undefined;
+	if (
+		stored === undefined ||
+		stored.kind !== "hidden" ||
+		stored.calculate === undefined ||
+		stored.default_value === undefined
+	)
+		return false;
+	const bind = xform.binds.get(field.node);
+	const path = field.node.path.join("/");
+	const defaults = xform.setvalues.filter(
+		(setvalue) => setvalue.target?.join("/") === path,
+	);
+	const only = defaults[0];
+	if (
+		bind === undefined ||
+		defaults.length !== 1 ||
+		only === undefined ||
+		only.event !== "xforms-ready" ||
+		!held(ctx, bind.element, "calculate") ||
+		!held(ctx, only.element, "value")
+	)
+		return false;
+	const order = effectiveLoadOrder(xform);
+	const at = order.findIndex(
+		(step) => step.event === "xforms-ready" && step.target === path,
+	);
+	if (at === -1) return false;
+	for (const step of order.slice(at + 1)) {
+		if (step.event !== "xforms-ready") continue;
+		if (step.pending === undefined) {
+			// A query repeat's count of its rows, which Nova's own shape sets from its ids
+			// alone; any other value no bound tree gives is a doubt.
+			const node = names.at([names.root, ...step.target.split("/")]);
+			const rowCount =
+				(node?.kind === "repeat-attribute" && node.attribute === "count") ||
+				(node?.kind === "generated" && node.purpose === "query-count");
+			if (rowCount) continue;
+			return false;
+		}
+		const seen = new Set<string>();
+		const reach = (read: string): boolean => {
+			if (read === path) return true;
+			if (seen.has(read)) return false;
+			seen.add(read);
+			const node = names.at([names.root, ...read.split("/")]);
+			if (node?.kind !== "field") return false;
+			const through = doc.fields[node.uuid] as Field | undefined;
+			if (through?.kind !== "hidden" || through.calculate === undefined)
+				return false;
+			let reached = false;
+			walkExpressionTerms(through.calculate, (term) => {
+				if (reached || term.kind !== "field") return;
+				const through = names.fieldPath(term.uuid);
+				if (through !== undefined && reach(through.slice(1).join("/")))
+					reached = true;
+			});
+			return reached;
+		};
+		for (const read of readsOf(doc, names, step)) if (reach(read)) return false;
+	}
+	return true;
+}
+
+/** The surface key a Hidden Value's node is claimed at. */
+const BOTH_KEY = "mug:DataBindOnly";
+
+/**
+ * Each Hidden Value of a form holding both a calculate and a default outside every repeat,
+ * claimed at its node and its bind's type: where no runtime reads the default
+ * (`defaultUnread`), under the held entry, the document keeping the calculate alone and the
+ * first publish saying so (`hidden-value-defaults-dropped`, once per form); otherwise refused
+ * whole at the question.
+ */
+function settleBothSources(ctx: ReadContext, form: DraftForm): void {
+	const xform = form.xform;
+	if (xform === null) return;
+	let dropped = false;
+	for (const field of fieldsOf(xform)) {
+		const both = field.bothSources;
+		if (both === undefined) continue;
+		const doc = ctx.doc;
+		const unread =
+			doc !== undefined &&
+			doc.forms[form.uuid] !== undefined &&
+			defaultUnread(ctx, doc, xform, field);
+		const bind = xform.binds.get(field.node);
+		const claimNode = (node: Claim) =>
+			ctx.accounting.claimEntry(
+				{ element: field.node.element },
+				node.entry,
+				node.key ?? BOTH_KEY,
+				field.place,
+			);
+		const typeSite =
+			both.typeDeferred && bind !== undefined
+				? { element: bind.element, attribute: "type" }
+				: undefined;
+		if (!unread || doc === undefined || field.uuid === undefined) {
+			// The bind's type belongs to the refused question: covered by its one finding.
+			const refusal = X.refusedKind.hiddenBoth;
+			claimNode(refusal);
+			if (typeSite !== undefined)
+				ctx.accounting.cover(
+					typeSite,
+					manifestFindingOf(refusal, field.place, {}),
+				);
+			continue;
+		}
+		const sites = X.kind.hiddenBothUnread;
+		claimNode(sites.node);
+		if (
+			typeSite !== undefined &&
+			sites.type !== undefined &&
+			sites.type.key !== null
+		)
+			ctx.accounting.claimEntry(
+				typeSite,
+				sites.type.entry,
+				sites.type.key,
+				field.place,
+			);
+		const uuid = field.uuid;
+		ctx.doc = withCandidate(doc, (draft) => {
+			delete (draft.fields[uuid] as { default_value?: unknown }).default_value;
+		});
+		delete field.field.default_value;
+		dropped = true;
+	}
+	if (!dropped) return;
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	ctx.facts.sameStateRewrites.push({
+		entry: X.kind.hiddenBothUnread.node.entry,
+		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
+		register: "hidden-value-defaults-dropped",
+	});
 }
 
 /** `caseStageEntryIds` as last derived, with the registry's size then: names
@@ -410,12 +569,9 @@ function registrationOf(
 	slot: string,
 ): number | undefined {
 	const list = ctx.pending.list();
-	for (let index = 0; index < list.length; index++) {
-		const ref = list[index]?.ref;
-		if (ref?.entity === "field" && ref.uuid === uuid && ref.slot === slot)
-			return index;
-	}
-	return undefined;
+	return ctx.pending
+		.of("field", uuid)
+		.find((index) => list[index]?.ref.slot === slot);
 }
 
 /**
@@ -562,8 +718,14 @@ function checkModelIterations(
 			return own.length > 0 && own.every(({ at }) => at > idsAt);
 		};
 		const verdict = modelIterationVerdict(doc, formUuid, uuid, setAfterIds);
+		// Each refusal is a class of the model iteration, which its node's role names.
 		if (verdict.kind === "refused")
-			ctx.accounting.finding(verdict.claim, repeat.place);
+			ctx.accounting.findingAtNode(
+				verdict.claim,
+				repeat.place,
+				{ element: repeat.node.element },
+				"vellum-markup:model/instance//*@vellum:role",
+			);
 	}
 }
 
@@ -1084,8 +1246,9 @@ export function finishForms(ctx: ReadContext): void {
 	const types = lookupTypes(expressionEnvOf(ctx));
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
-			const doc = ctx.doc;
 			const xform = form.xform;
+			settleBothSources(ctx, form);
+			const doc = ctx.doc;
 			if (doc === undefined || xform === null) continue;
 			if (doc.forms[form.uuid] === undefined) continue;
 			settleChoices(ctx, doc, xform, types);

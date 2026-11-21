@@ -442,7 +442,14 @@ describe("the writers of one property", () => {
 	 *  question to a property. */
 	function writers(
 		pairs: readonly {
-			kind: "int" | "decimal" | "text" | "single_select" | "multi_select";
+			kind:
+				| "int"
+				| "decimal"
+				| "text"
+				| "date"
+				| "datetime"
+				| "single_select"
+				| "multi_select";
 			property: string;
 		}[],
 	): BlueprintDoc {
@@ -518,18 +525,85 @@ describe("the writers of one property", () => {
 		expect(typeOf("level")).toBe("text");
 	});
 
-	it("raises the row for a pair no one stored type joins: a single with a multiple choice, and any other", async () => {
-		const reading = await readMenusOf(
-			writers([
-				{ kind: "single_select", property: "level" },
-				{ kind: "multi_select", property: "level" },
-				{ kind: "int", property: "weight" },
-				{ kind: "text", property: "weight" },
-			]),
+	it("holds writers that agree on no one type as text where text holds each, a whole number with text and a number with a date, with no finding", async () => {
+		const doc = writers([
+			{ kind: "int", property: "weight" },
+			{ kind: "text", property: "weight" },
+			{ kind: "decimal", property: "harvest" },
+			{ kind: "date", property: "harvest" },
+		]);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const reading = await readMenusOf(doc);
+		expect(reading.findings).toEqual([]);
+		if (reading.doc === undefined)
+			throw new Error("The writers read into a document.");
+		const patient = effectiveCaseTypes(reading.doc).find(
+			(type) => type.name === "patient",
 		);
+		const typeOf = (name: string) =>
+			patient?.properties.find((one) => one.name === name)?.data_type;
+		expect(typeOf("weight")).toBe("text");
+		expect(typeOf("harvest")).toBe("text");
+	});
+
+	it("raises the row for a pair no one stored type joins and text does not hold: a single with a multiple choice, and a number with a date and time", async () => {
+		const doc = writers([
+			{ kind: "single_select", property: "level" },
+			{ kind: "multi_select", property: "level" },
+			{ kind: "int", property: "weight" },
+			{ kind: "datetime", property: "weight" },
+		]);
+		const reading = await readMenusOf(doc);
 		expect(writerFindings(reading).sort()).toEqual([
 			"forms-and-case-writes/any-other-mixed-writer-pair",
 			"forms-and-case-writes/writers-single-select-multi-select",
+		]);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+				.filter((error) => error.code === "FIELD_KIND_WRITERS_DISAGREE")
+				.map((error) => error.details?.property),
+		).toEqual(["level", "level", "weight", "weight"]);
+	});
+
+	it("raises the row where one Hidden Value's results agree on no type text holds, as the gate refuses it", async () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfigOf([
+						plainColumn(testUuid("hidden-branches-name"), "case_name", "Name"),
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({ kind: "text", id: "flag" }),
+								f({
+									kind: "hidden",
+									id: "seen",
+									calculate: "if(#form/flag = 'yes', 1, now())",
+									caseWrite: { caseType: "patient", property: "seen" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((error) => error.code),
+		).toEqual(["HIDDEN_VALUE_WRITER_TYPE_MISMATCH"]);
+		const reading = await readMenusOf(doc);
+		expect(writerFindings(reading)).toEqual([
+			"forms-and-case-writes/any-other-mixed-writer-pair",
 		]);
 	});
 });

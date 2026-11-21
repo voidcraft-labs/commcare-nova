@@ -208,10 +208,7 @@ def _needs_child_cases(content):
 
     uses = _ADD_ONS["subcases"].used_in_form
     return any(
-        uses(form)
-        for module in _modules(content)
-        if module.doc_type != "AdvancedModule"
-        for form in module.get_forms()
+        uses(form) for module in _modules(content) if module.doc_type != "AdvancedModule" for form in module.get_forms()
     )
 
 
@@ -482,8 +479,16 @@ TWO_IMPORTS = 2
 
 # The captured publishes whose apps the privilege derivation reads: D's first publish and D′'s update under the
 # minimum configuration. Where the first publish is two imports (its create's sidecar marked ``"layout": 2``) the
-# app is the content's, since the shell holds no menu to derive a privilege from.
+# app is the content's, since the shell holds no menu to derive a privilege from. For a document made in HQ, the app
+# HQ's own pages made (``authored/app.json``), Nova's republish over it and D′'s update
+# (``AUTHORED_PRIVILEGE_CAPTURES``).
 PRIVILEGE_CAPTURES = (("export/minimum", "create"), ("edit/export/minimum", "update"))
+# The app a document made in HQ was authored as, its tables where it holds any, and the captured publishes over it
+# whose apps the privileges are derived from: B can need what A does not (a D that declares Web Apps over an A with
+# the setting off needs ``CLOUDCARE``).
+AUTHORED_APP = "authored/app.json"
+AUTHORED_TABLES = "authored/tables.json"
+AUTHORED_PRIVILEGE_CAPTURES = (("export/minimum", "republish"), ("edit/export/minimum", "update"))
 
 
 class PrivilegeInputError(ValueError):
@@ -511,6 +516,8 @@ def _content_privileges(root: Path) -> tuple[str, ...]:
     from proof.hq.boot import boot
 
     boot()
+    if (root / AUTHORED_APP).exists():
+        return _authored_privileges(root)
     sources, lookup_push = [], False
     for relative, name in PRIVILEGE_CAPTURES:
         directory = root / relative
@@ -533,6 +540,58 @@ def _content_privileges(root: Path) -> tuple[str, ...]:
         sources.append(source)
         lookup_push = lookup_push or pushed
     return tuple(required_privileges(sources, lookup_push=lookup_push))
+
+
+def _authored_publishes(root: Path) -> tuple[list[dict], bool]:
+    """The apps Nova's publishes over the app a document made in HQ holds send: its republish over A and, where the
+    document states an edit, D′'s update; and whether a lookup workbook was pushed before one. A republish is absent
+    only where ``outcome.json`` records that Nova stopped it before it sent anything (``corpus.republish_stop``):
+    every export writes ``outcome.json``, so its presence alone says nothing of a stop."""
+    from proof.checks.corpus import republish_stop
+
+    sources, lookup_push = [], False
+    for relative, name in AUTHORED_PRIVILEGE_CAPTURES:
+        directory = root / relative
+        if not (directory / f"{name}.json").exists():
+            if name == "republish" and republish_stop(directory) is None:
+                raise PrivilegeInputError(
+                    f"{root} holds {AUTHORED_APP} and no {relative}/{name}.json, Nova's republish over the app HQ"
+                    " made, whose app the privileges are derived from with it; emit the corpus again."
+                )
+            continue
+        source, pushed = _captured_app(directory, name)
+        sources.append(source)
+        lookup_push = lookup_push or pushed
+    return sources, lookup_push
+
+
+def _authored_privileges(root: Path) -> tuple[str, ...]:
+    """The privileges a document made in HQ needs: those of the app HQ's own pages made (``authored/app.json``) and
+    of Nova's publishes over it (``_authored_publishes``), with a lookup push where the base holds tables (the plan
+    must hold what HQ's own table pages and reads ask)."""
+    sources, lookup_push = _authored_publishes(root)
+    app = json.loads((root / AUTHORED_APP).read_text(encoding="utf-8"))
+    return tuple(required_privileges([app, *sources], lookup_push=lookup_push or (root / AUTHORED_TABLES).exists()))
+
+
+@functools.cache
+def _published_privileges(root: Path) -> tuple[str, ...]:
+    from proof.hq.boot import boot
+
+    boot()
+    if not (root / AUTHORED_APP).exists():
+        return _content_privileges(root)
+    sources, lookup_push = _authored_publishes(root)
+    return tuple(required_privileges(sources, lookup_push=lookup_push))
+
+
+def published_privileges(document_root) -> list[str]:
+    """The privilege constants what Nova's publishes of the document at ``document_root`` send need: on a document
+    Nova made, its content's (``content_privileges``); on a document made in HQ, those of Nova's republish over A and
+    of D′'s update alone. The app HQ made can need what Nova's publish over it no longer holds (Web Apps on where
+    the declaration is Android only, ``web-apps-turned-off``; a location list setting the first publish resets,
+    ``location-list-setting-reset``), which the configuration grants so that A builds and Nova never asks for."""
+    return list(_published_privileges(Path(document_root).resolve()))
 
 
 def content_privileges(document_root) -> list[str]:

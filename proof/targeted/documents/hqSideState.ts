@@ -44,7 +44,13 @@
  *   `xform.py::XForm.exclude_languages`; defect 1, language codes).
  *
  * None of the saves is a value Nova owns, so the republish proceeds with no
- * discard (`republish: "proceeds"`).
+ * discard (`republish: "proceeds"`). Its republish and its edit both hold the
+ * build profile the person saved to the languages they write
+ * (`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`), over a
+ * profile the capture peer serves as HQ stores it, and neither stops: the
+ * profile names `zho`, a code both documents hold. A stop there fails the
+ * capture by name, which is the lane's proof that the check does not stop a
+ * publish it should let through.
  *
  * A lookup table a person keeps in HQ has a document of its own
  * (`./hqSideLookup.ts`), since that republish is the one Nova stops

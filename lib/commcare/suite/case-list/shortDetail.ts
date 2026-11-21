@@ -112,7 +112,11 @@ import {
 } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
-import { buildCarrierField, buildColumnField } from "./columns";
+import {
+	buildCarrierField,
+	buildColumnField,
+	mergeFieldStrings,
+} from "./columns";
 import {
 	EMPTY_CASE_LIST_TEXT,
 	emptyCaseListTextLocaleId,
@@ -344,9 +348,9 @@ export function buildShortDetail(args: {
 	}
 
 	const config = mod.caseListConfig;
+	const caseTypes = effectiveCaseTypes(doc);
 	const caseProperties =
-		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
-			?.properties ?? [];
+		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [];
 	const plan = moduleCaseListOrderPlan(
 		mod,
 		doc,
@@ -363,6 +367,7 @@ export function buildShortDetail(args: {
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
 		caseType: mod.caseType,
+		caseTypes,
 		proseDoc: doc,
 		expressions,
 		...(config.tile !== undefined && { tileLayout: config.tile }),
@@ -388,13 +393,21 @@ export function buildShortDetail(args: {
 			position: field.position + 1,
 			ctx,
 			hidden: field.hidden,
+			...(field.hidden &&
+				field.rule?.label !== undefined && { sortLabel: field.rule.label }),
 		});
 		fields.push(emission.element);
-		Object.assign(strings, emission.strings);
-		Object.assign(translationUnits, emission.translationUnits);
+		mergeFieldStrings(strings, translationUnits, emission);
 	}
 	for (const carrier of sortNodes.carriers) {
-		fields.push(buildCarrierField(carrier.property, carrier.directive, wire));
+		const emission = buildCarrierField(
+			carrier,
+			carrier.directive,
+			{ target, moduleIndex },
+			wire,
+		);
+		fields.push(emission.element);
+		mergeFieldStrings(strings, translationUnits, emission);
 	}
 
 	return {

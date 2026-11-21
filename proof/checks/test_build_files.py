@@ -17,8 +17,10 @@ or one the comparison silently skips), a build profile's file named so no
 rule or entry can reach it, and a version clause that erases a version HQ
 changed with nothing changed.
 
-The app is HQ's own suite-test app with a build profile, published through
-HQ's import as Nova publishes and built by HQ under the check's seams.
+The app is HQ's own suite-test app with a build profile and an id on its
+menu, as every app Nova publishes holds (``hq_test_app_with_menu_ids``),
+published through HQ's import as Nova publishes and built by HQ under the
+check's seams.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from proof.checks.proof2 import parsed_build
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
-from proof.hq.conftest import hq_test_app, nova_shaped_upload
+from proof.hq.conftest import hq_test_app_with_menu_ids, nova_shaped_upload
 from proof.hq.seams import build_seams
 from proof.observe.build import build_state
 
@@ -66,12 +68,12 @@ def _changed_label(app_json, held_form_ids, form_index=None):
 def builds(hq, core_runner):
     """HQ's build of the app with a build profile (A), and of its update changing the second form's label (B)."""
     with hq_check(CONFIGURATION) as (state, record):
-        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
+        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app_with_menu_ids(), "Suite app")])
         app = _with_profile(operations.held_app(state, app_id))
         with build_seams(previous=None):
             a, hq_build = build_state(app, record, "A")
         saved_a = hq_build.saved_build()  # before the update replaces the forms' sources
-        update = _changed_label(hq_test_app(), [form.unique_id for form in app.get_forms()], form_index=1)
+        update = _changed_label(hq_test_app_with_menu_ids(), [form.unique_id for form in app.get_forms()], form_index=1)
         upload = operations.with_app_id(nova_shaped_upload(update, "Suite app", app_id="captured"), app_id)
         assert operations.apply_upload(state, upload).status == 200
         with build_seams(previous=saved_a):
@@ -266,12 +268,14 @@ def _media_versions(outcome):
 def media_builds(hq, core_runner):
     """HQ's build of the app with two media (A), and after its republish, with one media file replaced (B)."""
     with hq_check(CONFIGURATION) as (state, record):
-        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app(), "Suite app")])
+        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app_with_menu_ids(), "Suite app")])
         with build_seams(previous=None):
             a, hq_build = build_state(_with_media(operations.held_app(state, app_id), "b" * 32), record, "A")
         saved_a = hq_build.saved_build()
         held = [form.unique_id for form in operations.held_app(state, app_id).get_forms()]
-        republish = nova_shaped_upload(_changed_label(hq_test_app(), held), "Suite app", app_id="captured")
+        republish = nova_shaped_upload(
+            _changed_label(hq_test_app_with_menu_ids(), held), "Suite app", app_id="captured"
+        )
         assert operations.apply_upload(state, operations.with_app_id(republish, app_id)).status == 200
         with build_seams(previous=saved_a):
             b, _ = build_state(_with_media(operations.held_app(state, app_id), "c" * 32), record, "B")
@@ -290,7 +294,7 @@ def test_a_media_version_differs_only_where_its_file_does(media_builds):
     media = [d for d in _differences(a, b) if d.artifact == "media_suite.xml"]
     # The replaced file's download location differs; no version does.
     assert media and not [d for d in media if d.path.endswith("/@version")], [d.describe() for d in media]
-    assert {d.path for d in media} == {"/suite/media[*]/resource[@id=*]/location[*]/text()"}
+    assert {d.path for d in media} == {"/suite/media[resource/@id=*]/resource[@id=*]/location[*]/text()"}
 
 
 def test_a_media_version_changed_with_its_file_unchanged_is_a_difference(media_builds):
@@ -304,5 +308,37 @@ def test_a_media_version_changed_with_its_file_unchanged_is_a_difference(media_b
     kept.set("version", str(b.app_version))
     found = _differences(a, _with_file(b, "media_suite.xml", etree.tostring(root, encoding="utf-8")))
     assert [(d.artifact, d.path) for d in found if d.path.endswith("/@version")] == [
-        ("media_suite.xml", "/suite/media[*]/resource[@id=*]/@version")
+        ("media_suite.xml", "/suite/media[resource/@id=*]/resource[@id=*]/@version")
     ]
+
+
+def test_on_an_app_made_in_hq_every_built_file_but_a_form_still_has_its_comparison(builds):
+    """On an app made in CommCare HQ proof 2 leaves each form's built XML out (``proof2.judged``,
+    ``eligibility.form_xml_unjudged``): a form's bytes are Nova's own spelling of the form HQ's form builder wrote.
+    Every other file HQ builds, the default build's and each build profile's, is still compared, and a change to it
+    is still a difference in that file. The plausible failure: a filter that drops more than the forms, so a suite,
+    a profile or a language's app strings is never compared on such an app."""
+    from types import SimpleNamespace
+
+    from proof.checks import proof2
+
+    a, _ = builds
+    made_in_hq = SimpleNamespace(source="hq-authored:planted")
+    nova_born = SimpleNamespace(source="producer:planted")
+    before = parsed_build(a)
+    kept = set()
+    for path in sorted(before):
+        content = a.files[path] if path in a.files else a.profile_files[PROFILE][path]
+        found = compare_parsed_builds(
+            before, parsed_build(_with_file(a, path, _mutated(path, content))), check="proof2", document="suite-app"
+        )
+        assert found, path
+        judged = proof2.judged(made_in_hq, found)
+        artifact = before[path].artifact
+        if proof2.form_artifact(artifact):
+            assert judged == [], path
+        else:
+            assert judged == found, path
+            kept.add(artifact)
+        assert proof2.judged(nova_born, found) == found
+    assert {"suite.xml", "media_suite.xml", "profile.ccpr", "app_strings:en", f"{PROFILE}/suite.xml"} <= kept

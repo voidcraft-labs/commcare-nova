@@ -7,6 +7,14 @@ install is refused, with each resource Core refused named, not only the first.
 
 Expected values come from the archive itself, read here with lxml: the suite's
 xform and locale resources, the profile's attributes and properties.
+
+An archive only CommCare Android reads is admitted over Android's own strings
+(``runtime_defaults``), which Android registers as the default locale's first
+source before the app's files (``CommCareApplication.initializeDefaultLocalizerData``):
+a key one language holds and the app's default file lacks is admitted where
+Android's strings name it, as on a device, and refused where they do not, as
+Core's strict localizer refuses it with none; and the app keeps them when
+another archive's admission took Core's localizer in between.
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ from proof.core.artifacts import (
     self_check_archives,
     suite_resource_ids,
 )
-from proof.core.client import CoreRunnerError
+from proof.core.client import ANDROID_DEFAULT_STRINGS, CoreRunnerError
 
 
 def refused_resources(report: dict) -> set[str]:
@@ -128,6 +136,67 @@ def test_app_strings_are_read_at_admission(core_runner, tmp_path):
     report = core_runner.admit(variant)
     assert report["admitted"] is False
     assert [(problem["stage"], problem.get("locale")) for problem in report["problems"]] == [("locale", "hin")]
+
+
+def _with_a_language_key(tmp_path, name, key, text):
+    """BASIC_APP with ``key`` added to its ``hin`` strings alone, which its default file lacks."""
+    held = read_archive_entry(BASIC_APP, "hin/app_strings.txt").decode("utf-8")
+    assert key not in read_archive_entry(BASIC_APP, "default/app_strings.txt").decode("utf-8")
+    edited = held + ("" if held.endswith("\n") else "\n") + f"{key}={text}\n"
+    return archive_variant(BASIC_APP, tmp_path / name, {"hin/app_strings.txt": edited.encode("utf-8")})
+
+
+def _android_keys():
+    lines = ANDROID_DEFAULT_STRINGS.read_text(encoding="utf-8").splitlines()
+    return {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.lstrip().startswith("#")}
+
+
+def test_a_key_one_language_holds_is_admitted_where_androids_own_strings_name_it(core_runner, tmp_path):
+    """``home.sync`` in ``hin`` alone: Core's own engine refuses the language (its localizer is strict), and an
+    admission over Android's own strings admits it, as a device installs it."""
+    assert "home.sync" in _android_keys()
+    variant = _with_a_language_key(tmp_path, "hin-sync.ccz", "home.sync", "Sync karo")
+    refused = core_runner.admit(variant)
+    assert refused["admitted"] is False
+    assert [(problem["stage"], problem.get("locale")) for problem in refused["problems"]] == [("locale", "hin")]
+    assert "home.sync" in refused["problems"][0]["message"]
+    assert "runtimeDefaults" not in refused
+
+    report = core_runner.admit(variant, runtime_defaults=ANDROID_DEFAULT_STRINGS)
+    other = None
+    try:
+        assert report["problems"] == []
+        assert report["admitted"] is True
+        assert report["runtimeDefaults"] > 0
+        # Another archive's admission takes Core's localizer; a session on the first in hin activates it again
+        # over Android's strings, or setting hin would raise as the admission without them did.
+        other = core_runner.admit(BASIC_APP)
+        assert other["admitted"] is True
+        run = core_runner.session(report["app"], restore=BASIC_RESTORE.read_bytes(), locale="hin")
+        assert run["locale"] == "hin"
+    finally:
+        for admitted in (report, other):
+            if admitted and admitted.get("app") and core_runner.holds(admitted["app"]):
+                core_runner.release(admitted["app"])
+
+
+def test_a_key_one_language_holds_and_androids_own_strings_lack_is_refused_over_them(core_runner, tmp_path):
+    """The other side: Android's strings admit only the keys they name, so a key neither they nor the app's default
+    file hold is refused at its language, naming the key, as a device refuses it."""
+    key = "proof.key.no.runtime.names"
+    assert key not in _android_keys()
+    variant = _with_a_language_key(tmp_path, "hin-unnamed.ccz", key, "Koi nahin")
+    report = core_runner.admit(variant, runtime_defaults=ANDROID_DEFAULT_STRINGS)
+    if report.get("app"):
+        core_runner.release(report["app"])
+    assert report["admitted"] is False
+    assert [(problem["stage"], problem.get("locale")) for problem in report["problems"]] == [("locale", "hin")]
+    assert key in report["problems"][0]["message"]
+
+
+def test_a_runtime_strings_file_the_runner_cannot_read_is_refused_by_name(core_runner, tmp_path):
+    with pytest.raises(CoreRunnerError, match="runtimeDefaults"):
+        core_runner.admit(BASIC_APP, runtime_defaults=tmp_path / "no-such-strings.txt")
 
 
 def test_a_malformed_suite_is_refused_by_name(core_runner, tmp_path):

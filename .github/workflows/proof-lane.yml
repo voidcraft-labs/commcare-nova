@@ -48,7 +48,11 @@ name: Proof lane
 # the lock first, in every job (proof/ci/candidate.mjs), so the queue's keys,
 # the lane's and the store's cache names all name the image the shards pull;
 # `surface` puts the surface the candidate's pull request will carry in place
-# of the checkout's, so a prewarm checks the very tree that pull request will.
+# of the checkout's, so a prewarm checks the very tree that pull request will;
+# `retained` puts the retained trees (proof/hq-apps/, proof/hq-reads/) that
+# pull request will carry in place of the checkout's, in each job that puts
+# the surface in place, by proof/ci/retained.mjs, which removes the checkout's
+# trees first (a download removes no file the artifact lacks).
 on:
   workflow_call:
     inputs:
@@ -62,6 +66,10 @@ on:
         default: ''
       surface:
         description: An artifact of this run holding the surface.json to check in place of the checkout's
+        type: string
+        default: ''
+      retained:
+        description: An artifact of this run holding the retained trees (hq-apps/, hq-reads/) to check in place of the checkout's
         type: string
         default: ''
       runner:
@@ -159,6 +167,15 @@ jobs:
         with:
           name: ${{ inputs.surface }}
           path: lib/commcare/surface
+      - name: Download the candidate's retained trees
+        if: ${{ inputs.retained != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.retained }}
+          path: ${{ runner.temp }}/retained
+      - name: Put the candidate's retained trees in place
+        if: ${{ inputs.retained != '' }}
+        run: node proof/ci/retained.mjs "$RUNNER_TEMP/retained" proof
       - name: Install pinned npm
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
@@ -325,6 +342,15 @@ jobs:
         with:
           name: ${{ inputs.surface }}
           path: lib/commcare/surface
+      - name: Download the candidate's retained trees
+        if: ${{ inputs.retained != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.retained }}
+          path: ${{ runner.temp }}/retained
+      - name: Put the candidate's retained trees in place
+        if: ${{ inputs.retained != '' }}
+        run: node proof/ci/retained.mjs "$RUNNER_TEMP/retained" proof
       # Postgres comes through mirror.gcr.io, whose per-minute quota is shared
       # by everyone pulling through it, and fourteen shards start at once, so
       # a pull is sometimes refused with nothing wrong with it. The script
@@ -448,6 +474,15 @@ jobs:
         with:
           name: ${{ inputs.surface }}
           path: lib/commcare/surface
+      - name: Download the candidate's retained trees
+        if: ${{ inputs.retained != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.retained }}
+          path: ${{ runner.temp }}/retained
+      - name: Put the candidate's retained trees in place
+        if: ${{ inputs.retained != '' }}
+        run: node proof/ci/retained.mjs "$RUNNER_TEMP/retained" proof
       - uses: actions/download-artifact@v8
         with:
           pattern: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-*

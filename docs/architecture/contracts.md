@@ -164,10 +164,19 @@ Nova's real publish client and compilers export it: CommCare HQ's own import,
 build, case processing and editors and CommCare Core's own runtime on every
 pull request, and with them Formplayer's own application, HQ's Web Apps
 client, CommCare Android's own code and CommCare Connect's own server each
-scheduled night over what changed and each week whole. Every difference a check reports
+scheduled night over what changed and each week whole. The corpus holds apps
+CommCare HQ's own pages made beside Nova's own documents (`proof/matrix`,
+`proof/hq-apps/`), and Nova's reader is held there too: what Nova exports
+reads back to the document that made it (proof 6), and the reader's claims
+agree with the lane's own classifier of the manifest (parity). Every difference a check reports
 is either erased by a spelling rule whose own tests show that each reader it
-names reads both spellings alike, or held by an entry of the known-defect
-register (`proof/known-defects.json`). The register is strict: a new
+names reads both spellings alike, held by an entry of the known-defect
+register (`proof/known-defects.json`), or, on an app made in CommCare HQ,
+named for that app by the first-publish register
+(`proof/first-publish-changes.json`), which is strict both ways. No
+known-defect entry holds a difference of proof 6, parity, the stored-app
+comparison or the first-publish judge: such a difference is fixed where it is
+found. The register is strict: a new
 difference fails, and so does an entry nothing shows any more on its document
 or on its retained control, so a fix moves its entries to the fixed-defect
 register (`proof/fixed-defects.json`) in the same pull request, where each

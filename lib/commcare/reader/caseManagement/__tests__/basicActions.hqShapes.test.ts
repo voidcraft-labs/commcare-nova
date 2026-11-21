@@ -10,6 +10,7 @@ import {
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
@@ -207,6 +208,111 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(reading.ctx.facts.sameStateRewrites).toContainEqual(
 			expect.objectContaining({ register: "case-settings-respelled" }),
 		);
+	});
+
+	// HQ's Case Management page saves every condition that is not `if` with its
+	// operator null (`forms/case_config_ui.js::cleanCondition`) and `case_preload`
+	// as `always` whatever it loads, where a form HQ creates, and Nova, hold `=`
+	// and `never`. No build reads either (`xform.py::XForm.action_relevance`,
+	// `PreloadAction.is_active`), and the first publish writes Nova's spelling.
+	it("records the conditions HQ's Case Management page saves as respelled, and none on Nova's own", async () => {
+		const pageCondition = (type: string) => ({
+			type,
+			question: null,
+			answer: null,
+			operator: null,
+			doc_type: "FormActionCondition",
+		});
+		const respelled = (reading: CaseReading) =>
+			reading.ctx.facts.sameStateRewrites
+				.filter(
+					(one) =>
+						one.path.endsWith("/operator") ||
+						one.path.endsWith("/case_preload/condition"),
+				)
+				.map((one) => [one.path, one.register]);
+		const saved = await readCases(app([registration]), {
+			edit: (json) => {
+				const actions = actionsOf(json);
+				actions.open_case.condition = pageCondition("always");
+				actions.update_case.condition = pageCondition("always");
+				actions.close_case.condition = pageCondition("never");
+				actions.case_preload = {
+					doc_type: "PreloadAction",
+					preload: {},
+					condition: pageCondition("always"),
+				};
+			},
+		});
+		expect(codes(saved)).toEqual([]);
+		const at = "/modules/0/forms/0/actions";
+		expect(respelled(saved).sort()).toEqual(
+			[
+				[`${at}/case_preload/condition`, "case-settings-respelled"],
+				[`${at}/close_case/condition/operator`, "case-settings-respelled"],
+				[`${at}/open_case/condition/operator`, "case-settings-respelled"],
+				[`${at}/update_case/condition/operator`, "case-settings-respelled"],
+			].sort(),
+		);
+		const own = await readCases(app([registration]));
+		expect(respelled(own)).toEqual([]);
+	});
+
+	// HQ's build copies a value an update names straight into a case block leaf
+	// it binds with no type, so a Hidden Value bound `xsd:dateTime` saves its
+	// day alone there (Core's `Recalculate.wrapData`), while Nova saves a date
+	// and time through its `nova_datetime_` sibling, which keeps the moment.
+	it("refuses a Hidden Value bound `xsd:dateTime` that an update names straight, and reads it through Nova's sibling", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{
+							name: "seen_at",
+							label: proseText("Seen"),
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "seen",
+									calculate: "now()",
+									caseWrite: { caseType: "patient", property: "seen_at" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const STRAIGHT = `${F}/a-datetime-question-saved-straight-to-a-case`;
+		const throughSibling = await readCases(doc);
+		expect(codes(throughSibling)).toEqual([]);
+		const straight = await readCases(doc, {
+			edit: (json) => {
+				const update = actionsOf(json).update_case.update as Record<
+					string,
+					Record<string, unknown>
+				>;
+				expect(update.seen_at?.question_path).toBe("/data/nova_datetime_seen");
+				(update.seen_at as Record<string, unknown>).question_path =
+					"/data/seen";
+			},
+		});
+		expect(codes(straight)).toContain(STRAIGHT);
 	});
 
 	it("reads `open_case.external_id` as the external id write", async () => {
@@ -438,6 +544,31 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(codes(reading)).toEqual([]);
 	});
 
+	it("reads a key an action read past whole does not declare as a key of an action it visits", async () => {
+		// The follow-up's open action is inactive, taken whole with the form's type; its update's
+		// condition is taken whole with the update. HQ keeps a key either does not declare.
+		const reading = await readCasesHolding([
+			"FormActionCondition.planted_key at form",
+		])(app([visit]), {
+			edit: (json) => {
+				const actions = actionsOf(json);
+				actions.open_case.planted_key = "x";
+				actions.open_case.name_update_multi = [];
+				(actions.update_case.condition as Record<string, unknown>).planted_key =
+					"x";
+			},
+		});
+		const undeclared = reading.findings.filter(
+			(one) => one.code === `${F}/any-other-undeclared-key`,
+		);
+		expect(undeclared.map((one) => one.detail?.name)).toEqual(["planted_key"]);
+		expect(entries(reading)).toContain(`${F}/update-multi-name-update-multi`);
+		// The whole reading's one `unrecognized` is the condition's key (`readCasesHolding`).
+		expect(unrecognizedOf(reading.findings)).toContain(
+			"FormActionCondition.planted_key at form",
+		);
+	});
+
 	it("refuses a key `location_id`", async () => {
 		const reading = await readCases(app([visit]), {
 			edit: (json) => {
@@ -449,6 +580,29 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			},
 		});
 		expect(codes(reading)).toContain(`${F}/update-keys-location-id-hq-user-id`);
+		// The refusal names the map's own key, whose value is the map, so it is
+		// recorded at the map, where the map's held claim stands too, and where the
+		// lane's manifest check reads the key's use; and at each key above it the
+		// entry names, which its class is a fact about too (`Accounting.findingAt`'s
+		// `#recordAround`). The refusal's own record also names the key it reads.
+		const refusal = [...reading.ctx.close().claims.records()].filter(
+			(one) => one.entry === `${F}/update-keys-location-id-hq-user-id`,
+		);
+		const at = (where: string, key: string) => ({
+			artifact: "app.json",
+			where: `/modules/0/forms/0/${where}`,
+			key,
+			entry: `${F}/update-keys-location-id-hq-user-id`,
+			standing: "not-yet",
+		});
+		expect(refusal).toEqual([
+			at("actions", "schema:Form.actions"),
+			at("actions/update_case", "schema:FormActions.update_case"),
+			{
+				...at("actions/update_case/update", "schema:UpdateCaseAction.update"),
+				at: "/modules/0/forms/0/actions/update_case/update/location_id",
+			},
+		]);
 	});
 
 	describe("a write through an index", () => {
@@ -508,10 +662,13 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			expect(codes(reading)).toEqual([]);
 			const closed = reading.ctx.close();
 			const update = "/modules/0/forms/0/actions/update_case/update";
+			// The row names the map's own key, so it stands at the map, beside the map's own claim;
+			// the entry's question path is the update's.
+			expect(entriesAt(closed, update)).toContain(
+				`${F}/update-key-whose-index-segments-are-each-parent-or-host-parent-p`,
+			);
 			expect(entriesAt(closed, `${update}/parent~1size/question_path`)).toEqual(
-				[
-					`${F}/update-key-whose-index-segments-are-each-parent-or-host-parent-p`,
-				],
+				[`${F}/update-case-update-property-question`],
 			);
 			expect(entriesAt(closed, `${update}/notes/question_path`)).toEqual([
 				`${F}/update-case-update-property-question`,
@@ -748,6 +905,68 @@ describe("each use of a basic action claimed under its own row", () => {
 			`${F}/update-keys-location-id-hq-user-id-category-state`,
 		);
 		expect(claimed).toContain(`${F}/update-case-update-property-question`);
+	});
+
+	it("claims a key in Nova's grammar that no row above names under its own class, at the update map", async () => {
+		const reading = await readCases(app([visit]));
+		const ascii = [...reading.ctx.close().claims.records()].filter(
+			(one) =>
+				one.entry ===
+				`${F}/update-key-whose-characters-after-the-ascii-first-are-all-core-s`,
+		);
+		expect(
+			ascii.map(({ where, key, standing }) => ({ where, key, standing })),
+		).toEqual([
+			{
+				where: "/modules/0/forms/0/actions/update_case/update",
+				key: "schema:UpdateCaseAction.update",
+				standing: "held",
+			},
+		]);
+		// `name` and `owner_id` stand under their own rows, never under the key's class.
+		const named = await readCases(app([visit]), {
+			edit: (json) => {
+				const update = actionsOf(json).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update.name = { question_path: "/data/other" };
+			},
+		});
+		expect(
+			[...named.ctx.close().claims.records()].filter(
+				(one) =>
+					one.entry ===
+					`${F}/update-key-whose-characters-after-the-ascii-first-are-all-core-s`,
+			),
+		).toHaveLength(1);
+	});
+
+	it("counts a writer with no preload at `case_preload`'s default, and none on a form that writes nothing", async () => {
+		const writer = `${F}/a-writer-question-with-no-case-preload-update-only`;
+		// HQ's own default, which its Case Management page saves where no question loads the case.
+		const writes = await readCases(app([visit]), {
+			edit: (json) => {
+				delete (actionsOf(json) as Record<string, unknown>).case_preload;
+			},
+		});
+		expect(
+			[...writes.ctx.close().claims.records()]
+				.filter((one) => one.entry === writer)
+				.map(({ where, key }) => ({ where, key })),
+		).toEqual([
+			{ where: "/modules/0/forms/0/actions/case_preload", key: null },
+		]);
+		const none = await readCases(
+			app([
+				{
+					name: "Look",
+					type: "followup",
+					fields: [f({ kind: "text", id: "seen" })],
+				},
+			]),
+		);
+		expect(entries(none)).not.toContain(writer);
 	});
 
 	it("claims a write through a date-and-time question's sibling under that row", async () => {

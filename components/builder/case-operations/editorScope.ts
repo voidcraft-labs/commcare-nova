@@ -29,7 +29,7 @@ import {
  *
  */
 export function caseOperationTextConstraint(): SlotConstraint {
-	return { ...storageAssignmentConstraint(["text"]), nonEmpty: true };
+	return { ...storageAssignmentConstraint(["text"], true), nonEmpty: true };
 }
 
 /**
@@ -38,7 +38,7 @@ export function caseOperationTextConstraint(): SlotConstraint {
  * document, because neither Nova nor CommCare can act on a blank case id.
  */
 export function caseOperationRuntimeTargetConstraint(): SlotConstraint {
-	return { ...storageAssignmentConstraint(["text"]), nonEmpty: true };
+	return { ...storageAssignmentConstraint(["text"], true), nonEmpty: true };
 }
 
 /**

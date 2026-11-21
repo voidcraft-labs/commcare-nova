@@ -306,15 +306,18 @@ def hq_profile_text(value):
     return str(value)
 
 
-def stated_settings(intent: Intent) -> dict | None:
-    """The seventeen profile settings the document states, by key, or None where its intent states none."""
+def stated_settings(intent: Intent, *, seeds=True) -> dict | None:
+    """The seventeen profile settings the document states, by key, or None where its intent states none. With
+    ``seeds`` false (an app Nova brought in from CommCare HQ, whose publish seeds none: ``seeds: "target"``), only the
+    two the app owns: each of the fifteen others is what HQ holds of the app, or nothing."""
     if intent.settings is None:
         return None
     lists = {
         "cc-show-saved": intent.settings["showSavedForms"],
         "cc-show-incomplete": intent.settings["showIncompleteForms"],
     }
-    return {**NOVA_PROFILE_CONSTANTS, **{key: "yes" if shown else "no" for key, shown in lists.items()}}
+    owned = {key: "yes" if shown else "no" for key, shown in lists.items()}
+    return {**NOVA_PROFILE_CONSTANTS, **owned} if seeds else owned
 
 
 def _field_paths(doc, form_uuid):
@@ -1181,10 +1184,11 @@ def _parsed(content):
     return etree.fromstring(content, etree.XMLParser(resolve_entities=False, no_network=True))
 
 
-def profile_settings(document, intent: Intent, state, configuration, manifest_items, saved=None) -> list:
+def profile_settings(document, intent: Intent, state, configuration, manifest_items, saved=None, *, seeds=True) -> list:
     """The profile HQ built: the configuration's version, the document's name, the seventeen settings it states
-    (``stated_settings``, a value a person saved in HQ, ``saved``, in place of the document's), and HQ's settings
-    for none beside them; an intent that states no setting is held to HQ's settings for none throughout."""
+    (``stated_settings``, a value HQ holds of the app, ``saved``, in place of the document's), and HQ's settings
+    for none beside them; an intent that states no setting is held to HQ's settings for none throughout. With
+    ``seeds`` false a setting the document does not own is HQ's value, or HQ's setting for none."""
     artifact = f"profile.ccpr@{state.name}"
     built = (state.build.files or {}).get("profile.ccpr")
     if built is None:
@@ -1203,7 +1207,7 @@ def profile_settings(document, intent: Intent, state, configuration, manifest_it
             path = f"/profile/@{attribute}"
             found.append(_difference(document, artifact, path, path, "changed", expected, observed))
     properties = _properties(root)
-    stated = stated_settings(intent)
+    stated = stated_settings(intent, seeds=seeds)
     settings = {
         key[len("setting:properties.") :]: item
         for key, item in manifest_items.items()
@@ -1243,11 +1247,12 @@ def _archive_files(path):
         return {name: archive.read(name) for name in archive.namelist()}
 
 
-def local_profile_settings(document, intent: Intent, files, prefix, saved=None) -> list:
+def local_profile_settings(document, intent: Intent, files, prefix, saved=None, *, seeds=True) -> list:
     """A local archive's profile (``files``: its entries) sets the seventeen settings the document states, each at
-    its value or at the value a person saved in HQ (``saved``), and each kept setting beside them a person saved;
-    an intent that states none makes no claim."""
-    stated = stated_settings(intent)
+    its value or at the value HQ holds of the app (``saved``), and each kept setting beside them HQ holds; an intent
+    that states none makes no claim. With ``seeds`` false the archive writes no setting the document does not own
+    but at the value HQ holds."""
+    stated = stated_settings(intent, seeds=seeds)
     if stated is None or "profile.ccpr" not in files:
         return []  # the bar reports an archive without a profile
     properties = _properties(_parsed(files["profile.ccpr"]))
@@ -1258,6 +1263,8 @@ def local_profile_settings(document, intent: Intent, files, prefix, saved=None) 
         for name, value in stated.items()
     }
     wanted.update({name: hq_profile_text(saved[name]) for name in LOCAL_KEPT_UNSTATED if name in saved})
+    if not seeds:
+        wanted.update({name: hq_profile_text(saved[name]) for name in NOVA_PROFILE_CONSTANTS if name in saved})
     found = []
     for name, expected in sorted(wanted.items()):
         observed = properties.get(name)
@@ -1436,24 +1443,45 @@ def search_compiles(document, records, name) -> list:
     return found
 
 
-def state_differences(document, intent, state, configuration, manifest_items, saved=None) -> list:
+def state_differences(
+    document, intent, state, configuration, manifest_items, saved=None, *, seeds=True, add_ons=True
+) -> list:
+    """What one HQ state holds against the document's intent. ``add_ons`` is false for a state whose ``add_ons``
+    Nova wrote nothing of: the A of a document made in HQ, which holds the map its author left. HQ's pages offer an
+    add-on wherever the app uses it, whatever the map says (``add_ons.py::show``), so such a map is HQ's own, and
+    Nova's first publish turns each add-on it needs on."""
     found = module_case_types(document, intent, state)
     found += learned_properties(document, intent, state)
     found += data_dictionary(document, intent, state, configuration.privileges)
-    found += add_ons_in_use(document, state)
+    if add_ons:
+        found += add_ons_in_use(document, state)
     if state.build.files is not None:
         found += attachment_paths(document, intent, state)
-        found += profile_settings(document, intent, state, configuration, manifest_items, saved)
+        found += profile_settings(document, intent, state, configuration, manifest_items, saved, seeds=seeds)
         found += core_build(document, intent, state)
     return found
 
 
+def saved_profile(document) -> dict:
+    """The profile settings HQ holds of the document's app beside what Nova states, by key: on a document made in HQ,
+    every value A's stored profile holds (``authored/app.json``, ``profile.properties``), since Nova's publish over an
+    app it brought in carries the target's own values and its archive mirrors them; on any other, what a person
+    saved in HQ over A (``hq-side.json``'s ``profileProperties``)."""
+    authored = getattr(document, "authored", None)
+    if authored is not None:
+        profile = authored.app_json().get("profile")
+        properties = profile.get("properties") if isinstance(profile, dict) else None
+        return dict(properties) if isinstance(properties, dict) else {}
+    return (document.hq_side or {}).get("profileProperties") or {}
+
+
 def local_differences(document, intent, path, prefix) -> list:
-    """What a local archive holds against the document: its profile's settings, at what a person saved in HQ over A
-    where the save stated one, and every version it carries."""
+    """What a local archive holds against the document: its profile's settings, at what HQ holds of the app beside
+    the document (``saved_profile``), and every version it carries."""
     files = _archive_files(path)
-    saved = (document.hq_side or {}).get("profileProperties") or {}
-    return local_profile_settings(document.id, intent, files, prefix, saved) + local_archive_versions(
+    saved = saved_profile(document)
+    seeds = not getattr(document, "hq_authored", False)
+    return local_profile_settings(document.id, intent, files, prefix, saved, seeds=seeds) + local_archive_versions(
         document.id, intent, files, prefix
     )
 
@@ -1504,10 +1532,14 @@ def intent_differences(document, records, manifest_items) -> list:
     the operations the intent observation ran."""
     blobs = records.blobs
     intent = intent_of(document)
-    # A setting a person saved in HQ over A (``hq-side.json``), which HQ's builds of A, B and B-edit hold.
-    saved = (document.hq_side or {}).get("profileProperties") or {}
+    # A setting HQ holds of the app beside what Nova states (``saved_profile``), which HQ's builds of A, B and B-edit
+    # hold.
+    saved = saved_profile(document)
     # A migration witness's A is the export from before its migration, which states another document than D.
     judged = (("b", "B"),) if document.migration_witness else (("a", "A"), ("b", "B"))
+    # A document made in HQ: Nova wrote no Web Apps setting and no add-on into its A, which holds those its author
+    # left.
+    made_in_hq = getattr(document, "hq_authored", False)
     found = []
     for name in sorted(document.exports):
         held = _configuration_records(document, records, name)
@@ -1515,8 +1547,19 @@ def intent_differences(document, records, manifest_items) -> list:
         for part, state_name in judged:
             state = held_state(held.part(part), state_name, blobs)
             if state is not None:
-                found += state_differences(document.id, intent, state, configuration, manifest_items, saved)
-                found += web_apps_setting(document.id, document.platforms(), state)
+                authored_a = made_in_hq and state_name == "A"
+                found += state_differences(
+                    document.id,
+                    intent,
+                    state,
+                    configuration,
+                    manifest_items,
+                    saved,
+                    seeds=not made_in_hq,
+                    add_ons=not authored_a,
+                )
+                if not authored_a:
+                    found += web_apps_setting(document.id, document.platforms(), state)
         if not document.migration_witness:
             found += search_compiles(document, records, name)
     archives = archive_shapes(local_observation(document, records), blobs)
@@ -1533,7 +1576,9 @@ def intent_differences(document, records, manifest_items) -> list:
             state = held_state(held.part("b_edit"), "B-edit", blobs)
             if state is not None:
                 configuration = JudgedConfiguration.of(name, held.a)
-                found += state_differences(document.id, edited, state, configuration, manifest_items, saved)
+                found += state_differences(
+                    document.id, edited, state, configuration, manifest_items, saved, seeds=not made_in_hq
+                )
                 found += web_apps_setting(document.id, document.platforms(edit=True), state)
         if "edit/local.ccz" in archives:
             found += core_local(document.id, edited, archives["edit/local.ccz"], "edit/local.ccz")

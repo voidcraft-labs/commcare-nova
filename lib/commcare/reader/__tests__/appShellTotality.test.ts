@@ -67,12 +67,18 @@ describe("readApplication with a key HQ never wrote", () => {
 			expect(entriesAt(closed, "/planted_key")).toEqual([
 				`${A}/any-other-unknown-top-level-key-that-names-no-application`,
 			]);
+			/* A profile or a language key is claimed under the key of the map that holds it, and
+			 * recorded where that key's value sits. */
 			expect(entriesAt(closed, "/profile/properties/planted-property")).toEqual(
-				[`${A}/any-other-profile-properties-features-key-not-in-the-yaml`],
+				[],
 			);
-			expect(entriesAt(closed, "/translations/en/planted.string")).toEqual([
+			expect(entriesAt(closed, "/profile")).toContain(
+				`${A}/any-other-profile-properties-features-key-not-in-the-yaml`,
+			);
+			expect(entriesAt(closed, "/translations/en/planted.string")).toEqual([]);
+			expect(entriesAt(closed, "/translations")).toContain(
 				`${A}/translations-key-no-runtime-reads`,
-			]);
+			);
 			expect(
 				closed.findings.filter(
 					(finding) =>

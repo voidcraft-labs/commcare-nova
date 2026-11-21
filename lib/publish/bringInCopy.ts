@@ -530,7 +530,7 @@ export function stoppedPublishingLine(domain: string): string {
 export const STOP_PUBLISHING_FAILED =
 	"Nova couldn't stop publishing just now. Nothing was changed, and you can try again.";
 
-/** A stop whose answer never arrived, so it may have landed (D10b). */
+/** A stop whose answer never arrived, so it may have landed. */
 export const STOP_PUBLISHING_UNANSWERED =
 	"Nova lost its connection before it heard whether publishing stopped here. Nova is checking where this app stands, so you can see what happened before you try again.";
 

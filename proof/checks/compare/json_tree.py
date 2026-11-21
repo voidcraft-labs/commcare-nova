@@ -13,7 +13,12 @@ other key a case property) is named with those keys: ``data_maps`` is then a
 mapping from each such path to the keys it keeps (empty for a map whose
 every key is data), or to a function giving each key's token in ``path``
 for a map whose keys the caller writes itself (HQ's case blocks keyed by
-where the form holds them, ``proof.checks.proof3``).
+where the form holds them, ``proof.checks.proof3``). An array whose members
+the caller compares elsewhere by their identity, and whose value is only
+their order (``whole``: structural paths, a form's question order in proof
+1's identities), is one value: two orders that differ are one ``changed``
+difference naming both, so one member moved is one difference, not one at
+every position it passed.
 """
 
 from __future__ import annotations
@@ -47,7 +52,9 @@ def _kept_keys(data_maps, path):
     return data_maps[path] if isinstance(data_maps, dict) else frozenset()
 
 
-def compare_json(before, after, *, check, document, artifact, data_maps=frozenset(), root_path="", root_at=""):
+def compare_json(
+    before, after, *, check, document, artifact, data_maps=frozenset(), whole=frozenset(), root_path="", root_at=""
+):
     """Every difference between two JSON values, as ``Difference``s of ``artifact``."""
     found = []
 
@@ -86,6 +93,9 @@ def compare_json(before, after, *, check, document, artifact, data_maps=frozense
                 else:
                     shown = "*" if kept is not None and key not in kept else token
                 walk(a.get(key, _MISSING), b.get(key, _MISSING), f"{path}/{shown}", f"{at}/{token}")
+        elif kind_a == "array" and (path or "/") in whole:
+            if a != b:
+                report(path, at, "changed", a, b)
         elif kind_a == "array":
             for index in range(max(len(a), len(b))):
                 walk(

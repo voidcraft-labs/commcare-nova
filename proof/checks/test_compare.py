@@ -16,7 +16,8 @@ spelling rule, one that writes an element's id (a form's ``unique_id``, which
 HQ re-mints) or a question's id into the structural path so a symptom cannot
 be registered, one that writes a case block's parts or a guard block's
 reserved name as ``*`` so two symptoms are one class, one that pairs binds,
-setvalues or cases by position so one insertion changes every later one, one
+setvalues, cases or a form's events by position so one insertion changes every
+later one (or a form's question order, compared position by position), one
 that names a generated id by its draw order so one more id renames the rest,
 one that merges two different profile settings into one class, one that
 reports Core's refusal of a submission or an exception Core raised running a
@@ -138,6 +139,41 @@ def test_a_profile_setting_keeps_its_key_in_the_path():
     assert {(d.path, d.at) for d in found} == {
         ("/profile/property[@key=cc-show-saved]/@value", "/profile/property[@key=cc-show-saved]/@value"),
         ("/profile/property[@key=cc-autoup-freq]/@value", "/profile/property[@key=cc-autoup-freq]/@value"),
+    }
+
+
+MEDIA_SUITE = (
+    b'<suite version="3"><media path="../../commcare/image"><resource id="media-a-one.png" version="3">'
+    b'<location authority="local">./commcare/image/one.png</location></resource></media>'
+    b'<media path="../../commcare/image"><resource id="media-b-two.png" version="3">'
+    b'<location authority="local">./commcare/image/two.png</location></resource></media>'
+    b'<media path="../../commcare/audio"><resource id="media-c-three.mp3" version="3">'
+    b'<location authority="local">./commcare/audio/three.mp3</location></resource></media></suite>'
+)
+
+
+def test_a_media_element_is_its_resource_s_so_one_file_gone_moves_no_other():
+    """Core adds each media resource to its table by its id at the path its ``<media>`` names, so a media
+    element is paired by its one resource's id. The plausible failure: pairing by position, where one file the
+    app no longer maps reads as every later element's path and resource changed."""
+    root = parse_xml(MEDIA_SUITE)
+    first = next(element for element in root if element.tag == "media")
+    root.remove(first)
+    root[-1].set("path", "../../commcare/audio/data")
+    assert _diff(MEDIA_SUITE, _xml(root)) == {
+        ("/suite/media[resource/@id=*]", "/suite/media[resource/@id=media-a-one.png]", "removed"),
+        ("/suite/media[resource/@id=*]/@path", "/suite/media[resource/@id=media-c-three.mp3]/@path", "changed"),
+    }
+    # A media element holding more than one resource has no one id and is paired by its position.
+    two = parse_xml(MEDIA_SUITE)
+    holder = next(element for element in two if element.tag == "media")
+    holder.append(etree.fromstring(b'<resource id="media-d-four.png" version="3"/>'))
+    three = parse_xml(_xml(two))
+    next(element for element in three if element.tag == "media").append(
+        etree.fromstring(b'<resource id="media-e-five.png" version="3"/>')
+    )
+    assert _diff(_xml(two), _xml(three)) == {
+        ("/suite/media[*]/resource[@id=*]", "/suite/media[1]/resource[@id=media-e-five.png]", "added")
     }
 
 
@@ -281,6 +317,34 @@ def test_json_differences_are_complete_and_data_keys_are_structural():
         ("/modules/*/id", "/modules/0/id", "changed"),
     ]
     assert compare_json(before, copy.deepcopy(before), check="proof1", document="d", artifact="app.json") == []
+
+
+def test_a_forms_question_order_is_one_difference_however_far_one_question_moved():
+    """Proof 1 holds each form's questions by path and their order (``order``, the questions both sides hold:
+    ``proof1._common_order``) as one value, so a question that moved past twenty others is one difference at
+    ``/order`` naming both orders, and a question added is its own difference that moves no order. The plausible
+    failure: the order compared position by position, so one question moved to the end (a date and time question
+    that became a calculated value, hq-questions) shows every position it passed."""
+    from proof.checks.identity import compare_identities
+    from proof.checks.proof1 import _common_order
+
+    paths = [f"/data/q{index}" for index in range(22)]
+
+    def form(order, *added):
+        questions = {path: {"repeat": None, "class": "ScalarItem"} for path in (*order, *added)}
+        return {"xmlns": "x", "questions": questions, "order": [*order, *added]}
+
+    moved = [*paths[:1], *paths[2:], paths[1]]
+    before, after = _common_order(form(paths), form(moved, "/data/new"))
+    found = compare_identities({"form:0.0": before}, {"form:0.0": after}, document="d")
+    assert sorted((d.path, d.at, d.kind) for d in found) == [
+        ("/order", "/order", "changed"),
+        ("/questions/*", "/questions/~1data~1new", "added"),
+    ]
+    assert [d.after for d in found if d.path == "/order"] == [moved]
+    before, after = _common_order(form(paths), form(paths, "/data/new"))
+    found = compare_identities({"form:0.0": before}, {"form:0.0": after}, document="d")
+    assert [(d.path, d.kind) for d in found] == [("/questions/*", "added")]
 
 
 def test_two_traces_differ_only_in_the_runs_a_changed_form_reaches(core_runner, tmp_path):
@@ -685,6 +749,212 @@ def test_a_case_lists_rows_are_compared_by_the_case_each_selects():
     ]
 
 
+def _event(path, kind="question", **held):
+    """One of a form's events as the runner records it (``FormRun.java::walk``): its kind and its instance path, a
+    question with its answer."""
+    if kind == "question":
+        held = {"text": path, "answer": "x", **held}
+    return {"event": kind, "path": path, **held}
+
+
+def _filling(events, end="incomplete"):
+    """A run that fills in one form, Core's events in the order it stepped to them."""
+    return {"end": end, "script": [], "trace": [{"screen": "form", "xmlns": FORM_XMLNS, "events": events}]}
+
+
+def _event_found(before, after):
+    return _found([_filling(before)], [_filling(after)])
+
+
+def test_a_form_that_gains_or_loses_a_question_shows_it_once_at_its_place():
+    """A form's events are keyed by where Core stepped to each (its kind and instance path), so a question the form
+    gains or loses is one difference, ``added`` or ``removed`` whole, and every event after it is compared with the
+    same event on the other side. The plausible failure: events compared where they stand, so one question more
+    shows every later event changed (a date and time question split in two, hq-questions)."""
+    before = [_event("/data/a[1]"), _event("/data/b[1]"), _event("/data/c[1]"), _event("/data/d[1]")]
+    after = [before[0], _event("/data/new[1]"), *before[1:]]
+    found = _event_found(before, after)
+    assert [(d.path, d.at, d.kind) for d in found] == [
+        ("/runs/*/trace/*/events/*", "/runs/0/trace/0/events/question:~1data~1new[1]", "added")
+    ]
+    found = _event_found(after, before)
+    assert [(d.path, d.at, d.kind) for d in found] == [
+        ("/runs/*/trace/*/events/*", "/runs/0/trace/0/events/question:~1data~1new[1]", "removed")
+    ]
+    # An event after the new one that differs is that event's own difference, at its own key.
+    changed = [*after[:3], {**after[3], "answer": "y"}, after[4]]
+    assert sorted((d.path, d.at, d.kind) for d in _event_found(before, changed)) == [
+        ("/runs/*/trace/*/events/*", "/runs/0/trace/0/events/question:~1data~1new[1]", "added"),
+        ("/runs/*/trace/*/events/*/answer", "/runs/0/trace/0/events/question:~1data~1c[1]/answer", "changed"),
+    ]
+    # A generated id an event shows keeps its name however many events come before it.
+    marked = [_event("/data/a[1]", text="@generated:uuid:1")]
+    assert [(d.path, d.kind) for d in _event_found(marked, [_event("/data/new[1]"), *marked])] == [
+        ("/runs/*/trace/*/events/*", "added")
+    ]
+
+
+def test_two_events_that_trade_places_are_one_order_difference():
+    """The events both sides reached in another order are one difference at ``events/order()``, naming both orders;
+    no event is reported as changed for having moved. The plausible failure: a swap shown as two events changed in
+    every field, or not shown at all once events are keyed."""
+    before = [_event("/data/a[1]"), _event("/data/b[1]"), _event("/data/c[1]")]
+    after = [before[1], before[0], before[2]]
+    found = _event_found(before, after)
+    assert [(d.path, d.at, d.kind, d.before, d.after) for d in found] == [
+        (
+            "/runs/*/trace/*/events/order()",
+            "/runs/0/trace/0/events/order()",
+            "changed",
+            ["question:/data/a[1]", "question:/data/b[1]", "question:/data/c[1]"],
+            ["question:/data/b[1]", "question:/data/a[1]", "question:/data/c[1]"],
+        )
+    ]
+    assert _event_found(before, before) == []
+
+
+def _searching(*queries, requests=None):
+    """A run whose one step is a search sending ``queries`` as its ``_xpath_query`` values, and each request the
+    step made sending its own (``SessionOp.java::search``)."""
+    asked = [queries] if requests is None else requests
+    step = {
+        "screen": "search",
+        "params": {"_xpath_query": list(queries), "case_type": ["client"]},
+        "requests": [
+            {"kind": "search", "params": {"_xpath_query": list(sent), "case_type": ["client"]}} for sent in asked
+        ],
+    }
+    return {"end": "incomplete", "script": [], "trace": [step]}
+
+
+def test_a_searchs_query_values_are_a_multiset_so_their_order_is_no_difference_and_each_value_one():
+    """HQ's case search adds each ``_xpath_query`` value as one more filter, in no order a value's place decides
+    (``case_search/utils.py::CaseSearchQueryBuilder._apply_filter``), so the values are compared as a multiset: the
+    same values in another order are no difference, a value only one side sends is one difference ``added`` or
+    ``removed`` whole, and a value sent twice against once is still one. The plausible failure: the values compared
+    where they stand, so one value more at the front (a list's filter the search restates, hq-search) shows every
+    later value changed, and a reorder shows two."""
+    two = _searching("match-all()", "last_visit <= today()")
+    assert _found([two], [_searching("last_visit <= today()", "match-all()")]) == []
+    found = _found([_searching("village = 'north'")], [_searching("standing = 'open'", "village = 'north'")])
+    assert [(d.path, d.at, d.kind, d.after) for d in found] == [
+        (
+            "/runs/*/trace/*/params/_xpath_query/*",
+            "/runs/0/trace/0/params/_xpath_query/0",
+            "added",
+            "standing = 'open'",
+        ),
+        (
+            "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+            "/runs/0/trace/0/requests/0/params/_xpath_query/0",
+            "added",
+            "standing = 'open'",
+        ),
+    ]
+    found = _found([_searching("a = '1'", "a = '1'")], [_searching("a = '1'")])
+    assert [(d.path, d.at, d.kind, d.before) for d in found if "requests" not in d.path] == [
+        ("/runs/*/trace/*/params/_xpath_query/*", "/runs/0/trace/0/params/_xpath_query/1", "removed", "a = '1'")
+    ]
+    # Every other parameter is still compared where it stands.
+    other = _searching("a = '1'")
+    other["trace"][0]["params"]["case_type"] = ["household"]
+    assert {(d.path, d.kind) for d in _found([_searching("a = '1'")], [other])} == {
+        ("/runs/*/trace/*/params/case_type/*", "changed")
+    }
+
+
+QUERY_SUITE = b"""<suite>
+  <remote-request>
+    <session>
+      <query url="https://hq/a/d/phone/search/x/" storage-instance="results">
+        <data key="case_type" ref="'client'"/>
+        <data key="_xpath_query" ref="'match-all()'"/>
+        <data key="_xpath_query" ref="'last_visit &lt;= today()'"/>
+        <data key="commcare_sort" ref="'name'"/>
+      </query>
+    </session>
+  </remote-request>
+</suite>"""
+
+
+def test_a_suite_querys_xpath_query_data_are_a_multiset_and_every_other_data_stays_where_it_stands():
+    """A suite query's ``_xpath_query`` data are the search's filters, which HQ reads in no order, so each is keyed by
+    its ``ref``: the same data in another order is no difference, and a value only one side sends is one ``data``
+    ``added`` or ``removed`` whole. Every other ``data`` keeps its place. The plausible failure: the data compared
+    by position, so a value moved to the front shows as every later ``ref`` changed (hq-search's
+    ``search-today-device-day``)."""
+    root = parse_xml(QUERY_SUITE)
+    query = next(root.iter("query"))
+    data = [element for element in query if element.tag == "data"]
+    query.remove(data[2])
+    data[1].addprevious(data[2])
+    assert _diff(QUERY_SUITE, _xml(root)) == set()
+    data[2].set("ref", "concat('last_visit <= \"', today(), '\"')")
+    path = "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]"
+    concrete = "/suite/remote-request[1]/session[1]/query[1]/data[@key=_xpath_query][@ref={}]"
+    assert _diff(QUERY_SUITE, _xml(root)) == {
+        (path, concrete.format("'last_visit <= today()'"), "removed"),
+        (path, concrete.format("concat('last_visit <= \"', today(), '\"')"), "added"),
+    }
+    # The same value sent twice is its second, so one more of it is one difference.
+    twice = parse_xml(QUERY_SUITE)
+    first = [element for element in next(twice.iter("query")) if element.get("key") == "_xpath_query"][0]
+    first.addnext(copy.deepcopy(first))
+    assert _diff(QUERY_SUITE, _xml(twice)) == {(path, concrete.format("'match-all()'") + "#2", "added")}
+    # Every other key's data is compared where it stands among them: a sort moved ahead of the case type shows at
+    # both places, and the filters between them move nothing.
+    moved = parse_xml(QUERY_SUITE)
+    held = next(moved.iter("query"))
+    sort = [element for element in held if element.get("key") == "commcare_sort"][0]
+    held.remove(sort)
+    held.insert(0, sort)
+    assert {(p, k) for p, _, k in _diff(QUERY_SUITE, _xml(moved))} == {
+        ("/suite/remote-request[*]/session[*]/query[*]/data[*]/@key", "changed"),
+        ("/suite/remote-request[*]/session[*]/query[*]/data[*]/@ref", "changed"),
+    }
+
+
+def test_a_repeats_prompts_are_its_nth_so_one_more_instance_moves_no_other():
+    """A repeat's new-repeat prompts share one place (the repeat they add to, ``FormRun.java::walk``), so each is
+    keyed as that place's ``n``-th: one instance more is its group, its questions and one prompt added, and the
+    prompt that now adds it changed, while every earlier instance and prompt is compared with its own. The
+    plausible failure: prompts of one place merged into one key, or paired by where they stand."""
+
+    def instances(count):
+        events = []
+        for index in range(1, count + 1):
+            events += [
+                _event("/data/m", "new-repeat", added=True),
+                _event(f"/data/m[{index}]", "repeat"),
+                _event(f"/data/m[{index}]/n[1]"),
+            ]
+        return [*events, _event("/data/m", "new-repeat", added=False), _event("/data/end[1]")]
+
+    found = _event_found(instances(2), instances(3))
+    assert sorted((d.path, d.at, d.kind) for d in found) == [
+        ("/runs/*/trace/*/events/*", "/runs/0/trace/0/events/new-repeat:~1data~1m#4", "added"),
+        ("/runs/*/trace/*/events/*", "/runs/0/trace/0/events/question:~1data~1m[3]~1n[1]", "added"),
+        ("/runs/*/trace/*/events/*", "/runs/0/trace/0/events/repeat:~1data~1m[3]", "added"),
+        ("/runs/*/trace/*/events/*/added", "/runs/0/trace/0/events/new-repeat:~1data~1m#3/added", "changed"),
+    ]
+
+
+def test_a_stop_leaves_out_only_the_events_past_the_last_both_sides_reached():
+    """A form that stopped with Core raising left out the events the other side reached after the last event both
+    reached, each under the stop's path; an event the stopping form skipped before that is the forms' own
+    difference. The plausible failure: every event the stopping side lacks charged to the stop, so a question the
+    form lost is hidden behind the exception."""
+    events = [_event(f"/data/q{index}[1]") for index in range(4)]
+    stopped = _filling([events[0], events[2]], end="form-error")
+    stopped["trace"][0]["error"] = _selected_at(2, 1)
+    found = _found([_filling(events)], [stopped])
+    cause = f"{FORM_ERROR_CLASS}/{SELECTED_AT}"
+    assert sorted((d.path, d.at) for d in found if "events" in d.path) == [
+        (f"/runs/*/trace/*/error/{cause}/events/*", f"/runs/0/trace/0/error/{cause}/events/question:~1data~1q3[1]"),
+        ("/runs/*/trace/*/events/*", "/runs/0/trace/0/events/question:~1data~1q1[1]"),
+    ]
+
+
 REFUSED_CLASS = "org.javarosa.xml.util.InvalidStructureException"
 
 
@@ -811,7 +1081,12 @@ def _filled_run(events=4, error=None, answer="a"):
     instance id, the case database and the stack after submit), or that stopped with Core raising ``error`` after
     ``events`` events (``form-error``: the events it reached, nothing after them)."""
     reached = [
-        {"event": "question", "dataPath": f"/data/q{index}", "answer": answer if index == 1 else "x"}
+        {
+            "event": "question",
+            "path": f"/data/q{index}[1]",
+            "dataPath": f"/data/q{index}",
+            "answer": answer if index == 1 else "x",
+        }
         for index in range(events)
     ]
     step = {"screen": "form", "xmlns": FORM_XMLNS, "title": "Visit", "events": reached}
@@ -846,7 +1121,7 @@ def test_an_exception_core_raised_names_its_cause_and_so_does_what_it_left_out()
     assert _paths([_filled_run()], [_filled_run(3, _selected_at(5, 3))]) == expected
     found = _found([_filled_run()], [_filled_run(2, _selected_at(2, 1))])
     assert sorted(d.at for d in found if d.path.endswith("/events/*")) == [
-        f"/runs/0/trace/0/error/{cause}/events/{index}" for index in (2, 3)
+        f"/runs/0/trace/0/error/{cause}/events/question:~1data~1q{index}[1]" for index in (2, 3)
     ]
     # An event the erring form reached is that event's own difference.
     assert _paths([_filled_run()], [_filled_run(2, _selected_at(2, 1), answer="b")]) == {
@@ -1003,7 +1278,10 @@ def test_a_stop_on_a_form_leaves_out_only_what_comes_after_where_its_end_says_it
     required questions without a value, and the submission and the case database the other side never made, are
     the forms' own differences, and beside a submitted form, a case database the erring form holds is compared as
     itself."""
-    events = [{"event": "question", "dataPath": f"/data/q{index}", "answer": "x"} for index in range(2)]
+    events = [
+        {"event": "question", "path": f"/data/q{index}[1]", "dataPath": f"/data/q{index}", "answer": "x"}
+        for index in range(2)
+    ]
     incomplete = {"screen": "form", "xmlns": FORM_XMLNS, "title": "Visit", "events": events}
     finished = {
         **incomplete,

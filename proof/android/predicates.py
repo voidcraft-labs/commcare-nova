@@ -361,6 +361,22 @@ def cells(view) -> list[dict]:
     return found
 
 
+def texts(view) -> list[str]:
+    """Each text Android drew under ``view``, in order."""
+    found = [view["text"]] if "text" in view else []
+    for child in view.get("children", ()):
+        found.extend(texts(child))
+    return found
+
+
+# The end of the operation query control's first case list, whose one column shows the case's name, and the filter
+# its entries' datums read, each as Nova's local archive spells it.
+QUERY_LIST_END = (
+    '<template><text><xpath function="case_name"/></text></template></field></detail><detail id="m0_case_long">'
+)
+QUERY_LIST_FILTER = "[@case_type=&apos;patient&apos;][@status=&apos;open&apos;]"
+
+
 class Predicates(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1349,6 +1365,56 @@ class Predicates(unittest.TestCase):
         self.assertEqual(local["fuzzyOn"]["proox"], [])
         self.assertEqual(as_hq["fuzzyOn"]["proox"], ["proof text"])
 
+    def query_list(self, label, function, datum=QUERY_LIST_FILTER):
+        """The text of every row of the operation query control's first case list, its column's ``xpath@function``
+        and its datums' filter written as given (each an attribute value as the suite holds it)."""
+        archive = edited(
+            OPERATION_QUERY,
+            self.work / f"query-list-{label}.ccz",
+            "suite.xml",
+            [
+                (QUERY_LIST_END, QUERY_LIST_END.replace('function="case_name"', f'function="{function}"')),
+                (QUERY_LIST_FILTER, datum),
+            ],
+        )
+        listed = self.steps(self.walked(archive, OPERATION_QUERY_RESTORE), "EntitySelectActivity")[0]["list"]
+        return [texts(row) for row in listed["rows"]]
+
+    def test_a_list_reads_a_suite_expression_alike_in_either_spelling(self):
+        """Spelling rule ``suite-xpath-lexemes``. Contract: Android loads a suite with Core's parsers, whose lexer
+        skips whitespace between tokens and reads a string by its value (``Lexer.lex``), so a case list's column
+        and its filter spelled with other whitespace and other quote marks list the same cases and show the same
+        text, and the same column with another string shows another. Failure it catches: a reader that reads a
+        suite's expression otherwise than through Core's lexer."""
+        nova = self.query_list("nova", "concat(case_name, &apos; / &apos;, &apos;kept&apos;)")
+        typed = self.query_list(
+            "typed",
+            "concat(  case_name ,&quot; / &quot;,\n  &quot;kept&quot; )",
+            "[ @case_type = &quot;patient&quot; ] [@status =&apos;open&apos;]",
+        )
+        other = self.query_list("other", "concat(case_name, &apos; / &apos;, &apos;other&apos;)")
+        self.assertEqual(len(nova), 3)
+        for row in nova:
+            self.assertTrue(any(text.endswith(" / kept") for text in row), row)
+        self.assertEqual(typed, nova)
+        self.assertNotEqual(other, nova)
+
+    def test_a_list_reads_a_cond_and_its_if_alike(self):
+        """Spelling rule ``suite-cond-as-if``. Contract: Core evaluates a three-argument ``cond`` as the ``if`` of
+        the same arguments (``XPathCondFunc.evalBody``, ``XPathIfFunc.evalBody``), so a case list's column written
+        either way shows the same text on every row, the test true on one case and false on the others, and the
+        column with another test shows another. Failure it catches: Android evaluating ``cond`` by another rule,
+        or reading a function by its name."""
+        written = "{}(case_name = &apos;proof text&apos;, &apos;chosen&apos;, case_name)"
+        nova = self.query_list("if", written.format("if"))
+        cond = self.query_list("cond", written.format("cond"))
+        other = self.query_list("cond-other", written.format("cond").replace(" = ", " != "))
+        shown = [text for row in nova for text in row]
+        self.assertIn("chosen", shown)
+        self.assertIn("10", shown)
+        self.assertEqual(cond, nova)
+        self.assertNotEqual(other, nova)
+
     def test_every_language_code_an_archive_holds_is_offered(self):
         """Defect 1's language codes. Contract: Android's language picker offers every code an archive's suite
         holds, a preferred spelling (``zho``) beside a suffixed one (``cmn-hant``), each named by the app string
@@ -1372,6 +1438,109 @@ class Predicates(unittest.TestCase):
         self.assertEqual(offered["unnamed"], {"en": "English", "zho": "zho", "cmn-hant": "繁體中文"})
 
     # The spelling rules one of whose readers is Android ---------------------------------------------------------
+
+    def test_a_form_reads_a_field_list_group_alike_in_either_letter_case(self):
+        """The spelling rule ``field-list-appearance-case``. Contract: Android asks Core whether a group is a field
+        list (``FormController.indexIsInFieldList``, through ``FormEntryController.isHostWithAppearance``, which
+        compares the group's whole appearance with ``field-list`` ignoring case), so the control's field-list
+        group written ``Field-List`` shows the worker the same screens, one screen for the group and no prompt to
+        add a row of the repeat inside it, and an appearance Core does not read as ``field-list`` in any case
+        (``FIELD-LISTS``) shows a screen a question and the prompt. Failure it catches: Android reading the
+        token's letter case."""
+        form = "modules-0/forms-0.xml"
+
+        def screens(archive):
+            return self.walked(archive, commands=["m0-f0"])["walks"]["m0-f0"]["steps"][0]["form"]["screens"]
+
+        def spelled(name, appearance):
+            replacement = ('appearance="field-list"', f'appearance="{appearance}"')
+            return edited(LABELLED_REPEAT, self.work / f"{name}.ccz", form, [replacement])
+
+        lower = screens(LABELLED_REPEAT)
+        mixed = screens(spelled("field-list-mixed", "Field-List"))
+        other = screens(spelled("field-lists", "FIELD-LISTS"))
+        self.assertNotIn("PROMPT_NEW_REPEAT", [screen["event"] for screen in lower])
+        self.assertEqual(mixed, lower)
+        self.assertIn("PROMPT_NEW_REPEAT", [screen["event"] for screen in other])
+
+    def test_a_menu_icon_no_media_resource_installs_draws_as_none(self):
+        """The spelling rule ``menu-image-without-media``. Contract: a menu that names an icon at a path no media
+        resource of the archive installs (the reference CommCare HQ's build writes for an icon whose file was never
+        uploaded: the app string and the menu's ``<display>``, and no ``<media>``) installs as the menu with no
+        icon does, lists the same items with the same texts, and holds no file for the icon, so
+        ``MediaUtil.inflateDisplayImage`` answers null and ``MenuAdapter.setupImageView`` draws the default icon,
+        as it does for a menu that names none. Failure it catches: an install refused, or a file held, for a
+        reference no media resource names."""
+        icon = "jr://file/commcare/image/module0_en.png"
+        menu = '<menu id="m0"><text><locale id="modules.m0"/></text>'
+        displayed = (
+            '<menu id="m0"><display><text><locale id="modules.m0"/></text>'
+            '<text form="image"><locale id="modules.m0.icon"/></text></display>'
+        )
+        named = edited(SURVEY, self.work / "icon-suite.ccz", "suite.xml", [(menu, displayed)])
+        for language in ("default", "en"):
+            named = edited(
+                named,
+                self.work / f"icon-{language}.ccz",
+                f"{language}/app_strings.txt",
+                [("modules.m0=Household surveys\n", f"modules.m0=Household surveys\nmodules.m0.icon={icon}\n")],
+            )
+
+        def first_menu(archive):
+            menus = [step["menu"] for step in self.steps(self.walked(archive), "MenuActivity") if step.get("menu")]
+            self.assertTrue(menus and menus[0]["items"], f"{archive.name} shows no menu")
+            return menus[0]
+
+        plain, iconed = first_menu(SURVEY), first_menu(named)
+        self.assertEqual([item["image"] for item in plain["items"]], [None])
+        self.assertEqual([item["image"] for item in iconed["items"]], [{"uri": icon, "held": False}])
+        self.assertEqual(
+            [{**item, "image": None} for item in iconed["items"]], [{**item, "image": None} for item in plain["items"]]
+        )
+
+    def test_a_picture_two_paths_name_draws_alike(self):
+        """The spelling rule ``media-path-of-a-shared-file``. Contract: a menu whose icon names a second path to the
+        file its first path installs (a second media resource at that path, holding the same bytes, as HQ's build
+        installs one ``CommCareMultimedia`` at each path its media map names) installs as the archive whose menu
+        names the first path does, lists the same items with the same texts, and holds the file at the path its icon
+        names, which ``MediaUtil.inflateDisplayImage`` draws: the same bytes. Failure it catches: an install
+        refused, or no file held, for the second path, so a worker would see another picture or none."""
+        with zipfile.ZipFile(MEDIA_ONLY) as held:
+            strings = held.read("default/app_strings.txt").decode("utf-8")
+            (line,) = [each for each in strings.split("\n") if each.startswith("modules.m0.icon=")]
+            first = line.split("=", 1)[1]
+            picture = held.read(first[len("jr://file/") :])
+        second = "jr://file/commcare/image/module0_en.png"
+        # The rule reads the second path as the first, the first in code-unit order.
+        self.assertLess(first, second)
+        entry = second[len("jr://file/") :]
+        resource = (
+            '<media path="../../commcare/image"><resource id="media-shared-module0_en.png" version="1">'
+            f'<location authority="local">./{entry}</location></resource></media>'
+        )
+        named = with_entries(MEDIA_ONLY, self.work / "shared-file.ccz", {entry: picture})
+        named = edited(named, self.work / "shared-suite.ccz", "media_suite.xml", [("</suite>", resource + "</suite>")])
+        for language in ("default", "en"):
+            named = edited(
+                named,
+                self.work / f"shared-{language}.ccz",
+                f"{language}/app_strings.txt",
+                [(line, f"modules.m0.icon={second}")],
+            )
+        with zipfile.ZipFile(named) as held:
+            self.assertEqual(held.read(entry), held.read(first[len("jr://file/") :]))
+
+        def first_menu(archive):
+            menus = [step["menu"] for step in self.steps(self.walked(archive), "MenuActivity") if step.get("menu")]
+            self.assertTrue(menus and menus[0]["items"], f"{archive.name} shows no menu")
+            return menus[0]
+
+        one, two = first_menu(MEDIA_ONLY), first_menu(named)
+        self.assertEqual([item["image"] for item in one["items"]], [{"uri": first, "held": True}])
+        self.assertEqual([item["image"] for item in two["items"]], [{"uri": second, "held": True}])
+        self.assertEqual(
+            [{**item, "image": None} for item in two["items"]], [{**item, "image": None} for item in one["items"]]
+        )
 
     def test_a_device_reads_an_archive_alike_under_either_app_id(self):
         """The spelling rule ``runtime-url-app-id``. Contract: an archive whose search URL and server

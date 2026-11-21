@@ -29,7 +29,8 @@ runs it on both spellings (``READERS``):
   device.
 
 A module whose name starts with ``_`` is a helper the rule modules share
-(``_xforms``, ``_app``, and ``_xpath``, through which a rule reads an XPath
+(``_xforms``, ``_app``, ``_suite``, which names the suite attributes Core
+parses as XPath, and ``_xpath``, through which a rule reads an XPath
 expression's shape as Core's lexer does), not a rule.
 
 ``RULES`` lists every registered rule, in the order the comparators apply
@@ -95,12 +96,15 @@ from proof.rules import (  # noqa: E402
     detail_null_booleans,
     empty_binds,
     empty_media_maps,
+    field_list_appearance_case,
     form_filter_blank,
     form_link_fallback,
     hint_validation_markdown_form,
     inactive_parent_select,
     itext_value_order,
     lookup_fields_unshown,
+    media_path_of_a_shared_file,
+    menu_image_without_media,
     model_order,
     open_action_blanks,
     preload_condition,
@@ -112,6 +116,8 @@ from proof.rules import (  # noqa: E402
     select_string_type,
     setvalue_order,
     subcase_empty_strings,
+    suite_cond_as_if,
+    suite_xpath_lexemes,
     tile_cell_fields,
     vellum_attributes,
     vellum_hashtags,
@@ -149,10 +155,17 @@ RULES: tuple[SpellingRule, ...] = (
     open_action_blanks.RULE,
     close_question_blank.RULE,
     form_filter_blank.RULE,
+    # A suite's expressions: a three-argument cond read as its if, then each written as Core's lexer reads it.
+    suite_cond_as_if.RULE,
+    suite_xpath_lexemes.RULE,
     # A built profile.
     profile_unread_properties.RULE,
     # The address of a request a reader sent HQ.
     runtime_url_app_id.RULE,
+    # What the runtimes hand on: Core's trace, beside the media its build installs, and Formplayer's answers.
+    menu_image_without_media.RULE,
+    media_path_of_a_shared_file.RULE,
+    field_list_appearance_case.RULE,
 )
 
 

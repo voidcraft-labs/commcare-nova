@@ -36,6 +36,7 @@ export type {
 export {
 	compileDeviceTextExpression,
 	compileExpression,
+	compileSubmittedTextValue,
 } from "./compileExpression";
 export type { IntervalTextKey } from "./compileIntervalText";
 export { compileIntervalText } from "./compileIntervalText";

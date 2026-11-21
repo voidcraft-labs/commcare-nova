@@ -18,8 +18,10 @@ const uuid = (name: string) => targetedUuid(ID, name);
  * chooses visits together, and its form counts them with
  * `count(instance('selected_cases')/results/value)`, the datum id HQ gives a
  * several-case selection (`suite_xml/utils.py::get_select_chain_with_sessions`).
- * Core's evaluate seeds no several-case selection, so no hand-fixed value
- * holds the count; every walk of the document reads it.
+ * Core's evaluate is given two visits chosen together as that datum's list
+ * (`proof/core/src/nova/proof/core/Evaluate.java::selectSeveral`), and the
+ * count holds 2 on HQ's builds of A and B; every walk of the document reads it
+ * too.
  */
 function withBatch(doc: BlueprintDoc): BlueprintDoc {
 	const module = uuid("batch-module");
@@ -152,6 +154,19 @@ export function sessionReads() {
 				]),
 			],
 		});
+		intent.push({
+			id: `chosen-counted-${exportName}`,
+			export: exportName,
+			form: uuid("batch-form"),
+			restore: "restore.xml",
+			request: {
+				session: {
+					data: { selected_cases: ["selected-visit", "second-visit"] },
+				},
+				expressions: ["/data/chosen_count"],
+			},
+			expect: [{ pointer: "/values/0/value", value: "2" }],
+		});
 	}
 	return targetedDocument({
 		id: ID,
@@ -168,6 +183,7 @@ export function sessionReads() {
 				cases: [
 					{ id: "selected-household", type: "household", name: "Household" },
 					{ id: "selected-visit", type: "visit", name: "Visit" },
+					{ id: "second-visit", type: "visit", name: "Second visit" },
 					{
 						id: "worker-record",
 						type: "commcare-user",

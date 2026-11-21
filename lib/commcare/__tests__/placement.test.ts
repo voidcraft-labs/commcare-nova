@@ -867,6 +867,45 @@ describe("the procedure", () => {
 		});
 	});
 
+	it("reads a shared close's held place as held however its keys are written", () => {
+		// Admission writes a stored placement's keys in its own order
+		// (`index`, `kind`, `slot`), and the planner builds the shared place
+		// as `kind`, `slot`, `index`.
+		const stored = {
+			index: 0,
+			kind: "basic",
+			slot: "subcase",
+		} as CasePlacement;
+		const { doc, formUuid, placements } = planned("followup", {
+			operations: (t) => [
+				own(),
+				{ ...childCreate("kid", t), placement: stored },
+				{
+					uuid: OP("shut"),
+					id: "shut",
+					action: "close",
+					caseType: "kid",
+					target: { kind: "op", opUuid: OP("kid") },
+					condition: read("flag"),
+					placement: stored,
+				} as CaseOperation,
+			],
+		});
+		expect(placements.get(OP("shut"))).toEqual({
+			placement: SUBCASE_0,
+			held: true,
+			sharesWith: OP("kid"),
+		});
+		expect(
+			placementIneligibility(
+				doc,
+				formUuid,
+				{ kind: "operation", operationUuid: OP("shut") },
+				stored,
+			),
+		).toEqual([]);
+	});
+
 	it("shares the own close with a basic own arm only where Case Management states it", () => {
 		const stateable = planned("close", {
 			operations: () => [own()],

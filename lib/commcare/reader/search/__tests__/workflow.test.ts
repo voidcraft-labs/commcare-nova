@@ -124,4 +124,33 @@ describe("a search's workflow", () => {
 		expect(codes(reading)).toEqual([]);
 		expect(searchOf(reading)).toMatchObject({ workflow: "listFirst" });
 	});
+
+	it("holds a list first whose stored `inline_search` is true through the settle, and counts it", async () => {
+		// The projection writes `inline_search: false` for a list first, and every reader of the
+		// key in HQ's build reads it beside `auto_launch` (`util.py::module_uses_inline_search`),
+		// so the settle's comparison of the whole search holds the stored `true` as the same state.
+		const reading = await readLists(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [field],
+				search: { workflow: "listFirst" },
+			}),
+			{
+				edit: (app) => {
+					Object.assign(app.modules[0]?.search_config ?? {}, {
+						inline_search: true,
+					});
+					app.cloudcare_enabled = false;
+				},
+			},
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ workflow: "listFirst" });
+		const counted = [...reading.ctx.close().claims.records()].filter(
+			(one) =>
+				one.entry === "case-search/inline-search-true-with-auto-launch-false",
+		);
+		expect(counted.map(({ where }) => where)).toEqual([
+			"/modules/0/search_config/inline_search",
+		]);
+	});
 });

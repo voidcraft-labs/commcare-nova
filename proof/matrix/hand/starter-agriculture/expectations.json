@@ -1,0 +1,1410 @@
+[
+	{
+		"id": "cooperative-registered",
+		"entry": "questions/phone-number-xsd-string-appearance-numeric",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_cooperative_0": "new-cooperative"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/cooperative/cooperative_name",
+					"value": "Green Valley"
+				},
+				{
+					"path": "/data/cooperative/crops",
+					"value": "1 3"
+				},
+				{
+					"path": "/data/cooperative/crop_other",
+					"value": "Beans"
+				},
+				{
+					"path": "/data/manager/manager/manager_first__name",
+					"value": "Neema"
+				},
+				{
+					"path": "/data/manager/manager/manager_last_name",
+					"value": "Okoth"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/manager/manager/manager_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/manager/manager/manager_full_name",
+				"/data/cooperative/crops"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/2/path",
+				"value": "/data/cooperative[1]/crop_other[1]"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Neema Okoth"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "rice other"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "questions/phone-number-xsd-string-appearance-numeric",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_cooperative_0": "new-cooperative"
+				}
+			},
+			"constraintChecks": [
+				{
+					"path": "/data/cooperative/cooperative_name",
+					"value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "questions/phone-number-xsd-string-appearance-numeric",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_cooperative_0": "new-cooperative"
+				}
+			},
+			"constraintChecks": [
+				{
+					"path": "/data/cooperative/cooperative_name",
+					"value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "farmers-enrolled",
+		"entry": "forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-coop-green"
+				}
+			},
+			"repeats": {
+				"/data/farmer": 1
+			},
+			"answers": [
+				{
+					"path": "/data/enrollment_number",
+					"value": "1"
+				},
+				{
+					"path": "/data/farmer/farmer_name/first_name",
+					"value": "Juma"
+				},
+				{
+					"path": "/data/farmer/farmer_name/last_name",
+					"value": "Ali"
+				},
+				{
+					"path": "/data/farmer/crops",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/farmer/demographic_data/farmer_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/farmer[1]/farmer_name/farmer_full_name",
+				"/data/farmer[1]/rice_farmer",
+				"/data/farmer[1]/other_farmer"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/3/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma Ali"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "farmers-enrolled:subcases-repeat-context",
+		"entry": "forms-and-case-writes/subcases-repeat-context",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-coop-green"
+				}
+			},
+			"repeats": {
+				"/data/farmer": 1
+			},
+			"answers": [
+				{
+					"path": "/data/enrollment_number",
+					"value": "1"
+				},
+				{
+					"path": "/data/farmer/farmer_name/first_name",
+					"value": "Juma"
+				},
+				{
+					"path": "/data/farmer/farmer_name/last_name",
+					"value": "Ali"
+				},
+				{
+					"path": "/data/farmer/crops",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/farmer/demographic_data/farmer_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/farmer[1]/farmer_name/farmer_full_name",
+				"/data/farmer[1]/rice_farmer",
+				"/data/farmer[1]/other_farmer"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/3/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma Ali"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "farmers-enrolled:phone-number-xsd-string-appearance-numeric",
+		"entry": "questions/phone-number-xsd-string-appearance-numeric",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-coop-green"
+				}
+			},
+			"repeats": {
+				"/data/farmer": 1
+			},
+			"answers": [
+				{
+					"path": "/data/enrollment_number",
+					"value": "1"
+				},
+				{
+					"path": "/data/farmer/farmer_name/first_name",
+					"value": "Juma"
+				},
+				{
+					"path": "/data/farmer/farmer_name/last_name",
+					"value": "Ali"
+				},
+				{
+					"path": "/data/farmer/crops",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/farmer/demographic_data/farmer_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/farmer[1]/farmer_name/farmer_full_name",
+				"/data/farmer[1]/rice_farmer",
+				"/data/farmer[1]/other_farmer"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/3/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma Ali"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "cooperative-removal-confirmed",
+		"entry": "forms-and-case-writes/close-case-condition-if-operator-or-selected-on-a-select-hidden",
+		"form": {
+			"menu": 1,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-coop-green"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/remove_cooperative",
+					"value": "1"
+				},
+				{
+					"path": "/data/confirm_close",
+					"value": ""
+				},
+				{
+					"path": "/data/not_removed_confirm",
+					"value": ""
+				}
+			],
+			"expressions": ["/data/remove_cooperative"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/confirm_close[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "cooperative-edited-from-the-case",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 1,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-coop-green"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/update_information",
+					"value": "1 2"
+				},
+				{
+					"path": "/data/cooperative/update_cooperative",
+					"value": "2 8"
+				},
+				{
+					"path": "/data/cooperative/crops",
+					"value": "2 3"
+				},
+				{
+					"path": "/data/manager/manager_update",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/manager/manager/manager_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/cooperative/area_of_operations",
+				"/data/manager/manager/manager_full_name",
+				"/data/case_properties/crops",
+				"/data/cooperative/crops"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/2/path",
+				"value": "/data/cooperative[1]/crops[1]"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "North Ridge"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "NeemaOkoth"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "rice corn"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "corn other"
+			}
+		]
+	},
+	{
+		"id": "cooperative-edited-from-the-case:phone-number-xsd-string-appearance-numeric",
+		"entry": "questions/phone-number-xsd-string-appearance-numeric",
+		"form": {
+			"menu": 1,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-coop-green"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/update_information",
+					"value": "1 2"
+				},
+				{
+					"path": "/data/cooperative/update_cooperative",
+					"value": "2 8"
+				},
+				{
+					"path": "/data/cooperative/crops",
+					"value": "2 3"
+				},
+				{
+					"path": "/data/manager/manager_update",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/manager/manager/manager_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/cooperative/area_of_operations",
+				"/data/manager/manager/manager_full_name",
+				"/data/case_properties/crops",
+				"/data/cooperative/crops"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/2/path",
+				"value": "/data/cooperative[1]/crops[1]"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "North Ridge"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "NeemaOkoth"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "rice corn"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "corn other"
+			}
+		]
+	},
+	{
+		"id": "cooperative-edited-from-the-case:case-prop-case-parent-prop-case-grandparent-prop",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 1,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-coop-green"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/update_information",
+					"value": "1 2"
+				},
+				{
+					"path": "/data/cooperative/update_cooperative",
+					"value": "2 8"
+				},
+				{
+					"path": "/data/cooperative/crops",
+					"value": "2 3"
+				},
+				{
+					"path": "/data/manager/manager_update",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/manager/manager/manager_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/cooperative/area_of_operations",
+				"/data/manager/manager/manager_full_name",
+				"/data/case_properties/crops",
+				"/data/cooperative/crops"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/2/path",
+				"value": "/data/cooperative[1]/crops[1]"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "North Ridge"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "NeemaOkoth"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "rice corn"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "corn other"
+			}
+		]
+	},
+	{
+		"id": "pre-harvest-visit",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/supervision/arable_hectares_overwrite",
+					"value": "3"
+				},
+				{
+					"path": "/data/supervision/crops",
+					"value": "1 2"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/rice",
+					"value": "2"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/corn",
+					"value": "1"
+				}
+			],
+			"expressions": [
+				"/data/case_properties/new_visit_number",
+				"/data/supervision/rice_farmer",
+				"/data/preharvest_planning/expected_rice_yield"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/2/path",
+				"value": "/data/supervision[1]/crops_per_arable_hectares[1]/rice[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "3"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "10"
+			}
+		]
+	},
+	{
+		"id": "pre-harvest-visit:case-prop-case-parent-prop-case-grandparent-prop",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/supervision/arable_hectares_overwrite",
+					"value": "3"
+				},
+				{
+					"path": "/data/supervision/crops",
+					"value": "1 2"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/rice",
+					"value": "2"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/corn",
+					"value": "1"
+				}
+			],
+			"expressions": [
+				"/data/case_properties/new_visit_number",
+				"/data/supervision/rice_farmer",
+				"/data/preharvest_planning/expected_rice_yield"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/2/path",
+				"value": "/data/supervision[1]/crops_per_arable_hectares[1]/rice[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "3"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "10"
+			}
+		]
+	},
+	{
+		"id": "post-harvest-visit",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 2,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/crops",
+					"value": "1 2"
+				},
+				{
+					"path": "/data/rice_yield_weight",
+					"value": "100"
+				},
+				{
+					"path": "/data/corn_yield_weight",
+					"value": "50"
+				}
+			],
+			"expressions": [
+				"/data/rice_farmer",
+				"/data/corn_farmer",
+				"/data/other_farmer",
+				"/data/case_properties/visit_number"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/rice_yield_weight[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "2"
+			}
+		]
+	},
+	{
+		"id": "post-harvest-visit:setvalue-event-xforms-ready-default-on-a-question-outside",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 2,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/crops",
+					"value": "1 2"
+				},
+				{
+					"path": "/data/rice_yield_weight",
+					"value": "100"
+				},
+				{
+					"path": "/data/corn_yield_weight",
+					"value": "50"
+				}
+			],
+			"expressions": [
+				"/data/rice_farmer",
+				"/data/corn_farmer",
+				"/data/other_farmer",
+				"/data/case_properties/visit_number"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/rice_yield_weight[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "1"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "2"
+			}
+		]
+	},
+	{
+		"id": "yields-estimated-from-the-hectares",
+		"entry": "questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
+		"form": {
+			"menu": 2,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-zuri"
+				}
+			},
+			"expressions": [
+				"/data/load_reporting_properties/rice/standard_estimate_yield_rice",
+				"/data/load_reporting_properties/corn/standard_estimate_yield_corn"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "9000"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "57"
+			}
+		]
+	},
+	{
+		"id": "farmer-kept",
+		"entry": "forms-and-case-writes/close-case-condition-if-operator-or-selected-on-a-select-hidden",
+		"form": {
+			"menu": 2,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/remove_farmer",
+					"value": "2"
+				},
+				{
+					"path": "/data/confirm_close",
+					"value": ""
+				},
+				{
+					"path": "/data/not_removed_confirm",
+					"value": ""
+				}
+			],
+			"expressions": ["/data/farmer_name", "/data/farmer_location"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/not_removed_confirm[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma Ali"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Riverside"
+			}
+		]
+	},
+	{
+		"id": "farmer-kept:setvalue-event-xforms-ready-default-on-a-question-outside",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 2,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/remove_farmer",
+					"value": "2"
+				},
+				{
+					"path": "/data/confirm_close",
+					"value": ""
+				},
+				{
+					"path": "/data/not_removed_confirm",
+					"value": ""
+				}
+			],
+			"expressions": ["/data/farmer_name", "/data/farmer_location"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/not_removed_confirm[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma Ali"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Riverside"
+			}
+		]
+	},
+	{
+		"id": "farmer-kept:case-prop-case-parent-prop-case-grandparent-prop",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 2,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/remove_farmer",
+					"value": "2"
+				},
+				{
+					"path": "/data/confirm_close",
+					"value": ""
+				},
+				{
+					"path": "/data/not_removed_confirm",
+					"value": ""
+				}
+			],
+			"expressions": ["/data/farmer_name", "/data/farmer_location"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/not_removed_confirm[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma Ali"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Riverside"
+			}
+		]
+	},
+	{
+		"id": "farmer-updated-from-the-case",
+		"entry": "questions/phone-number-xsd-string-appearance-numeric",
+		"form": {
+			"menu": 2,
+			"form": 3
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/update_information",
+					"value": "4 7"
+				},
+				{
+					"path": "/data/crops",
+					"value": "1 3"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/farmer_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/case_properties/cooperative_name",
+				"/data/farmer_phone_number",
+				"/data/crops",
+				"/data/corn_farmer"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/crops[1]"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Green Valley"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0712345678"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "rice other"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "farmer-updated-from-the-case:setvalue-event-xforms-ready-default-on-a-question-outside",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 2,
+			"form": 3
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/update_information",
+					"value": "4 7"
+				},
+				{
+					"path": "/data/crops",
+					"value": "1 3"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/farmer_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/case_properties/cooperative_name",
+				"/data/farmer_phone_number",
+				"/data/crops",
+				"/data/corn_farmer"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/crops[1]"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Green Valley"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0712345678"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "rice other"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "farmer-updated-from-the-case:case-prop-case-parent-prop-case-grandparent-prop",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 2,
+			"form": 3
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/update_information",
+					"value": "4 7"
+				},
+				{
+					"path": "/data/crops",
+					"value": "1 3"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/farmer_phone_number",
+					"value": "071234567"
+				}
+			],
+			"expressions": [
+				"/data/case_properties/cooperative_name",
+				"/data/farmer_phone_number",
+				"/data/crops",
+				"/data/corn_farmer"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/1/path",
+				"value": "/data/crops[1]"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "Green Valley"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0712345678"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "rice other"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "farmer-report-reads-the-cooperative",
+		"entry": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"form": {
+			"menu": 3,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/report_group/question17/cooperative_membership",
+					"value": ""
+				},
+				{
+					"path": "/data/report_group/question17/cooperative_membership_unknown",
+					"value": ""
+				}
+			],
+			"expressions": [
+				"/data/reporting_properties/price_rice",
+				"/data/reporting_properties/crop_yield_rice"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/path",
+				"value": "/data/report_group[1]/question17[1]/cooperative_membership[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "12"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "4500"
+			}
+		]
+	},
+	{
+		"id": "farmer-report-reads-the-cooperative:setvalue-event-xforms-ready-default-on-a-question-outside",
+		"entry": "questions/setvalue-event-xforms-ready-default-on-a-question-outside",
+		"form": {
+			"menu": 3,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/report_group/question17/cooperative_membership",
+					"value": ""
+				},
+				{
+					"path": "/data/report_group/question17/cooperative_membership_unknown",
+					"value": ""
+				}
+			],
+			"expressions": [
+				"/data/reporting_properties/price_rice",
+				"/data/reporting_properties/crop_yield_rice"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/path",
+				"value": "/data/report_group[1]/question17[1]/cooperative_membership[1]"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "12"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "4500"
+			}
+		]
+	},
+	{
+		"id": "farmers-by-next-visit",
+		"entry": "menus-and-case-lists/direction",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m2-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "agri-farmer-amani"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "agri-farmer-juma"
+			},
+			{
+				"pointer": "/caseList/rows/2/caseId",
+				"value": "agri-farmer-zuri"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "farmers-by-next-visit:blanks-first-last",
+		"entry": "menus-and-case-lists/blanks-first-last",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m2-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "agri-farmer-amani"
+			},
+			{
+				"pointer": "/caseList/rows/1/caseId",
+				"value": "agri-farmer-juma"
+			},
+			{
+				"pointer": "/caseList/rows/2/caseId",
+				"value": "agri-farmer-zuri"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "cooperatives-with-their-register-action",
+		"entry": "menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "agri-coop-green"
+			},
+			{
+				"pointer": "/caseList/actions/0",
+				"value": "Register New Cooperative"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "cooperatives-with-their-register-action:case-list-form-post-form-workflow-default-case-list",
+		"entry": "menus-and-case-lists/case-list-form-post-form-workflow-default-case-list",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/caseId",
+				"value": "agri-coop-green"
+			},
+			{
+				"pointer": "/caseList/actions/0",
+				"value": "Register New Cooperative"
+			}
+		],
+		"exports": ["local"]
+	},
+	{
+		"id": "farmer-report-shows-the-cooperative",
+		"entry": "menus-and-case-lists/idx-prop-parent-host-any-index-names-other-than-a-first-step",
+		"form": {
+			"menu": 3,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m3-f0"
+			},
+			"caseList": {}
+		},
+		"expect": [
+			{
+				"pointer": "/caseList/rows/0/fields/1",
+				"value": "Green Valley"
+			},
+			{
+				"pointer": "/caseList/rows/1/fields/1",
+				"value": "Green Valley"
+			},
+			{
+				"pointer": "/caseList/rows/2/fields/1",
+				"value": "Green Valley"
+			}
+		],
+		"exports": ["local"]
+	}
+]

@@ -137,7 +137,14 @@ What a trace compares:
   (``android/resource/installers/ProfileAndroidInstaller.java::initProperties``);
   Formplayer through Core's property manager (commcare-core
   ``suite/model/Profile.java::initializeProperties``, formplayer
-  ``util/FormplayerPropertyManager.java``).
+  ``util/FormplayerPropertyManager.java``);
+- a form's title (``FormDef.getTitle``, a form step's ``title``) only where a
+  runtime that runs both builds is CommCare Android, the one runtime that
+  shows it: at the top of a saved form a worker opens again with no menu's
+  title to hand it (``FormEntryActivity.getHeaderString``), while Formplayer
+  titles a worker's form by its menu entry's text
+  (``FormSession.getLocalizedFormTitle``, which reads the form's title only
+  for a form posted with no menu session, never a worker's).
 
 A search's query parameters (``params``, on its step and on each request the
 step made) hold CommCare's own keys (``case_type``, ``_xpath_query``, every
@@ -168,7 +175,12 @@ setting), so only a profile setting outside those is stated: HQ's trace
 holds it (``trace@local.ccz``) and the local archive's profile does not.
 Each is a difference of exactly that shape, which the check takes as the
 statement holding; one of another shape, or none where the comparison ran,
-is reported.
+is reported. An app made in CommCare HQ holds its Android logos the same
+way (``stated_android_logos``): the slots its stored ``logo_refs`` holds are
+kept at HQ, the archive cannot carry their files and its download says so
+(``lib/commcare/surface/keptAtHq.ts``, ``kept_android_logos_absent``), so
+HQ's trace holds each slot's ``brand-banner-*`` property, forced at the
+slot's path, and the local archive's profile does not.
 
 The sessions, HQ's restores and HQ's case processing are observed over B's
 state, or A's where HQ refused B (``proof.observe.sessions``), and kept in
@@ -184,16 +196,19 @@ from __future__ import annotations
 
 import copy
 import functools
+import hashlib
 from dataclasses import dataclass, replace
+from urllib.parse import urlsplit
 
 from proof.checks import proof2
 from proof.checks.bar import error_path
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.names import CASE_FIELDS, block_path
+from proof.checks.compare.trace import INSTALLED_MEDIA, MEDIA_FILES, generated_labels, relabel_generated
 from proof.checks.compare.trace import compare_traces as compare_trace_documents
-from proof.checks.compare.trace import generated_labels, relabel_generated
 from proof.checks.corpus import ANDROID, BOTH, WEB_APPS
 from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
+from proof.checks.eligibility import hq_authored
 from proof.observe.runs import Run as Run
 from proof.observe.runs import script_of as script_of
 from proof.observe.runs import submission_of as submission_of
@@ -351,8 +366,81 @@ class RecordIncomplete(AssertionError):
 # Traces ---------------------------------------------------------------------
 
 
-def comparable_trace(trace, runtimes):
-    """The trace as proof 3 compares it: the profile's required version and its runtime-read properties."""
+# Where a media resource HQ's build and Nova's archive install puts its file: the location ``./<dir>/<name>``
+# installs at ``jr://file/<dir>/<name>``, the path a reference to it holds (HQ's
+# ``suite_xml/generator.py::media_resources``, Nova's ``lib/commcare/multimedia/mediaSuiteXml.ts``, whose header
+# reads CommCare Android's installer at the pin).
+LOCAL_LOCATION = "./"
+MEDIA_ROOT = "jr://file/"
+
+
+def installed_media(admission):
+    """The ``jr://file/`` path of each media resource Core's admission of a build installed (``Admission.java``:
+    its ``media`` rows, one a ``MediaInstaller`` resource, each by its local location), whether or not the build
+    holds the file's bytes."""
+    found = set()
+    for row in (admission or {}).get("media") or ():
+        location = row.get("location") if isinstance(row, dict) else None
+        if isinstance(location, str) and location.startswith(LOCAL_LOCATION):
+            found.add(MEDIA_ROOT + location[len(LOCAL_LOCATION) :])
+    return sorted(found)
+
+
+# The screen a form's step records, with the form's title (``FormRun.java``).
+FORM_SCREEN = "form"
+# The build file that names each media resource the build installs, with where the file goes and where it comes
+# from (HQ's ``suite_xml/generator.py::SuiteGenerator.media_resources``, Nova's ``mediaSuiteXml.ts``).
+MEDIA_SUITE = "media_suite.xml"
+LOCAL_AUTHORITY, REMOTE_AUTHORITY = "local", "remote"
+
+
+def media_files(files):
+    """The file each media resource of a build installs, by its ``jr://file/`` path: the build's own name for it.
+
+    A build that carries the file (Nova's local archive) names it by its bytes, ``sha256:<digest>``. HQ's build
+    carries none, and names the file it installs by the address a device fetches it from, which is HQ's media
+    file view for one ``CommCareMultimedia`` and the path's own file name after it
+    (``hqmedia_download``, ``/hq/multimedia/file/<type>/<multimedia id>/<name>``, ``hqmedia/views.py::
+    ViewMultimediaFile``, which serves the document's file whatever the name): the address less its last step,
+    ``remote:<scheme>://<host><path>``, is one file however many paths install it. Two paths a build names by one
+    identity are one file there. Empty where the build holds no media suite."""
+    from lxml import etree
+
+    held = (files or {}).get(MEDIA_SUITE)
+    if not held:
+        return {}
+    root = etree.fromstring(
+        held if isinstance(held, bytes) else held.encode("utf-8"),
+        parser=etree.XMLParser(resolve_entities=False, no_network=True),
+    )
+    found = {}
+    for resource in root.iter("resource"):
+        locations = {
+            location.get("authority"): (location.text or "").strip()
+            for location in resource.findall("location")
+            if location.get("authority") in (LOCAL_AUTHORITY, REMOTE_AUTHORITY)
+        }
+        local = locations.get(LOCAL_AUTHORITY, "")
+        if not local.startswith(LOCAL_LOCATION):
+            continue
+        entry = local[len(LOCAL_LOCATION) :]
+        content = files.get(entry)
+        if isinstance(content, (bytes, str)):
+            data = content if isinstance(content, bytes) else content.encode("utf-8")
+            found[MEDIA_ROOT + entry] = "sha256:" + hashlib.sha256(data).hexdigest()
+            continue
+        remote = urlsplit(locations.get(REMOTE_AUTHORITY, ""))
+        if remote.scheme and remote.netloc and "/" in remote.path:
+            found[MEDIA_ROOT + entry] = f"remote:{remote.scheme}://{remote.netloc}{remote.path.rsplit('/', 1)[0]}"
+    return found
+
+
+def comparable_trace(trace, runtimes, admission=None, files=None):
+    """The trace as proof 3 compares it: the profile's required version and its runtime-read properties, and,
+    where Core's admission of the build that ran it is given, the media the build installs
+    (``compare.trace.INSTALLED_MEDIA``), and where the build's files are given, the file each installs
+    (``compare.trace.MEDIA_FILES``, ``media_files``), which the rules read and the comparison leaves out. A form
+    step's title is left out where ``runtimes`` holds no CommCare Android, the one runtime that shows it."""
     shown = copy.deepcopy(trace)
     shown.pop("derived", None)
     profile = shown.pop("profile", {}) or {}
@@ -363,10 +451,30 @@ def comparable_trace(trace, runtimes):
             # Each later setter of a key overwrites an earlier one, as Android's installer writes them in order.
             properties[prop["key"]] = {"value": prop.get("value"), "force": prop.get("force")}
     shown["profile"] = {"requiredVersion": profile.get("requiredVersion"), "properties": properties}
+    if ANDROID not in runtimes:
+        for run in shown.get("runs") or ():
+            for step in (run.get("trace") or ()) if isinstance(run, dict) else ():
+                if isinstance(step, dict) and step.get("screen") == FORM_SCREEN:
+                    step.pop("title", None)
+    if admission is not None:
+        shown[INSTALLED_MEDIA] = installed_media(admission)
+    if files is not None:
+        shown[MEDIA_FILES] = media_files(files)
     return shown
 
 
-def compare_traces(document, artifact, baseline, other, *, runtimes, xmlns=None, labels=None):
+def compare_traces(
+    document,
+    artifact,
+    baseline,
+    other,
+    *,
+    runtimes,
+    xmlns=None,
+    labels=None,
+    admissions=(None, None),
+    files=(None, None),
+):
     """Every difference between the baseline build's trace and the other build's, as ``artifact``.
 
     Each trace is read as ``comparable_trace`` reads it under ``runtimes``;
@@ -374,11 +482,12 @@ def compare_traces(document, artifact, baseline, other, *, runtimes, xmlns=None,
     (``xmlns_alignment``), in the trace's values and in its XML documents
     (``proof.checks.compare.trace``). ``labels`` names each run's generated
     ids (``generated_labels(baseline, other)``), made here where the caller
-    gives none.
+    gives none. ``admissions`` is Core's admission of each build, and ``files`` each build's files, where the
+    caller holds them.
     """
     return compare_trace_documents(
-        comparable_trace(baseline, runtimes),
-        comparable_trace(other, runtimes),
+        comparable_trace(baseline, runtimes, admissions[0], files[0]),
+        comparable_trace(other, runtimes, admissions[1], files[1]),
         check=CHECK,
         document=document,
         rules=RULES,
@@ -832,6 +941,7 @@ def compare_runs(
     xmlns=None,
     bar_admission=None,
     platforms=BOTH,
+    files=(None, None),
 ):
     """Both comparisons of one other build's sessions with the baseline's: the traces and HQ's case processing.
 
@@ -841,7 +951,8 @@ def compare_runs(
     are HQ's case processing of each side's trace. Where Core did not admit
     the other build the comparison is refused with Core's problems, unless
     the bar's own admission of the same build (``bar_admission``) reports
-    them.
+    them. ``files`` is each build's files, the baseline's first, whose media
+    the rules read beside each trace (``comparable_trace``).
     """
     if other.trace is None:
         if bar_admission is not None and not admitted(bar_admission):
@@ -856,6 +967,8 @@ def compare_runs(
         runtimes=RUNTIMES[other.side] & frozenset(platforms),
         xmlns=xmlns,
         labels=labels,
+        admissions=(baseline.admission, other.admission),
+        files=files,
     )
     found += compare_case_processing(
         document, f"case_blocks@{other.side}", baseline_processed, other_processed, labels=labels
@@ -886,7 +999,16 @@ class _FilesOnly:
 
 
 def behavioral_equivalence(
-    document, observed, sessions, blobs, *, has_local, local_admission=None, local_files=None, platforms=BOTH
+    document,
+    observed,
+    sessions,
+    blobs,
+    *,
+    has_local,
+    local_admission=None,
+    local_files=None,
+    platforms=BOTH,
+    always_b=False,
 ):
     """Proof 3's differences for one document under one configuration.
 
@@ -899,7 +1021,8 @@ def behavioral_equivalence(
     forms' declared versions a submission's are mapped by (``declared_versions``). ``platforms`` are the
     platforms the document declares (``Document.platforms``): Nova hands a local archive only to an app that
     declares Android, so for one that declares none no local run is compared and none is missed, and B's
-    comparison goes on from A's baseline.
+    comparison goes on from A's baseline. ``always_b`` compares B's sessions whether or not proof 2 finds a
+    difference: on an app made in HQ, whose forms proof 2 leaves out.
     """
     android = ANDROID in platforms
     if observed.a is None:
@@ -946,9 +1069,10 @@ def behavioral_equivalence(
             xmlns=xmlns_alignment(local.admission, baseline.admission),
             bar_admission=local_admission,
             platforms=platforms,
+            files=(observed.a.build.files, local_files),
         )
     if observed.b_aligned is not None and observed.b_aligned.files is not None:
-        if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
+        if always_b or [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
             if unbuildable(observed.b_aligned) is not None:
                 return [*found, *unbuildable_refusals(document, "trace@B", observed.b_aligned)]
             if sessions.get("lookupsB") and "refused" in sessions["lookupsB"]:
@@ -978,6 +1102,7 @@ def behavioral_equivalence(
                 other,
                 _processed(sessions["b"], blobs) if other.trace is not None else None,
                 platforms=platforms,
+                files=(observed.a.build.files, observed.b_aligned.files),
             )
     return found
 
@@ -1029,7 +1154,7 @@ def _archive_forms(path) -> dict:
         }
 
 
-def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None):
+def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False):
     """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
 
     Where A is served (``proof.observe.served``): every request HQ's own
@@ -1040,7 +1165,9 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     (``formplayer@local.ccz``, the forms' namespaces mapped as Core's are);
     and, wherever proof 2 still finds a difference between A's build and
     the build of B aligned to A, Formplayer's sessions and the client's
-    screens on that build against A's (``formplayer@B``, ``webapps@B``).
+    screens on that build against A's (``formplayer@B``, ``webapps@B``); with
+    ``always_b`` (an app made in HQ, whose forms proof 2 leaves out) whether
+    or not it does.
 
     For a Connect app (``proof.observe.connect``), what CommCare Connect made of each state's submissions
     (``proof.checks.connect``): what stands on its own at A (``connect@A``), and the local archive's and B's
@@ -1121,7 +1248,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             )
     b = aligned.get("B")
     if b is not None and observed.b_aligned is not None and observed.b_aligned.files is not None:
-        if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
+        if always_b or [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
             if b.get("releaseDiffers"):
                 found += _refused(document, f"{RELEASE}@B", "/release-differs", b["releaseDiffers"])
             from proof.checks.proof4 import content_versions
@@ -1173,6 +1300,7 @@ def document_behavior(document, records):
             local_admission=reports.get(local_ccz.name) if local_ccz is not None else None,
             local_files=local_files,
             platforms=platforms,
+            always_b=hq_authored(document.source),
         )
         if (sessions or {}).get("local", {}).get("trace") is not None:
             compared.add("trace@local.ccz")
@@ -1184,6 +1312,7 @@ def document_behavior(document, records):
             sessions,
             has_local=local_ccz is not None and ANDROID in platforms,
             local_ccz=local_ccz,
+            always_b=hq_authored(document.source),
         )
         if _served_a(records, name) is not None and (
             (records.configurations[name].b_aligned or {}).get("served") or {}
@@ -1202,8 +1331,136 @@ def document_behavior(document, records):
     ):
         compared.add(android.LOCAL)
     found += phone + android.tablet_only(phone, tablet)
-    found = stated_hq_side_values(document.id, document.hq_side, found, compared)
+    authored = document.authored
+    found = stated_hq_side_values(
+        document.id,
+        document.hq_side,
+        found,
+        compared,
+        authored_app=None if authored is None else authored.app_json(),
+    )
     return found + observations.soft_assertion_differences(records, CHECK)
+
+
+# Where each run, step and case of proof 3's sessions stands ------------------------------------------------------
+
+# The screens that take a choice of the script, each by the key its choice holds (``SessionOp.java``).
+SCRIPT_CHOICES = {
+    "menu": ("command",),
+    "case-list": ("select",),
+    "multi-select-list": ("selectMany",),
+    "search": ("search",),
+}
+
+
+def trace_sites(trace, processed=None):
+    """What one trace, and HQ's processing of its runs, say of where each run, step and case stands
+    (``changes.Sites``), for the first-publish judge to meet a difference of proof 3 with a change's places.
+
+    A run is walked as the runner took it: a menu step takes the script's next command, which names the menu or
+    the form the run is in from then on (``changes.command_place``); a case list step stands at the detail it
+    shows (``changes.detail_place``), a search step at the search of the menu it is in, a form step at its form,
+    any other step where the run is; a menu step's choices each at the menu or form it opens. A run stands at the
+    form it opens, else the menu it ends in. A case's type is what Core's case database after a step holds
+    (``case_type``) and what HQ's processing made of it (``type``)."""
+    from proof.checks import changes
+    from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
+
+    runs, steps, choices, cases = {}, {}, {}, {}
+
+    def case_type(case_id, kind):
+        if case_id is None or not kind:
+            return
+        held = (kind,)
+        cases[case_id] = held if cases.get(case_id, held) == held else None
+
+    for index, run in enumerate((trace or {}).get("runs") or ()):
+        if not isinstance(run, dict):
+            continue
+        script = [entry for entry in run.get("script") or () if isinstance(entry, dict)]
+        cursor, current, ends = 0, None, changes.NOWHERE
+        for number, step in enumerate(run.get("trace") or ()):
+            if not isinstance(step, dict):
+                continue
+            screen = step.get("screen")
+            taken = SCRIPT_CHOICES.get(screen)
+            if taken is not None and cursor < len(script) and any(key in script[cursor] for key in taken):
+                if screen == "menu":
+                    current = script[cursor].get("command")
+                cursor += 1
+            where = changes.command_place(current)
+            if screen == "menu":
+                for position, choice in enumerate(step.get("choices") or ()):
+                    if isinstance(choice, dict):
+                        choices[(index, number, position)] = changes.command_place(choice.get("command")) or None
+                root = step.get("root")
+                place = changes.command_place(root if root != "root" else None)
+            elif screen in ("case-list", "multi-select-list"):
+                place = changes.detail_place(step.get("detail"))
+            elif screen == "search":
+                place = ("menu", where[1].split(".")[0], "search_config") if where else changes.NOWHERE
+            else:
+                place = where
+            if where:
+                ends = where if where[0] == "form" or ends[:1] != ("form",) else ends
+            steps[(index, number)] = place or None
+            database = step.get("caseDb")
+            if isinstance(database, str):
+                try:
+                    root = parse_xml(database)
+                except XmlNotWellFormed:
+                    root = None
+                for case in [] if root is None else root:
+                    if isinstance(case.tag, str):
+                        case_type(case.get("case_id"), case.get("case_type"))
+        runs[index] = ends or None
+    for run in (processed or {}).get("runs") or ():
+        for case_id, case in ((run or {}).get("cases") or {}).items():
+            if isinstance(case, dict):
+                case_type(case_id, case.get("type"))
+    return changes.Sites(runs=runs, steps=steps, choices=choices, cases=cases)
+
+
+def document_sites(document, records):
+    """``trace_sites`` of every session proof 3 compares on one document, under each configuration: the baseline
+    on A, and each other build's runs with their generated ids named as the comparison names them
+    (``compare.trace.generated_labels``), as one (``changes.merged_sites``: a run, a step or a case two of them
+    place apart is no place)."""
+    from proof.checks import changes, observations
+    from proof.checks.compare.trace import relabelled
+
+    found = []
+    for name in sorted(document.exports):
+        sessions = observations.sessions_record(records, name)
+        if not sessions or "baseline" not in sessions:
+            continue
+        baseline = _run(sessions["baseline"], "A", records.blobs)
+        if baseline.trace is None:
+            continue
+        processed = _processed(sessions["baseline"], records.blobs)
+        found.append(trace_sites(baseline.trace, processed))
+        for key, side in (("local", "local.ccz"), ("b", "B")):
+            held = sessions.get(key)
+            if not held or held.get("trace") is None:
+                continue
+            other = _run(held, side, records.blobs)
+            labels = generated_labels(baseline.trace, other.trace)
+            before, after = relabelled(baseline.trace, other.trace, labels)
+            other_processed = _processed(held, records.blobs)
+            found.append(trace_sites(before, _relabelled_processing(processed, labels, 0)))
+            found.append(trace_sites(after, _relabelled_processing(other_processed, labels, 1)))
+    return changes.merged_sites(*found)
+
+
+def _relabelled_processing(processed, labels, side):
+    """HQ's processing of a trace's runs with each run's generated ids named by ``labels``' ``side``."""
+    runs = (processed or {}).get("runs") or []
+    return {
+        "runs": [
+            relabel_generated(run, labels[index][side]) if index < len(labels) else run
+            for index, run in enumerate(runs)
+        ]
+    }
 
 
 def _archive_files(path) -> dict:
@@ -1239,7 +1496,8 @@ def stated_values(hq_side) -> list:
     local archive's profile lacks it. An Android logo is kept too, but the local archive cannot write one
     (``lib/commcare/surface/keptAtHq.ts``, ``kept_android_logos_absent``); HQ's side holds one only through a logo
     upload, which no ``proof/observe/hqside.py::SAVES`` kind makes, so a kind that makes one is stated here as the
-    ``brand-banner-*`` property it gives HQ's profile."""
+    ``brand-banner-*`` property it gives HQ's profile, as an app made in HQ that holds one is
+    (``stated_android_logos``)."""
     from proof.checks.intent import LOCAL_KEPT_UNSTATED, NOVA_PROFILE_CONSTANTS, hq_profile_text
 
     kept = {*NOVA_PROFILE_CONSTANTS, *LOCAL_KEPT_UNSTATED}
@@ -1253,30 +1511,75 @@ def stated_values(hq_side) -> list:
     return found
 
 
-def stated_hq_side_values(document, hq_side, found, compared) -> list:
+# The profile property HQ's build writes for each Android logo slot an app holds, forced at the slot's path
+# (``app_manager/const.py::ANDROID_LOGO_PROPERTY_MAPPING``, ``models/applications.py::ApplicationBase.create_profile``,
+# under the logo uploader privilege, which a configuration of an app made in HQ that holds a logo grants:
+# ``configurations.py::_needs_logo_uploader``).
+ANDROID_LOGO_PROPERTIES = {
+    "hq_logo_android_home": "brand-banner-home",
+    "hq_logo_android_login": "brand-banner-login",
+    "hq_logo_android_demo": "brand-banner-home-demo",
+}
+
+
+def stated_android_logos(app) -> list:
+    """What an app made in CommCare HQ holds of its Android logos that the local archive cannot, as
+    ``StatedValue``s: for each slot of the stored app's ``logo_refs`` that holds a ``path`` (the slots
+    ``lib/commcare/targetFacts.ts::targetFactsFromSource`` reads as ``androidLogos``, for which the archive's
+    download says ``kept_android_logos_absent``), HQ's trace holds the ``brand-banner-*`` property forced at that
+    path and the local archive's profile holds none. ``app`` is the stored app (``Document.authored``), or None on a
+    document Nova made, whose publishes write no logo slot."""
+    refs = (app or {}).get("logo_refs") if isinstance(app, dict) else None
+    found = []
+    for slot, key in sorted(ANDROID_LOGO_PROPERTIES.items()):
+        entry = refs.get(slot) if isinstance(refs, dict) else None
+        path = entry.get("path") if isinstance(entry, dict) else None
+        if isinstance(path, str):
+            found.append(
+                StatedValue(
+                    slot,
+                    "trace@local.ccz",
+                    f"/profile/properties/{pointer_token(key)}",
+                    "removed",
+                    ({"force": True, "value": path}, None),
+                )
+            )
+    return found
+
+
+def stated_hq_side_values(document, hq_side, found, compared, *, authored_app=None) -> list:
     """``found`` with each difference a value saved only in HQ makes held as the statement holding, on each
     comparison that ran (``compared``, by artifact): a difference of the stated shape is taken, one of another
     shape at the same path is kept, and a stated difference no comparison shows is reported at
-    ``/stated-hq-side/<save><path>``."""
-    stated = [value for value in stated_values(hq_side) if value.artifact in compared]
+    ``/stated-hq-side/<save><path>``. ``authored_app`` is the stored app of a document made in HQ, whose Android
+    logos are stated so (``stated_android_logos``)."""
+    stated = [
+        value for value in (*stated_values(hq_side), *stated_android_logos(authored_app)) if value.artifact in compared
+    ]
     if not stated:
         return found
+    # A statement is named by its place in ``stated``: its ``values`` may hold a dict, which no set can hold.
     kept, met = [], set()
     for difference in found:
-        claim = next(
-            (value for value in stated if value.artifact == difference.artifact and value.path == difference.path),
+        index = next(
+            (
+                index
+                for index, value in enumerate(stated)
+                if value.artifact == difference.artifact and value.path == difference.path
+            ),
             None,
         )
+        claim = None if index is None else stated[index]
         if (
             claim is not None
             and difference.kind == claim.kind
             and (claim.values is None or (difference.before, difference.after) == claim.values)
         ):
-            met.add(claim)
+            met.add(index)
             continue
         kept.append(difference)
-    for claim in stated:
-        if claim not in met:
+    for index, claim in enumerate(stated):
+        if index not in met:
             path = f"/stated-hq-side/{pointer_token(claim.save)}{claim.path}"
             kept.append(
                 Difference(

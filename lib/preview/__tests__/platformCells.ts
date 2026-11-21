@@ -195,6 +195,10 @@ export const PLATFORM_CELLS: Readonly<
 	),
 	"menus-and-case-lists/7-invisible-search-only-on-the-case-list-outside-a-custom-tile@web-apps":
 		model("hidden-column-searchable"),
+	"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element@web-apps":
+		model("sort-label-web-apps"),
+	"menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column@web-apps":
+		model("sort-label-web-apps"),
 	"menus-and-case-lists/10-markdown-any-property-or-expression@android": model(
 		"link-column-raw-android",
 	),

@@ -27,8 +27,14 @@
  * parting ways.
  */
 
-import { type Element, isTag, Text } from "domhandler";
-import { findAll, findOne, removeElement, replaceElement } from "domutils";
+import { Element, isTag, Text } from "domhandler";
+import {
+	findAll,
+	findOne,
+	prepend,
+	removeElement,
+	replaceElement,
+} from "domutils";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -36,9 +42,15 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { constraintMessageFixture } from "@/lib/commcare/__tests__/constraintMessageFixture";
 import { buildShape } from "@/lib/commcare/__tests__/formLinkDocArbitrary";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import {
+	GENERATED_APP_STRING_PATTERNS,
+	generatedAppStringPattern,
+} from "@/lib/commcare/appStringKeys";
+import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { EMISSION_REWRITES } from "@/lib/commcare/emissionRewrites";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	type ExportEdits,
 	exportedBody,
@@ -63,6 +75,7 @@ import type {
 } from "@/lib/commcare/reader/types";
 import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { serializeXml } from "@/lib/commcare/serializeXml";
+import { servedSchemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import type { GeneratedNodePurpose } from "@/lib/commcare/xform/generatedNodes";
@@ -80,6 +93,8 @@ import {
 	type Platform,
 	proseText,
 	type SearchInputDef,
+	type TranslationUnitId,
+	translationUnitsById,
 } from "@/lib/domain";
 import {
 	eq,
@@ -99,10 +114,18 @@ import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	type CaseListConfig,
 	type CaseSearchConfig,
+	columnSort,
+	idMappingColumn,
+	idMappingEntry,
+	imageMapColumn,
+	imageMapEntry,
+	intervalColumn,
 	plainColumn,
 } from "@/lib/domain/modules";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
+import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
+	FIRST_PUBLISH_ANDROID_ONLY,
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
@@ -121,13 +144,32 @@ import { readingAppStrings } from "../appStrings";
 import {
 	FIRST_PUBLISH_CHANGES,
 	type FirstPublishFacts,
+	firstPublishChangePlaces,
 	firstPublishChangesFor,
 	firstPublishFactsOf,
+	firstPublishListToStore,
+	firstPublishPlaceKindsOf,
+	firstPublishRegisterRefusals,
 	GENERATED_NODE_CHANGE,
 	MEDIA_REFERENCE_PATHS,
 	pointerCovers,
 } from "../firstPublishChanges";
-import { HQ_MEDIA_SLOTS, type HqMediaSlot } from "../projectData/media";
+import {
+	FOLDED_TEXT_SLOTS,
+	firstPublishPlaceKind,
+	foldedTextPathsOf,
+	foldedTextSlotsOf,
+	formPositionsOf,
+	placeOf,
+	placeOfStoredPointer,
+	placeSteps,
+	placesOfGeneratedKey,
+} from "../firstPublishPlaces";
+import {
+	HQ_MEDIA_SLOTS,
+	type HqMediaSlot,
+	type MediaLeftOut,
+} from "../projectData/media";
 import {
 	type RegisterReading,
 	readExport,
@@ -183,13 +225,15 @@ function docUnder(
 	).nextDoc;
 }
 
+const NONE_LEFT_OUT: MediaLeftOut = { undrawn: 0, brokenPictures: 0 };
+
 interface FactsChange {
 	readonly choice?: DeclarationChoice;
 	readonly source?: HqAppSource;
 	readonly doc?: BlueprintDoc;
 	readonly facts?: Partial<ReadFacts>;
 	readonly mediaFiles?: readonly AdoptedMediaFile[];
-	readonly mediaLeftOut?: number;
+	readonly mediaLeftOut?: MediaLeftOut;
 }
 
 /** The facts of `reading` under a choice, through the production builder, with `change` made to its input. */
@@ -205,7 +249,7 @@ function factsOf(
 		forms: readingForms(reading.draft),
 		attachmentTarget: reading.input.target,
 		mediaFiles: change.mediaFiles ?? [],
-		mediaLeftOut: change.mediaLeftOut ?? 0,
+		mediaLeftOut: change.mediaLeftOut ?? NONE_LEFT_OUT,
 		choice: { runsOnlyOn: choice.runsOnlyOn ?? null, split: choice.split },
 	});
 }
@@ -457,6 +501,63 @@ function withLiteralOutputsAsText(xml: string): string {
 	return serializeXml(parseXml(serializeXml(document)));
 }
 
+/** The form's `<h:title>` holding no text, as CommCare HQ's new form holds it. */
+function withBlankTitle(xml: string): string {
+	const document = parseXml(xml);
+	const title = findOne(
+		(element: Element) => element.name === "h:title",
+		document.children.filter(isTag),
+		true,
+	);
+	if (title === null) throw new Error("The export holds no <h:title>.");
+	title.children = [];
+	return serializeXml(document);
+}
+
+/** A survey whose Hidden Value `h` is calculated, beside a question `n` with a default. */
+function calculatedDoc(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Menu",
+				forms: [
+					{
+						name: "Form",
+						type: "survey",
+						fields: [
+							f({ kind: "hidden", id: "h", calculate: "2" }),
+							f({ kind: "text", id: "n", default_value: "'x'" }),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** A default of `h` before the default of `n`, which reads neither: a source whose
+ *  calculate replaces its default before anything reads it. */
+function withOverwrittenDefault(xml: string): string {
+	const document = parseXml(xml);
+	const anchor = findOne(
+		(element: Element) =>
+			element.name === "setvalue" && element.attribs.ref === "/data/n",
+		document.children.filter(isTag),
+		true,
+	);
+	if (anchor === null)
+		throw new Error("The export holds no setvalue that sets n.");
+	prepend(
+		anchor,
+		new Element("setvalue", {
+			event: "xforms-ready",
+			ref: "/data/h",
+			value: "1",
+		}),
+	);
+	return serializeXml(document);
+}
+
 // ── The register's columns ───────────────────────────────────────────────
 
 describe("the register", () => {
@@ -471,12 +572,24 @@ describe("the register", () => {
 			]);
 	});
 
-	it("works out exactly the two Web Apps lines from the declaration", () => {
+	it("works out the two Web Apps lines from the declaration, and each line a worker meets on Android alone from its reading", () => {
 		expect(
 			FIRST_PUBLISH_CHANGE_IDS.filter(
-				(id) => FIRST_PUBLISH_CHANGES[id].scope === "declaration",
+				(id) =>
+					FIRST_PUBLISH_CHANGES[id].scope === "declaration" &&
+					FIRST_PUBLISH_CHANGES[id].recorded === undefined,
 			),
 		).toEqual(["web-apps-turned-off", "web-apps-turned-on"]);
+		expect(
+			FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => FIRST_PUBLISH_CHANGES[id].recorded !== undefined,
+			),
+		).toEqual([...FIRST_PUBLISH_ANDROID_ONLY]);
+		for (const id of FIRST_PUBLISH_ANDROID_ONLY)
+			expect([id, FIRST_PUBLISH_CHANGES[id].scope]).toEqual([
+				id,
+				"declaration",
+			]);
 	});
 
 	it("maps every generated node's purpose to the entry that declares it, a guard to none", () => {
@@ -581,6 +694,158 @@ describe("the register", () => {
 
 // ── Over the retained readings ───────────────────────────────────────────
 
+describe("where each change stands", () => {
+	it("refuses no entry of the register, and declares one change alone app-wide", () => {
+		expect(firstPublishRegisterRefusals(FIRST_PUBLISH_CHANGES)).toEqual([]);
+		expect(
+			FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => "appWide" in FIRST_PUBLISH_CHANGES[id].at,
+			),
+		).toEqual(["forms-and-settings-rewritten"]);
+	});
+
+	it("refuses an entry that could never be seen apart from the change that stands everywhere", () => {
+		const everywhere = FIRST_PUBLISH_CHANGES["forms-and-settings-rewritten"];
+		const own = FIRST_PUBLISH_CHANGES["hidden-values-added"];
+		expect(
+			firstPublishRegisterRefusals({ a: everywhere, b: everywhere }),
+		).toEqual([
+			"The first-publish register declares a, b app-wide. One change alone may stand everywhere, keeping what no other change's place holds; two such changes stand at every place alike, so no difference could show one apart from the other.",
+		]);
+		expect(
+			firstPublishRegisterRefusals({
+				a: everywhere,
+				b: { at: { kinds: [], places: () => [] } },
+			}),
+		).toEqual([
+			"The first-publish change b declares no kind of place, so it stands only where the change declared app-wide stands and no difference could show it apart. Name the kinds of place its change makes a difference at.",
+		]);
+		expect(
+			firstPublishRegisterRefusals({
+				a: everywhere,
+				b: {
+					at: {
+						kinds: ["app-wide"] as never,
+						places: () => [],
+					},
+				},
+			}),
+		).toEqual([
+			"The first-publish change b declares the kind of place \"app-wide\", which is the whole app's, the one app-wide change's alone.",
+		]);
+		expect(firstPublishRegisterRefusals({ a: everywhere, b: own })).toEqual([]);
+	});
+
+	it("refuses a change that applies and names no place, or a place of a kind its entry does not declare", async () => {
+		const facts = await PAIRS["hidden-values-added"].on();
+		const none: FirstPublishFacts = {
+			...facts,
+			generatedByForm: facts.generatedByForm.map((one) => ({
+				...one,
+				difference: { added: [], dropped: [], renamed: [] },
+			})),
+		};
+		expect(() =>
+			firstPublishChangePlaces(none, ["hidden-values-added"]),
+		).toThrow(
+			"The first-publish change hidden-values-added applies on this reading and its entry names no place it stands at.",
+		);
+		expect(
+			firstPublishChangePlaces(facts, ["hidden-values-added"])[0]?.places,
+		).not.toEqual([]);
+	});
+
+	it("places a case list icon's picture at the value that names it and among its menu's media, at the path HQ held and at the one it goes out at", async () => {
+		// A short list's icon column whose picture CommCare HQ keeps at a path Nova cannot hold
+		// (`assignMediaPaths` derives another): the first publish renames it there, so the map
+		// and the menu's media listing lose the old path and gain the file's derivation.
+		const held = `jr://file/commcare/${HASH_B}.png`;
+		const iconFile = file(held, HASH_A, "first-publish-list-icon");
+		const doc = patients([
+			plainColumn(uuid(1), "case_name", "Name"),
+			imageMapColumn(uuid(2), "status", "Status", [
+				imageMapEntry("a", iconFile.assetId),
+			]),
+		]);
+		const reading = await readAs(
+			doc,
+			{
+				expand: {
+					assets: adoptionExportBoundary(doc, [], [iconFile], TARGET).assets,
+				},
+				...onMenu((menu) => {
+					const short = (
+						menu as unknown as {
+							case_details: {
+								short: { columns: { enum?: { value: Json }[] }[] };
+							};
+						}
+					).case_details.short;
+					for (const column of short.columns)
+						for (const item of column.enum ?? []) item.value = { en: held };
+				}),
+			},
+			{
+				media: {
+					resolve: (path) =>
+						path === held
+							? { kind: "asset", assetId: iconFile.assetId, mediaKind: "image" }
+							: { kind: "no-entry" },
+				},
+			},
+		);
+		const facts = factsOf(reading, { mediaFiles: [iconFile] });
+		expect(applies("media-files-renamed", facts)).toBe(true);
+		const [placed] = firstPublishChangePlaces(facts, ["media-files-renamed"]);
+		const pointer = held.replaceAll("~", "~0").replaceAll("/", "~1");
+		const derived = `jr://file/${wirePathFor(HASH_A, ".png")}`
+			.replaceAll("~", "~0")
+			.replaceAll("/", "~1");
+		expect(placed?.places).toEqual(
+			expect.arrayContaining([
+				`/app/multimedia_map/${pointer}`,
+				`/app/multimedia_map/${derived}`,
+				"/menu/0/case_details/short/columns/1/enum/0/value",
+				`/menu/0/media/${pointer}`,
+				`/menu/0/media/${derived}`,
+			]),
+		);
+	});
+
+	it("places a search's guard at the Search field a value it guards comes from, never at another field of the menu", async () => {
+		// The menu's `region` field reaches the search as quoted text, so Nova's search guards it; its
+		// `dob` field holds no check either and reaches no guard, so a check added there would be a
+		// change no entry declares, not this one.
+		const facts = await PAIRS["search-value-guards"].on();
+		const [placed] = firstPublishChangePlaces(facts, ["search-value-guards"]);
+		const fields = (placed?.places ?? []).filter((place) =>
+			place.includes("/search_config/properties/"),
+		);
+		expect(fields).toEqual(["/menu/0/search_config/properties/0/validations"]);
+	});
+
+	it("names a stored pointer's place by the form or menu at its position", async () => {
+		const { source } = await PAIRS["case-names-checked"].on();
+		const positions = formPositionsOf(source);
+		const readId = source.modules[0]?.forms[0]?.readUniqueId;
+		expect(placeOfStoredPointer(positions, `/_attachments/${readId}.xml`)).toBe(
+			"/form/0.0/xform",
+		);
+		expect(
+			placeOfStoredPointer(positions, "/modules/0/forms/0/actions/open_case"),
+		).toBe("/form/0.0/actions/open_case");
+		expect(
+			placeOfStoredPointer(positions, "/modules/0/case_details/short/filter"),
+		).toBe("/menu/0/case_details/short/filter");
+		expect(
+			placeOfStoredPointer(positions, "/translations/en/app.display.name"),
+		).toBe("/app/translations/en/app.display.name");
+		expect(
+			placeOfStoredPointer(positions, "/_attachments/no-such-form.xml"),
+		).toBeNull();
+	});
+});
+
 describe("over CommCare HQ's retained sources", () => {
 	it("covers every same-state record by the paths of the entry it names", async () => {
 		const readings = await retainedReadings();
@@ -593,7 +858,7 @@ describe("over CommCare HQ's retained sources", () => {
 		expect(uncovered).toEqual([]);
 	});
 
-	it("gives each choice's list back from what the birth stores, and only the Web Apps lines move under another declaration", async () => {
+	it("gives each choice's list back from what the birth stores, and only the Web Apps lines and a line a worker meets on Android alone move under another declaration", async () => {
 		let choices = 0;
 		for (const reading of await retainedReadings()) {
 			const rows = adoptedIdentityRows(
@@ -614,7 +879,7 @@ describe("over CommCare HQ's retained sources", () => {
 					novaRevision: 1,
 					mediaFiles: {},
 					observedAt: "2026-11-15T00:00:00.000Z",
-					firstPublish: view,
+					firstPublish: firstPublishListToStore(view, reading.draft.facts),
 				});
 				if (
 					written.firstPublish.kind !== "set" ||
@@ -626,17 +891,23 @@ describe("over CommCare HQ's retained sources", () => {
 				expect(firstPublishViewFromStored(stored, choice.runsOnlyOn)).toEqual(
 					view,
 				);
-				const others = (["android", "web-apps", undefined] as const).map(
-					(runsOnlyOn) => firstPublishViewFromStored(stored, runsOnlyOn),
-				);
-				const webApps = new Set<string>([
+				const moving = new Set<FirstPublishChangeId>([
 					"web-apps-turned-off",
 					"web-apps-turned-on",
+					...FIRST_PUBLISH_ANDROID_ONLY,
 				]);
-				for (const other of others)
-					expect(other.ids.filter((id) => !webApps.has(id))).toEqual(
-						view.ids.filter((id) => !webApps.has(id)),
+				const recorded = [...FIRST_PUBLISH_ANDROID_ONLY].filter((id) =>
+					FIRST_PUBLISH_CHANGES[id].recorded?.(reading.draft.facts),
+				);
+				for (const runsOnlyOn of ["android", "web-apps", undefined] as const) {
+					const other = firstPublishViewFromStored(stored, runsOnlyOn);
+					expect(other.ids.filter((id) => !moving.has(id))).toEqual(
+						view.ids.filter((id) => !moving.has(id)),
 					);
+					expect(
+						other.ids.filter((id) => FIRST_PUBLISH_ANDROID_ONLY.has(id)),
+					).toEqual(runsOnlyOn === "web-apps" ? [] : recorded);
+				}
 				choices++;
 			}
 		}
@@ -660,7 +931,137 @@ describe("over CommCare HQ's retained sources", () => {
 			of: "next-publish",
 		});
 	});
+
+	it("lists a form's title written anew only where the app runs on Android, and keeps it for a later declaration", {
+		timeout: 60_000,
+	}, async () => {
+		const id = "form-titles-written";
+		const recorded = await PAIRS[id].on();
+		const under = (runsOnlyOn: Platform | null): FirstPublishFacts => ({
+			...recorded,
+			choice: { ...recorded.choice, runsOnlyOn },
+		});
+		expect(applies(id, under(null))).toBe(true);
+		expect(applies(id, under("android"))).toBe(true);
+		// Web Apps titles a form by its menu entry's text, never by its title.
+		const webApps = firstPublishChangesFor(under("web-apps"));
+		expect(webApps.ids).not.toContain(id);
+		const list = firstPublishListToStore(webApps, recorded.facts);
+		expect(list.ids).toContain(id);
+		// Nova's own export writes the form's name there, so its reading records nothing.
+		const plain = await PAIRS[id].off();
+		expect(
+			plain.facts.sameStateRewrites.filter((record) => record.register === id),
+		).toEqual([]);
+	});
+
+	it("lists a Sort by entry left with a blank name only where the app runs on Android, and keeps it for a later declaration", {
+		timeout: 60_000,
+	}, async () => {
+		const id = "sort-by-entry-with-a-blank-name-dropped";
+		const recorded = await PAIRS[id].on();
+		const under = (runsOnlyOn: Platform | null): FirstPublishFacts => ({
+			...recorded,
+			choice: { ...recorded.choice, runsOnlyOn },
+		});
+		expect(applies(id, under(null))).toBe(true);
+		expect(applies(id, under("android"))).toBe(true);
+		// Web Apps shows no Sort by entry for an invisible column.
+		const webApps = firstPublishChangesFor(under("web-apps"));
+		expect(webApps.ids).not.toContain(id);
+		// A list stored under Web Apps alone keeps the reading's line, which shows once the app runs on Android.
+		const list = firstPublishListToStore(webApps, recorded.facts);
+		expect(list.ids).toContain(id);
+		const stored = {
+			ids: list.ids,
+			webAppsOnInHq: recorded.source.cloudcareEnabled,
+			of: "first-publish",
+		} as const;
+		expect(firstPublishViewFromStored(stored, "web-apps").ids).not.toContain(
+			id,
+		);
+		expect(firstPublishViewFromStored(stored, "android").ids).toContain(id);
+		expect(firstPublishViewFromStored(stored, undefined).ids).toContain(id);
+		// A reading that records no such rule stores no line.
+		const plain = await PAIRS[id].off();
+		expect(
+			firstPublishListToStore(firstPublishChangesFor(plain), plain.facts).ids,
+		).not.toContain(id);
+	});
 });
+
+/**
+ * Every JSON Pointer at which `before` and `after` part ways, as deep as
+ * either holds an object or a list there; a key of one of HQ's classes the
+ * body leaves out holds the default HQ's wrap gives it
+ * (`servedSchemaPropertyDefault`). A form's source is left out: the proof
+ * lane compares it part by part (`proof/checks/xform_parts.py`), and a place
+ * stands at a part of it.
+ */
+function storedDifferences(
+	before: unknown,
+	after: unknown,
+	at = "",
+): readonly string[] {
+	if (at === "/_attachments") return [];
+	const object = (value: unknown): value is Record<string, unknown> =>
+		typeof value === "object" && value !== null;
+	if (!object(before) && !object(after))
+		return JSON.stringify(before) === JSON.stringify(after) ? [] : [at];
+	if (
+		object(before) &&
+		object(after) &&
+		Array.isArray(before) !== Array.isArray(after)
+	)
+		return [at];
+	const one = object(before) ? before : {};
+	const other = object(after) ? after : {};
+	const docType = typeof other.doc_type === "string" ? other.doc_type : null;
+	return [...new Set([...Object.keys(one), ...Object.keys(other)])].flatMap(
+		(key) => {
+			const served =
+				!(key in other) && docType !== null
+					? servedSchemaPropertyDefault(docType, key)
+					: undefined;
+			return storedDifferences(
+				one[key],
+				served?.known === true ? served.default : other[key],
+				`${at}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`,
+			);
+		},
+	);
+}
+
+/** CommCare HQ's stored app after a first publish's import of `facts`' body over the source: every
+ *  top-level key the body carries replaced whole, every other kept
+ *  (`models/applications.py::_merge_source_into_app`). */
+function firstPublishStored(
+	facts: FirstPublishFacts,
+	project: PairProjectData,
+): unknown {
+	return { ...facts.source.raw, ...firstPublishBody(facts, project) };
+}
+
+/** The Project data a pair's publish carries beside its document: the tables it reads, the files it holds. */
+interface PairProjectData {
+	readonly lookups?: readonly LookupTableDefinition[];
+	readonly mediaFiles?: readonly AdoptedMediaFile[];
+}
+
+/** Whether the place `location` is `place` or under it, `**` in `place` any run of steps. */
+function placeStandsAt(place: string, location: string): boolean {
+	const want = placeSteps(place);
+	const got = placeSteps(location);
+	const go = (i: number, j: number): boolean => {
+		if (i === want.length) return true;
+		if (want[i] === "**") {
+			for (let k = j; k <= got.length; k++) if (go(i + 1, k)) return true;
+			return false;
+		}
+		return j < got.length && want[i] === got[j] && go(i + 1, j + 1);
+	};
+	return go(0, 0);
+}
 
 function coveredByItsEntry(record: SameStateRewrite): boolean {
 	const entry = FIRST_PUBLISH_CHANGES[record.register as FirstPublishChangeId];
@@ -1145,6 +1546,38 @@ const menuNamed = (name: Json): ExportEdits =>
 		menu.name = name;
 	});
 
+/** The Project data each pair whose document reads a table or holds a file publishes with. */
+const PAIR_PROJECT_DATA: Partial<
+	Record<FirstPublishChangeId, PairProjectData>
+> = {
+	"empty-rows-guard": {
+		lookups: KINDS as unknown as readonly LookupTableDefinition[],
+	},
+	"row-predicate-current": {
+		lookups: KINDS as unknown as readonly LookupTableDefinition[],
+	},
+	"media-maps-respelled": {
+		mediaFiles: [
+			{
+				hqPath: MENU_ICON,
+				assetId: testMediaAssetId("first-publish-menu-icon"),
+				contentHash: HASH_A,
+				extension: ".png",
+			},
+		],
+	},
+};
+
+/** A menu icon whose path names no file CommCare HQ holds, handed off by the reading. */
+const LEFT_OUT_ICON = {
+	path: "jr://file/commcare/image/gone.png",
+	mediaKind: "image",
+	resolution: "no-entry",
+	place: { kind: "menu", menu: 0, name: "Menu" },
+	pointer: "/modules/0/media_image",
+	slot: "menu_media",
+} as const;
+
 const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	"forms-and-settings-rewritten": {
 		on: async () => factsOf(await baseReading()),
@@ -1429,8 +1862,30 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 			}),
 	},
 	"media-references-with-no-file-removed": {
-		on: async () => factsOf(await baseReading(), { mediaLeftOut: 1 }),
-		off: async () => factsOf(await baseReading(), { mediaLeftOut: 0 }),
+		on: async () =>
+			factsOf(await baseReading(), {
+				facts: { pendingMedia: [LEFT_OUT_ICON] },
+				mediaLeftOut: { undrawn: 1, brokenPictures: 0 },
+			}),
+		// An icon Web Apps showed broken is said by its own line.
+		off: async () =>
+			factsOf(await baseReading(), {
+				facts: { pendingMedia: [LEFT_OUT_ICON] },
+				mediaLeftOut: { undrawn: 0, brokenPictures: 1 },
+			}),
+	},
+	"broken-pictures-removed": {
+		on: async () =>
+			factsOf(await baseReading(), {
+				facts: { pendingMedia: [LEFT_OUT_ICON] },
+				mediaLeftOut: { undrawn: 0, brokenPictures: 1 },
+			}),
+		// A reference no worker saw anything for is said by another line.
+		off: async () =>
+			factsOf(await baseReading(), {
+				facts: { pendingMedia: [LEFT_OUT_ICON] },
+				mediaLeftOut: { undrawn: 1, brokenPictures: 0 },
+			}),
 	},
 	"unused-media-entries-removed": {
 		on: async () => {
@@ -1495,6 +1950,29 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		labelledDoc("Weight\u00a0(kg)"),
 		{ xml: withLiteralOutputsAsText },
 	),
+	// A Hidden Value's default its calculate replaces before anything reads it.
+	"hidden-value-defaults-dropped": editedPair(calculatedDoc, {
+		xml: withOverwrittenDefault,
+	}),
+	// A label beside a column shown nowhere whose header is blank in every language, which
+	// CommCare HQ's build lists in Android's Sort by as an entry that shows blank.
+	"sort-by-entry-with-a-blank-name-dropped": editedPair(
+		() =>
+			patients([
+				plainColumn(uuid(1), "case_name", "Name"),
+				plainColumn(uuid(2), "notes", "", {
+					visibleInList: false,
+					visibleInDetail: false,
+					sort: columnSort("asc", 0),
+				}),
+			]),
+		onMenu((menu) => {
+			for (const element of menu.case_details.short.sort_elements)
+				if (element.field === "notes") element.display = { en: "Notes" };
+		}),
+	),
+	// A form whose title holds no text, as CommCare HQ's new form holds it.
+	"form-titles-written": editedPair(followUpDoc, { xml: withBlankTitle }),
 };
 
 /** A media map item as CommCare HQ stores one for an image. */
@@ -1512,7 +1990,8 @@ function mediaMapItem(id: string): Record<string, unknown> {
 const READER_RECORDED: readonly FirstPublishChangeId[] =
 	FIRST_PUBLISH_CHANGE_IDS.filter(
 		(id) =>
-			FIRST_PUBLISH_CHANGES[id].scope === "reading" &&
+			(FIRST_PUBLISH_CHANGES[id].scope === "reading" ||
+				FIRST_PUBLISH_CHANGES[id].recorded !== undefined) &&
 			![
 				"forms-and-settings-rewritten",
 				"connect-app-captures-location",
@@ -1521,6 +2000,7 @@ const READER_RECORDED: readonly FirstPublishChangeId[] =
 				"media-paths-joined",
 				"media-files-renamed",
 				"media-references-with-no-file-removed",
+				"broken-pictures-removed",
 				"unused-media-entries-removed",
 			].includes(id),
 	);
@@ -1535,6 +2015,76 @@ describe("each entry", () => {
 			expect(applies(id, await pair.off())).toBe(
 				id === "forms-and-settings-rewritten",
 			);
+		});
+
+	for (const id of FIRST_PUBLISH_CHANGE_IDS)
+		it(`${id} stands at places of its own on the reading it applies on`, {
+			timeout: 60_000,
+		}, async () => {
+			const facts = await PAIRS[id].on();
+			const [placed, ...more] = firstPublishChangePlaces(facts, [id]);
+			expect(more).toEqual([]);
+			expect(placed?.id).toBe(id);
+			const places = placed?.places ?? [];
+			if (id === "forms-and-settings-rewritten") {
+				expect(places).toEqual([""]);
+				return;
+			}
+			expect(places.length).toBeGreaterThan(0);
+			const kinds = firstPublishPlaceKindsOf(id);
+			const positions = formPositionsOf(facts.source);
+			for (const place of places) {
+				const kind = firstPublishPlaceKind(place);
+				expect([place, kind !== null && kinds.includes(kind)]).toEqual([
+					place,
+					true,
+				]);
+				// A form's or a menu's place names one the source holds.
+				const [root, at] = placeSteps(place);
+				if (root === "form")
+					expect([place, positions.all.includes(at ?? "")]).toEqual([
+						place,
+						true,
+					]);
+				if (root === "menu")
+					expect([place, Number(at) < facts.source.modules.length]).toEqual([
+						place,
+						true,
+					]);
+			}
+		});
+
+	for (const id of FIRST_PUBLISH_CHANGE_IDS.filter(
+		(one) => one !== "forms-and-settings-rewritten",
+	))
+		it(`${id} stands where its first publish changes what only it may change`, {
+			timeout: 60_000,
+		}, async () => {
+			const facts = await PAIRS[id].on();
+			const others = FIRST_PUBLISH_CHANGE_IDS.filter(
+				(other) => other !== id && FIRST_PUBLISH_CHANGES[other].applies(facts),
+			);
+			const [placed] = firstPublishChangePlaces(facts, [id]);
+			const places = placed?.places ?? [];
+			const unplaced = storedDifferences(
+				facts.source.raw,
+				firstPublishStored(facts, PAIR_PROJECT_DATA[id] ?? {}),
+			).filter(
+				(pointer) =>
+					FIRST_PUBLISH_CHANGES[id].paths.some((path) =>
+						pointerCovers(path, pointer),
+					) &&
+					!others.some((other) =>
+						FIRST_PUBLISH_CHANGES[other].paths.some((path) =>
+							pointerCovers(path, pointer),
+						),
+					) &&
+					!places.some((place) => {
+						const at = placeOfStoredPointer(facts.positions, pointer);
+						return at !== null && placeStandsAt(place, at);
+					}),
+			);
+			expect(unplaced).toEqual([]);
 		});
 
 	it("covers each record a reading of an entry's source makes by the paths of the entry it names", {
@@ -1556,6 +2106,31 @@ describe("each entry", () => {
 		);
 		expect(view.ids).toContain("case-names-checked");
 		expect(view.touchesWorkers).toBe(true);
+	});
+
+	it("lists a list setting respelled where a menu that offers no search stores another auto_launch than the choice writes", {
+		timeout: 60_000,
+	}, async () => {
+		// Nova writes such a search's `auto_launch` as whether the app runs in
+		// Web Apps; a menu made in CommCare HQ's models holds `false`.
+		const id = "list-settings-respelled";
+		const pair = editedPair(
+			() => patients([plainColumn(uuid(1), "case_name", "Name")]),
+			onMenu((menu) => {
+				menu.search_config.auto_launch = false;
+			}),
+		);
+		expect(applies(id, await pair.off())).toBe(false);
+		const stored = await pair.on();
+		expect(applies(id, stored)).toBe(true);
+		const android: FirstPublishFacts = {
+			...stored,
+			doc: {
+				...stored.doc,
+				appSettings: { ...stored.doc.appSettings, runsOnlyOn: "android" },
+			},
+		};
+		expect(applies(id, android)).toBe(false);
 	});
 
 	it("records a label whose instance( CommCare HQ's build reads, held as text in the source, at the pointer of its form", {
@@ -1611,6 +2186,382 @@ describe("each entry", () => {
 	});
 });
 
+// ── The text a folded translation key names ──────────────────────────────
+
+/**
+ * The roles a fold in an app's source language sets (`reader/assemble.ts::sourceTextSlot`): a
+ * key over any other unit folds only in another language, as that unit's translation.
+ */
+const SOURCE_FOLD_ROLES: ReadonlySet<string> = new Set([
+	"app-name",
+	"module-name",
+	"form-name",
+	"case-list-menu-item-label",
+	"case-list-registration-label",
+	"case-list-header",
+	"search-input-label",
+	"search-input-hint",
+]);
+
+/**
+ * An override of every generated id Nova's own strings give `doc`, in each language alike, whose
+ * source is one translation unit that feeds no id of several, each unit's ids at one value of its
+ * own: the keys a reading folds whole (`generatedTranslationKeys.ts::classifyGeneratedTranslationKeys`
+ * folds a key only where every id its unit feeds holds the same value). In the source language,
+ * only the units a fold there sets. The app's name is left out: the reading reads its keys
+ * itself (`appShell.ts::readTranslations`), and folds only the first language's
+ * `app.display.name`, which a case adds on its own.
+ */
+function foldingOverrides(
+	doc: BlueprintDoc,
+	source: boolean,
+): Record<string, string> {
+	const table = localAppStringTable(doc, []);
+	const units = translationUnitsById(doc);
+	const feeds = new Map<string, string[]>();
+	const shared = new Set<string>();
+	for (const [id, from] of Object.entries(table.units)) {
+		const one = typeof from === "string" ? [from] : from;
+		if (one.length !== 1) for (const unit of one) shared.add(unit);
+		const [unit] = one;
+		if (one.length !== 1 || unit === undefined) continue;
+		feeds.set(unit, [...(feeds.get(unit) ?? []), id]);
+	}
+	const overrides: Record<string, string> = {};
+	let index = 0;
+	for (const [unit, ids] of feeds) {
+		if (shared.has(unit)) continue;
+		if (!ids.some((id) => generatedAppStringPattern(id) !== undefined))
+			continue;
+		const role = units.get(unit as TranslationUnitId)?.role;
+		// The app's name is read from `name` and `app.display.name` (`appShell.ts`), never by the
+		// classifier: a case folds the first language's `app.display.name` on its own.
+		if (role === "app-name") continue;
+		if (source && (role === undefined || !SOURCE_FOLD_ROLES.has(role)))
+			continue;
+		index += 1;
+		for (const id of ids) overrides[id] = `Folded words ${index}`;
+	}
+	return overrides;
+}
+
+/** The facts of a whole reading of `doc`'s export whose `translations` in `code` also hold `keys`. */
+async function foldingFacts(
+	doc: BlueprintDoc,
+	code: string,
+	keys: Readonly<Record<string, string>>,
+): Promise<FirstPublishFacts> {
+	const body = exportedBody(doc, { expand: { attachmentTarget: TARGET } });
+	const translations = (body.translations ?? {}) as Record<
+		string,
+		Record<string, string>
+	>;
+	body.translations = {
+		...translations,
+		[code]: { ...translations[code], ...keys },
+	};
+	const reading = readWhole(doc.appId, await sourceFromBody(body), {
+		knownCaseTypes: knownCaseTypesOf(doc),
+		appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE),
+	});
+	if (!("draft" in reading))
+		throw new Error(
+			`The source read to an account: ${reading.codes.join(", ")}`,
+		);
+	return factsOf(reading);
+}
+
+/** A phone number a worker searches by, whose rule needs no runtime guard beside it, so its
+ *  validation message is a text of its own. */
+const SEEN: SearchInputDef = {
+	uuid: uuid(10),
+	name: "phone",
+	label: "Phone",
+	kind: "simple",
+	type: "text",
+	property: "phone",
+	validation: {
+		rule: neq(input(uuid(10)), literal("none")),
+		message: "Say more",
+	},
+};
+
+/** A two-language menu of patients whose case list holds every kind of text a detail key names,
+ *  and whose search has a title and a subtitle. */
+function caseListTextsDoc(): BlueprintDoc {
+	const doc = patients(
+		[
+			plainColumn(uuid(1), "case_name", "Name"),
+			idMappingColumn(uuid(2), "notes", "Notes", [
+				idMappingEntry("a", "Alpha"),
+			]),
+			intervalColumn(uuid(3), "dob", "Since", 30, "days", "flag", "Late"),
+			plainColumn(uuid(4), "phone", "Phone", {
+				visibleInList: false,
+				sort: columnSort("asc", 0, undefined, "By phone"),
+			}),
+		],
+		{
+			searchInputs: [NOTES, SEEN],
+			search: {
+				searchScreenTitle: "Find patients",
+				searchScreenSubtitle: "By their notes",
+			},
+		},
+	);
+	return inSpanish(
+		produce(doc, (draft) => {
+			const menu = draft.modules[draft.moduleOrder[0] ?? ""];
+			if (menu !== undefined) menu.caseListMenuItem = { label: "All patients" };
+		}),
+		new Map(),
+	);
+}
+
+/** A menu of patients whose case list offers another menu's registration form under a label. */
+function labelledRegisteringDoc(): BlueprintDoc {
+	return produce(registeringDoc(), (draft) => {
+		const host = Object.values(draft.modules).find(
+			(one) => one.name === "Patients",
+		);
+		const registration = host?.caseListRegistrationForm;
+		if (registration !== undefined) registration.label = "New patient";
+	});
+}
+
+/** Each form's `<h:title>` text and its data node's `name` in the body a first publish over
+ *  `facts` sends, by the form's position. */
+function publishedFormTitles(
+	facts: FirstPublishFacts,
+): ReadonlyMap<string, { readonly title: string; readonly name: string }> {
+	const body = firstPublishBody(facts);
+	const attachments = body._attachments as Record<string, string>;
+	const titles = new Map<string, { title: string; name: string }>();
+	(body.modules as Json[]).forEach((menu, m) => {
+		(menu.forms as Json[]).forEach((form, f) => {
+			const xml = attachments[`${String(form.unique_id)}.xml`] ?? "";
+			const nodes = parseXml(xml).children.filter(isTag);
+			const title = findOne((one) => one.name === "h:title", nodes, true);
+			const data = findOne(
+				(one) =>
+					one.name === "data" &&
+					one.parent !== null &&
+					isTag(one.parent) &&
+					one.parent.name === "instance",
+				nodes,
+				true,
+			);
+			titles.set(`${m}.${f}`, {
+				title:
+					title?.children
+						.map((child) => (child instanceof Text ? child.data : ""))
+						.join("") ?? "",
+				name: data?.attribs.name ?? "",
+			});
+		});
+	});
+	return titles;
+}
+
+interface FoldCase {
+	readonly doc: () => BlueprintDoc;
+	/** The language whose keys fold, by its wire code, and whether it is the app's source language. */
+	readonly code: string;
+	readonly source: boolean;
+	/** Keys the case folds beside the classifier's: the first language's `app.display.name`. */
+	readonly also?: Readonly<Record<string, string>>;
+	/** The rows of `FOLDED_TEXT_SLOTS` the case's folded keys are spelled by. */
+	readonly patterns: readonly string[];
+	/** Whether the case folds a form's name in the app's first language, which its source's title
+	 *  and data node's name take. */
+	readonly formTitles?: true;
+}
+
+const FOLD_CASES: Readonly<Record<string, FoldCase>> = {
+	"names and a Register button's label, in the source language": {
+		doc: labelledRegisteringDoc,
+		code: "en",
+		source: true,
+		also: { "app.display.name": "Folded app" },
+		formTitles: true,
+		patterns: [
+			"app.display.name",
+			"modules.m#",
+			"forms.m#f#",
+			"case_list_form.m#",
+		],
+	},
+	"a case list's texts and its search's title and subtitle, in a second language":
+		{
+			doc: caseListTextsDoc,
+			code: "es",
+			source: false,
+			patterns: [
+				"modules.m#",
+				"forms.m#f#",
+				"case_lists.m#",
+				"m#.*.*_*_#.header",
+				"m#.*.*_*_*.enum.*",
+				"search_property.m#.*.validation.#.text",
+				"search_property.m#.*",
+				"case_search.m#.inputs",
+				"case_search.m#.description",
+			],
+		},
+	"a search's field texts, in the first language, which is not the source": {
+		doc: () => localizationWireFixture("prompts"),
+		code: "es",
+		source: false,
+		formTitles: true,
+		patterns: [
+			"modules.m#",
+			"forms.m#f#",
+			"m#.*.*_*_#.header",
+			"search_property.m#.*.hint",
+			"search_property.m#.*.required.text",
+			"search_property.m#.*",
+			"case_search.m#.inputs",
+		],
+	},
+};
+
+describe("the text a folded translation key names", () => {
+	it("spells each row by one of CommCare HQ's generated patterns, and allows its slots' paths", () => {
+		for (const row of FOLDED_TEXT_SLOTS) {
+			expect([
+				row.pattern,
+				GENERATED_APP_STRING_PATTERNS.includes(row.pattern),
+			]).toEqual([row.pattern, true]);
+			for (const path of foldedTextPathsOf(row))
+				expect(
+					FIRST_PUBLISH_CHANGES["translation-overrides-folded"].paths,
+				).toContain(path);
+		}
+	});
+
+	it("places each key's text at the positions it spells: a column's header on its screen, and its sort element's name", () => {
+		expect(
+			placesOfGeneratedKey("m2.case_long.case_external-id_3.header"),
+		).toEqual([
+			"/menu/2/case_details/long/columns/2/header",
+			"/menu/2/case_details/long/sort_elements",
+		]);
+		expect(placesOfGeneratedKey("m0.search_short.case_name_1.header")).toEqual([
+			"/menu/0/case_details/short/columns/0/header",
+			"/menu/0/case_details/short/sort_elements",
+		]);
+		expect(
+			placesOfGeneratedKey("m1.case_short.case_zone_2.enum.knova_text_0"),
+		).toEqual(["/menu/1/case_details/short/columns/1/enum"]);
+		expect(placesOfGeneratedKey("search_property.m0.notes.hint")).toEqual([
+			"/menu/0/search_config/properties",
+		]);
+		expect(placesOfGeneratedKey("forms.m1f2")).toEqual([
+			"/form/1.2/name",
+			"/form/1.2/xform/title",
+			"/form/1.2/xform/data/@name",
+		]);
+		expect(placesOfGeneratedKey("app.display.name")).toEqual(["/app/name"]);
+	});
+
+	it("refuses to place a key no fold sets: a constant, a media key", () => {
+		for (const key of ["m0_select_text", "case_search.m0", "forms.m0f0.icon"])
+			expect(() => placesOfGeneratedKey(key)).toThrow(/FOLDED_TEXT_SLOTS/);
+	});
+
+	it("exercises every row across its cases", () => {
+		expect(
+			new Set(Object.values(FOLD_CASES).flatMap((one) => one.patterns)),
+		).toEqual(new Set(FOLDED_TEXT_SLOTS.map((row) => row.pattern)));
+	});
+
+	for (const [title, one] of Object.entries(FOLD_CASES))
+		it(`changes, where it folds ${title}, only the slots its entry allows at the places it gives`, {
+			timeout: 60_000,
+		}, async () => {
+			const doc = one.doc();
+			const keys = {
+				...foldingOverrides(doc, one.source),
+				...one.also,
+			};
+			const on = await foldingFacts(doc, one.code, keys);
+			const off = await foldingFacts(doc, one.code, {});
+			const entry = FIRST_PUBLISH_CHANGES["translation-overrides-folded"];
+
+			// Every key of the case folds, each spelled by a row.
+			const folded = on.facts.foldedTranslationKeys.map(
+				(pointer) => placeSteps(pointer).at(-1) ?? "",
+			);
+			expect(new Set(folded)).toEqual(new Set(Object.keys(keys)));
+			expect(
+				new Set(folded.map((key) => foldedTextSlotsOf(key)?.pattern)),
+			).toEqual(new Set(one.patterns));
+			expect(applies("translation-overrides-folded", off)).toBe(false);
+
+			// What the fold moves in the stored app: each difference lies under a path the entry
+			// allows and at a place it stands at.
+			const before = new Set(
+				storedDifferences(off.source.raw, firstPublishStored(off, {})),
+			);
+			const moved = storedDifferences(
+				on.source.raw,
+				firstPublishStored(on, {}),
+			).filter((pointer) => !before.has(pointer));
+			const [placed] = firstPublishChangePlaces(on, [
+				"translation-overrides-folded",
+			]);
+			const places = placed?.places ?? [];
+			const unheld = moved.filter((pointer) => {
+				const at = placeOfStoredPointer(on.positions, pointer);
+				return !(
+					entry.paths.some((path) => pointerCovers(path, pointer)) &&
+					at !== null &&
+					places.some((place) => placeStandsAt(place, at))
+				);
+			});
+			expect(unheld).toEqual([]);
+
+			// A form's source, which the comparison above leaves to the lane's parts: its title and
+			// its data node's name move where the form's name folds in the first language.
+			const titlesBefore = publishedFormTitles(off);
+			const sourceMoves = [...publishedFormTitles(on)].flatMap(
+				([position, now]) => {
+					const was = titlesBefore.get(position);
+					return [
+						...(now.title === was?.title
+							? []
+							: [placeOf("form", position, "xform", "title")]),
+						...(now.name === was?.name
+							? []
+							: [placeOf("form", position, "xform", "data", "@name")]),
+					];
+				},
+			);
+			expect(sourceMoves.length > 0).toBe(one.formTitles === true);
+			expect(
+				sourceMoves.filter(
+					(at) =>
+						!entry.paths.includes("/_attachments/*") ||
+						!places.some((place) => placeStandsAt(place, at)),
+				),
+			).toEqual([]);
+
+			// Each row's text moved: the key left `translations`, and its text took the value.
+			for (const pattern of one.patterns) {
+				const row = FOLDED_TEXT_SLOTS.find((one) => one.pattern === pattern);
+				const paths = row === undefined ? [] : foldedTextPathsOf(row);
+				expect([
+					pattern,
+					moved.some(
+						(pointer) =>
+							!pointer.startsWith("/translations/") &&
+							paths.some((path) => pointerCovers(path, pointer)),
+					),
+				]).toEqual([pattern, true]);
+			}
+		});
+});
+
 // ── The body a first publish sends ───────────────────────────────────────
 
 const SHELL_KEY = {
@@ -1620,9 +2571,17 @@ const SHELL_KEY = {
 	"web-apps-turned-on": "cloudcare_enabled",
 } as const satisfies Partial<Record<FirstPublishChangeId, string>>;
 
-function firstPublishBody(facts: FirstPublishFacts): Record<string, unknown> {
+function firstPublishBody(
+	facts: FirstPublishFacts,
+	project: PairProjectData = {},
+): Record<string, unknown> {
 	return hqImportApplication({
-		prepared: adoptionExportBoundary(facts.doc, [], [], TARGET),
+		prepared: adoptionExportBoundary(
+			facts.doc,
+			project.lookups ?? [],
+			project.mediaFiles ?? [],
+			TARGET,
+		),
 		target: TARGET_KEY,
 		compatibility: { advisories: [] },
 		update: { appId: REMOTE_APP_ID, source: facts.source },

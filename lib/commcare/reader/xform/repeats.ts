@@ -45,6 +45,7 @@ import {
 	type SetvalueFacts,
 } from "./model";
 import type { ParsedXForm } from "./parse";
+import type { StandingRefusal } from "./refusals";
 
 /** What a repeat's own attributes read as, before the fields of the form are known. */
 export type RepeatRead =
@@ -64,8 +65,14 @@ export type RepeatRead =
 			/** The `item` row. */
 			readonly row: DataNode;
 	  }
-	/** A finding stands at the repeat, or its parts were left unclaimed: a stand-in. */
-	| { readonly kind: "stand-in"; readonly node: DataNode };
+	/** A finding stands at the repeat, or its parts were left unclaimed: a stand-in, with the
+	 *  refusal that covers what it holds (its wrapper's label, its bind) where the repeat was
+	 *  refused. */
+	| {
+			readonly kind: "stand-in";
+			readonly node: DataNode;
+			readonly refusal?: StandingRefusal;
+	  };
 
 export interface ReadRepeatInput {
 	readonly wrapper: ControlNode;
@@ -80,6 +87,18 @@ export interface ReadRepeatInput {
 }
 
 const XFORM = { target: "xform", constraint: false } as const;
+
+/** The site a repeat's `jr:template` is claimed at, by where its node sits: a child of the data
+ *  root, or one deeper, as the lane names an instance's content. */
+function templateSite(
+	sites: {
+		readonly template: Claim<"take">;
+		readonly templateTop: Claim<"take">;
+	},
+	node: DataNode,
+): Claim<"take"> {
+	return node.path.length === 1 ? sites.templateTop : sites.template;
+}
 
 function plain(element: Element, name: string): string | undefined {
 	return Object.hasOwn(element.attribs, name)
@@ -225,17 +244,22 @@ function modelIteration(
 	)
 		return false;
 
+	// The wrapper is the repeat field's data node, claimed by the question id rule.
 	const sites = X.modelIteration;
-	cursor.take({ element: wrapper.element }, sites.node).value;
 	cursor.take({ element: wrapper.element, attribute: role }, sites.role).value;
+	// The wrapper's and the row's own attributes are answer data Core copies into the instance.
 	for (const name of ["ids", "count", "current_index"])
-		cursor.take({ element: wrapper.element, attribute: name }, sites.node)
-			.value;
+		cursor.partOf({ element: wrapper.element, attribute: name }, sites.node);
 	cursor.take({ element: row.element }, sites.node).value;
-	cursor.take({ element: row.element, attribute: template }, sites.template)
-		.value;
+	cursor.within({ element: row.element }, sites.node, [
+		"xform:model/instance//*",
+	]);
+	cursor.take(
+		{ element: row.element, attribute: template },
+		templateSite(sites, row),
+	).value;
 	for (const name of ["id", "index"])
-		cursor.take({ element: row.element, attribute: name }, sites.node).value;
+		cursor.partOf({ element: row.element, attribute: name }, sites.node);
 	cursor.take({ element: input.repeat.element }, sites.control).value;
 	cursor.take(
 		{ element: input.repeat.element, attribute: "nodeset" },
@@ -350,7 +374,9 @@ export function readRepeat(
 				place,
 				detail,
 			);
-		return { kind: "stand-in", node } as const;
+		const refusal: StandingRefusal =
+			detail === undefined ? { claim, place } : { claim, place, detail };
+		return { kind: "stand-in", node, refusal } as const;
 	};
 	if (count === undefined) {
 		if (noAddRemove !== undefined) return refuseAll(X.noAddRemoveWithoutCount);
@@ -364,7 +390,7 @@ export function readRepeat(
 		if (template !== undefined)
 			cursor.take(
 				{ element: node.element, attribute: template },
-				sites.template,
+				templateSite(sites, node),
 			).value;
 		field.field.repeat_mode = "user_controlled";
 		return { kind: "user_controlled", node };
@@ -495,7 +521,7 @@ export function settleRepeatCount(input: SettleCountInput): boolean {
 	if (template !== undefined)
 		cursor.take(
 			{ element: read.node.element, attribute: template },
-			sites.template,
+			templateSite(sites, read.node),
 		).value;
 	if (input.queryCount) {
 		cursor.take(

@@ -29,6 +29,14 @@ Keys:
   the attribute, which a descriptor without a setter refuses
   (``WrappingAttributeError``) and a descriptor with one (``FormSource.__set__``,
   which stores a form's source as the ``<unique_id>.xml`` attachment) runs.
+  Each method HQ's own code defines on the class (a function, a classmethod or
+  staticmethod, or a callable non-data descriptor such as HQ's ``memoized``)
+  whose name is not a declared key and does not start with ``_`` is such an
+  item too, with ``setter: false``: it is no data descriptor, so where the
+  class keeps undeclared keys jsonobject keeps a key naming it as a dynamic
+  property, set on the instance, which hides the method from every caller of
+  HQ's. A method jsonobject or couchdbkit defines (``save``, ``to_json``) is
+  none: a key hiding it stops HQ's own save or read of the document.
 - ``schema:dispatch(<dispatcher>)``: each of the four dispatchers above, with
   the doc types it accepts and what it does with any other (the ``raise`` exits
   of the dispatcher and of the module's functions it calls).
@@ -124,8 +132,9 @@ def _undeclared(cls) -> dict:
 
 
 def _descriptors(sources: Sources, cls) -> dict[str, dict]:
-    """Each data descriptor of the class (by its static attribute, so no descriptor runs) whose name a
-    document key could take: not declared, not starting with ``_``."""
+    """Each data descriptor of the class, and each method HQ's own code defines on it (by its static attribute, so
+    no descriptor runs), whose name a document key could take: not declared, not starting with ``_``. A nested
+    class or a plain value is neither."""
     found = {}
     for attribute in dir(cls):
         if attribute.startswith("_") or attribute in cls._properties_by_attr:
@@ -136,7 +145,25 @@ def _descriptors(sources: Sources, cls) -> dict[str, dict]:
             if attribute in base.__dict__:
                 value, owner = base.__dict__[attribute], base
                 break
-        if value is None or not inspect.isdatadescriptor(value) or _is_json_property(value):
+        if value is None or _is_json_property(value):
+            continue
+        in_hq = owner.__module__.startswith(HQ_ROOTS)
+        at = [f"{sources.relative(inspect.getsourcefile(owner))}::{owner.__qualname__}"] if in_hq else []
+        if not inspect.isdatadescriptor(value):
+            method = isinstance(value, (classmethod, staticmethod)) or (callable(value) and not inspect.isclass(value))
+            if method and in_hq:
+                kept = bool(cls._allow_dynamic_properties)
+                found[attribute] = {
+                    "descriptor": type(value).__name__,
+                    "definedIn": f"{owner.__module__}.{owner.__qualname__}",
+                    "setter": False,
+                    "keyHandling": (
+                        "kept as a dynamic property that hides the method"
+                        if kept
+                        else "refused (WrappingAttributeError)"
+                    ),
+                    "at": at,
+                }
             continue
         if isinstance(value, property):
             setter = value.fset is not None
@@ -146,13 +173,12 @@ def _descriptors(sources: Sources, cls) -> dict[str, dict]:
                 "__set__" in vars(base) for base in type(value).__mro__[:-1]
             )
             descriptor = type(value).__name__
-        in_hq = owner.__module__.startswith(HQ_ROOTS)
         found[attribute] = {
             "descriptor": descriptor,
             "definedIn": f"{owner.__module__}.{owner.__qualname__}",
             "setter": bool(setter),
             "keyHandling": "runs the setter" if setter else "refused (WrappingAttributeError)",
-            "at": [f"{sources.relative(inspect.getsourcefile(owner))}::{owner.__qualname__}"] if in_hq else [],
+            "at": at,
         }
     return found
 

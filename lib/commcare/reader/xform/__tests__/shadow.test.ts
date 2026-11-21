@@ -5,8 +5,10 @@
  * prefix; disagreeing; with no expansion; a hashtag the map holds as `null`,
  * met twice over one subtree and twice over two. The form stage's judgment is
  * held over whole sources: a disagreement is `shadow-disagrees` at the
- * question, a form saved with rich text off has inert shadows, and the three
- * `requiredCondition` rows each take their entry.
+ * question, a form saved with rich text off has inert shadows, the three
+ * `requiredCondition` rows each take their entry, and a bind's `vellum:required`
+ * and the `vellum:vellum__…` chain the form builder carries unread are dropped
+ * while any other unread `vellum:` attribute stays unrecognized.
  *
  * Plausible failures: a disagreement read as agreement; an inert shadow
  * refused; a form HQ's form builder reads through a `null` hashtag sent back
@@ -316,6 +318,28 @@ describe("a bind's requiredCondition", () => {
 				),
 			).toEqual([]);
 		}
+	});
+
+	it("drops vellum:required and the vellum__ chain the form builder carries from save to save", async () => {
+		// Two saves of a required condition in HQ's form builder (`util.js::writeHashtags` over the
+		// raw bind attribute `parser.js::parseBindElement` keeps), as HQ's wash template holds them.
+		const reading = await readForm(
+			required(
+				"required=\"/data/a = 'x'\" vellum:required=\"/data/a = 'x'\" " +
+					"requiredCondition=\"/data/a = 'x'\" vellum:requiredCondition=\"#form/a = 'x'\" " +
+					"vellum:vellum__required=\"#form/a = 'x'\" vellum:vellum__vellum__required=\"#form/a = 'x'\"",
+			),
+		);
+		// `required` itself is the expression stage's, which this reading does not run.
+		expect(
+			unrecognizedAt(reading, "b").filter((name) => name.includes("vellum")),
+		).toEqual([]);
+		expect(refusals(codesAt(reading, "b"))).toEqual([]);
+	});
+
+	it("leaves a vellum: attribute of a bind the form builder writes no shadow of unrecognized", async () => {
+		const reading = await readForm(required('vellum:planted="x"'));
+		expect(unrecognizedAt(reading, "b")).toContain("xform:bind@vellum:planted");
 	});
 
 	it("refuses a requiredCondition that differs from a present required", async () => {

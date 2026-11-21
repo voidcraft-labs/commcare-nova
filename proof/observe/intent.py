@@ -16,7 +16,7 @@ At each state of a unit (A, B and B-edit, ``observe``, called by
   with its namespace, value, calculate and constraint, by file name, each a
   blob; a form Core's parser raised on is ``{"refused": <what Core raised>}``
   (``core_raised``);
-- ``evaluations`` (a targeted document only): each expectation whose export
+- ``evaluations`` (a targeted document, or an app made in CommCare HQ, ``_runs_at``): each expectation whose export
   is this state under this configuration, its request run through Core's
   ``evaluate`` over the form HQ built (``evaluation``);
 - ``addOnsInUse`` and ``addOnsOffered`` (``add_ons``): HQ's own verdict, per
@@ -55,7 +55,7 @@ import hashlib
 import re
 
 from proof.checks.corpus import CorpusLayoutError
-from proof.core.client import CoreRunnerError
+from proof.core.client import ANDROID_DEFAULT_STRINGS, CoreRunnerError
 from proof.observe.build import _placed, admission_placeholders
 from proof.observe.record import canonical
 
@@ -155,8 +155,11 @@ def _restore_path(document, entry):
 
 
 def _runs_at(document, state, configuration=None):
-    """The expectations that run at ``state`` (``local``, ``A`` or ``B``), under ``configuration`` where named."""
-    if not document.targeted:
+    """The expectations that run at ``state`` (``local``, ``A`` or ``B``), under ``configuration`` where named: a
+    targeted document's, and an app made in CommCare HQ's, whose ``expected.json`` the emission writes from the
+    hand-written expectations of its base (``proof/matrix/hand/<base>/expectations.json``), one a state each runs
+    at."""
+    if not (document.targeted or document.hq_authored):
         return []
     return [
         entry
@@ -275,7 +278,8 @@ def evaluation(core_runner, document, entry, blobs, *, form=None, archive=None):
     app = None
     try:
         if "caseList" in request:
-            report = core_runner.admit(archive)
+            # The local export is read by CommCare Android alone, which admits it over its own strings.
+            report = core_runner.admit(archive, runtime_defaults=ANDROID_DEFAULT_STRINGS)
             app = report.get("app")
             if app is None:
                 problems = _placed(report.get("problems"), admission_placeholders(report, archive))

@@ -32,7 +32,6 @@ import {
 	advancedModuleShell,
 	applicationShell,
 	DERIVED_WIRE_IDENTITY,
-	detailPair,
 	emptyAdvancedFormActions,
 	formShell,
 	moduleShell,
@@ -98,7 +97,7 @@ import {
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "./formLinkProjection";
-import { emptyShortListColumns, projectCaseListForHq } from "./hqJson/caseList";
+import { emptyListDetailPair, projectCaseListForHq } from "./hqJson/caseList";
 import {
 	type HqAdvancedFormTree,
 	type HqFormLinkTree,
@@ -522,10 +521,11 @@ export function* expandDocSteps(
 		);
 		// A menu with no case list of its own (a survey menu, the hidden menu
 		// of a no-matches form) still holds the one `name` column every new
-		// menu gets in HQ, so its Case List page has a column to save from.
+		// menu gets in HQ on both screens, so its Case List page has a column
+		// to save from and HQ builds what it built of a menu made there.
 		const caseDetails = hasCases
 			? projection.caseDetails
-			: detailPair(emptyShortListColumns(localization.languages));
+			: emptyListDetailPair(localization.languages);
 		// Every menu's empty-list text, in every app language: HQ's model
 		// default holds `en` alone, and its module settings save writes the
 		// page's language as an empty text, which reads blank in an app with

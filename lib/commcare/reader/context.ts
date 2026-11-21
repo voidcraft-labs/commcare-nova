@@ -140,10 +140,11 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 		mediaReferences: [],
 		pendingMedia: [],
 		unreadTables: [],
-		foldedTranslationKeys: 0,
+		foldedTranslationKeys: [],
 		forms: [],
 		sameStateRewrites: [],
 		entryFactsRefused: [],
+		childCasesUnread: [],
 		rewrites: [],
 		expressionRounds: 0,
 	};

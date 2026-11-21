@@ -29,6 +29,7 @@ import type { InstanceDecl } from "@/lib/commcare/xpath/wire/instances";
 import type {
 	CaseProperty,
 	CaseTileLayout,
+	CaseType,
 	ReferenceNamesDoc,
 	Uuid,
 	WireStringSource,
@@ -174,6 +175,9 @@ export interface CaseListEmitContext {
 	readonly caseProperties: readonly CaseProperty[];
 	/** Owning module's case type identifies catalog option translation units. */
 	readonly caseType: string;
+	/** The effective catalog of every case type, where a column read through a
+	 *  relation finds the property it shows and its options' units. */
+	readonly caseTypes: readonly CaseType[];
 	/** Owning document used to resolve UUID-backed option-label prose. Wire
 	 * emission fails closed if an authored label identity does not resolve. */
 	readonly proseDoc: ReferenceNamesDoc;

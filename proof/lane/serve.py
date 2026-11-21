@@ -40,7 +40,8 @@ Phases. With no queue, the server runs what pytest collects from PYTEST ARGS
 (the whole of ``proof/`` by default) as one block it claims itself: the run
 ``npm run proof`` makes (``proof/run.mjs``), whose queue it writes to
 ``queue.json``, naming the documents the corpus's sample leaves out where
-the queue builder sampled it (``proof.lane.blocks.unsampled_documents``).
+the queue builder sampled it (``proof.lane.blocks.unsampled_documents``) and
+the bases made in HQ the corpus set aside (``set_aside_bases``).
 With ``--bin I/N`` as well, each collected group is a block of its own and
 the server runs bin I of N of them, so N servers over the same collection
 run it all once between them. With queues it runs the early
@@ -70,7 +71,11 @@ Readers. The server runs with the readers ``PROOF_READERS`` names
 slice's few), records them in ``serve.json`` (``readers``) and in the queue a
 run without queues writes, and refuses a queue built for another set
 (``readers`` in the queue): its groups and the keys its records are read
-under are that set's.
+under are that set's. Each block's manifest names the reader bundle its
+queue names (``reader``), which ``proof.store.pack`` keys its corpus
+documents' judgments under; the queue a run without queues writes names
+none, so nothing the store keeps of such a run stands for a judgment of a
+corpus that carries the bundle.
 
 Claims. ``--claim static`` owns every block (with ``--bin I/N``, the blocks
 of bin I of N, ``proof.checks.sharding.static_bins``). Otherwise each block
@@ -209,6 +214,8 @@ class PhaseInfo:
     by_group: dict[str, list[str]] = field(default_factory=dict)
     digest: str | None = None
     record: dict = field(default_factory=dict)
+    # The reader bundle the phase's queue names (proof.lane.blocks.Queue.reader), which its manifests name.
+    reader: str | None = None
 
 
 @dataclass
@@ -419,6 +426,7 @@ class Server:
             self.broker.add_phase("main", static=static)
             if options.queue.exists():
                 queue = self._load(options.queue, "main")
+                self.phases["main"].reader = queue.reader
                 self._collect_pieces(queue)
                 self.broker.offer("main", self._binned(queue, after=self._early()))
             else:
@@ -554,6 +562,7 @@ class Server:
             self.broker.cancel("main")
             return
         say(f"The main queue arrived after {seconds} s: {len(queue.blocks)} blocks.")
+        self.phases["main"].reader = queue.reader
         self._collect_pieces(queue)
         self.broker.offer("main", self._binned(queue, after=self._early()))
 
@@ -642,8 +651,13 @@ class Server:
             queue = replace(queue, readers=lane_readers.named())
             corpus = os.environ.get("PROOF_CORPUS")
             if corpus and Path(corpus, "index.json").is_file():
-                # A corpus the queue builder sampled names the documents it leaves out, for the gate.
-                queue = replace(queue, unsampled=lane_blocks.unsampled_documents(Path(corpus)))
+                # A corpus the queue builder sampled names the documents it leaves out, and a corpus that set a
+                # base made in HQ aside names it, for the gate.
+                queue = replace(
+                    queue,
+                    unsampled=lane_blocks.unsampled_documents(Path(corpus)),
+                    set_aside=lane_blocks.set_aside_bases(Path(corpus)),
+                )
             lane_blocks.write_json(self.out / "queue.json", lane_blocks.queue_json(queue))
             self.broker.offer(info.name, self._binned(queue) if info.by_group else [])
             return
@@ -1000,7 +1014,9 @@ class Server:
                 )
             )
         path = lane_blocks.block_dir(self.out, run.block.id) / lane_blocks.MANIFEST
-        lane_blocks.write_json(path, lane_blocks.manifest(run.block, phase=name, shard=self.label, groups=groups))
+        lane_blocks.write_json(
+            path, lane_blocks.manifest(run.block, phase=name, shard=self.label, groups=groups, reader=info.reader)
+        )
         run.written = True
 
     def _done(self) -> bool:

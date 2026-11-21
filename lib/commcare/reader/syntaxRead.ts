@@ -60,6 +60,14 @@ export function readFormSyntax(text: string): FormSyntaxResult {
 	);
 }
 
+/** `text` read with the XPath grammar, counted as `readFormSyntax` counts it, as the frozen tree
+ *  every read of the text shares: for a reader that only walks it and tells no two reads' nodes
+ *  apart (the uses a text's syntax makes). */
+export function sharedFormSyntax(text: string): FormSyntaxResult {
+	current?.noteSyntaxRead();
+	return heldReadings.of(text, (source) => frozenWhole(readSyntax(source)));
+}
+
 /** `run`'s answer, every grammar read it makes through this module counted by `counter`. */
 export function countingSyntaxReads<T>(
 	counter: { noteSyntaxRead(): void },

@@ -236,7 +236,11 @@ const NEVER: PublishedCondition = { type: "never" };
  * absolute path under the root loses `/<root>/`, any other path is already
  * from the root. A type, an operator or an answer outside the schema, and an
  * `if` whose question names nothing under the root, is a condition HQ's build
- * cannot state, and makes the form unread.
+ * cannot state, and makes the form unread. Beside `boolean_true` the answer is
+ * `null` whatever the source stores: HQ's build writes the question's path
+ * alone there (`xform.py::XForm.action_relevance`), and HQ's own starter apps
+ * store `"1"` beside it, so a source that differs from another only in that
+ * answer builds the same blocks and reads as the same.
  */
 function readCondition(condition: unknown, root: string): PublishedCondition {
 	if (condition === undefined || condition === null) return NEVER;
@@ -261,7 +265,7 @@ function readCondition(condition: unknown, root: string): PublishedCondition {
 		question: question.startsWith("/")
 			? relativeDataPath(question, root)
 			: question,
-		answer,
+		answer: operator === "boolean_true" ? null : answer,
 		operator,
 	};
 }

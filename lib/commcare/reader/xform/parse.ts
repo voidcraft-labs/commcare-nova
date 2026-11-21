@@ -6,8 +6,8 @@
  */
 
 import type { Document, Element } from "domhandler";
-import { isTag } from "domhandler";
-import type { HqPlace } from "@/lib/publish/hqFindings";
+import { isTag, isText } from "domhandler";
+import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import surface from "../../surface/surface.json";
 import {
 	elementNamespace,
@@ -22,11 +22,12 @@ import {
 	XHTML_NS,
 } from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
+import type { Claim } from "../claims";
 import { readerDefect } from "../defects";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import { type DataTree, readNodePath } from "./model";
-import { CASE_MAPPINGS, readHashtagMetadata } from "./shadow";
+import { CASE_MAPPINGS, headHashtagNames, readHashtagMetadata } from "./shadow";
 
 /** The namespace of a head's `odkx:intent`. */
 export const ODK_NS = "http://opendatakit.org/xforms";
@@ -66,6 +67,9 @@ export interface ParsedXForm {
 	readonly binds: readonly Element[];
 	readonly setvalues: readonly Element[];
 	readonly itext: Element | undefined;
+	/** The text of `<h:title>`'s text children, as Core reads a form's title before it trims it
+	 *  (`XFormParser.parseTitle`, `getXMLText`); undefined where the head holds no title. */
+	readonly title: string | undefined;
 	/** `vellum:ignore`'s tokens. */
 	readonly ignore: readonly string[];
 	readonly hashtags: HashtagMetadata;
@@ -148,21 +152,61 @@ export interface ParseInput {
 	readonly intentIds: ReadonlySet<string>;
 }
 
+/** A source refused whole, with the refusal that covers it, which covers the form too. */
+export interface RefusedSource {
+	readonly refused: Claim<"refuse">;
+	readonly detail?: FindingDetail;
+}
+
+/** The local names of the body's elements that make no question in CommCare HQ's count: a group,
+ *  a repeat and a group's or repeat's label. */
+const NO_QUESTION_NAMES: ReadonlySet<string> = new Set([
+	"group",
+	"repeat",
+	"label",
+]);
+
 /**
- * Finds the frame and claims it, or refuses the source as blank where a part of the frame is
- * missing or the data root is in no namespace, covering the whole source with that one
- * finding.
+ * Whether a source holds no question in CommCare HQ's count, which builds no form that holds
+ * none (`helpers/validators.py::FormValidator.validate_for_build`: "blank form" where every
+ * question `cached_get_questions` finds is a group; a label counts, and so does a hidden value,
+ * a leaf of the data tree no control names): its data root holds no element, and its body no
+ * element but groups, repeats and their labels.
  */
-export function parseXFormSource(input: ParseInput): ParsedXForm | undefined {
+function holdsNoQuestion(dataRoot: Element, body: Element): boolean {
+	if (children(dataRoot).length > 0) return false;
+	const onlyGroups = (element: Element): boolean =>
+		children(element).every(
+			(child) =>
+				NO_QUESTION_NAMES.has(splitName(child.name).local) && onlyGroups(child),
+		);
+	return onlyGroups(body);
+}
+
+/**
+ * Finds the frame and claims it, or refuses the source whole, covering it with that one
+ * finding: as blank where a part of the frame is missing, the data root is in no namespace or
+ * the source holds no question, and where the data root is named other than `data`, whose
+ * name every path of the form begins with.
+ */
+export function parseXFormSource(
+	input: ParseInput,
+): ParsedXForm | RefusedSource {
 	const { document, cursor, accounting, formPlace } = input;
 	const scope = namespaceScopes(document);
 	const html = document.children.filter(isTag)[0];
-	const blank = () => {
+	const refuseWhole = (
+		claim: Claim<"refuse">,
+		detail?: FindingDetail,
+	): RefusedSource => {
 		if (html !== undefined)
-			cursor.refuseSubtree(html, X.blankSource, formPlace);
-		else accounting.finding(X.blankSource, formPlace);
-		return undefined;
+			cursor.refuseSubtree(html, claim, formPlace, detail);
+		else accounting.finding(claim, formPlace, detail);
+		return detail === undefined
+			? { refused: claim }
+			: { refused: claim, detail };
 	};
+	const blank = () => refuseWhole(X.blankSource);
 	if (html === undefined || !isElement(html, scope(html), XHTML_NS, "html"))
 		return blank();
 	const head = find(html, scope, XHTML_NS, "head");
@@ -185,11 +229,26 @@ export function parseXFormSource(input: ParseInput): ParsedXForm | undefined {
 		elementNamespace(dataRoot, scope(dataRoot)) === null
 	)
 		return blank();
+	if (splitName(dataRoot.name).local !== "data") {
+		const refused = refuseWhole(X.rootNotData, { name: dataRoot.name });
+		// The name is the data root's, whose key the refusal names: it stands there too.
+		cursor.within({ element: dataRoot }, X.rootNotData, [
+			"xform:model/instance/*",
+		]);
+		return refused;
+	}
+	if (holdsNoQuestion(dataRoot, body)) return blank();
 
-	for (const element of [html, head, body, model, primary])
-		cursor.derived({ element }, X.frame.model);
+	// Each element of the frame is claimed under the surface key used there: the model is the
+	// element Core's top-level handler dispatches, the main instance and the itext block are
+	// the model's own children, and the XHTML wrappers, which Core's parser passes over, are
+	// part of the model's claim with no surface item of their own.
+	for (const element of [html, head, body])
+		cursor.partOf({ element }, X.frame.model);
+	cursor.derived({ element: model }, X.frame.model);
+	cursor.derived({ element: primary }, X.frame.instance);
 	const itext = find(model, scope, XFORMS_NS, "itext");
-	if (itext !== undefined) cursor.derived({ element: itext }, X.frame.model);
+	if (itext !== undefined) cursor.derived({ element: itext }, X.frame.itext);
 	for (const second of primaries.slice(1))
 		cursor.refuseSubtree(second, X.secondPrimaryInstance, formPlace);
 
@@ -220,6 +279,13 @@ export function parseXFormSource(input: ParseInput): ParsedXForm | undefined {
 			isElement(child, scope(child), XFORMS_NS, "setvalue"),
 		),
 		itext,
+		title:
+			title === undefined
+				? undefined
+				: title.children
+						.filter(isText)
+						.map((child) => child.data)
+						.join(""),
 		ignore,
 		hashtags: readHashtagMetadata(head, scope(head)),
 		scope,
@@ -259,21 +325,21 @@ function claimDataRoot(
 	input: ParseInput,
 ): void {
 	const { cursor, accounting, formPlace } = input;
+	// A data root's `uiVersion` other than `1`, or none, is a class of the data root itself,
+	// whose key names the element: the refusal stands there, and the attribute is part of it.
 	const uiVersion = plain(dataRoot, "uiVersion");
-	if (uiVersion === undefined)
-		cursor.refuse({ element: dataRoot }, X.uiVersionOther, formPlace);
-	else {
+	if (uiVersion === "1") {
 		cursor.derived({ element: dataRoot }, X.frame.dataRoot);
-		if (uiVersion === "1")
-			cursor.derived(
-				{ element: dataRoot, attribute: "uiVersion" },
-				X.uiVersionOne,
-			);
-		else
-			cursor.refuse(
+		cursor.derived(
+			{ element: dataRoot, attribute: "uiVersion" },
+			X.uiVersionOne,
+		);
+	} else {
+		cursor.refuse({ element: dataRoot }, X.uiVersionOther, formPlace);
+		if (uiVersion !== undefined)
+			cursor.partOf(
 				{ element: dataRoot, attribute: "uiVersion" },
 				X.uiVersionOther,
-				formPlace,
 			);
 	}
 	if (elementNamespace(dataRoot, scope) !== input.xmlns)
@@ -282,8 +348,6 @@ function claimDataRoot(
 			"schema:Form.xmlns",
 			readerDefect.xmlnsDiffers(formPlace),
 		);
-	if (splitName(dataRoot.name).local !== "data")
-		accounting.finding(X.rootNotData, formPlace, { name: dataRoot.name });
 	for (const name of Object.keys(dataRoot.attribs)) {
 		if (name === "uiVersion" || name.startsWith("xmlns:")) continue;
 		const node = { element: dataRoot, attribute: name };
@@ -307,6 +371,44 @@ function claimDataRoot(
 	}
 }
 
+/** The surface's hashtags, longest first, so the first a hashtag starts with is the longest. */
+const HASHTAG_ITEMS: readonly string[] = Object.keys(
+	(surface as { readonly items: Record<string, unknown> }).items,
+)
+	.filter((key) => key.startsWith("hashtag:"))
+	.map((key) => key.slice("hashtag:".length))
+	.sort((a, b) => b.length - a.length);
+
+/**
+ * Claims a head hashtag map's element once under each surface hashtag its
+ * names start with (the longest), where one allowing entry holds that hashtag
+ * (`X.headHashtag`), beside the map's own claim: HQ's form builder reads the
+ * map as the hashtags the form's expressions may spell. A hashtag no such
+ * entry holds is left to the map's claim.
+ */
+function claimHeadHashtags(
+	element: Element,
+	names: readonly string[],
+	input: ParseInput,
+): void {
+	const held = new Set<string>();
+	for (const name of names) {
+		const item = HASHTAG_ITEMS.find((tag) => name.startsWith(tag));
+		if (item !== undefined && Object.hasOwn(X.headHashtag, item))
+			held.add(item);
+	}
+	for (const item of [...held].sort()) {
+		const claim = X.headHashtag[item];
+		if (claim === undefined || claim.key === null) continue;
+		input.accounting.claimEntry(
+			{ element },
+			claim.entry,
+			claim.key,
+			input.formPlace,
+		);
+	}
+}
+
 /** The head's children beside its title and model, and the model's beside its instances,
  *  binds, setvalues and itext. */
 function claimHead(
@@ -320,11 +422,17 @@ function claimHead(
 	for (const child of children(head)) {
 		if (child === model || child === title) continue;
 		const own = scope(child);
-		if (isElement(child, own, VELLUM_NS, "hashtags"))
+		if (isElement(child, own, VELLUM_NS, "hashtags")) {
 			cursor.dropSubtree(child, X.hashtags.hashtags);
-		else if (isElement(child, own, VELLUM_NS, "hashtagTransforms"))
+			claimHeadHashtags(child, headHashtagNames(child, "hashtags"), input);
+		} else if (isElement(child, own, VELLUM_NS, "hashtagTransforms")) {
 			cursor.dropSubtree(child, X.hashtags.transforms);
-		else if (isElement(child, own, VELLUM_NS, "case_mappings"))
+			claimHeadHashtags(
+				child,
+				headHashtagNames(child, "hashtagTransforms"),
+				input,
+			);
+		} else if (isElement(child, own, VELLUM_NS, "case_mappings"))
 			cursor.dropSubtree(child, CASE_MAPPINGS);
 		else if (isElement(child, own, ODK_NS, "intent")) {
 			// One an input names is claimed with the appearance that names it (`joinForm`).

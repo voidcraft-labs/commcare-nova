@@ -1,0 +1,37 @@
+{
+	"id": "starter-health",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/23-properties-cc-fuzzy-search-enabled",
+		"application-and-settings/43-hq-secure-submissions",
+		"application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5",
+		"application-and-settings/date-created-created-from-template-last-modified-has-submissions",
+		"application-and-settings/multimedia-map",
+		"expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"expressions-and-data/selected",
+		"forms-and-case-writes/media-image-media-audio-same-asset-every-language",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/update-case-update-property-question",
+		"menus-and-case-lists/blanks-first-last",
+		"menus-and-case-lists/case-list-form-fields-beside-a-blank-form-id",
+		"menus-and-case-lists/case-list-form-media-image-media-audio",
+		"menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module",
+		"menus-and-case-lists/case-list-form-post-form-workflow-default-case-list",
+		"menus-and-case-lists/detail-filter-value-lifts-into-predicate",
+		"menus-and-case-lists/direction",
+		"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
+		"menus-and-case-lists/media-image-media-audio-same-asset-in-every-language",
+		"menus-and-case-lists/put-in-root-display-only-forms",
+		"questions/label-image-audio-video-same-asset-every-language"
+	]
+}

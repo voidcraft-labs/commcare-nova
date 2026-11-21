@@ -79,11 +79,21 @@ function formHolds(
 
 	// A case operation the plan placed without a hold, at the place the
 	// plan gave it: its basic slot, its case action, or its Save to Case
-	// path as the allocator named it.
+	// path as the allocator named it. A close written in its create's place
+	// (a basic subcase's or an open action's `close_condition`) has no place
+	// of its own, as the own close written in the own arm's place has none:
+	// it goes where its create goes, and a reading of the app holds none for
+	// it (`reader/caseManagement/index.ts::placementsHeld`).
 	for (const operation of form.caseOperations ?? []) {
 		if (inSource.has(operation.uuid)) continue;
 		const planned = placements.get(operation.uuid);
 		if (planned === undefined || planned.held) continue;
+		if (
+			operation.action === "close" &&
+			operation.target.kind === "op" &&
+			planned.sharesWith === operation.target.opUuid
+		)
+			continue;
 		holds.push({
 			target: "case-operation",
 			formUuid,

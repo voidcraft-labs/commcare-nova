@@ -101,7 +101,7 @@ export interface ManagedPlacesRefresh {
 	 * owner rule or an automation still names: kept live as they stood before
 	 * the refresh (their level, parent, name and values the copy held), with
 	 * their CommCare HQ id and no `hq_gone_at`. The plan's `leftOut` counts
-	 * them too, so the copy's standing line (Copy O8) says such places stay.
+	 * them too, so the copy's standing line (`managedPlacesLeftOut`) says such places stay.
 	 */
 	readonly keptLeftOut: readonly string[]; // names
 	readonly leftOut: Readonly<Record<string, number>>;

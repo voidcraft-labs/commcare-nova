@@ -685,8 +685,16 @@ export function BuilderContentArea({
 				modal={narrowLayout && !isCentered}
 				disablePointerDismissal={!narrowLayout || isCentered}
 				swipeDirection="right"
-				onOpenChange={(open) => {
+				onOpenChange={(open, details) => {
 					if (narrowLayout && !open) dismissNarrowOverlay();
+					if (narrowLayout && !isCentered) return;
+					/* Docked or centered, the chat is a panel of the page held
+					 * open, not a floating surface: a key it is asked to close on
+					 * (Escape) closes nothing, so it goes on to the page untaken,
+					 * where the builder's own Escape hears it
+					 * (`lib/ui/keyboardManager.ts`). */
+					details.cancel();
+					details.allowPropagation();
 				}}
 			>
 				<DrawerPortal keepMounted container={portalContainer}>

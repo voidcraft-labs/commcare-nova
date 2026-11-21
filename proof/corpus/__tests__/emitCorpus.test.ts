@@ -100,7 +100,7 @@
  * draws with their generated media.
  */
 
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import AdmZip from "adm-zip";
@@ -137,8 +137,10 @@ import {
 	UnlandedKindsError,
 } from "../emitCorpus";
 import { sampleFuzzDocuments } from "../fuzzSample";
+import { hqAuthoredDocuments } from "../hqAuthored";
 import { producerDocuments } from "../producers";
 import {
+	documentVerdict,
 	PLACEHOLDER_APP_ID,
 	PROOF_DOMAIN,
 	PROOF_SERVER,
@@ -146,6 +148,12 @@ import {
 } from "../publish";
 import { workforceDocumentId, workforceDocuments } from "../workforce";
 import { readDocuments } from "../writePublishCaptures";
+import {
+	CONTROLLED_BASE,
+	CONTROLLED_EXPECTATION,
+	CONTROLLED_RESTORE,
+	writeControlledBase,
+} from "./controlledBase";
 
 /** Producer documents that span lookup data, uploaded media, search, case writes, languages and a refusal. */
 const PRODUCER_IDS = [
@@ -179,6 +187,18 @@ async function files(root: string): Promise<Map<string, Buffer>> {
 /** A privilege a reproduction names for one document (`CorpusDocument.privileges`). */
 const NAMED_PRIVILEGE = "CLOUDCARE";
 const NAMING = "case-worker-survey";
+
+/*
+ * Budgets, each several times what the work takes alone on a hosted runner's
+ * four cores, since a batch that shares the cores runs it several times
+ * slower. Alone, the suite's own emission of the fixed floor and the sample
+ * takes 20 to 45 s, most of it the ten sampled documents; an emission of the
+ * fixed floor 3 to 13 s; a pass over every emitted document's files under
+ * 1.5 s.
+ */
+const SUITE_EMISSION_MS = 180_000;
+const EMISSION_MS = 120_000;
+const FILES_PASS_MS = 30_000;
 
 interface ImportedApp {
 	readonly langs: string[];
@@ -303,15 +323,33 @@ describe("the corpus emitter", () => {
 			.filter((sample) => sample.generator !== "advanced")
 			.map((sample) => sample.document);
 		({ index } = await emit(join(root, "nova"), fixed, sampled));
-		// The hook compiles and gates every document this suite reads, which is
-		// the suite's whole cost, so it takes the bound a single emission test
-		// below takes, twice over, and not the default a hook gets.
-	}, 120_000);
+		// The hook compiles and gates every document this suite reads.
+	}, SUITE_EMISSION_MS);
 
 	afterAll(async () => {
 		vi.useRealTimers();
 		await rm(root, { recursive: true, force: true });
 	});
+
+	/*
+	 * The fixed floor with targeted documents beside it: one with its own files
+	 * and no edit, one with a written edit and HQ-side saves, and one that
+	 * syncs cases on form entry. One emission holds all three, made once for
+	 * the two tests that read it.
+	 */
+	const targeted = lookupReservedTags();
+	const saving = hqSideState();
+	const syncing = syncOnFormEntryWebApps();
+	const withTargetedOut = () => join(root, "with-targeted");
+	let withTargeted: Promise<EmittedCorpus> | undefined;
+	const emittedWithTargeted = () => {
+		withTargeted ??= emit(
+			withTargetedOut(),
+			[...fixed, targeted, saving, syncing],
+			[],
+		);
+		return withTargeted;
+	};
 
 	it("emits every document Nova's publish takes and names the one it refuses", () => {
 		expect(index?.documents.map((d) => d.id)).toEqual([
@@ -329,7 +367,9 @@ describe("the corpus emitter", () => {
 		expect(index?.census.sample.refused).toEqual([]);
 	});
 
-	it("writes documents, and edited documents, that Nova's stores hold and admit", async () => {
+	it("writes documents, and edited documents, that Nova's stores hold and admit", {
+		timeout: FILES_PASS_MS,
+	}, async () => {
 		for (const entry of index?.documents ?? []) {
 			const directory = join(root, "nova", entry.id);
 			const written = [
@@ -361,7 +401,9 @@ describe("the corpus emitter", () => {
 		expect(index?.documents.filter((d) => d.edit).length).toBeGreaterThan(0);
 	});
 
-	it("places each document's languages on the wire in the order and with the codes of the langs its imports send", async () => {
+	it("places each document's languages on the wire in the order and with the codes of the langs its imports send", {
+		timeout: FILES_PASS_MS,
+	}, async () => {
 		const multilingual: string[] = [];
 		for (const entry of index?.documents ?? []) {
 			const directory = join(root, "nova", entry.id);
@@ -418,7 +460,9 @@ describe("the corpus emitter", () => {
 		);
 	});
 
-	it("writes the media upload each publish sends after its content import, exactly the assets the bulk upload carries, once per directory, named by the import's sidecar and the input manifest", async () => {
+	it("writes the media upload each publish sends after its content import, exactly the assets the bulk upload carries, once per directory, named by the import's sidecar and the input manifest", {
+		timeout: FILES_PASS_MS,
+	}, async () => {
 		const withMedia: string[] = [];
 		const without: string[] = [];
 		for (const entry of index?.documents ?? []) {
@@ -536,7 +580,10 @@ describe("the corpus emitter", () => {
 		expect(without.length).toBeGreaterThan(0);
 	});
 
-	it("names, per mutation kind, exactly the documents whose written batch was drawn for it, and the lane's floor refuses the kinds no fixed document carries before writing anything", async () => {
+	it("names, per mutation kind, exactly the documents whose written batch was drawn for it, and the lane's floor refuses the kinds no fixed document carries before writing anything", {
+		// The refused emission plans every document's batch before it stops.
+		timeout: EMISSION_MS,
+	}, async () => {
 		const drawn = new Map<string, string>();
 		for (const entry of index?.documents ?? []) {
 			if (!entry.edit) continue;
@@ -643,14 +690,12 @@ describe("the corpus emitter", () => {
 		expect(unordered.success).toBe(false);
 	});
 
-	it("writes a targeted document with its own files and no edit, and changes no other document's batch by adding one", {
-		// Another emission of every fixed document, capturing each publish:
-		// about a second alone, past five while the suite shares the cores.
-		timeout: 60_000,
+	it("writes a targeted document with its own files and no edit, and changes no other document's batch by adding targeted documents", {
+		// Another emission of every fixed document, capturing each publish.
+		timeout: EMISSION_MS,
 	}, async () => {
-		const targeted = lookupReservedTags();
-		const out = join(root, "with-targeted");
-		const withTargeted = await emit(out, [...fixed, targeted], []);
+		const out = withTargetedOut();
+		const withTargeted = await emittedWithTargeted();
 		const entry = withTargeted.index.documents.find(
 			(document) => document.id === targeted.id,
 		);
@@ -681,13 +726,11 @@ describe("the corpus emitter", () => {
 	});
 
 	it("writes a targeted document's written edit, its HQ-side saves and its project settings where the lane reads them", {
-		// Another emission of every fixed document, as the test above.
-		timeout: 60_000,
+		// The emission the test above reads, made here where this test runs alone.
+		timeout: EMISSION_MS,
 	}, async () => {
-		const saving = hqSideState();
-		const syncing = syncOnFormEntryWebApps();
-		const out = join(root, "with-hq-side");
-		const emitted = await emit(out, [...fixed, saving, syncing], []);
+		const out = withTargetedOut();
+		const emitted = await emittedWithTargeted();
 		const entry = emitted.index.documents.find(
 			(document) => document.id === saving.id,
 		);
@@ -776,7 +819,9 @@ describe("the corpus emitter", () => {
 		);
 	});
 
-	it("refuses CommCare Supply on where the verdict asks it off, and keeps it on for a document whose verdict says nothing", async () => {
+	it("refuses CommCare Supply on where the verdict asks it off, and keeps it on for a document whose verdict says nothing", {
+		timeout: FILES_PASS_MS,
+	}, async () => {
 		const arithmetic = producers.find(
 			(document) => document.id === "arithmetic",
 		);
@@ -816,7 +861,9 @@ describe("the corpus emitter", () => {
 		}
 	});
 
-	it("refuses a configuration that turns on a flag the verdict needs off, and writes the document's own configurations without it", async () => {
+	it("refuses a configuration that turns on a flag the verdict needs off, and writes the document's own configurations without it", {
+		timeout: FILES_PASS_MS,
+	}, async () => {
 		const document = sameTypeChild();
 		const refused: CorpusDocument = {
 			...document,
@@ -874,7 +921,7 @@ describe("the corpus emitter", () => {
 	it("writes the same bytes on every run for a seed, sends the first publish's ids on the republish, and writes a document's two local exports as one archive", {
 		// One more emission of the whole corpus, capturing every publish and
 		// writing every archive, as long again as the suite's own.
-		timeout: 60_000,
+		timeout: SUITE_EMISSION_MS,
 	}, async () => {
 		// The run happens at another time than the suite's own, which reads the
 		// real clock: whatever reads the clock must not reach the files.
@@ -958,9 +1005,10 @@ describe("the corpus emitter", () => {
 	});
 
 	it("writes the same documents from worker processes as from its own process", {
-		// Three worker processes each load Nova's modules through tsx before
-		// writing (about 3 s on a laptop); CI runners are slower.
-		timeout: 60_000,
+		// Three emissions of seventeen documents, one in three worker processes
+		// that each load Nova's modules through tsx before writing: 23 to 39 s
+		// alone.
+		timeout: SUITE_EMISSION_MS,
 	}, async () => {
 		// The fewest documents for which the emitter starts three workers (it
 		// gives each at most eight), spanning the producer families.
@@ -1007,5 +1055,263 @@ describe("the corpus emitter", () => {
 				path,
 			).toBe(true);
 		}
+	});
+});
+
+/*
+ * A document made in CommCare HQ (`hq-authored`), emitted over a base
+ * directory laid out as `proof/hq-apps/<base>/` lays one out and made of
+ * HQ's own retained answers (`./controlledBase.ts`): the base's first
+ * reading, Nova's publish over its A as over an app Nova brought in, and
+ * the files the lane makes A and judges the hop from.
+ *
+ * Contract: two emissions of the source at one seed are byte-identical file
+ * for file; the document's directory holds what its A is made of under
+ * `authored/` (the base's bytes), its one configuration from `base.json` as
+ * both `minimum` and `maximum`, `export/minimum/` alone with no first
+ * publish, the republish sending A's own menu and form ids and `xmlns`,
+ * `document.json`'s `hqAuthored` as a read back reads it, the first-publish
+ * ids, and each hand-written value expectation once a state it runs at with
+ * its form resolved to D's and its restore beside it; and a document that
+ * names saves in HQ over A is refused. The plausible failures: a reading or
+ * a capture that draws (an id minted per run), a body carrying a derived id
+ * where A holds HQ's, a first publish written over an A Nova never sent,
+ * a configuration the base was not authored under, a file of A left out of
+ * the document's key, and an expectation run on a form other than the one a
+ * person named.
+ */
+describe("the hq-authored source", () => {
+	let scratch: string;
+	let document: CorpusDocument;
+	let first: Map<string, Buffer>;
+	let second: Map<string, Buffer>;
+	let base: string;
+
+	beforeAll(async () => {
+		scratch = await mkdtemp(join(tmpdir(), "nova-hq-authored-"));
+		const root = join(scratch, "hq-apps");
+		const hand = join(scratch, "hand");
+		await writeControlledBase(root, hand);
+		/* The base is authored under the flags its content needs, as every
+		 * base is (`proof/matrix/registry.py`). */
+		const {
+			documents: [read],
+		} = await hqAuthoredDocuments(root, hand);
+		if (read === undefined)
+			throw new Error("The controlled base read to none.");
+		const { flags } = documentVerdict({
+			id: read.id,
+			doc: read.doc,
+			compiledAtSeq: 1,
+			...(read.media !== undefined && { media: read.media }),
+		}).minimumConfiguration;
+		base = await writeControlledBase(root, hand, flags);
+		const {
+			documents: [authored],
+		} = await hqAuthoredDocuments(root, hand);
+		if (authored === undefined)
+			throw new Error("The controlled base read to none.");
+		document = authored;
+		await emit(join(scratch, "first"), [document], []);
+		await emit(join(scratch, "second"), [document], []);
+		first = await files(join(scratch, "first"));
+		second = await files(join(scratch, "second"));
+	}, 240_000);
+
+	afterAll(async () => {
+		await rm(scratch, { recursive: true, force: true });
+	});
+
+	const at = (path: string) => {
+		const bytes = first.get(`${CONTROLLED_BASE}/${path}`);
+		if (bytes === undefined)
+			throw new Error(`The emission wrote no ${CONTROLLED_BASE}/${path}.`);
+		return bytes;
+	};
+	const json = (path: string) => JSON.parse(at(path).toString("utf8"));
+
+	it("writes the same bytes on every run for a seed", () => {
+		expect([...second.keys()]).toEqual([...first.keys()]);
+		for (const [path, bytes] of first) {
+			if (path === "timings.json") continue;
+			expect(second.get(path)?.equals(bytes), path).toBe(true);
+		}
+	});
+
+	it("copies what A is made of into authored/, under the base's one configuration, with no first publish", async () => {
+		for (const name of ["app.json", "seed.json"]) {
+			expect(
+				at(`authored/${name}`).equals(await readFile(join(base, name))),
+				name,
+			).toBe(true);
+		}
+		const configurations = json("configurations.json");
+		const authored = JSON.parse(
+			await readFile(join(base, "base.json"), "utf8"),
+		).configuration;
+		expect(configurations).toEqual({
+			minimum: authored,
+			maximum: authored,
+			singleFlag: {},
+		});
+		const exported = [...first.keys()].filter((path) =>
+			path.startsWith(`${CONTROLLED_BASE}/export/`),
+		);
+		expect(new Set(exported.map((path) => path.split("/")[2]))).toEqual(
+			new Set(["minimum"]),
+		);
+		expect(exported.some((path) => /\/(create|content)\./.test(path))).toBe(
+			false,
+		);
+		expect(json("export/minimum/outcome.json")).toMatchObject({
+			republish: { status: "sent" },
+		});
+		expect(json("export/minimum/outcome.json").create).toBeUndefined();
+		const index = JSON.parse(
+			(first.get("index.json") ?? Buffer.alloc(0)).toString("utf8"),
+		);
+		expect(index.documents).toEqual([
+			{
+				id: CONTROLLED_BASE,
+				source: `hq-authored:${CONTROLLED_BASE}`,
+				group: CONTROLLED_BASE,
+				edit: false,
+				configurations: ["minimum"],
+			},
+		]);
+		const inputs = json("inputs.json");
+		expect(Object.keys(inputs.configurations.minimum.a)).toEqual(
+			expect.arrayContaining([
+				"authored.app",
+				"seed",
+				"privileges.authored.app",
+				"privileges.republish.request.body",
+			]),
+		);
+		expect(
+			inputs.configurations.minimum.a["create.request.body"],
+		).toBeUndefined();
+		expect(inputs.judge.firstPublish).toEqual({
+			path: "first-publish.json",
+			digest: expect.stringMatching(/^sha256:/),
+		});
+	});
+
+	it("republishes A under A's own menu and form ids and xmlns", async () => {
+		const source = JSON.parse(
+			JSON.parse(await readFile(join(base, "app-source.json"), "utf8")).body,
+		) as ImportedApp;
+		const sent = await importedApp(
+			join(scratch, "first", CONTROLLED_BASE, "export", "minimum"),
+			"republish",
+		);
+		expect(sent.modules.map((module) => module.unique_id)).toEqual(
+			source.modules.map((module) => module.unique_id),
+		);
+		expect(
+			sent.modules.map((module) => module.forms.map((form) => form.xmlns)),
+		).toEqual(
+			source.modules.map((module) => module.forms.map((form) => form.xmlns)),
+		);
+	});
+
+	it("writes the reading's facts where a read back reads them, and the first-publish changes with their places", () => {
+		const facts = document.hqAuthored;
+		if (facts === undefined) throw new Error("The document holds no facts.");
+		expect(json("document.json").hqAuthored).toEqual({
+			identity: facts.identity,
+			declaration: facts.declaration,
+			firstPublish: facts.firstPublish,
+			mediaPaths: {},
+		});
+		expect(json("first-publish.json")).toEqual({
+			changes: facts.firstPublishPlaces,
+		});
+		expect(
+			facts.firstPublishPlaces.map(({ id }) => id),
+			"first-publish.json names each change the reading predicts, in its order",
+		).toEqual(facts.firstPublish);
+	});
+
+	it("writes each hand-written expectation once a state it runs at, on the form a person named, with its restore", () => {
+		const facts = document.hqAuthored;
+		if (facts === undefined) throw new Error("The document holds no facts.");
+		const source = facts.source as ImportedApp;
+		const xmlns = source.modules[0]?.forms[0]?.xmlns;
+		const form = facts.identity.find(
+			(row) => row.entityKind === "form" && row.xmlns === xmlns,
+		)?.novaEntityUuid;
+		expect(form).toBeDefined();
+		const states =
+			facts.declaration.runsOnlyOn === "web-apps"
+				? ["A", "B"]
+				: ["A", "B", "local"];
+		expect(json("expected.json")).toEqual({
+			intent: states.map((state) => ({
+				id: `${CONTROLLED_EXPECTATION.id}@${state}`,
+				export: state,
+				form,
+				restore: CONTROLLED_EXPECTATION.restore,
+				request: CONTROLLED_EXPECTATION.request,
+				expect: CONTROLLED_EXPECTATION.expect,
+			})),
+		});
+		expect(at("restore.xml").toString("utf8")).toBe(CONTROLLED_RESTORE);
+	});
+
+	it("refuses a hand-written expectation that opens a case list on A or B, which the lane's evaluate opens only on the local archive", async () => {
+		const path = join(scratch, "hand", CONTROLLED_BASE, "expectations.json");
+		const kept = await readFile(path, "utf8");
+		const listed = {
+			...CONTROLLED_EXPECTATION,
+			id: "registration-list",
+			request: { session: { command: "m0-f0" }, caseList: {} },
+			expect: [{ pointer: "/caseList/headers/0", value: "Name" }],
+		};
+		try {
+			await writeFile(path, JSON.stringify([listed]));
+			await expect(
+				emit(join(scratch, "case-list-on-a"), [document], []),
+			).rejects.toThrow(
+				/registration-list of navigation-base opens a case list on A and B/,
+			);
+			await writeFile(
+				path,
+				JSON.stringify([{ ...listed, exports: ["B", "local"] }]),
+			);
+			await expect(
+				emit(join(scratch, "case-list-on-b"), [document], []),
+			).rejects.toThrow(/opens a case list on B, and/);
+			await writeFile(
+				path,
+				JSON.stringify([{ ...listed, exports: ["local"] }]),
+			);
+			await emit(join(scratch, "case-list-local"), [document], []);
+			const written = JSON.parse(
+				await readFile(
+					join(scratch, "case-list-local", CONTROLLED_BASE, "expected.json"),
+					"utf8",
+				),
+			);
+			expect(
+				written.intent.map((one: { readonly id: string }) => one.id),
+			).toEqual(
+				document.hqAuthored?.declaration.runsOnlyOn === "web-apps"
+					? []
+					: ["registration-list@local"],
+			);
+		} finally {
+			await writeFile(path, kept);
+		}
+	});
+
+	it("refuses a document made in CommCare HQ that names saves in HQ over A", async () => {
+		await expect(
+			emit(
+				join(scratch, "refused"),
+				[{ ...document, hqSide: { republish: "proceeds" } }],
+				[],
+			),
+		).rejects.toThrow(/names saves a person makes in HQ over A/);
 	});
 });

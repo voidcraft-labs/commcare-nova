@@ -124,12 +124,23 @@ def write_document(corpus: Path, identifier: str, *, create: str = "create", rep
 
 
 def write_corpus(corpus: Path, documents: dict) -> Path:
-    """A corpus of ``documents`` ({id: {create, republish}}), with its index."""
+    """A corpus of ``documents`` ({id: {create, republish}}), with its index and the reader bundle the corpus job
+    builds beside the documents (``native/reader/``, ``proof.native.produce.produce_reader``)."""
     corpus = Path(corpus)
     for identifier, bodies in documents.items():
         write_document(corpus, identifier, **bodies)
     index = {"seed": 1, "sample": 0, "documents": [{"id": identifier} for identifier in documents]}
-    write_files(corpus, {"index.json": json.dumps(index, indent="\t"), "timings.json": '{"emit": 1.0}'})
+    bundle = "// the reader bundle\n"
+    reader = {"sha256": hashlib.sha256(bundle.encode()).hexdigest(), "esbuild": "0.25.0", "node": "24"}
+    write_files(
+        corpus,
+        {
+            "index.json": json.dumps(index, indent="\t"),
+            "timings.json": '{"emit": 1.0}',
+            "native/reader/reader.mjs": bundle,
+            "native/reader/reader.json": json.dumps(reader),
+        },
+    )
     return corpus
 
 
@@ -205,10 +216,10 @@ def write_serve(output: Path, *, pytest_arguments=(), addopts=None, environment=
     return Path(output)
 
 
-def write_block(output: Path, groups: dict, evidence: dict | None = None) -> Path:
-    """A block's run in ``output``: its manifest (``groups``: {group: {node id: outcome}}) and its evidence
-    (``evidence``: {(check, group): differences, each without its check and document}), beside a ``serve.json``
-    of the lane's own selection unless the output holds one."""
+def write_block(output: Path, groups: dict, evidence: dict | None = None, *, reader: str | None = None) -> Path:
+    """A block's run in ``output``: its manifest (``groups``: {group: {node id: outcome}}, ``reader`` the reader
+    bundle its queue names) and its evidence (``evidence``: {(check, group): differences, each without its check
+    and document}), beside a ``serve.json`` of the lane's own selection unless the output holds one."""
     if not (Path(output) / lane_blocks.SERVE).is_file():
         write_serve(output)
     names = sorted(groups)
@@ -219,7 +230,8 @@ def write_block(output: Path, groups: dict, evidence: dict | None = None) -> Pat
         for name, outcomes in groups.items()
     ]
     lane_blocks.write_json(
-        directory / lane_blocks.MANIFEST, lane_blocks.manifest(block, phase="main", shard="s", groups=records)
+        directory / lane_blocks.MANIFEST,
+        lane_blocks.manifest(block, phase="main", shard="s", groups=records, reader=reader),
     )
     for (check, group), differences in (evidence or {}).items():
         kind, _, identifier = group.partition(":")

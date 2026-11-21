@@ -26,6 +26,7 @@ import {
 	type Column,
 	type ConnectType,
 	calculatedColumn,
+	columnSort,
 	hiddenSearchInputDef,
 	linkColumn,
 	type Module,
@@ -816,6 +817,31 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"column-hidden-from-results",
 			COLUMN_OWNER,
 			"caseListConfig.columns[1].visibleInList",
+		),
+	},
+	"case-list-sort-label": {
+		with: () =>
+			caseApp({
+				columns: [
+					plainColumn(FIXTURE_COLUMN, "status", "Status", {
+						visibleInList: false,
+						sort: columnSort("asc", 0, undefined, "Status"),
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					plainColumn(FIXTURE_COLUMN, "status", "Status", {
+						visibleInList: false,
+						sort: columnSort("asc", 0),
+					}),
+				],
+			}),
+		use: slotUse(
+			"case-list-sort-label",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].sort.label",
 		),
 	},
 	"link-column": {

@@ -12,7 +12,16 @@ Core's script is. Nova's local archive is walked too, with HQ answering
 everything but the archive itself, which HQ does not hold: Formplayer is
 handed Nova's bytes for it, its runtime URLs naming the working app as the
 archive Nova compiles for the deployment does
-(``proof.hq.operations.with_runtime_app_id``, ``local``).
+(``proof.hq.operations.with_runtime_app_id``, ``local``). Nova hands that
+archive to CommCare Android alone, which registers its own strings as the
+default locale's first source before the app's files
+(``CommCareApplication.initializeDefaultLocalizerData``), where Formplayer
+registers its own after them (``FormplayerConfigEngine.initEnvironment``),
+and they lack keys Android's name (``home.sync``). Formplayer reads the
+archive as Android does: with Android's strings registered first, through
+the one channel the lane has into Formplayer's install, a locale resource
+of the archive's suite ahead of the app's own (``as_android_reads_it``), as
+the Core runner admits the archive (``proof.core.client.ANDROID_DEFAULT_STRINGS``).
 
 What a side's record holds (``walked``):
 
@@ -157,14 +166,66 @@ def release_is_the_build(served, files) -> dict | None:
     return {"differing": differing} if differing else None
 
 
+# The suite's own name in an archive, and where the archive Formplayer is handed holds Android's strings.
+SUITE = "suite.xml"
+ANDROID_STRINGS = "default/android_translatable_strings.txt"
+ANDROID_STRINGS_ID = "android_translatable_strings"
+
+
+def as_android_reads_it(archive: bytes, strings: bytes | None = None) -> bytes:
+    """The archive with CommCare Android's own strings (``strings``, by default the pinned checkout's
+    ``android_translatable_strings.txt``) registered as the default locale's first source: a ``<locale
+    language="default">`` resource ahead of the suite's first ``<locale>``, which Core's suite parser adds to the
+    resource table, and its install registers, in document order (``SuiteParser``, ``ResourceTable.
+    initializeResources``), so the app's own default text is read over Android's, as on a device. Every other entry is
+    the archive's own."""
+    import io
+    import zipfile
+
+    from lxml import etree
+
+    if strings is None:
+        from proof.core.client import ANDROID_DEFAULT_STRINGS
+
+        strings = ANDROID_DEFAULT_STRINGS.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(archive)) as held:
+        if ANDROID_STRINGS in held.namelist():
+            raise ValueError(f"The archive already holds {ANDROID_STRINGS}, where Android's own strings are added.")
+        suite = etree.fromstring(held.read(SUITE))
+        namespace = etree.QName(suite).namespace
+
+        def named(name):
+            return etree.QName(namespace, name).text if namespace else name
+
+        locale = etree.Element(named("locale"), language="default")
+        resource = etree.SubElement(locale, named("resource"), id=ANDROID_STRINGS_ID, version="1")
+        etree.SubElement(resource, named("location"), authority="local").text = f"./{ANDROID_STRINGS}"
+        first = next((child for child in suite if etree.QName(child).localname == "locale"), None)
+        if first is None:
+            suite.append(locale)
+        else:
+            first.addprevious(locale)
+        written = io.BytesIO()
+        with zipfile.ZipFile(written, "w", zipfile.ZIP_DEFLATED) as copy:
+            for info in held.infolist():
+                data = held.read(info.filename)
+                if info.filename == SUITE:
+                    data = etree.tostring(suite, encoding="utf-8", xml_declaration=True)
+                copy.writestr(info, data)
+            copy.writestr(ANDROID_STRINGS, strings)
+    return written.getvalue()
+
+
 def local(served, runner, blobs, document, *, script, configuration):
     """Formplayer's walk of Nova's local archive over the served state's HQ: the archive Nova compiles for the
     project space the configuration ``configuration`` names (``Document.local_ccz_for``), its runtime URLs naming
-    the working app (``with_runtime_app_id``), handed to Formplayer where it asks HQ's download for the app; the
-    worker, the restore, each search, each claim and each submission are HQ's own."""
+    the working app (``with_runtime_app_id``) and Android's own strings first (``as_android_reads_it``), handed to
+    Formplayer where it asks HQ's download for the app; the worker, the restore, each search, each claim and each
+    submission are HQ's own."""
     from proof.hq.operations import with_runtime_app_id
 
-    archive = with_runtime_app_id(document.local_ccz_for(configuration).read_bytes(), served.app_id)
+    nova = with_runtime_app_id(document.local_ccz_for(configuration).read_bytes(), served.app_id)
+    archive = as_android_reads_it(nova)
     app_id = apps.build_id(LOCAL_APP, archive)
     served.hq.archives[app_id] = archive
     try:
@@ -173,4 +234,14 @@ def local(served, runner, blobs, document, *, script, configuration):
         served.hq.archives.pop(app_id, None)
 
 
-__all__ = ["APP", "BUILD", "local", "marked", "release_is_the_build", "runtime", "script_of", "walked"]
+__all__ = [
+    "APP",
+    "BUILD",
+    "as_android_reads_it",
+    "local",
+    "marked",
+    "release_is_the_build",
+    "runtime",
+    "script_of",
+    "walked",
+]

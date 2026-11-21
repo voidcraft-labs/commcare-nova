@@ -16,17 +16,18 @@ import { type Claim, defineClaims, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl } from "../expressions/printLevel";
-import { printSlot } from "../expressions/readExpression";
+import { printSlot, sameSlotText } from "../expressions/readExpression";
 import { isJsonObject, sameJson } from "../jsonCursor";
+import { handedOff } from "../pendingExpressions";
 import { appPlace } from "../place";
 import { keptMediaPaths, readExpansionSteps } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
-import { sameXPathText } from "../syntaxCompare";
 import { expressionEnvOf } from "../xform";
 import {
 	acceptAfterSubmit,
 	readAfterSubmit,
 	settleAfterSubmit,
+	storedReturns,
 } from "./afterSubmit";
 import { readEntryPoints, settleEntryPoints } from "./entryPoints";
 import {
@@ -35,6 +36,7 @@ import {
 	caseListMenus,
 	caseListPlaceOf,
 	heldLabel,
+	keepsRefusedCaseType,
 	labelMap,
 	rawModules,
 	readModules,
@@ -61,7 +63,7 @@ const CLAIMS = defineClaims("menus", {
 	),
 }) satisfies Record<string, Claim>;
 
-/** Step 2: every menu's registration block, its own navigation, each form's
+/** Every menu's registration block, its own navigation, each form's
  *  workflow word and every deep link, in that order. */
 export function readMenus(ctx: ReadContext, app: DraftApp): void {
 	readCaseListRegistration(ctx, app);
@@ -71,7 +73,7 @@ export function readMenus(ctx: ReadContext, app: DraftApp): void {
 }
 
 /**
- * Step 4, once every menu's structure and every form's case operations are in
+ * Once every menu's structure and every form's case operations are in
  * the drafts and before the entry facts are compared: each form of a child
  * menu that creates a case of the type its root menu's first form opens a
  * chosen case of, the shape the gate refuses
@@ -102,12 +104,60 @@ export function readRootSelectionsTaken(ctx: ReadContext, app: DraftApp): void {
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
-/** Whether two stored XPath values are one: both absent or blank, or one tree. */
-function sameFilter(a: unknown, b: unknown): boolean {
+type DisplayConditionRef =
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "module_display_condition";
+	  }
+	| {
+			readonly entity: "form";
+			readonly uuid: Uuid;
+			readonly slot: "form_display_condition";
+	  };
+
+/** Whether two stored display conditions are one: both absent or blank, or
+ *  one tree as HQ's build interpolates the slot (`sameSlotText`). */
+function sameFilter(
+	doc: BlueprintDoc,
+	ref: DisplayConditionRef,
+	a: unknown,
+	b: unknown,
+): boolean {
 	const blank = (value: unknown) =>
 		typeof value !== "string" || value.trim() === "";
 	if (blank(a) || blank(b)) return blank(a) && blank(b);
-	return sameXPathText(a as string, b as string);
+	return sameSlotText(doc, ref, a as string, b as string);
+}
+
+/** The index of a display condition's registration, or -1 where the menu or form registered none. */
+function registrationOf(ctx: ReadContext, ref: DisplayConditionRef): number {
+	const registrations = ctx.pending.list();
+	return (
+		ctx.pending
+			.of(ref.entity, ref.uuid)
+			.find((index) => registrations[index]?.ref.slot === ref.slot) ?? -1
+	);
+}
+
+/**
+ * Whether a stored display condition is the one Nova's print writes: the same text, a print at
+ * the level the expression stage held it at, or a slot that stage handed to project data, whose
+ * print is project data's one finding at the table (`pendingExpressions.ts::handedOff`).
+ */
+function sameDisplayCondition(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	ref: DisplayConditionRef,
+	stored: unknown,
+	ours: unknown,
+): boolean {
+	const index = registrationOf(ctx, ref);
+	if (index >= 0 && handedOff(ctx.pending.outcome(index))) return true;
+	return (
+		sameFilter(doc, ref, stored, ours) ||
+		heldAtLevel(ctx, doc, ref, stored, ours)
+	);
 }
 
 /**
@@ -120,29 +170,12 @@ function sameFilter(a: unknown, b: unknown): boolean {
 function heldAtLevel(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
-	ref:
-		| {
-				readonly entity: "module";
-				readonly uuid: Uuid;
-				readonly slot: "module_display_condition";
-		  }
-		| {
-				readonly entity: "form";
-				readonly uuid: Uuid;
-				readonly slot: "form_display_condition";
-		  },
+	ref: DisplayConditionRef,
 	stored: unknown,
 	ours: unknown,
 ): boolean {
 	if (typeof stored !== "string") return false;
-	const index = ctx.pending
-		.list()
-		.findIndex(
-			(one) =>
-				one.ref.entity === ref.entity &&
-				one.ref.uuid === ref.uuid &&
-				one.ref.slot === ref.slot,
-		);
+	const index = registrationOf(ctx, ref);
 	if (index < 0) return false;
 	const { expression, level } = ctx.pending.outcome(index);
 	const tree =
@@ -159,8 +192,10 @@ function heldAtLevel(
 	const env = expressionEnvOf(ctx);
 	try {
 		return (
-			sameFilter(printSlot(doc, ref, expression, env), ours) &&
+			sameFilter(doc, ref, printSlot(doc, ref, expression, env), ours) &&
 			sameFilter(
+				doc,
+				ref,
 				printSlot(doc, ref, expression, env, {
 					rewrites: levelControl(level),
 				}),
@@ -173,7 +208,7 @@ function heldAtLevel(
 }
 
 /**
- * Step 6, the last settle: every bound menu slot written (display conditions,
+ * The last settle: every bound menu slot written (display conditions,
  * parent selections, workflow words, link conditions and carried values),
  * the app expanded once under the reading's inputs, and every menu reading
  * accepted against that one expansion: registration blocks and folded menus,
@@ -192,7 +227,7 @@ export function* settleMenusSteps(
 	app: DraftApp,
 ): Generator<void, void, void> {
 	if (ctx.doc === undefined) return;
-	settleModules(ctx);
+	settleModules(ctx, storedReturns(ctx));
 	for (const module of app.modules)
 		for (const form of module.forms) settleAfterSubmit(ctx, form);
 	yield;
@@ -201,11 +236,12 @@ export function* settleMenusSteps(
 	try {
 		expansion = yield* readExpansionSteps(ctx, doc);
 	} catch {
-		ctx.accounting.defect(
-			appPlace(),
-			"schema:Application.modules",
-			readerDefect.emissionThrew(appPlace(), "expandDoc"),
-		);
+		if (!keepsRefusedCaseType(ctx))
+			ctx.accounting.defect(
+				appPlace(),
+				"schema:Application.modules",
+				readerDefect.emissionThrew(appPlace(), "expandDoc"),
+			);
 		return;
 	}
 	yield;
@@ -276,8 +312,7 @@ function acceptMenus(
 		}
 		const own = doc.modules[module.uuid];
 		if (
-			!sameFilter(source.module_filter, ours.module_filter) &&
-			!heldAtLevel(
+			!sameDisplayCondition(
 				ctx,
 				doc,
 				{
@@ -380,8 +415,7 @@ function acceptMenus(
 			const formUnrecognized = (name: string) =>
 				ctx.accounting.circumstance("unrecognized", form.place, { name });
 			if (
-				!sameFilter(form.json.peek("form_filter"), ourForm.form_filter) &&
-				!heldAtLevel(
+				!sameDisplayCondition(
 					ctx,
 					doc,
 					{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },

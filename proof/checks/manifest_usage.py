@@ -22,7 +22,9 @@ entry is HELD, TARGET-OWNED or INERT. An allowing entry's class is what its row
 describes and the check does not read it: it is taken as the rest of its key's
 values, every use no REFUSED class takes, so the extraction makes a use of a key
 only where a reader of the value reads it (an appearance read only on the
-elements its reader compares, ``_appearance_uses``).
+elements its reader compares, ``_appearance_uses``). A HELD-NEW class beside an
+allowing class of its key is read where it has a reader, and a use it takes is
+held-new whatever allowing class names the key.
 A REFUSED entry refused only because HQ's build refuses its state is the bar's,
 which reports every export HQ cannot build; and in Nova's own local archives,
 which runtimes read and no editor does, a REFUSED entry refuses only for what a
@@ -30,8 +32,9 @@ runtime does, a use another REFUSED class takes being the source's, judged on
 the app JSON. Each standing is its own symptom, named in the difference's path
 after the key: ``/<key>`` (no entry names it), ``/<key>/refused/<value class>``,
 ``/<key>/undecided/<value class>`` (the REFUSED class the check does not read
-there), ``/<key>/held-new`` (only HELD-NEW entries name the key: Nova emits what
-the manifest says it does not hold yet) and ``/<key>/unheld`` (every entry
+there), ``/<key>/held-new`` (only HELD-NEW entries name the key, or a HELD-NEW
+class's reader takes the use: Nova emits what the manifest says it does not
+hold yet) and ``/<key>/unheld`` (every entry
 naming the key rules the use out). A REFUSED class whose uses are two symptoms
 (Nova's own scaffolding and what a person authors,
 ``manifest_value_classes.VARIANTS``) names the part a use is after its class
@@ -142,6 +145,31 @@ family is read by the reader the surface records for it:
   node test (``xpath-expr:``, ``xpath-axis:``, ``xpath-test:``) and each
   lexer token (``xpath-token:``). A path rooted at ``instance(...)`` or
   ``current()`` is XPath grammar, not a call (``XPathPathExpr.getReference``).
+  In a form, each instance an expression reads uses the scheme HQ's build
+  declares it under (``instance-scheme:<scheme>``, once an expression:
+  ``xform.py::XForm.add_missing_instances`` reads every instance id of the
+  form's text through ``instances.py::get_instance_factory``).
+- **The app JSON's expression slots** (``APP_EXPRESSION_KEYS``: a display
+  condition, a case list's filter, a calculated column, a form link's
+  condition and carried values; and ``_expression_slot``'s two HQ writes only
+  where it interpolates them: a detail tab's filter over a case type's
+  children, a Search field's required and validation conditions), each read
+  through Core's parser as the
+  observation recorded it, as a form's expression is (each function, session
+  path and the grammar Core's parser builds), since HQ's build writes each
+  into the suite, where Core parses it (a menu's and a command's ``relevant``,
+  a datum's ``nodeset``, a detail field's ``xpath``, a stack operation's
+  ``if`` and datum ``value``): each instance it reads, by the scheme HQ's
+  build declares it under in the suite it writes, its source the one that
+  scheme's factory declares (``preset_source``), and, in each slot HQ's build
+  reads through ``xpath.py::interpolate_xpath`` (a display condition, the case
+  list's filter, a detail tab's filter, a Search field's required and
+  validation conditions), each shorthand pattern it replaces there by its
+  text, as that pattern's hashtag (``hashtag:#session/``, ``hashtag:#case``,
+  ``hashtag:$fixture_value`` where the caller names a fixture). A search's
+  ``_xpath_query`` reads the Search fields' answers while the query is built
+  (``instance-scheme:search-input``), and a Search field's choices name their
+  instance (``Itemset.instance_id``).
 - **CSQL**: each search's ``_xpath_query`` (the local suite's query ``data``
   and the app JSON's default property) is an expression whose value is CSQL.
   The strings it can send are read through Core's parser (the runner's
@@ -180,8 +208,8 @@ family is read by the reader the surface records for it:
   each instance id a suite declares uses the scheme HQ's build reads in it
   (``instance-scheme:<scheme>``,
   ``suite_xml/post_process/instances.py::get_instance_factory``, which HQ
-  runs over the instance ids in a suite's expressions, never a form's own
-  declarations: ``InstancesHelper._get_all_xpaths_for_entry``).
+  runs over the instance ids in a suite's expressions:
+  ``InstancesHelper._get_all_xpaths_for_entry``).
 - **Nova's local app strings** (each ``<lang>/app_strings.txt``, read with
   HQ's reader of the format, ``commcare_translations.loads``, which imports
   neither HQ nor Django: ``proof.checks.compare.app_strings``): each id a
@@ -230,11 +258,14 @@ from proof.checks.manifest_value_classes import (
     Runtime,
     XmlAt,
     appearance_words,
+    holds_no_default_value,
+    instance_scheme,
     instance_source,
+    preset_source,
     protected_constraint_form,
 )
 from proof.observe.intent import FORM_FILE
-from proof.observe.manifest import read_entry
+from proof.observe.manifest import AUTHORED_UPLOAD, read_entry
 
 WORKTREE = Path(__file__).resolve().parents[2]
 SURFACE_DIR = WORKTREE / "lib" / "commcare" / "surface"
@@ -404,7 +435,10 @@ class Use:
 @dataclass(frozen=True)
 class Expression:
     """An expression Core parses, where it is, the instances its document declares, whether its grammar is
-    read, and where it sits (its attribute's ``XmlAt``)."""
+    read, and where it sits (its attribute's ``XmlAt``, or an app JSON slot's ``JsonAt``, whose instances are those
+    HQ's build declares for it, ``preset_source``). Where ``schemes_only``, its uses are its reads of instances'
+    schemes alone, of the schemes ``schemes`` names where it names any (a search's ``_xpath_query``, whose CSQL is
+    read apart, ``read_csql``)."""
 
     artifact: str
     where: str
@@ -412,6 +446,8 @@ class Expression:
     instances: tuple  # ((id, src), ...) the document declares
     grammar: bool
     at: object = field(default=None, compare=False, repr=False)
+    schemes_only: bool = False
+    schemes: frozenset | None = None
 
 
 @dataclass
@@ -429,9 +465,13 @@ class Uses:
     def add(self, key, artifact, where, at=None):
         self.uses.append(Use(key, artifact, where, at))
 
-    def expression(self, artifact, where, text, instances=(), *, grammar=False, at=None):
+    def expression(
+        self, artifact, where, text, instances=(), *, grammar=False, at=None, schemes_only=False, schemes=None
+    ):
         if text and text.strip():
-            self.expressions.append(Expression(artifact, where, text, tuple(instances), grammar, at))
+            self.expressions.append(
+                Expression(artifact, where, text, tuple(instances), grammar, at, schemes_only, schemes)
+            )
 
     def query(self, artifact, where, text):
         if text and text.strip():
@@ -475,20 +515,25 @@ def without_carried(app: dict, hq_side) -> dict:
     return app
 
 
-def app_json_uses(app: dict, manifest: Manifest, artifact: str, found: Uses, carried=None, configurations=None):
+def app_json_uses(
+    app: dict, manifest: Manifest, artifact: str, found: Uses, carried=None, configurations=None, authored=False
+):
     """The surface items one app JSON uses, its XForm sources included (by their forms' positions), each parsed form
     keeping the form object that names it (``Form.app_form``), which the value classes read of a form's own case
     actions and type. ``carried`` is the document's ``hq-side.json``, whose saved values the upload carries back
     from the target and does not use (``without_carried``); ``configurations`` are those the app was sent under
-    (``App.configurations``), which a class turned by a project-space flag reads."""
+    (``App.configurations``), which a class turned by a project-space flag reads; ``authored`` says the app is the
+    one HQ made (``App.authored``), whose multimedia map names the files HQ holds for it."""
     if not isinstance(app, dict):
         raise ManifestError(f"{artifact} is not a JSON object, so it is no app HQ's import reads.")
     app = without_carried(app, carried)
     root = app.get("doc_type") or "Application"
-    document = App(app, artifact, configurations)
+    document = App(app, artifact, configurations, authored=authored)
     found.documents.append(document)
     scope = ((root, app),)
-    found.add(f"schema:{root}", artifact, "/", JsonAt(document, scope))
+    # The app's own class sits at the whole document, whose pointer is the empty one (RFC 6901), as each object's
+    # use sits at its own pointer.
+    found.add(f"schema:{root}", artifact, "", JsonAt(document, scope))
     _walk_object(app, root, "", manifest, artifact, found, document, scope)
     sources = app.get("_attachments") or {}
     for m, module in enumerate(app.get("modules") or []):
@@ -516,12 +561,28 @@ def _class_of(value, declared):
     return declared, False
 
 
+def _undeclared_member(item) -> bool:
+    """Whether an item names a member the class does not declare as a property (a method, or a property or other
+    descriptor with no setter, ``declared: false``) that no reader reads raw from the stored document: a key naming
+    it is one of the class's undeclared keys, which HQ's wrap keeps or refuses as the item says, and is named as
+    such, as Nova's reader claims it. A descriptor with a setter (``Form.source``) takes the key's value, and keeps
+    its own item."""
+    return (
+        item.get("declared") is False
+        and bool(item.get("descriptor"))
+        and not item.get("setter")
+        and not item.get("rawReads")
+    )
+
+
 def schema_key(manifest, cls, key):
-    """The schema item for one key of a class: the key's own, else the class's undeclared-key item."""
+    """The schema item for one key of a class: the key's own, else the class's undeclared-key item, which also
+    holds a key naming an undeclared member (``_undeclared_member``)."""
     own = f"schema:{cls}.{key}"
-    if own in manifest.items:
-        return own
     undeclared = f"schema:{cls}.<undeclared>"
+    item = manifest.items.get(own)
+    if item is not None and not (_undeclared_member(item) and undeclared in manifest.items):
+        return own
     return undeclared if undeclared in manifest.items else own
 
 
@@ -535,12 +596,13 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
         at = f"{pointer}/{pointer_token(key)}"
         slot = JsonAt(document, scope, key)
         item = manifest.item(f"schema:{cls}.{key}")
-        if item is None:
+        if item is None or _undeclared_member(item):
             found.add(schema_key(manifest, cls, key), artifact, at, slot)
             continue
         if "default" not in item or not _same(child, item["default"]):
             found.add(f"schema:{cls}.{key}", artifact, at, slot)
         _special(cls, key, child, at, manifest, artifact, found, slot)
+        _slot_expression(cls, key, child, at, manifest, artifact, found, slot)
         item_type = item.get("itemType")
         if item_type is None or manifest.item(f"schema:{item_type}") is None:
             continue
@@ -596,8 +658,11 @@ def _special(cls, key, value, at, manifest, artifact, found, slot):
     if cls == "DetailColumn" and key == "format" and isinstance(value, str) and value:
         found.add(format_key(manifest, value), artifact, at, slot)
     elif cls in ("Application", "LinkedApplication") and key == "add_ons" and isinstance(value, dict):
+        # A slug turned on that some ``add-on:`` item names; any other key (one turned off, or a slug HQ's
+        # ``add_ons.py::_ADD_ONS`` no longer lists) is a value of the map's own schema slot, which no HQ code reads
+        # (Nova's reader records it at the map, ``lib/commcare/reader/appShell.ts``).
         for slug, on in value.items():
-            if on:
+            if on and f"add-on:{slug}" in manifest.items:
                 found.add(f"add-on:{slug}", artifact, f"{at}/{pointer_token(slug)}", slot)
     elif cls in ("Application", "LinkedApplication") and key == "profile" and isinstance(value, dict):
         for kind in ("properties", "features"):
@@ -613,10 +678,116 @@ def _special(cls, key, value, at, manifest, artifact, found, slot):
             )
     elif cls == "HQMediaMapItem" and key == "media_type" and isinstance(value, str) and value:
         found.add(f"media-class:{value}", artifact, at, slot)
+    elif cls == "Itemset" and key == "instance_id" and isinstance(value, str) and value:
+        # A Search field's choices: HQ's build writes the itemset's nodeset over this instance and declares it by
+        # its scheme (``suite_xml/post_process/remote_requests.py``, ``instances.py::get_instance_factory``).
+        found.add(f"instance-scheme:{instance_scheme(value)}", artifact, at, slot)
     elif cls in ("Application", "LinkedApplication") and key == "translations" and isinstance(value, dict):
+        # HQ's build writes the strings of the app's languages alone (``Application._make_language_files``:
+        # ``default`` and each of ``get_build_langs``, which ``app_strings.py::create_default_app_strings`` merges
+        # too), so a language the app does not hold names no string a runtime reads.
+        langs = slot.owner.get("langs")
+        held = {lang for lang in langs if isinstance(lang, str)} if isinstance(langs, list) else set()
         for lang, strings in value.items():
+            if lang not in held:
+                continue
             for name in strings if isinstance(strings, dict) else ():
                 _ui_string(name, manifest, artifact, f"{at}/{pointer_token(lang)}/{pointer_token(name)}", found, slot)
+
+
+# The app JSON's expression slots, by the class that holds each: what HQ's build writes into the suite, where it
+# declares each instance an expression reads by its scheme (``suite_xml/post_process/instances.py``:
+# ``get_all_instances_referenced_in_xpaths``), as Nova's reader reads each slot. The observation parses each
+# (``proof.observe.manifest.APP_EXPRESSION_SLOTS``); a calculated column's ``field`` is one where the column says so.
+APP_EXPRESSION_KEYS = {
+    **{cls: "form_filter" for cls in ("Form", "AdvancedForm", "ShadowForm")},
+    **{cls: "module_filter" for cls in ("Module", "AdvancedModule", "ShadowModule", "ReportModule")},
+    "Detail": "filter",
+    "DetailColumn": "field",
+    "FormLink": "xpath",
+    "FormDatum": "xpath",
+}
+# The shorthand HQ's build replaces in the slots it reads through ``xpath.py::interpolate_xpath`` (``_interpolated``):
+# a text replacement of each pattern wherever it stands, each the surface item of that pattern. ``#case``,
+# ``#parent`` and ``#host`` are replaced where the slot's caller names a case, and refused where it names none
+# (``_ensure_no_case_references``); ``$fixture_value`` is replaced only where the caller names a fixture
+# (``FIXTURE_SHORTHAND``).
+SHORTHANDS = ("#session/", "#user", "#case", "#parent", "#host")
+FIXTURE_SHORTHAND = "$fixture_value"
+# The instances a search's ``_xpath_query`` reads while the device builds the query: the Search fields' answers.
+QUERY_BUILD_SCHEMES = frozenset({"search-input"})
+
+
+def _slot_expression(cls, key, value, at, manifest, artifact, found, slot):
+    """An app JSON slot's expression (``_expression_slot``), read from Core's parse of it as a form's expression
+    is (``_expression_uses``: its functions, session paths, grammar and each instance it reads, by its scheme), and
+    in a slot HQ's build interpolates (``_interpolated``) each shorthand pattern its text holds, as HQ's text
+    replacement finds it (``SHORTHANDS``, and ``FIXTURE_SHORTHAND`` where the caller names a fixture), once a
+    slot."""
+    if not isinstance(value, str) or not value.strip():
+        return
+    if _expression_slot(cls, key, slot):
+        found.expression(artifact, at, value, grammar=True, at=slot)
+    if not _interpolated(cls, key, slot):
+        return
+    patterns = SHORTHANDS + ((FIXTURE_SHORTHAND,) if _fixture_named(cls, key, slot) else ())
+    for shorthand in patterns:
+        if shorthand in value and f"hashtag:{shorthand}" in manifest.items:
+            found.add(f"hashtag:{shorthand}", artifact, at, slot)
+
+
+def _expression_slot(cls, key, slot):
+    """Whether HQ's build writes a slot's text into the suite as XPath Core parses: a slot of
+    ``APP_EXPRESSION_KEYS`` (a calculated column's ``field`` only where the column says so), and two it writes
+    only where it interpolates them (``_interpolated``): a detail tab's filter, the predicate of the tab's
+    ``nodeset`` over a case type's children (``details.py::_get_detail_tab_nodeset``), and a Search field's
+    required and validation conditions (``post_process/remote_requests.py``, each ``Assertion``'s ``test`` in a
+    ``CaseSearchProperty``)."""
+    if APP_EXPRESSION_KEYS.get(cls) == key:
+        return not (cls == "DetailColumn" and not slot.owner.get("useXpathExpression"))
+    if (cls, key) in (("DetailTab", "nodeset_filter"), ("Assertion", "test")):
+        return _interpolated(cls, key, slot)
+    return False
+
+
+def _interpolated(cls, key, slot):
+    """Whether HQ's build reads a slot's text through ``xpath.py::interpolate_xpath``, as its callers do at the pin:
+    a menu's display condition (``models/modules.py``, ``suite_xml/sections/menus.py``), a form's
+    (``menus.py``), the case list's filter (``entries.py::get_filter_xpath``, the short detail's alone,
+    ``_case_list_filter``), a detail tab's filter where the tab's rows are a case type's children
+    (``details.py::_get_detail_tab_nodeset``: ``has_nodeset``, no ``nodeset`` of its own, a ``nodeset_case_type``),
+    and a Search field's required condition and validation conditions (``post_process/remote_requests.py``, each an
+    ``Assertion``'s ``test`` in a ``CaseSearchProperty``)."""
+    if key == "module_filter":
+        return APP_EXPRESSION_KEYS.get(cls) == key
+    if key == "form_filter":
+        return APP_EXPRESSION_KEYS.get(cls) == key
+    if cls == "Detail" and key == "filter":
+        return _case_list_filter(slot)
+    if cls == "DetailTab" and key == "nodeset_filter":
+        tab = slot.owner
+        return bool(tab.get("has_nodeset")) and not tab.get("nodeset") and bool(tab.get("nodeset_case_type"))
+    if cls == "Assertion" and key == "test":
+        return len(slot.scope) > 1 and slot.scope[-2][0] == "CaseSearchProperty"
+    return False
+
+
+def _fixture_named(cls, key, slot):
+    """Whether HQ's build names a fixture where it interpolates a slot: a form's display condition in a menu whose
+    lookup table selection is active (``menus.py``: ``fixture_xpath`` where ``module.fixture_select.active``)."""
+    if key != "form_filter" or APP_EXPRESSION_KEYS.get(cls) != key:
+        return False
+    module = slot.nearest("Module", "AdvancedModule", "ShadowModule")
+    selection = (module or {}).get("fixture_select")
+    return isinstance(selection, dict) and bool(selection.get("active"))
+
+
+def _case_list_filter(slot):
+    """Whether a Detail's slot is the case list's own, the short detail of a menu's ``case_details``, whose filter
+    HQ's build interpolates and writes (``entries.py::get_filter_xpath``)."""
+    module = slot.nearest("Module", "AdvancedModule", "ShadowModule")
+    pair = (module or {}).get("case_details")
+    return isinstance(pair, dict) and pair.get("short") is slot.owner
 
 
 def format_key(manifest, slug):
@@ -691,10 +862,24 @@ def _object_uses(cls, value, pointer, manifest, artifact, found, at):
             kind = field_value.split(":", 1)[0] if ":" in field_value else "property"
             found.add(f"detail-field-type:{kind}", artifact, f"{pointer}/field", JsonAt(at.app, at.scope, "field"))
     elif cls == "DefaultCaseSearchProperty":
+        # A filter that holds no value is one use of its own, where Nova's reader refuses it whole
+        # (``manifest_value_classes.missing_default_value``); a filter that holds one is used through its keys.
+        if holds_no_default_value(value):
+            found.add(f"schema:{cls}", artifact, pointer, at)
         name = value.get("property")
         _search_key(name, manifest, artifact, f"{pointer}/property", found, JsonAt(at.app, at.scope, "property"))
         if name == XPATH_QUERY_KEY and isinstance(value.get("defaultValue"), str):
             found.query(artifact, f"{pointer}/defaultValue", value["defaultValue"])
+            # The device works the value out while the query is built: its reads of the Search fields' answers are
+            # that instance's scheme's use (``search-input``); its CSQL is the query's (``read_csql``).
+            found.expression(
+                artifact,
+                f"{pointer}/defaultValue",
+                value["defaultValue"],
+                at=JsonAt(at.app, at.scope, "defaultValue"),
+                schemes_only=True,
+                schemes=QUERY_BUILD_SCHEMES,
+            )
     elif cls == "CaseSearchProperty":
         _search_key(value.get("name"), manifest, artifact, f"{pointer}/name", found, JsonAt(at.app, at.scope, "name"))
         for slot, family in (("input_", "prompt-input"), ("appearance", "prompt-appearance")):
@@ -875,8 +1060,8 @@ def xform_uses(xml: bytes, manifest: Manifest, artifact: str, found: Uses):
             _itext_form_uses(
                 element.get("form"), manifest, artifact, f"{where}/@form", found, XmlAt(form, element, "form")
             )
-    # HQ's build reads instance ids in the suite's expressions, never a form's own declarations
-    # (suite_xml/post_process/instances.py::InstancesHelper._get_all_xpaths_for_entry).
+    # HQ's build reads the scheme of each instance id the form's text reads (XForm.add_missing_instances), each at the
+    # expression that reads it (_expression_uses), never at a form's own declaration.
     instances = _instance_uses(form, manifest, artifact, found, schemes=False)
     xform_vocabulary(form, handled, manifest, artifact, found, instances)
     _hashtag_uses(form, manifest, artifact, found)
@@ -1064,9 +1249,22 @@ def xform_vocabulary(form, handled, manifest, artifact, found, instances=()):
             _vellum_element_uses(element, artifact, where, found, form)
         steps = _vocabulary_steps(element, handled)
         if steps is None:
-            if element.tag in WRAPPERS or markup:
-                # Core passes over the XHTML wrappers by design, and over Vellum's own elements where no handler
-                # table reaches them; Vellum's are its markup, above.
+            if element.tag in WRAPPERS and not markup:
+                # Core passes over the XHTML wrappers by design; Vellum reads its own attributes of them
+                # (``vellum:ignore`` of ``<h:html>``, ``parser.js::parseXForm``), which are its markup.
+                for attribute in element.attrib:
+                    if etree.QName(attribute).namespace == VELLUM:
+                        name = qualified(attribute)
+                        found.add(
+                            vellum_markup_key(element, name),
+                            artifact,
+                            f"{where}/@{name}",
+                            XmlAt(form, element, attribute),
+                        )
+                continue
+            if markup:
+                # Core passes over Vellum's own elements where no handler table reaches them; Vellum's are its
+                # markup, above.
                 continue
             steps = [_step(qualified(element.tag))]
         namespace = etree.QName(element).namespace
@@ -1097,13 +1295,28 @@ def xform_vocabulary(form, handled, manifest, artifact, found, instances=()):
             name = qualified(attribute)
             attribute_at = XmlAt(form, element, attribute)
             if etree.QName(attribute).namespace == VELLUM:
-                found.add(vellum_markup_key(element, name), artifact, f"{where}/@{name}", attribute_at)
+                markup = vellum_markup_key(element, name)
+                if markup not in manifest.items and etree.QName(element).localname == "bind" and not content:
+                    # A ``vellum:`` attribute of a bind the form builder never asks for (``vellum:required``, a
+                    # ``vellum:vellum__…`` chain): it keeps it unread among the bind's raw attributes and writes it
+                    # back on every save (``parser.js::parseBindElement``, ``defaultOptions.js::getBindList``), and
+                    # HQ's build strips it (``xform.py::XForm.strip_vellum_ns_attributes``), so nothing reads it.
+                    continue
+                found.add(markup, artifact, f"{where}/@{name}", attribute_at)
                 continue
             held = next(
                 (f"{candidate}@{name}" for candidate in candidates if f"{candidate}@{name}" in manifest.items), None
             )
             if held is None and content:
                 continue  # answer data, which Core copies into the instance by position
+            shadowed = vellum_markup_key(element, f"vellum:{name}") if held is None and ":" not in name else None
+            if shadowed in manifest.items:
+                # An attribute Core does not read whose name is that of a ``vellum:`` attribute Vellum asks of the
+                # element: Vellum's parser reads the two as one value (``parser.js::parseVellumAttrs`` pops
+                # ``vellum:<key>`` and ``<key>``; the form builder writes a bare ``requiredCondition``), so it is
+                # the same item of Vellum's markup.
+                found.add(shadowed, artifact, f"{where}/@{name}", attribute_at)
+                continue
             attribute_key = held or f"{key}@{name}"
             found.add(attribute_key, artifact, f"{where}/@{name}", attribute_at)
             item = manifest.item(attribute_key) or {}
@@ -1215,15 +1428,44 @@ def _data_type(text):
 # Instances, hashtags and question types ------------------------------------
 
 
-def instance_scheme(instance_id):
-    """The scheme HQ's build reads in an instance id (``suite_xml/post_process/instances.py::get_instance_factory``).
+# The sources HQ's factories write under an instance name, by their prefix (``suite_xml/post_process/instances.py``:
+# a fixture's ``jr://fixture/{instance_name}``, a remote search's ``jr://instance/remote/{instance_name}``, the cases a
+# list selects ``jr://instance/selected-entities/{instance_name}``, and the Search fields' answers
+# ``jr://instance/search-input/<query datum>`` under ``search-input:<query datum>``).
+SOURCE_NAMES = (
+    ("jr://fixture/", ""),
+    ("jr://instance/remote/", ""),
+    ("jr://instance/selected-entities/", ""),
+    ("jr://instance/search-input/", "search-input:"),
+)
 
-    The id's part before its first ``:``, or the whole id; an id holding
-    ``selected_cases`` without a ``:`` is that scheme.
-    """
-    if ":" in instance_id:
-        return instance_id.split(":", 1)[0]
-    return "selected_cases" if "selected_cases" in instance_id else instance_id
+
+@cache
+def _preset_sources(manifest):
+    """Each source a preset instance HQ's build declares takes, with that preset's id (``preset_instances``)."""
+    found = {}
+    for key, item in manifest.items.items():
+        preset = item.get("preset") if key.startswith("instance-scheme:") else None
+        if isinstance(preset, dict) and preset.get("src") and preset.get("id"):
+            found.setdefault(preset["src"], preset["id"])
+    return found
+
+
+def read_scheme(manifest, instance_id, declared):
+    """The scheme of an instance a form's expression reads: its id's (``instance_scheme``), where HQ registers that
+    scheme; else, where the form declares the id from a source one of HQ's factories writes, the name that factory
+    declares that source under (``SOURCE_NAMES``, a preset's own id), as HQ's build keeps the form's own declaration
+    of an id it has no factory for (``XForm.add_missing_instances``) and Nova's reader classes the read by the
+    declared source; else the id's."""
+    scheme = instance_scheme(instance_id)
+    src = declared.get(instance_id)
+    if f"instance-scheme:{scheme}" in manifest.items or not src:
+        return scheme
+    named = _preset_sources(manifest).get(src)
+    for prefix, spelled in SOURCE_NAMES:
+        if named is None and src.startswith(prefix) and len(src) > len(prefix):
+            named = spelled + src[len(prefix) :]
+    return scheme if named is None else instance_scheme(named)
 
 
 def _instance_uses(document, manifest, artifact, found, *, schemes):
@@ -1256,9 +1498,33 @@ def hashtag_key(manifest, hashtag):
     return f"hashtag:{max(held, key=len)}" if held else f"hashtag:{hashtag}"
 
 
+# The entry dispositions that allow what they describe.
+_ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
+
+
+# The hashtags of a form's expressions a head map can name that one allowing entry alone holds as a form builder's
+# hashtag (``lib/commcare/reader/xform/claims.ts::X.headHashtag``); HQ's ``#parent`` and ``#host`` shorthand, which an
+# allowing entry also holds, is a pattern of the app JSON slots HQ's build interpolates, never a form's hashtag.
+HEAD_HASHTAG_KEYS = frozenset(
+    {"hashtag:#case/", "hashtag:#case/parent", "hashtag:#case/grandparent", "hashtag:#form/", "hashtag:#user"}
+)
+
+
+def head_hashtag_key(manifest, hashtag):
+    """The surface hashtag a head map's ``hashtag`` names, where it is a form's hashtag one allowing entry alone
+    holds (``HEAD_HASHTAG_KEYS``), else None: the map is the hashtags the form's expressions may spell, and Nova's
+    reader claims the element under such an entry alone (``lib/commcare/reader/xform/parse.ts::claimHeadHashtags``),
+    leaving any other hashtag to the map's own ``vellum-markup:`` claim."""
+    key = hashtag_key(manifest, hashtag)
+    held = manifest.entries.get(key) or ()
+    return key if key in HEAD_HASHTAG_KEYS and len(held) == 1 and held[0].disposition in _ALLOWING else None
+
+
 def _hashtag_uses(form, manifest, artifact, found):
     """The hashtags Vellum reads from ``vellum:hashtags`` (its keys) and ``vellum:hashtagTransforms`` (its
-    prefixes), as Vellum's ``parser.js`` hands them to ``initHashtags``: JSON."""
+    prefixes), as Vellum's ``parser.js`` hands them to ``initHashtags``: JSON. Each element names a surface hashtag
+    once however many of its names start with it, and only one an allowing entry alone holds
+    (``head_hashtag_key``)."""
     for local, read in (("hashtags", lambda value: value), ("hashtagTransforms", lambda value: value.get("prefixes"))):
         for element in form.root.iter(f"{{{VELLUM}}}{local}"):
             where = _element_path(element)
@@ -1268,8 +1534,9 @@ def _hashtag_uses(form, manifest, artifact, found):
                 raise ManifestError(
                     f"{artifact} {where} holds no JSON ({error}), which Vellum's parser reads there."
                 ) from error
-            for hashtag in sorted(read(value) or {}) if isinstance(value, dict) else ():
-                found.add(hashtag_key(manifest, hashtag), artifact, where, XmlAt(form, element))
+            names = sorted(read(value) or {}) if isinstance(value, dict) else ()
+            for key in sorted({key for name in names if (key := head_hashtag_key(manifest, name)) is not None}):
+                found.add(key, artifact, where, XmlAt(form, element))
 
 
 def question_type_uses(xml: bytes, artifact: str, found: Uses, form=None):
@@ -1280,15 +1547,35 @@ def question_type_uses(xml: bytes, artifact: str, found: Uses, form=None):
 def _question_uses(artifact, read, found, form=None):
     """The questions HQ's reader found in one form (``XForm.get_questions`` with groups and triggers, each typed
     by ``_infer_vellum_type``): ``mug:<type>``, ``mug:(none)`` where it finds no type, and ``mug:(unreadable)``
-    where HQ cannot read the form's questions at all. Each sits at the body control that names its path, the
-    first one, where one does."""
+    where HQ cannot read the form's questions at all. A question's type is a value of its data node, so the use
+    is placed there (its element's path, as Nova's reader records a question's type), and at the path HQ's reader
+    names where no node of the main instance is at that path. A reader reads it at the body control that names the
+    path, the first one, where one does, and else at the data node (a Hidden Value's).
+
+    HQ's reader also lists each attribute of a SaveToCase block's ``<case>`` (``@case_id``, ``@user_id``,
+    ``@date_modified``) as a Hidden Value at ``<block>/case/@<attribute>`` (``xform.py::XForm.get_questions``, its
+    ``save_to_case_nodes``), a path that names an attribute of a data node: that use is placed at the attribute
+    (the element's path, ``/@`` and the attribute's name), which is where its value sits."""
     if "unreadable" in read:  # XForm's own refusal of a form it cannot read
         found.add("mug:(unreadable)", artifact, f"/ ({read['unreadable']})")
         return
     for question_type, path in read["questions"]:
         controls = form.question_controls(path) if form is not None else []
-        at = XmlAt(form, controls[0]) if controls else None
-        found.add(f"mug:{question_type or '(none)'}", artifact, path, at)
+        node = form.node(path) if form is not None else None
+        element, attribute = node if isinstance(node, tuple) else (node, None)
+        if controls:
+            at = XmlAt(form, controls[0])
+        elif element is not None:
+            at = XmlAt(form, element, attribute)
+        else:
+            at = None
+        if element is None:
+            where = path
+        elif attribute is None:
+            where = _element_path(element)
+        else:
+            where = f"{_element_path(element)}/@{qualified(attribute)}"
+        found.add(f"mug:{question_type or '(none)'}", artifact, where, at)
 
 
 # Appearances ----------------------------------------------------------------
@@ -1671,10 +1958,13 @@ class Readings:
     trees: dict  # an expression -> its structure (observe.manifest.expression_tree, structure_tables), or None
     conditions: dict  # a vellum:requiredCondition -> its structure with its hashtags (observe.manifest.hashtag_tree)
     media: dict  # a local archive's media path -> what the file is (proof.observe.manifest.media_facts)
+    # A path the multimedia map of the app HQ made names -> what the file HQ holds there is (media_facts); empty on a
+    # document Nova made.
+    authored_media: dict = field(default_factory=dict)
 
     @classmethod
     def of(cls, value):
-        tables = ("questions", "expressions", "strings", "csql", "trees", "conditions", "media")
+        tables = ("questions", "expressions", "strings", "csql", "trees", "conditions", "media", "authoredMedia")
         missing = [table for table in tables if table not in value]
         if missing:
             raise ObservationMissing(
@@ -1738,11 +2028,26 @@ def _expression_uses(expression, parsed, manifest, found):
     artifact, where, at = expression.artifact, expression.where, expression.at
     if "error" in parsed:
         return  # Core refuses it; the bar reports a form or suite Core cannot read
+    # HQ's build declares each instance a form's text or an app JSON slot's expression reads, by its scheme
+    # (``xform.py::XForm.add_missing_instances``, ``instances.py::get_all_instances_referenced_in_xpaths``), each
+    # once an expression. A suite's are its declarations' (``_instance_uses``).
+    if not (isinstance(at, XmlAt) and at.document.kind == "runtime"):
+        declared = dict(expression.instances)
+        schemes = {
+            read_scheme(manifest, path["instance"], declared) for path in parsed["instancePaths"] if path["instance"]
+        }
+        for scheme in sorted(schemes):
+            if expression.schemes is None or scheme in expression.schemes:
+                found.add(f"instance-scheme:{scheme}", artifact, where, at)
+    if expression.schemes_only:
+        return
     custom = set(parsed["custom"])
     for name in parsed["functions"]:
         found.add(function_key(manifest, name, name in custom), artifact, where, at)
     found.roots.update(parsed["roots"])
     sources = dict(expression.instances)
+    if isinstance(at, JsonAt):
+        sources = {path["instance"]: preset_source(manifest, path["instance"]) for path in parsed["instancePaths"]}
     for path in parsed["instancePaths"]:
         src = sources.get(path["instance"])
         steps = path["steps"]
@@ -1768,7 +2073,10 @@ def _expression_uses(expression, parsed, manifest, found):
 
 def read_csql(found: Uses, manifest: Manifest, readings: Readings):
     """Each CSQL string a search's ``_xpath_query`` can send, as HQ's CSQL parser read it, its vocabulary added
-    as uses."""
+    as uses: the strings Core's ``xpathStrings`` reads of the row's value (each ``concat()`` combination in argument
+    order and either branch of an ``if()``, its first 256), each string's use of a key placed at the row with that
+    string (``CsqlAt``), so a key the row's strings put in two classes is a use in each, and parity's join asks a
+    record of the key in each class at the row."""
     for artifact, where, text in found.csql:
         strings = readings.read("strings", text, f"the _xpath_query {text!r} ({artifact})")
         if "error" in strings:
@@ -1855,6 +2163,11 @@ def standing(manifest: Manifest, use: Use):
       saying, is ``UNDECIDED``, resting on each such entry: the check cannot
       tell the use apart from that refused class, which is a gap in the
       check, never a symptom of the export a register entry may hold;
+    - else a use some HELD-NEW entry's reader takes is ``HELD_NEW``, resting
+      on each such entry and on each HELD-NEW entry of its key with no reader,
+      whose class the check cannot rule out: a value Nova does not hold yet,
+      whatever allowing class names its key; a reader that does not say leaves
+      the use to the steps below;
     - else a use an allowing entry names is ``HELD``;
     - else, in a local archive, a use some source-refused entry's class
       takes is ``SOURCE``, and one some such class may take, its reader not
@@ -1863,12 +2176,17 @@ def standing(manifest: Manifest, use: Use):
       such entry: Nova's export uses an item the manifest says Nova does not
       hold yet, so the entry's disposition or the emitter is wrong, never a
       symptom a register entry holds;
+    - else, where a class the bar reads names the key beside the others
+      (an entry refused only because HQ's build refuses its state), the use
+      is ``BAR``, resting on each such entry: every class the check reads
+      has ruled it out, and the one left is the bar's, which reports an
+      export HQ cannot build and holds one HQ builds;
     - else every entry naming the key rules the use out, each reader having
       placed it outside its class: ``UNHELD``, resting on them all.
 
-    A HELD-NEW class that shares its key with an allowing class is not
-    judged, since allowing classes have no readers: a use of the key is held
-    whichever class it is in.
+    A HELD-NEW class that shares its key with an allowing class is judged
+    where it has a reader (``VALUE_CLASSES``), and is otherwise not judged: a
+    use of the key is then held whichever class it is in.
     """
     plan = _standing_plan(manifest, use.key, is_build(use.artifact))
     if plan is None:
@@ -1897,8 +2215,9 @@ class _Plan:
     """What ``standing`` needs of one key's entries, in a build or not: every entry naming it; the REFUSED
     entries that refuse a use where it is (``refusing``) and, in a build, those whose class is the source's
     (``source``), each with the place of its value class's reader among ``readers`` (None where the check holds
-    none); whether an allowing entry names it; the HELD-NEW entries naming it (``new``); and the standing itself
-    where it needs no reader."""
+    none); whether an allowing entry names it; the HELD-NEW entries naming it (``new``) and those of them with a
+    value class's reader (``judged``); the entries refused only because HQ's build refuses their state, which the
+    check leaves to the bar beside the others (``bar``); and the standing itself where it needs no reader."""
 
     entries: tuple
     refusing: tuple  # ((Entry, reader's place or None), ...)
@@ -1907,6 +2226,8 @@ class _Plan:
     source: tuple  # ((Entry, reader's place or None), ...)
     readers: tuple  # (reader, ...)
     static: tuple | None
+    judged: tuple = ()  # ((Entry, reader's place), ...)
+    bar: tuple = ()  # (Entry, ...)
 
 
 class _NeedsReader(Exception):
@@ -1936,6 +2257,12 @@ def _evaluate(plan, read):
         return REFUSED, tuple(refused)
     if unread:
         return UNDECIDED, tuple(unread)
+    # A HELD-NEW class's reader that takes the use; one that does not say judges nothing. A use one takes rests as
+    # well on each HELD-NEW entry of its key the check holds no reader for, whose class it cannot rule out.
+    taken = {entry for entry, place in plan.judged if read(place)}
+    if taken:
+        judged = {entry for entry, _ in plan.judged}
+        return HELD_NEW, tuple(entry for entry in plan.new if entry in taken or entry not in judged)
     if plan.allowed:
         return HELD, ()
     taken, unsure = [], []
@@ -1951,6 +2278,8 @@ def _evaluate(plan, read):
         return UNDECIDED, tuple(unsure)
     if plan.new:
         return HELD_NEW, plan.new
+    if plan.bar:
+        return BAR, plan.bar
     return UNHELD, plan.entries
 
 
@@ -1962,28 +2291,35 @@ def _standing_plan(manifest, key, built):
         return None
     if all(entry.disposition == "REFUSED" and entry.refused_by_hq_build() for entry in entries):
         return _Plan(entries, (), False, (), (), (), (BAR, entries))
-    refusing, source, new, readers = [], [], [], []
+    refusing, source, new, judged, readers, bar = [], [], [], [], [], []
     allowed = False
     for entry in entries:
         if entry.disposition == "HELD-NEW":
             new.append(entry)
+            reader = manifest.readers.get(entry.id) if entry.value_class is not None else None
+            if reader is not None:
+                judged.append((entry, len(readers)))
+                readers.append(reader)
             continue
         if entry.disposition != "REFUSED":
             allowed = True
             continue
         if entry.refused_by_hq_build():
-            continue  # the bar's, beside entries that are not
+            bar.append(entry)  # the bar's, beside entries that are not
+            continue
         reader = manifest.readers.get(entry.id) if entry.value_class is not None else None
         held = source if built and not entry.judges_builds() else refusing
         held.append((entry, None if reader is None else len(readers)))
         if reader is not None:
             readers.append(reader)
-    plan = _Plan(entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None)
+    plan = _Plan(
+        entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None, tuple(judged), tuple(bar)
+    )
     try:
         static = _evaluate(plan, _no_reader)
     except _NeedsReader:
         return plan
-    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static)
+    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static, plan.judged, plan.bar)
 
 
 @cache
@@ -2006,7 +2342,8 @@ def unclassified(document: str, found: Iterable[Use], manifest: Manifest, *, lim
     ``/<key>/refused/<value class>``, once per such class, with the part of the class it is where the class
     holds parts apart (``Manifest.variants``: ``/<key>/refused/<value class>/<part>``); one a REFUSED class
     may take, which the check cannot read there, is ``/<key>/undecided/<value class>``, once per such class;
-    one only HELD-NEW entries name is ``/<key>/held-new``; and one every entry rules out is ``/<key>/unheld``.
+    one only HELD-NEW entries name, or one a HELD-NEW class's reader takes, is ``/<key>/held-new``; and one every
+    entry rules out is ``/<key>/unheld``.
     Each names the entries it rests on. A use the bar
     reports, or one the source export carries (``BAR``, ``SOURCE``), is none.
     """
@@ -2091,6 +2428,21 @@ def as_imported(upload):
     return {key: value for key, value in upload.items() if key not in UNREAD_BY_IMPORT}
 
 
+# The fields of HQ's stored document its source read leaves out (``models/applications.py::Application._meta_fields``,
+# and the blob bookkeeping ``export_json`` pops): no app's source holds them.
+UNSERVED_FIELDS = frozenset(
+    {"_id", "_rev", "domain", "copy_of", "version", "short_odk_url", "short_odk_media_url", "external_blobs"}
+)
+
+
+def as_served(app):
+    """A stored app (``authored/app.json``) as HQ's source read serves it: without the fields ``export_json``
+    leaves out (``UNSERVED_FIELDS``)."""
+    if not isinstance(app, dict):
+        return app
+    return {key: value for key, value in app.items() if key not in UNSERVED_FIELDS}
+
+
 def export_uses(document, records, manifest: Manifest) -> Uses:
     """Every surface item a corpus document's exports use: D's and D′'s publishes and local archives.
 
@@ -2102,22 +2454,27 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
     once, and each is read as HQ's import reads it (``as_imported``). On a
     migration witness the first publish is the retained export of the app
     from before its migration, which Nova's current code did not write, so its
-    create and content are not read: the republish, B, is.
+    create and content are not read: the republish, B, is. On a document made
+    in CommCare HQ there is no first publish: A is the app HQ made
+    (``authored/app.json``, the observation's ``authored`` upload), read as
+    HQ's source read serves it (``as_served``).
     """
     observed = observed_exports(document, records)
     blobs = records.blobs
     found = Uses()
+    authored = getattr(document, "hq_authored", False)
     expected = {
         *(
             f"{name}/{step}"
             for name, export in document.exports.items()
             for step in (
-                "create",
+                *(() if authored else ("create",)),
                 *(("content",) if export.two_imports else ()),
                 *(("republish",) if export.republish is not None else ()),
             )
         ),
         *(f"edit/{name}/update" for name in (document.edit.exports if document.edit is not None else ())),
+        *((AUTHORED_UPLOAD,) if authored else ()),
     }
     if set(observed["uploads"]) != expected:
         raise ObservationMissing(
@@ -2128,6 +2485,16 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
     # built of it, each (configuration, part))
     sent = {}
     for key, ref in sorted(observed["uploads"].items()):
+        if key == AUTHORED_UPLOAD:
+            # A document made in HQ: its A is the app HQ made, read as HQ's source read serves it, built at A under
+            # every configuration.
+            _, configurations, states = sent.setdefault(("app.json", ref), (key, [], []))
+            for name, export in sorted(document.exports.items()):
+                if export.configuration not in configurations:
+                    configurations.append(export.configuration)
+                if (name, "a") not in states:
+                    states.append((name, "a"))
+            continue
         step = key.rpartition("/")[2]
         if document.migration_witness and step in ("create", "content"):
             # A witness's first publish is the retained export from before its migration, which Nova's current code
@@ -2151,7 +2518,13 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
             raise ManifestError(f"{document.id}'s {key} app_file is not JSON ({error}).") from error
         first = len(found.documents)
         app_json_uses(
-            as_imported(app), manifest, artifact, found, carried=document.hq_side, configurations=configurations
+            as_served(app) if key == AUTHORED_UPLOAD else as_imported(app),
+            manifest,
+            artifact,
+            found,
+            carried=document.hq_side,
+            configurations=configurations,
+            authored=key == AUTHORED_UPLOAD,
         )
         # An app JSON's forms are opened by the entries HQ's build of it writes: each state HQ built of this upload.
         built = built_suites(document, records, states, suites)
@@ -2234,7 +2607,7 @@ def manifest_differences(document, records, manifest: Manifest | None = None):
     manifest = manifest or load_manifest()
     found = export_uses(document, records, manifest)
     for exported in found.documents:
-        if isinstance(exported, (Form, Runtime)):
+        if isinstance(exported, (App, Form, Runtime)):
             exported.case_types = document.case_types(edit=exported.artifact.startswith("edit/"))
     return (
         unclassified(document.id, found.uses, manifest)

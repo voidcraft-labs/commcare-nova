@@ -167,4 +167,18 @@ describe("columnsAfterRuleSequence", () => {
 			undefined,
 		]);
 	});
+
+	it("keeps a rule's name in Sort by when it moves to another place", () => {
+		const doc = docWith(false);
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		if (config === undefined) throw new Error("Missing case list");
+		const name = config.columns[0];
+		const zone = {
+			...config.columns[1],
+			sort: columnSort("desc", 0, undefined, "Zone"),
+		} as Column;
+		expect(
+			columnsAfterRuleSequence(config.columns, [name, zone])[1]?.sort,
+		).toEqual({ direction: "desc", priority: 1, label: "Zone" });
+	});
 });

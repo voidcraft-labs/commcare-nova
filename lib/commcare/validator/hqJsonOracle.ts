@@ -21,6 +21,7 @@ import type {
 	OpenSubCaseAction,
 } from "@/lib/commcare";
 import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain";
+import { isHqDetailField } from "../suite/wire";
 import { parseXml } from "../xmlParse";
 import {
 	type ValidationError,
@@ -39,9 +40,9 @@ const VALID_CONDITION_TYPES: ReadonlySet<string> = new Set([
 
 /**
  * `FormActionCondition.operator = StringProperty(choices=['=','selected',
- * 'boolean_true'], default='=')`. Only constrained when the value is non-null —
- * the factories emit `null` for the never/always conditions, and a null operator
- * is the absent state jsonobject leaves at its default.
+ * 'boolean_true'], default='=')`. Only constrained when the value is non-null:
+ * jsonobject takes a null, which CommCare HQ's case settings pages write on a
+ * condition that is not `if`.
  */
 const VALID_CONDITION_OPERATORS: ReadonlySet<string> = new Set([
 	"=",
@@ -176,8 +177,8 @@ function checkCondition(
 		);
 	}
 
-	// `operator` is nullable in CCHQ (the always/never factories emit null); only
-	// a present non-null value is constrained by the choice list.
+	// `operator` is nullable in CommCare HQ (its case settings pages write null on
+	// a condition that is not `if`); only a non-null value is held to the choices.
 	if (
 		condition.operator !== null &&
 		!VALID_CONDITION_OPERATORS.has(condition.operator)
@@ -867,15 +868,20 @@ function checkSortElementSpelling(
 	}
 }
 
+/** HQ's `const.py::CALCULATED_SORT_FIELD_RX`: a sort element naming a calculated column by its position. */
+const CALCULATED_SORT_FIELD = /^_cc_calculated_\d+$/;
+
 /**
- * No `@` where HQ reads a field as a property name: a sort element's
- * `field`, and the `field` of a column whose `useXpathExpression` is false.
- * Both go through `helpers/validators.py::ModuleDetailValidatorMixin._validate_detail_screen_field`
+ * Every field HQ reads as a property name in its own grammar: a sort
+ * element's `field` but `_cc_calculated_<n>` (HQ's `CALCULATED_SORT_FIELD_RX`),
+ * and the `field` of a column whose `useXpathExpression` is false. Both go
+ * through `helpers/validators.py::ModuleDetailValidatorMixin._validate_detail_screen_field`
  * (and its page twin `static/app_manager/js/details/utils.js::isValidPropertyName`),
- * which takes no `@`: a sort element with one stops the build
- * (`invalid sort field`) and a column with one stops the Case List page's
- * save. An attribute-backed column is an expression column, `@<name>` with
- * `useXpathExpression: true`.
+ * `suite/wire.ts::isHqDetailField`: words that start with a letter, so no `@`
+ * and no index name that starts with `_`. A sort element outside it stops the
+ * build (`invalid sort field`) and a column outside it stops the Case List
+ * page's save. An attribute-backed column is an expression column, `@<name>`
+ * with `useXpathExpression: true`.
  */
 function checkDetailFields(
 	detail: Detail,
@@ -883,20 +889,20 @@ function checkDetailFields(
 	errors: ValidationError[],
 ): void {
 	const fields = [
-		...detail.sort_elements.map(
-			(element) => ["sort element", element.field] as const,
-		),
+		...detail.sort_elements
+			.filter((element) => !CALCULATED_SORT_FIELD.test(element.field))
+			.map((element) => ["sort element", element.field] as const),
 		...detail.columns
 			.filter((column) => !column.useXpathExpression)
 			.map((column) => ["property column", column.field] as const),
 	];
 	for (const [where, field] of fields) {
-		if (!field.includes("@")) continue;
+		if (isHqDetailField(field)) continue;
 		errors.push(
 			validationError(
 				"HQJSON_BAD_DETAIL_FIELD",
 				"module",
-				`Module "${moduleName}" has a ${where} whose field is "${field}". CommCare HQ reads that field as a property name, which can't hold @, so its build or its Case List page refuses it. A case attribute is read by an expression column (useXpathExpression: true). This is a bug in the app generator.`,
+				`Module "${moduleName}" has a ${where} whose field is ${JSON.stringify(field)}. CommCare HQ reads that field as a property name, words that each start with a letter and hold no @, so its build or its Case List page refuses it. A case attribute is read by an expression column (useXpathExpression: true). This is a bug in the app generator.`,
 				{ moduleName },
 			),
 		);

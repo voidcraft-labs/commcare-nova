@@ -18,7 +18,7 @@ import {
 	CSQL_QUERY_FUNCTIONS,
 	CSQL_VALUE_FUNCTIONS,
 } from "../../xpath/functionCapabilities";
-import { readFormSyntax } from "../syntaxRead";
+import { sharedFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
 import { EXPRESSION_CLAIMS, visitSyntax } from "./findings";
 
@@ -86,26 +86,39 @@ export interface SurfaceUse {
 	readonly entryId: string;
 }
 
-/** The uses of one expression, one per key: the first class a key is used in
- *  is the one claimed, since a site claims each key once. */
+/** The uses of one expression. An XPath text's are one per key: the first
+ *  class a key is used in is the one claimed, since a site claims each key
+ *  once. A search row's are one per key and class (`everyClass`): the row
+ *  sends several texts, each parsed on its own, so a key one text uses in one
+ *  class and another text in another is a use in each. */
 class Uses {
-	readonly #uses = new Map<string, string>();
+	readonly #uses = new Map<string, string[]>();
+	readonly #everyClass: boolean;
+
+	constructor(everyClass = false) {
+		this.#everyClass = everyClass;
+	}
 
 	/** A use of `key` in `valueClass`, where the table holds the key; the row
 	 *  whose class is undefined where none is named. */
 	add(key: string, valueClass?: string): void {
-		if (this.#uses.has(key)) return;
+		const known = this.#uses.get(key);
+		if (known !== undefined && !this.#everyClass) return;
 		const rows = SURFACE_USE_ENTRIES[key];
 		if (rows === undefined) return;
 		const row =
 			rows.length === 1
 				? rows[0]
 				: rows.find((candidate) => candidate.valueClass === valueClass);
-		if (row !== undefined) this.#uses.set(key, row.entryId);
+		if (row === undefined) return;
+		if (known === undefined) this.#uses.set(key, [row.entryId]);
+		else if (!known.includes(row.entryId)) known.push(row.entryId);
 	}
 
 	list(): readonly SurfaceUse[] {
-		return [...this.#uses].map(([key, entryId]) => ({ key, entryId }));
+		return [...this.#uses].flatMap(([key, entryIds]) =>
+			entryIds.map((entryId) => ({ key, entryId })),
+		);
 	}
 }
 
@@ -194,6 +207,19 @@ export interface SurfaceUseFacts {
 	/** The source the slot's form declares for each instance id it names, by
 	 *  id; empty outside a form. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	/** Whether HQ's build reads the slot's text through its shorthand
+	 *  (`xpath.py::interpolate_xpath`: a menu's and a form's display condition,
+	 *  the case list's filter, a detail tab's filter over a case type's
+	 *  children, a Search field's required and validation conditions), which
+	 *  replaces each of its patterns (`#session/`, `#user`, `#case`, `#parent`,
+	 *  `#host`) wherever the text holds it, inside a string too, so each is a use
+	 *  of that pattern's item (`hashtag:#case`) found in the text
+	 *  (`shorthandUses`), and a hashtag there is no form builder's hashtag. */
+	readonly shorthand: boolean;
+	/** Whether the caller that interpolates the slot names a fixture, so
+	 *  `$fixture_value` is one of its patterns: a form's display condition in a
+	 *  menu whose lookup table selection is active (`menus.py`, `fixture_xpath`). */
+	readonly fixtureValue: boolean;
 }
 
 const NO_FACTS: SurfaceUseFacts = {
@@ -201,6 +227,8 @@ const NO_FACTS: SurfaceUseFacts = {
 	computedDatums: new Set(),
 	menu: "other",
 	instanceSources: new Map(),
+	shorthand: false,
+	fixtureValue: false,
 };
 
 /** The id an `instance()` read is classed under: in a form, the id the source
@@ -316,13 +344,87 @@ function endsAtName(node: FormSyntax | undefined): boolean {
 	return false;
 }
 
+/** The patterns `xpath.py::interpolate_xpath` replaces, each with the surface
+ *  key of its item. */
+const SHORTHAND_PATTERNS: readonly (readonly [string, string])[] = [
+	["#session/", "hashtag:#session/"],
+	["#user", "hashtag:#user"],
+	["#case", "hashtag:#case"],
+	["#parent", "hashtag:#parent"],
+	["#host", "hashtag:#host"],
+];
+const FIXTURE_PATTERN = "$fixture_value";
+/** The class of a `#case` that names a menu's case by its slug (`#case:<slug>/…`). */
+const CASE_BY_SLUG_CLASS = "case-of-a-menu-named-by-its-slug";
+
+/**
+ * The shorthand of a slot HQ interpolates, found as HQ's own replacement finds
+ * it: each pattern the slot's text holds, wherever it stands, once a slot
+ * (`xpath.py::interpolate_xpath`, a `str.replace` of each). `#session/` is in
+ * the class of what its first occurrence names, the session's data or its
+ * context and user paths; `#case` is a menu's case named by its slug where the
+ * text holds `#case:` anywhere, since the replacement leaves the `:<slug>`
+ * after the case's path.
+ */
+function shorthandUses(text: string, facts: SurfaceUseFacts, uses: Uses): void {
+	for (const [pattern, key] of SHORTHAND_PATTERNS) {
+		const at = text.indexOf(pattern);
+		if (at < 0) continue;
+		if (key === "hashtag:#session/")
+			uses.add(
+				key,
+				text.startsWith("data/", at + pattern.length)
+					? "data-datum"
+					: "context-and-user-paths",
+			);
+		else if (key === "hashtag:#case" && text.includes("#case:"))
+			uses.add(key, CASE_BY_SLUG_CLASS);
+		else uses.add(key);
+	}
+	if (facts.fixtureValue && text.includes(FIXTURE_PATTERN))
+		uses.add(`hashtag:${FIXTURE_PATTERN}`);
+}
+
+/** Whether a text's syntax holds a hashtag, which Core's lexer refuses (`xpathUses`). */
+export function syntaxHoldsHashtag(
+	source: FormSyntax,
+	context: ExpressionContext,
+	facts: SurfaceUseFacts,
+): boolean {
+	return xpathUses(source, undefined, context, facts, new Uses(), new Uses());
+}
+
+/** The uses of a slot's text the grammar does not read: its shorthand alone, where HQ
+ *  interpolates the slot (`shorthandUses`), since HQ's replacement reads no syntax. */
+export function unreadSlotUses(
+	text: string,
+	facts: SurfaceUseFacts,
+): readonly SurfaceUse[] {
+	if (!facts.shorthand) return [];
+	const uses = new Uses();
+	shorthandUses(text, facts, uses);
+	return uses.list();
+}
+
+/**
+ * The uses an XForm or HQ JSON text's syntax makes, in one walk of its tree:
+ * each token, expression, axis, test, function and instance as Core's parse
+ * of the text gives them, and each hashtag the text holds. A text holding a
+ * hashtag is one Core's lexer refuses (`Lexer.lex` reads `#` as no token), so
+ * Core parses only what HQ's build writes for it and its syntax makes no use
+ * of its own: the text's uses are then its hashtags alone (`hashtags`), and
+ * otherwise its syntax's alone (`uses`). Answers whether the text holds a
+ * hashtag.
+ */
 function xpathUses(
 	source: FormSyntax,
 	candidate: Expression | undefined,
 	context: ExpressionContext,
 	facts: SurfaceUseFacts,
 	uses: Uses,
-): void {
+	hashtags: Uses,
+): boolean {
+	let hashtagged = false;
 	const held = candidate !== undefined;
 	const token = (name: string) =>
 		uses.add(`xpath-token:${name}`, OPERAND_CLASS);
@@ -370,6 +472,7 @@ function xpathUses(
 				return;
 			}
 			case "call": {
+				token("QNAME");
 				token("LPAREN");
 				token("RPAREN");
 				if (node.args.length > 1) token("COMMA");
@@ -419,7 +522,8 @@ function xpathUses(
 					token("QNAME");
 					uses.add("xpath-test:TEST_NAME");
 				}
-				uses.add("xpath-axis:AXIS_CHILD");
+				// A name an axis names (`@case_id`) is that axis's step, not a child step.
+				if (parent?.kind !== "axis") uses.add("xpath-axis:AXIS_CHILD");
 				uses.add("xpath-expr:XPathPathExpr");
 				return;
 			case "self":
@@ -489,25 +593,30 @@ function xpathUses(
 				return;
 			}
 			case "hashtag": {
+				hashtagged = true;
+				// A slot HQ interpolates uses its shorthand by its text (`shorthandUses`).
+				if (facts.shorthand) return;
 				const [first] = node.segments;
 				if (node.namespace === "session")
-					uses.add(
+					hashtags.add(
 						"hashtag:#session/",
 						first === "data" ? "data-datum" : "context-and-user-paths",
 					);
-				if (node.namespace === "case")
-					uses.add(
+				else if (node.namespace === "case")
+					hashtags.add(
 						first === "parent"
 							? "hashtag:#case/parent"
 							: first === "grandparent"
 								? "hashtag:#case/grandparent"
 								: "hashtag:#case/",
 					);
+				else hashtags.add(`hashtag:#${node.namespace}/`);
 				return;
 			}
 		}
 	};
 	visit(source, undefined);
+	return hashtagged;
 }
 
 // ── Search filter rows ───────────────────────────────────────────────
@@ -551,6 +660,14 @@ function csqlUses(
 	candidate: Expression | undefined,
 	uses: Uses,
 ): void {
+	// The device works out a row while the query is built, with the Search
+	// fields' answers: each read of them is that class, whatever the row's CSQL.
+	visitSyntax(wrapper, (node) => {
+		if (node.kind !== "call" || node.name !== "instance") return;
+		const first = node.args[0] === undefined ? undefined : bare(node.args[0]);
+		if (first?.kind === "string" && scheme(first.value) === "search-input")
+			uses.add("instance-scheme:search-input", "query-build");
+	});
 	const row = searchRowCsql(wrapper);
 	if (row === undefined) return;
 	const isHole = (node: FormSyntax): boolean => {
@@ -615,7 +732,16 @@ function csqlUses(
 					return;
 				}
 				if (at.op.length <= 2) {
-					uses.add(`csql-op:${at.op}`, rightClass(at.op, at.right, relation));
+					// HQ's search compares a system date by its own date rule and never as a range of
+					// a property (`comparison.py::property_comparison_query`), so what the right side
+					// holds is the system date's class alone.
+					const left = stepName(at.left);
+					uses.add(
+						`csql-op:${at.op}`,
+						left !== undefined && SYSTEM_DATES.has(left) && !relation
+							? "typed-right-side"
+							: rightClass(at.op, at.right, relation),
+					);
 					visit(at.left, relation, at.right);
 					visit(at.right, relation, undefined);
 				}
@@ -665,7 +791,12 @@ function csqlUses(
 			}
 		}
 	};
-	visit(row.csql, false, undefined);
+	// Each text the row can send HQ is parsed there on its own: every branch of a choice, the
+	// `match-all()` of a presence test, the `match-none()` of a row that fails closed. The CSQL
+	// the row's binding reads (`row.csql`) is no text HQ is sent.
+	for (const text of row.sent) visit(text, false, undefined);
+	// The row's own key in the class its presence test chooses it in, which the search
+	// reader claims at the row's value.
 	if (row.presence) uses.add("csql-key:_xpath_query", "input-presence-choice");
 }
 
@@ -685,21 +816,31 @@ function withinDistanceClass(
 
 /** The surface keys an expression's syntax uses, with the entry that takes
  *  each use. `source` is the text as the registration or the search filter
- *  row holds it, before HQ's interpolation, read by the one grammar;
- *  `language` whether it is form XPath or a search filter row's CSQL;
- *  `candidate` the tree held, where the slot is held; `facts` what the slot's
- *  reading and its owner say of a use's class. */
+ *  row holds it, before HQ's interpolation, read by the one grammar, and
+ *  `text` that text, whose shorthand a slot HQ interpolates uses
+ *  (`shorthandUses`); `language` whether it is form XPath or a search filter
+ *  row's CSQL; `candidate` the tree held, where the slot is held; `facts` what
+ *  the slot's reading and its owner say of a use's class. */
 export function expressionSurfaceUses(
 	source: FormSyntax,
 	candidate: Expression | undefined,
 	context: ExpressionContext,
 	language: "xpath" | "csql",
 	facts: SurfaceUseFacts = NO_FACTS,
+	text?: string,
 ): readonly SurfaceUse[] {
+	if (language === "csql") {
+		const uses = new Uses(true);
+		csqlUses(source, candidate, uses);
+		return uses.list();
+	}
 	const uses = new Uses();
-	if (language === "csql") csqlUses(source, candidate, uses);
-	else xpathUses(source, candidate, context, facts, uses);
-	return uses.list();
+	const hashtags = new Uses();
+	const own = xpathUses(source, candidate, context, facts, uses, hashtags)
+		? hashtags
+		: uses;
+	if (facts.shorthand && text !== undefined) shorthandUses(text, facts, own);
+	return own.list();
 }
 
 /** The claim of a form's `<instance>` declaration no held expression of the
@@ -741,9 +882,9 @@ function instanceSourceItem(src: string): string {
 
 /** The instance ids a form expression's text reads, `instance('<id>')`. */
 export function instanceIdsRead(text: string): readonly string[] {
-	let read: ReturnType<typeof readFormSyntax>;
+	let read: ReturnType<typeof sharedFormSyntax>;
 	try {
-		read = readFormSyntax(text);
+		read = sharedFormSyntax(text);
 	} catch {
 		return [];
 	}

@@ -34,6 +34,23 @@ export interface PendingExpression {
 	 *  (`provisional.ts::settleDeferredRefusal`): a Search field's check whose message no longer
 	 *  tells whether Nova's runtime guard is joined to the rule. */
 	readonly deferRefusal?: true;
+	/** The text is one Nova's emitter writes, which the reader recognized as its own and no slot
+	 *  holds (a Save to Case block's generated binds and setvalues): the expression stage binds
+	 *  nothing of it and claims each use its syntax makes, at the node it was read from, under the
+	 *  slot `ref` names for the form it stands in. */
+	readonly usesOnly?: true;
+	/** HQ's build names a fixture where it interpolates the text, so `$fixture_value` is one of the
+	 *  patterns it replaces there: a form's display condition in a menu whose lookup table
+	 *  selection is active (`menus.py`, `fixture_xpath`). */
+	readonly fixtureValue?: true;
+	/** The text HQ's build interpolates (`xpath.py::interpolate_xpath`) at the node the claims are
+	 *  recorded at, where the registration's text is only a part of it: the whole stored filter a
+	 *  list filter's operand or an owner clause stands in, a Search field's whole validation
+	 *  condition beside the rule read apart from Nova's guard. Its shorthand is what the slot uses,
+	 *  and a hashtag in it, which Core's lexer refuses, leaves the slot no grammar of its own.
+	 *  `null` where that node is no slot HQ interpolates (an owner clause whose claims land on the
+	 *  menu's `case_details`), so the text's shorthand is no use there. */
+	readonly slotText?: string | null;
 }
 
 /** What a slot that must hold a tree holds until the expression stage fills
@@ -51,9 +68,22 @@ export type DefaultEvent = "xforms-ready" | "jr-insert";
 export interface PendingOutcome {
 	readonly expression: Expression | undefined;
 	readonly claim: ExpressionClaim | undefined;
+	/** Every claim the expression stage made of the registration, the slot's own among them: the
+	 *  uses its text makes as well as its key's. */
+	readonly claims: readonly ExpressionClaim[];
 	/** The level the tree was held at, where it is not exact (`expressions/printLevel.ts`): a stage
 	 *  that prints the slot again prints it through `levelControl` of it. */
 	readonly level?: PrintLevel;
+}
+
+/**
+ * Whether the expression stage handed the registration's slot to project data (a read of a table
+ * the catalog lacks): the slot holds no tree of the source's, so its own print is project data's
+ * one finding at the table, never a difference of what prints it.
+ */
+export function handedOff(outcome: PendingOutcome): boolean {
+	const claim = outcome.claim;
+	return (claim?.handOff ?? claim?.refusal?.handOff) !== undefined;
 }
 
 /**
@@ -71,6 +101,13 @@ export interface PendingRegistry {
 	): number;
 	/** Every registration, in registration order: what `readExpressions` takes. */
 	list(): readonly PendingExpression[];
+	/**
+	 * The index of each registration of one entity's slots (`ref.entity` and `ref.uuid`), in
+	 * registration order: what a settle of one menu, form or field reads of its own slots.
+	 */
+	of(entity: SlotContextRef["entity"], uuid: string): readonly number[];
+	/** The index of the first registration read from `attribute` of `element`, where one was. */
+	firstAt(element: object, attribute: string): number | undefined;
 	/** The node the registration at `index` was read from, and its event where it is a default. */
 	site(index: number): {
 		readonly at: ClaimSite;
@@ -86,7 +123,10 @@ export interface AnsweredPendingRegistry extends PendingRegistry {
 	 * Records the expression stage's answer: per registration, the tree it held
 	 * (`bound[i]`) and the slot's own claim, the one whose `source` is `i` and
 	 * whose `key` is the registration's own, and, by registration, the level a tree held other
-	 * than exact was held at. Answering again replaces the answer.
+	 * than exact was held at. A slot refused under an entry that names the key of a use the
+	 * text makes and not the slot's own key is still refused: its own claim stands under the
+	 * slot's allowing entry and carries the refusal (`ExpressionClaim.refusal`), and no tree is
+	 * bound. Answering again replaces the answer.
 	 */
 	answer(
 		bound: readonly (Expression | undefined)[],
@@ -98,12 +138,16 @@ export interface AnsweredPendingRegistry extends PendingRegistry {
 const NOTHING_BOUND: PendingOutcome = Object.freeze({
 	expression: undefined,
 	claim: undefined,
+	claims: [],
 });
 
 export function pendingRegistry(): AnsweredPendingRegistry {
 	const expressions: PendingExpression[] = [];
 	const sites: { readonly at: ClaimSite; readonly event?: DefaultEvent }[] = [];
 	let outcomes: readonly PendingOutcome[] = [];
+	const byEntity = new Map<string, number[]>();
+	const entityKey = (entity: string, uuid: string) => `${entity}/${uuid}`;
+	const byAttribute = new WeakMap<object, Map<string, number>>();
 	const inRange = (index: number) => {
 		if (!Number.isInteger(index) || index < 0 || index >= expressions.length)
 			throw new RangeError(
@@ -116,9 +160,22 @@ export function pendingRegistry(): AnsweredPendingRegistry {
 			sites.push(
 				options?.event === undefined ? { at } : { at, event: options.event },
 			);
-			return expressions.length - 1;
+			const index = expressions.length - 1;
+			const key = entityKey(expression.ref.entity, expression.ref.uuid);
+			const indices = byEntity.get(key);
+			if (indices === undefined) byEntity.set(key, [index]);
+			else indices.push(index);
+			if ("element" in at && at.attribute !== undefined) {
+				const attributes =
+					byAttribute.get(at.element) ?? new Map<string, number>();
+				if (!attributes.has(at.attribute)) attributes.set(at.attribute, index);
+				byAttribute.set(at.element, attributes);
+			}
+			return index;
 		},
 		list: () => expressions,
+		of: (entity, uuid) => byEntity.get(entityKey(entity, uuid)) ?? [],
+		firstAt: (element, attribute) => byAttribute.get(element)?.get(attribute),
 		site(index) {
 			inRange(index);
 			return sites[index] as (typeof sites)[number];
@@ -129,7 +186,11 @@ export function pendingRegistry(): AnsweredPendingRegistry {
 		},
 		answer(bound, claims, levels) {
 			const own = new Map<number, ExpressionClaim>();
+			const every = new Map<number, ExpressionClaim[]>();
 			for (const claim of claims) {
+				const all = every.get(claim.source);
+				if (all === undefined) every.set(claim.source, [claim]);
+				else all.push(claim);
 				const registration = expressions[claim.source];
 				if (
 					registration !== undefined &&
@@ -144,7 +205,12 @@ export function pendingRegistry(): AnsweredPendingRegistry {
 				const level = expression === undefined ? undefined : levels?.get(index);
 				return expression === undefined && claim === undefined
 					? NOTHING_BOUND
-					: { expression, claim, ...(level === undefined ? {} : { level }) };
+					: {
+							expression,
+							claim,
+							claims: every.get(index) ?? [],
+							...(level === undefined ? {} : { level }),
+						};
 			});
 		},
 	};

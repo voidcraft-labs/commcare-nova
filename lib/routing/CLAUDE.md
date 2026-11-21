@@ -109,7 +109,12 @@ builder write, Back and Forward, a Project generation's reconcile; a language
 change and a record of standing searches are none). Work that navigates after
 an await reads it when it begins and goes on only if it is unchanged, as
 `CaseListScreen` does for a choice whose claim or selection check lands after
-the worker has moved on.
+the worker has moved on. `readBuilderHistoryArrival` says how the last move came:
+`back` for Back and Forward and for a screen's own step back
+(`stepBackToBuilderEntry`, `stepBackOffPreviewHeldMenu`, whether it steps or
+writes), `forward` for every other write; a Preview case list reads it as it
+shows again to keep or start afresh the worker's place in it
+(`lib/preview/caseListReturn.ts`).
 
 An entry's state also records which of Preview's searches stand on it
 (`previewSearchHistory.ts`), as Web Apps keeps each query on the page's

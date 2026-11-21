@@ -13,8 +13,9 @@ comparison names a failure by (``proof.checks.compare.trace.exception_cause``).
 The plausible failures: verdicts that do not follow the form's constraint,
 instances that are not the session's and the restore's, a clock the request
 did not set (in a form or in a case list's text), a row order that does not
-follow the case list's sort, and a site that merges two of Core's templates
-or splits one. Where a test needs a known constraint or sort, it authors that
+follow the case list's sort, a several-case selection the form cannot read, a
+label that is not the request's locale's, and a site that merges two of Core's
+templates or splits one. Where a test needs a known constraint or sort, it authors that
 itself, so the expected answer follows from the test's own input rather than
 from reading XPath out of a fixture.
 """
@@ -25,6 +26,7 @@ import base64
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 from lxml import etree
 
 from proof.core.artifacts import (
@@ -35,6 +37,7 @@ from proof.core.artifacts import (
     form_xmlns,
     read_archive_entry,
 )
+from proof.core.client import CoreRunnerError
 
 CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
 CONSTRAINTS_FORM = "modules-1/forms-0.xml"
@@ -203,6 +206,83 @@ def test_a_later_load_time_value_reads_a_default_its_calculate_replaces(core_run
     assert [value["value"] for value in result["values"]] == ["C", "D"]
 
 
+SEVERAL_FORM = (
+    '<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">'
+    "<h:head><h:title>Chosen</h:title><model>"
+    '<instance><data xmlns="http://example.org/chosen"><chosen/><each/></data></instance>'
+    '<instance id="selected_cases" src="jr://instance/selected-entities/selected_cases"/>'
+    '<bind nodeset="/data/chosen" calculate="count(instance(\'selected_cases\')/results/value)"/>'
+    # Every value chosen, in the instance's order (``XPathJoinFunc`` joins a nodeset's values as it holds them). A
+    # predicate cannot pick the last by counting the same nodes: inside it the context is the value being tested, and
+    # ``TreeReference.contextualize`` gives the absolute path that position, so the count there is always 1.
+    "<bind nodeset=\"/data/each\" calculate=\"join(' ', instance('selected_cases')/results/value)\"/>"
+    "</model></h:head><h:body/></h:html>"
+).encode()
+
+
+def test_a_several_case_datum_serves_the_cases_chosen_together(core_runner):
+    """A datum given a list is the cases a several-case list chose: the form's selected-entities instance holds
+    each, in order, as Core's own list leaves them (``MultiSelectEntityScreen.updateDatum``). The plausible failure
+    is a selection the form cannot read, which Core raises on as the form opens, as it does with none given."""
+    chosen = {}
+    for cases in (["household-one"], ["household-one", "household-two"]):
+        result = core_runner.evaluate(
+            restoreBase64=restore64(),
+            formBase64=base64.b64encode(SEVERAL_FORM).decode(),
+            session={"data": {"selected_cases": cases}},
+            expressions=["/data/chosen", "/data/each"],
+        )
+        chosen[len(cases)] = [value["value"] for value in result["values"]]
+    assert chosen == {1: ["1", "household-one"], 2: ["2", "household-one household-two"]}
+    with pytest.raises(CoreRunnerError) as raised:
+        core_runner.evaluate(
+            restoreBase64=restore64(),
+            formBase64=base64.b64encode(SEVERAL_FORM).decode(),
+            expressions=["/data/chosen"],
+        )
+    assert "selected_cases" in str(raised.value.detail.get("message"))
+
+
+def labelled_form(text_id: str) -> bytes:
+    """A form whose one text question's label is under ``text_id`` in English and French."""
+    return (
+        '<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml"'
+        ' xmlns:xsd="http://www.w3.org/2001/XMLSchema">'
+        "<h:head><h:title>Labels</h:title><model>"
+        '<instance><data xmlns="http://example.org/labels"><remark/></data></instance>'
+        '<bind nodeset="/data/remark" type="xsd:string"/>'
+        "<itext>"
+        f'<translation lang="en" default=""><text id="{text_id}"><value>Remark</value></text></translation>'
+        f'<translation lang="fr"><text id="{text_id}"><value>Remarque</value></text></translation>'
+        "</itext>"
+        f'</model></h:head><h:body><input ref="/data/remark"><label ref="jr:itext(\'{text_id}\')"/></input>'
+        "</h:body></h:html>"
+    ).encode()
+
+
+def test_each_answer_and_check_reports_the_label_a_worker_reads_in_the_requests_locale(core_runner):
+    """The label follows the request's locale and not the itext id the form keeps it under, so one expectation
+    holds a form and a respelling of it whose ids differ. The plausible failures: the default language's text in
+    every locale, or a label read from another question."""
+    labels = {}
+    for text_id in ("remark_text", "remark-label"):
+        for locale in ("en", "fr"):
+            result = core_runner.evaluate(
+                restoreBase64=restore64(),
+                formBase64=base64.b64encode(labelled_form(text_id)).decode(),
+                locale=locale,
+                answers=[{"path": "/data/remark", "value": "Dry season"}],
+                constraintChecks=[{"path": "/data/remark", "value": "Dry season"}],
+            )
+            labels[(text_id, locale)] = (result["answers"][0]["label"], result["constraints"][0]["label"])
+    assert labels == {
+        ("remark_text", "en"): ("Remark", "Remark"),
+        ("remark_text", "fr"): ("Remarque", "Remarque"),
+        ("remark-label", "en"): ("Remark", "Remark"),
+        ("remark-label", "fr"): ("Remarque", "Remarque"),
+    }
+
+
 def test_now_and_today_read_the_requests_clock(core_runner, basic_app):
     """The clock's own spellings are marked, and the marks name the clock each request set."""
     form = read_archive_entry(BASIC_APP, CONSTRAINTS_FORM)
@@ -297,6 +377,41 @@ def test_a_case_lists_text_reads_the_requests_clock(core_runner, tmp_path):
         assert rows
         days[clock] = {row["fields"][-1] for row in rows}
     assert days == {clock: {day} for clock, day in CLOCKS.items()}
+
+
+def test_a_case_list_reads_each_rows_parent_through_a_case_index_table(core_runner, tmp_path):
+    """A list column reading each row's parent case: past ``QueryContext.BULK_QUERY_THRESHOLD`` rows Core reads the
+    rows' indices in bulk through the casedb's case index table (``CaseIndexQuerySetTransform``), which Formplayer
+    and Android each keep and Core's own CommCareInstanceInitializer gives none. The plausible failure: the runner's
+    casedb holding no table, so the list raises NullPointerException where every runtime shows the parent's name
+    (``ProofSession``, ``CaseIndexes``)."""
+    restore = etree.fromstring(with_cases_named(["Household"]))
+    for index in range(60):
+        block = etree.SubElement(
+            restore,
+            f"{{{CASE_XMLNS}}}case",
+            case_id=f"member-{index}",
+            date_modified="2017-07-14T14:26:20.559000Z",
+            user_id="7afceb0259b2866be17b3632392f8a4b",
+        )
+        create = etree.SubElement(block, f"{{{CASE_XMLNS}}}create")
+        etree.SubElement(create, f"{{{CASE_XMLNS}}}case_type").text = "coverage_basic"
+        etree.SubElement(create, f"{{{CASE_XMLNS}}}case_name").text = f"member {index}"
+        etree.SubElement(create, f"{{{CASE_XMLNS}}}owner_id").text = "7afceb0259b2866be17b3632392f8a4b"
+        indices = etree.SubElement(block, f"{{{CASE_XMLNS}}}index")
+        etree.SubElement(indices, f"{{{CASE_XMLNS}}}parent", case_type="coverage_basic").text = "ordered-0"
+
+    def parent_name(fields: list[etree._Element]) -> None:
+        fields[-1].find("template/text/xpath").set(
+            "function", "instance('casedb')/casedb/case[@case_id = current()/index/parent]/case_name"
+        )
+
+    rows = m2_list(
+        core_runner, m2_list_variant(tmp_path / "parent.ccz", parent_name), restore64(etree.tostring(restore))
+    )["rows"]
+    members = [row["fields"][-1] for row in rows if row["fields"][0].startswith("member ")]
+    assert len(members) == 60
+    assert set(members) == {"Household"}
 
 
 def test_a_case_list_search_matches_as_cores_list_does(core_runner, basic_app):

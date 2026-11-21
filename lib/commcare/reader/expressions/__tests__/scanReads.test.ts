@@ -3,11 +3,12 @@
  * bound. The failures this holds: a case property declared twice or out of
  * code-unit order; one whose case type the syntax does not fix declared on
  * a guess; a property of the case a menu above chose, read in a form's own
- * slot, left undeclared; a `location_data` slug missing from the reads; a tag the catalog
- * lacks missing; a step of a path taken for a property of its own. And of
- * the reading built on the scan: a declared property no held slot reads left
- * in the document; one a held slot reads dropped from it; a tag the catalog
- * lacks missing from `unreadTables`.
+ * slot, left undeclared; a `location_data` slug missing from the reads; a tag
+ * the catalog lacks missing; a table a form only declares taken for a read; a
+ * step of a path taken for a property of its own. And of the reading built on
+ * the scan: a declared property no held slot reads left in the document; one
+ * a held slot reads dropped from it; a tag the catalog lacks missing from
+ * `unreadTables`, or a tag only declared listed there.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -216,7 +217,47 @@ describe("the scan of an app's expressions", () => {
 			}),
 		);
 		expect(scanned.locationDataSlugs).toEqual(["area", "zone"]);
-		expect(scanned.lookupTags).toEqual(["crops"]);
+		// The form declares the table and nothing of it reads its id.
+		expect(scanned.lookupTags).toEqual([]);
+		expect(scanned.declaredLookupTags).toEqual(["crops"]);
+	});
+
+	it("reads a table by the id its form declares it under, or by its item-list id", () => {
+		const app = doc();
+		const form = onlyForm(app);
+		const relevant: SlotContextRef = {
+			entity: "field",
+			uuid: fieldNamed(app, "q1"),
+			slot: "relevant",
+		};
+		const scanned = scanReads(
+			[
+				registration(
+					app,
+					relevant,
+					"count(instance('crops')/crops_list/crops) > 0",
+				),
+				registration(
+					app,
+					relevant,
+					"count(instance('item-list:soils')/soils_list/soils) > 0",
+				),
+			],
+			app,
+			readEnv({
+				instanceSources: new Map([
+					[
+						form,
+						new Map([
+							["crops", "jr://fixture/item-list:crops"],
+							["item-list:seeds", "jr://fixture/item-list:seeds"],
+						]),
+					],
+				]),
+			}),
+		);
+		expect(scanned.lookupTags).toEqual(["crops", "soils"]);
+		expect(scanned.declaredLookupTags).toEqual(["seeds"]);
 	});
 });
 
@@ -328,22 +369,37 @@ describe("the reading built on the scan", () => {
 		).toEqual([]);
 	});
 
-	it("lists a table the form declares and the catalog lacks as unread", () => {
+	it("lists a table the form declares and the catalog lacks as declared until an expression reads it", () => {
 		const app = doc();
 		const relevant: SlotContextRef = {
 			entity: "field",
 			uuid: fieldNamed(app, "q1"),
 			slot: "relevant",
 		};
-		const reading = readExpressions(
+		const env = readEnv({
+			instanceSources: new Map([
+				[onlyForm(app), new Map([["crops", "jr://fixture/item-list:crops"]])],
+			]),
+		});
+		const declared = readExpressions(
 			app,
 			[registration(app, relevant, "/data/q1 = 'x'")],
-			readEnv({
-				instanceSources: new Map([
-					[onlyForm(app), new Map([["crops", "jr://fixture/item-list:crops"]])],
-				]),
-			}),
+			env,
 		);
-		expect(reading.unreadTables).toEqual(["crops"]);
+		expect(declared.unreadTables).toEqual([]);
+		expect(declared.declaredTables).toEqual(["crops"]);
+		const read = readExpressions(
+			app,
+			[
+				registration(
+					app,
+					relevant,
+					"count(instance('crops')/crops_list/crops) > 0",
+				),
+			],
+			env,
+		);
+		expect(read.unreadTables).toEqual(["crops"]);
+		expect(read.declaredTables).toEqual([]);
 	});
 });

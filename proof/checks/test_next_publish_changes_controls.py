@@ -3,8 +3,9 @@
 Contract (``proof.checks.changes``): on a document whose saves in CommCare HQ
 are brought in, proofs 1 to 3 accept exactly the differences a row of a change
 the review listed names, by check, artifact, structural path and kind; a
-difference only a row of a change the review did not list matches is
-``/<id>/unsaid``; a listed change that matches nothing is ``/<id>/unseen``,
+difference no listed change holds is ``/<id>/unsaid`` once, of the change
+whose own row names it most exactly where that change is not listed, and of
+none where a class it matches is several changes' rows; a listed change that matches nothing is ``/<id>/unseen``,
 but where every row of it names a served reader's artifact and the run
 observes no served reader, or names a check the judge was not handed; nothing
 applies on a document that brings nothing in, or on a control. The register's
@@ -102,21 +103,21 @@ def _moved():
                 "proof2",
                 DOCUMENT,
                 "media_suite.xml",
-                "/suite/media[*]/resource[@id=*]",
-                f"/suite/media[1]/resource[@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{OLD_NAME}]",
+                "/suite/media[resource/@id=*]",
+                f"/suite/media[resource/@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{OLD_NAME}]",
                 "removed",
-                "<resource/>",
+                "<media/>",
                 None,
             ),
             Difference(
                 "proof2",
                 DOCUMENT,
                 "media_suite.xml",
-                "/suite/media[*]/resource[@id=*]",
-                f"/suite/media[1]/resource[@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{NEW_NAME}]",
+                "/suite/media[resource/@id=*]",
+                f"/suite/media[resource/@id=media-07a8e9c6c3fda495a7ba1a43892c5b38-{NEW_NAME}]",
                 "added",
                 None,
-                "<resource/>",
+                "<media/>",
             ),
         ],
         "proof3": [
@@ -208,8 +209,15 @@ def test_the_same_move_where_the_review_lists_nothing_is_held_by_nothing_and_rep
         assert changes.declared(document, check, found, register=register) == ([], frozenset())
         assert changes.undeclared(document, check, found, register=register) == found
     found = changes.differences(document, checked, readers=frozenset(), register=register)
+    # Each difference is unsaid at most once, of the one change whose own row names it most exactly: the rename's.
+    # A class the rows of several media entries name (a picture taken out of the map or the media suite) names
+    # none of them, and stays with the check that reports it.
     assert {difference.path for difference in found} == {"/media-files-renamed/unsaid"}
-    assert len(found) == len(_all(checked))
+    named = [difference for difference in _all(checked) if changes.naming(difference, register, {})]
+    assert 0 < len(named) < len(_all(checked))
+    assert sorted(difference.at for difference in found) == sorted(
+        f"/media-files-renamed/unsaid/{difference.check}/{difference.artifact}{difference.at}" for difference in named
+    )
 
 
 def test_a_listed_change_that_shows_nothing_is_unseen():
@@ -238,14 +246,20 @@ REGISTER = changes.parse(
     [
         {
             "change": "media-files-renamed",
+            "placeKinds": ["app"],
             "rows": [
                 {"check": "source", "artifact": "app.json", "path": "/multimedia_map/*"},
                 {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "removed"},
             ],
         },
-        {"change": "location-list-setting-reset", "rows": [{"check": "source", "artifact": "app.json", "path": "/x"}]},
+        {
+            "change": "location-list-setting-reset",
+            "placeKinds": ["app"],
+            "rows": [{"check": "source", "artifact": "app.json", "path": "/x"}],
+        },
         {
             "change": "hidden-values-added",
+            "placeKinds": ["form-node"],
             "rows": [{"check": "proof3", "artifact": "formplayer@B", "path": "/runs/*/screens"}],
         },
     ]
@@ -288,14 +302,17 @@ def test_the_register_loads_and_refuses_what_the_judge_cannot_hold():
     assert all(row.check in changes.ROW_CHECKS for change in held for row in change.rows)
     row = {"check": "source", "artifact": "app.json", "path": "/name"}
     for refused, says in (
-        ([{"change": "a", "rows": []}, {"change": "a", "rows": []}], "two objects of the change a"),
-        ([{"change": "a", "rows": [row, row]}], "twice"),
-        ([{"change": "a", "rows": [{**row, "check": "intent"}]}], "names the check 'intent'"),
-        ([{"change": "a", "rows": [{**row, "kind": "moved"}]}], "left out for every kind"),
+        (
+            [{"change": "a", "placeKinds": ["app"], "rows": []}, {"change": "a", "placeKinds": ["app"], "rows": []}],
+            "two objects of the change a",
+        ),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [row, row]}], "twice"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "check": "intent"}]}], "names the check 'intent'"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "kind": "moved"}]}], "left out for every kind"),
     ):
         with pytest.raises(changes.ChangesError, match=says):
             changes.parse(refused)
-    assert changes.parse([{"change": "a", "rows": [row]}])[0].rows[0].path == "/name"
+    assert changes.parse([{"change": "a", "placeKinds": ["app"], "rows": [row]}])[0].rows[0].path == "/name"
 
 
 def _write(path, value):
@@ -316,13 +333,16 @@ def test_the_rows_command_prints_each_unheld_class_of_a_document_s_evidence_once
     _write(tmp_path / "corpus" / DOCUMENT / "hq-side.json", {"republish": "brings-in", "publishChanges": []})
     printed = changes.rows(tmp_path, DOCUMENT, register=REGISTER)
     assert printed == [
-        {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "removed"},
-        {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "added"},
-        {"check": "proof3", "artifact": "trace@B", "path": IMAGE, "kind": "changed"},
+        {"row": {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "removed"}, "at": []},
+        {"row": {"check": "proof1", "artifact": "app.json", "path": "/multimedia_map/*", "kind": "added"}, "at": []},
+        {"row": {"check": "proof3", "artifact": "trace@B", "path": IMAGE, "kind": "changed"}, "at": []},
     ]
-    # Where the review lists the change, what its rows hold is no longer printed.
+    # Where the review lists the change, what its rows hold is no longer printed, and what they do not is printed
+    # under it: the review names no place, so the change stands everywhere.
     _write(
         tmp_path / "corpus" / DOCUMENT / "hq-side.json",
         {"republish": "brings-in", "publishChanges": ["media-files-renamed"]},
     )
-    assert changes.rows(tmp_path, DOCUMENT, register=REGISTER) == printed[1:]
+    assert changes.rows(tmp_path, DOCUMENT, register=REGISTER) == [
+        {**one, "at": ["media-files-renamed"]} for one in printed[1:]
+    ]

@@ -60,6 +60,7 @@ from __future__ import annotations
 import json
 import shutil
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -94,7 +95,7 @@ def _keys(found):
 
 
 BASELINE = {
-    ("schema:Application", "/"),
+    ("schema:Application", ""),
     ("schema:Application.domain", "/domain"),
     ("schema:Application.name", "/name"),
     ("schema:Application.modules", "/modules"),
@@ -162,7 +163,7 @@ def test_values_the_schemas_slots_name_are_used_by_value(hq, manifest):
     )
     app.modules.append(module)
     doc = app.to_json()
-    doc["add_ons"] = {"calc_xpaths": True, "subcases": False}
+    doc["add_ons"] = {"calc_xpaths": True, "subcases": False, "custom_icon_badges": True}
     doc["profile"] = {
         "properties": {"cc-show-saved": "no", "brand-banner-web-apps": "jr://file/b.png", "unheard-of": "1"},
         "features": {"users": "true"},
@@ -197,6 +198,8 @@ def test_values_the_schemas_slots_name_are_used_by_value(hq, manifest):
         "prompt-appearance:barcode_scan",
     } <= keys
     assert "add-on:subcases" not in keys  # an add-on turned off is not used
+    # A slug HQ's add_ons.py no longer lists is a value of the map's own slot, which no HQ code reads.
+    assert "add-on:custom_icon_badges" not in keys and "add-on:custom_icon_badges" not in manifest.items
     assert "format:calculate" not in keys and "format:calculate" not in manifest.items
     assert "setting:properties.brand-banner-web-apps" not in keys
     assert "setting:properties.unheard-of" not in manifest.items
@@ -291,14 +294,27 @@ def test_an_xform_uses_what_cores_parser_and_hqs_reader_read_and_its_answer_data
     assert found.roots == {"instance"}
     # Paths through the session instance, by the surface's items (a datum's id is any step there).
     assert {"session-path:session/context/deviceid", "session-path:session/data/*"} <= keys
-    # Each instance's source by Core's dispatch; a form's instance ids are no scheme HQ's build reads.
+    # Each instance's source by Core's dispatch, at its declaration; each instance an expression reads, by the scheme
+    # HQ's build declares it under (XForm.add_missing_instances over the form's text), once at that expression, and
+    # never at a declaration.
     assert {"instance-source:casedb", "instance-source:session"} <= keys
-    assert not {key for key in keys if key.startswith("instance-scheme:")}
+    schemes = {(key, where) for key, where in uses if key.startswith("instance-scheme:")}
+    assert schemes == {
+        ("instance-scheme:casedb", "/h:html/h:head[1]/model[1]/bind[1]/@constraint"),
+        ("instance-scheme:commcaresession", "/h:html/h:head[1]/model[1]/setvalue[2]/@value"),
+    }
+    assert len([use for use in found.uses if use.key.startswith("instance-scheme:")]) == len(schemes)
     # Vellum's hashtags, each as the longest hashtag the surface holds that it starts with.
     assert {key for key in keys if key.startswith("hashtag:")} == {"hashtag:#case/", "hashtag:#case/parent"}
-    # Question types as HQ's own reader types them (xform.py::_infer_vellum_type), and a form whose questions
-    # HQ's reader refuses (a group's hint with no ref) is a use no item holds.
-    assert {("mug:Int", "/data/q"), ("mug:Barcode", "/data/g/r"), ("mug:Group", "/data/g")} <= uses
+    # Question types as HQ's own reader types them (xform.py::_infer_vellum_type), each at its data node, where
+    # Nova's reader records a question's type, and a form whose questions HQ's reader refuses (a group's hint with
+    # no ref) is a use no item holds.
+    data = "/h:html/h:head[1]/model[1]/instance[1]/{http://example.org/visit}data[1]"
+    assert {
+        ("mug:Int", f"{data}/{{http://example.org/visit}}q[1]"),
+        ("mug:Barcode", f"{data}/{{http://example.org/visit}}g[1]/{{http://example.org/visit}}r[1]"),
+        ("mug:Group", f"{data}/{{http://example.org/visit}}g[1]"),
+    } <= uses
     hinted = FORM.replace(b"<label>G</label>", b"<label>G</label><hint>H</hint>")
     assert set(observed_manifest.question_types(hinted)) == {"unreadable"}
     unread = manifest_usage.Uses()
@@ -368,6 +384,78 @@ def test_an_xform_uses_what_cores_parser_and_hqs_reader_read_and_its_answer_data
     readers = {key for key in manifest.items if key.startswith("itext-form:") and key.endswith("/markdown")}
     assert {key for key in keys if key.startswith("itext-form:")} == (readers or {"itext-form:*/markdown"})
     assert not any(key.startswith("xform:h:") for key in keys)  # the wrappers XFormParser passes over
+
+
+SOURCE_FAMILIES_FILE = Path(__file__).parent / "fixtures" / "source-families.json"
+SOURCE_FAMILIES = json.loads(SOURCE_FAMILIES_FILE.read_text(encoding="utf-8"))["families"]
+# FORM with an Android intent in its head, which the extension parser reads.
+INTENT = b'<odkx:intent xmlns:odkx="http://opendatakit.org/xforms" id="scan" class="org.example.SCAN"/>'
+SOURCE_FORM = FORM.replace(b"</h:head>", INTENT + b"</h:head>")
+# A search query HQ's CSQL parser reads a function, operators, a case attribute and a distance unit of.
+SOURCE_QUERY = "\"within-distance(location, '42.4 -71.1', 10, 'miles') and case_name = 'x'\""
+
+
+def test_the_source_families_are_the_families_the_extraction_reads_from_an_app_source(hq, manifest, core_runner):
+    """Contract: ``fixtures/source-families.json`` names exactly the families of the surface's keys the extraction
+    reads from an app's source: the app JSON (``app_json_uses``), each XForm it carries, and what HQ's and Core's
+    readers read of them (``read_observed``: expressions, CSQL and question types). The surface's entry coverage
+    test reads the list to refuse an entry exempt as held in no app's source while one of its keys is of such a
+    family. The plausible failures: a family the extraction comes to read from a source that the list lacks, so an
+    entry an app's source holds is exempted unseen; and a family listed that only Nova's builds or lookup data hold
+    (``parser:``, ``hq-api:``, ``lookup-model:``), so an honest exemption is refused. The app
+    here holds every listed family at once, built with HQ's own model."""
+    from corehq.apps.app_manager.models import (
+        Application,
+        CaseSearch,
+        CaseSearchProperty,
+        DefaultCaseSearchProperty,
+        DetailColumn,
+        Form,
+        Module,
+    )
+
+    app = Application(domain="nova-proof", name="Source", langs=["en"])
+    module = Module(name={"en": "Menu"}, case_type="patient")
+    module.case_details.short.columns.append(
+        DetailColumn(header={"en": "Place"}, field="location:district", format="plain")
+    )
+    module.search_config = CaseSearch(
+        properties=[
+            CaseSearchProperty(name="dob", input_="date"),
+            CaseSearchProperty(name="owner_id", appearance="barcode_scan"),
+        ],
+        default_properties=[DefaultCaseSearchProperty(property="_xpath_query", defaultValue=SOURCE_QUERY)],
+    )
+    module.forms.append(Form(name={"en": "Visit"}))
+    app.modules.append(module)
+    doc = app.to_json()
+    doc["modules"][0]["forms"][0]["unique_id"] = "visit"
+    doc["_attachments"] = {"visit.xml": SOURCE_FORM.decode()}
+    doc["add_ons"] = {"calc_xpaths": True}
+    doc["profile"] = {"properties": {"cc-show-saved": "no", "brand-banner-web-apps": "jr://file/b.png"}}
+    doc["multimedia_map"] = {"jr://file/b.png": {"doc_type": "HQMediaMapItem", "media_type": "CommCareImage"}}
+    shown = next(
+        key.split(":", 1)[1]
+        for key in sorted(manifest.items)
+        if key.startswith("ui-string:") and not key.endswith("*") and manifest.items[key].get("readBy")
+    )
+    doc["translations"] = {"en": {shown: "Shown"}}
+    found = _read(
+        core_runner,
+        manifest,
+        lambda found: manifest_usage.app_json_uses(doc, manifest, "app.json", found),
+        forms=[SOURCE_FORM],
+        apps=[doc],
+    )
+    surface = {key.split(":", 1)[0] for key in manifest.items}
+    extracted = {use.key.split(":", 1)[0] for use in found.uses} & surface
+    assert sorted(extracted) == sorted(SOURCE_FAMILIES), (
+        f"The extraction read {sorted(extracted - set(SOURCE_FAMILIES))} from an app's source, which"
+        f" fixtures/source-families.json does not name, and read nothing of {sorted(set(SOURCE_FAMILIES) - extracted)},"
+        " which it names. Name each family the extraction reads from a source there, and only those."
+    )
+    assert set(SOURCE_FAMILIES) <= surface
+    assert sorted(SOURCE_FAMILIES) == SOURCE_FAMILIES and len(set(SOURCE_FAMILIES)) == len(SOURCE_FAMILIES)
 
 
 REPEATED = b"""<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml"
@@ -742,10 +830,36 @@ def test_the_ui_strings_an_app_overrides_are_used_and_its_own_text_is_not(manife
     assert _uses(found) == {("ui-string:app.display.name", "app.display.name")}
 
     overridden = manifest_usage.Uses()
-    doc = {"doc_type": "Application", "translations": {"en": {"app.display.name": "Clinic", "my.own": "x"}}}
+    doc = {
+        "doc_type": "Application",
+        "langs": ["en"],
+        "translations": {"en": {"app.display.name": "Clinic", "my.own": "x"}, "fra": {"app.display.name": "Clinique"}},
+    }
     manifest_usage.app_json_uses(doc, manifest, "app.json", overridden)
     assert ("ui-string:app.display.name", "/translations/en/app.display.name") in _uses(overridden)
     assert not [use for use in overridden.uses if use.key == "ui-string:my.own"]
+    # A language the app does not hold: HQ's build writes no strings of it, so no runtime reads its ids.
+    assert not [use for use in overridden.uses if use.where.startswith("/translations/fra/")]
+
+
+def test_a_key_naming_an_undeclared_member_is_one_of_the_class_s_undeclared_keys(manifest):
+    """Contract: a key naming a member a class does not declare (a method or a property, ``declared: false``) is a
+    use of the class's undeclared-key item, the key Nova's reader claims it under, at the key's own pointer; a key
+    naming a descriptor with a setter keeps its own item. The plausible failure: a use of the member's own item,
+    which no entry names, beside the reader's record of the undeclared key at the same place, so parity reports one
+    unseen and the other unnamed for one key."""
+    member = manifest.item("schema:Application.base_heartbeat_url")
+    assert member["declared"] is False and member["descriptor"] and not member["setter"]
+    setter = manifest.item("schema:Form.source")
+    assert setter["declared"] is False and setter["descriptor"] and setter["setter"]
+    found = manifest_usage.Uses()
+    form = {"doc_type": "Form", "source": "x"}
+    doc = {"doc_type": "Application", "base_heartbeat_url": "x", "modules": [{"doc_type": "Module", "forms": [form]}]}
+    manifest_usage.app_json_uses(doc, manifest, "app.json", found)
+    uses = _uses(found)
+    assert ("schema:Application.<undeclared>", "/base_heartbeat_url") in uses
+    assert not [use for use in found.uses if use.key == "schema:Application.base_heartbeat_url"]
+    assert ("schema:Form.source", "/modules/0/forms/0/source") in uses
 
 
 def test_a_value_the_upload_carries_back_from_the_target_is_not_novas_use(manifest):
@@ -759,6 +873,7 @@ def test_a_value_the_upload_carries_back_from_the_target_is_not_novas_use(manife
         found = manifest_usage.Uses()
         doc = {
             "doc_type": "Application",
+            "langs": ["en"],
             "translations": {"en": {"home.start": translation, "app.display.name": "Clinic"}},
             "add_ons": {"menu_mode": menu_mode, "submenus": True},
         }
@@ -1023,17 +1138,97 @@ def test_a_use_only_held_new_entries_name_is_held_new():
     ]
 
 
+def test_a_held_new_class_beside_an_allowing_class_is_judged_where_it_has_a_reader():
+    """A HELD-NEW class that splits a value an allowing class's key also names is judged by its reader: a use it takes
+    is held-new resting on it, whatever allowing class names the key, in a local archive as in the source; one it
+    places outside, or does not say of, is held. A REFUSED class that takes the use still refuses it first, and a
+    HELD-NEW class with no reader judges nothing: alone it leaves the use held, and beside a reader that takes the
+    use the use rests on it too, since the check cannot rule its class out (Nova's reader may claim the use under
+    it)."""
+    new = ("questions/new", "HELD-NEW", "new-class")
+    held = ("questions/held", "HELD", "held-class")
+    unread = ("questions/unread-new", "HELD-NEW", "unread-class")
+    entries = {
+        "jr-type:int": [new, held],
+        "jr-type:date": [new, held, ("questions/refusing", "REFUSED", "refused-class", EDITOR)],
+        "jr-type:long": [unread, held],
+        "jr-type:time": [new, unread, held],
+    }
+    readers = {"questions/new": _placed(True, False, None), "questions/refusing": _placed(True, False, False)}
+    built = _built(entries, readers)
+
+    def standing(key, where, artifact="form:0.0"):
+        kind, held_on = manifest_usage.standing(built, manifest_usage.Use(key, artifact, str(where)))
+        return kind, [entry.value_class for entry in held_on]
+
+    assert [standing("jr-type:int", where) for where in range(3)] == [
+        (manifest_usage.HELD_NEW, ["new-class"]),
+        (manifest_usage.HELD, []),
+        (manifest_usage.HELD, []),  # the reader does not say: the class is not judged there
+    ]
+    assert standing("jr-type:int", 0, "local.ccz/form:0.0") == (manifest_usage.HELD_NEW, ["new-class"])
+    assert standing("jr-type:date", 0) == (manifest_usage.REFUSED, ["refused-class"])
+    assert standing("jr-type:date", 1) == (manifest_usage.HELD, [])
+    assert standing("jr-type:long", 0) == (manifest_usage.HELD, [])
+    assert standing("jr-type:time", 0) == (manifest_usage.HELD_NEW, ["new-class", "unread-class"])
+    assert standing("jr-type:time", 1) == (manifest_usage.HELD, [])
+    found = manifest_usage.unclassified(
+        "doc",
+        [manifest_usage.Use("jr-type:int", "form:0.0", str(where)) for where in range(3)],
+        built,
+    )
+    assert [(d.path, d.after["uses"], [e["id"] for e in d.after["entries"]]) for d in found] == [
+        ("/jr-type:int/held-new", 1, ["questions/new"])
+    ]
+
+
+# FORM with its data root named ``visit``, and with it named ``data``, each at the uiVersion HQ's form builder writes.
+NAMED_ROOT = FORM.replace(
+    b'<data xmlns="http://example.org/visit" name="Visit">',
+    b'<visit xmlns="http://example.org/visit" name="Visit" uiVersion="1">',
+).replace(b"</data>", b"</visit>")
+DATA_ROOT = FORM.replace(b'name="Visit">', b'name="Visit" uiVersion="1">')
+
+
+def test_a_use_a_held_new_reader_takes_on_a_nova_export_is_reported_held_new(manifest):
+    """Contract: Nova's gate refuses every value a HELD-NEW class with a reader takes, so where an export of Nova's
+    holds one, the manifest check reports it under the key's ``held-new`` path, resting on that entry, and the same
+    export at the value Nova writes reports nothing there. The plausible failure: a check that holds the use because
+    an allowing entry names its key, so an export Nova's reader would not bring in passes the lane."""
+    path = f"/{pointer_token('xform:model/instance/*')}/held-new"
+
+    def reported(xml):
+        found = manifest_usage.Uses()
+        manifest_usage.xform_uses(xml, manifest, "form:0.0", found)
+        return [
+            [entry["id"] for entry in difference.after["entries"]]
+            for difference in manifest_usage.unclassified("doc", found.uses, manifest)
+            if difference.path == path
+        ]
+
+    assert reported(NAMED_ROOT) == [["questions/data-root-element-named-other-than-data"]]
+    assert reported(DATA_ROOT) == []
+
+
 def test_a_use_no_entry_refuses_where_it_sits_stands_by_where_its_class_is_judged():
     """A key only the bar's entries name is the bar's: every use of it is an export HQ's build refuses, which the bar
-    reports. In a local archive, a key named only by entries refused for how HQ's editors treat the source still has
-    its uses placed by their classes: one an editor class takes is the source's (the same choice in the app JSON is
-    refused there), one none takes is the build's own and unheld, and one a class may take is undecided."""
+    reports. Beside a class the check reads, the bar's class is not read, so a use that read class rules out is the
+    bar's as well, never unheld: the one class left is the bar's. In a local archive, a key named only by entries
+    refused for how HQ's editors treat the source still has its uses placed by their classes: one an editor class
+    takes is the source's (the same choice in the app JSON is refused there), one none takes is the build's own and
+    unheld, and one a class may take is undecided. The plausible failure: a schedule switched off whose condition
+    names a question the form lacks, which the schedule's read class rules out, reported as held by no entry while
+    HQ's build refuses it by the bar's class."""
     built = _built(
         {
             "schema:OpenCaseAction.conflicts": [("forms-and-case-writes/conflicts", "REFUSED", "non-empty", BUILD)],
             "jr-event:xforms-revalidate": [("questions/form-level", "REFUSED", "form-level-setvalue", EDITOR)],
+            "schema:FormSchedule.transition_condition": [
+                ("forms-and-case-writes/schedule-on", "REFUSED", "schedule-enabled", ("retiring",)),
+                ("forms-and-case-writes/schedule-off-gone", "REFUSED", "schedule-names-missing", BUILD),
+            ],
         },
-        {"questions/form-level": _placed(True, False, None)},
+        {"questions/form-level": _placed(True, False, None), "forms-and-case-writes/schedule-on": _placed(True, False)},
     )
 
     def standing(key, artifact, where="0"):
@@ -1051,12 +1246,18 @@ def test_a_use_no_entry_refuses_where_it_sits_stands_by_where_its_class_is_judge
         manifest_usage.REFUSED,
         manifest_usage.UNHELD,
     ]
+    # The schedule on is the read class's; off, the use is the bar's class, the one the check leaves unread.
+    assert [standing("schema:FormSchedule.transition_condition", "app.json", where) for where in "01"] == [
+        (manifest_usage.REFUSED, ["schedule-enabled"]),
+        (manifest_usage.BAR, ["schedule-names-missing"]),
+    ]
     found = manifest_usage.unclassified(
         "doc",
         [
             manifest_usage.Use("schema:OpenCaseAction.conflicts", "app.json", "0"),
             manifest_usage.Use("jr-event:xforms-revalidate", archive, "0"),
             manifest_usage.Use("jr-event:xforms-revalidate", archive, "1"),
+            manifest_usage.Use("schema:FormSchedule.transition_condition", "app.json", "1"),
         ],
         built,
     )
@@ -1138,6 +1339,436 @@ def test_the_surfaces_matching_rules_choose_one_item(manifest):
     assert manifest_usage.hashtag_key(manifest, "#case/parent/edd") == "hashtag:#case/parent"
     assert manifest_usage.hashtag_key(manifest, "#nowhere/x") == "hashtag:#nowhere/x"
     assert manifest_usage.search_key(manifest, "region") is None
+
+
+HEAD_MAPS = b"""<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml"
+ xmlns:vellum="http://commcarehq.org/xforms/vellum">
+ <h:head><h:title>T</h:title><model><instance><data xmlns="http://example.org/t"><q/><g><r/></g></data></instance>
+ </model>
+ <vellum:hashtags>{"#case/a": null, "#case/b": null, "#case/parent/c": null, "#form/q": null, "#session/data/x": null,
+  "#registry_case/y": null, "#case": null, "#host/z": null, "#user/role": null}</vellum:hashtags>
+ <vellum:hashtagTransforms>{"prefixes": {"#case/": "instance('casedb')/casedb/case", "#host/": "x"}}
+ </vellum:hashtagTransforms>
+ </h:head><h:body><input ref="/data/q"/><group ref="/data/g"><input ref="/data/g/r"/></group></h:body></h:html>"""
+
+
+def test_a_head_map_names_each_hashtag_one_allowing_entry_holds_once(manifest):
+    """Contract: a head hashtag map's element uses each surface hashtag its names start with once, however many of
+    its names do, and only a hashtag one allowing entry alone holds (``#case/``, ``#case/parent``,
+    ``#case/grandparent``, ``#form/``, ``#user``), as Nova's reader claims the element
+    (``lib/commcare/reader/xform/parse.ts::claimHeadHashtags``); any other hashtag is left to the map's own
+    ``vellum-markup:`` use. The plausible failures: two names of one hashtag counted twice where the reader records
+    the element once, and a ``#session/`` or ``#registry_case`` name used at the map, which parity reports unclaimed
+    or refused where the reader leaves the map inert."""
+    held = {
+        tag: manifest_usage.head_hashtag_key(manifest, f"{tag}x")
+        for tag in ("#case/", "#case/parent/", "#case/grandparent/", "#form/", "#user/")
+    }
+    assert held == {
+        "#case/": "hashtag:#case/",
+        "#case/parent/": "hashtag:#case/parent",
+        "#case/grandparent/": "hashtag:#case/grandparent",
+        "#form/": "hashtag:#form/",
+        "#user/": "hashtag:#user",
+    }
+    for other in ("#session/data/x", "#registry_case/y", "#case", "#host/z", "$fixture_value"):
+        assert manifest_usage.head_hashtag_key(manifest, other) is None, other
+    found = manifest_usage.Uses()
+    manifest_usage.xform_uses(HEAD_MAPS, manifest, "form:0.0", found)
+    head = "/h:html/h:head[1]"
+    at_maps = sorted(
+        (use.where, use.key) for use in found.uses if use.key.startswith("hashtag:") and use.where.startswith(head)
+    )
+    assert at_maps == [
+        (f"{head}/vellum:hashtagTransforms[1]", "hashtag:#case/"),
+        (f"{head}/vellum:hashtags[1]", "hashtag:#case/"),
+        (f"{head}/vellum:hashtags[1]", "hashtag:#case/parent"),
+        (f"{head}/vellum:hashtags[1]", "hashtag:#form/"),
+        (f"{head}/vellum:hashtags[1]", "hashtag:#user"),
+    ]
+
+
+SLOTTED_APP = {
+    "doc_type": "Application",
+    "langs": ["en"],
+    "modules": [
+        {
+            "doc_type": "Module",
+            "unique_id": "m",
+            "case_type": "patient",
+            "module_filter": "count(instance('casedb')/casedb/case) > 0",
+            "forms": [{"doc_type": "Form", "unique_id": "f", "form_filter": "#case/parent/edd != '' and #case/x = 1"}],
+            "case_details": {
+                "doc_type": "DetailPair",
+                "short": {
+                    "columns": [
+                        {
+                            "doc_type": "DetailColumn",
+                            "field": "count(instance('commcaresession')/session/data/case_id)",
+                            "useXpathExpression": True,
+                            "format": "plain",
+                            "header": {"en": "N"},
+                        }
+                    ]
+                },
+            },
+            "search_config": {
+                "doc_type": "CaseSearch",
+                "properties": [
+                    {
+                        "doc_type": "CaseSearchProperty",
+                        "name": "district",
+                        "input_": "select1",
+                        "itemset": {"doc_type": "Itemset", "instance_id": "item-list:districts"},
+                    }
+                ],
+                "default_properties": [
+                    {
+                        "doc_type": "DefaultCaseSearchProperty",
+                        "property": "_xpath_query",
+                        "defaultValue": "if(count(instance('casedb')/casedb/case) > 0, concat(\"district = '\","
+                        " instance('search-input:results')/input/field[@name = 'district'], \"'\"), 'match-all()')",
+                    }
+                ],
+            },
+        }
+    ],
+}
+
+
+def test_an_app_json_slot_uses_the_schemes_it_reads_and_the_shorthand_hq_finds_in_it(hq, manifest, core_runner):
+    """Contract: an app JSON's expression slot (a display condition, a calculated column, a form link, a search's
+    ``_xpath_query``) uses, where it sits, each instance it reads by the scheme HQ's build declares it under in the
+    suite it writes, once a slot, and, as a form's expression does, each function it calls, each path through the
+    session (its source the one HQ's build declares the session's instance from) and the grammar Core's parser builds
+    of it, since HQ's build writes it into the suite, where Core parses it; a display condition and the case list's
+    filter also use each shorthand pattern HQ's build replaces in their text (``#case``, ``#session/``), and the
+    grammar is read only where Core reads the text. A search's ``_xpath_query`` uses only its reads of the Search
+    fields' answers (its CSQL is the query's), and a Search field's choices name their instance's scheme. Nova's
+    reader claims each at the slot (``lib/commcare/reader/expressions/surfaceUses.ts``). The plausible failure: a
+    scheme, a function, a session path, a piece of grammar or a shorthand the reader records at a slot that the lane
+    never extracts, which parity reports unseen."""
+    found = _read(
+        core_runner,
+        manifest,
+        lambda found: manifest_usage.app_json_uses(SLOTTED_APP, manifest, "app.json", found),
+        apps=[SLOTTED_APP],
+    )
+    module = "/modules/0"
+    slotted = sorted(
+        (use.where, use.key)
+        for use in found.uses
+        if use.key.startswith(("instance-scheme:", "hashtag:", "jr-fn:", "xpath-", "session-path:"))
+    )
+    column = f"{module}/case_details/short/columns/0/field"
+    assert slotted == [
+        (column, "instance-scheme:commcaresession"),
+        (column, "jr-fn:count"),
+        (column, "session-path:session/data/*"),
+        (column, "xpath-axis:AXIS_CHILD"),
+        (column, "xpath-expr:XPathPathExpr"),
+        (column, "xpath-expr:XPathStringLiteral"),
+        (column, "xpath-test:TEST_NAME"),
+        (column, "xpath-token:LPAREN"),
+        (column, "xpath-token:QNAME"),
+        (column, "xpath-token:RPAREN"),
+        (column, "xpath-token:SLASH"),
+        (column, "xpath-token:STR"),
+        # HQ's build replaces the text ``#case`` (once a slot), and the text it reads is no XPath Core reads, so the
+        # display condition holds no grammar of its text.
+        (f"{module}/forms/0/form_filter", "hashtag:#case"),
+        (f"{module}/module_filter", "instance-scheme:casedb"),
+        (f"{module}/module_filter", "jr-fn:count"),
+        (f"{module}/module_filter", "xpath-axis:AXIS_CHILD"),
+        (f"{module}/module_filter", "xpath-expr:XPathCmpExpr"),
+        (f"{module}/module_filter", "xpath-expr:XPathNumericLiteral"),
+        (f"{module}/module_filter", "xpath-expr:XPathPathExpr"),
+        (f"{module}/module_filter", "xpath-expr:XPathStringLiteral"),
+        (f"{module}/module_filter", "xpath-test:TEST_NAME"),
+        (f"{module}/module_filter", "xpath-token:GT"),
+        (f"{module}/module_filter", "xpath-token:LPAREN"),
+        (f"{module}/module_filter", "xpath-token:NUM"),
+        (f"{module}/module_filter", "xpath-token:QNAME"),
+        (f"{module}/module_filter", "xpath-token:RPAREN"),
+        (f"{module}/module_filter", "xpath-token:SLASH"),
+        (f"{module}/module_filter", "xpath-token:STR"),
+        (f"{module}/search_config/default_properties/0/defaultValue", "instance-scheme:search-input"),
+        (f"{module}/search_config/properties/0/itemset/instance_id", "instance-scheme:item-list"),
+    ]
+
+
+def _shorthand_module(fixture_select, form_filter):
+    return {
+        "doc_type": "Module",
+        "unique_id": f"m-{fixture_select}",
+        "case_type": "patient",
+        "fixture_select": {"doc_type": "FixtureSelect", "active": fixture_select},
+        "forms": [
+            {
+                "doc_type": "Form",
+                "unique_id": f"f-{fixture_select}",
+                "form_filter": form_filter,
+                "custom_assertions": [{"doc_type": "CustomAssertion", "test": "#case/x = 1", "text": {}}],
+            }
+        ],
+    }
+
+
+SHORTHAND_APP = {
+    "doc_type": "Application",
+    "langs": ["en"],
+    "modules": [
+        {
+            **_shorthand_module(True, "$fixture_value = 'a' and #parent/z = 1"),
+            "module_filter": "#user/x = 1 and #case/y = 2",
+            "case_details": {
+                "doc_type": "DetailPair",
+                "short": {"doc_type": "Detail", "filter": "#host/w = 1", "columns": []},
+                "long": {
+                    "doc_type": "Detail",
+                    "filter": "#case/q = 1",
+                    "columns": [],
+                    "tabs": [
+                        {
+                            "doc_type": "DetailTab",
+                            "has_nodeset": True,
+                            "nodeset_case_type": "child",
+                            "nodeset_filter": "#session/data/x = 1",
+                        },
+                        {
+                            "doc_type": "DetailTab",
+                            "has_nodeset": True,
+                            "nodeset": "instance('casedb')/casedb/case",
+                            "nodeset_case_type": "child",
+                            "nodeset_filter": "#session/data/x = 1",
+                        },
+                    ],
+                },
+            },
+            "search_config": {
+                "doc_type": "CaseSearch",
+                "blacklisted_owner_ids_expression": "#case/owner",
+                "properties": [
+                    {
+                        "doc_type": "CaseSearchProperty",
+                        "name": "district",
+                        "required": {"doc_type": "Assertion", "test": "#user/a = 1", "text": {}},
+                        "validations": [{"doc_type": "Assertion", "test": "#session/b != ''", "text": {}}],
+                    }
+                ],
+            },
+        },
+        _shorthand_module(False, "$fixture_value = 'a'"),
+    ],
+}
+
+
+def test_the_shorthand_is_read_in_every_slot_hq_s_build_interpolates_and_nowhere_else():
+    """Contract: each pattern ``xpath.py::interpolate_xpath`` replaces (``#session/``, ``#user``, ``#case``,
+    ``#parent``, ``#host``) is a use of its ``hashtag:`` item, once a slot, at each slot HQ's build reads through it at
+    the pin: a menu's and a form's display condition, the case list's filter (the short detail's alone), a detail
+    tab's filter where the tab's rows are a case type's children (no ``nodeset`` of its own), and a Search field's
+    required and validation conditions; ``$fixture_value`` only in a form's condition in a menu whose lookup table
+    selection is active, the one caller that names a fixture. No other slot holds a shorthand use: the long
+    detail's filter, a tab with its own nodeset, a custom assertion and a search's excluded owners are written as
+    they stand. Nova's reader records the shorthand at the same slots (``surfaceUses.ts``, the slot's
+    interpolation). The plausible failure: a shorthand the reader records at a Search field's condition, which the
+    lane never extracts there, so parity reports it unseen; or one the lane extracts where HQ never replaces it."""
+    found = manifest_usage.Uses()
+    manifest_usage.app_json_uses(SHORTHAND_APP, manifest_usage.load_manifest(), "app.json", found)
+    first, prop = "/modules/0", "/modules/0/search_config/properties/0"
+    assert sorted((use.where, use.key) for use in found.uses if use.key.startswith("hashtag:")) == [
+        (f"{first}/case_details/long/tabs/0/nodeset_filter", "hashtag:#session/"),
+        (f"{first}/case_details/short/filter", "hashtag:#host"),
+        (f"{first}/forms/0/form_filter", "hashtag:#parent"),
+        (f"{first}/forms/0/form_filter", "hashtag:$fixture_value"),
+        (f"{first}/module_filter", "hashtag:#case"),
+        (f"{first}/module_filter", "hashtag:#user"),
+        (f"{prop}/required/test", "hashtag:#user"),
+        (f"{prop}/validations/0/test", "hashtag:#session/"),
+    ]
+
+
+def test_a_tab_s_filter_and_a_search_field_s_conditions_are_expressions_where_hq_writes_them():
+    """Contract: HQ's build writes a detail tab's filter into the suite, as the predicate of the tab's ``nodeset``,
+    only where the tab's rows are a case type's children with no ``nodeset`` of its own
+    (``details.py::_get_detail_tab_nodeset``), and a Search field's required and validation conditions into its
+    prompt (``post_process/remote_requests.py``), so each is read there as an expression Core parses, its grammar
+    and functions among its uses, as Nova's reader reads it (the slots ``search_input_required_when`` and
+    ``search_input_validation_rule``, and the tab's filter); a tab with its own ``nodeset``, a form's custom
+    assertion and a search's excluded owners are no such slot here. The plausible failure: the reader's grammar
+    records at a Search field's condition, which the lane read no expression at, reported unseen on every variant
+    that holds one."""
+    found = manifest_usage.Uses()
+    manifest_usage.app_json_uses(SHORTHAND_APP, manifest_usage.load_manifest(), "app.json", found)
+    first, prop = "/modules/0", "/modules/0/search_config/properties/0"
+    read = {expression.where for expression in found.expressions}
+    assert {
+        f"{first}/case_details/long/tabs/0/nodeset_filter",
+        f"{prop}/required/test",
+        f"{prop}/validations/0/test",
+    } <= read
+    assert not read & {
+        f"{first}/case_details/long/tabs/1/nodeset_filter",
+        f"{first}/forms/0/custom_assertions/0/test",
+        f"{first}/search_config/blacklisted_owner_ids_expression",
+    }
+
+
+def test_the_observation_reads_each_file_hq_holds_for_the_app_it_made_by_its_map_path(tmp_path):
+    """Contract: on a document made in CommCare HQ the manifest observation reads each file HQ holds for the app it
+    made (``authored/media.json``'s rows), by the path the app's multimedia map gives it, and its inputs name
+    ``media.json`` and each file, so a file made again keys the observation anew; a document that maps no media
+    reads none. The plausible failures: a media class at a map item of HQ's app read from Nova's local archive,
+    which holds the file under another path or not at all (so the class stays undecided), and a held file the
+    observation's key does not name, so a base whose file moved is judged over the reading of the old one."""
+    from types import SimpleNamespace
+
+    from proof.checks.corpus import Authored
+
+    authored = tmp_path / "authored"
+    (authored / "media").mkdir(parents=True)
+    (authored / "app.json").write_text("{}")
+    (authored / "media" / "0.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    path = "jr://file/commcare/b31d.png"
+    (authored / "media.json").write_text(json.dumps([{"path": path, "file": "media/0.png"}]))
+
+    def document(media):
+        held = Authored(tmp_path / "authored", authored / "app.json", media, None, None, None)
+        return SimpleNamespace(root=tmp_path, authored=held, exports={}, edit=None)
+
+    held = document(authored / "media.json")
+    assert [
+        (where, file.relative_to(tmp_path).as_posix()) for where, file in observed_manifest.authored_media(held)
+    ] == [(path, "authored/media/0.png")]
+    named = observed_manifest.inputs(held, "local")
+    assert {key: value["path"] for key, value in named.items()} == {
+        "authored": "authored/app.json",
+        "authored.media": "authored/media.json",
+        f"authored.media:{path}": "authored/media/0.png",
+    }
+    (authored / "media" / "0.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00")
+    assert observed_manifest.inputs(held, "local")[f"authored.media:{path}"] != named[f"authored.media:{path}"]
+    unmapped = document(None)
+    assert observed_manifest.authored_media(unmapped) == []
+    assert set(observed_manifest.inputs(unmapped, "local")) == {"authored"}
+
+
+def test_a_form_s_read_takes_its_scheme_from_its_id_or_from_the_source_it_declares(manifest):
+    """Contract: a form's read of an instance takes the scheme of its id where HQ registers one, and else the scheme
+    of the name HQ's factory declares the form's own source under, as Nova's reader classes the read by the declared
+    source (a table Nova declares by its tag reads as ``item-list``). The plausible failure: Nova's own lookup read
+    used under a scheme no item holds, which the check would report unnamed on every export that reads a table."""
+    declared = {
+        "regions": "jr://fixture/item-list:regions",
+        "locations": "jr://fixture/commtrack:locations",
+        "casedb": "jr://instance/casedb",
+        "plain": "jr://example/plain",
+    }
+    read = {instance_id: manifest_usage.read_scheme(manifest, instance_id, declared) for instance_id in declared}
+    assert read == {"regions": "item-list", "locations": "locations", "casedb": "casedb", "plain": "plain"}
+    assert manifest_usage.read_scheme(manifest, "regions", {}) == "regions"
+
+
+def test_a_profile_property_use_joins_the_reader_s_record_under_the_one_entry_naming_it(manifest):
+    """Contract: a profile property only Nova's local profile writes (``cc-app-version``) and one HQ's profile writes
+    from the target (``PostURL``) are uses of ``profile-property:<key>`` held by the one entry naming each, INERT or
+    TARGET-OWNED, which Nova's reader records at ``/profile/properties/<key>`` as ``inert`` or ``kept`` under that
+    entry, and parity's join accepts each; a record under the other entry is an entry difference. The plausible
+    failures: a property extracted under its ``setting:`` spelling, which no entry names, so parity calls the
+    reader's record unclaimed; and a join that accepts a record under any allowing entry, whatever key it names."""
+    from proof.checks import parity
+
+    local, target = (
+        "application-and-settings/local-archive-profile-properties",
+        "application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
+    )
+    found = manifest_usage.Uses()
+    manifest_usage.app_json_uses(
+        {"doc_type": "Application", "profile": {"properties": {"cc-app-version": "1", "PostURL": "x"}}},
+        manifest,
+        "app.json",
+        found,
+    )
+    decided, _ = parity.decided_uses(found, manifest)
+    held = {one.use.key: one for one in decided if one.use.key.startswith("profile-property:")}
+    assert {key: one.standing for key, one in held.items()} == {
+        "profile-property:cc-app-version": manifest_usage.HELD,
+        "profile-property:PostURL": manifest_usage.HELD,
+    }
+    assert [entry.id for entry in manifest.entries["profile-property:cc-app-version"]] == [local]
+    assert [entry.id for entry in manifest.entries["profile-property:PostURL"]] == [target]
+
+    def log(*records):
+        return "".join(
+            json.dumps(
+                {
+                    "artifact": "app.json",
+                    "where": f"/profile/properties/{name}",
+                    "key": f"profile-property:{name}",
+                    "entry": entry,
+                    "standing": standing,
+                }
+            )
+            + "\n"
+            for name, entry, standing in records
+        )
+
+    uses = list(held.values())
+    assert parity.join(uses, log(("cc-app-version", local, "inert"), ("PostURL", target, "kept")), held=manifest) == []
+    swapped = parity.join(uses, log(("cc-app-version", target, "kept"), ("PostURL", local, "inert")), held=manifest)
+    assert sorted(difference.path for difference in swapped) == [
+        "/profile-property:PostURL/entry",
+        "/profile-property:cc-app-version/entry",
+    ]
+
+
+def test_a_question_data_node_is_spelled_by_its_depth_as_the_reader_spells_it(manifest):
+    """Contract: a question's data node is a use of ``xform:model/instance/*/*`` where it is a child of the data root
+    and of ``xform:model/instance//*`` deeper, the two keys Nova's reader records the node's question id claim
+    under (``lib/commcare/reader/xform/join.ts``: ``X.questionId.top`` and ``nested``). The plausible failure: the
+    most specific item ordering moving, so a nested node is spelled as a root child's and parity calls each nested
+    question unclaimed."""
+    root_child = [("model", "model"), ("instance", "instance"), ("data", "data"), ("q", "q")]
+    nested = [*root_child[:3], ("g", "g"), ("r", "r")]
+    assert manifest_usage.xform_candidates(manifest, root_child)[0] == "xform:model/instance/*/*"
+    assert manifest_usage.xform_candidates(manifest, nested)[0] == "xform:model/instance//*"
+    found = manifest_usage.Uses()
+    manifest_usage.xform_uses(HEAD_MAPS, manifest, "form:0.0", found)
+    data = "/h:html/h:head[1]/model[1]/instance[1]/{http://example.org/t}data[1]"
+    assert ("xform:model/instance/*/*", f"{data}/{{http://example.org/t}}q[1]") in _uses(found)
+    nested_where = f"{data}/{{http://example.org/t}}g[1]/{{http://example.org/t}}r[1]"
+    assert ("xform:model/instance//*", nested_where) in _uses(found)
+
+
+VELLUM_MARKUP_FORM = b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
+  xmlns:vellum="http://commcarehq.org/xforms/vellum" vellum:ignore="markdown"><h:head><h:title>T</h:title><model>
+  <instance><data xmlns="http://example.org/t" uiVersion="1"><q/></data></instance>
+  <bind nodeset="/data/q" type="xsd:int" required="/data/q &gt; 1" requiredCondition="#form/q &gt; 1"
+    vellum:requiredCondition="#form/q &gt; 1" vellum:required="#form/q &gt; 1" vellum:vellum__required="x"/>
+  </model></h:head><h:body><input ref="/data/q"/></h:body></h:html>"""
+
+
+def test_vellum_reads_its_attributes_of_a_wrapper_and_a_bare_shadow_and_never_its_unasked_bind_attributes(manifest):
+    """Contract: Vellum's markup is a use where the form builder reads it, keyed as the vellum family records what it
+    asks: its ``vellum:ignore`` of ``<h:html>``, which Core passes over (``parser.js::parseXForm``); a bind's bare
+    ``requiredCondition``, which it reads with ``vellum:requiredCondition`` as one value (``parseVellumAttrs``) and
+    Core never reads; and no ``vellum:`` attribute of a bind it never asks for (``vellum:required``, a
+    ``vellum:vellum__…`` chain), which it carries unread and HQ's build strips. Nova's reader records the first two
+    there under their entries (``questions/vellum-ignore-containing-markdown-…``,
+    ``questions/vellum-requiredcondition-expr-…``) and the last under an entry with no surface key. The plausible
+    failures: parity calling each of the reader's records unseen, and the manifest check calling a carried shadow
+    unnamed."""
+    found = manifest_usage.Uses()
+    manifest_usage.xform_uses(VELLUM_MARKUP_FORM, manifest, "form:0.0", found)
+    bind = "/h:html/h:head[1]/model[1]/bind[1]"
+    uses = _uses(found)
+    assert ("vellum-markup:h:html@vellum:ignore", "/h:html/@vellum:ignore") in uses
+    assert ("vellum-markup:bind@vellum:requiredCondition", f"{bind}/@requiredCondition") in uses
+    assert ("vellum-markup:bind@vellum:requiredCondition", f"{bind}/@vellum:requiredCondition") in uses
+    assert ("xform:model/bind@required", f"{bind}/@required") in uses
+    assert not [where for _, where in uses if where.endswith(("@vellum:required", "@vellum:vellum__required"))]
+    assert not [key for key, _ in uses if key == "xform:model/bind@requiredCondition"]
 
 
 # The observation and the judge ----------------------------------------------------------

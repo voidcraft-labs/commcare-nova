@@ -352,16 +352,3 @@ class Holder:
         opportunity, self.opportunity = self.opportunity, None
         if opportunity is not None:
             opportunity.close()
-
-
-def core_sessions(core_runner, files, restore):
-    """Core's sessions on a build's files over ``restore``, derived as proof 3 derives them
-    (``proof.observe.sessions``): the trace, or None where Core does not admit the build."""
-    import tempfile
-    from pathlib import Path
-
-    from proof.observe.build import arrange
-    from proof.observe.sessions import run_sessions
-
-    with tempfile.TemporaryDirectory(prefix="proof-observe-connect-") as scratch:
-        return run_sessions(core_runner, "A", arrange(files, Path(scratch, "A")), restore).trace

@@ -26,6 +26,16 @@ Every request Formplayer makes of HQ is answered by HQ's own views over one
 served state (``proof.formplayer.hq``), each archive handed to Formplayer as
 bytes where it asks HQ's download for it, since HQ does not hold it.
 
+Nova hands its local archive to CommCare Android alone, which registers its
+own strings as the default locale's first source, so the lane hands it to
+Formplayer as Android reads it (``proof.formplayer.observe.as_android_reads_it``).
+A key a language of the archive holds and its default file lacks
+(``home.sync``, which CommCare HQ's catalog fills in a language and Nova's
+archive cannot) refuses that language on Formplayer's own strings, which
+lack it (``FormplayerConfigEngine.initEnvironment``, Core's
+``Localizer.getLocaleData``), and is read with Android's, the app's own text
+still shown over Android's.
+
 Plausible failures: a harness that could not install a local archive at all
 (nothing would be learned about it), one that swallowed the submission or
 the search (the build's submit and search show HQ's views processing them),
@@ -41,6 +51,7 @@ from pathlib import Path
 from lxml import etree
 
 from proof.formplayer import apps
+from proof.formplayer.observe import as_android_reads_it
 from proof.formplayer.walk import screen_kind
 from proof.hq.operations import with_runtime_app_id
 
@@ -106,7 +117,9 @@ def _submit_first_form(web):
 def _search(web, selections=SEARCH):
     screen = web.navigate(selections)
     assert screen_kind(screen) == "query"
-    return web.navigate(selections, query_data={screen["queryKey"]: {"inputs": {"owner_id": ONE_MARK}, "execute": True}})
+    return web.navigate(
+        selections, query_data={screen["queryKey"]: {"inputs": {"owner_id": ONE_MARK}, "execute": True}}
+    )
 
 
 def test_formplayer_submits_a_local_archives_form_to_hqs_receiver_under_the_working_app(
@@ -191,3 +204,66 @@ def test_a_local_archives_search_reaches_hq_under_the_working_app_and_a_pre_fix_
         assert "PostURL" not in _profile(survey)
         assert control_submit["status"] == "error" and control_submit["notification"]["error"] is True
         assert control_submissions == []
+
+
+def _with_text(archive: bytes, language: str, line: str) -> bytes:
+    """The archive with one more line in ``language``'s app strings and none in its default file."""
+    written = io.BytesIO()
+    name = f"{language}/app_strings.txt"
+    with zipfile.ZipFile(io.BytesIO(archive)) as held, zipfile.ZipFile(written, "w", zipfile.ZIP_DEFLATED) as copy:
+        for info in held.infolist():
+            data = held.read(info.filename)
+            if info.filename == name:
+                data = data + (b"" if data.endswith(b"\n") else b"\n") + line.encode("utf-8") + b"\n"
+            copy.writestr(info, data)
+    return written.getvalue()
+
+
+def test_formplayer_reads_a_local_archive_with_androids_own_strings_first(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    document = formplayer_documents[DOCUMENT]
+    with apps.published(document, core_runner) as published:
+        nova = _with_text(
+            with_runtime_app_id(document.local_ccz.read_bytes(), published.app_id), "en", "home.sync=Sync now"
+        )
+        archives = {"nova": nova, "android": as_android_reads_it(nova)}
+        ids = {name: apps.build_id(published.app_id, archive) for name, archive in archives.items()}
+        answers = {}
+        with apps.served(published, formplayer_runner) as served:
+            for name, archive in archives.items():
+                served.hq.archives[ids[name]] = archive
+            for name in archives:
+                with served.run(name):
+                    web = apps.web(formplayer_runner, served, app_id=ids[name], locale="en")
+                    answers[name] = web.navigate(FIRST_FORM[:1])
+    evidence("local-archive-strings", {name: answer.get("status") for name, answer in answers.items()})
+    # On Formplayer's own strings the language is refused, by the key its default file lacks.
+    assert answers["nova"].get("status") == "error", answers["nova"]
+    assert "home.sync" in str(answers["nova"].get("exception")), answers["nova"]
+    # With Android's strings first it opens, and the menu shows the app's own text.
+    assert screen_kind(answers["android"]) == "commands", answers["android"]
+    shown = [command["displayText"] for command in answers["android"]["commands"]]
+    assert shown == ["To shown form", "To hidden form", "To hidden menu"]
+
+
+def test_android_strings_stand_first_in_the_default_locale_and_nothing_else_of_the_archive_moves():
+    raw = (CONTROLS_DIR / "targeted-survey-menu" / "local.ccz").read_bytes()
+    strings = b"home.sync=Sync with Server\n"
+    read = as_android_reads_it(raw, strings)
+    with zipfile.ZipFile(io.BytesIO(raw)) as before, zipfile.ZipFile(io.BytesIO(read)) as after:
+        assert set(after.namelist()) == set(before.namelist()) | {"default/android_translatable_strings.txt"}
+        assert after.read("default/android_translatable_strings.txt") == strings
+        for name in before.namelist():
+            if name != "suite.xml":
+                assert after.read(name) == before.read(name), name
+        locales = [
+            (element.get("language"), element[0].get("id"), element[0][0].text)
+            for element in etree.fromstring(after.read("suite.xml"))
+            if etree.QName(element).localname == "locale"
+        ]
+    assert locales == [
+        ("default", "android_translatable_strings", "./default/android_translatable_strings.txt"),
+        ("default", "app_strings_default", "./default/app_strings.txt"),
+        ("en", "app_strings_en", "./en/app_strings.txt"),
+    ]

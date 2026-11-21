@@ -45,7 +45,12 @@ export function columnsAfterRuleSequence(
 	rules.forEach((rule, index) => {
 		ruleByUuid.set(rule.uuid, {
 			rule,
-			sort: columnSort(rule.sort?.direction ?? "asc", index, rule.sort?.blanks),
+			sort: columnSort(
+				rule.sort?.direction ?? "asc",
+				index,
+				rule.sort?.blanks,
+				rule.sort?.label,
+			),
 		});
 	});
 	const next = columns.map((column): Column => {

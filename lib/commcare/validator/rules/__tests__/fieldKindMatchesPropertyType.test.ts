@@ -183,11 +183,15 @@ describe("case writer type admission", () => {
 	);
 	// Writers agree on the one of their types that holds every other: an
 	// integer and a decimal on decimal, a choice and text on text. Where none
-	// does, each writer is a finding.
+	// does, text holds a number, a date, a choice and text as the text a
+	// device submits, so those are saved as text; any other pair is a finding
+	// for each writer.
 	it.each([
 		{ first: "int", second: "decimal", agreed: "decimal" },
 		{ first: "single_select", second: "text", agreed: "text" },
-		{ first: "int", second: "text", agreed: undefined },
+		{ first: "int", second: "text", agreed: "text" },
+		{ first: "date", second: "text", agreed: "text" },
+		{ first: "int", second: "time", agreed: undefined },
 		{ first: "single_select", second: "multi_select", agreed: undefined },
 	] satisfies {
 		first: FieldSpec["kind"];
@@ -278,6 +282,52 @@ describe("case writer type admission", () => {
 			).toBe(agreed);
 		},
 	);
+	it("keeps writers apart that a question opening on the property's value would stop on, and names that question", () => {
+		const writer = (id: string) =>
+			f({
+				kind: "text",
+				id,
+				label: "Weight",
+				caseWrite: { caseType: "patient", property: "weight" },
+			});
+		// The follow-up's writer opens on the case's value; as a whole-number
+		// question it casts that value, and would stop on the other's text.
+		const base = admittedCaseListDoc({
+			fields: [writer("initial")],
+			additionalForms: [
+				{ name: "Followup", type: "followup", fields: [writer("updated")] },
+			],
+		});
+		const later = Object.values(base.fields).find(
+			(field) => field.id === "updated",
+		);
+		if (later === undefined || !("default_value" in later))
+			throw new Error("The follow-up's writer opens on the case's value.");
+		const opened = checked({
+			...base,
+			fields: {
+				...base.fields,
+				[later.uuid]: { ...later, kind: "int" as const } as typeof later,
+			},
+		});
+		const found = findings(opened).filter((error) => error.code === disagree);
+		expect(found.map((error) => error.location.fieldId).sort()).toEqual([
+			"initial",
+			"updated",
+		]);
+		expect(found.map((error) => error.details?.castBy)).toEqual([
+			"updated",
+			"updated",
+		]);
+		expect(found[0]?.message).toContain(
+			'"updated" in "Followup" opens on its value as a whole number, so it can\'t be saved as text either.',
+		);
+		expect(
+			effectiveCaseTypes(opened)
+				.find((type) => type.name === "patient")
+				?.properties.find((property) => property.name === "weight")?.data_type,
+		).toBeUndefined();
+	});
 	it("collects a nested group writer and leaves a calculate-driven hidden writer to expression typing", () => {
 		const base = admittedCaseListDoc({
 			fields: [

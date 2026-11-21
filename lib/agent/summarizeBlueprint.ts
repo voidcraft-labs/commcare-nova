@@ -305,8 +305,10 @@ function summarizeCaseList(mod: Module): string | undefined {
 	if (sortedColumns.length > 0) {
 		lines.push("      default_order:");
 		for (const col of sortedColumns) {
+			const name =
+				col.sort?.label === undefined ? "" : sortByName(col.sort.label);
 			lines.push(
-				`        - ${col.uuid}: "${col.header}" (${col.sort?.direction === "asc" ? "ascending" : "descending"})`,
+				`        - ${col.uuid}: "${col.header}" (${col.sort?.direction === "asc" ? "ascending" : "descending"}${name})`,
 			);
 		}
 	}
@@ -345,6 +347,17 @@ function tilePlace(col: Column, layout: CaseTileLayout | undefined): string {
 		: ` @ ${cell.x},${cell.y} ${cell.width}x${cell.height} ${cell.horizontalAlign} ${cell.verticalAlign} ${cell.fontSize}`;
 }
 
+/** A property column's property, after each link of its walk to the case
+ *  above where it reads one: `parent > address`. */
+function columnRead(col: Exclude<Column, { kind: "calculated" }>): string {
+	const links = (col.via ?? []).map((step) =>
+		step.throughCaseType === undefined
+			? step.identifier
+			: `${step.identifier} (${step.throughCaseType})`,
+	);
+	return [...links, col.field].join(" > ");
+}
+
 /** One-line column summary — uuid + kind + header + per-kind hint, plus the
  *  tile placement suffix the caller resolved (empty on Details, which is never
  *  a tile). */
@@ -352,7 +365,7 @@ function formatColumn(col: Column, place: string): string {
 	const body =
 		col.kind === "calculated"
 			? `(${col.kind}) "${col.header}"`
-			: `(${col.kind}) ${col.field} → "${col.header}"`;
+			: `(${col.kind}) ${columnRead(col)} → "${col.header}"`;
 	return `${col.uuid}: ${body}${place}`;
 }
 
@@ -649,4 +662,9 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	}
 
 	return lines.join("\n");
+}
+
+/** A rule's name in the list's Sort by menu, as the summary's order line adds it. */
+function sortByName(label: string): string {
+	return `, "${label}" in Sort by`;
 }

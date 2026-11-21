@@ -37,8 +37,16 @@
  *   holds for the app (`lib/deployment/locationResourcePlan.ts::plannedPlacesFor`),
  *   so with none a capture sends no location request, and a document whose
  *   logic reads places is published to a project space that holds none;
- * - a ledger that records no identity override, so every id is the derived
- *   one (`lib/commcare/wireIdentity.ts::DERIVED_WIRE_IDENTITY`).
+ * - a ledger that records no identity override for a Nova-born document, so
+ *   every id is the derived one (`lib/commcare/wireIdentity.ts::DERIVED_WIRE_IDENTITY`);
+ *   for an HQ-authored A, the ledger a bring-in leaves, with one identity
+ *   row a menu and form (`PublishInput.hqAuthoredA`), so every body and
+ *   every local archive names A's menus and forms by A's ids
+ *   (`targetWireIdentity`), each held file goes out at the path HQ keeps it
+ *   under, each keyed create the document keeps is printed under the prefix
+ *   its cases stand under in A (`app_deployment_keyed_case_ids`), and the
+ *   publish carries the project space's language names and seeds, as Nova's
+ *   publish over an app it brought in does.
  *
  * A document Nova's export boundary refuses is not a corpus document: the
  * capture refuses it with the boundary's findings (`exportFindings`) before
@@ -63,8 +71,10 @@
  * the same production functions: the table list and, for a table the last
  * publish pushed, its rows (`hqResourceBaseline.ts`), the source read
  * compared with the read back after the last import (`hqSourceBaseline.ts`),
- * the verdict over both (`remoteChanges.ts::decideRemoteChanges`), and the
- * name clash the push plan refuses (`lookupResourcePlan.ts`). After each
+ * the verdict over both (`remoteChanges.ts::decideRemoteChanges`), the name
+ * clash the push plan refuses (`lookupResourcePlan.ts`), and each build
+ * profile of the source read held to the languages the publish writes
+ * (`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`). After each
  * push it reads back what the ledger would record as the next baseline: each
  * pushed table's rows, and the app's source after its import. What the peer
  * answered for each table before the publish wrote anything is recorded
@@ -94,6 +104,7 @@
 
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { gunzipSync } from "node:zlib";
 import type { HqApplication, HqApplicationProfile } from "@/lib/commcare";
 import {
 	type CommCareCredentials,
@@ -146,19 +157,27 @@ import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 import { gateEntriesFileSchema } from "@/lib/commcare/surface/schema";
-import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
+import {
+	buildProfileLanguageGaps,
+	publishedLanguageCodes,
+} from "@/lib/commcare/targetBuildProfiles";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
 	DERIVED_WIRE_IDENTITY,
 	targetWireIdentity,
 	type WireIdentity,
+	type WireIdentityOverride,
 } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
+	type AdoptedKeyedCaseId,
+	type AdoptedMediaFile,
+	adoptedAppBaselineWrite,
 	adoptedIdentityRows,
 	assignMediaPaths,
+	keyedCaseIdPrefixesFor,
 } from "@/lib/deployment/adoption";
 import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
 import { requiredConfirmations } from "@/lib/deployment/confirmations";
@@ -210,6 +229,7 @@ import {
 	type LookupTableUnsupported,
 	planLookupResourcePush,
 } from "@/lib/deployment/lookupResourcePlan";
+import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
 import { Pieces } from "@/lib/deployment/reading/gather";
 import { projectDataReadsOf } from "@/lib/deployment/reading/projectData";
 import {
@@ -287,6 +307,7 @@ import {
 	resolveBuiltinManifestEntries,
 } from "@/lib/media/builtinIconAssets";
 import { classifyStoredMediaBytes } from "@/lib/media/validate";
+import type { DriftReference } from "@/lib/publish/driftReference";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
@@ -309,6 +330,7 @@ import {
 import { hqApplicationModules } from "./hqSummary";
 import {
 	type PeerHolding,
+	type PeerMediaFile,
 	type PeerRequest,
 	type PeerTable,
 	type TargetPeer,
@@ -359,6 +381,14 @@ export const TWO_IMPORT_LAYOUT = 2;
 export const CCZ_CLOCK = Date.UTC(2026, 0, 1);
 
 // ── Inputs ───────────────────────────────────────────────────────────
+
+/**
+ * Whose a language's display name and a seeded setting the project space
+ * holds no value for are on a publish (`hqImportApplication`'s
+ * `languageNames` and `seeds`): Nova's on an app its own publish created,
+ * the project space's on an app Nova brought in from CommCare HQ.
+ */
+type LanguageNames = "nova" | "target";
 
 /** One uploaded media asset, as the Project's media store holds it. */
 export interface UploadedMedia {
@@ -453,8 +483,8 @@ export interface NovaPublishVerdict {
 	 * publish asks the person to confirm for this document, sorted: each use
 	 * of `requiredPlanPrivileges` read through its gate entry's `surfaceKeys`.
 	 * A capture pushes the lookup workbook exactly when the document reads a
-	 * lookup table, and no places (the organization it is published from
-	 * holds none).
+	 * lookup table CommCare HQ does not manage, and no places (the
+	 * organization it is published from holds none).
 	 */
 	readonly planPrivileges: readonly string[];
 }
@@ -472,13 +502,26 @@ const PRIVILEGE_CONSTANTS: ReadonlyMap<string, readonly string[]> = new Map(
 );
 
 /**
- * What a capture's publish sends besides the app: the lookup workbook exactly
- * when the document reads a lookup table, and no places (the organization it
- * is published from holds none).
+ * What a capture's publish sends besides the app, as preflight reads it
+ * (`preflight.ts::publishConfirmationNeeds`): the lookup workbook exactly when
+ * the document reads a lookup table CommCare HQ does not manage from the
+ * project space the capture publishes to, which the workbook leaves out, and
+ * no places (the organization it is published from holds none). A table
+ * CommCare HQ manages is the capture's own project space's
+ * (`managedDataEdge` refuses one managed from another).
  */
-function capturePushes(doc: BlueprintDoc) {
+function capturePushes(
+	doc: BlueprintDoc,
+	source: Pick<PublishDocument, "id" | "lookup">,
+) {
+	const { tableIds } = extractLookupReferenceTargets(doc);
+	const managed = new Set(
+		lookupFixtureData(source, tableIds).definitions.flatMap((definition) =>
+			definition.hq?.managedBy === "commcare-hq" ? [definition.id] : [],
+		),
+	);
 	return {
-		lookupTables: extractLookupReferenceTargets(doc).tableIds.length > 0,
+		lookupTables: tableIds.some((tableId) => !managed.has(tableId)),
 		places: false,
 	};
 }
@@ -495,10 +538,13 @@ const CAPTURE_ATTACHMENT_TARGET = attachmentUrlTarget({
 });
 
 /** The privilege constants Nova's publish asks to be confirmed for `doc`. */
-function planPrivileges(doc: BlueprintDoc): string[] {
+function planPrivileges(
+	doc: BlueprintDoc,
+	source: Pick<PublishDocument, "id" | "lookup">,
+): string[] {
 	const uses = requiredPlanPrivileges(
 		doc,
-		capturePushes(doc),
+		capturePushes(doc, source),
 		CAPTURE_ATTACHMENT_TARGET,
 	);
 	return [
@@ -561,7 +607,7 @@ function confirmationKinds(
 	return new Set(
 		requiredConfirmations(
 			doc,
-			capturePushes(doc),
+			capturePushes(doc, source),
 			CAPTURE_ATTACHMENT_TARGET,
 			captureLookupNaming(doc, source),
 		).map((need) => need.kind),
@@ -621,7 +667,7 @@ export function novaPublishVerdict(
 			}),
 			...(flagsOff.length > 0 && { flagsOff }),
 		},
-		planPrivileges: planPrivileges(doc),
+		planPrivileges: planPrivileges(doc, source),
 	};
 }
 
@@ -808,6 +854,7 @@ function mediaRows(
 async function mediaManifest(
 	source: PublishDocument,
 	doc: BlueprintDoc,
+	heldPaths?: ReadonlyMap<MediaAssetId, string>,
 ): Promise<AssetManifest> {
 	const { realIds, builtinSlugs } = partitionAssetRefs([
 		...collectAssetRefs(doc),
@@ -818,7 +865,8 @@ async function mediaManifest(
 		if (asset === undefined) continue;
 		manifest.set(row.id, {
 			assetId: row.id,
-			wirePath: wirePathFor(row.contentHash, row.extension),
+			wirePath:
+				heldPaths?.get(row.id) ?? wirePathFor(row.contentHash, row.extension),
 			kind: asset.kind,
 			mimeType: row.mimeType,
 			contentHash: row.contentHash,
@@ -877,6 +925,7 @@ function exportBoundary(
 	mode: CaptureExportMode,
 	attachmentTarget: AttachmentUrlTarget | null,
 	lookupTarget?: LookupTarget,
+	heldMediaPaths?: ReadonlyMap<MediaAssetId, string>,
 ) {
 	const doc = hydrateAdmittedDocument({
 		id: source.id,
@@ -895,12 +944,14 @@ function exportBoundary(
 			compiledAtSeq: source.compiledAtSeq,
 			attachmentTarget,
 			...(lookupTarget !== undefined && { lookupTarget }),
+			...(heldMediaPaths !== undefined && { heldMediaPaths }),
 		},
 		{
 			lookupFixtureData: async (_scope, tableIds) =>
 				lookupFixtureData(source, tableIds),
 			mediaRows: async (ids) => mediaRows(source, ids),
-			mediaManifest: (manifestDoc) => mediaManifest(source, manifestDoc),
+			mediaManifest: (manifestDoc, _projectId, held) =>
+				mediaManifest(source, manifestDoc, held),
 		},
 	);
 }
@@ -923,12 +974,14 @@ async function prepareDocument(
 	mode: CaptureExportMode,
 	attachmentTarget: AttachmentUrlTarget | null,
 	lookupTarget?: LookupTarget,
+	heldMediaPaths?: ReadonlyMap<MediaAssetId, string>,
 ): Promise<PreparedDocument> {
 	const result = await exportBoundary(
 		source,
 		mode,
 		attachmentTarget,
 		lookupTarget,
+		heldMediaPaths,
 	);
 	if (!result.ok) {
 		throw new UnexportableDocumentError(source.id, mode, result.violations);
@@ -1204,10 +1257,12 @@ interface HeldRead {
 	/** The ownership of the body the write before the read sent. */
 	readonly ownership: AppOwnership;
 	/**
-	 * `create` while the app is the shell the first publish made, `changes`
-	 * once a review of changes made in CommCare HQ recorded the read.
+	 * `create` while the app is the shell the first publish made, `read`
+	 * while it is the app CommCare HQ's own pages made, as a bring-in of it
+	 * left the read (`adoptedA`), `changes` once a review of changes made in
+	 * CommCare HQ recorded the read.
 	 */
-	readonly origin: "create" | "push" | "changes";
+	readonly origin: "create" | "read" | "push" | "changes";
 	/** The read's digest and size, as the baseline stores them. */
 	readonly digest: string;
 	readonly bytes: number;
@@ -1354,14 +1409,18 @@ export interface SentImport {
  * changes made there since Nova's last publish (`hq_changed`), tables
  * under Nova's tags that Nova cannot account for (`hq_resource_conflict`),
  * or tables under Nova's tags that hold what Nova's push would remove
- * (`hq_table_content_unsupported`), which no confirmation resolves; or the
- * app's Web App setting differing from the declaration (`hq_web_apps_change`).
+ * (`hq_table_content_unsupported`), which no confirmation resolves; a build
+ * profile on HQ's app naming a language the publish does not write
+ * (`hq_build_profile_language_missing`), which no confirmation resolves
+ * either; or the app's Web App setting differing from the declaration
+ * (`hq_web_apps_change`).
  */
 export interface PublishStop {
 	readonly code:
 		| "hq_changed"
 		| "hq_resource_conflict"
 		| "hq_table_content_unsupported"
+		| "hq_build_profile_language_missing"
 		| "hq_web_apps_change";
 	readonly remoteChanges: readonly DeploymentRemoteChange[];
 	/** The tables in conflict, by Nova's table id, with their tag and HQ's id. */
@@ -1824,6 +1883,23 @@ async function tableEdge(
 	};
 }
 
+/** The instant a capture's ledger records an app brought in at, as its baseline's read date. */
+const CAPTURE_OBSERVED_AT = new Date(CCZ_CLOCK).toISOString();
+
+/**
+ * What a change of the app is measured against, as
+ * `lib/deployment/remoteChanges.ts::driftReferenceOf` gives it for the
+ * baseline's origin: the bring-in of an app CommCare HQ made, a bring-in of
+ * changes made there, or Nova's own publish.
+ */
+function sinceOf(origin: HeldRead["origin"]): DriftReference {
+	return origin === "read"
+		? { kind: "brought-in", at: CAPTURE_OBSERVED_AT }
+		: origin === "changes"
+			? { kind: "changes-brought-in" }
+			: { kind: "published" };
+}
+
 /**
  * Preflight's app comparison over the peer (`preflight.ts`, the `target-app`
  * edge): HQ's read against the ledger's baseline under the baseline's
@@ -1838,14 +1914,14 @@ function appEdge(
 	ledger: CaptureLedger,
 	current: { readonly normalized: unknown; readonly digest: string },
 	media: SettledMedia | null,
+	languageNames: LanguageNames,
 ): DeploymentRemoteChange | null {
 	const parts = diffHqAppSource({
 		baseline: ledger.app.normalized,
 		current: current.normalized,
 		ownership: ledger.app.ownership,
 		shell: ledger.app.origin === "create",
-		schemaDefault: schemaPropertyDefault,
-		languageNames: "nova",
+		languageNames,
 		mediaChanged:
 			media?.paths.filter((path) => path.standing === "replaced").length ?? 0,
 	});
@@ -1860,11 +1936,9 @@ function appEdge(
 		observedDigest: current.digest,
 		baselineKnown: true,
 		/* The capture's app is one Nova's own publish made, its baseline that
-		 * publish's read or the read a review of changes recorded. */
-		since:
-			ledger.app.origin === "changes"
-				? { kind: "changes-brought-in" }
-				: { kind: "published" },
+		 * publish's read or the read a review of changes recorded, or one
+		 * CommCare HQ's own pages made, its baseline the bring-in's read. */
+		since: sinceOf(ledger.app.origin),
 		/* Its baseline names the revision it describes and no fold baseline
 		 * follows it, so the pair is usable (`hqChanges/reference.ts::usablePair`). */
 		canBringIn: true,
@@ -1895,6 +1969,8 @@ async function sendContent(
 	media: SettledMedia | null,
 	assumedResources: AssumedResources | undefined,
 	identity: WireIdentity = DERIVED_WIRE_IDENTITY,
+	languageNames: LanguageNames = "nova",
+	keyedCaseIds: readonly AdoptedKeyedCaseId[] = [],
 ): Promise<{ readonly sent: SentImport; readonly ledger: CaptureLedger }> {
 	const domain = peer.state.domain;
 	const target = { server: PROOF_SERVER, domain };
@@ -1935,8 +2011,7 @@ async function sendContent(
 			current: normalizedRead(prepared, source).normalized,
 			ownership: held.ownership,
 			shell: held.origin === "create",
-			schemaDefault: schemaPropertyDefault,
-			languageNames: "nova",
+			languageNames,
 		});
 		if (moved.length > 0) {
 			throw new Error(
@@ -1957,6 +2032,16 @@ async function sendContent(
 				bulkUploadAssets(prepared.export.doc, prepared.export.assets),
 			),
 		);
+		if (
+			buildProfileLanguageGaps(
+				publishedLanguageCodes(prepared.export.doc),
+				source.buildProfiles,
+			).length > 0
+		) {
+			throw new Error(
+				`Nova's publish of ${prepared.source.id} would stop at its second source read: a build profile on the app in the capture peer names a language the publish does not write (hq_build_profile_language_missing), and nothing saves a profile there while its tables are pushed.`,
+			);
+		}
 		if (between.length > 0) {
 			throw new Error(
 				`Nova's publish of ${prepared.source.id} would settle a file at its second source read: a file it sends moved in the capture peer while its tables were pushed (${JSON.stringify(between.map((path) => path.wirePath))}), and nothing moves one there.`,
@@ -1969,12 +2054,19 @@ async function sendContent(
 		compatibility: report,
 		update: { appId, source },
 		identity,
-		/* The capture peer's app is one Nova's own publish created, never one
-		 * brought in, so Nova writes its language labels and its seeds, and no
-		 * keyed create's cases stand under an id prefix HQ already holds. */
-		languageNames: "nova",
-		seeds: "nova",
-		keyedCaseIdPrefixes: new Map(),
+		/* On an app Nova brought in from CommCare HQ the language names and
+		 * the seeds are the project space's (`service.ts::publishAppToHq`, an
+		 * `adopted` mapping); on one Nova's own publish created they are
+		 * Nova's. Each keyed create a bring-in recorded is printed under the
+		 * prefix its cases stand under there, computed over the document the
+		 * body is built from; a Nova-born deployment records none
+		 * (`app_deployment_keyed_case_ids`). */
+		languageNames,
+		seeds: languageNames,
+		keyedCaseIdPrefixes: keyedCaseIdPrefixesFor(
+			prepared.export.doc,
+			keyedCaseIds,
+		),
 	});
 	const imported = await importApp(
 		CREDENTIALS,
@@ -2046,8 +2138,8 @@ async function sendContent(
 			ownership,
 			assumedSource: assumedSourceOf(source),
 			...(assumedResources !== undefined && { assumedResources }),
-			/* The deployment is one Nova created, so its mapping is not
-			 * `adopted`. */
+			/* The deployment's mapping is `adopted` exactly where the
+			 * language names are the project space's. */
 			targetFacts: targetFactsFromBaseline(
 				{
 					origin: "push",
@@ -2061,7 +2153,7 @@ async function sendContent(
 					mediaFiles,
 					sourceBytes: readBack.bytes,
 				},
-				false,
+				languageNames === "target",
 			),
 		},
 		ledger: {
@@ -2210,6 +2302,8 @@ async function updateStep(
 	ledger: CaptureLedger,
 	confirm: StopConfirmation | undefined,
 	identity: WireIdentity = DERIVED_WIRE_IDENTITY,
+	languageNames: LanguageNames = "nova",
+	keyedCaseIds: readonly AdoptedKeyedCaseId[] = [],
 ): Promise<StepOutcome> {
 	const start = peer.requests.length;
 	const managed = await managedDataEdge(peer, prepared);
@@ -2248,7 +2342,7 @@ async function updateStep(
 		ledger.app.origin === "create"
 			? null
 			: await settledMediaOf(prepared, read, ledger.app.mediaFiles);
-	const app = appEdge(prepared, appName, ledger, current, media);
+	const app = appEdge(prepared, appName, ledger, current, media, languageNames);
 	const verdict = decideRemoteChanges({
 		observed: [...(app === null ? [] : [app]), ...(edge?.observed ?? [])],
 		discards: confirm?.discards ?? [],
@@ -2262,16 +2356,30 @@ async function updateStep(
 			webAppsChange: null,
 		};
 	}
+	/* The `build-profiles` edge, after `hq-changes`, as preflight asks it:
+	 * a profile on HQ's app that names a language this publish does not
+	 * write stops it before any write. */
+	if (
+		buildProfileLanguageGaps(
+			publishedLanguageCodes(prepared.export.doc),
+			read.buildProfiles,
+		).length > 0
+	) {
+		return {
+			status: "stopped",
+			code: "hq_build_profile_language_missing",
+			remoteChanges: [],
+			conflicts: [],
+			webAppsChange: null,
+		};
+	}
 	/* The `web-apps` edge, after `hq-changes`, as preflight asks it. */
 	const change = webAppsChange({
 		declaresWebApps: declaresWebApps(prepared.export.doc),
 		held: read.cloudcareEnabled,
 		baseline: { origin: ledger.app.origin, source: ledger.app.normalized },
 		confirmWebApps: confirm?.webApps,
-		since:
-			ledger.app.origin === "changes"
-				? { kind: "changes-brought-in" }
-				: { kind: "published" },
+		since: sinceOf(ledger.app.origin),
 	});
 	if (change !== null) {
 		return {
@@ -2293,6 +2401,8 @@ async function updateStep(
 		media,
 		assumedOf(managed?.assumed, edge?.assumed),
 		identity,
+		languageNames,
+		keyedCaseIds,
 	);
 	return {
 		status: "sent",
@@ -2335,6 +2445,19 @@ export interface BringInRecord {
 	readonly assumedSummary: readonly HqApplicationModule[];
 	/** The document the app holds after the bring-in, as stored. */
 	readonly document: PersistableDoc;
+	/**
+	 * The review's reading of the app as the peer held it after the saves:
+	 * the reading's document and one identity row a menu and a form, under
+	 * the ids the peer's summary names. The HQ side holds HQ's own answer
+	 * after the same saves to it, naming each file by the bytes HQ serves at
+	 * its path (`proof/checks/proof6.py::saved_requests`). Absent where the
+	 * review read no document (it found the app unchanged, or the files alone
+	 * said it reads the same).
+	 */
+	readonly reading?: {
+		readonly doc: PersistableDoc;
+		readonly identity: readonly WireIdentityOverride[];
+	};
 }
 
 /**
@@ -2579,7 +2702,6 @@ async function reviewOverPeer(input: {
 		current: normalized.normalized,
 		ownership: baseline.ownership,
 		shell: false,
-		schemaDefault: schemaPropertyDefault,
 		languageNames: "nova",
 		mediaChanged: published.filter((path) => path.standing === "replaced")
 			.length,
@@ -3189,6 +3311,27 @@ async function bringInOverPeer(input: {
 					input.attachmentTarget,
 					input.lookupTarget,
 				);
+	/* The review's reading of the app now, as the record keeps it. */
+	let reading: BringInRecord["reading"];
+	if (checked !== null) {
+		const read = adoptedIdentityRows(checked.draft.identities, basis.modules);
+		if (!read.ok) {
+			throw new Error(
+				`Nova's review of ${id} read a menu or form the peer's summary does not hold (${read.at}), which acceptance refuses before a review answers.`,
+			);
+		}
+		reading = {
+			doc: storedDocument(checked.draft.doc),
+			identity: read.rows.map(
+				({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
+					entityKind,
+					novaEntityUuid,
+					uniqueId,
+					xmlns,
+				}),
+			),
+		};
+	}
 	return {
 		ledger: recorded,
 		prepared: publishing,
@@ -3206,6 +3349,7 @@ async function bringInOverPeer(input: {
 			again: again.review,
 			assumedSummary: reviewed.summary,
 			document: storedDocument(target),
+			...(reading !== undefined && { reading }),
 		},
 	};
 }
@@ -3250,6 +3394,34 @@ export interface RetainedPublish {
 	readonly media?: CapturedUpload;
 }
 
+/**
+ * An app CommCare HQ's own pages made, as a capture publishes over it: HQ's
+ * source of it, which the peer starts from (the body of the base's retained
+ * source answer); the identity rows a bring-in of it records, one a menu and
+ * a form; the path HQ keeps each of the document's files under, by asset id,
+ * each `jr://file/...`; and the prefix each keyed create the document keeps
+ * stands under in it, as a bring-in records them
+ * (`app_deployment_keyed_case_ids`).
+ */
+export interface HqAuthoredA {
+	readonly source: Readonly<Record<string, unknown>>;
+	readonly identity: readonly WireIdentityOverride[];
+	readonly mediaPaths: ReadonlyMap<string, string>;
+	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
+}
+
+/** The held paths an export boundary takes for `mediaPaths`: each without `jr://file/`. */
+export function heldMediaPathsOf(
+	mediaPaths: ReadonlyMap<string, string>,
+): ReadonlyMap<MediaAssetId, string> {
+	return new Map(
+		[...mediaPaths].map(([assetId, path]) => [
+			asMediaAssetId(assetId),
+			path.startsWith(JR_FILE) ? path.slice(JR_FILE.length) : path,
+		]),
+	);
+}
+
 export interface PublishInput {
 	/**
 	 * The document as stored before the first publish, which records its
@@ -3271,6 +3443,13 @@ export interface PublishInput {
 	 * change.
 	 */
 	readonly retainedA?: RetainedPublish;
+	/**
+	 * An HQ-authored A. With it the capture writes no first publish: the peer
+	 * starts holding HQ's own source answer, the ledger is the one a bring-in
+	 * leaves, every id is the target's, and the updates are sent over it, the
+	 * first of them B. Never beside `retainedA` or `hqSide`.
+	 */
+	readonly hqAuthoredA?: HqAuthoredA;
 	/** The first publish's app name; the document's own by default. */
 	readonly appName?: string;
 	/**
@@ -3488,6 +3667,122 @@ async function applyRetainedA(
 }
 
 /**
+ * The peer made to hold an HQ-authored A, and the ledger a bring-in of it
+ * leaves (`lib/deployment/reading/birth.ts`,
+ * `store.ts::recordAdoptedDeploymentInTransaction`): the peer holds HQ's
+ * source of the app (`TargetPeer.holdSource`), with each file its map names
+ * at a path the document holds; the capture reads that source as the
+ * birth's create reads it, and the ledger records it as production records
+ * it, through `adoption.ts::adoptedAppBaselineWrite`: the baseline of origin
+ * `read`, under the ownership the first publish's body over that source
+ * gives on an adopted mapping, with CommCare HQ's file at each held path.
+ * Its first-publish list is empty: no lane check reads the stored list, and
+ * a base's predicted ids reach the lane through `first-publish.json`. No
+ * table is mapped: a bring-in pushes none.
+ */
+async function adoptedA(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+	adopted: HqAuthoredA,
+): Promise<CaptureLedger> {
+	const map = (adopted.source.multimedia_map ?? {}) as Readonly<
+		Record<
+			string,
+			{ readonly multimedia_id?: unknown; readonly media_type?: unknown }
+		>
+	>;
+	const files: Omit<PeerMediaFile, "md5">[] = [];
+	for (const [assetId, path] of adopted.mediaPaths) {
+		const item = map[path];
+		const asset = prepared.source.media?.get(assetId);
+		if (
+			item === undefined ||
+			asset === undefined ||
+			typeof item.multimedia_id !== "string" ||
+			(item.media_type !== "CommCareImage" &&
+				item.media_type !== "CommCareAudio" &&
+				item.media_type !== "CommCareVideo")
+		) {
+			throw new Error(
+				`${prepared.source.id} keeps its asset ${assetId} at ${path}, and CommCare HQ's source of the app it was read from maps no file of its own there. The reading named that path from the app's map; look at proof/hq-apps/ for the base.`,
+			);
+		}
+		files.push({
+			id: item.multimedia_id,
+			mediaClass: item.media_type,
+			contentType: asset.mimeType,
+			bytes: new Uint8Array(asset.bytes),
+		});
+	}
+	peer.holdSource(adopted.source, files);
+	const read = await readSource(peer, prepared, PLACEHOLDER_APP_ID);
+	const mediaFiles: Record<string, string> = {};
+	for (const path of adopted.mediaPaths.values()) {
+		const item = (read.multimediaMap ?? []).find((one) => one.path === path);
+		if (item?.multimediaId != null && path.startsWith(JR_FILE))
+			mediaFiles[path.slice(JR_FILE.length)] = item.multimediaId;
+	}
+	/* The birth's own boundary over the document it births
+	 * (`reading/birth.ts::adoptedDeploymentWrite`): each held file at the
+	 * path the bring-in assigns it, every other at its content's, which is
+	 * the path the bring-in assigns a file none of whose paths it can hold. */
+	const adoptedFiles: AdoptedMediaFile[] = [];
+	for (const [assetId, asset] of prepared.source.media ?? []) {
+		const contentHash = sha256(asset.bytes);
+		adoptedFiles.push({
+			hqPath:
+				adopted.mediaPaths.get(assetId) ??
+				`${JR_FILE}${wirePathFor(contentHash, asset.extension)}`,
+			assetId: asMediaAssetId(assetId),
+			contentHash,
+			extension: asset.extension,
+		});
+	}
+	const write = adoptedAppBaselineWrite({
+		remoteAppId: PLACEHOLDER_APP_ID,
+		source: read,
+		prepared: adoptionExportBoundary(
+			prepared.export.doc,
+			prepared.source.lookup?.definitions ?? [],
+			adoptedFiles,
+			{
+				origin: COMMCARE_SERVERS[PROOF_SERVER].baseUrl,
+				domain: peer.state.domain,
+			},
+		),
+		target: { server: PROOF_SERVER, domain: peer.state.domain },
+		identity: targetWireIdentity(adopted.identity),
+		novaRevision: prepared.source.compiledAtSeq,
+		mediaFiles,
+		observedAt: CAPTURE_OBSERVED_AT,
+		firstPublish: { ids: [], touchesWorkers: false, of: "first-publish" },
+	});
+	const { sourceGzip, ownership, sourceDigest, sourceBytes } = write;
+	if (
+		sourceGzip === null ||
+		ownership === null ||
+		sourceDigest === null ||
+		sourceBytes === null
+	) {
+		throw new Error(
+			`adoptedAppBaselineWrite gave ${prepared.source.id}'s bring-in a baseline with no source, which a read baseline always holds.`,
+		);
+	}
+	return {
+		app: {
+			normalized: JSON.parse(gunzipSync(sourceGzip).toString("utf8")),
+			ownership,
+			origin: "read",
+			digest: sourceDigest,
+			bytes: sourceBytes,
+			mediaFiles:
+				write.mediaFiles.kind === "set" ? write.mediaFiles.files : null,
+		},
+		tables: new Map(),
+	};
+}
+
+/**
  * How many times a person's confirmation can meet another stop: preflight
  * lists the tables in conflict first and the changes after them, so a
  * publish over both stops twice before it goes through.
@@ -3516,17 +3811,51 @@ const CONFIRMED_STOPS = 2;
  * Over a migration witness's retained A (`PublishInput.retainedA`) the
  * capture sends no first publish: the peer applies A's bodies
  * (`applyRetainedA`), and the capture is `republished`, the updates alone.
+ * Over an HQ-authored A (`PublishInput.hqAuthoredA`) it sends none either:
+ * the peer holds HQ's own source and the ledger is a bring-in's
+ * (`adoptedA`), every body and the export boundary take the target's ids,
+ * held media paths and keyed create prefixes, the language names and seeds
+ * are the project space's, and the capture is `republished`.
  */
 export async function capturePublish(
 	input: PublishInput & { readonly retainedA: RetainedPublish },
 ): Promise<RepublishCapture>;
 export async function capturePublish(
-	input: PublishInput & { readonly retainedA?: undefined },
+	input: PublishInput & {
+		readonly hqAuthoredA: HqAuthoredA;
+		readonly retainedA?: undefined;
+	},
+): Promise<RepublishCapture>;
+export async function capturePublish(
+	input: PublishInput & {
+		readonly retainedA?: undefined;
+		readonly hqAuthoredA?: undefined;
+	},
 ): Promise<PublishCapture>;
 export async function capturePublish(
 	input: PublishInput,
 ): Promise<PublishCapture | RepublishCapture> {
 	const { configuration } = input;
+	const adopted = input.hqAuthoredA;
+	if (
+		adopted !== undefined &&
+		(input.retainedA !== undefined || input.hqSide !== undefined)
+	) {
+		throw new Error(
+			`The capture of ${input.create.id} was given an HQ-authored A beside ${input.retainedA !== undefined ? "a migration witness's retained A" : "a person's saves in HQ"}. An app CommCare HQ's own pages made is A itself: it has no first publish to retain and nothing is saved over it before Nova's.`,
+		);
+	}
+	/* The ids, the held media paths and whose language names and seeds a
+	 * publish carries: the target's over an app brought in, else Nova's own. */
+	const adoptedIdentity: WireIdentity =
+		adopted === undefined
+			? DERIVED_WIRE_IDENTITY
+			: targetWireIdentity(adopted.identity);
+	const heldMediaPaths =
+		adopted === undefined ? undefined : heldMediaPathsOf(adopted.mediaPaths);
+	const keyedCaseIds = adopted?.keyedCaseIds ?? [];
+	const languageNames: LanguageNames =
+		adopted === undefined ? "nova" : "target";
 	const operation = (ordinal: number): EntropyOperation | undefined =>
 		input.seed === undefined
 			? undefined
@@ -3544,6 +3873,7 @@ export async function capturePublish(
 		"hq-upload",
 		attachmentTarget,
 		lookupTarget,
+		heldMediaPaths,
 	);
 	const placements = firstPublishRecord(unrecorded.export.doc);
 	const create =
@@ -3564,6 +3894,7 @@ export async function capturePublish(
 					"hq-upload",
 					attachmentTarget,
 					lookupTarget,
+					heldMediaPaths,
 				);
 	const updates = await Promise.all(
 		input.updates.map(async (update) => ({
@@ -3573,6 +3904,7 @@ export async function capturePublish(
 				"hq-upload",
 				attachmentTarget,
 				lookupTarget,
+				heldMediaPaths,
 			),
 		})),
 	);
@@ -3597,6 +3929,8 @@ export async function capturePublish(
 			let ledger: CaptureLedger;
 			if (retained !== undefined) {
 				ledger = await applyRetainedA(peer, create, retained);
+			} else if (adopted !== undefined) {
+				ledger = await adoptedA(peer, create, adopted);
 			} else {
 				const first = await seeded(operation(OPERATION_ORDINALS.create), () =>
 					firstPublish(
@@ -3630,7 +3964,7 @@ export async function capturePublish(
 					 * ids it sends it under (`bringInOverPeer`). */
 					let held = ledger;
 					let sending = prepared;
-					let identity: WireIdentity = DERIVED_WIRE_IDENTITY;
+					let identity: WireIdentity = adoptedIdentity;
 					let broughtIn: BringInRecord | undefined;
 					for (;;) {
 						peer.restore(stateA);
@@ -3642,6 +3976,8 @@ export async function capturePublish(
 							held,
 							confirm,
 							identity,
+							languageNames,
+							keyedCaseIds,
 						);
 						/* A stop over a change of the app Nova can bring in, where the
 						 * statement takes the review's way on: the person reads the
@@ -3721,6 +4057,11 @@ export async function capturePublish(
 						const listed = JSON.stringify(
 							step.code === "hq_changed" ? step.remoteChanges : step.conflicts,
 						);
+						if (adopted !== undefined) {
+							throw new Error(
+								`Nova's ${update.name} of ${prepared.source.id} stopped with ${step.code} (${listed}) over the app CommCare HQ's own pages made, which the capture peer holds as HQ served it and the ledger records as the bring-in of it left it: Nova's own reading read as a change made in CommCare HQ. Look at what the comparison reads of the base's source under the ownership adoptedAppBaselineWrite gives.`,
+							);
+						}
 						if (retained !== undefined) {
 							throw new Error(
 								`Nova's ${update.name} of the migration witness ${prepared.source.id} stopped with ${step.code} (${listed}) over the A retained from before the migration, which the capture peer holds exactly as that first publish left it: Nova's own push read as a change. Look at what the comparison reads of the peer's answers after the retained bodies.`,
@@ -3892,7 +4233,12 @@ function atInstant<T>(instant: number, build: () => T): T {
  * values Nova leaves to CommCare HQ, as the deployment's baseline gives them
  * (`SentImport.targetFacts` of the publish the archive follows), which the
  * archive writes as HQ's build there does; null, the default, where no
- * baseline was read. Returns null where the rule refuses an app that does
+ * baseline was read. With `adopted`, the deployment is one a bring-in of an
+ * app CommCare HQ's own pages made left (`HqAuthoredA`): its mapping is
+ * `adopted`, so the archive writes no seed, and it names each menu and form
+ * by the target's ids, each held file at its held path and each keyed
+ * create under the prefix its cases stand under there, as a publish there
+ * does. Returns null where the rule refuses an app that does
  * not declare Android (`not-declared-for-android`): Nova offers no `.ccz` of
  * it. Throws `UnexportableDocumentError` where the route's boundary refuses,
  * and on any other refusal of the rule. With an operation, a draw made while the archive is
@@ -3906,10 +4252,16 @@ export async function localCcz(
 	options: {
 		readonly emptyCaseListText?: boolean;
 		readonly targetFacts?: TargetFacts | null;
+		/** The menu and form ids of a Nova-born deployment a bring-in recorded; never beside `adopted`, whose ids win. */
 		readonly identity?: WireIdentity;
+		readonly adopted?: Pick<
+			HqAuthoredA,
+			"identity" | "mediaPaths" | "keyedCaseIds"
+		>;
 	} = {},
 ): Promise<Buffer | null> {
 	const emptyCaseListText = options.emptyCaseListText === true;
+	const { adopted } = options;
 	const choice = chooseDownloadTarget(
 		[
 			{
@@ -3918,8 +4270,8 @@ export async function localCcz(
 				hqAppId: PLACEHOLDER_APP_ID,
 				emptyCaseListText,
 				earlierHqApps: 0,
-				/* The capture's deployment is Nova-born. */
-				adopted: false,
+				/* The capture's deployment is Nova-born, or one a bring-in left. */
+				adopted: adopted !== undefined,
 			},
 		],
 		{ format: "ccz", domain, declaresAndroid: declaresAndroid(source.doc) },
@@ -3938,21 +4290,29 @@ export async function localCcz(
 		source,
 		"ccz",
 		attachmentUrlTarget(target),
+		undefined,
+		adopted === undefined ? undefined : heldMediaPathsOf(adopted.mediaPaths),
 	);
 	return seeded(operation, () =>
 		atInstant(CCZ_CLOCK, () =>
 			compileLocalArchive(
 				prepared,
 				{ server: target.server, domain: target.domain, appId: target.hqAppId },
-				options.identity ?? DERIVED_WIRE_IDENTITY,
+				adopted === undefined
+					? (options.identity ?? DERIVED_WIRE_IDENTITY)
+					: targetWireIdentity(adopted.identity),
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,
 					adopted: target.adopted,
 					targetFacts: options.targetFacts ?? null,
-					/* The capture's deployment holds no keyed create's id
-					 * prefix: its app is Nova-born. */
-					keyedCaseIdPrefixes: new Map(),
+					/* The prefix each keyed create's cases stand under where a
+					 * bring-in recorded one (`downloadTarget.ts`, the `ccz`
+					 * arm); a Nova-born deployment records none. */
+					keyedCaseIdPrefixes:
+						adopted === undefined
+							? new Map()
+							: keyedCaseIdPrefixesFor(prepared.doc, adopted.keyedCaseIds),
 				},
 			),
 		),

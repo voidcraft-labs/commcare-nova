@@ -16,7 +16,8 @@ export interface FormActionCondition {
 
 export interface OpenCaseAction {
 	doc_type: "OpenCaseAction";
-	name_update: { question_path: string };
+	/** The question the case's name comes from; null while the form opens no case. */
+	name_update: { question_path: string | null };
 	external_id: string | null;
 	condition: FormActionCondition;
 }

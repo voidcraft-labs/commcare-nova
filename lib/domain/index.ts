@@ -25,6 +25,7 @@ export * from "./caseTypes";
 export * from "./caseWriteOperationIdentity";
 export * from "./caseWriteViews";
 export * from "./columnApplicability";
+export * from "./columnRelation";
 export * from "./commCareDatePattern";
 export * from "./connectIds";
 export * from "./dateFormats";

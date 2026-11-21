@@ -8,7 +8,9 @@
  * gives each its own place. On a menu whose forms do not read the search, a list filter clause
  * the search does not restate raises, and so does a conjunct with no field; on one whose forms
  * read it, the first is held with `search-restates-list-filter` and the second joins the list
- * filter with `search-filter-joined-to-list`, unless an advanced load names the menu. A conjunct
+ * filter with `search-filter-joined-to-list`, unless an advanced load names the menu, whichever
+ * placement joins it (a later row can move it there from a field's condition). A field holding a
+ * conjunct as its condition is never read as a simple field, which would drop it. A conjunct
  * that reads a bare prompt outside its guard raises. Rows in another order read equal and record
  * the reorder.
  *
@@ -28,16 +30,21 @@ import type {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
+	ancestorPath,
 	and,
 	dateLiteral,
 	eq,
 	gt,
+	ifExpr,
 	input,
 	literal,
 	multiSelectAll,
 	neq,
 	now,
 	prop,
+	relationStep,
+	sessionContext,
+	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -52,19 +59,24 @@ import { moduleExpressionContexts } from "../../../expressionContext";
 import { deriveSimpleArmPredicate } from "../../../suite/case-search/simpleArmDerivation";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { readerInput, sourceFromBody } from "../../__tests__/readerInput";
+import { canonDocument } from "../../canon";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
+	closedCodes,
 	codes,
 	emittedApp,
 	listOf,
 	readLists,
 } from "../../caseList/__tests__/listReading";
 import { knownCaseTypesOf, readHqApp } from "../../index";
+import type { PromptReading } from "../prompts";
 import {
 	type ConjunctPlacement,
 	derivedConditionsAreSimpleFields,
+	filterConditionsOfAFieldAreItsOwn,
 	type RowClassification,
+	simpleDerivation,
 } from "../rows";
 
 /** Every classification the reading's settle made, in the order it made them. */
@@ -524,6 +536,65 @@ describe("the kinds of the conjuncts of `_xpath_query`", () => {
 		expect(registers(reading)).toContain("search-filter-rows-recut");
 	});
 
+	it("types a date field's property over the case above on that case's type, and no property of the menu's own", () => {
+		// The household's date is untyped, and the patient holds an untyped property of the same name:
+		// the row's derivation reads the household's as a date, and the patient's stays untyped.
+		const field: SimpleSearchInputDef = {
+			uuid: uuid(9),
+			name: "visited",
+			label: "Household visited",
+			kind: "simple",
+			type: "date",
+			property: "visited",
+			via: ancestorPath(relationStep("parent", "household")),
+		};
+		const base = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [field],
+			search: {},
+		});
+		const withVisited = (dataType: CasePropertyDataType | undefined) =>
+			produce(base, (draft) => {
+				draft.caseTypes = [
+					{
+						name: "patient",
+						parent_type: "household",
+						properties: [{ name: "visited", label: proseText("visited") }],
+					},
+					{
+						name: "household",
+						properties: [
+							{
+								name: "visited",
+								label: proseText("visited"),
+								...(dataType !== undefined && { data_type: dataType }),
+							},
+						],
+					},
+				];
+			});
+		const typedDoc = withVisited("date");
+		const menu = typedDoc.moduleOrder[0] as Uuid;
+		const conjunct = deriveSimpleArmPredicate(
+			field,
+			"patient",
+			moduleExpressionContexts(typedDoc, menu)({ slot: "case_list_filter" }),
+		);
+		const found = simpleDerivation(
+			withVisited(undefined),
+			menu,
+			"patient",
+			{ type: "date", input: field } as PromptReading,
+			conjunct,
+		);
+		expect(found?.property).toBe("visited");
+		const typeOf = (caseType: string) =>
+			found?.doc.caseTypes
+				?.find((one) => one.name === caseType)
+				?.properties.find((one) => one.name === "visited")?.data_type;
+		expect(typeOf("household")).toBe("date");
+		expect(typeOf("patient")).toBeUndefined();
+	});
+
 	it("reads an excluded field whose condition is a simple field's derivation as that simple field", async () => {
 		const condition = whenInput(
 			input(uuid(9)),
@@ -808,6 +879,74 @@ describe("a menu whose forms do not read the search", () => {
 		);
 	});
 
+	// The search holds its own rows, and the list gains a clause none of them restates: Nova would
+	// restate it as a row of its own, which the clause's one finding stands for.
+	it("raises a list clause no row restates beside rows the search holds as that one finding", async () => {
+		const reading = await readLists(doc(), {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (short === undefined) throw new Error("The menu lists patients.");
+				short.filter = `${String(short.filter)} and notes != 'closed'`;
+			},
+		});
+		expect(closedCodes(reading)).toEqual([
+			"case-search/case-list-filter-clause-the-search-does-not-restate",
+		]);
+	});
+
+	// HQ's search compares a system date by its own date rule alone and refuses any value that is no
+	// date (`comparison.py::_create_system_datetime_query`): that is the row's one cause, whatever
+	// else the row would have been refused for or wherever a conjunct of it could have stood.
+	it.each([
+		`"date_opened = 'abc'"`,
+		`"date_opened > 'abc'"`,
+		`"closed_on = 3"`,
+	])(
+		"raises a system date compared with no date, %s, as that one finding",
+		async (defaultValue) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					rowsOf(app).push({ property: "_xpath_query", defaultValue });
+				},
+			});
+			const closed = reading.ctx.close();
+			expect(closed.findings.map((finding) => finding.code)).toEqual([
+				"case-search/date-opened-closed-on-or-last-modified-compared-with-any",
+			]);
+			// The ordering is no range of a property's, so its right side is the system date's class.
+			const orderings = [...closed.claims.records()].filter(
+				(record) => record.key === "csql-op:>",
+			);
+			for (const record of orderings)
+				expect(record.entry).toBe(
+					"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v",
+				);
+		},
+	);
+
+	// HQ keeps no stored `None` for a default filter's value: a filter with none, or with a blank,
+	// is one finding at the search, and the search's other rows stand under it.
+	it.each([
+		["left out", {}],
+		["blank", { defaultValue: "" }],
+	])(
+		"raises a default filter whose value is %s as one finding",
+		async (_title, value) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					rowsOf(app).push({
+						property: "_xpath_query",
+						doc_type: "DefaultCaseSearchProperty",
+						...value,
+					});
+				},
+			});
+			expect(closedCodes(reading)).toEqual([
+				"case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty",
+			]);
+		},
+	);
+
 	it("gives each row of fields whose conditions read no field its own field", async () => {
 		const rule = (at: number, name: string, value: string): SearchInputDef => ({
 			uuid: uuid(at),
@@ -857,6 +996,48 @@ describe("a menu whose forms do not read the search", () => {
 		});
 	});
 
+	it("claims each class of what a held row works out on the device beside the row's own claim", async () => {
+		const visits = prop("patient", "visits");
+		const doc = typed(
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [bare],
+				search: {},
+				list: {
+					filter: and(
+						ifExpr(
+							eq(term(sessionContext("username")), literal("demo")),
+							notesIs("a"),
+							notesIs("b"),
+						),
+						eq(prop("patient", "notes"), term(sessionContext("applanguage"))),
+						eq(visits, term(sessionContext("drift"))),
+						eq(visits, term(sessionContext("window_width"))),
+					),
+				},
+			}),
+			{ notes: "text", visits: "int" },
+		);
+		const reading = await readLists(doc);
+		expect(closedCodes(reading)).toEqual([]);
+		const entries = new Set(
+			[...reading.ctx.close().claims.records()].flatMap((record) =>
+				record.key === "schema:DefaultCaseSearchProperty.defaultValue" &&
+				record.where.startsWith("/modules/0/search_config/default_properties/")
+					? [record.entry]
+					: [],
+			),
+		);
+		for (const entry of [
+			"case-search/several-xpath-query-rows",
+			"case-search/clause-chosen-at-runtime-by-a-condition-over-session-worker",
+			"case-search/runtime-values-read-from-casedb-or-session-datums",
+			"case-search/runtime-values-read-from-the-session-context-drift",
+			"case-search/runtime-values-read-from-the-session-context-window-width",
+			"case-search/runtime-values-read-from-the-session-context-applanguage",
+		])
+			expect(entries).toContain(entry);
+	});
+
 	it("claims each use a row's CSQL makes, held or refused, under the entry whose value class takes it", async () => {
 		const typedRightSide =
 			"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v";
@@ -887,17 +1068,59 @@ describe("a menu whose forms do not read the search", () => {
 				// The refused row's comparison and the system date it reads.
 				{ key: "csql-op:>", entry: typedRightSide },
 				{ key: "csql-metadata:date_opened", entry: dateOnly },
+				// What a presence test sends with no answer and a row sends where it fails closed,
+				// which HQ's search parses as any other text the row can send.
+				{ key: "csql-fn:match-all", entry: "case-search/match-all-match-none" },
+				{
+					key: "csql-fn:match-none",
+					entry: "case-search/match-all-match-none",
+				},
 			]),
 		);
+	});
+
+	it("records a row's key where its value sits, and a presence test's class at the row's value", async () => {
+		let rows = 0;
+		const reading = await readLists(oneOfEach(), {
+			edit: (app) => {
+				rows = rowsOf(app).length;
+			},
+		});
+		expect(codes(reading)).toEqual([]);
+		const records = [...reading.ctx.close().claims.records()].filter((record) =>
+			record.where.startsWith("/modules/0/search_config/default_properties/"),
+		);
+		const at = (key: string) =>
+			records
+				.filter((record) => record.key === key)
+				.map((record) => record.where.replace(/^.*default_properties\//, ""));
+		// Each `_xpath_query` row's key is the `csql-key` item at `property`, never at its value.
+		expect(at("csql-key:_xpath_query")).toEqual(
+			Array.from({ length: rows }, (_, index) => `${index}/property`),
+		);
+		// A row chosen by a Search field's presence test is that class of its value.
+		expect(
+			records.some(
+				(record) =>
+					record.entry ===
+						"case-search/clause-chosen-at-runtime-by-input-presence" &&
+					record.key === "schema:DefaultCaseSearchProperty.defaultValue" &&
+					record.where.endsWith("/defaultValue"),
+			),
+		).toBe(true);
 	});
 });
 
 describe("a menu whose forms read the search", () => {
 	const PATIENTS = 1;
 
-	/** An intake menu that registers patients, a menu of patients whose forms read its search, and,
-	 *  where asked, a menu held advanced whose follow-up loads a patient. */
-	function readingForms(advanced = false): BlueprintDoc {
+	/** An intake menu that registers patients, a menu of patients whose forms read its search, with
+	 *  `list` over its case list, and, where asked, a menu held advanced whose follow-up loads a
+	 *  patient. */
+	function readingForms(
+		advanced = false,
+		list: Partial<CaseListConfig> = {},
+	): BlueprintDoc {
 		const register = {
 			name: "Register",
 			type: "registration" as const,
@@ -930,12 +1153,13 @@ describe("a menu whose forms read the search", () => {
 				}),
 			],
 		});
-		const list: CaseListConfig = {
+		const config: CaseListConfig = {
 			columns: [plainColumn(uuid(1), "case_name", "Name")],
 			listColumnOrder: [uuid(1)],
 			detailColumnOrder: [uuid(1)],
 			searchInputs: [bare],
 			filter: notesIs("open"),
+			...list,
 		};
 		const doc = buildDoc({
 			modules: [
@@ -944,7 +1168,7 @@ describe("a menu whose forms read the search", () => {
 					name: "Patients",
 					caseType: "patient",
 					forms: [visit("Visit")],
-					caseListConfig: list,
+					caseListConfig: config,
 					caseSearchConfig: { formsReadSearch: true },
 				},
 				...(advanced
@@ -989,6 +1213,133 @@ describe("a menu whose forms read the search", () => {
 		expect(registers(reading)).toContain("search-filter-joined-to-list");
 	});
 
+	it("raises a conjunct with no field that only HQ's search runs as one finding, since the list filter a device runs cannot hold it", async () => {
+		const entry =
+			"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s";
+		for (const row of [
+			`"fuzzy-match(notes, 'nrth')"`,
+			`"phonetic-match(notes, 'nrth')"`,
+		]) {
+			const reading = await readLists(readingForms(), {
+				edit: (app) => {
+					rowsOf(app, PATIENTS).push({
+						property: "_xpath_query",
+						defaultValue: row,
+					});
+				},
+			});
+			expect(closedCodes(reading)).toEqual([entry]);
+			expect(placements().at(-1)).toEqual({ kind: "E", entry });
+			expect(listOf(reading, PATIENTS).filter).toEqual(notesIs("open"));
+		}
+	});
+
+	it("raises a conjunct with no field that the device's list filter reads otherwise than HQ's search, since joining it would change the list", async () => {
+		const entry =
+			"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s";
+		// A standard property, which HQ reads from its own metadata; a negation of a property's text,
+		// true in HQ of a stored `'other '` or `' '` the device reads trimmed (`'other'`, `''`); and a
+		// literal with a space at an end, which HQ matches as stored and the device trimmed.
+		for (const row of [
+			`"case_name = 'Ana'"`,
+			`"notes != 'other'"`,
+			`"notes != ''"`,
+			`"not(notes = 'other')"`,
+			`"notes = 'other '"`,
+			`"starts-with(notes, ' ot')"`,
+		]) {
+			const reading = await readLists(readingForms(), {
+				edit: (app) => {
+					rowsOf(app, PATIENTS).push({
+						property: "_xpath_query",
+						defaultValue: row,
+					});
+				},
+			});
+			expect(closedCodes(reading)).toEqual([entry]);
+			expect(placements().at(-1)).toEqual({ kind: "E", entry });
+			expect(listOf(reading, PATIENTS).filter).toEqual(notesIs("open"));
+			expect(registers(reading)).not.toContain("search-filter-joined-to-list");
+		}
+	});
+
+	it("reads a conjunct with no field back on the advanced field whose condition holds it beside the field's derivation, as the canonical document holds it", async () => {
+		// Nova writes the field's condition as two rows, the conjunct with no field then the
+		// derivation. Reading the field as a simple one would drop the first, and joining it to the
+		// list filter would change the list a device runs.
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: and(
+				notesIs("other"),
+				whenInput(input(ADV), eq(prop("patient", "phone"), input(ADV))),
+			),
+		};
+		const doc = readingForms(false, { searchInputs: [advanced] });
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		const canonical =
+			canonDocument(doc).modules[doc.moduleOrder[PATIENTS] as Uuid]
+				?.caseListConfig;
+		const read = listOf(reading, PATIENTS);
+		expect(authored(read.filter, reading, [advanced], PATIENTS)).toEqual(
+			canonical?.filter,
+		);
+		expect(authored(read.searchInputs, reading, [advanced], PATIENTS)).toEqual(
+			canonical?.searchInputs,
+		);
+		expect(authored(placements(), reading, [advanced], PATIENTS)).toEqual([
+			{ kind: "B", clause: 0 },
+			{ kind: "D", from: "field", input: ADV },
+			{ kind: "D", from: "field", input: ADV },
+		]);
+		expect(registers(reading)).not.toContain("search-filter-joined-to-list");
+	});
+
+	it("declares a conjunct with no field that a later row moves from a field's condition to the list filter as joined to the list", async () => {
+		// The conjunct is first an excluded field's condition; the clause after it waits for a field
+		// HQ's matcher compares, and Nova writes the list filter's rows before the field's, so only the
+		// conjunct in the list filter writes the rows in order. The list a device runs gains it.
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: { kind: "match-all" },
+		};
+		const inputs = [bare, advanced];
+		const reading = await readLists(
+			readingForms(false, {
+				searchInputs: inputs,
+				filter: and(notesIs("open"), notesDiffer(PHONE)),
+			}),
+			{
+				edit: (app) => {
+					rowsOf(app, PATIENTS).splice(1, 0, {
+						property: "_xpath_query",
+						defaultValue: `"notes = 'other'"`,
+					});
+				},
+			},
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(placements()).toEqual([
+			{ kind: "B", clause: 0 },
+			{ kind: "F" },
+			{ kind: "D", from: "filter" },
+		]);
+		expect(
+			authored(listOf(reading, PATIENTS).filter, reading, inputs, PATIENTS),
+		).toEqual(and(notesIs("open"), notesIs("other"), notesDiffer(PHONE)));
+		expect(registers(reading)).toContain("search-filter-joined-to-list");
+	});
+
 	it("raises a conjunct with no field where an advanced form's load names the menu", async () => {
 		const reading = await readLists(readingForms(true), {
 			edit: (app) => {
@@ -1017,5 +1368,89 @@ describe("a menu whose forms read the search", () => {
 				.map((one) => (one as RowClassification).conjuncts.at(-1)?.placement)
 				.filter((placement) => placement?.kind === "E"),
 		).toEqual([{ kind: "E", entry }]);
+	});
+});
+
+describe("an advanced field's guarded conditions, the first of which a simple field derives", () => {
+	it("reads every condition back on the field, as the canonical document holds them", async () => {
+		// The rows of the field's condition follow the list filter's, so reading the second as a
+		// list filter clause would write it ahead of the first: the first is the field's condition
+		// again, with the second joined (fuzz-expression-20260930-3).
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: and(
+				whenInput(input(ADV), eq(prop("patient", "notes"), input(ADV))),
+				whenInput(input(ADV), neq(prop("patient", "phone"), input(ADV))),
+			),
+		};
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [advanced],
+			search: {},
+			list: { filter: notesIs("open") },
+		});
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		const canonical =
+			canonDocument(doc).modules[doc.moduleOrder[0] as Uuid]?.caseListConfig;
+		const read = listOf(reading);
+		expect(authored(read.filter, reading, [advanced])).toEqual(
+			canonical?.filter,
+		);
+		expect(authored(read.searchInputs, reading, [advanced])).toEqual(
+			canonical?.searchInputs,
+		);
+		expect(authored(placements(), reading, [advanced])).toEqual([
+			{ kind: "B", clause: 0 },
+			{ kind: "D", from: "field", input: ADV },
+			{ kind: "D", from: "field", input: ADV },
+		]);
+	});
+
+	it("reads the same conditions held by the list filter back on the field, as the canonical document holds them", async () => {
+		// The list filter's rows are written before every field's, so the two clauses print the rows
+		// the field's condition prints, and with no search settings stored the canonical document
+		// moves both onto the field as the reading places them (csqlQuoteFixture).
+		const ADV = uuid(20);
+		const advanced: SearchInputDef = {
+			uuid: ADV,
+			name: "adv",
+			label: "Adv",
+			kind: "advanced",
+			type: "text",
+			predicate: { kind: "match-all" },
+		};
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [advanced],
+			list: {
+				filter: and(
+					notesIs("open"),
+					whenInput(input(ADV), eq(prop("patient", "notes"), input(ADV))),
+					whenInput(input(ADV), neq(prop("patient", "phone"), input(ADV))),
+				),
+			},
+		});
+		const reading = await readLists(doc);
+		expect(codes(reading)).toEqual([]);
+		const canonical =
+			canonDocument(doc).modules[doc.moduleOrder[0] as Uuid]?.caseListConfig;
+		expect(canonical?.filter).toEqual(notesIs("open"));
+		// The row moves both clauses in one application: it is a fixed point on its own result.
+		const once =
+			filterConditionsOfAFieldAreItsOwn(doc).modules[doc.moduleOrder[0] as Uuid]
+				?.caseListConfig;
+		expect(once?.filter).toEqual(canonical?.filter);
+		expect(once?.searchInputs).toEqual(canonical?.searchInputs);
+		const read = listOf(reading);
+		expect(authored(read.filter, reading, [advanced])).toEqual(
+			canonical?.filter,
+		);
+		expect(authored(read.searchInputs, reading, [advanced])).toEqual(
+			canonical?.searchInputs,
+		);
 	});
 });

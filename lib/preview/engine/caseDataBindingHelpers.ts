@@ -45,6 +45,7 @@ import type {
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
 	OrdinarySubmissionAction,
+	RelatedRead,
 	RestoreScope,
 	SearchPopulation,
 	SubmissionReceiptIdentity,
@@ -82,11 +83,15 @@ import {
 	type CaseTileGrouping,
 	type CaseType,
 	type Column,
+	type ColumnVia,
 	caseListColumnRuns,
+	caseListSingleFieldOrder,
 	caseOperationRunsPerSelectedCase,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
 	caseWriteValueField,
+	columnPropertyCaseType,
+	columnRelationPath,
 	type Form,
 	type FormType,
 	isCaptureFieldKind,
@@ -147,6 +152,7 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import type { CaseListSortChoice } from "../caseListSortMenu";
 import { javaTrim } from "../xpath/javaString";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
@@ -196,6 +202,33 @@ function runtimeCalculatedColumns(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
 			column.kind === "calculated" && caseListColumnRuns(column, config),
 	);
+}
+
+/** The value each property column read through a relation shows: the
+ * related case's property, read through the column's walk from the type the
+ * schemas give it, projected beside the row under the column's uuid. Every
+ * such column is read, whether a runtime shows it or only orders or matches
+ * by it, so a carrier's raw value is there too. */
+function runtimeRelatedReads(
+	config: CaseListConfig | undefined,
+	caseType: string,
+	caseTypeSchemas: ReadonlyMap<string, CaseType> | undefined,
+): RelatedRead[] | undefined {
+	if (config === undefined) return undefined;
+	const types = [...(caseTypeSchemas?.values() ?? [])];
+	return config.columns.flatMap((column): RelatedRead[] => {
+		if (column.kind === "calculated" || column.via === undefined) return [];
+		const reached = columnPropertyCaseType(column, caseType, types);
+		if (reached === undefined) return [];
+		return [
+			{
+				uuid: column.uuid,
+				expression: term(
+					prop(reached, column.field, columnRelationPath(column)),
+				),
+			},
+		];
+	});
 }
 
 /**
@@ -465,6 +498,11 @@ export async function readCases(
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
 			calculated: runtimeCalculatedColumns(args.caseListConfig),
+			related: runtimeRelatedReads(
+				args.caseListConfig,
+				args.caseType,
+				args.caseTypeSchemas,
+			),
 			limit: page?.limit ?? cap,
 			offset: page === undefined ? undefined : offset,
 		});
@@ -574,6 +612,11 @@ async function readGroupedCases(
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
 			calculated: runtimeCalculatedColumns(args.caseListConfig),
+			related: runtimeRelatedReads(
+				args.caseListConfig,
+				args.caseType,
+				args.caseTypeSchemas,
+			),
 			indexIdentifier: grouping.identifier,
 			groupOffset,
 			groupLimit: page.limit,
@@ -955,6 +998,11 @@ export async function readFilterPreview(
 	const rows = await store.query({
 		...caseReadCore(args, predicate),
 		calculated: runtimeCalculatedColumns(args.caseListConfig),
+		related: runtimeRelatedReads(
+			args.caseListConfig,
+			args.caseType,
+			args.caseTypeSchemas,
+		),
 		sort: buildCaseStoreSortKeys(args.order, args.caseType),
 		limit,
 	});
@@ -971,7 +1019,14 @@ export async function readFilterPreview(
 export interface CaseStoreOrder {
 	readonly plan: CaseListOrderPlan;
 	readonly caseProperties: readonly CaseProperty[];
+	/** Every case type's effective catalog, where a column read through a
+	 *  relation finds the type its walk reaches and that type's options. */
+	readonly caseTypes: readonly CaseType[];
 	readonly locale: CaseListOrderLocale;
+	/** The worker's picks in the list's Sort by
+	 *  (`lib/preview/caseListSortMenu.ts`); absent or empty keeps the list's
+	 *  own order. */
+	readonly choice?: CaseListSortChoice;
 }
 
 /**
@@ -979,6 +1034,12 @@ export interface CaseStoreOrder {
  * fields and carriers together, then the case id for paging. A rule is one
  * key, but a rule over a multi select's labels is two (its labels, then the
  * raw value). With no plan the read sorts by the case id alone.
+ *
+ * Where the worker picked a field in the list's Sort by, the picks come
+ * first, newest first, each the field alone as the plan states it
+ * (`caseListOrder.ts::caseListSingleFieldOrder`), then the plan's rules only
+ * where the choice keeps them for ties, then the case id. A pick the plan no
+ * longer holds orders nothing.
  *
  * Each key's value is the field's sort key as the plan states it
  * (`lib/domain/caseListOrder.ts`), built from the compiler's own arms:
@@ -1017,25 +1078,50 @@ function buildCaseStoreSortKeys(
 		),
 		...order.plan.carriers.map((carrier) => ({
 			rule: carrier.rule,
-			key: { kind: "property", property: carrier.property } as CaseListSortKey,
+			key: {
+				kind: "property",
+				property: carrier.field,
+				...(carrier.via !== undefined && { via: carrier.via }),
+			} as CaseListSortKey,
 			comparator: carrier.comparator,
 		})),
 	].sort((a, b) => a.rule.order - b.rule.order);
 	const columns = new Map<string, Column>(
 		order.plan.fields.map((field) => [field.column.uuid, field.column]),
 	);
-	return [
-		...rules.flatMap(({ rule, key, comparator }) =>
-			sortKeysForRule(
-				key,
-				comparator,
-				rule.direction,
-				rule.blanks,
-				caseType,
-				columns,
-				order,
-			),
+	const listOrder = rules.flatMap(({ rule, key, comparator }) =>
+		sortKeysForRule(
+			key,
+			comparator,
+			rule.direction,
+			rule.blanks,
+			caseType,
+			columns,
+			order,
 		),
+	);
+	const picked = (order.choice?.picks ?? []).flatMap((pick) => {
+		const alone = caseListSingleFieldOrder(
+			order.plan,
+			pick.column,
+			pick.reversed,
+		);
+		return alone === undefined
+			? []
+			: sortKeysForRule(
+					alone.key,
+					alone.comparator,
+					alone.direction,
+					alone.blanks,
+					caseType,
+					columns,
+					order,
+				);
+	});
+	if (picked.length === 0) return [...listOrder, stablePageTieBreaker];
+	return [
+		...picked,
+		...(order.choice?.thenListOrder === true ? listOrder : []),
 		stablePageTieBreaker,
 	];
 }
@@ -1060,14 +1146,29 @@ function sortKeysForRule(
 		blanks,
 	});
 	const textLiteral = (value: string) => term(literal(value));
+	/** The type a walk reaches from the list's case; the list's own with none. */
+	const reachedType = (via: ColumnVia | undefined) =>
+		via === undefined
+			? caseType
+			: (columnPropertyCaseType({ via }, caseType, order.caseTypes) ??
+				caseType);
+	/** A property read, through a column's walk where it has one. */
+	const read = (property: string, via: ColumnVia | undefined) =>
+		via === undefined
+			? prop(caseType, property)
+			: prop(reachedType(via), property, { kind: "ancestor", via });
 	if (key.kind === "property") {
-		return [expressionKey(term(prop(caseType, key.property)))];
+		return [expressionKey(term(read(key.property, key.via)))];
 	}
 	if (key.kind === "option-label") {
-		const property = order.caseProperties.find(
-			(candidate) => candidate.name === key.property,
-		);
-		const raw = term(prop(caseType, key.property));
+		const optionType = reachedType(key.via);
+		const property = (
+			key.via === undefined
+				? order.caseProperties
+				: (order.caseTypes.find((type) => type.name === optionType)
+						?.properties ?? [])
+		).find((candidate) => candidate.name === key.property);
+		const raw = term(read(key.property, key.via));
 		const options = property?.options ?? [];
 		if (property === undefined || options.length === 0) {
 			return [expressionKey(raw, "text")];
@@ -1080,8 +1181,10 @@ function sortKeysForRule(
 			);
 			const [first, ...rest] = tokens.map(({ option, index }) =>
 				ifExpr(
-					multiSelectAny(prop(caseType, key.property), literal(option.value)),
-					textLiteral(`${order.locale.optionLabel(property, index)} `),
+					multiSelectAny(read(key.property, key.via), literal(option.value)),
+					textLiteral(
+						`${order.locale.optionLabel(property, index, optionType)} `,
+					),
 					textLiteral(""),
 				),
 			);
@@ -1094,7 +1197,7 @@ function sortKeysForRule(
 		const [first, ...rest] = options.map((option, index) =>
 			switchCase(
 				literal(option.value),
-				textLiteral(order.locale.optionLabel(property, index)),
+				textLiteral(order.locale.optionLabel(property, index, optionType)),
 			),
 		);
 		return [
@@ -1111,7 +1214,7 @@ function sortKeysForRule(
 		return [expressionKey(column.expression, comparator)];
 	}
 	if (column.kind === "calculated") return [];
-	const raw = prop(caseType, column.field);
+	const raw = read(column.field, column.via);
 	if (key.kind === "mapping-position") {
 		if (column.kind !== "id-mapping" && column.kind !== "image-map") return [];
 		return [
@@ -1147,6 +1250,9 @@ function sortKeysForRule(
 		{
 			kind: "interval-text",
 			property: column.field,
+			...(column.via !== undefined && {
+				relation: { caseType: reachedType(column.via), via: column.via },
+			}),
 			display: column.display,
 			thresholdDays: column.threshold * divisorDays,
 			divisorDays,
@@ -1237,6 +1343,11 @@ export async function readCaseData(
 		),
 		parentCases: args.parentCase,
 		calculated: runtimeCalculatedColumns(args.caseListConfig),
+		related: runtimeRelatedReads(
+			args.caseListConfig,
+			args.caseType,
+			args.caseTypeSchemas,
+		),
 		limit: 1,
 		includeHeld: args.includeHeld,
 	});
@@ -1888,7 +1999,17 @@ export function buildCaseOperationProgramFromDoc(args: {
 	const { mutation } = args;
 	const formUuid = args.projection.formUuid;
 	const blueprint = args.blueprint;
-	const doc = asWalkableDoc(blueprint);
+	// The form facts the program carries (each answer's type and what CommCare
+	// holds it as) read the form's structure, so the doc keeps its field
+	// parents, which a persisted blueprint leaves out.
+	const doc: BlueprintDoc = {
+		...asWalkableDoc(blueprint),
+		fieldParent: Object.fromEntries(
+			Object.entries(blueprint.fieldOrder).flatMap(([parent, children]) =>
+				children.map((child) => [child, parent]),
+			),
+		) as BlueprintDoc["fieldParent"],
+	};
 	const form = doc.forms[formUuid];
 	if (form === undefined) {
 		throw new CaptureSubmissionRejectedError(
@@ -2119,6 +2240,14 @@ export function buildCaseOperationProgramFromDoc(args: {
 			formFieldTypes: new Map(
 				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].map(
 					([uuid, field]) => [uuid, field.type],
+				),
+			),
+			formFieldHeld: new Map(
+				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].flatMap(
+					([uuid, field]) =>
+						typeof field.held === "string" && field.held !== "sequence"
+							? [[uuid, field.held] as const]
+							: [],
 				),
 			),
 			sessionUser: new Map(Object.entries(session.user)),

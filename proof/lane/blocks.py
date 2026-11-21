@@ -15,7 +15,9 @@ for a run without one, by the server from its own collection
      "unsampled": [<document id>, ...],
      "sample": {"seed": <ISO year and week> | null, "documents": [<document id>, ...]},
      "selection": {"documents": [<document id>, ...], "left": [<group>, ...]},
-     "readers": false | [<reader>, ...]}
+     "readers": false | [<reader>, ...],
+     "reader": <digest of the corpus's reader bundle>,
+     "setAside": [{"base": <base id>, "reading": "account" | "declaration-not-offered", "notice": <text>}, ...]}
 
 A lane has two queues: the early queue, of groups whose tests need no corpus
 (from ``proof-plan``), and the main queue (from ``proof-corpus``, once the
@@ -24,8 +26,9 @@ control (``control:<id>``), one piece of either (``corpus:<id>@<configuration>``
 ``control:<id>@<configuration>``: one configuration of it observed, below), of one
 package (``proof``, ``proof/<package>``), of one test module a package's
 group splits off (``proof/<package>/<module>.py``) or one test of it
-(``proof/<package>/<module>.py::<test>``, ``proof.checks.sharding.SPLIT``),
-or the surface block (``surface``);
+(``proof/<package>/<module>.py::<test>``, ``proof.checks.sharding.SPLIT``) or one
+value of its parameter (``proof/<package>/<module>.py[<value>]``,
+``proof.checks.sharding.SPLIT_BY_PARAMETER``), or the surface block (``surface``);
 ``proof.checks.sharding.item_group`` names the group of a collected item. A block's id is the sha256 of its
 groups' names, sorted and joined by newlines (``block_id``), so the id names
 what the block holds. A cached group is one whose every judgment the store
@@ -66,10 +69,24 @@ in the queue of a run that observes not every reader (``PROOF_READERS``,
 ``proof.lane.readers``), is false for none or the list of those it observes:
 the server refuses a queue built for another set than its own, and the gate
 leaves the register's entries only the other readers show to the nightly.
+``reader``, only in a main queue over a corpus that carries the reader
+bundle (``native/reader/``, ``proof.store.keys.reader_digest``), is its
+digest: what a corpus document's judged key names beside the judge's code
+(``proof.store.keys.judged_under``), which the queue builder keyed each
+corpus document's group under and the packer keys its judgments under.
+``setAside``, only in a main queue over a corpus that set a base made in HQ
+aside (its ``index.json``'s ``setAside``, ``set_aside_bases``: a retained
+base Nova's reading takes no document of, ``proof/corpus/hqAuthored.ts``),
+names each such base: the queue runs the group that authors it again
+(``proof/matrix/test_retained.py[<base>]``), never from the store, and the
+gate fails the run, naming whether that group's new copy came in
+(``proof.lane.gate``).
 
 A block's run leaves ``blocks/<id>/`` in the output of the shard that ran it:
 
 - ``block.json``, its manifest: the block, the phase and shard that ran it,
+  the reader bundle its queue names (``reader``, where it names one, which
+  ``proof.store.pack`` keys the block's corpus documents' judgments under),
   and for each group the items the worker collected for it, each item's
   outcome, the worker, its seconds, and why it failed when a worker could
   not finish it;
@@ -107,8 +124,10 @@ DOCUMENT_KINDS = ("corpus:", "control:")
 # capture, the lane's nested servers, every native family, the spelling
 # rules' own tests (the documents they spell two ways), the Connect proofs
 # (the Connect apps they run), the evidence store's guarded observation
-# of a document. Like a document's group, each runs in the main phase,
-# once the corpus is in place.
+# of a document, the matrix of apps made in HQ (the corpus document a base
+# is built from, and the reader bundle the corpus carries). Like a
+# document's group, each runs in the main phase, once the corpus is in
+# place.
 CORPUS_PACKAGES = (
     "proof/android",
     "proof/checks",
@@ -117,6 +136,7 @@ CORPUS_PACKAGES = (
     "proof/formplayer",
     "proof/hq",
     "proof/lane",
+    "proof/matrix",
     "proof/native",
     "proof/rules",
     "proof/store",
@@ -128,10 +148,21 @@ SINGLE_GROUPS = ("proof", "surface")
 FAILING = ("failed", "error")
 # A block's output compared where two runs of it differ: its evidence and the surface extraction.
 COMPARED = ("checks", "surface/surface.json")
+# Where a block writes a base made in HQ it authored: under ``hq-apps/<base>/`` once Nova's reading of it came in,
+# else under ``hq-apps-unread/<base>/`` (``proof/matrix/retain.py::UNREAD_TREE``), which nothing adopts.
+AUTHORED_TREE = "hq-apps"
+UNREAD_TREE = "hq-apps-unread"
 
 
 class QueueError(ValueError):
     """A queue file that is not a lane's queue."""
+
+
+def _parameter_value(text: str) -> bool:
+    """Whether ``text`` is a parameter's value closed by its bracket (``<value>]``): a name with no space or
+    bracket in it."""
+    value = text[:-1]
+    return text.endswith("]") and bool(value) and not any(c.isspace() or c in "[]" for c in value) and "::" not in value
 
 
 def group_problem(name) -> str | None:
@@ -147,14 +178,19 @@ def group_problem(name) -> str | None:
         if not module:
             return None
         path, _, test = module.partition("::")
+        path, bracket, value = path.partition("[")
         if (
             path.endswith(".py")
             and path.rpartition("/")[2].startswith("test_")
             and not any(character.isspace() for character in path)
-            and (not test and "::" not in module or test.isidentifier())
+            and (not test and "::" not in module or test.isidentifier() and not bracket)
+            and (not bracket or _parameter_value(value))
         ):
             return None
-        return f"{name!r} names no test module of a package (proof/<package>/<module>.py) or test of one (::<test>)"
+        return (
+            f"{name!r} names no test module of a package (proof/<package>/<module>.py), test of one (::<test>)"
+            " or value of its parameter ([<value>])"
+        )
     for kind in DOCUMENT_KINDS:
         if name.startswith(kind):
             rest = name[len(kind) :]
@@ -166,7 +202,8 @@ def group_problem(name) -> str | None:
             return None
     return (
         f"{name!r} is none of corpus:<id>, control:<id>, a piece of one (corpus:<id>@<configuration>,"
-        " control:<id>@<configuration>), proof, proof/<package>, proof/<package>/<module>.py[::<test>] or surface"
+        " control:<id>@<configuration>), proof, proof/<package>, proof/<package>/<module>.py[::<test>],"
+        " proof/<package>/<module>.py[<value>] or surface"
     )
 
 
@@ -192,7 +229,7 @@ def piece_counts(groups) -> dict[str, int]:
 
 def package_of(name: str) -> str:
     """The package a group belongs to: ``proof/<package>`` for its own group and every module or test it splits off
-    (``proof/<package>/<module>.py[::<test>]``), and the group itself for any other."""
+    (``proof/<package>/<module>.py[::<test>]``, ``...[<value>]``), and the group itself for any other."""
     if name.startswith("proof/"):
         return "proof/" + name[len("proof/") :].partition("/")[0]
     return name
@@ -254,6 +291,16 @@ class Selection:
 
 
 @dataclass(frozen=True)
+class SetAside:
+    """A base made in HQ the corpus set aside: its id, what Nova's reading of it answered (``account`` or
+    ``declaration-not-offered``), and the emission's notice naming why."""
+
+    base: str
+    reading: str
+    notice: str
+
+
+@dataclass(frozen=True)
 class Queue:
     blocks: tuple[Block, ...]
     cached: tuple[CachedGroup, ...] = ()
@@ -266,6 +313,11 @@ class Queue:
     sample: Sample | None = None
     # The documents and what it leaves out, for a run over documents named by hand; None for any other.
     selection: Selection | None = None
+    # The digest of the reader bundle the corpus carries (proof.store.keys.reader_digest); None for a queue over no
+    # corpus, or over one that carries none.
+    reader: str | None = None
+    # The bases made in HQ the corpus set aside, in id order; none where it set none aside.
+    set_aside: tuple[SetAside, ...] = ()
 
     def groups(self) -> set[str]:
         return {name for block in self.blocks for name in block.names}
@@ -400,9 +452,52 @@ def parse_queue(value, where: str = "the queue", *, check_names: bool = True) ->
             if both:
                 problems.append(f"{', '.join(both[:5])} is run or read, and the selection names it as left out")
             selection = Selection(tuple(documents), tuple(left))
+    reader = value.get("reader")
+    if reader is not None and (not isinstance(reader, str) or not reader):
+        problems.append(f"its reader is {reader!r}, not the digest of the reader bundle its corpus carries")
+        reader = None
+    set_aside, aside_problems = _set_aside(value.get("setAside", []), "its setAside")
+    problems += aside_problems
     if problems:
         raise QueueError(f"{where} is not a lane queue:\n" + "\n".join(f"- {problem}" for problem in problems))
-    return Queue(tuple(blocks), tuple(cached), dict(fingerprints), tuple(unsampled), readers, sample, selection)
+    return Queue(
+        tuple(blocks),
+        tuple(cached),
+        dict(fingerprints),
+        tuple(unsampled),
+        readers,
+        sample,
+        selection,
+        reader,
+        set_aside,
+    )
+
+
+SET_ASIDE_READINGS = ("account", "declaration-not-offered")
+
+
+def _set_aside(raw, where: str) -> tuple[tuple[SetAside, ...], list[str]]:
+    """The set-aside bases ``raw`` lists (``[{base, reading, notice}, ...]``, one a base), and why it does not."""
+    if not isinstance(raw, list):
+        return (), [f"{where} is not a list of the bases the corpus set aside"]
+    found, problems = [], []
+    for entry in raw:
+        base = entry.get("base") if isinstance(entry, dict) else None
+        reading = entry.get("reading") if isinstance(entry, dict) else None
+        notice = entry.get("notice") if isinstance(entry, dict) else None
+        if not isinstance(base, str) or not base or "/" in base or any(c.isspace() for c in base):
+            problems.append(f"{where} lists {entry!r}, which names no base by its id")
+        elif reading not in SET_ASIDE_READINGS:
+            problems.append(
+                f"{where} sets {base} aside for {reading!r}, which is none of {', '.join(SET_ASIDE_READINGS)}"
+            )
+        elif not isinstance(notice, str) or not notice:
+            problems.append(f"{where} sets {base} aside with no notice naming why")
+        elif any(one.base == base for one in found):
+            problems.append(f"{where} sets {base} aside twice")
+        else:
+            found.append(SetAside(base, reading, notice))
+    return tuple(sorted(found, key=lambda one: one.base)), problems
 
 
 def piece_problems(groups: Iterable[QueuedGroup]) -> list[str]:
@@ -483,6 +578,12 @@ def queue_json(queue: Queue) -> dict:
             else {}
         ),
         **({} if queue.readers == lane_readers.EVERY else {"readers": lane_readers.to_record(queue.readers)}),
+        **({} if queue.reader is None else {"reader": queue.reader}),
+        **(
+            {"setAside": [{"base": one.base, "reading": one.reading, "notice": one.notice} for one in queue.set_aside]}
+            if queue.set_aside
+            else {}
+        ),
     }
 
 
@@ -491,6 +592,17 @@ def unsampled_documents(corpus: Path) -> tuple[str, ...]:
     ``index.json``'s ``unsampled``, ``proof.store.queue.sampled``); none for a corpus run whole."""
     index = json.loads((Path(corpus) / "index.json").read_text(encoding="utf-8"))
     return tuple(entry["id"] for entry in index.get("unsampled", []))
+
+
+def set_aside_bases(corpus: Path) -> tuple[SetAside, ...]:
+    """The bases made in HQ the corpus at ``corpus`` set aside (its ``index.json``'s ``setAside``, written by the
+    emission, ``proof/corpus/emitCorpus.ts``), in id order; none where it set none aside. A list that is not one
+    is refused by name."""
+    index = json.loads((Path(corpus) / "index.json").read_text(encoding="utf-8"))
+    found, problems = _set_aside(index.get("setAside", []), f"{Path(corpus) / 'index.json'}'s setAside")
+    if problems:
+        raise QueueError("\n".join(problems))
+    return found
 
 
 def write_json(path: Path, value) -> None:
@@ -546,7 +658,9 @@ def group_record(*, group, fresh, collected, outcomes, worker=None, seconds=None
     }
 
 
-def manifest(block: Block, *, phase: str, shard: str, groups: list[dict]) -> dict:
+def manifest(block: Block, *, phase: str, shard: str, groups: list[dict], reader: str | None = None) -> dict:
+    """One block's manifest; ``reader`` the reader bundle its queue names (``Queue.reader``), which a corpus
+    document's judged key names (``proof.store.keys.judged_under``)."""
     return {
         "version": MANIFEST_VERSION,
         "block": block.id,
@@ -554,6 +668,7 @@ def manifest(block: Block, *, phase: str, shard: str, groups: list[dict]) -> dic
         "shard": shard,
         "estimate": block.estimate,
         "groups": sorted(groups, key=lambda record: record["group"]),
+        **({} if reader is None else {"reader": reader}),
     }
 
 

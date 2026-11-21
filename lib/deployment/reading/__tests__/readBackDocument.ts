@@ -7,15 +7,20 @@
 
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import {
 	type Automation,
 	type BlueprintDoc,
+	columnSort,
 	makeTranslationUnitId,
+	plainColumn,
 	proseText,
 	translationSourceFingerprint,
+	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
 import { authoredBlueprintIdentities } from "@/lib/domain/authoredIdentities";
+import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 
 const U = (name: string) => testUuid(`read-back-${name}`) as Uuid;
 
@@ -273,6 +278,123 @@ export function unexportedTextDocument(): BlueprintDoc {
 			},
 		},
 	} as BlueprintDoc;
+}
+
+/**
+ * A case list whose column hidden from Results and from Details sorts the list and is named in
+ * Sort by under another text than its header: a header no export holds, since each prints the
+ * name in the header's place.
+ */
+export function sortNamedHiddenColumnDocument(): BlueprintDoc {
+	const doc = buildDoc({
+		appId: "read-back-sort-name",
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						fields: [f({ kind: "text", id: "case_name", label: "Name" })],
+					},
+				],
+			},
+		],
+	});
+	const menu = doc.moduleOrder[0] as Uuid;
+	const module = doc.modules[menu];
+	const config = module?.caseListConfig;
+	if (module === undefined || config === undefined)
+		throw new Error("The fixture holds a menu with a case list.");
+	const hidden = {
+		...plainColumn(U("sort-named-column"), "weight", "Weight column"),
+		visibleInList: false,
+		visibleInDetail: false,
+		sort: columnSort("desc", 0, undefined, "Heaviest first"),
+	};
+	return {
+		...doc,
+		modules: {
+			...doc.modules,
+			[menu]: {
+				...module,
+				caseListConfig: {
+					...config,
+					columns: [...config.columns, hidden],
+					listColumnOrder: [...config.listColumnOrder, hidden.uuid],
+					detailColumnOrder: [...config.detailColumnOrder, hidden.uuid],
+				},
+			},
+		},
+	};
+}
+
+/**
+ * A menu of a case type whose forms are all surveys, so it lists no cases, holding a list of its
+ * own: a column no export holds, since such a menu is written the one name column every new menu
+ * in CommCare HQ holds.
+ */
+export function surveyListDocument(): BlueprintDoc {
+	return buildDoc({
+		appId: "read-back-survey-list",
+		caseTypes: [
+			{
+				name: "household",
+				properties: [{ name: "village", label: "Village" }],
+			},
+		],
+		modules: [
+			{
+				name: "Household surveys",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "village", header: "Village" },
+				]),
+				forms: [
+					{
+						name: "Census",
+						type: "survey",
+						fields: [f({ kind: "text", id: "head", label: "Head" })],
+					},
+				],
+			},
+		],
+	});
+}
+
+/**
+ * A searched menu in English and Spanish whose Spanish holds a translation of the search guard
+ * sentence for a location and a number, which no Search field of the app carries: a translation no
+ * export holds, since an export prints only the guards its fields' values need.
+ */
+export function unprintedGuardDocument(): BlueprintDoc {
+	const doc = localizationWireFixture("prompts");
+	const spanish = doc.localization?.translations.spa;
+	const quote = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		searchRuntimeValidationMessage(new Set(["quote"]))?.key ?? "",
+	);
+	const unit = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		searchRuntimeValidationMessage(new Set(["geopoint", "decimal-number"]))
+			?.key ?? "",
+	);
+	const entry = spanish?.[quote];
+	const fingerprint = translationUnitsById(doc).get(unit)?.sourceFingerprint;
+	if (spanish === undefined || entry === undefined || fingerprint === undefined)
+		throw new Error("The fixture holds no Spanish guard to copy.");
+	spanish[unit] = {
+		...entry,
+		value: "Indique una ubicación y un número.",
+		sourceFingerprint: fingerprint,
+	};
+	return doc;
 }
 
 /** Every object of `value` whose `uuid` is `uuid`. */

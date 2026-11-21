@@ -11,7 +11,17 @@
 			"schema:OpenCaseAction.condition",
 			"schema:FormActionCondition.type",
 			"schema:FormActions.close_case",
-			"schema:FormAction.condition"
+			"schema:FormAction.condition",
+			"schema:FormActions.update_case",
+			"schema:FormActions.case_preload",
+			"schema:FormActions.usercase_preload",
+			"schema:FormActions.load_from_form",
+			"schema:OpenCaseAction.name_update",
+			"schema:UpdateCaseAction.condition",
+			"schema:PreloadAction.condition",
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "registration",
 		"disposition": "HELD",
@@ -46,7 +56,16 @@
 			"schema:FormActionCondition.type",
 			"schema:FormActionCondition.question",
 			"schema:FormActionCondition.answer",
-			"schema:FormActionCondition.operator"
+			"schema:FormActionCondition.operator",
+			"schema:FormActions.update_case",
+			"schema:FormActions.close_case",
+			"schema:FormActions.case_preload",
+			"schema:FormActions.usercase_preload",
+			"schema:FormActions.load_from_form",
+			"schema:OpenCaseAction.name_update",
+			"schema:UpdateCaseAction.condition",
+			"schema:FormAction.condition",
+			"schema:PreloadAction.condition"
 		],
 		"valueClass": "conditional-registration",
 		"disposition": "HELD",
@@ -83,7 +102,14 @@
 			"schema:FormActionCondition.type",
 			"schema:FormActionCondition.question",
 			"schema:FormActionCondition.answer",
-			"schema:FormActionCondition.operator"
+			"schema:FormActionCondition.operator",
+			"schema:FormActions.update_case",
+			"schema:FormActions.case_preload",
+			"schema:FormActions.usercase_preload",
+			"schema:FormActions.load_from_form",
+			"schema:OpenCaseAction.name_update",
+			"schema:UpdateCaseAction.condition",
+			"schema:PreloadAction.condition"
 		],
 		"valueClass": "registration-closing-its-case",
 		"disposition": "HELD",
@@ -149,7 +175,19 @@
 			"schema:Form.actions",
 			"schema:FormActions.close_case",
 			"schema:FormAction.condition",
-			"schema:FormActionCondition.type"
+			"schema:FormActionCondition.type",
+			"schema:FormActions.open_case",
+			"schema:FormActions.update_case",
+			"schema:FormActions.case_preload",
+			"schema:FormActions.usercase_preload",
+			"schema:FormActions.load_from_form",
+			"schema:OpenCaseAction.condition",
+			"schema:OpenCaseAction.name_update",
+			"schema:UpdateCaseAction.condition",
+			"schema:PreloadAction.condition",
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "followup",
 		"disposition": "HELD",
@@ -181,7 +219,19 @@
 			"schema:Form.actions",
 			"schema:FormActions.close_case",
 			"schema:FormAction.condition",
-			"schema:FormActionCondition.type"
+			"schema:FormActionCondition.type",
+			"schema:FormActions.open_case",
+			"schema:FormActions.update_case",
+			"schema:FormActions.case_preload",
+			"schema:FormActions.usercase_preload",
+			"schema:FormActions.load_from_form",
+			"schema:OpenCaseAction.condition",
+			"schema:OpenCaseAction.name_update",
+			"schema:UpdateCaseAction.condition",
+			"schema:PreloadAction.condition",
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "followup-closing-always",
 		"disposition": "HELD",
@@ -208,7 +258,25 @@
 		"area": "forms-and-case-writes",
 		"section": "Form types",
 		"item": "`Form`, `requires: none`, no case action",
-		"surfaceKeys": ["schema:Form.requires", "schema:Form.actions"],
+		"surfaceKeys": [
+			"schema:Form.requires",
+			"schema:Form.actions",
+			"schema:FormActions.open_case",
+			"schema:FormActions.update_case",
+			"schema:FormActions.close_case",
+			"schema:FormActions.case_preload",
+			"schema:FormActions.usercase_preload",
+			"schema:FormActions.load_from_form",
+			"schema:OpenCaseAction.condition",
+			"schema:OpenCaseAction.name_update",
+			"schema:UpdateCaseAction.condition",
+			"schema:FormAction.condition",
+			"schema:PreloadAction.condition",
+			"schema:FormActionCondition.type",
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator"
+		],
 		"valueClass": "survey",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `Form.type: survey`",
@@ -274,7 +342,17 @@
 			"schema:FormAction.condition",
 			"schema:FormActions.open_case",
 			"schema:OpenCaseAction.condition",
-			"schema:FormActionCondition.type"
+			"schema:FormActionCondition.type",
+			"schema:FormActions.update_case",
+			"schema:FormActions.case_preload",
+			"schema:FormActions.usercase_preload",
+			"schema:FormActions.load_from_form",
+			"schema:OpenCaseAction.name_update",
+			"schema:UpdateCaseAction.condition",
+			"schema:PreloadAction.condition",
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "close-without-open-with-case-type",
 		"disposition": "HELD",
@@ -991,7 +1069,8 @@
 		"surfaceKeys": [
 			"schema:Form.form_filter",
 			"schema:AdvancedForm.form_filter",
-			"schema:ShadowForm.form_filter"
+			"schema:ShadowForm.form_filter",
+			"hashtag:$fixture_value"
 		],
 		"valueClass": "fixture-value",
 		"disposition": "REFUSED",
@@ -2376,12 +2455,13 @@
 		"id": "forms-and-case-writes/form-type",
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
-		"item": "`form_type`",
+		"item": "`form_type`, the form's own kind",
 		"surfaceKeys": [
 			"schema:Form.form_type",
 			"schema:AdvancedForm.form_type",
 			"schema:ShadowForm.form_type"
 		],
+		"valueClass": "the-form-s-own-kind",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: implied by the form kind",
 		"slotChanges": [],
@@ -2391,6 +2471,36 @@
 		},
 		"emission": {
 			"cell": "per kind",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/form-type-other-than-the-form-s-own-kind",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "`form_type` other than the form's own kind (`module_form` on a `Form`, `advanced_form` on an `AdvancedForm`)",
+		"surfaceKeys": [
+			"schema:Form.form_type",
+			"schema:AdvancedForm.form_type",
+			"schema:ShadowForm.form_type"
+		],
+		"valueClass": "another-kind",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: no page writes `form_type`, which each form class fixes (`models/forms.py::Form`, `AdvancedForm`, `ShadowForm`), while HQ's build chooses a form's session values and after-submit frames by it (`suite_xml/sections/entries.py::EntriesHelper.get_datums_meta_for_form_generic`, `suite_xml/post_process/workflow.py`)",
+		"subject": "form-settings",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "no page writes `form_type`, which each form class fixes (`models/forms.py::Form`, `AdvancedForm`, `ShadowForm`), while HQ's build chooses a form's session values and after-submit frames by it (`suite_xml/sections/entries.py::EntriesHelper.get_datums_meta_for_form_generic`, `suite_xml/post_process/workflow.py`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -2641,7 +2751,9 @@
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.condition",
 			"schema:FormActionCondition.type",
-			"schema:FormActionCondition.question"
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "update-if-question-exists",
 		"disposition": "HELD",
@@ -2673,7 +2785,9 @@
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.condition",
 			"schema:FormActionCondition.type",
-			"schema:FormActionCondition.question"
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "update-if-question-missing",
 		"disposition": "REFUSED",
@@ -2816,6 +2930,25 @@
 		"emission": {
 			"cell": "`always`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/update-case-update-map-under-condition-never",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "`update_case.update` holding properties while `update_case.condition` is `never`",
+		"surfaceKeys": ["schema:UpdateCaseAction.update"],
+		"valueClass": "under-condition-never",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: not in `Form.active_actions` (`models/forms.py::Form.active_actions`), so HQ's build writes none of its properties (`xform.py::XForm._create_casexml`); its keys reach only HQ's case-property inventory and data dictionary (`Form.get_case_updates`), pages that describe the app",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -3493,7 +3626,8 @@
 			"schema:FormAction.condition",
 			"schema:FormActionCondition.type",
 			"schema:FormActionCondition.question",
-			"schema:FormActionCondition.operator"
+			"schema:FormActionCondition.operator",
+			"schema:FormActionCondition.answer"
 		],
 		"valueClass": "close-if-boolean-true",
 		"disposition": "HELD",
@@ -4191,7 +4325,15 @@
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update",
-			"schema:FormActions.close_case"
+			"schema:FormActions.close_case",
+			"schema:UpdateCaseAction.condition",
+			"schema:FormAction.condition",
+			"schema:FormActionCondition.type",
+			"schema:FormActionCondition.question",
+			"schema:FormActionCondition.answer",
+			"schema:FormActionCondition.operator",
+			"schema:ConditionalCaseUpdate.question_path",
+			"schema:ConditionalCaseUpdate.update_mode"
 		],
 		"valueClass": "multi-select-or-registry-module",
 		"disposition": "INERT",
@@ -4421,6 +4563,40 @@
 		},
 		"emission": {
 			"cell": "`condition {type: if}`; add-on `conditional_form_actions`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/a-child-case-or-advanced-action-condition-boolean-true-on-a",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "a child case or advanced action condition `boolean_true` on a question whose answer is no yes or no (a select, a label, or a hidden value calculated as anything but a condition)",
+		"surfaceKeys": [
+			"schema:OpenSubCaseAction.condition",
+			"schema:OpenSubCaseAction.close_condition",
+			"schema:LoadUpdateAction.close_condition",
+			"schema:AdvancedOpenCaseAction.open_condition",
+			"schema:AdvancedOpenCaseAction.close_condition",
+			"schema:FormActionCondition.operator"
+		],
+		"valueClass": "condition-is-true-not-yes-no",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a record condition that reads an answer alone as CommCare reads it, true wherever the answer is not empty (`FunctionUtils.toBoolean`); a hidden value a condition calculates is held as the condition it reads (`subcases[].condition: if`)",
+		"subject": "child-cases",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`condition {operator: boolean_true}`",
 			"markers": []
 		},
 		"gates": []
@@ -4869,15 +5045,36 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/writers-saved-as-text",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "writers of one property whose types agree on no one stored type, each text, a single choice, a whole number, a decimal number or a date (one Hidden Value's results among them), where no question opens on the property's value through an answer class that casts it",
+		"surfaceKeys": [],
+		"noSurfaceKey": "A relation among the questions, Hidden Values and case changes that write one case property (writers of types text holds), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: joined on `text`, which holds each writer's value as the text a device submits for it: a whole number's digits, a decimal number's `Double.toString`, a date's `yyyy-MM-dd` (`ruleSets.ts::joinsAsText`, `casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "n/a",
+			"markers": ["n/a"]
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/any-other-mixed-writer-pair",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "any other mixed writer pair: writers of one property whose types agree on no one stored type (`agreedStorageType`)",
+		"item": "any other mixed writer pair: writers of one property whose types agree on no one stored type (`agreedStorageType`) and are not saved as text: one is a date and time, a time or a location, or a question opens on the property's value through an answer class that casts it",
 		"surfaceKeys": [],
-		"noSurfaceKey": "A relation among the questions that write one case property (writers of two other types), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
+		"noSurfaceKey": "A relation among the questions, Hidden Values and case changes that write one case property (writers of two other types), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: join `text`",
+		"dispositionCell": "**HELD-NEW**: join `text` for a date and time, a time and a location, and for a property a question opens on through an answer class that casts it",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -4916,11 +5113,11 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "a DateTime question saved straight to a case",
+		"item": "a DateTime question, or a Hidden Value its bind types `xsd:dateTime`, saved straight to a case",
 		"surfaceKeys": [],
-		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time question gives it), which no single surface item holds; the question and the case write are named by their own rows.",
+		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a date-and-time question writing its date to a `date` property (Nova routes every date-and-time writer through the `nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`)",
+		"dispositionCell": "**HELD-NEW**: a date-and-time writer writing its date to a `date` property: HQ's build binds the case block's leaf with no type, so Core keeps the day alone (`Recalculate.wrapData`) (Nova routes every date-and-time writer through the `nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`)",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -5565,6 +5762,51 @@
 		"emission": {
 			"cell": "—",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/an-index-on-the-first-chosen-load-naming-the-worker-s-record-loaded-before-it",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "`LoadUpdateAction.case_index` on the first chosen load naming the worker's record's auto-selected load stored before it",
+		"surfaceKeys": ["schema:LoadUpdateAction.case_index"],
+		"valueClass": "index-to-the-worker-record-load",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a chosen case narrowed to the worker's record's children: HQ's editor offers the index on every load stored after the first that does not auto-select (`case_config_advanced.html`, `advanced/actions.js` `subcase`), and HQ's build filters the chosen list by the worker's record's id (`entries.py::EntriesHelper.get_datum_meta_assertions_advanced`, `get_parent_filter_by_ref_id`)",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "`load_update_cases[]` whose worker's record's auto-selected load (`auto_select {mode: usercase}`) is stored before a chosen load",
+		"surfaceKeys": [
+			"schema:AdvancedForm.actions",
+			"schema:AdvancedFormActions.load_update_cases"
+		],
+		"valueClass": "worker-load-before-a-chosen-load",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the worker's record's load in its stored place: HQ's entry gives each load's datum in stored order (`entries.py::EntriesHelper.get_datum_meta_assertions_advanced`), so the worker's computed `usercase_id` stands before the chosen loads' selections, and Nova writes the worker's load after every chosen load",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -6405,6 +6647,32 @@
 		"emission": {
 			"cell": "—",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "an advanced open action's index under `parent` that gives its case type a parent of another type, or another relationship, than the parent selection a menu of that type chooses its case through",
+		"surfaceKeys": [
+			"schema:AdvancedOpenCaseAction.case_indices",
+			"schema:CaseIndex.tag",
+			"schema:CaseIndex.reference_id",
+			"schema:CaseIndex.relationship"
+		],
+		"valueClass": "parent-index-against-a-parent-selection",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: one case type whose `parent` links reach two case types, or reach one as both a child and an extension; Nova's case catalog holds one parent and one relationship per type (`CaseType.parent_type`, `CaseType.relationship`), which a menu's parent selection follows",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},

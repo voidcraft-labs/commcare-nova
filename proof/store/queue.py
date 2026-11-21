@@ -29,7 +29,14 @@ Each group is one of three classes, from the snapshots ``--store`` names
   observation's and the browser's code, the platform), but not its
   judgments. It runs, reading every part from the store, so only its checks'
   judges run, and HQ's branch proof of it where that names it
-  (``proof/hq/test_branches.py``), which reads nothing from the store.
+  (``proof/hq/test_branches.py``), which reads nothing from the store. A
+  corpus document's judgments are kept under the judge's code and the reader
+  bundle the corpus carries (``native/reader/``,
+  ``proof.store.keys.judged_under``), so a changed bundle judges every corpus
+  document again and observes none; a control's under the judge's code
+  alone, since no judge of a control runs the bundle. The queue names the
+  bundle's digest (``reader``), which each block's manifest carries for
+  ``proof.store.pack``.
 - observed: everything else, which runs, reading from the store each part it
   holds.
 
@@ -74,7 +81,8 @@ every group fresh and reads nothing from the store (the nightly audit).
 A package whose tests read the corpus is keyed by what they read of it
 (``PACKAGE_DATA``): the corpus's documents, or only those a test module or adapter
 names in a constant (read from its source, never imported), with the
-corpus's index; and the native products it carries.
+corpus's index; the native products it carries; and, for a package whose
+tests run it, the reader bundle.
 ``--documents sample:N`` keeps N documents, a window of the corpus's
 documents ranked by sha256 of their ids, and rewrites the corpus's
 ``index.json`` to list them alone, so the lane collects only those, and the
@@ -117,6 +125,15 @@ queue records the environment those keys name
 (``environment``, ``proof.store.keys.environment``), which ``pack`` holds a
 run's recorded one to before it keeps a package group's outcome. The same
 inputs write the same bytes.
+
+A base made in HQ the corpus set aside (its ``index.json``'s ``setAside``,
+``proof.lane.blocks.set_aside_bases``: a retained base Nova's reading takes
+no document of) is named in the main queue (``setAside``), and the group that
+authors it again (``proof/matrix/test_retained.py[<base>]``,
+``set_aside_groups``) runs in every main queue, whole, sampled or over
+documents named by hand, never read from the store: that run's own output is
+what ``python3 -m proof.matrix.adopt`` brings the base back from, and the
+gate fails the run until it does (``proof.lane.gate``).
 
 ``--lane-env PROOF_READERS=<readers>`` builds the queues of a run that hands
 its states to those readers alone (``proof.lane.readers``; ``0`` for none):
@@ -165,15 +182,19 @@ SURFACE = "surface"
 EVERY = "every"
 # What each package whose tests read the corpus reads of it: ``documents`` (every one, ``EVERY``, or those a test
 # module or adapter names in a module-level constant, ``(module, constant)``, which reads through the corpus's
-# index), ``native`` (the native products the corpus carries), or both. A package not named reads both, whole.
+# index), ``native`` (the native products the corpus carries, the reader bundle left out), ``reader`` (the reader
+# bundle, ``proof.store.keys.reader_digest``), or several. A package not named reads the documents and the native
+# products, whole. A package names ``reader`` exactly where its test modules or conftests reach
+# ``proof.checks.readerbundle`` (``proof/lane/test_blocks.py``): its stored verdict then stands for the bundle it ran.
 PACKAGE_DATA = {
     "proof/android": {"documents": ("proof/android/conftest.py", "DOCUMENTS")},
-    "proof/checks": {"documents": EVERY},
+    "proof/checks": {"documents": EVERY, "reader": EVERY},
     "proof/connect": {"documents": ("proof/connect/conftest.py", "DOCUMENTS")},
     "proof/editors": {"documents": ("proof/editors/conftest.py", "DOCUMENTS")},
     "proof/formplayer": {"documents": ("proof/formplayer/conftest.py", "DOCUMENTS")},
     "proof/hq": {"documents": ("proof/hq/conftest.py", "DOCUMENTS"), "native": EVERY},
     "proof/lane": {"documents": EVERY, "native": EVERY},
+    "proof/matrix": {"documents": ("proof/matrix/conftest.py", "DOCUMENTS"), "reader": EVERY},
     "proof/native": {
         "documents": ("proof/native/steps/session_reads.py", "DOCUMENTS"),
         "native": EVERY,
@@ -232,8 +253,8 @@ def test_functions(path: Path) -> list[str]:
 
 def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
     """Every package group with a test module (``proof.checks.sharding.item_group``'s names): a package's own, each
-    module of it ``proof.checks.sharding.SPLIT`` names that keeps a test it does not split off, and each test it
-    splits off."""
+    module of it ``proof.checks.sharding.SPLIT`` names that keeps a test it does not split off, each test it
+    splits off, and each value a module ``proof.checks.sharding.SPLIT_BY_PARAMETER`` names is split by."""
     found = set()
     if any(proof_dir.glob("test_*.py")):
         found.add("proof")
@@ -248,6 +269,9 @@ def package_groups(proof_dir: Path = PROOF_DIR) -> list[str]:
             continue
         for test in tests:
             module = test.relative_to(proof_dir).as_posix()
+            if module in sharding.SPLIT_BY_PARAMETER:
+                found.update(sharding.parameter_groups(module, proof_dir))
+                continue
             if module not in sharding.SPLIT:
                 found.add(f"proof/{directory.name}")
                 continue
@@ -491,7 +515,10 @@ class Builder:
             return float(self.timings[name])
         return self.whole(name) * self.judged_share
 
-    def document(self, name: str, root: Path, files: str | None = None) -> Group:
+    def document(self, name: str, root: Path, files: str | None = None, *, reader: str | None = None) -> Group:
+        """A document's or control's group; ``reader`` the reader bundle the corpus carries
+        (``proof.store.keys.reader_digest``), which a corpus document's judged key names and a control's does not
+        (``proof.store.keys.group_judge``)."""
         group = Group(name, self.whole(name), fresh=self.fresh, signatures=signatures(root))
         group.configurations = configuration_names(root)
         group.units = configurations_of(root)
@@ -509,7 +536,7 @@ class Builder:
                 return group
         group.status, group.estimate = "judged", round(self.judging(name), 3)
         records = {part: held for part, (_, held) in entry["parts"].items()}
-        judged = keys.group_key(group.key, self.fingerprints["judge"], records)
+        judged = keys.group_key(group.key, keys.group_judge(name, self.fingerprints["judge"], reader), records)
         outcome = index["groups"].get(judged)
         if not _passed(outcome):
             return group
@@ -646,6 +673,8 @@ def queue_value(
     environment=None,
     sample: lane_blocks.Sample | None = None,
     selection: lane_blocks.Selection | None = None,
+    reader: str | None = None,
+    set_aside: tuple[lane_blocks.SetAside, ...] = (),
 ) -> dict:
     running = [group for group in groups if group.status != "cached"]
     by_name = {group.name: group for group in groups}
@@ -663,6 +692,8 @@ def queue_value(
             readers,
             sample,
             selection,
+            reader,
+            tuple(set_aside),
         )
     )
     for block in value["blocks"]:
@@ -710,6 +741,9 @@ def package_data(name: str, corpus: Path, files: dict[str, str], checkout: Path)
     for kind, read in PACKAGE_DATA.get(lane_blocks.package_of(name), CORPUS_DATA).items():
         if kind == "native":
             found[kind] = keys.native_digest(corpus)
+            continue
+        if kind == "reader":
+            found[kind] = keys.reader_digest(corpus)
             continue
         named = None if read == EVERY else declared_documents(checkout, *read)
         if named is None:
@@ -760,15 +794,39 @@ def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR, *, 
     # The documents a sample left out are not queued, and a package that names one reads it, so its key reads them.
     emitted = [*listed, *lane_blocks.unsampled_documents(corpus)]
     files = {identifier: keys.files_digest(corpus / identifier) for identifier in emitted}
-    groups = [builder.document(f"corpus:{identifier}", corpus / identifier, files[identifier]) for identifier in listed]
+    reader = keys.reader_digest(corpus)
+    groups = [
+        builder.document(f"corpus:{identifier}", corpus / identifier, files[identifier], reader=reader)
+        for identifier in listed
+    ]
     queued = _controls_of(proof_dir, readers=builder.readers, documents=only)
     for name in [*queued, *sorted(set(controls) - set(queued))]:
         groups.append(builder.document(name, proof_dir / "controls" / name.partition(":")[2]))
-    if only is not None:
-        return groups
-    for name in queued_packages(builder, proof_dir):
-        if lane_blocks.reads_corpus(name):
-            groups.append(builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent)))
+    if only is None:
+        for name in queued_packages(builder, proof_dir):
+            if lane_blocks.reads_corpus(name):
+                groups.append(builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent)))
+    return set_aside_groups(builder, groups, corpus, files, proof_dir)
+
+
+def set_aside_groups(builder: Builder, groups: list[Group], corpus: Path, files, proof_dir: Path = PROOF_DIR):
+    """``groups`` with the group that authors each base the corpus set aside run, never read from the store: a
+    cached one is run, and one the queue does not hold (a run over documents named by hand queues no package) is
+    added. A base no group authors (one ``proof/matrix/bases.json`` does not list) adds nothing; the gate names
+    it."""
+    by_name = {group.name: group for group in groups}
+    authored = set(sharding.parameter_groups(sharding.AUTHORING_MODULE, proof_dir))
+    for aside in lane_blocks.set_aside_bases(corpus):
+        name = sharding.parameter_group(sharding.AUTHORING_MODULE, aside.base)
+        if name not in authored:
+            continue
+        group = by_name.get(name)
+        if group is None:
+            group = builder.package(name, package_data(name, corpus, files, Path(proof_dir).parent))
+            groups.append(group)
+            by_name[name] = group
+        if group.status == "cached":
+            group.status, group.judgments = "observed", {}
     return groups
 
 
@@ -909,11 +967,14 @@ def main(argv=None) -> int:
             judged_share=judged_share(execution),
         )
         proof_dir = Path(arguments.root) / "proof"
-        unsampled, selection = (), None
+        unsampled, selection, reader, set_aside = (), None, None, ()
         if arguments.phase == "early":
             groups = early(builder, proof_dir)
         else:
             groups = main_groups(builder, arguments.corpus, proof_dir, only=only, controls=controls)
+            # The bundle the corpus documents' groups are keyed under, which each block's manifest names for pack.
+            reader = keys.reader_digest(arguments.corpus)
+            set_aside = lane_blocks.set_aside_bases(arguments.corpus)
             if only is None:
                 unsampled = lane_blocks.unsampled_documents(arguments.corpus)
             else:
@@ -932,6 +993,8 @@ def main(argv=None) -> int:
             environment=builder.environ,
             sample=sample,
             selection=selection,
+            reader=reader,
+            set_aside=set_aside,
         )
         # Keep the source identity that collection uses for check eligibility, including
         # cached documents and parents of configuration pieces. An early queue has none.
@@ -944,7 +1007,13 @@ def main(argv=None) -> int:
             else {}
         )
         write_queue(arguments.out, value)
-    except (QueueBuildError, fingerprints.FingerprintError, disk.StoreFormatError, sharding.ShardError) as error:
+    except (
+        QueueBuildError,
+        lane_blocks.QueueError,
+        fingerprints.FingerprintError,
+        disk.StoreFormatError,
+        sharding.ShardError,
+    ) as error:
         print(error, file=sys.stderr)
         return 2
     classes = ", ".join(f"{len(names)} {status}" for status, names in value["classes"].items())
@@ -963,6 +1032,8 @@ def main(argv=None) -> int:
             + (f", and the controls {', '.join(controls)}" if controls else "")
             + f", and leaves {len(selection.left)} other groups out: it is no verdict on the corpus."
         )
+    for aside in set_aside:
+        print(aside.notice)
     if sample is not None:
         said = described_sample(sample, len(sample.documents) + len(value.get("unsampled", ())))
         print(said)

@@ -12,13 +12,15 @@ import type { RewriteControl } from "@/lib/commcare/emissionRewrites";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
-	ATTRIBUTE_BACKED_COLUMN_PROPERTIES,
 	type BlueprintDoc,
 	type CaseListOrderOptions,
 	type CaseListOrderPlan,
+	type CaseType,
 	type Column,
 	caseListOrderPlan,
 	casePropertyShowsOptionLabels,
+	columnPropertyCaseType,
+	EXPRESSION_ONLY_COLUMN_PROPERTIES,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	type Module,
@@ -35,7 +37,7 @@ import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
-import { casePropertyPath } from "../wire";
+import { columnPropertyPath } from "../wire";
 import {
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
@@ -52,21 +54,23 @@ export function hqEnumPlaceholder(index: number): string {
 	return `nova_text_${index.toString(10).padStart(10, "0")}`;
 }
 
-/** Whether the column reads an attribute-backed property (finding 57). */
-export function columnReadsCaseAttribute(column: Column): boolean {
+/**
+ * Whether HQ JSON stores a property column as the expression reading its
+ * property, `@case_id`: no HQ property column can show it
+ * (`EXPRESSION_ONLY_COLUMN_PROPERTIES`).
+ */
+export function columnStoredAsExpression(column: Column): boolean {
 	return (
 		column.kind !== "calculated" &&
-		(ATTRIBUTE_BACKED_COLUMN_PROPERTIES as ReadonlySet<string>).has(
-			column.field,
-		)
+		(EXPRESSION_ONLY_COLUMN_PROPERTIES as ReadonlySet<string>).has(column.field)
 	);
 }
 
 /**
  * The text HQ JSON writes as a column's expression `field` on one screen.
  * `screen` is the detail the column is written into: on Results a column
- * hidden there that is not calculated prints its raw wire path (`@<name>`
- * for an attribute-backed one); on Details a column prints as its kind shows
+ * hidden there that is not calculated prints its raw wire path (`@case_id`
+ * for one over the case's id); on Details a column prints as its kind shows
  * it. A column with no expression of its own prints its raw wire path.
  *
  * `lookupNaming` is the run's naming where the caller has one; a caller with
@@ -118,13 +122,11 @@ export function hqExpressionField(
 			...(rewrites === undefined ? {} : { rewrites }),
 		});
 	}
-	const path = casePropertyPath(column.field);
+	const path = columnPropertyPath(column);
 	if (screen === "results" && column.visibleInList === false) return path;
 	switch (column.kind) {
 		case "plain": {
-			const property = effectiveCaseTypes(doc)
-				.find((type) => type.name === mod.caseType)
-				?.properties.find((candidate) => candidate.name === column.field);
+			const property = columnProperty(column, mod, effectiveCaseTypes(doc));
 			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
 				return path;
 			}
@@ -139,6 +141,22 @@ export function hqExpressionField(
 		default:
 			return path;
 	}
+}
+
+/**
+ * The catalog entry of the property a property column shows, from the type
+ * its walk reaches (`columnPropertyCaseType`); undefined where the walk
+ * reaches no type or the type holds no such property.
+ */
+export function columnProperty(
+	column: Exclude<Column, { kind: "calculated" }>,
+	mod: Pick<Module, "caseType">,
+	caseTypes: readonly CaseType[],
+): CaseType["properties"][number] | undefined {
+	const caseType = columnPropertyCaseType(column, mod.caseType, caseTypes);
+	return caseTypes
+		.find((type) => type.name === caseType)
+		?.properties.find((candidate) => candidate.name === column.field);
 }
 
 /** The canonical HQ print used to join an expression column to its sort rule. */
@@ -216,8 +234,13 @@ export function caseListOrderOptions(
 	columnRewrites?: ColumnRewrites,
 ): CaseListOrderOptions {
 	const expressions = moduleExpressionContexts(doc, mod.uuid, lookupNaming);
+	const caseTypes = effectiveCaseTypes(doc);
 	return {
 		mediaOn,
+		relatedProperties: (via) => {
+			const reached = columnPropertyCaseType({ via }, mod.caseType, caseTypes);
+			return caseTypes.find((type) => type.name === reached)?.properties;
+		},
 		calculatedType: (column) => {
 			if (column.kind !== "calculated") return undefined;
 			const context = expressions({

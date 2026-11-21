@@ -530,16 +530,15 @@ describe("a form's display condition that reads its case", () => {
 		});
 	}
 
-	it("refuses it on the first menu, which lists a registration beside the follow-up", async () => {
+	it("refuses it on the first menu, which lists a registration beside the follow-up, under HQ's own build error", async () => {
+		// Not every form of the menu requires a case, so HQ's build refuses the
+		// condition (`suite_xml/sections/menus.py`, `CaseXPathValidationError`):
+		// the form's own entry, never the screen's wider one beside it.
 		const reading = await readingWith([register, visit], true);
-		expect(codesOf(reading)).toContain(
-			`${M}/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first`,
-		);
-		expect(
-			reading.findings.find((finding) =>
-				finding.code.endsWith("screen-that-chooses-no-case-first"),
-			)?.place,
-		).toMatchObject({ kind: "form" });
+		expect(codesOf(reading)).toEqual([
+			"forms-and-case-writes/form-filter-referencing-the-case-database-other-than-through",
+		]);
+		expect(reading.findings[0]?.place).toMatchObject({ kind: "form" });
 	});
 
 	it("reads it on a menu's own screen, where every form opens a chosen case", async () => {

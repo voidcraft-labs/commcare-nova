@@ -1,0 +1,56 @@
+[
+	{
+		"tag": "kinds",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "code",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "clinic",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Clinic visit",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"code": [
+						{
+							"value": "home",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Home visit",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	}
+]

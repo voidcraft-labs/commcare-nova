@@ -249,6 +249,12 @@ export interface RecordQueryContext {
 			Uuid,
 			CasePropertyDataType | Extract<ScalarType, "_any"> | undefined
 		>;
+		/** What CommCare holds a form answer as, where its type alone does
+		 * not say: a Hidden Value's settled held class (inference's
+		 * `hiddenHeld`), the one the gate reads, so a yes or no Hidden Value
+		 * stands as a condition here as it does there. Absent is the class
+		 * its type gives. */
+		readonly formFieldHeld: ReadonlyMap<Uuid, ScalarHeld>;
 		readonly knownInputs: readonly SearchInputDecl[];
 		readonly operationIds: ReadonlySet<Uuid>;
 	};
@@ -415,6 +421,7 @@ export function recordQueryContext(input: {
 	readonly lookupTables?: LookupTypeIndex;
 	readonly lookupTableId?: LookupTableId;
 	readonly formFieldTypes?: RecordQueryContext["bindings"]["formFieldTypes"];
+	readonly formFieldHeld?: RecordQueryContext["bindings"]["formFieldHeld"];
 	readonly knownInputs?: readonly SearchInputDecl[];
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
@@ -441,6 +448,7 @@ export function recordQueryContext(input: {
 		lookupTables: input.lookupTables ?? new Map(),
 		bindings: {
 			formFieldTypes: input.formFieldTypes ?? new Map(),
+			formFieldHeld: input.formFieldHeld ?? new Map(),
 			knownInputs: input.knownInputs ?? [],
 			operationIds: input.operationIds ?? new Set(),
 		},
@@ -967,7 +975,13 @@ export function slotContext(
 				["XF", "PG"],
 				condition
 					? { kind: "condition" }
-					: { kind: "assignment", destinations },
+					: {
+							kind: "assignment",
+							destinations,
+							...(!("property" in member) && {
+								identifierText: true as const,
+							}),
+						},
 				{
 					operationIds: new Set(
 						target

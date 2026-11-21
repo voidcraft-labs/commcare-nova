@@ -235,12 +235,15 @@ export interface ReadFacts {
 	readonly mediaReferences: readonly ReadMediaReference[];
 	/** Every media reference handed off: no file for its path. */
 	readonly pendingMedia: readonly PendingMedia[];
-	/** Every itemset over a table the catalog does not hold, handed off, and each tag an
-	 *  expression reads that the catalog lacks, at the place `{ kind: "lookup-table", tag }`. */
+	/** Every itemset over a table the catalog does not hold, handed off, each tag an
+	 *  expression reads that the catalog lacks, and each tag a form declares that the catalog
+	 *  lacks and nothing reads (`declaredOnly`), at the place `{ kind: "lookup-table", tag }`. */
 	readonly unreadTables: readonly UnreadTable[];
-	/** The generated translation keys `assembleDocument` folded, and a first-language
-	 *  `app.display.name` the application walker read as the app's name. */
-	readonly foldedTranslationKeys: number;
+	/** The JSON Pointer over CommCare HQ's stored app (`/translations/<code>/<key>`) of each
+	 *  generated translation key `assembleDocument` folded into the text it sets, and of a
+	 *  first-language `app.display.name` the application walker read as the app's name. The key
+	 *  names that text's place (`firstPublishPlaces.ts::placesOfGeneratedKey`). */
+	readonly foldedTranslationKeys: readonly string[];
 	readonly forms: readonly ReadFormFacts[];
 
 	/** Each same-state rule applied: the entry, a JSON Pointer, and the id of the first-publish
@@ -248,9 +251,17 @@ export interface ReadFacts {
 	readonly sameStateRewrites: readonly SameStateRewrite[];
 	/** The forms `compareEntryFacts` found differing. */
 	readonly entryFactsRefused: readonly Uuid[];
+	/**
+	 * The `xmlns` of each form whose child cases the reading dropped as no change of a case: a
+	 * form of a menu that selects several cases, or loads its case from a registry, that opens
+	 * none, into whose source HQ's build writes no child case. HQ's entry still gives each child
+	 * outside a repeat a `uuid()` datum, which nothing reads where the reading holds the form, so
+	 * a comparison of the entry facts leaves those child cases out.
+	 */
+	readonly childCasesUnread: readonly string[];
 
-	/** The expression stage's report, passed through: the rewrites it applied. */
-	readonly rewrites: ExpressionReading["rewrites"];
+	/** The expression stage's report, passed through: the rewrites it applied, each at its slot. */
+	readonly rewrites: readonly ReadRewrite[];
 	/** `ExpressionReading.rounds`, for the reading's log. */
 	readonly expressionRounds: number;
 }
@@ -282,9 +293,15 @@ export const SAME_STATE_REGISTERS = [
  * source that does not where its role requires text, or begins with a space,
  * `heldText.ts::heldText`), a menu's, form's or case list item's media
  * map read as the file HQ's build shows in each language where Nova prints
- * another map (`menus/navMedia.ts::shownNavMedia`), and a form's text whose
+ * another map (`menus/navMedia.ts::shownNavMedia`), a form's text whose
  * source spells, in a text node, a character Nova writes as a literal output
- * (`xform/prose.ts::recordTextOutputs`).
+ * (`xform/prose.ts::recordTextOutputs`), a Hidden Value whose starting
+ * value no runtime reads before its calculation replaces it, held as the
+ * calculation alone (`xform/afterBinding.ts`), and a sort element whose
+ * display names an `invisible` column in Android's Sort by under a header
+ * blank in every language, an entry the first publish drops
+ * (`caseList/order.ts::readSortElements`), and a form whose `<h:title>` holds
+ * other text than the name Nova writes there (`assemble.ts::recordTitleRewrites`).
  */
 export const FIRST_PUBLISH_READING_RECORDS = [
 	"date-and-time-saved-as-hq-stores-it",
@@ -293,6 +310,9 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"text-spaces-dropped",
 	"media-maps-respelled",
 	"form-text-characters-written-as-outputs",
+	"hidden-value-defaults-dropped",
+	"sort-by-entry-with-a-blank-name-dropped",
+	"form-titles-written",
 ] as const;
 
 export type SameStateRegister =
@@ -301,6 +321,18 @@ export type SameStateRegister =
 
 /** One rewrite a reading allowed: the entry claimed, the JSON Pointer of the
  *  stored value Nova writes back differently, and the register's row. */
+/** A rewrite of `emissionRewrites.ts` the first publish applies at one slot of the source. */
+export interface ReadRewrite {
+	readonly id: ExpressionReading["rewrites"][number]["id"];
+	readonly place: HqPlace;
+	/** The surface key of the slot. */
+	readonly key: string;
+	/** The JSON Pointer over CommCare HQ's stored app of the value the slot was read from, where a
+	 *  key of the app's JSON holds it (a column's `field`, a list's `filter`, a Search field's
+	 *  `default_value`); absent for a slot of a form's XForm, whose place names its node. */
+	readonly pointer?: string;
+}
+
 export interface SameStateRewrite {
 	readonly entry: string;
 	readonly path: string;
@@ -310,6 +342,9 @@ export interface SameStateRewrite {
 export interface UnreadTable {
 	readonly tag: string;
 	readonly place: HqPlace;
+	/** A table a form declares (`jr://fixture/item-list:<tag>`) and no expression of it reads:
+	 *  nothing of the table comes in, and Core still loads it when the form opens. */
+	readonly declaredOnly?: true;
 }
 
 export interface ReadFormFacts {
@@ -340,8 +375,16 @@ export interface ReadGeneratedNode {
 export interface ReadMediaReference {
 	readonly path: string;
 	readonly assetId: string;
+	/** The kind the slot naming the path plays (the itext form, `image` for a logo or an icon),
+	 *  never the kind of the file the path resolves to: project data's media rules hold the
+	 *  file's class to it (`projectData/media.ts::planHqMedia`), so a sound slot naming a file
+	 *  HQ files as a video is that slot's finding before any file is fetched. */
 	readonly mediaKind: MediaKind;
 	readonly place: HqPlace;
+	/** The JSON Pointer over CommCare HQ's stored app of the map or the value that names the path,
+	 *  where a key of the app's JSON does (a menu's `media_image`, a case list column's enum
+	 *  item's `value`, a `logo_refs` slot); absent for a form's itext, whose place names its node. */
+	readonly pointer?: string;
 	/** A `lib/domain/mediaRefs.ts::MediaRefLocation` kind: `field_media_bundle`, `option_media`,
 	 *  `app_logo`, and the menu and list kinds the menu and list readers pass. */
 	readonly slot: string;
@@ -353,6 +396,8 @@ export interface PendingMedia {
 	readonly mediaKind: MediaKind;
 	readonly resolution: "no-entry" | "unreadable";
 	readonly place: HqPlace;
+	/** As `ReadMediaReference.pointer`. */
+	readonly pointer?: string;
 	/** As `ReadMediaReference.slot`, or `unheld_itext` for a slot Nova holds no media for. */
 	readonly slot: string;
 }

@@ -29,6 +29,12 @@ pages offer of each saved add-on is compared too, A's against B's
 ``addOnsOffered``): Nova's next publish writes only the add-ons its app needs
 over the map HQ holds, so a page offers each saved add-on at B as at A.
 
+On a document made in CommCare HQ (``hq-authored``) a form's built XML is left
+out (``judged``, ``eligibility.form_xml_unjudged``): HQ builds both suites,
+the profiles, the app strings and the media suite from the two stored apps, so
+they compare, while a form's bytes are Nova's own spelling of the form HQ's
+form builder wrote, which proof 3 and intent judge.
+
 The comparison itself is the observation's (``proof.observe.builds``), which
 makes it with no rule to decide whether B's sessions run; this module makes
 it after the registered rules and judges the records.
@@ -37,6 +43,7 @@ it after the registered rules and judges the records.
 from __future__ import annotations
 
 from proof.checks.differences import Difference
+from proof.checks.eligibility import form_xml_unjudged
 from proof.observe import builds
 from proof.rules import RULES
 
@@ -120,8 +127,23 @@ def offered_add_ons(document, saved, a, b) -> list:
     return found
 
 
+def form_artifact(artifact) -> bool:
+    """Whether a built file's artifact is a form's XML (``form:<m>.<f>``, or a build profile's
+    ``<profile id>/form:<m>.<f>``; ``proof.checks.compare.build_files.artifact_for``)."""
+    return artifact.rpartition("/")[2].startswith("form:")
+
+
+def judged(document, found):
+    """``found`` without what proof 2 leaves out on the document: on an app made in HQ, every difference in a form's
+    built XML (``eligibility.form_xml_unjudged``)."""
+    if not form_xml_unjudged(document.source):
+        return found
+    return [difference for difference in found if not form_artifact(difference.artifact)]
+
+
 def document_build_equivalence(document, records):
-    """Proof 2's differences on one document: each configuration it is exported under, judged from its records."""
+    """Proof 2's differences on one document: each configuration it is exported under, judged from its records, less
+    what it leaves out there (``judged``)."""
     from proof.checks import observations
 
     found = []
@@ -133,4 +155,132 @@ def document_build_equivalence(document, records):
             a, b = _offered(held.a), _offered(held.b)
             if a is not None and b is not None:
                 found += offered_add_ons(document.id, saved, a, b)
-    return found + observations.soft_assertion_differences(records, "proof2")
+    return judged(document, found) + observations.soft_assertion_differences(records, "proof2")
+
+
+# Where the build elements a difference names only by position stand ---------------------------------------------
+
+
+def build_sites(files):
+    """What one build's files say of where its elements stand that a difference's pointer names only by position
+    (``changes.Sites``): each suite's ``entry``, ``remote-request`` and ``xform`` by the menu or form it is of
+    (an entry's and a request's command, ``id_strings.form_command`` and ``search_command``; an XForm resource's
+    local path, ``./modules-<m>/forms-<f>.xml``, ``sections/resources.py::FormResourceContributor``), and each
+    media resource by the media path it installs (``generator.py::media_resources``: its ``media`` element's path
+    under ``jr://file/`` and the file's name, the last step of its remote location)."""
+    from urllib.parse import unquote, urlsplit
+
+    from proof.checks import changes
+    from proof.checks.compare.build_files import artifact_for
+    from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml, qname
+
+    built, media = {}, {}
+
+    def children(element, name):
+        return [child for child in element if isinstance(child.tag, str) and qname(child.tag)[1] == name]
+
+    for path, content in sorted((files or {}).items()):
+        if not isinstance(content, bytes | str):
+            continue
+        name = path.rpartition("/")[2]
+        if name not in ("suite.xml", "media_suite.xml"):
+            continue
+        try:
+            root = parse_xml(content)
+        except XmlNotWellFormed:
+            continue
+        if name == "media_suite.xml":
+            for element in children(root, "media"):
+                install = (element.get("path") or "").removeprefix("../../")
+                for resource in children(element, "resource"):
+                    remote = [
+                        location.text or ""
+                        for location in children(resource, "location")
+                        if location.get("authority") == "remote"
+                    ]
+                    file_name = unquote(urlsplit(remote[0]).path.rpartition("/")[2]) if remote else ""
+                    if resource.get("id") and file_name:
+                        media[resource.get("id")] = "jr://file/" + "/".join(
+                            part for part in (install, file_name) if part
+                        )
+            continue
+        artifact = artifact_for(path).rpartition("/")[2]
+        for element_name in ("entry", "remote-request"):
+            for position, element in enumerate(children(root, element_name), start=1):
+                commands = children(element, "command")
+                place = changes.command_place(commands[0].get("id") if commands else None)
+                built[(artifact, f"{element_name}[{position}]")] = place or None
+        for position, element in enumerate(children(root, "xform"), start=1):
+            place = None
+            for resource in children(element, "resource"):
+                for location in children(resource, "location"):
+                    held = (location.text or "").removeprefix("./")
+                    module, slash, form = held.removesuffix(".xml").partition("/")
+                    if slash and module.startswith("modules-") and form.startswith("forms-"):
+                        menu, form = module.removeprefix("modules-"), form.removeprefix("forms-")
+                        if menu.isdigit() and form.isdigit():
+                            place = ("form", f"{menu}.{form}")
+            built[(artifact, f"xform[{position}]")] = place
+    return changes.Sites(builds=built, media=media)
+
+
+# A sort element's field CommCare HQ reads as the column it names (``const.py::CALCULATED_SORT_FIELD_RX``).
+CALCULATED_SORT_FIELD = "_cc_calculated_"
+
+
+def header_sites(doc):
+    """What one stored app says of where each app string its key does not place stands (``changes.Sites.builds``
+    under ``("app_strings", key)``): the header of each sort-only element of a case list. HQ's build writes a
+    sort element whose field no column of the list shows as a column of its own, after the list's columns
+    (``suite_xml/sections/details.py::get_detail_column_infos``, ``util.py::get_sort_and_sort_only_columns``, the
+    last element of a field standing for it), whose header is the element's ``display`` and whose position is its
+    order among the sort elements, from 1 (``util.py::create_temp_sort_column``), so its header's key,
+    ``m<m>.case_short.case_<field>_<order + 1>.header`` (``id_strings.py::detail_column_header_locale``), spells
+    no column's index: it stands at the sort element."""
+    from proof.checks import changes
+
+    built = {}
+    for m, module in enumerate((doc or {}).get("modules") or []):
+        short = ((module or {}).get("case_details") or {}).get("short") or {}
+        by_field = {}
+        for index, element in enumerate(short.get("sort_elements") or []):
+            field = (element or {}).get("field")
+            if field:
+                by_field[field] = index
+        for column in short.get("columns") or []:
+            by_field.pop((column or {}).get("field"), None)
+        for field, index in by_field.items():
+            calculated = field.removeprefix(CALCULATED_SORT_FIELD)
+            if field.startswith(CALCULATED_SORT_FIELD) and calculated.isdigit():
+                continue
+            mobile = field.replace("#", "").replace("=", "")
+            key = f"m{m}.case_short.case_{mobile}_{index + 2}.header"
+            built[(changes.APP_STRINGS, key)] = (
+                "menu",
+                str(m),
+                "case_details",
+                "short",
+                "sort_elements",
+                str(index),
+                changes.BELOW,
+            )
+    return changes.Sites(builds=built)
+
+
+def document_sites(document, records):
+    """``build_sites`` of each build proof 2 compares on one document, A's and B's aligned to A under each
+    configuration, and ``header_sites`` of the two stored apps they are built from, as one
+    (``changes.merged_sites``: an element two builds place apart is no place)."""
+    from proof.checks import changes, observations
+
+    found = []
+    for name in sorted(document.exports):
+        observed = observations.republish_view(records, name)
+        if observed.a is not None and observed.a.build is not None:
+            found.append(build_sites(observed.a.build.files))
+            found.append(header_sites(observed.a.doc))
+        if observed.b_aligned is not None:
+            found.append(build_sites(observed.b_aligned.files))
+        if observed.b is not None:
+            found.append(header_sites(observed.b.doc))
+    return changes.merged_sites(*found)

@@ -1,0 +1,25 @@
+{
+	"id": "hq-names",
+	"configuration": {
+		"flags": [
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": true
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"case-search/name-prompt-key-case-property",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/update-case-update-property-question",
+		"forms-and-case-writes/update-key-whose-characters-after-the-ascii-first-are-all-core-s",
+		"forms-and-case-writes/update-keys-location-id-hq-user-id-category-state",
+		"questions/choice-value-containing-or",
+		"questions/multiple-choice-select1-item",
+		"questions/question-id-matching-xml-a-za-z-w",
+		"questions/text-input-xsd-string"
+	]
+}

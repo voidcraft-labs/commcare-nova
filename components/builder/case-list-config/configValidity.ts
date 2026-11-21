@@ -65,7 +65,7 @@ export function caseListConfigVerdicts(
 	for (const col of config.columns) {
 		if (col.kind === "calculated") continue;
 		const applicable = columnCardSchemas[col.kind].applicableForProperty(
-			resolveColumnProperty(editCtx, col.field),
+			resolveColumnProperty(editCtx, col.field, col.via),
 		);
 		if (!applicable) markBrokenColumn(col);
 	}

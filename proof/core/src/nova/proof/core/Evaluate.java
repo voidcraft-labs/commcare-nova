@@ -1,5 +1,6 @@
 package nova.proof.core;
 
+import org.commcare.data.xml.VirtualInstances;
 import org.commcare.modern.session.SessionWrapper;
 import org.commcare.session.SessionFrame;
 import org.commcare.suite.model.EntityDatum;
@@ -13,6 +14,8 @@ import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.FormIndex;
 import org.javarosa.core.model.data.IAnswerData;
 import org.javarosa.core.model.instance.DataInstance;
+import org.javarosa.core.model.instance.ExternalDataInstance;
+import org.javarosa.core.model.instance.ExternalDataInstanceSource;
 import org.javarosa.core.model.instance.TreeReference;
 import org.javarosa.core.services.locale.Localization;
 import org.javarosa.core.services.storage.StorageManager;
@@ -47,11 +50,15 @@ import java.util.NoSuchElementException;
  * by its bytes and parsed as Core's XFormInstaller parses one. The session is a
  * SessionWrapper over the request's case data, holding the command and datums
  * the request names, so the session instance, casedb and fixtures are served by
- * Core's CommCareInstanceInitializer as they are at runtime. Answers are entered
- * in form order through FormEntryController.answerQuestion; constraint checks
- * use FormEntryController.checkQuestionConstraint, which checks without
- * committing. An answer or a check may give "@clock:today" or "@clock:now" for
- * the request's clock (Answers.resolve).
+ * Core's CommCareInstanceInitializer as they are at runtime, its casedb reading
+ * cases' indices through a case index table as every runtime's does (ProofSession). A datum given a list
+ * of case ids is a several-case datum, its cases chosen together (selectSeveral).
+ * Answers are entered in form order through FormEntryController.answerQuestion;
+ * constraint checks use FormEntryController.checkQuestionConstraint, which checks
+ * without committing. Each answer and check reports the question's label as Core
+ * shows it in the request's locale (FormEntryPrompt.getQuestionText), what a worker
+ * reads, whatever itext id the form keeps it under. An answer or a check may give
+ * "@clock:today" or "@clock:now" for the request's clock (Answers.resolve).
  */
 final class Evaluate {
     private static final int MAX_EVENTS = 50_000;
@@ -74,7 +81,7 @@ final class Evaluate {
         Generated.seedCoreRandomness();
         byte[] restore = Base64.getDecoder().decode(Ops.requireString(request, "restoreBase64"));
         MockUserDataSandbox sandbox = CaseData.sandbox(app == null ? null : platform, restore);
-        SessionWrapper session = new SessionWrapper(platform, sandbox);
+        SessionWrapper session = new ProofSession(platform, sandbox);
         JSONObject frame = request.optJSONObject("session");
         if (frame != null) {
             String command = frame.optString("command", null);
@@ -84,7 +91,12 @@ final class Evaluate {
             JSONObject data = frame.optJSONObject("data");
             if (data != null) {
                 for (String key : Generated.sortedKeys(data)) {
-                    session.setDatum(SessionFrame.STATE_DATUM_VAL, key, data.getString(key));
+                    JSONArray chosen = data.optJSONArray(key);
+                    if (chosen == null) {
+                        session.setDatum(SessionFrame.STATE_DATUM_VAL, key, data.getString(key));
+                    } else {
+                        selectSeveral(session, key, chosen);
+                    }
                 }
             }
         }
@@ -107,6 +119,24 @@ final class Evaluate {
         result.put("generated", Generated.mark(result, Generated.Inputs.of(app, restore, request)));
         result.put("clock", request.getString("clock"));
         return result;
+    }
+
+    /**
+     * The cases chosen together at a several-case datum, as Core's own several-case list leaves them
+     * (MultiSelectEntityScreen.updateDatum): the datum's value names a stored selection, and its step carries
+     * the selected-entities instance (VirtualInstances.buildSelectedValuesInstance) that
+     * CommCareInstanceInitializer serves a form's jr://instance/selected-entities/<datum> from. The stored
+     * selection's name is the datum's own, so one request gives one session every run.
+     */
+    private static void selectSeveral(SessionWrapper session, String datum, JSONArray chosen) {
+        String[] caseIds = new String[chosen.length()];
+        for (int i = 0; i < caseIds.length; i++) {
+            caseIds[i] = chosen.getString(i);
+        }
+        ExternalDataInstance selected = VirtualInstances.buildSelectedValuesInstance(datum, caseIds);
+        String stored = "selection-" + datum;
+        session.setDatum(SessionFrame.STATE_MULTIPLE_DATUM_VAL, datum, stored,
+                ExternalDataInstanceSource.buildVirtual(selected, stored));
     }
 
     private static void form(JSONObject request, Apps.App app, SessionWrapper session, String locale,
@@ -214,6 +244,7 @@ final class Evaluate {
                     JSONObject result = new JSONObject();
                     result.put("path", path);
                     result.put("value", value);
+                    result.put("label", FormRun.text(prompt::getQuestionText));
                     try {
                         IAnswerData data = Answers.answerData(prompt, value);
                         int code = controller.answerQuestion(prompt.getIndex(), data);
@@ -249,6 +280,7 @@ final class Evaluate {
             if (prompt == null) {
                 result.put("result", "no-question");
             } else {
+                result.put("label", FormRun.text(prompt::getQuestionText));
                 try {
                     IAnswerData data = Answers.answerData(prompt, value);
                     int code = controller.checkQuestionConstraint(prompt.getIndex(), data);

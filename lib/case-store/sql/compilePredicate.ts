@@ -74,7 +74,17 @@ import {
 	normalizeRelationEvaluationScopes,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
-import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
+import {
+	canonicalIntegerText,
+	coercedEquality,
+	type EqualityOperand,
+	typesCompatible,
+} from "@/lib/domain/expression/ruleSets";
+import {
+	type ScalarHeld,
+	scalarDataType,
+	typeOf,
+} from "@/lib/domain/expression/typeChecker";
 import type {
 	ComparisonKind,
 	Expression as DomainExpression,
@@ -90,6 +100,7 @@ import {
 } from "@/lib/domain/temporalValues";
 import {
 	type CompilePredicateThunk,
+	compileDeviceTextExpression,
 	compileExpression,
 	compileTemporalValues,
 	type ExpressionCompileContext,
@@ -106,6 +117,7 @@ import {
 	storedTextDataType,
 	type TermCompileContext,
 } from "./compileTerm";
+import { compileCoreDayNumber } from "./coreDayNumber";
 import type { Database } from "./database";
 
 /** Module-scoped expression builder. Same shape as the sibling compilers. */
@@ -151,6 +163,7 @@ export function compilePredicate(
 	pred: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (pred.kind === "term") return compileBareRead(pred.term, ctx);
 	if (!isConditionArm(pred))
 		return compileExpression(
 			pred,
@@ -252,6 +265,91 @@ export function compilePredicate(
 			);
 		}
 	}
+}
+
+/**
+ * A read standing as a condition, as Core reads it: `FunctionUtils.toBoolean`
+ * over the value the read unpacks to (`XPathPathExpr.java::unpackValue`). A
+ * yes or no is its own truth, a number is true when it is not zero, a date
+ * is true, and text is true when it is not empty, so a stored `0` holds. A
+ * blank is false whatever the node holds, and so is a question that is not
+ * relevant, which unpacks to `''`.
+ *
+ * The record rule set admits a read here only where CommCare holds a yes or
+ * no (`ruleSets.ts::recordPositionVerdict`): a form answer a condition
+ * calculated, which Core holds as `BooleanData` whatever its bind
+ * (`Recalculate.java::wrapData`). A form's own open and close conditions take
+ * Core's coercions and admit any read. A bound value is decided here, before
+ * the query runs: its truth follows what CommCare holds the answer as
+ * (`TermCompileContext.formFieldHeld`, else its type), since the text `false`
+ * is false for a yes or no and true for a typed answer. A read the row holds
+ * is true where its text is not blank, as a `casedb` node holds text.
+ */
+function compileBareRead(
+	term: Term,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	if (term.kind === "literal")
+		return eb.lit(
+			heldTruth(term.value, literalHeld(term.value), term),
+		) as Expression<SqlBool>;
+	const bound = boundComparandValue(term, ctx);
+	// A form answer with no binding is `compileTerm`'s missing-binding refusal.
+	if (term.kind === "field" && bound === undefined) compileTerm(term, ctx);
+	if (bound === undefined)
+		return negateTwoValued(compileAbsenceCheck({ kind: "term", term }, ctx));
+	const held: ScalarHeld =
+		term.kind === "field"
+			? (ctx.formFieldHeld?.get(term.uuid) ??
+				typedHeld(ctx.formFieldTypes?.get(term.uuid)))
+			: "string";
+	return eb.lit(heldTruth(bound.value, held, term)) as Expression<SqlBool>;
+}
+
+/** What Core holds an answer of a type as: a number, a date, or text. */
+function typedHeld(type: string | undefined): ScalarHeld {
+	if (type === "int" || type === "decimal") return "number";
+	if (type === "date" || type === "datetime") return "date";
+	return "string";
+}
+
+function literalHeld(value: FormFieldBindingValue): ScalarHeld {
+	if (typeof value === "number") return "number";
+	if (typeof value === "boolean") return "boolean";
+	return "string";
+}
+
+/** `FunctionUtils.toBoolean` of a value decided before the query runs, held
+ *  as `held`. A yes or no's text is `true` or `false` as Preview's form
+ *  writes it, or `1` or `0`, `BooleanData`'s own. */
+function heldTruth(
+	value: FormFieldBindingValue,
+	held: ScalarHeld,
+	term: Term,
+): boolean {
+	if (isBlankComparand(value)) return false;
+	if (typeof value === "boolean") return value;
+	if (Array.isArray(value)) return true;
+	const text = value instanceof Date ? undefined : String(value);
+	if (held === "date" || text === undefined) return true;
+	if (held === "number") {
+		const number =
+			typeof value === "number" ? value : Number(javaTrimmed(text));
+		return Math.abs(number) > 1e-12 && !Number.isNaN(number);
+	}
+	if (held === "boolean") {
+		if (text === "true" || text === "1") return true;
+		if (text === "false" || text === "0") return false;
+		throw new Error(
+			typeCheckerBypassMessage({
+				where: "compilePredicate.compileBareRead",
+				summary: `a yes or no read where a condition belongs is bound to text no yes or no spells`,
+				expected: "`true`, `false`, `1`, `0` or a blank",
+				received: `${JSON.stringify(text)} for a \`${term.kind}\` read`,
+			}),
+		);
+	}
+	return text.length > 0;
 }
 
 /**
@@ -421,6 +519,11 @@ function compileEquality(
 		return compileValueListEquality(left, right, ctx);
 	if (left.kind === "value-list")
 		return compileValueListEquality(right, left, ctx);
+	const coerced = coercedEqualityOf(left, right, ctx);
+	if (coerced?.kind === "integer-text")
+		return compileEquality(coerced.number, coerced.literal, ctx);
+	if (coerced?.kind === "text-number")
+		return compileTextAsNumberEquality(coerced.text, coerced.number, ctx);
 	const leftConstant = constantComparand(left, ctx);
 	const rightConstant = constantComparand(right, ctx);
 	if (rightConstant?.blank) return compileAbsenceCheck(left, ctx);
@@ -438,6 +541,176 @@ function compileEquality(
 		eb.and([compileAbsenceCheck(left, ctx), compileAbsenceCheck(right, ctx)]),
 	]);
 }
+
+/**
+ * An equality of two types CommCare still compares as its author means
+ * (`ruleSets.ts::coercedEquality`, which the checker admits by): a whole
+ * number opposite the text of one, compared as the two numbers, with the
+ * literal read as the number it spells; or text opposite a number literal,
+ * the text read as Core reads it as a number.
+ */
+function coercedEqualityOf(
+	left: DomainExpression,
+	right: DomainExpression,
+	ctx: PredicateCompileContext,
+):
+	| {
+			readonly kind: "integer-text";
+			readonly number: DomainExpression;
+			readonly literal: DomainExpression;
+	  }
+	| {
+			readonly kind: "text-number";
+			readonly text: DomainExpression;
+			readonly number: number;
+	  }
+	| undefined {
+	const literalOf = (expr: DomainExpression) =>
+		expr.kind === "term" && expr.term.kind === "literal"
+			? expr.term
+			: undefined;
+	const operand = (expr: DomainExpression): EqualityOperand | undefined => {
+		const type = scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data);
+		if (type === undefined) return undefined;
+		const literal = literalOf(expr);
+		return literal === undefined ? { type } : { type, literal };
+	};
+	const a = operand(left);
+	const b = operand(right);
+	if (a === undefined || b === undefined || typesCompatible(a.type, b.type))
+		return undefined;
+	const kind = coercedEquality(a, b);
+	if (kind === undefined) return undefined;
+	for (const [one, other] of [
+		[left, right],
+		[right, left],
+	] as const) {
+		const literal = literalOf(other);
+		if (kind === "integer-text" && typeof literal?.value === "string") {
+			const number = canonicalIntegerText(literal.value);
+			if (number !== undefined)
+				return {
+					kind,
+					number: one,
+					literal: { kind: "term", term: { kind: "literal", value: number } },
+				};
+		}
+		if (kind === "text-number" && typeof literal?.value === "number")
+			return { kind, text: one, number: literal.value };
+	}
+	return undefined;
+}
+
+/**
+ * Text compared by `=` with a number, as `XPathEqExpr.testEquality` compares
+ * them: the text read through `FunctionUtils.toNumeric`, then equal where the
+ * two numbers lie within `1e-12`. `toNumeric` trims the text as Java's `trim`
+ * does (every character up to U+0020), reads it as no number where any
+ * character is not a digit, `-` or `.`, and otherwise parses it with
+ * `Double.parseDouble`: digits with an optional leading minus and one point
+ * (`PLAIN_DECIMAL_PATTERN`), held as the nearest `double`, the float8 Postgres
+ * reads. Text of those characters `parseDouble` refuses falls back to
+ * `toDate`: three whole numbers `year-month-day` that name a day
+ * (`DateUtils.parseDateAndStore`, Java's `split` dropping trailing empty
+ * pieces), read as that day's number (`DateUtils.daysSinceEpoch`). Such text
+ * equals the number exactly where the number is the day number of that same
+ * day, which is where the day `date(n)` gives under this reading
+ * (`coreDayNumber.ts::compileCoreDayNumber`) has those fields. Anything else
+ * is no number and equals nothing, so a missing value never equals one and
+ * `!=` keeps it.
+ *
+ * Where it parts from Core: a number past `1e308` is Infinity there and no
+ * number here, and a value below `1e-300` is zero here, neither of which can
+ * change a comparison within `1e-12` of a finite literal; a date before
+ * 1582-10-15, which Java counts in the Julian calendar and Postgres in the
+ * Gregorian; and, in Web Apps, the day number in a zone twelve or more hours
+ * from UTC, where Formplayer counts from UTC's 1970 and a device from its
+ * own.
+ */
+function compileTextAsNumberEquality(
+	text: DomainExpression,
+	number: number,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	const trimmed = eb.fn<string>("btrim", [
+		eb.cast<string>(
+			compileDeviceTextExpression(text, expressionContextFor(ctx)),
+			"text",
+		),
+		eb.val(JAVA_TRIMMED_CHARACTERS),
+	]);
+	const read = eb.cast<string>(trimmed, "numeric");
+	const parsed = eb
+		.case()
+		.when(eb(eb.fn("abs", [read]), ">=", eb.val(1e308)))
+		.then(eb.cast(eb.val(null), "float8"))
+		.when(eb(eb.fn("abs", [read]), "<", eb.val(1e-300)))
+		.then(eb.cast(eb.val(0), "float8"))
+		.else(eb.cast(read, "float8"))
+		.end();
+	const numeric = eb(
+		eb.fn("abs", [eb(parsed, "-", eb.cast(eb.val(number), "float8"))]),
+		"<",
+		eb.val(1e-12),
+	);
+	const asDay =
+		Number.isInteger(number) && number >= -2147483648 && number <= 2147483647
+			? dayTextEquals(trimmed, number, ctx)
+			: undefined;
+	let comparison = eb
+		.case()
+		.when(eb(trimmed, "~", eb.val(PLAIN_DECIMAL_PATTERN)))
+		.then(numeric);
+	if (asDay !== undefined)
+		comparison = comparison
+			.when(eb(trimmed, "~", eb.val(DAY_TEXT_PATTERN)))
+			.then(asDay);
+	return comparison.else(eb.lit(false)).end() as Expression<SqlBool>;
+}
+
+/** Whether `year-month-day` text names the day whose number is `day`: each
+ *  piece a Java `int`, and the three the fields of the date `date(day)`
+ *  gives under the reading. */
+function dayTextEquals(
+	text: AliasableExpression<string>,
+	day: number,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	const date = compileCoreDayNumber(
+		eb.val(day),
+		ctx.reading,
+		ctx.bindings.viewerTimeZone,
+	);
+	const piece = (index: number) =>
+		eb.cast(eb.fn("split_part", [text, eb.val("-"), eb.lit(index)]), "numeric");
+	const field = (name: "year" | "month" | "day") =>
+		eb.fn("date_part", [eb.val(name), date]);
+	return eb.and([
+		eb(piece(1), "<=", eb.val(2147483647)),
+		eb(piece(2), "<=", eb.val(2147483647)),
+		eb(piece(3), "<=", eb.val(2147483647)),
+		eb(piece(1), "=", field("year")),
+		eb(piece(2), "=", field("month")),
+		eb(piece(3), "=", field("day")),
+	]);
+}
+
+/** Java's `String.trim` removes every character up to U+0020 at both ends;
+ *  Postgres text holds no U+0000. */
+const JAVA_TRIMMED_CHARACTERS = Array.from({ length: 32 }, (_, index) =>
+	String.fromCharCode(index + 1),
+).join("");
+
+function javaTrimmed(text: string): string {
+	let start = 0;
+	let end = text.length;
+	while (start < end && text.charCodeAt(start) <= 0x20) start += 1;
+	while (end > start && text.charCodeAt(end - 1) <= 0x20) end -= 1;
+	return text.slice(start, end);
+}
+
+/** Three whole numbers joined by `-`, then any `-` Java's `split` drops. */
+const DAY_TEXT_PATTERN = "^[0-9]+-[0-9]+-[0-9]+-*$";
 
 /**
  * `p = unwrap-list(...)`, HQ's exact any-of: `terms` on the property's

@@ -22,10 +22,11 @@ import { applicationReading } from "../appShell";
 import type { Claim } from "../claims";
 import type { ReadContext } from "../context";
 import { shownText } from "../hqText";
+import { pointerToken } from "../jsonCursor";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
-import { formText, type SlotText, valueIsBlank } from "./prose";
+import { claimFormValue, formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
 
@@ -105,6 +106,9 @@ function readSlotMedia(
 		}
 		if (values.size === 0) continue;
 		const key = `itext-form:core/${kind}`;
+		if (first)
+			for (const value of values.values())
+				claimFormValue(ctx.accounting, value, place);
 		if (slot.media === "refused") {
 			if (first)
 				for (const value of values.values())
@@ -165,7 +169,7 @@ function readSlotMedia(
 				ctx.facts.mediaReferences.push({
 					path: one,
 					assetId: asset.assetId,
-					mediaKind: asset.mediaKind,
+					mediaKind: kind,
 					place,
 					slot: slotString(slot.media),
 				});
@@ -258,6 +262,10 @@ export function readMediaMap(
 	// A language that shows no file beside one that shows a file differs, as two files do.
 	if (shown.includes("")) return { kind: "differs" };
 	const paths = [...new Set(shown)];
+	const pointer =
+		"json" in at.site
+			? `${at.site.json.pointer}/${pointerToken(at.site.key)}`
+			: undefined;
 	const hold = (asset: {
 		readonly assetId: string;
 		readonly mediaKind: MediaKind;
@@ -266,8 +274,9 @@ export function readMediaMap(
 			ctx.facts.mediaReferences.push({
 				path,
 				assetId: asset.assetId,
-				mediaKind: asset.mediaKind,
+				mediaKind: at.mediaKind,
 				place: at.place,
+				...(pointer !== undefined && { pointer }),
 				slot: at.slot,
 			});
 		return { kind: "asset", assetId: asset.assetId } as const;
@@ -286,6 +295,7 @@ export function readMediaMap(
 		mediaKind: at.mediaKind,
 		resolution: resolution.kind,
 		place: at.place,
+		...(pointer !== undefined && { pointer }),
 		slot: at.slot,
 	});
 	return { kind: "handed-off" };

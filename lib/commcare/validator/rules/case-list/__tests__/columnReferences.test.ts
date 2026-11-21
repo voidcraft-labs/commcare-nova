@@ -70,6 +70,7 @@ describe("column reference admission", () => {
 				field: "missing",
 				columnUuid: id,
 				index: "0",
+				caseType: "patient",
 			});
 		}
 	});

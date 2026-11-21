@@ -17,6 +17,7 @@ import type {
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import {
 	type GeneratedNodePurpose,
 	generatedBaseName,
@@ -26,12 +27,11 @@ import { heldXmlParse } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
 import { applicationReading } from "../appShell";
 import { numericSortColumns } from "../caseList/details";
-import type { Claim } from "../claims";
 import type { DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import type { ExpressionReadEnv, GeneratedValue } from "../expressions";
 import { externalKey } from "../identity";
-import { pointerToken } from "../jsonCursor";
+import { isJsonObject, pointerToken } from "../jsonCursor";
 import type { DefaultEvent, ReadMode } from "../pendingExpressions";
 import { placeKey, whereText } from "../place";
 import { dateRangeGuesses } from "../search/dateRangeGuesses";
@@ -50,7 +50,7 @@ import {
 	isAllocatedName,
 } from "./generated";
 import { EMPTY_ITEXT_TABLE, type ItextTable, readItext } from "./itext";
-import { joinForm } from "./join";
+import { joinForm, registerGeneratedUses } from "./join";
 import { pendingLogic } from "./logic";
 import { readMediaForms } from "./media";
 import {
@@ -71,8 +71,14 @@ import {
 	intentIdsOf,
 	type ParsedXForm,
 	parseXFormSource,
+	type RefusedSource,
 } from "./parse";
 import { readText, rememberFormText, unitOf } from "./prose";
+import {
+	type FormRefusals,
+	refusingCursor,
+	type StandingRefusal,
+} from "./refusals";
 import { judgeShadows } from "./shadow";
 
 export type NodeRole =
@@ -108,9 +114,7 @@ export type NodeRole =
 				| "selected-cases"
 				| "selected-case"
 				| "subcases";
-	  }
-	/** A root node named `case`, which the case management stage claims. */
-	| { readonly kind: "root-case" };
+	  };
 
 /** One `vellum:role="SaveToCase"` element, as the case management stage takes it. */
 export interface ReadSaveToCaseBlock {
@@ -152,6 +156,8 @@ export interface DraftExpression {
 	readonly mode: ReadMode;
 	/** A default's event. */
 	readonly event?: DefaultEvent;
+	/** A text whose uses alone the expression stage claims (`PendingExpression.usesOnly`). */
+	readonly usesOnly?: true;
 }
 
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
@@ -163,9 +169,10 @@ export interface DraftField {
 	readonly parent: DraftField | null;
 	/** True for the stand-in of a question that got a finding; never in a returned document. */
 	readonly standIn: boolean;
-	/** The refusal a stand-in's kind got, which covers its logic and its text; the stand-in of a
-	 *  question id the grammar refuses carries none, its id's finding covering them. */
-	standInClaim?: Claim<"refuse">;
+	/** The refusal a stand-in got (its kind's, its repeat's, or its data node's), which covers
+	 *  its logic, its defaults and its text; the stand-in of a question id the grammar refuses
+	 *  carries none, its id's finding covering them. */
+	standInRefusal?: StandingRefusal;
 	/** For a select with inline choices: the `item` each option was read from, in option order. */
 	items?: Element[];
 	/** Set by `mintFields`. */
@@ -174,6 +181,9 @@ export interface DraftField {
 	readonly field: Record<string, unknown>;
 	/** Which scalar check its constraint carried. */
 	scalarCheck?: "allow" | "reject";
+	/** A Hidden Value holding both a calculate and a default outside every repeat, whose node,
+	 *  and its bind's type where `typeDeferred`, `afterBinding.ts::settleBothSources` claims. */
+	bothSources?: { readonly typeDeferred: boolean };
 	/** The control that draws it; undefined for a Hidden Value. */
 	readonly control: ControlNode | undefined;
 	/** Its place: the question at its data path. */
@@ -213,6 +223,8 @@ export type SourceNodeRef =
 export interface ReadXForm {
 	readonly parsed: ParsedXForm;
 	readonly cursor: XmlCursor;
+	/** The refusals the form's cursor made, which what belongs to a refused thing stands under. */
+	readonly refusals: FormRefusals;
 	/** Every data node by its path joined with "/". */
 	readonly nodes: ReadonlyMap<string, DataNode>;
 	readonly roles: ReadonlyMap<DataNode, NodeRole>;
@@ -249,6 +261,8 @@ export interface ReadXForm {
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	/** The instance ids a choice list's lookup itemset reads. */
+	readonly carrierInstances: ReadonlySet<string>;
 	/** Set by `mintFields`. */
 	sourceNames: ReadSourceNames | undefined;
 	/** The data path of every control whose appearance was accounted under an inert entry, in
@@ -310,27 +324,33 @@ function saveToCaseBlocks(
 		});
 }
 
-/** Reads one form's source into its draft. */
+/**
+ * Reads one form's source into its draft: its reading, the refusal of a source refused whole
+ * (blank, holding no question, a document type declaration, a data root named other than
+ * `data`), which refuses the form whole, or null where the reader could not parse the source.
+ */
 function readForm(
 	ctx: ReadContext,
 	form: DraftForm,
 	source: string | undefined,
-): ReadXForm | null {
+): ReadXForm | RefusedSource | null {
 	const accounting = ctx.accounting;
 	const formPlace = form.place as FormPlace;
 	if (source === undefined || source === "") {
 		accounting.finding(X.blankSource, formPlace);
-		return null;
+		return { refused: X.blankSource };
 	}
 	const parsedXml = heldXmlParse(source);
 	if ("issue" in parsedXml) {
-		if (parsedXml.kind === "doctype") accounting.finding(X.doctype, formPlace);
-		else
-			accounting.defect(
-				formPlace,
-				"xform:h:html",
-				readerDefect.formSource(formPlace, parsedXml.kind),
-			);
+		if (parsedXml.kind === "doctype") {
+			accounting.finding(X.doctype, formPlace);
+			return { refused: X.doctype };
+		}
+		accounting.defect(
+			formPlace,
+			"xform:h:html",
+			readerDefect.formSource(formPlace, parsedXml.kind),
+		);
 		return null;
 	}
 	/* The parse is shared and never written (`xmlParse.ts::heldXmlParse`);
@@ -339,7 +359,9 @@ function readForm(
 	const document = accounting.readsXml(parsedXml.doc)
 		? cloneNode(parsedXml.doc, true)
 		: parsedXml.doc;
-	const cursor = accounting.xml(document, form.menu, form.index, formPlace);
+	const { cursor, refusals } = refusingCursor(
+		accounting.xml(document, form.menu, form.index, formPlace),
+	);
 	const root = document.children.find(isTag);
 	const parsed = parseXFormSource({
 		document,
@@ -349,9 +371,14 @@ function readForm(
 		xmlns: form.xmlns,
 		intentIds: root === undefined ? new Set() : intentIdsOf(root),
 	});
-	if (parsed === undefined) return null;
+	if ("refused" in parsed) return parsed;
 	if (parsed.ignore.includes("markdown")) form.form.plainText = true;
-	const tree = readDataTree(parsed, cursor, formPlace);
+	const tree = readDataTree(
+		parsed,
+		cursor,
+		formPlace,
+		appendedRootNames(ctx, form),
+	);
 	claimModelChildren(parsed, tree, cursor, accounting, formPlace);
 	const inCaseRegion = (node: DataNode) => {
 		for (let at: DataNode | null = node; at !== null; at = at.parent)
@@ -370,6 +397,7 @@ function readForm(
 	);
 	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
+	const carrierInstances = new Set<string>();
 	const controls = readControls({
 		parsed,
 		tree,
@@ -419,6 +447,7 @@ function readForm(
 		instanceSources,
 		intents,
 		unreadTable: (table) => ctx.facts.unreadTables.push(table),
+		carrierRead: (id) => carrierInstances.add(id),
 		target: ctx.input.target,
 	});
 	const sectioned = rootSections({
@@ -434,6 +463,7 @@ function readForm(
 		accounting,
 		scope: parsed.scope,
 		groups: joined.groups,
+		binds: binds.byNode,
 		sectioned,
 		childrenOf: joined.childrenOf,
 		placeOf: (field) => field.place,
@@ -530,6 +560,7 @@ function readForm(
 		accounting,
 		formPlace,
 		formUuid: form.uuid,
+		refusals,
 	});
 
 	const caseRegion = tree.order.filter(
@@ -586,11 +617,27 @@ function readForm(
 				nodes: tree.nodes,
 				roles: joined.roles,
 				formPlace,
+				refusals,
 			});
 			return;
 		}
 		const bind = binds.byNode.get(node);
 		claimGeneratedNode(cursor, node, bind);
+		const ownerRole =
+			role.owner === null ? undefined : joined.roles.get(role.owner);
+		if (ownerRole?.kind === "field")
+			registerGeneratedUses(ownerRole.field, bind);
+		// Its data node is a question's as HQ's reader counts one (a Hidden Value), and the
+		// allocator's name passes the question id grammar.
+		const idKey =
+			node.path.length === 1 ? X.questionId.top.key : X.questionId.nested.key;
+		if (idKey !== null)
+			accounting.claimEntry(
+				{ element: node.element },
+				X.questionId.top.entry,
+				idKey,
+				formPlace,
+			);
 		const scope =
 			node.parent === null
 				? `/${rootName}`
@@ -632,6 +679,7 @@ function readForm(
 		nodes: tree.nodes,
 		roles: joined.roles,
 		formPlace,
+		refusals,
 	});
 	const carriers = new Map<DataNode, ControlNode>();
 	for (const { node, role } of joined.generated)
@@ -667,11 +715,13 @@ function readForm(
 					itext,
 					plainText: parsed.ignore.includes("markdown"),
 					carrierOf: (owner) => carriers.get(owner),
+					refusals,
 				});
 
 	const xform: ReadXForm = {
 		parsed,
 		cursor,
+		refusals,
 		nodes: tree.nodes,
 		roles: joined.roles,
 		binds: binds.byNode,
@@ -693,6 +743,7 @@ function readForm(
 		connect: connect.connect,
 		itext: itext ?? EMPTY_ITEXT_TABLE,
 		instanceSources,
+		carrierInstances,
 		sourceNames: undefined,
 		inertAppearances,
 		caseChoices: joined.caseChoices,
@@ -704,6 +755,34 @@ function readForm(
 		readMediaForms(ctx, xform);
 	}
 	return xform;
+}
+
+/**
+ * The root names CommCare HQ's build appends to a basic form's data beside what its source holds
+ * (`xform.py::XForm._create_casexml`, `XForm._add_usercase`): `case`, where it writes the form's
+ * own case block (some action is active, the form requires or opens a case, and its menu selects
+ * one case or the form opens its own), and `commcare_usercase`, where the form saves to the
+ * worker's record. A root question of either name is HQ's build's to write.
+ */
+function appendedRootNames(
+	ctx: ReadContext,
+	form: DraftForm,
+): ReadonlySet<string> {
+	const names = new Set<string>();
+	if (form.docType !== "Form") return names;
+	const stored = form.json.peek("actions");
+	if (!isJsonObject(stored)) return names;
+	const requires = form.json.peek("requires") ?? "none";
+	const active = activeActions(stored, requires);
+	const opens = active.has("open_case");
+	const module = ctx.draft.modules.find((one) => one.forms.includes(form));
+	const multi =
+		module !== undefined &&
+		isMultiSelectMenu({ case_details: module.json.peek("case_details") });
+	if (active.size > 0 && !(requires === "none" && !opens) && (!multi || opens))
+		names.add("case");
+	if (active.has("usercase_update")) names.add("commcare_usercase");
+	return names;
 }
 
 /** A form's fields in document order: each container, then what it holds. */
@@ -736,7 +815,7 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 	const attachments = applicationReading(ctx)?.attachments?.value;
 	let read = 0;
 	for (const module of ctx.draft.modules)
-		for (const form of module.forms) {
+		for (const form of [...module.forms]) {
 			if (read > 0 && read % FORMS_PER_STEP === 0) yield;
 			read += 1;
 			const readId =
@@ -744,11 +823,19 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 			const value =
 				readId === undefined ? undefined : attachments?.[`${readId}.xml`];
 			ctx.writeDraft(() => {
-				form.xform = readForm(
+				const reading = readForm(
 					ctx,
 					form,
 					typeof value === "string" ? value : undefined,
 				);
+				if (reading === null || !("refused" in reading)) {
+					form.xform = reading;
+					return;
+				}
+				// A source refused whole refuses its form whole, as a form whose `xmlns` is blank
+				// is (`structure.ts`): nothing else of it is read, so the one finding stands alone.
+				form.json.refuseWhole(reading.refused, reading.detail);
+				module.forms.splice(module.forms.indexOf(form), 1);
 			});
 		}
 	readConnectType(ctx);
@@ -827,6 +914,7 @@ export function mintFields(ctx: ReadContext): void {
 								mode: expression.mode,
 								place: field.place,
 								key: expression.key,
+								...(expression.usesOnly === true && { usesOnly: true }),
 							},
 							expression.at,
 							expression.event === undefined

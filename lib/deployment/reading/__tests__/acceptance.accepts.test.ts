@@ -403,7 +403,10 @@ describe("acceptReading over sources CommCare HQ could hold", () => {
 				key: handOff.key,
 				by: "inert-claim" as const,
 			})),
-			mediaLeftOut: read.outcome.claims.handOffs.length,
+			mediaLeftOut: {
+				undrawn: read.outcome.claims.handOffs.length,
+				brokenPictures: 0,
+			},
 		});
 	});
 

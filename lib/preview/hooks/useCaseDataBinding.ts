@@ -25,6 +25,7 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
+import type { CaseListSortChoice } from "@/lib/preview/caseListSortMenu";
 import {
 	loadCaseCountAction,
 	loadCaseDataAction,
@@ -218,6 +219,10 @@ export function useCases(args: {
 	/** The case chosen in each menu before the list, by module UUID, which a
 	 *  browse list's filter reads (`useCaseListStepSession`). */
 	chosenCaseIds?: Readonly<Record<string, string>>;
+	/** The worker's picks in the list's Sort by
+	 *  (`lib/preview/caseListSortMenu.ts`). A new choice reads the list again
+	 *  with the settled rows kept on screen, as any other query edit does. */
+	sortChoice?: CaseListSortChoice;
 }): {
 	state: LoadingState<LoadCasesResult>;
 	/** Server-derived cause of the effective query's narrowing. Blank prompt
@@ -250,6 +255,7 @@ export function useCases(args: {
 		search = false,
 		csqlRuntime,
 		chosenCaseIds,
+		sortChoice,
 	} = args;
 	const caseIdsKey = caseIds === undefined ? "all" : caseIds.join("\u0001");
 	const pageOffset = page?.offset;
@@ -299,6 +305,7 @@ export function useCases(args: {
 			positionKey,
 			csqlRuntime,
 			chosenCaseIds,
+			sortChoice,
 		],
 		[
 			requestIdentity,
@@ -314,6 +321,7 @@ export function useCases(args: {
 			positionKey,
 			csqlRuntime,
 			chosenCaseIds,
+			sortChoice,
 		],
 	);
 	interface KeyedCasesState {
@@ -361,6 +369,8 @@ export function useCases(args: {
 								...(search && { search }),
 								...(csqlRuntime !== undefined && { csqlRuntime }),
 								...(chosenCaseIds !== undefined && { chosenCaseIds }),
+								...(sortChoice !== undefined &&
+									sortChoice.picks.length > 0 && { sortChoice }),
 								viewerLocation: readsHere
 									? viewerPositionStore.getState().takeForListRead()
 									: null,

@@ -29,6 +29,7 @@ import {
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { formWireName } from "@/lib/domain/formWireName";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -47,12 +48,16 @@ import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
-import { calculatedAttributeColumnsArePlain } from "./caseList/columns";
+import {
+	calculatedAttributeColumnsArePlain,
+	flagIntervalThresholdsAsRead,
+} from "./caseList/columns";
 import {
 	columnsInListOrder,
 	columnsJoinedAsRead,
-	columnsOfAMenuThatListsNoCasesOffTheDetail,
+	columnsOfAMenuThatListsNoCases,
 	columnsOffAScreenLast,
+	sortNamedHiddenColumnHeader,
 } from "./caseList/details";
 import {
 	implicitOrderRuleIsAbsent,
@@ -93,8 +98,14 @@ import { shownBlockMedia } from "./menus/navMedia";
 import { registrationFormLast } from "./menus/registration";
 import { appPlace, placeOrder } from "./place";
 import { menuAndFormIdsAsRead, provisionalDocument } from "./provisional";
-import { joinedGuardsSplitAsRead } from "./search/guardSplit";
-import { exactSearchModeIsAbsent } from "./search/prompts";
+import {
+	joinedGuardsSplitAsRead,
+	unprintedGuardTranslationsAbsent,
+} from "./search/guardSplit";
+import {
+	blankSearchFieldLabelsAreTheirNames,
+	exactSearchModeIsAbsent,
+} from "./search/prompts";
 import {
 	derivedConditionsAreSimpleFields,
 	fieldConditionsOfAnotherFieldAreItsOwn,
@@ -102,6 +113,7 @@ import {
 	fieldConditionsReadingNoFieldAreTheFilters,
 	filterConditionsOfAFieldAreItsOwn,
 	searchesThatFindNothingAsRead,
+	searchFieldPathsAreTyped,
 } from "./search/rows";
 import {
 	defaultSearchTitleIsAbsent,
@@ -511,6 +523,14 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: joinedGuardsSplitAsRead,
 	},
 	{
+		/** A translation of a search guard sentence no Search field of the app carries, and none: no
+		 *  export holds it, and the reader returns none
+		 *  (`search/guardSplit.ts::unprintedGuardTranslationsAbsent`). */
+		id: "unprinted-search-guard-translations-are-absent",
+		kind: "not-carried",
+		apply: unprintedGuardTranslationsAbsent,
+	},
+	{
 		/** A required Search field with no message of its own beside one whose own message is
 		 *  Nova's sentence in the source language, and the two with the message swapped: both print
 		 *  one text in every language, and the reader returns the document whose first such field,
@@ -527,6 +547,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "default-search-title-is-absent",
 		kind: "one-wire",
 		apply: defaultSearchTitleIsAbsent,
+	},
+	{
+		/** A Search field whose label is blank, and the same field labelled with its name: a blank
+		 *  label's translation unit takes the name as its source, so both print the name in every
+		 *  language, and the reader returns the field labelled with its name
+		 *  (`search/prompts.ts::blankSearchFieldLabelsAreTheirNames`). */
+		id: "blank-search-field-labels-are-their-names",
+		kind: "one-wire",
+		apply: blankSearchFieldLabelsAreTheirNames,
 	},
 	{
 		/** A menu with Search fields holding a settings object that sets nothing, and holding none:
@@ -602,6 +631,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "derived-search-conditions-are-simple-fields",
 		kind: "one-wire",
 		apply: derivedConditionsAreSimpleFields,
+	},
+	{
+		/** A simple Search field whose path names the case type each step reaches, and the same
+		 *  field whose steps name none where the catalog resolves each to that type: both derive one
+		 *  search row, and the reader returns the typed path
+		 *  (`search/rows.ts::searchFieldPathsAreTyped`). */
+		id: "search-field-paths-are-typed",
+		kind: "one-wire",
+		apply: searchFieldPathsAreTyped,
 	},
 	{
 		/** A search one of whose sources is never true, which sends HQ the one row `match-none()`,
@@ -744,12 +782,13 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
-		/** A column of a menu that lists no cases, shown on Details or not: such a menu is written
-		 *  the empty pair, whose detail holds no column, so the reader returns each column off the
-		 *  detail (`caseList/details.ts::columnsOfAMenuThatListsNoCasesOffTheDetail`). */
-		id: "columns-of-a-menu-that-lists-no-cases-are-off-the-detail",
+		/** The columns of a menu that lists no cases: such a menu is written the pair every new menu
+		 *  holds in CommCare HQ, whatever its list holds, so the reader returns the one name column
+		 *  on both screens that pair reads as
+		 *  (`caseList/details.ts::columnsOfAMenuThatListsNoCases`). */
+		id: "columns-of-a-menu-that-lists-no-cases-are-its-one-name-column",
 		kind: "not-carried",
-		apply: columnsOfAMenuThatListsNoCasesOffTheDetail,
+		apply: columnsOfAMenuThatListsNoCases,
 	},
 	{
 		/** A column off the detail or off the list (one the short detail holds no field for, a
@@ -772,6 +811,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: calculatedAttributeColumnsArePlain,
 	},
 	{
+		/** An interval column that shows its text only past its threshold, and the same column with
+		 *  the threshold in another unit of as many days: both print the threshold as days alone,
+		 *  and the reader returns the first unit in which those days are whole
+		 *  (`caseList/columns.ts::flagIntervalThresholdsAsRead`). */
+		id: "flag-interval-thresholds-as-read",
+		kind: "one-wire",
+		apply: flagIntervalThresholdsAsRead,
+	},
+	{
 		/** A list whose short detail's fields join other columns of the long detail than their own,
 		 *  and the list that join gives: neither detail prints a column's identity, so the reader
 		 *  pairs them by print, a field hidden from Results by its property and its header, and returns the
@@ -780,6 +828,16 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "columns-joined-as-read",
 		kind: "one-wire",
 		apply: columnsJoinedAsRead,
+	},
+	{
+		/** A column hidden from Results and from Details whose own order rule names it in Sort by,
+		 *  with any header, and with that name as its header: the name is written where its header
+		 *  would stand and the header nowhere, so the reader returns the name as its header
+		 *  (`caseList/details.ts::sortNamedHiddenColumnHeader`). It reads the columns
+		 *  `columns-joined-as-read` gives. */
+		id: "sort-named-hidden-column-header-is-its-name",
+		kind: "not-carried",
+		apply: sortNamedHiddenColumnHeader,
 	},
 	{
 		/** A case list's `columns` array in any order, and in its list order: the array is a set,
@@ -1386,7 +1444,7 @@ function decideGeneratedKeys(
 		TranslationUnitId,
 		Map<LanguageTag, LocalizedValue>
 	>();
-	let folds = 0;
+	const foldedPointers: string[] = [];
 	for (const { held } of left) {
 		const verdict = verdicts.get(`${held.language}\u0000${held.key}`) ?? {
 			kind: "not-yet",
@@ -1426,7 +1484,7 @@ function decideGeneratedKeys(
 		}
 		held.json.take(held.key, CLAIMS.generatedOverOneText, (value) => value)
 			.value;
-		folds += 1;
+		foldedPointers.push(`${held.json.pointer}/${pointerToken(held.key)}`);
 		foldedKeys.add(`${held.language}\u0000${held.key}`);
 		if (!foldSites.has(verdict.unit))
 			foldSites.set(verdict.unit, {
@@ -1478,8 +1536,8 @@ function decideGeneratedKeys(
 			.find((one) => one.uuid === owner.formUuid);
 		if (form !== undefined) refuseFormNameReadAsInstance(ctx, form, after);
 	}
-	ctx.facts.foldedTranslationKeys += folds;
-	return folds > 0;
+	ctx.facts.foldedTranslationKeys.push(...foldedPointers);
+	return foldedPointers.length > 0;
 }
 
 /**
@@ -1759,7 +1817,7 @@ function judgeDeclaration(
 
 // ── Assembly ─────────────────────────────────────────────────────────────
 
-/** The document parsed whole, or the defect D8 where it does not parse. */
+/** The document parsed whole, or the defect `assembly` where it does not parse. */
 function parsesWhole(ctx: ReadContext, doc: BlueprintDoc): boolean {
 	const parsed = blueprintDocSchema.safeParse(toPersistableDoc(doc));
 	if (parsed.success) return true;
@@ -1810,6 +1868,52 @@ function withSourceFolds(
  * Stage 11: the claims that waited for every form, the declaration's verdict, the document where
  * no finding stands, the generated translation keys, the close, and the draft.
  */
+/** The manifest entry a form's `<h:title>` is claimed under (`xform/claims.ts`, `X.title`). */
+const TITLE_ENTRY = "questions/h-title-and-data-name-whatever-their-text";
+
+/**
+ * A form's title as Core reads it (`XFormParser.parseTitle`): the text with every character up to
+ * U+0020 taken from both ends, as Java's `String.trim` takes them, and none where nothing is left,
+ * since Core's parse drops a text node of whitespace alone.
+ */
+function coreTitle(text: string | undefined): string | undefined {
+	if (text === undefined) return undefined;
+	let start = 0;
+	let end = text.length;
+	while (start < end && text.charCodeAt(start) <= 0x20) start++;
+	while (end > start && text.charCodeAt(end - 1) <= 0x20) end--;
+	return start === end ? undefined : text.slice(start, end);
+}
+
+/**
+ * Records under `form-titles-written` each form whose `<h:title>` Core reads as other text than
+ * the name Nova writes there (`formWireName`): CommCare HQ's new form holds a blank title, and a
+ * rename through Bulk App Translations leaves the old one, while Nova writes the form's name as a
+ * save in HQ's form builder does. CommCare Android shows the title at the top of a saved form a
+ * worker opens again with no menu's title to hand it (`FormEntryActivity.getHeaderString`), so the
+ * first publish changes what a worker reads there. The record names the form's source in the
+ * stored app. Nova's own export writes the name there, so its read back records nothing.
+ */
+function recordTitleRewrites(ctx: ReadContext, doc: BlueprintDoc): void {
+	for (const module of ctx.draft.modules) {
+		for (const form of module.forms) {
+			if (form.xform === null || doc.forms[form.uuid] === undefined) continue;
+			if (
+				coreTitle(form.xform.parsed.title) ===
+				coreTitle(formWireName(doc, form.uuid))
+			)
+				continue;
+			const readId =
+				ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+			ctx.facts.sameStateRewrites.push({
+				entry: TITLE_ENTRY,
+				path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
+				register: "form-titles-written",
+			});
+		}
+	}
+}
+
 export function assembleDocument(ctx: ReadContext): void {
 	const steps = assembleDocumentSteps(ctx);
 	while (!steps.next().done);
@@ -1864,6 +1968,7 @@ export function* assembleDocumentSteps(
 
 	// 6. The draft.
 	const doc = whole;
+	recordTitleRewrites(ctx, doc);
 	const facts: ReadFacts = {
 		...ctx.facts,
 		mediaReferences: [...ctx.facts.mediaReferences],
@@ -1872,6 +1977,7 @@ export function* assembleDocumentSteps(
 		forms: [...ctx.facts.forms],
 		sameStateRewrites: [...ctx.facts.sameStateRewrites],
 		entryFactsRefused: [...ctx.facts.entryFactsRefused],
+		childCasesUnread: [...ctx.facts.childCasesUnread],
 		rewrites: [...ctx.facts.rewrites],
 	};
 	const folds = new Map(

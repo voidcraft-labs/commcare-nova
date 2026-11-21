@@ -901,6 +901,37 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/module-filter-false-on-a-menu-something-opens",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`module_filter` = `false()`, or `false() and <rest>`, on a menu an entry point of its own or of its case list, an after-submit link, or a form's return to its menu or to its parent menu opens",
+		"surfaceKeys": [
+			"parser:MenuParser/menu@relevant",
+			"schema:AdvancedModule.module_filter",
+			"schema:Module.module_filter",
+			"schema:ShadowModule.module_filter"
+		],
+		"valueClass": "always-false-arm-on-a-destination",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Android opens the menu as a screen that lists nothing, and Web Apps lands on the app's first screen, since Formplayer rebuilds the session through the menus it would show (`services/MenuSessionFactory.java::rebuildSessionFromFrame`)",
+		"subject": "display-conditions",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android opens the menu as a screen that lists nothing, and Web Apps lands on the app's first screen, since Formplayer rebuilds the session through the menus it would show (`services/MenuSessionFactory.java::rebuildSessionFromFrame`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/form-filter-false-or-false-and-rest-form-reached-only-by-links",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
@@ -1057,7 +1088,7 @@
 		"id": "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`put_in_root` + `session_endpoint_id` or inline search, or an end-of-form return to it (`post_form_workflow` `module`, or `parent_module` from a child)",
+		"item": "`put_in_root` + `session_endpoint_id` or inline search",
 		"surfaceKeys": [
 			"schema:AdvancedModule.put_in_root",
 			"schema:Module.put_in_root",
@@ -1853,8 +1884,13 @@
 		"item": "`Module.ref_details`",
 		"surfaceKeys": [
 			"schema:Module.ref_details",
-			"schema:ShadowModule.ref_details"
+			"schema:ShadowModule.ref_details",
+			"schema:DetailPair.short",
+			"schema:DetailPair.long",
+			"schema:Detail.display",
+			"schema:Detail.<undeclared>"
 		],
+		"valueClass": "ref-details-hq-never-builds",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: never emitted (`get_details` hard-codes `ref_*` off)",
 		"platforms": {
@@ -2000,7 +2036,10 @@
 		"surfaceKeys": [
 			"schema:AdvancedModule.case_list",
 			"schema:CaseList",
-			"schema:CaseList.show"
+			"schema:CaseList.show",
+			"schema:CaseList.label",
+			"schema:CaseList.media_image",
+			"schema:CaseList.media_audio"
 		],
 		"valueClass": "hidden-on-an-advanced-module",
 		"disposition": "INERT",
@@ -2048,7 +2087,8 @@
 		"surfaceKeys": [
 			"schema:CaseList.label",
 			"schema:CaseList.media_image",
-			"schema:CaseList.media_audio"
+			"schema:CaseList.media_audio",
+			"schema:Module.case_list"
 		],
 		"valueClass": "beside-show-false",
 		"disposition": "INERT",
@@ -2305,11 +2345,41 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/module-referral-label-case-label",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "legacy `Module.referral_label` and `case_label` keys",
+		"surfaceKeys": ["schema:Module.<undeclared>"],
+		"valueClass": "referral-label-case-label",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: keys `Module` no longer declares, which HQ's agriculture template app still carries on every menu (`static/app_manager/template_apps/agriculture/app.json`) and nothing reads",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/advancedmodule-product-details-equal-to-the-default-single-name",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
 		"item": "`AdvancedModule.product_details` equal to the default single `name` column",
-		"surfaceKeys": ["schema:AdvancedModule.product_details"],
+		"surfaceKeys": [
+			"schema:AdvancedModule.product_details",
+			"schema:DetailPair.short",
+			"schema:DetailPair.long",
+			"schema:Detail.display",
+			"schema:Detail.columns",
+			"schema:DetailColumn.header",
+			"schema:DetailColumn.model",
+			"schema:DetailColumn.field",
+			"schema:DetailColumn.format",
+			"schema:DetailColumn.<undeclared>"
+		],
 		"valueClass": "the-default-single-name-column",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: created by `AdvancedModule.new_module`, not content, in a project space without CommTrack; where `Domain.commtrack_enabled` is on, HQ builds the product list (`AdvancedModule.get_details`) and gives the module's case list menu item a `product_id` datum (`entries.py::EntriesHelper.entry_for_module`), COMMTRACK content, which defect 20's confirmation covers",
@@ -2773,7 +2843,14 @@
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
 		"item": "short `columns` empty on a survey or registration-only module that no module's active `parent_select` names, whose case tile no module's `persistent_case_tile_from_module` names, and no advanced form's load lists cases from (its `details_module`; when unset, its own module if that has the load's case type, else the first module of that case type, `entries.py::get_target_module`)",
-		"surfaceKeys": ["schema:Detail.columns"],
+		"surfaceKeys": [
+			"schema:Detail.columns",
+			"schema:DetailColumn.header",
+			"schema:DetailColumn.model",
+			"schema:DetailColumn.field",
+			"schema:DetailColumn.format",
+			"schema:DetailColumn.<undeclared>"
+		],
 		"valueClass": "empty-short-detail-no-runtime-shows",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: no runtime shows it (`requires_case_details()` false; a detail with no columns is never active, `DetailsHelper.active_details`)",
@@ -3471,6 +3548,7 @@
 			"parser:SessionDatumParser/instance-datum@detail-inline",
 			"schema:Detail.pull_down_tile"
 		],
+		"valueClass": "true",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `tile.pullDown` (`detail-inline`)",
 		"subject": "case-tiles",
@@ -3627,6 +3705,30 @@
 		"valueClass": "where-a-persistent-tile-applies",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: the tile persists instead (`entries.py::get_detail_persistent_attr`, `_get_module_for_persistent_context`, `details.py::get_section_elements`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-persistence-switches-false",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.persist_case_context`, `persist_tile_on_forms` or `pull_down_tile` `false`",
+		"surfaceKeys": [
+			"schema:Detail.persist_case_context",
+			"schema:Detail.persist_tile_on_forms",
+			"schema:Detail.pull_down_tile"
+		],
+		"valueClass": "false",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's Case List page writes each `false` on every save of a short detail (`views/modules.py::_update_short_details`), and every reader tests each by truth, as its `null` default (`suite_xml/sections/details.py::DetailContributor.get_section_elements`, `entries.py::EntriesHelper.get_detail_persistent_attr`, `get_detail_inline_attr`, `models/case_list.py::Detail.has_persistent_tile`)",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4073,14 +4175,14 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`useXpathExpression` + `field` reading one case attribute (`@case_id`, `@owner_id`, `@status`)",
+		"item": "`useXpathExpression` + `field` reading one case attribute Nova writes as one (`@case_id`)",
 		"surfaceKeys": [
 			"schema:DetailColumn.field",
 			"schema:DetailColumn.useXpathExpression"
 		],
 		"valueClass": "expression-reading-one-case-attribute",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a column over `case_id`, `owner_id` or `status`",
+		"dispositionCell": "**HELD**: a column over `case_id`; `@owner_id` and `@status` are calculated columns, since Nova writes a column over either as the property field HQ's Case List page stores",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4093,7 +4195,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`useXpathExpression: true`, `field: @<name>`, the column kind's format (`plain`, `date`, `phone`, `enum`, `enum-image`, `invisible`)",
+			"cell": "`useXpathExpression: true`, `field: @case_id`, the column kind's format (`plain`, `date`, `phone`, `enum`, `enum-image`, `invisible`)",
 			"markers": []
 		},
 		"gates": []
@@ -5728,10 +5830,11 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column formats",
-		"item": "16′ `clickable-icon` with an empty `endpoint_action_id` on the case list",
+		"item": "16′ `clickable-icon` with an empty `endpoint_action_id` on the case list, with its icon mapping (`enum[]`)",
 		"surfaceKeys": [
 			"format:clickable-icon",
 			"schema:DetailColumn.endpoint_action_id",
+			"schema:DetailColumn.enum",
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "clickable-icon-on-the-case-list-with-an-empty-endpoint",
@@ -5764,13 +5867,14 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column formats",
-		"item": "16″ `clickable-icon` on the case detail, whatever its `endpoint_action_id` names",
+		"item": "16″ `clickable-icon` on the case detail, whatever its `endpoint_action_id` names, with its icon mapping (`enum[]`)",
 		"surfaceKeys": [
 			"format:clickable-icon",
 			"parser:DetailFieldParser/endpoint_action",
 			"parser:DetailFieldParser/endpoint_action@background",
 			"parser:DetailFieldParser/endpoint_action@endpoint_id",
 			"schema:DetailColumn.endpoint_action_id",
+			"schema:DetailColumn.enum",
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "clickable-icon-on-the-case-detail",
@@ -6594,8 +6698,35 @@
 		"item": "`idx/…/prop` (`parent/`, `host/`, any index names other than a first step `user`, chained)",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "relation-path",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `column.via` on a plain, date, phone, ID mapping, image map, interval or link column: the property of the case its indices reach, `parent` by the catalog's parent type and any other index by the type the app links it to (`lib/domain/columnRelation.ts`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`parent/prop` form",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/idx-prop-in-a-menu-that-offers-search-or-through-an-index",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column field paths",
+		"item": "`idx/…/prop` in a menu that offers Search, or through an index the app links to no case type",
+		"surfaceKeys": ["detail-field-type:property"],
+		"valueClass": "relation-path-unheld",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `column.via` relation path on property columns (today only calculated columns read through relations)",
+		"dispositionCell": "**HELD-NEW**: the related column in a menu that offers Search, which HQ's build reads through the search's results instance (`models/case_list.py::Detail.get_instance_name`), where Nova writes a column over a related case as a calculation that keeps each case type (`suite/case-search/relatedCaseProjection.ts`); a walk through an index whose case type nothing in the app states, where Nova's walk names the type it reaches; and a walk to `case_id`, `status` or `owner_id`, which Nova writes as an expression over the attribute",
 		"subject": "case-list-columns",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -7369,10 +7500,9 @@
 		"item": "`display{lang}` (Sort By label) on a sort-only element",
 		"surfaceKeys": ["schema:SortElement.display"],
 		"valueClass": "label-on-a-sort-only-element",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.label`: HQ makes it the header of the invisible sort column and an app string (`util.py::create_temp_sort_column`)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `sort.label` on the column hidden from Results the rule is read on (the column only Details shows over the property where there is one): HQ makes it the header of the invisible sort column and an app string (`util.py::create_temp_sort_column`), and Nova writes it as that column's header and the element's display",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (only the tile \"Sort By\" lists it) / RUNS",
@@ -7398,10 +7528,9 @@
 		"item": "`display{lang}` on a sort joined to an `invisible` column",
 		"surfaceKeys": ["schema:SortElement.display"],
 		"valueClass": "label-on-a-sort-joined-to-an-invisible-column",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.label` presence, which alone decides whether the column is listed under Sort By (`detail_screen.py::Invisible.header`); Nova writes `display: {}` on every sort today (`hqJson/caseList.ts`)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `sort.label`, the `invisible` column's own header, which Sort By lists only where some display text is not blank (`detail_screen.py::Invisible.header`); the display text itself is never shown. Nova writes the name as both the column's header and the element's display (`hqJson/caseList.ts`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (only the tile \"Sort By\" lists it) / RUNS",
@@ -8559,6 +8688,7 @@
 			"schema:AdvancedModule.case_list_form",
 			"schema:CaseListForm",
 			"schema:CaseListForm.form_id",
+			"schema:CaseListForm.relevancy_expression",
 			"schema:Module.case_list_form",
 			"schema:ShadowModule.case_list_form"
 		],
@@ -8864,7 +8994,9 @@
 			"schema:CaseListForm.media_audio",
 			"schema:CaseListForm.media_image",
 			"schema:CaseListForm.post_form_workflow",
-			"schema:CaseListForm.relevancy_expression"
+			"schema:CaseListForm.relevancy_expression",
+			"schema:Module.case_list_form",
+			"schema:AdvancedModule.case_list_form"
 		],
 		"valueClass": "beside-a-blank-form-id",
 		"disposition": "INERT",

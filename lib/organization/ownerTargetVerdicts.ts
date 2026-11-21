@@ -339,7 +339,7 @@ export interface ManagedPlacesContext {
  * give a source exactly one destination, and a copy CommCare HQ manages
  * refuses both, so there the two place verdicts say what works: the place in
  * CommCare HQ and a refresh, or, for a place CommCare HQ no longer has, what
- * in the app uses it (Copy O24, O25).
+ * in the app uses it (`lib/publish/managedData.ts::managedOrganizationCommitRefusal`).
  */
 export function reverseLocationOwnerRefusal(
 	doc: OrganizationRuleInputs,

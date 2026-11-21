@@ -1,0 +1,80 @@
+[
+	{
+		"id": "report-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/report_note",
+					"value": "Well repaired"
+				}
+			],
+			"expressions": ["/data/report_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Well repaired"
+			}
+		]
+	},
+	{
+		"id": "worker-village-named",
+		"entry": "expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/my_village"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Northfield"
+			}
+		]
+	},
+	{
+		"id": "worker-district-named",
+		"entry": "questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/my_district"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "worker-region-read",
+		"entry": "questions/bind-calculate-on-a-hidden-value",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/my_region"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "N-1"
+			}
+		]
+	}
+]

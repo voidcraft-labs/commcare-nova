@@ -3010,6 +3010,19 @@ export function FormScreen({ screen }: FormScreenProps) {
 		},
 		[formFrozen],
 	);
+	/* A frozen form keeps every key its controls take as input, as it keeps
+	 * every click. Escape is no input to any of them (the form's popups sit
+	 * outside it, in their portals), so it goes on to the page's shortcuts,
+	 * which hear a key last and leave alone one something already took
+	 * (`lib/ui/keyboardManager.ts`): Escape leaves Preview while the form
+	 * rebuilds, as the Preview button beside it does. */
+	const blockFrozenKey = useCallback(
+		(event: SyntheticEvent<HTMLElement, KeyboardEvent>): void => {
+			if (event.nativeEvent.key === "Escape") return;
+			blockFrozenInteraction(event);
+		},
+		[blockFrozenInteraction],
+	);
 	/* The latest reveal runs once the form is live, two frames after the
 	 * commit that unfroze it: an expansion is a React state commit, and the
 	 * frames let nested collapsed ancestors mount before the concrete
@@ -3552,7 +3565,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				onChangeCapture={blockFrozenInteraction}
 				onClickCapture={blockFrozenInteraction}
 				onInputCapture={blockFrozenInteraction}
-				onKeyDownCapture={blockFrozenInteraction}
+				onKeyDownCapture={blockFrozenKey}
 				onPointerDownCapture={blockFrozenInteraction}
 			>
 				<fieldset

@@ -162,18 +162,28 @@ describe("deep links", () => {
 		);
 	});
 
-	it("refuses an id two links share", async () => {
+	it("refuses an id two links share once, at the last slot holding it, under the menus' entry where a menu holds it", async () => {
 		const reading = await readMenusOf(app(), (json) => {
 			(
 				json.modules[0]?.forms[0] as Record<string, unknown>
 			).session_endpoint_id = "patients";
 		});
-		expect(codesOf(reading)).toEqual(
-			expect.arrayContaining([
+		expect(reading.findings.map((one) => [one.code, one.place.kind])).toEqual([
+			[
 				"menus-and-case-lists/two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form",
-				"forms-and-case-writes/session-endpoint-id-not-a-slug-fixed-point-or-duplicated",
-			]),
-		);
+				"form",
+			],
+		]);
+		const lists = await readMenusOf(app(), (json) => {
+			(json.modules[0] as Record<string, unknown>).session_endpoint_id =
+				"patient-list";
+		});
+		expect(lists.findings.map((one) => [one.code, one.place.kind])).toEqual([
+			[
+				"menus-and-case-lists/two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form",
+				"menu",
+			],
+		]);
 	});
 
 	it("reads `respect_relevancy: false` with no deep link as nothing", async () => {

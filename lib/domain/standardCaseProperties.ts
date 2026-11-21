@@ -146,22 +146,21 @@ export const CASE_NODE_ATTRIBUTE_PROPERTIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The attribute-backed properties a case list column can read: the members
- * of `CASE_NODE_ATTRIBUTE_PROPERTIES` that are standard case list
- * properties (`case_type` is an attribute too, but no column reads it).
- * Every column over one is an expression column on CommCare HQ's wire,
- * `field: "@<name>"` with `useXpathExpression: true`: HQ reads a property
- * column's `field` as a child element (`detail_screen.py::
- * PropertyXpathGenerator.xpath`), its `CASE_PROPERTY_MAP` has no entry for
- * `case_id`, and its Case List page refuses `@` in a property column
- * (`helpers/validators.py::ModuleDetailValidatorMixin.
- * _validate_detail_screen_field`). Read by the case list order plan and
- * `lib/commcare/suite/case-list/orderPlanOptions.ts::hqExpressionFieldText`.
+ * The standard case list properties no property column of CommCare HQ can
+ * show: `case_id`. HQ reads a property column's `field` through its
+ * `CASE_PROPERTY_MAP` (`detail_screen.py::PropertyXpathGenerator.xpath`),
+ * which reads `status` and `owner_id` as the case's attributes and has no
+ * entry for `case_id`, so a `case_id` field reads a child element no case
+ * holds, and its Case List page refuses `@` in a property column
+ * (`helpers/validators.py::ModuleDetailValidatorMixin._validate_detail_screen_field`).
+ * Every column over one is an expression column on HQ's wire,
+ * `field: "@case_id"` with `useXpathExpression: true`; a column over
+ * `status` or `owner_id` is the property column HQ's Case List page stores.
+ * Read by the case list order plan and
+ * `lib/commcare/suite/case-list/orderPlanOptions.ts::columnStoredAsExpression`.
  */
-export const ATTRIBUTE_BACKED_COLUMN_PROPERTIES: ReadonlySet<StandardCaseListProperty> =
-	new Set(
-		[...CASE_NODE_ATTRIBUTE_PROPERTIES].filter(isStandardCaseListProperty),
-	);
+export const EXPRESSION_ONLY_COLUMN_PROPERTIES: ReadonlySet<StandardCaseListProperty> =
+	new Set(["case_id" as StandardCaseListProperty]);
 
 /**
  * Standard case values backed by first-class case-row columns rather than the

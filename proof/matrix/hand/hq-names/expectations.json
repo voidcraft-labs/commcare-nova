@@ -1,0 +1,236 @@
+[
+	{
+		"id": "plot-name-entered",
+		"entry": "questions/question-id-matching-xml-a-za-z-w",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_plot_0": "new-plot"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/plot-name",
+					"value": "North field"
+				}
+			],
+			"expressions": ["/data/plot-name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North field"
+			}
+		]
+	},
+	{
+		"id": "plot-name-is-text",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_plot_0": "new-plot"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/plot-name",
+					"value": "East field"
+				}
+			],
+			"expressions": ["/data/plot-name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "East field"
+			}
+		]
+	},
+	{
+		"id": "irrigated-chosen",
+		"entry": "questions/multiple-choice-select1-item",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_plot_0": "new-plot"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/irrigated",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/irrigated"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "yes"
+			}
+		]
+	},
+	{
+		"id": "tenure-value-with-an-apostrophe",
+		"entry": "questions/choice-value-containing-or",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_plot_0": "new-plot"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/tenure",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/tenure = \"farmer's\""]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_plot_0": "new-plot"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/plot-name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/plot-name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_plot_0": "new-plot"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/plot-name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/plot-name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "visit-note-entered",
+		"entry": "questions/question-id-matching-xml-a-za-z-w",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "plot-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visit-note",
+					"value": "Weeded"
+				}
+			],
+			"expressions": ["/data/visit-note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Weeded"
+			}
+		]
+	},
+	{
+		"id": "visit-note-is-text",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "plot-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visit-note",
+					"value": "Mulched"
+				}
+			],
+			"expressions": ["/data/visit-note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Mulched"
+			}
+		]
+	}
+]

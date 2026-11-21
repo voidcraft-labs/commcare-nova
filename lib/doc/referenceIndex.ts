@@ -62,6 +62,8 @@ import {
 	casePropertyDeclKey,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
+	columnPropertyCaseType,
+	columnRelationPath,
 	entityTargetKey,
 	type Field,
 	FORM_REFERENCE_SLOTS,
@@ -916,11 +918,19 @@ function extractModuleEdges(
 				if (slot.slot === "case_list_column_field") {
 					if (mod.caseType === undefined) break;
 					for (const column of mod.caseListConfig?.columns ?? []) {
-						if (column.kind !== "calculated")
-							sink.edge(
-								casePropertyTargetKey(mod.caseType, column.field),
-								slot.slot,
-							);
+						if (column.kind === "calculated") continue;
+						// A column read through a relation names a property of the
+						// case its walk reaches, and the walk names that type
+						// (the walk's own hints are `case_list_column_via`'s).
+						const caseType = columnPropertyCaseType(
+							column,
+							mod.caseType,
+							doc.caseTypes ?? [],
+						);
+						if (caseType === undefined) continue;
+						sink.edge(casePropertyTargetKey(caseType, column.field), slot.slot);
+						if (column.via !== undefined)
+							sink.edge(caseTypeTargetKey(caseType), slot.slot);
 					}
 				} else {
 					for (const input of mod.caseListConfig?.searchInputs ?? []) {
@@ -941,9 +951,16 @@ function extractModuleEdges(
 				}
 				break;
 			case "relation-path":
-				for (const input of mod.caseListConfig?.searchInputs ?? []) {
-					if (input.kind === "simple")
-						relationHintEdges(sink, slot.slot, input.via);
+				if (slot.slot === "case_list_column_via") {
+					for (const column of mod.caseListConfig?.columns ?? []) {
+						if (column.kind !== "calculated" && column.via !== undefined)
+							relationHintEdges(sink, slot.slot, columnRelationPath(column));
+					}
+				} else {
+					for (const input of mod.caseListConfig?.searchInputs ?? []) {
+						if (input.kind === "simple")
+							relationHintEdges(sink, slot.slot, input.via);
+					}
 				}
 				break;
 			default: {

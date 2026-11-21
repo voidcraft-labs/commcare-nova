@@ -1,0 +1,371 @@
+[
+	{
+		"id": "score-entered",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0",
+				"data": {
+					"case_id": "household-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/score",
+					"value": "7"
+				}
+			],
+			"expressions": ["/data/score"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "7"
+			}
+		]
+	},
+	{
+		"id": "note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0",
+				"data": {
+					"case_id": "household-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/note",
+					"value": "revisit"
+				}
+			],
+			"expressions": ["/data/note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "revisit"
+			}
+		]
+	},
+	{
+		"id": "members-recorded",
+		"entry": "questions/repeat-group-user-controlled",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1",
+				"data": {
+					"case_id": "household-one"
+				}
+			},
+			"repeats": {
+				"/data/members": 2
+			},
+			"answers": [
+				{
+					"path": "/data/members/member_name",
+					"value": "Imani"
+				}
+			],
+			"expressions": ["count(/data/members)", "/data/members[2]/member_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Imani"
+			}
+		]
+	},
+	{
+		"id": "member-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f1",
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"repeats": {
+				"/data/members": 1
+			},
+			"answers": [
+				{
+					"path": "/data/members/member_name",
+					"value": "Baraka"
+				}
+			],
+			"expressions": ["/data/members[1]/member_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Baraka"
+			}
+		]
+	},
+	{
+		"id": "reason-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f2",
+				"data": {
+					"case_id": "household-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/reason",
+					"value": "moved"
+				},
+				{
+					"path": "/data/confirm",
+					"value": "moved"
+				}
+			],
+			"expressions": ["/data/reason", "/data/confirm"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "moved"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "moved"
+			}
+		]
+	},
+	{
+		"id": "visit-key-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 3
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f3"
+			},
+			"answers": [
+				{
+					"path": "/data/visit_key",
+					"value": "visit-17"
+				},
+				{
+					"path": "/data/visit_note",
+					"value": "Fence mended"
+				}
+			],
+			"expressions": ["/data/visit_key", "/data/visit_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "visit-17"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Fence mended"
+			}
+		]
+	},
+	{
+		"id": "stops-recorded",
+		"entry": "questions/repeat-group-user-controlled",
+		"form": {
+			"menu": 0,
+			"form": 4
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f4"
+			},
+			"repeats": {
+				"/data/stops": 2
+			},
+			"answers": [
+				{
+					"path": "/data/stops/place",
+					"value": "market"
+				}
+			],
+			"expressions": ["count(/data/stops)", "/data/stops[2]/place"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "market"
+			}
+		]
+	},
+	{
+		"id": "clinic-stop-confirmed",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 4
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f4"
+			},
+			"repeats": {
+				"/data/stops": 1
+			},
+			"answers": [
+				{
+					"path": "/data/stops/place",
+					"value": "clinic"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/clinic_check",
+					"value": "yes"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "ok"
+			}
+		]
+	},
+	{
+		"id": "clinic-stop-missing",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 4
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f4"
+			},
+			"repeats": {
+				"/data/stops": 1
+			},
+			"answers": [
+				{
+					"path": "/data/stops/place",
+					"value": "market"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/clinic_check",
+					"value": "yes"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			}
+		]
+	},
+	{
+		"id": "seen-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m1-f0",
+				"data": {
+					"case_id": "household-one",
+					"selected_cases": ["household-one"]
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/seen",
+					"value": "morning"
+				}
+			],
+			"expressions": ["/data/seen"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "morning"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "clinic-stops-counted",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 0,
+			"form": 4
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f4"
+			},
+			"repeats": {
+				"/data/stops": 2
+			},
+			"answers": [
+				{
+					"path": "/data/stops/place",
+					"value": "clinic"
+				}
+			],
+			"expressions": ["/data/nova_constraint_clinic_check_0"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			}
+		]
+	}
+]

@@ -1,12 +1,8 @@
 [
 	{
 		"change": "forms-and-settings-rewritten",
+		"placeKinds": ["app-wide"],
 		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/_attachments/*"
-			},
 			{
 				"check": "source",
 				"artifact": "app.json",
@@ -20,22 +16,229 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/created_from_template"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/media_form_errors"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/profile/properties"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/calc_xpath"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/hasNodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/hasAutocomplete"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/isTab"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/nodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/relevant"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/graph_configuration"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/@version"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:head/vellum:hashtags"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:head/vellum:hashtagTransforms"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:instance/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/:unlisted-translation/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@type/:implied-string"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@calculate/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@constraint/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@requiredCondition"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:nodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:calculate"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:relevant"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:constraint"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:requiredCondition"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:required"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:bind/@vellum:vellum__*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:setvalue/xforms-ready/@value/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/@vellum:ref"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/@vellum:nodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/@vellum:jr__count"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/itemset/@nodeset/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/itemset/@vellum:nodeset"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:itext/hint/*/markdown"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:itext/label/*/default/output/*/@vellum:value"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:itext/label/*/markdown/output/*/@vellum:value"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/case_references_data/load/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/case_references_data/load/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/case_references_data/load/*/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/case_references_data/load/*/*",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "hidden-values-added",
+		"placeKinds": ["form-node"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "form:*",
+				"path": "/questions/*",
+				"kind": "added"
 			}
 		]
 	},
 	{
 		"change": "case-names-checked",
+		"placeKinds": ["form-node", "form-part", "form", "case"],
 		"rows": [
 			{
 				"check": "source",
@@ -46,31 +249,208 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/forms/*/actions"
+			},
+			{
+				"check": "proof1",
+				"artifact": "form:*",
+				"path": "/questions/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/blocks/*/case/*/create/case_name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/blocks/*/case/*/create/case_name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/blocks/*/case/*/update/case_name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/blocks/*/case/*/update/case_name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/blocks/*/case/*/update/external_id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/blocks/*/case/*/update/external_id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/blocks/*/subcase_*~1case/*/create/case_name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/blocks/*/subcase_*~1case/*/create/case_name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/cases/*/name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/cases/*/name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/cases/*/external_id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/cases/*/external_id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/external_id[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/external_id[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/subcase_*[*]/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/*/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/*/nova_trimmed_*[*]",
+				"kind": "added"
 			}
 		]
 	},
 	{
 		"change": "validation-counts-moved",
+		"placeKinds": ["form-node"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "form:*",
+				"path": "/questions/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/nova_constraint_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/nova_constraint_*[*]",
+				"kind": "added"
 			}
 		]
 	},
 	{
 		"change": "validation-messages-composed",
+		"placeKinds": ["form-node"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "form:*",
+				"path": "/questions/*",
+				"kind": "added"
 			}
 		]
 	},
 	{
 		"change": "instant-comparison",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -101,11 +481,18 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/*"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/xpath[*]/@function",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "empty-rows-guard",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -141,6 +528,7 @@
 	},
 	{
 		"change": "absent-session-value-guard",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -176,6 +564,7 @@
 	},
 	{
 		"change": "row-predicate-current",
+		"placeKinds": ["form-node", "form", "form-part", "menu", "app"],
 		"rows": [
 			{
 				"check": "source",
@@ -186,26 +575,89 @@
 	},
 	{
 		"change": "search-value-guards",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/*"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.validation.*.text",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/validation[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
 			}
 		]
 	},
 	{
 		"change": "search-today-device-day",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/*"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "removed"
 			}
 		]
 	},
 	{
 		"change": "case-settings-respelled",
+		"placeKinds": ["form", "form-node", "case"],
 		"rows": [
 			{
 				"check": "source",
@@ -216,21 +668,71 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "case_types",
+				"path": "/*/properties/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof1",
+				"artifact": "form:*",
+				"path": "/case_updates/*/*",
+				"kind": "added"
 			}
 		]
 	},
 	{
 		"change": "search-filter-rows-recut",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/default_properties"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "removed"
 			}
 		]
 	},
 	{
 		"change": "sort-rule-kept-as-hidden-column",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -246,11 +748,30 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/case_details/short/sort_elements/*/display"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "list-settings-respelled",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -271,6 +792,11 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/description"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/auto_launch"
 			},
 			{
 				"check": "source",
@@ -381,41 +907,87 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/case_details/*/columns/*/enum/*/alt_text"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/sort[*]/@blanks",
+				"kind": "added"
 			}
 		]
 	},
 	{
 		"change": "search-filter-joined-to-list",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/case_details/short/filter"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/datum[@id=*]/@nodeset",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "search-restates-list-filter",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/default_properties"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/answered",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "link-held-case-guards-added",
+		"placeKinds": ["form"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/forms/*/form_links/*/xpath"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/stack[*]/create[*]/@if",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "registration-label-fixed",
+		"placeKinds": ["menu"],
 		"rows": [
 			{
 				"check": "source",
@@ -426,26 +998,77 @@
 	},
 	{
 		"change": "date-and-time-saved-as-hq-stores-it",
+		"placeKinds": ["form-node", "form-part", "case"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/nova_datetime_*[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/nova_datetime_*[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/*/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/case[*]/update[*]/*/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/*/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]/*/text()",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "connect-app-captures-location",
+		"placeKinds": ["app", "form-node"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/auto_gps_capture"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/meta[*]/location[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/meta[*]/location[*]",
+				"kind": "added"
 			}
 		]
 	},
 	{
 		"change": "translation-overrides-folded",
+		"placeKinds": ["app", "menu", "form", "form-part", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -470,17 +1093,68 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_list/label/*"
 			},
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/case_list_form/label/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/header/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/sort_elements/*/display/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/hint/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/required/text/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/validations/*/text/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/label/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/title_label/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/description/*"
 			}
 		]
 	},
 	{
 		"change": "location-list-setting-reset",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -491,6 +1165,7 @@
 	},
 	{
 		"change": "web-apps-turned-off",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -501,6 +1176,7 @@
 	},
 	{
 		"change": "web-apps-turned-on",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -511,6 +1187,7 @@
 	},
 	{
 		"change": "date-and-time-questions-split",
+		"placeKinds": ["form-node", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -521,11 +1198,72 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/forms/*/actions"
+			},
+			{
+				"check": "proof1",
+				"artifact": "form:*",
+				"path": "/questions/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof1",
+				"artifact": "form:*",
+				"path": "/order",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/submission/data/*/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/submission/data/*/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/events/*",
+				"kind": "removed"
 			}
 		]
 	},
 	{
 		"change": "blank-translations-filled",
+		"placeKinds": ["form-part"],
 		"rows": [
 			{
 				"check": "source",
@@ -536,6 +1274,7 @@
 	},
 	{
 		"change": "media-paths-joined",
+		"placeKinds": ["app", "menu", "form", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -596,11 +1335,48 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/logo_refs/*"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:default",
+				"path": "/forms.m*f*.icon",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:en",
+				"path": "/forms.m*f*.icon",
+				"kind": "changed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "media_suite.xml",
+				"path": "/suite/media[resource/@id=*]",
+				"kind": "removed"
 			}
 		]
 	},
 	{
 		"change": "media-files-renamed",
+		"placeKinds": ["app", "menu", "form", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -695,13 +1471,13 @@
 			{
 				"check": "proof2",
 				"artifact": "media_suite.xml",
-				"path": "/suite/media[*]/resource[@id=*]",
+				"path": "/suite/media[resource/@id=*]",
 				"kind": "removed"
 			},
 			{
 				"check": "proof2",
 				"artifact": "media_suite.xml",
-				"path": "/suite/media[*]/resource[@id=*]",
+				"path": "/suite/media[resource/@id=*]",
 				"kind": "added"
 			},
 			{
@@ -720,6 +1496,7 @@
 	},
 	{
 		"change": "media-references-with-no-file-removed",
+		"placeKinds": ["app", "menu", "form", "form-node"],
 		"rows": [
 			{
 				"check": "source",
@@ -780,11 +1557,162 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/multimedia_map/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/media/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:default",
+				"path": "/modules.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:en",
+				"path": "/modules.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/menu[@id=*]/display[*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/menu[@id=*]/text[*]",
+				"kind": "added"
+			}
+		]
+	},
+	{
+		"change": "broken-pictures-removed",
+		"placeKinds": ["app", "menu", "form", "form-node"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_list_form/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_image/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media_audio/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/logo_refs/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/media/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof1",
+				"artifact": "app.json",
+				"path": "/multimedia_map/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:default",
+				"path": "/forms.m*f*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:en",
+				"path": "/forms.m*f*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/command[@id=*]/display[*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/command[@id=*]/text[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "media_suite.xml",
+				"path": "/suite/media[resource/@id=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/choices/*/image",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/choices/*/image",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "unused-media-entries-removed",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
@@ -795,6 +1723,7 @@
 	},
 	{
 		"change": "names-respelled",
+		"placeKinds": ["app", "menu", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -820,6 +1749,7 @@
 	},
 	{
 		"change": "media-maps-respelled",
+		"placeKinds": ["menu", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -905,6 +1835,7 @@
 	},
 	{
 		"change": "text-spaces-dropped",
+		"placeKinds": ["app", "menu", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -975,16 +1906,109 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/properties/*/validations/*/text"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/xform[*]/resource[@id=*]/@descriptor",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/choices/*/text",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/choices/*/text",
+				"kind": "changed"
 			}
 		]
 	},
 	{
 		"change": "form-text-characters-written-as-outputs",
+		"placeKinds": ["form-part"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "hidden-value-defaults-dropped",
+		"placeKinds": ["form-part", "form"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/case_references_data/load"
+			}
+		]
+	},
+	{
+		"change": "sort-by-entry-with-a-blank-name-dropped",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/sort_elements/*/display"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/headers/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/headers/*",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "form-titles-written",
+		"placeKinds": ["form-part"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/title",
+				"kind": "changed"
 			}
 		]
 	}

@@ -5,8 +5,11 @@
  * entry holds; a session read's class by whether the entry supplies it; and
  * a form's unread instance declaration claimed at the form whether or not
  * any expression of the form was registered. The failures this catches: a
- * refused slot whose uses go unclaimed, an HQ JSON slot whose `#case` read
- * is claimed as the interpolated casedb path, a refusal recorded under a key
+ * refused slot whose uses go unclaimed, an HQ JSON slot whose shorthand
+ * (`#case`, `#parent`, `#host`, `#user`) is claimed as the interpolated
+ * casedb path or as the form builder's `#case/` hashtag, or whose raw text,
+ * which Core's lexer refuses, is claimed for the grammar Core never reads in
+ * it, a call's name not claimed as the name Core's lexer reads, a refusal recorded under a key
  * its entry does not hold, an unsupplied datum read claimed as supplied, and
  * a declaration left unclaimed in a form with no registered expression.
  */
@@ -110,7 +113,7 @@ describe("the claims beside each slot's own", () => {
 		expect(session(1)).toBe("expressions-and-data/session-data-datum");
 	});
 
-	it("claims an HQ JSON slot's `#case` read as the hashtag, before HQ's interpolation", () => {
+	it("claims an HQ JSON slot's shorthand as the pattern HQ's interpolation replaces, and no grammar of its raw text", () => {
 		const doc = visitDoc();
 		const ref = {
 			entity: "form",
@@ -119,16 +122,128 @@ describe("the claims beside each slot's own", () => {
 		} as const;
 		const reading = readExpressions(
 			doc,
-			[registration(doc, ref, "#case/p = 'x'")],
+			[
+				registration(doc, ref, "#case/p = 'x'"),
+				registration(doc, ref, "#parent/p = 'x' or #host/p = #user/q"),
+			],
+			readEnv(),
+		);
+		const keys = (source: number) =>
+			reading.claims
+				.filter((claim) => claim.source === source)
+				.map((claim) => claim.key)
+				.filter((key) => key.includes(":") && !key.startsWith("schema:"));
+		const uses = (source: number) =>
+			keys(source).filter(
+				(key) => !key.startsWith("test:") && !key.startsWith("parser:"),
+			);
+		expect(uses(0)).toEqual(["hashtag:#case"]);
+		expect(new Set(uses(1))).toEqual(
+			new Set(["hashtag:#parent", "hashtag:#host", "hashtag:#user"]),
+		);
+	});
+
+	it("claims the shorthand a slot HQ interpolates holds by its text, inside a string too, and `$fixture_value` only where a fixture is named", () => {
+		const doc = visitDoc();
+		const ref = {
+			entity: "form",
+			uuid: onlyForm(doc),
+			slot: "form_display_condition",
+		} as const;
+		const moduleUuid = doc.moduleOrder[0] as Uuid;
+		const tab = {
+			...registration(
+				doc,
+				{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+				"#parent/p = 'x'",
+				{ target: "hq-json", interpolation: "case" },
+			),
+			usesOnly: true as const,
+		};
+		const reading = readExpressions(
+			doc,
+			[
+				registration(doc, ref, "p = '#user/q'"),
+				{
+					...registration(doc, ref, "$fixture_value = 'a'"),
+					fixtureValue: true,
+				},
+				registration(doc, ref, "$fixture_value = 'a'"),
+				tab,
+			],
+			readEnv(),
+		);
+		const keys = (source: number) =>
+			reading.claims
+				.filter((claim) => claim.source === source)
+				.map((claim) => claim.key);
+		// HQ replaces `#user` inside the string, and Core reads the rest as written.
+		expect(keys(0)).toEqual(
+			expect.arrayContaining(["hashtag:#user", "xpath-token:STR"]),
+		);
+		expect(keys(1)).toContain("hashtag:$fixture_value");
+		expect(keys(2)).not.toContain("hashtag:$fixture_value");
+		// A text registered for its uses alone in a slot HQ interpolates: a tab's filter.
+		expect(keys(3)).toContain("hashtag:#parent");
+	});
+
+	it("claims the shorthand of the whole text HQ interpolates where the registration reads a part, and none where the node is no slot HQ interpolates", () => {
+		const doc = visitDoc();
+		const moduleUuid = doc.moduleOrder[0] as Uuid;
+		const filter = {
+			entity: "module",
+			uuid: moduleUuid,
+			slot: "module_display_condition",
+		} as const;
+		const operand = registration(doc, filter, "p = 'a'");
+		const reading = readExpressions(
+			doc,
+			[
+				// The operand beside a clause whose part of the filter holds `#user`: Core refuses the
+				// whole filter, so the slot uses its shorthand alone.
+				{ ...operand, slotText: "p = 'a' and #user/x = 'b'" },
+				// The same operand recorded at a node HQ does not interpolate.
+				{ ...operand, text: "#user/x = 'b'", slotText: null },
+				// A menu's case named by its slug: HQ's replacement leaves `:<slug>` after the path.
+				registration(doc, filter, "#case:clinic/p = 'a'"),
+				operand,
+			],
+			readEnv(),
+		);
+		const claimsOf = (source: number) =>
+			reading.claims.filter((claim) => claim.source === source);
+		const keys = (source: number) => claimsOf(source).map((claim) => claim.key);
+		expect(keys(0)).toContain("hashtag:#user");
+		expect(keys(0)).not.toContain("xpath-token:STR");
+		expect(keys(1)).not.toContain("hashtag:#user");
+		expect(
+			claimsOf(2).find((claim) => claim.key === "hashtag:#case")?.entryId,
+		).toBe(
+			"expressions-and-data/case-module-slug-unrelated-parent-select-case",
+		);
+		// The operand alone: its grammar, and no shorthand.
+		expect(keys(3)).toContain("xpath-token:STR");
+		expect(keys(3)).not.toContain("hashtag:#user");
+	});
+
+	it("claims a call's name as the QNAME Core's lexer reads it as", () => {
+		const doc = visitDoc();
+		const reading = readExpressions(
+			doc,
+			[
+				registration(
+					doc,
+					relevantOf(doc, "q1"),
+					"today() > date('2020-01-01')",
+				),
+			],
 			readEnv(),
 		);
 		const keys = reading.claims
 			.filter((claim) => claim.source === 0)
 			.map((claim) => claim.key);
-		expect(keys).toContain("hashtag:#case/");
-		expect(keys.some((key) => key.startsWith("instance-scheme:casedb"))).toBe(
-			false,
-		);
+		expect(keys).toContain("xpath-token:QNAME");
+		expect(keys).toContain("jr-fn:today");
 	});
 
 	it("claims a form's unread declaration at the form, with no expression of the form registered", () => {

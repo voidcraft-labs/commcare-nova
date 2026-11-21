@@ -15,6 +15,8 @@ import {
 	asMediaAssetId,
 	type CaseListOrderPlan,
 	type Column,
+	caseListOrderPlan,
+	columnSort,
 	hiddenSearchInputDef,
 	linkColumn,
 	plainColumn,
@@ -33,6 +35,7 @@ import {
 import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { previewRegisterAction } from "../caseListRegistration";
+import { caseListSortOptions, LIST_ORDER } from "../caseListSortMenu";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import { projectTileGrid } from "../caseTileLayout";
 import { planTileCell } from "../caseTileRendering";
@@ -538,6 +541,43 @@ export const PLATFORM_MODEL_CHECKS = {
 				authored: [],
 			}),
 		).toBe(true);
+	},
+
+	/* Web Apps lists a hidden sort field under its name in Sort by only in a
+	 * case tile list, whose Sort By lists every sort field; a list of columns
+	 * sorts by the headers it shows. Android lists it in both. */
+	"sort-label-web-apps": () => {
+		const feeling = plainColumn(VILLAGE, "feeling_sick", "", {
+			visibleInList: false,
+			sort: columnSort("desc", 0, undefined, "Feeling Sick"),
+		});
+		const listed = (tiled: boolean, platform: Platform) => {
+			const name = plainColumn(NAME, "case_name", "Name", {
+				...(tiled && { tile: tileCell(0, 0, 1, 1) }),
+			});
+			const config = {
+				columns: [name, feeling],
+				searchInputs: [],
+				listColumnOrder: [NAME, VILLAGE],
+				detailColumnOrder: [NAME, VILLAGE],
+				...(tiled && { tile: {} }),
+			};
+			return caseListSortOptions({
+				plan: caseListOrderPlan(config, [], {
+					mediaOn: true,
+					calculatedType: () => undefined,
+					expressionText: () => "",
+				}),
+				columns: config.columns,
+				rules: previewPlatformRules(platform).sortMenu,
+				tiled,
+				choice: LIST_ORDER,
+			}).map((option) => option.name);
+		};
+		expect(listed(false, "web-apps")).toEqual([]);
+		expect(listed(true, "web-apps")).toEqual(["Feeling Sick"]);
+		expect(listed(false, "android")).toEqual(["Name", "Feeling Sick"]);
+		expect(listed(true, "android")).toEqual(["Name", "Feeling Sick"]);
 	},
 
 	/* Android's list shows a link column's markdown as written; the case

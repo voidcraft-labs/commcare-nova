@@ -68,7 +68,7 @@ import {
 } from "@/lib/domain";
 import { moduleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
-import { buildColumnField } from "./columns";
+import { buildColumnField, mergeFieldStrings } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
@@ -150,9 +150,9 @@ export function buildLongDetail(args: {
 	}
 
 	const config = mod.caseListConfig;
+	const caseTypes = effectiveCaseTypes(args.doc);
 	const caseProperties =
-		effectiveCaseTypes(args.doc).find((type) => type.name === mod.caseType)
-			?.properties ?? [];
+		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [];
 	const ctx: CaseListEmitContext = {
 		wire: { mode: { target: "suite" }, instances },
 		moduleIndex,
@@ -162,6 +162,7 @@ export function buildLongDetail(args: {
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
 		caseType: mod.caseType,
+		caseTypes,
 		proseDoc: args.doc,
 		expressions: moduleExpressionContexts(
 			args.doc,
@@ -193,8 +194,7 @@ export function buildLongDetail(args: {
 			ctx,
 		});
 		fields.push(emission.element);
-		Object.assign(strings, emission.strings);
-		Object.assign(translationUnits, emission.translationUnits);
+		mergeFieldStrings(strings, translationUnits, emission);
 	}
 
 	return {

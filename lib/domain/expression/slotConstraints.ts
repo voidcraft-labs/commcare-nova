@@ -16,6 +16,7 @@
 // checker's verdicts into per-slot descriptors.
 
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import { isValueStorageAssignable, isWriteAssignable } from "./ruleSets";
 import {
 	ALL_RESOLVED_TYPES,
 	ANY_TYPE,
@@ -24,7 +25,6 @@ import {
 	compatibleTypesFor,
 	isDateOrDatetime,
 	isNumeric,
-	isValueStorageAssignable,
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	type ResolvedType,
 	TEXT_SHAPED_TYPES,
@@ -321,16 +321,19 @@ export function coerceOperandConstraint(): SlotConstraint {
  * A value that will be STORED — a case-operation write, or an operation
  * facet whose result lands verbatim in the case block.
  *
- * Storage assignability is deliberately narrower than comparison
- * compatibility (`isValueStorageAssignable`): `int` widens to `decimal`
- * and text and single-select interchange, but nothing else crosses. The
- * accept-set is computed by asking that exact function about every
- * resolved type, so the picker's offered-set is the checker's own rule
- * rather than a second table that could drift from it. Several
- * destinations (a property two writers disagree about) intersect.
+ * Write assignability is deliberately narrower than comparison
+ * compatibility (`isWriteAssignable`): `int` widens to `decimal`, text and
+ * single-select interchange, and a number or a date saves to text as the
+ * text a device submits for it, but nothing else crosses. The accept-set is
+ * computed by asking that exact function about every resolved type, so the
+ * picker's offered-set is the checker's own rule rather than a second table
+ * that could drift from it. Several destinations (a property two writers
+ * disagree about) intersect. A case's name, owner or id
+ * (`identifierText`) takes text and a choice alone.
  */
 export function storageAssignmentConstraint(
 	destinationTypes: readonly CasePropertyDataType[],
+	identifierText = false,
 ): SlotConstraint {
 	const destinations = [...new Set(destinationTypes)];
 	if (destinations.length === 0) {
@@ -342,7 +345,9 @@ export function storageAssignmentConstraint(
 		accepts: new Set(
 			ALL_RESOLVED_TYPES.filter((type) =>
 				destinations.every((destination) =>
-					isValueStorageAssignable(type, destination),
+					identifierText
+						? isValueStorageAssignable(type, destination)
+						: isWriteAssignable(type, destination, false),
 				),
 			),
 		),

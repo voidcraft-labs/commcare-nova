@@ -16,12 +16,14 @@ import {
 } from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
+import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import {
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 	materializableCaseTypes,
 } from "@/lib/domain/effectiveCaseTypes";
 import { slotContext } from "@/lib/domain/expression/context";
+import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
 import {
@@ -44,7 +46,7 @@ import {
 import { declaredTypeHolds } from "../../validator/rules/fieldKindMatchesPropertyType";
 import { withCandidate } from "../candidate";
 import { defineClaims, refuse } from "../claims";
-import type { DraftApp, DraftForm, ReadContext } from "../context";
+import type { DraftApp, ReadContext } from "../context";
 import {
 	agreedComparedTypes,
 	type ComparedType,
@@ -54,7 +56,7 @@ import { appPlace } from "../place";
 import type { ReaderKnownCaseTypes } from "../types";
 import type { DraftField } from "../xform";
 import { advancedCaseReading } from "./advancedActions";
-import { basicCaseReading } from "./basicActions";
+import { basicCaseReading, boundDateTime } from "./basicActions";
 import { knownCaseTypesOf } from "./knownCaseTypes";
 import { saveToCaseReading } from "./saveToCase";
 
@@ -271,17 +273,6 @@ function declareToldTypes(
 		}
 }
 
-/** Whether `field` is a Hidden Value whose bind in `form`'s source is typed `xsd:dateTime`. */
-function boundDateTime(
-	form: DraftForm,
-	field: DraftField | undefined,
-): boolean {
-	if (field === undefined || field.kind !== "hidden") return false;
-	const type = form.xform?.binds.get(field.node)?.type;
-	if (type === undefined) return false;
-	return (type.startsWith("xsd:") ? type.slice(4) : type) === "dateTime";
-}
-
 /** The `datetime` declarations each reading made before its expressions bound, by type and
  *  property. */
 const DATETIME_DECLARATIONS = new WeakMap<
@@ -455,7 +446,7 @@ export function carryRetypedProperties(doc: BlueprintDoc): BlueprintDoc {
 }
 
 /**
- * Step 3: the catalog of the reading, written into the draft from what the
+ * The catalog of the reading, written into the draft from what the
  * structure and case readers read: every menu's case type, every child
  * case's, open action's and Save to Case block's, in menu order; each child
  * type's parent; one property per property written or preloaded; and each
@@ -636,10 +627,16 @@ const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
  * The writers of each property judged over the bound document
  * (`concreteCasePropertyWriterTypes`): writers that agree on one stored type
  * (`agreedStorageType`: `int` with `decimal` on `decimal`, `text` with
- * `single_select` on `text`) are one type Nova holds, with nothing claimed,
- * since those entries name no key; writers that do not are the manifest's
- * row for their pair, one finding per property, at the first menu of its
- * case type.
+ * `single_select` on `text`), or that are saved as text
+ * (`ruleSets.ts::joinsAsText`, which adds the one type `text`), are one type
+ * Nova holds, with nothing claimed, since those entries name no key; writers
+ * that do not are the manifest's row for their pair, one finding per
+ * property, at the first menu of its case type. A Hidden Value whose own
+ * results agree on no type names each of theirs there, and one the gate
+ * refuses beside the property's other writers
+ * (`inference.ts::hiddenWriterVerdicts`, reason `type` or
+ * `hidden-disagreement`) is the same row, so the reading refuses what the
+ * gate refuses.
  */
 export function settleWriterTypes(
 	ctx: ReadContext,
@@ -647,27 +644,53 @@ export function settleWriterTypes(
 	doc: BlueprintDoc,
 ): void {
 	let opinions: ReturnType<typeof concreteCasePropertyWriterTypes>;
+	let verdicts: ReturnType<typeof hiddenWriterVerdicts>;
 	try {
 		opinions = concreteCasePropertyWriterTypes(doc);
+		verdicts = hiddenWriterVerdicts(doc);
 	} catch {
 		return;
 	}
+	const found = new Set<string>();
+	const finding = (
+		caseType: string,
+		property: string,
+		claim: (typeof WRITER_CLAIMS)[keyof typeof WRITER_CLAIMS],
+	): void => {
+		const key = JSON.stringify([caseType, property]);
+		if (found.has(key)) return;
+		found.add(key);
+		const menu = app.modules.find(
+			(module) => module.module.caseType === caseType,
+		);
+		ctx.accounting.finding(claim, menu?.place ?? appPlace(), {
+			name: property,
+		});
+	};
 	for (const [caseType, byProperty] of opinions) {
 		if (NOT_CATALOGUED.has(caseType)) continue;
 		for (const [property, types] of byProperty) {
 			if (types.size < 2 || agreedStorageType(types) !== undefined) continue;
 			const pair = (a: CasePropertyDataType, b: CasePropertyDataType) =>
 				types.size === 2 && types.has(a) && types.has(b);
-			const claim = pair("single_select", "multi_select")
-				? WRITER_CLAIMS.singleMulti
-				: WRITER_CLAIMS.otherPair;
-			const menu = app.modules.find(
-				(module) => module.module.caseType === caseType,
+			finding(
+				caseType,
+				property,
+				pair("single_select", "multi_select")
+					? WRITER_CLAIMS.singleMulti
+					: WRITER_CLAIMS.otherPair,
 			);
-			ctx.accounting.finding(claim, menu?.place ?? appPlace(), {
-				name: property,
-			});
 		}
+	}
+	for (const verdict of verdicts) {
+		const { caseType, property } = verdict.writer;
+		if (NOT_CATALOGUED.has(caseType)) continue;
+		if (
+			verdict.findings.some(
+				(one) => one.reason === "type" || one.reason === "hidden-disagreement",
+			)
+		)
+			finding(caseType, property, WRITER_CLAIMS.otherPair);
 	}
 }
 
@@ -683,8 +706,9 @@ function fieldsOf(
 
 /** The properties a menu's case list and its simple Search fields name, each
  *  on the case type it is a property of: a column's and a field's with no
- *  `via` on the menu's, and a field's with a `via` on the type the relation
- *  reaches, whose read the search's own filter prints. */
+ *  `via` on the menu's, a column's with a `via` on the type its walk reaches,
+ *  whose read the list's field prints, and a field's with a `via` on the type
+ *  the relation reaches, whose read the search's own filter prints. */
 function listProperties(
 	module: Readonly<Record<string, unknown>>,
 	caseType: string,
@@ -697,9 +721,23 @@ function listProperties(
 				searchInputs?: readonly Readonly<Record<string, unknown>>[];
 		  }
 		| undefined;
-	for (const column of config?.columns ?? [])
-		if (typeof column.field === "string")
+	for (const column of config?.columns ?? []) {
+		if (typeof column.field !== "string") continue;
+		if (column.via === undefined) {
 			out.push({ caseType, property: column.field });
+			continue;
+		}
+		const destination = resolveRelationDestination(
+			{
+				kind: "ancestor",
+				via: column.via,
+			} as Parameters<typeof resolveRelationDestination>[0],
+			caseType,
+			caseTypes,
+		);
+		if (destination.ok)
+			out.push({ caseType: destination.caseType, property: column.field });
+	}
 	for (const input of config?.searchInputs ?? []) {
 		if (input.kind !== "simple" || typeof input.property !== "string") continue;
 		if (input.via === undefined) {
@@ -717,9 +755,10 @@ function listProperties(
 	return out;
 }
 
-/** Every property reference a document's expressions hold, by structure:
- *  a record read (`prop`), on the type its relation reaches from the type it
- *  starts from, or a form's read of its case (`form-case`). */
+/** Every property reference a document's expressions and texts hold, by
+ *  structure: a record read (`prop`), on the type its relation reaches from the
+ *  type it starts from, a form's read of its case (`form-case`), or a text's
+ *  reference to a case property (`case-ref`). */
 function expressionReads(
 	value: unknown,
 	out: { caseType: string; property: string }[],
@@ -731,8 +770,13 @@ function expressionReads(
 	}
 	if (typeof value !== "object" || value === null) return;
 	const record = value as Readonly<Record<string, unknown>>;
+	// A text's reference to a case property (`case-ref`) prints as the read of that property
+	// (`lib/domain/proseExpression.ts::proseReferenceExpression`, a `form-case` term), which the
+	// reader declares as any read's.
 	if (
-		(record.kind === "prop" || record.kind === "form-case") &&
+		(record.kind === "prop" ||
+			record.kind === "form-case" ||
+			record.kind === "case-ref") &&
 		typeof record.caseType === "string" &&
 		typeof record.property === "string"
 	) {
@@ -993,8 +1037,19 @@ export function catalogAsRead(
 				module as unknown as Readonly<Record<string, unknown>>,
 				module.caseType,
 				effectiveTypes,
-			))
+			)) {
+				// A column read through a relation names the type its walk reaches,
+				// which the list reader declares where nothing else does
+				// (`caseList/details.ts`).
+				if (
+					one.caseType !== module.caseType &&
+					CASE_TYPE_PATTERN.test(one.caseType) &&
+					!NOT_CATALOGUED.has(one.caseType) &&
+					!draft.some((type) => type.name === one.caseType)
+				)
+					draft.push({ name: one.caseType, properties: [] });
 				noteProperty(draft, one.caseType, one.property);
+			}
 		}
 		for (const read of reads) noteProperty(draft, read.caseType, read.property);
 		// A walk to the cases under a case names the child type and its parent
@@ -1047,18 +1102,25 @@ export function catalogAsRead(
 			if (caseType === undefined) continue;
 			for (const column of module?.caseListConfig?.columns ?? []) {
 				if (column.kind !== "plain") continue;
+				// A column read through a relation states the reached type's choices.
+				const owner = columnPropertyCaseType(
+					column,
+					caseType,
+					doc.caseTypes ?? [],
+				);
+				if (owner === undefined) continue;
 				const shown = effective
-					.find((type) => type.name === caseType)
+					.find((type) => type.name === owner)
 					?.properties.find((one) => one.name === column.field);
 				const entry = draft
-					.find((type) => type.name === caseType)
+					.find((type) => type.name === owner)
 					?.properties.find((one) => one.name === column.field);
 				if (shown === undefined || entry === undefined) continue;
 				if (!casePropertyShowsOptionLabels(shown)) {
 					delete entry.options;
 					continue;
 				}
-				const key = `${caseType}\u0000${column.field}`;
+				const key = `${owner}\u0000${column.field}`;
 				if (
 					stated.has(key) ||
 					(entry.data_type !== undefined && entry.data_type !== shown.data_type)

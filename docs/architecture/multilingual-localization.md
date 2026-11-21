@@ -794,7 +794,7 @@ cloning `BlueprintDoc` into a second app model.
   no label expression and no enum variables, under an empty header that has no
   locale id and no app string. An order rule on it is a sort element over the
   property name. Only a hidden calculated column, and a hidden column over
-  `case_id`, `owner_id` or `status`, keeps its expression and the positional
+  `case_id`, keeps its expression and the positional
   join. In a tile list a hidden column is no field, and its order rule is a sort
   element with no stored column. A sort element's `display` holds one key, the
   first language's wire code, with empty text.

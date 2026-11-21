@@ -14,6 +14,10 @@ export type Expectation =
 	| {
 			readonly kind: "assignment";
 			readonly destinations: readonly CasePropertyDataType[];
+			/** A case's name, owner or id rather than a property: it takes text
+			 * and a choice alone, never the text of a number or a date
+			 * (`ruleSets.ts::isWriteAssignable`'s allowance into text). */
+			readonly identifierText?: true;
 	  }
 	/** A repeat's count: a whole number, `int` or a read of a single select
 	 * whose inline choices are whole numbers (`typeChecker.ts::repeatCountErrors`). */

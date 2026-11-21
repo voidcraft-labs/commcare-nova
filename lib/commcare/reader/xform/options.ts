@@ -17,7 +17,7 @@ import { casePropertyStep } from "../../xpath/wire/rowScope";
 import type { Accounting } from "../accounting";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReaderLookupCatalog, UnreadTable } from "../types";
-import { ownText, type XmlCursor } from "../xmlCursor";
+import { ownText, type XmlCursor, type XmlNode } from "../xmlCursor";
 import type { ControlNode } from "./body";
 import { X } from "./claims";
 import { sameTree } from "./generated";
@@ -49,7 +49,15 @@ export interface ReadChoicesInput {
 	readonly instanceSources: ReadonlyMap<string, string>;
 	/** Appends a table the catalog does not hold, handed to project data. */
 	readonly unreadTable: (table: UnreadTable) => void;
+	/** Notes an instance a choice list's itemset reads, whose declaration the
+	 *  read stands for (`provisional.ts::claimDeclarations`). */
+	readonly carrierRead: (id: string) => void;
 }
+
+/** The entry an instance a choice list's lookup itemset reads is claimed
+ *  under: Nova's typed lookup carrier. */
+const TYPED_CARRIER =
+	"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers";
 
 function xformsChildren(
 	element: Element,
@@ -128,16 +136,24 @@ function readItems(
 			? "children"
 			: selectOptionValueProblemAmong(text, seen);
 		if (problem === "children") continue;
-		// Only the instance read names what it read; a refused value is never quoted.
-		if (problem === "both-quotes")
-			cursor.refuseSubtree(value, X.choiceValueBothQuotes, place);
-		else if (problem === "instance-read")
-			cursor.refuseSubtree(value, X.choiceValueInstance, place, {
-				name: instanceScanRead(text) ?? text,
-			});
-		else if (problem !== undefined)
-			cursor.refuseSubtree(value, X.choiceValueRefused, place);
-		else {
+		// Only the instance read names what it read; a refused value is never quoted. A choice
+		// whose value is refused is refused whole: its label, and the text the label names,
+		// stand under the value's refusal.
+		const refusal =
+			problem === "both-quotes"
+				? { claim: X.choiceValueBothQuotes, detail: undefined }
+				: problem === "instance-read"
+					? {
+							claim: X.choiceValueInstance,
+							detail: { name: instanceScanRead(text) ?? text },
+						}
+					: problem !== undefined
+						? { claim: X.choiceValueRefused, detail: undefined }
+						: undefined;
+		if (refusal !== undefined) {
+			cursor.refuseSubtree(value, refusal.claim, place, refusal.detail);
+			cursor.refuseSubtree(label, refusal.claim, place, refusal.detail);
+		} else {
 			const quoted = text.includes("'") || text.includes('"');
 			const taken = cursor.take(
 				{ element: value },
@@ -230,6 +246,14 @@ function readItemset(
 	}
 	if (copy !== undefined) {
 		cursor.refuseSubtree(itemset, X.itemsetCopy, place);
+		// The refusal is a fact about the `copy` and the path it copies, where it stands too.
+		cursor.within({ element: copy }, X.itemsetCopy, [
+			`xform:${select}/itemset/copy`,
+		]);
+		if (Object.hasOwn(copy.attribs, "ref"))
+			cursor.within({ element: copy, attribute: "ref" }, X.itemsetCopy, [
+				`xform:${select}/itemset/copy@ref`,
+			]);
 		return undefined;
 	}
 	if (
@@ -271,14 +295,25 @@ function readItemset(
 			input.unreadTable({ tag, place });
 			return undefined;
 		}
+		// Each refusal of a ref stands at the ref whose value makes its class, or at its element
+		// where it holds none.
+		const refOf = (element: Element): XmlNode =>
+			Object.hasOwn(element.attribs, "ref")
+				? { element, attribute: "ref" }
+				: { element };
 		if (callsItext(labelRef)) {
-			cursor.refuseSubtree(itemset, X.itemsetItextLabel, place);
+			cursor.refuseSubtreeAt(itemset, refOf(label), X.itemsetItextLabel, place);
 			return undefined;
 		}
 		const labelName = singleName(labelRef);
 		const valueName = singleName(valueRef);
 		if (labelName === undefined || valueName === undefined) {
-			cursor.refuseSubtree(itemset, X.itemsetRefShape, place);
+			cursor.refuseSubtreeAt(
+				itemset,
+				labelName === undefined ? refOf(label) : refOf(value),
+				X.itemsetRefShape,
+				place,
+			);
 			return undefined;
 		}
 		const labelColumn = table.column(labelName);
@@ -297,6 +332,14 @@ function readItemset(
 		const refs = X.lookupRefs;
 		const one = select === "select1";
 		cursor.take({ element: itemset }, one ? sites.select1 : sites.select).value;
+		// The table the itemset reads, at the read, through Nova's typed carrier.
+		input.accounting.claimEntry(
+			{ element: itemset, attribute: "nodeset" },
+			TYPED_CARRIER,
+			"instance-scheme:item-list",
+			place,
+		);
+		input.carrierRead(chain.id);
 		const predicate = chain.predicates[0];
 		if (predicate === undefined)
 			cursor.take(

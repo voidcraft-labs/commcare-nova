@@ -4,7 +4,7 @@
  * A corpus document is one admitted Nova document with what Nova's publish
  * reads beside it (its Project's lookup data and uploaded media), under an
  * id that is the same on every run and machine: its source and its name, or
- * its generator, seed and index. Five sources feed the corpus:
+ * its generator, seed and index. Six sources feed the corpus:
  *
  * - the native producers' documents (`./producers.ts`);
  * - the workforce documents, producer documents that also hold the worker,
@@ -17,7 +17,12 @@
  *   with fixed values (`TARGETED_MODULE`);
  * - a fixed-seed sample of the compiler fuzz generators, which
  *   `./__tests__/fuzzSample.test.ts` writes when run as a Vitest writer
- *   (`readFuzzSample`).
+ *   (`readFuzzSample`);
+ * - the apps CommCare HQ's own pages, models and form builder made, retained
+ *   under `proof/hq-apps/<base>/` by the lane and held to HQ at its pin
+ *   (`./hqAuthored.ts`): each document is Nova's first reading of a base, its
+ *   A is HQ's own app and its B is Nova's publish over it as over an app
+ *   Nova brought in (`HqAuthoredFacts`).
  *
  * The expander and fuzz sources are Vitest writers because the modules they
  * rest on import Vitest, which loads only inside Vitest's runner.
@@ -27,6 +32,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import type { AdoptedKeyedCaseId } from "@/lib/deployment/adoption";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
@@ -78,7 +85,55 @@ export type CorpusSource =
 			 * migrated document over it.
 			 */
 			readonly migrationWitness?: true;
+	  }
+	| {
+			readonly kind: "hq-authored";
+			/** The base's id: its directory under `proof/hq-apps/` and its entry of `proof/matrix`. */
+			readonly base: string;
 	  };
+
+/** What an `hq-authored` document carries beside D: what Nova's reading of the base gave. */
+export interface HqAuthoredFacts {
+	/** The HQ id of every menu and form D holds, and each form's `xmlns`. Dense: one row an entity. */
+	readonly identity: readonly WireIdentityOverride[];
+	/** HQ's source answer the capture's peer starts from: `proof/hq-apps/<base>/app-source.json`. */
+	readonly source: unknown;
+	/** The first-publish register ids that apply under `declaration`. */
+	readonly firstPublish: readonly string[];
+	/** Where each of `firstPublish` stands on the reading, in the same order
+	 *  (`lib/deployment/reading/firstPublishChanges.ts::firstPublishChangePlaces`). */
+	readonly firstPublishPlaces: readonly {
+		readonly id: string;
+		readonly places: readonly string[];
+	}[];
+	/** The declaration D was read under: the base's own, or the reading's preselected one. */
+	readonly declaration: {
+		readonly runsOnlyOn: "web-apps" | "android" | null;
+		readonly splitDatetime: boolean;
+	};
+	/** HQ's path for each asset D references, by asset id. Empty where A maps no file. */
+	readonly mediaPaths: ReadonlyMap<string, string>;
+	/**
+	 * Each create keyed by an answer D keeps, with the prefix its cases stand
+	 * under in A: the rows a bring-in of A records
+	 * (`lib/deployment/adoption.ts::adoptedKeyedCaseIdRows`), which every
+	 * publish over A and its local archive print the create under. Empty
+	 * where D keeps none.
+	 */
+	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
+	/**
+	 * Absolute path of the base's retained directory (`proof/hq-apps/<base>/`),
+	 * whose files the entry writer copies into the document's `authored/` and
+	 * whose `base.json` gives the document its one configuration.
+	 */
+	readonly retained: string;
+	/**
+	 * Absolute path of the base's hand directory (`proof/matrix/hand/<base>/`):
+	 * its value expectations and the restore they run over, which the entry
+	 * writer writes into the document's `expected.json` and directory.
+	 */
+	readonly hand: string;
+}
 
 /** Independent compiler fuzz streams the corpus samples. */
 export const FUZZ_GENERATORS = [
@@ -137,6 +192,8 @@ export interface CorpusDocument {
 	 * Every other document's edit is drawn by the edit generator.
 	 */
 	readonly edit?: TargetedEdit;
+	/** Present exactly for an `hq-authored` document. */
+	readonly hqAuthored?: HqAuthoredFacts;
 }
 
 /** Project-space settings a configuration holds beyond its flags and privileges. */
@@ -428,6 +485,7 @@ const LAYOUT_FILES = new Set([
 	"expected.json",
 	"hq-side.json",
 	"inputs.json",
+	"first-publish.json",
 ]);
 
 /** Refuse a document file name that leaves the document's directory or takes a corpus file's name. */

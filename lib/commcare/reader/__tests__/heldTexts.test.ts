@@ -871,8 +871,8 @@ describe("an app translation folded over an app string", () => {
 			units: Object.fromEntries(keys.map((key) => [key, unit])),
 		};
 	};
-	const SHORT_HEADER = "m0.case_short.case_case_name_1.header";
-	const LONG_HEADER = "m0.case_long.case_case_name_1.header";
+	const SHORT_HEADER = "m0.case_short.case_name_1.header";
+	const LONG_HEADER = "m0.case_long.case_name_1.header";
 
 	it("with a space at its start is held without it, which workers then read, recorded at the key", async () => {
 		const body = exportedBody(PROMPTS);
@@ -893,7 +893,7 @@ describe("an app translation folded over an app string", () => {
 				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
 			);
 		const draft = outcome.draft;
-		expect(draft.facts.foldedTranslationKeys).toBe(2);
+		expect(draft.facts.foldedTranslationKeys).toHaveLength(2);
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const column =
 			draft.doc.modules[draft.doc.moduleOrder[0] as string]?.caseListConfig
@@ -935,7 +935,7 @@ describe("an app translation folded over an app string", () => {
 				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
 			);
 		const draft = outcome.draft;
-		expect(draft.facts.foldedTranslationKeys).toBe(2);
+		expect(draft.facts.foldedTranslationKeys).toHaveLength(2);
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const column =
 			draft.doc.modules[draft.doc.moduleOrder[0] as string]?.caseListConfig
@@ -1857,7 +1857,7 @@ describe("an app translation folded over a choice's label", () => {
 				JSON.stringify(outcome.findings.map((one) => [one.code, one.detail])),
 			);
 		const draft = outcome.draft;
-		expect(draft.facts.foldedTranslationKeys).toBe(1);
+		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		return {
 			value: (

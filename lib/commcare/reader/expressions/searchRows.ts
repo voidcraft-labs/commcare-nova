@@ -254,6 +254,8 @@ export function readSearchRowConjuncts(
 			/** The types the row's comparisons give properties the catalog
 			 *  holds untyped, under which the conjuncts read and print back. */
 			readonly types: readonly ComparedType[];
+			/** The row names a selection by a spelling HQ's search reads as Nova's. */
+			readonly respelled?: true;
 	  }
 	| Extract<SearchRowReading, { ok: false }>
 ) & { readonly uses: readonly SurfaceUse[] } {
@@ -277,6 +279,7 @@ export function readSearchRowConjuncts(
 				: [reading.predicate],
 		rewrites: reading.rewrites,
 		types: reading.types ?? [],
+		...(reading.respelled && { respelled: true as const }),
 		uses,
 	};
 }

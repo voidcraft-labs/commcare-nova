@@ -14,7 +14,7 @@
  */
 
 import { translationKeyOwner } from "@/lib/commcare/appStringKeys";
-import type { SchemaDefaultReader } from "@/lib/commcare/surface/schemaDefaults";
+import { servedSchemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { ownedProfilePart } from "@/lib/commcare/targetOverlay";
 import {
 	canonicalJsonText,
@@ -297,24 +297,23 @@ function sameJson(left: unknown, right: unknown): boolean {
 /**
  * Structural equality with the schema-growth rule. At an object that carries
  * a `doc_type`, a key held on one side only is no difference when its value
- * is the default the manifest records for that model's property, or, for a
- * key the manifest does not list, an empty value: HQ serializes every
- * declared property, so a property a newer HQ adds appears in every later
- * read. Under a property the manifest types `DictProperty`, every key is
- * content.
+ * is the default the manifest records for that model's property as a read
+ * serves it (`servedSchemaPropertyDefault`: both sides of every comparison
+ * are HQ's reads, and a read wraps a detail pair with its two details named),
+ * or, for a key the manifest does not list, an empty value: HQ serializes
+ * every declared property, so a property a newer HQ adds appears in every
+ * later read. Under a property the manifest types `DictProperty`, every key
+ * is content.
  */
 function equalUnderSchema(
 	left: unknown,
 	right: unknown,
-	reader: SchemaDefaultReader,
 	isMap = false,
 ): boolean {
 	if (Array.isArray(left) || Array.isArray(right)) {
 		if (!Array.isArray(left) || !Array.isArray(right)) return false;
 		if (left.length !== right.length) return false;
-		return left.every((item, index) =>
-			equalUnderSchema(item, right[index], reader),
-		);
+		return left.every((item, index) => equalUnderSchema(item, right[index]));
 	}
 	if (isObject(left) && isObject(right)) {
 		const docType = isMap
@@ -329,15 +328,16 @@ function equalUnderSchema(
 			const inLeft = Object.hasOwn(left, key);
 			const inRight = Object.hasOwn(right, key);
 			if (inLeft && inRight) {
-				const childIsMap = docType !== null && reader(docType, key).isMap;
-				if (!equalUnderSchema(left[key], right[key], reader, childIsMap)) {
+				const childIsMap =
+					docType !== null && servedSchemaPropertyDefault(docType, key).isMap;
+				if (!equalUnderSchema(left[key], right[key], childIsMap)) {
 					return false;
 				}
 				continue;
 			}
 			if (docType === null) return false;
 			const value = inLeft ? left[key] : right[key];
-			const declared = reader(docType, key);
+			const declared = servedSchemaPropertyDefault(docType, key);
 			const atDefault = declared.known
 				? sameJson(value, declared.default)
 				: isEmptyValue(value);
@@ -431,11 +431,9 @@ export function diffHqAppSource(input: {
 	readonly current: unknown;
 	readonly ownership: AppOwnership;
 	readonly shell: boolean;
-	readonly schemaDefault: SchemaDefaultReader;
 	readonly languageNames: "nova" | "target";
 	readonly mediaChanged?: number;
 }): readonly AppChangePart[] {
-	const reader = input.schemaDefault;
 	/* One set of language codes for both reads, so a key is classed alike on
 	 * each side and a changed list of languages is the `languages` part. */
 	const codes = new Set([
@@ -458,7 +456,7 @@ export function diffHqAppSource(input: {
 	const parts: AppChangePart[] = [];
 
 	if (input.shell) {
-		return equalUnderSchema(before.modules, after.modules, reader)
+		return equalUnderSchema(before.modules, after.modules)
 			? []
 			: [{ kind: "menu-list" }];
 	}
@@ -486,7 +484,6 @@ export function diffHqAppSource(input: {
 				!equalUnderSchema(
 					moduleWithoutForms(earlier),
 					moduleWithoutForms(current),
-					reader,
 				)
 			) {
 				parts.push({ kind: "menu", menu, name: menuName });
@@ -497,7 +494,6 @@ export function diffHqAppSource(input: {
 					!equalUnderSchema(
 						formWithAttachment(earlierForms[form], before.attachments),
 						formWithAttachment(currentForm, after.attachments),
-						reader,
 					)
 				) {
 					parts.push({
@@ -521,7 +517,6 @@ export function diffHqAppSource(input: {
 		!equalUnderSchema(
 			{ doc_type: "Application", ...before[group] },
 			{ doc_type: "Application", ...after[group] },
-			reader,
 		);
 	if (appKeysDiffer("name")) parts.push({ kind: "name" });
 	if (appKeysDiffer("languages")) parts.push({ kind: "languages" });

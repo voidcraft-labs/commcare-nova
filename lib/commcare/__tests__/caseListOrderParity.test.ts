@@ -14,6 +14,7 @@ import type { HqApplication } from "@/lib/commcare";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { moduleCaseListOrderPlan } from "@/lib/commcare/suite/case-list/orderPlanOptions";
+import { hqColumnFieldText } from "@/lib/commcare/suite/wire";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -30,6 +31,7 @@ import {
 	imageMapEntry,
 	plainColumn,
 	proseText,
+	tileCell,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/expression";
 import { previewCaseListOrderPlan } from "@/lib/preview/engine/caseListOrder";
@@ -138,6 +140,30 @@ const LISTS: Record<string, CaseListConfig> = {
 		],
 		searchInputs: [],
 	}),
+	"Named in Sort by": resolveCaseListConfig({
+		columns: [
+			plainColumn(id("named-name"), "case_name", "Name"),
+			plainColumn(id("named-age"), "age", "Age", {
+				...HIDDEN,
+				sort: columnSort("desc", 0, undefined, "Oldest first"),
+			}),
+		],
+		searchInputs: [],
+	}),
+	"Tile named in Sort by": resolveCaseListConfig({
+		columns: [
+			plainColumn(id("tile-named-name"), "case_name", "Name", {
+				tile: tileCell(0, 0, 12, 1),
+			}),
+			plainColumn(id("tile-named-age"), "age", "Age", {
+				visibleInList: false,
+				visibleInDetail: false,
+				sort: columnSort("asc", 0, undefined, "Youngest first"),
+			}),
+		],
+		searchInputs: [],
+		tile: {},
+	}),
 	Attributes: resolveCaseListConfig({
 		columns: [
 			plainColumn(id("attribute-name"), "case_name", "Name"),
@@ -201,7 +227,7 @@ function impliedElement(
 ) {
 	const field =
 		rule.element.kind === "property"
-			? rule.element.property
+			? hqColumnFieldText(rule.element.property)
 			: `_cc_calculated_${rule.element.position}`;
 	const ruled = [
 		...plan.fields.flatMap((planned) =>
@@ -230,7 +256,7 @@ function impliedElement(
 		type,
 		direction: rule.direction === "asc" ? "ascending" : "descending",
 		blanks: rule.blanks,
-		display: { en: "" },
+		display: { en: rule.label?.text ?? "" },
 		sort_calculation: "",
 	};
 }
@@ -248,14 +274,14 @@ describe("the order plan's two emitters", () => {
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const assets = mediaManifest();
 	const hq: HqApplication = expandDoc(doc, { assets });
-	const suite = readXmlEvidence(
-		new AdmZip(
-			compileCcz(hq, doc.appName, doc, {
-				assets,
-				runtimeTarget: TEST_RUNTIME_TARGET,
-			}),
-		).readAsText("suite.xml"),
+	const archive = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			assets,
+			runtimeTarget: TEST_RUNTIME_TARGET,
+		}),
 	);
+	const suite = readXmlEvidence(archive.readAsText("suite.xml"));
+	const strings = archive.readAsText("en/app_strings.txt").split("\n");
 	const propertyType = (name: string) =>
 		doc.caseTypes
 			?.find((type) => type.name === "client")
@@ -268,7 +294,8 @@ describe("the order plan's two emitters", () => {
 			const plan = moduleCaseListOrderPlan(mod, doc, true);
 			const short = hq.modules[index].case_details.short;
 
-			// HQ JSON: one stored column per field, its `field` the join text.
+			// HQ JSON: one stored column per field, its `field` the join text, a
+			// property in HQ's word.
 			expect(
 				short.columns.map((column) => [
 					column.field,
@@ -276,7 +303,9 @@ describe("the order plan's two emitters", () => {
 				]),
 			).toEqual(
 				plan.fields.map((field) => [
-					field.joinText,
+					field.wire === "expression"
+						? field.joinText
+						: hqColumnFieldText(field.joinText),
 					field.wire === "expression",
 				]),
 			);
@@ -321,6 +350,46 @@ describe("the order plan's two emitters", () => {
 		},
 	);
 
+	it("writes a hidden column's name in Sort by as its header and its element's display, and as its locale in the local suite", () => {
+		const index = Object.keys(LISTS).indexOf("Named in Sort by");
+		const short = hq.modules[index].case_details.short;
+		expect(short.columns[1]).toMatchObject({
+			field: "age",
+			format: "invisible",
+			header: { en: "Oldest first" },
+		});
+		expect(short.sort_elements).toMatchObject([
+			{ field: "age", display: { en: "Oldest first" } },
+		]);
+		const header = xmlChildren(
+			xmlChildren(shortDetail(suite, index), "field")[1],
+			"header",
+		)[0];
+		const localeId = `m${index}.case_short.case_age_2.header`;
+		expect(header?.attributes.width).toBe("0");
+		expect(
+			xmlChildren(xmlChildren(header, "text")[0], "locale")[0]?.attributes.id,
+		).toBe(localeId);
+		expect(strings).toContain(`${localeId}=Oldest first`);
+	});
+
+	it("writes a tile list's name in Sort by as its sort row's display, and as the appended field's locale", () => {
+		const index = Object.keys(LISTS).indexOf("Tile named in Sort by");
+		const short = hq.modules[index].case_details.short;
+		expect(short.columns.map((column) => column.field)).toEqual(["name"]);
+		expect(short.sort_elements).toMatchObject([
+			{ field: "age", display: { en: "Youngest first" } },
+		]);
+		const carrier = xmlChildren(shortDetail(suite, index), "field")[1];
+		const header = xmlChildren(carrier, "header")[0];
+		// HQ's appended column is numbered by its row's order, 1, then one more.
+		const localeId = `m${index}.case_short.case_age_2.header`;
+		expect(
+			xmlChildren(xmlChildren(header, "text")[0], "locale")[0]?.attributes.id,
+		).toBe(localeId);
+		expect(strings).toContain(`${localeId}=Youngest first`);
+	});
+
 	it("writes a rule's own blanks, against its direction, to both emitters", () => {
 		const index = Object.keys(LISTS).indexOf("Blanks against direction");
 		const short = hq.modules[index].case_details.short;
@@ -331,7 +400,7 @@ describe("the order plan's two emitters", () => {
 				element.blanks,
 			]),
 		).toEqual([
-			["case_name", "ascending", "last"],
+			["name", "ascending", "last"],
 			["age", "descending", "first"],
 		]);
 		const sorts = xmlChildren(shortDetail(suite, index), "field").map(
@@ -349,9 +418,9 @@ describe("the order plan's two emitters", () => {
 		const index = Object.keys(LISTS).indexOf("Detail only");
 		const mod = doc.modules[doc.moduleOrder[index]];
 		const { short, long } = hq.modules[index].case_details;
-		expect(short.columns.map((column) => column.field)).toEqual(["case_name"]);
+		expect(short.columns.map((column) => column.field)).toEqual(["name"]);
 		expect(long.columns.map((column) => column.field)).toEqual([
-			"case_name",
+			"name",
 			"phone",
 		]);
 
@@ -414,48 +483,56 @@ describe("the order plan's two emitters", () => {
 		).toEqual([]);
 	});
 
-	it("writes owner_id and status columns, shown and hidden, as attribute expressions", () => {
+	it("writes owner_id and status columns, shown and hidden, as HQ's property fields read as attributes", () => {
 		const index = Object.keys(LISTS).indexOf("Attributes");
 		const short = hq.modules[index].case_details.short;
+		// HQ's Case List page stores `status` and `owner_id` as property
+		// fields, and HQ's build reads each through `CASE_PROPERTY_MAP` as the
+		// case's attribute (`detail_screen.py::PropertyXpathGenerator.xpath`),
+		// so an app made in HQ keeps its columns' fields and their app string
+		// ids (`id_strings.py::detail_column_header_locale`).
 		expect(
 			short.columns.map((column) => [column.field, column.useXpathExpression]),
 		).toEqual([
-			["case_name", false],
-			["@owner_id", true],
-			["@status", true],
-			["@owner_id", true],
-			["@status", true],
+			["name", false],
+			["owner_id", false],
+			["status", false],
+			["owner_id", false],
+			["status", false],
 		]);
-		// HQ's build writes an expression column as a calculated one: its
-		// template reads `$calculated_property`, a variable over the field
-		// (`detail_screen.py::FormattedDetailColumn.template`), and the local
-		// suite writes what HQ's build of the same columns gives.
-		const xpaths = xmlChildren(shortDetail(suite, index), "field").map(
+		expect(short.sort_elements.map((element) => element.field)).toEqual([
+			"owner_id",
+			"status",
+		]);
+		// The local suite writes what HQ's build of the same columns gives:
+		// each template reads the attribute itself, under the field's own
+		// header id where the column is shown.
+		const detail = shortDetail(suite, index);
+		const xpaths = xmlChildren(detail, "field").map(
 			(field) =>
 				xmlChildren(
 					xmlChildren(xmlChildren(field, "template")[0], "text")[0],
 					"xpath",
-				)[0],
+				)[0]?.attributes.function,
 		);
-		expect(xpaths.map((xpath) => xpath?.attributes.function)).toEqual([
+		expect(xpaths).toEqual([
 			"case_name",
-			"$calculated_property",
-			"$calculated_property",
-			"$calculated_property",
-			"$calculated_property",
+			"@owner_id",
+			"@status",
+			"@owner_id",
+			"@status",
 		]);
-		const variableFunction = (xpath: (typeof xpaths)[number]) => {
-			const variable =
-				xpath === undefined ? undefined : xmlChildren(xpath, "variable")[0];
-			return variable === undefined
-				? undefined
-				: xmlChildren(variable, "xpath")[0]?.attributes.function;
-		};
-		expect(xpaths.slice(1).map(variableFunction)).toEqual([
-			"@owner_id",
-			"@status",
-			"@owner_id",
-			"@status",
+		const headers = xmlChildren(detail, "field").map(
+			(field) =>
+				xmlChildren(
+					xmlChildren(xmlChildren(field, "header")[0], "text")[0],
+					"locale",
+				)[0]?.attributes.id,
+		);
+		expect(headers.slice(0, 3)).toEqual([
+			`m${index}.case_short.case_name_1.header`,
+			`m${index}.case_short.case_owner_id_2.header`,
+			`m${index}.case_short.case_status_3.header`,
 		]);
 	});
 

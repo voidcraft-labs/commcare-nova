@@ -26,22 +26,32 @@ import { w } from "./xpath/wire/builders";
 
 // ── Condition factories ──────────────────────────────────────────────
 
+/**
+ * A condition that is not `if` carries `operator` `=`, the property's default
+ * (`models/form_actions.py::FormActionCondition.operator`), which every
+ * condition of a form CommCare HQ creates holds until a case settings page
+ * saves it. Its one reader, `xform.py::XForm.action_relevance`, reads the
+ * operator only for `if`, so the value changes nothing HQ builds; written at
+ * the default, a first publish over an app made in HQ leaves each such
+ * condition as HQ stored it.
+ */
 export function neverCondition(): FormActionCondition {
 	return {
 		type: "never",
 		question: null,
 		answer: null,
-		operator: null,
+		operator: "=",
 		doc_type: "FormActionCondition",
 	};
 }
 
+/** An `always` condition, its `operator` at the default as `neverCondition`'s. */
 export function alwaysCondition(): FormActionCondition {
 	return {
 		type: "always",
 		question: null,
 		answer: null,
-		operator: null,
+		operator: "=",
 		doc_type: "FormActionCondition",
 	};
 }
@@ -67,12 +77,18 @@ export function ifCondition(
 
 // ── Form actions ─────────────────────────────────────────────────────
 
+/**
+ * A basic form's actions before any case change is added: each action off,
+ * at the values a form CommCare HQ creates holds (`models/form_actions.py::
+ * FormActions`), the open action's name naming no question (`question_path`
+ * null, `ConditionalCaseUpdate`'s default).
+ */
 export function emptyFormActions(): FormActions {
 	return {
 		doc_type: "FormActions",
 		open_case: {
 			doc_type: "OpenCaseAction",
-			name_update: { question_path: "" },
+			name_update: { question_path: null },
 			external_id: null,
 			condition: neverCondition(),
 		},

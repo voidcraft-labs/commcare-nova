@@ -48,9 +48,17 @@ if BROUGHT_IN:
             "proof2": proof2.document_build_equivalence(document, records),
             "proof3": proof3.document_behavior(document, records),
         }
-        found = changes.differences(document, checked, readers=readers.named())
+        observed = readers.named()
+        found = changes.differences(document, checked, readers=observed)
+        applying = changes.placed(document, changes.load())
         try:
-            cases.hold("changes", document, found, cases.load_register(), applying=sorted(document.next_publish))
+            cases.hold(
+                "changes",
+                document,
+                found,
+                cases.load_register(),
+                **changes.evidence(applying, checked, readers=observed),
+            )
         except AssertionError as error:
             lines = [
                 changes.unsaid_message(document.id, difference)

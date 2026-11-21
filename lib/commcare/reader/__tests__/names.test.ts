@@ -353,7 +353,7 @@ describe("a generated key folded over a name", () => {
 			en: "Registration",
 		});
 		const draft = await readDoc(body);
-		expect(draft.facts.foldedTranslationKeys).toBe(1);
+		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
 		expect(draft.doc.modules[MODULE]?.name).toBe("Registration");
 		const after = storedNames(republished(draft.doc)).menu;
 		expect(hqShows(after.stored, after.overrides)).toEqual({
@@ -410,7 +410,7 @@ describe("a generated key folded over a name", () => {
 			en: "Patients",
 		});
 		const draft = await readDoc(body);
-		expect(draft.facts.foldedTranslationKeys).toBe(1);
+		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
 		expect(runValidation(draft.doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		expect(nameRecords(draft)).toEqual([
 			{
@@ -468,7 +468,7 @@ describe("a form's name read as an instance", () => {
 			en: "Visit",
 		});
 		const draft = await readDoc(body);
-		expect(draft.facts.foldedTranslationKeys).toBe(1);
+		expect(draft.facts.foldedTranslationKeys).toHaveLength(1);
 		expect(draft.doc.forms[FORM]?.name).toBe("Visit");
 		expect(
 			draft.doc.localization?.translations.spa?.[

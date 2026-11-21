@@ -65,6 +65,7 @@ import {
 } from "../hqMedia";
 import { hqImportApplicationSteps } from "../importApplication";
 import { movedBindingCount } from "../reading/create";
+import { firstPublishListToStore } from "../reading/firstPublishChanges";
 import { Pieces } from "../reading/gather";
 import { resolveTableChoices, underTableChoices } from "../reading/projectData";
 import {
@@ -334,7 +335,10 @@ async function recordReadsTheSame(
 		 * the list, which then stays. */
 		...(checked !== null && {
 			nextPublish: {
-				accepted: checked.declaration.firstPublish,
+				accepted: firstPublishListToStore(
+					checked.declaration.firstPublish,
+					checked.draft.facts,
+				),
 				publishChanges: checked.plan.publishChanges,
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
@@ -790,7 +794,10 @@ async function takenFor(
 			identities,
 			mediaPaths,
 			firstPublish: {
-				accepted: checked.declaration.firstPublish,
+				accepted: firstPublishListToStore(
+					checked.declaration.firstPublish,
+					checked.draft.facts,
+				),
 				publishChanges: plan.publishChanges,
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},

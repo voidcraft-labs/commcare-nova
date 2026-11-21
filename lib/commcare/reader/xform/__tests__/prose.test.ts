@@ -17,7 +17,10 @@ import { proseText } from "@/lib/domain";
 import { buildXForm } from "../../../xform/builder";
 import { namespaceScopes, splitName } from "../../../xmlNamespaces";
 import { tryParseXml } from "../../../xmlParse";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import {
+	holdsHtmlText,
 	literalOutputText,
 	placeholderTemplate,
 	valueChildren,
@@ -163,5 +166,84 @@ describe("the literal-output inverse", () => {
 		expect(valueParts([output("/data/q")]).map((part) => part.kind)).toEqual([
 			"output",
 		]);
+	});
+});
+
+describe("a plain label's text Web Apps reads as markup", () => {
+	// Web Apps writes a plain label into the page as HTML (`form_ui.js`), so a tag, a comment and
+	// a character reference show otherwise there than the text Android shows as written.
+	it.each([
+		["<b>bold</b>", true],
+		["a<b", true],
+		["</i>", true],
+		["<!-- note -->", true],
+		["R&amp;D", true],
+		["&#169; 2020", true],
+		["&#x00A9;", true],
+		["1 < 2", false],
+		["a <= b", false],
+		["R&D", false],
+		["fish & chips", false],
+		["&;", false],
+		["plain words", false],
+	] as const)("reads %j as markup: %s", (text, markup) => {
+		const element = { children: [] } as unknown as Element;
+		expect(holdsHtmlText({ element, parts: [{ kind: "text", text }] })).toBe(
+			markup,
+		);
+	});
+
+	it("reads the text a label's emitted value holds", () => {
+		expect(
+			holdsHtmlText({
+				element: { children: [] } as unknown as Element,
+				parts: readBack("Say <b>hello</b>"),
+			}),
+		).toBe(true);
+	});
+});
+
+describe("a plain label holding markup, read whole", () => {
+	const HTML_LABEL = "questions/plain-label-containing-html-text";
+
+	async function valueEntries(label: string) {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Menu",
+					forms: [
+						{
+							name: "Form",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "q",
+									label: proseText(label),
+									plainLabel: true,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const outcome = readHqApp(await inputFor(exportedBody(doc)), {
+			claims: "full",
+		});
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		return [...outcome.claims.records()]
+			.filter(
+				(record) => record.key === "xform:model/itext/translation/text/value",
+			)
+			.map((record) => record.entry);
+	}
+
+	it("claims the label's value under the markup class", async () => {
+		expect(await valueEntries("Say <b>hello</b>")).toContain(HTML_LABEL);
+	});
+
+	it("claims a label with no markup under the text's own entry", async () => {
+		expect(await valueEntries("Say hello")).not.toContain(HTML_LABEL);
 	});
 });

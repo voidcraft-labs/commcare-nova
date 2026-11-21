@@ -3,11 +3,16 @@ package nova.proof.core;
 import org.commcare.modern.reference.ArchiveFileRoot;
 import org.commcare.resources.model.InstallerFactory;
 import org.commcare.resources.model.Resource;
+import org.commcare.resources.model.ResourceInitializationException;
 import org.commcare.resources.model.ResourceLocation;
+import org.commcare.resources.model.ResourceTable;
+import org.commcare.suite.model.PropertySetter;
 import org.commcare.util.engine.CommCareConfigEngine;
 import org.javarosa.core.reference.InvalidReferenceException;
 import org.javarosa.core.reference.Reference;
 import org.javarosa.core.reference.ReferenceManager;
+import org.javarosa.core.services.locale.Localization;
+import org.javarosa.core.services.locale.TableLocaleSource;
 import org.javarosa.core.services.storage.IStorageIndexedFactory;
 import org.javarosa.core.services.storage.IStorageIterator;
 import org.javarosa.core.services.storage.IStorageUtilityIndexed;
@@ -19,6 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.util.HashMap;
+import java.util.Hashtable;
 import java.util.Map;
 import java.util.zip.ZipFile;
 
@@ -35,6 +41,18 @@ import java.util.zip.ZipFile;
  */
 final class ProofEngine extends CommCareConfigEngine {
     private final Storages storages;
+    /**
+     * The strings the runtime that reads this archive registers as the "default"
+     * locale's first source before any of the app's own, or null where the
+     * archive is admitted as Core's own engine admits it. CommCare Android does
+     * that on every start and every install
+     * (CommCareApplication.initializeDefaultLocalizerData, from
+     * AndroidCommCarePlatform.initialize): its own android_translatable_strings.txt,
+     * so a key a language's app strings hold and the app's default file lacks is
+     * one Android's own strings name, and its localizer, which is strict, admits
+     * the language.
+     */
+    private Hashtable<String, String> runtimeDefaults;
 
     private ProofEngine(Storages storages, PrintStream print) {
         super(storages, new InstallerFactory(), print);
@@ -53,6 +71,61 @@ final class ProofEngine extends CommCareConfigEngine {
 
     ProofArchiveRoot archiveRoot() {
         return (ProofArchiveRoot)mArchiveRoot;
+    }
+
+    void runtimeDefaults(Hashtable<String, String> strings) {
+        runtimeDefaults = strings;
+    }
+
+    /**
+     * The runtime's own strings registered as the "default" locale's first
+     * source, and "default" made the default locale, as
+     * CommCareApplication.initializeDefaultLocalizerData leaves the localizer
+     * before the app's resources are initialized; nothing where the archive is
+     * admitted as Core's own engine admits it. The caller has just reset the
+     * localizer (Localization.init(true)).
+     */
+    void registerRuntimeDefaults() {
+        if (runtimeDefaults == null) {
+            return;
+        }
+        Localization.getGlobalLocalizerAdvanced().addAvailableLocale("default");
+        Localization.getGlobalLocalizerAdvanced().registerLocaleResource("default",
+                new TableLocaleSource(new Hashtable<>(runtimeDefaults)));
+        Localization.setDefaultLocale("default");
+    }
+
+    /**
+     * CommCareConfigEngine.initEnvironment, where the archive is admitted as Core's
+     * own engine admits it. Where a runtime's own strings are named, the order is
+     * the runtime's: the localizer reset, those strings registered as the default
+     * locale's first source (registerRuntimeDefaults), then the app's resources
+     * initialized over the same table, "default" made the default locale, and
+     * the profile's cur_locale made the current one, as the engine leaves it.
+     */
+    @Override
+    public void initEnvironment() throws ResourceInitializationException {
+        if (runtimeDefaults == null) {
+            super.initEnvironment();
+            return;
+        }
+        Localization.init(true);
+        registerRuntimeDefaults();
+        ResourceTable.RetrieveTable(resourceStorage(), new InstallerFactory()).initializeResources(getPlatform(),
+                false);
+        Localization.getGlobalLocalizerAdvanced().addAvailableLocale("default");
+        Localization.setDefaultLocale("default");
+        Localization.setLocale(profileLocale());
+    }
+
+    /** The profile's cur_locale, or "default" where it names none, as CommCareConfigEngine sets it. */
+    String profileLocale() {
+        for (PropertySetter property : getPlatform().getCurrentProfile().getPropertySetters()) {
+            if ("cur_locale".equals(property.getKey())) {
+                return property.getValue();
+            }
+        }
+        return "default";
     }
 
     LivePrototypeFactory prototypes() {

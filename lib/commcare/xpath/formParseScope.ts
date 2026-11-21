@@ -36,6 +36,9 @@ export interface FormReadingHooks {
 	): Expression | undefined;
 	/** False where a case row's `name` step is the property `name`. */
 	readonly caseNameAlias: boolean;
+	/** Told where `current()` names the listed case inside another query of
+	 *  cases, which no tree Nova holds reads: the binding reads the inner row. */
+	listedCaseInQuery?(): void;
 }
 
 /** The binder's own operations, which a fold uses to bind the parts of the

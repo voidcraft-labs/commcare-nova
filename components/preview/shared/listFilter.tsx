@@ -21,6 +21,7 @@ import { useId, useRef } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import type { CaseListOrderPlan, Column } from "@/lib/domain";
+import type { CaseListSortChoice } from "@/lib/preview/caseListSortMenu";
 import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
@@ -42,6 +43,9 @@ export interface ListFilterOptions {
 	readonly rules: PreviewPlatformRules["listFilter"];
 	readonly edited: boolean;
 	readonly imageReference: ImageReference;
+	/** The worker's picks in the list's Sort by, which ordered the rows;
+	 *  absent is the list's own order. */
+	readonly sortChoice?: CaseListSortChoice;
 }
 
 /**
@@ -55,9 +59,11 @@ export interface ListFilterOptions {
  * The matches keep the given order with `fuzzy` off. With `fuzzy` on they
  * are stably re-sorted by ascending score: over the whole list under
  * `closest-first`, and under `closest-among-ties` within each run of matches
- * the list's order ties on every rule (`caseListOrderTerms`, `orderTermsTie`),
- * as Formplayer sorts the filter's closest-first matches again by the list's
- * order with a stable sort. An empty text returns every row under `skipped`
+ * the rows' order ties on every term (`caseListOrderTerms`, `orderTermsTie`),
+ * as Formplayer sorts the filter's closest-first matches again with a stable
+ * sort by the order it shows: the worker's pick alone where there is one,
+ * else the list's own (`EntityScreenHelper.initEntities`: `filterEntities`,
+ * then `sortEntities` by `sortIndex` or the detail's sort fields). An empty text returns every row under `skipped`
  * and before the worker has edited the box; once edited, `runs-once-edited`
  * runs it as the one empty term it splits into. Text of separators alone
  * gives no terms, which every row passes.
@@ -94,7 +100,12 @@ export function rowsMatchingFilterText<Row extends CaseRowWithCalculated>(
 	let run: { row: Row; score: number }[] = [];
 	let runTerms: ReturnType<typeof caseListOrderTerms> = [];
 	for (const match of matches) {
-		const matchTerms = caseListOrderTerms(match.row, context, plan);
+		const matchTerms = caseListOrderTerms(
+			match.row,
+			context,
+			plan,
+			options.sortChoice,
+		);
 		if (run.length > 0 && !orderTermsTie(runTerms, matchTerms)) {
 			for (const tied of run.sort(byScore)) ordered.push(tied.row);
 			run = [];

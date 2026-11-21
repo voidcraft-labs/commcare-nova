@@ -10,7 +10,8 @@
  * upload, `field-list` on a group, `numeric` on a text input) listed as
  * inert is `identity/appearance/inert-held`, while `numeric` on a decimal
  * input listed as inert passes; a group whose `<label>` stands on one side
- * alone, and `field-list` written in another letter case, compare equal; a
+ * alone, and `field-list` written in another letter case, compare equal, and
+ * so does an answer the source stores beside `boolean_true`; a
  * guard block Nova writes that the source lacks is
  * `identity/case-blocks/save-to-case/added`; a reading of each published
  * document's export that holds case scaffolding compares equal, while a
@@ -20,7 +21,9 @@
  * protected message's carrier, the one generated node Nova gives a control,
  * compares equal; an advanced open
  * action's block moved to another repeat is
- * `identity/case-blocks/advanced/path`; and the four conditions name
+ * `identity/case-blocks/advanced/path`; a write saved only if changed on one
+ * side alone is `identity/case-blocks/basic-own/editOnly` unless the project
+ * space does not apply it; and the four conditions name
  * exactly the appearances Nova's emitter writes, over every document the
  * proof lane publishes, both fuzz corpora and a document built for each
  * condition.
@@ -30,12 +33,15 @@
  * question list dropped on the reader's word; a guard added or dropped
  * passing unseen; a question dropped as case scaffolding on the reader's
  * word; a question dropped as a generated node on the reader's word; a
- * child case written in the rows of another repeat.
+ * child case written in the rows of another repeat; a write saved only if
+ * changed on one side alone passing in a project space that applies it, or
+ * failing in one that saves every write every time.
  */
 
 import { removeElement } from "domutils";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	assertGenerated,
@@ -46,12 +52,14 @@ import { blueprintDocArbitrary } from "@/lib/commcare/__tests__/xformDocArbitrar
 import { expandDoc } from "@/lib/commcare/expander";
 import { sourceIdentity } from "@/lib/commcare/hq/sourceIdentity";
 import { type ReadDraft, readHqApp } from "@/lib/commcare/reader";
+import { exportedBody } from "@/lib/commcare/reader/__tests__/novaExport";
 import {
 	hydrated,
 	publishExpansion,
 	publishedCorpus,
 	publishRefuses,
 } from "@/lib/commcare/reader/__tests__/publishedDocuments";
+import { sourceFromBody } from "@/lib/commcare/reader/__tests__/readerInput";
 import { kindAppearanceToken } from "@/lib/commcare/xform/appearance";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
@@ -423,6 +431,136 @@ describe("identityDifferences", () => {
 		if (open === undefined) throw new Error("The emission opens in a repeat.");
 		open.repeat_context = "/data/elsewhere";
 		expect(signaturesOf(moved)).toContain("identity/case-blocks/advanced/path");
+	});
+
+	it("compares writes saved only if changed only where the project space applies them", async () => {
+		// HQ's build writes a write stored `edit` as saved every time where the project space
+		// does not apply "save only if changed" (`xform.py::XForm.save_only_if_edited`).
+		const doc = buildDoc({
+			appName: "Visits",
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "note", label: "Note" }] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "note",
+									caseWrite: { caseType: "patient", property: "note" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const read = servedReading(await servedSource(doc));
+		const edited = JSON.parse(
+			JSON.stringify(read.emission),
+		) as typeof read.emission;
+		const visit = edited.modules[0]?.forms[0] as unknown as
+			| {
+					actions: {
+						update_case: { update: Record<string, { update_mode?: string }> };
+					};
+			  }
+			| undefined;
+		const note = visit?.actions.update_case.update.note;
+		if (note === undefined) throw new Error("The emission writes the note.");
+		note.update_mode = "edit";
+		const signaturesUnder = (saveOnlyEditedApplied?: boolean) =>
+			identityDifferences({
+				source: read.reader.source,
+				emission: edited,
+				draft: read.outcome.draft,
+				attachmentTarget: TARGET,
+				...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+			}).differences.map((one) => one.signature);
+		expect(signaturesUnder(false)).toEqual([]);
+		expect(signaturesUnder(true)).toContain(
+			"identity/case-blocks/basic-own/editOnly",
+		);
+		expect(signaturesUnder()).toContain(
+			"identity/case-blocks/basic-own/editOnly",
+		);
+	});
+
+	it("reads an answer stored beside `boolean_true` as none, as HQ's build does", async () => {
+		// HQ's own starter apps store `answer: "1"` beside `boolean_true`, which
+		// `xform.py::XForm.action_relevance` never reads, and Nova writes none.
+		const flag = testUuid("close-flag");
+		const doc = buildDoc({
+			appName: "Closing",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Close",
+							type: "close",
+							closeCondition: {
+								kind: "term",
+								term: { kind: "field", uuid: flag },
+							},
+							fields: [
+								f({
+									kind: "hidden",
+									id: "flag",
+									uuid: flag,
+									calculate: {
+										kind: "term",
+										term: { kind: "literal", value: "x" },
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const source = await sourceFromBody(
+			exportedBody(doc, {
+				expand: { attachmentTarget: TARGET },
+				modules: (modules) => {
+					const close = (
+						modules[0] as {
+							forms: { actions: { close_case: { condition: unknown } } }[];
+						}
+					).forms[0]?.actions.close_case;
+					if (close === undefined) throw new Error("The form closes its case.");
+					expect(close.condition).toMatchObject({
+						operator: "boolean_true",
+						answer: null,
+					});
+					close.condition = { ...(close.condition as object), answer: "1" };
+					return modules;
+				},
+			}),
+		);
+		const read = servedReading(source);
+		// The first publish writes no answer there, and says so.
+		expect(read.outcome.draft.facts.sameStateRewrites).toContainEqual(
+			expect.objectContaining({
+				register: "case-settings-respelled",
+				path: "/modules/0/forms/0/actions/close_case/condition/answer",
+			}),
+		);
+		expect(
+			identityDifferences({
+				source,
+				emission: read.emission,
+				draft: read.outcome.draft,
+				attachmentTarget: TARGET,
+			}).differences.map((one) => one.signature),
+		).toEqual([]);
 	});
 
 	it("finds a guard block Nova writes that the source lacks", {

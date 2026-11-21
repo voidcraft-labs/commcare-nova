@@ -1646,16 +1646,42 @@ describe("case-operation target and dependency safety", () => {
 	});
 
 	it("rejects disagreement between operation writers before schema materialization", () => {
+		// A number and a date and time agree on no type, and text holds no
+		// date and time.
 		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
 			update({
 				writes: [{ property: "mixed", value: term(literal(7)) }],
 			}),
 			update({
 				uuid: THIRD,
-				id: "write_mixed_as_text",
-				writes: [{ property: "mixed", value: term(literal("seven")) }],
+				id: "write_mixed_as_moment",
+				writes: [
+					{
+						property: "mixed",
+						value: term({
+							kind: "literal",
+							value: "2026-01-02T10:30:00Z",
+							data_type: "datetime",
+						}),
+					},
+				],
 			}),
 		]);
+	});
+
+	it("saves operation writers that agree on no type as text where text holds each, a number beside text", () => {
+		expect(
+			codesFor([
+				update({
+					writes: [{ property: "mixed", value: term(literal(7)) }],
+				}),
+				update({
+					uuid: THIRD,
+					id: "write_mixed_as_text",
+					writes: [{ property: "mixed", value: term(literal("seven")) }],
+				}),
+			]),
+		).toEqual([]);
 	});
 });
 

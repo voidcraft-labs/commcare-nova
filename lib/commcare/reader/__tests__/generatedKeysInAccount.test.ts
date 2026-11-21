@@ -7,7 +7,7 @@
  * finding; a key whose menu holds a finding, or whose language the reading
  * could not name, stands under that finding and is reported neither again nor
  * as `unrecognized`; with no table beside a finding every key stands under
- * the first finding; with no table and no finding the reader throws (C9); a
+ * the first finding; with no table and no finding the reader throws; a
  * key that names a string the app does not make is inert; a finding at a
  * menu's case list covers the menu's keys and no key of a form position the
  * menu holds none at; a choice's label that two menus' lists show, one of them
@@ -146,10 +146,11 @@ describe("a generated key in a reading", () => {
 		const atList = outcome.findings.filter((one) => one.code === address);
 		expect(atList.map((one) => one.place.kind)).toEqual(["case-list"]);
 		expect(generated).toEqual(["translations-generated-key-with-no-effect"]);
+		/* One generated key read, recorded at `translations`, where the key its claim names sits. */
 		const keys = [...outcome.claims.records()]
 			.filter((record) => record.entry.includes(GENERATED))
-			.map((record) => record.where.split("/").at(-1));
-		expect(keys).toEqual(["forms.m0f9"]);
+			.map((record) => record.where);
+		expect(keys).toEqual(["/translations"]);
 		expect(
 			outcome.findings.filter(
 				(one) =>
@@ -272,8 +273,7 @@ describe("a generated key in a reading", () => {
 		expect(keyed).toEqual([enumKey(2)]);
 		const keys = [...outcome.claims.records()]
 			.filter((record) => record.entry.includes(GENERATED))
-			.map((record) => record.where.split("/").at(-1))
-			.sort();
-		expect(keys).toEqual([enumKey(0), enumKey(2)]);
+			.map((record) => record.where);
+		expect(keys).toEqual(["/translations", "/translations"]);
 	});
 });

@@ -1,0 +1,298 @@
+{
+	"catalog": [
+		{
+			"name": "client",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "average_dailly_consumption",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "client_id",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "client_status",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "consumer_level",
+					"data_type": "single_select",
+					"options": [
+						"3",
+						"2",
+						"0"
+					]
+				},
+				{
+					"name": "consumption",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "contract_termination_date",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "current_reading",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "cut_water",
+					"data_type": "single_select",
+					"options": [
+						"1",
+						"0"
+					]
+				},
+				{
+					"name": "full_address",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "hygiene_possible",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "hygiene_score",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "last_reading",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "last_reading_date",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "leakage",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "motive_to_cut_water_supply",
+					"data_type": "single_select",
+					"options": [
+						"1",
+						"2",
+						"3",
+						"4"
+					]
+				},
+				{
+					"name": "number_of_household_members",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "point_of_reference",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "preferred_day_of_payment",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "reason_for_referral",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "reason_for_terminating_the_contract",
+					"data_type": "single_select",
+					"options": [
+						"no_payments",
+						"client_wants_to_terminate",
+						"other_termination"
+					]
+				}
+			]
+		},
+		{
+			"name": "referall",
+			"parent_type": "client",
+			"relationship": "child",
+			"index_identifier": "parent",
+			"properties": [
+				{
+					"name": "client_status",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "clorine_referral",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "cut_water",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "hygene_referral",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "hygiene_possible",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "hygiene_score",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "leakage",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "motive_to_cut_water_supply",
+					"data_type": "single_select",
+					"options": [
+						"1",
+						"2",
+						"3",
+						"4"
+					]
+				},
+				{
+					"name": "ph_referral",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "reason_for_referral",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "referral_date",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "repairs",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "residual_chlorine_concentration",
+					"data_type": "decimal",
+					"options": []
+				},
+				{
+					"name": "restore_water",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "turbidity_referral",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "water_ph",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "water_turbidity",
+					"data_type": "decimal",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {
+		"client/client_status": [
+			"blocked"
+		],
+		"client/cut_water": [
+			"0",
+			"1"
+		],
+		"client/hygiene_possible": [
+			""
+		],
+		"client/hygiene_score": [
+			""
+		],
+		"client/last_reading": [
+			""
+		],
+		"client/motive_to_cut_water_supply": [
+			"4"
+		],
+		"client/reason_for_referral": [
+			""
+		],
+		"referall/client_status": [
+			"blocked"
+		],
+		"referall/clorine_referral": [
+			"",
+			"high_clorine_concentration",
+			"low_chlorine_concentration"
+		],
+		"referall/cut_water": [
+			"0",
+			"1"
+		],
+		"referall/hygene_referral": [
+			"",
+			"hygene_referral"
+		],
+		"referall/hygiene_possible": [
+			""
+		],
+		"referall/hygiene_score": [
+			""
+		],
+		"referall/motive_to_cut_water_supply": [
+			"4"
+		],
+		"referall/ph_referral": [
+			"",
+			"high_ph",
+			"low_ph"
+		],
+		"referall/reason_for_referral": [
+			""
+		],
+		"referall/repairs": [
+			"1"
+		],
+		"referall/restore_water": [
+			"",
+			"1"
+		],
+		"referall/turbidity_referral": [
+			"",
+			"high turbidity"
+		]
+	},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

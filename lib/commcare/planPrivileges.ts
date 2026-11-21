@@ -15,7 +15,10 @@
  */
 
 import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
-import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
+import {
+	extractLookupReferenceOccurrences,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -187,6 +190,41 @@ function connectFormReasons(
 }
 
 /**
+ * The form slots whose expressions CommCare HQ keeps outside the form's
+ * source: a form's display condition is its menu command's (the suite's), and
+ * an after-submit link's condition and carried values are its suite entry's
+ * stack (`suite_xml/post_process/workflow.py`). Every field slot, a Connect
+ * block's, a case operation's and a form's open and close conditions are the
+ * source's.
+ */
+const FORM_SLOTS_OUTSIDE_SOURCE: ReadonlySet<string> = new Set([
+	"form_display_condition",
+	"form_link_condition",
+	"form_link_target",
+	"form_link_datum_name",
+	"form_link_datum_xpath",
+]);
+
+/**
+ * Whether some form's source reads a lookup table: a table read in a field's
+ * slot or in a slot of a form the source carries (`FORM_SLOTS_OUTSIDE_SOURCE`
+ * names the rest), which the source declares as
+ * `src="jr://fixture/item-list:<tag>"`, the text
+ * `models/forms.py::FormBase.has_fixtures` looks for.
+ */
+function formSourceReadsTable(doc: BlueprintDoc): boolean {
+	return extractLookupReferenceOccurrences(
+		doc,
+		PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+	).some(
+		(occurrence) =>
+			occurrence.location.scope === "field" ||
+			(occurrence.location.scope === "form" &&
+				!FORM_SLOTS_OUTSIDE_SOURCE.has(occurrence.registrySlot)),
+	);
+}
+
+/**
  * The plan privileges this app needs on a project space, each with why, in
  * `HQ_PLAN_PRIVILEGE_IDS`' order. `pushes` says what this publish sends
  * beside the app (a lookup table workbook, places); both come from Nova's
@@ -240,15 +278,19 @@ export function requiredPlanPrivileges(
 		),
 	);
 
-	/* `lookup_tables`: the build fails for a form that reads a table
-	 * (`helpers/validators.py::ApplicationBaseValidator._validate_fixtures`),
-	 * the workbook push is answered with HQ's Upgrade Required page
+	/* `lookup_tables`: the build fails for a form whose source reads a table
+	 * (`helpers/validators.py::ApplicationBaseValidator._validate_fixtures`,
+	 * over `models/forms.py::FormBase.has_fixtures`), the workbook push is
+	 * answered with HQ's Upgrade Required page
 	 * (`fixtures/dispatcher.py::require_can_edit_fixtures`), and Vellum
 	 * reports an error on every question that holds an itemset, one over the
-	 * worker's cases among them (`src/itemset.js`). */
-	const readsTable =
-		pushes.lookupTables ||
-		extractLookupReferenceTargets(doc).tableIds.length > 0;
+	 * worker's cases among them (`src/itemset.js`). A table read only outside
+	 * every form's source (a menu's or a form's display condition, a case
+	 * list, a Search field, an after-submit link) asks nothing of the plan
+	 * where the publish sends no workbook: the validator reads forms alone,
+	 * and a worker's restore carries every table with no privilege asked
+	 * (`fixtures/fixturegenerators.py::ItemListsProvider`). */
+	const readsTable = pushes.lookupTables || formSourceReadsTable(doc);
 	add("lookup_tables", [
 		...(readsTable ? ["The app reads data from a lookup table."] : []),
 		...forms.flatMap(({ formUuid }) =>

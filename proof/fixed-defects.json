@@ -4620,7 +4620,7 @@
 		"kind": "added",
 		"values": {
 			"before": null,
-			"after": "<assertions>\n      <assert test=\"count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.property_missing\">\n            <argument>commtrack-supply-point</argument>\n          </locale>\n        </text>\n      </assert>\n      <assert test=\"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/user/data/commtrack-supply-point]) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.case_missing\"/>\n        </text>\n      </assert>\n    </assertions>"
+			"after": "<assertions>\n      <assert test=\"count ( instance ( 'commcaresession' ) / session / user / data ) = 1 and count ( instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.property_missing\">\n            <argument>commtrack-supply-point</argument>\n          </locale>\n        </text>\n      </assert>\n      <assert test=\"count ( instance ( 'casedb' ) / casedb / case [ @ case_id = instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ] ) = 1\">\n        <text>\n          <locale id=\"case_autoload.location.case_missing\"/>\n        </text>\n      </assert>\n    </assertions>"
 		},
 		"control": "targeted-supply-point-read"
 	},
@@ -4634,7 +4634,7 @@
 		"kind": "added",
 		"values": {
 			"before": null,
-			"after": "<datum id=\"supply_point_id\" function=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+			"after": "<datum id=\"supply_point_id\" function=\"if ( count ( instance ( 'commcaresession' ) / session / user / data ) = 1 and count ( instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ) = 1 , instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point , '' )\"/>"
 		},
 		"control": "targeted-supply-point-read"
 	},
@@ -4648,7 +4648,7 @@
 		"kind": "added",
 		"values": {
 			"before": null,
-			"after": "<datum id=\"supply_point_id\" value=\"if(count(instance('commcaresession')/session/user/data) = 1 and count(instance('commcaresession')/session/user/data/commtrack-supply-point) = 1, instance('commcaresession')/session/user/data/commtrack-supply-point, '')\"/>"
+			"after": "<datum id=\"supply_point_id\" value=\"if ( count ( instance ( 'commcaresession' ) / session / user / data ) = 1 and count ( instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point ) = 1 , instance ( 'commcaresession' ) / session / user / data / commtrack-supply-point , '' )\"/>"
 		},
 		"control": "targeted-supply-point-read"
 	},
@@ -7154,26 +7154,6 @@
 		"control": "targeted-datetime-operands"
 	},
 	{
-		"id": "d56-datetime-ordering-suite-cmp-time-operand",
-		"defect": 56,
-		"part": "datetime ordering",
-		"check": "manifest",
-		"artifact": "local*.ccz/suite.xml",
-		"path": "/xpath-expr:XPathCmpExpr/refused/time-operand",
-		"kind": "refused",
-		"control": "targeted-datetime-operands"
-	},
-	{
-		"id": "d56-datetime-ordering-suite-lt-time-operand",
-		"defect": 56,
-		"part": "datetime ordering",
-		"check": "manifest",
-		"artifact": "local*.ccz/suite.xml",
-		"path": "/xpath-token:LT/refused/time-operand",
-		"kind": "refused",
-		"control": "targeted-datetime-operands"
-	},
-	{
 		"id": "d75-datetime-equality-case-list",
 		"defect": 75,
 		"part": "datetime equality",
@@ -8343,156 +8323,6 @@
 		"artifact": "trace@vellum@*",
 		"path": "/runs/*/trace/*/events/*",
 		"kind": "added",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-attempts-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/attempts",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-audio-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/audio",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-control-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/control",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-datapath-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/dataPath",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-datatype-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/dataType",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-event-changed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/event",
-		"kind": "changed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-help-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/help",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-hint-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/hint",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-image-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/image",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-path-changed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/path",
-		"kind": "changed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-readonly-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/readOnly",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-required-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/required",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-text-changed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/text",
-		"kind": "changed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-unanswerable-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/unanswerable",
-		"kind": "removed",
-		"control": "container-query-conditional-after-13"
-	},
-	{
-		"id": "d25-saved-query-repeat-runs-trace-events-valuesfrom-removed",
-		"defect": 25,
-		"part": "saved query repeat",
-		"check": "proof4",
-		"artifact": "trace@vellum@*",
-		"path": "/runs/*/trace/*/events/*/valuesFrom",
-		"kind": "removed",
 		"control": "container-query-conditional-after-13"
 	},
 	{

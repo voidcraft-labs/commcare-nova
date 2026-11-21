@@ -8,6 +8,16 @@
  * by the value it read, and the accounting checks the use against the
  * standing, records it, and reports what is left.
  *
+ * A key the source holds at HQ's default is no use and is never reported. A
+ * claim on one is still recorded, with no surface key (`claimAtDefault`),
+ * where the reading met the entry there: under a kept entry, which states that
+ * the key stays at CommCare HQ whatever it holds, and under an allowing entry
+ * that splits its key by value where the claim takes the value whole, since
+ * the stage chose that entry by the value it read, so the default is of the
+ * entry's class (`no-sort-elements` for a list holding `sort_elements: []`).
+ * A container a stage only opens to claim what it holds names no class at its
+ * default. Any other claim at a default records nothing.
+ *
  * Two uses are handed off instead of claimed, because project data's rules
  * name their entry: a media path the index gives no file for, and an itemset
  * over a table the catalog lacks. They are listed in the log for the caller to
@@ -28,19 +38,21 @@ import {
 	type ReadStanding,
 	type Subject,
 } from "@/lib/publish/hqFindings";
-import type { InventoryIndex } from "../surface/inventory";
+import type { IndexedEntry, InventoryIndex } from "../surface/inventory";
 import { elementNamespace, namespaceScopes, splitName } from "../xmlNamespaces";
 import {
 	type Claim,
 	claimName,
 	claimNameForEntry,
 	claimPermits,
+	claimRegistry,
 	defineClaims,
 	drop,
 } from "./claims";
 import { type ReaderDefectWhy, readerDefect } from "./defects";
 import type { IdentityClaim } from "./identity";
 import {
+	findingNodes,
 	type HandOffKind,
 	type JsonCursor,
 	JsonCursorImpl,
@@ -48,6 +60,7 @@ import {
 import { placeOrder, whereText } from "./place";
 import type { ReaderDefect, ReadWork } from "./types";
 import {
+	namesFormNodes,
 	qualifiedElement,
 	type XmlCursor,
 	XmlCursorImpl,
@@ -55,7 +68,8 @@ import {
 } from "./xmlCursor";
 
 const CLAIMS = defineClaims("accounting", {
-	/** A comment or a processing instruction in a form's source, which no reader reads. */
+	/** A comment in a form's source, which CommCare HQ's build removes, or a processing
+	 *  instruction in an element whose text Core does not read (`coreReadsTextOf`). */
 	comment: drop("questions/xml-comments-processing-instructions", null),
 });
 
@@ -88,10 +102,16 @@ export type ClaimSite =
 export interface ClaimRecord {
 	/** `app.json` or `form:<m>.<f>`. */
 	readonly artifact: string;
+	/** Where the value the record's key names sits (a key above the claimed value, where the claim
+	 *  names that key's schema item), which is where the lane's use of the key stands. */
 	readonly where: string;
 	readonly key: string | null;
 	readonly entry: string;
 	readonly standing: ReadStanding;
+	/** Where the value the claim reads sits, present only where that is not `where`: a key of a
+	 *  map, or an object read whole, whose claim names the schema item of a key above it (a
+	 *  language's strings under `schema:Application.translations`). */
+	readonly at?: string;
 }
 
 /** A use handed to project data: a place and a key, and no entry yet. */
@@ -113,7 +133,8 @@ export interface ClaimLog {
 	records(): IterableIterator<ClaimRecord>;
 }
 
-/** One JSON object per line, keys in `ClaimRecord`'s order, in `records()` order, `\n` ended. */
+/** One JSON object per line, keys in `ClaimRecord`'s order, `at` only where a record holds one, in
+ *  `records()` order, `\n` ended. */
 export function serializeClaimLog(log: ClaimLog): string {
 	let text = "";
 	for (const record of log.records())
@@ -123,6 +144,7 @@ export function serializeClaimLog(log: ClaimLog): string {
 			key: record.key,
 			entry: record.entry,
 			standing: record.standing,
+			...(record.at === undefined ? {} : { at: record.at }),
 		})}\n`;
 	return text;
 }
@@ -135,11 +157,22 @@ export interface LedgerSite {
 	readonly sub: string;
 	readonly artifact: string;
 	readonly where: () => string;
+	/** Where the value a claim here reads sits, where it is not `where` (`ClaimRecord.at`). */
+	readonly at?: () => string;
 	/** The surface name an `unrecognized` finding here takes. */
 	readonly name: string;
+	/** Where in the app's JSON the value a finding here reads sits, where it is not `where`: the
+	 *  object holding the key, or the object refused whole. */
+	readonly reads?: () => string;
+	/** Whether a surface key names the node a record here stands at (`xmlCursor.ts::keyNamesNode`);
+	 *  absent where the site's own key is the only one a claim there names (the app's JSON). */
+	readonly names?: (key: string) => boolean;
 }
 
 /** What the cursors ask of the accounting. */
+/** How a claim at a default reads the key: its value whole, or a container it opens. */
+export type ReadAtDefault = "whole" | "opened";
+
 export interface ClaimLedger {
 	registerJson(cursor: JsonCursorImpl): void;
 	registerXml(cursor: XmlCursorImpl): void;
@@ -159,10 +192,42 @@ export interface ClaimLedger {
 	): Admitted<T>;
 	/** A value handed out with nothing recorded: at its default, or behind a finding. */
 	unrecorded<T>(value: T): Admitted<T>;
+	/**
+	 * A claim on a key the source holds at HQ's default. It makes no use and no
+	 * finding. A claim under a kept entry is recorded all the same, with no
+	 * surface key, since what it keeps is the key staying at HQ whatever it
+	 * holds; so is one that takes the value whole (`read` is `whole`) under an
+	 * allowing entry with a value class, since the stage chose that entry by
+	 * the default it read.
+	 */
+	claimAtDefault(site: LedgerSite, claim: Claim, read: ReadAtDefault): void;
+	/**
+	 * Where a claim that took a value whole, or refused or accounted it with a
+	 * finding, also stands: a key inside that value, recorded at its own site
+	 * under the claim's entry and the first of `keys` (the key's own surface
+	 * key, then its class's undeclared-key item) the entry names. It is the
+	 * same claim, so it adds no count; a key the entry names under none of
+	 * `keys`, or a claim whose entry's standing neither permits the value nor
+	 * makes a finding of it, is recorded nowhere here.
+	 */
+	within(site: LedgerSite, claim: Claim, keys: readonly string[]): void;
+	/**
+	 * A node that holds no surface key's value, claimed as part of what `claim` reads: an XHTML
+	 * wrapper of a form, which Core's parser passes over, or an attribute of an instance's content,
+	 * which Core copies into the instance as the app's answer data. Nothing is recorded there, since
+	 * no surface item is used there; the claim's own record stands where its value sits. A claim
+	 * whose entry's standing does not permit its use is the defect `claim` makes of it.
+	 */
+	partOf(site: LedgerSite, claim: Claim, place: HqPlace): void;
 	/** The element's own text is claimed with it. */
 	claimText(element: Element): void;
-	/** Everything under the element is claimed. */
-	coverSubtree(element: Element): void;
+	/**
+	 * Everything under the element is claimed. `reads` is whether the claim reads what it covers
+	 * (`take`, `derived`), so the close still looks under it for a processing instruction in a
+	 * text Core reads (`#closeXml`); a claim that reads past, refuses or hands off what it covers
+	 * stands for every node under it.
+	 */
+	coverSubtree(element: Element, reads: boolean): void;
 	handOff(
 		site: LedgerSite,
 		key: string,
@@ -177,13 +242,15 @@ interface NodeState {
 	declaredKey?: string | null;
 	/** Claims `claimEntry` applied, by their surface key. */
 	readonly entries: Map<string, string>;
-	/** Covered by a finding already raised, or handed off. */
+	/** Covered by a finding already raised, handed off, or claimed as part of a claim that records
+	 *  nothing there (`partOf`). */
 	settled: boolean;
 }
 
 interface PendingRecord {
 	readonly artifact: string;
 	readonly where: () => string;
+	readonly at?: () => string;
 	readonly key: string | null;
 	readonly entry: string;
 	readonly standing: ReadStanding;
@@ -247,6 +314,47 @@ function documentOf(element: Element): Document | null {
  * parent to differ from, and a prefixed element takes its namespace from its
  * prefix.
  */
+/**
+ * The elements CommCare Core reads as text with their markup (`XFormParser.getLabel`, through
+ * `getLabelOrTextId` for a repeat's captions) or with `getXMLText` whatever else they hold: a
+ * label, hint, help text and alert, an itext text's or a choice's value, a repeat's captions and
+ * headers, and the form's title. Core compares local names alone.
+ */
+const CORE_TEXT_ELEMENTS: ReadonlySet<string> = new Set([
+	"label",
+	"hint",
+	"help",
+	"alert",
+	"value",
+	"title",
+	"chooseCaption",
+	"addCaption",
+	"delCaption",
+	"doneCaption",
+	"addEmptyCaption",
+	"doneEmptyCaption",
+	"entryHeader",
+	"delHeader",
+	"mainHeader",
+]);
+
+/**
+ * Whether CommCare Core reads `element`'s text, where a processing instruction changes what it
+ * reads. CommCare HQ's build removes a form's comments and keeps its processing instructions
+ * (`xform.py::parse_xml`), and Core's parse keeps each as a node of its own: `getXMLText` stops
+ * at it, reading a text it starts as null (a title, a choice's value, an instance's default, a
+ * setvalue's text), and `getLabel` writes it as `null` (a label, an itext value). Core reads an
+ * element that holds another element and is none of `CORE_TEXT_ELEMENTS` by its element children
+ * alone (`parseElement`, `parseControlChildren`, `parseItem`, `loadInstanceData`, the itext
+ * block's), so an instruction there changes nothing a runtime reads.
+ */
+function coreReadsTextOf(element: Element): boolean {
+	return (
+		!element.children.some(isTag) ||
+		CORE_TEXT_ELEMENTS.has(splitName(element.name).local)
+	);
+}
+
 function namespaceIsConstruct(
 	element: Element,
 	namespace: string | null,
@@ -267,6 +375,8 @@ export class Accounting implements ClaimLedger {
 	readonly #xml = new Map<Document, XmlCursorImpl>();
 	readonly #textClaimed = new Set<Element>();
 	readonly #subtrees = new Set<Element>();
+	/** The covered subtrees whose claim reads what it covers (`coverSubtree`). */
+	readonly #readSubtrees = new Set<Element>();
 	readonly #watched: Watched[] = [];
 	readonly #findings: Finding[] = [];
 	readonly #findingKeys = new Set<string>();
@@ -274,6 +384,13 @@ export class Accounting implements ClaimLedger {
 	readonly #counts: Record<string, number> = {};
 	readonly #records: PendingRecord[] = [];
 	readonly #handOffs: HandOffRecord[] = [];
+	/** Each place, key and entry of the app's JSON a claim's reach or a finding's class records
+	 *  (`within`, `#recordAround`), and each a claim's own record stands at (`#own`), so a record
+	 *  stands there once whichever records it first, and each claim of the place keeps its own. */
+	readonly #around = new Set<string>();
+	readonly #own = new Set<string>();
+	/** The sites a kept claim at HQ's default recorded, so a key is recorded once. */
+	readonly #atDefault = new WeakMap<object, Set<string>>();
 	#syntaxReads = 0;
 	#rebuilds = 0;
 	#closed = false;
@@ -361,14 +478,109 @@ export class Accounting implements ClaimLedger {
 		standing: ReadStanding,
 	) {
 		this.#counts[entry] = (this.#counts[entry] ?? 0) + 1;
-		if (this.#full)
+		if (!this.#full) return;
+		// A claim's own record repeats no record a claim's reach or a finding's class made there
+		// (`within`, `#recordAround`), and stands beside every other claim's of the place.
+		if (site.artifact === "app.json" && key !== null) {
+			const identity = `${site.where()}\u0000${key}\u0000${entry}`;
+			if (this.#around.has(identity)) return;
+			this.#own.add(identity);
+		}
+		this.#records.push({
+			artifact: site.artifact,
+			where: site.where,
+			...(site.at === undefined ? {} : { at: site.at }),
+			key,
+			entry,
+			standing,
+		});
+	}
+
+	/**
+	 * A finding's entry recorded at every node of the app's JSON its class reads around the
+	 * value at `pointer` (`jsonCursor.ts::findingNodes`): the keys above and inside it the entry
+	 * names, but `own`, the claim's own record (its place and key). It is the same claim, so it
+	 * adds no count.
+	 */
+	#recordAround(pointer: string, entryId: string, own?: string): void {
+		if (!this.#full) return;
+		const root = this.#json.find((cursor) => cursor.parent === null);
+		const entry = this.#index.entry(entryId);
+		if (root === undefined || entry === undefined) return;
+		for (const { where, key } of findingNodes(
+			root.value,
+			pointer,
+			new Set(entry.surfaceKeys),
+		)) {
+			const identity = `${where}\u0000${key}\u0000${entry.id}`;
+			if (
+				this.#around.has(identity) ||
+				this.#own.has(identity) ||
+				own === `${where}\u0000${key}`
+			)
+				continue;
+			this.#around.add(identity);
 			this.#records.push({
-				artifact: site.artifact,
-				where: site.where,
+				artifact: "app.json",
+				where: () => where,
 				key,
-				entry,
-				standing,
+				entry: entry.id,
+				standing: entry.standing,
 			});
+		}
+	}
+
+	/**
+	 * Whether a record of `entry` under `key` may stand at `site`: one with no surface key, or one
+	 * under a key the entry names and that names the node the record stands at.
+	 */
+	#recordable(
+		site: LedgerSite,
+		entry: IndexedEntry,
+		key: string | null,
+	): boolean {
+		return (
+			key === null ||
+			(entry.surfaceKeys.includes(key) && (site.names?.(key) ?? true))
+		);
+	}
+
+	/**
+	 * The key a claim of `entry` that names `key` is recorded under at `site`: `key` where it may
+	 * stand there (`#recordable`); where the node the record stands at is not one `key` names (a
+	 * refused question's itext, binds and control, which its refusal reaches past its own node),
+	 * the first key of the entry that names a form's node (`xmlCursor.ts::namesFormNodes`) and
+	 * names that one, else no key, so the claim's record stands at its node naming no key another
+	 * node holds; and `unnamed` where the entry does not name `key` at all, which is the defect
+	 * `key-not-named` (`#keyNotNamed`).
+	 */
+	#recordKey(
+		site: LedgerSite,
+		entry: IndexedEntry,
+		key: string | null,
+	): { readonly key: string | null } | "unnamed" {
+		if (this.#recordable(site, entry, key)) return { key };
+		if (key === null || !entry.surfaceKeys.includes(key)) return "unnamed";
+		const fits = entry.surfaceKeys.find(
+			(one) => namesFormNodes(one) && this.#recordable(site, entry, one),
+		);
+		return { key: fits ?? null };
+	}
+
+	#keyNotNamed(
+		site: LedgerSite,
+		state: NodeState,
+		place: HqPlace,
+		claim: string,
+		entry: IndexedEntry,
+		key: string,
+	): void {
+		state.settled = true;
+		this.defect(
+			place,
+			site.name,
+			readerDefect.keyNotNamed(place, claim, entry.id, key),
+		);
 	}
 
 	#push(finding: Finding): void {
@@ -456,9 +668,21 @@ export class Accounting implements ClaimLedger {
 			);
 			return false;
 		}
-		this.#record(site, claim.key, entry.id, entry.standing);
-		if (this.#makesFinding(claim.use, entry.standing))
+		const at = this.#recordKey(site, entry, claim.key);
+		if (at === "unnamed") {
+			this.#keyNotNamed(site, state, place, name, entry, claim.key as string);
+			return false;
+		}
+		this.#record(site, at.key, entry.id, entry.standing);
+		if (this.#makesFinding(claim.use, entry.standing)) {
 			this.#manifestFinding(entry.id, place, detail);
+			if (site.artifact === "app.json")
+				this.#recordAround(
+					(site.reads ?? site.where)(),
+					entry.id,
+					`${site.where()}\u0000${claim.key}`,
+				);
+		}
 		return true;
 	}
 
@@ -482,12 +706,82 @@ export class Accounting implements ClaimLedger {
 		return new Admitted(value);
 	}
 
+	claimAtDefault(site: LedgerSite, claim: Claim, read: ReadAtDefault): void {
+		const entry = this.#index.entry(claim.entry);
+		if (entry === undefined) return;
+		const kept =
+			entry.standing === "kept" &&
+			(claim.use === "drop" || claim.use === "account");
+		const ofItsClass =
+			read === "whole" &&
+			entry.valueClass !== null &&
+			claim.use !== "refuse" &&
+			(entry.standing === "held" ||
+				entry.standing === "kept" ||
+				entry.standing === "inert");
+		if (!kept && !ofItsClass) return;
+		let subs = this.#atDefault.get(site.owner);
+		if (subs === undefined) {
+			subs = new Set();
+			this.#atDefault.set(site.owner, subs);
+		}
+		if (subs.has(site.sub)) return;
+		subs.add(site.sub);
+		this.#record(site, null, entry.id, entry.standing);
+	}
+
+	within(site: LedgerSite, claim: Claim, keys: readonly string[]): void {
+		const entry = this.#index.entry(claim.entry);
+		if (
+			entry === undefined ||
+			(entry.standing !== "held" &&
+				entry.standing !== "kept" &&
+				entry.standing !== "inert" &&
+				!this.#makesFinding(claim.use, entry.standing))
+		)
+			return;
+		const key = keys.find((one) => this.#recordable(site, entry, one));
+		if (key === undefined || !this.#full) return;
+		// A node of the app's JSON stands once under an entry and a key, whichever of a claim's own
+		// record, its reach and a finding's class (`#recordAround`) records it first.
+		if (site.artifact === "app.json") {
+			const identity = `${site.where()}\u0000${key}\u0000${entry.id}`;
+			if (this.#around.has(identity) || this.#own.has(identity)) return;
+			this.#around.add(identity);
+		}
+		this.#records.push({
+			artifact: site.artifact,
+			where: site.where,
+			key,
+			entry: entry.id,
+			standing: entry.standing,
+		});
+	}
+
+	partOf(site: LedgerSite, claim: Claim, place: HqPlace): void {
+		const entry = this.#index.entry(claim.entry);
+		if (entry === undefined || !claimPermits(claim.use, entry.standing)) {
+			this.defect(
+				place,
+				site.name,
+				readerDefect.claimNotPermitted(
+					place,
+					claimName(claim) ?? "unregistered-claim",
+					entry?.standing ?? null,
+				),
+			);
+			return;
+		}
+		this.#state(site).settled = true;
+	}
+
 	claimText(element: Element): void {
 		this.#textClaimed.add(element);
 	}
 
-	coverSubtree(element: Element): void {
+	coverSubtree(element: Element, reads: boolean): void {
 		this.#subtrees.add(element);
+		if (reads) this.#readSubtrees.add(element);
 	}
 
 	handOff(
@@ -533,7 +827,7 @@ export class Accounting implements ClaimLedger {
 	/**
 	 * A manifest finding that is a relation between several nodes, each already
 	 * claimed. The claim's use must be `refuse` or `account` and its entry's
-	 * standing one that makes a finding; any other is the defect D2, whose
+	 * standing one that makes a finding; any other is the defect `claim-not-permitted`, whose
 	 * `unrecognized` finding names the claim's surface key, else the value
 	 * `detail` names, else the surface key of the object the place stands in.
 	 * It claims no node.
@@ -560,10 +854,60 @@ export class Accounting implements ClaimLedger {
 	}
 
 	/**
+	 * `finding`'s relation, made of the value at `pointer` in the app's JSON (a basic case
+	 * action's condition, judged against the question it names): its entry is recorded at
+	 * every node its class reads there (`#recordAround`).
+	 */
+	findingAt(
+		claim: Claim,
+		place: HqPlace,
+		pointer: string,
+		detail?: FindingDetail,
+	): void {
+		this.finding(claim, place, detail);
+		const entry = this.#index.entry(claim.entry);
+		if (
+			entry !== undefined &&
+			(claim.use === "refuse" || claim.use === "account") &&
+			this.#makesFinding("account", entry.standing)
+		)
+			this.#recordAround(pointer, entry.id);
+	}
+
+	/**
+	 * `finding`'s relation, made of the value at `node` of a form's source (a control's `ref`
+	 * that crosses a repeat, a data node's own text, a model iteration's role): its entry is
+	 * recorded there under `key`, at the attribute `key` names where it names one
+	 * (`xmlCursor.ts::recordedNode`), beside whatever claim already holds the node.
+	 */
+	findingAtNode(
+		claim: Claim,
+		place: HqPlace,
+		node: XmlNode,
+		key: string,
+		detail?: FindingDetail,
+	): void {
+		this.finding(claim, place, detail);
+		const entry = this.#index.entry(claim.entry);
+		if (
+			entry === undefined ||
+			(claim.use !== "refuse" && claim.use !== "account") ||
+			!this.#makesFinding("account", entry.standing)
+		)
+			return;
+		const document = documentOf(node.element);
+		const cursor = document === null ? undefined : this.#xml.get(document);
+		cursor?.withinAt(node, claim, key);
+	}
+
+	/**
 	 * Applies a claim another stage decided by entry id. The use follows the
 	 * entry's standing: `held` is a consumed `take`, `inert` and `kept` a
 	 * `drop`, any other a `refuse`. Several such claims may hold one node, one
-	 * per surface key.
+	 * per surface key; with `unlessClaimed`, a key some claim at the node
+	 * already names is left to that claim; with `keyless`, the claim records no key, where its
+	 * caller decided its entry names none of the node's keys. Any other key the entry does not
+	 * name is the defect `key-not-named`.
 	 */
 	claimEntry(
 		site: ClaimSite,
@@ -571,10 +915,17 @@ export class Accounting implements ClaimLedger {
 		key: string,
 		place: HqPlace,
 		detail?: FindingDetail,
+		options?: { readonly unlessClaimed?: true; readonly keyless?: true },
 	): void {
 		const ledgerSite = this.#site(site);
 		if (ledgerSite === undefined) return;
 		const state = this.#state(ledgerSite);
+		// A use another claim at the node already names is that claim's.
+		if (
+			options?.unlessClaimed === true &&
+			(state.entries.has(key) || state.declaredKey === key)
+		)
+			return;
 		const registered = claimNameForEntry(entryId);
 		const entry = this.#index.entry(entryId);
 		if (registered === undefined || entry === undefined) {
@@ -584,6 +935,16 @@ export class Accounting implements ClaimLedger {
 				ledgerSite.name,
 				readerDefect.unregisteredExpressionClaim(place, entryId),
 			);
+			return;
+		}
+		// An entry that names no surface key (`noSurfaceKey`) claims the node beside whatever
+		// holds it there, and its record names no key; so does a claim its caller made `keyless`,
+		// whose entry names none of the node's keys.
+		if (entry.surfaceKeys.length === 0 || options?.keyless === true) {
+			state.settled = true;
+			this.#record(ledgerSite, null, entry.id, entry.standing);
+			if (this.#makesFinding("account", entry.standing))
+				this.#manifestFinding(entry.id, place, detail);
 			return;
 		}
 		const first =
@@ -597,10 +958,68 @@ export class Accounting implements ClaimLedger {
 			);
 			return;
 		}
+		const at = this.#recordKey(ledgerSite, entry, key);
+		if (at === "unnamed") {
+			this.#keyNotNamed(ledgerSite, state, place, registered, entry, key);
+			return;
+		}
 		state.entries.set(key, registered);
-		this.#record(ledgerSite, key, entry.id, entry.standing);
-		if (this.#makesFinding("account", entry.standing))
+		this.#record(ledgerSite, at.key, entry.id, entry.standing);
+		if (this.#makesFinding("account", entry.standing)) {
 			this.#manifestFinding(entry.id, place, detail);
+			if (ledgerSite.artifact === "app.json")
+				this.#recordAround(
+					(ledgerSite.reads ?? ledgerSite.where)(),
+					entry.id,
+					`${ledgerSite.where()}\u0000${key}`,
+				);
+		}
+	}
+
+	/**
+	 * Applies, by entry id, a further class of a key `claimEntry` already claims
+	 * at the node under another entry: a value that holds the key in several
+	 * classes (a search row, whose every text HQ's search parses on its own) is
+	 * a use in each, recorded beside the first. The entry is answered as
+	 * `claimEntry` answers it; a key not claimed there yet is `claimEntry`'s.
+	 */
+	claimEntryClass(
+		site: ClaimSite,
+		entryId: string,
+		key: string,
+		place: HqPlace,
+		detail?: FindingDetail,
+	): void {
+		const ledgerSite = this.#site(site);
+		if (ledgerSite === undefined) return;
+		const state = this.#state(ledgerSite);
+		const first = state.entries.get(key);
+		const entry = this.#index.entry(entryId);
+		const registered = claimNameForEntry(entryId);
+		if (
+			first === undefined ||
+			registered === undefined ||
+			entry === undefined
+		) {
+			this.claimEntry(site, entryId, key, place, detail);
+			return;
+		}
+		if (first === registered) return;
+		const at = this.#recordKey(ledgerSite, entry, key);
+		if (at === "unnamed") {
+			this.#keyNotNamed(ledgerSite, state, place, registered, entry, key);
+			return;
+		}
+		this.#record(ledgerSite, at.key, entry.id, entry.standing);
+		if (this.#makesFinding("account", entry.standing)) {
+			this.#manifestFinding(entry.id, place, detail);
+			if (ledgerSite.artifact === "app.json")
+				this.#recordAround(
+					(ledgerSite.reads ?? ledgerSite.where)(),
+					entry.id,
+					`${ledgerSite.where()}\u0000${key}`,
+				);
+		}
 	}
 
 	/** Whether some finding already stands at exactly `place`: a check whose inputs a finding
@@ -647,9 +1066,26 @@ export class Accounting implements ClaimLedger {
 	}
 
 	/**
+	 * What holds the node at `site` so far: the claim declared there, `"held"` where only a claim
+	 * by entry, a hand-off or a cover holds it, or undefined where nothing holds it yet.
+	 */
+	holder(site: ClaimSite): Claim | "held" | undefined {
+		const ledgerSite = this.#site(site);
+		if (ledgerSite === undefined) return undefined;
+		const state = this.#peekState(ledgerSite.owner, ledgerSite.sub);
+		if (state === undefined) return undefined;
+		const declared =
+			state.declared === undefined
+				? undefined
+				: claimRegistry().get(state.declared);
+		if (declared !== undefined) return declared;
+		return this.#claimed(ledgerSite.owner, ledgerSite.sub) ? "held" : undefined;
+	}
+
+	/**
 	 * An identity the resolver answered. A key met twice that no stage claimed
 	 * first under its manifest entry is `unrecognized` at the second place,
-	 * with the surface key of the node being minted, and the defect D4.
+	 * with the surface key of the node being minted, and the defect `identity-met-twice`.
 	 */
 	identity(
 		answer: IdentityClaim,
@@ -691,7 +1127,13 @@ export class Accounting implements ClaimLedger {
 		const covered = cursor.covered();
 		for (const key of Object.keys(cursor.value)) {
 			this.#nodesVisited += 1;
-			if (covered || this.#claimed(cursor, key) || !cursor.used(key)) continue;
+			if (
+				covered ||
+				cursor.sealedOver(key) ||
+				this.#claimed(cursor, key) ||
+				!cursor.used(key)
+			)
+				continue;
 			this.#unrecognized(cursor.place, cursor.keyName(key));
 		}
 	}
@@ -702,7 +1144,10 @@ export class Accounting implements ClaimLedger {
 			parentNamespace: string | null | undefined,
 		) => {
 			this.#nodesVisited += 1;
-			if (this.#subtrees.has(element)) return;
+			if (this.#subtrees.has(element)) {
+				if (this.#readSubtrees.has(element)) instructionsIn(element);
+				return;
+			}
 			const scope = cursor.scope(element);
 			const place = () => cursor.resolvePlace(element);
 			if (!this.#claimed(element, "")) {
@@ -736,6 +1181,10 @@ export class Accounting implements ClaimLedger {
 					);
 					continue;
 				}
+				if (child.type === "directive" && coreReadsTextOf(element)) {
+					instructionInText(element);
+					continue;
+				}
 				if (child.type === "comment" || child.type === "directive") {
 					this.#nodesVisited += 1;
 					const kind =
@@ -752,6 +1201,23 @@ export class Accounting implements ClaimLedger {
 						place(),
 					);
 				}
+			}
+		};
+		/** A processing instruction in a text Core reads, which no claim holds: `unrecognized`. */
+		const instructionInText = (element: Element) => {
+			this.#nodesVisited += 1;
+			this.#unrecognized(
+				cursor.resolvePlace(element),
+				`xform:${qualifiedElement(element, cursor.scope(element))}/processing-instruction()`,
+			);
+		};
+		/** Each text Core reads under a subtree whose claim reads it, for a processing instruction
+		 *  in it: the claim read the text without it, and Core does not. */
+		const instructionsIn = (element: Element) => {
+			for (const child of element.children) {
+				if (isTag(child)) instructionsIn(child);
+				else if (child.type === "directive" && coreReadsTextOf(element))
+					instructionInText(element);
 			}
 		};
 		for (const child of cursor.document.children)
@@ -797,13 +1263,18 @@ export class Accounting implements ClaimLedger {
 					throw new Error(
 						'This reading kept claim counts alone. Pass `claims: "full"` to `readHqApp` to keep every claim.',
 					);
-				const records: ClaimRecord[] = pending.map((record) => ({
-					artifact: record.artifact,
-					where: record.where(),
-					key: record.key,
-					entry: record.entry,
-					standing: record.standing,
-				}));
+				const records: ClaimRecord[] = pending.map((record) => {
+					const where = record.where();
+					const at = record.at?.();
+					return {
+						artifact: record.artifact,
+						where,
+						key: record.key,
+						entry: record.entry,
+						standing: record.standing,
+						...(at === undefined || at === where ? {} : { at }),
+					};
+				});
 				records.sort(
 					(a, b) =>
 						compareText(a.artifact, b.artifact) ||

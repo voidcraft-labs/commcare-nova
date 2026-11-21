@@ -1,12 +1,15 @@
 import fc from "fast-check";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Expression, Uuid } from "@/lib/domain";
 import { caseSlotFacts, stateCondition } from "@/lib/domain/basicCaseSlots";
 import { proseText } from "@/lib/domain/prose";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { conditionFinding, readActionCondition } from "../conditions";
 import { docNames, named, readCases, readNames } from "./caseReading";
+import { readHqApp } from "./heldReading";
 
 const OUTCOME = testUuid("outcome");
 const DONE = testUuid("option-done");
@@ -157,6 +160,31 @@ describe("a basic action's condition read by the inverse of stateCondition", () 
 				(stored as { answer: string | null }).answer ?? null,
 			);
 		});
+
+	it("reads boolean_true beside a stored answer whole, as HQ's build reads no answer there", async () => {
+		// HQ's own template apps store `answer: "1"` beside `boolean_true`, which
+		// `xform.py::XForm.action_relevance` never reads.
+		const doc = closeForm(field(FLAG));
+		const body = exportedBody(doc, {
+			modules: (modules) =>
+				produce(modules, (draft) => {
+					const condition = (
+						draft[0] as {
+							forms: {
+								actions: { close_case: { condition: Record<string, unknown> } };
+							}[];
+						}
+					).forms[0]?.actions.close_case.condition;
+					if (condition !== undefined) condition.answer = "1";
+				}),
+		});
+		const outcome = readHqApp(await inputFor(body));
+		expect(
+			outcome.kind === "account"
+				? outcome.findings.map((one) => [one.code, one.detail])
+				: [],
+		).toEqual([]);
+	});
 
 	it("reads `=` on a choice as the choice, never as a literal the gate refuses as condition-not-a-choice", async () => {
 		const doc = closeForm(cases[0]?.condition as Expression);

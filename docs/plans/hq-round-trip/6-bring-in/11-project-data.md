@@ -862,6 +862,7 @@ For a reference with no entry or no file, first match:
 | # | When | Result |
 |---|---|---|
 | 1 | the app runs on Android, `contentValid !== "yes"`, and `androidInstallCheckReaches` | finding `expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install` (REFUSED, `fix-in-hq`) at the reference's place, name the path |
+| 2b | an image on a `tile`, `register-action` or `logo` slot whose entry names no file, which Web Apps alone draws, as an empty or broken picture | inert as row 4, its claim marked `brokenPicture`, and the first publish says so under `broken-pictures-removed` (touches workers) |
 | 2 | some platform the app runs on draws it (`mediaSlotDrawnOn`) and there is no entry | finding `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws` (new, REFUSED, `fix-in-hq`; 13.1) |
 | 3 | some platform the app runs on draws it and there is no file | the circumstance `media-file-unreadable` at `{ kind: "media", path }`, name the path, made through part 01's `circumstanceFinding` as every circumstance of this part is (13) |
 | 4 | otherwise | inert: the reference is in `HqMediaPlan.inert`, the reader assembles the slot with no media (its `no-entry` and `unreadable` arms put no asset in a slot), and `HqMediaPlan.claims` files the reference under the INERT entry `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` (13.1) |
@@ -871,12 +872,20 @@ narrowed to Android where CommCare HQ's Web App setting is off (part 06, section
 who would rather declare Web Apps only cannot pick that to pass row 2, because the account comes
 before the review; the finding's next step is the one that also fixes the app for its workers.
 
+Row 2b comes before row 2: CommCare HQ's own starter app keeps the template's map entry for a
+form's icon with no file in the project space, and Web Apps then draws an icon with nothing behind
+it while Android draws nothing, so the app reads, the icon is left out, and the first publish's
+`broken-pictures-removed` says the empty icon goes (`mediaLeftOut.brokenPictures`, counted by
+`projectData/media.ts::mediaLeftOutOf`). Row 3 keeps a question's, a choice's and a list's image
+and every sound, which a runtime draws as a prompt, a player with nothing to play or the archive
+icon.
+
 Row 4's references are listed in the review ("What Nova leaves out", Copy R3). The first publish
 then removes those paths from the forms and menus, and CommCare HQ drops their map entries
 (`remove_unused_mappings`). Nothing a worker sees changes, by 3.1, so the first-publish register
 needs no entry that touches workers; part 09's `FIRST_PUBLISH_CHANGES` (its section 11.2) holds
-the entry `media-references-with-no-file-removed` (predicate: `mediaLeftOut`, which is
-`HqMediaPlan.inert.length`, is above zero; touches workers: no), so the lane's observed difference
+the entry `media-references-with-no-file-removed` (predicate: `mediaLeftOut.undrawn`, row 4's
+references, is above zero; touches workers: no), so the lane's observed difference
 has a name. Its `MEDIA_REFERENCE_PATHS` are the slots `hqMediaReferencesOf` reads (2.1).
 
 ---

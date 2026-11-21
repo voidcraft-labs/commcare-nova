@@ -89,6 +89,7 @@ import {
 	tableLookupDefault,
 } from "./cards/expression/TableLookupCard";
 import { TermCard, termDefault } from "./cards/expression/TermCard";
+import { editorAxesOf } from "./editorAxes";
 import type { EvaluationTarget } from "./editorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type {
@@ -430,6 +431,15 @@ export function isAuthorableExpressionKind(
 	if (kind === "id-of") {
 		return (ctx?.operationScope?.creates.length ?? 0) > 0;
 	}
+	// Related cases are counted from the form's case, so a case change of a
+	// form that opens with none has nothing to count from
+	// (`rules/caseOperations.ts`, `CASE_OPERATION_SESSION_UNAVAILABLE`).
+	if (
+		kind === "count" &&
+		ctx?.expressionContext?.profile.scope === "submission" &&
+		editorAxesOf(ctx.expressionContext).caseDataScope === "global"
+	)
+		return false;
 	if (kind === "acting-user" || kind === "unowned") {
 		return ctx?.ownerValues === true;
 	}

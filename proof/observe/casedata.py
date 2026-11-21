@@ -27,6 +27,16 @@ sees the same cases:
   HQ project with usercases gives every worker
   (``callcenter/sync_usercase.py::_get_user_case_fields``).
 
+An app made in CommCare HQ (an ``hq-authored`` document) takes its database
+from the case seed read from its A alone (``Document.case_seed``, written by
+``proof/matrix/seed.py::case_seed``), never from the document Nova read of it:
+``seeded_case_database`` runs the same generation over the seed's catalog,
+its compared literals and its user data, each child indexed under the
+identifier its forms name (the seed's ``index_identifier``), and the worker
+standing at the place the seed names (``CaseDatabase.location``), where HQ
+assigns it (``proof.formplayer.hq.create_worker``). So a reader that drops a
+type, a property or a literal cannot empty the lists both walks show.
+
 The restore is written by HQ's own restore code, as an OTA restore serves
 it: ``casexml/apps/phone/restore.py::RestoreContent`` with HQ's sync and
 registration elements (``casexml/apps/phone/xml.py::get_sync_element``,
@@ -40,13 +50,16 @@ V2. The cases are HQ's own ``CommCareCase`` objects, never saved;
 same cases the session ran on, and no submission's changes reach another.
 
 ``lookup_fixtures`` uploads the lookup workbook Nova's push sends, through
-HQ's upload, and returns the item lists HQ's restore serves for those tables
+HQ's upload, and serves the tables (``served_fixtures``): the item lists HQ's
+restore serves for each table it holds
 (``fixtures/fixturegenerators.py::ItemListsProvider``), for the builds HQ
-makes; Nova's local archive carries its tables itself.
+makes; a document made in HQ uploads none and is served the tables its A was
+made with. Nova's local archive carries its tables itself.
 
-The case database is made from the document alone (``case_database``); what
-reads HQ (``hq_cases``, ``restore``, ``lookup_fixtures``) imports it where it
-runs, so this module imports without HQ.
+The case database is made from the document alone (``case_database``, or
+``seeded_case_database`` from the seed of an app made in HQ); what reads HQ
+(``hq_cases``, ``restore``, ``lookup_fixtures``, ``served_fixtures``) imports
+it where it runs, so this module imports without HQ.
 """
 
 from __future__ import annotations
@@ -136,6 +149,8 @@ class CaseDatabase:
     username: str
     user_data: tuple[tuple[str, str], ...]
     cases: tuple[CaseRecord, ...]
+    # The site code of the place HQ assigns the worker (an app made in HQ whose base names one), or None.
+    location: str | None = None
 
 
 COMPARISONS = frozenset({"eq", "neq", "gt", "gte", "lt", "lte"})
@@ -247,7 +262,12 @@ def _case_types(document_json):
         case_type = (doc.get("modules") or {}).get(module_id, {}).get("caseType")
         if case_type and case_type not in names:
             names.append(case_type)
-    names = [name for name in names if name != USERCASE_TYPE]
+    return _parents_first([name for name in names if name != USERCASE_TYPE], declared)
+
+
+def _parents_first(names, declared):
+    """``[(name, case type)]`` for each of ``names``, every type after its parent (a type ``declared`` does not hold
+    is one with no properties)."""
     ordered, placed = [], set()
 
     def place(name, seen=()):
@@ -295,9 +315,60 @@ def case_database(document_json) -> CaseDatabase:
         user_data[slug] = f"proof {slug}"
     for field in _session_user_fields(doc, {}):
         user_data.setdefault(field, f"proof {field}")
+    return _generated(_case_types(document_json), document_values(doc), user_data)
 
-    given = document_values(doc)
-    types = _case_types(document_json)
+
+def seeded_case_database(seed) -> CaseDatabase:
+    """The case database of an app made in CommCare HQ, from its case seed (``proof/matrix/seed.py::case_seed``):
+    the generation ``case_database`` runs, over the seed's ``catalog`` (each property's ``options`` its values),
+    its ``values`` (by ``<type>/<property>``) and its ``userData``, each child indexed under the seed's
+    ``index_identifier``, the worker at the seed's ``worker.location``, and after each type's generated cases each
+    case the seed's ``cases`` names of it. The document Nova read is never read."""
+    declared = {}
+    for entry in seed["catalog"]:
+        declared[entry["name"]] = {
+            **entry,
+            "properties": [
+                {**prop, "options": [{"value": value} for value in prop.get("options") or []]}
+                for prop in entry.get("properties") or []
+            ],
+        }
+    names = list(declared)
+    for entry in seed["catalog"]:
+        if entry.get("parent_type") and entry["parent_type"] not in names:
+            names.append(entry["parent_type"])
+    types = _parents_first([name for name in names if name != USERCASE_TYPE], declared)
+    given = {}
+    for key, values in (seed.get("values") or {}).items():
+        case_type, _, prop = key.rpartition("/")
+        given[(case_type, prop)] = list(values)
+    user_data = {name: f"proof {name}" for name in sorted(seed.get("userData") or [])}
+    location = (seed.get("worker") or {}).get("location")
+    named = {}
+    for case in seed.get("cases") or []:
+        named.setdefault(case["type"], []).append(dict(case["properties"]))
+    return _generated(types, given, user_data, location=location, unwritten=CASE_BLOCK_FIELDS, named=named)
+
+
+# What a case block writes as the case's own fields, never as a property of its ``update``: HQ's ``CaseBlock``
+# takes ``case_type``, ``case_name`` and ``owner_id`` beside the update and refuses them in it
+# (``casexml/apps/case/mock/case_block.py::CaseBlock._built_ins``), and Core reads ``date_opened``,
+# ``external_id``, ``category`` and ``state`` in an update as the case's own (``CaseXmlParser.java::updateCase``).
+# Every other name HQ's property map gives an app made in HQ is a property of its cases, ``status`` among them,
+# which Nova's model holds as a standard property and HQ and Core as any other.
+CASE_BLOCK_FIELDS = frozenset(
+    {"case_id", "case_type", "case_name", "owner_id", "date_opened", "external_id", "category", "state"}
+)
+
+
+def _generated(types, given, user_data, *, location=None, unwritten=STANDARD_PROPERTIES, named=None) -> CaseDatabase:
+    """The database generated over ``types`` (``[(name, case type)]``, parents first), the values each
+    ``(type, property)`` is ``given`` beside its type's own, and the worker's ``user_data``; a property ``unwritten``
+    names is the case's own field and no property of it (Nova's standard properties for a document's catalog).
+    ``named`` (``{type: [{property: value}]}``, an app made in HQ's seed's ``cases``) adds a case after a type's
+    generated ones for each it names: the case at that place generates, with the values it names in place of its
+    own, so it holds values the generated cases already hold one by one, together."""
+    named = named or {}
     values_of = {}
     for name, case_type in types:
         declared = [prop for prop in case_type.get("properties") or [] if isinstance(prop.get("name"), str)]
@@ -307,30 +378,36 @@ def case_database(document_json) -> CaseDatabase:
             if owner == name and prop in properties:
                 properties[prop] = list(dict.fromkeys([*properties[prop], *values]))
         values_of[name] = (declared, properties)
-    ids = {
-        name: [
-            f"{name}-{n + 1}"
-            for n in range(min(MAX_CASES_PER_TYPE, max(CASES_PER_TYPE, *map(len, properties.values()))))
-        ]
+    generated = {
+        name: min(MAX_CASES_PER_TYPE, max(CASES_PER_TYPE, *map(len, properties.values())))
         for name, (_, properties) in values_of.items()
+    }
+    ids = {
+        name: [f"{name}-{n + 1}" for n in range(count + len(named.get(name) or []))]
+        for name, count in generated.items()
     }
     cases, stamp = [], 0
     for name, case_type in types:
         declared, properties = values_of[name]
         parent = case_type.get("parent_type")
         relationship = case_type.get("relationship") or "child"
+        # The identifier the forms index the type under: Nova's case blocks write ``parent`` for every index, and
+        # an app made in HQ names its own where its seed says (``reference_id``, else ``parent``).
+        identifier = case_type.get("index_identifier") or INDEX_IDENTIFIER
         for n in range(len(ids[name])):
             values = {prop: options[n % len(options)] for prop, options in properties.items()}
+            if n >= generated[name]:
+                values.update(named[name][n - generated[name]])
             case_name = values["case_name"]
             indices = ()
             if parent == name:
                 # A type that is its own parent: a chain from the first case, which has none (Core refuses a
                 # case indexing itself, CaseXmlParser).
                 if n:
-                    indices = ((INDEX_IDENTIFIER, parent, ids[name][n - 1], relationship),)
+                    indices = ((identifier, parent, ids[name][n - 1], relationship),)
             elif parent:
                 parents = ids[parent]
-                indices = ((INDEX_IDENTIFIER, parent, parents[n % len(parents)], relationship),)
+                indices = ((identifier, parent, parents[n % len(parents)], relationship),)
             cases.append(
                 CaseRecord(
                     case_id=ids[name][n],
@@ -341,9 +418,7 @@ def case_database(document_json) -> CaseDatabase:
                     modified_on=_stamp(stamp),
                     external_id=values.get("external_id"),
                     properties=tuple(
-                        (prop["name"], values[prop["name"]])
-                        for prop in declared
-                        if prop["name"] not in STANDARD_PROPERTIES
+                        (prop["name"], values[prop["name"]]) for prop in declared if prop["name"] not in unwritten
                     ),
                     indices=indices,
                 )
@@ -365,12 +440,16 @@ def case_database(document_json) -> CaseDatabase:
             ),
         )
     )
-    return CaseDatabase(USER_ID, USERNAME, tuple(user_data.items()), tuple(cases))
+    return CaseDatabase(USER_ID, USERNAME, tuple(user_data.items()), tuple(cases), location)
 
 
 def database_json(database: CaseDatabase) -> dict:
-    """The database as JSON, as a control retains it (``proof.checks.controls``)."""
-    return asdict(database)
+    """The database as JSON, as a control retains it (``proof.checks.controls``): ``location`` only where the
+    worker stands at a place, so a database whose worker stands nowhere is written as it always was."""
+    found = asdict(database)
+    if found["location"] is None:
+        del found["location"]
+    return found
 
 
 def database_from_json(value) -> CaseDatabase:
@@ -389,15 +468,20 @@ def database_from_json(value) -> CaseDatabase:
             )
             for case in value["cases"]
         ),
+        location=value.get("location"),
     )
 
 
 def document_case_database(document, *, edit=False) -> CaseDatabase:
-    """The case database of D (or D', ``edit``): made from its ``document.json``, or, for a control, the one it
-    retains (``Document.derived``), so a control reads the same cases whatever shape Nova's document takes."""
+    """The case database of D (or D', ``edit``): made from its ``document.json``; for a control, the one it
+    retains (``Document.derived``), so a control reads the same cases whatever shape Nova's document takes; and for
+    an app made in CommCare HQ, the one its case seed gives (``Document.case_seed``, ``seeded_case_database``),
+    for D and D' alike, so neither document's catalog or expressions decides the cases."""
     held = document.derived("caseDatabase", edit=edit)
     if held is not None:
         return database_from_json(held)
+    if document.case_seed is not None:
+        return seeded_case_database(document.case_seed)
     return case_database(document.edit_document if edit else document.document)
 
 
@@ -454,7 +538,7 @@ def database_of_restore(restore: bytes) -> CaseDatabase:
 
 def database_digest(database: CaseDatabase) -> str:
     """``sha256:<hex>`` of the database as canonical JSON: what a key reads of a document's cases."""
-    written = json.dumps(asdict(database), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    written = json.dumps(database_json(database), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "sha256:" + hashlib.sha256(written.encode()).hexdigest()
 
 
@@ -563,10 +647,6 @@ def lookup_fixtures(state, captured, user_id=USER_ID):
     as errors (an owner it does not know) leaves the rows added, which the bar
     reports.
     """
-    from casexml.apps.phone.utils import GLOBAL_USER_ID, write_fixture_items_to_io
-    from corehq.apps.fixtures.fixturegenerators import ItemListsProvider
-    from corehq.apps.fixtures.models import LookupTable
-
     from proof.hq import operations
 
     uploaded = operations.upload_lookup_workbook(state, captured.workbook(), replace=True)
@@ -578,15 +658,40 @@ def lookup_fixtures(state, captured, user_id=USER_ID):
                 "errors": [str(error) for error in uploaded.errors],
             }
         )
+    return served_fixtures(state, user_id, workbook=captured.body_path.name)
+
+
+def served_fixtures(state, user_id=USER_ID, *, workbook=None):
+    """HQ's item-list fixtures for each lookup table HQ holds, by tag, each served as ``ItemListsProvider`` serves
+    a global table (``lookup_fixtures``' second half, which uploads nothing).
+
+    A state of an app made in CommCare HQ that no publish pushed a workbook
+    to is served this alone: its tables are the ones its A was made with
+    (``proof/hq/operations.py::save_authored_tables``). ``workbook`` names
+    the lookup workbook uploaded before, for a refusal's reason, where one
+    was. A table HQ holds per owner is refused (``LookupTablesNotServed``):
+    the restore here serves only global tables.
+    """
+    from casexml.apps.phone.utils import GLOBAL_USER_ID, write_fixture_items_to_io
+    from corehq.apps.fixtures.fixturegenerators import ItemListsProvider
+    from corehq.apps.fixtures.models import LookupTable
+
     provider = ItemListsProvider()
     fixtures = []
     for table in sorted(LookupTable.objects.by_domain(state.domain), key=lambda table: table.tag):
         if not table.is_global:
+            if workbook is None:
+                raise LookupTablesNotServed(
+                    {
+                        "why": "HQ holds a lookup table per owner, and the restore here serves only global tables.",
+                        "table": table.tag,
+                    }
+                )
             raise LookupTablesNotServed(
                 {
                     "why": "HQ holds a lookup table per owner after Nova's upload, and Nova's push uploads every"
                     " table as global; the restore here serves only global tables.",
-                    "workbook": captured.body_path.name,
+                    "workbook": workbook,
                     "table": table.tag,
                 }
             )

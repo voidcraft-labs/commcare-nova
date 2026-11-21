@@ -1,0 +1,82 @@
+[
+	{
+		"path": "jr://file/commcare/audio/data/convulsions_counseling_message-r5egx3.mp3",
+		"file": "media/0.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/audio/data/headache_counseling_message-1lvvdp.mp3",
+		"file": "media/1.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/audio/data/rupturing_counseling_message-fbkyqp.mp3",
+		"file": "media/2.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/audio/data/stopped_moving_counseling_message-5ukyct.mp3",
+		"file": "media/3.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/image/module0_form0_en.png",
+		"file": "media/4.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_case_list_form_en.png",
+		"file": "media/5.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_en.png",
+		"file": "media/6.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form0_en.png",
+		"file": "media/7.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module1_form2_en.png",
+		"file": "media/8.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module2_form0_en.png",
+		"file": "media/9.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	}
+]

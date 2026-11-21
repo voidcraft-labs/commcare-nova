@@ -483,6 +483,12 @@ def create_worker(unit, database):
     HQ creates the user case synchronously when it saves the worker, using its clock for the case block's
     date. Other seeded cases receive their dates through ``case_block``; this one needs the same authored
     input even when the audit leaves HQ's runtime clock real. Only worker creation uses this setup clock.
+
+    Where the database names the worker's place (``casedata.CaseDatabase.location``, the site code an app made in
+    HQ names for its worker), HQ's own ``CommCareUser.set_location`` assigns the worker there
+    (``corehq/apps/users/models.py``), in the same setup, so each reader HQ serves restores the places HQ's own
+    restore hands that worker. The place is the project space's, made with A (``proof/hq/operations.py::
+    save_authored_places``).
     """
     import time_machine
     from corehq.apps.users.models import CommCareUser
@@ -490,7 +496,7 @@ def create_worker(unit, database):
     usercase = next((case for case in database.cases if case.case_id == casedata.USERCASE_ID), None)
     setup_clock = time_machine.travel(usercase.modified_on, tick=False) if usercase is not None else nullcontext()
     with setup_clock:
-        return CommCareUser.create(
+        worker = CommCareUser.create(
             unit.domain,
             worker_username(unit.domain),
             PASSWORD,
@@ -499,6 +505,11 @@ def create_worker(unit, database):
             uuid=database.user_id,
             user_data=dict(database.user_data),
         )
+        if database.location is not None:
+            from corehq.apps.locations.models import SQLLocation
+
+            worker.set_location(SQLLocation.objects.get(domain=unit.domain, site_code=database.location))
+        return worker
 
 
 def case_block(case, database):
@@ -779,7 +790,7 @@ def _released(unit, app, app_id):
 
 
 @contextmanager
-def _drawn_for(people: bytes):
+def drawn_for(people: bytes):
     """HQ's entropy and clock for the block drawn from the case database's own digest, not from the state the
     unit is in. The worker and their cases are the same in every state a document is served in, so the ids HQ
     draws making them (the worker's user case, each case's form) are the same in every state too, and HQ's
@@ -838,7 +849,7 @@ def serve(
         hq_redis.flush()
         with unit.committing():
             people = casedata.database_digest(database).encode()
-            with operation(f"formplayer:worker@{label}", people), _drawn_for(people):
+            with operation(f"formplayer:worker@{label}", people), drawn_for(people):
                 default_roles(unit)
                 worker = create_worker(unit, database)
                 save_cases(unit, database, worker)

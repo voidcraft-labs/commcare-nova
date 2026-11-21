@@ -9,7 +9,11 @@
 
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
-import { isRuntimeUiStringKey, translationKeyOwner } from "../appStringKeys";
+import {
+	hqCatalogMayHold,
+	isRuntimeUiStringKey,
+	translationKeyOwner,
+} from "../appStringKeys";
 import type { NovaOwnedDerivedProfilePropertyKey } from "../derivedProfile";
 import { inventoryIndex } from "../surface/inventory";
 import surface from "../surface/surface.json";
@@ -125,7 +129,6 @@ const ACCOUNTED: readonly AccountedKeys[] = [
 	["non-empty-custom-assertions-app", ["custom_assertions"]],
 	/* The media map is read through the reading's media index, never here. */
 	["multimedia-map", ["multimedia_map"]],
-	["add-ons", ["add_ons"]],
 ];
 
 const ACCOUNTED_CLAIMS = defineClaims(
@@ -205,8 +208,13 @@ const BY_VALUE = defineClaims("appShell.byValue", {
 const CLAIMS = defineClaims("appShell", {
 	/** Nova writes `Application` for every app, so the value reaches no slot. */
 	docType: derived(`${A}/doc-type-application`, key("doc_type")),
+	/** The app's own class, read at the app's root: an `Application`, which every document is. */
+	application: take(`${A}/doc-type-application`, "schema:Application"),
 	name: take(`${A}/name`, key("name")),
 	attachments: take(`${A}/attachments-form-unique-id-xml`, key("_attachments")),
+	/** `custom_suite.xml` among the attachments: the custom suite HQ's settings page shows and no
+	 *  build writes. */
+	customSuite: account(`${A}/42-hq-custom-suite`, key("_attachments")),
 	orphanAttachments: drop(
 		`${A}/attachments-entry-for-a-form-no-longer-in-the-app`,
 		key("_attachments"),
@@ -255,7 +263,14 @@ const TRANSLATIONS = key("translations");
 const TRANSLATION_CLAIMS = defineClaims("appShell.translations", {
 	/** The language map itself, read into language names and the app name's translations. */
 	container: take(`${A}/translations-app-display-name`, TRANSLATIONS),
-	appDisplayName: take(`${A}/translations-app-display-name`, TRANSLATIONS),
+	/** A language's `app.display.name`, the runtime UI string its key is (`ui-string:`), recorded
+	 *  at the key, as a key of another runtime UI string is (`UI_STRING_CLAIMS`); every other claim
+	 *  of a key of a language's strings names `translations` and is recorded there: the key is
+	 *  data, a language's code or a string Nova's app writes, a value of the map's own entry. */
+	appDisplayName: take(
+		`${A}/translations-app-display-name`,
+		"ui-string:app.display.name",
+	),
 	/** The value is read into nothing: Nova derives its label from the language's identity. */
 	languageName: derived(
 		`${A}/translations-lang-code-language-display-names-equal-to-the-label`,
@@ -266,8 +281,10 @@ const TRANSLATION_CLAIMS = defineClaims("appShell.translations", {
 		TRANSLATIONS,
 	),
 	homescreenTitle: account(`${A}/translations-homescreen-title`, TRANSLATIONS),
-	runtimeUiString: account(
-		`${A}/translations-key-in-a-runtime-s-ui-string-catalog-core-android`,
+	/** A runtime's UI key some language holds, which HQ's build fills from its own catalog in an
+	 *  app language that holds no text for it (`readCatalogFills`). */
+	hqCatalogKey: account(
+		`${A}/translations-catalog-key-hq-fills-with-its-own-text-in-a`,
 		TRANSLATIONS,
 	),
 	unread: account(`${A}/translations-key-no-runtime-reads`, TRANSLATIONS),
@@ -277,6 +294,8 @@ interface SurfaceItem {
 	readonly declared?: boolean;
 	readonly values?: readonly unknown[];
 	readonly default?: unknown;
+	/** The runtimes that read a `ui-string:` item as one of their own UI strings. */
+	readonly readBy?: readonly string[];
 }
 const ITEMS = (
 	surface as { readonly items: Readonly<Record<string, SurfaceItem>> }
@@ -284,6 +303,50 @@ const ITEMS = (
 
 function surfaceItem(id: string): SurfaceItem | undefined {
 	return Object.hasOwn(ITEMS, id) ? ITEMS[id] : undefined;
+}
+
+const UI_STRING = "ui-string:";
+
+/** Each `ui-string:` item a runtime reads, by the id or by a `<prefix>.*` it reads ids under,
+ *  but `app.display.name`, whose key is the app name's translation. */
+const RUNTIME_UI_STRING_ITEMS: readonly string[] = Object.keys(ITEMS).filter(
+	(id) =>
+		id.startsWith(UI_STRING) &&
+		id !== "ui-string:app.display.name" &&
+		(ITEMS[id]?.readBy?.length ?? 0) > 0,
+);
+
+/** A language's key a runtime reads as one of its own UI strings, kept as the project space holds
+ *  it, by the `ui-string:` item the key overrides: the claim names that item and is recorded at
+ *  the key, where the item's value sits. */
+const UI_STRING_CLAIMS: Readonly<Record<string, Claim<"account">>> =
+	defineClaims(
+		"appShell.uiStrings",
+		Object.fromEntries(
+			RUNTIME_UI_STRING_ITEMS.map((id) => [
+				id,
+				account(
+					`${A}/translations-key-in-a-runtime-s-ui-string-catalog-core-android`,
+					id,
+				),
+			]),
+		),
+	);
+
+/** The `ui-string:` item a runtime reads a language's key through: the key's own item, else the
+ *  longest `<prefix>.*` whose prefix the key starts with (`appStringKeys.ts::isRuntimeUiStringKey`
+ *  is the same family by the same rule). */
+function uiStringClaim(name: string): Claim<"account"> | undefined {
+	const own = UI_STRING_CLAIMS[`${UI_STRING}${name}`];
+	if (own !== undefined) return own;
+	let longest: string | undefined;
+	for (const id of RUNTIME_UI_STRING_ITEMS) {
+		if (!id.endsWith(".*")) continue;
+		const prefix = id.slice(UI_STRING.length, -1);
+		if (name.startsWith(prefix) && (longest?.length ?? 0) < id.length)
+			longest = id;
+	}
+	return longest === undefined ? undefined : UI_STRING_CLAIMS[longest];
 }
 
 const PROFILE = key("profile");
@@ -396,11 +459,88 @@ const DYNAMIC_KEYS: ReadonlySet<string> = new Set([
 	"split_screen_dynamic_search",
 ]);
 
-/** A root key naming one of `Application`'s read-only properties or methods: the surface lists it
- *  under `schema:Application.<name>` and does not declare it a stored key. */
+/** A root key naming one of `Application`'s members that is no stored key: the surface lists it
+ *  under `schema:Application.<name>` and does not declare it. */
 function namesReadOnlyApplicationMember(name: string): boolean {
 	const item = surfaceItem(key(name));
 	return item !== undefined && item.declared !== true;
+}
+
+/**
+ * The refusal of a root key that is both one of `Application`'s read-only members and an `hq`
+ * setting HQ's settings list (`setting:hq.<name>`) whose one entry refuses it and names no key of
+ * the app's schema: that entry is the setting on an `Application`, so the key is refused under it
+ * rather than under the entry for any read-only member. `profile_url` is one: a RemoteApp's
+ * setting (`commcare-app-settings.yml`), which `Application` holds as a read-only property, so
+ * jsonobject refuses the key (`WrappingAttributeError`).
+ */
+const ROOT_SETTING_REFUSALS: Record<string, Claim<"refuse">> = {};
+for (const id of Object.keys(ITEMS)) {
+	const prefix = "setting:hq.";
+	if (!id.startsWith(prefix)) continue;
+	const name = id.slice(prefix.length);
+	if (!namesReadOnlyApplicationMember(name)) continue;
+	const entries = inventoryIndex().naming(id);
+	const [entry] = entries;
+	if (
+		entries.length === 1 &&
+		entry !== undefined &&
+		claimPermits("refuse", entry.standing) &&
+		!entry.surfaceKeys.some((surfaceKey) => surfaceKey.startsWith("schema:"))
+	)
+		ROOT_SETTING_REFUSALS[name] = refuse(entry.id, id);
+}
+defineClaims("appShell.rootSetting", ROOT_SETTING_REFUSALS);
+
+/** `add_ons`, the map of the editor features CommCare HQ's pages show, and each add-on the
+ *  surface names, under the entry that names its `add-on:` item. */
+const ADD_ON_CLAIMS = defineClaims("appShell.addOns", {
+	/** The map, and each key of it that turns nothing on or that names no add-on HQ reads. */
+	map: account(`${A}/add-ons`, key("add_ons")),
+	...Object.fromEntries(
+		Object.keys(ITEMS).flatMap((id) => {
+			if (!id.startsWith("add-on:")) return [];
+			const [entry, ...others] = inventoryIndex().naming(id);
+			return entry !== undefined &&
+				others.length === 0 &&
+				claimPermits("account", entry.standing)
+				? [[id, account(entry.id, id)]]
+				: [];
+		}),
+	),
+});
+
+/** Python's truth of a stored value, which CommCare HQ's pages test an add-on by
+ *  (`add_ons.py::show`, `app.add_ons.get(slug)`). */
+function turnedOn(value: unknown): boolean {
+	if (Array.isArray(value)) return value.length > 0;
+	if (isJsonObject(value)) return Object.keys(value).length > 0;
+	return value !== false && value !== null && value !== 0 && value !== "";
+}
+
+/**
+ * `add_ons`, key by key: an add-on turned on, under the entry that names it; a key that turns
+ * nothing on, or names no add-on HQ's pages read (`add_ons.py::_ADD_ONS` no longer lists it), under
+ * the map's entry, recorded at the map.
+ */
+function readAddOns(ctx: ReadContext): void {
+	const map = ctx.app.object(
+		"add_ons",
+		"Application.add_ons",
+		ADD_ON_CLAIMS.map,
+	);
+	for (const slug of keysOf(map)) {
+		const named = `add-on:${slug}`;
+		const claim = Object.hasOwn(ADD_ON_CLAIMS, named)
+			? ADD_ON_CLAIMS[named as keyof typeof ADD_ON_CLAIMS]
+			: undefined;
+		map.account(
+			slug,
+			claim !== undefined && turnedOn(map.peek(slug))
+				? claim
+				: ADD_ON_CLAIMS.map,
+		);
+	}
 }
 
 /** A translation key held for the assembly, which classifies it against Nova's own strings. */
@@ -453,7 +593,13 @@ function readBuildSpec(ctx: ReadContext): void {
 	}
 	const place = appSettingsPlace();
 	const detail = { name: version };
-	ctx.accounting.finding(CLAIMS.buildSpecBelowFloor, place, detail);
+	// The class is a fact about the spec and each key of it the entry names.
+	ctx.accounting.findingAt(
+		CLAIMS.buildSpecBelowFloor,
+		place,
+		"/build_spec",
+		detail,
+	);
 	ctx.accounting.cover(
 		{ json: ctx.app, key: "build_spec" },
 		manifestFindingOf(CLAIMS.buildSpecBelowFloor, place, detail),
@@ -494,6 +640,8 @@ function fromUploader(slot: string, ref: unknown): ref is { path: string } {
  * `logo_refs` holding only such slots is left for the close. The one node is
  * claimed once: by the Web Apps logo, read or handed to project data, else
  * by the Android slots, else by the first slot the uploader did not write.
+ * Each slot the uploader did not write is also refused at `logo_refs`, where
+ * the value its entry names sits, beside that claim.
  */
 function readLogos(ctx: ReadContext): void {
 	if (!ctx.app.used("logo_refs")) return;
@@ -511,7 +659,7 @@ function readLogos(ctx: ReadContext): void {
 		else if (ANDROID_LOGOS.has(slot)) android = true;
 	}
 	for (const slot of refused)
-		ctx.accounting.finding(CLAIMS.logoNotFromUploader, ctx.app.place, {
+		ctx.app.refusePart("logo_refs", slot, CLAIMS.logoNotFromUploader, {
 			name: slot,
 		});
 	if (webApps !== undefined) {
@@ -523,8 +671,9 @@ function readLogos(ctx: ReadContext): void {
 			ctx.facts.mediaReferences.push({
 				path: read.value,
 				assetId: resolution.assetId,
-				mediaKind: resolution.mediaKind,
+				mediaKind: "image",
 				place,
+				pointer: `/logo_refs/${pointerToken(WEB_APPS_LOGO)}`,
 				slot: "app_logo",
 			});
 			ctx.writeDraft(() => {
@@ -537,6 +686,7 @@ function readLogos(ctx: ReadContext): void {
 				mediaKind: "image",
 				resolution: resolution.kind,
 				place,
+				pointer: `/logo_refs/${pointerToken(WEB_APPS_LOGO)}`,
 				slot: "app_logo",
 			});
 		}
@@ -549,13 +699,19 @@ function readLogos(ctx: ReadContext): void {
 		});
 }
 
-/** `_attachments`: each form's source, admitted where a form of this read names one. */
+/** The attachment CommCare HQ keeps an app's custom suite in (`Application.set_custom_suite`). */
+const CUSTOM_SUITE = "custom_suite.xml";
+
+/** `_attachments`: each form's source, admitted where a form of this read names one, and a
+ *  custom suite beside them under its own entry. */
 function readAttachments(
 	ctx: ReadContext,
 ): Admitted<Readonly<Record<string, unknown>>> | undefined {
 	if (!ctx.app.used("_attachments")) return undefined;
 	const value = ctx.app.peek("_attachments");
 	if (!isJsonObject(value)) return undefined;
+	if (Object.hasOwn(value, CUSTOM_SUITE))
+		ctx.app.accountPart("_attachments", CUSTOM_SUITE, CLAIMS.customSuite);
 	const named = ctx.input.source.modules.some((menu) =>
 		menu.forms.some((form) => Object.hasOwn(value, `${form.readUniqueId}.xml`)),
 	);
@@ -573,6 +729,47 @@ function withinChoices(item: SurfaceItem, value: unknown): boolean {
 	if (Array.isArray(value))
 		return value.every((element) => values.includes(element));
 	return values.includes(value);
+}
+
+/** A key as the surface spells it in an item's name: each character outside the printable ASCII
+ *  range, and `%`, percent-encoded as UTF-8, as the surface's extraction quotes it. */
+function surfaceKeyName(text: string): string {
+	let out = "";
+	for (const character of text) {
+		const code = character.codePointAt(0) ?? 0;
+		if (code >= 33 && code <= 126 && character !== "%") {
+			out += character;
+			continue;
+		}
+		for (const byte of new TextEncoder().encode(character))
+			out += `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+	}
+	return out;
+}
+
+/** Each `profile-property:` item one allowing or refusing entry names, by the item: a property a
+ *  profile holds that HQ's settings do not list is read under that entry. */
+const PROFILE_PROPERTY_CLAIMS = defineClaims(
+	"appShell.profileProperty",
+	Object.fromEntries(
+		Object.keys(ITEMS).flatMap((id) => {
+			if (!id.startsWith("profile-property:")) return [];
+			const [entry, ...others] = inventoryIndex().naming(id);
+			return entry !== undefined &&
+				others.length === 0 &&
+				claimPermits("account", entry.standing)
+				? [[id, account(entry.id, id)]]
+				: [];
+		}),
+	),
+);
+
+/** The claim of a profile property HQ's settings do not list, where the surface names it. */
+function profilePropertyClaim(name: string): Claim<"account"> | undefined {
+	const id = `profile-property:${surfaceKeyName(name)}`;
+	return Object.hasOwn(PROFILE_PROPERTY_CLAIMS, id)
+		? PROFILE_PROPERTY_CLAIMS[id]
+		: undefined;
 }
 
 /** `cc-show-saved` and `cc-show-incomplete`, by `appProfileSettings.ts`'s values read backwards. */
@@ -643,9 +840,15 @@ function readProfile(ctx: ReadContext): void {
 			}
 			/* A key HQ's settings name only under an entry that holds it is
 			 * left for the close: the Web Apps logo is read from `logo_refs`.
-			 * So is a value of a setting whose entries' classes all leave it. */
+			 * So is a value of a setting whose entries' classes all leave it.
+			 * A property HQ's settings do not list is the profile property
+			 * the surface names for it, where one entry names that. */
 			if (item === undefined)
-				bag.account(name, PROFILE_CLAIMS.notInTheSettings);
+				bag.account(
+					name,
+					(kind === "properties" ? profilePropertyClaim(name) : undefined) ??
+						PROFILE_CLAIMS.notInTheSettings,
+				);
 		}
 	}
 	const custom = profile.object(
@@ -727,6 +930,7 @@ function readTranslations(
 	const appNames = new Map<string, string>();
 	const appName = name?.value;
 	let firstLanguageName: Admitted<string> | undefined;
+	let firstLanguageNamePointer = "";
 	const byLanguage = ctx.app.map(
 		"translations",
 		"Application.translations",
@@ -784,27 +988,33 @@ function readTranslations(
 					 * build writes from `name`. */
 					if (!appliedDisplayName(text)) continue;
 					if (language !== languages.source) appNames.set(language, text);
-					else if (text !== appName) firstLanguageName = read;
+					else if (text !== appName) {
+						firstLanguageName = read;
+						firstLanguageNamePointer = `${strings.pointer}/${pointerToken(key)}`;
+					}
 					continue;
 				}
 				case "homescreen-title":
 					strings.account(key, TRANSLATION_CLAIMS.homescreenTitle);
 					continue;
-				case "runtime-ui-string":
-					strings.account(key, TRANSLATION_CLAIMS.runtimeUiString);
+				case "runtime-ui-string": {
+					const claim = uiStringClaim(key);
+					if (claim !== undefined) strings.account(key, claim);
 					continue;
+				}
 				case "unread":
 					strings.account(key, TRANSLATION_CLAIMS.unread);
 					continue;
 			}
 		}
 	}
+	readCatalogFills(ctx, languages);
 	if (firstLanguageName !== undefined) {
 		const override = firstLanguageName;
 		ctx.writeDraft(() => {
 			ctx.draft.appName = override;
 		});
-		ctx.facts.foldedTranslationKeys += 1;
+		ctx.facts.foldedTranslationKeys.push(firstLanguageNamePointer);
 	}
 	const translated = new Map(
 		[
@@ -829,6 +1039,39 @@ function readTranslations(
 			translated,
 		);
 	return held;
+}
+
+/**
+ * Each runtime UI key a language's `translations` holds that HQ's build fills, in an app language
+ * that holds no text for it, from its own catalog for that language: HQ's build puts the catalog's
+ * text of every key any language's map holds into each language's strings, then that language's
+ * own non-empty texts over it (`app_strings.py::SelectKnownAppStrings.app_strings_parts`,
+ * `get_app_translation_keys`, `non_empty_only`). What a worker reads there is the project space's,
+ * kept as it holds it, one record a language and key at `translations`, whose value leaves the key
+ * out. A language the reading refused is covered by its own finding.
+ */
+function readCatalogFills(ctx: ReadContext, languages: HqLanguages): void {
+	const stored = ctx.app.peek("translations");
+	if (!isJsonObject(stored)) return;
+	const maps = Object.values(stored).filter(isJsonObject);
+	const keys = new Set(
+		maps
+			.flatMap((strings) => Object.keys(strings))
+			.filter(isRuntimeUiStringKey),
+	);
+	for (const code of languages.codes) {
+		if (languages.refused.has(code)) continue;
+		const own = stored[code];
+		for (const key of [...keys].sort()) {
+			if (isJsonObject(own) && own[key]) continue;
+			if (!hqCatalogMayHold(key, code)) continue;
+			ctx.app.accountPart(
+				"translations",
+				`${code}/${key}`,
+				TRANSLATION_CLAIMS.hqCatalogKey,
+			);
+		}
+	}
 }
 
 /**
@@ -922,10 +1165,15 @@ function holdAppName(
 	return held.translations;
 }
 
-/** The root's undeclared keys: CommCare HQ's dynamic keys, a read-only member's name, or any other. */
+/** The root's undeclared keys: CommCare HQ's dynamic keys, a setting refused on an `Application`
+ *  by its own entry, a read-only member's name, or any other. */
 function readUndeclared(ctx: ReadContext): void {
 	for (const name of ctx.app.undeclared()) {
+		const setting = Object.hasOwn(ROOT_SETTING_REFUSALS, name)
+			? ROOT_SETTING_REFUSALS[name]
+			: undefined;
 		if (DYNAMIC_KEYS.has(name)) ctx.app.account(name, CLAIMS.dynamicKey);
+		else if (setting !== undefined) ctx.app.refuse(name, setting, { name });
 		else if (namesReadOnlyApplicationMember(name))
 			ctx.app.refuse(name, CLAIMS.readOnlyKey, { name });
 		else ctx.app.account(name, CLAIMS.otherUnknownKey);
@@ -992,6 +1240,11 @@ function readByValue(ctx: ReadContext): void {
 		});
 }
 
+/** A value a claim admitted, read where nothing more is made of it than the claim. */
+function consumed(admitted: Admitted<unknown>): void {
+	admitted.value;
+}
+
 /**
  * Stage 1: the application's own keys, its languages and the floor.
  * `modules` is the structure stage's, and `auto_gps_capture` the assembly's,
@@ -999,6 +1252,7 @@ function readByValue(ctx: ReadContext): void {
  */
 export function readApplication(ctx: ReadContext): void {
 	const app = ctx.app;
+	consumed(app.takeClass(CLAIMS.application));
 	app.derived("doc_type", CLAIMS.docType);
 	const rawName = app.peek("name");
 	const name =
@@ -1023,6 +1277,7 @@ export function readApplication(ctx: ReadContext): void {
 	readLogos(ctx);
 	for (const [name, claim] of Object.entries(ACCOUNTED_CLAIMS))
 		app.account(name, claim);
+	readAddOns(ctx);
 	readByValue(ctx);
 	readUndeclared(ctx);
 	READINGS.set(ctx, { languages, attachments, generatedKeys });

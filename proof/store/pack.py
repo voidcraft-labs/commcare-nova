@@ -8,7 +8,9 @@
 outputs hold (``gather``): every record part, document and transcript their
 runs' deltas kept; every check's evidence on a document whose records the
 run kept, as a judgment under its key (``proof.store.keys.group_key``,
-``judgment_key``), as the check wrote it; and each group's outcome from the
+``judgment_key``), as the check wrote it, a corpus document's under the
+reader bundle its block's manifest names (``reader``,
+``proof.store.keys.judged_under``), as the queue builder keys it; and each group's outcome from the
 block manifests: a document's under its group key, a package group's and the
 surface block's under the key the queue that ran it names for it
 (``--queue``; without one they are not kept), the surface block's with its
@@ -33,6 +35,9 @@ No outcome is kept from a run that held HQ's branch proof over a list of
 documents of its own, or that records no environment
 (``proof.store.keys.lane_branches``): the proof's items are in their
 documents' groups, so such a run's groups hold other items than the lane's.
+Outputs written under two judge fingerprints, or whose blocks judged corpus
+documents under two reader bundles, are refused: one pack is of one tree's
+runs over one corpus, so each is packed apart and the snapshots merged.
 
 ``merge`` writes one snapshot of several (a source that does not exist holds
 nothing); ``delta`` writes what ``--scope`` (the pull request's snapshot) and
@@ -250,6 +255,19 @@ def gather(outputs, queues=()) -> Gathered:
             f"The outputs were written under {len(judges)} judge fingerprints; one store holds one tree's runs, so"
             " pack each tree's outputs apart."
         )
+    # The reader bundle each block that judged a corpus document ran under (its manifest's ``reader``), which that
+    # document's judged key names (proof.store.keys.judged_under).
+    readers = {
+        manifest.get("reader")
+        for _, manifest, _ in runs
+        if any(group["group"].startswith("corpus:") for group in manifest["groups"])
+    }
+    if len(readers) > 1:
+        raise PackError(
+            f"The outputs judged corpus documents under {len(readers)} reader bundles (each block manifest's reader:"
+            f" {', '.join(sorted(str(reader) for reader in readers))}), so they are runs over two corpora: pack each"
+            " corpus's outputs apart, and merge the snapshots."
+        )
     judge = next(iter(judges), None)
     documents = {}
     for key, value in gathered.index["documents"].items():
@@ -264,7 +282,8 @@ def gather(outputs, queues=()) -> Gathered:
                     continue
                 document = held[0]
                 parts = gathered.index["documents"][document]["parts"]
-                group_key = keys.group_key(document, judge, {part: found for part, (_, found) in parts.items()})
+                judged = keys.group_judge(name, judge, manifest.get("reader"))
+                group_key = keys.group_key(document, judged, {part: found for part, (_, found) in parts.items()})
                 kind, identifier = _document(name)
                 judgments = {}
                 for path in sorted(Path(directory, "checks").glob(f"*/{kind}-{identifier}.json")):

@@ -69,6 +69,7 @@ DOCUMENTS = (
     "case-list-local",
     "case-operation-sequence",
     "expander-conditional-required-generates-required-xpath-ae4797f7-0",
+    "media-only",
     "nested-menu-parent",
     "nested-menu-registration-children",
     "standard-case-reads",
@@ -307,27 +308,39 @@ def run(app, core_runner, outcome, restored, database, script=None):
     return Ran(ran.admission, ran.trace, app.processed(database, ran.trace))
 
 
-def runs_alike(app, core_runner, first, second, *, database=None, rules=()):
+# The steps of Core's trace a spelling is read on, by what a rule's Core test names: a form a session opened, a
+# menu that listed a choice, and a case list that showed a row. Where the sessions reach none, the two builds'
+# runs compare equal for nothing.
+READ_ON = {
+    "form": lambda step: step.get("screen") == "form",
+    "menu": lambda step: step.get("screen") == "menu" and bool(step.get("choices")),
+    "case list": lambda step: step.get("screen") in ("case-list", "multi-select-list") and bool(step.get("rows")),
+}
+
+
+def runs_alike(app, core_runner, first, second, *, database=None, rules=(), reads="form"):
     """Both builds' sessions (the second replaying the first's script) and their differences after ``rules``:
-    ``(first Ran, second Ran, trace and case-processing differences)``."""
+    ``(first Ran, second Ran, trace and case-processing differences)``. The first build's sessions must reach a
+    step of the kind ``reads`` names (``READ_ON``), the one the spelling is read on."""
     database = database or casedata.case_database(app.document.document)
     restored = restore(app, database)
     ran_first = run(app, core_runner, first, restored, database)
     assert ran_first.trace is not None, f"Core did not admit the first build: {ran_first.admission}"
-    opened = [step for each in ran_first.trace["runs"] for step in each["trace"] if step.get("screen") == "form"]
-    assert opened, "the sessions open no form, so they run nothing the spelling could change"
+    reached = [step for each in ran_first.trace["runs"] for step in each["trace"] if READ_ON[reads](step)]
+    assert reached, f"the sessions reach no {reads}, so they run nothing the spelling could change"
     ran_second = run(app, core_runner, second, restored, database, proof3.script_of(ran_first.trace))
     assert ran_second.trace is not None, f"Core did not admit the second build: {ran_second.admission}"
     return ran_first, ran_second, trace_differences(ran_first, ran_second, rules=rules)
 
 
 def trace_differences(first, second, *, rules=()):
-    """The differences between two runs' traces and HQ's processing of them, after ``rules``."""
+    """The differences between two runs' traces and HQ's processing of them, after ``rules``, each trace beside the
+    media its build installs, as proof 3 compares them (``proof3.comparable_trace``)."""
     runtimes = proof3.RUNTIMES["B"]
     labels = generated_labels(first.trace, second.trace)
     found = compare_traces(
-        proof3.comparable_trace(first.trace, runtimes),
-        proof3.comparable_trace(second.trace, runtimes),
+        proof3.comparable_trace(first.trace, runtimes, first.admission),
+        proof3.comparable_trace(second.trace, runtimes, second.admission),
         check=CHECK,
         document="-",
         rules=rules,
@@ -338,17 +351,32 @@ def trace_differences(first, second, *, rules=()):
     return found
 
 
+def listed(ran):
+    """Every field of every row the case lists of a run's sessions showed, in order."""
+    return [
+        field
+        for each in ran.trace["runs"]
+        for step in each["trace"]
+        if READ_ON["case list"](step)
+        for row in step["rows"]
+        for field in row.get("fields") or ()
+    ]
+
+
 # The other readers, run -----------------------------------------------------------------------------------------
 
 
-def served_readings(app, spellings, *, client=True):
+def served_readings(app, runner, spellings, *, client=True):
     """Each spelling of the app served and read: ``{name: {"doc", "formplayer", "webapps"}}``.
 
-    ``spellings`` maps a name to a change of the stored app's JSON (None: Nova's publish as it stands). Each is
-    released in a fork of the published state as HQ's Releases page releases a build and served by HQ's own
-    views (``proof.formplayer.hq.serve``); Formplayer walks it (the walk derived on the first spelling and
-    replayed on the rest, as the lane's is), and, with ``client``, the Web Apps client is shown the same walk in
-    its own browser (``proof.webapps.observe.shown``). ``doc`` is the released build's document.
+    ``runner`` is the session's Formplayer, which a test takes from its ``formplayer_runner`` fixture, so the
+    fixture marks it ``reader`` (``proof/conftest.py``) and a run without the readers leaves it to the nightly;
+    a test that reads the client too (``client``) is also marked ``reader('webapps')`` by hand. ``spellings``
+    maps a name to a change of the stored app's JSON (None: Nova's publish as it stands). Each is released in a
+    fork of the published state as HQ's Releases page releases a build and served by HQ's own views
+    (``proof.formplayer.hq.serve``); Formplayer walks it (the walk derived on the first spelling and replayed on
+    the rest, as the lane's is), and, with ``client``, the Web Apps client is shown the same walk in its own
+    browser (``proof.webapps.observe.shown``). ``doc`` is the released build's document.
     """
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer import observe as formplayer_observe
@@ -357,7 +385,6 @@ def served_readings(app, spellings, *, client=True):
     from proof.webapps import observe as webapps_observe
 
     blobs, found, walk = Blobs(), {}, None
-    runner = services.formplayer()
     for name, change in spellings.items():
         with formplayer_hq.serve(
             app.unit, app.document, app.app_id, runner=runner, label=name, change=change

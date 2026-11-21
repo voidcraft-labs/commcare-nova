@@ -8,11 +8,17 @@
  * its place, named by its surface key, and a value a `take` admitted must be
  * read. Each case here plants one failure over a hand-built object or
  * document and names it: a used key that passes unclaimed, a default-valued
- * or absent key counted as a use, a held value dropped after `take`, a second
+ * or absent key counted as a use, a kept claim on a key the source holds at
+ * its default left out of the log (or recorded twice, under a surface key, or
+ * for a key the source lacks), a default taken whole under an allowing entry
+ * of a value class left out of the log, or a default under an entry that holds
+ * every value, or a container opened at its default, recorded in it, a held
+ * value dropped after `take`, a second
  * claim, `refuseWhole` leaking a nested `unrecognized`, a handed-off node
  * reported or missing from `handOffs`, `finding` accepted under a held entry,
  * a list of strings claimed per element, `claimEntry` refused under another
- * key or accepted twice under one, a covered node reported again, and the
+ * key or accepted twice under one, a claim recorded under a key its entry does
+ * not name or at a node its key does not name, a covered node reported again, and the
  * XML rules (an unclaimed element collapsing what it holds, a default
  * namespace that is a construct, stray text, comments dropped).
  */
@@ -26,7 +32,15 @@ import { inventoryIndex } from "../../surface/inventory";
 import { standingOf } from "../../surface/standing";
 import { parseXml } from "../../xmlParse";
 import { Accounting, serializeClaimLog } from "../accounting";
-import { account, defineClaims, derived, drop, refuse, take } from "../claims";
+import {
+	account,
+	claimNameForEntry,
+	defineClaims,
+	derived,
+	drop,
+	refuse,
+	take,
+} from "../claims";
 import { appPlace, formPlace } from "../place";
 
 const MANIFEST = loadManifest();
@@ -44,18 +58,48 @@ function entryOf(standing: ReadStanding): string {
 const HELD = entryOf("held");
 const INERT = entryOf("inert");
 const NOT_YET = entryOf("not-yet");
+const KEPT = entryOf("kept");
+/** An entry of the standing that holds its key at every value: a claim on it at a default names no class. */
+function wholeEntryOf(standing: ReadStanding): string {
+	const found = MANIFEST.inventory.find(
+		(entry) => standingOf(entry) === standing && entry.valueClass === undefined,
+	);
+	if (found === undefined)
+		throw new Error(
+			`The manifest holds no ${standing} entry without a value class.`,
+		);
+	return found.id;
+}
+
+const INERT_WHOLE = wholeEntryOf("inert");
+const COMMENTS = "questions/xml-comments-processing-instructions";
+const HELD_WHOLE = wholeEntryOf("held");
+/** Entries that name the keys the cases below claim: a record names a key its entry names. */
+const NAME = "application-and-settings/name";
+const PRELOAD = "questions/jr-preload-jr-preloadparams";
+const COUNT = "expressions-and-data/count";
+const APPEARANCES =
+	"questions/field-list-on-any-question-compact-on-a-question-that-is-not-a";
 
 const CLAIMS = defineClaims("accountingTest", {
-	name: take(HELD, "schema:Application.name"),
-	nameAgain: take(HELD, "schema:Application.name"),
+	name: take(NAME, "schema:Application.name"),
+	nameAgain: take(NAME, "schema:Application.name"),
+	preload: drop(PRELOAD, "xform:model/bind@jr:preload"),
+	count: take(COUNT, "jr-fn:count"),
+	inputAppearance: drop(APPEARANCES, "xform:input@appearance"),
 	container: derived(HELD, null),
 	dropped: drop(INERT, null),
+	droppedWhole: drop(INERT_WHOLE, null),
+	takenWhole: take(HELD_WHOLE, null),
 	refused: refuse(NOT_YET, null),
 	accounted: account(NOT_YET, null),
 	heldRelation: refuse(HELD, null),
 	heldDrop: drop(HELD, null),
 	element: derived(HELD, null),
 	subtree: drop(INERT, null),
+	kept: account(KEPT, null),
+	keptAgain: drop(KEPT, null),
+	keptContainer: account(KEPT, null),
 });
 
 const APP = appPlace();
@@ -97,6 +141,107 @@ describe("the JSON cursor", () => {
 		expect([...claims.records()]).toEqual([]);
 	});
 
+	it("records a kept claim on a key the source holds at HQ's default, once and with no surface key, and no other", () => {
+		const books = accounting();
+		const root = books.json(
+			{
+				cloudcare_enabled: false,
+				case_sharing: false,
+				secure_submissions: false,
+				profile: {},
+			},
+			APP,
+		);
+		expect(root.used("secure_submissions")).toBe(false);
+		root.account("secure_submissions", CLAIMS.kept);
+		root.drop("secure_submissions", CLAIMS.keptAgain);
+		root.object("profile", "Application.profile", CLAIMS.keptContainer);
+		root.drop("case_sharing", CLAIMS.droppedWhole);
+		expect(
+			root.take("cloudcare_enabled", CLAIMS.takenWhole, Boolean).value,
+		).toBe(false);
+		/* Absent from the source: the reading met nothing. */
+		root.account("custom_base_url", CLAIMS.kept);
+		const { findings, defects, claims } = books.close();
+		expect(findings).toEqual([]);
+		expect(defects).toEqual([]);
+		expect(claims.counts).toEqual({ [KEPT]: 2 });
+		expect([...claims.records()]).toEqual([
+			{
+				artifact: "app.json",
+				where: "/profile",
+				key: null,
+				entry: KEPT,
+				standing: "kept",
+			},
+			{
+				artifact: "app.json",
+				where: "/secure_submissions",
+				key: null,
+				entry: KEPT,
+				standing: "kept",
+			},
+		]);
+	});
+
+	it("records a claim that takes a default whole under an allowing entry of a value class, and no container it only opens", () => {
+		const claims = defineClaims("accountingTest.ofDefault", {
+			customSuite: drop(
+				"application-and-settings/41-hq-use-custom-suite-false",
+				"schema:Application.use_custom_suite",
+			),
+			cloudcare: derived(
+				"application-and-settings/40-hq-cloudcare-enabled",
+				"schema:Application.cloudcare_enabled",
+			),
+			profile: drop(
+				"application-and-settings/any-other-profile-properties-features-key-not-in-the-yaml",
+				"schema:Application.profile",
+			),
+			locations: take(
+				"application-and-settings/50-hq-location-fixture-restore-project-default",
+				"schema:Application.location_fixture_restore",
+			),
+		});
+		const books = accounting();
+		const root = books.json(
+			{
+				use_custom_suite: false,
+				cloudcare_enabled: false,
+				profile: {},
+				location_fixture_restore: "project_default",
+			},
+			APP,
+		);
+		root.drop("use_custom_suite", claims.customSuite);
+		expect(
+			root.take("location_fixture_restore", claims.locations, String).value,
+		).toBe("project_default");
+		/* No value class: the entry holds every value, so the default names none of it. */
+		root.derived("cloudcare_enabled", claims.cloudcare);
+		/* A container opened to claim its keys names no class at its default. */
+		root.object("profile", "Application.profile", claims.profile);
+		const { findings, claims: log } = books.close();
+		expect(findings).toEqual([]);
+		expect([...log.records()]).toEqual([
+			{
+				artifact: "app.json",
+				where: "/location_fixture_restore",
+				key: null,
+				entry:
+					"application-and-settings/50-hq-location-fixture-restore-project-default",
+				standing: "held",
+			},
+			{
+				artifact: "app.json",
+				where: "/use_custom_suite",
+				key: null,
+				entry: "application-and-settings/41-hq-use-custom-suite-false",
+				standing: "inert",
+			},
+		]);
+	});
+
 	it("requires a held value to be read", () => {
 		const books = accounting();
 		books.json({ name: "Visits" }, APP).take("name", CLAIMS.name, String);
@@ -121,7 +266,7 @@ describe("the JSON cursor", () => {
 				why: "claimed twice at app: first by accountingTest.name, then by accountingTest.nameAgain",
 			},
 		]);
-		expect(claims.counts).toEqual({ [HELD]: 1 });
+		expect(claims.counts).toEqual({ [NAME]: 1 });
 	});
 
 	it("covers every key below an object refused whole, children opened before and after", () => {
@@ -374,6 +519,69 @@ describe("the XML cursor", () => {
 			},
 		]);
 	});
+
+	describe("a processing instruction", () => {
+		/** An instance whose group holds an instruction beside its element, and whose leaf holds
+		 *  one inside its text, which Core's `getXMLText` stops at. */
+		const instructed = () => {
+			const document = parseXml(
+				XFORM.replace(
+					"<q>an answer</q>",
+					"<g><?x y?><q>an <?x y?>answer</q></g>",
+				),
+			);
+			const html = child(document, "html");
+			const head = child(html, "head");
+			const model = child(head, "model");
+			const instance = child(model, "instance");
+			const bind = child(model, "bind");
+			const body = child(html, "body");
+			const cursor = accounting();
+			const xml = cursor.xml(document, 0, 0, FORM);
+			for (const element of [html, head, model, instance])
+				xml.derived({ element }, CLAIMS.element);
+			xml.dropSubtree(bind, CLAIMS.subtree);
+			xml.dropSubtree(body, CLAIMS.subtree);
+			return { books: cursor, xml, data: child(instance, "data") };
+		};
+
+		it("in a text a subtree's claim reads is unrecognized, and beside an element under it is not", () => {
+			const { books, xml, data } = instructed();
+			xml.takeSubtree(data, CLAIMS.takenWhole).value;
+			expect(unrecognized(books.close().findings)).toEqual([
+				"xform:{http://example.org/form}q/processing-instruction()",
+			]);
+		});
+
+		it("in a subtree a claim reads past is part of that claim", () => {
+			const { books, xml, data } = instructed();
+			xml.dropSubtree(data, CLAIMS.subtree);
+			expect(books.close().findings).toEqual([]);
+		});
+
+		it("in a text a claimed element holds is unrecognized, and beside an element is inert", () => {
+			const { books, xml, data } = instructed();
+			const g = child(data, "g");
+			const q = child(g, "q");
+			xml.derived({ element: data }, CLAIMS.element);
+			xml.derived({ element: data, attribute: "xmlns" }, CLAIMS.element);
+			xml.derived({ element: data, attribute: "uiVersion" }, CLAIMS.element);
+			xml.derived({ element: g }, CLAIMS.element);
+			xml.take({ element: q }, CLAIMS.name).value;
+			const { findings, claims } = books.close();
+			expect(unrecognized(findings)).toEqual([
+				"xform:{http://example.org/form}q/processing-instruction()",
+			]);
+			expect(
+				[...claims.records()]
+					.filter((record) => record.entry === COMMENTS)
+					.map((record) => record.where),
+			).toEqual([
+				"/h:html/comment()",
+				"/h:html/h:head[1]/model[1]/instance[1]/{http://example.org/form}data[1]/{http://example.org/form}g[1]/processing-instruction()",
+			]);
+		});
+	});
 });
 
 describe("claims another stage decides", () => {
@@ -394,8 +602,8 @@ describe("claims another stage decides", () => {
 
 	it("holds one claim per surface key on a node, several keys alike", () => {
 		const { books, site } = bound();
-		books.claimEntry(site, HELD, "xform:model/bind@jr:preload", FORM);
-		books.claimEntry(site, INERT, "jr-fn:count", FORM);
+		books.claimEntry(site, PRELOAD, "xform:model/bind@jr:preload", FORM);
+		books.claimEntry(site, COUNT, "jr-fn:count", FORM);
 		const { findings, claims } = books.close();
 		expect(findings).toEqual([]);
 		expect(
@@ -403,18 +611,63 @@ describe("claims another stage decides", () => {
 				.filter((record) => record.where.endsWith("/@jr:preload"))
 				.map((record) => [record.key, record.entry]),
 		).toEqual([
-			["jr-fn:count", INERT],
-			["xform:model/bind@jr:preload", HELD],
+			["jr-fn:count", COUNT],
+			["xform:model/bind@jr:preload", PRELOAD],
 		]);
 	});
 
 	it("refuses a second claim under one key", () => {
 		const { books, site } = bound();
-		books.claimEntry(site, HELD, "xform:model/bind@jr:preload", FORM);
-		books.claimEntry(site, INERT, "xform:model/bind@jr:preload", FORM);
+		books.claimEntry(site, PRELOAD, "xform:model/bind@jr:preload", FORM);
+		books.claimEntry(site, PRELOAD, "xform:model/bind@jr:preload", FORM);
 		const { defects } = books.close();
+		// A claim by entry is named by the first claim registered for its entry.
+		const named = claimNameForEntry(PRELOAD);
 		expect(defects.map((defect) => defect.why)).toEqual([
-			"claimed twice at form[0,0]: first by accountingTest.name, then by accountingTest.dropped",
+			`claimed twice at form[0,0]: first by ${named}, then by ${named}`,
+		]);
+	});
+
+	it("refuses a claim under a key its entry does not name, and records nothing of it", () => {
+		const { books, site } = bound();
+		books.claimEntry(site, COUNT, "xform:model/bind@jr:preload", FORM);
+		const { findings, defects, claims } = books.close();
+		expect(defects.map((defect) => defect.why)).toEqual([
+			`claim ${claimNameForEntry(COUNT)} at form[0,0] would record xform:model/bind@jr:preload under ${COUNT}, which does not name that key. Record the claim under the entry that reads that key, or with no key where its entry names none of the node's keys.`,
+		]);
+		expect(unrecognized(findings)).toEqual(["xform:bind@jr:preload"]);
+		expect(
+			[...claims.records()].filter((record) => record.entry === COUNT),
+		).toEqual([]);
+	});
+
+	it("records a claim whose key names another node under the entry's key that names its own, or with no key", () => {
+		const books = accounting();
+		const form = xform();
+		const cursor = books.xml(form.document, 0, 0, FORM);
+		const select = child(form.body, "input");
+		select.name = "select1";
+		select.attribs.appearance = "compact";
+		// The entry names `xform:select1@appearance` too: the select's appearance stands under its
+		// own key, which the entry names.
+		cursor.drop(
+			{ element: select, attribute: "appearance" },
+			CLAIMS.inputAppearance,
+		);
+		// The entry names no key of a bind's preload: the claim's record there names no key.
+		cursor.drop(
+			{ element: form.bind, attribute: "jr:preload" },
+			CLAIMS.inputAppearance,
+		);
+		const { defects, claims } = books.close();
+		expect(defects).toEqual([]);
+		expect(
+			[...claims.records()]
+				.filter((record) => record.entry === APPEARANCES)
+				.map((record) => [record.where, record.key]),
+		).toEqual([
+			["/h:html/h:body[1]/select1[1]/@appearance", "xform:select1@appearance"],
+			["/h:html/h:head[1]/model[1]/bind[1]/@jr:preload", null],
 		]);
 	});
 
@@ -452,7 +705,7 @@ describe("the claim log", () => {
 				.value,
 		).toBe("Visits");
 		const { claims } = books.close();
-		expect(claims.counts).toEqual({ [HELD]: 1 });
+		expect(claims.counts).toEqual({ [NAME]: 1 });
 		expect(() => claims.records()).toThrow(/claims: "full"/);
 	});
 
@@ -463,7 +716,7 @@ describe("the claim log", () => {
 				.value,
 		).toBe("Visits");
 		expect(serializeClaimLog(books.close().claims)).toBe(
-			`{"artifact":"app.json","where":"/name","key":"schema:Application.name","entry":"${HELD}","standing":"held"}\n`,
+			`{"artifact":"app.json","where":"/name","key":"schema:Application.name","entry":"${NAME}","standing":"held"}\n`,
 		);
 	});
 });

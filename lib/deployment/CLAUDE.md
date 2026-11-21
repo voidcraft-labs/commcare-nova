@@ -687,7 +687,9 @@ files, never from `lib/deployment/reading`, whose index is server-only.
 complete accounting, the gate and the export readiness of a first publish
 under every declaration the review will offer, the exact fixed point over
 Nova's own emission of the document and of the split document a declaration
-can make, identity agreement between CommCare HQ's source and that emission,
+can make (each printed under its choice's declaration, the document under the
+proposed one, since an export writes where the app runs and a list-first search
+reads by it), identity agreement between CommCare HQ's source and that emission,
 and agreement with CommCare HQ's own question summary. It is pure and runs on
 the request, in pieces: `acceptReadingSteps` and the reader's
 `readHqAppSteps` stop between checks and stages, and `gather.ts::Pieces` lets
@@ -698,7 +700,28 @@ It reads no expression's meaning: the reader's re-emission comparisons and
 the proof lane hold that. `reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES`
 is the closed list of what a first publish over an adopted app may change;
 what a person reviewed is kept on the read baseline and ends with the first
-push. `reading/readBack.ts::readBackDifferences` is the one comparison of a
+push. Each entry also says where its change stands on a reading (`at`): the
+places of `reading/firstPublishPlaces.ts` (a form, a node of its data, a
+part of its XForm, a menu's or the app's key, a case property) it builds from
+what the reading records of the change, or app-wide with a reason, which one
+entry alone may be (`forms-and-settings-rewritten`, which keeps what no other
+change's place holds); the module refuses at load an entry that declares no
+kind of place of its own (`firstPublishRegisterRefusals`), and
+`firstPublishChangePlaces` throws for a change that applies and names no
+place. A record names the value of CommCare HQ's stored app it was read
+from, and its place is that value's: an expression rewrite's slot
+(`ReadRewrite.pointer`), a media reference's map or column icon
+(`ReadMediaReference.pointer`), each folded translation key
+(`ReadFacts.foldedTranslationKeys`, with the text its key names: the slots
+of its kind's row of `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS`, whose paths
+are the entry's own, so a place it gives always lies under a path it allows,
+and a key no row spells throws); an entry
+whose change writes elsewhere places that too (a sort rule's hidden column
+at its index in Nova's projection, a date and time at the property it
+saves). The register's Vitest holds each entry's places to what its pair's
+first publish changes in the stored app. Only the proof lane reads the places (`proof/reader/laneReading.ts`,
+over `AcceptedDeclaration.firstPublishFacts`): its judge holds each
+difference to the change whose place stands there. `reading/readBack.ts::readBackDifferences` is the one comparison of a
 document with its read back, made by tests, by the proof lane and where Nova
 asks whether two readings of CommCare HQ's app are one document, and never by
 acceptance.
@@ -727,8 +750,10 @@ source at a bring-in, and never from what Nova sent. A push's read-back keeps
 it for the same HQ app, since it comes before the upload; a create writes
 none. A baseline of origin `read` also
 holds `first_publish_changes`: the first-publish changes the person reviewed
-that do not depend on where the app runs, and the Web App setting CommCare HQ
-held. After changes made in CommCare HQ are brought in or recorded, a
+that do not depend on where the app runs, each change a worker meets on
+Android alone that the reading gives whatever the app declared
+(`FIRST_PUBLISH_ANDROID_ONLY`, shown only while the app runs on Android), and
+the Web App setting CommCare HQ held. After changes made in CommCare HQ are brought in or recorded, a
 baseline can hold a list of the other kind in the same column: what the next
 publish changes there. The value's `of` says which kind it is. A `create` and
 an `unread` baseline hold none, and the one upsert clears it when a push

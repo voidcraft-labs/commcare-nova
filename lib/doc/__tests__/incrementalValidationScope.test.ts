@@ -367,7 +367,21 @@ describe("incrementalValidationScope", () => {
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
-			writes: [{ property: "mixed", value: term(literal(7)) }],
+			// A date and time and the question's text agree on no type, and
+			// text does not hold a date and time, so the two disagree.
+			writes: [
+				{
+					property: "mixed",
+					value: {
+						kind: "term",
+						term: {
+							kind: "literal",
+							value: "2026-01-02T10:30:00Z",
+							data_type: "datetime",
+						},
+					},
+				},
+			],
 		};
 		doc.forms[operationFormUuid] = {
 			...doc.forms[operationFormUuid],

@@ -1,0 +1,221 @@
+[
+	{
+		"id": "head-name-entered",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "Zawadi"
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Zawadi"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_household_0": "new-household"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/head_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/head_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "village-and-member-entered",
+		"entry": "forms-and-case-writes/update-case-update-property-question",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "household-two",
+					"case_id_new_member_0": "new-member"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/village",
+					"value": "east"
+				},
+				{
+					"path": "/data/new_member",
+					"value": "Imani"
+				}
+			],
+			"expressions": ["/data/village", "/data/new_member"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "east"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Imani"
+			}
+		]
+	},
+	{
+		"id": "age-loaded-from-the-member",
+		"entry": "forms-and-case-writes/loadupdateaction-preload-question-property",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_load_household0": "household-two",
+					"case_id_load_member1": "member-two"
+				}
+			},
+			"expressions": ["/data/age_seen"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "41"
+			}
+		]
+	},
+	{
+		"id": "member-visit-entered",
+		"entry": "forms-and-case-writes/loadupdateaction-case-properties",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_load_household0": "household-two",
+					"case_id_load_member1": "member-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visited_on",
+					"value": "2026-03-02"
+				},
+				{
+					"path": "/data/notes",
+					"value": "Walking again"
+				}
+			],
+			"expressions": ["/data/visited_on", "/data/notes"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2026-03-02"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Walking again"
+			}
+		]
+	},
+	{
+		"id": "review-entered",
+		"entry": "forms-and-case-writes/loadupdateaction-case-properties",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_load_household0": "household-two",
+					"case_id_load_member1": "member-two"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/review_note",
+					"value": "Doing well"
+				}
+			],
+			"expressions": ["/data/review_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Doing well"
+			}
+		]
+	}
+]

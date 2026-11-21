@@ -309,6 +309,71 @@ export interface PreviewPlatformRules {
 	 * (`QuestionWidget.java::setTextFromPrompt`).
 	 */
 	readonly requiredMark: "always" | "by-setting";
+	/**
+	 * The case list's Sort by: what it lists, what a pick does, and what lets
+	 * it go (`lib/preview/caseListSortMenu.ts`). Both order by the one field
+	 * picked (commcare-core `EntitySorter`, `caseListOrder.ts` rule 11), and a
+	 * pick of the field already picked turns it around.
+	 *
+	 * Android lists every field of the short detail whose header is not blank
+	 * (`activities/EntitySelectActivity.java::getSortOptionsList`), sorts the
+	 * list it holds again with a stable sort, so the order before the pick
+	 * breaks its ties, and starts from the list's own sort: picking the list's
+	 * one sort field first turns it around (`SortableEntityAdapter.sort`). A
+	 * filter keeps the pick (`getSortOptionsList` runs the filter again).
+	 *
+	 * Web Apps lists the list's sort fields (Formplayer's `sortIndices`,
+	 * `Detail.getOrderedFieldIndicesForSorting`): in a case tile list every one
+	 * in its Sort By (`menus/views.js::CaseTileListView`), in a list of columns
+	 * each shown one as a header to click (`table_container.html`,
+	 * `columnSortable`). Formplayer sorts the list afresh by the pick alone
+	 * (`EntityScreenHelper.sortEntities`); a pick names no direction until it
+	 * is picked again (`router.js`, `menu:sort`); new filter text lets it go
+	 * (`utils.js::CloudcareUrl.setSearch`), and a page change keeps it.
+	 */
+	readonly sortMenu: {
+		readonly lists: "sort-fields" | "named-fields";
+		readonly firstPickOfOnlyRule: "reverses" | "keeps";
+		readonly ties: "earlier-order" | "none";
+		readonly filterText: "lets-go" | "keeps";
+		readonly marks: "pick-only" | "list-order-and-pick";
+	};
+	/**
+	 * What a case list keeps of its page, its filter text and its Sort by
+	 * pick when the worker comes back to it (`caseListReturn.ts`). Back from
+	 * the list's own case details keeps all three on both platforms, and a
+	 * forward step onto the list (a form's submission landing there, a menu,
+	 * a crumb, Home) starts it afresh on both: Web Apps' `CloudcareUrl`
+	 * clears `page`, `search` and `sortIndex` on `onSubmit`, `spliceSelections`
+	 * and `clearExceptApp`, and Android opens a new `EntitySelectActivity`.
+	 *
+	 * `back` is a step back onto the list from a screen past it (a form left
+	 * unfinished, a form menu). Web Apps keeps all three (`address`): its Back
+	 * is the browser's, and the list's address carries its `page`, `search`
+	 * and `sortIndex` (`utils.js::CloudcareUrl`, `toJson`), which the router
+	 * sends again (`router.js::listMenus`). Android shows a new list
+	 * (`new-list`): choosing a case finishes the list
+	 * (`EntitySelectActivity.returnWithResult`), so a step back
+	 * (`CommCareSession.stepBack`) opens another, on the list's own order at
+	 * its top, and with the filter text the list held when it last opened a
+	 * case's details: the list saves its text to the session's current step
+	 * as it stops (`EntitySelectActivity.onStop` →
+	 * `CommCareActivity.saveLastQueryString`), which only the details screen
+	 * covering it does on the step the step back returns to, and a new list
+	 * reads it back (`restoreLastQueryString`, `EntitySelectSearchUI`).
+	 *
+	 * `search` is a search run again. Web Apps keeps the pick and lets the
+	 * page and the filter text go (`keeps-sort`,
+	 * `utils.js::CloudcareUrl.setQueryData`, which leaves `sortIndex`);
+	 * Android shows the results in a new list (`new-list`): the search's
+	 * `QueryRequestActivity` returns to the session's next step, which starts
+	 * another `EntitySelectActivity`
+	 * (`HomeScreenBaseActivity.launchQueryMaker`, `launchEntitySelect`).
+	 */
+	readonly caseListReturn: {
+		readonly back: "address" | "new-list";
+		readonly search: "keeps-sort" | "new-list";
+	};
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -372,6 +437,14 @@ export const PREVIEW_PLATFORM_RULES = {
 			emptyText: "skipped",
 		}),
 		requiredMark: "always",
+		sortMenu: Object.freeze({
+			lists: "sort-fields",
+			firstPickOfOnlyRule: "keeps",
+			ties: "none",
+			filterText: "lets-go",
+			marks: "pick-only",
+		}),
+		caseListReturn: Object.freeze({ back: "address", search: "keeps-sort" }),
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -431,6 +504,14 @@ export const PREVIEW_PLATFORM_RULES = {
 			emptyText: "runs-once-edited",
 		}),
 		requiredMark: "by-setting",
+		sortMenu: Object.freeze({
+			lists: "named-fields",
+			firstPickOfOnlyRule: "reverses",
+			ties: "earlier-order",
+			filterText: "keeps",
+			marks: "list-order-and-pick",
+		}),
+		caseListReturn: Object.freeze({ back: "new-list", search: "new-list" }),
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 

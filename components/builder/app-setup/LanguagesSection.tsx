@@ -126,6 +126,7 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"field-validation-message": "Validation message",
 	"select-option-label": "Option label",
 	"case-list-header": "Case list header",
+	"case-list-sort-label": "Name in Sort by",
 	"case-list-mapping-label": "Case list value label",
 	"case-list-interval-text": "Case list interval text",
 	"search-input-label": "Search field label",

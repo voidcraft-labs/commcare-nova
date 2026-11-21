@@ -1,0 +1,114 @@
+[
+	{
+		"id": "full-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_case_0": "new-case"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/full_name",
+					"value": "Juma"
+				}
+			],
+			"expressions": ["/data/full_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Juma"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_case_0": "new-case"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/full_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/full_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_case_0": "new-case"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/full_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/full_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "follow-up-label-held",
+		"entry": "questions/label-trigger-whose-appearance-is-exactly-minimal",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "case-one"
+				}
+			},
+			"expressions": ["count(/data/default_label)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	}
+]

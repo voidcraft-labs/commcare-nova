@@ -1,7 +1,9 @@
 /**
  * Rule: every saved non-calculated column on
  * `caseListConfig.columns` carries a `field` that resolves to a property the
- * module's case type admits
+ * case type it reads admits: the module's own, or the type its `via` walk
+ * reaches (`columnPropertyCaseType`; a walk that reaches none is
+ * `columnRelation`'s finding)
  * — declared on `ct.properties[]`, written to that case type by a case
  * operation, or part of CommCare's standard set (`case_name`,
  * `date_opened`, …).
@@ -21,7 +23,14 @@
  * case-list-config rule by construction.
  */
 
-import type { BlueprintDoc, Column, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Column,
+	columnFieldText,
+	columnPropertyCaseType,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 import { propertyExists } from "./shared";
 
@@ -34,7 +43,6 @@ export function columnReferences(
 	if (!config || !mod.caseType) return [];
 
 	const errors: ValidationError[] = [];
-	const caseType = mod.caseType;
 
 	for (let index = 0; index < config.columns.length; index++) {
 		const col = config.columns[index];
@@ -43,6 +51,12 @@ export function columnReferences(
 		// checker (`calculatedColumnTypeCheck`) walks them through the
 		// same admission set this rule consults.
 		if (col.kind === "calculated") continue;
+		const caseType = columnPropertyCaseType(
+			col,
+			mod.caseType,
+			doc.caseTypes ?? [],
+		);
+		if (caseType === undefined) continue;
 		if (propertyExists(doc, caseType, col.field)) continue;
 		errors.push(buildUnknownFieldError(mod, moduleUuid, caseType, index, col));
 	}
@@ -66,11 +80,20 @@ function buildUnknownFieldError(
 	index: number,
 	col: Exclude<Column, { kind: "calculated" }>,
 ): ValidationError {
+	const reached =
+		col.via === undefined
+			? ""
+			: ` of the case its link "${columnFieldText(col)}" reaches`;
 	return validationError(
 		"CASE_LIST_COLUMN_UNKNOWN_FIELD",
 		"module",
-		`Column "${col.header}" (column #${index + 1}) on the case list of module "${mod.name}" points at the case property "${col.field}", but no case property by that name is declared on case type "${caseType}", written by any form field's case destination, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${col.field}" to the "${caseType}" case type's properties, set a form field's case destination to it, or change the column's field to one of those names.`,
+		`Column "${col.header}" (column #${index + 1}) on the case list of module "${mod.name}" points at the case property "${col.field}"${reached}, but no case property by that name is declared on case type "${caseType}", written by any form field's case destination, or part of CommCare's standard set ("case_name", "date_opened", …). Either add "${col.field}" to the "${caseType}" case type's properties, set a form field's case destination to it, or change the column's field to one of those names.`,
 		{ moduleUuid, moduleName: mod.name },
-		{ field: col.field, columnUuid: col.uuid, index: String(index) },
+		{
+			field: col.field,
+			columnUuid: col.uuid,
+			index: String(index),
+			caseType,
+		},
 	);
 }

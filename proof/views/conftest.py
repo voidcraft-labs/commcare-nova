@@ -17,6 +17,7 @@ DOCUMENTS = (
     "case-capture-query",
     "case-list-inline",
     "expander-expanddoc-hq-json-projection-case-search-4d53ba11-0",
+    "hq-plain",
     "location-direct",
     "lookup-app",
     "media-only",

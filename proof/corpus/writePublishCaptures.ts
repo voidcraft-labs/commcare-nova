@@ -159,6 +159,19 @@ const lookupColumnSchema = z.strictObject({
 	dataType: lookupDataTypeSchema,
 });
 
+/** Where a stored table came from in CommCare HQ (`lib/lookup/types.ts::LookupHqOrigin`). */
+const lookupHqOriginSchema = z.strictObject({
+	server: z.string().min(1),
+	domain: z.string().min(1),
+	remoteId: z.string().min(1),
+	managedBy: z.enum(["commcare-hq", "nova"]),
+	broughtInAt: z.string().min(1),
+	takenOverAt: z.string().min(1).nullable(),
+	takenOverBy: z.string().min(1).nullable(),
+	refreshedAt: z.string().min(1),
+	goneColumnIds: z.array(lookupColumnIdSchema),
+});
+
 /** A stored lookup table definition (`lib/lookup/types.ts::LookupTableDefinition`). */
 const lookupDefinitionSchema = z.strictObject({
 	id: lookupTableIdSchema,
@@ -171,6 +184,7 @@ const lookupDefinitionSchema = z.strictObject({
 	rowsRevision: lookupRevisionSchema.optional(),
 	tableRevision: lookupRevisionSchema.optional(),
 	columns: z.array(lookupColumnSchema).max(LOOKUP_MAX_COLUMNS),
+	hq: lookupHqOriginSchema.optional(),
 });
 
 /** A Project's lookup data as the documents file holds it. */

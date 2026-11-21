@@ -1,0 +1,126 @@
+[
+	{
+		"id": "farmer-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/farmer_name",
+					"value": "Jabali Mwangi"
+				}
+			],
+			"expressions": ["/data/farmer_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Jabali Mwangi"
+			}
+		]
+	},
+	{
+		"id": "district-chosen-from-the-table",
+		"entry": "questions/lookup-table-select-selectdynamic-mselectdynamic-itemset-nodeset",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/district",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/district"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "d2"
+			}
+		]
+	},
+	{
+		"id": "crop-value-from-its-field",
+		"entry": "questions/itemset-label-value-refs-to-lookup-fields",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/crop"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "beans"
+			}
+		]
+	},
+	{
+		"id": "crop-from-a-hyphenated-table",
+		"entry": "expressions-and-data/table-tag-in-nova-s-grammar",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/crop"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "maize"
+			}
+		]
+	},
+	{
+		"id": "village-chosen-within-the-district",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/district",
+					"value": "2"
+				},
+				{
+					"path": "/data/village",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/village"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "v3"
+			}
+		]
+	}
+]

@@ -92,7 +92,7 @@ export function removeColumnFromDisplay(
  * Restore a definition to one screen. It returns to the place it already holds
  * in that screen's sequence, because hiding never took it out of there. Shown
  * on Results, a definition is on the list too, so both list slots clear in
- * the one write.
+ * the one write, and its rule's name in Sort by with them.
  */
 export function showColumnOnDisplay(
 	columns: readonly Column[],
@@ -107,7 +107,11 @@ export function showColumnOnDisplay(
 				notOnList: _notOnList,
 				...rest
 			} = column;
-			return rest as Column;
+			// Shown on Results, Sort by lists the column under its header, so a
+			// name its rule gave it there goes with the move.
+			if (rest.sort?.label === undefined) return rest as Column;
+			const { label: _label, ...sort } = rest.sort;
+			return { ...rest, sort } as Column;
 		}
 		const { visibleInDetail: _visibility, ...rest } = column;
 		return rest as Column;

@@ -656,7 +656,7 @@ is a `["taken", n]` array, and two minted keys share a UUID only where UUIDv5 co
 canonical row that gives an entity the UUID a re-read gives it never calls `mintEntityUuid`
 itself: it asks `identityMap.ts::reReadUuidOf(doc, identity)`, the resolver's rule
 (`identity.ts::matchingUuidOf`) over `externalIdentityMap(doc, identity)`
-(`columns-of-a-menu-that-lists-no-cases-are-off-the-detail`'s name column,
+(`columns-of-a-menu-that-lists-no-cases-are-its-one-name-column`'s name column,
 `tile-columns-shown-nowhere-are-as-read`'s carried column,
 `update-beside-a-bare-own-arm-is-the-own-arm`'s own arm), or claims through a matching resolver
 over the document's own entities of that kind (`worldEntities.ts::namedWorkerReadsAreProperties`).

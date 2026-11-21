@@ -10,9 +10,11 @@ rules; the profile is compared on its required version and the properties a
 runtime running both builds reads; and HQ's case processing reads the same
 case blocks from both sides' submissions. Sessions run only on an HQ build a
 runtime can install. Every difference must fall in a class of
-``proof/known-defects.json``, or, on a document whose saves in CommCare HQ
-Nova brings in, be named by a change Nova's review lists for the next publish
-(``proof.checks.changes``).
+``proof/known-defects.json``, or be named by a change that applies to the
+document (``proof.checks.changes``): on an app made in CommCare HQ, a
+first-publish register entry its reading says applies; on a document whose
+saves in CommCare HQ Nova brings in, a change Nova's review lists for the next
+publish.
 
 The plausible failures each test here catches:
 
@@ -57,7 +59,10 @@ The plausible failures each test here catches:
   defect (defect 10) cannot show;
 - a restore Core does not read whole, or one whose cases HQ's case processing
   does not hold, so an update or an index to a restore case is refused;
-- HQ's builds read lookup tables from a restore that does not serve them;
+- HQ's builds read lookup tables from a restore that does not serve them,
+  or B's restore chosen by who made A rather than by what B's publish
+  uploaded, so on an app made in CommCare HQ a republish's workbook (one
+  written over a table CommCare HQ manages) never reaches B's sessions;
 - a search's own query keys (``case_type``, ``_xpath_query``) in one class
   with its prompts' keys, so a register entry for one absorbs the other;
 - a submission's form version compared as it is across the two export paths,
@@ -109,13 +114,12 @@ ENTRIES = WORKTREE / "lib" / "commcare" / "surface" / "entries"
 
 @pytest.mark.parametrize("document", cases.document_params("proof3") + cases.control_params("proof3"))
 def test_the_same_sessions_behave_the_same_on_each_build(document, hq, core_runner, editor_driver):
-    found = proof3.document_behavior(
-        document, observations.records_for(document, core_runner, editor_driver=editor_driver)
-    )
+    records = observations.records_for(document, core_runner, editor_driver=editor_driver)
+    found = proof3.document_behavior(document, records)
     cases.hold(
         "proof3",
         document,
-        changes.undeclared(document, "proof3", found),
+        changes.undeclared(document, "proof3", found, sites=proof3.document_sites(document, records)),
         cases.load_register(),
         configurations=sorted(document.exports),
     )
@@ -341,8 +345,20 @@ def _assert_reaching_runs_differ(found, control, artifacts):
     for artifact in artifacts:
         runs = {int(d.at.split("/")[2]) for d in found if d.artifact == artifact}
         assert control.reaching <= runs <= control.opening, (artifact, runs, control.reaching, control.opening)
-    shown = [value for d in found for value in (d.before, d.after)]
-    assert control.altered_path in shown and control.original_path in shown
+    # The trace keys a form's events by where Core stepped to each (``compare.trace.event_keys``), so the question
+    # stored under another path is one event the baseline alone reached and one the altered build alone reached,
+    # in every run that answers it.
+    trace = next(artifact for artifact in artifacts if artifact.startswith("trace@"))
+    for run in control.reaching:
+        moved = {
+            (d.kind, (d.before if d.kind == "removed" else d.after).get("dataPath"))
+            for d in found
+            if d.artifact == trace
+            and d.path == "/runs/*/trace/*/events/*"
+            and d.kind in ("added", "removed")
+            and int(d.at.split("/")[2]) == run
+        }
+        assert ("removed", control.original_path) in moved and ("added", control.altered_path) in moved, (run, moved)
 
 
 def test_one_altered_answer_path_changes_the_trace_and_case_processing_of_the_runs_that_reach_it(
@@ -1009,14 +1025,20 @@ def _with_app_file(captured, app_json):
 
 
 def _submitting_subject(core_runner):
-    """The cheapest document with a local archive whose sessions on it submit a form and whose republish was sent,
-    its configuration and records (under that configuration). A republish Nova stopped before it sent anything has
-    no request body to rewrite into one HQ refuses."""
+    """The cheapest document Nova made with a local archive whose sessions on it submit a form and whose republish
+    was sent, its configuration and records (under that configuration). A republish Nova stopped before it sent
+    anything has no request body to rewrite into one HQ refuses. On a document made in HQ, Nova's republish is also
+    what its configurations' privileges are derived from (``configurations.py::_authored_publishes``), so a
+    republish rewritten to no app would change the configuration A is made under, not only what HQ makes of B."""
     from proof.checks import sharding
 
     estimate = sharding.estimate(sharding.load_timings())
     documents = sorted(
-        (document for document in cases.load_corpus().emitted if document.local_ccz is not None),
+        (
+            document
+            for document in cases.load_corpus().emitted
+            if document.local_ccz is not None and not document.hq_authored
+        ),
         key=lambda document: (estimate(document.group), document.id),
     )
     for document in documents:
@@ -1028,7 +1050,9 @@ def _submitting_subject(core_runner):
             processed = (recorded.get("local") or {}).get("processed")
             if processed and any(run["submitted"] for run in records.blobs.get_json(processed)["runs"]):
                 return document, name, records
-    raise AssertionError("No corpus document's sessions submit a form on its local archive, so nothing is shown.")
+    raise AssertionError(
+        "No corpus document Nova made has sessions that submit a form on its local archive, so nothing is shown."
+    )
 
 
 def _local_route(differences):
@@ -1222,6 +1246,84 @@ def test_a_lookup_table_hq_cannot_serve_is_a_refused_comparison(hq, core_runner)
     ]
     assert differences[0].after["workbook"] == captured.body_path.name
     assert differences[0].after["table"] in {table["tag"] for table in document.document["lookup"]["definitions"]}
+
+
+def _authored_with_tables():
+    """The first document made in CommCare HQ whose A holds lookup tables and whose republish was sent with no
+    workbook, with that configuration's name."""
+    from proof.observe.publish import AUTHORED
+
+    for document in cases.load_corpus().emitted:
+        if not document.hq_authored or not (document.root / AUTHORED / "tables.json").is_file():
+            continue
+        for name in sorted(document.exports):
+            republish = document.exports[name].republish
+            if republish is not None and republish.lookups is None:
+                return document, name
+    return None
+
+
+def _with_republish_workbook(document, name, workbook, root):
+    """A copy of ``document`` at ``root`` whose republish under ``name`` pushes ``workbook`` (a lookup workbook
+    capture) before its import, as a republish that pushes tables names its workbook (``corpus._captured``)."""
+    shutil.copytree(document.root, root)
+    (root / "inputs.json").unlink()  # the copy's keys are its own files' (unit.computed_inputs)
+    republish = document.exports[name].republish
+    directory = root / republish.body_path.parent.relative_to(document.root)
+    shutil.copyfile(workbook.body_path, directory / "republish-planted.lookup.body")
+    sidecar = dict(workbook.meta)
+    sidecar.pop("body", None)
+    (directory / "republish-planted.lookup.json").write_text(json.dumps(sidecar), encoding="utf-8")
+    meta = dict(republish.meta)
+    meta["lookups"] = "republish-planted.lookup.body"
+    (directory / republish.body_path.with_suffix(".json").name).write_text(json.dumps(meta), encoding="utf-8")
+    return Document(id=document.id, source=document.source, root=root)
+
+
+def _served_tags(restore):
+    """The tag of each lookup table a restore serves (its ``item-list:<tag>`` fixtures)."""
+    root = etree.fromstring(restore)
+    ids = (element.get("id") or "" for element in root.iter() if etree.QName(element).localname == "fixture")
+    return {fixture.removeprefix("item-list:") for fixture in ids if fixture.startswith("item-list:")}
+
+
+def test_b_s_sessions_on_an_app_made_in_hq_read_the_tables_the_unit_holds_after_b_s_publish(hq, core_runner, tmp_path):
+    """Contract: B's restore serves the tables the unit holds once B's publish ran, whoever made A
+    (``proof.observe.sessions.observe``, ``unit._Unit.tables``). A copy of a document made in HQ whose republish
+    pushes a workbook (one Nova pushed for another document) records B's lookup outcome, and B's restore serves the
+    workbook's tables beside A's, which A's restore does not; the same document as its corpus holds it, whose
+    republish pushes none, records no lookup outcome of B, which reads A's tables. The plausible failure: B's
+    restore chosen by who made A, so a republish that writes over a table CommCare HQ manages leaves B's sessions
+    reading A's rows and proof 3 sees nothing."""
+    found, nova = _authored_with_tables(), _lookup_document()
+    assert found, "No corpus document made in HQ holds lookup tables and republishes with no workbook."
+    assert nova, "No corpus document's publish sends lookup tables, so no workbook can be planted."
+    document, name = found
+    workbook = nova[1].content.lookups
+    planted_tags = {table["tag"] for table in nova[0].document["lookup"]["definitions"]}
+    planted = _with_republish_workbook(document, name, workbook, tmp_path / document.id)
+    assert planted.exports[name].republish.lookups is not None
+
+    served = {}
+    observe_restore = sessions.hq_restore
+
+    def recorded(unit, database, tables, label, operation=None):
+        outcome, restore = observe_restore(unit, database, tables, label, operation)
+        if restore is not None:
+            served[label] = _served_tags(restore)
+        return outcome, restore
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sessions, "hq_restore", recorded)
+        records = _observed_without_hooks(planted, core_runner, [name])
+    recorded_sessions = observations.sessions_record(records, name)
+    assert recorded_sessions is not None and recorded_sessions.get("lookupsB") == {"served": True}, recorded_sessions
+    assert served["restore-b"] & planted_tags, served
+    assert not served["restore-a"] & planted_tags, served
+    assert served["restore-a"] <= served["restore-b"], served
+
+    unplanted = observations.sessions_record(_observed_without_hooks(document, core_runner, [name]), name)
+    assert unplanted is not None and "lookupsB" not in unplanted, unplanted
 
 
 # The profile and the search keys ----------------------------------------------
@@ -1746,3 +1848,84 @@ def test_a_value_saved_only_in_hq_is_held_both_ways_on_each_reader_that_ran():
     assert proof3.stated_hq_side_values("d", STATED, [*_stated_differences(), missing], EVERY_READER) == [missing]
     # A reader whose comparison did not run makes no claim.
     assert proof3.stated_hq_side_values("d", STATED, [], EVERY_READER - {"trace@local.ccz"}) == []
+
+
+HOME_LOGO = "jr://file/commcare/logo/data/hq_logo_android_home.png"
+HOME_BANNER = "/profile/properties/brand-banner-home"
+# An app made in CommCare HQ with a logo in its Android home slot, as HQ's uploader stores one, and a Web Apps logo,
+# which HQ's profile writes under a property no runtime reads and the trace leaves out.
+LOGOS = {
+    "logo_refs": {
+        "hq_logo_android_home": {"path": HOME_LOGO, "m_id": "dd49ce80"},
+        "hq_logo_web_apps": {"path": "jr://file/commcare/logo/data/hq_logo_web_apps.png", "m_id": "dd49ce81"},
+    }
+}
+
+
+def _banner(before, after):
+    return Difference("proof3", "d", "trace@local.ccz", HOME_BANNER, HOME_BANNER, "removed", before, after)
+
+
+def test_an_android_logo_of_an_app_made_in_hq_is_held_both_ways_on_the_local_archive():
+    """Contract: the local archive made for the project space an app made in HQ came from cannot carry the app's
+    Android logos (``kept_android_logos_absent``), so where its stored ``logo_refs`` holds an Android slot, HQ's
+    trace holding that slot's ``brand-banner-*`` property forced at the slot's path, and the archive's holding
+    none, is the statement holding. Failures it catches: every logo difference taken on any document, a banner at
+    another path or unforced taken as the logo, and a logo HQ's build did not write going unreported."""
+    stated = proof3.stated_android_logos(LOGOS)
+    assert [(value.save, value.artifact, value.path, value.kind) for value in stated] == [
+        ("hq_logo_android_home", "trace@local.ccz", HOME_BANNER, "removed")
+    ]
+    # A document Nova made holds no stored app, and a slot without a path is none HQ's profile writes.
+    assert proof3.stated_android_logos(None) == []
+    assert proof3.stated_android_logos({"logo_refs": {"hq_logo_android_home": {"m_id": "dd49ce80"}}}) == []
+
+    held = _banner({"force": True, "value": HOME_LOGO}, None)
+    assert proof3.stated_hq_side_values("d", None, [held], EVERY_READER, authored_app=LOGOS) == []
+    # Without the stored app's logo it is a difference like any other.
+    assert proof3.stated_hq_side_values("d", None, [held], EVERY_READER) == [held]
+    # A banner at another path, or one HQ's profile did not force, is not the logo HQ holds: it is kept, and so is
+    # the statement it did not meet.
+    for other in (
+        _banner({"force": True, "value": "jr://file/commcare/logo/data/other.png"}, None),
+        _banner({"force": False, "value": HOME_LOGO}, None),
+    ):
+        found = proof3.stated_hq_side_values("d", None, [other], EVERY_READER, authored_app=LOGOS)
+        assert sorted((d.path, d.kind) for d in found) == [
+            (HOME_BANNER, "removed"),
+            (f"/stated-hq-side/hq_logo_android_home{HOME_BANNER}", "removed"),
+        ]
+    # HQ's trace holding no banner for a logo its app holds is reported where the local comparison ran.
+    found = proof3.stated_hq_side_values("d", None, [], EVERY_READER, authored_app=LOGOS)
+    assert [d.path for d in found] == [f"/stated-hq-side/hq_logo_android_home{HOME_BANNER}"]
+    assert proof3.stated_hq_side_values("d", None, [], EVERY_READER - {"trace@local.ccz"}, authored_app=LOGOS) == []
+
+
+def test_a_forms_title_is_compared_only_where_android_runs_both_builds():
+    """Contract: a form step's title (``FormDef.getTitle``) is compared where CommCare Android runs both builds,
+    the one runtime that shows it, and left out where only Web Apps does, which titles a worker's form by its menu
+    entry's text. Failures it catches: a title no runtime of the app shows reported, and a title Android shows left
+    out, or a case list's title, which every runtime shows, left out with it."""
+
+    def trace(title, list_title):
+        return {
+            "runs": [
+                {
+                    "trace": [
+                        {"screen": "case-list", "title": list_title, "rows": []},
+                        {"screen": "form", "title": title, "events": []},
+                    ]
+                }
+            ]
+        }
+
+    def paths(before, after, runtimes):
+        return sorted(
+            d.path for d in proof3.compare_traces("d", "trace@B", before, after, runtimes=frozenset(runtimes))
+        )
+
+    blank, named = trace(None, "Patients"), trace("Followup Form", "Patients")
+    assert paths(blank, named, {corpus.ANDROID, corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]
+    assert paths(blank, named, {corpus.ANDROID}) == ["/runs/*/trace/*/title"]
+    assert paths(blank, named, {corpus.WEB_APPS}) == []
+    assert paths(trace(None, "Patients"), trace(None, "Clients"), {corpus.WEB_APPS}) == ["/runs/*/trace/*/title"]

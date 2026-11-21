@@ -1,0 +1,381 @@
+{
+	"catalog": [
+		{
+			"name": "cooperative",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "area_of_operations",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "crops",
+					"data_type": "multi_select",
+					"options": [
+						"rice",
+						"corn",
+						"other"
+					]
+				},
+				{
+					"name": "enrolled_cooperative",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "founded_date",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "last_meeting_date",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "manager_first__name",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "manager_last_name",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "manager_name",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "manager_phone_number",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "meeting_frequency",
+					"data_type": "single_select",
+					"options": [
+						"1",
+						"2",
+						"4",
+						"other"
+					]
+				},
+				{
+					"name": "size_cooperative",
+					"data_type": "single_select",
+					"options": [
+						"small",
+						"medium",
+						"large",
+						"extra_large"
+					]
+				},
+				{
+					"name": "total__crop_yield_corn",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "total_crop_yield_rice",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		},
+		{
+			"name": "farmer",
+			"parent_type": "cooperative",
+			"relationship": "child",
+			"index_identifier": "parent",
+			"properties": [
+				{
+					"name": "actual_harvest_date",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "arable_hectares_corn",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "arable_hectares_other",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "arable_hectares_rice",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "arable_land",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "area_mapper",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "corn_farmer",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "corn_yield_per_hectacre",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "corn_yield_weight",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "crop_value_corn",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "crop_value_rice",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "crops",
+					"data_type": "multi_select",
+					"options": [
+						"rice",
+						"corn",
+						"other"
+					]
+				},
+				{
+					"name": "days_to_harvest",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "estimate_harvest_date",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "expected_corn_yield",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "expected_rice_yield",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "farmer_active",
+					"data_type": "single_select",
+					"options": [
+						"yes",
+						"no"
+					]
+				},
+				{
+					"name": "farmer_address",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "farmer_age",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "farmer_phone_number",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "farmer_sex",
+					"data_type": "single_select",
+					"options": [
+						"male",
+						"female",
+						"non_binary"
+					]
+				},
+				{
+					"name": "farmer_total_corn_yield",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "farmer_total_rice_yield",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "first_name",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "harvest_month",
+					"data_type": "single_select",
+					"options": [
+						"01",
+						"02",
+						"03",
+						"04",
+						"05",
+						"06",
+						"07",
+						"08",
+						"09",
+						"10",
+						"11",
+						"12"
+					]
+				},
+				{
+					"name": "harvest_year",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "land_access",
+					"data_type": "single_select",
+					"options": [
+						"1",
+						"2",
+						"3",
+						"4"
+					]
+				},
+				{
+					"name": "land_ownership",
+					"data_type": "single_select",
+					"options": [
+						"1",
+						"2"
+					]
+				},
+				{
+					"name": "last_name",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "member_since",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "next_visit_date",
+					"data_type": "date",
+					"options": []
+				},
+				{
+					"name": "other_farmer",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "price_corn_per_bushel",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "price_rice_per_kilo",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "relative_corn_yield",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "relative_rice_yield",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "rice_farmer",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "rice_yield_per_hectacre",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "rice_yield_weight",
+					"data_type": "int",
+					"options": []
+				},
+				{
+					"name": "visit_number",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {
+		"cooperative/crops": [
+			"corn",
+			"other",
+			"rice"
+		],
+		"farmer/actual_harvest_date": [
+			""
+		],
+		"farmer/arable_land": [
+			""
+		],
+		"farmer/corn_farmer": [
+			"1"
+		],
+		"farmer/corn_yield_weight": [
+			""
+		],
+		"farmer/crop_value_corn": [
+			""
+		],
+		"farmer/crop_value_rice": [
+			""
+		],
+		"farmer/crops": [
+			"corn",
+			"other",
+			"rice"
+		],
+		"farmer/estimate_harvest_date": [
+			""
+		],
+		"farmer/land_ownership": [
+			"1",
+			"2"
+		],
+		"farmer/next_visit_date": [
+			""
+		],
+		"farmer/rice_farmer": [
+			"1"
+		],
+		"farmer/rice_yield_weight": [
+			""
+		]
+	},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

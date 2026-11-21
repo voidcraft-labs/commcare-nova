@@ -31,6 +31,13 @@ corpus's reader (``proof.checks.corpus``, ``proof.checks.cases``) or the
 native products' (``proof.native.produce``). The plausible failure: a
 package that comes to read the corpus left off the list, so a queue builder
 places it in the early queue and each of its tests fails in every shard.
+
+Contract (``proof.store.queue.PACKAGE_DATA``'s ``reader``): the packages
+keyed by the reader bundle the corpus carries are exactly those one of whose
+test modules or conftests imports, the same way, the module that runs it
+(``proof.checks.readerbundle``). The plausible failure: a package that runs
+the bundle keyed without it, so a reader change leaves its stored verdict
+standing.
 """
 
 from __future__ import annotations
@@ -79,6 +86,14 @@ def test_a_lane_queue_is_read_whole():
     assert seeded.sample == lane_blocks.Sample(("a",), "2026-W42")
     assert lane_blocks.parse_queue(lane_blocks.queue_json(seeded)) == seeded
     assert lane_blocks.parse_queue({**_queue(), "sample": {"seed": None, "documents": ["a"]}}).sample.seed is None
+    # A main queue over a corpus that carries the reader bundle names its digest, and each manifest written for it
+    # names the same (proof.store.pack keys a corpus document's judgments under it).
+    assert queue.reader is None and "reader" not in lane_blocks.queue_json(queue)
+    bundled = lane_blocks.parse_queue({**_queue(), "reader": "f" * 64})
+    assert bundled.reader == "f" * 64 and lane_blocks.parse_queue(lane_blocks.queue_json(bundled)) == bundled
+    written = lane_blocks.manifest(bundled.blocks[0], phase="main", shard="s1", groups=[], reader=bundled.reader)
+    assert written["reader"] == "f" * 64
+    assert "reader" not in lane_blocks.manifest(queue.blocks[1], phase="early", shard="s1", groups=[])
 
 
 def test_a_run_over_documents_named_by_hand_names_them_and_what_it_leaves_out():
@@ -111,6 +126,11 @@ def test_a_queue_of_another_version_is_refused():
         value["version"] = 2
 
     assert "its version is 2; this lane reads version 1" in _refusal(version)
+
+    def reader(value):
+        value["reader"] = ""
+
+    assert "its reader is '', not the digest of the reader bundle its corpus carries" in _refusal(reader)
 
 
 def test_a_block_whose_id_is_not_its_groups_id_is_refused():
@@ -294,10 +314,14 @@ def test_the_queue_a_run_writes_for_itself_may_hold_a_piece_alone():
 
 # The modules through which a test reads the corpus: its documents, or the native products it carries.
 CORPUS_READERS = {"proof.checks.corpus", "proof.checks.cases", "proof.native.produce"}
+# The module through which a test runs the reader bundle the corpus carries (native/reader/). It counts as reached
+# wherever a module names it, so the rule below holds of the tests that name it before the module itself exists.
+READER_BUNDLE = "proof.checks.readerbundle"
 
 
 def _imports(path, name, modules):
-    """The modules of ``modules`` that the module ``name`` (at ``path``) imports, anywhere in it."""
+    """The modules of ``modules`` that the module ``name`` (at ``path``) imports, anywhere in it, a function's
+    body included."""
     package = name if path.name == "__init__.py" else name.rpartition(".")[0]
     imported = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -313,33 +337,61 @@ def _imports(path, name, modules):
     return {module for module in imported if module in modules}
 
 
-def test_the_packages_the_early_phase_refuses_are_those_whose_tests_read_the_corpus():
+def _packages_reaching(targets):
+    """The packages (``proof/<package>``) a test module or conftest of which imports, directly or through
+    ``proof``'s own modules, one of ``targets``."""
     proof = sharding.PROOF_DIR
     modules = {}
     for path in proof.rglob("*.py"):
-        if "__pycache__" in path.parts:
+        if "__pycache__" in path.parts or "node_modules" in path.parts:
             continue
         parts = list(path.relative_to(proof.parent).with_suffix("").parts)
         if parts[-1] == "__init__":
             parts.pop()
         modules[".".join(parts)] = path
-    graph = {name: _imports(path, name, modules) for name, path in modules.items()}
+    named = set(modules) | set(targets)
+    graph = {name: _imports(path, name, named) for name, path in modules.items()}
 
-    def reaches_a_reader(start):
+    def reaches(start):
         seen, waiting = set(), [start]
         while waiting:
             name = waiting.pop()
             if name not in seen:
                 seen.add(name)
-                waiting.extend(graph[name])
-        return bool(seen & CORPUS_READERS)
+                waiting.extend(graph.get(name, ()))
+        return bool(seen & set(targets))
 
-    reading = {
-        lane_blocks.package_of(sharding.item_group(SimpleNamespace(path=path)))
+    def group_of(path):
+        # A module split by parameter has no item without a value: name it by one its file lists.
+        values = sharding.parameter_values(path.relative_to(proof).as_posix())
+        callspec = SimpleNamespace(params={}, id=values[0]) if values else None
+        return sharding.item_group(SimpleNamespace(path=path, callspec=callspec))
+
+    return {
+        lane_blocks.package_of(group_of(path))
         for name, path in modules.items()
-        if (path.name.startswith("test_") or path.name == "conftest.py") and reaches_a_reader(name)
+        if (path.name.startswith("test_") or path.name == "conftest.py") and reaches(name)
     }
+
+
+def test_the_packages_the_early_phase_refuses_are_those_whose_tests_read_the_corpus():
+    reading = _packages_reaching(CORPUS_READERS)
     assert sorted(reading) == sorted(lane_blocks.CORPUS_PACKAGES)
     assert all(lane_blocks.reads_corpus(group) for group in reading)
     assert lane_blocks.reads_corpus("corpus:a@minimum") and lane_blocks.reads_corpus("control:a")
     assert not any(lane_blocks.reads_corpus(group) for group in ("proof", "proof/core", "surface"))
+
+
+def test_the_packages_keyed_by_the_reader_bundle_are_those_whose_tests_run_it():
+    """A package whose test modules or conftests reach ``proof.checks.readerbundle`` runs the reader bundle the
+    corpus carries, so its stored outcome is keyed by the bundle (``queue.PACKAGE_DATA``'s ``reader``), and no other
+    package's is. The plausible failures: a package that runs the bundle without the kind, whose stored verdict a
+    reader change would leave standing, and one keyed by it that never runs it, run again for nothing."""
+    from proof.store import queue
+
+    running = _packages_reaching({READER_BUNDLE})
+    keyed = {package for package, data in queue.PACKAGE_DATA.items() if "reader" in data}
+    assert sorted(running) == sorted(keyed)
+    # Each reads the whole bundle, and reads the corpus, so the early phase never holds it.
+    assert all(queue.PACKAGE_DATA[package]["reader"] == queue.EVERY for package in keyed)
+    assert keyed <= set(lane_blocks.CORPUS_PACKAGES)

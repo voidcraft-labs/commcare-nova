@@ -66,9 +66,12 @@ import { resolveRelationDestination } from "./relationDestination";
 import {
 	ANY_TYPE,
 	accumulateBranchType,
+	coercedEquality,
 	describe,
+	type EqualityOperand,
 	isDateOrDatetime,
 	isNumeric,
+	isValueStorageAssignable,
 	isWriteAssignable,
 	literalShape,
 	literalType,
@@ -320,6 +323,18 @@ export function scalarDataType(
 		? undefined
 		: (data.nodes as ScalarType);
 }
+/** Whether a node is one value CommCare holds as a yes or no: Core's
+ *  `BooleanData`, which a read unpacks to its `Boolean`. Several nodes are
+ *  never one, whatever each holds. */
+function holdsOneYesNo(type: NodeType | undefined): boolean {
+	if (type === undefined || type.several !== undefined) return false;
+	if (typeof type.data === "object" && type.data.cardinality !== "one")
+		return false;
+	const held = type.held;
+	return (
+		held === "boolean" || (typeof held === "object" && held.nodes === "boolean")
+	);
+}
 function scalarHeld(data: ScalarType): ScalarHeld {
 	return data === "boolean"
 		? "boolean"
@@ -457,19 +472,6 @@ function infer(
 		byPosition.set(key, outcome);
 		return outcome;
 	}
-	if (ctx.ruleSet === "record" && position !== undefined) {
-		const verdict = recordPositionVerdict(expression.kind, position);
-		if (!verdict.ok)
-			errors.push({
-				path: [],
-				code: "record-position",
-				reason: verdict.reason,
-				message:
-					verdict.reason === "value-expected"
-						? "This position takes a value."
-						: "This position takes a condition. Compare this value with something.",
-			});
-	}
 	childTypes.set(errors, new Map());
 	const type = settle(
 		expression,
@@ -477,6 +479,27 @@ function infer(
 		errors,
 		inferNode(expression, ctx, errors, position, whole),
 	);
+	if (ctx.ruleSet === "record" && position !== undefined) {
+		// A read stands as a condition by what it holds, so the verdict reads
+		// the node's type once the walk has settled it.
+		const verdict = recordPositionVerdict(
+			expression.kind,
+			position,
+			holdsOneYesNo(type),
+		);
+		if (!verdict.ok)
+			errors.unshift({
+				path: [],
+				code: "record-position",
+				reason: verdict.reason,
+				message:
+					verdict.reason === "value-expected"
+						? "This position takes a value."
+						: expression.kind === "term"
+							? "This position takes a condition, and this reads a value that isn't a yes or no. You can compare it with something, such as = 'yes', or read a Hidden Value calculated as a condition."
+							: "This position takes a condition. Compare this value with something.",
+			});
+	}
 	const outcome = { type, errors };
 	byPosition.set(key, outcome);
 	return outcome;
@@ -760,7 +783,13 @@ export function checkExpression(
 	)
 		errors.push(manyValuesError(outcome.type.several, [], ctx));
 	if (expectation.kind === "assignment")
-		assignmentErrors(expression, ctx, expectation.destinations, errors);
+		assignmentErrors(
+			expression,
+			ctx,
+			expectation.destinations,
+			errors,
+			expectation.identifierText === true,
+		);
 	const capture = captureAnswerRefusal(expression, ctx);
 	if (capture !== undefined) errors.push(capture);
 	if (expectation.kind === "repeat-count") {
@@ -3113,7 +3142,9 @@ function inferTerm(
 						"unknown-form-field",
 						"This reads a question that isn't available here. You can choose another question, or remove this reference.",
 					);
-				return scalar(ctx.bindings.formFieldTypes.get(term.uuid) ?? "text");
+				const data = ctx.bindings.formFieldTypes.get(term.uuid) ?? "text";
+				const held = ctx.bindings.formFieldHeld.get(term.uuid);
+				return held === undefined ? scalar(data) : scalar(data, held);
 			}
 			const several =
 				ctx.form === undefined
@@ -3626,6 +3657,7 @@ function assignmentErrors(
 	ctx: ExpressionContext,
 	destinations: readonly CasePropertyDataType[],
 	errors: CheckError[],
+	identifierText: boolean,
 ): void {
 	const nullPath = assignmentNullLiteralPath(expression, []);
 	if (nullPath !== undefined)
@@ -3650,7 +3682,11 @@ function assignmentErrors(
 		if (type === undefined || type === ANY_TYPE) return;
 		const isoDateText = isIsoDateText(output);
 		for (const destination of new Set(destinations))
-			if (!isWriteAssignable(type, destination, isoDateText))
+			if (
+				identifierText
+					? !isValueStorageAssignable(type, destination)
+					: !isWriteAssignable(type, destination, isoDateText)
+			)
 				errors.push({
 					path,
 					code: "expected-value",
@@ -3718,12 +3754,22 @@ function checkComparison(
 	}
 
 	if (!typesCompatible(leftType, rightType)) {
-		errors.push({
-			path,
-			code: "incompatible-values",
-			...dateDatetimeReason(leftType, rightType),
-			message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
-		});
+		const coerced =
+			kind === "eq" || kind === "neq"
+				? coercedEquality(
+						equalityOperand(left, leftType),
+						equalityOperand(right, rightType),
+					)
+				: undefined;
+		if (coerced === undefined)
+			errors.push({
+				path,
+				code: "incompatible-values",
+				...dateDatetimeReason(leftType, rightType),
+				message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
+			});
+		else if (searchesOnServer(ctx))
+			errors.push(searchCoercionError(coerced, path));
 	}
 	const device = errors.length === before ? onDeviceContext(ctx) : undefined;
 	if (device === undefined) return;
@@ -3813,6 +3859,46 @@ function caseTypeLiteralError(
 
 /** A date against a date and time: CommCare compares a date by its day and a
  * date and time by its moment (`XPathCmpExpr.evalRaw`, `FunctionUtils.toNumeric`). */
+/** An `=`, `!=` or `in` operand as `ruleSets.ts::coercedEquality` reads it. */
+function equalityOperand(
+	expression: Expression,
+	type: ScalarType,
+): EqualityOperand {
+	return expression.kind === "term" && expression.term.kind === "literal"
+		? { type, literal: expression.term }
+		: { type };
+}
+
+/**
+ * Whether the slot is a condition CommCare HQ's server search reads (a search
+ * field's condition, a searching list's filter). A device's coercions are not
+ * yet read in HQ's search, so a comparison `coercedEquality` admits elsewhere
+ * stays refused there.
+ */
+function searchesOnServer(ctx: TypingContext): boolean {
+	return (
+		"profile" in ctx &&
+		ctx.ruleSet === "record" &&
+		ctx.profile.targets.has("CS") &&
+		ctx.profile.expectation.kind === "condition"
+	);
+}
+
+function searchCoercionError(
+	coerced: "integer-text" | "text-number",
+	path: CheckPath,
+): CheckError {
+	return {
+		path,
+		code: "incompatible-values",
+		reason: "search-coercion",
+		message:
+			coerced === "text-number"
+				? "This compares text or a choice with a number. A device reads the text as a number, and Nova doesn't yet run that comparison in a search, which CommCare HQ's server runs. You can compare it with the value as text, such as = '1'."
+				: "This compares a whole number with text. Nova doesn't yet run that comparison in a search, which CommCare HQ's server runs. You can compare it with the number itself, such as = 1.",
+	};
+}
+
 function dateDatetimeReason(
 	left: ScalarType,
 	right: ScalarType,
@@ -4429,12 +4515,19 @@ function checkIn(
 		]);
 		if (valType === undefined) continue;
 		if (!typesCompatible(leftType, valType)) {
-			errors.push({
-				path: [...path, "values", i],
-				code: "incompatible-values",
-				...dateDatetimeReason(leftType, valType),
-				message: `Type mismatch: literal '${describe(valType)}' is not comparable with property type '${describe(leftType)}'.`,
-			});
+			const coerced = coercedEquality(
+				equalityOperand(p.left, leftType),
+				equalityOperand(termExpression(value), valType),
+			);
+			if (coerced === undefined)
+				errors.push({
+					path: [...path, "values", i],
+					code: "incompatible-values",
+					...dateDatetimeReason(leftType, valType),
+					message: `Type mismatch: literal '${describe(valType)}' is not comparable with property type '${describe(leftType)}'.`,
+				});
+			else if (searchesOnServer(ctx))
+				errors.push(searchCoercionError(coerced, [...path, "values", i]));
 		}
 	}
 	// Each member is an equality with the left operand (`fromExpression.ts`).

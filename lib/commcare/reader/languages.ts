@@ -287,9 +287,10 @@ export function readLanguages(ctx: ReadContext): HqLanguages {
 	).value;
 	const first = codes[0];
 	const seen = new Set<string>();
+	// A code's refusal is a class of the app's list of codes, so it stands there too.
 	const raise = (claim: Claim, code: string, name: string | undefined) => {
 		const detail: FindingDetail = name === undefined ? {} : { name };
-		ctx.accounting.finding(claim, place, detail);
+		ctx.accounting.findingAt(claim, place, "/langs", detail);
 		if (!refused.has(code))
 			refused.set(code, manifestFindingOf(claim, place, detail));
 	};
@@ -616,6 +617,17 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 							);
 							if (mapping !== undefined) mapping.label = text(value);
 						}
+					}
+				: undefined;
+		case "case-list-sort-label":
+			return owner.kind === "case-list-column"
+				? (draft, value) => {
+						const column = draft.modules[
+							owner.moduleUuid
+						]?.caseListConfig?.columns.find(
+							(one) => one.uuid === owner.columnUuid,
+						);
+						if (column?.sort !== undefined) column.sort.label = text(value);
 					}
 				: undefined;
 		case "case-property-option-label":

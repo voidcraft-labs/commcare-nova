@@ -433,20 +433,20 @@ describe("advanced actions", () => {
 		expect(retiredFixtureKeys("AdvancedOpenCaseAction")).toEqual([]);
 	});
 
-	it("writes a condition's question, answer and operator as nulls where it has none", () => {
+	it("writes a condition that is not if with no question or answer, at HQ's default operator", () => {
 		const { open_cases, load_update_cases } = actions();
 		expect(open_cases[0]?.open_condition).toEqual({
 			type: "always",
 			question: null,
 			answer: null,
-			operator: null,
+			operator: "=",
 			doc_type: "FormActionCondition",
 		});
 		expect(load_update_cases[0]?.close_condition).toEqual({
 			type: "never",
 			question: null,
 			answer: null,
-			operator: null,
+			operator: "=",
 			doc_type: "FormActionCondition",
 		});
 		expect(load_update_cases[1]?.close_condition).toEqual({

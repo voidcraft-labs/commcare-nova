@@ -1,0 +1,10 @@
+[
+	{
+		"path": "jr://file/commcare/image/register_household.png",
+		"file": "media/0.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	}
+]

@@ -215,10 +215,12 @@ export interface MediaPathAssignment {
 		readonly kept: string;
 		readonly dropped: readonly string[];
 	}[];
-	/** A path of HQ's that is not held, with why: the file takes its derivation. */
+	/** A path of HQ's that is not held, with why, and the path the file goes out at in its
+	 *  place (`to`): the path the file keeps, or its derivation where it keeps none. */
 	readonly rederived: readonly {
 		readonly assetId: MediaAssetId;
 		readonly from: string;
+		readonly to: string;
 		readonly why: MediaPathRederivedReason;
 	}[];
 }
@@ -271,23 +273,32 @@ export function assignMediaPaths(
 		asset.paths.add(file.hqPath.slice(JR_FILE.length));
 	}
 
-	const rederived: {
-		assetId: MediaAssetId;
-		from: string;
-		why: MediaPathRederivedReason;
-	}[] = [];
+	// Each file's paths that are not held, with why.
+	const unheld = new Map<
+		MediaAssetId,
+		{ from: string; why: MediaPathRederivedReason }[]
+	>();
+	const notHeld = (
+		assetId: MediaAssetId,
+		from: string,
+		why: MediaPathRederivedReason,
+	) => {
+		const paths = unheld.get(assetId) ?? [];
+		paths.push({ from, why });
+		unheld.set(assetId, paths);
+	};
 	// 2 and 3. Paths that are not holdable, or that name another file.
 	const candidates = new Map<MediaAssetId, string[]>();
 	for (const [assetId, asset] of assets) {
 		const kept: string[] = [];
 		for (const path of asset.paths) {
 			if (!isHoldableWirePath(path)) {
-				rederived.push({ assetId, from: path, why: "not-holdable" });
+				notHeld(assetId, path, "not-holdable");
 			} else if (
 				DERIVED_SHAPE.test(path.toLowerCase()) &&
 				path !== asset.derived
 			) {
-				rederived.push({ assetId, from: path, why: "names-another-file" });
+				notHeld(assetId, path, "names-another-file");
 			} else {
 				kept.push(path);
 			}
@@ -317,7 +328,7 @@ export function assignMediaPaths(
 		const remaining: string[] = [];
 		for (const path of paths) {
 			if ((folded.get(path.toLowerCase())?.size ?? 0) > 1) {
-				rederived.push({ assetId, from: path, why: "differs-only-by-case" });
+				notHeld(assetId, path, "differs-only-by-case");
 			} else {
 				remaining.push(path);
 			}
@@ -329,6 +340,19 @@ export function assignMediaPaths(
 		if (dropped.length > 0) collapsed.push({ assetId, kept, dropped });
 	}
 
+	// 7. Each path not held goes to the path its file keeps, else to its derivation.
+	const keptPath = new Map(rows.map((row) => [row.assetId, row.wirePath]));
+	const rederived: {
+		assetId: MediaAssetId;
+		from: string;
+		to: string;
+		why: MediaPathRederivedReason;
+	}[] = [];
+	for (const [assetId, asset] of assets) {
+		const to = keptPath.get(assetId) ?? asset.derived;
+		for (const { from, why } of unheld.get(assetId) ?? [])
+			rederived.push({ assetId, from, to, why });
+	}
 	rows.sort((a, b) => codeUnitOrder(a.wirePath, b.wirePath));
 	collapsed.sort((a, b) => codeUnitOrder(a.kept, b.kept));
 	rederived.sort(
@@ -451,7 +475,8 @@ export function adoptedAppBaselineWrite(input: {
 	/** CommCare HQ's file at each held media path, the logo's included. */
 	readonly mediaFiles: HqMediaRecord;
 	readonly observedAt: string;
-	/** The chosen declaration's list, from the create's own acceptance. */
+	/** The chosen declaration's list, from the create's own acceptance, as a
+	 *  list stores it (`reading/firstPublishChanges.ts::firstPublishListToStore`). */
 	readonly firstPublish: FirstPublishView;
 }): AppBaselineWrite & { readonly origin: "read" } {
 	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);

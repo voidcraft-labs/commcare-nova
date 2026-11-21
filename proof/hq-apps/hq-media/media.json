@@ -1,0 +1,122 @@
+[
+	{
+		"path": "jr://file/commcare/audio/data/animal-cow.mp3",
+		"file": "media/0.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/audio/data/animal_name.mp3",
+		"file": "media/1.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/audio/module0_en.mp3",
+		"file": "media/2.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/audio/module0_form0_en.mp3",
+		"file": "media/3.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/commcare/b31db31dac56efe2a9e3fa26a868814b726d741c7f700863462a21638ee6dd3a.png",
+		"file": "media/4.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/data/Place.png",
+		"file": "media/5.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/data/animal-goat.png",
+		"file": "media/6.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/data/animal_name.png",
+		"file": "media/7.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/data/place.png",
+		"file": "media/8.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/data/unused_picture.png",
+		"file": "media/9.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module0_en.png",
+		"file": "media/10.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module0_form0_en.png",
+		"file": "media/10.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/video/data/animal-hen.mp4",
+		"file": "media/11.mp4",
+		"mediaClass": "CommCareVideo",
+		"kind": "video",
+		"mimeType": "video/mp4",
+		"extension": "mp4"
+	},
+	{
+		"path": "jr://file/commcare/video/data/animal_name.mp4",
+		"file": "media/12.mp4",
+		"mediaClass": "CommCareVideo",
+		"kind": "video",
+		"mimeType": "video/mp4",
+		"extension": "mp4"
+	},
+	{
+		"path": "jr://file/loose_picture.png",
+		"file": "media/13.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	}
+]

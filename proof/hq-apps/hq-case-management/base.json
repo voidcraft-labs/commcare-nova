@@ -1,0 +1,33 @@
+{
+	"id": "hq-case-management",
+	"configuration": {
+		"flags": [
+			"SAVE_ONLY_EDITED_FORM_FIELDS"
+		],
+		"namedPrivileges": [
+			"CHILD_CASES",
+			"USERCASE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"forms-and-case-writes/case-preload-question-property-into-a-question-outside-any",
+		"forms-and-case-writes/conditionalcaseupdate-update-mode-edit",
+		"forms-and-case-writes/open-case-external-id-on-a-form-whose-open-case-is-active",
+		"forms-and-case-writes/open-case-name-update-question-path",
+		"forms-and-case-writes/subcases-case-properties-name-update",
+		"forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+		"forms-and-case-writes/subcases-close-condition-active",
+		"forms-and-case-writes/subcases-reference-id-null-parent",
+		"forms-and-case-writes/update-case-condition-always",
+		"forms-and-case-writes/update-case-condition-if-whose-question-exists",
+		"forms-and-case-writes/update-case-update-property-question",
+		"forms-and-case-writes/update-from-a-date-and-time-question-through-a-hidden-sibling",
+		"forms-and-case-writes/usercase-preload-into-a-question-outside-any-repeat-on-a-form",
+		"forms-and-case-writes/usercase-update-with-condition-always-or-if-read-as-always-xform"
+	]
+}

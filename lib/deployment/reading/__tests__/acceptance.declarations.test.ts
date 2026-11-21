@@ -10,12 +10,16 @@
  * re-reads in one call, the reading's document and the split document, and
  * passes; and two held files of one content at two paths give every choice
  * the same first-publish list, `media-paths-joined` among it, whether the
- * reading names them by two provisional ids or by one published id.
+ * reading names them by two provisional ids or by one published id; and a
+ * reading is printed for its fixed point under the declaration it proposes,
+ * so a case list first in an app that runs only on Android reads back.
  *
  * Plausible failures: a birth that applies a choice nobody checked; an app
  * with a Web-Apps-only file refused as Nova's mistake; a split whose
  * questions get new uuids on the re-read; a review that shows a list the
- * birth does not store, so a correct app fails the create's integrity check.
+ * birth does not store, so a correct app fails the create's integrity check;
+ * a reading printed with Web Apps on whatever its declaration, so a list
+ * first it holds reads back refused.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -26,6 +30,7 @@ import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import { PLATFORM_FEATURE_FIXTURES } from "@/lib/domain/__tests__/platformFeatureFixtures";
 import { acceptReading } from "../acceptance";
 import { narrowDeclarationsByMedia } from "../projectData/media";
 import { acceptanceInput, NO_TABLES } from "./acceptanceInput";
@@ -229,6 +234,22 @@ describe("acceptReading's declarations", () => {
 		reads.count = 0;
 		accepted(unsplit);
 		expect(reads.count).toBe(1);
+	});
+
+	it("prints the reading under its proposed declaration, so a case list first reads back", async () => {
+		const doc = PLATFORM_FEATURE_FIXTURES["list-first"].with();
+		expect(doc.appSettings.runsOnlyOn).toBe("android");
+		const read = servedReading(await servedSource(doc));
+		expect(read.reader.source.cloudcareEnabled).toBe(false);
+		const input = acceptanceInput(read.reader, read.outcome);
+		expect(
+			input.choices.choices.map((choice) => choice.runsOnlyOn),
+		).not.toContain(undefined);
+		reads.calls.length = 0;
+		accepted(input);
+		const [again] = reads.calls;
+		if (again === undefined) throw new Error("Acceptance made the re-read.");
+		expect(again.input.source.cloudcareEnabled).toBe(false);
 	});
 
 	it("gives every choice one list for two files of one content, by provisional or published ids", async () => {

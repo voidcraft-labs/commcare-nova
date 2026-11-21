@@ -165,6 +165,15 @@ describe("slots that read the screen width bare, read whole", () => {
 			"absent-session-value-guard form schema:Form.form_filter",
 			"absent-session-value-guard menu schema:Module.module_filter",
 		]);
+		// Each rewrite names the value of the stored app its slot was read from, which places it.
+		expect(
+			outcome.draft.facts.rewrites.map((rewrite) => rewrite.pointer).sort(),
+		).toEqual([
+			"/modules/0/case_details/short/columns/1/field",
+			"/modules/0/case_details/short/filter",
+			"/modules/0/forms/0/form_filter",
+			"/modules/0/module_filter",
+		]);
 	});
 
 	// The control: Nova's own spelling reads to the same document with no rewrite.

@@ -261,12 +261,38 @@ describe("Hidden Value data types", () => {
 });
 
 describe("Hidden Value writer opinions", () => {
-	it("leaves a Hidden-only disagreement unknown and reports each writer", () => {
-		const built = doc({
+	it("saves a Hidden-only disagreement as text, and keeps it apart where a question opens on the property's value", () => {
+		const joined = doc({
 			register: [hidden("number", { calculate: "1" }, "score")],
 			followUp: [hidden("words", { calculate: "'high'" }, "score")],
 		});
+		expect(
+			inferExpressionTypes(joined).propertyTypes.get("patient")?.get("score"),
+		).toEqual({
+			type: "text",
+			origin: { kind: "joined", types: ["int", "text"] },
+		});
+		expect(hiddenWriterVerdicts(joined)).toEqual([]);
+		// A whole-number question that opens on the value casts it, and would
+		// stop on the text.
+		const built = doc({
+			register: [hidden("number", { calculate: "1" }, "score")],
+			followUp: [
+				hidden("words", { calculate: "'high'" }, "score"),
+				f({
+					uuid: uuid("score-seen"),
+					kind: "int",
+					id: "score_seen",
+					label: "Score seen",
+					default_value: "#patient/score",
+				}),
+			],
+		});
 		expect(propertyType(built, "score")).toBeUndefined();
+		expect(
+			inferExpressionTypes(built).propertyTypes.get("patient")?.get("score")
+				?.castBy,
+		).toEqual({ field: uuid("score-seen"), type: "int" });
 		const verdicts = hiddenWriterVerdicts(built);
 		expect(
 			verdicts.map((verdict) => [
@@ -311,9 +337,12 @@ describe("Hidden Value writer opinions", () => {
 		const verdicts = hiddenWriterVerdicts(refused);
 		expect(verdicts).toHaveLength(1);
 		expect(verdicts[0].writer.field).toBe(uuid("text"));
+		// The date question opens on the property's value, so the two are not
+		// saved as text.
 		expect(verdicts[0].property).toEqual({
 			type: "date",
 			origin: { kind: "field", field: uuid("visit") },
+			castBy: { field: uuid("visit"), type: "date" },
 		});
 		expect(verdicts[0].findings).toEqual([
 			{ reason: "type", path: [], type: "text" },
@@ -359,7 +388,9 @@ describe("Hidden Value writer opinions", () => {
 			new Set(["date"]),
 		);
 		expect(hiddenWriterVerdicts(preloaded)).toEqual([]);
-		// Any other starting value is the writer's own, and holds an opinion.
+		// Any other starting value is the writer's own, and holds an opinion:
+		// text beside the date question, which opens on the value in the
+		// follow-up and would stop on the text.
 		for (const value of [
 			{ default_value: "'not-a-date'" },
 			{ calculate: "'not-a-date'" },
@@ -367,8 +398,8 @@ describe("Hidden Value writer opinions", () => {
 			expect(
 				hiddenWriterVerdicts(
 					doc({
-						register: [date],
-						followUp: [hidden("start", value, "visit_date")],
+						register: [hidden("start", value, "visit_date")],
+						followUp: [date],
 					}),
 				)[0]?.findings,
 			).toEqual([{ reason: "type", path: [], type: "text" }]);
@@ -424,11 +455,12 @@ describe("writer opinions beside a case operation's write", () => {
 			doc({
 				register: [status],
 				properties,
-				followUp: [hidden("closing", { calculate: "today()" }, "stage")],
+				followUp: [hidden("closing", { calculate: "now()" }, "stage")],
 			}),
 			[{ property: "stage", value: literalValue("open") }],
 		);
-		// The Hidden Value that does not fit is its own finding; the operation
+		// The Hidden Value that does not fit, a date and time no text holds,
+		// is its own finding; the operation
 		// beside it writes a fitting value and stays admitted.
 		expect(conflicts(disagreeing)).toEqual([]);
 		expect(mismatches(disagreeing)).toEqual([uuid("closing")]);
@@ -453,7 +485,7 @@ describe("writer opinions beside a case operation's write", () => {
 			doc({
 				register: [amount],
 				properties,
-				followUp: [hidden("rounded", { calculate: "'many'" }, "amount")],
+				followUp: [hidden("rounded", { calculate: "now()" }, "amount")],
 			}),
 			[{ property: "amount", value: literalValue(1.5) }],
 		);
@@ -525,11 +557,84 @@ describe("writer opinions beside a case operation's write", () => {
 	it("keeps a Hidden Value's own type where no fact types the property", () => {
 		const raw = doc({
 			register: [hidden("first", { calculate: "'abc'" }, "untyped")],
-			followUp: [hidden("second", { calculate: "today()" }, "untyped")],
+			followUp: [hidden("second", { calculate: "now()" }, "untyped")],
 		});
 		expect(
 			inferExpressionTypes(raw).writerOpinions.get("patient")?.get("untyped"),
-		).toEqual(new Set(["text", "date"]));
+		).toEqual(new Set(["text", "datetime"]));
+		// A date beside text is saved as text, which takes both.
+		const joined = doc({
+			register: [hidden("first", { calculate: "'abc'" }, "untyped")],
+			followUp: [hidden("second", { calculate: "today()" }, "untyped")],
+		});
+		expect(
+			inferExpressionTypes(joined)
+				.writerOpinions.get("patient")
+				?.get("untyped"),
+		).toEqual(new Set(["text"]));
+	});
+
+	it("gives an operation's write the held class the gate reads, so a yes or no Hidden Value decides its branch", () => {
+		const choose = (cond: string) => ({
+			kind: "if" as const,
+			cond: fieldValue(cond),
+			// biome-ignore lint/suspicious/noThenProperty: Stored AST branch is an object, never a callable thenable.
+			then: literalValue("a"),
+			else: literalValue("b"),
+		});
+		// `seen` is a condition Core holds as BooleanData, and `copy` holds
+		// what it copies; both stand as the branch's condition, as the gate
+		// reads them. `note` is text, which stands as no condition.
+		const built = withFollowUpWrites(
+			doc({
+				followUp: [
+					hidden("seen", { calculate: "#form/note = 'x'" }),
+					hidden("copy", { calculate: "#form/seen" }),
+				],
+				properties: ["by_flag", "by_copy", "by_text"].map((name) => ({
+					name,
+					label: name,
+				})),
+			}),
+			[
+				{ property: "by_flag", value: choose("seen") },
+				{ property: "by_copy", value: choose("copy") },
+				{ property: "by_text", value: choose("note") },
+			],
+		);
+		const inference = inferExpressionTypes(built);
+		expect(inference.hiddenHeld.get(uuid("seen"))).toBe("boolean");
+		expect(inference.hiddenHeld.get(uuid("copy"))).toBe("boolean");
+		const opinions = inference.writerOpinions.get("patient");
+		expect(opinions?.get("by_flag")).toEqual(new Set(["text"]));
+		expect(opinions?.get("by_copy")).toEqual(new Set(["text"]));
+		expect(opinions?.get("by_text")).toEqual(new Set());
+		expect(propertyType(built, "by_flag")).toBe("text");
+		// The gate admits the two the opinions read, and refuses the text one.
+		const admitted = produce(built, (draft) => {
+			const operation = draft.forms[FOLLOW_UP].caseOperations?.at(-1);
+			if (operation?.action === "update")
+				operation.writes = operation.writes?.filter(
+					(write) => write.property !== "by_text",
+				);
+		});
+		expect(validate(admitted)).toEqual([]);
+		expect(validate(built).length).toBeGreaterThan(0);
+	});
+
+	it("names each type of a Hidden Value whose results agree on none, where nothing types the property", () => {
+		const built = doc({
+			register: [
+				hidden(
+					"mixed",
+					{ calculate: "if(#form/flag = 'yes', 1, now())" },
+					"seen",
+				),
+			],
+		});
+		expect(
+			inferExpressionTypes(built).writerOpinions.get("patient")?.get("seen"),
+		).toEqual(new Set(["int", "datetime"]));
 	});
 });
 

@@ -17,7 +17,7 @@
  * settles is a candidate until it does (`settleField`).
  */
 
-import { isTag } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import {
 	questionIdProblem,
 	RESERVED_QUESTION_IDS,
@@ -30,6 +30,7 @@ import {
 	splitName,
 } from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
+import type { Claim } from "../claims";
 import type { GeneratedValue } from "../expressions";
 import { questionPlace } from "../place";
 import type { ReaderInput, ReaderLookupCatalog, UnreadTable } from "../types";
@@ -47,7 +48,7 @@ import {
 	type ReadControls,
 	wrapsRepeat,
 } from "./body";
-import { X } from "./claims";
+import { type KindSites, X } from "./claims";
 import {
 	absolutePath,
 	type CaseRegionContainer,
@@ -60,6 +61,7 @@ import {
 	recognizeConstraintMessage,
 	recognizeGenerated,
 } from "./generated";
+import { hqQuestionType } from "./hqQuestionType";
 import type { DraftField, NodeRole } from "./index";
 import {
 	type FieldKindFacts,
@@ -77,7 +79,12 @@ import {
 } from "./model";
 import { type CaseChoicesProposal, readChoices } from "./options";
 import { intentIdsOf, ODK_NS, type ParsedXForm } from "./parse";
+import type { StandingRefusal } from "./refusals";
 import { type RepeatRead, readRepeat, settleRepeatCount } from "./repeats";
+
+/** The intent class of CommCare's print action, which the form builder reads as its print
+ *  question (`intentManager.js::syncMugWithIntent`). */
+const PRINT_ACTION = "org.commcare.dalvik.action.PRINT";
 
 type FormPlace = Extract<HqPlace, { kind: "form" }>;
 
@@ -114,6 +121,8 @@ export interface JoinInput {
 	readonly instanceSources: ReadonlyMap<string, string>;
 	readonly intents: AppearanceForm;
 	readonly unreadTable: (table: UnreadTable) => void;
+	/** Notes an instance a choice list's itemset reads. */
+	readonly carrierRead: (id: string) => void;
 	/** `ReaderInput.target`, which a capture's link node names. */
 	readonly target: ReaderInput["target"];
 }
@@ -157,6 +166,30 @@ export interface JoinedForm {
 	settleField(node: DataNode): DraftField;
 }
 
+/**
+ * A question's data node's claim under the type CommCare HQ's question reader gives it
+ * (`hqQuestionType.ts`), the type the lane's question reading records there: the row's own,
+ * or the row's claim under the other type HQ gives a question of the row (`KindSites.nodeAs`). A
+ * question with no control, a Hidden Value, is HQ's `DataBindOnly`, the row's own. HQ's index
+ * gives a type to every control of a row the reader holds (`kinds.ts` leaves an upload whose bind
+ * is not `binary` unclaimed), and a control it gives none keeps the row's own claim.
+ */
+function nodeClaimOf(
+	sites: KindSites,
+	control: ControlNode | undefined,
+	bindType: string | undefined,
+): Claim<"take"> {
+	if (control === undefined) return sites.node;
+	const type = hqQuestionType({
+		tag: control.tag,
+		type: bindType,
+		mediaType: control.mediaType,
+		appearance: control.appearance,
+	});
+	if (type === null || sites.node.key === `mug:${type}`) return sites.node;
+	return sites.nodeAs?.[type] ?? sites.node;
+}
+
 /** A control's tag as the kind table names it. */
 function controlFact(tag: ControlNode["tag"]): FieldKindFacts["control"] {
 	return tag === "group" || tag === "repeat" ? "none" : tag;
@@ -177,6 +210,26 @@ function ownNamespace(node: DataNode, parsed: ParsedXForm): boolean {
 	);
 }
 
+/**
+ * Registers a generated node's calculate, which the emitter writes and no slot holds, for the
+ * uses its syntax makes alone (`PendingExpression.usesOnly`), read in its owner field's logic.
+ */
+export function registerGeneratedUses(
+	owner: DraftField,
+	bind: BindFacts | undefined,
+): void {
+	const calculate = bind?.logic.calculate;
+	if (bind === undefined || calculate === undefined) return;
+	owner.expressions.push({
+		slot: "relevant",
+		text: calculate,
+		at: { element: bind.element, attribute: "calculate" },
+		key: "xform:model/bind@calculate",
+		mode: XFORM,
+		usesOnly: true,
+	});
+}
+
 /** Whether Java's `String.trim()` empties a text, which is when Core drops it as no value
  *  (`XFormParser.getXMLDocument`): every code unit at or below U+0020. A no-break space is a
  *  value. */
@@ -184,6 +237,14 @@ function javaTrimEmpty(text: string): boolean {
 	for (let index = 0; index < text.length; index++)
 		if (text.charCodeAt(index) > 0x20) return false;
 	return true;
+}
+
+/** The surface key a data node is named by in the form's instance: a child of the data root,
+ *  or one deeper. */
+function dataNodeKey(node: DataNode): string {
+	return node.path.length === 1
+		? "xform:model/instance/*/*"
+		: "xform:model/instance//*";
 }
 
 export function joinForm(input: JoinInput): JoinedForm {
@@ -208,7 +269,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 	/** Nodes a refusal of their role covers, which take no role and no field. */
 	const covered = new Set<DataNode>();
 
-	// 1. Role nodes, and a root node named `case` as written.
+	// 1. Role nodes.
 	const under = (node: DataNode, role: NodeRole) => {
 		roles.set(node, role);
 		for (const child of node.children) under(child, role);
@@ -216,10 +277,6 @@ export function joinForm(input: JoinInput): JoinedForm {
 	for (const node of tree.order) {
 		if (roles.has(node) || tree.refused.has(node) || covered.has(node))
 			continue;
-		if (node.parent === null && node.name === "case") {
-			under(node, { kind: "root-case" });
-			continue;
-		}
 		if (node.role === undefined) continue;
 		const block = CONNECT_ROLES[node.role];
 		if (node.role === "SaveToCase") under(node, { kind: "case-region" });
@@ -304,17 +361,33 @@ export function joinForm(input: JoinInput): JoinedForm {
 		return field;
 	};
 
-	/** The question id rule, raised at the question: the field stands in. */
+	/** The question id rule, at the question's data node: an id that passes is held there, and
+	 *  one that fails is refused there, and the field stands in. The node's key is the one the
+	 *  form's instance spells it by: a child of the data root, or one deeper. */
 	const idFinding = (node: DataNode): boolean => {
+		const key = dataNodeKey(node);
 		const problem = questionIdProblem(node.name);
-		if (problem === undefined) return false;
+		if (problem === undefined) {
+			accounting.claimEntry(
+				{ element: node.element },
+				X.questionId.top.entry,
+				key,
+				placeOf(node),
+			);
+			return false;
+		}
 		const lowered = node.name.toLowerCase();
 		const reservedAnyCase =
 			problem === "reserved-name" &&
 			RESERVED_QUESTION_IDS.anyCase.has(lowered) &&
 			lowered !== "meta";
-		accounting.finding(
-			reservedAnyCase ? X.questionIdReserved : X.questionIdGrammar,
+		const refusal = reservedAnyCase
+			? X.questionIdReserved
+			: X.questionIdGrammar;
+		accounting.claimEntry(
+			{ element: node.element },
+			refusal.entry,
+			key,
 			placeOf(node),
 			{ name: node.name },
 		);
@@ -330,10 +403,17 @@ export function joinForm(input: JoinInput): JoinedForm {
 				placeOf(node),
 			);
 		if (node.children.length === 0 && !javaTrimEmpty(node.text))
-			accounting.finding(X.defaultDataValue, placeOf(node), {
-				name: node.name,
-			});
+			accounting.findingAtNode(
+				X.defaultDataValue,
+				placeOf(node),
+				{ element: node.element },
+				dataNodeKey(node),
+				{ name: node.name },
+			);
 	};
+
+	const inRepeat = (parent: DraftField | null): boolean =>
+		parent !== null && (parent.kind === "repeat" || inRepeat(parent.parent));
 
 	const hasDefault = (node: DataNode) =>
 		input.setvalues.some(
@@ -343,6 +423,28 @@ export function joinForm(input: JoinInput): JoinedForm {
 				one.target.length === node.path.length &&
 				one.target.every((step, i) => step === node.path[i]),
 		);
+
+	// The head's `odkx:intent`s by id, the first of each: a callout question is refused by what its
+	// intent says, the print action (the form builder's print question) or `appearance="quick"`
+	// (which no editor writes) before the callout kind, so its one finding names the decisive cause.
+	const intentsById = new Map<string, Element>();
+	for (const element of parsed.head.children) {
+		if (!isTag(element)) continue;
+		if (!isElement(element, parsed.scope(element), ODK_NS, "intent")) continue;
+		const id = element.attribs.id;
+		if (id !== undefined && !intentsById.has(id)) intentsById.set(id, element);
+	}
+	const calloutClaim = (control: ControlNode | undefined) => {
+		const appearance = control?.appearance;
+		const intent = appearance?.startsWith("intent:")
+			? intentsById.get(appearance.slice("intent:".length))
+			: undefined;
+		if (intent?.attribs.class === PRINT_ACTION)
+			return X.refusedKind.printCallout;
+		if (intent?.attribs.appearance === "quick")
+			return X.refusedKind.quickCallout;
+		return X.refusedKind.intent;
+	};
 
 	/** A question's kind row and its claims. */
 	const readQuestion = (
@@ -359,6 +461,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 			appearance: control?.appearance,
 			hasCalculate: bind?.logic.calculate !== undefined,
 			hasDefault: hasDefault(node),
+			inRepeat: inRepeat(parent),
 		};
 		let row: FieldKindRow | undefined = fieldKindOf(facts);
 		let labelAppearance = false;
@@ -389,7 +492,10 @@ export function joinForm(input: JoinInput): JoinedForm {
 		claimNode(node);
 		if (row === undefined) return make(node, parent, control, "hidden", true);
 		if (row.kind === undefined || row.sites === undefined) {
-			const claim = row.claim as typeof X.refusedKind.long;
+			const claim =
+				row.claim === X.refusedKind.intent
+					? calloutClaim(control)
+					: (row.claim as Claim<"refuse">);
 			// A bind type Vellum does not write is named by the type as written.
 			const detail =
 				claim === X.refusedKind.inputOtherType && bind?.type !== undefined
@@ -406,11 +512,19 @@ export function joinForm(input: JoinInput): JoinedForm {
 					detail,
 				);
 			const standIn = make(node, parent, control, "hidden", true);
-			standIn.standInClaim = claim;
+			standIn.standInRefusal =
+				detail === undefined ? { claim, place } : { claim, place, detail };
 			return standIn;
 		}
 		const sites = row.sites;
-		cursor.take({ element: node.element }, sites.node).value;
+		// A Hidden Value with both sources outside every repeat is claimed once the bound
+		// document says whether a runtime reads its default (`afterBinding.ts::settleBothSources`).
+		const bothSources = sites === X.kind.hiddenBothUnread;
+		if (!bothSources)
+			cursor.take(
+				{ element: node.element },
+				nodeClaimOf(sites, control, bind?.type),
+			).value;
 		if (control !== undefined) {
 			if (sites.control !== undefined)
 				cursor.take({ element: control.element }, sites.control).value;
@@ -429,10 +543,18 @@ export function joinForm(input: JoinInput): JoinedForm {
 				).value;
 		}
 		const typeClaim = row.typeClaim ?? sites.type;
-		if (bind?.type !== undefined && typeClaim !== undefined)
+		if (
+			bind?.type !== undefined &&
+			typeClaim !== undefined &&
+			!(bothSources && typeClaim === sites.type)
+		)
 			cursor.take({ element: bind.element, attribute: "type" }, typeClaim)
 				.value;
 		const field = make(node, parent, control, row.kind, stood, row.slots ?? {});
+		if (bothSources)
+			field.bothSources = {
+				typeDeferred: bind?.type !== undefined && typeClaim === sites.type,
+			};
 		if (control === undefined) return field;
 		if (control.appearance !== undefined && !labelAppearance) {
 			const verdict = classifyAppearance(
@@ -464,6 +586,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				lookup: input.lookup,
 				instanceSources: input.instanceSources,
 				unreadTable: input.unreadTable,
+				carrierRead: input.carrierRead,
 			});
 			if (proposal !== undefined) caseChoices.set(field, proposal);
 		}
@@ -598,9 +721,12 @@ export function joinForm(input: JoinInput): JoinedForm {
 		for (const [node, purpose] of nodes) {
 			if (node === undefined) continue;
 			setGenerated(node, { kind: "generated", purpose, owner: wrapper });
+			idFinding(node);
 			claimGeneratedNode(cursor, node, input.binds.get(node), {
 				calculate: purpose !== "query-ids",
 			});
+			if (purpose !== "query-ids")
+				registerGeneratedUses(field, input.binds.get(node));
 		}
 		for (const setvalue of parts.setvalues)
 			claimGeneratedSetvalue(cursor, setvalue);
@@ -628,8 +754,37 @@ export function joinForm(input: JoinInput): JoinedForm {
 			});
 	};
 
-	/** Nodes with element children refused whole, whose fields stand in as groups. */
-	const refusedContainers = new Set<DataNode>();
+	// The node a control refused whole names, and every node under it, belongs to that control:
+	// refused with it, each standing in at its data path under the control's finding, so its bind
+	// and setvalues stand under that finding and a path another expression writes still binds.
+	const underRefusedControl = new Map<DataNode, StandingRefusal>();
+	for (const node of tree.order) {
+		const inherited =
+			node.parent === null ? undefined : underRefusedControl.get(node.parent);
+		const refusal = inherited ?? input.controls.refusedNodes.get(node);
+		if (refusal === undefined) continue;
+		if (roles.has(node) || tree.refused.has(node) || covered.has(node))
+			continue;
+		if (inherited === undefined)
+			cursor.refuseSubtree(
+				node.element,
+				refusal.claim,
+				refusal.place,
+				refusal.detail,
+			);
+		underRefusedControl.set(node, refusal);
+		make(
+			node,
+			dataParent(node),
+			undefined,
+			node.children.length === 0 ? "hidden" : "group",
+			true,
+		).standInRefusal = refusal;
+	}
+
+	/** Nodes with element children refused whole, whose fields stand in as groups, each with the
+	 *  refusal a container under it stands under. */
+	const refusedContainers = new Map<DataNode, StandingRefusal>();
 	/** Every field a control made, for the agreement of its two places. */
 	const placed: DraftField[] = [];
 	// 4. Every node a control names, in body order.
@@ -721,6 +876,8 @@ export function joinForm(input: JoinInput): JoinedForm {
 				stood,
 				read.kind === "stand-in" ? {} : stub.field,
 			);
+			if (read.kind === "stand-in" && read.refusal !== undefined)
+				field.standInRefusal = read.refusal;
 			field.expressions.push(...stub.expressions);
 			// The wrapper group and the repeat are one field: its path is listed once, whichever
 			// of the two carries an inert appearance.
@@ -758,22 +915,33 @@ export function joinForm(input: JoinInput): JoinedForm {
 			const place = placeOf(node);
 			cursor.refuseSubtree(control.element, X.questionWithChildren, place);
 			cursor.refuseSubtree(node.element, X.questionWithChildren, place);
-			refusedContainers.add(node);
+			const refusal = { claim: X.questionWithChildren, place };
+			refusedContainers.set(node, refusal);
 			made = make(node, parent, undefined, "group", true);
+			made.standInRefusal = refusal;
 		} else made = readQuestion(node, control, parent);
 		if (made !== undefined) placed.push(made);
 	}
 
 	// A control's place and its node's place must agree, once every field a control makes
-	// is made: a data parent whose control stands later in the body is a field by now.
+	// is made: a data parent whose control stands later in the body is a field by now. The
+	// path that places the node is the control's `ref`, so the refusal stands there too.
 	for (const made of placed) {
 		const expected = dataParent(made.node);
 		if (expected === made.parent) continue;
 		const crossing = repeatOf(expected) !== repeatOf(made.parent);
-		accounting.finding(
-			crossing ? X.dataParentCrossingRepeat : X.dataParentOtherGroup,
-			made.place,
-		);
+		const refusal = crossing
+			? X.dataParentCrossingRepeat
+			: X.dataParentOtherGroup;
+		const control = made.control;
+		if (control === undefined) accounting.finding(refusal, made.place);
+		else
+			accounting.findingAtNode(
+				refusal,
+				made.place,
+				{ element: control.element },
+				`xform:${control.tag}@ref`,
+			);
 	}
 
 	// The head's `odkx:intent`s an input's `intent:<id>` names: a callout question's own
@@ -806,7 +974,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (callout !== undefined)
 			cursor.refuseSubtree(
 				element,
-				X.refusedKind.intent,
+				calloutClaim(callout),
 				controlPlace(callout),
 			);
 		else
@@ -830,15 +998,25 @@ export function joinForm(input: JoinInput): JoinedForm {
 	// 6 first: a node with element children and no control is refused whole and stands in as a
 	// group, before the leaves are read, so each leaf under it stands under that group, at the
 	// data path it has. A container under one already refused stands in under it.
+	// Each such node's bind and setvalues stand under the refusal that covers it.
 	for (const node of tree.order) {
 		if (!open(node) || node.children.length === 0) continue;
-		let within = false;
-		for (let at = node.parent; at !== null && !within; at = at.parent)
-			within = refusedContainers.has(at);
-		if (!within)
-			cursor.refuseSubtree(node.element, X.hiddenWithChildren, placeOf(node));
-		refusedContainers.add(node);
-		make(node, dataParent(node), undefined, "group", true);
+		let within: StandingRefusal | undefined;
+		for (
+			let at = node.parent;
+			at !== null && within === undefined;
+			at = at.parent
+		)
+			within = refusedContainers.get(at);
+		const refusal = within ?? {
+			claim: X.hiddenWithChildren,
+			place: placeOf(node),
+		};
+		if (within === undefined)
+			cursor.refuseSubtree(node.element, refusal.claim, refusal.place);
+		refusedContainers.set(node, refusal);
+		make(node, dataParent(node), undefined, "group", true).standInRefusal =
+			refusal;
 	}
 	for (const node of tree.order)
 		if (
@@ -857,10 +1035,16 @@ export function joinForm(input: JoinInput): JoinedForm {
 		}
 		setGenerated(node, role);
 		if (role.kind === "generated") {
+			// A generated node's name is the allocator's, which the question id grammar takes, and
+			// its data node is a question's as HQ's reader counts one (a Hidden Value).
+			idFinding(node);
 			const bind = input.binds.get(node);
 			claimGeneratedNode(cursor, node, bind, {
 				calculate: role.purpose !== "count",
 			});
+			const owner = fieldOf.get(role.owner);
+			if (role.purpose !== "count" && owner !== undefined)
+				registerGeneratedUses(owner, bind);
 			const calculate = bind?.logic.calculate;
 			if (role.purpose === "constraint-count" && calculate !== undefined)
 				generatedValues.set(absolutePath(node, root), {
@@ -887,13 +1071,20 @@ export function joinForm(input: JoinInput): JoinedForm {
 		const path = node.path.join("/");
 		if (tree.nodes.get(path) !== node) continue;
 		const parent = dataParent(node);
-		make(
+		const refusal = tree.refused.get(node);
+		const standIn = make(
 			node,
 			parent,
 			undefined,
 			node.children.length === 0 ? "hidden" : "group",
 			true,
 		);
+		if (refusal !== undefined)
+			standIn.standInRefusal = {
+				claim: refusal.claim,
+				place: refusal.place ?? formPlace,
+				...(refusal.detail === undefined ? {} : { detail: refusal.detail }),
+			};
 	}
 
 	// Counted repeats, now that what each count names is known.

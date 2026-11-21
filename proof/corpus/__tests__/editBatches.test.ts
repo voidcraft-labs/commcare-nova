@@ -439,9 +439,10 @@ describe("proof corpus edit batches", () => {
 		expect(census.errors).toEqual([]);
 	});
 
-	// Two more corpus runs: a few seconds locally.
+	// Two more corpus runs: about 23 s alone on four throttled cores, and
+	// past 30 s while other suites share them.
 	it("gives each document the same batch whatever order the corpus arrives in and however large the sample is", {
-		timeout: 30_000,
+		timeout: 120_000,
 	}, () => {
 		const batches = batchesByDocument(outcomes);
 		const half = corpus.sampled.slice(0, FUZZ_SAMPLES_PER_GENERATOR / 2);

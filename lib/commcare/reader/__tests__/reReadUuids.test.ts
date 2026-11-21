@@ -30,7 +30,7 @@ import { proseText } from "@/lib/domain/prose";
 import { caseListOf } from "../../../../proof/targeted/build";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { READER_CANONICAL_CHOICES } from "../assemble";
-import { columnsOfAMenuThatListsNoCasesOffTheDetail } from "../caseList/details";
+import { columnsOfAMenuThatListsNoCases } from "../caseList/details";
 import { tileColumnsShownNowhereAsRead } from "../caseList/tile";
 import { updateBesideBareOwnAsOwnArm } from "../caseManagement/saveToCase";
 import {
@@ -145,7 +145,7 @@ describe("a canonical row's UUID where the document holds the key's mint under a
 			id("age-column"),
 			mintEntityUuid(base.appId, key),
 		);
-		const row = columnsOfAMenuThatListsNoCasesOffTheDetail(doc);
+		const row = columnsOfAMenuThatListsNoCases(doc);
 		expect(firstList(row)?.listColumnOrder).toEqual([freed(doc, key)]);
 		expect(firstList(await readWhole(doc))).toEqual(firstList(canonical(doc)));
 	});

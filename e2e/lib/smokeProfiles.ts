@@ -22,6 +22,7 @@ export const SMOKE_PROFILES = [
 	"form-refused",
 	"menu-held-case",
 	"here-column",
+	"sort-by",
 	"preview-android-media",
 	"search-claim",
 	"search-results",

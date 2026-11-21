@@ -74,10 +74,25 @@
  * answers both sides' reads from it. The plausible failures: a capture that
  * pushes the table Nova leaves out, reads it in another order than Nova, or
  * passes over a table Nova's publish would refresh or stop on.
+ *
+ * Over an app CommCare HQ's own pages made (`PublishInput.hqAuthoredA`), the
+ * capture publishes as Nova publishes over an app it brought in. Contract:
+ * Nova's real publish, over a deployment written by
+ * `recordAdoptedDeploymentInTransaction` from the reading's own identity
+ * rows and production's `adoptedAppBaselineWrite`, and over a peer holding
+ * HQ's retained source of that app, sends the republish the capture
+ * recorded, in the same order, under A's own menu and form ids and `xmlns`.
+ * The plausible failures: a capture whose ledger is not a bring-in's (it
+ * stops where Nova goes on, or the reverse), a body carrying a derived id
+ * where the deployment holds HQ's, and a body carrying Nova's language names
+ * or seeds where a bring-in leaves the project space's.
  */
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import AdmZip from "adm-zip";
 import { isTag } from "domhandler";
 import { NextRequest } from "next/server";
@@ -92,7 +107,10 @@ import { POST as compileCcz } from "@/app/api/compile/route";
 import { requireSession } from "@/lib/auth-utils";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { decrypt } from "@/lib/commcare/encryption";
+import { parseHqAppSource } from "@/lib/commcare/hq/appSource";
 import { profileUniqueId } from "@/lib/commcare/runtimeTarget";
+import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
+import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
@@ -100,6 +118,8 @@ import {
 	writePreparedGenesisInTransaction,
 } from "@/lib/db/appGenesis";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import { claimHqAppInTransaction } from "@/lib/db/hqAppClaims";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	makeManagedCopy,
 	readerOf,
@@ -111,14 +131,20 @@ import {
 	TARGET_OWNED_PROFILE,
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
+import { adoptedAppBaselineWrite } from "@/lib/deployment/adoption";
+import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
 import { publishAppToHq } from "@/lib/deployment/service";
+import { recordAdoptedDeploymentInTransaction } from "@/lib/deployment/store";
 import type {
 	DeploymentConfirmationKey,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import {
 	addLanguageMutation,
 	heldLanguageWireCodes,
@@ -126,7 +152,7 @@ import {
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { type BlueprintDoc, blueprintDocSchema, type Uuid } from "@/lib/domain";
 import { eq, literal, sessionContext } from "@/lib/domain/expression";
 import {
 	createLookupTable,
@@ -134,10 +160,12 @@ import {
 	replaceLookupRows,
 } from "@/lib/lookup/service";
 import { loadAppBlueprint } from "@/lib/mcp/loadApp";
+import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import type { HqSideSaves } from "../documents";
+import { hqAuthoredDocuments } from "../hqAuthored";
 import {
 	type CapturedRequest,
 	capturePublish,
@@ -155,6 +183,7 @@ import {
 	shellSource,
 	TargetPeer,
 } from "../targetPeer";
+import { writeControlledBase } from "./controlledBase";
 
 vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/auth-utils")>()),
@@ -1771,4 +1800,120 @@ it("makes no CCZ of a Web-Apps-only document", async () => {
 	const document = await storedDocument();
 	expect(await localCcz(declaring(document, "web-apps"), DOMAIN)).toBeNull();
 	expect(await localCcz(document, DOMAIN)).not.toBeNull();
+});
+
+it("publishes over an app brought in from CommCare HQ as the capture does, under A's own ids, through the ledger a bring-in leaves", async () => {
+	const scratch = await mkdtemp(join(tmpdir(), "nova-proof-adopted-"));
+	try {
+		const root = join(scratch, "hq-apps");
+		const hand = join(scratch, "hand");
+		await writeControlledBase(root, hand);
+		const {
+			documents: [base],
+		} = await hqAuthoredDocuments(root, hand);
+		const facts = base?.hqAuthored;
+		if (base === undefined || facts === undefined)
+			throw new Error("The controlled base read to no document.");
+		await seedBorn(
+			hydratePersistedBlueprint(blueprintDocSchema.parse(base.doc)),
+		);
+		const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
+		const source = facts.source as Readonly<Record<string, unknown>>;
+		const parsed = parseHqAppSource(source, { admit: "any" });
+		if (parsed.kind !== "source")
+			throw new Error(`HQ's retained source does not parse: ${parsed.key}.`);
+
+		// The deployment a bring-in of the app leaves, written by production.
+		const target = { server: "production" as const, domain: DOMAIN };
+		await withAppTx(async (tx) => {
+			await claimHqAppInTransaction(tx, {
+				server: target.server,
+				domain: target.domain,
+				remoteAppId: REMOTE_APP,
+			});
+			await recordAdoptedDeploymentInTransaction(tx, {
+				appId: APP,
+				projectId: PROJECT,
+				actorUserId: ACTOR,
+				target,
+				remoteAppId: REMOTE_APP,
+				remoteRevision: 1,
+				pushedRevision: loaded.app.mutation_seq,
+				baseline: adoptedAppBaselineWrite({
+					remoteAppId: REMOTE_APP,
+					source: parsed.source,
+					prepared: adoptionExportBoundary(loaded.doc, [], [], {
+						origin: COMMCARE_SERVERS.production.baseUrl,
+						domain: DOMAIN,
+					}),
+					target,
+					identity: targetWireIdentity(facts.identity),
+					novaRevision: loaded.app.mutation_seq,
+					mediaFiles: {},
+					observedAt: "2026-11-10T09:29:00.000Z",
+					firstPublish: {
+						ids: facts.firstPublish as readonly FirstPublishChangeId[],
+						touchesWorkers: false,
+						of: "first-publish",
+					},
+				}),
+				identities: facts.identity,
+				mediaPaths: [],
+				keyedCaseIds: facts.keyedCaseIds,
+				confirmations: [],
+				at: new Date("2026-11-10T09:30:00.000Z"),
+			});
+		});
+
+		const document = await storedDocument();
+		const { flags, caseSearchEnabled } = novaPublishVerdict(
+			loaded.doc,
+			document,
+		).minimumConfiguration;
+		const capture = await capturePublish({
+			create: document,
+			updates: [{ name: "republish", document }],
+			configuration: {
+				id: "clinic",
+				flags,
+				caseSearchEnabled,
+				domain: DOMAIN,
+			},
+			hqAuthoredA: {
+				source,
+				identity: facts.identity,
+				mediaPaths: facts.mediaPaths,
+				keyedCaseIds: facts.keyedCaseIds,
+			},
+		});
+		expect(capture.status).toBe("republished");
+		const republish = capture.updates.republish;
+		if (republish?.status !== "sent")
+			throw new Error(
+				`The capture did not send its republish: ${JSON.stringify(republish)}`,
+			);
+
+		const model = projectSpace({ flags, caseSearchEnabled });
+		model.holdSource(source);
+		const log: PeerRequest[] = [];
+		await withHttpPeer(async (peer) => {
+			servedBy(peer, model, log);
+			expect((await publish()).hqAppAction).toBe("updated");
+		});
+		expect(ordered(lines(log))).toEqual(ordered(republish.sequence));
+		const [sent, ...more] = await formsTo(log, "/apps/api/import_app/");
+		expect(more).toEqual([]);
+		const app = await expectSameImport(republish.importApp, sent);
+		const held = source as unknown as HqApp;
+		expect(app.modules.map((module) => module.unique_id)).toEqual(
+			held.modules.map((module) => module.unique_id),
+		);
+		expect(
+			app.modules.map((module) => module.forms.map((form) => form.xmlns)),
+		).toEqual(
+			held.modules.map((module) => module.forms.map((form) => form.xmlns)),
+		);
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
 });

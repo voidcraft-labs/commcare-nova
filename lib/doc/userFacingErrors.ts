@@ -229,6 +229,23 @@ function viaSentence(e: ValidationError): string {
 	}
 }
 
+function columnRelationSentence(e: ValidationError): string {
+	const item = q(det(e, "fieldText", "case information"));
+	const module = q(modName(e));
+	switch (det(e, "reason", "")) {
+		case "parent-type":
+			return `An item in ${module} reads ${item} through a parent link that names a case type. The parent's case type comes from this case type, so you can leave it off.`;
+		case "worker":
+			return `An item in ${module} reads ${item} through a link called user, which CommCare reads as the worker's own information. You can choose another link.`;
+		case "index-name":
+			return `An item in ${module} reads ${item} through a link whose name doesn't start with a letter, which CommCare HQ can't keep in a case list. You can rename the link so it starts with a letter.`;
+		case "search":
+			return `An item in ${module} shows ${item} from the case above, and this case list offers Search, where such an item shows only as a calculated value. You can add a calculated value that reads the case above instead.`;
+		default:
+			return `An item in ${module} shows ${item} through a link that doesn't lead to one case type. You can choose the case above again.`;
+	}
+}
+
 function onlyIfChangedSentence(e: ValidationError): string {
 	const property = det(e, "property", "this value");
 	switch (det(e, "reason", "")) {
@@ -1077,6 +1094,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	// ── Case-list config ─────────────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: (e) =>
 		`One item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
+	CASE_LIST_COLUMN_RELATION_INVALID: (e) => columnRelationSentence(e),
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
 		`An item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but its display style can't format ${det(e, "resolvedType", "this kind of")} information. Choose matching information or change the display style. Plain text always works.`,
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
@@ -1098,6 +1116,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 		return `${q(modName(e))}'s tile list can't order by a calculation that isn't on the tile. You can place that column on the tile, or order by a case property.`;
 	},
+	CASE_LIST_SORT_LABEL_NOT_SHOWN: (e) =>
+		det(e, "reason", "") === "blank"
+			? `A name in Sort by in ${q(modName(e))} holds only spaces, so CommCare HQ lists that column under no name. You can type a name, or remove it.`
+			: det(e, "reason", "") === "lands-on-shown"
+				? `A column hidden from Results in ${q(modName(e))} has a name in Sort by, but its sort rule lands on ${q(det(e, "landingColumnLabel", "an earlier column"))}, which shows on Results, so workers never see that name. You can remove the name, or hide that column on Results.`
+				: `${q(det(e, "columnLabel", "A column"))} in ${q(modName(e))} shows on Results, so workers already find it under its header in Sort by. You can remove its name in Sort by, or hide the column on Results.`,
 	CASE_LIST_COLUMN_NOT_ON_LIST_INVALID: (e) =>
 		det(e, "reason", "") === "sorted"
 			? "This isn't on the list, so the list can't sort by it. You can turn on List search matches this to sort by it."
@@ -1291,8 +1315,12 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which is set up to hold a kind of value this field doesn't give. You can change the field's type, or save it somewhere else.`,
-	FIELD_KIND_WRITERS_DISAGREE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} a kind of value that can't sit beside what the other fields that save there give. You can change this one to match them, or save it somewhere else.`,
+	FIELD_KIND_WRITERS_DISAGREE: (e) => {
+		const reader = e.details?.castBy;
+		return reader === undefined
+			? `${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} a kind of value that can't sit beside what the other fields that save there give. You can change this one to match them, or save it somewhere else.`
+			: `${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} a kind of value that can't sit beside what the other fields that save there give, because ${q(reader)} opens on its value and would stop on the others. You can change this one to match them, change how ${q(reader)} starts, or save it somewhere else.`;
+	},
 	HIDDEN_VALUE_WRITER_TYPE_MISMATCH: (e) => {
 		const field = q(fieldName(e));
 		const property = q(det(e, "property", "a case property"));
@@ -1304,10 +1332,16 @@ const USER_MESSAGE_BY_CODE: Record<
 		switch (e.details?.reason) {
 			case "clock-lost":
 				return `${field} saves to ${property}, which holds dates and times, but its value keeps only the day because ${q(det(e, "clockSource", "an earlier hidden value"))} doesn't keep the time. You can save it from a question or now() instead.`;
-			case "hidden-disagreement":
+			case "hidden-disagreement": {
+				const reader = e.details?.castBy;
+				const opensOn =
+					reader === undefined
+						? ""
+						: ` ${q(reader)} opens on its value and would stop on the others.`;
 				return e.details?.disagreement === "own"
-					? `${field} saves ${value} to ${property} from different results, so the property has no one kind of value. You can have every result of ${source} give the same kind.`
-					: `${field} saves ${value} to ${property}, but other hidden values save a different kind of value there. You can have them all give the same kind, or save this one somewhere else.`;
+					? `${field} saves ${value} to ${property} from different results, so the property has no one kind of value.${opensOn} You can have every result of ${source} give the same kind.`
+					: `${field} saves ${value} to ${property}, but other hidden values save a different kind of value there.${opensOn} You can have them all give the same kind, or save this one somewhere else.`;
+			}
 			default: {
 				const wanted = e.details?.propertyType;
 				const consequence =

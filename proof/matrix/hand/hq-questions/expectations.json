@@ -1,0 +1,862 @@
+[
+	{
+		"id": "date-chip-shown",
+		"entry": "questions/label-trigger-whose-appearance-is-exactly-minimal",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visit_date",
+					"value": "2026-03-02"
+				}
+			],
+			"expressions": ["format-date(date(/data/visit_date), '%e/%n/%y')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2/3/26"
+			}
+		]
+	},
+	{
+		"id": "date-chip-printed",
+		"entry": "questions/output-value-any-other-expression",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visit_date",
+					"value": "2026-03-02"
+				}
+			],
+			"expressions": ["format-date(date(/data/visit_date), '%e/%n/%y')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2/3/26"
+			}
+		]
+	},
+	{
+		"id": "full-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/full_name",
+					"value": "Asha Mwangi"
+				}
+			],
+			"expressions": ["/data/full_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Asha Mwangi"
+			}
+		]
+	},
+	{
+		"id": "full-name-hinted",
+		"entry": "questions/hint-text",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/full_name",
+					"value": "Asha"
+				}
+			],
+			"expressions": ["/data/full_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Asha"
+			}
+		]
+	},
+	{
+		"id": "full-name-helped",
+		"entry": "questions/help-text-with-no-markdown-form",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/full_name",
+					"value": "Mwangi"
+				}
+			],
+			"expressions": ["/data/full_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Mwangi"
+			}
+		]
+	},
+	{
+		"id": "phone-entered",
+		"entry": "questions/phone-number-xsd-string-appearance-numeric",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/phone",
+					"value": "0712345678"
+				}
+			],
+			"expressions": ["/data/phone"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0712345678"
+			}
+		]
+	},
+	{
+		"id": "pin-entered",
+		"entry": "questions/password-secret-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/pin",
+					"value": "4321"
+				}
+			],
+			"expressions": ["/data/pin"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "4321"
+			}
+		]
+	},
+	{
+		"id": "pin-helped",
+		"entry": "questions/help-text-markdown-form",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/pin",
+					"value": "8765"
+				}
+			],
+			"expressions": ["/data/pin"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "8765"
+			}
+		]
+	},
+	{
+		"id": "age-entered",
+		"entry": "questions/integer-xsd-int-xsd-integer-read-as-the-same",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/age",
+					"value": "34"
+				}
+			],
+			"expressions": ["/data/age"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "34"
+			}
+		]
+	},
+	{
+		"id": "age-checked",
+		"entry": "questions/bind-constraint",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"constraintChecks": [
+				{
+					"path": "/data/age",
+					"value": "150"
+				},
+				{
+					"path": "/data/age",
+					"value": "40"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			}
+		]
+	},
+	{
+		"id": "age-check-explained",
+		"entry": "questions/validation-message-text",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"constraintChecks": [
+				{
+					"path": "/data/age",
+					"value": "-3"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			}
+		]
+	},
+	{
+		"id": "weight-entered",
+		"entry": "questions/decimal-xsd-double",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/weight",
+					"value": "61.5"
+				}
+			],
+			"expressions": ["/data/weight"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "61.5"
+			}
+		]
+	},
+	{
+		"id": "visit-date-entered",
+		"entry": "questions/date-xsd-date",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visit_date",
+					"value": "2026-03-02"
+				}
+			],
+			"expressions": ["/data/visit_date"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2026-03-02"
+			}
+		]
+	},
+	{
+		"id": "visit-time-entered",
+		"entry": "questions/time-xsd-time",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visit_time",
+					"value": "10:30"
+				}
+			],
+			"expressions": ["string-length(/data/visit_time) > 0"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			}
+		]
+	},
+	{
+		"id": "seen-at-entered",
+		"entry": "questions/date-and-time-xsd-datetime",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/seen_at",
+					"value": "2026-03-02T12:00:00.000Z"
+				}
+			],
+			"expressions": ["string-length(/data/seen_at) > 0"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "location-left-blank",
+		"entry": "questions/gps-geopoint",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string-length(/data/location)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "tag-code-entered",
+		"entry": "questions/barcode-barcode",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/tag_code",
+					"value": "ABC123"
+				}
+			],
+			"expressions": ["/data/tag_code"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "ABC123"
+			}
+		]
+	},
+	{
+		"id": "colour-chosen",
+		"entry": "questions/multiple-choice-select1-item",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/colour",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/colour"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "blue"
+			}
+		]
+	},
+	{
+		"id": "crops-chosen",
+		"entry": "questions/checkbox-select-item",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crops",
+					"value": "1 2"
+				}
+			],
+			"expressions": ["/data/crops", "/data/crop_count"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "maize beans"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "2"
+			}
+		]
+	},
+	{
+		"id": "crops-counted",
+		"entry": "questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crops",
+					"value": "1 3"
+				}
+			],
+			"expressions": ["/data/crop_count"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			}
+		]
+	},
+	{
+		"id": "photo-left-blank",
+		"entry": "questions/image-capture-upload-image",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string-length(/data/photo)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "signature-left-blank",
+		"entry": "questions/signature-image-signature",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string-length(/data/sign)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "voice-left-blank",
+		"entry": "questions/audio-capture-audio",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string-length(/data/voice)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "clip-left-blank",
+		"entry": "questions/video-capture-video",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string-length(/data/clip)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "document-left-blank",
+		"entry": "questions/document-upload-application-text",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string-length(/data/document)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "nickname-entered",
+		"entry": "questions/question-list-group-appearance-field-list-labelled",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/details/nickname",
+					"value": "Ash"
+				}
+			],
+			"expressions": ["/data/details/nickname"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Ash"
+			}
+		]
+	},
+	{
+		"id": "members-counted",
+		"entry": "questions/repeat-with-jr-count-naming-an-integer-question-of-the-form-s",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/household_size",
+					"value": "2"
+				},
+				{
+					"path": "/data/members/member_name",
+					"value": "Neema"
+				}
+			],
+			"expressions": ["count(/data/members)", "/data/members[2]/member_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Neema"
+			}
+		]
+	},
+	{
+		"id": "adults-checked-against-the-named-members",
+		"entry": "questions/bind-constraint",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/household_size",
+					"value": "2"
+				},
+				{
+					"path": "/data/members/member_name",
+					"value": "Neema"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/adults",
+					"value": "3"
+				},
+				{
+					"path": "/data/adults",
+					"value": "1"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			}
+		]
+	},
+	{
+		"id": "checks-counted",
+		"entry": "questions/jr-count-naming-a-hidden-value-whose-calculate-is-an-integer-in",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/checks)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			}
+		]
+	},
+	{
+		"id": "rounds-counted",
+		"entry": "questions/repeat-model-iteration-vellum-role-repeat-ids-count-current",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/rounds/@count", "count(/data/rounds/item)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0"
+			}
+		]
+	},
+	{
+		"id": "contact-phone-entered",
+		"entry": "questions/question-list-group-appearance-field-list-labelled",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/contact/contact_phone",
+					"value": "0700000001"
+				}
+			],
+			"expressions": ["/data/contact/contact_phone"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0700000001"
+			}
+		]
+	},
+	{
+		"id": "said-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/said",
+					"value": "yes"
+				}
+			],
+			"expressions": ["/data/said"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "yes"
+			}
+		]
+	},
+	{
+		"id": "said-shown-as-typed",
+		"entry": "questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/said",
+					"value": "*as typed*"
+				}
+			],
+			"expressions": ["/data/said"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "*as typed*"
+			}
+		]
+	},
+	{
+		"id": "validation-counts-moved:before",
+		"entry": "questions/bind-constraint",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/nova_constraint_adults_0)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "validation-counts-moved:after",
+		"entry": "questions/bind-constraint",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/nova_constraint_adults_0)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "date-and-time-questions-split:before",
+		"entry": "questions/date-and-time-xsd-datetime",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/seen_at_date) + count(/data/seen_at_time)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "date-and-time-questions-split:after",
+		"entry": "questions/date-and-time-xsd-datetime",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/seen_at_date) + count(/data/seen_at_time)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			}
+		],
+		"exports": ["B", "local"]
+	}
+]

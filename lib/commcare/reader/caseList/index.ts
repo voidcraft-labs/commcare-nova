@@ -15,9 +15,10 @@ import type {
 	Module,
 	Uuid,
 } from "@/lib/domain";
+import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
-import { defaultSortBlanks } from "@/lib/domain/modules";
+import { columnFieldText, defaultSortBlanks } from "@/lib/domain/modules";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -31,18 +32,20 @@ import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
 import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, sameJson } from "../jsonCursor";
-import type { PendingExpression } from "../pendingExpressions";
+import { handedOff, type PendingExpression } from "../pendingExpressions";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
-import { provisionalDocument } from "../provisional";
+import { applyExpressionClaim, provisionalDocument } from "../provisional";
+import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sameXPathText } from "../syntaxCompare";
+import { ATTRIBUTE_PROPERTIES } from "./attributeColumns";
 import {
 	appCodes,
 	attributeOf,
 	columnFormatAsRead,
 	formatReadsMapping,
-	HQ_PROPERTY_RENAMES,
-	imageMapPropertyText,
+	imageMapFieldText,
 	labelShownProperty,
+	renamedField,
 	sameHeldTexts,
 	sameShownTexts,
 	sourceCode,
@@ -50,6 +53,7 @@ import {
 import {
 	type CaseListReading,
 	caseListReadings,
+	displayNames,
 	readCaseDetails,
 	sameState,
 } from "./details";
@@ -135,7 +139,7 @@ function labelShownPropertiesByType(app: DraftApp): Map<string, Set<string>> {
 	return byType;
 }
 
-/** Step 6, pass 1: every menu's case list, read from its two details, and the type each numeric
+/** Before any expression binds: every menu's case list, read from its two details, and the type each numeric
  *  sort declares written into the draft's catalog before any expression binds. */
 export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
 	const steps = readCaseListsSteps(ctx, app);
@@ -163,10 +167,15 @@ export function* readCaseListsSteps(
 			caseType === undefined ? none : (selectsByType.get(caseType) ?? none);
 		const shown =
 			caseType === undefined ? none : (shownByType.get(caseType) ?? none);
+		// A column read through a relation asks of the type its walk reaches.
+		const selectsOf = (type?: string) =>
+			type === undefined ? selects : (selectsByType.get(type) ?? none);
+		const shownOf = (type?: string) =>
+			type === undefined ? shown : (shownByType.get(type) ?? none);
 		readCaseDetails(ctx, module, {
-			selectProperty: (property) =>
-				selects.has(property) && shown.has(property),
-			labelShown: (property) => shown.has(property),
+			selectProperty: (property, type) =>
+				selectsOf(type).has(property) && shownOf(type).has(property),
+			labelShown: (property, type) => shownOf(type).has(property),
 		});
 	}
 	yield;
@@ -263,13 +272,21 @@ function fieldRead(column: JsonObject): {
 } {
 	const field = typeof column.field === "string" ? column.field : "";
 	if (column.useXpathExpression !== true) {
-		const renamed = HQ_PROPERTY_RENAMES[field] ?? field;
+		const renamed = renamedField(field);
 		// `CASE_PROPERTY_MAP` maps no `case_id`, so HQ reads the child element of that name, which
 		// no case holds, where Nova's `@case_id` reads the case's id.
-		return renamed === "case_id" ? { element: renamed } : { property: renamed };
+		return renamed.split("/").at(-1) === "case_id"
+			? { element: renamed }
+			: { property: renamed };
 	}
+	// The one attribute Nova writes as an expression column (`@case_id`) reads as the property
+	// column over it; any other expression, `@status` among them, is its text: HQ's build names a
+	// column stored as an expression otherwise than the property field it reads alike
+	// (`id_strings.py::detail_column_header_locale`).
 	const attribute = attributeOf(field);
-	return attribute === undefined ? { text: field } : { property: attribute };
+	return attribute === undefined || !ATTRIBUTE_PROPERTIES.has(attribute)
+		? { text: field }
+		: { property: attribute };
 }
 
 const CELL_KEYS = [
@@ -284,6 +301,18 @@ const CELL_KEYS = [
 	"show_shading",
 ] as const;
 
+/** Whether two columns' fields read one value: one element, one property, or one expression. */
+function sameField(
+	a: ReturnType<typeof fieldRead>,
+	b: ReturnType<typeof fieldRead>,
+): boolean {
+	if (a.element !== undefined || b.element !== undefined)
+		return a.element === b.element;
+	if (a.property !== undefined || b.property !== undefined)
+		return a.property === b.property;
+	return sameXPathText(a.text ?? "", b.text ?? "");
+}
+
 /**
  * The surface key of the first difference between a stored column and the projection's, each
  * read as HQ's build reads it on `screen`: the format as the reading reads it
@@ -297,18 +326,16 @@ function columnDifference(
 	ours: JsonObject,
 	tile: boolean,
 	screen: "short" | "long",
+	fieldHandedOff: boolean,
 ): string | undefined {
 	const format = columnFormatAsRead(stored.format, screen);
 	if (format !== columnFormatAsRead(ours.format, screen))
 		return "schema:DetailColumn.format";
 	const a = fieldRead(stored);
 	const b = fieldRead(ours);
-	if (a.element !== undefined || b.element !== undefined) {
-		if (a.element !== b.element) return "schema:DetailColumn.field";
-	} else if (a.property !== undefined || b.property !== undefined) {
-		if (a.property !== b.property) return "schema:DetailColumn.field";
-	} else if (!sameXPathText(a.text ?? "", b.text ?? ""))
-		return "schema:DetailColumn.field";
+	// A column whose expression was handed to project data prints no tree of the source's, so its
+	// field is project data's finding, never the list's.
+	if (!fieldHandedOff && !sameField(a, b)) return "schema:DetailColumn.field";
 	// HQ's build reads no header of a Search Only column (`detail_screen.py::Invisible`).
 	if (
 		format !== "invisible" &&
@@ -333,7 +360,7 @@ function columnDifference(
 		// HQ's build puts an image map key's dots to the column's property before it reads it
 		// (`models/case_list.py::MappingItem.key_as_condition`), so the two keys are compared so.
 		const property =
-			a.property === undefined ? undefined : imageMapPropertyText(a.property);
+			a.property === undefined ? undefined : imageMapFieldText(a.property);
 		const sameKey =
 			format !== "enum-image"
 				? keyA === keyB
@@ -367,6 +394,41 @@ function columnDifference(
 }
 
 /** The surface key of the first difference between the stored sort elements and the projection's. */
+/**
+ * The name HQ's build lists a sort element's field under in Sort by, where it gives one: an
+ * element whose display holds text Python does not read as blank names the `invisible` column it
+ * lands on by that column's header (`detail_screen.py::Invisible.header`), and the column it
+ * appends where it lands on none by the display itself (`util.py::create_temp_sort_column`), each
+ * only where some language holds text. A field shown on Results is listed under its own header,
+ * which the columns' comparison holds.
+ */
+function sortMenuName(element: JsonObject, detail: unknown): unknown {
+	if (!displayNames(element.display)) return undefined;
+	const columns = Array.isArray(detail) ? detail : [];
+	const calculated =
+		typeof element.field === "string"
+			? CALCULATED_FIELD.exec(element.field)
+			: null;
+	const named =
+		calculated === null ? undefined : columns[Number(calculated[1])];
+	const text =
+		calculated === null
+			? element.field
+			: isJsonObject(named)
+				? named.field
+				: undefined;
+	const landing = columns.find(
+		(column) => isJsonObject(column) && column.field === text,
+	);
+	const name = !isJsonObject(landing)
+		? element.display
+		: landing.format === "invisible"
+			? landing.header
+			: undefined;
+	// A header blank in every language lists the field nowhere, as no name does.
+	return displayNames(name) ? name : undefined;
+}
+
 function sortDifference(
 	ctx: ReadContext,
 	place: HqPlace,
@@ -374,9 +436,15 @@ function sortDifference(
 	stored: readonly JsonObject[],
 	ours: readonly JsonObject[],
 	columns: { readonly stored: unknown; readonly ours: unknown },
+	handedOff: ReadonlySet<number>,
 ): string | undefined {
 	// The text a positional element joins by: the `field` of the short column it names
 	// (`util.py::get_sort_and_sort_only_columns`).
+	const positionOf = (field: unknown) => {
+		const match =
+			typeof field === "string" ? CALCULATED_FIELD.exec(field) : null;
+		return match === null ? undefined : Number(match[1]);
+	};
 	const positionalText = (field: unknown, detail: unknown) => {
 		const match =
 			typeof field === "string" ? CALCULATED_FIELD.exec(field) : null;
@@ -415,6 +483,10 @@ function sortDifference(
 			// on the column the stored element names orders by another key than the column it
 			// lands on, which no document Nova admits holds, and is read on the column it lands
 			// on (`order.ts::readSortElements`): the first publish writes that column's position.
+			// A stored element over a column whose expression was handed to project data names a
+			// text Nova's print holds no tree of: project data's finding, never the list's.
+			const stored = positionOf(element.field);
+			if (stored !== undefined && handedOff.has(stored)) continue;
 			if (!sameXPathText(storedText, ourText))
 				return "schema:SortElement.field";
 			const index = reading.sort.kept[position] as number;
@@ -428,9 +500,7 @@ function sortDifference(
 			// HQ's build reads its five renamed words as the properties Nova names
 			// (`detail_screen.py::CASE_PROPERTY_MAP`), so the two spellings sort one way.
 			const renamed = (field: unknown) =>
-				typeof field === "string"
-					? (HQ_PROPERTY_RENAMES[field] ?? field)
-					: field;
+				typeof field === "string" ? renamedField(field) : field;
 			if (renamed(element.field) !== renamed(other.field))
 				return "schema:SortElement.field";
 			const index = reading.sort.kept[position] as number;
@@ -454,6 +524,21 @@ function sortDifference(
 		const blanksB =
 			other.blanks === "" || other.blanks === undefined ? own : other.blanks;
 		if (blanksA !== blanksB) return "schema:SortElement.blanks";
+		// The name each lists the field under in Sort by, where it lists it there.
+		const nameA = sortMenuName(element, columns.stored);
+		const nameB = sortMenuName(other, columns.ours);
+		if (
+			(nameA === undefined) !== (nameB === undefined) ||
+			(nameA !== undefined &&
+				!sameHeldTexts(
+					appCodes(ctx),
+					sourceCode(ctx),
+					"case-list-sort-label",
+					nameA,
+					nameB,
+				))
+		)
+			return "schema:SortElement.display";
 		const index = reading.sort.kept[position] as number;
 		const numeric = reading.sort.numeric.get(index);
 		if (numeric !== undefined && other.type !== numeric)
@@ -483,34 +568,6 @@ function caseListPlace(module: DraftModule): HqPlace {
 	};
 }
 
-/** The registrations of each menu's own slots, in registration order, worked out once per
- *  registry and again only once it holds more: each menu's settle reads its own. */
-const registrationsByMenu = new WeakMap<
-	readonly PendingExpression[],
-	{ readonly length: number; readonly byMenu: Map<string, number[]> }
->();
-
-function moduleRegistrations(
-	registrations: readonly PendingExpression[],
-): ReadonlyMap<string, readonly number[]> {
-	const known = registrationsByMenu.get(registrations);
-	if (known !== undefined && known.length === registrations.length)
-		return known.byMenu;
-	const byMenu = new Map<string, number[]>();
-	registrations.forEach((registration, index) => {
-		const ref = registration.ref;
-		if (ref.entity !== "module") return;
-		const indices = byMenu.get(ref.uuid);
-		if (indices === undefined) byMenu.set(ref.uuid, [index]);
-		else indices.push(index);
-	});
-	registrationsByMenu.set(registrations, {
-		length: registrations.length,
-		byMenu,
-	});
-	return byMenu;
-}
-
 /**
  * The control that prints each expression slot of a menu's details at the level the reading
  * held it (`expressions/printLevel.ts`): a calculated column's expression and the list's filter,
@@ -522,7 +579,7 @@ function moduleRegistrations(
 function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 	const held = new Map<string, { tree: Expression; level: PrintLevel }>();
 	const registrations = ctx.pending.list();
-	for (const index of moduleRegistrations(registrations).get(mod.uuid) ?? []) {
+	for (const index of ctx.pending.of("module", mod.uuid)) {
 		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
@@ -567,6 +624,7 @@ function listDifference(
 	doc: BlueprintDoc,
 	mod: Module,
 	reading: CaseListReading,
+	ownerRefused: DraftModule | undefined,
 ): string | undefined {
 	const inputs = readProjectionInputs(ctx);
 	const projected = projectCaseListForHq(
@@ -582,10 +640,11 @@ function listDifference(
 		long: JsonObject;
 	};
 	const codes = appCodes(ctx);
+	const handed = handedOffListSlots(ctx, reading);
 	// A column an inert row dropped is written by no build.
 	const kept = (detail: unknown, dropped: ReadonlySet<number>) =>
 		(Array.isArray(detail) ? detail : []).flatMap((column, index) =>
-			isJsonObject(column) && !dropped.has(index) ? [column] : [],
+			isJsonObject(column) && !dropped.has(index) ? [{ column, index }] : [],
 		);
 	// An image map's paths compare as the files they name (`keptMediaPaths`).
 	const asPrinted = (column: JsonObject): JsonObject =>
@@ -602,29 +661,30 @@ function listDifference(
 	const shortStored = kept(
 		reading.short.peek("columns"),
 		reading.dropped.short,
-	).map(asPrinted);
+	).map(({ column, index }) => ({ column: asPrinted(column), index }));
 	const longStored = kept(
 		reading.long.peek("columns"),
 		reading.dropped.long,
-	).map(asPrinted);
+	).map(({ column, index }) => ({ column: asPrinted(column), index }));
 	const shortOurs = objects(pair.short.columns);
 	const longOurs = objects(pair.long.columns);
 	const tile = mod.caseListConfig?.tile !== undefined;
 	if (longStored.length !== longOurs.length) return "schema:Detail.columns";
-	for (const [index, column] of longStored.entries()) {
+	for (const [position, { column, index }] of longStored.entries()) {
 		const key = columnDifference(
 			codes,
 			sourceCode(ctx),
 			column,
-			longOurs[index] as JsonObject,
+			longOurs[position] as JsonObject,
 			false,
 			"long",
+			handed.long.has(index),
 		);
 		if (key !== undefined) return key;
 	}
 	// The short detail: the stored columns, then the hidden columns a sort element added.
 	const carriers = reading.joined.columns.filter(
-		(column) => column.carrier === true,
+		(column) => column.carrier === true || column.sortField === true,
 	).length;
 	const written = tile ? shortStored.length : shortStored.length + carriers;
 	if (
@@ -632,14 +692,15 @@ function listDifference(
 		!(shortStored.length === 0 && shortOurs.length <= 1)
 	)
 		return "schema:Detail.columns";
-	for (const [index, column] of shortStored.entries()) {
+	for (const [position, { column, index }] of shortStored.entries()) {
 		const key = columnDifference(
 			codes,
 			sourceCode(ctx),
 			column,
-			shortOurs[index] as JsonObject,
+			shortOurs[position] as JsonObject,
 			tile,
 			"short",
+			handed.short.has(index),
 		);
 		if (key !== undefined) return key;
 	}
@@ -650,22 +711,36 @@ function listDifference(
 		objects(reading.short.peek("sort_elements")),
 		objects(pair.short.sort_elements),
 		{ stored: reading.short.peek("columns"), ours: pair.short.columns },
+		handed.short,
 	);
 	if (sortKey !== undefined) return sortKey;
-	const storedFilter = reading.short.peek("filter");
+	// The owner clause of an exclusion the reading refused is that refusal's: Nova's print writes
+	// no clause for it, so the rest of the stored filter is what the list compares.
+	const filterAsStored = reading.short.peek("filter");
+	const storedFilter =
+		ownerRefused !== undefined && typeof filterAsStored === "string"
+			? listFilterWithoutOwnerClause(ownerRefused, filterAsStored)
+			: filterAsStored;
 	const ourFilter = pair.short.filter;
 	const blank = (value: unknown) =>
 		value === null || value === undefined || value === "";
-	if (blank(storedFilter) !== blank(ourFilter)) return "schema:Detail.filter";
-	if (
-		!blank(storedFilter) &&
-		!sameXPathText(String(storedFilter), String(ourFilter))
-	)
-		return "schema:Detail.filter";
+	// A filter whose expression was handed to project data prints no tree of the source's, so the
+	// filter is project data's finding, never the list's.
+	if (!handed.filter) {
+		if (blank(storedFilter) !== blank(ourFilter)) return "schema:Detail.filter";
+		if (
+			!blank(storedFilter) &&
+			!sameXPathText(String(storedFilter), String(ourFilter))
+		)
+			return "schema:Detail.filter";
+	}
+	// `false` is the off switch HQ's Case List page writes on every save of a short detail, which
+	// every reader tests by truth (`details.ts`, `detail-persistence-switches-false`).
+	const off = (value: unknown) => blank(value) || value === false;
 	for (const key of ["case_tile_template", "persist_tile_on_forms"] as const) {
 		const a = reading.short.peek(key);
 		const b = pair.short[key];
-		if ((a ?? null) !== (b ?? null) && !(blank(a) && blank(b)))
+		if ((a ?? null) !== (b ?? null) && !(off(a) && off(b)))
 			return `schema:Detail.${key}`;
 	}
 	const groupA = reading.short.peek("case_tile_group");
@@ -729,6 +804,28 @@ function calculatedRead(
 	return destination.ok ? [destination.caseType, property] : undefined;
 }
 
+/** The case type and property a property field reads: the menu's own, or, for a field of
+ *  indices and a property, the type the walk of a column of the menu over that field reaches. */
+function fieldOwnerRead(
+	doc: BlueprintDoc,
+	caseType: string,
+	field: string,
+): [string, string] | undefined {
+	if (!field.includes("/")) return [caseType, field];
+	for (const mod of Object.values(doc.modules))
+		for (const column of mod.caseListConfig?.columns ?? []) {
+			if (column.kind === "calculated" || mod.caseType !== caseType) continue;
+			if (columnFieldText(column) !== field) continue;
+			const owner = columnPropertyCaseType(
+				column,
+				caseType,
+				doc.caseTypes ?? [],
+			);
+			return owner === undefined ? undefined : [owner, column.field];
+		}
+	return undefined;
+}
+
 /** Each property a menu's `int` or `double` sort element orders by that `doc`'s writers give no
  *  type, with its case type and the type the element declares: a property element's own, or the
  *  one property a calculated column the element lands on reads alone, since Nova derives the
@@ -755,7 +852,7 @@ function numericSortDeclarations(
 				column?.kind === "calculated"
 					? calculatedRead(doc, caseType, column.expression)
 					: undefined;
-		} else read = [caseType, HQ_PROPERTY_RENAMES[field] ?? field];
+		} else read = fieldOwnerRead(doc, caseType, renamedField(field));
 		if (read === undefined || isStandardCaseListProperty(read[1])) continue;
 		wanted.set(`${read[0]}\u0000${read[1]}`, [read[0], read[1], dataType]);
 	}
@@ -802,7 +899,7 @@ function withoutImplicitRule(
 }
 
 /**
- * Step 8, pass 2: each menu's case list accepted where the projection writes its stored details
+ * After the binding: each menu's case list accepted where the projection writes its stored details
  * back. A difference no row names is `unrecognized` at the list, under its surface key. The
  * declarations made before binding are taken back first, so each is made again only where the
  * bound document's writers, a Hidden Value's among them, still give the property no type.
@@ -810,18 +907,13 @@ function withoutImplicitRule(
 export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 	// A calculated column shown on both screens is registered from one detail; the other
 	// detail's `field` holds the same tree (the join's equality), so the expression stage's
-	// claim of the registration holds it too.
+	// claim of the registration holds it too, handed off as the registration's is (a table the
+	// catalog lacks is project data's one finding).
 	for (const reading of caseListReadings(ctx).values())
 		for (const twin of reading.twins) {
 			const claim = ctx.pending.outcome(twin.registration).claim;
 			if (claim !== undefined)
-				ctx.accounting.claimEntry(
-					twin.site,
-					claim.entryId,
-					claim.key,
-					twin.place,
-					claim.detail,
-				);
+				applyExpressionClaim(ctx, { ...claim, place: twin.place }, twin.site);
 		}
 	if (ctx.doc === undefined) return;
 	const early = EARLY_SORT_DECLARATIONS.get(ctx) ?? [];
@@ -847,7 +939,13 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		const place = caseListPlace(module);
 		let difference: string | undefined;
 		try {
-			difference = listDifference(ctx, doc, mod, reading);
+			difference = listDifference(
+				ctx,
+				doc,
+				mod,
+				reading,
+				ownerExclusionRefused(ctx, module.uuid) ? module : undefined,
+			);
 		} catch {
 			ctx.accounting.defect(
 				place,
@@ -859,4 +957,57 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		if (difference !== undefined && !ctx.accounting.hasFindingAt(place))
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
 	}
+}
+
+/**
+ * Whether a menu's owner exclusion was registered and the expression stage held no tree for it:
+ * the refusal is the exclusion's finding, and the list filter's owner clause, which Nova writes
+ * only for an exclusion it holds, belongs to that refusal.
+ */
+function ownerExclusionRefused(ctx: ReadContext, moduleUuid: Uuid): boolean {
+	const registrations = ctx.pending.list();
+	return ctx.pending
+		.of("module", moduleUuid)
+		.some(
+			(index) =>
+				registrations[index]?.ref.slot === "excluded_owner_ids" &&
+				ctx.pending.outcome(index).expression === undefined,
+		);
+}
+
+/**
+ * The slots of a menu's details whose expression the expression stage handed to project data (a
+ * read of a table the catalog lacks): each calculated column's, by its index in each stored
+ * detail, a column on both screens at both, and the list filter's. That read is project data's
+ * one finding, at the table, and the list holds no tree for the slot, so the slot's own print is
+ * no difference of the list's; every other part of the list is compared as it stands.
+ */
+function handedOffListSlots(
+	ctx: ReadContext,
+	reading: CaseListReading,
+): {
+	readonly short: ReadonlySet<number>;
+	readonly long: ReadonlySet<number>;
+	readonly filter: boolean;
+} {
+	const columns = new Set<Uuid>();
+	let filter = false;
+	const registrations = ctx.pending.list();
+	for (const index of ctx.pending.of("module", reading.module.uuid)) {
+		const ref = (registrations[index] as PendingExpression).ref;
+		if (ref.entity !== "module" || !handedOff(ctx.pending.outcome(index)))
+			continue;
+		if (ref.slot === "case_list_filter") filter = true;
+		else if (ref.slot === "case_list_column_expression")
+			columns.add(ref.member.columnUuid);
+	}
+	const short = new Set<number>();
+	const long = new Set<number>();
+	reading.joined.columns.forEach((column, index) => {
+		const uuid = reading.uuids[index];
+		if (uuid === undefined || !columns.has(uuid)) return;
+		if (column.short !== undefined) short.add(column.short);
+		if (column.long !== undefined) long.add(column.long);
+	});
+	return { short, long, filter };
 }

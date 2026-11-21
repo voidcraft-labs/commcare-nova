@@ -1,0 +1,27 @@
+{
+	"catalog": [
+		{
+			"name": "household",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "last_seen",
+					"data_type": "text",
+					"options": []
+				},
+				{
+					"name": "score_text",
+					"data_type": "text",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": null
+	}
+}

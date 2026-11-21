@@ -16,7 +16,7 @@ import org.json.JSONObject;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-/** Run G3: Core's own Register action and return frames, by host shape, on Nova's local suite and on HQ's build
+/** Core's own Register action and return frames, by host shape, on Nova's local suite and on HQ's build
  * alike, each host under both values of `afterSubmit` the rules admit for it (the producer writes each document
  * again with each list's other value wherever Nova's gate admits it, `<document>-other-returns`). For each case list
  * that always offers another menu's registration form (`<document>.offers.json`), the action on the host's short

@@ -38,6 +38,7 @@ import type {
 } from "@/lib/domain";
 import { columnKindAcceptsPropertyType, intervalColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
+import { columnWithSource } from "../../columnSources";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
 
@@ -164,6 +165,10 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 	return (
 		<div className="space-y-4">
 			<ColumnFieldRow
+				via={value.via}
+				onSourceChange={(via, field) =>
+					onChange(columnWithSource(value, via, field))
+				}
 				field={value.field}
 				onFieldChange={setField}
 				header={value.header}
@@ -231,6 +236,7 @@ function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
 	visibleInDetail?: typeof value.visibleInDetail;
 	notOnList?: typeof value.notOnList;
 	tile?: typeof value.tile;
+	via?: typeof value.via;
 } {
 	return {
 		sort: value.sort,
@@ -238,5 +244,6 @@ function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
 		visibleInDetail: value.visibleInDetail,
 		notOnList: value.notOnList,
 		tile: value.tile,
+		via: value.via,
 	};
 }

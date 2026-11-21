@@ -11,11 +11,16 @@ import type { Draft } from "immer";
 import {
 	type BlueprintDoc,
 	type Expression,
+	formLinkEntries,
 	type LanguageTag,
 	type LocalizedValue,
 	makeTranslationUnitId,
 	menuScreenOf,
+	otherwiseDestinationsOffered,
+	type PostSubmitDestination,
+	postSubmitDestinationsOffered,
 	projectedModulePreorder,
+	resolveFormLinkTarget,
 	SlugsTaken,
 	screenChoosesCaseFirst,
 	type TranslationUnitId,
@@ -25,10 +30,14 @@ import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { advancedLoadListMenus, parentStepRead } from "../../hq/entryFacts";
+import { hiddenMenuEntryPoints } from "../../validator/rules/hiddenFromMenu";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import type { HeldTexts } from "../caseList/columns";
+import { parentSelectionsExplained } from "../caseManagement/advancedActions";
 import {
+	account,
 	type Claim,
 	defineClaims,
 	derived,
@@ -198,6 +207,13 @@ const MENU = {
 		`${M}/custom-icons-0-badge-localized-text-or-xpath`,
 		"custom_icons",
 	),
+	/** The badges after a menu's first, which no build reads (`custom_icon` reads the first). */
+	customIconsLater: perClass(
+		MENU_CLASSES,
+		account,
+		`${M}/custom-icons-1`,
+		"custom_icons",
+	),
 	caseListCustomIcons: refuse(
 		`${M}/custom-icons-0-badge-localized-text-or-xpath`,
 		"schema:CustomIcon",
@@ -288,7 +304,7 @@ const MENU = {
 	),
 	caseListBesideHidden: drop(
 		`${M}/module-case-list-label-or-media-beside-show-false`,
-		"schema:CaseList.label",
+		"schema:Module.case_list",
 	),
 	caseListLabel: take(
 		`${M}/module-case-list-label-lang`,
@@ -304,6 +320,12 @@ const MENU = {
 		MENU_CLASSES,
 		derived,
 		`${M}/module-filter-false-or-false-and-rest-menu-reached-only-by-links`,
+		"module_filter",
+	),
+	moduleFilterOpened: perClass(
+		MENU_CLASSES,
+		refuse,
+		`${M}/module-filter-false-on-a-menu-something-opens`,
 		"module_filter",
 	),
 	formFilterBlank: perClass(
@@ -591,6 +613,16 @@ export function offersSearch(module: JsonObject): boolean {
 	return nonEmpty(config.properties) || nonEmpty(config.default_properties);
 }
 
+/** The results instance a menu's search loads into, whether or not it
+ *  searches (`models/case_search.py::CaseSearch.get_instance_name`). */
+function resultsInstanceOf(module: JsonObject): string {
+	const config = isJsonObject(module.search_config) ? module.search_config : {};
+	const name = config.instance_name;
+	return typeof name === "string" && name !== ""
+		? `results:${name}`
+		: "results:inline";
+}
+
 /** HQ's `module_uses_inline_search`: a search the menu's forms read. */
 export function usesInlineSearch(module: JsonObject): boolean {
 	const config = isJsonObject(module.search_config) ? module.search_config : {};
@@ -639,7 +671,7 @@ interface ModulesReading {
 		DraftForm,
 		{ readonly menu: DraftModule; readonly index: number }
 	>;
-	/** Each parent selection written in step 2, to be judged in step 6. */
+	/** Each parent selection `readModules` wrote, to be judged in `settleModules`. */
 	readonly selections: Map<DraftModule, DraftModule>;
 	/** The menus whose case list menu item `readModules` read. */
 	readonly caseLists: Set<DraftModule>;
@@ -665,6 +697,24 @@ function readingOf(ctx: ReadContext): ModulesReading {
 
 function menuClass(module: DraftModule): MenuClass {
 	return module.docType;
+}
+
+/** The entries of a case type the reading refuses and keeps in the menu's draft. */
+const KEPT_REFUSED_CASE_TYPES: ReadonlySet<string> = new Set([
+	...Object.values(MENU.caseTypeGrammar).map((claim) => claim.entry),
+	MENU.caseTypeReservedBasic.entry,
+	MENU.caseTypeWorkerAdvanced.entry,
+]);
+
+/**
+ * Whether a menu's case type stands refused and kept in its draft, so the
+ * stages after this one read its forms as written: Nova's writer then cannot
+ * write the document a reading's comparison emits, and that refusal is why.
+ */
+export function keepsRefusedCaseType(ctx: ReadContext): boolean {
+	return ctx.accounting
+		.findings()
+		.some((finding) => KEPT_REFUSED_CASE_TYPES.has(finding.code));
 }
 
 function readCaseType(ctx: ReadContext, module: DraftModule): void {
@@ -786,19 +836,13 @@ function readFormsInMenuAbove(
 	if (json.peek("put_in_root") !== true) return;
 	const cls = menuClass(module);
 	const endpoint = textOf(json.peek("session_endpoint_id")) !== "";
-	const returns =
-		rawForms(stored).some((form) => form.post_form_workflow === "module") ||
-		rawModules(ctx).some(
-			(child) =>
-				child.root_module_id === module.uniqueId &&
-				rawForms(child).some(
-					(form) => form.post_form_workflow === "parent_module",
-				),
-		);
+	// A form's end-of-form return to the menu (`post_form_workflow` `module`,
+	// or `parent_module` from a child) is that form's refusal
+	// (`afterSubmit.ts::refusedByBuild`), the word HQ's form validator names,
+	// and the menu's own setting is read past it.
 	if (
 		endpoint ||
 		usesInlineSearch(stored) ||
-		returns ||
 		linkedAsMenu(ctx, module.uniqueId)
 	) {
 		json.refuse("put_in_root", MENU.putInRootRefused[cls]);
@@ -811,25 +855,10 @@ function readFormsInMenuAbove(
 }
 
 /** Whether a child menu reads the parent step of its selection: it shows its
- *  case list, a form of it loads a case, or a menu that does selects through it. */
-function childReadsParentStep(
-	ctx: ReadContext,
-	child: JsonObject,
-	seen: ReadonlySet<unknown> = new Set(),
-): boolean {
-	const caseList = isJsonObject(child.case_list) ? child.case_list : {};
-	if (caseList.show === true) return true;
-	if (rawForms(child).some(formChoosesCase)) return true;
-	const next = new Set(seen).add(child.unique_id);
-	return rawModules(ctx).some((other) => {
-		const select = isJsonObject(other.parent_select) ? other.parent_select : {};
-		return (
-			select.active === true &&
-			select.module_id === child.unique_id &&
-			!next.has(other.unique_id) &&
-			childReadsParentStep(ctx, other, next)
-		);
-	});
+ *  case list, a form of it requires a case, or a menu that does selects through it
+ *  (`hq/entryFacts.ts::parentStepRead`, the rule the entry facts compare by). */
+function childReadsParentStep(ctx: ReadContext, child: JsonObject): boolean {
+	return parentStepRead(rawModules(ctx), child);
 }
 
 /** Whether following parent selections from `start` returns to `start`. */
@@ -846,7 +875,7 @@ function selectionCycles(ctx: ReadContext, start: string): boolean {
 	return false;
 }
 
-/** `parent_select`: written now where it names a menu of this reading, judged in step 6. */
+/** `parent_select`: written now where it names a menu of this reading, judged in `settleModules`. */
 function readParentSelection(
 	ctx: ReadContext,
 	app: DraftApp,
@@ -884,7 +913,12 @@ function readParentSelection(
 		cursor.refuse("module_id", MENU.selectInvalid);
 		return;
 	}
-	if (usesInlineSearch(named)) {
+	// HQ's `validate_parent_select` refuses a menu searching inline only under
+	// the child's own results instance name, whether or not the child searches.
+	if (
+		usesInlineSearch(named) &&
+		resultsInstanceOf(stored) === resultsInstanceOf(named)
+	) {
 		cursor.refuse("module_id", MENU.selectInline);
 		return;
 	}
@@ -1004,20 +1038,10 @@ function nonEmptyList(value: unknown): boolean {
 	return Array.isArray(value) && value.length > 0;
 }
 
-/** Whether an advanced form's load lists its cases from `uniqueId`'s list. */
+/** Whether an advanced form's chosen load lists its cases from `uniqueId`'s list, the one
+ *  place HQ's build reads a menu's `auto_select_case` (`hq/entryFacts.ts::advancedLoadListMenus`). */
 function loadListsFrom(ctx: ReadContext, uniqueId: string): boolean {
-	return rawModules(ctx).some((menu) =>
-		rawForms(menu).some((form) => {
-			if (form.doc_type !== "AdvancedForm") return false;
-			const actions = isJsonObject(form.actions) ? form.actions : {};
-			return (
-				Array.isArray(actions.load_update_cases) &&
-				actions.load_update_cases.some(
-					(load) => isJsonObject(load) && load.details_module === uniqueId,
-				)
-			);
-		}),
-	);
+	return advancedLoadListMenus(rawModules(ctx)).has(uniqueId);
 }
 
 /** The settings HQ keeps beside a menu that Nova holds no slot for. */
@@ -1057,8 +1081,16 @@ function readMenuSettings(
 		json.refuse("show_case_list_optimization_options", MENU.optimizations[cls]);
 	if (nonEmptyList(stored.custom_assertions))
 		json.refuse("custom_assertions", MENU.customAssertions[cls]);
-	if (nonEmptyList(stored.custom_icons))
+	if (nonEmptyList(stored.custom_icons)) {
 		json.refuse("custom_icons", MENU.customIcons[cls]);
+		const icons = stored.custom_icons as unknown[];
+		for (let index = 1; index < icons.length; index += 1)
+			json.accountPart(
+				"custom_icons",
+				String(index),
+				MENU.customIconsLater[cls],
+			);
+	}
 }
 
 /** A display condition's text, registered whole for the expression stage. */
@@ -1088,6 +1120,14 @@ function registerModuleFilter(ctx: ReadContext, module: DraftModule): void {
 	readingOf(ctx).moduleFilters.set(module, index);
 }
 
+/** Whether a menu's lookup table selection is active, where HQ's build names a fixture as it
+ *  interpolates each of its forms' display conditions (`menus.py`, `fixture_xpath` where
+ *  `module.fixture_select.active`). */
+function fixtureSelectActive(module: DraftModule): boolean {
+	const selection = module.json.peek("fixture_select");
+	return isJsonObject(selection) && Boolean(selection.active);
+}
+
 function registerFormFilter(
 	ctx: ReadContext,
 	module: DraftModule,
@@ -1115,6 +1155,7 @@ function registerFormFilter(
 			},
 			place: form.place,
 			key: `schema:${form.docType}.form_filter`,
+			...(fixtureSelectActive(module) ? { fixtureValue: true } : {}),
 		},
 		{ json, key: "form_filter" },
 	);
@@ -1141,7 +1182,7 @@ function readFormSettings(ctx: ReadContext, form: DraftForm): void {
 }
 
 /**
- * Step 2: every menu's own navigation, in HQ's order. A hidden registration
+ * Every menu's own navigation, in HQ's order. A hidden registration
  * menu `readCaseListRegistration` folded into its host (`app.foldedMenus`)
  * reads no nesting, display condition, case list item or slot of its own:
  * the one expansion of `settleMenus` holds its keys to Nova's shell.
@@ -1242,7 +1283,9 @@ function checkMenuOrder(
 	if (index === -1) return;
 	const child =
 		menus.find((module) => module.uuid === preorder[index]) ?? menus[index];
-	if (child !== undefined) ctx.accounting.finding(MENU.order, child.place);
+	// The order is the app's list of menus, which the refusal stands at too.
+	if (child !== undefined)
+		ctx.accounting.findingAt(MENU.order, child.place, "/modules");
 }
 
 // ── Pass 2 ──────────────────────────────────────────────────────────────
@@ -1285,12 +1328,15 @@ function applyDisplay(
 }
 
 /**
- * Step 6, before the one expansion: each bound display condition written
+ * In the menus' settle, before the one expansion: each bound display condition written
  * into its slots, each parent selection judged against the final catalog,
  * and each form condition that reads its case on a screen that chooses none
  * first refused.
  */
-export function settleModules(ctx: ReadContext): void {
+export function settleModules(
+	ctx: ReadContext,
+	returns: ReadonlyMap<Uuid, PostSubmitDestination> = new Map(),
+): void {
 	const doc = ctx.doc;
 	if (doc === undefined) return;
 	const reading = readingOf(ctx);
@@ -1308,8 +1354,81 @@ export function settleModules(ctx: ReadContext): void {
 				applyDisplay(target, expression);
 		}
 	});
+	refuseOpenedOffTheMenu(ctx, reading, returns);
 	settleFormFilters(ctx, reading);
 	settleParentSelections(ctx, reading);
+}
+
+/**
+ * Whether something opens `moduleUuid`, a menu off the menu: an entry point of its own or of its
+ * case list, an after-submit link whose target is the menu, or a form's return (its after-submit,
+ * as the document holds it or, before the settle writes it, as `returns` gives its stored word, or
+ * its otherwise) that the menu's being off the menu leaves unoffered, which is the return to the
+ * menu, or from a child menu to its parent. Android opens such a menu as a screen that lists
+ * nothing and Web Apps lands on the app's first screen (`validator/rules/hiddenFromMenu.ts`).
+ */
+function opensOffTheMenu(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	returns: ReadonlyMap<Uuid, PostSubmitDestination>,
+): boolean {
+	const mod = doc.modules[moduleUuid];
+	if (mod?.hiddenFromMenu !== true) return false;
+	if (hiddenMenuEntryPoints(mod, moduleUuid).length > 0) return true;
+	const shown = withCandidate(doc, (draft) => {
+		const target = draft.modules[moduleUuid];
+		if (target !== undefined) delete target.hiddenFromMenu;
+	});
+	return Object.entries(doc.forms).some(([formUuid, form]) => {
+		const uuid = formUuid as Uuid;
+		for (const { link } of formLinkEntries(form)) {
+			const target = resolveFormLinkTarget(doc, uuid, link.target);
+			if (target?.type === "module" && target.moduleUuid === moduleUuid)
+				return true;
+		}
+		const goes = form.postSubmit ?? returns.get(uuid);
+		if (
+			goes !== undefined &&
+			form.formLinks === undefined &&
+			!postSubmitDestinationsOffered(doc, uuid).includes(goes) &&
+			postSubmitDestinationsOffered(shown, uuid).includes(goes)
+		)
+			return true;
+		const otherwise = form.otherwise;
+		return (
+			otherwise?.kind === "destination" &&
+			!otherwiseDestinationsOffered(doc, uuid).includes(
+				otherwise.destination,
+			) &&
+			otherwiseDestinationsOffered(shown, uuid).includes(otherwise.destination)
+		);
+	});
+}
+
+/**
+ * A menu the bound display condition puts off the menu while something opens it: one finding at
+ * the menu, and the menu read as shown, so what opens it stands under that one cause.
+ */
+function refuseOpenedOffTheMenu(
+	ctx: ReadContext,
+	reading: ModulesReading,
+	returns: ReadonlyMap<Uuid, PostSubmitDestination>,
+): void {
+	for (const module of reading.moduleFilters.keys()) {
+		const doc = ctx.doc;
+		if (doc === undefined || !opensOffTheMenu(doc, module.uuid, returns))
+			continue;
+		if (!ctx.accounting.hasFindingAt(module.place))
+			ctx.accounting.findingAt(
+				MENU.moduleFilterOpened[menuClass(module)],
+				module.place,
+				`${module.json.pointer}/module_filter`,
+			);
+		ctx.doc = withCandidate(doc, (draft) => {
+			const target = draft.modules[module.uuid];
+			if (target !== undefined) delete target.hiddenFromMenu;
+		});
+	}
 }
 
 /**
@@ -1339,7 +1458,7 @@ function settleFormFilters(ctx: ReadContext, reading: ModulesReading): void {
 	}
 }
 
-/** Each parent selection step 2 wrote, judged now that the catalog is final;
+/** Each parent selection `readModules` wrote, judged now that the catalog is final;
  *  one the gate refuses is taken out of the draft. */
 function settleParentSelections(
 	ctx: ReadContext,
@@ -1355,9 +1474,20 @@ function settleParentSelections(
 		);
 		const parentType = recordType?.parent_type;
 		const namedType = doc.modules[named.uuid]?.caseType;
-		if (recordType?.relationship === "extension" || parentType !== namedType)
-			ctx.accounting.finding(MENU.selectOutsideType, module.place);
-		else ctx.accounting.finding(MENU.selectInvalid, module.place);
+		// A finding at the named menu or its case list left out of the document
+		// what the selection would choose through: that finding is the cause.
+		// So did a refused `parent` index that leaves the catalog with no parent for the type.
+		const namedRefused =
+			ctx.accounting.hasFindingAt(named.place) ||
+			ctx.accounting.hasFindingAt(caseListPlaceOf(named)) ||
+			parentSelectionsExplained(ctx).has(module.uuid);
+		if (!namedRefused)
+			ctx.accounting.finding(
+				recordType?.relationship === "extension" || parentType !== namedType
+					? MENU.selectOutsideType
+					: MENU.selectInvalid,
+				module.place,
+			);
 		ctx.doc = withCandidate(doc, (draft) => {
 			const target = draft.modules[module.uuid];
 			if (target !== undefined) delete target.parentCaseModuleUuid;

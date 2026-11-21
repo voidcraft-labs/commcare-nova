@@ -165,6 +165,8 @@ CORE_CLASSES = {
     "InstantOrderingRuntimeTest": "expression",
     # Core's StringUtils.normalize and fuzzyMatch over the vectors Preview's list filter is held to.
     "ListFilterMatchRuntimeTest": "expression",
+    # Reads only its checked-in control (/numeric-coercion/comparisons.json), which Nova's case store is held to too.
+    "NumericCoercionRuntimeTest": "expression",
     "LocalizationRuntimeTest": "localization",
     "LocationOwnerRuntimeTest": "location",
     "LookupRuntimeTest": "lookup",
@@ -178,9 +180,9 @@ CORE_CLASSES = {
     "PredicateRuntimeTest": "predicate",
     # The labels and validation messages of /expression/prose-values/, in each device zone (ZONED_CLASSES).
     "ProseValueRuntimeTest": "expression",
-    # Registration from the case list: the Register action and its return frames, by host shape (run G3).
+    # Registration from the case list: the Register action and its return frames, by host shape.
     "RegisterFromListRuntimeTest": "menu-screens",
-    # The reader's equivalence table (run E1): each row's two spellings, read by Core alike.
+    # The reader's equivalence table: each row's two spellings, read by Core alike.
     "ReaderSpellingRuntimeTest": "expression",
     "RelationInstanceRuntimeTest": "relation-instance",
     # The whole-number counts Nova admits, and the fractional carrier they replaced, on one local form.

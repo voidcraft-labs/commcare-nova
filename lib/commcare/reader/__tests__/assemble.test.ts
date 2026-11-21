@@ -85,7 +85,7 @@ import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { assembleDocument, READER_CANONICAL_CHOICES } from "../assemble";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import {
-	columnsOfAMenuThatListsNoCasesOffTheDetail,
+	columnsOfAMenuThatListsNoCases,
 	columnsOffAScreenLast,
 } from "../caseList/details";
 import {
@@ -404,7 +404,7 @@ describe("a generated key in the assembly", () => {
 			throw new Error(
 				JSON.stringify(outcome.findings.map((one) => one.detail.name)),
 			);
-		expect(outcome.draft.facts.foldedTranslationKeys).toBe(1);
+		expect(outcome.draft.facts.foldedTranslationKeys).toHaveLength(1);
 		const menu = outcome.draft.doc.moduleOrder[0] as Uuid;
 		expect(outcome.draft.doc.modules[menu]?.name).toBe("Patients");
 	});
@@ -462,7 +462,7 @@ describe("a generated key in the assembly", () => {
 			"application-and-settings/translations-generated-key-over-one-text",
 			"application-and-settings/translations-generated-key-over-one-text",
 		]);
-		expect(outcome.draft.facts.foldedTranslationKeys).toBe(2);
+		expect(outcome.draft.facts.foldedTranslationKeys).toHaveLength(2);
 		const read = outcome.draft.doc;
 		const menu = read.moduleOrder[0] as Uuid;
 		expect(read.modules[menu]?.name).toBe("Clients");
@@ -824,7 +824,15 @@ describe("the reader's canonical choices", () => {
 				{
 					name: "Visits",
 					caseType: "visit",
-					forms: [{ name: "Review", type: "followup", fields: [] }],
+					// A form holding a question: CommCare HQ builds no form that holds none, and the
+					// reader refuses one whole.
+					forms: [
+						{
+							name: "Review",
+							type: "followup",
+							fields: [f({ kind: "text", id: "seen", label: "Seen" })],
+						},
+					],
 				},
 			],
 		});
@@ -1436,13 +1444,13 @@ describe("the reader's canonical choices", () => {
 		expect(READER_CANONICAL_CHOICES.indexOf(tile)).toBe(landing + 3);
 	});
 
-	it("takes a column of a menu that lists no cases off the detail, before the detail is ordered", () => {
+	it("gives a menu that lists no cases its one name column, before the detail is ordered", () => {
 		// `caseList/__tests__/listCanon.test.ts` holds the pair, its export and its
 		// reading.
 		const row = choice(
-			"columns-of-a-menu-that-lists-no-cases-are-off-the-detail",
+			"columns-of-a-menu-that-lists-no-cases-are-its-one-name-column",
 		);
-		expect(row.apply).toBe(columnsOfAMenuThatListsNoCasesOffTheDetail);
+		expect(row.apply).toBe(columnsOfAMenuThatListsNoCases);
 		expect(READER_CANONICAL_CHOICES.indexOf(row)).toBe(
 			READER_CANONICAL_CHOICES.indexOf(
 				choice("columns-off-a-screen-last-in-its-order"),

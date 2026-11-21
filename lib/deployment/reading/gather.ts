@@ -23,16 +23,16 @@ import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
 import {
 	type HqAlignedModule,
-	notSummarizedMenus,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
-import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import type { HqAppSource, HqMediaMapItem } from "@/lib/commcare/hq/appSource";
 import { type HqFailure, hqReadCircumstance } from "@/lib/commcare/hq/failure";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
 import {
 	publishedCaseBlocks,
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	type ReadDraft,
 	type ReaderInput,
@@ -48,10 +48,14 @@ import { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { inventoryIndex } from "@/lib/commcare/surface/inventory";
+import {
+	type IndexedEntry,
+	inventoryIndex,
+} from "@/lib/commcare/surface/inventory";
 import { isDeclaredSurfaceKey } from "@/lib/commcare/surface/revision";
 import { targetFactsFromSource } from "@/lib/commcare/targetFacts";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { fieldKindBindType } from "@/lib/commcare/xform/bindType";
 import { getHqCredentials } from "@/lib/db/settings";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
@@ -60,13 +64,19 @@ import type {
 	DeclarationChoices,
 } from "@/lib/doc/platformDeclaration";
 import {
+	type BlueprintDoc,
 	effectiveAppLocalization,
 	PLATFORMS,
 	type Platform,
 	type PlatformFeatureId,
 } from "@/lib/domain";
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import {
+	type MediaAssetId,
+	type MediaFormatKey,
+	mediaFormatOf,
+} from "@/lib/domain/multimedia";
 import { PLATFORM_FEATURE_IDS } from "@/lib/domain/platforms";
 import { unavailableUses } from "@/lib/domain/platformUses";
 import { log } from "@/lib/logger";
@@ -112,6 +122,7 @@ import {
 	type HqMediaClaim,
 	type HqMediaPlan,
 	hqMediaReferencesOf,
+	mediaLeftOutOf,
 	narrowDeclarationsByMedia,
 	planReadingMedia,
 	type ReadingMediaPlan,
@@ -135,6 +146,7 @@ import {
 	type ReadingKey,
 	type ReadingReview,
 } from "./types";
+import { unsummarizedBeside, unsummarizedFindings } from "./unsummarizedMenus";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -634,46 +646,6 @@ function offeredPlatforms(draft: ReadDraft): Platform[] {
 	return PLATFORMS.filter((platform) => offered.has(platform));
 }
 
-/** Step 4: one finding at each menu CommCare HQ could not summarize, or the app's one. */
-function unsummarizedFindings(
-	source: HqAppSource,
-	modules: readonly HqAlignedModule[],
-): { readonly app: boolean; readonly findings: readonly Finding[] } {
-	const answer = notSummarizedMenus(modules);
-	if (answer.kind === "none") return { app: false, findings: [] };
-	if (answer.kind === "app")
-		return {
-			app: true,
-			findings: [atApp("app-unreadable-in-hq")],
-		};
-	const rawMenus = Array.isArray(source.raw.modules)
-		? (source.raw.modules as unknown[])
-		: [];
-	const first = source.langs[0];
-	return {
-		app: false,
-		findings: answer.indexes.map((menu) => {
-			const raw = rawMenus[menu];
-			const names =
-				typeof raw === "object" && raw !== null
-					? (raw as { readonly name?: unknown }).name
-					: undefined;
-			const name =
-				first !== undefined &&
-				typeof names === "object" &&
-				names !== null &&
-				typeof (names as Record<string, unknown>)[first] === "string"
-					? ((names as Record<string, unknown>)[first] as string)
-					: "";
-			return circumstanceFinding(
-				"menu-unreadable-in-hq",
-				{ kind: "menu", menu, name },
-				{},
-			);
-		}),
-	};
-}
-
 // ---------------------------------------------------------------------------
 // Logging what the request met
 // ---------------------------------------------------------------------------
@@ -737,18 +709,289 @@ function logAcceptanceFailure(
 /** The surface key a media reference Nova leaves out is filed under. */
 const MULTIMEDIA_MAP_KEY = "schema:Application.multimedia_map";
 
+/** The entries a reading settles outside the source's keys, each where it meets what the entry
+ *  states. */
+const SETTLED = {
+	/** The app's id, which the application resource answers and the birth maps the app by. */
+	appId: "application-and-settings/id",
+	/** The app's save counter, which the application resource answers and the bracket holds. */
+	version: "application-and-settings/rev-domain-copy-of-version",
+	/** What HQ's build writes into the profile from the project space (its server and domain, the
+	 *  source's base URL, secure receiver and first language): the reading's own project space,
+	 *  which a `.ccz` made for it writes them for. */
+	targetProfile:
+		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
+	/** A table's tag in Nova's grammar, for each table the document reads. */
+	tableTag: "expressions-and-data/table-tag-in-nova-s-grammar",
+	/** CommCare HQ's ids of a table and its rows, for each table the document reads. */
+	tableIds:
+		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
+	/** A held file's path under `jr://file/`, the path the project space keeps it at. */
+	mediaPath: "expressions-and-data/media-path-jr-file",
+	/** A Connect app, which the document holds as its `connectType`. */
+	connect: "application-and-settings/connect-app-opened-in-the-connect-app",
+	/** The app strings HQ's build writes for every app in every language outside its
+	 *  `translations` (`app_strings.py::_create_custom_app_strings`, `cchq.case`), for the
+	 *  document Nova holds. */
+	defaultAppStrings: "application-and-settings/hq-default-app-strings",
+	/** The profile's `<checkoff>` feature, which HQ's build writes into every app's
+	 *  `profile.ccpr` (`Application.create_all_files`, `is_odk`). */
+	checkoff: "application-and-settings/profile-feature-checkoff",
+	/** The meta block HQ's build adds to every form (`xform.py::XForm._add_meta_2`). */
+	formMeta:
+		"questions/hq-generated-meta-deviceid-timestart-timeend-username-userid",
+	/** The `orx:pollsensor` HQ's build adds to a form that binds a GPS question
+	 *  (`xform.py::XForm._add_meta_2`, a `geopoint` bind). */
+	pollsensor: "questions/hq-generated-pollsensor",
+	/** The `media_suite.xml` resource HQ's build writes for each held file
+	 *  (`suite_xml/generator.py::MediaSuiteGenerator.media_resources`). */
+	mediaSuite: "expressions-and-data/media-suite-xml-resource-shape",
+	/** The `_xpath_query` HQ's build adds to the search of a menu whose forms read the search and
+	 *  whose cases are chosen under a parent's (`remote_requests.py`,
+	 *  `module_uses_inline_search_with_parent_relationship_parent_select`). */
+	parentSearchQuery:
+		"menus-and-case-lists/inline-search-in-a-parent-select-module-hq-adds-xpath-query",
+} as const;
+
+/** The artifacts a settled claim stands in that are no part of the app's source. */
+const APPLICATION_ARTIFACT = "application";
+const PROJECT_SPACE_ARTIFACT = "project-space";
+const LOOKUP_TABLES_ARTIFACT = "lookup-tables";
+/** HQ's build of the document a reading holds. */
+const BUILD_ARTIFACT = "build";
+
+/** One JSON Pointer reference token (RFC 6901). */
+function pointerToken(text: string): string {
+	return text.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+/** A settled claim's record: no surface key, since no key of the source holds what it met. */
+function settledRecord(
+	artifact: string,
+	where: string,
+	entry: string,
+): ClaimRecord {
+	const standing = inventoryIndex().entry(entry)?.standing;
+	if (standing === undefined)
+		throw new Error(
+			`A reading settles the entry "${entry}", which the manifest does not hold. Look at gather.ts::SETTLED.`,
+		);
+	return { artifact, where, key: null, entry, standing };
+}
+
+/** The held entry a judged file's format stands under: the allowing entry naming its surface item. */
+function mediaFormatEntry(format: MediaFormatKey): IndexedEntry {
+	const surfaceKey = mediaFormatOf(format).surfaceKey;
+	const entry = inventoryIndex()
+		.naming(surfaceKey)
+		.find((one) => one.standing === "held");
+	if (entry === undefined)
+		throw new Error(
+			`A file the gate admitted as ${surfaceKey} has no held manifest entry naming that format. The gate and lib/commcare/surface/entries/expressions-and-data.json must agree on the formats Nova holds.`,
+		);
+	return entry;
+}
+
+/**
+ * The record of a held file's class at one map item's `media_type`, where its value sits: the
+ * `media-class:` item HQ files the file under (`hqmedia/models.py::CommCareMultimedia.get_class_by_data`),
+ * under the format's entry, which names that class. A format entry that names another class
+ * records nothing there, so the lane's use of the class meets no claim and shows.
+ */
+function mediaClassRecord(
+	where: string,
+	mediaType: string,
+	entry: IndexedEntry,
+): ClaimRecord | null {
+	const key = `media-class:${mediaType}`;
+	if (!entry.surfaceKeys.includes(key)) return null;
+	return {
+		artifact: "app.json",
+		where,
+		key,
+		entry: entry.id,
+		standing: entry.standing,
+	};
+}
+
+/** What a reading met outside its source's keys, for the claims it settles. */
+export interface SettledReads {
+	readonly data: ReadingProjectData;
+	/** What the reader read of project data. */
+	readonly reads: ReaderProjectDataReads;
+	/** The reader's document; null for an account. */
+	readonly doc: BlueprintDoc | null;
+	/** The media plan once every file has a verdict; null before the files are judged. */
+	readonly media: ReadingMediaPlan | null;
+}
+
+/**
+ * The claims a reading settles that no key of the source holds, each recorded
+ * where the reading met what its entry states, with no surface key but a held
+ * file's class: the app's id and save counter (the application resource), the
+ * project space HQ's build writes the target's profile properties from, for
+ * each table the document reads with nothing Nova cannot hold of it its tag and
+ * CommCare HQ's ids, for each held file the entry of its format, the media
+ * suite's resource HQ's build writes for it, each of its paths under
+ * `jr://file/`, and the class each of its map items files it under, at that
+ * item's `media_type` under its key (`mediaClassRecord`), a Connect app the
+ * document holds, and what HQ's build of the document writes of its own: the
+ * default app strings and the profile's `<checkoff>` for every app, a form's
+ * meta block where the document holds a form, its `orx:pollsensor` where a
+ * form binds a GPS question, and the query its search gets for a basic menu
+ * whose forms read the search under a parent selection. Pure.
+ */
+export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
+	const records: ClaimRecord[] = [
+		settledRecord(APPLICATION_ARTIFACT, "/id", SETTLED.appId),
+		settledRecord(APPLICATION_ARTIFACT, "/version", SETTLED.version),
+		settledRecord(PROJECT_SPACE_ARTIFACT, "", SETTLED.targetProfile),
+	];
+	const tables = new Map(
+		settled.data.gathered.tables.map((table) => [table.read.table.tag, table]),
+	);
+	for (const tag of Object.keys(settled.reads.lookupFields)) {
+		const table = tables.get(tag);
+		if (
+			table === undefined ||
+			table.binding === null ||
+			table.findings.length > 0
+		)
+			continue;
+		const at = `/${pointerToken(tag)}`;
+		records.push(
+			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/tag`, SETTLED.tableTag),
+			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/id`, SETTLED.tableIds),
+		);
+	}
+	const media = settled.media;
+	if (media !== null)
+		for (const file of media.files) {
+			const verdict = Object.hasOwn(media.verdicts, file.key)
+				? media.verdicts[file.key]
+				: undefined;
+			if (verdict?.kind !== "held") continue;
+			const [first] = file.paths;
+			if (first === undefined) continue;
+			const at = (path: string) => `/multimedia_map/${pointerToken(path)}`;
+			const format = mediaFormatEntry(verdict.file.mediaFormat);
+			records.push(
+				settledRecord("app.json", at(first), format.id),
+				settledRecord(BUILD_ARTIFACT, at(first), SETTLED.mediaSuite),
+			);
+			for (const path of file.paths) {
+				if (path.startsWith("jr://file/"))
+					records.push(settledRecord("app.json", at(path), SETTLED.mediaPath));
+				const mediaClass = mediaClassRecord(
+					`${at(path)}/media_type`,
+					file.mediaType,
+					format,
+				);
+				if (mediaClass !== null) records.push(mediaClass);
+			}
+		}
+	const doc = settled.doc;
+	if (doc !== null && doc.connectType !== null)
+		records.push(settledRecord("app.json", "", SETTLED.connect));
+	if (doc !== null) {
+		records.push(
+			settledRecord(BUILD_ARTIFACT, "/app_strings", SETTLED.defaultAppStrings),
+			settledRecord(BUILD_ARTIFACT, "/profile.ccpr", SETTLED.checkoff),
+		);
+		if (Object.keys(doc.forms).length > 0)
+			records.push(settledRecord(BUILD_ARTIFACT, "/meta", SETTLED.formMeta));
+		for (const uuid of doc.moduleOrder) {
+			const module = doc.modules[uuid];
+			if (
+				module !== undefined &&
+				module.parentCaseModuleUuid !== undefined &&
+				moduleFormsReadSearch(module) &&
+				emittedModuleKind(doc, uuid) === "basic"
+			)
+				records.push(
+					settledRecord(
+						BUILD_ARTIFACT,
+						`/menus/${pointerToken(uuid)}/search`,
+						SETTLED.parentSearchQuery,
+					),
+				);
+		}
+		if (
+			Object.values(doc.fields).some(
+				(field) => fieldKindBindType(field.kind) === "geopoint",
+			)
+		)
+			records.push(
+				settledRecord(BUILD_ARTIFACT, "/pollsensor", SETTLED.pollsensor),
+			);
+	}
+	return records;
+}
+
+/** The entry that keeps CommCare HQ's media map, whose binding of a path to a file a publish
+ *  leaves as it is. */
+const MEDIA_MAP_ENTRY = "application-and-settings/multimedia-map";
+
+/**
+ * The class CommCare HQ files each map item under that no held file holds
+ * (`settledClaims` records a held file's), at the item's `media_type`, under
+ * the entry that keeps the map, where that entry names the class: a file no
+ * slot references, a logo, a referenced file judged missing. Pure.
+ */
+export function keptMediaClassClaims(
+	map: readonly HqMediaMapItem[] | null,
+	media: ReadingMediaPlan | null,
+): readonly ClaimRecord[] {
+	const entry = inventoryIndex().entry(MEDIA_MAP_ENTRY);
+	if (entry === undefined)
+		throw new Error(
+			`The entry "${MEDIA_MAP_ENTRY}" a reading keeps the media map under is not in the manifest. Look at gather.ts::MEDIA_MAP_ENTRY.`,
+		);
+	const held = new Set<string>();
+	for (const file of media?.files ?? [])
+		if (
+			Object.hasOwn(media?.verdicts ?? {}, file.key) &&
+			media?.verdicts[file.key]?.kind === "held"
+		)
+			for (const path of file.paths) held.add(path);
+	const records: ClaimRecord[] = [];
+	for (const item of map ?? []) {
+		if (held.has(item.path) || item.mediaType === null) continue;
+		const record = mediaClassRecord(
+			`/multimedia_map/${pointerToken(item.path)}/media_type`,
+			item.mediaType,
+			entry,
+		);
+		if (record !== null) records.push(record);
+	}
+	return records;
+}
+
 /**
  * The reader's claims, with each media reference Nova leaves out filed under
- * its entry: once per site the reader handed that path off from, keyed by
- * `schema:Application.multimedia_map`.
+ * its entry and each claim the reading settles outside the source's keys
+ * (`settledClaims`). A reference left out is counted once per site the reader
+ * handed its path off from, and recorded where the value its entry names sits,
+ * the app's `multimedia_map`, which lacks the path: under
+ * `schema:Application.multimedia_map` where the map holds an entry, and with no
+ * surface key where it holds none, since a map at HQ's default is no use.
  */
 function gatherClaimsOf(
 	claims: ClaimLog,
 	mediaClaims: readonly HqMediaClaim[],
 	mode: "counts" | "full",
+	settled: SettledReads,
+	source: HqAppSource,
 ): GatherClaims {
 	const counts: Record<string, number> = { ...claims.counts };
 	const filed: ClaimRecord[] = [];
+	for (const record of [
+		...settledClaims(settled),
+		...keptMediaClassClaims(source.multimediaMap, settled.media),
+	]) {
+		counts[record.entry] = (counts[record.entry] ?? 0) + 1;
+		filed.push(record);
+	}
 	for (const claim of mediaClaims) {
 		const sites = new Map<string, { artifact: string; where: string }>();
 		for (const handOff of claims.handOffs) {
@@ -767,16 +1010,15 @@ function gatherClaimsOf(
 			throw new Error(
 				`A media reference was filed under the entry "${claim.entry}", which the manifest does not hold.`,
 			);
-		for (const site of sites.values()) {
-			counts[claim.entry] = (counts[claim.entry] ?? 0) + 1;
-			filed.push({
-				artifact: site.artifact,
-				where: site.where,
-				key: MULTIMEDIA_MAP_KEY,
-				entry: claim.entry,
-				standing,
-			});
-		}
+		if (sites.size === 0) continue;
+		counts[claim.entry] = (counts[claim.entry] ?? 0) + sites.size;
+		filed.push({
+			artifact: "app.json",
+			where: "/multimedia_map",
+			key: (source.multimediaMap ?? []).length > 0 ? MULTIMEDIA_MAP_KEY : null,
+			entry: claim.entry,
+			standing,
+		});
 	}
 	if (mode === "counts") return { counts };
 	const all = [...claims.records(), ...filed].sort(
@@ -1038,8 +1280,7 @@ export async function gatherFromHq(
 	const readerClaims = first.claims;
 
 	if (first.kind === "account") {
-		const findings = [
-			...unsummarized.findings,
+		const read = [
 			...first.findings,
 			...readingProjectDataFindingsFor(
 				data,
@@ -1048,10 +1289,22 @@ export async function gatherFromHq(
 				mintingResolver(appId),
 			),
 		];
+		const findings = [...unsummarizedBeside(unsummarized, read), ...read];
 		logUnrecognized(scope, findings, first.defects);
 		return answer(
 			accountOf(findings, appName, false),
-			gatherClaimsOf(readerClaims, [], claimsMode),
+			gatherClaimsOf(
+				readerClaims,
+				[],
+				claimsMode,
+				{
+					data,
+					reads,
+					doc: null,
+					media: null,
+				},
+				source,
+			),
 		);
 	}
 
@@ -1073,17 +1326,31 @@ export async function gatherFromHq(
 		return { projectFindings, ...media };
 	});
 	tally.mediaTotal = planned.plan.files.length;
-	const beforeFiles = [
-		...unsummarized.findings,
+	const projectAndFiles = [
 		...planned.projectFindings,
 		...planned.media.findings,
+	];
+	const beforeFiles = [
+		...unsummarizedBeside(unsummarized, projectAndFiles),
+		...projectAndFiles,
 	];
 	if (beforeFiles.length > 0) {
 		/* An account here ends the request before any file is fetched. */
 		logUnrecognized(scope, beforeFiles, first.defects);
 		return answer(
 			accountOf(beforeFiles, appName, false),
-			gatherClaimsOf(readerClaims, planned.media.claims, claimsMode),
+			gatherClaimsOf(
+				readerClaims,
+				planned.media.claims,
+				claimsMode,
+				{
+					data,
+					reads,
+					doc: draft.doc,
+					media: null,
+				},
+				source,
+			),
 		);
 	}
 
@@ -1106,14 +1373,34 @@ export async function gatherFromHq(
 
 	/* 8 and 9. Everything, with the files' facts. */
 	const checked = await checkWith(
-		{ appId, key, fetched: fetchedOf(data), media: plan, first },
+		{
+			appId,
+			key,
+			fetched: fetchedOf(data),
+			media: plan,
+			first,
+			claims: claimsMode,
+		},
 		pieces,
 		tally,
 		scope,
 	);
+	/* A file judged missing makes the reader run once more, over the verdicts: its claims are the
+	 * reading's, and its hand-offs are the sites the files' claims are filed at. */
 	return answer(
 		checked.result,
-		gatherClaimsOf(readerClaims, checked.mediaClaims, claimsMode),
+		gatherClaimsOf(
+			checked.claims ?? readerClaims,
+			checked.mediaClaims,
+			claimsMode,
+			{
+				data,
+				reads: checked.settled?.reads ?? reads,
+				doc: checked.settled?.doc ?? null,
+				media: checked.settled?.media ?? null,
+			},
+			source,
+		),
 	);
 }
 
@@ -1164,6 +1451,8 @@ async function checkWith(
 		readonly fetched: Fetched;
 		readonly media: ReadingMediaPlan;
 		readonly first?: ReadOutcome;
+		/** How the reader, where it runs once more, keeps its claim log. */
+		readonly claims?: "counts" | "full";
 	},
 	pieces: Pieces,
 	tally: Tally,
@@ -1171,14 +1460,22 @@ async function checkWith(
 ): Promise<{
 	readonly result: Exclude<GatherResult, { kind: "stop" }>;
 	readonly mediaClaims: readonly HqMediaClaim[];
+	/** What the reading met outside its source's keys, once the reader's outcome is judged; null
+	 *  before. */
+	readonly settled: Omit<SettledReads, "data"> | null;
+	/** The claim log of the reader's run once more, where it ran: the run whose draft the files'
+	 *  verdicts judge, and whose hand-offs their claims are filed at. */
+	readonly claims: ClaimLog | null;
 }> {
 	const { appId, key, fetched, media: plan } = input;
 	const { source, data } = fetched;
 	const appName = source.name;
+	let settled: Omit<SettledReads, "data"> | null = null;
+	let claims: ClaimLog | null = null;
 	const none = (
 		result: Exclude<GatherResult, { kind: "stop" }>,
 		mediaClaims: readonly HqMediaClaim[] = [],
-	) => ({ result, mediaClaims });
+	) => ({ result, mediaClaims, settled, claims });
 
 	const unsummarized = unsummarizedFindings(source, fetched.modules);
 	if (unsummarized.app)
@@ -1198,12 +1495,14 @@ async function checkWith(
 	let read: ReaderRun;
 	if (input.first !== undefined && !missing)
 		read = { kind: "outcome", outcome: input.first };
-	else
+	else {
 		read = await runReader(
 			pieces,
 			readerInputFor(appId, key, fetched, plan),
-			"counts",
+			input.claims ?? "counts",
 		);
+		if (read.kind === "outcome") claims = read.outcome.claims;
+	}
 	const stage = await pieces.at("the stage").run(() => {
 		if (read.kind === "contract")
 			return { kind: "contract" as const, broke: read.broke };
@@ -1259,8 +1558,16 @@ async function checkWith(
 			}) as Exclude<GatherResult, { kind: "stop" }>,
 		);
 	if (stage.kind === "account") {
-		const findings = [...unsummarized.findings, ...stage.findings];
+		const findings = [
+			...unsummarizedBeside(unsummarized, stage.findings),
+			...stage.findings,
+		];
 		logUnrecognized(scope, findings, stage.outcome.defects);
+		settled = {
+			reads: projectDataReadsOf(data, stage.outcome),
+			doc: null,
+			media: null,
+		};
 		return none(
 			accountOf(findings, appName, false) as Exclude<
 				GatherResult,
@@ -1270,6 +1577,7 @@ async function checkWith(
 	}
 	const { outcome, draft, reads, hqPlan, projectFindings, files } = stage;
 	tally.expressionRounds = draft.facts.expressionRounds;
+	settled = { reads, doc: draft.doc, media: plan };
 	/* The plan with every reference the files' verdicts leave out. */
 	const judgedPlan: HqMediaPlan = {
 		...hqPlan,
@@ -1277,10 +1585,10 @@ async function checkWith(
 		claims: [...hqPlan.claims, ...files.claims],
 	};
 	/* `files.findings` holds what the source alone says of the files too. */
+	const projectAndFiles = [...projectFindings, ...files.findings];
 	const findings = [
-		...unsummarized.findings,
-		...projectFindings,
-		...files.findings,
+		...unsummarizedBeside(unsummarized, projectAndFiles),
+		...projectAndFiles,
 	];
 	if (findings.length > 0) {
 		logUnrecognized(scope, findings, outcome.defects);
@@ -1326,7 +1634,7 @@ async function checkWith(
 				...files.findings,
 			]),
 			lookup,
-			mediaLeftOut: judgedPlan.inert.length,
+			mediaLeftOut: mediaLeftOutOf(judgedPlan.claims),
 			media: { files: mediaFiles, rows: readingMediaRows(plan) },
 			heldExpansions: pieces.expansions,
 		}),
@@ -1560,7 +1868,7 @@ function* reviewOf(input: {
 		kept: facts === null ? [] : keptListFor(facts),
 		tables: projectReview.tables,
 		places: projectReview.places,
-		mediaLeftOut: input.judgedPlan.inert.length,
+		mediaLeftOut: mediaLeftOutOf(input.judgedPlan.claims).undrawn,
 		firstPublish: accepted.firstPublish,
 	};
 }

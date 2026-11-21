@@ -41,8 +41,10 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { Input } from "@/components/shadcn/input";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useCaseListOrderChoiceRefusal } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContextBuilder } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
 	type ProseProjector,
@@ -68,6 +70,7 @@ import {
 	scalarDataType,
 	typeOf,
 } from "@/lib/domain/expression";
+import { platformSentence } from "@/lib/domain/platforms";
 import {
 	propertyDisplayLabel,
 	propertyDisplayLabelForName,
@@ -368,6 +371,31 @@ export function CaseOrderingComposer({
 									column.sort?.direction ?? "asc",
 									column.sort?.priority ?? 0,
 									blanks,
+									column.sort?.label,
+								),
+							}
+						: column,
+				),
+			);
+		},
+		[applyRuleSequence, canEdit, sorted],
+	);
+
+	/* A rule's name in Sort by, on a column hidden from Results: blank text
+	 * removes the name. */
+	const setLabel = useCallback(
+		(columnUuid: Uuid, label: string | undefined) => {
+			if (!canEdit) return;
+			applyRuleSequence(
+				sorted.map((column) =>
+					column.uuid === columnUuid
+						? {
+								...column,
+								sort: columnSort(
+									column.sort?.direction ?? "asc",
+									column.sort?.priority ?? 0,
+									column.sort?.blanks,
+									label,
 								),
 							}
 						: column,
@@ -568,6 +596,9 @@ export function CaseOrderingComposer({
 													onBlanksChange={(blanks) =>
 														setBlanks(column.uuid, blanks)
 													}
+													onLabelChange={(label) =>
+														setLabel(column.uuid, label)
+													}
 													onRemove={() => removeRule(column.uuid)}
 												/>
 												{previewPortal}
@@ -635,6 +666,7 @@ function CaseOrderingRuleRow({
 	onMove,
 	onDirectionChange,
 	onBlanksChange,
+	onLabelChange,
 	onRemove,
 }: {
 	readonly column: Column;
@@ -646,6 +678,7 @@ function CaseOrderingRuleRow({
 	readonly onMove: (key: "ArrowUp" | "ArrowDown" | "Home" | "End") => void;
 	readonly onDirectionChange: (direction: SortDirection) => void;
 	readonly onBlanksChange: (blanks: SortBlanks) => void;
+	readonly onLabelChange: (label: string | undefined) => void;
 	readonly onRemove: () => void;
 }) {
 	const projectProse = useProseProjection();
@@ -695,89 +728,99 @@ function CaseOrderingRuleRow({
 				<span className="w-3 shrink-0" aria-hidden="true" />
 			)}
 
-			<div
-				className="flex min-w-0 flex-1 flex-col items-stretch gap-2 py-2.5 pr-2 @min-[28rem]:flex-row @min-[28rem]:items-center @min-[28rem]:gap-3"
-				data-case-ordering-rule-body
-			>
-				<div className="min-w-0 w-full @min-[28rem]:flex-1">
-					<span className="block text-[12px] font-medium text-nova-violet-bright">
-						{connector}
-					</span>
-					<span className="block min-w-0 break-words whitespace-normal text-[14px] font-medium text-nova-text">
-						{label}
-					</span>
-				</div>
+			<div className="flex min-w-0 flex-1 flex-col">
+				<div
+					className="flex min-w-0 flex-1 flex-col items-stretch gap-2 py-2.5 pr-2 @min-[28rem]:flex-row @min-[28rem]:items-center @min-[28rem]:gap-3"
+					data-case-ordering-rule-body
+				>
+					<div className="min-w-0 w-full @min-[28rem]:flex-1">
+						<span className="block text-[12px] font-medium text-nova-violet-bright">
+							{connector}
+						</span>
+						<span className="block min-w-0 break-words whitespace-normal text-[14px] font-medium text-nova-text">
+							{label}
+						</span>
+					</div>
 
-				{canEdit ? (
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={<Button type="button" variant="field" />}
-							aria-label={`Change direction for ${label}, currently ${currentDirection}`}
-							data-case-ordering-direction
-							className="w-full shrink-0 @min-[28rem]:w-auto"
-						>
-							{currentDirection}
-							<Icon icon={tablerChevronDown} width="14" height="14" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" preferredMinWidth="11rem">
-							<DropdownMenuRadioGroup
-								value={direction}
-								onValueChange={(value) =>
-									onDirectionChange(value as SortDirection)
-								}
+					{canEdit ? (
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={<Button type="button" variant="field" />}
+								aria-label={`Change direction for ${label}, currently ${currentDirection}`}
+								data-case-ordering-direction
+								className="w-full shrink-0 @min-[28rem]:w-auto"
 							>
-								{options.map((option) => (
-									<DropdownMenuRadioItem
-										key={option.value}
-										value={option.value}
-										closeOnClick
-									>
-										<span>{option.label}</span>
-									</DropdownMenuRadioItem>
-								))}
-							</DropdownMenuRadioGroup>
-						</DropdownMenuContent>
-					</DropdownMenu>
-				) : (
-					<span className="inline-flex min-h-11 w-full items-center text-[14px] font-medium text-nova-text-secondary @min-[28rem]:w-auto">
-						{currentDirection}
-					</span>
-				)}
+								{currentDirection}
+								<Icon icon={tablerChevronDown} width="14" height="14" />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" preferredMinWidth="11rem">
+								<DropdownMenuRadioGroup
+									value={direction}
+									onValueChange={(value) =>
+										onDirectionChange(value as SortDirection)
+									}
+								>
+									{options.map((option) => (
+										<DropdownMenuRadioItem
+											key={option.value}
+											value={option.value}
+											closeOnClick
+										>
+											<span>{option.label}</span>
+										</DropdownMenuRadioItem>
+									))}
+								</DropdownMenuRadioGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					) : (
+						<span className="inline-flex min-h-11 w-full items-center text-[14px] font-medium text-nova-text-secondary @min-[28rem]:w-auto">
+							{currentDirection}
+						</span>
+					)}
 
-				{canEdit ? (
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={<Button type="button" variant="field" />}
-							aria-label={`Change where blank values sort for ${label}, currently ${currentBlanks}`}
-							data-case-ordering-blanks={blanks}
-							className="w-full shrink-0 @min-[28rem]:w-auto"
-						>
+					{canEdit ? (
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={<Button type="button" variant="field" />}
+								aria-label={`Change where blank values sort for ${label}, currently ${currentBlanks}`}
+								data-case-ordering-blanks={blanks}
+								className="w-full shrink-0 @min-[28rem]:w-auto"
+							>
+								<span className="text-nova-text-muted">Blank values</span>
+								{currentBlanks}
+								<Icon icon={tablerChevronDown} width="14" height="14" />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" preferredMinWidth="11rem">
+								<DropdownMenuRadioGroup
+									value={blanks}
+									onValueChange={(value) => onBlanksChange(value as SortBlanks)}
+								>
+									{BLANKS_OPTIONS.map((option) => (
+										<DropdownMenuRadioItem
+											key={option.value}
+											value={option.value}
+											closeOnClick
+										>
+											<span>{option.label}</span>
+										</DropdownMenuRadioItem>
+									))}
+								</DropdownMenuRadioGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					) : (
+						<span className="inline-flex min-h-11 w-full items-center gap-1 text-[14px] font-medium text-nova-text-secondary @min-[28rem]:w-auto">
 							<span className="text-nova-text-muted">Blank values</span>
 							{currentBlanks}
-							<Icon icon={tablerChevronDown} width="14" height="14" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" preferredMinWidth="11rem">
-							<DropdownMenuRadioGroup
-								value={blanks}
-								onValueChange={(value) => onBlanksChange(value as SortBlanks)}
-							>
-								{BLANKS_OPTIONS.map((option) => (
-									<DropdownMenuRadioItem
-										key={option.value}
-										value={option.value}
-										closeOnClick
-									>
-										<span>{option.label}</span>
-									</DropdownMenuRadioItem>
-								))}
-							</DropdownMenuRadioGroup>
-						</DropdownMenuContent>
-					</DropdownMenu>
-				) : (
-					<span className="inline-flex min-h-11 w-full items-center gap-1 text-[14px] font-medium text-nova-text-secondary @min-[28rem]:w-auto">
-						<span className="text-nova-text-muted">Blank values</span>
-						{currentBlanks}
-					</span>
+						</span>
+					)}
+				</div>
+				{column.visibleInList === false && column.notOnList !== true && (
+					<SortNameField
+						columnUuid={column.uuid}
+						label={column.sort?.label}
+						canEdit={canEdit}
+						onChange={onLabelChange}
+					/>
 				)}
 			</div>
 
@@ -797,6 +840,74 @@ function CaseOrderingRuleRow({
 		</div>
 	);
 }
+/**
+ * The name a column hidden from Results goes by in the list's Sort by menu.
+ * The text commits on blur; a blank text removes the name, so the column
+ * stays out of Sort by.
+ */
+function SortNameField({
+	columnUuid,
+	label,
+	canEdit,
+	onChange,
+}: {
+	readonly columnUuid: Uuid;
+	readonly label: string | undefined;
+	readonly canEdit: boolean;
+	readonly onChange: (label: string | undefined) => void;
+}) {
+	const id = useId();
+	const helpId = `${id}-help`;
+	const inputRef = useRef<HTMLInputElement>(null);
+	const platforms = useDeclaredPlatforms();
+	const stored = label ?? "";
+	const [draft, setDraft] = useState(stored);
+	useEffect(() => {
+		if (stored !== draft && document.activeElement !== inputRef.current)
+			setDraft(stored);
+	}, [stored, draft]);
+	const commit = () => {
+		const next = draft.trim() === "" ? undefined : draft;
+		if (next === label) return;
+		if (next === undefined) setDraft("");
+		onChange(next);
+	};
+	const platformNote = platformSentence("case-list-sort-label", platforms);
+	return (
+		<div className="pb-2.5 pr-2" data-case-ordering-sort-name={columnUuid}>
+			<label
+				htmlFor={id}
+				className="block text-[12px] font-medium text-nova-text-secondary"
+			>
+				Name in Sort by
+			</label>
+			<Input
+				id={id}
+				ref={inputRef}
+				value={draft}
+				disabled={!canEdit}
+				placeholder="Not in Sort by"
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") event.currentTarget.blur();
+				}}
+				autoComplete="off"
+				data-1p-ignore
+				aria-describedby={helpId}
+				className="nova-focusable mt-1 h-auto min-h-11 w-full border border-white/[0.06] bg-nova-deep/50 px-3 text-[14px] text-nova-text placeholder:text-nova-text-muted md:text-[14px] dark:bg-nova-deep/50"
+			/>
+			<p
+				id={helpId}
+				className="mt-1 text-[12px] leading-5 text-nova-text-muted"
+			>
+				Workers can order the list by this from Sort by, under this name.
+				{platformNote === "" ? "" : ` ${platformNote}`}
+			</p>
+		</div>
+	);
+}
+
 /** The Blank values control's two sides. */
 const BLANKS_OPTIONS: ReadonlyArray<{
 	readonly value: SortBlanks;

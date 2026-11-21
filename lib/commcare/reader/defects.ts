@@ -38,6 +38,7 @@ export const READER_DEFECT_CODES = [
 	"expression-not-written-back",
 	"no-case-datum",
 	"emission-threw",
+	"key-not-named",
 ] as const;
 export type ReaderDefectCode = (typeof READER_DEFECT_CODES)[number];
 
@@ -54,6 +55,12 @@ function claimSlot(claim: string): string {
 
 function entrySlot(entry: string): string {
 	return inventoryIndex().entry(entry) === undefined ? "no-such-entry" : entry;
+}
+
+/** A surface key some manifest entry names; any other is written `unnamed-key`, so a key built
+ *  from an app's own names never reaches a line. */
+function keySlot(key: string): string {
+	return inventoryIndex().naming(key).length > 0 ? key : "unnamed-key";
 }
 
 /** The entry a registered claim names, as `entrySlot` writes it. */
@@ -268,6 +275,18 @@ export const readerDefect = {
 			`Nova read part of an app from CommCare HQ and its own writer could not write that part back, at ${placeKey(place)}: ${oneOf(emitter, EMITTERS, "another-emitter")} threw. The reader built something Nova's documents never hold; check what the stages before it made of this place.`,
 		);
 	},
+	/** A claim recorded under a surface key its entry does not name (`accounting.ts::Accounting.#recordKey`).
+	 *  `claim` is a registered name, `entry` an entry id, `key` a surface key. */
+	keyNotNamed(
+		place: HqPlace,
+		claim: string,
+		entry: string,
+		key: string,
+	): ReaderDefectWhy {
+		return why(
+			`claim ${claimSlot(claim)} at ${placeKey(place)} would record ${keySlot(key)} under ${entrySlot(entry)}, which does not name that key. Record the claim under the entry that reads that key, or with no key where its entry names none of the node's keys.`,
+		);
+	},
 	noCaseDatum(place: HqPlace): ReaderDefectWhy {
 		return why(
 			`Nova couldn't find the session value that holds the case this form opens with, at ${placeKey(place)}, so it can't read the form's display condition as CommCare HQ builds it. CommCare HQ treats the form as one that opens on a case and Nova's reading of its menu and case operations does not; check what the case management reader made of this form.`,
@@ -289,4 +308,5 @@ export const READER_DEFECT_CONSTRUCTORS = {
 	"expression-not-written-back": "expressionNotWrittenBack",
 	"no-case-datum": "noCaseDatum",
 	"emission-threw": "emissionThrew",
+	"key-not-named": "keyNotNamed",
 } as const satisfies Record<ReaderDefectCode, keyof typeof readerDefect>;

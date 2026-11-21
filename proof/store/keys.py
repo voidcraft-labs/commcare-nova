@@ -33,9 +33,16 @@ the key's kind, so no two kinds of key can meet. Standard library only.
   browser's code alone misses every document key: each document's parts
   that drive the browser are observed again, the rest read from the store.
 - ``group_key(document key, judge, records)``: a document's judgment: the
-  document, the judge's code (whose fingerprint includes both registers) and
-  the digest of every record part, so every check reads at most what it
-  names. ``judgment_key(group key, check)`` is one check's evidence in it.
+  document, the judge's code (whose fingerprint includes both registers) and,
+  for a corpus document, the reader bundle (``judged_under``), and the digest
+  of every record part, so every check reads at most what it names.
+  ``judgment_key(group key, check)`` is one check's evidence in it. The
+  reader bundle (``native/reader/``, ``reader_digest``) is Nova's reader as a
+  judge runs it to read an app; a change to it judges every corpus document
+  again from its stored records and observes none. A control holds no document, so no
+  judge of it runs the bundle and its judged key names the judge's
+  fingerprint alone (``group_judge``). No part, storage, document or
+  transcript key names the bundle.
 - ``transcript_key(scope, spec digest, first)``: a browser run's starting
   point: the document scope, the run's spec (its clock, randomness, cookies
   and options) and HQ's first answer. A transcript held under it is replayed
@@ -96,9 +103,13 @@ RECORD_FINGERPRINTS = ("observation", "image", "postgres", "arch")
 DOCUMENT_FINGERPRINTS = (*RECORD_FINGERPRINTS, "browser")
 PACKAGE_FINGERPRINTS = ("harness", "image", "postgres", "arch")
 
-# The files of the corpus's native products that hold timings, never read by a check.
+# The files of the corpus's native products that hold timings, never read by a check, and the reader bundle, which
+# no native family reads: a change to it keys every corpus document's judgment (``judged_under``) and the packages
+# whose tests run it (``proof.store.queue.PACKAGE_DATA``), and runs no native family again.
 NATIVE = "native"
-NATIVE_UNREAD = ("logs/", "timings.json")
+NATIVE_UNREAD = ("logs/", "reader/", "timings.json")
+# The reader bundle the corpus carries (``proof/reader/build.mjs``, built by ``proof.native.produce``).
+READER = "native/reader"
 
 
 class KeyInputError(ValueError):
@@ -193,6 +204,19 @@ def group_key(document: str, judge: str, records: Mapping[str, str]) -> str:
     return hashed("judged", VERSION, document, judge, dict(sorted(records.items())))
 
 
+def judged_under(judge: str, reader: str | None) -> str:
+    """The judge component of a corpus document's judged key: the judge's fingerprint and the reader bundle a judge
+    of it runs (``reader_digest``; None for a corpus that carries none)."""
+    return hashed("judge", VERSION, judge, reader)
+
+
+def group_judge(group: str, judge: str, reader: str | None) -> str:
+    """The judge component of the judged key of the group ``group`` (``group_key``): ``judged_under`` for a corpus
+    document (``corpus:<id>``), and the judge's fingerprint alone for a control, which holds no document, so no
+    judge of it runs the reader bundle. The queue builder and the packer both key a group by it."""
+    return judged_under(judge, reader) if group.startswith("corpus:") else judge
+
+
 def judgment_key(group: str, check: str) -> str:
     return hashed("judgment", VERSION, group, check)
 
@@ -263,8 +287,19 @@ def documents_digest(corpus: Path, documents: Mapping[str, str] | None = None) -
     return hashed("documents", VERSION, roots, dict(sorted(documents.items())))
 
 
+def reader_digest(corpus: Path) -> str | None:
+    """The reader bundle the corpus carries (``native/reader/``): its bytes. None without one."""
+    directory = Path(corpus) / READER
+    if not directory.is_dir():
+        return None
+    return files_digest(directory)
+
+
 def native_digest(corpus: Path) -> str | None:
     """The native products the corpus carries (``native/``), their logs and timings left out; None without them.
+
+    The reader bundle is left out too (``NATIVE_UNREAD``): no native family
+    reads it, and it keys what runs it (``reader_digest``).
 
     It is their bytes: the products' producers mint ids afresh in each
     production, and no renaming of id-shaped tokens can tell a minted id from

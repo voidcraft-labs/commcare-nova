@@ -1242,35 +1242,62 @@ def test_an_expectation_the_check_cannot_run_is_refused(tmp_path, core_runner, c
         intent.value_differences(refused, DocumentRecords(refused.id, refused.kind))
 
 
+def _fixtures_declared(root):
+    """Each fixture an XForm or a suite entry under ``root`` declares an instance of (a ``src`` under
+    ``jr://fixture/``), which Core fills from the restore as the form or the list opens."""
+    return [
+        element.get("src")
+        for element in root.iter()
+        if isinstance(element.tag, str)
+        and etree.QName(element).localname == "instance"
+        and (element.get("src") or "").startswith("jr://fixture/")
+    ]
+
+
 def _targetable():
-    """The cheapest corpus document exported under minimum and maximum that holds a survey form and a follow-up
+    """The cheapest document Nova made, exported under minimum and maximum, that holds a survey form and a follow-up
     form whose local entry selects one ``case_id`` from its menu's short detail:
-    ``(document, the survey's uuid, (module, form, the follow-up's uuid))``, positions as the wire places them."""
+    ``(document, the survey's uuid, (module, form, the follow-up's uuid))``, positions as the wire places them.
+
+    The expectations planted over it give no restore, so Core's evaluate opens the survey and the follow-up's list
+    over the template restore (``observe/intent.py::_restore_path``), which holds no fixture: a form or a list that
+    declares one raises as it opens (``CommCareInstanceInitializer``'s ``FixtureInitializationException`` for a
+    lookup table). So the survey's form and the follow-up's entry in the local archive declare no fixture."""
     from proof.core.artifacts import read_archive_entry
 
     found = []
     for document in cases.load_corpus().emitted:
-        if not {"minimum", "maximum"} <= set(document.exports) or document.local_ccz is None:
+        if document.hq_authored or not {"minimum", "maximum"} <= set(document.exports) or document.local_ccz is None:
             continue
         forms = document.document["doc"]["forms"]
         placed = [
             (m, f, uuid) for m, module in enumerate(document.wire_modules) for f, uuid in enumerate(module["forms"])
         ]
-        surveys = [uuid for _, _, uuid in placed if forms[uuid].get("type") == "survey"]
+        surveys = [
+            uuid
+            for m, f, uuid in placed
+            if forms[uuid].get("type") == "survey"
+            and not _fixtures_declared(
+                etree.fromstring(read_archive_entry(document.local_ccz, observed_intent.form_file(m, f)))
+            )
+        ]
         suite = etree.fromstring(read_archive_entry(document.local_ccz, "suite.xml"))
         selecting = []
         for m, f, uuid in placed:
             if forms[uuid].get("type") != "followup":
                 continue
             for entry in suite.iter("entry"):
-                if entry.find(f"command[@id='m{m}-f{f}']") is None:
+                if entry.find(f"command[@id='m{m}-f{f}']") is None or _fixtures_declared(entry):
                     continue
                 datums = entry.findall("session/datum")
                 if [(d.get("id"), d.get("detail-select")) for d in datums] == [("case_id", f"m{m}_case_short")]:
                     selecting.append((m, f, uuid))
         if surveys and selecting:
             found.append((document, surveys[0], selecting[0]))
-    assert found, "No corpus document holds a survey form and a follow-up selecting one case, so nothing runs here."
+    assert found, (
+        "No corpus document holds a survey form and a follow-up selecting one case, neither reading a fixture, so"
+        " nothing runs here."
+    )
     estimate = sharding.estimate(sharding.load_timings())
     return min(found, key=lambda chosen: (estimate(chosen[0].group), chosen[0].id))
 
@@ -1815,3 +1842,77 @@ def test_an_add_on_hq_says_the_stored_app_uses_is_one_it_holds_on():
     assert _found(intent.add_ons_in_use("doc", state({"display_conditions": True}, in_use))) == [
         ("add_ons@B", "/in-use/*", "/in-use/submenus", "changed", True, None)
     ]
+
+
+def test_the_add_ons_of_an_app_hq_made_are_held_only_where_nova_wrote_them():
+    """Contract: an app made in HQ holds the add-on map its author left, and HQ's pages offer an add-on wherever the
+    app uses it, whatever the map says (``add_ons.py::show``), so its A is held to no add-on, while each state Nova
+    published is. The plausible failure: the A of a base whose advanced form HQ counts as using Case Conditions and
+    Child Cases (``_uses_conditional_form_actions``, ``subcases``' ``used_in_form``) reported for a map Nova never
+    wrote."""
+    from types import SimpleNamespace
+
+    configuration = intent.JudgedConfiguration("minimum", "2.57.0", frozenset())
+    stated = intent.Intent(app_name="Clinic", modules=[], settings={})
+    state = intent.HeldState(
+        "A", {"add_ons": {"subcases": False}}, {}, SimpleNamespace(files=None), add_ons_in_use={"subcases": True}
+    )
+
+    def add_on_paths(**kwargs):
+        return [
+            d.path
+            for d in intent.state_differences("doc", stated, state, configuration, {}, **kwargs)
+            if d.artifact == "add_ons@A"
+        ]
+
+    assert add_on_paths() == ["/in-use/*"]
+    assert add_on_paths(add_ons=False) == []
+
+
+def test_an_app_made_in_hq_is_held_to_the_profile_it_holds_and_seeds_nothing():
+    """On a document made in CommCare HQ, Nova's publish carries the target's own profile values and seeds none
+    (``seeds: "target"``), and its archive mirrors them: so a setting A's stored profile holds is expected at that
+    value at A, at B and in the archive, and a kept setting A holds none of at HQ's setting for none, never at Nova's
+    seed. The plausible failures: a kept value reported as a difference at B or in the archive, and an unstated
+    setting expected at Nova's seed on an app that holds none."""
+    items = load_manifest().items
+    configuration = intent.JudgedConfiguration("minimum", "2.57.0", frozenset())
+    stated = intent.Intent(
+        app_name="Clinic", modules=[], settings={"showSavedForms": False, "showIncompleteForms": False}
+    )
+    owned = intent.stated_settings(stated, seeds=False)
+    assert owned == {"cc-show-saved": "no", "cc-show-incomplete": "no"}
+    unstated = {
+        key[len("setting:properties.") :]: intent._unstated_setting(item)
+        for key, item in items.items()
+        if key.startswith("setting:properties.")
+    }
+    held_by_a = {"cc-fuzzy-search-enabled": "yes"}
+    built = {name: value for name, value in unstated.items() if value is not None}
+    built.update(owned)
+    built.update(held_by_a)
+    found = intent.profile_settings("doc", stated, _built(built), configuration, items, held_by_a, seeds=False)
+    assert found == []
+    # Nova's seed where A holds nothing is a difference on an app made in HQ: HQ's build writes nothing there
+    # (``Application.create_profile`` writes a setting's default only where its ``commcare_default`` differs).
+    seeded = {**built, "cc-autoup-freq": "freq-never"}
+    assert unstated["cc-autoup-freq"] is None
+    assert _found(
+        intent.profile_settings("doc", stated, _built(seeded), configuration, items, held_by_a, seeds=False)
+    ) == [
+        (
+            "profile.ccpr@A",
+            "/profile/property[@key=cc-autoup-freq]/@value",
+            "/profile/property[@key=cc-autoup-freq]/@value",
+            "changed",
+            None,
+            "freq-never",
+        )
+    ]
+    # The archive writes A's value for a kept setting it holds, and no seed for one it does not.
+    profile = etree.Element("profile")
+    for key, value in {**owned, **held_by_a}.items():
+        etree.SubElement(profile, "property", key=key, value=value)
+    files = {"profile.ccpr": etree.tostring(profile)}
+    assert intent.local_profile_settings("doc", stated, files, "local.ccz", held_by_a, seeds=False) == []
+    assert _found(intent.local_profile_settings("doc", stated, files, "local.ccz", {}, seeds=True))

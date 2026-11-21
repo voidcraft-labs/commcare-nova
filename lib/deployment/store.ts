@@ -1932,7 +1932,8 @@ const WEB_APPS_LINES: ReadonlySet<FirstPublishChangeId> = new Set([
 
 /** What the list a bring-in of changes leaves on the baseline is made from. */
 export interface HqChangesFirstPublish {
-	/** The list acceptance gave this request's reading for the app's declaration. */
+	/** The list acceptance gave this request's reading for the app's declaration, as a list stores it
+	 *  (`reading/firstPublishChanges.ts::firstPublishListToStore`). */
 	readonly accepted: FirstPublishView;
 	/** The ids of what the next publish changes in CommCare HQ, from the plan. */
 	readonly publishChanges: readonly FirstPublishChangeId[];

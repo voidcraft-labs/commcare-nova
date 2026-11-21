@@ -941,6 +941,43 @@ describe("the session value an own block reads", () => {
 	});
 });
 
+describe("the answer beside `boolean_true`", () => {
+	const closing =
+		"http://openrosa.org/formdesigner/B599FEA0-E02A-5394-A0D5-FF5AAA49E4B0";
+	/** The own close of the closing form, its stored condition `boolean_true` beside `answer`. */
+	const closeBeside = (answer: unknown) =>
+		formOf(
+			editedCaseWrites((modules) => {
+				for (const form of modules.flatMap(formsOf)) {
+					if (form.xmlns !== closing) continue;
+					const close = actionsOf(form).close_case as Json;
+					close.condition = {
+						...(close.condition as Json),
+						operator: "boolean_true",
+						answer,
+					};
+				}
+			}).forms,
+			closing,
+		).blocks.find((block) => block.kind === "basic-own");
+
+	it("is none whatever the source stores, since HQ's build writes the question's path alone", () => {
+		// HQ's own starter apps store `"1"` there.
+		expect(closeBeside("1")).toMatchObject({
+			closeCondition: {
+				type: "if",
+				question: "outcome",
+				answer: null,
+				operator: "boolean_true",
+			},
+		});
+		// So an edit in CommCare HQ that changes only that answer builds the
+		// same block, and reads as no change.
+		expect(closeBeside("yes")).toEqual(closeBeside(null));
+		expect(closeBeside("1")).toEqual(closeBeside(null));
+	});
+});
+
 describe("owners and `update_mode: edit`", () => {
 	it("reads owner_id among a block's updates, and every `edit` key, on the own, worker and child blocks", () => {
 		const blocks = editedCaseWrites((modules) => {

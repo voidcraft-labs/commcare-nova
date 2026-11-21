@@ -1,0 +1,214 @@
+[
+	{
+		"id": "visitor-label-in-french",
+		"entry": "questions/label-default-text-itext-value",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "fra",
+			"expressions": ["jr:itext('visitor-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Nom du visiteur"
+			}
+		]
+	},
+	{
+		"id": "visitor-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visitor",
+					"value": "Asha"
+				}
+			],
+			"expressions": ["/data/visitor"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Asha"
+			}
+		]
+	},
+	{
+		"id": "village-chosen",
+		"entry": "questions/multiple-choice-select1-item",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/village",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/village"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "lower"
+			}
+		]
+	},
+	{
+		"id": "crop-label-in-hindi",
+		"entry": "questions/label-default-text-itext-value",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "hin",
+			"expressions": ["jr:itext('crop-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "उगाई गई फसल"
+			}
+		]
+	},
+	{
+		"id": "crop-label-in-english",
+		"entry": "questions/an-explicitly-blank-value-in-a-non-default-language-where-the",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "en",
+			"expressions": ["jr:itext('crop-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Crop grown"
+			}
+		]
+	},
+	{
+		"id": "remark-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/remark",
+					"value": "Dry season"
+				}
+			],
+			"expressions": ["/data/remark"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Dry season"
+			}
+		]
+	},
+	{
+		"id": "blank-translations-filled:before",
+		"entry": "questions/an-explicitly-blank-value-in-a-non-default-language-where-the",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "fra",
+			"expressions": ["jr:itext('crop-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": ""
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "blank-translations-filled:after",
+		"entry": "questions/an-explicitly-blank-value-in-a-non-default-language-where-the",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "fra",
+			"expressions": ["jr:itext('crop-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Crop grown"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "visitor-label-in-hindi",
+		"entry": "application-and-settings/langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "hin",
+			"expressions": ["jr:itext('visitor-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "आगंतुक का नाम"
+			}
+		]
+	},
+	{
+		"id": "remark-label-in-french",
+		"entry": "application-and-settings/langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "fra",
+			"constraintChecks": [
+				{
+					"path": "/data/remark",
+					"value": "Dry season"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/label",
+				"value": "Remarque"
+			}
+		]
+	}
+]

@@ -1,0 +1,236 @@
+[
+	{
+		"id": "client-name-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/client_name",
+					"value": "Wanjiru Kamau"
+				}
+			],
+			"expressions": ["/data/client_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Wanjiru Kamau"
+			}
+		]
+	},
+	{
+		"id": "client-born-entered",
+		"entry": "questions/date-xsd-date",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/dob",
+					"value": "1990-06-15"
+				}
+			],
+			"expressions": ["/data/dob"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1990-06-15"
+			}
+		]
+	},
+	{
+		"id": "district-saved-to-the-case",
+		"entry": "forms-and-case-writes/update-case-update-property-question",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/district",
+					"value": "d2"
+				}
+			],
+			"expressions": ["/data/district"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "d2"
+			}
+		]
+	},
+	{
+		"id": "case-names-checked:before",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/client_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/client_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "case-names-checked:after",
+		"entry": "forms-and-case-writes/open-case-name-update-question-path",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id_new_client_0": "new-client"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/client_name",
+					"value": "   "
+				}
+			],
+			"expressions": ["/data/client_name"]
+		},
+		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "constraint"
+			}
+		],
+		"exports": ["B", "local"]
+	},
+	{
+		"id": "visit-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 1
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "client-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visit_note",
+					"value": "Clinic card renewed"
+				}
+			],
+			"expressions": ["/data/visit_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Clinic card renewed"
+			}
+		]
+	},
+	{
+		"id": "check-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "client-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/check_note",
+					"value": "Still active"
+				}
+			],
+			"expressions": ["/data/check_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Still active"
+			}
+		]
+	},
+	{
+		"id": "visit-summary-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "client-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/visit_summary",
+					"value": "Home visit done"
+				}
+			],
+			"expressions": ["/data/visit_summary"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Home visit done"
+			}
+		]
+	}
+]

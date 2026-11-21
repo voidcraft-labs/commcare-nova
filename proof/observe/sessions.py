@@ -10,6 +10,28 @@ and of B aligned to A differ, on that build. HQ's builds read the restore
 HQ writes over the unit's state (``proof.observe.casedata.restore``, with the
 lookup tables Nova's push uploaded: A's restore is made over A, B's over B);
 the local archive reads a restore with no tables, since it carries its own.
+An app made in CommCare HQ has no first publish: A's restore serves the tables
+its A was made with (``AuthoredTables``), and B's serves every table the unit
+holds at B, A's and whatever its republish's workbook uploaded over them, as a
+Nova-born document's does, so a workbook a republish should not have pushed
+shows on B's sessions. B's sessions run whether or not the raw builds differ
+(``proof.observe.unit._Unit.observe_b_aligned``).
+
+Every case search a session sends is answered by HQ's own search view
+(``ota/views.py::app_aware_search``, reached through HQ's URLconf and
+middleware as Formplayer's searches are, ``proof.formplayer.hq.HqViews``),
+signed in as the document's worker over the unit's real Elasticsearch, in a
+fork of the unit in which that worker and the document's cases are made as a
+served state makes them (``HqSearches``): the worker by ``CommCareUser.create``,
+each case through HQ's receiver, both indexed by HQ's own pillows. The fork is
+opened at a side's first search and put back as its sessions end, so a side
+that searches nothing costs nothing, and no side reads what another's
+searches left. HQ's search reads the app its URL names (A's id, which the
+local archive's runtime URLs name too) only for the related cases it adds to
+its results (``case_search/utils.py::get_app_context_by_case_type``): A's
+searches run where the unit holds A's menus, so where the unit holds B by then
+and the two differ in what that reads, A's menus are saved over B's in A's fork
+(``_held_as``).
 
 Every session's submission is given to HQ's case processing
 (``proof.hq.operations.process_case_blocks``) over the same cases, with the
@@ -45,14 +67,18 @@ sent (``csql``), and each lookup upload HQ refused to serve.
 
 from __future__ import annotations
 
+import base64
 import tempfile
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlencode, urlsplit
 
 from proof.checks.compare.trace import renamespace
 from proof.checks.compare.xml_tree import parse_xml
 from proof.checks.corpus import ANDROID
+from proof.core.client import ANDROID_DEFAULT_STRINGS
 from proof.observe import casedata
 from proof.observe.build import _placed, admission_placeholders, arrange
 from proof.observe.record import bytes_digest, digest
@@ -68,9 +94,10 @@ from proof.observe.runs import (
 
 
 @contextmanager
-def admitted(core_runner, path):
-    """Core's admission report for an archive (a ``.ccz`` or a directory), its app released on exit."""
-    report = core_runner.admit(path)
+def admitted(core_runner, path, runtime_defaults=None):
+    """Core's admission report for an archive (a ``.ccz`` or a directory), its app released on exit.
+    ``runtime_defaults`` is the client's (``proof.core.client.CoreRunner.admit``)."""
+    report = core_runner.admit(path, runtime_defaults=runtime_defaults)
     app = report.get("app")
     try:
         yield report
@@ -86,14 +113,241 @@ def _admission(report, path):
     return _placed(kept, admission_placeholders(report, path))
 
 
-def run_sessions(core_runner, side, path, restore, script=None):
-    """The build's sessions over the restore: derived when ``script`` is None, else the script replayed."""
-    with admitted(core_runner, path) as report:
+def run_sessions(core_runner, side, path, restore, script=None, *, runtime_defaults=None, searches=None):
+    """The build's sessions over the restore: derived when ``script`` is None, else the script replayed.
+    ``runtime_defaults`` names the strings the runtime the sessions model registers as its default locale first
+    (CommCare Android's, ``ANDROID_DEFAULT_STRINGS``, for every build of an app that declares Android); ``searches``
+    answers each case search a session sends (``HqSearches``, ``proof.core.client.CoreRunner.session``)."""
+    with admitted(core_runner, path, runtime_defaults) as report:
         admission = _admission(report, path)
         if not report.get("admitted") or report.get("app") is None:
             return Run(side, admission, None)
-        trace = core_runner.session(report["app"], restore=restore, script=script)
+        trace = core_runner.session(report["app"], restore=restore, script=script, searches=searches)
     return Run(side, admission, trace)
+
+
+# Searches -------------------------------------------------------------------
+
+
+def searched(trace):
+    """Whether a session of ``trace`` sent a case search: a step's request of kind ``search``
+    (``ProofSessionUtils.java``). A session run with no ``searches`` is answered every case of the searched types and
+    no filter, so a caller that compares nothing a search finds refuses a trace where this holds."""
+    return any(
+        request.get("kind") == "search"
+        for run in trace.get("runs") or ()
+        for step in run.get("trace") or ()
+        for request in step.get("requests") or ()
+    )
+
+
+# The functions of a case search query with which HQ reads its own clock: ``today()`` in the project space's zone and
+# ``now()`` (``case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS``, ``value_functions.py::today``,
+# ``now``).
+HQ_CLOCK_FUNCTIONS = frozenset({"today", "now"})
+
+
+class ClocksApart(RuntimeError):
+    """HQ answers a search that reads its clock otherwise at the runtimes' instant than at its own."""
+
+
+def reads_hq_clock(query):
+    """Whether HQ's search reads its clock evaluating ``query`` (one ``_xpath_query`` value): a call of a function of
+    ``HQ_CLOCK_FUNCTIONS``, found in the tree HQ's own parser gives the query (``case_search/filter_dsl.py::
+    build_filter_from_xpath``'s ``parse_xpath``, eulxml's). Asked only of a query HQ has just parsed and answered."""
+    from eulxml.xpath import parse as parse_xpath
+    from eulxml.xpath.ast import FunctionCall
+
+    pending = [parse_xpath(query)]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, FunctionCall) and node.prefix is None and node.name in HQ_CLOCK_FUNCTIONS:
+            return True
+        if isinstance(node, (list, tuple)):
+            pending.extend(node)
+        elif hasattr(node, "__dict__"):
+            pending.extend(vars(node).values())
+    return False
+
+
+def runtime_instant():
+    """The runtimes' one instant (Core's, Formplayer's and Android's, ``proof.core.client.DEFAULT_CLOCK``)."""
+    import datetime as dt
+
+    from proof.core.client import DEFAULT_CLOCK
+
+    return dt.datetime.fromisoformat(DEFAULT_CLOCK.replace("Z", "+00:00"))
+
+
+def answered_cases(body):
+    """The id of each case a search answer lists, in its order, or None where the answer is no XML."""
+    from lxml import etree
+
+    try:
+        root = etree.fromstring(body)
+    except (etree.XMLSyntaxError, ValueError):
+        return None
+    return [element.get("case_id") for element in root.iter() if etree.QName(element).localname == "case"]
+
+
+def clocks_apart_message(label, query, at_pin, at_runtime):
+    """Why HQ's answer to a search of ``label``'s sessions is refused: it reads its clock in ``query`` and lists
+    ``at_pin`` at its own instant and ``at_runtime`` at the runtimes' (case ids, or None for an answer no XML)."""
+    if at_pin is None or at_runtime is None:
+        found = "answers it otherwise"
+    else:
+        only_pin = sorted(set(at_pin) - set(at_runtime))
+        only_runtime = sorted(set(at_runtime) - set(at_pin))
+        parts = []
+        if only_pin:
+            parts.append(f"finds {', '.join(only_pin[:5])} only at its own")
+        if only_runtime:
+            parts.append(f"finds {', '.join(only_runtime[:5])} only at the runtimes'")
+        found = " and ".join(parts) or "lists the same cases in another order"
+    return (
+        f"A search of the {label} sessions has CommCare HQ read its clock ({query}), and HQ {found}"
+        " (its clock is its pin's instant, proof.hq.determinism.EPOCH; the runtimes' is"
+        " proof.core.client.DEFAULT_CLOCK). In production both read one instant, so this answer is one no worker"
+        " meets. Give the cases the search compares with the clock dates both instants read alike: the literal the"
+        " document compares, or the base's seed."
+    )
+
+
+@dataclass
+class HqSearches:
+    """HQ's own answer to each case search one side's sessions send, as a session's ``searches``.
+
+    The first search opens a fork of the unit (``stack``, which the caller
+    closes as the side's sessions end) and makes there, in one operation of
+    the unit, the document's worker and cases as a served state makes them
+    (``proof.formplayer.hq``: the project space's default roles,
+    ``create_worker``, ``save_cases`` through HQ's receiver, and HQ's pillows
+    caught up), under HQ's Redis, which the receiver's locks need. Each search
+    is then the request Core sends (its parameters form-encoded, as
+    ``SessionUtils.makeQueryRequest`` posts them) with the worker's own
+    credentials, answered by the view HQ's URLconf names for its URL
+    (``HqViews``), each request keyed by the side and its place in the
+    side's sessions, so HQ's answer is the same on every run of the same
+    script. A view that raises is HQ's own 500 to the device, whose status
+    the trace records with the request (``ProofSessionUtils.java``).
+    ``app_doc`` is the app the side's build was made from where the unit
+    may hold another under its id (A, while the unit holds B): ``_held_as``.
+    """
+
+    unit: object
+    database: object
+    label: str
+    operation: object
+    app_id: str
+    app_doc: dict | None = None
+    stack: ExitStack = field(default_factory=ExitStack)
+    _views: object = None
+    _credentials: str = ""
+
+    def __call__(self, url, params):
+        from proof.formplayer.client import HqRequest
+
+        if self._views is None:
+            self._open()
+        parts = urlsplit(url or "")
+        body = urlencode([(key, value) for key in sorted(params) for value in params[key]]).encode("utf-8")
+        request = HqRequest(
+            "POST",
+            parts.path,
+            parts.query,
+            (
+                ("Content-Type", "application/x-www-form-urlencoded"),
+                ("Authorization", f"Basic {self._credentials}"),
+            ),
+            body,
+        )
+        answer = self._views(request)
+        # Read only once HQ has answered the query (its own parse of each value succeeded), so this second parse
+        # of it changes nothing of HQ's parser's state for the next.
+        if answer.status == 200:
+            clocked = [query for query in params.get(XPATH_QUERY_KEY) or () if reads_hq_clock(query)]
+            if clocked:
+                self._hold_to_the_runtimes_clock(request, answer, clocked[0])
+        return answer.status, answer.body
+
+    def _hold_to_the_runtimes_clock(self, request, answer, query):
+        """HQ's ``answer`` to a search that reads its clock held to HQ's answer to the same request at the runtimes'
+        instant (``runtime_instant``): asked in a fork of the unit, with what the views keep of it forgotten and the
+        next request's number kept, so it changes no record; the two must list the same cases, or ``ClocksApart``.
+        HQ's own search reads every clock read and every shift of it (``date-add`` of ``today()``, by a literal or
+        by a value a Search field gave), so the harness computes no date."""
+        from proof.hq import determinism
+
+        views = self._views
+        ordinal = views._ordinal
+        try:
+            with self.unit.fork(), views.forgetting(), determinism.clock_at(runtime_instant()):
+                again = views(request)
+        finally:
+            views._ordinal = ordinal
+        at_pin = answered_cases(answer.body)
+        at_runtime = answered_cases(again.body) if again.status == 200 else None
+        if at_pin is None or at_pin != at_runtime:
+            raise ClocksApart(clocks_apart_message(self.label, query, at_pin, at_runtime))
+
+    def _open(self):
+        from proof.formplayer import hq as formplayer_hq
+        from proof.hq import redis as hq_redis
+
+        self.stack.enter_context(hq_redis.shared(None))
+        self.stack.enter_context(self.unit.fork())
+        hq_redis.flush()
+        with self.unit.committing():
+            people = casedata.database_digest(self.database).encode()
+            with self.operation(f"search-worker@{self.label}", people), formplayer_hq.drawn_for(people):
+                formplayer_hq.default_roles(self.unit)
+                worker = formplayer_hq.create_worker(self.unit, self.database)
+                formplayer_hq.save_cases(self.unit, self.database, worker)
+                if self.app_doc is not None:
+                    _held_as(self.unit, self.app_id, self.app_doc)
+                if self.unit.indexes is not None:
+                    self.unit.indexes.settle()
+        self._views = formplayer_hq.HqViews(self.unit, worker.username)
+        self._views.begin(f"core-search|{self.label}".encode(), None)
+        self._credentials = base64.b64encode(f"{worker.username}:{formplayer_hq.PASSWORD}".encode()).decode()
+
+
+def _held_as(unit, app_id, doc):
+    """The app the unit holds under ``app_id`` with ``doc``'s menus where HQ's search would read them otherwise.
+
+    HQ's search reads the app its URL names only for the related cases it adds
+    to a result: the relationships the search details' columns name and the
+    child case types their tabs list
+    (``case_search/utils.py::get_app_context_by_case_type``, over
+    ``get_search_detail_relationship_paths`` and ``get_child_case_types``,
+    which read ``app.get_modules()`` alone). Where the held app gives what
+    ``doc`` gives, nothing is written; otherwise the held app is saved with
+    ``doc``'s menus and nothing else of it changed, as a served state no page
+    makes is (``proof.formplayer.hq.serve``'s ``change``), with its version
+    kept.
+    """
+    from corehq.apps.case_search.utils import get_child_case_types, get_search_detail_relationship_paths
+
+    from proof.hq import operations
+
+    held = operations.held_app(unit, app_id)
+    wanted = type(held).wrap(_detached(doc))
+
+    def context(app):
+        return (dict(get_search_detail_relationship_paths(app)), dict(get_child_case_types(app)))
+
+    if context(held) == context(wanted):
+        return
+    stored = held.to_json()
+    stored["modules"] = _detached(doc)["modules"]
+    type(held).wrap(stored).save(increment_version=False)
+
+
+def _detached(doc):
+    """A copy of a stored document's JSON, so a wrap of it changes nothing a record holds."""
+    import json
+
+    return json.loads(json.dumps(doc))
 
 
 # Submissions ----------------------------------------------------------------
@@ -278,19 +532,40 @@ def _workbook_digest(captured):
     return bytes_digest(captured.body_path.read_bytes()).encode() if captured is not None else b"none"
 
 
-def hq_restore(unit, database, captured, label, operation=None):
-    """HQ's restore over the unit's state, serving the tables ``captured`` uploads, in a fork; or the refusal.
+@dataclass(frozen=True)
+class AuthoredTables:
+    """The lookup tables an app made in CommCare HQ was made again with: its document's ``authored/tables.json``
+    (``path``, which a base that holds no table lacks). A holds them already, with HQ's own models
+    (``proof/hq/operations.py::save_authored_tables``), so a restore uploads nothing and serves the tables HQ
+    holds."""
+
+    path: Path
+
+    def digest(self) -> bytes:
+        """What a restore over them is keyed by: the file's digest, or ``none`` for a base that holds no table."""
+        held = bytes_digest(self.path.read_bytes()).encode() if self.path.is_file() else b"none"
+        return b"authored:" + held
+
+
+def hq_restore(unit, database, tables, label, operation=None):
+    """HQ's restore over the unit's state, in a fork: serving the tables the workbook ``tables`` uploads (a lookup
+    workbook capture, or None for none), or, for an app made in CommCare HQ (``AuthoredTables``), the tables its A
+    holds, uploading nothing (``casedata.served_fixtures``); or the refusal.
 
     Returns ``({"served": True}, restore bytes)`` or ``({"refused": reason}, None)``. ``operation`` is the
     unit's operation (``unit.operation`` by default, or the part's logged one).
     """
     operation = operation or unit.operation
-    with unit.fork(), operation(label, _workbook_digest(captured)):
+    authored = isinstance(tables, AuthoredTables)
+    with unit.fork(), operation(label, tables.digest() if authored else _workbook_digest(tables)):
         try:
-            tables = casedata.lookup_fixtures(unit, captured) if captured is not None else []
+            if authored:
+                served = casedata.served_fixtures(unit) if tables.path.is_file() else []
+            else:
+                served = casedata.lookup_fixtures(unit, tables) if tables is not None else []
         except casedata.LookupTablesNotServed as refused:
             return {"refused": refused.reason}, None
-        return {"served": True}, casedata.restore(database, unit.domain, tables)
+        return {"served": True}, casedata.restore(database, unit.domain, served)
 
 
 def local_restore(unit, database, operation=None):
@@ -302,9 +577,29 @@ def local_restore(unit, database, operation=None):
 # The observation ---------------------------------------------------------------
 
 
-def _side(core_runner, unit, database, side, path, restore, blobs, *, operation, script=None, baseline=None):
-    """One side's sessions, and HQ's processing of their submissions, as a record."""
-    run = run_sessions(core_runner, side, path, restore, script)
+def _side(
+    core_runner,
+    unit,
+    database,
+    side,
+    path,
+    restore,
+    blobs,
+    *,
+    operation,
+    script=None,
+    baseline=None,
+    runtime_defaults=None,
+    app_id=None,
+    app_doc=None,
+):
+    """One side's sessions, each search answered by HQ in a fork put back as they end (``HqSearches``), and HQ's
+    processing of their submissions, as a record."""
+    searches = HqSearches(unit, database, side, operation, app_id, app_doc)
+    with searches.stack:
+        run = run_sessions(
+            core_runner, side, path, restore, script, runtime_defaults=runtime_defaults, searches=searches
+        )
     recorded = {"admission": run.admission, "trace": None, "processed": None}
     if run.trace is None:
         return run, recorded
@@ -435,7 +730,19 @@ def search_compiles(unit, trace, operation, *, core_runner=None, suite=None):
 
 
 def observe(
-    unit, *, document, export, app_id, a_build, b_aligned, b_differs, restore_a, core_runner, blobs, operation=None
+    unit,
+    *,
+    document,
+    export,
+    app_id,
+    a_build,
+    b_aligned,
+    b_differs,
+    restore_a,
+    core_runner,
+    blobs,
+    operation=None,
+    a_doc=None,
 ):
     """Proof 3's sessions for one configuration, as the ``b_aligned`` record's ``sessions``; None where none run.
 
@@ -449,13 +756,24 @@ def observe(
     bytes); ``b_differs`` whether the raw builds of A and of B aligned to A
     differ, so that B's sessions run; ``operation`` the unit's operation each
     HQ step runs in (``unit.operation`` by default, or the part's logged one,
-    which records what HQ noted in each).
+    which records what HQ noted in each); ``a_doc`` A's stored document as its
+    build left it, whose menus A's searches are answered over (``_held_as``).
 
     Nova hands a local archive only to an app that declares Android
     (``Document.platforms``): for a document that declares none, A's
     baseline, its CSQL compiles and B's sessions run, and no ``local`` side is
     recorded. A document that declares Android and holds no archive runs
     none, as one A is missing or unbuildable for.
+
+    For a document that declares Android every side runs as Android runs it,
+    over Android's own strings registered as the default locale's first source
+    (``ANDROID_DEFAULT_STRINGS``): Android registers them before any app's
+    files, HQ's build as much as Nova's archive
+    (``CommCareApplication.initializeDefaultLocalizerData``), and a text Core
+    localizes from them (a missing lookup table's message,
+    ``CommCareInstanceInitializer.FixtureInitializationException``) is the
+    runtime's, so the local archive's sessions are compared with A's and B's
+    as one runtime reads each.
     """
     from proof.hq.operations import with_runtime_app_id
 
@@ -470,6 +788,7 @@ def observe(
     if restore_hq is None:
         return recorded
     restore_plain = local_restore(unit, database, operation) if archive is not None else None
+    runtime_strings = ANDROID_DEFAULT_STRINGS if android else None
     with tempfile.TemporaryDirectory(prefix="proof-observe-sessions-") as scratch:
         baseline, recorded["baseline"] = _side(
             core_runner,
@@ -480,6 +799,9 @@ def observe(
             restore_hq,
             blobs,
             operation=operation,
+            runtime_defaults=runtime_strings,
+            app_id=app_id,
+            app_doc=a_doc,
         )
         if baseline.trace is None:
             return recorded
@@ -501,9 +823,14 @@ def observe(
                 operation=operation,
                 script=script,
                 baseline=baseline,
+                runtime_defaults=runtime_strings,
+                app_id=app_id,
             )
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
             return recorded
+        # B's sessions read the tables the unit holds at B, whoever made A: where the republish pushed a workbook
+        # (which publish.update uploaded before B's import, over whatever A held), it is uploaded again in a fork at
+        # B, which already holds it, and every table HQ then holds is served; where it pushed none, B holds A's tables.
         restore_b = restore_hq
         if export.republish is not None and export.republish.lookups is not None:
             recorded["lookupsB"], restore_b = hq_restore(
@@ -521,5 +848,7 @@ def observe(
             blobs,
             operation=operation,
             script=script,
+            runtime_defaults=runtime_strings,
+            app_id=app_id,
         )
     return recorded

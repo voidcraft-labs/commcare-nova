@@ -18,7 +18,10 @@ import { readCaseData } from "../engine/caseDataBindingHelpers";
 import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
 import { recordsReadSearch, searchedReading } from "../engine/serverSearchRead";
-import { projectLocalizedCaseProperties } from "../localizedCaseProperties";
+import {
+	projectLocalizedCaseProperties,
+	relatedColumnProperties,
+} from "../localizedCaseProperties";
 import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
@@ -118,15 +121,22 @@ export function appTestCellProjector(
 	// A Search's Results and its Details read results rows; a browse list
 	// and its Details read casedb rows.
 	const columnsReading = reading.columns;
+	const localizedValues = new Map(
+		collectLocalizedTranslationUnits(context.doc, context.language).map(
+			(unit) => [unit.id, unit.effective],
+		),
+	);
 	const display: ColumnDisplayContext = {
 		caseProperties: projectLocalizedCaseProperties(
 			mod.caseType,
 			caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
-			new Map(
-				collectLocalizedTranslationUnits(context.doc, context.language).map(
-					(unit) => [unit.id, unit.effective],
-				),
-			),
+			localizedValues,
+		),
+		relatedProperties: relatedColumnProperties(
+			mod.caseListConfig,
+			mod.caseType,
+			caseTypes,
+			localizedValues,
 		),
 		calculatedTemporalTypes: new Map(
 			columns.flatMap((column) => {

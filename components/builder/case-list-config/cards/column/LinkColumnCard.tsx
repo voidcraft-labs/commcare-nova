@@ -21,6 +21,7 @@ import { BlurCommitTextInput } from "@/components/builder/shared/primitives/Blur
 import type { CaseProperty, Column } from "@/lib/domain";
 import { columnKindAcceptsPropertyType, linkColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
+import { columnWithSource } from "../../columnSources";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
 /** The gate's own accept-set: unknown-typed properties are
@@ -59,6 +60,10 @@ export function LinkColumnCard({
 	return (
 		<div className="space-y-3">
 			<ColumnFieldRow
+				via={value.via}
+				onSourceChange={(via, field) =>
+					onChange(columnWithSource(value, via, field))
+				}
 				field={value.field}
 				onFieldChange={(field) => build({ field })}
 				header={value.header}
@@ -105,6 +110,7 @@ function slotsFrom(value: Extract<Column, { kind: "link" }>): {
 	visibleInDetail?: typeof value.visibleInDetail;
 	notOnList?: typeof value.notOnList;
 	tile?: typeof value.tile;
+	via?: typeof value.via;
 } {
 	return {
 		sort: value.sort,
@@ -112,5 +118,6 @@ function slotsFrom(value: Extract<Column, { kind: "link" }>): {
 		visibleInDetail: value.visibleInDetail,
 		notOnList: value.notOnList,
 		tile: value.tile,
+		via: value.via,
 	};
 }

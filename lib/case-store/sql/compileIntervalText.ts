@@ -41,6 +41,7 @@
 import { type AliasableExpression, expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
 import { prop, term } from "@/lib/domain/expression/builders";
+import type { RelationStep } from "@/lib/domain/expression/types";
 import {
 	compileReadingText,
 	compileToday,
@@ -57,8 +58,12 @@ const eb = expressionBuilder<Database, keyof Database>();
 const CORE_DATE_SHAPE = "^[0-9]+-[0-9]+-[0-9]+(T|$)";
 
 export interface IntervalTextKey {
+	/** The type whose property it reads: the row's own, or with `via` the
+	 *  type the walk reaches. */
 	readonly caseType: string;
 	readonly property: string;
+	/** The walk from the row to the case whose property it reads. */
+	readonly via?: readonly [RelationStep, ...RelationStep[]];
 	readonly display: "always" | "flag";
 	/** The threshold in days: the authored count times `divisorDays`. */
 	readonly thresholdDays: number;
@@ -137,7 +142,14 @@ export function compileIntervalText(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
-	const raw = compileReadingText(term(prop(key.caseType, key.property)), {
+	const read =
+		key.via === undefined
+			? prop(key.caseType, key.property)
+			: prop(key.caseType, key.property, {
+					kind: "ancestor",
+					via: [...key.via] as [RelationStep, ...RelationStep[]],
+				});
+	const raw = compileReadingText(term(read), {
 		...ctx,
 		caseTypeSchemas: withTextRead(
 			ctx.caseTypeSchemas,

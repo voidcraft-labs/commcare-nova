@@ -386,6 +386,27 @@ export function compileDeviceTextExpression(
 	end)`;
 }
 
+/**
+ * A case operation's value saved to a text property, with a number read
+ * back as a double. A device computes a number as a Java `double` and
+ * submits the text `Recalculate.wrapData` holds for it (`IntegerData` for a
+ * whole number in `int`'s range, `LongData` past it, else `DecimalData`'s
+ * `Double.toString`), so the executor prints the double it reads with
+ * `numberLiteral.ts::numericAnswerText`; a `numeric` would come back as
+ * Postgres's own text of it (`3.0` where a device submits `3`). Every other
+ * value is the expression's own.
+ */
+export function compileSubmittedTextValue(
+	expr: DomainExpression,
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
+	const compiled = compileExpression(expr, ctx);
+	const data = scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data);
+	return data === "int" || data === "decimal"
+		? eb.cast(compiled, "float8")
+		: compiled;
+}
+
 /** Module-scoped expression builder. */
 const eb = expressionBuilder<Database, keyof Database>();
 

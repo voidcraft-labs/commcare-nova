@@ -24,7 +24,7 @@ import {
 	NEVER_RELEVANT,
 	NO_MATCHES_RELEVANCY,
 } from "../../suite/case-search/noMatches";
-import { schemaPropertyDefault } from "../../surface/schemaDefaults";
+import { servedSchemaPropertyDefault } from "../../surface/schemaDefaults";
 import type { ValidationError } from "../../validator/errors";
 import {
 	caseListRegistrationApp,
@@ -81,10 +81,7 @@ function blockClaims<U extends "take" | "refuse" | "drop">(
 }
 
 const REGISTRATION = {
-	blank: drop(
-		`${M}/case-list-form-fields-beside-a-blank-form-id`,
-		"schema:CaseListForm.label",
-	),
+	blank: blockClaims(drop, "case-list-form-fields-beside-a-blank-form-id"),
 	missing: blockClaims(
 		refuse,
 		"case-list-form-missing-not-a-registration-form-toggle-off-or",
@@ -144,6 +141,12 @@ const REGISTRATION = {
 	hiddenFormId: take(
 		`${M}/case-list-form-on-a-search-first-host-pointing-at-a-registration`,
 		"schema:CaseListForm.form_id",
+	),
+	/** The hidden-menu shape's own relevancy, Nova's no-matches condition, which the settle
+	 *  compares with the expansion's. */
+	hiddenRelevancy: take(
+		`${M}/case-list-form-on-a-search-first-host-pointing-at-a-registration`,
+		"schema:CaseListForm.relevancy_expression",
 	),
 	always: blockClaims(
 		take,
@@ -286,7 +289,8 @@ function unset(value: unknown): boolean {
  * Whether a stored value is the one Nova's shell writes, as HQ serves it:
  * texts the same (XPath as trees), lists element by element, and an object key
  * by key, where a key one side lacks holds HQ's default for the object's class
- * (`surface/schemaDefaults.ts`: HQ serves every property its class declares),
+ * as a read serves it (`surface/schemaDefaults.ts::servedSchemaPropertyDefault`:
+ * HQ serves every property its class declares),
  * or, in a map with no class, nothing.
  */
 function sameAsShell(stored: unknown, ours: unknown): boolean {
@@ -329,7 +333,7 @@ function differingKey(
 		if (key === "doc_type") continue;
 		const value = inStored ? stored[key] : ours[key];
 		const fallback =
-			cls === undefined ? undefined : schemaPropertyDefault(cls, key);
+			cls === undefined ? undefined : servedSchemaPropertyDefault(cls, key);
 		const atDefault =
 			fallback?.known === true
 				? sameAsShell(value, fallback.default)
@@ -552,7 +556,7 @@ function fold(
 }
 
 /**
- * Step 2, first of the menu readings: every host's `case_list_form` by the
+ * First of the menu readings (`readMenus`): every host's `case_list_form` by the
  * first row that holds. A hidden menu read as a registration after an empty
  * search is folded here, before any other menu reading, so no reader takes
  * it for a menu of the document.
@@ -575,7 +579,7 @@ export function readCaseListRegistration(
 		const block = isJsonObject(json.case_list_form) ? json.case_list_form : {};
 		if (!host.json.used("case_list_form")) continue;
 		if (blank(block.form_id)) {
-			host.json.drop("case_list_form", REGISTRATION.blank);
+			host.json.drop("case_list_form", REGISTRATION.blank[host.docType]);
 			continue;
 		}
 		const named = draftFormByReadId(ctx, block.form_id);
@@ -689,7 +693,11 @@ function readHidden(
 	cursor.take("form_id", REGISTRATION.hiddenFormId, (value) => value).value;
 	cursor.take("post_form_workflow", REGISTRATION.workflow, (value) => value)
 		.value;
-	cursor.drop("relevancy_expression", REGISTRATION.relevancyInert);
+	cursor.take(
+		"relevancy_expression",
+		REGISTRATION.hiddenRelevancy,
+		(value) => value,
+	).value;
 	const label = readLabel(ctx, cursor, host, stored.name);
 	fold(ctx, host, menu, form);
 	ctx.writeDraft(() => {
@@ -806,7 +814,7 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Step 6, over the one expansion: the gate's registration rules hold over the
+ * In the menus' settle, over the one expansion: the gate's registration rules hold over the
  * document, and the expansion's `case_list_form` for each host is the stored
  * block (its `form_id` literally, its label as built), and each folded hidden
  * menu is the menu Nova's emission writes for its form.

@@ -78,9 +78,18 @@ export function preservedColumnSwap(
 	}
 
 	const targetSchema = columnCardSchemas[targetKind];
+	// A property column keeps the case it reads from across a kind swap.
+	const propertySlots =
+		currentValue.kind !== "calculated" && currentValue.via !== undefined
+			? { ...slots, via: currentValue.via }
+			: slots;
 	let targetField: string | undefined;
 	if (currentValue.kind !== "calculated") {
-		const sourceProperty = resolveColumnProperty(ctx, currentValue.field);
+		const sourceProperty = resolveColumnProperty(
+			ctx,
+			currentValue.field,
+			currentValue.via,
+		);
 		if (
 			sourceProperty === undefined ||
 			!targetSchema.applicableForProperty(sourceProperty)
@@ -95,9 +104,9 @@ export function preservedColumnSwap(
 
 	switch (targetKind) {
 		case "plain":
-			return plainColumn(uuid, targetField, header, slots);
+			return plainColumn(uuid, targetField, header, propertySlots);
 		case "phone":
-			return phoneColumn(uuid, targetField, header, slots);
+			return phoneColumn(uuid, targetField, header, propertySlots);
 		case "link": {
 			// Twin: source is already a link → preserve the author's own
 			// link text. Otherwise seed it from the target schema, so the
@@ -106,7 +115,7 @@ export function preservedColumnSwap(
 			if (seed === undefined) return undefined;
 			const linkText =
 				currentValue.kind === "link" ? currentValue.linkText : seed.linkText;
-			return linkColumn(uuid, targetField, header, linkText, slots);
+			return linkColumn(uuid, targetField, header, linkText, propertySlots);
 		}
 		case "date": {
 			// Twin: source is already a date column → preserve the
@@ -116,13 +125,13 @@ export function preservedColumnSwap(
 			if (seed === undefined) return undefined;
 			const pattern =
 				currentValue.kind === "date" ? currentValue.pattern : seed.pattern;
-			return dateColumn(uuid, targetField, header, pattern, slots);
+			return dateColumn(uuid, targetField, header, pattern, propertySlots);
 		}
 		case "id-mapping": {
 			// Twin: source is already id-mapping → preserve the table.
 			const mapping =
 				currentValue.kind === "id-mapping" ? currentValue.mapping : [];
-			return idMappingColumn(uuid, targetField, header, mapping, slots);
+			return idMappingColumn(uuid, targetField, header, mapping, propertySlots);
 		}
 		case "image-map": {
 			// Twin: source is already image-map → preserve the value→image
@@ -131,7 +140,7 @@ export function preservedColumnSwap(
 			// starts empty rather than mis-mapping labels onto images.
 			const mapping =
 				currentValue.kind === "image-map" ? currentValue.mapping : [];
-			return imageMapColumn(uuid, targetField, header, mapping, slots);
+			return imageMapColumn(uuid, targetField, header, mapping, propertySlots);
 		}
 		case "interval": {
 			// Twin: source is already interval → preserve every
@@ -149,7 +158,7 @@ export function preservedColumnSwap(
 					currentValue.unit,
 					currentValue.display,
 					currentValue.text,
-					slots,
+					propertySlots,
 				);
 			}
 			return intervalColumn(
@@ -160,7 +169,7 @@ export function preservedColumnSwap(
 				seed.unit,
 				seed.display,
 				seed.text,
-				slots,
+				propertySlots,
 			);
 		}
 		default: {
@@ -203,7 +212,7 @@ export function columnAdmittedForContext(
 			expressionEditVerdict(column.expression, context).ok
 		);
 	}
-	const property = resolveColumnProperty(ctx, column.field);
+	const property = resolveColumnProperty(ctx, column.field, column.via);
 	return (
 		property !== undefined &&
 		columnCardSchemas[column.kind].applicableForProperty(property)

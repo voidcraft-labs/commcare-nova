@@ -119,8 +119,11 @@ def unheld(monkeypatch):
         # the check that reports it: neither is a field an entry carries.
         ({"equivalence": "Android's and Web Apps' readers take the value its absence gives"}, "beyond them"),
         ({"android": "HiddenPreferences.isSavedFormsEnabled (absent reads yes)"}, "beyond them"),
-        # A difference of the judge of the changes Nova's review lists is fixed where it is found: no register
-        # holds one.
+        # A difference of proof 6, parity, the stored-app comparison or the first-publish judge is fixed where it is
+        # found: no register holds one.
+        ({"check": "proof6"}, "is never a known defect"),
+        ({"check": "parity"}, "is never a known defect"),
+        ({"check": "source"}, "is never a known defect"),
         ({"check": "changes"}, "is never a known defect"),
     ],
     ids=[
@@ -136,7 +139,10 @@ def unheld(monkeypatch):
         "unknown-kind",
         "equivalence-field",
         "android-citation-field",
-        "changes",
+        "proof6-check",
+        "parity-check",
+        "source-check",
+        "changes-check",
     ],
 )
 def test_the_register_loader_refuses_an_entry_it_cannot_hold_to(tmp_path, change, refusal, unheld):
@@ -772,3 +778,28 @@ def test_a_check_no_test_holds_cannot_hold_differences(known_differences, tmp_pa
     cases.hold("proof1", document, known_differences, _register(known_differences))
     with pytest.raises(AssertionError, match="HELD_CHECKS does not list it"):
         cases.hold(unheld, document, [], ())
+
+
+def test_the_first_publish_register_loads_and_refuses_what_the_judge_cannot_hold():
+    """``proof/first-publish-changes.json`` loads as the judge reads it (one object a change, each row a class of one
+    of the four checks), and the loader refuses two objects of one change, two rows of one class in an object, and a
+    row of any other check. The plausible failures: a register whose second object of a change silently wins, a row
+    held twice, and an intent difference declared as a change."""
+    from proof.checks import changes
+
+    held = changes.load()
+    assert held and len({change.change for change in held}) == len(held)
+    assert all(row.check in changes.ROW_CHECKS for change in held for row in change.rows)
+    row = {"check": "source", "artifact": "app.json", "path": "/name"}
+    for refused, says in (
+        (
+            [{"change": "a", "placeKinds": ["app"], "rows": []}, {"change": "a", "placeKinds": ["app"], "rows": []}],
+            "two objects of the change a",
+        ),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [row, row]}], "twice"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "check": "intent"}]}], "names the check 'intent'"),
+        ([{"change": "a", "placeKinds": ["app"], "rows": [{**row, "kind": "moved"}]}], "left out for every kind"),
+    ):
+        with pytest.raises(changes.ChangesError, match=says):
+            changes.parse(refused)
+    assert changes.parse([{"change": "a", "placeKinds": ["app"], "rows": [row]}])[0].rows[0].path == "/name"

@@ -13,7 +13,10 @@ import {
 	type CaseProperty,
 	type Column,
 	type ColumnSort,
+	type ColumnVia,
 	casePropertyOptionTranslationUnitId,
+	columnFieldText,
+	columnPropertyCaseType,
 	orderedColumns,
 	plainColumn,
 	type TranslationUnitId,
@@ -22,8 +25,12 @@ import {
 } from "@/lib/domain";
 import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
+import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
-import { caseListColumnTextShows } from "@/lib/domain/modules";
+import {
+	caseListColumnTextShows,
+	columnSortLabelShows,
+} from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
@@ -31,6 +38,7 @@ import { emptyShortListColumns } from "../../hqJson/caseList";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
+import { indexTarget } from "../caseManagement/basicActions";
 import { noteProperty } from "../caseManagement/catalog";
 import {
 	type Claim,
@@ -45,6 +53,7 @@ import {
 	hqDeviceText,
 	keyDefinedAfterLineEnd,
 	LINE_END_DEFINES_KEY,
+	pythonBlank,
 	recordTextRewrite,
 } from "../heldText";
 import { externalKey } from "../identity";
@@ -66,6 +75,7 @@ import {
 	translatedTexts,
 } from "./columns";
 import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
+import { claimRestUnderFinding } from "./refusedWhole";
 import { readTile, type TileReading } from "./tile";
 
 const A = "menus-and-case-lists/";
@@ -80,6 +90,8 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 	long: take(`${A}detail-columns-long`, "schema:DetailPair.long"),
 	shortColumns: take(`${A}detail-columns-short`, "schema:Detail.columns"),
 	longColumns: take(`${A}detail-columns-long`, "schema:Detail.columns"),
+	/** A long detail holding no column, HQ's own default: no case detail screen of its own. */
+	longColumnsEmpty: take(`${A}long-columns-empty`, "schema:Detail.columns"),
 	surveyColumns: drop(
 		`${A}short-columns-empty-on-a-survey-or-registration-only-module-that`,
 		"schema:Detail.columns",
@@ -162,6 +174,18 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 	persistContextXmlBeside: drop(
 		`${A}persist-case-context-beside-persist-tile-on-forms-on-a-short`,
 		"schema:Detail.persistent_case_context_xml",
+	),
+	persistContextFalse: drop(
+		`${A}detail-persistence-switches-false`,
+		"schema:Detail.persist_case_context",
+	),
+	persistTileFalse: drop(
+		`${A}detail-persistence-switches-false`,
+		"schema:Detail.persist_tile_on_forms",
+	),
+	pullDownFalse: drop(
+		`${A}detail-persistence-switches-false`,
+		"schema:Detail.pull_down_tile",
 	),
 	customXml: refuse(
 		`${A}detail-custom-xml-non-empty`,
@@ -274,32 +298,18 @@ const LOOKUP_OFF_KEYS = defineClaims(
 /** The switch and every key of a callout. */
 const CALLOUT_KEYS = ["lookup_enabled", ...LOOKUP_KEYS];
 
-/** Each key of a callout on the case list, by the entry that names it. */
-const LOOKUP_ENTRY_OF_KEY: Readonly<Record<string, string>> = {
-	lookup_enabled: "lookup-enabled-lookup-action",
-	lookup_action: "lookup-enabled-lookup-action",
-	lookup_name: "lookup-name",
-	lookup_image: "lookup-image-jr",
-	lookup_autolaunch: "lookup-autolaunch",
-	lookup_extras: "lookup-extras-key-value",
-	lookup_responses: "lookup-responses-key",
-	lookup_display_results:
-		"lookup-display-results-lookup-field-header-lookup-field-template",
-	lookup_field_header:
-		"lookup-display-results-lookup-field-header-lookup-field-template",
-	lookup_field_template:
-		"lookup-display-results-lookup-field-header-lookup-field-template",
-};
-
-const LOOKUP_ON_KEYS = defineClaims(
-	"caseList.details.lookupOn",
-	Object.fromEntries(
-		CALLOUT_KEYS.map((key) => [
-			key,
-			refuse(`${A}${LOOKUP_ENTRY_OF_KEY[key]}`, `schema:Detail.${key}`),
-		]),
-	) as Record<string, Claim<"refuse">>,
-);
+/** A callout on the case list, refused as one: its switch and its action, the two keys the
+ *  callout's own entry names. */
+const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
+	lookup_enabled: refuse(
+		`${A}lookup-enabled-lookup-action`,
+		"schema:Detail.lookup_enabled",
+	),
+	lookup_action: refuse(
+		`${A}lookup-enabled-lookup-action`,
+		"schema:Detail.lookup_action",
+	),
+});
 
 const LOOKUP_LONG_KEYS = defineClaims(
 	"caseList.details.lookupLong",
@@ -366,6 +376,13 @@ export interface JoinedColumn {
 	readonly long?: number;
 	/** A column a sort element added: no column of either detail holds it. */
 	readonly carrier?: true;
+	/** A column only the long detail holds that a sort element puts on the list, as a field
+	 *  of the short detail Nova writes (`order.ts::readSortElements`). */
+	sortField?: true;
+	/** The text HQ's build shows for the column in each language of Sort by, where its sort
+	 *  element names it there: the `invisible` short column's header, or a sort-only element's
+	 *  display (`order.ts::readSortElements`). */
+	sortName?: Readonly<Record<string, string>>;
 }
 
 export interface JoinedDetails {
@@ -431,8 +448,70 @@ function sameHiddenField(
 		);
 	}
 	return (
-		fieldOf(candidate) !== undefined && fieldOf(candidate) === fieldOf(hidden)
+		fieldTextOf(candidate) !== undefined &&
+		fieldTextOf(candidate) === fieldTextOf(hidden)
 	);
+}
+
+/** A proposal's field as HQ stores it: its walk's indices and its property, joined by `/`. */
+function fieldTextOf(proposal: ColumnProposal): string | undefined {
+	const body = proposal.column;
+	return body.kind === "calculated" ? undefined : columnFieldText(body);
+}
+
+/** The type a read walk reaches from `caseType`: `parent` by the catalog's parent, any other step
+ *  by the type it names, whether or not the catalog holds it yet. */
+function walkedType(
+	via: ColumnVia | undefined,
+	caseType: string | undefined,
+	catalog: readonly { readonly name: string; readonly parent_type?: string }[],
+): string | undefined {
+	let at = caseType;
+	for (const step of via ?? []) {
+		if (at === undefined) return undefined;
+		at =
+			step.identifier === "parent"
+				? catalog.find((one) => one.name === at)?.parent_type
+				: step.throughCaseType;
+	}
+	return at;
+}
+
+/**
+ * The walk a column's indices name from `caseType`, each step typed as Nova types it: `parent`
+ * by the catalog's parent (no type stated on the step, since the catalog gives it), any other
+ * index by the type the app links it to (`caseManagement/basicActions.ts::indexTarget`), which
+ * the step names. Undefined where a step reaches no type, or a type outside the case type grammar.
+ * A type the walk reaches that the catalog holds nowhere else is declared where the column's
+ * property is noted.
+ */
+export function readColumnVia(
+	ctx: ReadContext,
+	caseType: string | undefined,
+	steps: readonly string[],
+): { readonly via: ColumnVia; readonly caseType: string } | undefined {
+	if (caseType === undefined || steps.length === 0) return undefined;
+	const catalog = ctx.draft.caseTypes ?? [];
+	const declared = (name: string | undefined) =>
+		name !== undefined && CASE_TYPE_PATTERN.test(name);
+	const via: ColumnVia[number][] = [];
+	let at = caseType;
+	for (const identifier of steps) {
+		if (identifier === "parent") {
+			const parent =
+				catalog.find((one) => one.name === at)?.parent_type ??
+				indexTarget(ctx, at, "parent");
+			if (!declared(parent)) return undefined;
+			via.push({ identifier });
+			at = parent as string;
+			continue;
+		}
+		const reached = indexTarget(ctx, at, identifier);
+		if (!declared(reached)) return undefined;
+		via.push({ identifier, throughCaseType: reached as string });
+		at = reached as string;
+	}
+	return { via: via as ColumnVia, caseType: at };
 }
 
 /**
@@ -444,11 +523,69 @@ function sameHiddenField(
  * another header: Nova writes a column hidden from Results and shown on Details with one header
  * on both screens (`hqJson/caseList.ts::projectColumnForShortDetail`), so one whose header no
  * such column holds is hidden from Details too, and a join would print its partner's header in
- * its place.
+ * its place. An `invisible` column its sort element names in Sort by (`named`, by short index,
+ * `sortNamedInvisibleColumns`) shows its header there and nowhere else, which Nova writes from
+ * the rule's name and not the column's header, so it joins the first unjoined long column over
+ * its field whatever that column's header, and its header is its name in Sort by (`sortName`).
  */
+/**
+ * The index of each stored short column HQ's build lists in Sort by under its own header: an
+ * `invisible` column that the sort element landing on it gives display text. HQ keeps the last
+ * element of each `field` (a positional `_cc_calculated_<n>` standing for column `n`'s field) and
+ * lands it on the first column with that field (`util.py::get_sort_and_sort_only_columns`,
+ * `suite_xml/sections/details.py::get_detail_column_infos`), and an `invisible` column's header is
+ * written only where that element's display holds text Python does not read as blank
+ * (`detail_screen.py::Invisible.header`, `models/case_list.py::SortElement.has_display_values`).
+ */
+export function sortNamedInvisibleColumns(
+	columns: unknown,
+	elements: unknown,
+): ReadonlySet<number> {
+	const stored = Array.isArray(columns) ? columns : [];
+	const fieldOfColumn = (index: number): string | undefined => {
+		const column = stored[index];
+		return isJsonObject(column) && typeof column.field === "string"
+			? column.field
+			: undefined;
+	};
+	const lastByText = new Map<string, unknown>();
+	for (const element of Array.isArray(elements) ? elements : []) {
+		if (!isJsonObject(element) || typeof element.field !== "string") continue;
+		const calculated = CALCULATED_FIELD.exec(element.field);
+		const text =
+			calculated === null
+				? element.field
+				: fieldOfColumn(Number(calculated[1]));
+		if (text !== undefined) lastByText.set(text, element.display);
+	}
+	const named = new Set<number>();
+	for (const [text, display] of lastByText) {
+		if (!displayNames(display)) continue;
+		const landing = stored.findIndex(
+			(column) => isJsonObject(column) && column.field === text,
+		);
+		const column = stored[landing];
+		if (isJsonObject(column) && column.format === "invisible")
+			named.add(landing);
+	}
+	return named;
+}
+
+/** Whether a sort element's stored `display` names it in Sort by: some value is text Python does
+ *  not read as blank (`models/case_list.py::SortElement.has_display_values`). */
+export function displayNames(display: unknown): boolean {
+	return (
+		isJsonObject(display) &&
+		Object.values(display).some(
+			(text) => typeof text === "string" && !pythonBlank(text),
+		)
+	);
+}
+
 export function joinDetailColumns(
 	short: readonly (ColumnProposal | undefined)[],
 	long: readonly (ColumnProposal | undefined)[],
+	named: ReadonlySet<number> = new Set(),
 ): JoinedDetails {
 	const columns: JoinedColumn[] = [];
 	const joinedLong = new Map<number, number>();
@@ -462,11 +599,12 @@ export function joinDetailColumns(
 			);
 		// An `invisible` column carries its property and its header alone, so it joins the column
 		// over its property that holds its header, the column it is, and no other.
+		const sortNamed = proposal.invisible && named.has(s);
 		const partner = proposal.invisible
 			? first(
 					(candidate) =>
 						sameHiddenField(proposal, candidate) &&
-						sameHeader(proposal, candidate),
+						(sortNamed || sameHeader(proposal, candidate)),
 				)
 			: first((candidate) => sameProposal(proposal, candidate));
 		const index = columns.length;
@@ -476,6 +614,7 @@ export function joinDetailColumns(
 				...(proposal.invisible && { visibleInList: false as const }),
 				visibleInDetail: false,
 				short: s,
+				...(sortNamed && { sortName: proposal.header }),
 			});
 		} else {
 			joinedLong.set(partner, index);
@@ -487,6 +626,7 @@ export function joinDetailColumns(
 				...(proposal.invisible && { visibleInList: false as const }),
 				short: s,
 				long: partner,
+				...(sortNamed && { sortName: proposal.header }),
 			});
 		}
 		listOrder.push(index);
@@ -762,6 +902,39 @@ function readDetailTexts(
 	return ok;
 }
 
+/**
+ * A refused tab's filter where HQ's build writes it into the suite, the predicate of the tab's
+ * rows over a case type's children (`details.py::_get_detail_tab_nodeset`: `has_nodeset`, no
+ * `nodeset` of its own, a `nodeset_case_type`), read through its shorthand
+ * (`xpath.py::interpolate_xpath`): registered for the uses its text makes alone, at the filter.
+ */
+function registerTabFilter(
+	ctx: ReadContext,
+	module: DraftModule,
+	tab: JsonCursor,
+): void {
+	const text = tab.peek("nodeset_filter");
+	if (
+		typeof text !== "string" ||
+		text.trim() === "" ||
+		!tab.peek("has_nodeset") ||
+		tab.peek("nodeset") ||
+		!tab.peek("nodeset_case_type")
+	)
+		return;
+	ctx.pending.register(
+		{
+			ref: { entity: "module", uuid: module.uuid, slot: "case_list_filter" },
+			text,
+			mode: { target: "hq-json", interpolation: "case" },
+			place: tab.place,
+			key: "schema:DetailTab.nodeset_filter",
+			usesOnly: true,
+		},
+		{ json: tab, key: "nodeset_filter" },
+	);
+}
+
 /** Claims the keys of a detail that hold no setting Nova reads: the inert ones and each finding. */
 function readDetailKeys(
 	ctx: ReadContext,
@@ -795,19 +968,26 @@ function readDetailKeys(
 		detail.refuse("persistent_case_tile_from_module", D.persistentFromModule);
 		ok = false;
 	}
-	if (detail.used("pull_down_tile")) {
+	// HQ's Case List page writes the three switches `false` on every save of a short detail, and
+	// every reader tests each by truth, as it tests the `null` default.
+	for (const [key, claim] of [
+		["persist_case_context", D.persistContextFalse],
+		["persist_tile_on_forms", D.persistTileFalse],
+		["pull_down_tile", D.pullDownFalse],
+	] as const)
+		if (detail.peek(key) === false) detail.drop(key, claim);
+	const on = (key: string) => detail.used(key) && detail.peek(key) !== false;
+	if (on("pull_down_tile")) {
 		detail.refuse("pull_down_tile", D.pullDown);
 		ok = false;
 	}
-	if (
-		detail.used("persist_case_context") ||
-		detail.used("persistent_case_context_xml")
-	) {
+	const context = on("persist_case_context");
+	if (context || detail.used("persistent_case_context_xml")) {
 		if (detail.peek("persist_tile_on_forms") === true) {
-			detail.drop("persist_case_context", D.persistContextBeside);
+			if (context) detail.drop("persist_case_context", D.persistContextBeside);
 			detail.drop("persistent_case_context_xml", D.persistContextXmlBeside);
 		} else {
-			detail.refuse("persist_case_context", D.persistContext);
+			if (context) detail.refuse("persist_case_context", D.persistContext);
 			detail.refuse("persistent_case_context_xml", D.persistContextXml);
 			ok = false;
 		}
@@ -838,26 +1018,34 @@ function readDetailKeys(
 			...(child ? [D.tabsDataChild] : []),
 			...(custom ? [D.tabsDataCustom] : []),
 		];
+		// Each other kind, and a tab's display condition, is a class of the tabs too, so it stands
+		// at each key of them its entry names (`Accounting.findingAt`).
+		const tabsAt = `${detail.pointer}/tabs`;
 		const [primary, ...rest] = kinds;
 		if (primary !== undefined) detail.refuse("tabs", primary);
-		for (const kind of rest) ctx.accounting.finding(kind, detail.place);
+		for (const kind of rest)
+			ctx.accounting.findingAt(kind, detail.place, tabsAt);
+		if (primary !== undefined)
+			for (const tab of detail.coveredList("tabs", "DetailTab"))
+				registerTabFilter(ctx, module, tab);
 		if (
 			screen === "long" &&
 			detail.peek("case_tile_template") === "custom" &&
 			tileRowMixesTabs(detail, tabs)
 		)
-			ctx.accounting.finding(
+			ctx.accounting.findingAt(
 				module.docType === "AdvancedModule"
 					? D.tabsTileRowMixedAdvanced
 					: D.tabsTileRowMixed,
 				detail.place,
+				tabsAt,
 			);
 		if (
 			tabs.some(
 				(tab) => typeof tab.relevant === "string" && tab.relevant.trim() !== "",
 			)
 		)
-			ctx.accounting.finding(D.tabRelevant, detail.place);
+			ctx.accounting.findingAt(D.tabRelevant, detail.place, tabsAt);
 		ok = false;
 	}
 	if (detail.peek("lookup_enabled") === true) {
@@ -876,8 +1064,9 @@ function readDetailKeys(
 			}
 			ok = false;
 		} else {
-			// The refused row is tested before the rows of its keys: a callout with no extras or no
-			// responses claims those two, and every other key takes its own row.
+			// A callout is one finding: one with no extras or no responses, which HQ's build
+			// refuses, is refused as that, any other as a callout, and every other key of it is
+			// claimed under that one finding.
 			const extras = detail.peek("lookup_extras");
 			const responses = detail.peek("lookup_responses");
 			const unready =
@@ -889,20 +1078,29 @@ function readDetailKeys(
 				detail.refuse("lookup_extras", D.lookupNoExtras);
 				detail.refuse("lookup_responses", D.lookupNoResponses);
 				ctx.accounting.finding(D.lookupNoExtras, detail.place);
+			} else {
+				detail.refuse("lookup_enabled", LOOKUP_ON_KEYS.lookup_enabled);
+				detail.refuse("lookup_action", LOOKUP_ON_KEYS.lookup_action);
 			}
-			for (const key of CALLOUT_KEYS) {
-				if (unready && (key === "lookup_extras" || key === "lookup_responses"))
-					continue;
-				const claim = LOOKUP_ON_KEYS[key];
-				if (claim !== undefined) detail.refuse(key, claim);
-			}
+			claimRestUnderFinding(
+				ctx,
+				detail,
+				{
+					code: (unready ? D.lookupNoExtras : LOOKUP_ON_KEYS.lookup_enabled)
+						.entry,
+					place: detail.place,
+				},
+				(key) => CALLOUT_KEYS.includes(key),
+			);
 			ok = false;
 		}
-	} else {
+	} else if (LOOKUP_KEYS.some((key) => detail.used(key))) {
+		// The switch off beside a callout key left behind; a switch off with every key at HQ's
+		// default is of no class the stale keys' entry names, so it and its keys are left unclaimed.
 		detail.drop("lookup_enabled", D.lookupOff);
 		for (const key of LOOKUP_KEYS) {
 			const claim = LOOKUP_OFF_KEYS[key];
-			if (claim !== undefined) detail.drop(key, claim);
+			if (claim !== undefined && detail.used(key)) detail.drop(key, claim);
 		}
 	}
 	for (const key of detail.undeclared()) {
@@ -931,7 +1129,24 @@ function readSelection(
 		return { ok: true };
 	}
 	short.take("multi_select", D.multiSelect, Boolean).value;
-	if (typeof max !== "number" || max === 0 || max < -1) {
+	// A null is HQ's model's `None`, for which HQ's build writes no `max-select-value`
+	// (`suite_xml/xml_models.py`, an `IntegerField`, which leaves out `None`), and Core then
+	// takes 100 (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`), Nova's own maximum.
+	if (max === null) {
+		short.take("max_select_value", D.maxSelect, () => 100).value;
+		sameState(
+			ctx,
+			D.maxSelect.entry,
+			`${short.pointer}/max_select_value`,
+			"list-settings-respelled",
+		);
+		return { ok: true, selection: { kind: "multiple", maximum: 100 } };
+	}
+	// Any other value that is no number is one HQ's model refuses as it wraps the app
+	// (`IntegerProperty`, an `AssertTypeProperty`), so no source HQ serves holds it: no entry
+	// names it, and it is left for the close.
+	if (typeof max !== "number") return { ok: false };
+	if (max === 0 || max < -1) {
 		short.refuse("max_select_value", D.maxSelectZero);
 		return { ok: false };
 	}
@@ -963,31 +1178,41 @@ function withholdRawShownChoices(
 	ctx: ReadContext,
 	caseType: string,
 	joined: JoinedDetails,
-	labelShown: (property: string) => boolean,
+	labelShown: (property: string, caseType?: string) => boolean,
 ): void {
+	const catalog = ctx.draft.caseTypes;
+	if (catalog == null) return;
+	// By the type whose property each column shows: a column read through a relation shows the
+	// related type's.
 	const raw = new Set(
 		joined.columns.flatMap((column) => {
 			const body = column.proposal.column;
-			return body.kind === "plain" &&
-				column.proposal.choices === undefined &&
-				column.proposal.json.peek("useXpathExpression") !== true &&
-				!labelShown(body.field)
-				? [body.field]
+			if (
+				body.kind !== "plain" ||
+				column.proposal.choices !== undefined ||
+				column.proposal.json.peek("useXpathExpression") === true
+			)
+				return [];
+			const owner = columnPropertyCaseType(body, caseType, catalog);
+			return owner !== undefined && !labelShown(body.field, owner)
+				? [`${owner}\u0000${body.field}`]
 				: [];
 		}),
 	);
-	const catalog = ctx.draft.caseTypes;
-	if (raw.size === 0 || catalog == null) return;
-	const withChoices = catalog
-		.find((one) => one.name === caseType)
-		?.properties.some(
-			(one) => raw.has(one.name) && (one.options ?? []).length > 0,
-		);
-	if (withChoices !== true) return;
+	if (raw.size === 0) return;
+	const withChoices = catalog.some((type) =>
+		type.properties.some(
+			(one) =>
+				raw.has(`${type.name}\u0000${one.name}`) &&
+				(one.options ?? []).length > 0,
+		),
+	);
+	if (!withChoices) return;
 	const next = produce(catalog, (draft) => {
-		for (const property of draft.find((one) => one.name === caseType)
-			?.properties ?? [])
-			if (raw.has(property.name)) delete property.options;
+		for (const type of draft)
+			for (const property of type.properties)
+				if (raw.has(`${type.name}\u0000${property.name}`))
+					delete property.options;
 	});
 	ctx.writeDraft(() => {
 		ctx.draft.caseTypes = next;
@@ -1026,22 +1251,29 @@ function declareShownChoices(
 	caseType: string,
 	joined: JoinedDetails,
 ): void {
+	const catalog = ctx.draft.caseTypes;
+	if (catalog == null) return;
+	// Each column states the choices of the type whose property it shows: a column read through a
+	// relation, the related type's.
 	const shown = joined.columns.flatMap((column) => {
 		const body = column.proposal.column;
 		const choices = column.proposal.choices;
-		return body.kind === "plain" && choices !== undefined
-			? [{ property: body.field, choices }]
+		const owner =
+			body.kind === "plain"
+				? columnPropertyCaseType(body, caseType, catalog)
+				: undefined;
+		return body.kind === "plain" && choices !== undefined && owner !== undefined
+			? [{ owner, property: body.field, choices }]
 			: [];
 	});
-	const catalog = ctx.draft.caseTypes;
-	if (shown.length === 0 || catalog == null) return;
+	if (shown.length === 0) return;
 	const stated = SHOWN_STATED.get(ctx) ?? new Set<string>();
 	SHOWN_STATED.set(ctx, stated);
 	const declared: typeof shown = [];
 	const next = produce(catalog, (draft) => {
-		const type = draft.find((one) => one.name === caseType);
-		for (const { property, choices } of shown) {
-			const key = `${caseType}\u0000${property}`;
+		for (const { owner, property, choices } of shown) {
+			const type = draft.find((one) => one.name === owner);
+			const key = `${owner}\u0000${property}`;
 			// A standard property the catalog does not list (`noteProperty` lists none) is
 			// declared here: its choices are the label projection's, which Nova prints only
 			// from a catalog entry (`hqJson/caseList.ts::projectColumnToDetail`).
@@ -1062,17 +1294,17 @@ function declareShownChoices(
 				value: option.value,
 				label: proseText(sourceText(ctx, option.labels)),
 			}));
-			declared.push({ property, choices });
+			declared.push({ owner, property, choices });
 		}
 	});
 	if (declared.length === 0) return;
 	ctx.writeDraft(() => {
 		ctx.draft.caseTypes = next;
 	});
-	for (const { property, choices } of declared)
+	for (const { owner, property, choices } of declared)
 		for (const option of choices.options)
 			ctx.translations.set(
-				casePropertyOptionTranslationUnitId(caseType, property, option.value),
+				casePropertyOptionTranslationUnitId(owner, property, option.value),
 				"prose",
 				translatedTexts(
 					ctx,
@@ -1090,7 +1322,7 @@ function declareShownChoices(
  *  and which a column of the app shows by its choices' labels. */
 export interface ShownChoices {
 	readonly selectProperty: SelectProperty;
-	readonly labelShown: (property: string) => boolean;
+	readonly labelShown: (property: string, caseType?: string) => boolean;
 }
 
 /**
@@ -1137,30 +1369,44 @@ export function readCaseDetails(
 
 	const storedShort = short.peek("columns");
 	if (!Array.isArray(storedShort) || storedShort.length === 0) {
+		// The class is a fact about the menu's pair of details, so the refusal stands at each
+		// of its columns that holds a value (`Accounting.findingAt`).
 		const need = listNeeded(ctx, module);
 		if (need === "needed")
-			ctx.accounting.finding(D.shortEmptyNeeded, listPlace);
+			ctx.accounting.findingAt(D.shortEmptyNeeded, listPlace, pair.pointer);
 		else if (need === "parent")
-			ctx.accounting.finding(D.shortEmptyParent, listPlace);
+			ctx.accounting.findingAt(D.shortEmptyParent, listPlace, pair.pointer);
 		whole &&= need === "unread";
 	}
 	const shortCursors = short.list("columns", "DetailColumn", D.shortColumns);
+	const storedLong = long.peek("columns");
+	if (Array.isArray(storedLong) && storedLong.length === 0)
+		long.takeDefault("columns", D.longColumnsEmpty);
 	const longCursors = long.list("columns", "DetailColumn", D.longColumns);
 	const shared = {
 		selectProperty,
 		advanced: module.docType === "AdvancedModule",
 		offersSearch: menuOffersSearch(module),
+		relationVia: (steps: readonly string[]) =>
+			readColumnVia(ctx, module.module.caseType, steps),
 	};
+	// HQ's build admits a read of the search's instances in a detail of its results, or in a menu
+	// whose search launches by itself (`helpers/validators.py::validate_detail_columns`).
+	const search = module.json.peek("search_config");
+	const autoLaunch = isJsonObject(search) && search.auto_launch === true;
 	const shortOptions: Omit<ColumnOptions, "filterChangesBuild"> = {
 		...shared,
 		inTile,
 		formats: formatCounts(short),
+		searchInstancesRead:
+			autoLaunch || short.peek("instance_name") === "results",
 	};
 	const longOptions: ColumnOptions = {
 		...shared,
 		inTile: false,
 		formats: formatCounts(long),
 		filterChangesBuild: false,
+		searchInstancesRead: autoLaunch || long.peek("instance_name") === "results",
 	};
 	const shortReadings = shortCursors.map((column, index) =>
 		readDetailColumn(ctx, module, column, "short", {
@@ -1187,8 +1433,18 @@ export function readCaseDetails(
 	const shortProposals = proposalsOf(shortReadings);
 	const longProposals = proposalsOf(longReadings);
 
-	const joined = joinDetailColumns(shortProposals, longProposals);
-	const sort = readSortElements(ctx, module, short, joined, shortCursors);
+	const joined = joinDetailColumns(
+		shortProposals,
+		longProposals,
+		sortNamedInvisibleColumns(
+			short.peek("columns"),
+			short.peek("sort_elements"),
+		),
+	);
+	const sort = readSortElements(ctx, module, short, joined, shortCursors, {
+		offersSearch: shared.offersSearch,
+		relationVia: shared.relationVia,
+	});
 	whole &&= sort.ok;
 	const tile = readTile(
 		ctx,
@@ -1202,15 +1458,15 @@ export function readCaseDetails(
 	);
 	whole &&= tile.ok;
 
-	// Each property a column or a sort element reads is a property of the catalog.
+	// Each property a column or a sort element reads is a property of the catalog: of the case
+	// type its walk reaches, for a column read through a relation.
 	const caseType = module.module.caseType;
-	const properties = joined.columns.flatMap((column) =>
-		column.proposal.column.kind !== "calculated" &&
-		"field" in column.proposal.column &&
-		typeof column.proposal.column.field === "string"
-			? [column.proposal.column.field]
-			: [],
-	);
+	const properties = joined.columns.flatMap((column) => {
+		const body = column.proposal.column;
+		if (body.kind === "calculated" || typeof body.field !== "string") return [];
+		const owner = walkedType(body.via, caseType, ctx.draft.caseTypes ?? []);
+		return owner === undefined ? [] : [[owner, body.field] as const];
+	});
 	if (
 		caseType !== undefined &&
 		properties.length > 0 &&
@@ -1218,8 +1474,11 @@ export function readCaseDetails(
 	)
 		ctx.writeDraft(() => {
 			ctx.draft.caseTypes = produce(ctx.draft.caseTypes ?? [], (draft) => {
-				for (const property of properties)
-					noteProperty(draft, caseType, property, ctx.input.knownCaseTypes);
+				for (const [owner, property] of properties) {
+					if (!draft.some((type) => type.name === owner))
+						draft.push({ name: owner, properties: [] });
+					noteProperty(draft, owner, property, ctx.input.knownCaseTypes);
+				}
 			});
 		});
 	if (caseType !== undefined) {
@@ -1311,9 +1570,15 @@ export function readCaseDetails(
 				pendingPlaceholder("value");
 		}
 		config.columns.push(built);
-		if (!named || !caseListColumnTextShows(built)) return;
 		const byLanguage = (map: Readonly<Record<string, string>>) =>
 			translatedTexts(ctx, map);
+		if (named && column.sortName !== undefined && columnSortLabelShows(built))
+			ctx.translations.set(
+				makeTranslationUnitId("column", uuid, "sort-label"),
+				"text",
+				byLanguage(column.sortName),
+			);
+		if (!named || !caseListColumnTextShows(built)) return;
 		ctx.translations.set(
 			makeTranslationUnitId("column", uuid, "header"),
 			"text",
@@ -1328,6 +1593,18 @@ export function readCaseDetails(
 				byLanguage(map),
 			);
 	});
+	// The array in the list's order, as the reader returns it (`columnsInListOrder`): a column an
+	// order rule alone carries stands among the list's fields, ahead of the columns only Details
+	// shows (`order.ts`), though the join made it last.
+	const rank = new Map(config.listColumnOrder.map((uuid, at) => [uuid, at]));
+	config.columns = config.columns
+		.map((column, at) => ({ column, at }))
+		.sort(
+			(a, b) =>
+				(rank.get(a.column.uuid) ?? rank.size) -
+					(rank.get(b.column.uuid) ?? rank.size) || a.at - b.at,
+		)
+		.map(({ column }) => column);
 
 	let filter: number | undefined;
 	const storedFilter = short.peek("filter");
@@ -1348,6 +1625,8 @@ export function readCaseDetails(
 					mode: { target: "hq-json", interpolation: "case" },
 					place: listPlace,
 					key: "schema:Detail.filter",
+					// HQ interpolates the filter whole, the owner clause beside the operand too.
+					...(text !== storedFilter && { slotText: storedFilter }),
 				},
 				{ json: short, key: "filter" },
 			);
@@ -1597,7 +1876,51 @@ function overItsField(hidden: Column, candidate: Column): boolean {
 			candidate.kind === "calculated" &&
 			sameJson(hidden.expression, candidate.expression)
 		);
-	return hidden.field === candidate.field;
+	return columnFieldText(hidden) === columnFieldText(candidate);
+}
+
+/**
+ * The reader's canonical choice `sort-named-hidden-column-header-is-its-name`. A column hidden
+ * from Results and from Details whose own order rule names it in Sort by
+ * (`caseListOrder.ts`, rule 10) prints that name where its header would stand: HQ JSON's
+ * `invisible` field takes the name as its header (`hqJson/caseList.ts::projectColumnForShortDetail`),
+ * and the local archive writes the name under the field's locale id; no screen shows the column's
+ * own header. So two such columns that differ only in their header print one source, and the
+ * reader returns the one whose header is the name, the text the field's header holds.
+ */
+export function sortNamedHiddenColumnHeader(doc: BlueprintDoc): BlueprintDoc {
+	const renamed: { moduleUuid: Uuid; column: Uuid; header: string }[] = [];
+	for (const moduleUuid of doc.moduleOrder) {
+		const config = doc.modules[moduleUuid]?.caseListConfig;
+		if (config === undefined) continue;
+		const plan = caseListOrderPlan(config, [], {
+			mediaOn: false,
+			calculatedType: () => undefined,
+			expressionText: () => "",
+		});
+		for (const field of plan.fields) {
+			const label = field.rule?.label;
+			if (
+				label === undefined ||
+				label.column !== field.column.uuid ||
+				field.column.visibleInDetail !== false ||
+				field.column.header === label.text
+			)
+				continue;
+			renamed.push({ moduleUuid, column: label.column, header: label.text });
+		}
+	}
+	if (renamed.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const one of renamed) {
+			const column = draft.modules[
+				one.moduleUuid
+			]?.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === one.column,
+			);
+			if (column !== undefined) column.header = one.header;
+		}
+	});
 }
 
 /**
@@ -1606,8 +1929,9 @@ function overItsField(hidden: Column, candidate: Column): boolean {
  * they print (`joinDetailColumns`): each field, in its order on Results, joins the first long
  * detail column not yet joined that prints the same column, or, for a field hidden from Results,
  * whose `invisible` column carries its property and its header alone, the first over that property
- * with that header in every language, whose print it then takes, and none where no such column
- * is free. A list whose fields join other columns than their own prints what the list that
+ * with that header in every language (whatever its header where the field's rule names it in
+ * Sort by, which prints that name in the header's place), whose print it then takes, and none
+ * where no such column is free. A list whose fields join other columns than their own prints what the list that
  * join gives prints, and the reader returns that list: each field holding the print of the column
  * it joined (its own where it is shown on Results) beside its own order rule, tile cell and place
  * on Results, in its order there; off the detail where it joined none; each long detail column
@@ -1631,12 +1955,20 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 		if (config === undefined) continue;
 		const columns = new Map(config.columns.map((one) => [one.uuid, one]));
 		const column = (uuid: Uuid) => columns.get(uuid) as Column;
-		const fieldSet = new Set(
-			caseListOrderPlan(config, [], {
-				mediaOn: false,
-				calculatedType: () => undefined,
-				expressionText: () => "",
-			}).fields.map((field) => field.column.uuid),
+		const planned = caseListOrderPlan(config, [], {
+			mediaOn: false,
+			calculatedType: () => undefined,
+			expressionText: () => "",
+		}).fields;
+		const fieldSet = new Set(planned.map((field) => field.column.uuid));
+		// A hidden field whose rule names it in Sort by prints that name in its header's place, so
+		// it joins the first column over its property whatever that column's header.
+		const sortNamed = new Set(
+			planned.flatMap((field) =>
+				field.hidden && field.rule?.label !== undefined
+					? [field.column.uuid]
+					: [],
+			),
 		);
 		const fields = config.listColumnOrder.filter(
 			(uuid) => fieldSet.has(uuid) && columns.has(uuid),
@@ -1656,10 +1988,11 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 						(uuid) =>
 							free(uuid) &&
 							overItsField(own, column(uuid)) &&
-							sameJson(
-								headerTexts(column(uuid), doc, true),
-								headerTexts(own, doc, own.visibleInDetail !== false),
-							),
+							(sortNamed.has(short) ||
+								sameJson(
+									headerTexts(column(uuid), doc, true),
+									headerTexts(own, doc, own.visibleInDetail !== false),
+								)),
 					)
 				: long.find(
 						(uuid) => free(uuid) && detailPrintKey(column(uuid), doc) === key,
@@ -1850,21 +2183,22 @@ export function columnsInListOrder(doc: BlueprintDoc): BlueprintDoc {
 }
 
 /**
- * The reader's canonical choice `columns-of-a-menu-that-lists-no-cases-are-off-the-detail`: a menu
- * whose forms are all surveys, with no case list entry, lists no cases, and Nova writes it the
- * pair every new menu holds in CommCare HQ, whatever its list and its search hold
- * (`expander.ts`, `hasCases`): one `name` column headed with the same word in every language,
- * on the list and off the detail, and the search's shell defaults. So no export carries the
- * menu's columns, their headers' translations, their order rules, its tile, its filter, its
- * selection, its Search fields or its search settings, and the reader returns the list that pair
- * reads as: that one plain `case_name` column off the detail and nothing else. The column keeps
+ * The reader's canonical choice `columns-of-a-menu-that-lists-no-cases-are-its-one-name-column`: a
+ * menu whose forms are all surveys, with no case list entry, lists no cases, and Nova writes it
+ * the pair every new menu holds in CommCare HQ, whatever its list and its search hold
+ * (`expander.ts`, `hasCases`, `hqJson/caseList.ts::emptyListDetailPair`): one `name` column
+ * headed with the same word in every language, on the list and on the detail, and the search's
+ * shell defaults. So no export carries the menu's columns, their headers' translations, their
+ * order rules, its tile, its filter, its selection, its Search fields or its search settings, and
+ * the reader returns the list that pair reads as: that one plain `case_name` column, on both
+ * screens, and nothing else. The column keeps
  * the identity of the menu's own first plain `case_name` column where it has one, the identity a
  * re-read gives it, and otherwise the UUID a re-read gives a key the document lacks
  * (`identityMap.ts::reReadUuidOf`), which is not the key's own mint where the document holds
  * that under another column (one whose property was changed in Nova). It runs
  * before `columns-off-a-screen-last-in-its-order`.
  */
-export function columnsOfAMenuThatListsNoCasesOffTheDetail(
+export function columnsOfAMenuThatListsNoCases(
 	doc: BlueprintDoc,
 ): BlueprintDoc {
 	const lists = new Map<Uuid, CaseListConfig>();
@@ -1883,22 +2217,19 @@ export function columnsOfAMenuThatListsNoCasesOffTheDetail(
 				: orderedColumns(config, "list").find(
 						(column) => column.kind === "plain" && column.field === "case_name",
 					);
-		const column = {
-			...plainColumn(
-				own?.uuid ??
-					reRead(
-						externalKey.caseListColumn(
-							DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
-							"plain",
-							"case_name",
-							0,
-						),
+		const column = plainColumn(
+			own?.uuid ??
+				reRead(
+					externalKey.caseListColumn(
+						DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
+						"plain",
+						"case_name",
+						0,
 					),
-				"case_name",
-				SHELL_COLUMN_HEADER,
-			),
-			visibleInDetail: false,
-		};
+				),
+			"case_name",
+			SHELL_COLUMN_HEADER,
+		);
 		const list: CaseListConfig = {
 			columns: [column],
 			listColumnOrder: [column.uuid],

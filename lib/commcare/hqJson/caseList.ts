@@ -52,7 +52,9 @@ import type {
 	CaseListSortKey,
 	CaseProperty,
 	CaseTileLayout,
+	CaseType,
 	Column,
+	ColumnVia,
 	CaseSearchConfig as DomainCaseSearchConfig,
 	Module,
 	SearchInputDef,
@@ -62,6 +64,8 @@ import {
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	casePropertyShowsOptionLabels,
+	columnFieldText,
+	columnPropertyCaseType,
 	declaresWebApps,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
@@ -102,7 +106,8 @@ import {
 import {
 	type ColumnRewrites,
 	caseListOrderOptions,
-	columnReadsCaseAttribute,
+	columnProperty,
+	columnStoredAsExpression,
 	hqEnumPlaceholder,
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
@@ -121,6 +126,7 @@ import {
 	composeXPathQueryEmission,
 	xpathQueryRequestValues,
 } from "../suite/case-search/xpathQuery";
+import { columnPropertyPath, hqColumnFieldText } from "../suite/wire";
 import type {
 	CaseSearchProperty,
 	DefaultCaseSearchProperty,
@@ -150,6 +156,9 @@ interface ColumnProjectionContext {
 	 *  (`imageMapShowsImages`). */
 	readonly mediaOn: boolean;
 	readonly caseProperties: readonly CaseProperty[];
+	/** The effective catalog of every case type, where a column read through a
+	 *  relation finds the property it shows. */
+	readonly caseTypes: readonly CaseType[];
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	/** The reader's control over each calculated column's print (`CaseListRewrites.column`). */
@@ -172,10 +181,11 @@ interface ColumnProjectionContext {
  *     List page writes a calculated column. Effective Search writes a
  *     whole-expression parent property as a context-relative calculated
  *     XPath that CCHQ copies into its Search detail.
- *   - A column over `case_id`, `owner_id` or `status` is an expression
- *     column of its kind's format, `field: "@<name>"` (finding 57): HQ reads
- *     a property column's `field` as a child element, and its
- *     `CASE_PROPERTY_MAP` has no entry for `case_id`.
+ *   - A column over `case_id` is an expression column of its kind's
+ *     format, `field: "@case_id"`: HQ reads a property column's `field`
+ *     through its `CASE_PROPERTY_MAP`, which has no entry for `case_id`. A
+ *     column over `status` or `owner_id` is the property column HQ's Case
+ *     List page stores, which the map reads as the case's attribute.
  *   - `plain` over a select with options: `translatable-enum`, the label
  *     expression with one enum variable per option.
  *   - `id-mapping`: CCHQ's `enum` over the property, one entry per mapping
@@ -215,16 +225,22 @@ function projectColumnToDetail(
 		return detailColumn(expressionField(), headerRecord);
 	}
 
-	const attribute = columnReadsCaseAttribute(column);
+	// A column over `case_id` is the expression reading it, through the
+	// column's walk where it has one; any other property column is the field
+	// HQ's page stores, the walk's indices and the property joined by `/`, the
+	// property in HQ's word (`hqColumnFieldText`).
+	const attribute = columnStoredAsExpression(column);
 	const base = attribute
-		? detailColumn(hqXPath(w.context([w.attr(column.field)])), headerRecord)
-		: detailColumn(column.field, headerRecord);
+		? detailColumn(hqXPath(columnPropertyPath(column)), headerRecord)
+		: detailColumn(hqColumnFieldText(columnFieldText(column)), headerRecord);
+	const propertyCaseType =
+		columnPropertyCaseType(column, mod.caseType, ctx.caseTypes) ??
+		mod.caseType ??
+		"";
 
 	switch (column.kind) {
 		case "plain": {
-			const property = ctx.caseProperties.find(
-				(candidate) => candidate.name === column.field,
-			);
+			const property = columnProperty(column, mod, ctx.caseTypes);
 			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
 				return base;
 			}
@@ -238,7 +254,7 @@ function projectColumnToDetail(
 					key: hqEnumPlaceholder(index),
 					value: localization.proseTextMap(
 						casePropertyOptionTranslationUnitId(
-							mod.caseType ?? "",
+							propertyCaseType,
 							property.name,
 							option.value,
 							casePropertyOptionOccurrence(options, index),
@@ -327,31 +343,35 @@ function projectColumnToDetail(
  * One field of the short detail, from the order plan. A shown field is its
  * kind's projection on Results. A hidden field is HQ's `invisible` column,
  * built from the `detailColumn` shell and never from the shown projection:
- * the raw property for a column that is not calculated, `@<name>` for an
- * attribute-backed one, the expression for a calculated one. Every other
+ * the raw property for a column that is not calculated, `@case_id` for one
+ * over the case's id, the expression for a calculated one. Every other
  * slot is the shell's own, `date_format` among them, which no reader of an
  * `invisible` column reads.
  *
- * A hidden field's header is never read by HQ's build
- * (`detail_screen.py::Invisible.header` writes an empty text unless the
- * joined sort element has display text, `models/case_list.py::SortElement.
- * has_display_values`, and Nova's never has). Where the column is shown on
- * Details it is the header's text map; where it is hidden from both screens
- * it has no header unit, and the stored header stands under every wire code.
- * The Case List save keeps both spellings.
+ * A hidden field's header is read by HQ's build only where the joined sort
+ * element has display text (`detail_screen.py::Invisible.header`,
+ * `models/case_list.py::SortElement.has_display_values`), which Nova writes
+ * where the plan's rule on the field carries a name in Sort by: the header is
+ * then that name in every language, the app string Android's Sort by shows.
+ * Otherwise no build reads it: where the column is shown on Details it is the
+ * header's text map; where it is hidden from both screens it has no header
+ * unit, and the stored header stands under every wire code. The Case List
+ * save keeps both spellings.
  *
- * Throws where the stored `field` is not the plan's join text: HQ joins an
- * order rule by that text alone, so the two must be one string.
+ * Throws where the stored `field` is not the plan's join text, a property's
+ * in HQ's word (`hqColumnFieldText`): HQ joins an order rule by that text
+ * alone, so the two must be one string.
  */
 function projectColumnForShortDetail(
 	field: CaseListShortField,
 	ctx: ColumnProjectionContext,
 ): WireDetailColumn<HqXPath> {
 	const { column } = field;
+	const joinText = hqJoinText(field);
 	const projected: WireDetailColumn<HqXPath> = field.hidden
 		? {
 				...detailColumn(
-					column.kind === "calculated" || columnReadsCaseAttribute(column)
+					column.kind === "calculated" || columnStoredAsExpression(column)
 						? hqXPath(
 								hqExpressionField(
 									column,
@@ -363,12 +383,20 @@ function projectColumnForShortDetail(
 									ctx.columnRewrites?.(column.uuid),
 								),
 							)
-						: field.joinText,
-					column.visibleInDetail !== false
+						: joinText,
+					field.rule?.label !== undefined
 						? ctx.localization.textMap(
-								makeTranslationUnitId("column", column.uuid, "header"),
+								makeTranslationUnitId(
+									"column",
+									field.rule.label.column,
+									"sort-label",
+								),
 							)
-						: repeatForLanguages(ctx.localization.languages, column.header),
+						: column.visibleInDetail !== false
+							? ctx.localization.textMap(
+									makeTranslationUnitId("column", column.uuid, "header"),
+								)
+							: repeatForLanguages(ctx.localization.languages, column.header),
 				),
 				format: "invisible" satisfies DetailColumnFormat,
 			}
@@ -377,12 +405,21 @@ function projectColumnForShortDetail(
 		typeof projected.field === "string"
 			? projected.field
 			: hqXPathText(projected.field);
-	if (printedField !== field.joinText) {
+	if (printedField !== joinText) {
 		throw new Error(
-			`projectColumnForShortDetail: the short column ${column.uuid} writes the field ${JSON.stringify(printedField)}, but the order plan joins it by ${JSON.stringify(field.joinText)}. HQ joins an order rule by that text alone, so the projection and caseListOrderPlan must print one string.`,
+			`projectColumnForShortDetail: the short column ${column.uuid} writes the field ${JSON.stringify(printedField)}, but the order plan joins it by ${JSON.stringify(joinText)}. HQ joins an order rule by that text alone, so the projection and caseListOrderPlan must print one string.`,
 		);
 	}
 	return projected;
+}
+
+/** A short field's join text as HQ stores it: a property column's in HQ's word
+ *  (`hqColumnFieldText`), any other as the order plan prints it. */
+function hqJoinText(field: CaseListShortField): string {
+	const { column } = field;
+	return column.kind === "calculated" || columnStoredAsExpression(column)
+		? field.joinText
+		: hqColumnFieldText(field.joinText);
 }
 
 // ============================================================
@@ -396,7 +433,8 @@ function projectColumnForShortDetail(
  * (`static/app_manager/js/details/bootstrap5/sort_rows.js`,
  * `views/modules.py::_update_sort_elements`).
  *
- *   - `field`: the property name of a property element, or
+ *   - `field`: the property of a property element, in HQ's word
+ *     (`hqColumnFieldText`), as the column it joins stores it, or
  *     `_cc_calculated_<position>` of the field the rule is AUTHORED on, which
  *     HQ then gives to the first field with that field's text
  *     (`util.py::get_sort_and_sort_only_columns`).
@@ -407,7 +445,11 @@ function projectColumnForShortDetail(
  *     (`detail_screen.py::FormattedDetailColumn.sort_node`).
  *   - `blanks`: the rule's own, which follows its direction (`first`
  *     ascending, `last` descending) where the author says nothing.
- *   - `display`: the first language's wire code with empty text, which the
+ *   - `display`: the rule's name in Sort by in every language where the plan
+ *     carries one (`caseListOrder.ts`, rule 10), the text HQ's build tests for
+ *     before it gives the field a header (`detail_screen.py::Invisible.header`)
+ *     and makes the header of a carrier (`util.py::create_temp_sort_column`);
+ *     otherwise the first language's wire code with empty text, which the
  *     save adds where it is missing.
  *   - `sort_calculation`: always empty; the save empties it unless the
  *     project has `SORT_CALCULATION_IN_CASE_LIST`.
@@ -418,11 +460,12 @@ function projectColumnForShortDetail(
  */
 function projectSortElements(
 	plan: CaseListOrderPlan,
-	firstLanguage: string,
-	caseProperties: readonly CaseProperty[],
+	localization: CommCareLocalization,
+	dataTypeOf: (
+		property: string,
+		via: ColumnVia | undefined,
+	) => CaseProperty["data_type"],
 ): SortElement<HqXPath>[] {
-	const dataTypeOf = (name: string) =>
-		caseProperties.find((property) => property.name === name)?.data_type;
 	const written: {
 		readonly rule: CaseListOrderRule;
 		readonly key?: CaseListSortKey;
@@ -437,7 +480,8 @@ function projectSortElements(
 			rule: carrier.rule,
 			key: {
 				kind: "property" as const,
-				property: carrier.property,
+				property: carrier.field,
+				...(carrier.via !== undefined && { via: carrier.via }),
 			},
 			comparator: carrier.comparator,
 		})),
@@ -447,14 +491,26 @@ function projectSortElements(
 		.map(({ rule, key, comparator }) => ({
 			field:
 				rule.element.kind === "property"
-					? rule.element.property
+					? hqColumnFieldText(rule.element.property)
 					: `_cc_calculated_${rule.element.position}`,
 			type: sortElementType(rule, key, comparator, dataTypeOf),
 			direction: SORT_DIRECTION_WIRE_MAP[rule.direction],
 			blanks: rule.blanks,
-			display: { [firstLanguage]: "" },
+			display: sortDisplay(rule, localization),
 			sort_calculation: "",
 		}));
+}
+
+/** A written rule's `display`: its name in Sort by, or none. */
+function sortDisplay(
+	rule: CaseListOrderRule,
+	localization: CommCareLocalization,
+): Record<string, string> {
+	return rule.label === undefined
+		? { [localization.languages[0] ?? "en"]: "" }
+		: localization.textMap(
+				makeTranslationUnitId("column", rule.label.column, "sort-label"),
+			);
 }
 
 /** The Case List page's `type` word for one written rule. */
@@ -462,13 +518,16 @@ function sortElementType(
 	rule: CaseListOrderRule,
 	key: CaseListSortKey | undefined,
 	comparator: CaseListComparator,
-	dataTypeOf: (name: string) => CaseProperty["data_type"],
+	dataTypeOf: (
+		property: string,
+		via: ColumnVia | undefined,
+	) => CaseProperty["data_type"],
 ): "plain" | "date" | "int" | "double" {
 	if (rule.implicit) return "plain";
 	if (comparator === "integer") return "int";
 	if (comparator === "decimal") return "double";
 	if (key?.kind === "property") {
-		const dataType = dataTypeOf(key.property);
+		const dataType = dataTypeOf(key.property, key.via);
 		if (dataType === "date" || dataType === "datetime" || dataType === "time") {
 			return "date";
 		}
@@ -965,6 +1024,24 @@ export function emptyShortListColumns(
 }
 
 /**
+ * The details of a menu that lists no cases (`expander.ts`, `hasCases`): the
+ * pair every new menu holds in CommCare HQ, the one `name` column on the list
+ * and on the detail (`models/modules.py::Module.new_module`). HQ's build
+ * writes a detail for each screen that holds a column
+ * (`suite_xml/sections/details.py::DetailContributor`), which no entry of
+ * such a menu names, so a menu made in HQ keeps its built details through a
+ * publish.
+ */
+export function emptyListDetailPair(
+	languages: readonly string[],
+): DetailPair<HqXPath> {
+	return detailPair(
+		emptyShortListColumns(languages),
+		emptyShortListColumns(languages),
+	);
+}
+
+/**
  * One-call HQ-JSON projection for a module's case-list-side state.
  * Returns the three wire fields the expander composes onto the
  * `HqModule` shell:
@@ -1005,9 +1082,9 @@ export function projectCaseListForHq(
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
 	const expressions = moduleExpressionContexts(doc, mod.uuid, lookupNaming);
+	const caseTypes = effectiveCaseTypes(doc);
 	const caseProperties =
-		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
-			?.properties ?? [];
+		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [];
 	const ctx: ColumnProjectionContext = {
 		mod,
 		doc,
@@ -1015,6 +1092,7 @@ export function projectCaseListForHq(
 		...(assets !== undefined && { assets }),
 		mediaOn: assets !== undefined,
 		caseProperties,
+		caseTypes,
 		expressions,
 		...(lookupNaming !== undefined && { lookupNaming }),
 		...(listRewrites?.column !== undefined && {
@@ -1075,8 +1153,16 @@ export function projectCaseListForHq(
 	const pair = detailPair(shortColumns, longColumns);
 	pair.short.sort_elements = projectSortElements(
 		plan,
-		localization.languages[0] ?? "en",
-		caseProperties,
+		localization,
+		(property, via) =>
+			columnProperty(
+				{ kind: "plain", field: property, via } as Exclude<
+					Column,
+					{ kind: "calculated" }
+				>,
+				mod,
+				caseTypes,
+			)?.data_type,
 	);
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {
