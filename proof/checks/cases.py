@@ -40,7 +40,8 @@ from proof.checks import corpus, registers
 from proof.checks.differences import sorted_differences
 from proof.checks.eligibility import WITNESS_UNRUN as WITNESS_UNRUN
 from proof.checks.eligibility import eligible
-from proof.checks.sharding import PIECES_ENVIRONMENT
+from proof.checks.sharding import PIECES_ENVIRONMENT, piece_item
+from proof.lane import blocks, readers
 
 
 @cache
@@ -110,16 +111,19 @@ class Piece:
 
     document: object
     configuration: str
+    editor_partition: int | None = None
 
     @property
     def group(self) -> str:
+        if self.editor_partition is not None:
+            return blocks.EDITOR_PIECES[self.editor_partition - 1]
         return f"{self.document.group}@{self.configuration}"
 
     @property
     def id(self) -> str:
         """The item's id, which ``proof.checks.sharding.piece_item`` writes from the group's name alone."""
         prefix = "control-" if self.document.kind == "control" else ""
-        return f"{prefix}{self.document.id}@{self.configuration}"
+        return prefix + self.group.partition(":")[2]
 
 
 def queued_pieces(environ=None) -> frozenset[str] | None:
@@ -134,24 +138,35 @@ def queued_pieces(environ=None) -> frozenset[str] | None:
     )
 
 
-def pieces(documents, controls, named: frozenset[str] | None) -> list[Piece]:
+def pieces(documents, controls, named: frozenset[str] | None, *, manual_partitions=()) -> list[Piece]:
     """Every piece of ``documents`` and ``controls`` that ``named`` holds (every one, where it is None)."""
     wholes = None if named is None else {name.partition("@")[0] for name in named}
-    found = [
-        Piece(document, configuration)
-        for document in [*documents, *controls]
-        if wholes is None or document.group in wholes
-        for configuration in sorted(document.exports)
-    ]
+    found = []
+    for document in [*documents, *controls]:
+        if wholes is not None and document.group not in wholes:
+            continue
+        for configuration in sorted(document.exports):
+            found.append(Piece(document, configuration))
+            if document.group == blocks.EDITOR_DOCUMENT and configuration == "minimum":
+                requested = manual_partitions if named is None else named
+                if readers.named() == readers.EVERY and os.environ.get("PROOF_HQ_DETERMINISM") != "0":
+                    found.extend(
+                        Piece(document, configuration, index)
+                        for index, name in enumerate(blocks.EDITOR_PIECES, 1)
+                        if name in requested
+                    )
     return [piece for piece in found if named is None or piece.group in named]
 
 
-def piece_params():
+def piece_params(selectors=()):
     """The pieces ``proof/checks/pieces.py`` gives an item each: those the lane's queue names, each of which the
     corpus or the controls must hold; with no queue, every configuration of every document and control, for a
     person who names one by hand."""
     named = queued_pieces()
-    found = pieces(load_corpus().documents, corpus.load_controls(), named)
+    # A hand rerun names the item's full node id. Running the module with no queue retains its ordinary
+    # configuration items, without also doing two expensive observations of the same configuration.
+    manual = {name for name in blocks.EDITOR_PIECES if any(path.endswith(piece_item(name)) for path in selectors)}
+    found = pieces(load_corpus().documents, corpus.load_controls(), named, manual_partitions=manual)
     missing = sorted((named or frozenset()) - {piece.group for piece in found})
     if missing:
         raise AssertionError(

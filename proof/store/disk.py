@@ -279,7 +279,8 @@ class Delta:
         self.root = Path(root)
 
     def _entry(self, kind: str, key: str) -> Path:
-        if kind not in KINDS:
+        # Editor fragments are local to the run. Snapshot indexes and the packer use only KINDS.
+        if kind != "fragments" and kind not in KINDS:
             raise StoreFormatError(f"A store holds {', '.join(KINDS)} entries; {kind!r} is none of them.")
         return self.root / ENTRIES / kind / f"{key}.json"
 

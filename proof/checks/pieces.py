@@ -24,11 +24,15 @@ person names runs: it observes that configuration again, as its lane did.
 
 from __future__ import annotations
 
-import pytest
-
 from proof.checks import cases, observations
 
 
-@pytest.mark.parametrize("piece", cases.piece_params())
+def pytest_generate_tests(metafunc):
+    metafunc.parametrize("piece", cases.piece_params(metafunc.config.args))
+
+
+
 def test_a_configuration_is_observed_into_the_runs_store(piece, hq, core_runner, editor_driver):
-    observations.observe_piece(piece.document, piece.configuration, core_runner, editor_driver=editor_driver)
+    observations.observe_piece(
+        piece.document, piece.configuration, core_runner, editor_driver=editor_driver, editor_partition=piece.editor_partition
+    )

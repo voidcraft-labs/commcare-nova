@@ -76,7 +76,7 @@ from urllib.parse import parse_qs
 
 from proof.checks.corpus import BOTH
 from proof.formplayer.client import AUTH_KEY, FormplayerRunnerError, HqAnswer, HqRequest
-from proof.lane import readers
+from proof.lane import progress, readers
 from proof.observe import casedata
 
 # Request headers that belong to Formplayer's connection with the harness's peer.
@@ -745,7 +745,7 @@ class Served:
 
         self._runs += 1
         label = (name or f"run-{self._runs}").encode()
-        with self.unit.fork():
+        with progress.activity(progress.walk_label(name, self._runs), count="native"), self.unit.fork():
             _redis_of(self.runner)
             hq_redis.flush()
             named = label.decode("utf-8", "replace")

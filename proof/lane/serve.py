@@ -134,6 +134,7 @@ import pytest
 from proof import processes
 from proof.checks import sharding
 from proof.lane import blocks as lane_blocks
+from proof.lane import progress
 from proof.lane import readers as lane_readers
 from proof.lane import worker as lane_worker
 from proof.lane.broker import WAIT, Broker
@@ -195,6 +196,10 @@ def _interrupt(signum, frame):
     raise Interrupted(signal.Signals(signum).name)
 
 
+def _work_deadline(signum, frame):
+    raise Interrupted("the hosted shard reached its work deadline")
+
+
 def _tail(path: Path, limit: int = TAIL) -> str:
     try:
         return path.read_text(encoding="utf-8", errors="replace")[-limit:]
@@ -238,6 +243,7 @@ class Worker:
     exited: int | None = None
     forked: float = 0.0
     started_any: bool = False
+    active: progress.ActiveGroup | None = None
 
 
 @dataclass
@@ -856,10 +862,14 @@ class Server:
                 held.started_any = True
                 self.boot_failures[held.phase] = 0
                 self.broker.started(assignment)
+                held.active = progress.ActiveGroup.begin(assignment.group, time.monotonic())
+        elif kind == "progress" and held.active is not None:
+            held.active.update(message, time.monotonic())
         elif kind == "finished":
             assignment = held.assignments.pop((message["block"], message["group"]), None)
             if assignment is None:
                 return
+            held.active = None
             outcomes = message.get("outcomes", {})
             failing = sorted(node_id for node_id, outcome in outcomes.items() if outcome in lane_blocks.FAILING)
             self.failing += failing
@@ -959,6 +969,8 @@ class Server:
             self.broker.lost(assignment, reason)
         ordinary = code in ORDINARY_EXITS or (self.stopping and code == 2)
         cannot_start = not held.started_any and not self.stopping and self.broker.demand(held.phase) > 0
+        if lost_running and held.active:
+            say(f"w{held.sequence} interrupted: {held.active.describe(time.monotonic())}")
         if lost_running or not ordinary or cannot_start:
             if cannot_start:
                 failures = self.boot_failures.get(held.phase, 0) + 1
@@ -991,14 +1003,14 @@ class Server:
         for name, run in self.broker.take_completed():
             self._write_block(name, run)
 
-    def _write_block(self, name: str, run, unfinished: str | None = None):
+    def _write_block(self, name: str, run, unfinished: str | None = None, *, snapshot=False):
         info = self.phases[name]
         groups = []
         for group, state in run.groups.items():
             failure = state.failure
             if state.status not in ("finished", "failed"):
                 failure = unfinished or "it never ran"
-            elif failure and state.worker is None:
+            elif failure and state.worker is None and not snapshot:
                 self.unrun.append(f"{group}: {failure}")
             groups.append(
                 lane_blocks.group_record(
@@ -1015,7 +1027,7 @@ class Server:
         lane_blocks.write_json(
             path, lane_blocks.manifest(run.block, phase=name, shard=self.label, groups=groups, reader=info.reader)
         )
-        run.written = True
+        run.written = not snapshot
 
     def _done(self) -> bool:
         """Whether nothing can happen any more: no worker and no command runs after claiming and forking."""
@@ -1057,6 +1069,10 @@ class Server:
             self._poll()
             if time.perf_counter() - swept >= POLL_SECONDS:
                 reap_strays(self._known())
+                now = time.monotonic()
+                for worker in self.workers.values():
+                    if worker.active and (line := worker.active.heartbeat(now)):
+                        say(f"w{worker.sequence} {line}")
                 swept = time.perf_counter()
 
     def _known(self) -> set[int]:
@@ -1066,6 +1082,19 @@ class Server:
         return known
 
     # Ending -------------------------------------------------------------------------------------
+
+    def _write_remaining_blocks(self, *, snapshot=False):
+        for name, phase in self.broker.phases.items():
+            for run in phase.runs.values():
+                if not run.written:
+                    reason = self.stopping or self.broken.get(name) or "the server ended first"
+                    self._write_block(name, run, unfinished=f"not run: {reason}", snapshot=snapshot)
+
+    def _write_record(self, started, code):
+        self.record["seconds"] = round(time.perf_counter() - started, 3)
+        self.record["exit"] = code
+        self.record["failing"] = self.failing
+        lane_blocks.write_json(self.out / lane_blocks.SERVE, self.record)
 
     def _shutdown(self):
         for held in list(self.workers.values()):
@@ -1089,11 +1118,7 @@ class Server:
         for _ in range(20):
             if not reap_strays(set()):
                 break
-        for name, phase in self.broker.phases.items():
-            for run in phase.runs.values():
-                if not run.written:
-                    reason = self.stopping or self.broken.get(name) or "the server ended first"
-                    self._write_block(name, run, unfinished=f"not run: {reason}")
+        self._write_remaining_blocks()
         if self.restored:
             try:
                 self._drop_databases()
@@ -1160,6 +1185,13 @@ class Server:
         interrupted = refused = False
         started = time.perf_counter()
         try:
+            if self.options.deadline_at is not None:
+                signal.signal(signal.SIGALRM, _work_deadline)
+                remaining = self.options.deadline_at - time.time()
+                if remaining <= 0:
+                    raise Interrupted("the hosted shard reached its work deadline during preparation")
+                # An interval timer belongs to this server: forked workers do not inherit it.
+                signal.setitimer(signal.ITIMER_REAL, remaining)
             self._refuse_environment()
             self._prepare()
             self._plan()
@@ -1172,23 +1204,28 @@ class Server:
             self.problems.append(str(error))
         except Interrupted as error:
             interrupted = True
+            self.stopping = str(error)
             self.problems.append(f"The server was interrupted ({error}).")
         except BaseException:
             self.problems.append("The server failed:\n" + traceback.format_exc())
         finally:
+            if self.options.deadline_at is not None:
+                signal.setitimer(signal.ITIMER_REAL, 0)
             # Ending is not interrupted: every process is stopped and reaped, and the record written.
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             try:
+                if interrupted:
+                    # A worker or service may hang even in teardown. Save what was acknowledged before
+                    # waiting on it. Cleanup drains worker messages and replaces this conservative snapshot.
+                    self._write_remaining_blocks(snapshot=True)
+                    self._write_record(started, EXIT_INTERRUPTED)
                 self._shutdown()
             finally:
                 code = EXIT_REFUSED if refused else self._exit_code(interrupted)
                 if self.collect_only_code is not None and not refused and not interrupted:
                     code = self.collect_only_code
-                self.record["seconds"] = round(time.perf_counter() - started, 3)
-                self.record["exit"] = code
-                self.record["failing"] = self.failing
-                lane_blocks.write_json(self.out / lane_blocks.SERVE, self.record)
+                self._write_record(started, code)
                 self._summary(code)
         return code
 
@@ -1283,7 +1320,10 @@ def parse_arguments(argv):
         default=0,
         help="lane positions start after this one: the server's databases are position N+1's (default 0)",
     )
+    parser.add_argument("--deadline-at", type=int, help="hosted work deadline, as whole Unix epoch seconds")
     options = parser.parse_args(argv)
+    if options.deadline_at is not None and not 0 < options.deadline_at <= time.time() + 6 * 3600:
+        parser.error("--deadline-at must be a positive Unix timestamp within the next hosted job's six-hour bound")
     options.pytest = pytest_args
     options.collect_only = any(arg in ("--collect-only", "--co") for arg in pytest_args)
     return options

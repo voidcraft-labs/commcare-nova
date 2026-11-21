@@ -69,6 +69,7 @@ import pytest
 
 from proof.lane import blocks as lane_blocks
 from proof.lane import gate
+from proof.store import disk
 
 WORKTREE = Path(__file__).resolve().parents[2]
 COLLECTED = ["checks/test_bar.py::test[a]"]
@@ -144,7 +145,8 @@ def _lane(tmp_path, *, outcome="passed", surface=b'{"items": {}}\n', differences
         (surface_dir / "surface").mkdir()
         (surface_dir / "surface" / "surface.json").write_bytes(surface)
     lane_blocks.write_json(
-        output / lane_blocks.SERVE, {"phases": [{"phase": "main", "collected": {"digest": "d"}, "unaccounted": []}]}
+        output / lane_blocks.SERVE,
+        {"exit": 0, "phases": [{"phase": "main", "collected": {"digest": "d"}, "unaccounted": []}]},
     )
     queue = tmp_path / "queue.json"
     lane_blocks.write_json(queue, lane_blocks.queue_json(lane_blocks.Queue(tuple(blocks))))
@@ -191,6 +193,51 @@ def test_the_gate_holds_a_run_that_ran_everything_once_with_every_item_passing_a
     assert result["holds"], result
     assert result["sections"]["surface"]["verdict"] == "equal"
     assert result["sections"]["tests"]["items"] == 2
+
+
+def test_hosted_shard_failure_cannot_write_a_winning_verdict_even_when_other_shards_did_all_the_work(tmp_path):
+    output, queue, surface = _lane(tmp_path)
+    summary = tmp_path / "verdict.json"
+    args = ["--queue", str(queue), "--surface", str(surface), "--summary", str(summary), "--shards-result"]
+    for status, directories, holds, items in (
+        ("success", [output], True, 2),
+        ("failure", [output], False, 2),
+        ("failure", [], False, 0),
+        ("success", [], False, 0),
+    ):
+        assert gate.main([*map(str, directories), *args, status]) == (0 if holds else 1)
+        result = json.loads(summary.read_text())
+        assert result["holds"] is holds
+        assert result["sections"]["hostedShards"]["holds"] == (status == "success")
+        assert result["sections"]["tests"]["items"] == items
+        assert result["sections"]["exactlyOnce"]["holds"] == bool(directories)
+
+
+def test_a_successful_hosted_matrix_can_read_every_queued_result_from_the_store(tmp_path):
+    surface = b'{"items": {}}\n'
+    evidence = json.dumps({"check": "bar", "document": "a", "kind": "corpus", "differences": []}).encode()
+    committed = tmp_path / "surface.json"
+    committed.write_bytes(surface)
+    cached = (
+        lane_blocks.CachedGroup("surface", {"outcome": "surface-key"}),
+        lane_blocks.CachedGroup("corpus:a", {"outcome": "document-key", "bar": "bar-key"}),
+    )
+    queues = [("main", lane_blocks.Queue((), cached))]
+    store = tmp_path / "store"
+    index = disk.empty_index()
+    index["groups"]["surface-key"] = {
+        "items": {"surface/test_surface.py::test_extraction": "passed"},
+        "surface": disk.digest_of(surface),
+    }
+    index["groups"]["document-key"] = {"items": {COLLECTED[0]: "passed"}}
+    index["judgments"]["bar-key"] = disk.digest_of(evidence)
+    disk.write_snapshot(store, index, {disk.digest_of(value): value for value in (surface, evidence)}.get)
+
+    result = gate.gate([], queues, store=store, committed=committed, shards_result="success")
+    assert result["holds"] and result["sections"]["surface"]["verdict"] == "equal"
+    assert result["sections"]["exactlyOnce"]["blocks"] == 0
+    missing = gate.gate([], queues, store=tmp_path / "empty", committed=committed, shards_result="success")
+    assert not missing["holds"] and missing["sections"]["surface"]["verdict"] == "missing"
 
 
 def test_the_gate_fails_a_failed_item_and_one_whose_setup_or_teardown_failed(tmp_path):
@@ -899,7 +946,8 @@ def _pieces_lane(tmp_path, *, pieces=None, whole=None, shard="s1", output=None):
         evidence = {"check": "bar", "document": "heavy", "kind": "corpus", "differences": []}
         lane_blocks.write_json(directory / "checks" / "bar" / "corpus-heavy.json", evidence)
     lane_blocks.write_json(
-        output / lane_blocks.SERVE, {"phases": [{"phase": "main", "collected": {"digest": "d"}, "unaccounted": []}]}
+        output / lane_blocks.SERVE,
+        {"exit": 0, "phases": [{"phase": "main", "collected": {"digest": "d"}, "unaccounted": []}]},
     )
     queue = tmp_path / "queue.json"
     lane_blocks.write_json(queue, lane_blocks.queue_json(lane_blocks.Queue((block,))))

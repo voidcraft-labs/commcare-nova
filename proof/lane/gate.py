@@ -173,11 +173,19 @@ def _surface(queues, verdict, store, committed: Path, selection=None) -> dict:
     )
 
 
-def gate(outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, documents=None) -> dict:
+def gate(
+    outputs, queues, *, store=None, committed: Path = COMMITTED_SURFACE, documents=None, shards_result=None
+) -> dict:
     """The verdict over ``outputs`` (each shard's output directory) and ``queues`` (``(phase, Queue)`` pairs);
     ``documents`` names the documents of a slice a person ran by hand, whose own queue names none (``told``)."""
     verdict = sharding.verify(queues, outputs)
     sections = {"exactlyOnce": _section(verdict.problems, verdict.notes, blocks=len(verdict.chosen))}
+    if shards_result is not None:
+        # A hosted shard can fail before its first upload, even when another shard claims every queued block.
+        problems = (
+            [] if shards_result == "success" else [f"The hosted proof shards finished with result {shards_result}."]
+        )
+        sections["hostedShards"] = _section(problems)
     # Each group a problem names, with why and the items it holds, for whoever reruns it (proof.lane.report).
     by_group: dict[str, dict] = {}
     collected: dict[str, list[str]] = {}
@@ -548,6 +556,7 @@ def _profile(queues, outputs) -> tuple[frozenset, list[str]]:
 
 TITLES = {
     "exactlyOnce": "Every block ran exactly once",
+    "hostedShards": "Every hosted proof shard finished",
     "tests": "Every item passed",
     "register": "Every difference holds to the register",
     "stops": "Every walk reaches its end or a held stop",
@@ -589,7 +598,12 @@ def _queues(arguments, outputs) -> list:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m proof.lane.gate", description=__doc__.splitlines()[0])
-    parser.add_argument("outputs", nargs="+", type=Path, help="every shard's output directory")
+    parser.add_argument("outputs", nargs="*", type=Path, help="every shard's output directory")
+    parser.add_argument(
+        "--shards-result",
+        choices=("success", "failure", "cancelled", "skipped"),
+        help="the hosted proof shard matrix job's result, including jobs that never uploaded an output",
+    )
     parser.add_argument("--early-queue", type=Path, help="the early queue the shards ran")
     parser.add_argument("--queue", type=Path, help="the main queue the shards ran")
     parser.add_argument("--store", type=Path, help="the evidence store, for the groups the queues cache")
@@ -600,6 +614,8 @@ def main(argv=None) -> int:
         help="the documents a slice run by hand (by path and -k) is held to, by their ids, comma-separated",
     )
     arguments = parser.parse_args(argv)
+    if not arguments.outputs and arguments.shards_result is None:
+        parser.error("name at least one shard output directory")
     try:
         queues = _queues(arguments, arguments.outputs)
         documents = None if arguments.documents is None else _documents(arguments.documents)
@@ -607,7 +623,14 @@ def main(argv=None) -> int:
     except lane_blocks.QueueError as error:
         print(error, file=sys.stderr)
         return 2
-    result = gate(arguments.outputs, queues, store=arguments.store, committed=arguments.surface, documents=documents)
+    result = gate(
+        arguments.outputs,
+        queues,
+        store=arguments.store,
+        committed=arguments.surface,
+        documents=documents,
+        shards_result=arguments.shards_result,
+    )
     for key, section in result["sections"].items():
         print(f"{'holds' if section['holds'] else 'FAILS'}: {TITLES[key]}")
         for note in section["notes"]:

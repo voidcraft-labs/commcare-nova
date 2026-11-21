@@ -386,7 +386,7 @@ def _write_run(output, block, *, outcomes=None, failure=None, evidence=None, gro
 def _write_serve(output, *, digest="d1", unaccounted=()):
     lane_blocks.write_json(
         output / lane_blocks.SERVE,
-        {"phases": [{"phase": "main", "collected": {"digest": digest}, "unaccounted": list(unaccounted)}]},
+        {"exit": 0, "phases": [{"phase": "main", "collected": {"digest": digest}, "unaccounted": list(unaccounted)}]},
     )
 
 
@@ -405,6 +405,23 @@ def test_a_run_that_ran_every_queued_block_once_holds_and_counts_each_blocks_run
     verdict = sharding.verify([("main", _queue(first, second, cached=["corpus:d"]))], [out1, out2])
     assert verdict.problems == [] and verdict.notes == []
     assert verdict.chosen == {first.id: ran_first, second.id: ran_second}
+
+
+@pytest.mark.parametrize("code", [2, 3, 130, None])
+def test_completed_blocks_survive_a_shard_failure_but_cannot_pass_the_lane(tmp_path, code):
+    block = _block("corpus:a")
+    (output,) = _outputs(tmp_path, 1)
+    directory = _write_run(output, block)
+    path = output / lane_blocks.SERVE
+    record = json.loads(path.read_text())
+    for status in (0, 1, code):
+        lane_blocks.write_json(path, {**record, "exit": status, "problems": []})
+        verdict = sharding.verify([("main", _queue(block))], [output])
+        assert verdict.chosen == {block.id: directory}
+        if status == code:
+            assert len(verdict.problems) == 1 and "did not finish normally" in verdict.problems[0]
+        else:
+            assert verdict.problems == []
 
 
 def test_a_block_no_output_holds_fails_the_run(tmp_path):

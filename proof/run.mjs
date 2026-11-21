@@ -55,7 +55,8 @@
 // here on the host, never in the container (proof/ci/hostCommands.mjs), so
 // the job's artifact-service credentials stay outside it. A shard never emits
 // the corpus: with `--queue`, PROOF_CORPUS must name the directory the corpus
-// is downloaded or brought into (mounted read-only).
+// is downloaded or brought into (mounted read-only). Hosted CI calls `--hosted-lane`,
+// which gives the server its work deadline from the start of shard preparation.
 //
 // What the container wrote is data (proof/ci/untrusted.mjs). It sees the
 // checkout as a view of the files git lists (checkoutView: no ignored file,
@@ -64,7 +65,7 @@
 // moved to `<output>.refused` and the run exits SEAL_REFUSED (6), so no
 // later step uploads, adopts or reads through a link a container left.
 // `node proof/run.mjs --seal DIRECTORY` seals another job's container output
-// the same way.
+// the same way. Hosted CI uses `--seal-hosted` to stop any remaining harness writer first.
 //
 // `node proof/run.mjs --matrix [shards|default] [--deadline minutes]` prints
 // CI's proof matrix (proof/timings.json's execution of the profile
@@ -90,9 +91,16 @@ import {
 	symlink,
 	writeFile,
 } from "node:fs/promises";
+import { constants } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostCommands } from "./ci/hostCommands.mjs";
+import {
+	HOSTED_CONTAINER,
+	hostedBudget,
+	hostedCutoffs,
+	stopHostedWriter,
+} from "./ci/hosted-shard.mjs";
 import { readSurface, SEAL_REFUSED, sealOutput } from "./ci/untrusted.mjs";
 
 const worktree = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -142,12 +150,17 @@ export function timingsProfile(timings, readers) {
 	return timings?.profiles?.[profileName(readers)] ?? {};
 }
 
+// Preserve signal death at the shell boundary. Exit 1 means the checks finished with failures.
+function childExit(code, signal) {
+	return code ?? (signal ? 128 + constants.signals[signal] : 0);
+}
+
 /** Runs a command with the terminal attached and resolves its exit code. */
 function execute(command, args, options = {}) {
 	return new Promise((resolveCode, reject) => {
 		const child = spawn(command, args, { stdio: "inherit", ...options });
 		child.on("error", reject);
-		child.on("exit", (code, signal) => resolveCode(code ?? (signal ? 1 : 0)));
+		child.on("exit", (code, signal) => resolveCode(childExit(code, signal)));
 	});
 }
 
@@ -165,7 +178,7 @@ function capture(command, args, options = {}) {
 		});
 		child.on("error", reject);
 		child.on("close", (code, signal) =>
-			resolveResult({ code: code ?? (signal ? 1 : 0), stdout }),
+			resolveResult({ code: childExit(code, signal), stdout }),
 		);
 	});
 }
@@ -1026,6 +1039,7 @@ async function runServer({ image, mounts, environment, serve, output }) {
 	process.once("SIGINT", interrupted);
 	process.once("SIGTERM", interrupted);
 	const stopWatching = output ? watchMemory(output, project) : async () => {};
+	const hosted = serve.includes("--deadline-at");
 	try {
 		return await execute(
 			"docker",
@@ -1033,6 +1047,7 @@ async function runServer({ image, mounts, environment, serve, output }) {
 				...compose,
 				"run",
 				"--rm",
+				...(hosted ? ["--name", HOSTED_CONTAINER] : []),
 				...mounts,
 				...environment,
 				"harness",
@@ -1238,6 +1253,8 @@ export async function shard(
 			...android.environment,
 		];
 		const serve = ["--workers", String(workers)];
+		if (process.env.PROOF_SHARD_DEADLINE_AT)
+			serve.push("--deadline-at", process.env.PROOF_SHARD_DEADLINE_AT);
 		if (options.label) serve.push("--label", options.label);
 		if (early) {
 			mounts.push("-v", `${early}:/lane/early-queue.json:ro`);
@@ -1272,6 +1289,34 @@ export async function shard(
 	}
 }
 
+/** Bound the host (including Docker startup and cleanup) separately from the fork server:
+ * the server gets its full work time and three minutes to record interrupted groups before
+ * this fallback. Even a stuck host leaves the workflow time to seal and upload. */
+async function hostedShard(args) {
+	const { stopAt, hostSeconds } = hostedCutoffs(
+		process.env.PROOF_SHARD_STARTED_AT,
+		process.env.PROOF_SHARD_MINUTES,
+	);
+	if (hostSeconds <= 0) {
+		console.error(
+			"The shard's work deadline and shutdown grace elapsed during preparation.",
+		);
+		return 124;
+	}
+	return execute(
+		"timeout",
+		[
+			"--kill-after=30s",
+			`${hostSeconds}s`,
+			process.execPath,
+			fileURLToPath(import.meta.url),
+			"--lane",
+			...args,
+		],
+		{ env: { ...process.env, PROOF_SHARD_DEADLINE_AT: String(stopAt) } },
+	);
+}
+
 /**
  * CI's proof matrix: `shards` jobs (`default`: proof/timings.json's
  * execution for the profile, `readers`; or a count, which `python3 -m
@@ -1291,15 +1336,14 @@ export function proofMatrix(shards, timings, readers = true, deadline) {
 			`proof/timings.json's ${profileName(readers)} execution names no runner for the shards (profiles.${profileName(readers)}.execution.runner).`,
 		);
 	}
-	const minutes =
-		deadline === undefined ? undefined : count(deadline, "The deadline");
+	const budget = hostedBudget(deadline);
 	return {
 		include: Array.from({ length: total }, (_, index) => ({
 			shard: index + 1,
 			total,
 			workers,
 			runner: execution.runner,
-			...(minutes === undefined ? {} : { deadline: minutes }),
+			...budget,
 		})),
 	};
 }
@@ -1445,18 +1489,25 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	};
 	if (command === "--surface") {
 		surface().then(done, failed);
-	} else if (command === "--seal" && rest.length === 1) {
+	} else if (
+		(command === "--seal" || command === "--seal-hosted") &&
+		rest.length === 1
+	) {
+		if (command === "--seal-hosted") stopHostedWriter();
 		sealOutput(resolve(rest[0])).then(
 			(foreign) => done(foreign.length > 0 ? SEAL_REFUSED : 0),
 			failed,
 		);
-	} else if (command === "--lane") {
+	} else if (command === "--lane" || command === "--hosted-lane") {
 		// Exit 1 belongs to completed checks; CI leaves their verdict to the gate.
 		// A runner exception is infrastructure failure and must fail the shard itself.
-		shard(rest).then(done, (error) => {
-			console.error(error.message);
-			process.exit(2);
-		});
+		(command === "--hosted-lane" ? hostedShard(rest) : shard(rest)).then(
+			done,
+			(error) => {
+				console.error(error.message);
+				process.exit(2);
+			},
+		);
 	} else if (command === "--matrix") {
 		readFile(TIMINGS_FILE, "utf8")
 			.then((text) => {

@@ -186,6 +186,11 @@ def _past_budget(lane: Lane, name: str, longest: float, budget: float) -> str:
     if pieces:
         seconds = lane.groups()
         piece = max(pieces, key=lambda group: (seconds.get(group, 0.0), group))
+        if piece in lane_blocks.EDITOR_PIECES:
+            return (
+                f"The editor partition {piece} and the whole-document judgment are expected to take {longest:.0f} s"
+                f" on one worker, {given}. Inspect the recorded phase timings and {stale}."
+            )
         return (
             f"The piece {piece} and the judging of {name} that follows it are expected to run {longest:.0f} s on"
             f" one worker of a shard, {given}. A configuration is the smallest piece a document is observed in"

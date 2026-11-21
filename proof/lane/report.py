@@ -270,7 +270,9 @@ def _lane(label: str, verdict: Mapping | None, elsewhere: set[str], run: str = "
         more = len(entry.get("why", [])) - 3
         lines.append(f"- `{entry['group']}`: {reasons}{f' (and {more} more)' if more > 0 else ''}")
         piece = lane_blocks.piece_of(entry["group"])
-        if piece is not None:
+        if entry["group"] in lane_blocks.EDITOR_PIECES:
+            lines.append("  This worker observes its assigned editor saves with every native reader. The line below reruns that partition.")
+        elif piece is not None:
             lines.append(
                 f"  It is a piece: `{piece[0]}` observed under `{piece[1]}` alone, for `{piece[0]}` to judge, which"
                 " was not run without it. The line below observes that configuration again."

@@ -893,9 +893,16 @@ describe("the workflow", () => {
 			lane.jobs.gate,
 			lane.jobs["android-runtime"],
 		]) {
-			expect(job.steps[0].with.ref).toBe(`\${{ inputs.ref || github.sha }}`);
-			expect(job.steps[1].env.PIN_COMMIT).toBe(`\${{ inputs.pin-candidate }}`);
-			expect(job.steps[1].run).toBe(apply);
+			// The hosted shard starts its work clock before checking out any repository code.
+			const checkout = job === lane.jobs.shard ? 1 : 0;
+			expect(job.steps[checkout].uses).toMatch(/^actions\/checkout@/);
+			expect(job.steps[checkout].with.ref).toBe(
+				`\${{ inputs.ref || github.sha }}`,
+			);
+			expect(job.steps[checkout + 1].env.PIN_COMMIT).toBe(
+				`\${{ inputs.pin-candidate }}`,
+			);
+			expect(job.steps[checkout + 1].run).toBe(apply);
 		}
 		for (const job of [workflow.jobs.surface, workflow.jobs.retained]) {
 			expect(job.needs).toContain("plan");

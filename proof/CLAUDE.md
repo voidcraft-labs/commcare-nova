@@ -500,7 +500,11 @@ harness keeps, each with its reason.
     eleven up to about forty changed documents, about sixteen with every
     group fresh. A shard's deadline is twice its expected time, never under
     twenty minutes: it ends a stuck shard, which fails the lane, and never
-    decides what is verified.
+    decides what is verified. Both hosted shard workflows start the clock
+    before checkout and reserve fifteen additional minutes for shutdown,
+    sealing and upload. On expiry the fork server records finished and
+    interrupted groups before teardown. An interrupted shard fails the gate
+    even if every group finished. An incomplete group cannot supply a cached pass.
   - **Nightly** (`proof-audit.yml`, Tuesday to Saturday): both profiles over
     main against main's store, without the readers and then with them, so
     every group main's store lacks is observed, and each is merged into the
@@ -534,9 +538,12 @@ harness keeps, each with its reason.
   (`proof/README.md`, "Documents observed in pieces"): each configuration
   by a group of its own into the run's store, and the document's own group
   after them judges it whole, reading every part and observing nothing. A
-  configuration is the smallest piece: it is the observation's own unit,
-  with its own keys and no shared state, so a piece needs no new key and no
-  recreated state. Never divide an observation finer (by part, by reader,
+  configuration is normally the smallest piece. The seeded all-reader lane also
+  partitions the oversized single-configuration agriculture starter by complete HQ
+  views and Vellum forms. All readers observe each assigned save together. The
+  whole-document group requires both current-run fragments of the same B and
+  judges the complete record. Connect opportunities stay in one observation.
+  Never divide an observation finer (by part, by reader,
   by walk) without proving the divided observation keeps the same bytes;
   never let a document's group observe in a failed piece's place; and a
   configuration that alone outgrows the budget is refused by name, not

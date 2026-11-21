@@ -538,6 +538,12 @@ def verify(queues: Sequence[tuple[str, lane_blocks.Queue]], outputs: Sequence[Pa
             )
         else:
             record = json.loads(serve.read_text(encoding="utf-8"))
+            code = record.get("exit")
+            # A worker may finish its last queued item just as the host interrupts its shard.
+            # The item's receipt can be retained, but the shard still failed to finish normally.
+            if type(code) is not int or code not in (0, 1):
+                detail = " ".join(record.get("problems", []))
+                problems.append(f"{output}: its shard did not finish normally (exit {code}). {detail}".rstrip())
             for phase in record.get("phases", []):
                 collection = phase.get("collected")
                 if collection:

@@ -60,6 +60,8 @@ import zipfile
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 
+from proof.lane import progress
+
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 # The address Connect knows its HQ server by. Nothing is reached there: each request Connect makes of it is
 # answered by HQ's own view over the unit's state (``Opportunity.answer``).
@@ -125,7 +127,8 @@ class Opportunity:
 
     def put_back(self):
         if self.moved:
-            self.session.restore(self.ready)
+            with progress.activity("Connect restore", count="native"):
+                self.session.restore(self.ready)
             self.moved = False
 
     def close(self):
@@ -145,7 +148,7 @@ def open_opportunity(served, *, runtime=None) -> Opportunity:
     session = runtime.session(lambda *asked: holder["opportunity"].answer(*asked))
     opportunity = holder["opportunity"] = Opportunity(session)
     # What Connect asks HQ making the opportunity is Connect's (``proof.observe.served.reading``).
-    with reading("connect"):
+    with reading("connect"), progress.activity("open opportunity", count="native"):
         try:
             opportunity.views = _views(served)
             opportunity.views.begin(b"connect|opportunity", None)
@@ -212,7 +215,8 @@ class Forwarder:
 
         reader, watched, seen, name = self._run
         self._run = None
-        collected = self.opportunity.session.step("collect")
+        with progress.activity("Connect collect", count="native"):
+            collected = self.opportunity.session.step("collect")
         if collected["exchanges"] or collected["tasks"]:
             self.opportunity.moved = True
         forwards = connect_hq.forwards(self.served.unit)

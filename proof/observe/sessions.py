@@ -79,6 +79,7 @@ from proof.checks.compare.trace import renamespace
 from proof.checks.compare.xml_tree import parse_xml
 from proof.checks.corpus import ANDROID
 from proof.core.client import ANDROID_DEFAULT_STRINGS
+from proof.lane import progress
 from proof.observe import casedata
 from proof.observe.build import _placed, admission_placeholders, arrange
 from proof.observe.record import bytes_digest, digest
@@ -118,7 +119,7 @@ def run_sessions(core_runner, side, path, restore, script=None, *, runtime_defau
     ``runtime_defaults`` names the strings the runtime the sessions model registers as its default locale first
     (CommCare Android's, ``ANDROID_DEFAULT_STRINGS``, for every build of an app that declares Android); ``searches``
     answers each case search a session sends (``HqSearches``, ``proof.core.client.CoreRunner.session``)."""
-    with admitted(core_runner, path, runtime_defaults) as report:
+    with progress.activity("Core sessions", count="native"), admitted(core_runner, path, runtime_defaults) as report:
         admission = _admission(report, path)
         if not report.get("admitted") or report.get("app") is None:
             return Run(side, admission, None)

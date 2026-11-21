@@ -54,6 +54,7 @@ import contextvars
 import hashlib
 from contextlib import contextmanager
 
+from proof.lane import progress, readers
 from proof.observe.record import canonical
 from proof.observe.runs import unbuildable
 
@@ -72,7 +73,8 @@ def reading(reader: str):
     ``android`` or ``connect``, ``proof.lane.readers.READERS``)."""
     token = _READING.set(reader)
     try:
-        yield
+        with progress.activity(reader if reader in readers.EVERY else "served reader"):
+            yield
     finally:
         _READING.reset(token)
 
@@ -91,7 +93,6 @@ def inputs(document, state):
     """What the served observation reads beyond its part's own inputs: the browser's code, for the client's
     screens (the image holds Formplayer and the rest), and the readers the run hands its states to
     (``proof.lane.readers``), so a record of one set of readers is never read for another."""
-    from proof.lane import readers
     from proof.observe.browser import browser_fingerprint
 
     return {"browser": browser_fingerprint(), "readers": readers.canonical(readers.named())}
@@ -99,8 +100,6 @@ def inputs(document, state):
 
 def observes(reader) -> bool:
     """Whether the run hands its served states to ``reader`` (``proof.lane.readers.named``)."""
-    from proof.lane import readers
-
     return reader in readers.named()
 
 
@@ -152,7 +151,10 @@ class Serving:
     def local(self, document, script, configuration):
         from proof.formplayer import observe
 
-        return observe.local(self.served, self.runner, self.blobs, document, script=script, configuration=configuration)
+        with progress.activity("local.ccz"):
+            return observe.local(
+                self.served, self.runner, self.blobs, document, script=script, configuration=configuration
+            )
 
     def webapps(self, trace):
         """The client's screens on ``trace``'s walk, as a blob, shown in the client's own browser
@@ -234,7 +236,9 @@ def serving(unit, document, app_id, *, driver, blobs, label, previous=None, chan
     @contextmanager
     def opened():
         runner = _runner()
+        state = label if label in ("A", "B", "local", "proof4", "proof4-save") else "served state"
         with (
+            progress.activity(state),
             reading("formplayer"),
             hq.serve(
                 unit,

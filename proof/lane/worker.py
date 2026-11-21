@@ -79,6 +79,7 @@ def run(
 
         import pytest
 
+        from proof.lane import progress
         from proof.lane.plugin import Channel, LanePlugin
 
         plugin = LanePlugin(
@@ -88,7 +89,8 @@ def run(
             workers=workers,
             timings_path=Path(out) / "timings" / f"{label}-w{sequence}.json",
         )
-        code = int(pytest.main(list(pytest_args), plugins=[plugin]))
+        with progress.reporting(plugin.channel.send):
+            code = int(pytest.main(list(pytest_args), plugins=[plugin]))
     except BaseException:
         traceback.print_exc()
         code = EXIT_ESCAPED
