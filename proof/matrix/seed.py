@@ -31,8 +31,9 @@ from it). It is written as ``proof/hq-apps/<base>/seed.json``:
   (``xform.py::VELLUM_TYPES``): ``Date`` is ``date``, ``Time`` ``time``,
   ``DateTime`` ``datetime``, ``Int`` and ``Long`` ``int``, ``Double``
   ``decimal``, ``Select`` ``single_select`` and ``MSelect`` ``multi_select``
-  with the summary's option values, ``Geopoint`` ``geopoint``, anything else
-  ``text``; a property questions of two types write is ``text``.
+  with the summary's option values, ``Geopoint`` ``geopoint``. A hidden, untyped
+  bind whose entire calculation is ``today()`` and which has no setvalue writes
+  a date (Core's ``XPathTodayFunc``). Other unknown or conflicting writers are ``text``.
 - ``values``: every string literal A's expressions compare with a case
   property, by ``<type>/<property>``: a literal beside ``=``, ``!=``,
   ``<``, ``<=``, ``>`` or ``>=``, or the second argument of ``selected(...)``,
@@ -402,6 +403,38 @@ def stated_cases(catalog, values, cases):
     return written
 
 
+def question_writers(questions, source):
+    """A form's case writers by question path, retaining the dates its untyped hidden today() binds actually write."""
+    from lxml import etree
+
+    writers = {}
+    today = {}
+    for question in questions:
+        path, kind = question["value"], question.get("type")
+        writers[path] = (VELLUM_DATA_TYPES.get(kind, "text"), [o["value"] for o in question.get("options") or []])
+        if kind == "DataBindOnly" and question.get("tag") == "hidden" and not question.get("setvalue"):
+            tokens = _xpath.tokens(question.get("calculate") or "") or []
+            if [(token.kind, token.text) for token in tokens] == [("QNAME", "today"), ("LPAREN", "("), ("RPAREN", ")")]:
+                today[path] = question["calculate"]
+    if not today:
+        return writers
+
+    form = etree.fromstring(source.encode("utf-8"))
+    ns = {"xf": XFORMS}
+    # HQ summarizes only a direct model setvalue's @value. Core also runs literal-text actions, actions on
+    # controls, and actions targeting bind ids. Infer only where every action has a known question path as its ref.
+    for action in form.xpath("//xf:setvalue", namespaces=ns):
+        target = action.get("ref")
+        if action.get("bind") is not None or target not in writers:
+            return writers
+        today.pop(target, None)
+    for path, calculate in today.items():
+        binds = form.xpath("//xf:model/xf:bind[@nodeset=$path]", namespaces=ns, path=path)
+        if len(binds) == 1 and binds[0].get("type") is None and binds[0].get("calculate") == calculate:
+            writers[path] = ("date", [])
+    return writers
+
+
 def case_seed(state, app, core_runner, *, worker_location=None, cases=()) -> dict:
     """The seed of A's case database, read from the app HQ holds, with the cases the base names (the module's
     docstring)."""
@@ -421,17 +454,15 @@ def case_seed(state, app, core_runner, *, worker_location=None, cases=()) -> dic
     questions = {}
     for module in app.get_modules():
         for form in module.get_forms():
-            if form.source:
-                questions[form.unique_id] = {
-                    question["value"]: question for question in form.get_questions(app.langs, include_groups=True)
-                }
+            source = form.source
+            if source:
+                questions[form.unique_id] = question_writers(form.get_questions(app.langs, include_groups=True), source)
     typed = {}
     for case_type, prop, path, form in _writes(app):
-        question = questions.get(form.unique_id, {}).get(path)
-        if question is None:
+        writer = questions.get(form.unique_id, {}).get(path)
+        if writer is None:
             continue
-        data_type = VELLUM_DATA_TYPES.get(question.get("type"), "text")
-        options = [option["value"] for option in question.get("options") or []]
+        data_type, options = writer
         key = (case_type, prop)
         if key not in typed:
             typed[key] = (data_type, options)

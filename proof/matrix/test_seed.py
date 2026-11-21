@@ -12,9 +12,9 @@ missed; ``parent/<property>`` or ``name`` written as a case property;
 ``commcare-user`` or a survey menu's empty type seeded as a type; a child indexed under ``parent`` where its
 form names another identifier; a case a base names (``Base.cases``) holding a
 value A never gives, moving a generated case, or written into the seed of a
-base that names none. The tests of ``compared_literals`` and of the cases a
-base names run on the standard library; the others build planted apps with
-HQ's own models.
+base that names none; or generated text where a hidden calculation only writes
+dates. The writer tests read original XForms and HQ's question summaries. The
+live authoring tests build planted apps with HQ's own models.
 """
 
 from __future__ import annotations
@@ -75,6 +75,64 @@ def test_a_session_users_data_names_are_read_from_cores_instance_paths():
         ]
     }
     assert seed.session_user_data(parsed) == ["district"]
+
+
+def test_hidden_case_writers_seed_the_date_the_original_wash_app_writes():
+    from datetime import date
+
+    from proof.observe import casedata
+
+    base = HQ_APPS / "starter-wash"
+    read = json.loads((base / "application.json").read_text())["body"]
+    active = json.loads(read) if isinstance(read, str) else read
+    source = json.loads((base / "app.json").read_text())
+    captured = json.loads((base / "seed.json").read_text())
+    database = casedata.seeded_case_database(captured)
+    # Registration and Meter Reading update the client. Meter Reading and Inspection may open a referral.
+    for menu, position, case_type, prop, path in (
+        (0, 0, "client", "last_reading_date", "/data/last_reading_date"),
+        (1, 0, "client", "last_reading_date", "/data/last_reading_date"),
+        (1, 0, "referall", "referral_date", "/data/refferral_date"),
+        (1, 1, "referall", "referral_date", "/data/refferral_date"),
+    ):
+        form = source["modules"][menu]["forms"][position]
+        actions = form["actions"]
+        updates = (
+            actions["update_case"]["update"] if case_type == "client" else actions["subcases"][0]["case_properties"]
+        )
+        assert updates[prop]["question_path"] == path
+        xml = source["_attachments"][form["unique_id"] + ".xml"]
+        questions = active["modules"][menu]["forms"][position]["questions"]
+        assert seed.question_writers(questions, xml)[path] == ("date", [])
+        values = [dict(case.properties)[prop] for case in database.cases if case.case_type == case_type]
+        assert values and all(date.fromisoformat(value).isoformat() == value for value in values)
+
+
+def test_only_the_untyped_hidden_today_calculation_supplies_a_date():
+    question = {"type": "DataBindOnly", "tag": "hidden", "value": "/data/reading", "calculate": "today ( )"}
+    source = (
+        '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model>'
+        '<bind id="reading-bind" nodeset="/data/reading" calculate="today ( )"/></model></h:head>'
+        '<h:body><input ref="/data/other"></input></h:body></h:html>'
+    )
+
+    def written(q, xml):
+        return seed.question_writers([q], xml)[q["value"]][0]
+
+    assert written(question, source) == "date"
+    assert written({**question, "setvalue": "'unknown'"}, source) == "text"
+    for end, action in (
+        ("</model>", '<setvalue event="xforms-ready" ref="/data/reading">unknown</setvalue>'),
+        ("</input>", '<setvalue event="xforms-value-changed" ref="/data/reading" value="1"/>'),
+        ("</model>", '<setvalue event="xforms-ready" bind="reading-bind" value="1"/>'),
+    ):
+        assert written(question, source.replace(end, action + end)) == "text"
+    assert written(question, source.replace("<bind ", '<bind type="string" ')) == "text"
+    assert written(question, source.replace('nodeset="/data/reading"', 'nodeset="/data/other"')) == "text"
+    assert (
+        written({**question, "calculate": "string(today())"}, source.replace("today ( )", "string(today())")) == "text"
+    )
+    assert written({**question, "tag": "input", "type": "Text"}, source) == "text"
 
 
 # The cases a base names --------------------------------------------------------------------------------------------
