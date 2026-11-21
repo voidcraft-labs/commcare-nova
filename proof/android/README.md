@@ -264,6 +264,12 @@ The requests (`Reader.java`):
     starts next is part of the same walk, so a walk shows where a worker
     lands after a form.
 
+  If an optional question’s constraint refuses every candidate answer, the device
+  uses the form activity’s Clear action. It reads the resulting value from the
+  widget and submits it to the native controller before continuing. The trace
+  keeps the refused answers and the value and result of Clear. This also
+  exercises forms that preload an existing case value into the widget.
+
   A walk ends where home starts nothing (with the alert home holds for the
   worker), at a menu after a form, at a screen it cannot leave, which it
   names with what the screen shows, or, once it has followed three forms, at

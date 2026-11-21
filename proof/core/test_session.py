@@ -388,6 +388,51 @@ def test_an_authored_id_is_not_taken_for_a_generated_one(core_runner, basic_trac
         assert meta["instanceID"].startswith("@generated:uuid:")
 
 
+@pytest.mark.parametrize(
+    ("required", "constraint", "attempts", "end"),
+    [
+        (
+            False,
+            ". >= 1950 and . <= 2016",
+            [("7", "constraint"), ("25", "constraint"), ("0", "constraint"), (None, "ok")],
+            "submitted",
+        ),
+        (
+            True,
+            ". >= 1950 and . <= 2016",
+            [("7", "constraint"), ("25", "constraint"), ("0", "constraint")],
+            "no-accepted-answer",
+        ),
+        (False, ". = 25", [("7", "constraint"), ("25", "ok")], "submitted"),
+    ],
+)
+def test_optional_constraint_refusals_clear_the_saved_value(
+    core_runner, basic_trace, tmp_path, required, constraint, attempts, end
+):
+    # Keep HQ's submission metadata. Start the integer question filled, so skipping it would submit a stale value.
+    entry = "modules-0/forms-0.xml"
+    form = etree.fromstring(read_archive_entry(BASIC_APP, entry))
+    bind = form.find(f".//{{{XFORMS}}}bind[@nodeset='/data/q_name']")
+    bind.set("type", "xsd:int")
+    bind.set("constraint", constraint)
+    if not required:
+        del bind.attrib["required"]
+        form.find(".//{*}q_name").text = "1960"
+    variant = archive_variant(BASIC_APP, tmp_path / "years.ccz", {entry: etree.tostring(form)})
+    original = next(run for run in basic_trace["runs"] if "m0-f0" in commands(run))
+    (run,) = replay(core_runner, variant, [original])
+    step = form_step(run)
+    question = next(event for event in step["events"] if event.get("dataPath") == "/data/q_name")
+    assert [(attempt["value"], attempt["result"]) for attempt in question["attempts"]] == attempts
+    assert run["end"] == end
+    if end == "submitted":
+        assert question["answer"] == attempts[-1][0]
+        assert etree.fromstring(step["submission"].encode()).find("{*}q_name").text == attempts[-1][0]
+    else:
+        assert "unanswerable" in question
+        assert "submission" not in step
+
+
 def test_the_answer_tables_dates_satisfy_the_date_constraints_hq_forms_carry(basic_trace):
     """basic.ccz's date questions ask for a recent date, one not in the future and one in the future."""
     dated = [

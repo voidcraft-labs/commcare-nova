@@ -210,6 +210,39 @@ class ReaderSelfCheck(unittest.TestCase):
             text = text.replace(old, new, 1)
         return variant(SURVEY / "local.ccz", self.work / name, {form: text.encode("utf-8")})
 
+    def test_an_optional_year_clears_the_prefilled_widget_after_constraint_refusals(self):
+        # A stale but valid year would otherwise survive pressing Next and hide the following question.
+        archive = self.census(
+            "prefilled-year.ccz",
+            data="<year>1960</year><after/>",
+            binds=(
+                '<bind nodeset="/data/year" type="xsd:int" constraint=". &gt;= 1950 and . &lt;= 2016"/>'
+                '<bind nodeset="/data/after" type="xsd:int" relevant="string-length(/data/year) = 0"'
+                ' constraint=". = 25"/>'
+            ),
+            body=(
+                '<input ref="/data/year"><label>Year</label></input>'
+                '<input ref="/data/after"><label>After clearing</label></input>'
+            ),
+        )
+        answers = json.loads(observe.ANSWERS.read_text(encoding="utf-8"))
+        app = self.reader.request("app", archive=str(archive), commands=["m0-f0"], answers=answers)
+        form = app["walks"]["m0-f0"]["steps"][0]["form"]
+        entries = {item["reference"]: item for screen in form["screens"] for item in screen.get("answered", [])}
+        (before,) = [
+            item for screen in form["screens"] for item in screen["questions"] if item["reference"] == "/data/year[1]"
+        ]
+        self.assertEqual(before["answer"], "1960")
+        year = entries["/data/year[1]"]
+        self.assertEqual(year["refused"], ["7: constraint", "25: constraint", "0: constraint"])
+        self.assertEqual(year["clear"], {"value": None, "result": "ok"})
+        self.assertIsNone(year["given"])
+        after = entries["/data/after[1]"]
+        self.assertEqual(after["refused"], ["7: constraint"])
+        self.assertEqual(after["given"], "25")
+        self.assertNotIn("clear", after)
+        self.assertIs(form["saved"]["finishing"], True)
+
     def test_a_walk_gives_every_capture_question_a_file_through_its_own_screen_and_the_form_saves(self):
         """Contract: an image, video, audio, signature and document question is answered as a worker answers it,
         through the question's own button and the screen Android opens for it (Captures.java), so a form whose
