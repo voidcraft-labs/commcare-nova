@@ -20,16 +20,13 @@
  * hand file that names a form or a value the base's document does not
  * hold. Each base is its own case, so a failure names the base.
  *
- * A base's document holds the files its reading holds and no other.
- * Contract: an asset per file HQ answered the reading for, and none for a
- * file HQ maps that the reading never asks for: one only a setting kept in
- * CommCare HQ names (`hq-kept-settings`' Android logos) or one nothing
- * references. The plausible failures: a loader that demands a read of every
- * file `media.json` maps, which stops the emission at the first base whose
- * map holds a kept logo, and one that makes such a file an asset, which
- * Nova's publish would upload and keep as the app's own.
+ * A base's document holds the original bytes of each adopted file. Its
+ * reading also checks whether HQ can serve media used only in an unshown
+ * hint. Saving that file as an asset would upload it on the next publish.
+ * Neither an unused mapping nor the Android logos kept in HQ require a read.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -126,26 +123,8 @@ it.each(RETAINED_BASES)(
 	EMISSION_MS,
 );
 
-/** The asset id of each file HQ answered a base's reading for. */
-function readAssets(id: string): string[] {
-	const app = retainedBase(id);
-	return [
-		...new Set(
-			(app.mediaReads ?? [])
-				.filter((read) => read.status === 200)
-				.map((read) =>
-					provisionalReadingMediaId(
-						id,
-						read.mediaType as HqMediaType,
-						read.multimediaId,
-					),
-				),
-		),
-	].sort();
-}
-
 it(
-	"gives a base's document the files its reading holds, and none HQ keeps for a setting or maps unreferenced",
+	"keeps the bytes of adopted assets and distinguishes an unshown hint from an unused mapping",
 	async () => {
 		const kept = retainedBase("hq-kept-settings");
 		expect(kept.media.map((file) => file.path)).toEqual([
@@ -158,18 +137,32 @@ it(
 		expect([...(keptDocument.hqAuthored?.mediaPaths ?? [])]).toEqual([]);
 
 		const media = retainedBase("hq-media");
-		const unread = media.media
-			.map((file) => file.path)
-			.filter(
-				(path) => !(media.mediaReads ?? []).some((read) => read.path === path),
-			);
-		expect(unread).toContain(
-			"jr://file/commcare/image/data/unused_picture.png",
+		const reads = media.mediaReads ?? [];
+		const unused = "jr://file/commcare/image/data/unused_picture.png";
+		const hint = "jr://file/commcare/image/data/note_count_hint.png";
+		expect(media.media.map((file) => file.path)).toContain(unused);
+		expect(reads.map((read) => read.path)).not.toContain(unused);
+		expect(reads.find((read) => read.path === hint)?.status).toBe(200);
+		const expected = new Map(
+			reads
+				.filter((read) => read.status === 200 && read.path !== hint)
+				.map((read) => [
+					provisionalReadingMediaId(
+						"hq-media",
+						read.mediaType as HqMediaType,
+						read.multimediaId,
+					),
+					read.sha256,
+				]),
 		);
 		const mediaDocument = await hqAuthoredDocument(media);
-		expect([...(mediaDocument.media?.keys() ?? [])].sort()).toEqual(
-			readAssets("hq-media"),
+		const assets = new Map(
+			[...(mediaDocument.media ?? [])].map(([id, file]) => [
+				id,
+				createHash("sha256").update(file.bytes).digest("hex"),
+			]),
 		);
+		expect(assets).toEqual(expected);
 	},
 	EMISSION_MS,
 );
