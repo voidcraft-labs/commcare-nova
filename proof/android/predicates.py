@@ -1238,7 +1238,7 @@ class Predicates(unittest.TestCase):
     def test_a_forms_title_names_its_completed_save_and_not_the_header_a_worker_opens_it_under(self):
         """Finding 46. Contract: Android names a completed save by the form's own title
         (``FormEntryInstanceState.getDefaultFormTitle``), so a title another save of the form wrote renames
-        what a worker finds under Saved Forms, while the header form entry shows from home is the menu's and
+        the completed record, while the header form entry shows from home is the menu's and
         the form's names from the suite (``FormEntryActivity.getHeaderString``) and does not change. Failure it
         catches: the header changing too, or the save's name read from the suite."""
         form = "modules-0/forms-0.xml"

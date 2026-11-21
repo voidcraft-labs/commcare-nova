@@ -637,3 +637,89 @@ def test_an_offered_root_menu_name_requires_matching_commands_language_and_text_
         assert not formplayer_menus.is_trimmed_menu(row, changes.merged_sites(old, other).served[target])
     for before, after in ((" Visits", "VISITS"), ("A  B", "A B"), ("\u00a0Visits", "Visits"), ("Visits", " Visits")):
         assert not formplayer_menus.is_trimmed_menu(replace(row, before=before, after=after), agreed)
+
+
+def test_a_new_worker_release_compares_its_workers_to_the_ordinary_release_and_its_preview_to_a():
+    from dataclasses import replace
+
+    from proof.checks import changes
+
+    app = {"kind": "default", "name": "Visit", "icon": None}
+    sync = {"kind": "sync", "name": "Sync", "icon": None}
+    choices = [{"menu": 0}]
+    trace = {"runs": [{"script": choices, "end": "submitted"}]}
+    run = {"script": choices, "screens": [{"commands": [{"text": "Visit"}], "alerts": []}], "submit": "submitted"}
+    preview = {**copy.deepcopy(run), "viewport": "preview"}
+    before = {"build": {"workerApp": {"name": "Visit", "listed": False}}, "home": {"apps": [sync]}, "runs": [preview]}
+    after = {
+        "build": {"workerApp": {"name": "Visit", "listed": True}},
+        "home": {"apps": [app, sync]},
+        "runs": [run, {**copy.deepcopy(run), "viewport": "small"}, copy.deepcopy(preview)],
+    }
+    published = copy.deepcopy(after)
+
+    def compare_to(other, first=before, ordinary=published):
+        return compare.webapps_differences(
+            first, other, check="proof3", document="d", artifact="webapps@B", traces=(trace, trace), published=ordinary
+        )
+
+    [availability] = compare_to(after)
+    assert (availability.at, availability.before, availability.after) == ("/home/releaseListed", False, True)
+    register = changes.load()
+    applying = {"web-apps-turned-on": ("/app/cloudcare_enabled",)}
+    assert changes.holders(availability, register, applying) == ["web-apps-turned-on"]
+    assert changes.holders(availability, register, {}) == []
+    assert changes.holders(availability, register, {"web-apps-turned-off": ("/app/cloudcare_enabled",)}) == []
+    for original, next_ in ((True, False), (False, 1), (None, True)):
+        assert changes.holders(replace(availability, before=original, after=next_), register, applying) == []
+
+    for side, index in ((before, 0), (after, 0), (after, 1), (after, 2), (published, 0)):
+        wrong = copy.deepcopy(side)
+        wrong["runs"][index]["screens"][0]["alerts"] = ["Different worker feedback"]
+        if side is before:
+            found = compare_to(after, first=wrong)
+        elif side is after:
+            found = compare_to(wrong)
+        else:
+            found = compare_to(after, ordinary=wrong)
+        window_index = 2 if side is before else index
+        assert {d.at for d in found} == {"/home/releaseListed", f"/runs/{window_index}/screens/0/alerts/0"}
+
+    for mutation in ("missing-run", "missing-screen", "early-stop", "missing-submit", "wrong-app", "same-setting"):
+        wrong = copy.deepcopy(after)
+        if mutation == "missing-run":
+            del wrong["runs"][1]
+        elif mutation == "missing-screen":
+            wrong["runs"][0]["screens"] = []
+        elif mutation == "early-stop":
+            wrong["runs"][0]["stopped"] = {"after": 0, "at": "start", "screen": {}}
+        elif mutation == "missing-submit":
+            wrong["runs"][0]["submit"] = "disabled"
+        elif mutation == "wrong-app":
+            wrong["home"]["apps"][0]["name"] = "Another app"
+        else:
+            wrong["build"]["workerApp"]["listed"] = False
+        found = compare_to(wrong)
+        assert found and not any(changes.holders(d, register, applying) for d in found), mutation
+
+    # Repeated client tile kinds leave the app list unkeyed. A same-name tile of another kind
+    # cannot then stand for the newly listed release.
+    wrong = copy.deepcopy(after)
+    wrong["home"]["apps"] = [{"kind": "settings", "name": "Visit"}, sync, sync]
+    assert "/home/releaseListed" not in {d.at for d in compare_to(wrong)}
+
+    wrong = copy.deepcopy(after)
+    wrong["build"]["smallHome"] = {**wrong["home"], "alerts": ["Phone only"]}
+    assert {d.at for d in compare_to(wrong)} == {"/home/releaseListed", "/smallHome"}
+
+    extra = copy.deepcopy(published)
+    extra["runs"].insert(0, {**run, "script": [{"menu": 1}]})
+    assert compare_to(after, ordinary=extra) == [availability]
+
+    wrong = copy.deepcopy(after)
+    wrong["home"]["apps"][0]["icon"] = "/unrelated-logo.png"
+    wrong["home"]["apps"].append({"kind": "default", "name": "Another app", "icon": None})
+    wrong["home"]["apps"][1]["name"] = "Changed Sync"
+    found = compare_to(wrong)
+    assert {d.at for d in found} == {"/home/releaseListed", "/home/newAppTile", "/home/apps/0", "/home/tiles/sync/name"}
+    assert [d.at for d in found if changes.holders(d, register, applying)] == ["/home/releaseListed"]

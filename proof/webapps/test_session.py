@@ -156,15 +156,17 @@ def test_web_apps_lists_an_app_while_it_declares_web_apps_and_not_once_it_narrow
     from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
 
     from proof.observe import publish
+    from proof.webapps.observe import worker_home
 
     document = webapps_documents[DECLARATION]
     seen = {}
     with webapps_hq.project(document) as project:
         with project.released(formplayer_runner) as release:
-            run = Session(release, editor_driver).run([steps.SCREEN])
+            session = Session(release, editor_driver)
+            run = session.run([steps.SCREEN])
             listed = get_web_apps_available_to_user(project.domain, release.worker)
             seen["D"] = (
-                release.doc["cloudcare_enabled"],
+                worker_home(session, run, run.screens[0]),
                 [tile["kind"] for tile in run.screens[0]["apps"] if tile["kind"] == "default"],
                 [app["_id"] == release.build_id for app in listed],
             )
@@ -172,10 +174,11 @@ def test_web_apps_lists_an_app_while_it_declares_web_apps_and_not_once_it_narrow
             refusal, _ = publish.update(project.unit, project.app_id, document.edit.exports["minimum"].update, "B-edit")
             assert refusal is None, refusal
             with project.released(formplayer_runner) as release:
-                run = Session(release, editor_driver).run([steps.SCREEN])
+                session = Session(release, editor_driver)
+                run = session.run([steps.SCREEN])
                 listed = get_web_apps_available_to_user(project.domain, release.worker)
                 seen["D-edit"] = (
-                    release.doc["cloudcare_enabled"],
+                    worker_home(session, run, run.screens[0]),
                     [tile["kind"] for tile in run.screens[0]["apps"] if tile["kind"] == "default"],
                     [app["_id"] == release.build_id for app in listed],
                 )

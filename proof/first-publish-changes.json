@@ -1355,6 +1355,12 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/cloudcare_enabled"
+			},
+			{
+				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/home/releaseListed",
+				"kind": "changed"
 			}
 		]
 	},
@@ -2306,6 +2312,42 @@
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/title/form",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/formTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/formTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle:written-title",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName:written-title",
 				"kind": "changed"
 			}
 		]

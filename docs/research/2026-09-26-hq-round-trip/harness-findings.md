@@ -362,8 +362,10 @@ symptom.
     (`proof/android`), a form opened from home keeps its header either way
     (home hands form entry the menu's text, and the title is read only where
     it hands none), and the record of a completed save is named "Register"
-    before the save in HQ and "Registrar" after. Defect 14's fix for the
-    data node's name assumes the title is right. *Documents:*
+    before the save in HQ and "Registrar" after. On the HQ-authored `hq-new-app`, the follow-up
+    form starts with an empty title. Android gives a new save no default title and its completed
+    record the installed definition's fallback name, `NAME`. After the first publish both take the
+    form's name. Defect 14's fix for the data node's name assumes the title is right. *Documents:*
     `localization-bilingual`, `localization-escaped`, `localization-stale`.
 
 47. **HQ's form builder warns about reads of case properties no form writes.**
@@ -2451,7 +2453,10 @@ kept settings for download, Preview and the deployment card.
     every publish before step 4 and every control retained then; an app
     declaring Android only is stored with it false and listed nowhere.
     Defect 21's selector then shows only on documents that declare Web Apps.
-    *Documents:* every document.
+    *Step 6:* `hq-new-app` was authored with Web Apps off. Its worker home pages on desktop and
+    phone omit it, while HQ's App Preview can open its forms. After the confirmed first publish
+    enables Web Apps, both worker home pages list the app and the worker scripts can run there.
+    App Preview runs the same scripts on both states. *Documents:* every document.
 
 ## Equivalences, each proven by running its readers
 

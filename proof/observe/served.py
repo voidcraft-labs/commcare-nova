@@ -115,7 +115,10 @@ def client_reads(doc) -> str:
     from corehq.apps.cloudcare.utils import format_app_doc
 
     shown = format_app_doc(doc)
-    return "sha256:" + hashlib.sha256(canonical({key: shown.get(key) for key in CLIENT_KEYS})).hexdigest()
+    # FormplayerMain filters the release by this switch before formatting the apps the page receives.
+    inputs = {key: shown.get(key) for key in CLIENT_KEYS}
+    inputs["cloudcare_enabled"] = doc["cloudcare_enabled"]
+    return "sha256:" + hashlib.sha256(canonical(inputs)).hexdigest()
 
 
 def _runner():

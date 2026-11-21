@@ -201,6 +201,11 @@ class Change:
 
     def matches_value(self, difference) -> bool:
         """The value a row permits where its path and kind alone cannot distinguish the declared change."""
+        if self.change in {"web-apps-turned-on", "web-apps-turned-off"} and difference.at in {
+            "/cloudcare_enabled", "/home/releaseListed"
+        }:
+            enabled = self.change == "web-apps-turned-on"
+            return difference.kind == "changed" and difference.before is (not enabled) and difference.after is enabled
         if (
             self.change in {"forms-and-settings-rewritten", "incomplete-forms-tile-hidden"}
             and difference.check == "source"
@@ -416,6 +421,8 @@ def _trace_location(difference, sites: Sites) -> tuple[str, ...]:
     database at its type, and anything else of a step under the step's place."""
     steps = unescaped(difference.at)
     artifact = difference.artifact
+    if artifact == "webapps@B" and difference.at == "/home/releaseListed":
+        return ("app", "cloudcare_enabled")
     if artifact == "webapps@B" and difference.at == "/home/tiles/incomplete":
         return ("app", "profile", "properties", "cc-show-incomplete")
     if artifact.startswith(("formplayer@", "android@", "android-tablet@", "connect@")):

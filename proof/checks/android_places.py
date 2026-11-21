@@ -5,7 +5,7 @@ Each question widget reports its prompt's own TreeReference on both the first an
 (Forms.questions); the form supplies its actual language, including on a walk in the default language.
 """
 
-from proof.checks import changes, served_datetimes, xform_parts
+from proof.checks import android_titles, changes, served_datetimes, xform_parts
 
 
 def _at(values, index):
@@ -25,7 +25,7 @@ def _question_node(reference):
     return xform_parts.node_steps("/" + "/".join(steps))
 
 
-def locations(differences, trace, form_namespaces=None, *, writes_at=None):
+def locations(differences, trace, form_namespaces=None, *, writes_at=None, title_at=None, before=False):
     """Map the concrete differences whose observed form and owner the device identifies. An unplaced screen
     or ambiguous path provides no owning slot; a caller merging sides keeps any conflict as unknown."""
     found = {}
@@ -43,7 +43,8 @@ def locations(differences, trace, form_namespaces=None, *, writes_at=None):
             "/walks/*/steps/*/form/saved/records/*/metaLocation:location",
         )
         saved_time = writes_at is not None and difference.path == served_datetimes.CASES and served_datetimes.candidate(difference)
-        if not (question or gps or saved_time):
+        title = title_at is not None and android_titles.candidate(difference)
+        if not (question or gps or saved_time or title):
             continue
         key = (difference.artifact, difference.at)
         found[key] = None
@@ -54,6 +55,10 @@ def locations(differences, trace, form_namespaces=None, *, writes_at=None):
         owner = changes.command_place((step.get("session") or {}).get("command"))
         form = step.get("form")
         if owner[:1] != ("form",) or not isinstance(form, dict):
+            continue
+        if title:
+            if android_titles.witnesses(difference, rest, form, title_at(owner[1]), before=before):
+                found[key] = (*owner, "xform", "title")
             continue
         if saved_time:
             prop = served_datetimes.saved_property(difference)
