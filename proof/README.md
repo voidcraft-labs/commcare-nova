@@ -6189,14 +6189,17 @@ outside the corpus's seeded operations.
 
 Open the original checkpoint and choose a corpus group whose active `inputScope` or
 last completed `lastInputScope` names the operation. Run the diagnostic while the original
-emission artifact is available. For example, after setting `run`, `attempt`, and `latest` from the
-checkpoint download above, this command selects a completed operation on minimum B.
+emission artifact is available. Set `source_ref` to an existing reviewed branch or tag that points
+at the original commit. Set `run`, `attempt`, and `latest` from the checkpoint download above.
+These commands verify the ref and select a completed operation on minimum B.
 
 ```bash
 commit=$(jq -r .source.commit "./$latest.files/$latest")
+git fetch origin "$source_ref"
+test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$commit" || exit 1
 entry=$(jq -ce 'first((.active + .finished + .workerLost)[] |
   select(.lastInputScope and ((.lastInputStage // []) | index("minimum/b"))))' "./$latest.files/$latest")
-gh workflow run proof-replay.yml -f run="$run" -f attempt="$attempt" -f checkpoint="$latest" \
+gh workflow run proof-replay.yml --ref "$source_ref" -f run="$run" -f attempt="$attempt" -f checkpoint="$latest" \
   -f commit="$commit" -f group="$(jq -r .group <<< "$entry")" -f configuration=minimum \
   -f operation=last-completed -f stage="$(jq -r .lastInputScope <<< "$entry")" -f seconds=300
 ```
@@ -6207,7 +6210,24 @@ reconstructs the B state and compares the selected operation's input digest befo
 its native result. The stage accepts a 1–1200 second deadline. The overall hosted job has a
 60-minute limit for fetching, native setup, the diagnostic and teardown.
 
-To exercise a repair on a different ref, add `--ref <repair-branch> -f mode=fresh` and
+The workflow executes only the commit of the branch or tag GitHub dispatched. For an old
+synthetic PR merge commit with no matching branch or tag, a maintainer can review the exact
+commit and its executable workflow, then publish a temporary lightweight tag for that SHA.
+With the reviewed commit available locally, choose a new diagnostic tag, create it and
+verify its remote target before using the dispatch above.
+
+```bash
+replay_tag="proof-replay/$run-$attempt-$(git rev-parse --short=12 "$commit")"
+git push --force-with-lease="refs/tags/$replay_tag:" origin "$commit:refs/tags/$replay_tag" || exit 1
+test "$(git ls-remote --refs origin "refs/tags/$replay_tag" | cut -f1)" = "$commit" || exit 1
+source_ref=$replay_tag
+```
+
+After the run finishes, remove the temporary tag with
+`git push --force-with-lease="refs/tags/$replay_tag:$commit" origin ":refs/tags/$replay_tag"`.
+The bounded local diagnostic also accepts the original emission in a checkout of that commit.
+
+To exercise a repair on a different ref, use `--ref <repair-branch> -f mode=fresh` and
 keep the original checkpoint and commit as the reference. The workflow emits current
 inputs at the original seed and sample, uses the candidate's pinned runtime and records both
 source identities. Its stage record reports the observed input digest and whether it matches

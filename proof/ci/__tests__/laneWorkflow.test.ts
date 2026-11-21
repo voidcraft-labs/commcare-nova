@@ -33,6 +33,26 @@ import { parse } from "yaml";
 const run = promisify(execFile);
 const WORKTREE = resolve(import.meta.dirname, "..", "..", "..");
 
+it("executes one checkout at the replay dispatch's own commit", async () => {
+	const workflow = parse(
+		await readFile(
+			join(WORKTREE, ".github/workflows/proof-replay.yml"),
+			"utf8",
+		),
+	);
+	const { steps } = workflow.jobs.replay;
+	const checkouts = steps.filter((step: { uses?: string }) =>
+		step.uses?.startsWith("actions/checkout@"),
+	);
+	expect(checkouts).toEqual([steps[0]]);
+	expect(checkouts[0].with).toEqual({
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: This is a literal GitHub expression.
+		ref: "${{ github.sha }}",
+		"persist-credentials": false,
+	});
+	expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
+});
+
 it("queues full reader workflows together without blocking a pin update on its child image build", async () => {
 	const workflows = await Promise.all(
 		["proof-audit", "upstream-pins", "proof-image"].map(async (name) =>

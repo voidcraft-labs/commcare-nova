@@ -17,6 +17,14 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def verify_dispatch(mode, dispatched, original, checkout):
+    require(mode in ("reproduce", "fresh") and re.fullmatch("[a-f0-9]{40}", dispatched),
+            "Choose a valid GitHub dispatch ref and replay mode.")
+    require(checkout == dispatched, "The checkout must be the commit GitHub dispatched.")
+    require(mode == "fresh" or dispatched == original,
+            "To reproduce this input, dispatch a reviewed branch or tag pointing at the checkpoint commit.")
+
+
 def artifact_names(checkpoint, attempt):
     match = re.fullmatch(r"proof-progress-((?:([a-zA-Z0-9_-]{1,64})-)?shard-[1-9][0-9]*)-([1-9][0-9]*)-([1-9][0-9]*)\.json", checkpoint)
     require(match and match[3] == attempt, "Name a finalized reader checkpoint from the requested attempt.")
@@ -167,8 +175,7 @@ def runtime(root):
     receipt = json.loads((root / "receipt.json").read_text())
     strict = receipt["request"]["mode"] == "reproduce"
     checked = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    wanted = receipt["source"]["commit"] if strict else os.environ["GITHUB_SHA"]
-    require(checked == wanted, "The checked-out commit differs from the requested source.")
+    verify_dispatch(receipt["request"]["mode"], os.environ["GITHUB_SHA"], receipt["source"]["commit"], checked)
     image = json.loads(Path("proof/image.lock").read_text())["image"]
     digest = re.search(r"@(sha256:[0-9a-f]{64})$", image)
     require(digest, "The replay needs a digest-pinned proof image.")
@@ -246,6 +253,8 @@ def main():
         env = os.environ
         require(re.fullmatch("[1-9][0-9]*", env["SOURCE_RUN"]) and re.fullmatch("[1-9][0-9]*", env["ATTEMPT"])
                 and re.fullmatch("[0-9a-f]{40}", env["COMMIT"]), "Name the run ID, attempt and full original commit.")
+        verify_dispatch(env["MODE"], env["GITHUB_SHA"], env["COMMIT"],
+                        subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip())
         shard, queue, corpus = artifact_names(env["CHECKPOINT"], env["ATTEMPT"])
         repo = env["GITHUB_REPOSITORY"]
         attempt = f"repos/{repo}/actions/runs/{env['SOURCE_RUN']}/attempts/{env['ATTEMPT']}"
@@ -262,8 +271,6 @@ def main():
     elif command == "prepare":
         prepare(root)
     elif command == "runtime":
-        # Launch from the verified historical checkout even when this host helper came from a newer workflow.
-        sys.path.insert(0, str(Path.cwd()))
         runtime(root)
     elif command == "emit":
         receipt = json.loads((root / "receipt.json").read_text())

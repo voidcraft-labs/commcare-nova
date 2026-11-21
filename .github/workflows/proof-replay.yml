@@ -72,14 +72,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Verify the source and name its artifacts
         id: names
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          cp proof/ci/replay.py "$RUNNER_TEMP/replay.py"
-          python3 "$RUNNER_TEMP/replay.py" names "$RUNNER_TEMP/replay"
+        run: python3 -m proof.ci.replay names "$RUNNER_TEMP/replay"
       - name: Download the original progress checkpoint
         uses: actions/download-artifact@v8
         with:
@@ -105,15 +104,10 @@ jobs:
           skip-decompress: true
           path: ${{ runner.temp }}/replay/archive
       - name: Select one recorded native input
-        run: python3 "$RUNNER_TEMP/replay.py" prepare "$RUNNER_TEMP/replay"
-      - uses: actions/checkout@v7
-        if: ${{ inputs.mode == 'reproduce' }}
-        with:
-          ref: ${{ inputs.commit }}
-          persist-credentials: false
+        run: python3 -m proof.ci.replay prepare "$RUNNER_TEMP/replay"
       - name: Verify the source checkout, image and reader profile
         id: runtime
-        run: python3 "$RUNNER_TEMP/replay.py" runtime "$RUNNER_TEMP/replay"
+        run: python3 -m proof.ci.replay runtime "$RUNNER_TEMP/replay"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -125,7 +119,7 @@ jobs:
           npm ci
       - name: Emit the candidate's inputs at the original corpus seed
         if: ${{ inputs.mode == 'fresh' }}
-        run: python3 "$RUNNER_TEMP/replay.py" emit "$RUNNER_TEMP/replay"
+        run: python3 -m proof.ci.replay emit "$RUNNER_TEMP/replay"
       - id: android
         if: ${{ steps.runtime.outputs.android == 'true' }}
         uses: ./.github/actions/proof-android-runtime
@@ -147,7 +141,7 @@ jobs:
           OBSERVATION_OUTCOME: ${{ steps.observe.outcome }}
         run: |
           node proof/run.mjs --seal "$PROOF_OUT_DIR"
-          python3 "$RUNNER_TEMP/replay.py" report "$RUNNER_TEMP/replay"
+          python3 -m proof.ci.replay report "$RUNNER_TEMP/replay"
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         with:

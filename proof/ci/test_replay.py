@@ -90,6 +90,18 @@ def test_artifact_names_and_source_cover_pr_and_reusable_lanes():
         replay.source_job(jobs, "other-shard-3")
 
 
+def test_only_the_dispatch_ref_can_execute_in_either_mode():
+    original, repair = "a" * 40, "b" * 40
+    replay.verify_dispatch("reproduce", original, original, original)
+    replay.verify_dispatch("fresh", repair, original, repair)
+    with pytest.raises(ValueError, match="pointing at the checkpoint commit"):
+        replay.verify_dispatch("reproduce", repair, original, repair)
+    with pytest.raises(ValueError, match="commit GitHub dispatched"):
+        replay.verify_dispatch("reproduce", repair, original, original)
+    with pytest.raises(ValueError, match="commit GitHub dispatched"):
+        replay.verify_dispatch("fresh", repair, original, original)
+
+
 def test_the_host_returns_only_the_selected_native_bytes_and_refuses_changed_output(tmp_path, sample):
     record, queue, emission, args = sample
     receipt = replay.selection(record, queue, emission, **args)
