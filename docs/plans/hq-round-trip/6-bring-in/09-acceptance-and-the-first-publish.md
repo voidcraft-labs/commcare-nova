@@ -98,7 +98,7 @@ changes a byte Nova emits or what an App Test journey replays, so nothing here m
     reports it.** Nine are. Every other place the emitter writes something a source would spell another
     way is decided in section 11.4: read exactly, refused, or declared by a register entry
     (section 10).
-16. **`FIRST_PUBLISH_CHANGES` holds 41 entries**, each with its predicate over the reading, the
+16. **`FIRST_PUBLISH_CHANGES` holds 42 entries**, each with its predicate over the reading, the
     stored-source paths it allows and whether it touches workers. Thirty-seven sentences say them
     (section 11).
 17. **Per candidate change the decision is one of three**: read the original's behavior exactly, refuse,
@@ -415,7 +415,7 @@ export interface AcceptReadingInput {
 	 */
 	readonly lookup: LookupFixtureDataSnapshot;
 	/** Part 11's plan facts the register reads (section 11.1). */
-	readonly mediaLeftOut: number;
+	readonly mediaClaims: readonly HqMediaClaim[];
 	/**
 	 * Every referenced file, held and judged before acceptance is called. `rows` is the map
 	 * `exportReadinessFindings` takes as its third argument, which part 11's
@@ -1936,7 +1936,7 @@ export interface FirstPublishFacts {
 	/** `assignMediaPaths` over the held files, keyed by content (12.1). */
 	readonly media: MediaPathAssignment;
 	/** Media references that point at no file and are left out (part 11, `HqMediaPlan.inert`). */
-	readonly mediaLeftOut: number;
+	readonly mediaClaims: readonly HqMediaClaim[];
 	readonly choice: { readonly runsOnlyOn: Platform | null; readonly split: boolean };
 }
 
@@ -1969,7 +1969,7 @@ export function firstPublishFactsOf(input: {
 	readonly attachmentTarget: AttachmentUrlTarget;
 	/** The files the media path assignment is made over (12.1). */
 	readonly mediaFiles: readonly AdoptedMediaFile[];
-	readonly mediaLeftOut: number;
+	readonly mediaClaims: readonly HqMediaClaim[];
 	readonly choice: { readonly runsOnlyOn: Platform | null; readonly split: boolean };
 }): FirstPublishFacts;
 export function firstPublishChangesFor(facts: FirstPublishFacts): FirstPublishView;
@@ -2016,10 +2016,10 @@ holds it to the slots part 11's `hqMediaReferencesOf` reads.
 
 ### 11.2 Every entry
 
-Forty-one entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
+Forty-two entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
 predicate is given: `f.source` is CommCare HQ's source, `f.doc` the document under the choice,
 `f.facts` the reader's `ReadFacts`, `f.generated` the generated difference, `f.media` the path
-assignment, `f.mediaLeftOut` and `f.choice` as typed above. The first column is the entry's place in
+assignment, `f.mediaClaims` and `f.choice` as typed above. The first column is the entry's place in
 the order and nothing cites it: every sentence names an entry by its id.
 
 | # | Id | `applies` | `paths` | Workers |
@@ -2054,9 +2054,10 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 27 | `blank-translations-filled` | some `f.facts.forms[i].blankTranslations` is above zero (part 06, sections 12.2 and 17.3) | `/_attachments/*` | yes |
 | 28 | `media-paths-joined` | `f.media.collapsed` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | no |
 | 29 | `media-files-renamed` | `f.media.rederived` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | yes |
-| 30 | `media-references-with-no-file-removed` | `f.mediaLeftOut.undrawn` is above zero (part 11, section 3.2, row 4) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | no |
-| 30b | `broken-pictures-removed` | `f.mediaLeftOut.brokenPictures` is above zero (part 11, section 3.2, row 2b) | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | yes |
-| 31 | `unused-media-entries-removed` | some path of `f.source.multimediaMap` is the `path` of no entry of `f.facts.mediaReferences` and of no entry of `f.source.logoRefs` | `/multimedia_map/*` | no |
+| 30 | `media-references-with-no-file-removed` | a claim in `f.mediaClaims` has `brokenPicture: false` (part 11, section 3.2, row 4). This entry stands only at those claims' references | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | no |
+| 30b | `broken-pictures-removed` | a claim in `f.mediaClaims` has `brokenPicture: true` (part 11, section 3.2, row 2b). This entry stands only at those claims' references | `MEDIA_REFERENCE_PATHS`; `/multimedia_map/*` | yes |
+| 30c | `unshown-form-media-removed` | `f.facts.unheldMedia` has a resolved reference on a hint, validation message or group or repeat label (part 06, section 12.2) | `/_attachments/*`; `/multimedia_map/*` | no |
+| 31 | `unused-media-entries-removed` | some path of `f.source.multimediaMap` is named by no held, unheld or pending source reference and no source logo | `/multimedia_map/*` | no |
 | 32 | `names-respelled` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/app.display.name` | no |
 | 33 | `media-maps-respelled` | the same | `/modules/*/media_image`; `/modules/*/media_audio`; `/modules/*/use_default_image_for_all`; `/modules/*/use_default_audio_for_all`; the same four under `/modules/*/forms/*`, `/modules/*/case_list` and `/modules/*/case_list_form` | no |
 | 34 | `text-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/*`; `/modules/*/case_list/label`; `/modules/*/case_list_form/label`; `/modules/*/case_details/*/columns/*/header`; `/modules/*/case_details/*/columns/*/enum/*/value`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description`; `/modules/*/search_config/properties/*/label`; `/modules/*/search_config/properties/*/hint`; `/modules/*/search_config/properties/*/required/text`; `/modules/*/search_config/properties/*/validations/*/text` | yes |
@@ -2077,14 +2078,20 @@ can prevent it. No page and no runtime reads that key (its readers are the `appl
 view's map, the Elasticsearch mapping and `es/apps.py::created_from_template`), so the pointer is
 allowed here and no line of its own says it.
 
-**`unused-media-entries-removed`'s predicate is HQ's own test, over what Nova sends.** The prune
-keeps a path in `all_media_paths() | logo_paths` (`remove_unused_mappings`), and it runs at the end
-of the import, after Nova's body is merged (`overwrite_app_from_source`,
-`_update_valid_domains_for_media`). So the paths it keeps are the ones Nova's forms and menus name,
-which are the reading's resolved references, and the logo entries, which Nova's body leaves as
-CommCare HQ holds them. A reference with no file is in neither set: Nova leaves it out
-(`media-references-with-no-file-removed`), and where the map held an entry for its path naming no
-file, that entry goes with it, which is why that entry allows `/multimedia_map/*` too.
+**The original source determines which media change the person sees.** HQ's
+`XForm.media_references` reads itext image, audio and video values regardless of where their text
+appears. A referenced file on a hint, validation message or group or repeat label belongs to that
+form even when neither client displays it there. Nova omits that value and discloses
+`unshown-form-media-removed` at its question, role, language and media kind. A held reference to
+the same path in the form keeps the form's media listing. A retained reference or logo elsewhere
+in the app keeps its map entry.
+
+After import HQ's `remove_unused_mappings` keeps `all_media_paths() | logo_paths` of the updated
+app and prunes the rest. The file remains in HQ. A mapping whose last reference Nova removes is
+covered by that reference's change, including a missing file covered by
+`media-references-with-no-file-removed` or `broken-pictures-removed`. Only a mapping unused
+already in the original app belongs to `unused-media-entries-removed`. HQ trims a non-logo
+reference's path in `ApplicationMediaReference` and compares a logo's path as stored.
 
 **`registration-label-fixed`.** A `case_list_form` label beside a `form_id` that holds no text, in
 every language or in one whose value is an empty string, is read as "Create a new Case" there, the
@@ -2263,7 +2270,7 @@ entry above). None is left undecided.
 | `location_fixture_restore` of `both_fixtures` or `only_flat_fixture` | declare, `location-list-setting-reset` | the manifest holds both as the same state for everything a held app reads; the stored setting changes |
 | `location_fixture_restore` of `only_hierarchical_fixture` | refuse | manifest row `application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture`, `never` |
 | `created_from_template` | exact | CommCare HQ's import view sets it on every import and no body can prevent it. No page and no runtime reads it, so no line says it. The pointer is one of `forms-and-settings-rewritten`'s |
-| The pruned media map | declare, `unused-media-entries-removed` | HQ's import runs the prune and saves |
+| A mapping already unused on the source | declare, `unused-media-entries-removed` | HQ's import runs the prune and saves. A mapping that loses its last reference belongs to the change that removed it |
 | A menu's, form's, case list item's or Register button's icon or audio stored under some languages only, beside a blank or a language the app no longer lists, or under `use_default_*_for_all` | declare, `media-maps-respelled` | part 07, section 8.6: the map is read as the file HQ's build shows in each language (`navMedia.ts::shownNavMedia`), and Nova writes that file under every language with the switch off, which every language shows alike |
 | A form's text, or a media form of it, that a translation lacks, or a translation the form lacks | exact | part 06, sections 12.1, 12.4 and 12.5: a language with no value shows the form's default language's on Core, which the reading reads as its text, and Nova writes it in that language. So do the `__nova_` forms of a protected validation message that a translation lacks, or holds as the default's copy a save in HQ's form builder writes, and its `jr:constraintMsg`, which holds no branch for a language CommCare HQ added after the publish: Core reads the default's forms there and so shows the default's branch (part 06, section 13.2, `constraint-message`), and Nova writes the language's own forms and the composition over every language, a branch gained per such language, showing the same message. A language CommCare HQ removed after the publish leaves its branch in the `jr:constraintMsg` and its translation in the form until a save in HQ's form builder drops it; HQ's build drops the translation, and no language a device shows reads the branch, so the reading rebuilds that branch from the expression alone, whatever the source keeps of the translation (part 06, section 13.2), and Nova writes the composition over the languages left, the branch and the translation gone, no language showing another message. Covered, as spelling, by `forms-and-settings-rewritten` |
 | A generated translation key in `translations` | exact where it has no effect or is blank; declare where it folds (`translation-overrides-folded`); refuse otherwise | part 01, section 7.1; part 06, section 16.5 |
@@ -2318,7 +2325,7 @@ For each choice of `input.choices`, once every check has passed, `acceptReading`
 `FirstPublishFacts`: the source; the document under the choice (check 2's `verdict.nextDoc`); the
 draft's facts; `generatedDifference(facts.forms[i].generated, emittedGeneratedNodes(nextDoc, forms, input.reader.target))`
 (section 11.1), from that document's own plan; the media path assignment, keyed by content (below);
-`input.mediaLeftOut`; and the choice. It calls `firstPublishChangesFor`, and the result is that
+`input.mediaClaims`; and the choice. It calls `firstPublishChangesFor`, and the result is that
 choice's `AcceptedDeclaration.firstPublish`. `AcceptedReading.firstPublish` is the preselected
 choice's, the one at `input.choices.proposed`.
 
@@ -2953,7 +2960,8 @@ register is their home.
 | `media-paths-joined` | Where CommCare HQ holds one picture, sound or video under several names, the app now uses one of them. Workers see and hear the same files. |
 | `media-files-renamed` | Some pictures, sounds and videos get new names in CommCare HQ, because Nova can't keep the names they had. Phones download them again with the next version of the app. |
 | `media-references-with-no-file-removed` | References to pictures, sounds and videos that have no file in CommCare HQ are removed. Workers saw nothing there. |
-| `broken-pictures-removed` | Icons that have no file in CommCare HQ are removed. Web Apps showed an empty or broken picture in their place, and Android showed nothing. You can choose a new icon in Nova. |
+| `broken-pictures-removed` | Nova removes icons whose files are missing from CommCare HQ. Where Web Apps showed an empty or broken picture, it may show a default icon instead. A missing icon can stop a fresh Android installation if the release requires its file. Removing it can let workers install the new release. You can choose a replacement icon in Nova. |
+| `unshown-form-media-removed` | Some hints, validation messages, and labels for groups or repeats reference pictures, sounds or videos that workers never saw or heard there. Nova removes those references. The files stay in CommCare HQ. |
 | `unused-media-entries-removed` | CommCare HQ drops the entries of this app's media list that nothing in the app uses. The files themselves stay in CommCare HQ. |
 | `text-spaces-dropped` | A name, label or other app text that is only spaces in one language now shows its text in the source language there, and spaces or line breaks at the start or end of a text are dropped. Before, workers saw a blank text, the spaces or the line breaks. |
 | `form-text-characters-written-as-outputs` | Where a question's text holds a no-break space, or words CommCare HQ would take as a request for data, Nova writes those characters as fixed values. CommCare HQ's form builder shows each one as a small reference inside the text. Workers read the same words. |
@@ -3061,7 +3069,7 @@ implementer could reach for, and why it is not built.
 2. **The types acceptance is called with are section 2.2's, each member one a check needs and
    cannot derive.** The failing arm's `check` is one of five and never null, so part 12's log line
    is total; the `ok` arm holds `declarations`, each with its own first-publish list; the input
-   holds `target`, `choices`, `settlements`, `lookup`, `mediaLeftOut` and `media`, and holds no
+   holds `target`, `choices`, `settlements`, `lookup`, `mediaClaims` and `media`, and holds no
    `projectData` of part 12's type. Not done: a failing arm whose `check` is one of three or null,
    an `ok` arm of two members, or an input typed with part 12's gathered project data, because
    acceptance is pure and takes no type of the request that calls it.

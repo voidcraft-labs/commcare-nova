@@ -463,9 +463,8 @@ export interface HqChangeReadings {
 	readonly now: ReadOutcome;
 	/** Each reading's input: acceptance takes the reading now's, step 13 the base's. */
 	readonly inputs: { readonly base: ReaderInput; readonly now: ReaderInput };
-	/** Media references the base reading leaves out where the app runs: the base's side of the
-	 *  register's `mediaLeftOut` (step 13). */
-	readonly baseMediaLeftOut: number;
+	/** Omitted references and their file verdicts at the baseline source's own slots. */
+	readonly baseMediaClaims: readonly HqMediaClaim[];
 }
 /** Both readings, or the reason the base reading is no base (`base-needs-project-data`,
  *  `base-unreadable`). The settled standings and each side's judged files are inputs. */
@@ -825,6 +824,10 @@ every signature begins with a member of one list or the other.
     (`location-list-setting-reset`: `location_fixture_restore` is inside
     `hqSourceBaseline.ts::project`'s settings, so it stops a publish, and both readings give one
     document), and where a replaced file takes a path of its own (`media-files-renamed`, 7.6).
+    Both readings use the same media predicate. Once HQ adds a resolved media value to a hint,
+    validation message or group label for the first time, `unshown-form-media-removed` can appear
+    in the next-publish review even though the value adds no editable media slot. If both readings
+    already have the id, step 13 adds no new sentence for it.
 
 **Acceptance runs on the reading now, as on a bring-in.** `acceptReading` (part 09, section 2)
 with the app's own declaration as its one choice, the Project's tables as they stand, and the
@@ -1965,6 +1968,8 @@ references:
 | one this app publishes, standing `replaced` | that asset | CommCare HQ's file there now |
 | any other path with an entry in the source's `multimedia_map` | the file the baseline source's own map names there, fetched by that id. `missing` reads as `no-entry`: CommCare HQ no longer serves the file the baseline named | the file the current map names there |
 | a path with no entry | `no-entry` | `no-entry` |
+
+The omitted-reference claims are separate from these reader index values. An app or a change brought in before a publish can already name a missing icon. If both source maps name the same file at that path, its confirmed 404 informs both sets of claims. The reference's published assets keep their own identity in the baseline index and are excluded from its missing-file claims.
 
 "CommCare HQ's file" is fetched and judged as a bring-in judges a file (part 11, section 2.2,
 `judgeReadingMedia`), and named by its provisional id until it is published (part 12, section
