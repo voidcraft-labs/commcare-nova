@@ -753,6 +753,15 @@ it("uploads shard and slice outputs only when their seal succeeds", async () => 
 						: "$RUNNER_TEMP/proof-out";
 				const command = file === "proof-slice.yml" ? "--seal" : "--seal-hosted";
 				if (file !== "proof-slice.yml") {
+					expect(
+						(job as { env?: Record<string, string> }).env
+							?.PROOF_HOSTED_CHECKPOINTS,
+					).toBe("1");
+					expect(
+						steps
+							.slice(0, index)
+							.some((step) => step.uses === "./.github/actions/proof-runtime"),
+					).toBe(true);
 					expect(steps[0]?.run).toContain("PROOF_SHARD_STARTED_AT=$(date +%s)");
 					expect(
 						steps

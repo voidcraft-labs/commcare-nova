@@ -11,7 +11,10 @@ from proof.lane import blocks, serve
 from proof.store import queue
 
 
-def test_work_deadline_seals_passed_and_unfinished_groups_before_teardown(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("stopping", "reason", "receipt"), [
+    (signal.SIGALRM, "work deadline", "work-deadline"), (signal.SIGINT, "SIGINT", "SIGINT"),
+])
+def test_interruption_seals_passed_and_unfinished_groups_before_teardown(tmp_path, monkeypatch, stopping, reason, receipt):
     server = serve.Server(serve.parse_arguments(["--out", str(tmp_path), "--deadline-at", str(int(time.time()) + 60)]))
     names = ("corpus:completed", "corpus:unfinished")
     block = blocks.Block(blocks.block_id(names), 2, tuple(blocks.QueuedGroup(name) for name in names))
@@ -28,21 +31,24 @@ def test_work_deadline_seals_passed_and_unfinished_groups_before_teardown(tmp_pa
             if assignment.group == names[0]:
                 server.broker.ended(assignment, {"outcomes": {item[names[0]]: "passed"}, "seconds": 1.0})
         assert 0 < signal.getitimer(signal.ITIMER_REAL)[0] <= 60
-        signal.raise_signal(signal.SIGALRM)
+        signal.raise_signal(stopping)
 
     def assert_snapshot():
+        diagnostic = json.loads((tmp_path / ".reader-progress.json").read_text())
+        assert diagnostic["stop"] == receipt
+        assert [row["group"] for row in diagnostic["finished"]] == [names[0]]
         record = json.loads((tmp_path / blocks.SERVE).read_text())
         assert record["exit"] == serve.EXIT_INTERRUPTED
-        assert any("work deadline" in problem for problem in record["problems"])
+        assert any(reason in problem for problem in record["problems"])
         [(_, manifest)] = blocks.read_manifests(tmp_path)
         complete, partial = manifest["groups"]
         assert complete["outcomes"] == {item[names[0]]: "passed"}
         assert complete["failure"] is None
-        assert "work deadline" in partial["failure"]
+        assert reason in partial["failure"]
         assert queue._passed({"items": complete["outcomes"], "failure": complete["failure"]})
         assert not queue._passed({"items": {item[names[1]]: "passed"}, "failure": partial["failure"]})
         verdict = sharding.verify([("main", blocks.Queue((block,)))], [tmp_path])
-        assert any("work deadline" in problem for problem in verdict.problems)
+        assert any(reason in problem for problem in verdict.problems)
 
     shutdown = server._shutdown
 

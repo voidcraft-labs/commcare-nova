@@ -453,8 +453,8 @@ own CI run is whole whenever none of its documents was read from the store:
   or an emission change that reached every document. Write the effects from
   that run's artifacts: each shard's output (`proof-out-<attempt>-<shard>`,
   kept fourteen days) and the corpus it read (`proof-corpus-<attempt>.tar.zst`,
-  kept three days; or the corpus emitted again at the same commit, which
-  lists the same documents):
+  kept fourteen days). After expiry, emitting the corpus again at the same commit
+  lists the same documents:
 
   ```bash
   gh run download <run id> --pattern 'proof-out-*' --dir <outputs>
@@ -1178,6 +1178,58 @@ A failed Android request retains its complete JVM output under
 `android-failures/` in the slice or shard output. Its exception message also
 includes the context before JUnit's assertion, where the upstream test
 application prints a background thread's original exception.
+
+### Replaying one operation on a republished app
+
+An interrupted corpus group can leave an input digest for the operation that was active.
+Look for the checkpoint’s `inputScope` and `inputSha256`, or its last finished input.
+Use the emitted configuration name. In the ordinary worker log, `single flag N` refers
+to the Nth single-flag configuration in sorted order. A group split across workers
+keeps the same corpus document and configuration in each piece.
+
+On a machine with the original pinned image, architecture and reader profile, the following
+command reconstructs the original HQ app, republishes the captured update, and runs one
+operation. Here the selected reader is Formplayer on the first save of form 0 in menu 0.
+Replace the example digest with the one from the source checkpoint.
+
+```bash
+PROOF_CORPUS="$original_emitted_corpus" PROOF_READERS=formplayer \
+PROOF_REPLAY_STAGE='{"document":"hq-plain","configuration":"minimum","stage":"vellum/0.0/first/formplayer","inputSha256":"<64 lowercase hex digits>","seconds":300}' \
+  node proof/run.mjs --workers 1 proof/diagnostics/replay.py::test_selected_stage
+```
+
+The original B accepts `formplayer`, `webapps`, `android/phone` and `android/tablet`.
+A whole editor is `vellum/M.F`, `page/app_settings`, `page/view_module/M` or
+`page/view_form/M.F`, with zero-based menu and form positions. For one native call
+on a saved release, use the checkpoint’s exact scope. A Vellum form adds
+`/first/<reader>` or `/second/<reader>`. A page adds `/section/<section>/<reader>`,
+such as `page/app_settings/section/app-settings/webapps`. A saved-state selection
+derives B’s actual Formplayer script, performs the necessary editor saves, and opens
+the selected reader if the original observer would run it. An unchanged or unavailable
+release can therefore yield a message that the editor did not issue that call.
+Preparation includes Web Apps’ map walks where the reader profile requires them. Android uses the
+pinned runtime on a Linux amd64 host.
+
+To iterate after changing code, keep the same stage and set `"mode":"fresh"`. A supplied
+`inputSha256` lets the receipt compare the new input with the original. Omit the digest
+to investigate a run that predates input checkpoints. If the generator changed, point
+`PROOF_CORPUS` at its freshly emitted corpus. The manifest must agree with those bytes.
+The default `reproduce` mode checks the prior digest before entering the native call.
+
+The requested deadline covers 1–1200 seconds of preparation and native work. The local
+launcher also enforces a host deadline with ten minutes allowed for a cold start,
+20 seconds for shutdown and up to 15 seconds for container cleanup.
+`host-status.json` in its output records the host outcome.
+
+The output’s `blocks/*/diagnostics/stage-*/stage.json` records preparation, entry into
+the native call, actual input, elapsed time, and completion or interruption. An abrupt
+process loss leaves its last marker. A completed diagnostic also has `native.json` and
+its content-addressed `blobs/`. Compare these to read what changed. The run keeps editor
+transcript writes in its separate diagnostic directory. Release judgments continue to use
+the ordinary complete records. Replays cover seeded emitted corpus-group B observations.
+Apps with Connect at A or B rely on an opportunity and its forwarding history. Those
+apps, other release states, Android update flows and unseeded audits use their ordinary
+test or corpus selections.
 
 **What the night after a merge takes.** A night observes every group whose
 key the merge changed, and on most nights that is minutes. A merge that
@@ -4931,6 +4983,39 @@ every document again from its records, and the same test holds every
 collected item of a document's group to a module the judge's fingerprint
 names.
 
+### Recovering complete parts from an interrupted hosted run
+
+A hosted checkpoint can preserve an ordinary, seeded A, B, aligned B, edited B or local
+record from a retained `proof/hq-apps` base as soon as the worker seals that part in its
+delta. A completed upload carries its record, the original part key and every named
+blob. A live walk, a partially observed B and an editor partition local to the original
+run still require their own native observation. The last progress report lists confirmed
+uploads and known omissions. A part can also finish uploading between the last report
+and cancellation, in which case its own artifact contains the source receipt.
+
+Download the `proof-part-…` artifacts and original queue from the trusted source
+repository, run ID and attempt. Keep each part's `identity.json` and binary together in
+its own directory. Run the importer in the same proof checkout and reader environment
+using a fresh emission. Supply the expected source commit and Docker image ID from that
+run, and the replay's usual `PROOF_FINGERPRINTS`, `PROOF_READERS`, determinism, hash
+seed and timezone. The identity file is meaningful only with the artifact from that
+designated GitHub run. For example, with those inputs mounted in the reader environment:
+
+```sh
+python3 -m proof.store.checkpoint --from-run "$run_id" --attempt "$run_attempt" \
+  --commit "$source_commit" --image-id "$reader_image_id" --queue /input/queue.json \
+  --corpus /corpus --out /output/recovered-store /input/downloaded-parts/*
+```
+
+Use a new destination and part artifacts from the named queue phase. Intake checks the
+queue's bytes and group membership, source and replay fingerprints, the digest of the
+entire transfer, every record and blob, and the current input files behind each ordinary
+part key. It publishes the new snapshot only after the whole selection verifies.
+`PROOF_STORE=/output/recovered-store` gives a later run exactly these ordinary parts.
+A fresh observation still audits any matching part. Agriculture's split all-reader B
+still requires both fresh workers and their current-run fragments. The queue and gate
+still require the ordinary group outcomes, judgments and evidence.
+
 The queue builder (`python3 -m proof.store.queue`, standard library and git)
 reads the restored store and makes each group cached (its every judgment held
 whole, its items passed: it runs nowhere, and the gate holds the stored
@@ -6027,6 +6112,54 @@ existing jobs:
 - **`proof-store`** saves this pull request's evidence store beside the gate:
   what it held and what this run observed that main's does not hold.
 
+### Recovering a running or interrupted reader
+
+Both hosted shard workflows publish progress while their workers are running. A checkpoint names the
+checked-out commit, runtime image, fingerprint, run attempt, runner and actual queue digests. It records
+acknowledged groups inside unfinished blocks, the item outcome counts, and each active group's reader, build
+state, elapsed seconds, last completed native operation and duration. If the elapsed time grows across
+checkpoints while the operation and completion counts stay fixed, the worker is still reporting a stalled
+operation. The active replayable scope and its exact input digest are recorded together. The most recently
+completed replayable scope has separate `lastInputScope`, `lastInputSha256` and `lastInputSeconds` fields.
+
+From a fresh checkout with GitHub CLI access, set `run`, `attempt`, and `shard` to the run number,
+attempt number and shard label (for example, `audit-shard-1`). Download the latest finalized JSON:
+
+```bash
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+prefix="proof-progress-$shard-$attempt-"
+latest=$(gh api --paginate "repos/$repo/actions/runs/$run/artifacts?per_page=100" \
+  --jq '.artifacts[] | select(.expired == false) | .name' | \
+  jq -Rn --arg p "$prefix" '[inputs | select(startswith($p) and endswith(".json"))] | max_by(ltrimstr($p) | rtrimstr(".json") | tonumber) // empty')
+test -n "$latest" && gh run download "$run" --repo "$repo" --name "$latest" --dir "./$latest.files"
+jq '{source,publishedAt,finished,active,workerLost,stop,parts,unconfirmedParts,partOmissions,partBudget}' "./$latest.files/$latest"
+```
+
+A progress record describes the instant it was saved. For the hosted job's subsequent outcome, read the
+matching runner in this attempt:
+
+```bash
+runner=$(jq -r '.source.runner // empty' "./$latest.files/$latest")
+gh api --paginate "repos/$repo/actions/runs/$run/attempts/$attempt/jobs?per_page=100" \
+  --jq '.jobs[] | {runner_name,name,status,conclusion,html_url}' | jq --arg r "$runner" 'select(.runner_name == $r)'
+```
+
+A hosted cancellation or timeout uses GitHub's reported conclusion. A fork-server work cutoff sets
+`stop` to `work-deadline` if the reporter sees it. A worker that exits during its assignment is recorded
+in `workerLost`. If neither the runner nor GitHub recorded the reason for its disappearance, the exit
+remains unconfirmed. The full proof verdict still accounts for each missing group.
+
+Each `proof-part-<shard>-<attempt>-<sha256>.bin` artifact contains the complete deterministic observation
+and its referenced blobs, plus its own source and queue receipt. It can be discovered in the same run
+even if it finished uploading after the last progress report. The host verifies the bytes against the
+source queue and the retained synthetic fixture allowlist. Each file is bounded at 32 MiB. A job makes
+up to eight part-upload attempts per five minutes, 128 attempts and 256 MiB in total. Excluded stages
+and sizes are reported under `partOmissions` and the transport counters under `partBudget`. Progress
+is coalesced over five minutes and artifacts are retained for fourteen days. Only uploads GitHub has
+finalized survive a sudden loss. Work finished since the most recent upload may need to run again. `unconfirmedParts` lists transfers
+whose finalization the host could not verify. An independently verified part archive can still be read.
+The original corpus, part snapshots and progress receipts are kept for fourteen days. See [Recovering complete parts from an interrupted hosted run](#recovering-complete-parts-from-an-interrupted-hosted-run).
+
 The Android reader's runtime is built and held to the reader's own checks
 (`selfcheck.py`, `predicates.py`) where the readers run: every lane with the
 readers (`proof-lane.yml`'s "Android reader runtime" job, in the nightly's,
@@ -6051,6 +6184,39 @@ each architecture, on the runner and inside the image, and holds the four
 alike: the corpus byte for byte, the products (`proof/ci/products.mjs`) up to
 the ids their producers mint afresh in each production, which they draw
 outside the corpus's seeded operations.
+
+### Replaying one native operation on a hosted runner
+
+Open the original checkpoint and choose a corpus group whose active `inputScope` or
+last completed `lastInputScope` names the operation. Run the diagnostic while the original
+emission artifact is available. For example, after setting `run`, `attempt`, and `latest` from the
+checkpoint download above, this command selects a completed operation on minimum B.
+
+```bash
+commit=$(jq -r .source.commit "./$latest.files/$latest")
+entry=$(jq -ce 'first((.active + .finished + .workerLost)[] |
+  select(.lastInputScope and ((.lastInputStage // []) | index("minimum/b"))))' "./$latest.files/$latest")
+gh workflow run proof-replay.yml -f run="$run" -f attempt="$attempt" -f checkpoint="$latest" \
+  -f commit="$commit" -f group="$(jq -r .group <<< "$entry")" -f configuration=minimum \
+  -f operation=last-completed -f stage="$(jq -r .lastInputScope <<< "$entry")" -f seconds=300
+```
+
+Choose `operation=active` to reproduce the call in progress. The read-only workflow checks
+the original same-repository run, queue, group, commit, Linux amd64 image and fingerprint. A single worker
+reconstructs the B state and compares the selected operation's input digest before collecting
+its native result. The stage accepts a 1–1200 second deadline. The overall hosted job has a
+60-minute limit for fetching, native setup, the diagnostic and teardown.
+
+To exercise a repair on a different ref, add `--ref <repair-branch> -f mode=fresh` and
+keep the original checkpoint and commit as the reference. The workflow emits current
+inputs at the original seed and sample, uses the candidate's pinned runtime and records both
+source identities. Its stage record reports the observed input digest and whether it matches
+the earlier one.
+
+The `proof-replay-<attempt>` artifact holds the input source, stage status, native result and its
+checked attachments when the operation finished. A surviving host status describes setup or
+shutdown even if the native stage never produced its record. The release gate reads the
+original complete proof groups.
 
 ### The gate
 

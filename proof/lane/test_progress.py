@@ -135,3 +135,27 @@ def test_heartbeat_uses_wall_time_even_when_native_calls_stop_reporting():
     )
     assert active.heartbeat(131) is None
     assert "save app phone (220s)" in active.heartbeat(250)
+
+def test_nested_replay_returns_to_its_parent_and_keeps_only_confirmed_completion():
+    active = progress.ActiveGroup.begin("corpus:starter-agriculture", 0)
+
+    def receive(message):
+        active.update(message, active.stage_started + 1)
+
+    with progress.reporting(receive), progress.activity("minimum/b"):
+        with progress.activity("HQ view_form 0.1", input_sha256="a" * 64, input_scope="page/view_form/0.1"):
+            with progress.activity("open opportunity"):
+                assert active.checkpoint(10)["inputScope"] == "page/view_form/0.1"
+            with progress.activity("B app phone", input_sha256="b" * 64, input_scope="android/phone"):
+                assert active.checkpoint(10)["inputScope"] == "android/phone"
+            completed = active.checkpoint(10)
+            assert completed["inputScope"] == "page/view_form/0.1"
+            assert (completed["lastInputScope"], completed["lastInputSha256"]) == ("android/phone", "b" * 64)
+            with (
+                pytest.raises(RuntimeError),
+                progress.activity("webapps", input_sha256="c" * 64, input_scope="webapps"),
+            ):
+                raise RuntimeError("child did not finish")
+            assert active.checkpoint(10)["lastInputScope"] == "android/phone"
+        assert "inputSha256" not in active.checkpoint(15)
+        assert active.checkpoint(15)["lastInputScope"] == "page/view_form/0.1"

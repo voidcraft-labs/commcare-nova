@@ -99,6 +99,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from proof.diagnostics import stages
 from proof.lane import progress
 from proof.observe.browser import browser_fingerprint
 from proof.observe.build import archive_record, device_archive
@@ -1188,7 +1189,8 @@ class _Observation:
                     continue
                 view, target, scope = plan[index]
                 position = ".".join(str(n) for n in scope if n is not None)
-                with progress.activity(f"HQ {view} {position}".rstrip()):
+                stage = f"page/{view}" + (f"/{position}" if position else "")
+                with stages.operation(f"HQ {view} {position}".rstrip(), stage, lambda: self.held_b.key.hex()):
                     if self.partition is None:
                         found[index] = self.view(view, target, scope)
                     else:
@@ -1201,7 +1203,7 @@ class _Observation:
                 if self.partition is not None and not self.partition.owns("vellum", index):
                     continue
                 m, f, target = entries[index]
-                with progress.activity(f"Vellum form {m}.{f}"):
+                with stages.operation(f"Vellum form {m}.{f}", f"vellum/{m}.{f}", lambda: self.held_b.key.hex()):
                     if self.partition is None:
                         found[index] = self.vellum(m, f, target)
                     else:
@@ -1323,12 +1325,14 @@ class _Observation:
                 self._forwarded(held, "proof4") as forwarder,
             ):
                 with connect.reading(forwarder, "formplayer"):
-                    side, trace = held.formplayer()
+                    side, trace = held.formplayer(baseline=self.ctx.over == "B")
                 self.walk = script_of(trace)
-                record = {
-                    "served": True,
-                    **served._state(held, side, trace, files=self.b_build.files, label=self.ctx.over),
-                }
+                # Every selected editor needs B's script and page inputs. Its independent baseline device and
+                # browser outputs have no bearing on a saved state.
+                if stages.selected_editor():
+                    record = {"served": True, "formplayer": side}
+                else:
+                    record = {"served": True, **served._state(held, side, trace, files=self.b_build.files, label=self.ctx.over)}
                 kept = self._forwards(forwarder, held, trace, self.baseline_trace)
                 if kept is not None:
                     record["connect"] = kept
@@ -1378,8 +1382,18 @@ class _Observation:
                 self._forwarded(serving, "proof4-save") as forwarder,
             ):
                 with connect.reading(forwarder, "formplayer"):
-                    side, trace = serving.formplayer(self.walk)
+                    side, trace = (
+                        serving.formplayer(self.walk, baseline=True) if stages.in_save() else serving.formplayer(self.walk)
+                    )
                 record = {"formplayer": side, "clientReads": reads}
+                if stages.selected_saved_reader():
+                    stages.select_saved_reader(
+                        serving, side, trace, client_changed=side["trace"] != over.served_trace or reads != over.served_reads
+                    )
+                    # Carry the first save's actual trace into a second save. Its independent clients have no
+                    # effect on the next HQ save. A diagnostic never writes this partial record to a proof part.
+                    self.served_kept[key] = record
+                    return record, side["trace"], reads
                 # What a worker's device makes of the saved app's release, and, where the save changed the profile,
                 # what a device on the state it was saved over holds once it updates to it, with a worker's own
                 # settings (``proof.android.observe``).
@@ -1392,7 +1406,7 @@ class _Observation:
                 if kept_connect is not None:
                     record["connect"] = kept_connect
                 if side["trace"] != over.served_trace or reads != over.served_reads:
-                    shown = serving.webapps(trace)
+                    shown = serving.webapps(trace, baseline=True) if stages.in_save() else serving.webapps(trace)
                     if shown is not None:
                         record["webapps"] = shown
                 release = serving.release_differs(outcome.files)
@@ -1737,7 +1751,8 @@ class _Observation:
     @contextmanager
     def section_fork(self, saved, position, editor):
         # The section name belongs to the harness page spec, never to the app.
-        with progress.activity(f"save {editor}", count="native"), self.unit.fork():
+        segment = editor.lower().replace(" (advanced)", " advanced").replace(" ", "-")
+        with stages.save(f"section/{segment}"), progress.activity(f"save {editor}", count="native"), self.unit.fork():
             yield
             saved[position], _ = self.after_save(self.b, editor)
 
@@ -1753,13 +1768,13 @@ class _Observation:
             return found
         found["offer"] = OFFERED
         with self.unit.fork():
-            with progress.activity("first save", count="native"):
+            with stages.save("first"), progress.activity("first save", count="native"):
                 first, left = self.vellum_run(form_unique_id, self.b, VELLUM)
             runs = [first]
             # The second open and save is over what the first left, and recorded against it, so only where the first
             # saved.
             if first["saved"]:
-                with progress.activity("second save", count="native"):
+                with stages.save("second"), progress.activity("second save", count="native"):
                     runs.append(self.vellum_run(form_unique_id, left, VELLUM_AGAIN)[0])
             else:
                 found["again"] = {"offer": SKIPPED, "reason": "Vellum did not save the form before"}
@@ -1847,7 +1862,8 @@ def observe_b(ctx, *, order=hq_order, views=None, forms=None):
             " proof.observe.unit.observe_document."
         )
     observation = _Observation(ctx, order)
-    record = observation.observe(views, forms)
+    with stages.baseline(ctx):
+        record = observation.observe(views, forms)
     COUNTS.append({"document": ctx.document.id, "over": ctx.over, **observation.counts.as_json()})
     return record
 

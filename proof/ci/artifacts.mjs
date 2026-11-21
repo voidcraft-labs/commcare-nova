@@ -98,19 +98,28 @@ export async function listAll() {
 }
 
 /**
- * Creates the artifact `name` holding `content` as one file of that name (not
- * zipped), kept for `retentionDays`. Resolves its id, or rejects with an
+ * Creates the artifact `name` holding `content` as one file of that name (optionally zipped for ordinary artifact download), kept for `retentionDays`. Resolves its id, or rejects with an
  * ArtifactServiceError whose `status` is 409 when the run already holds an
  * artifact of that name.
  */
-export async function create(name, content, { retentionDays = 1 } = {}) {
+export async function create(
+	name,
+	content,
+	{ retentionDays = 1, archive = false, identity = undefined } = {},
+) {
 	const artifacts = await client();
 	const directory = await mkdtemp(join(tmpdir(), "proof-artifact-"));
 	try {
 		const file = join(directory, name);
 		await writeFile(file, content);
-		const { id } = await artifacts.uploadArtifact(name, [file], directory, {
-			skipArchive: true,
+		const files = [file];
+		if (identity !== undefined) {
+			const record = join(directory, "identity.json");
+			await writeFile(record, JSON.stringify(identity));
+			files.push(record);
+		}
+		const { id } = await artifacts.uploadArtifact(name, files, directory, {
+			skipArchive: !archive,
 			retentionDays,
 		});
 		return id;

@@ -280,6 +280,7 @@ class Server:
         self.failing: list[str] = []
         # Each group a block was written with as failed before it ran an item (one whose piece did not pass).
         self.unrun: list[str] = []
+        self.checkpoint_history = {}
         self.ran_items = 0
         self.collect_only_code: int | None = None
         self.record: dict = {
@@ -869,6 +870,8 @@ class Server:
             assignment = held.assignments.pop((message["block"], message["group"]), None)
             if assignment is None:
                 return
+            if self.options.deadline_at is not None and held.active:
+                self.checkpoint_history[(held.phase, assignment.group)] = held.active.checkpoint(time.monotonic())
             held.active = None
             outcomes = message.get("outcomes", {})
             failing = sorted(node_id for node_id, outcome in outcomes.items() if outcome in lane_blocks.FAILING)
@@ -970,6 +973,8 @@ class Server:
         ordinary = code in ORDINARY_EXITS or (self.stopping and code == 2)
         cannot_start = not held.started_any and not self.stopping and self.broker.demand(held.phase) > 0
         if lost_running and held.active:
+            if self.options.deadline_at is not None:
+                self.checkpoint_history[(held.phase, held.active.group)] = held.active.checkpoint(time.monotonic())
             say(f"w{held.sequence} interrupted: {held.active.describe(time.monotonic())}")
         if lost_running or not ordinary or cannot_start:
             if cannot_start:
@@ -1057,13 +1062,25 @@ class Server:
             if handler is not None:
                 handler()
 
+    def _checkpoint(self, stop=None):
+        try:
+            data = progress.checkpoint(self.broker, self.workers, self.checkpoint_history, stop)
+            lane_blocks.write_json(self.out / ".reader-progress.json", data)
+        except OSError:
+            say("Could not write reader progress. Its next checkpoint can retry.")
+
     def _loop(self):
         swept = time.perf_counter()
+        next_checkpoint = 0.0
         while True:
             self._start_claims()
             self._advance()
             self._answer_waiting()
             self._write_completed()
+            if self.options.deadline_at is not None and time.monotonic() >= next_checkpoint:
+                # The host publishes only closed, queued fields. Never delay work waiting for an external upload.
+                next_checkpoint = time.monotonic() + 5
+                self._checkpoint()
             if self._done():
                 return
             self._poll()
@@ -1216,6 +1233,8 @@ class Server:
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             try:
                 if interrupted:
+                    if self.options.deadline_at is not None:
+                        self._checkpoint(str(self.stopping) if self.stopping in ("SIGTERM", "SIGINT") else "work-deadline")
                     # A worker or service may hang even in teardown. Save what was acknowledged before
                     # waiting on it. Cleanup drains worker messages and replaces this conservative snapshot.
                     self._write_remaining_blocks(snapshot=True)

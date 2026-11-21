@@ -132,6 +132,7 @@ CORPUS_PACKAGES = (
     "proof/android",
     "proof/checks",
     "proof/connect",
+    "proof/diagnostics",
     "proof/editors",
     "proof/formplayer",
     "proof/hq",

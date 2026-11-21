@@ -110,8 +110,6 @@ def _read(
     from proof.lane import progress
     from proof.observe import services
 
-    reader = services.android()
-    peer = DevicePeer(served, label, delivered=delivered, device=options.get("device", "phone"))
     with tempfile.TemporaryDirectory(prefix="proof-android-") as directory:
         arguments = dict(options)
         for role, content in archives.items():
@@ -127,7 +125,18 @@ def _read(
         state = source if source in ("A", "B", "B-edit", "local", "save", "republish") else "archive"
         device = "tablet" if options.get("device") == "tablet" else "phone"
         delivery = " delivered" if delivered else ""
-        with progress.activity(f"{state} {op}{delivery} {device}", count="native"):
+        stage = f"{state} {op}{delivery} {device}"
+        if state in ("B", "save") and op == "app" and not delivered:
+            from proof.diagnostics import stages
+
+            report = stages.operation(
+                stage, f"android/{device}", lambda: [stages.digest(archives["archive"]), options], count="native"
+            )
+        else:
+            report = progress.activity(stage, count="native")
+        with report:
+            reader = services.android()
+            peer = DevicePeer(served, label, delivered=delivered, device=options.get("device", "phone"))
             try:
                 answer = reader.request(op, peer=peer, drawn=drawn, worker=worker(served), **arguments)
             finally:
