@@ -36,7 +36,8 @@ import java.util.concurrent.Callable;
  * and the session's language, walked with a FormEntryModel in linear repeat
  * mode. Each question is answered from the answer table through Formplayer's
  * answer conversion and FormEntryController.answerQuestion; a refused value is
- * recorded and the next one tried, at most three. Submitting is Formplayer's
+ * recorded and the next one tried, at most three. An optional question whose
+ * constraint refused those values is cleared through the same controller. Submitting is Formplayer's
  * FormSession.submitGetXml: postProcessInstance, then the instance serialized
  * with relevance respected. The result is applied to the user's case data by
  * Core's XmlFormRecordProcessor.process (Formplayer runs the same process()
@@ -239,13 +240,20 @@ final class FormRun {
         }
         JSONArray attempts = new JSONArray();
         question.put("attempts", attempts);
-        for (String value : choice.values.subList(0, Math.min(Answers.MAX_TRIES, choice.values.size()))) {
+        boolean constraintRefused = false;
+        int count = Math.min(Answers.MAX_TRIES, choice.values.size());
+        for (int i = 0; i <= count; i++) {
+            boolean clear = i == count;
+            if (clear && (!constraintRefused || prompt.isRequired())) {
+                break;
+            }
+            String value = clear ? null : choice.values.get(i);
             JSONObject attempt = new JSONObject();
-            attempt.put("value", value);
+            attempt.put("value", nullable(value));
             attempts.put(attempt);
             IAnswerData data;
             try {
-                data = Answers.answerData(prompt, value);
+                data = clear ? null : Answers.answerData(prompt, value);
             } catch (RuntimeException e) {
                 attempt.put("result", "unconvertible");
                 attempt.put("message", e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -254,6 +262,7 @@ final class FormRun {
             int code = controller.answerQuestion(prompt.getIndex(), data);
             attempt.put("result", CoreNames.answerResult(code));
             if (code == FormEntryController.ANSWER_CONSTRAINT_VIOLATED) {
+                constraintRefused = true;
                 attempt.put("constraintText", text(prompt::getConstraintText));
             }
             if (code == FormEntryController.ANSWER_OK) {

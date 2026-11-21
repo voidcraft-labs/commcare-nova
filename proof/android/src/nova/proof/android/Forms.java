@@ -569,7 +569,9 @@ final class Forms {
             }
             Object taken = JSONObject.NULL;
             JSONArray refused = new JSONArray();
-            for (String value : Answers.valuesFor(prompt)) {
+            boolean constraintRefused = false;
+            List<String> values = Answers.valuesFor(prompt);
+            for (String value : values) {
                 int status;
                 try {
                     status = FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(),
@@ -583,27 +585,46 @@ final class Forms {
                     answered = true;
                     break;
                 }
-                refused.put(value + ": " + (status == FormEntryController.ANSWER_CONSTRAINT_VIOLATED
-                        ? "constraint" : status == FormEntryController.ANSWER_REQUIRED_BUT_EMPTY
-                        ? "required" : "status " + status));
+                constraintRefused |= status == FormEntryController.ANSWER_CONSTRAINT_VIOLATED;
+                refused.put(value + ": " + answerResult(status));
             }
-            entry.put("given", taken);
             if (refused.length() > 0) {
                 entry.put("refused", refused);
-                List<String> values = Answers.valuesFor(prompt);
-                if (typeRefused && taken == JSONObject.NULL && !values.isEmpty()
-                        && widget instanceof org.commcare.views.widgets.StringWidget
-                        && refused.toString().contains(": constraint")) {
+            }
+            if (taken == JSONObject.NULL && constraintRefused) {
+                if (typeRefused && widget instanceof org.commcare.views.widgets.StringWidget) {
                     // The worker types the value the form refused into the question's own box and goes on, so
                     // Android itself checks it and shows the form's message for it.
                     ((org.commcare.views.widgets.StringWidget)widget).setAnswer(values.get(0));
                     entry.put("typed", values.get(0));
                     typed = true;
+                } else if (!typeRefused && !prompt.isRequired()) {
+                    // The worker's Clear action, then the controller saving the widget's actual value. A refused
+                    // attempt left the old value in the widget, including any value the form loaded from a case.
+                    activity.clearAnswer(widget);
+                    IAnswerData cleared = widget.getAnswer();
+                    Object value = cleared == null ? JSONObject.NULL : cleared.getDisplayText();
+                    int status = FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), cleared);
+                    entry.put("clear", new JSONObject().put("value", value).put("result", answerResult(status)));
+                    if (status == FormEntryController.ANSWER_OK) {
+                        taken = value;
+                        answered = true;
+                    }
                 }
             }
+            entry.put("given", taken);
         }
         screen.put("answered", given);
         return typed ? TYPED : answered ? ANSWERED : UNANSWERED;
+    }
+
+    private static String answerResult(int status) {
+        switch (status) {
+            case FormEntryController.ANSWER_OK: return "ok";
+            case FormEntryController.ANSWER_CONSTRAINT_VIOLATED: return "constraint";
+            case FormEntryController.ANSWER_REQUIRED_BUT_EMPTY: return "required";
+            default: return "status " + status;
+        }
     }
 
     /**
