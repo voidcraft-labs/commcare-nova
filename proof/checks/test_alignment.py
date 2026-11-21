@@ -22,12 +22,10 @@ from __future__ import annotations
 
 import json
 import uuid
-from types import SimpleNamespace
 
-import pytest
 from lxml import etree
 
-from proof.checks import cases, sharding
+from proof.checks import cases
 from proof.checks.proof2 import parsed_build
 from proof.hq import operations
 from proof.hq.check import hq_check
@@ -93,23 +91,15 @@ def test_alignment_leaves_nothing_of_bs_identities_and_hq_keeps_unchanged_versio
     assert set(_data_versions(a.files).values()) == {str(a.app_version)}
 
 
-def _first_document_with_forms():
-    for document in cases.load_corpus().emitted:
-        export = next(iter(document.exports.values()), None)
-        if export is not None and _sources(export):
-            return [pytest.param(document.id, id=document.id)]
-    raise AssertionError("No corpus document has a form, so there is no Nova form to renamespace.")
-
-
-def _sources(export):
-    app = json.loads(upload_field(export.content.upload(), "app_file"))
-    return {name: content for name, content in app.get("_attachments", {}).items() if name.endswith(".xml")}
-
-
-@pytest.mark.parametrize("document_id", _first_document_with_forms())
-def test_renamespacing_moves_only_the_data_namespace(document_id):
-    document = cases.load_corpus().document(document_id)
-    for name, source in _sources(next(iter(document.exports.values()))).items():
+def test_renamespacing_moves_only_the_data_namespace():
+    # Arithmetic's emitted upload stays available even when the run samples only HQ-authored documents.
+    capture = cases.load_corpus().document("arithmetic").exports["minimum"].content
+    assert capture is not None, "Arithmetic has no first content upload to check."
+    app = json.loads(upload_field(capture.upload(), "app_file"))
+    names = [f"{form['unique_id']}.xml" for menu in app["modules"] for form in menu["forms"]]
+    assert names, "Arithmetic has no form to renamespace."
+    for name in names:
+        source = app["_attachments"][name]
         original = etree.fromstring(source.encode())
         data = next(el for el in original.iter() if etree.QName(el).localname == "instance")[0]
         old = etree.QName(data).namespace
@@ -124,22 +114,6 @@ def test_renamespacing_moves_only_the_data_namespace(document_id):
         back = renamespace_xform(moved, old)
         assert etree.tostring(etree.fromstring(back), method="c14n2") == etree.tostring(original, method="c14n2"), name
         assert etree.tostring(etree.fromstring(back)) == etree.tostring(original), name
-
-
-def test_the_renamespacing_check_runs_in_this_modules_group_whichever_document_it_reads(monkeypatch):
-    """A sample can leave out the first form-bearing document; reading it must not add an unqueued group."""
-    checked = SimpleNamespace(id="checked", group="corpus:checked", exports={"minimum": False})
-    left_out = SimpleNamespace(id="left-out", group="corpus:left-out", exports={"minimum": True})
-    corpus = SimpleNamespace(documents=(checked,), emitted=(checked, left_out))
-    monkeypatch.setattr(cases, "load_corpus", lambda: corpus)
-    monkeypatch.setattr(f"{__name__}._sources", lambda export: export)
-
-    for has_forms, expected in ((False, "left-out"), (True, "checked")):
-        checked.exports["minimum"] = has_forms
-        (parameter,) = _first_document_with_forms()
-        assert parameter.values == (expected,)
-        item = SimpleNamespace(callspec=SimpleNamespace(params={"document_id": parameter.values[0]}), path=__file__)
-        assert sharding.item_group(item) == "proof/checks/test_alignment.py"
 
 
 def test_renamespacing_keeps_the_sources_own_spelling_where_only_the_namespace_moves():

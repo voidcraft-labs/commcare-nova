@@ -315,7 +315,9 @@ def control(hq, core_runner, tmp_path_factory):
     scratch = tmp_path_factory.mktemp("proof3-control")
     for document in cases.load_corpus().emitted:
         export = document.exports.get("minimum")
-        if export is None or export.content.lookups is not None or export.republish.lookups is not None:
+        if export is None or export.content is None or export.republish is None:
+            continue
+        if export.content.lookups is not None or export.republish.lookups is not None:
             continue
         records = _observed_without_hooks(document, core_runner, [export.configuration.name])
         observed = observations.republish_view(records, export.configuration.name)
@@ -1178,7 +1180,7 @@ def test_a_document_that_declares_no_android_is_compared_on_hqs_builds_and_never
 def _lookup_document():
     for document in cases.load_corpus().emitted:
         for export in document.exports.values():
-            if export.content.lookups is not None:
+            if export.content is not None and export.content.lookups is not None:
                 return document, export
     return None
 
