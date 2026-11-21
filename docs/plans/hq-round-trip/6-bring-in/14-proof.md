@@ -1138,6 +1138,11 @@ the Core runner the matrix group starts for it (it parses A's expressions), writ
   full XPath token sequence is the zero-argument `today()` call. The question has no setvalue,
   and the XForm has no `setvalue` targeting it. A `setvalue` whose target cannot be resolved by
   its explicit question ref rules out this inference for the whole form.
+  The same safeguards admit a decimal when the entire hidden calculation selects between two
+  direct decimal question paths as `if(first = '', other, first)`. HQ's question summary and
+  the source bind establish each input's decimal type. In the agriculture starter this changes
+  only `farmer/arable_land` and `farmer/area_mapper`. Generic text loaded into the Update Farmer
+  form's decimal controls produced a conversion error on an otherwise usable source form.
   Other untyped questions give `text` (`xform.py::VELLUM_TYPES`). A property two
   questions of different types write is `text`.
 - `values`: every string literal A's expressions compare with a case property, over each form's
@@ -1348,6 +1353,13 @@ def form_xml_unjudged(source):
 The module stays standard library only (`proof/CLAUDE.md`, "What runs with no image").
 `proof/checks/test_corpus.py` gains `test_an_hq_authored_document_runs_every_check_but_sensitivity`,
 which reads `eligible` over every name of `differences.CHECKS`.
+
+**Optional constrained answers.** Agriculture's Registration and Enroll forms each have an optional
+integer year. Core rejects all three ordinary integer inputs (7, 25 and 0). The walk records each
+refusal, then submits an empty answer through Core's controller. It proceeds only if the controller
+accepts it. On the edit forms a previously loaded year survives the failed inputs in the Android
+widget. The device walk invokes the worker's Clear action and records the controller's verdict on
+the widget's resulting value. A required question that rejects every attempted answer still stops.
 
 **Map answers on a replay.** On `hq-questions`, the confirmed split of `/data/seen_at` into
 `/data/seen_at_date` and `/data/seen_at_time` moves the unchanged `/data/location` question from
@@ -3558,8 +3570,25 @@ worker-seconds), the 90th percentile `sharding.estimate` uses.
 | the API reads and `proof6` on every document | under 3 worker-seconds a document, 494 documents | 0.4 |
 
 Against 552 worker-hours for the whole lane with every reader, the step adds 8% at the median and
-30% as first counted. The starter apps are the heavy ones: agriculture's nine forms walked whole in
-the client, in one language, for every case.
+30% as first counted. The agriculture starter has nine forms and one language. The original
+all-reader worker spent 312 minutes on its group before the job's 314-minute deadline. Its
+unsealed run produced neither a final verdict nor the duration of an individual operation. The
+separately observed editor records show 32 page saves and nine distinct first form-builder saves.
+Each distinct saved build has its own native walks.
+
+In the hosted two-worker all-reader configuration, the agriculture group can split the same HQ
+editor saves between two workers. Both independently observe the original B release and its
+complete editor inventory. One handles all page saves and the first four form-builder save pairs,
+the other the last five pairs. The judge requires both workers' matching baseline and inventory,
+and every saved scope once in its original order, with its operation and request evidence. The ordinary A, B, aligned B
+and local observations stay in the comparison. The native `hq-plain` control compares the
+assembled evidence and its referenced blobs with a complete unsplit observation.
+
+Until a complete run measures these pieces, the scheduler budgets 170 worker-minutes for each.
+Periodic worker reports show the current reader or editor operation and completed work. A hosted
+shard starts its work clock before checkout. It reserves a separate 15-minute finalization window
+so that a deadline can seal completed results and name unfinished groups. Only the official gate
+can accept the completed run.
 
 **The first night after the merge is the whole lane with every reader.** The step moves every part
 key, and part 03's change to how a date and time is saved changes what many documents emit, so the
@@ -3572,7 +3601,8 @@ no dispatch.
 This step does not refresh the `readers` profile: no run of the step's own measures every group
 with every reader, and the step plans no work after its exit. Until a weekly run's outputs refresh
 it, the new documents are counted at the 90th percentile of the measured documents and a new
-package group at the longest measured one, which oversizes the lane and undersizes nothing
+package group at the longest measured one. These estimates can understate a new document's
+actual cost, as the agriculture run showed
 (`proof/README.md`, "Timings and what the lane is expected to take").
 
 ### 12.3 What a reader change costs after step 6
@@ -3599,6 +3629,13 @@ this table is what each holds and costs.
 | `proof-audit.yml -f nightly=false -f mechanics=<base ids>`, twice | the twenty-two bases, `hq-plain` in both: `hq-plain` with ten others, then `hq-plain` with the remaining eleven (a `mechanics` dispatch names at least one edited document). P2, and the checks of parts 01, 07, 09 and 10 that P2 names | every reader | each about 8 to 31 worker-hours (the median and the counted figure of 12.2), holding up to fourteen of the account's twenty runners for one to three hours |
 | `proof-audit.yml -f nightly=false -f mechanics=<ids>` | the thirty-one new targeted documents whose parts ask a served reader's verdict (the top-level file, "What needs your yes before this starts", item 3, names which parts give them), each for the check its own part words, part 15's ten among them (6.6). The session splits it where the documents exist at different times: the gate judges each document on its own | every reader | about 2.6 worker-hours a document as counted, 0.7 at the median, so about 22 to 80 for the thirty-one |
 | four bounded slices | `proof-slice.yml -f selectors='proof/hq/test_retained_reads.py proof/surface/test_hq_api.py' -f readers=0` (part 05: its retained reads, whose `reading/` files the session copies in, and the surface extraction it commits; and the same workflow over `proof/matrix/test_retained.py` wherever a base's builder changes, which gives `adopt` its output); and three of `proof-audit.yml -f nightly=false`: `-f slice='proof/android/test_form_reads.py' -f slice_readers=android` (part 03, G4 and G5, and the vector of part 03 section 4.5: `targeted-styled-value`'s label, whose `<output>` value is `**x**`, arrives formatted on the device's label (`test_a_labels_value_is_formatted_with_the_label`), held beside the Web Apps label cell, which Formplayer hands `Styled **x**` as `caption_markdown` and the client draws with the value in bold (`proof/webapps/test_label_values.py`, in the last slice), so the substitute-then-format order Preview plays is held by the readers, not by a reading of Core, whose intent expectation reads the spliced text alone); `-f slice='proof/connect/test_receiver.py -k names_beside_connects_keys' -f slice_readers=connect` (part 04, R2); and one for the four tests that take the Web Apps reader, with the Android reader beside it for part 11's: `-f slice='proof/webapps/test_tiles.py::test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves proof/webapps/test_search_title.py proof/webapps/test_label_values.py proof/android/test_missing_media.py proof/webapps/test_missing_media.py' -f slice_readers=android,webapps` (part 01, Run 4; part 03, sections 4.5 and 6; part 11, R2). Part 01's test is named by its node id, since a `-k` would apply to every file the slice names; the workflow's slice check admits a file or a `file::test` item (`.github/workflows/proof-slice.yml`, "Validate the slice"). The last three exist because a `mechanics` dispatch runs no test of a reader's own package (`proof/README.md`, "The run started by hand") | none; Android; Connect; Android and Web Apps | one runner each, for at most 90 minutes |
+
+The original P2 dispatches exercised the eleven- and twelve-base selections above, with
+`hq-plain` in both. The corrective all-reader run includes all 22 bases. A separate all-reader
+run checks the ten W3 documents and its edited control, `targeted-hyphenated-question-ids`.
+Each produces its own queue, sealed results and gate verdict. The current scheduler estimates
+about 171 minutes on twelve shards for the first run and 103 minutes on eleven for the second.
+Without native timings for a completed agriculture run these figures are forecasts.
 
 - **No lane on a laptop.** Every lane run named in this plan is on GitHub's hosted runners: the
   work's own CI, `proof-audit.yml`'s `mechanics` dispatch or its slice, or `proof-slice.yml`. Of the
