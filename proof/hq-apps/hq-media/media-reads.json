@@ -64,6 +64,14 @@
 		"length": 69
 	},
 	{
+		"path": "jr://file/commcare/image/data/note_count_hint.png",
+		"mediaType": "CommCareImage",
+		"multimediaId": "e6d33680-c0a3-11f1-b6f1-49c5030bff07",
+		"status": 200,
+		"sha256": "59764ca1aa1d8092a5a32cadf6b326dac5f2e21b5bc266c94c34d67dd5fd6cf8",
+		"length": 69
+	},
+	{
 		"path": "jr://file/commcare/image/data/place.png",
 		"mediaType": "CommCareImage",
 		"multimediaId": "e3d84600-c0a3-11f1-9830-e383e341b7ff",

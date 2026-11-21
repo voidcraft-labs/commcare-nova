@@ -64,7 +64,7 @@
 		"extension": "png"
 	},
 	{
-		"path": "jr://file/commcare/image/data/place.png",
+		"path": "jr://file/commcare/image/data/note_count_hint.png",
 		"file": "media/8.png",
 		"mediaClass": "CommCareImage",
 		"kind": "image",
@@ -72,7 +72,7 @@
 		"extension": "png"
 	},
 	{
-		"path": "jr://file/commcare/image/data/unused_picture.png",
+		"path": "jr://file/commcare/image/data/place.png",
 		"file": "media/9.png",
 		"mediaClass": "CommCareImage",
 		"kind": "image",
@@ -80,8 +80,16 @@
 		"extension": "png"
 	},
 	{
-		"path": "jr://file/commcare/image/module0_en.png",
+		"path": "jr://file/commcare/image/data/unused_picture.png",
 		"file": "media/10.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	},
+	{
+		"path": "jr://file/commcare/image/module0_en.png",
+		"file": "media/11.png",
 		"mediaClass": "CommCareImage",
 		"kind": "image",
 		"mimeType": "image/png",
@@ -89,7 +97,7 @@
 	},
 	{
 		"path": "jr://file/commcare/image/module0_form0_en.png",
-		"file": "media/10.png",
+		"file": "media/11.png",
 		"mediaClass": "CommCareImage",
 		"kind": "image",
 		"mimeType": "image/png",
@@ -97,14 +105,6 @@
 	},
 	{
 		"path": "jr://file/commcare/video/data/animal-hen.mp4",
-		"file": "media/11.mp4",
-		"mediaClass": "CommCareVideo",
-		"kind": "video",
-		"mimeType": "video/mp4",
-		"extension": "mp4"
-	},
-	{
-		"path": "jr://file/commcare/video/data/animal_name.mp4",
 		"file": "media/12.mp4",
 		"mediaClass": "CommCareVideo",
 		"kind": "video",
@@ -112,8 +112,16 @@
 		"extension": "mp4"
 	},
 	{
+		"path": "jr://file/commcare/video/data/animal_name.mp4",
+		"file": "media/13.mp4",
+		"mediaClass": "CommCareVideo",
+		"kind": "video",
+		"mimeType": "video/mp4",
+		"extension": "mp4"
+	},
+	{
 		"path": "jr://file/loose_picture.png",
-		"file": "media/13.png",
+		"file": "media/14.png",
 		"mediaClass": "CommCareImage",
 		"kind": "image",
 		"mimeType": "image/png",
