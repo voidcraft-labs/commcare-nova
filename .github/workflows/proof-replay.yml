@@ -1,0 +1,151 @@
+name: Replay one native proof operation
+
+on:
+  workflow_dispatch:
+    inputs:
+      run:
+        description: Source Actions run ID
+        type: string
+        required: true
+      attempt:
+        description: Source run attempt
+        type: string
+        default: '1'
+        required: true
+      checkpoint:
+        description: Exact finalized proof-progress artifact name
+        type: string
+        required: true
+      commit:
+        description: Full commit in the checkpoint's source
+        type: string
+        required: true
+      group:
+        description: Exact corpus group from the checkpoint, including any partition
+        type: string
+        required: true
+      configuration:
+        description: Emitted configuration name
+        type: string
+        default: minimum
+        required: true
+      stage:
+        description: Recorded inputScope or lastInputScope
+        type: string
+        required: true
+      operation:
+        description: Which operation in that group supplied the input
+        type: choice
+        options: [active, last-completed]
+        default: active
+      mode:
+        description: Reproduce the original input or observe the dispatched ref with freshly emitted inputs
+        type: choice
+        options: [reproduce, fresh]
+        default: reproduce
+      seconds:
+        description: Native operation deadline in seconds (1 to 1200)
+        type: number
+        default: 300
+        required: true
+
+cache-mode: read
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_RUN: ${{ inputs.run }}
+      ATTEMPT: ${{ inputs.attempt }}
+      CHECKPOINT: ${{ inputs.checkpoint }}
+      COMMIT: ${{ inputs.commit }}
+      GROUP: ${{ inputs.group }}
+      CONFIGURATION: ${{ inputs.configuration }}
+      STAGE: ${{ inputs.stage }}
+      OPERATION: ${{ inputs.operation }}
+      MODE: ${{ inputs.mode }}
+      STAGE_SECONDS: ${{ inputs.seconds }}
+      PROOF_OUT_DIR: .proof/replay-output
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify the source and name its artifacts
+        id: names
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m proof.ci.replay names "$RUNNER_TEMP/replay"
+      - name: Download the original progress checkpoint
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.checkpoint }}
+          run-id: ${{ inputs.run }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          path: ${{ runner.temp }}/replay/checkpoint
+      - name: Download the original main queue
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.names.outputs.queue }}
+          run-id: ${{ inputs.run }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          path: ${{ runner.temp }}/replay/queue
+      - name: Download the original emission
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.names.outputs.corpus }}
+          run-id: ${{ inputs.run }}
+          github-token: ${{ github.token }}
+          skip-decompress: true
+          path: ${{ runner.temp }}/replay/archive
+      - name: Select one recorded native input
+        run: python3 -m proof.ci.replay prepare "$RUNNER_TEMP/replay"
+      - name: Verify the source checkout, image and reader profile
+        id: runtime
+        run: python3 -m proof.ci.replay runtime "$RUNNER_TEMP/replay"
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install the pinned package manager and dependencies
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          (cd "$RUNNER_TEMP" && npm install --global "npm@$npm_version" --ignore-scripts)
+          npm ci
+      - name: Emit the candidate's inputs at the original corpus seed
+        if: ${{ inputs.mode == 'fresh' }}
+        run: python3 -m proof.ci.replay emit "$RUNNER_TEMP/replay"
+      - id: android
+        if: ${{ steps.runtime.outputs.android == 'true' }}
+        uses: ./.github/actions/proof-android-runtime
+        with:
+          build: 'true'
+          checks: 'false'
+          label: replay
+      - name: Run the recorded operation
+        id: observe
+        env:
+          PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}
+        run: |
+          if [ -n "$PROOF_ANDROID_RUNTIME" ]; then export PROOF_ANDROID_JDK="$JAVA_HOME"; fi
+          node proof/run.mjs --workers 1 proof/diagnostics/replay.py::test_selected_stage
+      - name: Collect the host-certified diagnostic
+        id: seal
+        if: ${{ !cancelled() && steps.observe.outcome != 'skipped' }}
+        env:
+          OBSERVATION_OUTCOME: ${{ steps.observe.outcome }}
+        run: python3 -m proof.ci.replay report "$RUNNER_TEMP/replay"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
+        with:
+          name: proof-replay-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/replay/report
+          if-no-files-found: error
+          retention-days: 14

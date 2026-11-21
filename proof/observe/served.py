@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import contextvars
 import hashlib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 from proof.lane import progress, readers
 from proof.observe.record import canonical
@@ -132,21 +132,28 @@ class Serving:
     def __init__(self, served, runner, driver, blobs):
         self.served, self.runner, self.driver, self.blobs = served, runner, driver, blobs
 
-    def formplayer(self, script=None):
+    def formplayer(self, script=None, *, baseline=False):
         """Formplayer's walk of the state: replayed where ``script`` is given, else derived, with the places the
         client's map gives its location questions where the observation shows the client (it was given a driver,
         the run hands its states to the client, and the state's app declares Web Apps;
         ``proof.webapps.observe.derived_places``), so the walk submits what the client submits."""
         from proof.formplayer import observe
 
-        places = None
-        if script is None and self.driver is not None and observes_state("webapps", self.served):
-            from proof.observe import services
-            from proof.webapps import observe as webapps
+        from proof.diagnostics import stages
 
-            with reading("webapps"):
-                places = webapps.derived_places(self.served, services.client_browser(), runner=self.runner)
-        return observe.walked(self.served, self.runner, self.blobs, script=script, places=places)
+        # The map prewalk is part of this call. Bind its inputs before launching either native reader.
+        receipt = stages.operation(
+            "formplayer", "formplayer", lambda: [stages.digest(self.served.archive()), self.reads(), script]
+        ) if baseline else nullcontext()
+        with receipt:
+            places = None
+            if script is None and self.driver is not None and observes_state("webapps", self.served):
+                from proof.observe import services
+                from proof.webapps import observe as webapps
+
+                with reading("webapps"):
+                    places = webapps.derived_places(self.served, services.client_browser(), runner=self.runner)
+            return observe.walked(self.served, self.runner, self.blobs, script=script, places=places)
 
     def local(self, document, script, configuration):
         from proof.formplayer import observe
@@ -156,7 +163,7 @@ class Serving:
                 self.served, self.runner, self.blobs, document, script=script, configuration=configuration
             )
 
-    def webapps(self, trace):
+    def webapps(self, trace, *, baseline=False):
         """The client's screens on ``trace``'s walk, as a blob, shown in the client's own browser
         (``proof.observe.services.client_browser``); None where the observation was given no editor driver, which
         is how a caller says it wants no browser's work (as proof 4's saves need one), or where the state's app
@@ -167,6 +174,11 @@ class Serving:
         from proof.webapps import observe
 
         with reading("webapps"):
+            if baseline:
+                from proof.diagnostics import stages
+
+                with stages.operation("webapps", "webapps", lambda: [stages.digest(self.served.archive()), self.reads(), trace]):
+                    return self.blobs.put_json(observe.shown(self.served, services.client_browser(), trace))
             return self.blobs.put_json(observe.shown(self.served, services.client_browser(), trace))
 
     def reads(self) -> str:
@@ -310,7 +322,7 @@ def _state(serving_, side, trace, *, files=None, label=None):
     recorded = {"formplayer": side, "clientReads": serving_.reads()}
     if label is not None:
         recorded.update(serving_.devices_on(label))
-    shown = serving_.webapps(trace)
+    shown = serving_.webapps(trace, baseline=True) if label == "B" else serving_.webapps(trace)
     if shown is not None:
         recorded["webapps"] = shown
     if files is not None:

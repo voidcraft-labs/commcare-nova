@@ -108,23 +108,24 @@ class Blobs:
         so a part is kept with exactly what reading it needs.
         """
         found = Blobs()
-        for value in _strings(record):
-            if value.startswith(BLOB_PREFIX) and value in self._held:
+        for value in blob_references(record):
+            if value in self._held:
                 found._held.setdefault(value, self._held[value])
         return found
 
 
-def _strings(value):
-    """Every string in a JSON value, keys included."""
+def blob_references(value):
+    """Yield candidate content references from JSON keys and values. Some digests name inputs, not blobs."""
     if isinstance(value, str):
-        yield value
+        if value.startswith(BLOB_PREFIX):
+            yield value
     elif isinstance(value, list):
         for item in value:
-            yield from _strings(item)
+            yield from blob_references(item)
     elif isinstance(value, dict):
         for key, item in value.items():
-            yield key
-            yield from _strings(item)
+            yield from blob_references(key)
+            yield from blob_references(item)
 
 
 @runtime_checkable

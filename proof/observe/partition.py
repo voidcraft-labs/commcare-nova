@@ -56,6 +56,8 @@ OBSERVATION_DIRECTORIES = (
 OBSERVATION_EXCLUDED = ("proof/editors/driver/",)
 OBSERVATION_FILES = frozenset(
     {
+        "proof/diagnostics/__init__.py",
+        "proof/diagnostics/stages.py",
         "lib/commcare/surface/entries/gates.json",
         "proof/checks/configurations.py",
         "proof/checks/corpus.py",

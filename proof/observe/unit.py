@@ -601,6 +601,7 @@ class BContext:
     # The unit's Connect opportunity holder (``proof.observe.connect.Holder``).
     connect: object = None
     editor_partition: object = None
+    replay_b_key: bytes | None = None
 
 
 # Observation -----------------------------------------------------------------------
@@ -806,6 +807,7 @@ class _Unit:
         self.hq_authored = hq_authored(document)
         self.app_id = None
         self.a_built = None
+        self.replay_b_key = None
         self.saved_a = None
         self.mark_a = None
         self.b_built = None
@@ -1124,12 +1126,20 @@ class _Unit:
         return None
 
     def b_context(self, ops, name, built, captured):
-        from proof.observe import sessions
+        from proof.diagnostics import stages
+        from proof.observe import connect, sessions
 
         lookups = self.tables(captured)
         database = self.cases["b_edit" if name == "B-edit" else "b"]
         outcome, restore = sessions.hq_restore(self.unit, database, lookups, "restore-proof4", ops)
+        replayable = (
+            name == "B" and self.replay_b_key is not None and stages.wants_receipts(self.document, self.store)
+            and self.a_built and self.a_built.outcome.files and built.outcome.files
+            and self.connect.opportunity is None
+            and not connect.is_connect(self.a_built.outcome.files) and not connect.is_connect(built.outcome.files)
+        )
         return BContext(
+            replay_b_key=self.replay_b_key if replayable else None,
             document=self.document,
             over=name,
             configuration=self.configuration,
@@ -1465,6 +1475,7 @@ def observe_configuration(
             cases,
             hooks,
         )
+        state.replay_b_key = keys.get("b")
         closing.append(state.connect)
         if "a" in wanted:
             settled("a", state.observe_a)

@@ -94,6 +94,7 @@ import {
 import { constants } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startCheckpoints } from "./ci/checkpoints.mjs";
 import { hostCommands } from "./ci/hostCommands.mjs";
 import {
 	HOSTED_CONTAINER,
@@ -119,6 +120,7 @@ const PASSED_THROUGH = [
 	"PROOF_VERIFY_MEMOS",
 	"PROOF_EDITOR_AUDIT",
 	"PROOF_BRANCH_DOCUMENTS",
+	"PROOF_REPLAY_STAGE",
 ];
 
 /** Variables of the lane before its fork server, which no longer select anything. */
@@ -232,7 +234,7 @@ async function imageId(image) {
  * time that lock is seen. Nothing the container runs can write either: the
  * harness's own writes go to /out and the container's temporary directory.
  */
-async function nodeModules(image, platform, view) {
+async function nodeModules(image, platform, view, replayProject) {
 	const hostInstall = join(worktree, "node_modules");
 	if (
 		platform === "linux" &&
@@ -242,12 +244,14 @@ async function nodeModules(image, platform, view) {
 	}
 	const lock = await readFile(join(worktree, "package-lock.json"));
 	const key = createHash("sha256").update(lock).digest("hex").slice(0, 16);
-	const volume = `nova-proof-node-modules-${key}`;
+	let volume = `nova-proof-node-modules-${key}`;
+	const name = replayProject ? ["--name", `${replayProject}-deps`] : [];
 	const installed = await execute(
 		"docker",
 		[
 			"run",
 			"--rm",
+			...name,
 			"-v",
 			`${volume}:/modules`,
 			image,
@@ -258,12 +262,14 @@ async function nodeModules(image, platform, view) {
 		{ stdio: "ignore" },
 	);
 	if (installed !== 0) {
+		if (replayProject) volume = `${replayProject}-modules`;
 		console.error(
 			`Installing Nova's dependencies for Linux into the Docker volume ${volume} (once per package-lock.json).`,
 		);
 		const code = await execute("docker", [
 			"run",
 			"--rm",
+			...name,
 			"-v",
 			`${view}:/work:ro`,
 			"-v",
@@ -592,12 +598,11 @@ async function ownerState(owner) {
  */
 async function removeFinishedRuns(runs) {
 	for (const entry of await readdir(runs, { withFileTypes: true })) {
-		const id = entry.name.endsWith(".owner")
-			? entry.name.slice(0, -".owner".length)
-			: entry.name;
+		const id = entry.name.replace(/(?:\.owner|\.host-status\.json)$/, "");
 		const owner = join(runs, `${id}.owner`);
 		if ((await ownerState(owner)) === "live") continue;
 		await rm(join(runs, id), { recursive: true, force: true });
+		await rm(join(runs, `${id}.host-status.json`), { force: true });
 		await rm(owner, { force: true });
 	}
 }
@@ -930,6 +935,7 @@ function watchMemory(output, project) {
 		await writeFile(
 			join(output, "memory.json"),
 			`${JSON.stringify({ peaks: found, machineLowestFree: hostLowest, samples }, null, "\t")}\n`,
+			{ flag: "wx", mode: 0o600 },
 		).catch(() => {});
 		const summary = Object.entries(found).map(
 			([name, peak]) => `${name} ${gib(peak.cgroup ?? peak.sampled)}`,
@@ -1017,8 +1023,16 @@ export async function surface({
  * and `environment` its own, and removes the lane (Postgres and its volume)
  * however the run ends.
  */
-async function runServer({ image, mounts, environment, serve, output }) {
-	const project = `nova-proof-${randomBytes(4).toString("hex")}`;
+async function runServer({
+	image,
+	mounts,
+	environment,
+	serve,
+	output,
+	replayProject,
+}) {
+	const project =
+		replayProject ?? `nova-proof-${randomBytes(4).toString("hex")}`;
 	const compose = ["compose", "-f", COMPOSE_FILE, "-p", project];
 	// Postgres's client cap (proof/compose.yaml): each worker holds HQ's
 	// connections and its Formplayers' pools, so the cap grows with them.
@@ -1047,7 +1061,11 @@ async function runServer({ image, mounts, environment, serve, output }) {
 				...compose,
 				"run",
 				"--rm",
-				...(hosted ? ["--name", HOSTED_CONTAINER] : []),
+				...(replayProject
+					? ["--name", `${replayProject}-reader`]
+					: hosted
+						? ["--name", HOSTED_CONTAINER]
+						: []),
 				...mounts,
 				...environment,
 				"harness",
@@ -1075,6 +1093,7 @@ export async function main(
 		platform = process.platform,
 		outputRoot = OUTPUT_ROOT,
 		checkout = worktree,
+		replayProject = undefined,
 	} = {},
 ) {
 	refuseRetired();
@@ -1088,8 +1107,10 @@ export async function main(
 	const view = await checkoutView(await viewDirectory(outputRoot), {
 		root: checkout,
 	});
+	let modulesForCleanup;
 	try {
-		const modules = await nodeModules(image, platform, view);
+		const modules = await nodeModules(image, platform, view, replayProject);
+		modulesForCleanup = modules;
 		const output = await runOutput({ root: outputRoot });
 		console.error(`The proof lane writes its output into ${output}.`);
 		const code = await runServer({
@@ -1117,7 +1138,11 @@ export async function main(
 				...android.environment,
 			],
 			output,
+			replayProject,
 			serve: [
+				...(replayProject
+					? ["--deadline-at", process.env.PROOF_DIAGNOSTIC_DEADLINE_AT]
+					: []),
 				"--workers",
 				String(lane.workers),
 				"--claim",
@@ -1126,9 +1151,14 @@ export async function main(
 				"--",
 				...pytestArguments(lane.pytest),
 			],
-		}).finally(() => sealed(output));
+		}).finally(() => (replayProject ? undefined : sealed(output)));
 		return refusedOutputs.has(output) ? SEAL_REFUSED : code;
 	} finally {
+		if (replayProject && modulesForCleanup === `${replayProject}-modules`) {
+			await execute("docker", ["volume", "rm", modulesForCleanup], {
+				stdio: "ignore",
+			});
+		}
 		await rm(view, { recursive: true, force: true });
 	}
 }
@@ -1232,6 +1262,7 @@ export async function shard(
 					cwd: worktree,
 				})
 			: undefined;
+	let stopCheckpoints;
 	try {
 		const mounts = [
 			"-v",
@@ -1243,11 +1274,12 @@ export async function shard(
 			...android.mounts,
 			...(commands?.mounts ?? []),
 		];
+		const fingerprints = await laneFingerprints(image, id);
 		const environment = [
 			...passedThrough(),
 			"-e",
 			`PROOF_IMAGE_ID=${id}`,
-			...(await laneFingerprints(image, id)),
+			...fingerprints,
 			...extraction.environment,
 			...store.environment,
 			...android.environment,
@@ -1274,6 +1306,28 @@ export async function shard(
 		serve.push("--claim", commands?.claim ?? "static");
 		if (options.bin) serve.push("--bin", options.bin);
 		if (commands?.waitFor) serve.push("--wait-for", commands.waitFor);
+		if (
+			process.env.PROOF_SHARD_DEADLINE_AT &&
+			process.env.PROOF_HOSTED_CHECKPOINTS === "1" &&
+			fingerprints.length
+		) {
+			try {
+				stopCheckpoints = startCheckpoints({
+					output,
+					early,
+					main: queue,
+					shard: options.label,
+					checkout,
+					image: id,
+					fingerprints: fingerprints[1],
+				});
+				environment.push("-e", "PROOF_CHECKPOINT_PARTS=1");
+			} catch {
+				console.error(
+					"Reader progress could not start with a verified checkout identity.",
+				);
+			}
+		}
 		console.error(`The proof shard writes its output into ${output}.`);
 		const code = await runServer({
 			image,
@@ -1284,6 +1338,7 @@ export async function shard(
 		}).finally(() => sealed(output));
 		return refusedOutputs.has(output) ? SEAL_REFUSED : code;
 	} finally {
+		await stopCheckpoints?.();
 		await commands?.close();
 		await rm(view, { recursive: true, force: true });
 	}
@@ -1480,6 +1535,49 @@ export async function refreshTimings(
 	};
 }
 
+async function diagnostic(args) {
+	const lane = laneOptions(args);
+	if (
+		lane.workers !== 1 ||
+		lane.pytest.length !== 1 ||
+		lane.pytest[0] !== "proof/diagnostics/replay.py::test_selected_stage"
+	)
+		throw new Error("A diagnostic runs only the selected stage on one worker.");
+	const output = await runOutput({ root: OUTPUT_ROOT });
+	const supervisor = spawn(
+		"python3",
+		[
+			"-m",
+			"proof.diagnostics.host",
+			process.execPath,
+			fileURLToPath(import.meta.url),
+			"--replay-child",
+			...args,
+		],
+		{
+			cwd: worktree,
+			env: { ...process.env, PROOF_OUT_DIR: output },
+			stdio: "inherit",
+		},
+	);
+	const cancel = (signal) => supervisor.kill(signal);
+	const interrupt = () => cancel("SIGINT"),
+		terminate = () => cancel("SIGTERM");
+	process.on("SIGINT", interrupt);
+	process.on("SIGTERM", terminate);
+	try {
+		return await new Promise((accept, reject) => {
+			supervisor.once("error", reject);
+			supervisor.once("exit", (code, signal) =>
+				accept(childExit(code, signal)),
+			);
+		});
+	} finally {
+		process.off("SIGINT", interrupt);
+		process.off("SIGTERM", terminate);
+	}
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	const [command, ...rest] = process.argv.slice(2);
 	const done = (code) => process.exit(code);
@@ -1489,6 +1587,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	};
 	if (command === "--surface") {
 		surface().then(done, failed);
+	} else if (command === "--seal-replay" && rest.length === 2) {
+		const [project, output] = rest;
+		if (!/^nova-proof-replay-[a-f0-9]{16}$/.test(project))
+			throw new Error("Invalid diagnostic project.");
+		// Only the named harness mounts /out. The supervisor has already reaped the launcher group.
+		stopHostedWriter(`${project}-reader`);
+		sealOutput(resolve(output)).then(
+			(foreign) => done(foreign.length > 0 ? SEAL_REFUSED : 0),
+			failed,
+		);
 	} else if (
 		(command === "--seal" || command === "--seal-hosted") &&
 		rest.length === 1
@@ -1550,6 +1658,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 				return 0;
 			})
 			.then(done, failed);
+	} else if (command === "--replay-child") {
+		const project = process.env.PROOF_DIAGNOSTIC_PROJECT;
+		if (!/^nova-proof-replay-[a-f0-9]{16}$/.test(project ?? ""))
+			throw new Error("Invalid diagnostic project.");
+		main(rest, { replayProject: project }).then(done, failed);
+	} else if (process.env.PROOF_REPLAY_STAGE !== undefined) {
+		diagnostic(process.argv.slice(2)).then(done, failed);
 	} else {
 		main(process.argv.slice(2)).then(done, failed);
 	}

@@ -190,6 +190,7 @@ PACKAGE_DATA = {
     "proof/android": {"documents": ("proof/android/conftest.py", "DOCUMENTS")},
     "proof/checks": {"documents": EVERY, "reader": EVERY},
     "proof/connect": {"documents": ("proof/connect/conftest.py", "DOCUMENTS")},
+    "proof/diagnostics": {"documents": ("proof/diagnostics/test_native.py", "DOCUMENTS")},
     "proof/editors": {"documents": ("proof/editors/conftest.py", "DOCUMENTS")},
     "proof/formplayer": {"documents": ("proof/formplayer/conftest.py", "DOCUMENTS")},
     "proof/hq": {"documents": ("proof/hq/conftest.py", "DOCUMENTS"), "native": EVERY},

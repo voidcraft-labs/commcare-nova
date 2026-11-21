@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from proof.observe.record import NULL_STORE, Blobs, canonical, digest
@@ -113,7 +114,7 @@ def session_store(document=None, environ=None):
         return NULL_STORE
     run = output_root(Path(environ["PROOF_OUT"]))
     guard.install()
-    return Store(
+    store = Store(
         snapshot(Path(named) if named else None),
         disk.Delta(run / disk.DELTA),
         found,
@@ -121,6 +122,10 @@ def session_store(document=None, environ=None):
         fresh=environ.get(FRESH_ENVIRONMENT) == "1",
         audit_directory=run / AUDIT,
     )
+    from proof.store.checkpoint import Stager
+
+    store.checkpoints = Stager.for_group(document, store, environ)
+    return store
 
 
 class Store:
@@ -141,6 +146,7 @@ class Store:
         self.same_as = not self.fresh
         self.audit_directory = Path(audit_directory)
         self.transcripts = Transcripts(self)
+        self.checkpoints = None
         # The last part read whole (``_held``): the observation asks for its record, then for its blobs.
         self._last: tuple[bytes, bytes, Blobs, bool] | None = None
         delta.record_fingerprints({"fingerprints": self.fingerprints, "environment": self.environment})
@@ -235,6 +241,13 @@ class Store:
             raise audit.write_mismatch(
                 self.audit_directory, stored, held_record, content, why="this run already kept another record"
             ) from conflict
+
+        if self.checkpoints is not None:
+            try:
+                self.checkpoints.settled(key, stored)
+            except (OSError, ValueError) as error:
+                # The ordinary delta is already sealed. A diagnostic transfer fault cannot change its verdict.
+                print(f"Could not stage complete proof part {stored}: {type(error).__name__}.", file=sys.stderr)
 
     def audit(self, key: bytes, record: dict) -> None:
         """Hold a part observed afresh to whatever this run's delta and the snapshot hold under its key."""

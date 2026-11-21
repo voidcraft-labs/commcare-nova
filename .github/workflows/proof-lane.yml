@@ -280,7 +280,7 @@ jobs:
           path: ${{ runner.temp }}/lane/proof-corpus-${{ inputs.label }}-${{ github.run_attempt }}.tar.zst
           archive: false
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
       - name: Upload the early queue
         uses: actions/upload-artifact@v7
         with:
@@ -340,6 +340,7 @@ jobs:
       ATTEMPT: ${{ github.run_attempt }}
       SHARD: ${{ matrix.shard }}/${{ matrix.total }}
       PROOF_SHARD_MINUTES: ${{ matrix.deadline }}
+      PROOF_HOSTED_CHECKPOINTS: "1"
     steps:
       - name: Start the shard's work clock
         run: echo "PROOF_SHARD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"

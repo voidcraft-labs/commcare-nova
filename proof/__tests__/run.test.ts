@@ -665,7 +665,9 @@ it("gives each run its own output directory, linked as out, and removes only fin
 		join(runs, "running.owner"),
 		JSON.stringify({ pid: process.pid }),
 	);
+	await writeFile(join(runs, "running.host-status.json"), "in progress");
 	await mkdir(join(runs, "finished"));
+	await writeFile(join(runs, "finished.host-status.json"), "closed");
 	await writeFile(
 		join(runs, "finished.owner"),
 		JSON.stringify({ pid: await finishedPid() }),
@@ -681,6 +683,8 @@ it("gives each run its own output directory, linked as out, and removes only fin
 		const first = await runOutput({ root });
 		expect(existsSync(join(runs, "finished"))).toBe(false);
 		expect(existsSync(join(runs, "finished.owner"))).toBe(false);
+		expect(existsSync(join(runs, "finished.host-status.json"))).toBe(false);
+		expect(existsSync(join(runs, "running.host-status.json"))).toBe(true);
 		expect(resolve(root, await readlink(join(root, "out")))).toBe(first);
 		// The directory an earlier runner wrote at out is moved aside, not removed, by the run that links out.
 		const [moved] = await earlier();
@@ -890,19 +894,22 @@ it("runs a shard's claims on the host with its credentials, for the queue's bloc
 // What a container wrote is data. The plausible failure: a link the container left in its output is followed by
 // a later host step (an upload follows links), so a host file is published. The output is moved aside instead.
 it("moves aside an output the container left a link in, names it, and exits with the seal's status", async () => {
-	const secret = join(scratch, "secret.txt");
-	await writeFile(secret, "a host file\n");
+	const marker = join(scratch, "marker.txt");
+	await writeFile(marker, "test fixture\n");
 	await fakeDocker({
 		installed: 0,
 		npmCi: 0,
 		harness: 0,
-		outputLink: { path: "leak.txt", target: secret },
+		outputLink: { path: "memory.json", target: marker },
 	});
 	const result = await proof([], "darwin");
 	expect(result.code).toBe(6);
-	expect(result.stderr).toContain("leak.txt, which is a link and not a file");
+	expect(result.stderr).toContain(
+		"memory.json, which is a link and not a file",
+	);
 	expect(existsSync(join(scratch, "out"))).toBe(false);
-	expect(existsSync(join(scratch, "out.refused", "leak.txt"))).toBe(true);
+	expect(existsSync(join(scratch, "out.refused", "memory.json"))).toBe(true);
+	expect(await readFile(marker, "utf8")).toBe("test fixture\n");
 });
 
 it("keeps an output of plain files in place and returns the server's status", async () => {

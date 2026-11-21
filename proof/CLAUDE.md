@@ -512,7 +512,11 @@ harness keeps, each with its reason.
     before checkout and reserve fifteen additional minutes for shutdown,
     sealing and upload. On expiry the fork server records finished and
     interrupted groups before teardown. An interrupted shard fails the gate
-    even if every group finished. An incomplete group cannot supply a cached pass.
+    even if every group finished. An incomplete group cannot supply a cached pass. While a shard works,
+    the host independently uploads bounded progress and complete deterministic parts of retained synthetic
+    apps. The container receives no upload credential. Each part has its own checked source and queue
+    receipt and exact content digests. Only the ordinary store and gate decide what a later run can use.
+    See “Recovering a running or interrupted reader” in `proof/README.md`.
   - **Nightly** (`proof-audit.yml`, Tuesday to Saturday): both profiles over
     main against main's store, without the readers and then with them, so
     every group main's store lacks is observed, and each is merged into the
@@ -606,6 +610,15 @@ harness keeps, each with its reason.
   --timings`), which every plan reads; never buy speed with more workers or
   processes than a four-vCPU job serves, with a seam that computes something
   HQ would not, or by running less.
+- A focused B replay (`proof/diagnostics/replay.py`) rebuilds the selected emitted
+  configuration through HQ's seeded create, republish and build. A digest issued
+  at the original operation binds its B input key, actual archive, case/restore
+  inputs, runtime, reader profile and call arguments. An editor's native
+  observation also identifies the exact save. Only the selected completed response
+  and named blobs enter the diagnostic output. The ordinary checks still require
+  their full observation records. Connect's opportunity spans states and its calls
+  stay with the ordinary observation.
+
 - **Android runs beside HQ's live unit, and HQ answers its network with its
   own views.** A claim about what a device does is observed on
   commcare-android's own classes (`proof/android`, Robolectric, one JVM and
