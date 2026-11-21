@@ -575,6 +575,7 @@ describe("a released claim", () => {
 
 		const outcome = await churned(() =>
 			publishAppToHq({
+				requireHqImport: null,
 				scope: birth.scope,
 				...TARGET,
 				doc: emptyBlueprintDoc(APP),

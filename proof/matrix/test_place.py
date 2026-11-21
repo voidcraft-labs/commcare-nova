@@ -50,6 +50,16 @@ def _tree(root: Path) -> dict[str, bytes]:
     return {path.relative_to(root).as_posix(): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
 
 
+@pytest.mark.parametrize("missing", ["hq-apps", "hq-reads", "adopt-report.txt"])
+def test_an_incomplete_download_preserves_both_trees(tmp_path, missing):
+    artifact, proof = tmp_path / "artifact", tmp_path / "proof"
+    _write(artifact, {name: data for name, data in ARTIFACT.items() if name.split("/")[0] != missing})
+    _write(proof, CHECKOUT)
+    with pytest.raises(place.PlaceRefused, match=missing):
+        place.unpack(artifact, proof)
+    assert _tree(proof) == CHECKOUT
+
+
 def test_an_artifact_replaces_each_tree_whole_with_plain_files_and_gives_its_report():
     with tempfile.TemporaryDirectory() as scratch:
         artifact, proof = Path(scratch) / "artifact", Path(scratch) / "proof"

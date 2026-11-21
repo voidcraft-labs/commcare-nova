@@ -756,6 +756,36 @@ describe(MIGRATION, () => {
 		const after = await revisions();
 		await runUp(db);
 		expect(await revisions()).toEqual(after);
+
+		// The old writer can still lose its post-import read. Its upsert
+		// replaces all four source fields but cannot clear nova_revision.
+		const oldPush = "01992000-0000-7000-8000-000000000100";
+		await sql`INSERT INTO public.app_deployment_baselines
+			(deployment_id, remote_app_id, origin, observed_at, observed_by)
+			VALUES (${oldPush}::uuid, 'hq-7', 'unread', now(), 'owner')
+			ON CONFLICT (deployment_id) DO UPDATE SET
+				origin = EXCLUDED.origin, source_gzip = EXCLUDED.source_gzip,
+				source_bytes = EXCLUDED.source_bytes, source_digest = EXCLUDED.source_digest,
+				ownership = EXCLUDED.ownership`.execute(db);
+		expect(
+			(
+				await sql`SELECT origin, nova_revision, source_digest FROM public.app_deployment_baselines
+			WHERE deployment_id = ${oldPush}::uuid`.execute(db)
+			).rows,
+		).toEqual([{ origin: "unread", nova_revision: "9", source_digest: null }]);
+		// An observation holding actual bytes, in contrast, may never claim
+		// that those bytes represent a saved revision of the Nova app.
+		expect(
+			await refusal(() =>
+				sql`UPDATE public.app_deployment_baselines
+			SET source_gzip = decode('1f8b','hex'), source_bytes = 2,
+				source_digest = ${"a".repeat(64)}, ownership = '{}'::jsonb
+			WHERE deployment_id = ${oldPush}::uuid`.execute(db),
+			),
+		).toEqual({
+			code: "23514",
+			constraint: "app_deployment_baselines_source_shape",
+		});
 	});
 
 	it("lets the previous revision supersede a released mapping and insert the fresh one beside it", async () => {

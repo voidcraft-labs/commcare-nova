@@ -85,7 +85,7 @@ async function pinLane() {
 	);
 	await writeFile(
 		join(seed, "lib/commcare/surface/surface.json"),
-		tabbed({ items: {} }),
+		tabbed({ pins: { "commcare-hq": pinned }, items: {} }),
 	);
 	await writeFile(
 		join(seed, "lib/commcare/surface/entries/gates.json"),
@@ -187,7 +187,10 @@ it("writes the lock the pin pull request commits for the candidate, so the prewa
 	expect(stdout).toBe(written);
 
 	const surface = join(root, "surface.json");
-	await writeFile(surface, tabbed({ items: {} }));
+	await writeFile(
+		surface,
+		tabbed({ pins: { "commcare-hq": head }, items: {} }),
+	);
 	await exec(
 		process.execPath,
 		[

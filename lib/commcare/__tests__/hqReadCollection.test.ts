@@ -2,6 +2,11 @@
 import type { MockAgent } from "undici";
 import { describe, expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import {
+	MemoryMeter,
+	runInLease,
+	TEXT_HEAP_PER_WIRE_BYTE,
+} from "../hq/memoryMeter";
 import { type HqCollectionSpec, readHqCollection } from "../hq/readCollection";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
@@ -103,10 +108,18 @@ describe("readHqCollection", () => {
 			/* Between the first pass and the second, `b` is deleted and `d`
 			 * inserted: the count holds, the set does not. */
 			servePages(peer, [rowsOf("a", "b", "c"), rowsOf("a", "c", "d")], 2);
-			expect(await readHqCollection(CREDS, spec())).toMatchObject({
-				rows: rowsOf("a", "c", "d"),
-				totalCount: 3,
-			});
+			const lease = new MemoryMeter({ heap: 64 * 1024, external: 0 }).open();
+			try {
+				const result = await runInLease(lease, () =>
+					readHqCollection(CREDS, spec()),
+				);
+				expect(result).toMatchObject({ rows: rowsOf("a", "c", "d") });
+				expect(
+					"bytes" in result && result.bytes * TEXT_HEAP_PER_WIRE_BYTE,
+				).toBe(lease.held().heap);
+			} finally {
+				lease.end();
+			}
 			expect(asked(peer)).toHaveLength(6);
 		});
 	});

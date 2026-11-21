@@ -24,9 +24,13 @@ import type { MockAgent } from "undici";
 import { expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { MAX_MEDIA_EXPORT_ASSETS } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { uploadAppMediaBundle } from "../client";
-import { HQ_MEDIA_BUNDLE_ACK_MAX_BYTES } from "../hq/bounds";
+import {
+	HQ_MEDIA_BUNDLE_ACK_MAX_BYTES,
+	HQ_MEDIA_BUNDLE_STATUS_MAX_BYTES,
+} from "../hq/bounds";
 import { buildMediaBulkUploadZip } from "../multimedia/bulkUploadZip";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
@@ -100,7 +104,7 @@ function completedStatus(matchedFiles: unknown) {
 	};
 }
 
-function serve(peer: MockAgent, status: object) {
+function serve(peer: MockAgent, status: object | string) {
 	peer
 		.get(HOST)
 		.intercept({ path: POST, method: "POST" })
@@ -131,6 +135,27 @@ it("holds each matched file's path and id, across every class of media", async (
 			errors: [],
 			timedOut: false,
 		});
+	});
+});
+
+it("reads the complete status for a full bundle with long international file names", async () => {
+	const files = Array.from({ length: MAX_MEDIA_EXPORT_ASSETS }, (_, i) =>
+		mediaInfo(
+			`jr://file/images/${"🌻".repeat(225)}-${i}.png`,
+			`image-${i}`,
+			true,
+		),
+	);
+	// Django JsonResponse uses json.dumps' ASCII escaping, one escape per UTF-16 code unit.
+	const body = JSON.stringify(
+		completedStatus({ CommCareImage: files }),
+	).replaceAll("🌻", "\\ud83c\\udf3b");
+	await withHttpPeer(async (peer) => {
+		serve(peer, body);
+		const result = await upload();
+		expect("matchedFiles" in result && result.matchedFiles).toEqual(
+			files.map((file) => ({ path: file.path, multimediaId: file.m_id })),
+		);
 	});
 });
 
@@ -182,7 +207,10 @@ it("takes a start or a status report longer than Nova reads as one it cannot rea
 			.intercept({ path: POST, method: "POST" })
 			.reply(200, { success: true, processing_id: "proc-1", note: long });
 		expect(await upload()).toEqual({ success: false, status: 502 });
-		serve(peer, { ...completedStatus(undefined), errors: [long] });
+		serve(peer, {
+			...completedStatus(undefined),
+			errors: ["x".repeat(HQ_MEDIA_BUNDLE_STATUS_MAX_BYTES)],
+		});
 		expect(await upload()).toEqual({ success: false, status: 502 });
 	});
 });

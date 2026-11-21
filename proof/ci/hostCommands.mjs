@@ -9,8 +9,9 @@
 // (`python -m proof.lane.relay`): the relay names its request as an empty
 // file in the requests directory (mounted writable at /lane/requests), and
 // waits for the answer this broker writes into the answers directory
-// (mounted read-only at /lane/answers): the command's output, then its exit
-// status, each moved into place whole.
+// (mounted read-only at /lane/answers): only the command's exit status, moved
+// into place whole. The artifact client emits runner masking commands on its
+// diagnostic stream, so the host job receives that stream directly.
 //
 // What the container writes is data, so the broker reads nothing from a
 // request but its name. A name is `wait.request` or
@@ -22,7 +23,7 @@
 // queue's path on this host) beside it.
 
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync } from "node:fs";
+import { existsSync } from "node:fs";
 import {
 	mkdir,
 	mkdtemp,
@@ -82,6 +83,7 @@ export async function hostCommands({
 	environment = process.env,
 	poll = POLL,
 }) {
+	let known = await blockIds(earlyQueue);
 	const root = await mkdtemp(join(tmpdir(), "proof-lane-commands-"));
 	const requests = join(root, "requests");
 	const answers = join(root, "answers");
@@ -89,7 +91,7 @@ export async function hostCommands({
 	await mkdir(answers);
 	const handled = new Set();
 	const running = new Set();
-	let known = await blockIds(earlyQueue);
+	let stopped = false;
 
 	const answer = async (name, code) => {
 		await writeWhole(join(answers, `${name}.code`), `${code}\n`);
@@ -97,14 +99,12 @@ export async function hostCommands({
 
 	const start = (name, text, extra) =>
 		new Promise((settle) => {
-			const log = openSync(join(answers, `${name}.log`), "w");
 			const child = spawn("sh", ["-c", text], {
 				cwd,
 				env: { ...environment, ...extra },
-				stdio: ["ignore", log, log],
+				stdio: ["ignore", "inherit", "inherit"],
 				detached: true,
 			});
-			closeSync(log);
 			running.add(child);
 			const ended = (code) => {
 				running.delete(child);
@@ -128,7 +128,7 @@ export async function hostCommands({
 					...(await blockIds(queue)),
 				]);
 			}
-			if (known.has(block)) {
+			if (!stopped && known.has(block)) {
 				await start(`claim-${block}`, claim.replaceAll("{block}", block), {
 					PROOF_LANE_BLOCK: block,
 				});
@@ -149,7 +149,6 @@ export async function hostCommands({
 		pending.add(work);
 		work.finally(() => pending.delete(work));
 	};
-	let stopped = false;
 	const look = async () => {
 		const names = await readdir(requests).catch(() => []);
 		for (const name of names.sort()) {

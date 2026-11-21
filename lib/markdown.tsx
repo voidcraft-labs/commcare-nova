@@ -42,6 +42,7 @@ import {
 	type ReactNode,
 	useMemo,
 } from "react";
+import { isInlinePicture } from "@/lib/links/inlinePicture";
 import { isOpenableAddress } from "@/lib/links/openableAddress";
 
 /* ---------------------------------------------------------------------------
@@ -272,21 +273,6 @@ function LabelLink({
 			{children}
 		</a>
 	);
-}
-
-/** An image `data:` address of a kind Web Apps' renderer draws: the picture
- *  is inside the label, so drawing it requests nothing. */
-function isInlinePicture(src: string): boolean {
-	try {
-		const address = new URL(src);
-		if (address.protocol !== "data:") return false;
-		const kind = address.pathname.toLowerCase();
-		return ["image/gif;", "image/png;", "image/jpeg;", "image/webp;"].some(
-			(prefix) => kind.startsWith(prefix),
-		);
-	} catch {
-		return false;
-	}
 }
 
 function DescribedPicture({ alt }: { alt?: string }) {

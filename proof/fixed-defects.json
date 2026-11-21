@@ -6857,7 +6857,7 @@
 		"part": "reserved substrings",
 		"check": "manifest",
 		"artifact": "*form:*",
-		"path": "/instance-source:ledgerdb",
+		"path": "/instance-source:ledgerdb/refused/ledger-read",
 		"control": "targeted-lookup-reserved-tags"
 	},
 	{

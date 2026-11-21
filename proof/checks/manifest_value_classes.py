@@ -7303,6 +7303,23 @@ def referenced_unrecognized_source(use, manifest):
         return False
     if instance_source(manifest, element.get("src")) != "instance-source:(none)" or not element.get("id"):
         return False
+    return _reads_declared_instance(document, element.get("id"))
+
+
+def ledger_read(use, manifest):
+    """HQ's ledger scheme, or a read of a declaration Core initializes as the ledger database. Its source
+    may have a different spelling, including a lookup tag containing ledgerdb (generateRoot checks the
+    ledger before fixtures). An unread declaration is inert."""
+    if use.key == "instance-scheme:ledgerdb":
+        return True
+    at = _xml(use)
+    if at is None or not at.element.get("id"):
+        return None
+    return _reads_declared_instance(at.document, at.element.get("id"))
+
+
+def _reads_declared_instance(document, instance_id):
+    """Whether Core's parsed expressions read this id, or None where the record cannot settle a read."""
     if document.readings is None:
         return None
     unsure = False
@@ -7318,7 +7335,7 @@ def referenced_unrecognized_source(use, manifest):
                 continue
             if "error" in parsed:
                 continue
-            if any(path["instance"] == element.get("id") for path in parsed["instancePaths"]):
+            if any(path["instance"] == instance_id for path in parsed["instancePaths"]):
                 return True
             unsure = unsure or "instance" in parsed["functions"]
     return None if unsure else False
@@ -9907,6 +9924,7 @@ VALUE_CLASSES = {
     "expressions-and-data/session-context-window-width-in-form-logic": window_width_in_form_logic,
     "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": choice_name_on_lookup,
     "expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src": referenced_unrecognized_source,
+    "expressions-and-data/ledgerdb-vellum-id-ledger": ledger_read,
     "expressions-and-data/after-a-named-step-data-a-b": parent_after_named_step,
     "expressions-and-data/or-with-a-time-on-either-side-a-time-answer-property-or-string": time_operand,
     "expressions-and-data/results-read-in-form-expressions-reached-through-a-search-that": (

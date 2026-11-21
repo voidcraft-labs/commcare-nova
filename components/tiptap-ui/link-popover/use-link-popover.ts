@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 // --- Icons ---
 import { LinkIcon } from "@/components/tiptap-icons/link-icon";
 // --- Lib ---
+import { isOpenableAddress } from "@/lib/links/openableAddress";
 import { isMarkInSchema, isNodeTypeSelected } from "@/lib/tiptap-utils";
 // --- Hooks ---
 import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
@@ -130,7 +131,7 @@ export function useLinkHandler(props: LinkHandlerProps) {
 	}, [editor]);
 
 	const setLink = useCallback(() => {
-		if (!url || !editor) return;
+		if (!url || !isOpenableAddress(url) || !editor) return;
 
 		const { selection } = editor.state;
 		const isEmpty = selection.empty;
@@ -162,14 +163,10 @@ export function useLinkHandler(props: LinkHandlerProps) {
 		setUrl("");
 	}, [editor]);
 
-	const openLink = useCallback(
-		(target: string = "_blank", features: string = "noopener,noreferrer") => {
-			if (!url) return;
-
-			window.open(url, target, features);
-		},
-		[url],
-	);
+	const openLink = useCallback(() => {
+		if (url && isOpenableAddress(url))
+			window.open(url, "_blank", "noopener,noreferrer");
+	}, [url]);
 
 	return {
 		url: url || "",

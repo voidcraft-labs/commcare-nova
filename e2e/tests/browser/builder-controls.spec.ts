@@ -1741,6 +1741,11 @@ test("inline prose popovers expose their names and retain editing focus", async 
 		exact: true,
 	});
 	await expect(imageAddress).toBeFocused();
+	const pictures: string[] = [];
+	page.on("request", (request) => {
+		if (request.url().endsWith("/native-image.svg"))
+			pictures.push(request.url());
+	});
 	await imageAddress.fill(`${peer.origin}/native-image.svg`);
 	await image
 		.getByRole("textbox", { name: "Image description", exact: true })
@@ -1748,14 +1753,21 @@ test("inline prose popovers expose their names and retain editing focus", async 
 	await imageAddress.press("Enter");
 	await expect(image).toHaveCount(0);
 	await expect(
-		editor.getByRole("img", { name: "Region symbol", exact: true }),
+		editor.getByText("Region symbol", { exact: true }),
 	).toBeVisible();
+	await expect(editor.locator("img[src]")).toHaveCount(0);
+	expect(pictures).toEqual([]);
 });
 
 test("markdown formatting fits a narrow inspector and native dialogs insert the requested content", async ({
 	page,
 }) => {
 	await page.goto(`${peer.origin}/?scenario=markdown`);
+	const pictures: string[] = [];
+	page.on("request", (request) => {
+		if (request.url().endsWith("/native-image.svg"))
+			pictures.push(request.url());
+	});
 	const toolbar = page.getByRole("toolbar", { name: "Subtitle formatting" });
 	await expect(toolbar).toBeVisible();
 	expect(await toolbar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
@@ -1828,7 +1840,7 @@ test("markdown formatting fits a narrow inspector and native dialogs insert the 
 		.click();
 	await expect(imageDialog).toHaveCount(0);
 	await expect(
-		editor.getByRole("img", { name: "Region symbol", exact: true }),
+		editor.getByText("Region symbol", { exact: true }),
 	).toBeVisible();
 	await page
 		.getByRole("button", { name: "Leave markdown", exact: true })
@@ -1841,15 +1853,29 @@ test("markdown formatting fits a narrow inspector and native dialogs insert the 
 		.getByRole("button", { name: "Reopen markdown", exact: true })
 		.click();
 	await expect(
-		editor
-			.locator("table")
-			.getByRole("img", { name: "Region symbol", exact: true }),
+		editor.locator("table").getByText("Region symbol", { exact: true }),
 	).toBeVisible();
 	await editor.click();
 	await page
 		.getByRole("button", { name: "Leave markdown", exact: true })
 		.click();
 	await expect(page.getByLabel("Saved markdown")).toHaveText(saved ?? "");
+	// A complex table is stored as HTML. Reopening and saving it preserves
+	// the worker's picture even though the editor only shows its description.
+	const tableSource = `<table><tbody><tr><td colspan="2"><p><img src="${peer.origin}/native-image.svg" alt="Ward"></p></td></tr></tbody></table>`;
+	await page.goto(
+		`${peer.origin}/?scenario=markdown&subtitle=${encodeURIComponent(tableSource)}`,
+	);
+	await expect(editor.locator("table")).toContainText("Ward");
+	await expect(editor.locator("img[src]")).toHaveCount(0);
+	await editor.click();
+	await page
+		.getByRole("button", { name: "Leave markdown", exact: true })
+		.click();
+	await expect(page.getByLabel("Saved markdown")).toContainText(
+		`<img src="${peer.origin}/native-image.svg" alt="Ward">`,
+	);
+	expect(pictures).toEqual([]);
 });
 
 test("field activation is one-shot through empty cancellation, saved values and selection changes", async ({

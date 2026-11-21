@@ -118,6 +118,10 @@ import { expandDoc, type HqAppShell } from "@/lib/commcare/expander";
 import type { HqApplicationModule } from "@/lib/commcare/hq/application";
 import { alignHqForms } from "@/lib/commcare/hq/appReading";
 import { type HqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	importReplacedReadApp,
+	readHqAppSourceAtVersion,
+} from "@/lib/commcare/hq/appSourceAtVersion";
 import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
 import {
 	type HqFixtureRow,
@@ -162,7 +166,10 @@ import {
 	buildProfileLanguageGaps,
 	publishedLanguageCodes,
 } from "@/lib/commcare/targetBuildProfiles";
-import type { TargetFacts } from "@/lib/commcare/targetFacts";
+import {
+	type TargetFacts,
+	targetFactsFromSource,
+} from "@/lib/commcare/targetFacts";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
 	type ColumnFieldWordRow,
@@ -257,7 +264,6 @@ import {
 	chooseDownloadTarget,
 	workersSentElsewhere,
 } from "@/lib/deployment/runtimeTarget";
-import { targetFactsFromBaseline } from "@/lib/deployment/targetFacts";
 import {
 	canonicalTargetIdentity,
 	EMPTY_TARGET_IDENTITY,
@@ -1443,9 +1449,9 @@ export interface SentImport {
 	readonly assumedResources?: AssumedResources;
 	/**
 	 * What the project space keeps of the values Nova leaves to CommCare HQ
-	 * after the import: the facts of the source read back as the app's next
-	 * baseline (`lib/deployment/targetFacts.ts::targetFactsFromBaseline`),
-	 * which a `.ccz` downloaded for the project space then reads.
+	 * after the import, from the source at the version HQ acknowledged. A
+	 * download can use these even when another save left the next publish's
+	 * comparison unconfirmed.
 	 */
 	readonly targetFacts: TargetFacts | null;
 }
@@ -2012,10 +2018,11 @@ function appEdge(
  * source read (the push took time, and HQ may have changed the app), held
  * to the read this publish holds (`held`) by the drift comparison, which
  * must find nothing; then the import of the assembled application as an
- * update of `appId`, the source read back as the app's next baseline, and,
- * when the export carries media, the media upload to the app the import
- * answered with (`service.ts::uploadMediaBytes`: one ZIP of every asset,
- * then the status reads, which change nothing in HQ and are not captured).
+ * update of `appId`. A read at the version the import acknowledged gives
+ * the download its kept settings. It also gives the next publish its
+ * baseline where the import raised the counter once. An export with media
+ * then sends the ZIP of its assets to that app and reads the upload's status
+ * (`service.ts::uploadMediaBytes`).
  */
 async function sendContent(
 	peer: TargetPeer,
@@ -2030,7 +2037,10 @@ async function sendContent(
 	identity: WireIdentity = DERIVED_WIRE_IDENTITY,
 	languageNames: LanguageNames = "nova",
 	keyedCaseIds: readonly AdoptedKeyedCaseId[] = [],
-): Promise<{ readonly sent: SentImport; readonly ledger: CaptureLedger }> {
+): Promise<{
+	readonly sent: SentImport;
+	readonly ledger: CaptureLedger | null;
+}> {
 	const domain = peer.state.domain;
 	const target = { server: PROOF_SERVER, domain };
 	const mark = peer.requests.length;
@@ -2137,10 +2147,23 @@ async function sendContent(
 			`The capture peer refused the import of ${prepared.source.id} (status ${imported.status}), which it accepts from every publish.`,
 		);
 	}
-	const readBack = normalizedRead(
-		prepared,
-		await readSource(peer, prepared, imported.appId),
-	);
+	const afterImport =
+		imported.version === null
+			? null
+			: await readHqAppSourceAtVersion(
+					CREDENTIALS,
+					domain,
+					imported.appId,
+					imported.version,
+				);
+	const readBack =
+		afterImport !== null &&
+		!("success" in afterImport) &&
+		afterImport.kind === "source-at" &&
+		saveCounter.before !== null &&
+		afterImport.version > saveCounter.before
+			? normalizedRead(prepared, afterImport.source)
+			: null;
 	const bulkAssets = bulkUploadAssets(
 		prepared.export.doc,
 		prepared.export.assets,
@@ -2206,33 +2229,31 @@ async function sendContent(
 			...(assumedResources !== undefined && { assumedResources }),
 			/* The deployment's mapping is `adopted` exactly where the
 			 * language names are the project space's. */
-			targetFacts: targetFactsFromBaseline(
-				{
-					origin: "push",
-					remoteAppId: imported.appId,
-					source: readBack.normalized,
-					sourceDigest: readBack.digest,
-					ownership,
-					observedAt: new Date(CCZ_CLOCK).toISOString(),
-					observedBy: "proof-capture",
-					novaRevision: prepared.source.compiledAtSeq,
-					mediaFiles,
-					sourceBytes: readBack.bytes,
-				},
-				languageNames === "target",
-			),
+			targetFacts:
+				readBack === null
+					? null
+					: targetFactsFromSource(readBack.normalized, {
+							observedAt: new Date(CCZ_CLOCK).toISOString(),
+							novaOwnsAutoGpsCapture: ownership.autoGpsCapture,
+							adopted: languageNames === "target",
+						}),
 		},
-		ledger: {
-			app: {
-				normalized: readBack.normalized,
-				ownership,
-				origin: "push",
-				digest: readBack.digest,
-				bytes: readBack.bytes,
-				mediaFiles,
-			},
-			tables,
-		},
+		ledger:
+			readBack === null ||
+			saveCounter.before === null ||
+			!importReplacedReadApp(saveCounter.before, imported.version)
+				? null
+				: {
+						app: {
+							normalized: readBack.normalized,
+							ownership,
+							origin: "push",
+							digest: readBack.digest,
+							bytes: readBack.bytes,
+							mediaFiles,
+						},
+						tables,
+					},
 	};
 }
 
@@ -2331,6 +2352,11 @@ async function firstPublish(
 		null,
 		assumedOf(managed?.assumed, edge?.assumed),
 	);
+	if (ledger === null) {
+		throw new Error(
+			`The content import into the new shell for ${prepared.source.id} left no confirmed baseline. A new shell has no media map to prune.`,
+		);
+	}
 	return {
 		outcome: {
 			status: "sent",

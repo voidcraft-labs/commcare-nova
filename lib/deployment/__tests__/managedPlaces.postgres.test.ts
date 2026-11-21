@@ -159,8 +159,10 @@ function fail(): never {
 function publish(
 	doc: BlueprintDoc,
 	target: { readonly server: "india"; readonly domain: string },
+	requireHqImport: (() => void) | null = null,
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
+		requireHqImport,
 		scope: SCOPE,
 		...target,
 		doc,
@@ -178,6 +180,17 @@ function request(peer: MockAgent, path: string, method = "GET") {
 		headers: { authorization: "ApiKey account:fixture-key" },
 	});
 }
+
+it("requires permission before publishing refreshes managed places", async () => {
+	const doc = await seed();
+	await withManagedPeer(async () => {
+		await expect(
+			publish(doc, MANAGING, () => {
+				throw new Error("HQ Import required");
+			}),
+		).rejects.toThrow("HQ Import required");
+	});
+});
 
 const PUSH_REASON = "This publish sends the places in your organization.";
 
@@ -373,13 +386,16 @@ it("asks before it stands a persona at a level of places CommCare HQ manages, th
 			},
 		},
 	};
-	const provision = (confirmWorkerLevels?: readonly string[]) =>
+	const provision = (
+		confirmWorkerLevels?: readonly string[],
+		username = "amina",
+	) =>
 		provisionWorkers({
 			scope: SCOPE,
 			doc: assigned,
 			...MANAGING,
 			locations: [place],
-			workers: [{ personaUuid: AMINA, username: "amina" }],
+			workers: [{ personaUuid: AMINA, username }],
 			...(confirmWorkerLevels && { confirmWorkerLevels }),
 		});
 	const workerLevelRows = () =>
@@ -413,6 +429,19 @@ it("asks before it stands a persona at a level of places CommCare HQ manages, th
 		return result;
 	});
 	expect(elsewhere.refusal?.code).toBe("worker_levels_unconfirmed");
+	expect(await workerLevelRows()).toEqual([]);
+
+	// An unrelated problem refuses the whole call. Even a level the caller
+	// sent must remain in the list to send again, since no answer was stored.
+	const badUsername = await withManagedPeer(async (peer) => {
+		const result = await provision(["region"], "bad username");
+		expect(publishRequests(peer)).toEqual([]);
+		return result;
+	});
+	expect(badUsername.refusal).toMatchObject({
+		code: "workers_not_provisionable",
+		levels: asked.refusal?.levels,
+	});
 	expect(await workerLevelRows()).toEqual([]);
 
 	const sent: unknown[] = [];

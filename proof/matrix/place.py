@@ -15,7 +15,7 @@ in place, and ``proof/upstream/pins.mjs report``, the job that commits) reads
 a downloaded artifact whole and only then replaces each tree of the
 checkout's ``proof/`` with the members it read, every one written fresh as a
 plain file (mode 0644); it prints ``{"placed": [...], "report": [...]}``,
-the report's lines where the artifact carries one.
+the report's lines.
 
 An artifact is data another job wrote, so nothing in it is trusted to be
 what its name says. Its top level holds those three names and nothing else;
@@ -54,8 +54,8 @@ class PlaceRefused(ValueError):
     """The trees cannot be moved as they stand."""
 
 
-def report_lines(directory: Path, retained: layout.Layout) -> list[str] | None:
-    """The adopt report's lines in ``directory``, each one of adopt's own sentences, or None where it holds none;
+def report_lines(directory: Path, retained: layout.Layout) -> list[str]:
+    """The adopt report's lines in ``directory``, each one of adopt's own sentences;
     ``PlaceRefused`` where it is anything but such a file within its bound."""
     fd = layout.open_directory(Path(directory))
     if fd is None:
@@ -63,8 +63,10 @@ def report_lines(directory: Path, retained: layout.Layout) -> list[str] | None:
     try:
         try:
             os.stat(REPORT, dir_fd=fd, follow_symlinks=False)
-        except FileNotFoundError:
-            return None
+        except FileNotFoundError as error:
+            raise PlaceRefused(
+                f"{directory / REPORT} is missing. Write it with python3 -m proof.matrix.adopt --report."
+            ) from error
         try:
             data = layout.read_bounded(fd, REPORT, retained.report_bound, Path(directory, REPORT))
         except layout.LayoutRefused as refusal:
@@ -116,16 +118,14 @@ def read_trees(directory: Path, retained: layout.Layout) -> dict[str, dict[str, 
     found = {}
     for tree in layout.TREES:
         try:
-            fd = layout.open_directory(Path(directory), tree)
+            members = layout.read_tree(Path(directory), tree, tree=tree, layout=retained)
         except layout.LayoutRefused as refusal:
             raise PlaceRefused(str(refusal)) from refusal
-        if fd is None:
-            continue
-        os.close(fd)
-        try:
-            found[tree] = layout.read_tree(Path(directory), tree, tree=tree, layout=retained)
-        except layout.LayoutRefused as refusal:
-            raise PlaceRefused(str(refusal)) from refusal
+        if not any(members.values()):
+            raise PlaceRefused(
+                f"{directory / tree} holds no retained files. A complete artifact carries both retained trees."
+            )
+        found[tree] = members
     return found
 
 
@@ -150,14 +150,13 @@ def _remove(path: Path) -> None:
 
 
 def write_trees(trees: dict[str, dict[str, dict[str, bytes]]], destination: Path) -> list[str]:
-    """Each retained tree of ``destination`` replaced by the members of ``trees`` (a tree ``trees`` lacks is
-    removed); the trees written."""
+    """Each retained tree of ``destination`` replaced by the validated members of ``trees``; the trees written."""
     for tree in layout.TREES:
         _remove(destination / tree)
-        for directory, members in sorted(trees.get(tree, {}).items()):
+        for directory, members in sorted(trees[tree].items()):
             for name, data in sorted(members.items()):
                 _write(destination / tree / directory / name, data)
-    return [tree for tree in layout.TREES if tree in trees]
+    return list(layout.TREES)
 
 
 def pack(proof: Path, staging: Path, report: Path) -> list[str]:
@@ -170,8 +169,6 @@ def pack(proof: Path, staging: Path, report: Path) -> list[str]:
         raise PlaceRefused(f"--report names {report}; adopt's report is written as {REPORT}.")
     trees = read_trees(proof, retained)
     lines = report_lines(report.parent, retained)
-    if lines is None:
-        raise PlaceRefused(f"{report} does not exist; write it with python3 -m proof.matrix.adopt --report.")
     staging.mkdir(parents=True, exist_ok=True)
     placed = write_trees(trees, staging)
     _write(staging / REPORT, "".join(f"{line}\n" for line in lines).encode("utf-8"))

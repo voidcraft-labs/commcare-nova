@@ -127,6 +127,11 @@ it.each([
 	["not JSON", "not json", "is not JSON"],
 	["not UTF-8", "ÿ", "is not JSON"],
 	["JSON with no items object", '{"items":[]}', "no items object"],
+	[
+		"an item with missing facts",
+		'{"items":{"toggle:active":null}}',
+		"must be an object of extracted facts",
+	],
 ])("refuses a surface that is %s", async (_, text, why) => {
 	const file = join(scratch, "surface.json");
 	if (text === "link") {

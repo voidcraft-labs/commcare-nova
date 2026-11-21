@@ -196,7 +196,8 @@ def _protected_form(
     )
     extra = " mediatype='image/*'" if control == "upload" else ""
     choices = "<item><label>A</label><value>a</value></item>" if control in ("select", "select1") else ""
-    body = f"<{control} ref={quoteattr(source)}{extra}><label>Q</label>{choices}</{control}>"
+    binding = "nodeset" if control == "repeat" else "ref"
+    body = f"<{control} {binding}={quoteattr(source)}{extra}><label>Q</label>{choices}</{control}>"
     label_ref = f'jr:itext("{base}")'
     body += f"<input ref={quoteattr(carrier)}><label ref={quoteattr(label_ref)}/></input>"
     if nested:
@@ -5313,6 +5314,12 @@ def _data_binds_and_itext():
         model="""<instance id="odd" src="jr://elsewhere/odd"/><instance id="idle" src="jr://elsewhere/idle"/>
           <bind nodeset="/data/a" calculate="count(instance('odd')/root/row)"/>""",
     )
+    ledger_sources = form(
+        data="<v/>",
+        model="""<instance id="stock" src="jr://fixture/item-list:stock_ledgerdb_codes"/>
+          <instance id="unused" src="jr://instance/ledgerdb"/>
+          <bind nodeset="/data/v" calculate="count(instance('stock')/rows/row)"/>""",
+    )
     images = form(
         data="<q/><s/>",
         model="""<itext><translation lang="en" default="">
@@ -5716,6 +5723,10 @@ def _data_binds_and_itext():
         "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": (
             refused("form", functions, "jr-handler:jr:choice-name", "bind[2]/@calculate", readings=True),
             accepted("form", functions, "jr-handler:jr:choice-name", "bind[3]/@calculate", readings=True),
+        ),
+        "expressions-and-data/ledgerdb-vellum-id-ledger": (
+            refused("form", ledger_sources, "instance-source:ledgerdb", "instance[4]/@src", readings=True),
+            accepted("form", ledger_sources, "instance-source:ledgerdb", "instance[5]/@src", readings=True),
         ),
         "expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src": (
             refused("form", sources, "instance-source:(none)", "instance[4]/@src", readings=True),

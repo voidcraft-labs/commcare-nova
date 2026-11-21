@@ -508,6 +508,29 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 				expect(await head(appId)).toEqual(edited);
 				expect(await hqChangeRows(appId)).toEqual([]);
 
+				// A long publication history grows independently of the app's size.
+				const target = await h
+					.db()
+					.selectFrom("app_deployments")
+					.select("id")
+					.where("app_id", "=", appId)
+					.executeTakeFirstOrThrow();
+				await h
+					.db()
+					.insertInto("app_deployment_resources")
+					.values(
+						Array.from({ length: 1000 }, (_, index) => ({
+							deployment_id: target.id,
+							kind: "location",
+							ownership: "nova-created",
+							nova_resource_id: crypto.randomUUID(),
+							remote_id: crypto.randomUUID(),
+							pushed_identity: `retired-location-${index}`,
+							superseded_at: new Date(),
+						})),
+					)
+					.execute();
+
 				const taken = await call(client, "bring_in_hq_changes", {
 					...args,
 					discard_nova_changes: true,
@@ -517,6 +540,8 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 					seq: edited.seq + 1,
 					discarded: true,
 					message: broughtInLine(true),
+					deployment: null,
+					next: expect.stringContaining("Publishing"),
 				});
 			});
 		});

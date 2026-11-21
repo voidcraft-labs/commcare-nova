@@ -808,13 +808,13 @@ function LeftBehindNotice({
 }
 
 /**
- * What a person confirmed about this project space that a publish goes by,
+ * What a person confirmed when publishing or making workers in this project space,
  * with who and when, and a Withdraw for each where this viewer may edit.
  *
  * No API key reads a project space's plan or these settings, so a publish
  * goes by what someone said here, and Nova cannot see the plan change
  * later. Withdrawing is how somebody takes an answer back: the row is kept
- * with who withdrew it, and the next publish asks again.
+ * with who withdrew it, and the next operation that needs it asks again.
  */
 function ConfirmationsOnRecord({
 	appId,
@@ -872,9 +872,10 @@ function ConfirmationsOnRecord({
 				What this project space has, as confirmed here
 			</h4>
 			<p className="mt-1 text-[13px] leading-relaxed text-nova-text-secondary">
-				Nova can't read these from CommCare HQ, so each publish here goes by
-				what someone confirmed. If one changes there, you can withdraw it and
-				the next publish asks again.
+				Nova can’t read these settings from CommCare HQ. If one changes, you can
+				withdraw its confirmation here. Nova asks about a worker level again
+				when you make workers there, and about other settings when you publish
+				an app that needs them.
 			</p>
 			<ul aria-labelledby={headingId} className="mt-2 flex flex-col gap-1.5">
 				{rows.map((row) => (

@@ -795,7 +795,7 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 		return h
 			.db()
 			.selectFrom("app_deployment_resources")
-			.select(["remote_id", "released_at", "pushed_revision"])
+			.select(["remote_id", "released_at", "pushed_revision", "push_token"])
 			.where("kind", "=", kind)
 			.where("nova_resource_id", "=", novaResourceId)
 			.where("superseded_at", "is", null)
@@ -1224,6 +1224,7 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 		await recordDeploymentMediaFiles(birth.scope, TARGET, {
 			...fence,
 			remoteAppId: HQ_APP,
+			pushToken: (await liveMapping("app", APP))?.push_token ?? fail(),
 			sourceDigest: null,
 			files,
 			admitted: asTheImport,

@@ -547,8 +547,9 @@ function WorkerLevelChoice({
 				))}
 			</ul>
 			<p className="mt-1 text-[12px] leading-relaxed text-nova-text-secondary">
-				Leave one unticked and Nova makes nobody who stands there. You can stand
-				those personas somewhere else instead.
+				Nova can make or update the selected workers once every level they need
+				is confirmed. You can also leave those personas out or change their
+				places.
 			</p>
 		</div>
 	);

@@ -94,9 +94,9 @@ export async function readHqAppSourceAtVersion(
 
 /**
  * The counter a publish reads just before its last read of the source ahead
- * of an import. The import's acknowledged counter is this plus one exactly
- * where no save fell between this read and the import, so whatever the
- * import replaced is what that source read showed.
+ * of an import. A single increment proves the import was the only save.
+ * HQ can also save a second time inside the import to remove unused media
+ * mappings. That increment cannot be distinguished from a concurrent save.
  */
 export async function readHqAppSaveCounter(
 	creds: CommCareCredentials,

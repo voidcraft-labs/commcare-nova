@@ -2431,7 +2431,7 @@ section 11.2) reads `DeploymentView.firstPublish` as below and adds no column.
 section 11, statement 10): three clauses of its one `ALTER TABLE app_deployment_baselines`, after
 the origin CHECK that admits `read` and `changes`. Every statement of that migration replays over
 its own result, so the clauses do too. The constraint is named for its predicate, as that table's
-others are (`app_deployment_baselines_unread_holds_no_source`):
+others are (`app_deployment_baselines_source_shape`):
 
 ```sql
 ALTER TABLE app_deployment_baselines

@@ -690,9 +690,10 @@ refuses every name a `.ccz` gives its own files, or a name under one, in any
 letter case (`lib/commcare/cczMembers.ts::isGeneratedMemberPath`:
 `<dir>/app_strings.txt`, `modules-<n>/forms-<n>.xml`, the root files), by
 shape, so a path held today never meets a member a language or a form added
-later writes; such a file takes its derived path and the first publish
-declares the move. The ledger's CHECK states the same shapes in ASCII letter
-case as its floor. No writer matches rows by the database's folded index,
+later writes. The path must also consist of text the media suite can serialize
+as XML. When either check refuses it, the file takes its derived path and the
+first publish declares the move. The ledger's CHECK enforces XML character
+validity and the reserved member names in ASCII letter case. No writer matches rows by the database's folded index,
 which folds ASCII letters alone.
 
 A bring-in's review digest binds the record the birth writes (version 2 of
@@ -876,8 +877,14 @@ a caller holding a snapshot, as the download, Preview's answer, the
 Publishing section and `get_deployment` do, projects after it): the bytes
 were read in the snapshot, so the answer is still that one generation, and
 the projection reads nothing more. A `.ccz`, Preview and the
-Publishing card read it; an absent, unread or shell baseline, or one that
-does not verify, gives none, and Nova's own values stand, but for Nova's
+Publishing card read it. An `unread` drift baseline can carry these facts when
+the import acknowledged an extra save and Nova verified the source at that
+version. `app_deployment_baselines_source_shape` keeps the compressed source,
+length, digest and ownership together and requires a null Nova revision for
+an unread observation that retains them. An old writer may have left a
+backfilled revision on a bare unread row. Drift and changes read that origin
+with no Nova revision. A missing source, a shell or bytes that fail verification give no
+facts. Nova's own values then stand, except for its
 seeds on a deployment whose live app mapping is `adopted`: who seeds is the
 mapping's, which `ReachedDeploymentTarget.adopted` carries to the archive
 apart from the facts, so a `.ccz` there writes no seed and says its language
@@ -928,8 +935,8 @@ one it could not.
 HQ's import takes no expected version, so no publish can stop a save made in
 HQ while it runs from being written over; HQ's save counter
 (`views/releases.py::current_app_version`, which every save of a working app
-raises by exactly one, `ApplicationBase.save`) lets the publish see that it
-happened. What a save meets follows from the import's own rule: HQ replaces
+raises by exactly one, `ApplicationBase.save`) can show an extra save during
+the import. It does not identify who made that save. What a save meets follows from the import's own rule: HQ replaces
 every key the body carries, whole, and keeps every key the body leaves out.
 
 A publish reads the counter just before its last read of the source ahead of
@@ -940,18 +947,20 @@ binds the read after the import to the counter the import acknowledged
 (`lib/commcare/hq/appSourceAtVersion.ts::readHqAppSourceAtVersion`: the source,
 then the counter, which must stand at the acknowledged one). Only a read the
 counter proves is a `push` or `create` baseline (`service.ts::appBaselineFor`
-takes nothing else); every other read is stored `unread`. The three facts this
-rests on (a create leaves 1, an update acknowledges the counter it leaves, one
-past the one before it, and one save in HQ's editors adds one) are held to HQ's
-own views by the proof lane
-(`proof/hq/test_publish.py::test_hqs_save_counter_moves_as_a_publish_binds_its_baseline`). So:
+takes nothing else). An update normally acknowledges one increment. When
+the new app no longer uses a mapped media path, HQ can save it again while
+removing that mapping (`hqmedia/models.py::remove_unused_mappings`). A save
+in an HQ editor also increments the counter. The proof lane exercises these
+cases against HQ's views (`proof/hq/test_publish.py`).
 
-- A save between the publish's last read and its import makes the import
-  acknowledge more than one past the counter read before it
-  (`importReplacedReadApp`). The import wrote over that save under every key
-  its body carries, which no publish can prevent; the baseline is `unread`,
-  and the landed publish carries `APP_CHANGED_DURING_PUBLISH_WARNING`, so the
-  next publish stops and asks before it writes over what the save left.
+- An acknowledgement more than one past the counter before the final source
+  read can come from HQ's own media cleanup or from a concurrent edit. The
+  counter cannot distinguish them. Nova records an `unread` baseline, warns
+  that the publish landed, and asks before writing over the app on the next
+  publish. When the post-import source verifies at the acknowledged version,
+  its kept settings still reach the download, Preview and the Publishing card.
+  A concurrent edit to a key in the body can already have been
+  replaced by this import.
 - A save between the import and the read back makes the read `moved`: the
   baseline is `unread` with the same warning, never a `push` that would hide
   the save from the next publish's check.
@@ -1270,9 +1279,10 @@ anything Nova writes stops the publish at `upload` with `hq_changed`: it
 reached CommCare HQ while the Project data went, so no check before the push
 could hold it. After the update Nova reads the source back, before the media
 upload, bound to the save counter the import acknowledged, and that read is
-the new baseline; a read-back that fails, or that the counter shows is not
-what the import left, records an `unread` baseline and a warning, since the
-app landed. After the media upload
+the new baseline only when the counter proves what the import left. A failed
+read or an extra save gives an `unread` drift baseline and a warning
+that the publish landed. An extra save with a verified source at the acknowledged
+version retains that source for the target's kept settings. After the media upload
 settles, the publish records the id CommCare HQ reported for each path
 (`store.ts::recordDeploymentMediaFiles`, against the baseline this publish
 wrote, so a later publish's is left alone), else the id preflight found by
@@ -1485,14 +1495,12 @@ authority take too, for a live app whose caller may edit it
   `managed_table_handed_back`, nothing sent; a hand-back of a table an open
   workbook carries waits, refused with `handBackWhilePublishing`.
 
-Each is settled by how it ended: a write CommCare HQ answered settles at
-once; one whose answer never reached Nova (no answer, or the deadline, decided
-over every cause a failure can carry by `remoteWrites.ts::hqAnsweredWrite`,
-and for a batch of places any answer that leaves it uncertain) stays open for
-five minutes, HQ applying an import inside its request after Nova stops
-waiting; a media bundle HQ accepted stays open with its job id for the hour HQ
-keeps the job's status (`hqmedia/cache.py`), and a bundle with no id that HQ
-may have taken stays open for its admission's hold. A write that made
+An admission stays open while HQ may still be finishing a write. A lost
+reply, a deadline or a 5xx that an intermediary could have sent leaves a
+shell create, app update, workbook, batch of places or worker write open for
+five minutes. A bundle with a job id stays open for the hour HQ keeps the
+job's status (`hqmedia/cache.py`). If HQ may have taken a bundle and Nova
+has no job id, its initial hold applies. A write that made
 something is settled in the transaction that records what it made (the
 create, the import, the workbook and the places, `store.ts::AdmittedRecord`'s
 `settle`; a worker account the same way), so it stays open, holding off a
@@ -1902,7 +1910,9 @@ level with its code and the personas that would stand there) until a person
 confirms the level takes workers there: the caller comes back naming the codes
 in `confirmWorkerLevels` (MCP's `confirm_worker_levels`), which are recorded as
 `worker-level` confirmations of the deployment once every problem Nova can
-know of passes, before the username search
+know of passes. A local refusal lists every requested managed level still
+unrecorded, including any supplied on that call, so the next attempt can
+send the full set. Recording succeeds before the username search
 (`store.ts::recordWorkerLevelConfirmations`, under the fence). One stands until
 someone withdraws it, like every confirmation. A place a publish pushed asks
 nothing: its level is one a person authored, and the setup artifact asks them
@@ -1972,7 +1982,15 @@ bring-in's own read (`hqChanges/bringIn.ts::deploymentViewOf`), which answers
 a fault in any of them with less, never an error: the record or the artifact
 unread is no record (`deployment` null, and the builder reads its records
 again), the resource names unread a left-behind list of superseded apps alone,
-and the kept list or the next publish's list unread none.
+and the kept list or the next publish's list unread none. A successful
+`bring_in_hq_changes` whose deployment details exceed one MCP answer still
+returns the receipt, with `deployment` null and a next step for reading
+deployment details.
+
+An MCP upload also requires `nova.hq.import` when its preflight refreshes
+HQ-managed lookup tables or places. An ordinary upload requires the usual
+`nova.hq.write`. A deployment refresh with `kept_values: true` requires both
+permissions because it reads what HQ keeps for the app.
 **Deliberately not the Solutions Architect** — the same standing decision
 that keeps project-space compatibility checks off that surface. A deployment is
 durable state about somebody else's server, not authored vocabulary an
@@ -2125,8 +2143,8 @@ published to by another app.
   turns it into its refusal (`cczUnavailableRefusal`) and the publish dialog's
   list (`actions.ts::readDownloadTargetsAction`) into each space's
   `unavailable`, so the list never offers a space the download refuses. A space
-  whose baseline is absent or unread has no facts and is offered; its download
-  reads the facts again when it is made. For a `.ccz` the target also
+  without verified source for its kept settings is offered. Its download reads
+  the facts again when it is made. For a `.ccz` the target also
   carries `earlierHqApps`, the count of the deployment's superseded `app`
   mappings, which the compiler adds to the version it writes on the profile, both suite resources and `<suite>`: the file made
   after a deleted HQ app is made afresh is newer though the document did not

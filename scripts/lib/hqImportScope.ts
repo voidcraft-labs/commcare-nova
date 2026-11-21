@@ -3,8 +3,9 @@
  * the scope was added, shared by its read-only scan and its writer, so the
  * scan counts exactly the rows the writer changes.
  *
- * Four kinds of row change, in one transaction, and a second run changes
- * nothing:
+ * API keys are repaired before the migration, OAuth after the deploy. Each
+ * phase is one transaction. The key cutoff is taken before the key pass,
+ * and the later cutoff is the new revision's creation time rounded down.
  *
  * - an OAuth client row whose own scope list lacks the scope. That list is
  *   the client's capability set: `@better-auth/oauth-provider` refuses an
@@ -19,7 +20,12 @@
  *   not expired) and an enabled API key, each only where it already holds both
  *   `nova.hq.read` and `nova.hq.write`: the person approved reading and
  *   writing CommCare HQ with their key, and bringing apps in is that same
- *   reach. A grant holding one HQ scope or neither is left as it is, and its
+ *   reach. Only a client already registered at the cutoff and a grant that dates
+ *   from before it are eligible. A consent or client edited since is also left.
+ *   Nova repairs API keys before the form that offers Import exists. Every key
+ *   verification also updates its updatedAt. The later catch-up takes a key only where both
+ *   dates prove it predates that form.
+ *   A grant holding one HQ scope or neither is left as it is, and its
  *   person is asked at consent, or edits the key, as for any scope.
  *
  * Access tokens are left: each holds the scopes it was issued with for at most
@@ -32,6 +38,9 @@ import type { NovaApiKeyScope } from "../../lib/auth-public";
 export const IMPORT_SCOPE = "nova.hq.import" satisfies NovaApiKeyScope;
 const HQ_READ = "nova.hq.read" satisfies NovaApiKeyScope;
 const HQ_WRITE = "nova.hq.write" satisfies NovaApiKeyScope;
+
+/** The pre-deploy key pass and the post-deploy OAuth and key catch-up. */
+export type RepairPhase = "keys" | "oauth";
 
 /** The kinds of row the repair reads, in the order it reports them. */
 export type GrantKind = "client" | "consent" | "refresh-token" | "api-key";
@@ -76,37 +85,87 @@ function readsAndWritesHq(list: RawBuilder<unknown>): RawBuilder<unknown> {
 /** An API key's scopes: the plugin keeps `{"scope": [...]}` as JSON text. */
 const KEY_SCOPES = sql`(permissions::jsonb -> 'scope')`;
 
-const KINDS: readonly KindStatement[] = [
-	{
-		kind: "client",
-		table: "auth_oauth_client",
-		changes: sql`(scopes IS NOT NULL AND NOT (scopes ? ${IMPORT_SCOPE}))`,
-		set: sql`scopes = scopes || ${ADDED}, "updatedAt" = now()`,
-	},
-	{
-		kind: "consent",
-		table: "auth_oauth_consent",
-		changes: readsAndWritesHq(sql`scopes`),
-		set: sql`scopes = scopes || ${ADDED}, "updatedAt" = now()`,
-	},
-	{
-		kind: "refresh-token",
-		table: "auth_oauth_refresh_token",
-		changes: sql`(revoked IS NULL AND "expiresAt" > now() AND ${readsAndWritesHq(sql`scopes`)})`,
-		set: sql`scopes = scopes || ${ADDED}`,
-	},
-	{
-		kind: "api-key",
-		table: "auth_apikey",
-		changes: sql`(enabled IS TRUE AND jsonb_typeof(${KEY_SCOPES}) = 'array' AND ${readsAndWritesHq(KEY_SCOPES)})`,
-		set: sql`permissions = jsonb_set(permissions::jsonb, '{scope}', ${KEY_SCOPES} || ${ADDED})::text, "updatedAt" = now()`,
-	},
-];
+/** The provider dates token issuance to the second. Use a whole UTC second
+ * from before the new revision first received traffic, unchanged on a retry. */
+export function importScopeCutoff(text: string): Date {
+	const before = new Date(text);
+	if (
+		!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(text) ||
+		!Number.isFinite(before.getTime()) ||
+		before.toISOString() !== text.replace("Z", ".000Z") ||
+		before.getTime() > Date.now()
+	)
+		throw new Error("Use a past UTC cutoff in YYYY-MM-DDTHH:mm:ssZ form.");
+	return before;
+}
+
+function kindStatements(
+	before: Date,
+	phase: RepairPhase,
+): readonly KindStatement[] {
+	const existed = sql`"createdAt" < ${before}`;
+	const untouched = sql`(${existed} AND "updatedAt" < ${before})`;
+	// In the scan these predicates describe the rows as they will stand after
+	// the client and consent updates. The writer uses exactly the same tests.
+	const clientEligible = (table: string) => sql`EXISTS (
+   SELECT 1 FROM auth_oauth_client c WHERE c."clientId" = ${sql.ref(`${table}.clientId`)}
+    AND (c.scopes IS NULL OR c.scopes ? ${IMPORT_SCOPE}
+     OR (c."createdAt" < ${before} AND (c."updatedAt" IS NULL OR c."updatedAt" < ${before}))))`;
+	const currentConsent = sql`EXISTS (
+  SELECT 1 FROM auth_oauth_consent c WHERE c."userId" = auth_oauth_refresh_token."userId"
+    AND c."clientId" = auth_oauth_refresh_token."clientId"
+    AND c."referenceId" IS NOT DISTINCT FROM auth_oauth_refresh_token."referenceId"
+    AND (c.scopes ? ${IMPORT_SCOPE} OR (c."createdAt" < ${before} AND c."updatedAt" < ${before}
+      AND ${readsAndWritesHq(sql`c.scopes`)})))`;
+	/* Rotation preserves authorizationCodeId. A new authorization by the same
+	 * user and client gets a different one. Once a token in the family held
+	 * Import, a later token lacking it may be deliberately downscoped. */
+	const existingRefresh = sql`(${existed} OR (
+   EXISTS (SELECT 1 FROM auth_oauth_refresh_token ancestor
+       WHERE ancestor."authorizationCodeId" = auth_oauth_refresh_token."authorizationCodeId"
+         AND ancestor."clientId" = auth_oauth_refresh_token."clientId"
+         AND ancestor."userId" = auth_oauth_refresh_token."userId"
+         AND ancestor."createdAt" < ${before}
+         AND ${readsAndWritesHq(sql`ancestor.scopes`)})
+   AND NOT EXISTS (SELECT 1 FROM auth_oauth_refresh_token previous
+       WHERE previous."authorizationCodeId" = auth_oauth_refresh_token."authorizationCodeId"
+         AND previous.scopes ? ${IMPORT_SCOPE})
+ ))`;
+	return [
+		{
+			kind: "client",
+			table: "auth_oauth_client",
+			changes: sql`(${existed} AND ("updatedAt" IS NULL OR "updatedAt" < ${before}) AND scopes IS NOT NULL AND NOT (scopes ? ${IMPORT_SCOPE}))`,
+			set: sql`scopes = scopes || ${ADDED}, "updatedAt" = now()`,
+		},
+		{
+			kind: "consent",
+			table: "auth_oauth_consent",
+			changes: sql`(${clientEligible("auth_oauth_consent")} AND ${untouched} AND ${readsAndWritesHq(sql`scopes`)})`,
+			set: sql`scopes = scopes || ${ADDED}, "updatedAt" = now()`,
+		},
+		{
+			kind: "refresh-token",
+			table: "auth_oauth_refresh_token",
+			changes: sql`(${clientEligible("auth_oauth_refresh_token")} AND ${currentConsent} AND ${existingRefresh} AND revoked IS NULL AND "expiresAt" > now() AND ${readsAndWritesHq(sql`scopes`)})`,
+			set: sql`scopes = scopes || ${ADDED}`,
+		},
+		{
+			kind: "api-key",
+			table: "auth_apikey",
+			changes: sql`(${phase === "keys" ? existed : untouched} AND enabled IS TRUE AND jsonb_typeof(${KEY_SCOPES}) = 'array' AND ${readsAndWritesHq(KEY_SCOPES)})`,
+			set: sql`permissions = jsonb_set(permissions::jsonb, '{scope}', ${KEY_SCOPES} || ${ADDED})::text, "updatedAt" = now()`,
+		},
+	];
+}
 
 /** Each kind's count, read in the caller's transaction. */
-async function countKinds<DB>(db: Kysely<DB>): Promise<KindCount[]> {
+async function countKinds<DB>(
+	db: Kysely<DB>,
+	statements: readonly KindStatement[],
+): Promise<KindCount[]> {
 	const counts: KindCount[] = [];
-	for (const statement of KINDS) {
+	for (const statement of statements) {
 		const { rows } = await sql<{ changes: number; total: number }>`
 			SELECT count(*) FILTER (WHERE ${statement.changes})::int AS changes,
 				count(*)::int AS total
@@ -132,18 +191,50 @@ async function countKinds<DB>(db: Kysely<DB>): Promise<KindCount[]> {
  */
 export async function repairImportScope<DB>(
 	db: Kysely<DB>,
-	options: { readonly execute: boolean },
+	options: {
+		readonly execute: boolean;
+		readonly before: Date;
+		readonly phase: RepairPhase;
+	},
 ): Promise<ImportScopeRepair> {
-	if (!options.execute)
-		return db.transaction().execute(async (tx) => {
+	const statements = kindStatements(options.before, options.phase).filter(
+		({ kind }) => options.phase === "oauth" || kind === "api-key",
+	);
+	return db.transaction().execute(async (tx) => {
+		if (!options.execute)
 			await sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.execute(
 				tx,
 			);
-			return { written: false, kinds: await countKinds(tx) };
-		});
-	return db.transaction().execute(async (tx) => {
+		if (options.execute) await sql`SET LOCAL lock_timeout = '5s'`.execute(tx);
+		if (options.phase === "keys" && options.execute) {
+			// The ledger migration requires ACCESS EXCLUSIVE on this table. It cannot
+			// commit (and the scope-aware revision cannot serve) between this read and write.
+			await sql`LOCK TABLE public.app_deployments IN ACCESS SHARE MODE`.execute(
+				tx,
+			);
+		}
+		if (options.phase === "oauth" && options.execute) {
+			// A concurrent edit to the client's scope list or its person's consent
+			// must be ordered with the token update that depends on that row.
+			await sql`LOCK TABLE public.auth_oauth_client, public.auth_oauth_consent IN SHARE ROW EXCLUSIVE MODE`.execute(
+				tx,
+			);
+		}
+		const { rows } = await sql<{
+			applied: boolean;
+		}>`SELECT to_regclass('public.app_deployment_media_paths') IS NOT NULL AS applied`.execute(
+			tx,
+		);
+		if (rows[0]?.applied !== (options.phase === "oauth"))
+			throw new Error(
+				options.phase === "keys"
+					? "The key repair must finish before the bring-in migration."
+					: "The OAuth repair runs after the bring-in deployment serves all traffic.",
+			);
+		if (!options.execute)
+			return { written: false, kinds: await countKinds(tx, statements) };
 		const kinds: KindCount[] = [];
-		for (const statement of KINDS) {
+		for (const statement of statements) {
 			const updated = await sql`
 				UPDATE ${sql.table(statement.table)}
 				SET ${statement.set}

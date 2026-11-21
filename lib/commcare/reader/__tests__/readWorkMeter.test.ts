@@ -56,6 +56,21 @@ it("ends a reading past its limit as one too-intricate finding, at the same plac
 	);
 });
 
+it("reports a work limit reached during the final accounting pass", async () => {
+	const input = await inputFor({
+		...retainedSourceBody("navigation-base/app-source"),
+		build_spec: { version: "2.1" },
+	});
+	const whole = readHqApp(input);
+	expect(whole.kind).toBe("account");
+	const stopped = readHqApp(input, { workLimit: whole.work.units - 1 });
+	expect(stopped).toMatchObject({
+		kind: "account",
+		findings: [{ code: "too-intricate" }],
+	});
+	expect(stopped.work.nodes).toBeLessThan(whole.work.nodes);
+});
+
 it("stops a reading whose request was cancelled, whatever a stage catches", async () => {
 	const input = await inputFor(
 		retainedSourceBody("navigation-base/app-source"),

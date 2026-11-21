@@ -887,10 +887,11 @@ jobs:
       # run.mjs seals the output as the run ends; sealed again here in case it ended before it could, so the upload
       # (which follows a link to its target) meets plain files and directories only.
       - name: Seal the shard's output
+        id: seal
         if: ${{ !cancelled() && steps.left.outputs.left == 'true' }}
         run: node proof/run.mjs --seal "$RUNNER_TEMP/proof-out"
       - name: Upload the shard's output
-        if: ${{ !cancelled() && steps.left.outputs.left == 'true' }}
+        if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: proof-out-${{ github.run_attempt }}-${{ matrix.shard }}

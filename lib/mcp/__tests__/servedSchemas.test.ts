@@ -413,7 +413,7 @@ it("tells a client what a build profile's stop asks of it, right after the unrea
 
 it("tells a client what the two stops over data CommCare HQ manages ask of it, right after the drift stop's", () => {
 	expect(served("upload_app_to_hq").description).toContain(
-		"uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. If a lookup table the app reads is managed in CommCare HQ and changed there in a way the app depends on, the call returns `hq_managed_data_changed` before sending anything: relay the `message`, which names each table, what changed and what the user can do, and upload again once that is done. To publish Nova's copy of a table instead, the user can hand it to Nova with `set_lookup_table_management`: show what that does and ask first. `managed_table_handed_back` means a table was handed back to CommCare HQ while the upload was getting ready, and Nova stopped before sending any lookup table or the app's content: upload again, and Nova leaves that table as it is.",
+		"uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. Refreshing a lookup table or places managed in CommCare HQ during upload also requires HQ Import. If a lookup table the app reads is managed in CommCare HQ and changed there in a way the app depends on, the call returns `hq_managed_data_changed` before sending anything: relay the `message`, which names each table, what changed and what the user can do, and upload again once that is done. To publish Nova's copy of a table instead, the user can hand it to Nova with `set_lookup_table_management`: show what that does and ask first. `managed_table_handed_back` means a table was handed back to CommCare HQ while the upload was getting ready, and Nova stopped before sending any lookup table or the app's content: upload again, and Nova leaves that table as it is.",
 	);
 });
 
@@ -497,7 +497,7 @@ it("serves refresh_deployment's kept_values and tells a client what the kept lis
 		/ Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ \(the `kept` list of `get_deployment`\) without asking about builds\. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise\. /,
 	);
 	expect(refresh.description).toMatch(
-		/ Where Nova couldn't read back `kept` or `nova_revision` after its write landed, that field is left out and the refresh still landed: `get_deployment` reads them again\.$/,
+		/ Where Nova couldn't read back `kept` or `nova_revision` after its write landed, that field is left out and the refresh still landed: `get_deployment` reads them again\. Reading fresh kept settings also requires HQ Import\.$/,
 	);
 	expect(served("get_deployment").description).toContain(
 		" `deployment.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them.",

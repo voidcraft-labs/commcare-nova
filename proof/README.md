@@ -982,11 +982,15 @@ Once the container exits, the run's output is sealed
 plain files (a link, a pipe, a device) is moved to `<output>.refused`, each
 entry is named, and the run exits 6, so no upload (which follows links), no
 gate and no adoption meets it. `node proof/run.mjs --seal <directory>` seals
-another container's output the same way. A CI shard's claim and wait
+another container's output the same way. CI, the reader lanes, the diagnostic
+slice and the weekly pin run check the seal's result before uploading the
+output. The pin run also seals it before adoption. A CI shard's claim and wait
 commands, which carry the job's artifact-service credentials, run on the
 host beside the container (`proof/ci/hostCommands.mjs`): the server asks for
 one through a relay (`python -m proof.lane.relay`) that names a block of the
-queue and nothing else, and no credential enters the container.
+queue. Its exit status goes back through the relay. Its diagnostics go straight
+to the host job log so the runner can mask credential-bearing messages from
+its artifact client.
 
 ### Selecting what runs
 
@@ -1684,8 +1688,8 @@ reads it. Per document, under its id:
   around that upload (`mediaSaveCounter`): the HQ side holds HQ's own
   counter's move over the same write to it (`proof/observe/publish.py`,
   `CapturedCounterNotHeld`), the create by where it leaves the counter, an
-  import and a media upload by how far each moves it, so the peer's model of
-  the counter a publish binds its baseline to never drifts from HQ's; a
+  import and a media upload by how far each moves it. An import that removes
+  an unused media mapping can advance the counter twice. A
   control retained before the counter was recorded names none, and only its
   imports' acknowledgements are held. Beside the first publish's two
   imports, `create.ownership.json` and `content.ownership.json` hold the
@@ -6548,7 +6552,8 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
    default-branch head. When none differs from the pins, or the open pin pull
    request already carries exactly these heads, it does nothing. Otherwise it
    commits the new pins to the branch `upstream/pins`, one commit on top of
-   main, replacing last week's.
+   main, replacing last week's. The plan records both commits. Every job that
+   builds or runs the candidate uses that exact candidate commit.
 2. **Image**: `proof-image.yml` builds the image at those pins.
 3. **Surface**: the surface is extracted in the new image.
    **Retained**: beside it, the corpus is emitted with its native products
@@ -6577,9 +6582,12 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
    made them (never without the lock, since the trees answer the new image,
    and the description carries the adopt report or names the job that
    failed). This job holds the write token, so it reads both artifacts as
-   data with main's own code: the surface without following a link, within a
-   bound and as JSON, the trees and the report through the retained layout,
-   each report line one of adopt's own sentences. An artifact it refuses is
+   data with the code in a separate checkout of the planned main commit. A
+   pin branch that moved since planning stops the report. It reads the surface
+   without following a link, checks its size and JSON items, and compares its
+   recorded upstream commits to the plan's pins. It requires both retained trees
+   and their report before replacing either, reads all three through the retained
+   layout, and accepts only adopt's own sentences in the report. An artifact it refuses is
    handled as its job failing (main's trees, or the pins alone), the
    description says which was refused and never what the artifact named, and
    the job ends red. It opens the pull request or updates the open one,

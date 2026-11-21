@@ -313,6 +313,7 @@ export async function POST(req: NextRequest) {
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const appId = body.appId;
 		const outcome = await publishAppToHq({
+			requireHqImport: null,
 			scope,
 			doc,
 			compiledAtSeq: app.mutation_seq,

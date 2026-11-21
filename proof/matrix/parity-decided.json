@@ -153,7 +153,10 @@
 		"hq-kept-settings/markdown-one-language",
 		"hq-kept-settings/profile-property-only-a-local-archive-writes",
 		"hq-kept-settings/sense-feature",
-		"hq-kept-settings/sync-frequency-outside-its-choices"
+		"hq-kept-settings/sync-frequency-outside-its-choices",
+		"hq-kept-settings/translation-key-holding-a-hash",
+		"hq-kept-settings/translation-key-holding-a-line-break",
+		"hq-kept-settings/translation-key-with-a-leading-space"
 	],
 	"hq-languages": [],
 	"hq-lookups": ["hq-lookups/itemset-copy"],
@@ -342,6 +345,7 @@
 		"hq-questions/select1-list-nolabel",
 		"hq-questions/select1-quick",
 		"hq-questions/select1-quick-compact",
+		"hq-questions/setvalue-bind-redirected",
 		"hq-questions/short-text-form",
 		"hq-questions/submission-without-send",
 		"hq-questions/text-address",

@@ -171,11 +171,15 @@ export const APP_READ_BACK_FAILED_WARNING =
  * back holds beside Nova's own, so the read is no record of what Nova left.
  */
 export const APP_CHANGED_DURING_PUBLISH_WARNING =
-	"This app changed in CommCare HQ while Nova was publishing it, so Nova couldn't record exactly what it left there. Your publish landed, and the next publish will ask before it writes over the app.";
+	"Your publish reached CommCare HQ. CommCare HQ saved the app again, so Nova couldn't confirm whether another change was included. The next publish will ask before it writes over the app.";
 
 /** The warning when publishing there stopped right after the app landed, before its media went. */
 export const MEDIA_NOT_SENT_AFTER_STOP_WARNING =
 	"Publishing here stopped right after the app landed, so Nova didn't send its pictures and sounds.";
+
+/** A later import was already recorded when HQ answered this publish's import. */
+export const MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING =
+	"A later publish has already updated this app in CommCare HQ. Nova left its media in place.";
 
 /**
  * The warning when the app was deleted, or its publisher lost edit, right

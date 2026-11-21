@@ -60,7 +60,12 @@ import {
 	targetWireIdentity,
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
-import { underMeter, WorkCancelled, WorkMeter } from "@/lib/commcare/workMeter";
+import {
+	rethrowWorkStop,
+	underMeter,
+	WorkCancelled,
+	WorkMeter,
+} from "@/lib/commcare/workMeter";
 import { fieldKindBindType } from "@/lib/commcare/xform/bindType";
 import { heldXmlParse } from "@/lib/commcare/xmlParse";
 import { getHqCredentials } from "@/lib/db/settings";
@@ -1584,7 +1589,8 @@ export async function editModeTest(
 					sourceHoldsEditMode(publishedCaseBlocks(one.raw)),
 				),
 			);
-	} catch {
+	} catch (error) {
+		rethrowWorkStop(error);
 		return "fault";
 	}
 }

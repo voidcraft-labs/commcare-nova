@@ -647,6 +647,7 @@ export interface ManagedTablesReRead {
  * as it is, since it is then Nova's to publish.
  */
 export async function reReadManagedTablesForPublish(input: {
+	readonly requireHqImport: (() => void) | null;
 	readonly access: {
 		readonly appId: string;
 		readonly projectId: string;
@@ -673,6 +674,7 @@ export async function reReadManagedTablesForPublish(input: {
 	const managed = (
 		await readStoredManagedTables(access.projectId, tableIds)
 	).filter((table) => table.managedBy === "commcare-hq");
+	if (managed.length > 0) input.requireHqImport?.();
 	const here = managed.filter((table) => originIs(table, target));
 	const elsewhere = managed.filter((table) => !originIs(table, target));
 	const occurrences = extractLookupReferenceOccurrences(

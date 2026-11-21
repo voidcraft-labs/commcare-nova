@@ -13,7 +13,6 @@ import {
 import { type HqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
 import {
 	type HqAppSourceAtVersionRead,
-	importReplacedReadApp,
 	readHqAppSaveCounter,
 	readHqAppSourceAtVersion,
 } from "@/lib/commcare/hq/appSourceAtVersion";
@@ -136,6 +135,7 @@ import {
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
 	lookupTableMadeAgainWarning,
 	MEDIA_NOT_SENT_AFTER_ACCESS_WARNING,
+	MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
 	MEDIA_NOT_SENT_AFTER_STOP_WARNING,
 	RESOURCES_READ_BACK_FAILED_WARNING,
 } from "./remoteChanges";
@@ -335,6 +335,8 @@ export interface PublishLogoStep {
 }
 
 export interface PublishInput {
+	/** Bearer permission to copy HQ data into Nova. A browser session has no bearer restriction. */
+	readonly requireHqImport: (() => void) | null;
 	readonly scope: DeploymentScope;
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
@@ -966,6 +968,7 @@ export async function publishAppToHq(
 		let preflight: PassedPreflight;
 		for (let attempt = 1; ; attempt++) {
 			const run = await runDeploymentPreflight({
+				requireHqImport: input.requireHqImport,
 				doc,
 				compiledAtSeq: seq,
 				mappings: existing?.active ?? [],
@@ -1229,8 +1232,7 @@ export async function publishAppToHq(
 			let heldOwnership: AppOwnership | null;
 			let shell: boolean;
 			/* HQ's save counter just before the read the import is built over:
-			 * the import's acknowledgement is one more exactly where no save
-			 * fell between them. */
+			 * a single increment proves the import replaced that read. */
 			let counterBeforeRead: number;
 			if (targetApp === null) {
 				const shellBody = hqImportApplication({
@@ -1269,23 +1271,15 @@ export async function publishAppToHq(
 						details: [],
 					});
 				}
-				/* The new app's save counter right after the create, and the read
-				 * bound to it: a save in HQ between the create and the read makes
-				 * the read no record of the empty app Nova made. */
-				const createdAt = await readHqAppSaveCounter(
+				/* HQ's one save of a new empty app leaves version 1. A counter
+				 * first sampled after the create could already include another
+				 * save, so bind the source to the known creation version. */
+				const read = await readHqAppSourceAtVersion(
 					creds,
 					domain,
 					created.appId,
+					1,
 				);
-				const read: HqAppSourceAtVersionRead =
-					typeof createdAt === "number"
-						? await readHqAppSourceAtVersion(
-								creds,
-								domain,
-								created.appId,
-								createdAt,
-							)
-						: createdAt;
 				const createBaseline = appBaselineFor({
 					origin: "create",
 					remoteAppId: created.appId,
@@ -1729,9 +1723,8 @@ export async function publishAppToHq(
 			);
 			/* Bound to the save counter HQ acknowledged: only a read the
 			 * counter proves is what this import left becomes a `push`
-			 * baseline, and an import acknowledged at more than one past the
-			 * counter before its read wrote over a save it never saw. Either
-			 * way the baseline is `unread` and the landed publish says so. */
+			 * baseline. Extra saves may be HQ removing old media mappings or
+			 * another writer. Either leaves the baseline unconfirmed. */
 			const readBack: HqAppSourceAtVersionRead | null =
 				result.version === null
 					? null
@@ -1741,16 +1734,22 @@ export async function publishAppToHq(
 							result.appId,
 							result.version,
 						);
-			const changedThere =
+			const extraSave =
 				result.version !== null &&
-				(!importReplacedReadApp(counterBeforeRead, result.version) ||
+				(result.version > counterBeforeRead + 1 ||
 					(readBack !== null &&
 						!("success" in readBack) &&
-						readBack.kind === "moved"));
+						readBack.kind === "moved" &&
+						readBack.version > counterBeforeRead + 1));
 			const pushBaseline = appBaselineFor({
-				origin: "push",
+				// An extra save leaves authorship open. An exact read of a forward
+				// counter still tells downloads and Preview which settings HQ holds.
+				origin: extraSave ? "observed" : "push",
 				remoteAppId: result.appId,
-				read: changedThere ? null : readBack,
+				read:
+					result.version !== null && result.version > counterBeforeRead
+						? readBack
+						: null,
 				ownership,
 				novaRevision: seq,
 				discard:
@@ -1824,8 +1823,8 @@ export async function publishAppToHq(
 			});
 
 			const warnings = [...resourceWarnings, ...result.warnings];
-			if (changedThere) {
-				log.warn("[deployment] app changed in CommCare HQ during a publish", {
+			if (extraSave) {
+				log.warn("[deployment] additional HQ save during publish", {
 					domain,
 					hqAppId: result.appId,
 					appId: input.scope.appId,
@@ -1851,7 +1850,9 @@ export async function publishAppToHq(
 			} = { warnings: [], reported: {} };
 			/* The import and the bundle, whose admissions the media record rests on. */
 			const mediaWrites: string[] = [importWrite];
-			if (bulkAssets.size > 0) {
+			if (bulkAssets.size > 0 && imported.pushToken === null) {
+				warnings.push(MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING);
+			} else if (bulkAssets.size > 0) {
 				/* Admitted as the import was. An ending after the app landed
 				 * leaves the publish landed, with its media not sent, and so does
 				 * an app deleted, or a publisher who lost edit, since: the app is
@@ -1901,6 +1902,7 @@ export async function publishAppToHq(
 				...fence,
 				remoteAppId: result.appId,
 				sourceDigest: pushBaseline.write.sourceDigest,
+				pushToken: imported.pushToken,
 				files: nextHqMediaRecord({
 					published,
 					previous: appBaseline?.mediaFiles ?? null,
@@ -2350,17 +2352,16 @@ const MALFORMED_SOURCE: CommCareApiError = {
 /**
  * The app baseline one read gives: HQ's read, normalized and compressed
  * before the transaction that stores it, or `unread` when the read did not
- * give a source. `normalized` is the read for a caller that compares with
- * it, null when it is `unread`.
+ * give a source. An observation at the acknowledged counter across multiple
+ * saves keeps its source for target settings but cannot establish authorship.
  */
 function appBaselineFor(input: {
-	readonly origin: "create" | "push";
+	readonly origin: "create" | "push" | "observed";
 	readonly remoteAppId: string;
 	/**
 	 * The read after the write, bound to the save counter the write left; null
-	 * where the counter already shows a save beside the write's own. Only a
-	 * read the counter proves (`source-at`) is a `create` or `push` baseline:
-	 * every other answer is `unread`.
+	 * where the acknowledgement did not advance the counter. Only a read
+	 * at the acknowledged version provides even an observation.
 	 */
 	readonly read: HqAppSourceAtVersionRead | null;
 	readonly ownership: AppOwnership;
@@ -2404,7 +2405,7 @@ function appBaselineFor(input: {
 	}
 	return {
 		write: {
-			origin: input.origin,
+			origin: input.origin === "observed" ? "unread" : input.origin,
 			remoteAppId: input.remoteAppId,
 			sourceGzip: gzipSync(Buffer.from(normalized.text, "utf8")),
 			sourceBytes: normalized.bytes,
@@ -2412,7 +2413,7 @@ function appBaselineFor(input: {
 			ownership: input.ownership,
 			observedAt,
 			discard: input.discard,
-			novaRevision: input.novaRevision,
+			novaRevision: input.origin === "observed" ? null : input.novaRevision,
 			mediaFiles,
 			firstPublish,
 		},
@@ -3253,12 +3254,7 @@ async function settleMediaWrite(
 		await settleQuietly([writeId], { kind: "media-job", jobId });
 		return;
 	}
-	if (
-		result !== null &&
-		"success" in result &&
-		result.status !== 502 &&
-		result.status !== 503
-	) {
+	if (result !== null && "success" in result && hqAnsweredWrite(result)) {
 		await settleQuietly([writeId], { kind: "settled" });
 	}
 }

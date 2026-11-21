@@ -174,8 +174,17 @@ export const HQ_LOCATION_INVENTORY_MAX_ROWS = 100_000;
 /** `app_import_api.py::import_app_api`: a verdict, an id, a version and warnings. */
 export const HQ_IMPORT_ACK_MAX_BYTES = 1 * MiB;
 
-/** The media bundle's start (a processing id) and each status report (its files). */
+/** The media bundle's start, which names a processing id. */
 export const HQ_MEDIA_BUNDLE_ACK_MAX_BYTES = 1 * MiB;
+
+/**
+ * A status report includes every matched file. HQ's get_media_info writes
+ * its path twice (path and original_path), and Django JsonResponse escapes a
+ * supplementary character in twelve ASCII bytes. At the 500-file export
+ * limit, 255 code points per held path take up to 3,060,000 bytes for those
+ * two copies. The remaining room covers HQ's per-file metadata and envelope.
+ */
+export const HQ_MEDIA_BUNDLE_STATUS_MAX_BYTES = 4 * MiB;
 
 /** `fixtures/views.py::upload_fixture_api`: a code and HQ's message. */
 export const HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES = 1 * MiB;

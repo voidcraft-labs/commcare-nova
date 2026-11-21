@@ -42,6 +42,7 @@ import {
 	HQ_BUILD_RESOURCE_MAX_BYTES,
 	HQ_IMPORT_ACK_MAX_BYTES,
 	HQ_MEDIA_BUNDLE_ACK_MAX_BYTES,
+	HQ_MEDIA_BUNDLE_STATUS_MAX_BYTES,
 	HQ_PROJECT_SPACE_LIST_MAX_BYTES,
 	HQ_PROJECT_SPACE_LIST_MAX_ROWS,
 } from "./hq/bounds";
@@ -1202,7 +1203,7 @@ async function pollMediaBundleStatus(
 			if (response.ok) {
 				const answer = await readAnswerJson(
 					response,
-					HQ_MEDIA_BUNDLE_ACK_MAX_BYTES,
+					HQ_MEDIA_BUNDLE_STATUS_MAX_BYTES,
 				);
 				if (answer.kind === "unreadable") {
 					if (signal.aborted) break;

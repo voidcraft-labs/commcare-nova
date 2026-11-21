@@ -2349,6 +2349,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 		// A caller prepared India before the account changed to Europe.
 		// The actual second credential read must refuse this stale input.
 		const result = await publishAppToHq({
+			requireHqImport: null,
 			scope: SCOPE,
 			...TARGET,
 			doc,
@@ -2799,15 +2800,27 @@ describe("a lookup table CommCare HQ manages in the project space", () => {
 			rows: [{ code: "001" }],
 		};
 		await withManagedPeer(async (peer) => {
+			await asUser(async (client) => {
+				expect(body(await call(client), true)).toMatchObject({
+					error_type: "scope_missing",
+					required_scope: "nova.hq.import",
+				});
+			});
+			expect(requests(peer)).toEqual([]);
+
 			serveTableList(peer, "clinic", [gone]);
 			serveRows(peer, "clinic", gone);
-			await asUser(async (client) => {
-				const refused = body(await call(client), true);
-				expect(refused.error_type).toBe("hq_managed_data_changed");
-				expect(refused.message).toBe(
-					`${MANAGED_DATA_CHANGED} ${managedColumnGoneItem("name", "facilities", 1)}`,
-				);
-			});
+			await asUser(
+				async (client) => {
+					const refused = body(await call(client), true);
+					expect(refused.error_type).toBe("hq_managed_data_changed");
+					expect(refused.message).toBe(
+						`${MANAGED_DATA_CHANGED} ${managedColumnGoneItem("name", "facilities", 1)}`,
+					);
+				},
+				ACTOR,
+				["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"],
+			);
 		});
 	});
 

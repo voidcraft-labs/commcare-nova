@@ -324,7 +324,7 @@ def local_identity_differences(document, reports):
 
 def document_identity(document, records):
     """Proof 1's differences on one document, judged from its records: every publish, the edit, and the local path
-    where the document declares Android."""
+    where the download makes an Android archive."""
     from proof.checks import observations
 
     found = []
@@ -348,7 +348,10 @@ def document_identity(document, records):
     from proof.checks import android
 
     found += android.identity(document.id, android.document_record(records))
-    # Nova hands a local archive only to an app that declares Android, so the local path is judged only there.
+    # The bar checks a stated refusal against the app HQ held. If either archive exists,
+    # compare the pair even when the document also states a refusal.
     if ANDROID not in document.platforms():
+        return found
+    if document.local_refusal is not None and document.local_ccz is None and document.local_again_ccz is None:
         return found
     return found + local_identity_differences(document.id, observations.local_reports(records))

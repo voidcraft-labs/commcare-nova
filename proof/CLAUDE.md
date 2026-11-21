@@ -282,8 +282,9 @@ harness keeps, each with its reason.
   peer answers a read only with what the HQ side then holds to HQ's own view,
   and retained controls replay the layout they were captured in. That holds
   HQ's save counter too, which a publish binds its baseline to: the capture
-  records the peer's counter around each import and media upload, and the HQ
-  side holds HQ's own counter's move over the same write to it
+  records the peer's counter around each import and media upload, including
+  the extra save when an import prunes an unused media mapping. The HQ side
+  compares the change in HQ's own counter over the same write
   (`proof/observe/publish.py`, `operations.hold_save_counter`), the facts the
   model rests on held to HQ's views by `proof/hq/test_publish.py`. So does a
   change to the review or the bring-in of changes made in CommCare HQ
@@ -775,8 +776,10 @@ harness keeps, each with its reason.
   (`proof/run.mjs::checkoutView`: never `.git`, an `.env` or a key) with
   `node_modules` read-only, and no credential: a shard's claim and wait
   commands run on the host (`proof/ci/hostCommands.mjs`, through
-  `proof/lane/relay.py`). Its output is sealed before any step reads or
-  uploads it (`proof/ci/untrusted.mjs`), a surface is read without following
+  `proof/lane/relay.py`). Only their exit status returns to the container.
+  Their diagnostics go to the host job log for credential masking. A successful
+  seal of the run's output gates its upload and adoption
+  (`proof/ci/untrusted.mjs`). A surface is read without following
   a link and as JSON, and the retained trees move only through
   `proof/matrix/layout.py` (`adopt`, `place`, `lane_input`), which checks
   every name before a byte is read and refuses the whole tree by name;

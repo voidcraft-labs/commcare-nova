@@ -3,7 +3,7 @@
 Contract: no API key reads a project space's plan, so Nova's publish asks the
 person to confirm each plan privilege an app needs
 (``lib/commcare/planPrivileges.ts::requiredPlanPrivileges``), naming the
-current plans that carry it from ``lib/commcare/planPrivilegePlans.json``
+current plans that carry it from ``lib/commcare/surface/planPrivilegePlans.json``
 under the label HQ's subscription page shows for it. That file is HQ's own
 plan lists (``accounting/bootstrap/features.py``), and each label HQ's own
 name for the privilege where HQ has one (``privileges.py::Titles``). The
@@ -54,7 +54,7 @@ from pathlib import Path
 from proof.hq import operations
 from proof.hq.check import hq_check
 
-PLAN_PRIVILEGE_PLANS = Path(__file__).resolve().parents[2] / "lib" / "commcare" / "planPrivilegePlans.json"
+PLAN_PRIVILEGE_PLANS = Path(__file__).resolve().parents[2] / "lib" / "commcare" / "surface" / "planPrivilegePlans.json"
 # The label Nova shows for each plan privilege (``lib/publish/planFeatures.ts::PLAN_FEATURES``, through
 # ``lib/commcare/planPrivileges.ts::PLAN_FEATURE_FOR_PRIVILEGE``), by HQ's slug. HQ's ``Titles`` names no
 # ``user_case``, so Nova's own label stands there.

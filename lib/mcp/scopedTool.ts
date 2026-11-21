@@ -5,7 +5,7 @@
  * by its name, declares the SDK scope challenge for all of them (so an OAuth
  * client is asked for the missing grant before anything runs), and checks
  * each before the handler runs, answering the first one missing as
- * `scope_missing`. No handler checks a scope of its own, so a tool's
+ * `scope_missing`. For each scope required on every call a tool's
  * challenge and its check can't name different scopes, and nothing a
  * handler reads or answers (an error included) is reached without them.
  */
@@ -21,8 +21,8 @@ import { toMcpErrorResult } from "./errors";
 import {
 	McpScopeError,
 	oauthScopeChallenge,
+	requiredToolScopes,
 	type ScopedToolName,
-	TOOL_SCOPES,
 } from "./scopes";
 import type { ToolContext } from "./types";
 
@@ -65,8 +65,8 @@ export function registerScopedTool<
 	config: ScopedToolConfig<InputArgs>,
 	handler: ToolCallback<InputArgs>,
 ): RegisteredTool {
-	const required = TOOL_SCOPES[name];
 	const gated = (...call: unknown[]) => {
+		const required = requiredToolScopes(name, call[0]);
 		const missing = required.find((scope) => !ctx.scopes.includes(scope));
 		if (missing !== undefined)
 			return toMcpErrorResult(new McpScopeError(missing, name, ctx.authKind), {
@@ -82,7 +82,16 @@ export function registerScopedTool<
 		name,
 		{
 			...config,
-			scopeChallenge: oauthScopeChallenge(ctx, required),
+			scopeChallenge:
+				ctx.authKind === "oauth"
+					? (input) => {
+							const scopes = requiredToolScopes(
+								name,
+								input.request.params?.arguments,
+							);
+							return oauthScopeChallenge(ctx, scopes)?.(input);
+						}
+					: undefined,
 		},
 		gated as ToolCallback<InputArgs>,
 	);

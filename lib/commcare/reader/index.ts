@@ -232,11 +232,11 @@ function meteredWork(
 /**
  * The account of a reading that passed its work limit: one finding at the
  * app, whatever the stages found before it stopped, since a stage stopped
- * partway reads nothing it can stand behind. The accounting is closed for its
- * counts and its claim log alone.
+ * partway reads nothing it can stand behind. Report only the work and claims
+ * already recorded when the limit interrupted the reading.
  */
 function tooIntricate(ctx: ReadContext, meter: WorkMeter): ReadOutcome {
-	const { work, claims } = ctx.close();
+	const { work, claims } = ctx.accounting.workAndClaims();
 	return {
 		kind: "account",
 		findings: [circumstanceFinding("too-intricate", { kind: "app" }, {})],

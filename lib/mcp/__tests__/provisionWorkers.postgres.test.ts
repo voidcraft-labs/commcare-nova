@@ -338,6 +338,15 @@ it.each(["refused", "lost", "malformed"])(
 				);
 				expect(result.workers).toHaveLength(1);
 				expect(result.workers[0].password).toBe(sent[0]?.password);
+				expect(
+					await h
+						.db()
+						.selectFrom("hq_remote_writes")
+						.select("resource_id")
+						.where("resource_kind", "=", "worker")
+						.where(openRemoteWrite)
+						.execute(),
+				).toEqual(failure === "refused" ? [] : [{ resource_id: JOSEPH }]);
 				if (failure === "refused") {
 					expect(result.unconfirmed_workers).toBeUndefined();
 					expect(result.message).toContain("Username is already taken");

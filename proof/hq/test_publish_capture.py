@@ -172,7 +172,7 @@ def test_a_captured_import_over_a_source_hq_does_not_hold_is_refused(hq, core_ru
         assert _apps(state) == [("Clinic visits", 1)]
 
 
-def test_each_write_moves_hqs_save_counter_as_the_capture_peer_counted_it(hq, core_runner, captures):
+def test_each_write_moves_hqs_save_counter_as_the_capture_peer_counted_it(hq, core_runner, captures, native_capture):
     """Contract (``proof.observe.publish``, ``operations.hold_save_counter``): the capture records its peer's save
     counter around each write (``proof/corpus/publish.ts::SaveCounterMove``), and HQ's own counter moves the same
     way over the same write: the create leaves 1, each import moves it by one and acknowledges the counter after
@@ -182,15 +182,14 @@ def test_each_write_moves_hqs_save_counter_as_the_capture_peer_counted_it(hq, co
     would never store), and a hold that passes whatever the record says."""
     import dataclasses
 
-    from proof.checks.corpus import _captured
     from proof.observe import publish
 
     directory = captures / "clinic-visits" / "minimum"
-    create = _captured(directory, "create.import")
-    content = _captured(directory, "content.import")
-    update = _captured(directory, "update-edited.import")
+    create = native_capture("clinic-visits", "create.import")
+    content = native_capture("clinic-visits", "content.import")
+    update = native_capture("clinic-visits", "update-edited.import")
     assert (create.save_counter, content.save_counter, update.save_counter) == ((None, 1), (1, 2), (2, 3))
-    media = _captured(captures / "search-lookup-media" / "minimum", "content.import")
+    media = native_capture("search-lookup-media", "content.import")
     assert media.save_counter == (1, 2) and media.media_save_counter == (2, 3)
     with hq_check(_configuration(directory)) as (state, _):
         app_id = operations.apply_upload(state, create.upload()).response["app_id"]

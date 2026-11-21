@@ -131,9 +131,10 @@ describe("readBoundedBody under a lease", () => {
 			external: 0,
 		});
 		const file = await runInLease(lease, () =>
-			readBoundedBody(counted([bytes(6)]).stream, 64, 6, "bytes"),
+			readBoundedBody(counted([bytes(6)]).stream, 64, 9, "bytes"),
 		);
 		expect(file).toEqual({ kind: "read", bytes: bytes(6) });
+		expect(file.kind === "read" && file.bytes.buffer.byteLength).toBe(6);
 		expect(meter.held().external).toBe(6);
 		lease.end();
 		expect(meter.held()).toEqual({ heap: 0, external: 0 });

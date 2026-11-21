@@ -9,13 +9,15 @@
  */
 
 import "./lib/loadEnv";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import {
 	closeCaseStoreDatabase,
 	getCaseStoreDatabase,
 } from "../lib/case-store/postgres/connection";
 import {
 	IMPORT_SCOPE,
+	importScopeCutoff,
+	type RepairPhase,
 	repairImportScope,
 	repairLines,
 } from "./lib/hqImportScope";
@@ -23,6 +25,8 @@ import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
 interface ScanOptions {
+	before: Date;
+	phase: RepairPhase;
 	prod?: boolean;
 }
 
@@ -31,6 +35,19 @@ program
 	.name("scan-hq-import-scope")
 	.description(
 		`Count the OAuth clients, consents, refresh tokens and API keys the ${IMPORT_SCOPE} repair would change (read-only).`,
+	)
+	.addOption(
+		new Option(
+			"--phase <name>",
+			"keys before the migration, oauth after the deploy",
+		)
+			.choices(["keys", "oauth"])
+			.makeOptionMandatory(),
+	)
+	.requiredOption(
+		"--before <utc>",
+		"cutoff recorded before the scope-aware revision began receiving traffic, in YYYY-MM-DDTHH:mm:ssZ form",
+		importScopeCutoff,
 	)
 	.option(
 		"--prod",
@@ -43,8 +60,8 @@ program
 			"  scripts/lib/prodDb.ts; it grants no write permissions. The\n" +
 			"  maintenance image carries it as hq-import-scope-scan.cjs.\n" +
 			"\nExamples:\n" +
-			"  $ npx tsx scripts/scan-hq-import-scope.ts\n" +
-			"  $ npx tsx scripts/scan-hq-import-scope.ts --prod\n",
+			"  $ npx tsx scripts/scan-hq-import-scope.ts --phase keys --before <utc>\n" +
+			"  $ npx tsx scripts/scan-hq-import-scope.ts --phase oauth --before <utc> --prod\n",
 	);
 program.parse();
 const opts = program.opts<ScanOptions>();
@@ -54,6 +71,8 @@ async function main(): Promise<void> {
 	try {
 		const repair = await repairImportScope(await getCaseStoreDatabase(), {
 			execute: false,
+			before: opts.before,
+			phase: opts.phase,
 		});
 		console.log(`Grants and ${IMPORT_SCOPE} (read-only)\n`);
 		for (const line of repairLines(repair)) console.log(line);

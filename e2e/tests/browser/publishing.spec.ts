@@ -3117,7 +3117,7 @@ test("a persona at a level CommCare HQ manages is asked about with one checkbox 
 	).toBeVisible();
 	await expect(
 		workers.getByText(
-			"Leave one unticked and Nova makes nobody who stands there. You can stand those personas somewhere else instead.",
+			"Nova can make or update the selected workers once every level they need is confirmed. You can also leave those personas out or change their places.",
 			{ exact: true },
 		),
 	).toBeVisible();

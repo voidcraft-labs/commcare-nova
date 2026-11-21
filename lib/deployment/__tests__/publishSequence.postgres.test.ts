@@ -77,7 +77,10 @@ import { attachmentUrlTarget } from "../attachmentTarget";
 import { resolveDownloadTarget } from "../downloadTarget";
 import { getEntryPointLink } from "../entryPointLinks";
 import { ABSENT_RESOURCE_DIGEST } from "../hqResourceBaseline";
-import { previewProjectSpaceFor } from "../previewSpace";
+import {
+	previewProjectSpaceFor,
+	readPreviewDeploymentAnswer,
+} from "../previewSpace";
 import {
 	APP_CHANGED_DURING_PUBLISH_WARNING,
 	APP_PREVIEW_NOTE,
@@ -104,7 +107,10 @@ import {
 } from "../service";
 import {
 	applyDeploymentObservation,
+	readAppBaseline,
 	readDeployment,
+	readDeploymentNovaRevisions,
+	readTargetFacts,
 	readTargetIdentity,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
@@ -195,6 +201,7 @@ function publish(
 	discardRemoteChanges?: readonly RemoteChangeDiscard[],
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: SCOPE,
 		...TARGET,
 		doc,
@@ -1952,6 +1959,7 @@ describe("the placements a publish records", () => {
 	): Promise<PublishOutcome> {
 		const { head = await reloadHead(), ...rest } = extra;
 		return publishAppToHq({
+			requireHqImport: null,
 			scope: SCOPE,
 			...TARGET,
 			doc: head.doc,
@@ -2794,6 +2802,7 @@ describe("a publish over an app Nova brought in", () => {
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-live");
 			const outcome = await publishAppToHq({
+				requireHqImport: null,
 				scope: SCOPE,
 				...TARGET,
 				doc: head.doc,
@@ -2911,6 +2920,7 @@ describe("a publish over an app Nova brought in", () => {
 			serveEdited(peer, SOURCE, "source-live", renamedInHq);
 			const auckland = refusal(
 				await publishAppToHq({
+					requireHqImport: null,
 					scope: SCOPE,
 					...TARGET,
 					doc,
@@ -3153,6 +3163,18 @@ describe("the save counter a publish's reads are bound to", () => {
 			expect(landed.warnings).not.toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
 			expect((await baselineRow()).origin).toBe("push");
 			expect((await mapping()).pushed_remote_revision).toBe("3");
+			expect([...(await readDeploymentNovaRevisions(SCOPE)).values()]).toEqual([
+				0,
+			]);
+			// The pre-migration writer updates pushed_revision while the new
+			// nova_revision column on the prior row retains the backfilled value.
+			await h
+				.db()
+				.updateTable("app_deployment_resources")
+				.set({ pushed_revision: 1 })
+				.where("kind", "=", "app")
+				.execute();
+			expect((await readDeploymentNovaRevisions(SCOPE)).size).toBe(0);
 		});
 		/* Every write HQ answered settled when it did. */
 		expect(await openWrites()).toEqual([]);
@@ -3170,6 +3192,7 @@ describe("the save counter a publish's reads are bound to", () => {
 			expect(landed).toMatchObject({ landed: true });
 			expect(landed.warnings).toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
 			expect((await baselineRow()).origin).toBe("unread");
+			expect(await readTargetFacts(SCOPE, TARGET)).toBeNull();
 
 			serve(peer, SOURCE, "source-live");
 			expect(refusal(await publish(doc)).remoteChanges).toEqual([
@@ -3178,56 +3201,109 @@ describe("the save counter a publish's reads are bound to", () => {
 		});
 	});
 
-	it("records no push baseline where HQ saved the app between the publish's last read and its import, and says so", async () => {
+	it("keeps the target settings at the acknowledged version after an extra save and asks before publishing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
 			/* The save lands after the counter was read and before the import. */
 			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
 			accepted(peer, 200);
-			serve(peer, SOURCE, "source-live");
+			const heldSettings = (source: Record<string, unknown>) => {
+				source.secure_submissions = true;
+				const profile = source.profile as {
+					properties: Record<string, unknown>;
+				};
+				profile.properties["cc-fuzzy-search-enabled"] = "yes";
+			};
+			serveEdited(peer, SOURCE, "source-live", heldSettings);
 			const landed = await publish(doc);
 			expect(landed).toMatchObject({ landed: true });
 			expect(landed.warnings).toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
-			expect((await baselineRow()).origin).toBe("unread");
-		});
-	});
-
-	it("records no push baseline for an update HQ acknowledged with no counter", async () => {
-		const doc = await seed();
-		await withPeer(async (peer) => {
-			await publishFresh(peer, doc);
-			serve(peer, SOURCE, "source-live");
-			request(peer, IMPORT, "POST").reply(() => {
-				saves.save(HQ_APP);
-				return {
-					statusCode: 200,
-					data: JSON.stringify({ success: true, app_id: HQ_APP }),
-				};
+			expect(await baselineRow()).toMatchObject({
+				origin: "unread",
+				nova_revision: null,
 			});
-			const landed = await publish(doc);
-			expect(landed).toMatchObject({ landed: true });
-			expect(landed.warnings).toContain(APP_READ_BACK_FAILED_WARNING);
-			expect((await baselineRow()).origin).toBe("unread");
-		});
-	});
-
-	it("stops before any content where HQ saved the empty app before Nova read it, keeping the app mapped with nothing it proves", async () => {
-		const doc = await seed();
-		await withPeer(async (peer) => {
-			accepted(peer, 201);
-			serveAfter(peer, "source-shell", () => saves.save(HQ_APP));
-			expect(refusal(await publish(doc))).toMatchObject({
-				phase: "resources",
-				failure: {
-					code: "hq_app_state_unknown",
-					message: `The new app on “clinic” changed in CommCare HQ while Nova was reading it, so Nova stopped before sending the app's content. ${CREATED} You can publish again, and Nova asks before it writes over that change.`,
+			const baseline = await readAppBaseline(SCOPE, TARGET);
+			expect(baseline).toMatchObject({ origin: "unread", novaRevision: null });
+			expect(baseline).not.toHaveProperty("source");
+			expect((await readDeploymentNovaRevisions(SCOPE)).size).toBe(0);
+			expect(
+				await resolveDownloadTarget(SCOPE, { format: "ccz", doc }),
+			).toMatchObject({
+				format: "ccz",
+				targetFacts: {
+					secureSubmissions: true,
+					profileProperties: { "cc-fuzzy-search-enabled": "yes" },
 				},
 			});
-			expect(activeRemoteApp((await state()) ?? fail())?.remoteId).toBe(HQ_APP);
-			expect((await baselineRow()).origin).toBe("unread");
+			expect(await readPreviewDeploymentAnswer(SCOPE)).toMatchObject({
+				targetFacts: { fuzzyListSearch: true },
+			});
+			serveEdited(peer, SOURCE, "source-live", heldSettings);
+			expect(refusal(await publish(doc)).remoteChanges).toEqual([
+				expect.objectContaining({ kind: "app", baselineKnown: false }),
+			]);
 		});
 	});
+
+	it.each(["no counter", "an unchanged counter"] as const)(
+		"records no push baseline or target settings for an update HQ acknowledged with %s",
+		async (acknowledgement) => {
+			const doc = await seed();
+			await withPeer(async (peer) => {
+				await publishFresh(peer, doc);
+				serve(peer, SOURCE, "source-live");
+				request(peer, IMPORT, "POST").reply(() => {
+					const version =
+						acknowledgement === "an unchanged counter"
+							? saves.at(HQ_APP)
+							: undefined;
+					return {
+						statusCode: 200,
+						data: JSON.stringify({ success: true, app_id: HQ_APP, version }),
+					};
+				});
+				if (acknowledgement === "an unchanged counter")
+					serve(peer, SOURCE, "source-live");
+				const landed = await publish(doc);
+				expect(landed).toMatchObject({ landed: true });
+				expect(landed.warnings).toContain(APP_READ_BACK_FAILED_WARNING);
+				expect((await baselineRow()).origin).toBe("unread");
+				expect(await readTargetFacts(SCOPE, TARGET)).toBeNull();
+			});
+		},
+	);
+
+	it.each(["before the first read", "during the source read"] as const)(
+		"keeps the empty app mapped and stops before sending content when HQ saved it %s",
+		async (when) => {
+			const doc = await seed();
+			await withPeer(async (peer) => {
+				if (when === "before the first read") {
+					request(peer, IMPORT, "POST").reply(() => {
+						saves.create(HQ_APP);
+						saves.save(HQ_APP);
+						return { statusCode: 201, data: { success: true, app_id: HQ_APP } };
+					});
+					serve(peer, SOURCE, "source-shell");
+				} else {
+					accepted(peer, 201);
+					serveAfter(peer, "source-shell", () => saves.save(HQ_APP));
+				}
+				expect(refusal(await publish(doc))).toMatchObject({
+					phase: "resources",
+					failure: {
+						code: "hq_app_state_unknown",
+						message: `The new app on “clinic” changed in CommCare HQ while Nova was reading it, so Nova stopped before sending the app's content. ${CREATED} You can publish again, and Nova asks before it writes over that change.`,
+					},
+				});
+				expect(activeRemoteApp((await state()) ?? fail())?.remoteId).toBe(
+					HQ_APP,
+				);
+				expect((await baselineRow()).origin).toBe("unread");
+			});
+		},
+	);
 
 	it("keeps an import HQ never answered open for its grace, and settles every write HQ answered", async () => {
 		const doc = await seed();

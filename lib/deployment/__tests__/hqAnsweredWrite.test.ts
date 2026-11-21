@@ -3,9 +3,9 @@
  * which decides how long the write's admission stays open: at once where HQ
  * answered, for the grace where the answer never reached Nova.
  *
- * Contract: an acknowledgement, a status HQ or its edge sent, and a body Nova
- * could not use are answers; no answer and a deadline are not; a list read's
- * `moved` names passes HQ answered. Plausible failure: a cause added to the
+ * Contract: an acknowledgement, a definitive refusal and a completed body
+ * are answers. A network failure or a gateway giving up on an upstream write
+ * leaves that write open. A list read's `moved` names passes HQ answered. Plausible failure: a cause added to the
  * failure's union read as answered without a decision, settling a write HQ
  * may still apply after Nova stopped waiting, so a bring-in of the HQ app is
  * granted while that write can still land.
@@ -32,11 +32,21 @@ function failed(
 }
 
 describe("hqAnsweredWrite", () => {
-	it("answers yes for an acknowledgement and for a status HQ or its edge sent", () => {
+	it("settles an acknowledgement and a definitive refusal", () => {
 		expect(hqAnsweredWrite({ success: true })).toBe(true);
 		expect(hqAnsweredWrite(failed(400))).toBe(true);
-		expect(hqAnsweredWrite(failed(502))).toBe(true);
+		expect(hqAnsweredWrite(failed(501))).toBe(true);
 	});
+
+	it.each([500, 502, 503, 504])(
+		"holds a write open after HTTP %i",
+		(status) => {
+			expect(hqAnsweredWrite(failed(status))).toBe(false);
+			expect(hqAnsweredWrite({ ...failed(status), edgeRefusal: true })).toBe(
+				false,
+			);
+		},
+	);
 
 	it("answers yes for a body Nova could not use, since HQ ended the request", () => {
 		expect(hqAnsweredWrite(failed(502, "malformed"))).toBe(true);

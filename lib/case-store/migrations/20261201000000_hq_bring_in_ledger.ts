@@ -213,13 +213,23 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	// 10. The read and changes origins, the Nova revision, the media record, and
 	//     the first-publish list. The revision's floor is pushed_revision's
 	//     (pushed_revision >= 0), so the copy of 10b cannot be refused: an app's
-	//     sequence starts at 0 (apps.mutation_seq DEFAULT 0).
+	//     sequence starts at 0 (apps.mutation_seq DEFAULT 0). An exact observation
+	//     after multiple saves may supply the source for kept settings even though
+	//     its origin remains unread and no Nova revision can be inferred.
 	await sql`
 		ALTER TABLE public.app_deployment_baselines
 			DROP CONSTRAINT IF EXISTS app_deployment_baselines_origin_check,
 			ADD CONSTRAINT app_deployment_baselines_origin_check
 				CHECK (origin IN ('create', 'push', 'cutover', 'read', 'changes', 'unread')),
 			ADD COLUMN IF NOT EXISTS nova_revision bigint,
+			DROP CONSTRAINT IF EXISTS app_deployment_baselines_unread_holds_no_source,
+			DROP CONSTRAINT IF EXISTS app_deployment_baselines_source_shape,
+			ADD CONSTRAINT app_deployment_baselines_source_shape CHECK (
+				(origin = 'unread' OR source_gzip IS NOT NULL)
+				AND (origin <> 'unread' OR source_gzip IS NULL OR nova_revision IS NULL)
+				AND (source_gzip IS NULL) = (source_bytes IS NULL)
+				AND (source_gzip IS NULL) = (source_digest IS NULL)
+				AND (source_gzip IS NULL) = (ownership IS NULL)),
 			DROP CONSTRAINT IF EXISTS app_deployment_baselines_nova_revision_is_a_sequence,
 			ADD CONSTRAINT app_deployment_baselines_nova_revision_is_a_sequence
 				CHECK (nova_revision IS NULL OR nova_revision >= 0),
@@ -248,8 +258,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	//     locale: a directory and a name, no empty, `.` or `..` segment, no
 	//     backslash, no control character (the code points of Unicode's Cc,
 	//     named, where a locale's `[:cntrl:]` also takes U+2028 and U+2029), no
-	//     space at either end, none of the names a `.ccz` gives its own files
-	//     or a name under one (the root files, `<directory>/app_strings.txt`,
+	//     U+FFFE or U+FFFF (excluded from XML 1.0), no space at either end,
+	//     none of the names a `.ccz` gives its own files or names under one
+	//     (the root files, `<directory>/app_strings.txt`,
 	//     `modules-<n>/forms-<n>.xml`, in any ASCII letter case:
 	//     `lib/commcare/cczMembers.ts::isGeneratedMemberPath`), and no two
 	//     paths of one deployment that differ only by ASCII letter case
@@ -270,6 +281,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			CONSTRAINT app_deployment_media_paths_path_shape CHECK (
 				char_length(wire_path) <= 255
 				AND wire_path COLLATE "C" ~ '^[^/\\\\\\x01-\\x1f\\x7f-\\x9f]+(/[^/\\\\\\x01-\\x1f\\x7f-\\x9f]+)+$'
+				AND wire_path COLLATE "C" !~ '[\\uFFFE\\uFFFF]'
 				AND wire_path !~ '(^|/)\\.{1,2}(/|$)'
 				AND wire_path !~ '^ | $'
 				AND lower(wire_path COLLATE "C") !~ '^(profile\\.ccpr|suite\\.xml|media_suite\\.xml)(/|$)'

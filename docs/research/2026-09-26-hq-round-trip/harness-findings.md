@@ -2399,6 +2399,14 @@ false`, and a `name` step in an app's text binds the case property called `name`
 declares where nothing writes it. `ReaderSpellingRuntimeTest` keeps the pair as a negative control:
 `name` reads blank and `case_name` reads the case's name.
 
+An update through HQ's app import API can advance the working app's save
+counter twice. The response returns the final `app.version`
+(`app_import_api.py::_handle_import_app`). When HQ prunes unused media
+paths, `hqmedia/models.py::remove_unused_mappings` saves the app again if
+the map changed. The same counter difference can come from a concurrent
+edit, so a landed publish with an extra increment leaves an unread baseline.
+The next publish asks before overwriting the app.
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's

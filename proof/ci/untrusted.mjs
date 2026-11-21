@@ -24,7 +24,7 @@
 // else may be there) at TO_FILE, and exits 1 where it refuses.
 
 import { constants } from "node:fs";
-import { open, opendir, rename, writeFile } from "node:fs/promises";
+import { lstat, open, opendir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,18 +45,29 @@ function kindOf(entry) {
 
 /** Every entry under `directory` that is not a directory or a plain file, each with what it is; links are never followed. */
 async function foreignEntries(directory) {
+	let root;
+	try {
+		root = await lstat(directory);
+	} catch (error) {
+		// A run that never wrote its output, or whose output was already moved aside, has nothing to seal.
+		if (error.code === "ENOENT") return [];
+		throw error;
+	}
+	if (!root.isDirectory()) {
+		return [
+			{
+				path: directory,
+				kind: root.isFile()
+					? "a plain file where a directory is required"
+					: kindOf(root),
+			},
+		];
+	}
 	const found = [];
 	const pending = [directory];
 	while (pending.length > 0) {
 		const current = pending.pop();
-		let handle;
-		try {
-			handle = await opendir(current);
-		} catch (error) {
-			// An output the run never made, or one sealed already and moved aside, holds nothing to seal.
-			if (error.code === "ENOENT" && current === directory) return [];
-			throw error;
-		}
+		const handle = await opendir(current);
 		for await (const entry of handle) {
 			const path = join(current, entry.name);
 			if (entry.isDirectory()) pending.push(path);
@@ -171,11 +182,25 @@ export async function readSurface(file, { bound = SURFACE_BOUND } = {}) {
 			`The surface at ${file} is JSON with no items object at its top.`,
 		);
 	}
+	if (
+		Object.values(items).some(
+			(item) => !item || typeof item !== "object" || Array.isArray(item),
+		)
+	) {
+		throw new SurfaceRefused(
+			`Each item in the surface at ${file} must be an object of extracted facts.`,
+		);
+	}
 	return { bytes, value };
 }
 
 /** The one surface.json an artifact's directory holds, placed at `destination`; refused where the directory holds anything else. */
 export async function placeSurface(directory, destination) {
+	if (!(await lstat(directory)).isDirectory()) {
+		throw new SurfaceRefused(
+			`The surface artifact at ${directory} must be a directory.`,
+		);
+	}
 	const names = [];
 	const handle = await opendir(directory);
 	for await (const entry of handle) names.push(entry.name);
