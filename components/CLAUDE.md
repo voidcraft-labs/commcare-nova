@@ -71,7 +71,9 @@ A focus handoff after a screen or control changes is a fallback. If the person
 focuses another control or starts typing before it runs, their choice wins.
 Use `lib/ui/hooks/useDeferredFocus` for a one-frame handoff and keep its owner
 mounted until the destination exists. Intentional modal focus traps and
-readiness-gated form reveals retain their own lifecycle owners.
+readiness-gated form reveals retain their own lifecycle owners. A reveal
+watches for later interaction with `onNewFocusIntent` from the moment the
+form requests focus.
 
 ## Identifiers
 

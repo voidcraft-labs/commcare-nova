@@ -10,6 +10,7 @@ import {
 	type SyntheticEvent,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -214,6 +215,7 @@ import type {
 	PreviewCaseChoice,
 	PreviewCaseListRegistrationEntry,
 } from "@/lib/session/types";
+import { onNewFocusIntent } from "@/lib/ui/hooks/useDeferredFocus";
 import { showToast } from "@/lib/ui/toastStore";
 import {
 	type FormLayoutHandle,
@@ -1230,26 +1232,50 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * in the same render as the refusal), and a control inside the inert,
 	 * disabled body ignores `focus()`, so focusing on a timer alone lands
 	 * nowhere whenever that commit is slower than the timer. */
-	const pendingFocusRef = useRef<(() => void) | undefined>(undefined);
-	const [focusRequest, setFocusRequest] = useState(0);
-	const requestFocus = useCallback((focus: () => void): void => {
-		pendingFocusRef.current = focus;
-		setFocusRequest((request) => request + 1);
+	const pendingFocusRef = useRef<
+		{ focus: () => void; stopWatching: () => void } | undefined
+	>(undefined);
+	const cancelPendingFocus = useCallback(() => {
+		pendingFocusRef.current?.stopWatching();
+		pendingFocusRef.current = undefined;
 	}, []);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a reveal belongs to this form entry and mode.
+	useLayoutEffect(
+		() => cancelPendingFocus,
+		[cancelPendingFocus, entryKey, formUuid, mode],
+	);
+	const [focusRequest, setFocusRequest] = useState(0);
+	const requestFocus = useCallback(
+		(focus: () => void): void => {
+			cancelPendingFocus();
+			pendingFocusRef.current = {
+				focus,
+				stopWatching: onNewFocusIntent(cancelPendingFocus),
+			};
+			setFocusRequest((request) => request + 1);
+		},
+		[cancelPendingFocus],
+	);
 
 	const formBodyRef = useCallback(
 		(el: HTMLDivElement | null) => {
 			formBodyElRef.current = el;
 			if (!el || mode !== "preview") return;
 			if (!selectedUuid) return;
-			const raf = requestAnimationFrame(() => {
+			const cancel = () => {
+				cancelAnimationFrame(frame);
+				stopWatching();
+			};
+			const stopWatching = onNewFocusIntent(cancel);
+			const frame = requestAnimationFrame(() => {
+				stopWatching();
 				const qEl = el.querySelector(`[data-field-uuid="${selectedUuid}"]`);
 				const input = qEl?.querySelector(
 					'input, select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])',
 				) as HTMLElement | null;
 				input?.focus();
 			});
-			return () => cancelAnimationFrame(raf);
+			return cancel;
 		},
 		[mode, selectedUuid],
 	);
@@ -3029,18 +3055,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * repeated question is resolved. A form frozen again in those frames
 	 * keeps the reveal for the next time it is live. */
 	useEffect(() => {
-		const focus = pendingFocusRef.current;
-		if (focusRequest === 0 || formFrozen || focus === undefined) return;
+		const request = pendingFocusRef.current;
+		if (focusRequest === 0 || formFrozen || request === undefined) return;
 		let frame = requestAnimationFrame(() => {
 			frame = requestAnimationFrame(() => {
-				if (pendingFocusRef.current !== focus) return;
+				if (pendingFocusRef.current !== request) return;
 				if (formBodyElRef.current?.closest("[inert]")) return;
-				pendingFocusRef.current = undefined;
-				focus();
+				cancelPendingFocus();
+				request.focus();
 			});
 		});
 		return () => cancelAnimationFrame(frame);
-	}, [focusRequest, formFrozen]);
+	}, [cancelPendingFocus, focusRequest, formFrozen]);
 
 	if (!form || !formUuid || !moduleUuid) return null;
 

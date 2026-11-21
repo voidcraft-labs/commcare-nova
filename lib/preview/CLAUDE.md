@@ -976,8 +976,9 @@ action. Both paths use immediate scrolling when reduced motion is requested.
 A reveal waits for the form to be live: the refusal arrives while Submit's
 running state still freezes the body (`inert`, disabled fieldset), where
 `focus()` does nothing, so the latest reveal runs two frames after the commit
-that unfreezes the form, and a form frozen again in those frames keeps it for
-the next.
+that unfreezes the form. If the form freezes again, the same entry keeps the
+request for its next live commit. A later focus choice, pointer press or
+keypress retires the request immediately, including between those frames.
 
 ## Form screens per platform
 
