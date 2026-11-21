@@ -228,38 +228,6 @@ editors author. After execution,
 verify the affected app histories and require a clean full census or runtime
 database probe before deploying the new revision.
 
-The `nova.hq.import` repair uses `scripts/scan-hq-import-scope.ts` for the
-read-only count and `scripts/migrate-hq-import-scope.ts` for the writer, bundled
-as `hq-import-scope-scan.cjs` and `hq-import-scope-repair.cjs`. Both take `--phase <keys|oauth> --before <utc>`.
-Immediately before merge, record a whole UTC second (`YYYY-MM-DDTHH:mm:ssZ`)
-for the keys pass. Run the scanner without `--execute`, then the writer with
-`--phase keys --before <utc> --execute` before merging. This gives enabled
-keys created before the cutoff that already held both HQ scopes the new scope
-while the previous revision still serves. That revision accepts the extra scope
-on a key. The writer checks the ledger migration has not run while holding a
-lock that excludes it. Key verification updates a key's modification date, so
-that date cannot distinguish use from an edit. The migration permanently closes this phase.
-
-Once the new revision serves all traffic and the old instances drain, take the
-creation time of the first revision that offered Import, rounded down to a
-whole UTC second. Use that cutoff for the OAuth scan and writer
-(`--phase oauth --before <utc> --execute`) and for the repeat ten minutes
-later. This phase also picks up an enabled key with both HQ scopes that the old
-revision created or edited after the first pass, only where both its creation
-and modification predate the new revision. It preserves every later opt-out.
-Check the old revision’s successful Settings key mint and scope-edit events
-through its drain for choices the conservative boundary left out. The previous revision could reset a metadata document
-client's scopes and refuse a repaired token. A transaction adds Import to the
-scope lists of clients registered before the cutoff, and to eligible consents
-and live refresh tokens that held both HQ scopes. A consent or client edited
-since the cutoff keeps the scopes its person chose. A later rotation qualifies
-only when its authorization code identifies a pre-cutoff token in the same
-family and no token in that family has already held Import. A token issued
-with the narrower scopes while the repair was committing can authorize afresh
-against the repaired consent. Both commands print counts only. After the run, both bundles, their Job admissions, the
-policy cases, both scripts, their library and test, and this paragraph are
-removed.
-
 ## Incremental transcript storage cutover
 
 `20261112000000_incremental_transcripts` replaces the transcript JSON column
