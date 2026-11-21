@@ -2,8 +2,8 @@
 
 These plans carry out the HQ round-trip research
 ([`docs/research/2026-09-26-hq-round-trip/`](../../research/2026-09-26-hq-round-trip/README.md)):
-Nova brings in any app CommCare HQ's editors can build, holds it typed, edits
-it, and publishes it back. The research is the design. Its "Order of work"
+The goal is to bring in any app CommCare HQ's editors can build, hold it as
+a typed Nova document, edit it and publish it back. The research is the design. Its "Order of work"
 gives seven steps, each with one cutover. These plans follow that order with
 at most one cutover a step: step 6 has none, for the reason "Rules every plan
 follows" gives. Where a plan cites a defect, a section or a contract row, it
@@ -17,7 +17,7 @@ means the research's "Defects in Nova today", its section of that name, or its
 | 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
 | 5 | Case writes, forms and navigation | done: ["Step 5 is done"](#step-5-is-done) |
-| 6 | [Bringing an app in from CommCare HQ](6-bring-in.md), with its fifteen parts in [`6-bring-in/`](6-bring-in/), which replace the outline this row held | planned in full, and built as one stack of ten layers that has not merged: what is left is the stack's merge and deploy, then the checks of its "Exit" ([`6-bring-in.md`](6-bring-in.md#exit)), read from `main` and the first scheduled night |
+| 6 | Bringing an app in from CommCare HQ | done: ["Step 6 is done"](#step-6-is-done) |
 | 7 | [The rest of the model](7-rest-of-model.md) | outline: the model Nova does not hold yet, in eight groups with a default order |
 
 ## Step 1 is done
@@ -154,13 +154,9 @@ is read:
 - **What planning step 3 found**,
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
   "Found while planning step 3".
-- **What step 3 left to later steps**, each with its reason, in item 8 of
-  the outline, which step 6's plan settles
-  ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why),
-  "What changed from the outline, and why", item 8), and in
-  [`7-rest-of-model.md`](7-rest-of-model.md);
-  what step 4 took of it is in ["Step 4 is done"](#step-4-is-done), and what
-  step 5 took of it in ["Step 5 is done"](#step-5-is-done).
+- **What step 3 left to later steps** is recorded under steps
+  [4](#step-4-is-done), [5](#step-5-is-done) and [6](#step-6-is-done).
+  The remaining expression features belong to [step 7](7-rest-of-model.md).
 - **The cutover's trace.** The cutover ran once, before the merge, and its
   scripts, its Job and its runbook are removed. What it left is each app's
   `fold-baseline:hq-round-trip-expressions` row (`lib/db/CLAUDE.md`), each
@@ -230,14 +226,10 @@ finding 74. What endures lives where it is read:
 - **What step 4 left to later steps**, each with its reason: CommTrack's
   confirmation and defect 21, which step 5 took (["Step 5 is
   done"](#step-5-is-done));
-  the split's read-back and the guarded and `current()` reads in item 9 of
-  the outline, which step 6's plan settles: the split in its item 9
-  ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why),
-  "What changed from the outline, and why"), and the two reads in part 08
-  ([`08-the-reader-expressions.md`](6-bring-in/08-the-reader-expressions.md),
-  sections 5.3 and 5.2: the guard reads back as the bare read, and
-  `current()` as a read spelled `current`); a child module of a search-first
-  parent, `fingerprintquery` and an ordinary search's results detail in
+  step 6 reads a split question back as three questions, a guarded read as
+  the bare read, and a `current()` read with its spelling. The reader contract
+  records these equivalences. The remaining features include a child module of a search-first
+  parent, `fingerprintquery` and an ordinary search's results detail, as set out in
   [`7-rest-of-model.md`](7-rest-of-model.md).
 - **The baseline step 4's plan was written against**: `main` at `e9e6cd93`,
   which is step 3's stack (#773 to #791) merged and its cutover run, then
@@ -318,11 +310,9 @@ publish, and defect 20's CommTrack half. What endures lives where it is read:
 - **What planning step 5 found**,
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
   "Found while planning step 5".
-- **What step 5 left to later steps**, each with its reason, in item 10 of
-  the outline, which step 6's plan settles
-  ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why),
-  "What changed from the outline, and why", item 10), and in
-  [`7-rest-of-model.md`](7-rest-of-model.md).
+- **What step 5 left to later steps** includes reading case-write placements,
+  preloads and form links back from HQ ([step 6](#step-6-is-done)).
+  [Step 7](7-rest-of-model.md) covers additional case and navigation features.
 - **The baseline step 5's plan was written against**: `main` at `2f985ed6`,
   which is step 4's stack (#809 to #825) merged and its cutover run, at the
   CommCare pins named under "Rules every plan follows".
@@ -357,6 +347,170 @@ The `../nova-plugin` change rides the stack:
 takes the plugin to `2.4.0`, and it merges once the deploy carrying step 5 is
 live.
 
+## Step 6 is done
+
+Nova can bring a whole app in from CommCare HQ, let its team edit it in the
+builder or through chat or MCP, and publish it back to the same HQ app.
+The review names what the first publish changes. When a source feature keeps
+the app from coming in, Nova lists what it found and where, with a next step
+for each finding. A later change in HQ can come back into the same Nova app.
+
+### Reading and publishing
+
+- The [repository map](../../../CLAUDE.md) describes how a read from HQ becomes
+  a Nova document and how its editors share one deployment lifecycle.
+- The [architecture reference](../../architecture/complex-apps.md#bringing-an-app-in-from-commcare-hq)
+  gives the admission conditions and the CommCare behavior behind them.
+- The [CommCare boundary](../../../lib/commcare/CLAUDE.md) brackets a read of
+  an HQ app with its save counter, aligns forms with their stored ids, and
+  classifies source values against the surface manifest.
+- The [reader](../../../lib/commcare/reader/CLAUDE.md) accounts for the source
+  and checks its proposed reading against the production emitter. It covers
+  forms, case operations, menus, lists, search and expressions.
+- The [deployment contract](../../../lib/deployment/CLAUDE.md) defines the
+  review digest, acceptance under each offered platform, and the closed list
+  of first-publish changes. It keeps an adopted app's identities and media
+  paths for its own project space. One live Nova app can publish to an HQ app.
+- The [architecture contracts](../../architecture/contracts.md) define the
+  `hq-adoption` birth and the changes a publish may write to an adopted
+  deployment. Project media files can already exist when the birth commits.
+- The [database contract](../../../lib/db/CLAUDE.md) records the app, its
+  source baseline, target claim and identities in the genesis transaction.
+  A later bring-in records what Nova accepted from HQ against a Nova revision.
+- The [document contract](../../../lib/doc/CLAUDE.md) describes the mutations
+  that bring in the difference between two HQ readings. When both sides
+  changed, the review names what taking HQ's version would remove.
+- The [multiplayer contract](../../../lib/collab/CLAUDE.md) explains how open
+  builders reload after an `hq-changes` commit and show who brought it in.
+- The [export contract](../../../lib/export/CLAUDE.md) defines the identity,
+  media and managed data that each destination receives.
+- The [lookup contract](../../../lib/lookup/CLAUDE.md) covers a table copied
+  from HQ, who can change it, and what happens when its management changes.
+- The [organization contract](../../../lib/organization/CLAUDE.md) describes
+  refreshing places by their HQ identities and retaining places that saved
+  data or app configuration still uses.
+- The [media contract](../../../lib/media/CLAUDE.md) covers validating files
+  read from HQ and publishing them to the Project library.
+- The [case-store contract](../../../lib/case-store/CLAUDE.md) and its
+  [migration registry](../../../lib/case-store/migrations/index.ts) hold the
+  four migrations for lookup names, the deployment ledger, the app-change
+  kind and managed Project data.
+- The [deployment procedure](../../architecture/deployment.md) describes how
+  the migration Job checks the incoming rules over saved apps.
+
+### Authoring and the worker experience
+
+- The [domain](../../../lib/domain/CLAUDE.md) models forms shown in the menu
+  above, case-list registration, phone numbers, calculated values in text,
+  columns shown only in details, and the names an app may use.
+- The [expression vocabulary](../../../lib/domain/expression/CLAUDE.md)
+  includes lists of values in record expressions.
+- The [XPath parser](../../../lib/commcare/xpath/CLAUDE.md) resolves names
+  read from an HQ expression to identities.
+- The [wire printer](../../../lib/commcare/xpath/wire/CLAUDE.md) supplies the
+  spelling the reader compares against.
+- The [localization contract](../../architecture/multilingual-localization.md)
+  covers multilingual form text and the language codes carried back to HQ.
+- The [Preview contract](../../../lib/preview/CLAUDE.md) covers menu and search
+  navigation, formatted values in text, and saved dates and times.
+- The [case-store SQL contract](../../../lib/case-store/sql/CLAUDE.md) defines
+  comparisons for saved record expressions.
+- The [App Test contract](../../../lib/preview/app-tests/CLAUDE.md) records the
+  runtime version for saved journeys.
+- The [builder](../../../components/builder/CLAUDE.md) owns the review on
+  `/build/new`, activation of the new app, and the check for HQ changes when
+  an app opens.
+- The [routing contract](../../../lib/routing/CLAUDE.md) defines how a shared
+  address reopens an HQ review.
+- The [component contract](../../../components/CLAUDE.md) describes the
+  chooser and its radio rows.
+- The [design system](../../../design/readme.md) describes how the review
+  explains a limit and shows what a person can do next.
+- The [agent contract](../../../lib/agent/CLAUDE.md) versions the tool
+  catalog per deployed build.
+- The [authoring guide](../../../lib/agent/authoring/CLAUDE.md) describes
+  how the Solutions Architect edits an app a person brought in.
+
+### User guides
+
+- [Bringing in an app from CommCare HQ](../../../content/docs/bringing-in-from-commcare-hq.mdx)
+  walks through choosing the app, reviewing its reading and opening it in Nova.
+- [Publishing](../../../content/docs/publishing.mdx) covers the next publish,
+  changes made in HQ and ending a deployment.
+- [Project-space compatibility](../../../content/docs/project-space-compatibility.mdx)
+  explains the checks before publishing.
+- [Where workers use your app](../../../content/docs/where-workers-use-your-app.mdx)
+  covers the Web Apps and Android choices a review offers.
+- [Project data](../../../content/docs/project-data.mdx) explains refreshing
+  the copies of lookup tables HQ manages and taking over a table.
+- [Organization](../../../content/docs/organization.mdx) covers refreshing
+  places from an HQ project space.
+- [Building with Nova](../../../content/docs/building-with-nova.mdx) covers
+  questions and calculated values in wording.
+- The [case workspace](../../../content/docs/case-workspace.mdx) covers
+  registration from a case list, sorting and detail columns.
+- [Nested menus](../../../content/docs/nested-menus.mdx) shows how to put
+  forms in the menu above.
+- [Form links](../../../content/docs/form-links.mdx) explains the destinations
+  a worker can reach after submitting a form.
+- [Deep links](../../../content/docs/deep-links.mdx) covers choosing a shared
+  destination, including a form shown in another menu.
+- [Display conditions](../../../content/docs/display-conditions.mdx) explains
+  where a menu or form's condition is checked.
+- [Case changes](../../../content/docs/case-changes.mdx) explains case and
+  property names.
+- [CommCare Connect](../../../content/docs/commcare-connect.mdx) covers block
+  names and descriptions.
+- [Languages](../../../content/docs/languages.mdx) explains reviewing
+  translated content and references.
+- The [MCP tool catalog](../../../content/docs/mcp/tools.mdx) documents the HQ
+  reviews and their answers.
+- [Connecting](../../../content/docs/mcp/connecting.mdx) walks through
+  authorizing a client to read apps from HQ.
+- [MCP access](../../../content/docs/mcp/access.mdx) explains what an HQ Import
+  grant lets an authorized client read and bring in.
+- [API keys](../../../content/docs/mcp/api-keys.mdx) identifies the HQ scopes a
+  key needs for each operation.
+- [Claude Code commands](../../../content/docs/claude-code/commands.mdx) covers
+  `/nova:bring_in`, delivered by
+  [nova-plugin #77](https://github.com/voidcraft-labs/nova-plugin/pull/77)
+  once the Nova deployment is live.
+
+### Proof and source evidence
+
+- The [testing contract](../../testing.md) explains which checks belong to
+  the Nova product, the browser and CommCare's own readers.
+- The [proof guide](../../../proof/README.md) describes the 22 HQ-authored
+  bases, their variants, coverage of the surface manifest, and the judge
+  that compares predicted first-publish changes with what the readers observe.
+  Proof 6 reads back the app from HQ after Nova publishes it.
+- The [proof contract](../../../proof/CLAUDE.md) defines parity between
+  the reader's accounting and the lane's independent classifier and the
+  evidence for bringing in or recording a later HQ change.
+- The [browser proof contract](../../../e2e/CLAUDE.md) covers the bring-in
+  journeys and seeded apps.
+- [Research findings](../../research/2026-09-26-hq-round-trip/harness-findings.md)
+  track corrections from CommCare's readers.
+- The [inventory index](../../research/2026-09-26-hq-round-trip/inventory/README.md)
+  locates the reader and emitter evidence for each part of an app.
+- [Application and settings](../../research/2026-09-26-hq-round-trip/inventory/application-and-settings.md)
+  records what HQ keeps when Nova publishes.
+- [Menus and case lists](../../research/2026-09-26-hq-round-trip/inventory/menus-and-case-lists.md)
+  records how menu order, registration and list columns appear in the source.
+- [Case search](../../research/2026-09-26-hq-round-trip/inventory/case-search.md)
+  lists the source values for inputs and search results.
+- [Forms and case writes](../../research/2026-09-26-hq-round-trip/inventory/forms-and-case-writes.md)
+  distinguishes the case actions and session values the reader can identify.
+- [Questions](../../research/2026-09-26-hq-round-trip/inventory/questions.md)
+  records the bindings, text and appearance of each supported question.
+- [Expressions and data](../../research/2026-09-26-hq-round-trip/inventory/expressions-and-data.md)
+  identifies the instances that supply values in HQ's expressions.
+- [Gates](../../research/2026-09-26-hq-round-trip/inventory/gates.md)
+  records which HQ features depend on a plan privilege or project-space setting.
+
+[Step 7](7-rest-of-model.md) owns the eight groups of features that the reader
+reports as “Nova can't hold this yet.”
+
 ## Why each later step is planned when the one before it exits
 
 Each defect part step 2 fixed that the lane reproduces was observed in the
@@ -372,21 +526,17 @@ before it exits, against the code as it then stands.
 - One concept per meaning; no reference a reader of the repo cannot see.
 - One name for bringing an app in. Wherever a person reads it, step 6's feature is "Bring in an app
   from CommCare HQ" and its verb is "bring in", never "import", which already names the files Nova
-  sends to CommCare HQ and a CSV that replaces a table's rows. Step 6's plan gives the nouns its
-  code uses, once ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why), "What
-  changed from the outline, and why", item 13).
+  sends to CommCare HQ and a CSV that replaces a table's rows. In code the reader produces a reading, with findings
+  in an account or choices in a review. Adoption creates the app.
 - At most one cutover per step. A step that changes the stored shape of Nova documents
   migrates all of that step's changes in one direct maintenance cutover
   (`docs/architecture/contracts.md`), with its production scan first, and
   leaves every document valid. One-off data migrations ship as a read-only scan
   script plus a separate migrate script in `scripts/`, which are removed after
-  they run. Step 6 migrates no stored document, so it has no maintenance cutover: every stored slot
-  it adds is optional or a wider grammar, its four migrations change no stored document and each
-  applies while the revision before the step still serves
-  ([`6-bring-in.md`](6-bring-in.md#migrations-and-the-deploy), "Migrations and the deploy"), and the
-  cutover the research and the outline give it, a merge of each lookup table's deployment records,
-  has no data to move, because a table's ownership is derived from the live mappings of the
-  Project's apps. It ships as one stack and one deploy, as steps 2 to 5 each did.
+  they run. Step 6 uses four ledgered migrations that apply while the previous
+  revision serves. Each added document slot is optional or widens a grammar.
+  Ownership of a lookup table in a project space comes from the Project's live
+  deployment mappings. These changes require no maintenance window.
 - No rollouts, flags, leases or transitional cutovers.
 - Tests earn their boundary (`docs/testing.md`).
 - Every CommCare fact a plan relies on is settled at source, in local

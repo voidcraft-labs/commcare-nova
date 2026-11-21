@@ -576,15 +576,6 @@ def _effective_execution_args(
             else:
                 if plan:
                     return requested
-        if (
-            len(requested) in (5, 6)
-            and requested[0] in ("hq-import-scope-scan.cjs", "hq-import-scope-repair.cjs")
-            and requested[1] == "--phase" and requested[2] in ("keys", "oauth")
-            and requested[3] == "--before"
-            and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", requested[4])
-            and (len(requested) == 5 or requested[0] == "hq-import-scope-repair.cjs" and requested[5] == "--execute")
-        ):
-            return requested
         if requested == ("case-expression-index-scan.cjs",):
             return requested
         if (
