@@ -135,6 +135,64 @@ def test_only_the_untyped_hidden_today_calculation_supplies_a_date():
     assert written({**question, "tag": "input", "type": "Text"}, source) == "text"
 
 
+def test_agriculture_seeds_the_decimals_or_blanks_its_forms_share():
+    from decimal import Decimal
+
+    from lxml import etree
+
+    from proof.observe import casedata
+
+    base = HQ_APPS / "starter-agriculture"
+    source = json.loads((base / "app.json").read_bytes())
+    body = json.loads((base / "application.json").read_bytes())["body"]
+    active = json.loads(body) if isinstance(body, str) else body
+    database = casedata.seeded_case_database(json.loads((base / "seed.json").read_bytes()))
+    farmers = [dict(case.properties) for case in database.cases if case.case_type == "farmer"]
+
+    def writer(menu, position, prop):
+        form = source["modules"][menu]["forms"][position]
+        actions = form["actions"]
+        updates = actions["subcases"][0]["case_properties"] if menu == 1 else actions["update_case"]["update"]
+        path = updates[prop]["question_path"]
+        xml = source["_attachments"][form["unique_id"] + ".xml"]
+        return active["modules"][menu]["forms"][position]["questions"], xml, path
+
+    update = writer(2, 3, "area_mapper")
+    for prop, (questions, xml, path) in (("arable_land", writer(1, 0, "arable_land")), ("area_mapper", update)):
+        assert seed.question_writers(questions, xml)[path] == ("decimal", [])
+        values = {case[prop] for case in farmers}
+        assert len({Decimal(value) for value in values if value}) >= 3
+        assert ("" in values) == (prop == "arable_land")
+
+    questions, xml, path = update
+    # Update Farmer Information opens both decimal questions from the very property Enrollment wrote.
+    ns = {"xf": seed.XFORMS}
+    tree = etree.fromstring(xml.encode())
+    for target in ("/data/own_arable_land", "/data/rent_arable_land"):
+        assert tree.xpath("//xf:bind[@nodeset=$target]/@type", namespaces=ns, target=target) == ["xsd:double"]
+        assert tree.xpath("//xf:setvalue[@ref=$target]/@value", namespaces=ns, target=target) == [
+            "instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/arable_land"
+        ]
+
+    # HQ's question summary alone is insufficient. One non-decimal source bind, another branch expression,
+    # or a runtime action that can replace the result must still yield the default text witness.
+    wrong_type = xml.replace(
+        'nodeset="/data/own_arable_land" type="xsd:double"', 'nodeset="/data/own_arable_land" type="xsd:string"'
+    )
+    assert wrong_type != xml
+    assert seed.question_writers(questions, wrong_type)[path] == ("text", [])
+    extra = '<setvalue event="xforms-ready" ref="/data/arable_land" value="0"/>'
+    assert seed.question_writers(questions, xml.replace("</model>", extra + "</model>"))[path] == ("text", [])
+    changed = [dict(q) for q in questions]
+    result = next(q for q in changed if q["value"] == path)
+    calculate = result["calculate"]
+    result["calculate"] = calculate.replace("/data/rent_arable_land,", "'unknown',")
+    assert result["calculate"] != calculate
+    bind = tree.xpath("//xf:bind[@nodeset=$path]", namespaces=ns, path=path)[0]
+    bind.set("calculate", result["calculate"])
+    assert seed.question_writers(changed, etree.tostring(tree, encoding="unicode"))[path] == ("text", [])
+
+
 # The cases a base names --------------------------------------------------------------------------------------------
 
 CATALOG = [

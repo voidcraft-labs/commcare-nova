@@ -115,12 +115,12 @@
 				},
 				{
 					"name": "arable_land",
-					"data_type": "text",
+					"data_type": "decimal",
 					"options": []
 				},
 				{
 					"name": "area_mapper",
-					"data_type": "text",
+					"data_type": "decimal",
 					"options": []
 				},
 				{
