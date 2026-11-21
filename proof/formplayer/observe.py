@@ -17,11 +17,12 @@ archive to CommCare Android alone, which registers its own strings as the
 default locale's first source before the app's files
 (``CommCareApplication.initializeDefaultLocalizerData``), where Formplayer
 registers its own after them (``FormplayerConfigEngine.initEnvironment``),
-and they lack keys Android's name (``home.sync``). Formplayer reads the
-archive as Android does: with Android's strings registered first, through
-the one channel the lane has into Formplayer's install, a locale resource
-of the archive's suite ahead of the app's own (``as_android_reads_it``), as
-the Core runner admits the archive (``proof.core.client.ANDROID_DEFAULT_STRINGS``).
+and they lack keys Android's name (``home.sync``). When an app language
+defines a key absent from its default file, Core requires the
+default locale to provide it. For that key Formplayer receives the fallback a
+device supplies (``with_android_locale_fallbacks``). All other texts retain
+Formplayer's own runtime defaults on both HQ and local walks; installing Android's
+whole catalog on only one changes even the label for adding a repeat.
 
 What a side's record holds (``walked``):
 
@@ -166,66 +167,75 @@ def release_is_the_build(served, files) -> dict | None:
     return {"differing": differing} if differing else None
 
 
-# The suite's own name in an archive, and where the archive Formplayer is handed holds Android's strings.
-SUITE = "suite.xml"
-ANDROID_STRINGS = "default/android_translatable_strings.txt"
-ANDROID_STRINGS_ID = "android_translatable_strings"
+def _locale_rows(content: bytes):
+    """The keys Core's LocalizationUtils.parseAndAdd installs and their original, unmodified lines.
+
+    BufferedReader ends a line at CR, LF or CRLF. Java trim removes code points up to U+0020, and an
+    unescaped # begins a comment. A line ending at its first equals sign installs no key. Keep the original
+    bytes for a selected row so Core itself interprets its value.
+    """
+    import re
+
+    java_trim = bytes(range(33))
+    for line in content.splitlines():
+        record = re.split(rb"(?<!\\)#", line.strip(java_trim), maxsplit=1)[0]
+        key, _, value = record.partition(b"=")
+        if value:
+            yield key, line
 
 
-def as_android_reads_it(archive: bytes, strings: bytes | None = None) -> bytes:
-    """The archive with CommCare Android's own strings (``strings``, by default the pinned checkout's
-    ``android_translatable_strings.txt``) registered as the default locale's first source: a ``<locale
-    language="default">`` resource ahead of the suite's first ``<locale>``, which Core's suite parser adds to the
-    resource table, and its install registers, in document order (``SuiteParser``, ``ResourceTable.
-    initializeResources``), so the app's own default text is read over Android's, as on a device. Every other entry is
-    the archive's own."""
+def with_android_locale_fallbacks(archive: bytes, strings: bytes | None = None) -> bytes:
+    """Give Formplayer the Android defaults needed by a local archive's named languages.
+
+    Core's Localizer.getLocaleData requires each key in a named locale to exist in the default locale.
+    Android supplies its runtime catalog before the app's default file; Formplayer's runtime catalog has
+    different keys. Supply only Android rows for keys the app defines in a language but lacks in default.
+    An app with no such keys is handed to Formplayer byte for byte, so its own runtime strings apply to both
+    sides of the comparison. A missing key neither runtime supplies still fails Core's check.
+    """
     import io
     import zipfile
 
-    from lxml import etree
-
-    if strings is None:
-        from proof.core.client import ANDROID_DEFAULT_STRINGS
-
-        strings = ANDROID_DEFAULT_STRINGS.read_bytes()
+    default = "default/app_strings.txt"
     with zipfile.ZipFile(io.BytesIO(archive)) as held:
-        if ANDROID_STRINGS in held.namelist():
-            raise ValueError(f"The archive already holds {ANDROID_STRINGS}, where Android's own strings are added.")
-        suite = etree.fromstring(held.read(SUITE))
-        namespace = etree.QName(suite).namespace
+        files = held.namelist()
+        if default not in files:
+            return archive
+        named_keys = {
+            key
+            for name in files
+            if name != default and name.count("/") == 1 and name.endswith("/app_strings.txt")
+            for key, _ in _locale_rows(held.read(name))
+        }
+        default_strings = held.read(default)
+        missing = named_keys.difference(key for key, _ in _locale_rows(default_strings))
+        if not missing:
+            return archive
+        if strings is None:
+            from proof.core.client import ANDROID_DEFAULT_STRINGS
 
-        def named(name):
-            return etree.QName(namespace, name).text if namespace else name
-
-        locale = etree.Element(named("locale"), language="default")
-        resource = etree.SubElement(locale, named("resource"), id=ANDROID_STRINGS_ID, version="1")
-        etree.SubElement(resource, named("location"), authority="local").text = f"./{ANDROID_STRINGS}"
-        first = next((child for child in suite if etree.QName(child).localname == "locale"), None)
-        if first is None:
-            suite.append(locale)
-        else:
-            first.addprevious(locale)
+            strings = ANDROID_DEFAULT_STRINGS.read_bytes()
+        rows = [line for key, line in _locale_rows(strings) if key in missing]
+        if not rows:
+            return archive
         written = io.BytesIO()
         with zipfile.ZipFile(written, "w", zipfile.ZIP_DEFLATED) as copy:
             for info in held.infolist():
-                data = held.read(info.filename)
-                if info.filename == SUITE:
-                    data = etree.tostring(suite, encoding="utf-8", xml_declaration=True)
+                data = b"\n".join([*rows, default_strings]) if info.filename == default else held.read(info)
                 copy.writestr(info, data)
-            copy.writestr(ANDROID_STRINGS, strings)
     return written.getvalue()
 
 
 def local(served, runner, blobs, document, *, script, configuration):
     """Formplayer's walk of Nova's local archive over the served state's HQ: the archive Nova compiles for the
     project space the configuration ``configuration`` names (``Document.local_ccz_for``), its runtime URLs naming
-    the working app (``with_runtime_app_id``) and Android's own strings first (``as_android_reads_it``), handed to
+    the working app (``with_runtime_app_id``) and its languages' needed Android defaults, handed to
     Formplayer where it asks HQ's download for the app; the worker, the restore, each search, each claim and each
     submission are HQ's own."""
     from proof.hq.operations import with_runtime_app_id
 
     nova = with_runtime_app_id(document.local_ccz_for(configuration).read_bytes(), served.app_id)
-    archive = as_android_reads_it(nova)
+    archive = with_android_locale_fallbacks(nova)
     app_id = apps.build_id(LOCAL_APP, archive)
     served.hq.archives[app_id] = archive
     try:
@@ -237,11 +247,11 @@ def local(served, runner, blobs, document, *, script, configuration):
 __all__ = [
     "APP",
     "BUILD",
-    "as_android_reads_it",
     "local",
     "marked",
     "release_is_the_build",
     "runtime",
     "script_of",
     "walked",
+    "with_android_locale_fallbacks",
 ]

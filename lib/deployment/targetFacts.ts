@@ -86,7 +86,8 @@ const LISTED_WHEN: Readonly<
 	"language-names": (facts) => facts.languageNames !== null,
 	"android-logos": (facts) => facts.androidLogos.length > 0,
 	"mobile-report-version": (facts) => facts.mobileReportVersion !== "2.0",
-	"location-with-every-form": (facts) => facts.autoGpsCapture,
+	"location-with-every-form": (facts) =>
+		facts.autoGpsCapture && !facts.novaOwnsAutoGpsCapture,
 	"persistent-menu": (facts) => facts.persistentMenu,
 	"web-apps-breadcrumbs": (facts) => !facts.breadcrumbs,
 	"secure-submissions": (facts) => facts.secureSubmissions,
@@ -107,15 +108,20 @@ export function keptListFor(facts: TargetFacts): readonly KeptLabelId[] {
 
 /**
  * The kept list these facts give: the labels `keptListFor` names, the date of
- * the read, and a digest of every value the facts hold but that date. Two
+ * the read, and a digest of the values the project space keeps. Two
  * lists with the same labels can stand for different values (a sign-in that
  * lasts an hour where it lasted a day, a second screen reworded), and the
  * digest is what tells them apart (`keptChanged`).
  */
 export function deploymentKeptOf(facts: TargetFacts): DeploymentKept {
+	const { novaOwnsAutoGpsCapture, ...values } = facts;
 	return {
 		labels: keptListFor(facts),
-		valuesDigest: canonicalJsonDigest({ ...facts, observedAt: null }),
+		valuesDigest: canonicalJsonDigest({
+			...values,
+			autoGpsCapture: facts.autoGpsCapture && !novaOwnsAutoGpsCapture,
+			observedAt: null,
+		}),
 		observedAt: facts.observedAt,
 	};
 }

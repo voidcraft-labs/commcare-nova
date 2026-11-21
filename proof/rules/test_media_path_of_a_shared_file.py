@@ -154,6 +154,11 @@ def test_proof_3_names_each_file_a_build_installs_by_its_bytes_or_the_document_h
     other = proof3.media_files({"media_suite.xml": suite, "commcare/a.png": b"one", "commcare/b.png": b"two"})
     assert same["jr://file/commcare/a.png"] == same["jr://file/commcare/b.png"]
     assert other["jr://file/commcare/a.png"] != other["jr://file/commcare/b.png"]
+    # An ordinary file server can serve different contents under two names in the same directory.
+    outside = _hq_suite((FIRST, "m1"), (SECOND, "m1")).replace(b"/hq/multimedia/file/", b"/elsewhere/")
+    query = _hq_suite((FIRST, "m1"), (SECOND, "m1")).replace(b"</location></resource>", b"?thumb=32</location></resource>")
+    assert not proof3.media_files({"media_suite.xml": outside})
+    assert not proof3.media_files({"media_suite.xml": query})
     assert proof3.media_files({}) == {}
     shown_trace = proof3.comparable_trace({"runs": []}, proof3.RUNTIMES["B"], files={"media_suite.xml": suite})
     assert MEDIA_FILES in shown_trace and MEDIA_FILES not in proof3.comparable_trace({"runs": []}, proof3.RUNTIMES["B"])

@@ -2523,12 +2523,15 @@ from the declaration. Publish writes no
 takes out only an entry whose only key is `path`, which HQ's own uploader never
 stores. `cc-show-saved` and
 `cc-show-incomplete` are app content (`appSettings`), written as a key-level
-overlay, and they are the only two profile settings Nova owns on HQ. The
-fifteen other explicit settings, constants at today's device behavior, are
-seeded on HQ only where the target's profile holds no value (absent, null or
-empty) and never written over a value the target holds, because Nova does not
-yet hold them as settings an author sets, and writing over a person's choice
-in HQ would undo it at every publish; the local `.ccz` writes all seventeen.
+overlay, and they are the only two profile settings Nova owns on HQ.
+Web Apps reads the stored `cc-show-incomplete` when it draws its home
+screen. An app missing this setting can show Incomplete Forms even though
+its built profile says `no`. Nova discloses when the first publish would
+remove the app's contribution to the tile. Turning on Show incomplete
+forms preserves it. The fifteen other settings keep the project space's
+values. A newly created target receives Nova's defaults for missing
+settings. A target Nova brought in keeps them absent on both an HQ update
+and an archive built for that target.
 In `translations`, of the keys HQ generates Nova writes only
 `app.display.name` and `homescreen.title`, each only in a language whose
 localized app name differs from `appName`, and it writes every current
@@ -2536,7 +2539,11 @@ language's name; `android.package.name.*`, every runtime UI-catalog key and
 any other key keep HQ's value verbatim, and a generated key is never carried
 (`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides.
 `add_ons` sets needed slugs `true` and keeps the rest; `auto_gps_capture` is
-`true` for a Connect app and otherwise omitted.
+`true` for a Connect app and otherwise omitted. If someone turns off
+Connect in Nova, the next update leaves capture at HQ's stored value. A
+project-space archive uses that observed value even if Nova set it while
+Connect was on. Android records a location when it has permission and a
+GPS fix. Web Apps submits an empty location element.
 A publish reads the current HQ app source before it imports: in preflight for
 an app that is already there, after the create for one it makes, and once more
 where it pushed a lookup table or a place in between.

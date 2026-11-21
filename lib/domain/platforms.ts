@@ -22,6 +22,14 @@ import type { BlueprintDoc } from "./blueprint";
 import type { Expression } from "./expression/types";
 import type { FieldKind } from "./fields";
 
+const connectFormLocation =
+	"every form a worker submits includes the device's location if CommCare has location permission and the device gets a GPS fix";
+
+export const CONNECT_LOCATION_ON_ENABLE = `Once the Connect version is installed on Android, ${connectFormLocation}.`;
+
+export const CONNECT_LOCATION_ON_DISABLE =
+	"Turning off Connect leaves Auto Capture Location as it is in each app on CommCare HQ. To stop automatic capture, turn it off in the app's Android Settings and on any forms that have it on, then build and release a new version for workers to install.";
+
 export const PLATFORMS = ["web-apps", "android"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
@@ -845,7 +853,7 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "forms are sent with no location" },
 		android: {
 			reading: "runs",
-			note: "each form records where the worker was",
+			note: connectFormLocation,
 		},
 	},
 };

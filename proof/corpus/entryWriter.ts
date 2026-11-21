@@ -97,8 +97,10 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { planLanguageWire } from "@/lib/commcare/languageWire";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
+import { keptAdvisoryFacts } from "@/lib/deployment/targetFacts";
 import {
 	canonicalTargetIdentity,
 	EMPTY_TARGET_IDENTITY,
@@ -109,9 +111,11 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
+	effectiveAppLocalization,
 	type PersistableDoc,
 } from "@/lib/domain";
 import { materializableCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { exportAdvisories } from "@/lib/publish/exportAdvisories";
 import {
 	type ConfigurationFlags,
 	type CorpusConfiguration,
@@ -318,12 +322,31 @@ function documentJson(
 	publish: PublishDocument,
 	doc: BlueprintDoc,
 	facts?: HqAuthoredFacts,
+	targetFacts?: TargetFacts | null,
 ) {
+	// The device judge holds the two picker spellings to the real download advisory
+	// and Nova's picker labels before either the archive or Android interprets them.
+	let advisedPickerLabels: Record<string, string> | undefined;
+	if (facts !== undefined && targetFacts?.languageNames != null) {
+		const plan = planLanguageWire(effectiveAppLocalization(doc.localization));
+		const kept = keptAdvisoryFacts(targetFacts, plan.languages);
+		if (
+			exportAdvisories(doc, "known", kept).some(
+				(item) => item.id === "kept_language_names_differ",
+			)
+		) {
+			advisedPickerLabels = Object.fromEntries(plan.nameByWireCode);
+		}
+	}
 	return {
 		id,
 		source,
 		...storedInputs(publish),
-		wire: { modules: wireLayout(doc), languages: wireLanguages(doc) },
+		wire: {
+			modules: wireLayout(doc),
+			languages: wireLanguages(doc),
+			...(advisedPickerLabels && { advisedPickerLabels }),
+		},
 		catalog: materializableCaseTypes(doc).map(
 			({ name, parent_type, relationship, properties }) => ({
 				name,
@@ -1385,6 +1408,7 @@ export async function writeEntry(
 	 * brought in before it, the document the bring-in gave, which A after the
 	 * saves and B both hold (`republishedDocument`). */
 	const republished = republishedDocument(document.id, captures, publish);
+	const targetFacts = archiveTargetFacts(document.id, captures, "republish");
 	await writeJson(
 		join(root, "document.json"),
 		documentJson(
@@ -1398,6 +1422,7 @@ export async function writeEntry(
 						`the document ${document.id}'s bring-in gave`,
 					),
 			authored,
+			targetFacts,
 		),
 	);
 	/* A `.ccz` installs an app on Android and nothing else, so Nova's own
@@ -1408,7 +1433,6 @@ export async function writeEntry(
 	 * left it: the republished document's for the republish, under the record
 	 * it was sent under, and D′'s for its update, each with what the project
 	 * space keeps (`SentImport.targetFacts`). */
-	const targetFacts = archiveTargetFacts(document.id, captures, "republish");
 	const { targetIdentity } = republished;
 	const localArchive = await localCcz(
 		republished.publish,

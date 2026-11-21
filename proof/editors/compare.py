@@ -37,11 +37,12 @@ CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
 
 
 def build(state, app_id, record, *, version=None, previous=None):
-    """HQ's build of the app HQ holds, at ``version`` when given (the held app's otherwise)."""
-    app = operations.held_app(state, app_id)
-    if version is not None:
-        app.version = version
-    with build_seams(previous=previous):
+    """Render at ``version`` when given. A build can prune unused media and save its copy;
+    the next editor opens the working app at the version the previous editor save left."""
+    with state.fork(), build_seams(previous=previous):
+        app = operations.held_app(state, app_id)
+        if version is not None:
+            app.version = version
         return operations.build(app, record)
 
 

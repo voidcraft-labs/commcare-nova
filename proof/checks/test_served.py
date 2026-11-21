@@ -524,3 +524,116 @@ def test_a_run_that_left_the_walk_keeps_no_search_outcome_and_a_one_question_end
     assert left and not [path for path, _ in left if "oneQuestion" in path]
     stopped = screens(menu, whole, stopped={"after": 2, "screen": whole})
     assert ("/runs/*/oneQuestion", "removed") in compared(one, stopped)
+
+
+def test_formplayer_location_metadata_class_only_covers_the_empty_hq_element():
+    def trace(location):
+        instance = '<data xmlns="urn:app"><meta xmlns="http://openrosa.org/jr/xforms">' + location + "</meta></data>"
+        return {"runs": [{"steps": [{"response": {"instanceXml": {"output": instance}}}]}]}
+
+    def paths(element):
+        found = compare.formplayer_differences(
+            trace(""), trace(element), check="proof3", document="d", artifact="formplayer@B"
+        )
+        return [difference.path for difference in found]
+
+    prefix = "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]"
+    tag = '<location xmlns="http://commcarehq.org/xforms"'
+    assert paths(tag + "/>") == [prefix + ":empty"]
+    for element in (
+        tag + ">1 2 3 4</location>",
+        tag + ' source="gps"/>',
+        tag + "><extra/></location>",
+        '<location xmlns="urn:another"/>',
+    ):
+        [path] = paths(element)
+        assert not path.endswith(":empty")
+
+
+def test_formplayer_menu_images_use_their_own_archive_and_leave_unresolved_images_visible():
+    from proof.checks.compare.trace import INSTALLED_MEDIA, MEDIA_FILES
+    from proof.rules import RULES
+
+    first, second = "jr://file/a.png", "jr://file/b.png"
+
+    def response(uri=None):
+        return {
+            "runs": [{"steps": [{"response": {"type": "commands", "commands": [{"imageUri": uri} if uri else {}]}}]}]
+        }
+
+    def differences(a, b, left, right):
+        return compare.formplayer_differences(
+            response(a),
+            response(b),
+            check="proof3",
+            document="doc",
+            artifact="formplayer@B",
+            media=(left, right),
+            rules=RULES,
+        )
+
+    shared = {MEDIA_FILES: {first: "same", second: "same"}, INSTALLED_MEDIA: [first, second]}
+    different = {MEDIA_FILES: {first: "one", second: "two"}, INSTALLED_MEDIA: [first, second]}
+    assert not differences(second, first, shared, different)
+    assert differences(second, first, different, shared)
+    assert not differences(second, None, {INSTALLED_MEDIA: []}, None)
+    assert differences(second, None, None, {INSTALLED_MEDIA: []})
+    assert differences("http://images.example/icon.png", None, {INSTALLED_MEDIA: []}, None)
+
+
+def test_an_offered_root_menu_name_requires_matching_commands_language_and_text_on_both_sides():
+    from dataclasses import replace
+
+    from proof.checks import changes, formplayer_menus
+    from proof.checks.differences import Difference
+
+    row = Difference(
+        "proof3",
+        "d",
+        "formplayer@B",
+        formplayer_menus.DISPLAY,
+        "/runs/0/steps/0/response/commands/1/displayText",
+        "changed",
+        " Visits",
+        "Visits",
+    )
+    target = (row.artifact, row.at)
+
+    def evidence(ids, labels, *, language="fra", selections=None, offered=None, differing=(), before=True):
+        core = {"runs": [{"trace": [{"screen": "menu", "root": "root", "choices": [{"command": c} for c in ids]}]}]}
+        # The suite's document order differs from Core's actual root menu order.
+        menus = "".join(f'<menu id="{c}"><text><locale id="modules.{c}"/></text></menu>' for c in sorted(ids))
+        files = {
+            "suite.xml": f"<suite>{menus}</suite>",
+            "fra/app_strings.txt": "\n".join(f"modules.{c}={t}" for c, t in zip(ids, labels, strict=True)),
+        }
+        commands = [{"index": i, "displayText": t} for i, t in enumerate(offered or labels)]
+        step = {
+            "request": {"locale": language, "selections": selections or []},
+            "response": {"type": "commands", "breadcrumbs": ["Home"], "selections": [], "commands": commands},
+        }
+        trace = {"locale": "en", "runs": [{"steps": [step]}]}
+        return changes.Sites(
+            served={target: formplayer_menus.locations([row], trace, core, files, differing, before=before).get(target)}
+        )
+
+    ids = ["m7", "m2"]
+    old = evidence(ids, ["Carnet", " Visits"])
+    new = evidence(ids, ["Carnet", "Visits"], before=False)
+    agreed = changes.merged_sites(old, new).served[target]
+    assert agreed == ("menu", "2", "name") and formplayer_menus.is_trimmed_menu(row, agreed)
+    # Identical displayed wording at the same index can belong to a different menu on the next build.
+    swapped = evidence(["m2", "m7"], ["Carnet", "Visits"], before=False)
+    assert not formplayer_menus.is_trimmed_menu(row, changes.merged_sites(old, swapped).served[target])
+    # No inferred owner for a submenu, another language, ambiguous choices, a divergence from the files,
+    # or evidence from a release whose strings differ from the build Core opened.
+    for other in (
+        evidence(ids, ["Carnet", " Visits"], selections=["0"]),
+        evidence(ids, ["Carnet", " Visits"], language="de"),
+        evidence(ids, [" Visits", " Visits"]),
+        evidence(ids, ["Renamed", " Visits"], offered=["Carnet", " Visits"]),
+        evidence(ids, ["Carnet", " Visits"], differing=["fra/app_strings.txt"]),
+    ):
+        assert not formplayer_menus.is_trimmed_menu(row, changes.merged_sites(old, other).served[target])
+    for before, after in ((" Visits", "VISITS"), ("A  B", "A B"), ("\u00a0Visits", "Visits"), ("Visits", " Visits")):
+        assert not formplayer_menus.is_trimmed_menu(replace(row, before=before, after=after), agreed)

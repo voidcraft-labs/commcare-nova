@@ -254,6 +254,35 @@ def _with_media(app, replaced_id):
     return app
 
 
+def test_a_save_during_the_build_keeps_the_versions_hqs_release_writes(hq, core_runner):
+    from corehq.apps.hqmedia.models import HQMediaMapItem
+
+    from proof.webapps.hq import _make_build
+
+    unused = "jr://file/commcare/image/unused.png"
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app_with_menu_ids(), "Suite app")])
+        app = operations.held_app(state, app_id)
+        app.multimedia_map[unused] = HQMediaMapItem(multimedia_id="a" * 32, media_type="CommCareImage")
+        app.save()
+        version = app.version
+
+        with state.fork(), build_seams():
+            app = operations.held_app(state, app_id)
+            observed, _ = build_state(app, record, "A")
+            assert observed.complete and unused not in app.multimedia_map
+        app = operations.held_app(state, app_id)
+        assert unused in app.multimedia_map
+        with build_seams():
+            release = _make_build(state, app)
+        assert release.version == observed.app_version == version
+        assert unused not in release.multimedia_map
+        forms = [app.get_form_filename(**form) for form in app.get_forms(bare=False)]
+        assert len(forms) == 2
+        for path in forms:
+            assert observed.files[path] == release.fetch_attachment(f"files/{path}")
+
+
 def _media_versions(outcome):
     root = etree.fromstring(outcome.files["media_suite.xml"])
     return {

@@ -30,9 +30,8 @@ final class Languages {
     private Languages() {
     }
 
-    /** Chooses {@code code} on home's own dialog; what the dialog offered, and the language the app then shows. */
-    static JSONObject choose(StandardHomeActivity home, String code) throws Exception {
-        JSONObject found = new JSONObject();
+    /** Records the worker's language choice and returns the chooser that displayed its rows. */
+    static AlertDialogFragment choose(StandardHomeActivity home, String code, JSONObject found) throws Exception {
         List<String> codes = Arrays.asList(ChangeLocaleUtil.getLocaleCodes());
         found.put("chose", code);
         found.put("offered", new JSONArray(codes));
@@ -40,7 +39,7 @@ final class Languages {
         if (position < 0) {
             // The installed app holds no such language: the worker finds nothing to choose.
             found.put("unoffered", true);
-            return found;
+            return null;
         }
         // The worker opens home's options menu, which Android makes and prepares as it opens, and taps the item.
         RoboMenu menu = new RoboMenu(home);
@@ -50,7 +49,7 @@ final class Languages {
         found.put("item", item == null ? JSONObject.NULL : String.valueOf(item.getTitle()));
         if (item == null || !item.isVisible()) {
             found.put("unoffered", true);
-            return found;
+            return null;
         }
         home.onOptionsItemSelected(item);
         ShadowLooper.idleMainLooper();
@@ -81,6 +80,6 @@ final class Languages {
         tap.onItemClick(null, null, position, position);
         ShadowLooper.idleMainLooper();
         found.put("Localization.getCurrentLocale", Screens.orNull(Localization.getCurrentLocale()));
-        return found;
+        return fragment;
     }
 }

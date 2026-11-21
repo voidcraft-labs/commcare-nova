@@ -68,6 +68,12 @@ The members:
   them, so there a setting the save writes is Nova's (finding 40, whose
   fixed entries the control ``case-operation-query`` keeps showing).
 
+- ``android_settings_page_writes_unset_settings``: the three Android
+  preference readers and the two worker settings whose value changes when
+  HQ's own settings page first saves its defaults. A and B must both lack
+  the setting, HQ's page must add its exact default and the device must
+  report the same transition observed on an app made entirely in HQ.
+
 This module reads records only: it imports neither HQ nor Django
 (``test_judge_purity``), and nothing beyond the standard library, since the
 Android reader's own checks import it through ``proof.checks.android`` on a
@@ -84,6 +90,7 @@ import fnmatch
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from xml.etree import ElementTree
 
 WORKTREE = Path(__file__).resolve().parents[2]
 # A module that proves a member: its name says so, and a member names it. The set's own test is no member's proof.
@@ -212,24 +219,25 @@ def connect_report_renamed(renamed, subjects) -> bool:
 SETTINGS_PAGE = "app settings"
 # The fifteen settings Nova seeds on an app it made and leaves as the project space holds them on an app it brought
 # in (``lib/commcare/targetOverlay.ts::projectProfileForTarget``, ``seeds: "target"``), fixed here by hand as
-# ``proof.checks.intent.NOVA_PROFILE_CONSTANTS`` fixes them, which ``test_hq_own_reports`` holds equal.
-UNSEEDED_SETTINGS = (
-    "cc-autosync-freq",
-    "cc-autoup-freq",
-    "cc-content-valid",
-    "cc-days-form-retain",
-    "cc-enable-tts",
-    "cc-fuzzy-search-enabled",
-    "cc-gps-auto-capture-accuracy",
-    "cc-inflation-target-density",
-    "cc-label-required-questions-with-asterisk",
-    "cc-login-duration-seconds",
-    "cc-maps-default-layer",
-    "cc-resize-images",
-    "logenabled",
-    "unsent-number-limit",
-    "unsent-time-limit",
-)
+# ``proof.checks.intent.NOVA_PROFILE_CONSTANTS`` fixes their names, which ``test_hq_own_reports`` holds equal. Values are what HQ's untouched page posts and stores,
+# checked against the request, the built profiles and Core's installed setters by the native witness.
+UNSEEDED_SETTINGS = {
+    "cc-autosync-freq": "freq-never",
+    "cc-autoup-freq": "freq-never",
+    "cc-content-valid": "yes",
+    "cc-days-form-retain": "-1",
+    "cc-enable-tts": "no",
+    "cc-fuzzy-search-enabled": "yes",
+    "cc-gps-auto-capture-accuracy": "5",
+    "cc-inflation-target-density": "none",
+    "cc-label-required-questions-with-asterisk": "no",
+    "cc-login-duration-seconds": "86400",
+    "cc-maps-default-layer": "normal",
+    "cc-resize-images": "none",
+    "logenabled": "Enabled",
+    "unsent-number-limit": "5",
+    "unsent-time-limit": "5",
+}
 # Where proof 4 reports a setting: in the stored app's profile and in a Core trace's reading of the profile
 # (``/profile/properties/<key>``), and in each built profile (``/profile/property[@key=<key>]``).
 STORED_SETTING = "/profile/properties/"
@@ -252,20 +260,128 @@ def setting_of(path: str) -> str | None:
     return None
 
 
-def settings_page_wrote_unset(difference, stored, made_in_hq) -> bool:
-    """Whether a report of the settings page's save (``difference``, as proof 4 makes it) is a setting the app held
-    no value for, which the save wrote, on a document made in HQ (``made_in_hq``): the report adds it, and the
-    stored app the save was made over (``stored``, its app document) holds no value under it. The page posts every
-    setting it shows, an unset one at the value it shows for it (``settings/bootstrap5/commcare_settings.js::
-    serialize``), and HQ's save stores each (``views/settings.py::edit_commcare_profile``), so any app whose profile
-    lacks a setting gains it, with HQ's build then writing it into the profile (``ApplicationBase.create_profile``).
-    On a document Nova made the stored app holds each of the fifteen, which Nova seeds, so a setting the save adds
-    there is one Nova's publish left out (finding 40), never HQ's own."""
+def settings_added(authored, published, saved):
+    """The first settings-page save's exact defaults, only where the source HQ app and Nova's republish lack the key."""
+
+    def properties(doc):
+        if not isinstance(doc, dict):
+            return None
+        profile = doc.get("profile", {})
+        return profile.get("properties", {}) if isinstance(profile, dict) else None
+
+    original, before, after = map(properties, (authored, published, saved))
+    if not all(isinstance(held, dict) for held in (original, before, after)):
+        return {}
+    return {
+        key: value
+        for key, value in UNSEEDED_SETTINGS.items()
+        if key not in original and key not in before and after.get(key) == value
+    }
+
+
+def settings_page_wrote_unset(difference, added) -> bool:
+    """The saved app's property, the complete property HQ built, or the same setter Core read at admission."""
     key = setting_of(difference.path)
-    if not made_in_hq or key is None or difference.kind != "added" or not isinstance(stored, dict):
+    if key not in added or added[key] != UNSEEDED_SETTINGS[key] or difference.kind != "added":
         return False
-    properties = (stored.get("profile") or {}).get("properties") or {}
-    return key not in properties
+    value = added[key]
+    force = key != "cc-maps-default-layer"
+    artifact = difference.artifact.split("@", 1)[0]
+    if artifact == "app.json":
+        return difference.path == f"{STORED_SETTING}{key}" and difference.after == value
+    if artifact == "trace":
+        return (
+            difference.path == f"{STORED_SETTING}{key}"
+            and isinstance(difference.after, dict)
+            and difference.after == {"value": value, "force": force}
+            and difference.after["force"] is force
+        )
+    if difference.path != f"{BUILT_SETTING}{key}]" or not isinstance(difference.after, str):
+        return False
+    try:
+        parser = ElementTree.XMLParser(target=ElementTree.TreeBuilder(insert_comments=True, insert_pis=True))
+        element = ElementTree.fromstring(difference.after, parser=parser)
+    except ElementTree.ParseError:
+        return False
+    attributes = {"key": key, "value": value}
+    if force:
+        attributes["force"] = "true"
+    return element.tag == "property" and element.attrib == attributes and not len(element) and not element.text
+
+
+# Android's preference readers apply their own defaults when a profile omits the setting. The update
+# reader first sets the two preferences through the worker's settings UI. Each tuple is the stored key,
+# the default HQ's page writes and the exact before/after Android observations (including the worker's own).
+ANDROID_SETTINGS = {
+    "/profile/readers/CommCareApp.areMMResourcesValidated": ("cc-content-valid", "yes", False, True),
+    "/profile/readers/HiddenPreferences.getGpsAutoCaptureAccuracy": ("cc-gps-auto-capture-accuracy", "5", 10, 5),
+    "/profile/readers/MainConfigurablePreferences.isFuzzySearchEnabled": (
+        "cc-fuzzy-search-enabled",
+        "yes",
+        False,
+        True,
+    ),
+    "/update/workerSettings/cc-autoup-freq": ("cc-autoup-freq", "freq-never", "freq-daily", "freq-never"),
+    "/update/workerSettings/cc-enable-tts": ("cc-enable-tts", "no", "yes", "no"),
+}
+
+
+ANDROID_INSTALLED_SEARCH = "/walks/*/steps/*/list/searches/asInstalled/*"
+
+
+def _search_modes(app, walk, step):
+    walks = (app or {}).get("walks") or {}
+    steps = (walks.get(walk) or {}).get("steps") or []
+    if not step.isdecimal() or int(step) >= len(steps):
+        return {}
+    return (steps[int(step)].get("list") or {}).get("searches") or {}
+
+
+def android_settings_page_wrote_unset(difference, added, original_device=None, saved_device=None, next_build=None):
+    """Only the exact Android transition on a key HQ's page added that neither A nor B held."""
+    if difference.path == ANDROID_INSTALLED_SEARCH:
+        # Android's list runs each query with the installed preference and then with fuzzy search forced
+        # on and off. Require the same two independently observed result sets on both installations.
+        if added.get("cc-fuzzy-search-enabled") != "yes" or difference.kind != "changed":
+            return False
+        _, _, walk, _, step, _, _, _, term = difference.at.split("/")
+        walk = walk.replace("~1", "/").replace("~0", "~")
+        term = term.replace("~1", "/").replace("~0", "~")
+        before = _search_modes(original_device, walk, step)
+        after = _search_modes(saved_device, walk, step)
+        reader = "MainConfigurablePreferences.isFuzzySearchEnabled"
+        off, on = before.get("fuzzyOff"), before.get("fuzzyOn")
+        return (
+            before.get(reader) is False
+            and after.get(reader) is True
+            and isinstance(off, dict)
+            and isinstance(on, dict)
+            and term in off
+            and term in on
+            and off[term] != on[term]
+            and off == after.get("fuzzyOff")
+            and on == after.get("fuzzyOn")
+            and before.get("asInstalled") == off
+            and after.get("asInstalled") == on
+        )
+    key, setting, before, after = ANDROID_SETTINGS[difference.path]
+    if difference.path.startswith("/update/workerSettings/"):
+        # The saved release reset a real choice. Require its in-place control to have installed and kept it.
+        control = next_build or {}
+        if (
+            control.get("updated") != "Installed"
+            or key not in (control.get("workerSettings") or ())
+            or any(((control.get(side) or {}).get("stored") or {}).get(key) != before for side in ("before", "after"))
+        ):
+            return False
+    return (
+        added.get(key) == setting
+        and difference.kind == "changed"
+        and type(difference.before) is type(before)
+        and difference.before == before
+        and type(difference.after) is type(after)
+        and difference.after == after
+    )
 
 
 # The set ---------------------------------------------------------------------------------------------------------
@@ -310,6 +426,14 @@ HQ_OWN_REPORTS: tuple[HqOwnReport, ...] = (
             "The app settings page's save writing each setting an app made in HQ holds no value for, which Nova's"
             " publish over it seeds none of."
         ),
+    ),
+    HqOwnReport(
+        id="android_settings_page_writes_unset_settings",
+        artifacts=("android@app settings", "android-tablet@app settings"),
+        paths=(*ANDROID_SETTINGS, ANDROID_INSTALLED_SEARCH),
+        applies=android_settings_page_wrote_unset,
+        proof="proof/android/test_hq_own_settings_page.py",
+        description="Android's reading and update after HQ's own settings page first saved an unset setting.",
     ),
 )
 

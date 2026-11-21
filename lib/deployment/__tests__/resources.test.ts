@@ -342,7 +342,13 @@ const storedList = {
 describe("the stored first-publish list", () => {
 	it("is shown while the live mapping names the app it was stored for", () => {
 		expect(
-			firstPublishOf(record([appMapping({})]), storedList, undefined),
+			firstPublishOf(record([appMapping({})]), storedList, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
 		).toEqual({
 			ids: ["forms-and-settings-rewritten", "unused-media-entries-removed"],
 			touchesWorkers: false,
@@ -352,29 +358,44 @@ describe("the stored first-publish list", () => {
 
 	it("is not shown for another HQ app, an ended deployment, or an app CommCare HQ reported gone", () => {
 		expect(
-			firstPublishOf(
-				record([appMapping({ remoteId: "other" })]),
-				storedList,
-				undefined,
-			),
+			firstPublishOf(record([appMapping({ remoteId: "other" })]), storedList, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
 		).toBeNull();
-		expect(firstPublishOf(record([]), storedList, undefined)).toBeNull();
+		expect(
+			firstPublishOf(record([]), storedList, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
+		).toBeNull();
 		expect(
 			firstPublishOf(
 				record([appMapping({ remoteMissingAt: AT })]),
 				storedList,
-				undefined,
+				{
+					connectType: null,
+					appSettings: { runsOnlyOn: undefined, showIncompleteForms: false },
+				},
 			),
 		).toBeNull();
 	});
 
 	it("is shown for a released mapping, which the publish takes back and updates in place", () => {
 		expect(
-			firstPublishOf(
-				record([appMapping({ releasedAt: AT })]),
-				storedList,
-				undefined,
-			)?.ids,
+			firstPublishOf(record([appMapping({ releasedAt: AT })]), storedList, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			})?.ids,
 		).toEqual(["forms-and-settings-rewritten", "unused-media-entries-removed"]);
 	});
 });

@@ -31,7 +31,12 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
-				"path": "/profile/properties"
+				"path": "/profile/properties/cc-show-incomplete"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/profile/properties/cc-show-saved"
 			},
 			{
 				"check": "source",
@@ -399,6 +404,42 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/submission/data/*/nova_trimmed_*[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_trimmed_*[*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/case[*]/create[*]/case_name[*]/text()",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1063,6 +1104,66 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/submission/data/meta[*]/location[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/deviceAsked:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/deviceGave:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]:empty",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/deviceAsked:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/deviceGave:location",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]:empty",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty",
+				"kind": "added"
 			}
 		]
 	},
@@ -1186,6 +1287,23 @@
 		]
 	},
 	{
+		"change": "incomplete-forms-tile-hidden",
+		"placeKinds": ["app"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/profile/properties/cc-show-incomplete"
+			},
+			{
+				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/home/tiles/incomplete",
+				"kind": "removed"
+			}
+		]
+	},
+	{
 		"change": "date-and-time-questions-split",
 		"placeKinds": ["form-node", "form"],
 		"rows": [
@@ -1269,6 +1387,54 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/tree/*/caption:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/screens/*/questions/*/text:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/screens/*/shown/*/text:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/screens/*/questions/*/text:filled",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/screens/*/shown/*/text:filled",
+				"kind": "changed"
 			}
 		]
 	},
@@ -1490,6 +1656,30 @@
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/events/*/image",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/tree/*/caption_image:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/tree/*/caption_image:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/tree/*/caption_image:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/tree/*/caption_image:renamed-file",
 				"kind": "changed"
 			}
 		]
@@ -1929,6 +2119,18 @@
 				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/choices/*/text",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/commands/*/displayText:trimmed",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/commands/*/displayText:trimmed",
 				"kind": "changed"
 			}
 		]

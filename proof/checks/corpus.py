@@ -730,9 +730,10 @@ class Document:
     @cached_property
     def authored(self) -> Authored | None:
         """What stands where a first publish stood on a document made in HQ (``authored/``), or None on any other
-        document. Refuses a document made in HQ that lacks ``authored/app.json``."""
+        document. A retained control with its own ``authored/`` replays these same HQ inputs.
+        Refuses a document made in HQ that lacks ``authored/app.json``."""
         root = self.root / AUTHORED
-        if not self.hq_authored:
+        if not self.hq_authored and not (self.kind == "control" and root.is_dir()):
             return None
         if not (root / "app.json").is_file():
             raise CorpusLayoutError(

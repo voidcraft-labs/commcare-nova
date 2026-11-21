@@ -27,14 +27,15 @@ served state (``proof.formplayer.hq``), each archive handed to Formplayer as
 bytes where it asks HQ's download for it, since HQ does not hold it.
 
 Nova hands its local archive to CommCare Android alone, which registers its
-own strings as the default locale's first source, so the lane hands it to
-Formplayer as Android reads it (``proof.formplayer.observe.as_android_reads_it``).
+own strings as the default locale's first source. A language may rely on these
+where an app defines a key only in that language.
 A key a language of the archive holds and its default file lacks
 (``home.sync``, which CommCare HQ's catalog fills in a language and Nova's
 archive cannot) refuses that language on Formplayer's own strings, which
 lack it (``FormplayerConfigEngine.initEnvironment``, Core's
 ``Localizer.getLocaleData``), and is read with Android's, the app's own text
-still shown over Android's.
+still shown over Android's. Runtime strings no app language defines must remain
+Formplayer's on both sides of a comparison.
 
 Plausible failures: a harness that could not install a local archive at all
 (nothing would be learned about it), one that swallowed the submission or
@@ -51,7 +52,7 @@ from pathlib import Path
 from lxml import etree
 
 from proof.formplayer import apps
-from proof.formplayer.observe import as_android_reads_it
+from proof.formplayer.observe import with_android_locale_fallbacks
 from proof.formplayer.walk import screen_kind
 from proof.hq.operations import with_runtime_app_id
 
@@ -219,7 +220,7 @@ def _with_text(archive: bytes, language: str, line: str) -> bytes:
     return written.getvalue()
 
 
-def test_formplayer_reads_a_local_archive_with_androids_own_strings_first(
+def test_formplayer_reads_a_local_archives_language_using_just_its_needed_android_fallbacks(
     hq, core_runner, formplayer_runner, formplayer_documents, evidence
 ):
     document = formplayer_documents[DOCUMENT]
@@ -227,7 +228,8 @@ def test_formplayer_reads_a_local_archive_with_androids_own_strings_first(
         nova = _with_text(
             with_runtime_app_id(document.local_ccz.read_bytes(), published.app_id), "en", "home.sync=Sync now"
         )
-        archives = {"nova": nova, "android": as_android_reads_it(nova)}
+        nova = _with_text(_with_text(nova, "default", "upload.clear.title=Remove file"), "en", "upload.clear.title=Undo")
+        archives = {"nova": nova, "android": with_android_locale_fallbacks(nova)}
         ids = {name: apps.build_id(published.app_id, archive) for name, archive in archives.items()}
         answers = {}
         with apps.served(published, formplayer_runner) as served:
@@ -237,33 +239,36 @@ def test_formplayer_reads_a_local_archive_with_androids_own_strings_first(
                 with served.run(name):
                     web = apps.web(formplayer_runner, served, app_id=ids[name], locale="en")
                     answers[name] = web.navigate(FIRST_FORM[:1])
+                    if name == "android":
+                        form = web.navigate(FIRST_FORM)
     evidence("local-archive-strings", {name: answer.get("status") for name, answer in answers.items()})
     # On Formplayer's own strings the language is refused, by the key its default file lacks.
     assert answers["nova"].get("status") == "error", answers["nova"]
     assert "home.sync" in str(answers["nova"].get("exception")), answers["nova"]
-    # With Android's strings first it opens, and the menu shows the app's own text.
+    # With the missing Android fallback it opens, and the menu shows the app's own text.
     assert screen_kind(answers["android"]) == "commands", answers["android"]
     shown = [command["displayText"] for command in answers["android"]["commands"]]
     assert shown == ["To shown form", "To hidden form", "To hidden menu"]
+    # Formplayer returns the app's own override and submit label. An unrelated Android string would both
+    # leak into populateTranslations and replace FormEntryCaption's fallback when a worker adds a repeat.
+    assert form["translations"]["upload.clear.title"] == "Undo"
+    assert form["translations"]["forms.m0f0.submit_label"] == "Submit"
+    assert "repeat.dialog.add.new" not in form["translations"]
 
 
-def test_android_strings_stand_first_in_the_default_locale_and_nothing_else_of_the_archive_moves():
+def test_a_local_archives_app_strings_receive_only_android_keys_needed_by_a_language():
     raw = (CONTROLS_DIR / "targeted-survey-menu" / "local.ccz").read_bytes()
-    strings = b"home.sync=Sync with Server\n"
-    read = as_android_reads_it(raw, strings)
-    with zipfile.ZipFile(io.BytesIO(raw)) as before, zipfile.ZipFile(io.BytesIO(read)) as after:
-        assert set(after.namelist()) == set(before.namelist()) | {"default/android_translatable_strings.txt"}
-        assert after.read("default/android_translatable_strings.txt") == strings
+    strings = b"home.sync=Sync with Server\r\nupload.clear.title=Clear\r\nrepeat.dialog.add.new=Add a new ${0}?\r\n"
+    assert with_android_locale_fallbacks(raw, strings) == raw
+    # An unavailable fallback must still refuse at installation. A comment and an empty value add no key.
+    unnamed = _with_text(raw, "en", "unknown.key=Missing\n#upload.clear.title=Comment\nrepeat.dialog.add.new=")
+    assert with_android_locale_fallbacks(unnamed, strings) == unnamed
+    nova = _with_text(unnamed, "en", "home.sync=Sync now")
+    read = with_android_locale_fallbacks(nova, strings)
+    with zipfile.ZipFile(io.BytesIO(nova)) as before, zipfile.ZipFile(io.BytesIO(read)) as after:
+        assert after.namelist() == before.namelist()
         for name in before.namelist():
-            if name != "suite.xml":
-                assert after.read(name) == before.read(name), name
-        locales = [
-            (element.get("language"), element[0].get("id"), element[0][0].text)
-            for element in etree.fromstring(after.read("suite.xml"))
-            if etree.QName(element).localname == "locale"
-        ]
-    assert locales == [
-        ("default", "android_translatable_strings", "./default/android_translatable_strings.txt"),
-        ("default", "app_strings_default", "./default/app_strings.txt"),
-        ("en", "app_strings_en", "./en/app_strings.txt"),
-    ]
+            expected = before.read(name)
+            if name == "default/app_strings.txt":
+                expected = b"home.sync=Sync with Server\n" + expected
+            assert after.read(name) == expected, name

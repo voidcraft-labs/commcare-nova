@@ -308,7 +308,7 @@ async function refreshedView(
 		currentResourceIdentities(scope, doc),
 		landedDeploymentKept(scope, deployment, after),
 		previewDeploymentAnswerFor(scope),
-		landedFirstPublish(scope, deployment, doc.appSettings.runsOnlyOn, after),
+		landedFirstPublish(scope, deployment, doc, after),
 	]);
 	return {
 		deployment,
@@ -476,7 +476,7 @@ export async function readDeploymentsAction(
 					firstPublish: firstPublishOf(
 						deployment,
 						firstPublishStates.get(deployment.deployment.id),
-						doc.appSettings.runsOnlyOn,
+						doc,
 					),
 				})),
 			),
@@ -855,11 +855,7 @@ async function deploymentFirstPublish(
 	doc: CommittedDoc["doc"],
 ): Promise<FirstPublishView | null> {
 	const states = await readFirstPublishStates(scope);
-	return firstPublishOf(
-		deployment,
-		states.get(deployment.deployment.id),
-		doc.appSettings.runsOnlyOn,
-	);
+	return firstPublishOf(deployment, states.get(deployment.deployment.id), doc);
 }
 
 /** The record `provisionWorkers` reports, which may be absent. */

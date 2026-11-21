@@ -17,6 +17,10 @@ visits they deliver. A Connect app in Nova is one of two kinds, chosen in
 A form that holds none of these stays an ordinary form of the app. You set a
 form's part in its settings, or for every form at once in the Connect manager.
 
+Once the Connect version is installed on Android, every form a worker submits
+includes the device's location if CommCare has location permission and the
+device gets a GPS fix. This applies to forms outside the learn or deliver setup too.
+
 ## Where workers open a Connect app
 
 Connect workers open a Connect app in the Connect app on Android, signed in with
@@ -25,6 +29,19 @@ Apps. A Connect app therefore runs on Android only, and Nova sets that when you
 turn on Connect. Turning Connect off keeps the setting; you can change it in App
 settings. [Where workers use your app](./where-workers-use-your-app.mdx) lists
 what else that choice decides.
+
+### Turning off automatic location capture
+
+Turning off Connect in Nova leaves Auto Capture Location as it is in each app on
+CommCare HQ. To stop automatic capture on workers' devices:
+
+1. Publish the app with Connect turned off. In the app's settings in CommCare
+   HQ, open **Advanced Settings → Android Settings** and turn off **Auto Capture
+   Location (all forms)**.
+2. If an individual form still has **Auto Capture Location** on, turn it off in
+   that form's **Settings → Advanced**.
+3. Build and release a new version in CommCare HQ. The change takes effect on
+   each worker's device when they install that version.
 
 ## Deliver units and tasks
 

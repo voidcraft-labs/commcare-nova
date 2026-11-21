@@ -751,9 +751,15 @@ describe("adoptedAppBaselineWrite", () => {
 			of: "first-publish",
 		} as const;
 		expect(write.firstPublish).toEqual({ kind: "set", list: stored });
-		expect(firstPublishViewFromStored(stored, undefined)).toEqual(
-			FIRST_PUBLISH,
-		);
+		expect(
+			firstPublishViewFromStored(stored, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
+		).toEqual(FIRST_PUBLISH);
 	});
 
 	it("owns the needed add-ons and the two settings Nova always writes, and no custom profile property", () => {

@@ -185,16 +185,15 @@ HQ builds each state (`validate_app()`, `create_all_files()` and
 `create_all_files(build_profile_id)` for every build profile). B and B-edit
 are built with HQ's saved copy of `build(A)` as the previous build, so HQ's
 own `set_form_versions` decides each form's version. Each build runs in a fork of
-the unit (`proof/observe/unit.py::_build`): HQ builds a copy of an app
-(`make_build`), and the one save a build makes, where the media suite prunes a
-map path nothing references (`remove_unused_mappings`), would otherwise write
-the build's form and media versions into the state the next step starts from.
-The version a state's record gives its build is read before the build, since
-that save comes after the profile and the suites name the version; an app with
-a menu that holds no id is also saved by `validate_app` before any file is
-written, which moves the version the in-place build's files name, so the
-lane's own tests build HQ's suite-test app with an id on its menu, as every
-app Nova publishes holds one (`proof/hq/conftest.py::hq_test_app_with_menu_ids`).
+the unit (`proof/observe/unit.py::_build`). HQ builds a copy of the app
+(`make_build`). Validation can save missing menu ids and the media suite
+can prune and save unused multimedia mappings, even between writing the
+suite and writing the forms. The lane renders at the working app's address
+so the inputs have stable URLs. Those saves keep the build copy's version
+(`proof/hq/operations.py::build_copy_saves`). The aligned build and each
+editor save's build also run in their own forks. The device archive comes
+from the build copy. The independent release, next editor save and next
+publish each read the working app as it was before the build.
 Beside them, Nova's local
 `.ccz` is exported twice for D (`local.ccz`, `local-again.ccz`) and once for
 D′, each compiled for the configuration's project space as every archive Nova
@@ -672,9 +671,19 @@ the app settings page's save, on a document made in HQ, each of the fifteen
 settings Nova seeds that the page writes where the stored app held no value
 for it, which is every one of them on such an app that no person saved the
 page of, since Nova's publish over an app it brought in seeds none
-(`settings_page_writes_unset_settings`). On an app Nova made, which holds
+(`settings_page_writes_unset_settings`). The added value must match the default HQ's
+editor posted. Each built profile and Core's installed setter must also match
+the value and whether HQ forced it. On an app Nova made, which holds
 all fifteen, a setting the save adds stays reported: Nova's publish left it
-out (finding 40).
+out (finding 40). Android also reads an unset setting differently from the
+explicit default HQ's page writes for multimedia validation, GPS accuracy and
+fuzzy search. On update, that save can replace the worker's text-to-speech
+and automatic-update preferences. The device reports count as HQ's own only
+when the original HQ app and Nova's publish both left the setting absent,
+the page wrote its exact default, and Android reported the transition its
+own release control reproduced. An installed fuzzy-search result also requires Android's
+forced-on and forced-off results to agree across builds for that list, with
+each install matching its own setting.
 
 ### Spelling rules and the registers
 
@@ -708,6 +717,7 @@ request lane leaves it to the nightly. The members:
 | `android_grouped_tile_reopen` (finding 67) | proof 1, Android's reopen of an incomplete form | `proof/android/test_hq_own_grouped_tile_reopen.py` |
 | `connect_block_renamed` (defect 15's Connect ids) | the Connect judge's report of B-edit beyond A | `proof/connect/test_hq_own_rename.py` |
 | `settings_page_writes_unset_settings` | proof 4, the app settings page's stored app, built profiles and Core's reading of the profile | `proof/editors/test_hq_own_settings_page.py` |
+| `android_settings_page_writes_unset_settings` | proof 4, Android’s reading of HQ’s first settings save and the worker’s update | `proof/android/test_hq_own_settings_page.py` |
 
 To add one, settle at source that an app made in HQ's own pages meets the
 report, write its proof, add the member with the narrowest condition that
@@ -731,6 +741,14 @@ applies on a document where its `first-publish.json`
 the reading under the declaration it was read under: the changes Nova's
 review would tell the person this app's first publish makes, each with the
 places it stands at on this app.
+
+Each configuration judges its native differences against the worker sessions and archives that produced them.
+A changed native field must resolve to the same place on both sides. Formplayer identifies a question by its
+form's namespace in the installed suite and its binding in the returned tree. Android records the form command
+and question reference. For a blank caption that the first publish fills, the original app's source must give an
+empty label in the worker's language and the displayed replacement in its first language. A review of later HQ
+edits uses the source read after the person's saves. An unresolved slot or unavailable source leaves the native
+text difference visible.
 
 A row says what a change may change; a place says where. A place is a JSON
 Pointer over one tree of the app by position
@@ -766,6 +784,13 @@ change's. The loader refuses an entry that declares no kind of place of its
 own, and the emission an applying change that names no place
 (`firstPublishChanges.ts::firstPublishChangePlaces`): either could never be
 seen apart.
+
+Formplayer identifies a root menu choice by its index and displayed text.
+To place a trimmed name, proof 3 checks the complete list of choices in
+the requested language against the suite's menu-name resources and the
+command ids Core actually offered. Both builds must identify the same menu,
+and the new label must equal the old label with the exact end characters
+removed by Nova's reader (`proof/checks/formplayer_menus.py`).
 
 - A `source` row is one of the entry's paths in the typed register, a JSON
   Pointer over HQ's stored app (`*` for a position or an app's own key), that
@@ -3460,7 +3485,11 @@ a step clicks what a worker clicks, or reads what the page shows.
   small screen and pages a list five cases at a time, so a case on a later
   page is reached by that page's button), and again in App Preview: the app's
   first screen, a language chosen from the menu over the app's screens where
-  the run chose one, each choice clicked as a worker clicks it (a case's detail
+  the run chose one. Where the build hides breadcrumbs, the client offers no
+  language menu. The worker enters with that language set on their HQ account,
+  and in App Preview the admin chooses it in Settings before Start. Each replay
+  checks the locale the browser actually sends Formplayer. Each choice is
+  clicked as a worker clicks it (a case's detail
   read where the client opens one), and where the run reached a form, each
   of the walk's answers given through its widget in the walk's order (a file
   question's file chosen through the widget's own file input, a signature
@@ -3559,13 +3588,18 @@ What the served observation holds:
 - **Which states.** A (the unit's `served` hook, the baseline of proof 3's
   comparisons); with `b_aligned`, B aligned to A wherever its raw build
   differs from A's, and Nova's local archive, which Formplayer walks over
-  HQ's state with the archive itself handed to it as bytes, read as CommCare
-  Android, the one runtime Nova hands it to, reads it: with Android's own
-  strings registered as the default locale's first source, a locale resource
-  ahead of the suite's own (`proof/formplayer/observe.py::as_android_reads_it`,
-  as the Core runner admits it, `client.ANDROID_DEFAULT_STRINGS`), since
-  Formplayer's own strings lack keys Android's name (`home.sync`) and Core's
-  localizer refuses a language holding a key its default lacks; and in proof 4,
+  HQ's state. Formplayer receives the archive with the Android fallback rows a language needs
+  when its app strings include a key missing from the archive's default file
+  (`proof/formplayer/observe.py::with_android_locale_fallbacks`). Core's
+  localizer requires that default, and Android supplies some keys, such as
+  `home.sync`, that Formplayer lacks. Other runtime strings come from
+  Formplayer on both walks, including its caption for adding a repeat.
+  On an adopted app the CCZ download can also say that a language name
+  differs. The device comparison checks each wire code against HQ's built
+  name and Nova's picker label before accepting that difference. It applies
+  only where the source stored no override and only to the corresponding
+  row in Android's language picker, including its open dialog.
+  Core and the Android device use Android's whole runtime catalog. Proof 4 walks
   B and each editor save whose build differs from the state it was saved
   over or whose app differs in what HQ's Web Apps page hands the client
   (`cloudcare/utils.py::format_app_doc`: its name, languages, profile, logo
@@ -4125,7 +4159,10 @@ written beside its files when it is retained (`derived.json`,
 `proof/checks/controls.py`), and each check reads
 it there; a control retained before the case types were kept reads no type,
 which the manifest's readers answer as undecided, as they did when it was
-retained. Nor does it keep
+retained. A control taken from an HQ-authored app also keeps the original app,
+its case seed and its native sidecars under `authored/`. HQ replays them for A,
+and the control runs its sessions over the same seeded cases. If the original
+republish stopped, the control keeps that refusal. A control does not keep
 an `inputs.json`: its part keys and the evidence store's guard read its
 input files from the files themselves (`proof/observe/unit.py::input_files`),
 so a control edited by hand is keyed by what it holds, and its records and
@@ -4393,6 +4430,13 @@ touches workers where it is a `proof3` row, but a row of a value a search sends
 CommCare HQ (a step of `_xpath_query`): HQ ANDs each value as one more filter,
 so how the values are cut is nothing a worker meets, and the cases HQ answers
 with are compared apart (`search-filter-rows-recut`).
+
+The source comparison reads added profile properties one key at a time even
+when HQ originally stored no properties object. For Nova's two saved-form
+settings it accepts only the addition of an explicit `no`. Where the source
+app was available in Web Apps and had no incomplete-forms setting, the
+worker's first-publish notice owns that key and the removal of the matching
+Incomplete Forms tile from the Web Apps home screen.
 
 A document whose saves are brought in states, in its `hq-side.json`, the
 changes its review lists for the next publish (`publishChanges`), which the
@@ -4680,6 +4724,10 @@ The rules whose readers reach past HQ's build and Core:
   client's screens alike; Android's is
   `predicates.py::test_a_menu_icon_no_media_resource_installs_draws_as_none`.
 
+  The comparison applies the same rule to Formplayer's command image URI and Android's menu image.
+  Android must also report the file absent. On HQ's builds, a path present in the saved media map stays
+  visible to the comparison, including a mapped image whose download fails.
+
 - **`media-path-of-a-shared-file`** (`media_path_of_a_shared_file`): an image,
   sound or video in Core's trace whose build installs the same file under
   several paths, read as the first of those paths in code-unit order, the
@@ -4706,6 +4754,12 @@ The rules whose readers reach past HQ's build and Core:
   second path names another document, Formplayer handing the path on and HQ
   answering the client's address for either name with the same file;
   Android's is `predicates.py::test_a_picture_two_paths_name_draws_alike`.
+
+  The two native menu readers use the same within-build file identities. A Formplayer question's renamed
+  caption image remains a difference. The first-publish judge attributes it to `media-files-renamed` only
+  at the question's observed binding and when its destination is the digest-named file with the bytes HQ
+  served at the original path. At B those bytes must be in the upload HQ matched for the image, and on the
+  local side they must be in the archive.
 
 - **`field-list-appearance-case`** (`field_list_appearance_case`): a group's
   appearance `field-list` in another letter case, read in lower case in Core's

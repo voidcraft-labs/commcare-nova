@@ -297,14 +297,27 @@ def _addressed(trace, rules):
     return trace
 
 
-def comparable_trace(trace):
+def comparable_trace(trace, *, media=None, rules=()):
     """Formplayer's trace as it is compared (the module's first list)."""
+    from proof.checks.compare.spelling import menu_image
+
     shown = _unnumbered(copy.deepcopy(trace))
     for name in ("derived", "generated"):
         shown.pop(name, None)
     for run in shown.get("runs") or []:
         if not isinstance(run, dict):
             continue
+        for step in run.get("steps") or ():
+            response = step.get("response") if isinstance(step, dict) else None
+            if media and isinstance(response, dict) and response.get("type") == "commands":
+                for command in response.get("commands") or ():
+                    if isinstance(command, dict) and "imageUri" in command:
+                        uri = menu_image(command["imageUri"], media, rules)
+                        if uri is None and command["imageUri"] is not None:
+                            # Command omits imageUri when the menu names no picture.
+                            del command["imageUri"]
+                        else:
+                            command["imageUri"] = uri
         run["steps"] = [
             _form_step(step) if isinstance(step, dict) and "answers" in step else step
             for step in run.get("steps") or []
@@ -565,8 +578,22 @@ def _named_by(value, text_ids):
     return value
 
 
+def empty_meta_location_class(difference):
+    """HQ's location block on Formplayer adds an empty element. A coordinate, child, attribute or another
+    namespace is observed separately, including on a later publish whose review gives no places."""
+    if difference.kind != "added" or difference.path not in (
+        "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
+        "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
+    ):
+        return difference
+    root = parse_xml(difference.after)
+    if root.tag == "{http://commcarehq.org/xforms}location" and not (root.text or root.attrib or len(root)):
+        return replace(difference, path=difference.path + ":empty")
+    return difference
+
+
 def formplayer_differences(
-    before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None, rules=()
+    before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None, rules=(), media=(None, None)
 ):
     """Every difference between two of Formplayer's traces, as ``artifact``: ``before`` the baseline state's.
 
@@ -582,8 +609,8 @@ def formplayer_differences(
     if text_ids:
         after = _named_by(after, text_ids)
     shown_before, shown_after = one_symptom(
-        normalized(FORMPLAYER, _addressed(comparable_trace(before), rules), rules),
-        normalized(FORMPLAYER, _addressed(map_strings(comparable_trace(after), xmlns), rules), rules),
+        normalized(FORMPLAYER, _addressed(comparable_trace(before, media=media[0], rules=rules), rules), rules),
+        normalized(FORMPLAYER, _addressed(map_strings(comparable_trace(after, media=media[1], rules=rules), xmlns), rules), rules),
     )
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(shown_before, "", "", documents_before)
@@ -621,7 +648,7 @@ def formplayer_differences(
         for difference in compared:
             path = structural if difference.path == "/" else f"{structural}{difference.path}"
             at = pointer if difference.at == "/" else f"{pointer}{difference.at}"
-            found.append(replace(difference, path=path, at=at))
+            found.append(empty_meta_location_class(replace(difference, path=path, at=at)))
     return found
 
 

@@ -367,12 +367,7 @@ export async function POST(req: NextRequest) {
 		const firstPublish =
 			outcome.deployment === null
 				? null
-				: await landedFirstPublish(
-						scope,
-						outcome.deployment,
-						doc.appSettings.runsOnlyOn,
-						"publish",
-					);
+				: await landedFirstPublish(scope, outcome.deployment, doc, "publish");
 		/* What an earlier publish left on this project space and the app no
 		 * longer points at. Derived here rather than in the dialog: telling a
 		 * rename (something really is sitting there) from a recreate

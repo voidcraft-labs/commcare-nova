@@ -303,6 +303,31 @@ def test_app_preview_chooses_a_language_in_its_settings_and_web_apps_from_its_me
     )
 
 
+def test_without_breadcrumbs_the_worker_and_preview_enter_in_the_chosen_language():
+    run = {
+        "script": [{"language": "fra"}, {"menu": 0}],
+        "steps": [
+            {"request": {"selections": []}, "response": {"type": "commands", "breadcrumbs": None}},
+            {"request": {"selections": [], "locale": "fra"}, "response": {"type": "commands"}},
+            {"request": {"selections": ["0"]}, "response": {"type": "commands"}},
+        ],
+    }
+    language = observe.language_at_start(run)
+    assert language == "fra"
+    desktop, _ = observe.replay("App", [run], "/home", worker_language=language)
+    preview, _ = observe.replay("App", [run], "/home", preview_as="worker", preview_language="en")
+    assert steps_module.MENU_DROPDOWN not in _clicked(desktop)
+    assert steps_module.HOME not in _clicked(preview)
+    assert [step["arg"]["value"] for step in preview if step.get("until") == "pages/choose"] == ["fra"]
+    for made in (desktop, preview):
+        assert f"{steps_module.MENU_ROW}:nth-child(1)" in _clicked(made)
+    # A caller who gave the worker no preference must still choose the language on the page.
+    plain, _ = observe.replay("App", [run], "/home")
+    assert steps_module.MENU_DROPDOWN in _clicked(plain)
+    # A language Formplayer never navigated in is no reason to assume it opened a second screen.
+    assert observe.language_at_start({**run, "steps": run["steps"][:1]}) is None
+
+
 def _search_run(choice, *steps, end):
     """A run whose first screen is a search (two prompts, the first holding a default), then ``steps``."""
     displays = [{"id": "name", "value": "Ana", "input": None}, {"id": "village", "value": None, "input": None}]

@@ -122,6 +122,59 @@ def _proof3(local, a=None, b=None):
     return android.behavior("document", record)
 
 
+def test_the_language_name_advisory_describes_only_an_unset_code_and_what_both_files_really_say():
+    from proof.checks import proof3
+
+    app = {"langs": ["en", "hin"], "translations": {"en": {"hin": ""}}}
+    hq = {"default/app_strings.txt": "en=English\nhin=हिंदी", "en/app_strings.txt": "", "hin/app_strings.txt": ""}
+    local = {name: "en=English\nhin=हिन्दी" for name in hq}
+    labels = {"en": "English", "hin": "हिन्दी"}
+    assert proof3.advised_picker_names(app, hq, local, labels) == {"hin": ("हिंदी", "हिन्दी")}
+    assert proof3.advised_picker_names(app, hq, local, None) == {}
+    assert proof3.advised_picker_names(app, hq, {**local, "en/app_strings.txt": "hin=wrong"}, labels) == {}
+    assert proof3.advised_picker_names(app, {**hq, "hin/app_strings.txt": "hin=custom"}, local, labels) == {}
+    for value in ("Person's own name", " "):
+        app["translations"]["en"]["hin"] = value
+        assert proof3.advised_picker_names(app, hq, local, labels) == {}
+
+
+def test_language_name_advisory_matches_the_exact_picker_row_on_the_local_device_only():
+    def device(name):
+        rows = ["English", name]
+        codes = ["en", "hin"]
+        return _app(
+            profile={"locale": {"ChangeLocaleUtil.getLocaleCodes": codes, "ChangeLocaleUtil.getLocaleNames": rows}},
+            walks={
+                "@language:hin": {
+                    "language": {"offered": codes, "rows": rows},
+                    "steps": [
+                        {"screen": "home", "alert": {"choiceItems": rows, "languagePicker": True}},
+                        {"screen": "home", "alert": {"choiceItems": rows}},
+                    ],
+                }
+            },
+        )
+
+    before, after = device("हिंदी"), device("हिन्दी")
+
+    def reports():
+        record = {"configurations": {"floor": {"A": {"app": before}, "local": {"app": after}, "B": {"app": after}}}}
+        return android.behavior("d", record, picker_names={"floor": {"hin": ("हिंदी", "हिन्दी")}})
+
+    found = reports()
+    # The same choices in a different dialog still differ, and every change on a republish still differs.
+    assert [d.at for d in found if d.artifact == "android@local.ccz"] == [
+        "/walks/@language:hin/steps/1/alert/choiceItems/1"
+    ]
+    assert len([d for d in found if d.artifact == "android@B"]) == 4
+    after["walks"]["@language:hin"]["language"]["offered"] = ["hin", "en"]
+    assert "/walks/@language:hin/language/rows/1" in {d.at for d in reports() if d.artifact == "android@local.ccz"}
+    after["profile"]["locale"]["ChangeLocaleUtil.getLocaleNames"][1] = "unrelated"
+    assert "/profile/locale/ChangeLocaleUtil.getLocaleNames/1" in {
+        d.at for d in reports() if d.artifact == "android@local.ccz"
+    }
+
+
 def test_two_devices_that_show_the_same_report_nothing_whatever_names_each_install():
     """An app's own id, its version, the apps a device holds and a stored value no reader reads differently
     name an install or a spelling, never what a worker reads."""
@@ -962,3 +1015,74 @@ def test_an_up_to_date_update_between_two_exports_of_one_revision_is_the_outcome
         assert _paths(_proof1(_installs("Installed", "DuplicateApp"), planted)) == [
             ("android@local.ccz", "/update", "changed")
         ], name
+
+
+def test_native_question_and_location_changes_have_exact_owners_and_other_permissions_stay_separate():
+    from proof.checks import android_places
+
+    before = _app()
+    step = before["walks"]["m0/m0-f0"]["steps"][2]
+    # The form the device opened is its session's even after a link: the walk's first command is not its owner.
+    step["session"] = {"command": "m1-f2"}
+    form = step["form"]
+    form["language"] = "fra"
+    question = {"reference": "/data/visits[2]/crop[1]", "text": ""}
+    form["screens"][0].update(questions=[dict(question)], shown=[dict(question)])
+    after = copy.deepcopy(before)
+    form = after["walks"]["m0/m0-f0"]["steps"][2]["form"]
+    permissions = ["android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION"]
+    form["deviceAsked"] = [{"action": "android.content.pm.action.REQUEST_PERMISSIONS", "data": None,
+                            "permissions": list(permissions)}]
+    form["deviceGave"] = {"location": "1 2 3 4", "permissions": list(permissions)}
+    form["saved"]["records"][0]["metaLocation"] = "1 2 3 4"
+    for key in ("questions", "shown"):
+        form["screens"][0][key][0]["text"] = "Crop"
+
+    found = _proof3(after, before)
+    owners = android_places.locations(found, after)
+    label = ("form", "1.2", "xform", "data", "visits", "crop", ":itext", "label", "fra", "default")
+    gps = ("form", "1.2", "xform", "data", "meta", "location")
+    assert len(found) == 5
+    for difference in found:
+        assert owners[difference.artifact, difference.at] == (label if difference.at.endswith("/text") else gps)
+
+    form["deviceAsked"][0]["permissions"].append("android.permission.RECORD_AUDIO")
+    form["deviceGave"]["permissions"].append("android.permission.RECORD_AUDIO")
+    form["screens"][0]["shown"][0]["reference"] = "/data/*"
+    found = _proof3(after, before)
+    owners = android_places.locations(found, after)
+    for difference in found:
+        if difference.at.endswith(("/deviceAsked", "/deviceGave")):
+            assert not difference.path.endswith(":location")
+            assert (difference.artifact, difference.at) not in owners
+        if difference.at.endswith("/shown/0/text"):
+            assert owners[difference.artifact, difference.at] is None
+
+
+def test_menu_image_normalization_still_reports_an_installed_icon_or_a_missing_file_on_one_side():
+    from proof.checks.compare.trace import INSTALLED_MEDIA, MEDIA_FILES
+    from proof.rules import RULES
+
+    first, second = "jr://file/a.png", "jr://file/b.png"
+    media = {MEDIA_FILES: {first: "same", second: "same"}, INSTALLED_MEDIA: [first, second]}
+    before, after = _app(), _app()
+
+    def item(app):
+        return app["walks"]["root"]["steps"][0]["menu"]["items"][0]
+
+    def differences(left, right):
+        return android.app_differences(
+            before, after, check="proof3", document="doc", artifact="android@B", rules=RULES, media=(left, right)
+        )
+
+    item(before)["image"] = {"uri": second, "held": True}
+    item(after)["image"] = {"uri": first, "held": True}
+    assert not differences(media, media)
+    item(after)["image"]["held"] = False
+    assert [row.at.rsplit("/", 1)[-1] for row in differences(media, media)] == ["held"]
+    item(after)["image"] = None
+    assert differences(media, media)
+    assert differences({INSTALLED_MEDIA: []}, media)  # the device actually holds the file
+    item(before)["image"]["held"] = False
+    assert not differences({INSTALLED_MEDIA: []}, media)
+    assert differences(None, media)  # evidence from the other archive cannot authorize this rewrite

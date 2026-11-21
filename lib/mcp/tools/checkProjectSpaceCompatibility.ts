@@ -207,7 +207,7 @@ async function nextUploadThere(
 	const view = firstPublishOf(
 		deployment,
 		states.get(deployment.deployment.id),
-		doc.appSettings.runsOnlyOn,
+		doc,
 	);
 	return {
 		firstPublish:

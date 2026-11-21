@@ -46,7 +46,6 @@ import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { declaresWebApps, organizationLevelsOf } from "@/lib/domain";
-import type { Platform } from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { getLookupDefinitions } from "@/lib/lookup/service";
@@ -3631,12 +3630,12 @@ export async function landedDeploymentKept(
 export async function landedFirstPublish(
 	scope: DeploymentScope,
 	view: DeploymentWithResources,
-	runsOnlyOn: Platform | undefined,
+	doc: BlueprintDoc,
 	after: KeptReadAfter,
 ): Promise<FirstPublishView | null | "unread"> {
 	try {
 		const states = await readFirstPublishStates(scope);
-		return firstPublishOf(view, states.get(view.deployment.id), runsOnlyOn);
+		return firstPublishOf(view, states.get(view.deployment.id), doc);
 	} catch (error) {
 		log.error(
 			"[deployment] first-publish list unavailable after a write landed",

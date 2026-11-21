@@ -35,7 +35,8 @@ the same file at. It holds only under that condition: a path no other path
 of its build shares a file with is left, so a file Nova renamed
 (``media-files-renamed``) or a picture with no file
 (``broken-pictures-removed``) stays a difference, and a trace given no media
-files is left as it is.
+files is left as it is. The native readers apply the same rule to a command or menu item's image URI
+alongside that archive's own files.
 """
 
 from __future__ import annotations
@@ -79,6 +80,8 @@ def normalize(trace):
     if not isinstance(trace, dict) or not isinstance(trace.get(MEDIA_FILES), dict):
         return trace
     first = first_paths(trace[MEDIA_FILES])
+    if first and isinstance(trace.get("menuImage"), str):
+        trace["menuImage"] = first.get(trace["menuImage"], trace["menuImage"])
     if first:
         _read(trace.get("runs"), first)
     return trace
@@ -86,7 +89,7 @@ def normalize(trace):
 
 RULE = SpellingRule(
     "media-path-of-a-shared-file",
-    "trace",
+    ("trace", "menu-image"),
     "A media reference to a file its build installs under several paths, read as the first of those paths: a"
     " device holds the same bytes at each and the Web Apps client fetches the one multimedia document"
     " (SuiteGenerator.media_resources, app.js resourceMap, ViewMultimediaFile).",

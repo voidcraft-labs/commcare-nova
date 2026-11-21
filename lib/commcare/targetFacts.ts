@@ -109,8 +109,10 @@ export interface TargetFacts {
 	 * (`hqUrlBase`), or null where it keeps no address.
 	 */
 	readonly customBaseUrl: HeldBaseUrl | null;
-	/** Location captured with every form, on an app Nova does not set it on. */
+	/** The last observed HQ app setting, which an upload with Connect off leaves in place. */
 	readonly autoGpsCapture: boolean;
+	/** Whether Nova owned the setting at that observation, for the list of settings kept in HQ. */
+	readonly novaOwnsAutoGpsCapture: boolean;
 	readonly androidLogos: readonly AndroidLogoSlot[];
 	readonly practiceWorker: boolean;
 	readonly persistentMenu: boolean;
@@ -424,8 +426,8 @@ export function targetFactsFromSource(
 		uiTextNotCarried: [...uiTextNotCarried].sort(),
 		secureSubmissions: source.secure_submissions === true,
 		customBaseUrl: heldBaseUrl(source.custom_base_url),
-		autoGpsCapture:
-			!input.novaOwnsAutoGpsCapture && source.auto_gps_capture === true,
+		autoGpsCapture: source.auto_gps_capture === true,
+		novaOwnsAutoGpsCapture: input.novaOwnsAutoGpsCapture,
 		androidLogos,
 		practiceWorker: typeof practiceWorker === "string" && practiceWorker !== "",
 		persistentMenu: source.persistent_menu === true,

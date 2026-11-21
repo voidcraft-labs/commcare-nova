@@ -242,6 +242,19 @@ def _navigations(run: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     ]
 
 
+def language_at_start(run: Mapping[str, Any]) -> str | None:
+    """Where HQ omits breadcrumbs, Web Apps draws no language menu and App Preview has no Home
+    breadcrumb to return to Settings. Choose the language before entering the app in these runs."""
+    language = walks.language_of(run["script"])
+    if language is None:
+        return None
+    navigations = _navigations(run)
+    if len(navigations) < 2 or navigations[1]["request"].get("locale") != language:
+        return None
+    first = navigations[0].get("response") or {}
+    return language if "breadcrumbs" in first and first["breadcrumbs"] is None else None
+
+
 def _typed(run: Mapping[str, Any], position: int) -> list[tuple[str, str]]:
     """What the walk typed into the search screen the run's ``position``-th navigation answered with, in order:
     each prompt's id and the text or the option's key typed into it (each of its ``validating`` requests, which
@@ -378,6 +391,7 @@ def plan(
     small: bool = False,
     preview: bool = False,
     whole: bool = False,
+    opening_language: str | None = None,
 ) -> tuple[list[dict], list[tuple | None]]:
     """The steps that replay one run of Formplayer's walk in the browser, whole, and beside each what it reads:
     ``("screen", place)`` for each screen read (``place`` the position of the choice it follows, or ``FORM`` for
@@ -437,6 +451,9 @@ def plan(
         page = _page_of(screen, str(choice["entity"]), small) if "entity" in choice else 0
         if page:
             add(steps.turn_to(page, within=within, or_skip_to=end))
+        if position == 0 and opening_language is not None and choice.get(walks.LANGUAGE) == opening_language:
+            # Opening the app already read this screen in the chosen language.
+            continue
         if walks.LANGUAGE in choice and preview:
             add(steps.choose_preview_language(choice[walks.LANGUAGE], arrival, within=within, or_skip_to=end))
         elif walks.LANGUAGE in choice:
@@ -595,6 +612,7 @@ def replay(
     preview_as: str | None = None,
     preview_language: str | None = None,
     preview_whole: bool = False,
+    worker_language: str | None = None,
 ) -> tuple[list[dict], list[tuple | None]]:
     """Every run of a walk as one list of steps (``plan``, on a small screen with ``small``), each from the home
     screen into the app, and beside
@@ -626,11 +644,16 @@ def replay(
     for index, run in enumerate(runs):
         end = f"run-{index}"
         navigations = _navigations(run)
-        first = steps.tolerant(_arrival(navigations[0] if navigations else None), end)
+        opening_language = language_at_start(run)
+        if preview_as is None and worker_language != opening_language:
+            opening_language = None
+        opening = 1 if opening_language is not None else 0
+        first = steps.tolerant(_arrival(navigations[opening] if navigations else None), end)
         if preview_as is not None:
             add(steps.log_in_as(preview_as))
-            if preview_language is not None:
-                add(steps.set_preview_language(preview_language, within=steps.WITHIN_MS, or_skip_to=end))
+            language = opening_language or preview_language
+            if language is not None:
+                add(steps.set_preview_language(language, within=steps.WITHIN_MS, or_skip_to=end))
             if preview_whole:
                 add(steps.show_forms_whole(within=steps.WITHIN_MS, or_skip_to=end))
             add(steps.navigate(steps.START_APP, first, within=steps.WITHIN_MS, or_skip_to=end))
@@ -643,6 +666,7 @@ def replay(
             small=small or preview_as is not None,
             preview=preview_as is not None,
             whole=preview_whole,
+            opening_language=opening_language,
         )
         made.extend(run_steps)
         kinds.extend(None if kind is None else (kind[0], index, *kind[1:]) for kind in run_kinds)
@@ -777,7 +801,9 @@ def _record(runner, driver, version, walk, run, kinds) -> dict[str, Any]:
 
 def _expected_screens(run: Mapping[str, Any]) -> int:
     """How many screens a whole replay of ``run`` reads (``plan``), the app's first one with them."""
-    return 1 + sum(1 for kind in plan(run)[1] if kind is not None and kind[0] == "screen")
+    return 1 + sum(
+        1 for kind in plan(run, opening_language=language_at_start(run))[1] if kind is not None and kind[0] == "screen"
+    )
 
 
 def observe(served, driver) -> dict[str, Any]:
@@ -822,10 +848,12 @@ def places_given(served, driver, walk: Mapping[str, Any]) -> walks.Places:
             continue
         toward[walks.run_key(each["script"])] = asked
         for window, viewport in ((None, None), (SMALL, SMALL_SCREEN)):
-            made, _ = replay(served.doc["name"], [each], session.home, small=window == SMALL)
+            language = language_at_start(each)
+            made, _ = replay(served.doc["name"], [each], session.home, small=window == SMALL, worker_language=language)
             run = session.run(
                 made,
                 name=f"webapps-places-{window or 'desktop'}-{index}",
+                worker_language=language,
                 deadline=180.0 + 2.0 * len(made),
                 viewport=viewport,
             )
@@ -950,6 +978,8 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
 
     def replayed(window, session, viewport, index, each, *, whole=False):
         """One run replayed in one window, as its record; ``whole`` in App Preview with its forms shown whole."""
+        language = language_at_start(each)
+        worker_language = language if window != PREVIEW else None
         made, kinds = replay(
             served.doc["name"],
             [each],
@@ -958,6 +988,7 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
             preview_as=raw_username(served.username) if window == PREVIEW else None,
             preview_language=walks.default_language(served.languages) if window == PREVIEW else None,
             preview_whole=whole,
+            worker_language=worker_language,
         )
         # The run's deadline grows with its steps: a whole walk of a large form is many screens and answers.
         run = session.run(
@@ -965,7 +996,12 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
             name=f"webapps-{window or 'desktop'}{'-whole' if whole else ''}-{index}",
             deadline=180.0 + 2.0 * len(made),
             viewport=viewport,
+            worker_language=worker_language,
         )
+        if language is not None:
+            navigations = run.answered("navigate_menu")
+            if not navigations or navigations[0].request_json().get("locale") != language:
+                raise AssertionError(f"The client did not enter the app in the selected language {language!r}.")
         if window != PREVIEW or (whole and not walks.places_of(each["script"])):
             # A form the client shows whole it submits whole, in App Preview as in Web Apps. A run that gave a
             # location question its place is the exception there: the builder's frame lays the map out at
