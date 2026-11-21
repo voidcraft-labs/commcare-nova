@@ -13,6 +13,7 @@ from functools import cache
 
 from proof.checks import (
     android_places,
+    blank_sort,
     changes,
     connect_contexts,
     connect_places,
@@ -79,20 +80,52 @@ def sites(records, name, differences, observed, local_files, *, document=None):
         return form_namespaces(files or {})
 
     @cache
-    def reviewed_app_and_case_types():
+    def reviewed_app():
         read = review_read(document) if document is not None else None
-        return (_source(records, name, read), document.case_types()) if read else ({}, {})
+        return _source(records, name, read) if read else {}
+
+    @cache
+    def case_types():
+        return document.case_types()
 
     @cache
     def writes_at(position):
-        app, case_types = reviewed_app_and_case_types()
-        return served_datetimes.writes(app, position, case_types)
+        app = reviewed_app()
+        return served_datetimes.writes(app, position, case_types()) if app else {}
 
     get_json = cache(records.blobs.get_json)
     results = []
     for reader, release_key, local_key, payload in READERS:
         for side in ("local.ccz", "B"):
             selected = [d for d in differences if d.artifact == f"{reader}@{side}"]
+            sorts = [d for d in selected if blank_sort.candidate(d)]
+            if sorts:
+                state, files, _ = by_side[side]
+                key = local_key if side == "local.ccz" else release_key
+                original, published = (
+                    (baseline.get(release_key) or {}).get(payload),
+                    (state.get(key) or {}).get(payload),
+                )
+                placed = {}
+                if original and published:
+                    differing = {
+                        path
+                        for held in (baseline, state)
+                        for path in (held.get("releaseDiffers") or {}).get("differing") or ()
+                    }
+                    placed = blank_sort.locations(
+                        sorts,
+                        reviewed_app(),
+                        get_json(original),
+                        get_json(published),
+                        by_side["A"][1],
+                        files,
+                        differing=differing,
+                    )
+                results.append(
+                    changes.Sites(served={(d.artifact, d.at): placed.get((d.artifact, d.at)) for d in sorts})
+                )
+                selected = [d for d in selected if not blank_sort.candidate(d)]
             for old, which in ((True, "A"), (False, side)):
                 contributed = [d for d in selected if d.kind != ("added" if old else "removed")]
                 if not contributed:
@@ -210,7 +243,7 @@ def text_candidate(difference):
 
 
 def needs_classification(difference):
-    return (text_candidate(difference) or served_datetimes.candidate(difference)
+    return (text_candidate(difference) or blank_sort.candidate(difference) or served_datetimes.candidate(difference)
             or (difference.artifact.startswith("connect@") and connect_places.candidate(difference)))
 
 
@@ -263,7 +296,13 @@ def classify(document, records, name, differences, places):
     found = []
     for difference in differences:
         owner = places.served.get((difference.artifact, difference.at)) or ()
-        if owner and difference.artifact.startswith("connect@") and connect_places.candidate(difference):
+        if (
+            blank_sort.candidate(difference)
+            and owner[:1] == ("menu",)
+            and owner[2:] == ("case_details", "short", "sort_elements", "0", "display")
+        ):
+            difference = replace(difference, path=difference.path + ":blank-sort-name")
+        elif owner and difference.artifact.startswith("connect@") and connect_places.candidate(difference):
             difference = replace(difference, path=difference.path + ":captured")
         elif owner and served_datetimes.candidate(difference) and (
             (difference.path == served_datetimes.CASES and owner[0] == "form" and owner[2:3] == ("case",))
