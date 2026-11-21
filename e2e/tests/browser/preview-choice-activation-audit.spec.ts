@@ -328,36 +328,60 @@ test("a trusted touch scroll cancels choice activation", async ({
 	}
 });
 
-test("invalid Submit still refuses and a corrected local clock draft submits exactly once", async ({
-	choiceApp: app,
-}) => {
-	await app.prepare();
-	const submit = app.page.getByRole("button", { name: "Submit", exact: true });
-	await submit.click();
-	await expect(app.age).toHaveAttribute("aria-invalid", "true");
-	await expect(app.error).toBeVisible();
-	await expect(app.page.getByRole("alert")).toHaveText(
-		"Review the highlighted question.",
-	);
-	expect(app.submissions).toHaveLength(0);
-	await app.age.fill("35");
-	const clock = app.page.getByRole("textbox", { name: /Question 5.*Time/ });
-	await clock.fill("2:30 PM");
-	await expect(clock).toBeFocused();
-	await submit.click();
-	await expect(app.page.getByRole("alert")).toHaveText(
-		"Transport unavailable. Try again.",
-	);
-	expect(app.submissions).toHaveLength(1);
-	// The answers the form's own case reads, the corrected clock among them.
-	expect(app.submissions[0]?.[0]).toMatchObject({
-		kind: "registration",
-		operationAnswers: {
-			root: expect.arrayContaining([
-				expect.objectContaining({ value: "Fictional visitor" }),
-				expect.objectContaining({ value: "35" }),
-				expect.objectContaining({ value: "14:30:00.000Z" }),
-			]),
-		},
-	});
+const timed = test.extend({
+	page: async ({ page }, use) => {
+		await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+		try {
+			await use(page);
+		} finally {
+			if (!page.isClosed()) await page.clock.resume();
+		}
+	},
 });
+
+timed(
+	"invalid Submit still refuses and a corrected local clock draft submits exactly once",
+	async ({ choiceApp: app }) => {
+		await app.prepare();
+		const submit = app.page.getByRole("button", {
+			name: "Submit",
+			exact: true,
+		});
+		await app.page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
+		await submit.press("Enter");
+		await expect(app.age).toHaveAttribute("aria-invalid", "true");
+		await expect(app.error).toBeVisible();
+		await expect(app.page.getByRole("alert")).toHaveText(
+			"Review the highlighted question.",
+		);
+		expect(app.submissions).toHaveLength(0);
+		const clock = app.page.getByRole("textbox", { name: /Question 5.*Time/ });
+		// The first frame of the refusal's reveal runs with Age still invalid.
+		// Move to another question before the second frame tries to focus Age.
+		await app.page.clock.runFor(16);
+		await clock.focus();
+		await app.page.clock.runFor(32);
+		await expect(clock).toBeFocused();
+		await expect(app.age).toHaveAttribute("aria-invalid", "true");
+		await app.page.clock.resume();
+		await app.age.fill("35");
+		await clock.fill("2:30 PM");
+		await expect(clock).toBeFocused();
+		await submit.click();
+		await expect(app.page.getByRole("alert")).toHaveText(
+			"Transport unavailable. Try again.",
+		);
+		expect(app.submissions).toHaveLength(1);
+		// The answers the form's own case reads, the corrected clock among them.
+		expect(app.submissions[0]?.[0]).toMatchObject({
+			kind: "registration",
+			operationAnswers: {
+				root: expect.arrayContaining([
+					expect.objectContaining({ value: "Fictional visitor" }),
+					expect.objectContaining({ value: "35" }),
+					expect.objectContaining({ value: "14:30:00.000Z" }),
+				]),
+			},
+		});
+	},
+);
