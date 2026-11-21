@@ -114,7 +114,11 @@ def test_every_question_a_worker_answers_with_a_gesture_is_answered_in_web_apps_
     latitude, longitude = (float(part) for part in load_answer_table()["dataTypes"]["geopoint"][0].split()[:2])
     located = [attempt for attempt in form["answers"] if isinstance(attempt["value"], list)]
     assert len(located) == len(PIXEL_DEGREES), form["answers"]
-    assert walks.places_of(run["script"]) == {str(attempt["ix"]): attempt["value"] for attempt in located}
+    # Each native map is attached to its binding and repeat occurrence, independently of its UI position.
+    assert {tuple(json.loads(key)): value for key, value in walks.places_of(run["script"]).items()} == {
+        ("/data/place",): located[0]["value"],
+        ("/data/here",): located[1]["value"],
+    }
     answered = [json.loads(exchange.body) for exchange in replayed.answered("answer")]
     for place, (label, pixel) in zip(located, PIXEL_DEGREES.items(), strict=True):
         moves = [sent["answer"] for sent in answered if sent.get("ix") == place["ix"]]

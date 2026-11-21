@@ -469,14 +469,14 @@ class Walk:
     answer_table: Mapping[str, Any] = field(default_factory=load_answer_table)
     clock: str = DEFAULT_CLOCK
     # The place the Web Apps client's map gave each location question of a run (``proof.webapps.observe.
-    # places_given``), by the run's choices (``walks.run_key``) and the question's index: a derived run that
-    # reaches its form answers each such question with it, and keeps it in its script (``{"places": ...}``).
+    # places_given``), by the run's choices (``walks.run_key``) and bound question (``walks.location_key``). A run
+    # that reaches its form answers each such question with it and keeps the places in its script.
     places: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     # The places a phone's map gave, where they are not a desktop's: each such run is walked again with them, as
     # the run the phone replays (``walks.WINDOW``).
     small_places: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     # The answer table's places the worker dragged each location question's map toward to give its place, by the
-    # run and the question's index (``walks.TOWARD``), which the walk keeps with each place for the client's
+    # run and bound question (``walks.TOWARD``), which the walk keeps with each place for the client's
     # replay to make the same drags.
     toward: Mapping[str, Mapping[str, Sequence[str]]] = field(default_factory=dict)
     # What each run happens inside: a context manager made from the run's name. Where HQ answers with its own
@@ -556,10 +556,11 @@ class Walk:
         if not answerable(question, web_apps=self.web_apps):
             # Nothing a worker in Web Apps can give it.
             return []
-        if given and question.get("datatype") == "geo" and str(question.get("ix")) in given:
-            # The place the client's map gave it: the client answers a location question with its map's centre,
-            # to the pixel a drag brings it, so the walk gives what the client gives.
-            return [given[str(question.get("ix"))]]
+        if given and question.get("datatype") == "geo":
+            key = walks.location_key(question)
+            if key in given:
+                # The native map's centre on this question, even if another control moved its current ix.
+                return [given[key]]
         if question.get("datatype") == "info":
             return list(self.answer_table["controls"]["trigger"])
         kind = media_kind(question)
@@ -588,6 +589,7 @@ class Walk:
         with it, its attempt keeping the table's places the client's map was dragged ``toward`` to give it.
         A question already holding the table's answer sends nothing, as the client's unchanged widget does."""
         session, tree = form["session_id"], form["tree"]
+        location_positions: dict[str, str] = {}
         tried: set[str] = set()
         refused: set[str] = set()
         attempts: list[dict] = []
@@ -633,6 +635,9 @@ class Walk:
                     )
                 continue
             kind = media_kind(pending)
+            place = (
+                walks.location_key(pending, location_positions) if given and pending.get("datatype") == "geo" else None
+            )
             values = list(self._values(pending, given)[:MAX_TRIES])
             if kind is None:
                 # Where the form refuses every answer the table holds for the question, a worker leaves it
@@ -651,8 +656,8 @@ class Walk:
                         break
                     answered = web.answer(session, pending["ix"], value)
                     attempt = {"ix": pending["ix"], "value": value, "response": answered}
-                    if given and str(pending["ix"]) in given and (toward or {}).get(str(pending["ix"])):
-                        attempt[walks.TOWARD] = list(toward[str(pending["ix"])])
+                    if place is not None and place in given and toward and toward.get(place):
+                        attempt[walks.TOWARD] = list(toward[place])
                     attempts.append(attempt)
                 else:
                     content = (CAPTURES_DIR / value).read_bytes()

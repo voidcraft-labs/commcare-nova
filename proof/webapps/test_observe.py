@@ -48,6 +48,7 @@ Contracts:
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -393,6 +394,78 @@ def test_a_search_the_client_keeps_back_is_pressed_and_its_refusal_is_the_search
     assert kinds[made.index(refusal)] == ("search",)
 
 
+def test_a_native_map_answer_follows_its_field_when_an_earlier_question_splits(monkeypatch):
+    from proof.formplayer.walk import Walk, submission
+
+    aim = "12.5 -8.25 0 0"
+    source = {"type": "question", "ix": "9", "binding": "/data/location", "datatype": "geo"}
+    script = [{"menu": 0}]
+    run = {
+        "script": script,
+        "steps": [
+            {"request": {"selections": []}, "response": {"type": "commands"}},
+            {"request": {"selections": ["0"]}, "response": {"type": "form", "tree": [source]}},
+            {"answers": [{"ix": "9", "value": aim}], "submitted": {}},
+        ],
+    }
+    desktop, phone = [12.554, -8.4377], [12.554, -8.4375]
+
+    def browser_run(steps, *, viewport, **kwargs):
+        drags = [step for step in steps if "drag" in step]
+        assert drags and all(step["arg"]["ix"] == "9" for step in drags)
+        request = {"ix": "9", "answer": phone if viewport else desktop}
+        return SimpleNamespace(answered=lambda route: [SimpleNamespace(request_json=lambda: request)])
+
+    session = SimpleNamespace(home="/apps/", run=browser_run)
+    monkeypatch.setattr(observe, "Session", lambda served, driver: session)
+    places = observe.places_given(SimpleNamespace(doc={"name": "Visits"}), None, {"runs": [run]})
+    run_key = walks.run_key(script)
+
+    def replay_window(window, point):
+        tree = [
+            {"type": "question", "ix": "9", "binding": "/data/seen_at_time", "datatype": "time"},
+            {**source, "ix": "10"},
+        ]
+
+        def answer(session, ix, value):
+            for question in tree:
+                if question["ix"] == ix:
+                    question["answer"] = value
+            return {"status": "accepted", "tree": [dict(question) for question in tree]}
+
+        walk = Walk(None, None, "domain", "app")
+        attempts, final, refused, _, held = walk._fill(
+            SimpleNamespace(answer=answer),
+            {"session_id": "form", "tree": tree},
+            window[run_key],
+            places.toward[run_key],
+        )
+        time, location = attempts
+        assert (time["ix"], time["value"]) == ("9", walk.answer_table["dataTypes"]["time"][0])
+        assert walks.TOWARD not in time
+        assert (location["ix"], location["value"], location[walks.TOWARD]) == ("10", point, [aim])
+        assert submission(final, refused, held)["answers"]["10"] == point
+
+    replay_window(places.desktop, desktop)
+    replay_window(places.small, phone)
+
+
+def test_a_location_in_a_repeat_keeps_its_binding_and_every_native_repeat_occurrence():
+    def question(ix, binding="/data/household/visit/location"):
+        return {"ix": ix, "binding": binding}
+
+    original = walks.location_key(question("3_0,4_1,9"))
+    positions = {}
+    assert walks.location_key(question("6_0,7_1,10"), positions) == original
+    assert walks.location_key(question("6_1,7_1,10"), positions) != original
+    assert walks.location_key(question("6_0,7_2,10"), positions) != original
+    assert walks.location_key(question("6_0,7_1,11", "/data/household/work/location"), positions) != original
+    with pytest.raises(ValueError, match="share binding and repeat instances"):
+        walks.location_key(question("6_0,7_1,12"), positions)
+    with pytest.raises(ValueError, match="no binding"):
+        walks.location_key({"ix": "10"})
+
+
 def test_a_cleared_answer_and_a_repeats_add_are_replayed_through_the_forms_own_widgets():
     """A question the walk cleared (the form refused every answer) is cleared through its widget, and a
     repetition the walk added is added by the repeat's own Add, by its place among the Adds the form shows."""
@@ -504,7 +577,6 @@ def test_the_one_question_form_ended_where_the_client_stopped_in_it_or_at_its_op
 def test_the_worker_home_binds_the_visible_tile_to_the_published_build_and_the_builds_own_switch():
     import html
     import json
-    from types import SimpleNamespace
 
     release = SimpleNamespace(app_id="working", build_id="release", doc={"name": "Visité", "cloudcare_enabled": True})
     session = SimpleNamespace(served=release, home="/apps/")

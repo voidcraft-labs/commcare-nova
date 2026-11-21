@@ -3509,9 +3509,11 @@ a step clicks what a worker clicks, or reads what the page shows.
   replayed in a desktop's window and a phone's, and the walk is derived
   again with the place the client's map gave each (`observe.py::derived_places`),
   kept as the run's script's last choice with the table's places the map was
-  dragged toward (`proof/observe/walks.py`), so every state's walk gives the
-  client's own place and every replay of it makes the same drags; the
-  client's submission is held to the walk's (`observe.py::submitted_alike`),
+  dragged toward (`proof/observe/walks.py`). Both follow Formplayer's full
+  field binding and the occurrence of each enclosing repeat. The replay uses
+  the new form's own question index even when an earlier control split or
+  moved. Each replay makes the same drags. The client's submission is held
+  to the walk's (`observe.py::submitted_alike`),
   the form read as the worker leaves it, Submit, and the screen the client lands
   on, with what became of each answer (`answered`; `unanswerable` where the
   client draws no widget a worker could answer with it; `absent` where it
