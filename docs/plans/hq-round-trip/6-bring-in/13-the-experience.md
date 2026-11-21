@@ -3071,7 +3071,7 @@ non-null while the live app mapping names the app a list was stored for, and nul
 stored (an app Nova made, and any app after a push, until part 15 stores a `next-publish` list; its
 section 4.4), for an ended deployment and for a project space the app has not reached. The tool
 calls `readFirstPublishStates(scope)` and
-`firstPublishOf(deployment, states.get(deployment.id), doc.appSettings.runsOnlyOn)` (both part
+`firstPublishOf(deployment, states.get(deployment.id), doc)` (both part
 09's; its 12.3), the function that fills the view for the builder, so the dialog and MCP cannot
 answer differently, and returns `firstPublishLines(view, "publish")` with its keys in snake case.
 Its description gains, at its end: " `first_publish`, where it is not null, is what this app's next

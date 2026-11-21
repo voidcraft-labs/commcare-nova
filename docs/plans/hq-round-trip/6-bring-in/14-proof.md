@@ -307,7 +307,11 @@ group needs nothing of acceptance.
 **An absent show setting.** `Application.create_profile` writes a setting's `default` for an absent
 key where the setting carries a `commcare_default` that differs, and
 `commcare-profile-settings.yml` gives `cc-show-saved` and `cc-show-incomplete` `default: "no"`.
-This decides 3.2.
+This decides the built profile in 3.2. The Web Apps home reads the stored profile instead:
+`cloudcare/utils.py::format_app_doc` returns it, and `formplayer/apps/controller.js::listApps`
+hides Incomplete Forms only if all listed apps explicitly store `no`. Where Web Apps was on in HQ
+with the key absent and remains on, the first publish with Show incomplete forms off declares the
+tile change (part 09). Existing incomplete sessions stay stored.
 
 **A case list expectation.** `proof/observe/intent.py::expectations` refuses a `caseList` request
 on any export but `local`. This decides 6.4.
@@ -3274,6 +3278,7 @@ records of its change, 9.2) is the second table's.
 | `translation-overrides-folded`, `blank-translations-filled` | `hq-languages` |
 | `location-list-setting-reset` | `hq-kept-settings` |
 | `web-apps-turned-on` | `hq-new-app` |
+| `incomplete-forms-tile-hidden` | `hq-plain`, `hq-questions`, `hq-menus` and `hq-kept-settings`: Web Apps was on and their stored property was absent |
 | `date-and-time-questions-split` | `hq-questions` |
 | `media-paths-joined`, `media-files-renamed`, `media-references-with-no-file-removed`, `unused-media-entries-removed` | `hq-media` |
 | `broken-pictures-removed` | `starter-wash`, its first form's icon (6.3) |
@@ -3295,7 +3300,8 @@ records of its change, 9.2) is the second table's.
 | `sort-rule-kept-as-hidden-column` | each sort element recorded, and in its menu each short detail column Nova's projection writes over a property no stored short column shows, at its index there (`hqJson/caseList.ts::projectCaseListForHq`) |
 | `search-filter-rows-recut`, `list-settings-respelled`, `search-filter-joined-to-list`, `search-restates-list-filter`, `link-held-case-guards-added`, `registration-label-fixed`, `names-respelled`, `media-maps-respelled`, `text-spaces-dropped`, `sort-by-entry-with-a-blank-name-dropped` | each stored value the reading records under the id (`ReadFacts.sameStateRewrites`), by the menu or form at its position; for `list-settings-respelled`, also each menu offering no search whose `auto_launch` the shell writes otherwise |
 | `date-and-time-saved-as-hq-stores-it` | in each form recorded, its `nova_datetime_` nodes and their questions, and each property of a date and time a case change of the form writes: its case blocks' row (`xform/**/case/update/<property>`) and the property on its case type |
-| `connect-app-captures-location` | `auto_gps_capture` and each form's `/data/meta/location` |
+| `connect-app-captures-location` | `auto_gps_capture` and each form's `/data/meta/location`; on Android the location permission request, grant and fix in the saved form, and in Formplayer an empty location element |
+| `incomplete-forms-tile-hidden` | the app's stored `/profile/properties/cc-show-incomplete` and the removal of Web Apps' home tile at `/home/tiles/incomplete` |
 | `translation-overrides-folded` | each folded key (`ReadFacts.foldedTranslationKeys`, its pointer `/translations/<code>/<key>`) and the text it names by HQ's own key, each slot of its row of `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS` at the positions the key spells (`placesOfGeneratedKey`): the app's name; a menu's name; a form's name, its `<h:title>` (`xform/title`) and its data node's `name` (`xform/data/@name`); a case list item's or Register button's label; a column's header or enum (`case_details/<short or long>/columns/<i>/header`, `.../enum`, the screen and column the key spells, a search detail's being the case list's) and the detail's `sort_elements`; a Search field's texts (`search_config/properties`); the search's title and subtitle. The entry's paths are the same rows' (`FOLDED_TEXT_PATHS`), so each place it gives lies under a path it allows |
 | `location-list-setting-reset`, `web-apps-turned-off`, `web-apps-turned-on` | the app key the shell writes |
 | `date-and-time-questions-split` | each question split, the date and the time questions it inserted (`datetimeSplitFieldUuid`), and the form's `actions` |

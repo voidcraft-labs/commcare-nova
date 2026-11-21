@@ -1646,7 +1646,7 @@ key; each key's entries are `index.naming("setting:properties.<key>")` or
 
 | The key | Claim |
 |---|---|
-| `properties.cc-show-saved`, `properties.cc-show-incomplete` | `take(20-properties-cc-show-saved)`, `take(21-properties-cc-show-incomplete)`: `appSettings.showSavedForms`, `showIncompleteForms`, by `appProfileSettings.ts`'s own value table read backwards |
+| `properties.cc-show-saved`, `properties.cc-show-incomplete` | `take(20-properties-cc-show-saved)`, `take(21-properties-cc-show-incomplete)`: `appSettings.showSavedForms`, `showIncompleteForms`, by `appProfileSettings.ts`'s own value table read backwards. If Web Apps is on in HQ and `cc-show-incomplete` is absent, record `incomplete-forms-tile-hidden` at that property for the first-publish list (part 09). |
 | `features.sense` holding `'true'`; `properties.cc-entry-mode` holding `'cc-entry-review'` | `refuse(profile-features-sense-true-or-profile-properties-cc-entry-mode)` |
 | a key whose `setting:` item lists its choices and whose value is none of them | `refuse(profile-properties-or-features-dependencies-value-outside-its)` with the key |
 | a key one entry names | `account` under it |
