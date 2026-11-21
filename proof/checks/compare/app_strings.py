@@ -180,6 +180,11 @@ def _reader():
     return commcare_translations
 
 
+def catalog_strings(code, version):
+    """The strings HQ's select-known build can fill for this locale and CommCare build version."""
+    return _reader().load_translations(code, version=2, commcare_version=version)
+
+
 def parse_app_strings(content):
     """The strings map HQ's reader makes of one app strings file."""
     commcare_translations = _reader()

@@ -327,14 +327,15 @@ function documentJson(
 	// The device judge holds the two picker spellings to the real download advisory
 	// and Nova's picker labels before either the archive or Android interprets them.
 	let advisedPickerLabels: Record<string, string> | undefined;
-	if (facts !== undefined && targetFacts?.languageNames != null) {
+	let catalogFallbackAdvisory: string | undefined;
+	if (facts !== undefined && targetFacts != null) {
 		const plan = planLanguageWire(effectiveAppLocalization(doc.localization));
 		const kept = keptAdvisoryFacts(targetFacts, plan.languages);
-		if (
-			exportAdvisories(doc, "known", kept).some(
-				(item) => item.id === "kept_language_names_differ",
-			)
-		) {
+		const advisories = exportAdvisories(doc, "known", kept);
+		catalogFallbackAdvisory = advisories.find(
+			(item) => item.id === "kept_ui_text_falls_back",
+		)?.id;
+		if (advisories.some((item) => item.id === "kept_language_names_differ")) {
 			advisedPickerLabels = Object.fromEntries(plan.nameByWireCode);
 		}
 	}
@@ -346,6 +347,7 @@ function documentJson(
 			modules: wireLayout(doc),
 			languages: wireLanguages(doc),
 			...(advisedPickerLabels && { advisedPickerLabels }),
+			...(catalogFallbackAdvisory && { catalogFallbackAdvisory }),
 		},
 		catalog: materializableCaseTypes(doc).map(
 			({ name, parent_type, relationship, properties }) => ({
