@@ -62,6 +62,10 @@ name: Proof lane
 on:
   workflow_call:
     inputs:
+      pin-candidate:
+        description: The weekly pin commit whose validated proof/pins.json to apply to the checkout
+        type: string
+        default: ''
       ref:
         description: The commit or branch to emit and check out (the caller's by default)
         type: string
@@ -160,6 +164,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.sha }}
+      - name: Apply the planned pins
+        if: ${{ inputs.pin-candidate != '' }}
+        env:
+          PIN_COMMIT: ${{ inputs.pin-candidate }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -338,6 +347,11 @@ jobs:
             lib/commcare/surface
             .github/actions/proof-runtime
             .github/actions/proof-android-runtime
+      - name: Apply the planned pins
+        if: ${{ inputs.pin-candidate != '' }}
+        env:
+          PIN_COMMIT: ${{ inputs.pin-candidate }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -458,6 +472,11 @@ jobs:
           sparse-checkout: |
             proof
             .github/actions/proof-android-runtime
+      - name: Apply the planned pins
+        if: ${{ inputs.pin-candidate != '' }}
+        env:
+          PIN_COMMIT: ${{ inputs.pin-candidate }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - uses: ./.github/actions/proof-android-runtime
         id: android
         with:
@@ -482,6 +501,11 @@ jobs:
           sparse-checkout: |
             proof
             lib/commcare/surface
+      - name: Apply the planned pins
+        if: ${{ inputs.pin-candidate != '' }}
+        env:
+          PIN_COMMIT: ${{ inputs.pin-candidate }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - name: Record the candidate image in the lock
         if: ${{ inputs.image != '' }}
         run: node proof/ci/candidate.mjs --image "$CANDIDATE"

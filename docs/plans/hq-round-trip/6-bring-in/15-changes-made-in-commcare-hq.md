@@ -2053,7 +2053,8 @@ outcome stands as today: a report Nova cannot read for ids is no failed upload.
 export async function recordDeploymentMediaFiles(
 	scope: DeploymentScope, target: DeploymentTargetKey,
 	input: { readonly remoteAppId: string;
-	         /** The digest of the baseline this publish wrote; null for an `unread` one. */
+	         readonly pushToken: string | null;
+	         /** The digest of the source this publish verified, null when it verified none. */
 	         readonly sourceDigest: string | null;
 	         readonly files: HqMediaRecord; readonly expectedEndings: number },
 ): Promise<void>;
@@ -2063,10 +2064,11 @@ export async function recordDeploymentMediaFiles(
 published, the baseline's previous record, preflight's `learned`, and `reported`: the matched
 files' ids by path where the upload completed with no error and `matchedFiles` is not null, and
 nothing otherwise (an upload that failed, timed out or reported errors earns no entry). An app
-that publishes no file writes `{}`. Inside `withDeploymentRow` it writes only where the baseline
-row still names that app and that digest; a later publish's baseline is left alone, and that
-publish writes its own. A failed read-back writes an `unread` baseline with a null digest, and the
-record is then written where the row names that app and still holds no digest. On a deployment
+that publishes no file writes `{}`. Inside `withRecordRow` it writes only where the baseline
+row still names that app and that digest and the active mapping still carries this publish's token.
+A failed read-back gives a null digest. A later publish can verify the same source or also have
+no digest, but its token differs. If the mapping already records a later publish when this import
+records its response, this publish receives no token, skips its media upload and warns the caller. On a deployment
 someone stopped after the publish read its endings it writes nothing and throws nothing: the app
 had landed, and the publish reports it so, as `finishDeploymentContentWrite` holds it.
 
@@ -2773,7 +2775,8 @@ and `refresh_deployment`'s projection (`lib/mcp/tools/deploymentProjection.ts`) 
 last known to match, so a client that compares the app's head with it does not read a brought-in
 change as one waiting to be published. The projection reads it beside the record, from one light
 read of the app's baselines (`store.ts::readDeploymentNovaRevisions`: the baseline's `nova_revision`
-where it is no `unread` baseline and is of the HQ app the live mapping names), handed to
+where the origin is `read`, `changes` or `push` and the live mapping names that HQ app. A `push`
+revision must also equal the mapping's `pushed_revision`), handed to
 `describeDeployment` by every tool that projects a deployment; `get_deployment`'s description gains
 one sentence naming it beside `pushed_revision`. A tool whose write has landed (an upload, a
 check, a kept refresh, a stop, a withdrawn confirmation, a bring-in) reads it through
