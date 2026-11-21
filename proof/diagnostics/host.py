@@ -97,29 +97,37 @@ def status_path(output):
     return output.with_name(output.name + ".host-status.json")
 
 
+def _finished_record(fd):
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 4096:
+        raise ValueError("Invalid host receipt.")
+    record = json.loads(os.pread(fd, 4097, 0))
+    if not isinstance(record, dict) or record.get("sealed") is not True:
+        raise ValueError("The supervisor did not certify the diagnostic output.")
+    code, status = record.get("exit"), record.get("status")
+    valid_exit = type(code) is int and (
+        (status == "finished" and code == 0) or (status == "failed" and 1 <= code <= 255)
+        or (status == "timed-out" and code == 124) or (status == "interrupted" and code in (130, 143))
+    )
+    expected_cleanup = True if status in ("interrupted", "timed-out") else None
+    identity = record.get("output")
+    if (not valid_exit or record.get("dockerCleanup", False) is not expected_cleanup
+            or not isinstance(identity, list) or len(identity) != 2 or not all(type(x) is int for x in identity)):
+        raise ValueError("Invalid host receipt.")
+    return record
+
+
 @contextmanager
 def certified_output(output, successful):
     """Exclude another launcher for the whole time the collector is reading this supervisor's certified output."""
     fd = os.open(status_path(output), os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
-    with os.fdopen(fd, "rb") as src:
+    with os.fdopen(fd, "rb"):
         fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 4096:
-            raise ValueError("Invalid host receipt.")
-        record = json.loads(src.read(4097))
-        if not isinstance(record, dict) or record.get("sealed") is not True:
-            raise ValueError("The supervisor did not certify the diagnostic output.")
-        code = record.get("exit")
-        status = record.get("status")
-        valid = type(code) is int and (
-            (status == "finished" and code == 0) or (status == "failed" and 1 <= code <= 255)
-            or (status == "timed-out" and code == 124) or (status == "interrupted" and code in (130, 143))
-        )
-        expected_cleanup = True if status in ("interrupted", "timed-out") else None
-        if not valid or record.get("dockerCleanup", False) is not expected_cleanup or (code == 0) != successful:
+        record = _finished_record(fd)
+        if (record["exit"] == 0) != successful:
             raise ValueError("The host receipt disagrees with the observation outcome.")
         info = output.lstat()
-        if not stat.S_ISDIR(info.st_mode) or record.get("output") != [info.st_dev, info.st_ino]:
+        if not stat.S_ISDIR(info.st_mode) or record["output"] != [info.st_dev, info.st_ino]:
             raise ValueError("The supervisor sealed another output directory.")
         yield record
 
@@ -148,12 +156,8 @@ def supervise(command, output, *, work, grace=SHUTDOWN_SECONDS, environ=None, cl
         record_fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
             fcntl.flock(record_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            old_info = os.fstat(record_fd)
-            if (not stat.S_ISREG(old_info.st_mode) or old_info.st_nlink != 1 or old_info.st_size > 4096
-                    or json.loads(os.read(record_fd, 4097)).get("sealed") is not True):
-                raise ValueError("Use a new output directory while the earlier replay is uncertified.")
+            _finished_record(record_fd)
             os.ftruncate(record_fd, 0)
-            os.lseek(record_fd, 0, os.SEEK_SET)
         except BaseException:
             os.close(record_fd)
             raise
@@ -192,7 +196,7 @@ def supervise(command, output, *, work, grace=SHUTDOWN_SECONDS, environ=None, cl
         group_gone = _group_stopped(child.pid)
         if stop:
             cleaned = cleanup(project, env)
-        if group_gone and cleaned is not False:
+        if group_gone and (stop is None or cleaned is True):
             sealed = seal(project, output, env)
         return code if sealed else (code or 1)
     finally:

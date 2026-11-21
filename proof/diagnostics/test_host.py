@@ -30,7 +30,7 @@ esac
     return output
 
 
-@pytest.mark.parametrize("cleaned", [True, False])
+@pytest.mark.parametrize("cleaned", [True, False, None])
 def test_hard_timeout_after_native_work_needs_verified_cleanup(daemon, cleaned):
     marker = daemon / "entered"
     command = [
@@ -41,7 +41,7 @@ def test_hard_timeout_after_native_work_needs_verified_cleanup(daemon, cleaned):
     assert host.supervise(command, daemon, work=0.8, grace=0.1, cleanup=lambda p, e: cleaned) == 124
     assert marker.is_file()
     record = json.loads(host.status_path(daemon).read_bytes())
-    assert record["status"] == "timed-out" and record["dockerCleanup"] is cleaned and record["sealed"] is cleaned
+    assert record["status"] == "timed-out" and record["dockerCleanup"] is cleaned and record["sealed"] is (cleaned is True)
     assert record["elapsedSeconds"] < 10
     if cleaned:
         with host.certified_output(daemon, successful=False) as received:
@@ -50,6 +50,17 @@ def test_hard_timeout_after_native_work_needs_verified_cleanup(daemon, cleaned):
         with pytest.raises(ValueError, match="did not certify"):
             with host.certified_output(daemon, successful=False):
                 pytest.fail("uncertified output was opened")
+
+
+def test_reuse_requires_a_complete_prior_host_receipt(daemon):
+    marker = daemon / "should-not-start"
+    path = host.status_path(daemon)
+    path.write_text(json.dumps({"sealed": True}))
+    with pytest.raises(ValueError, match="Invalid host receipt"):
+        host.supervise([sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()"],
+                       daemon, work=5)
+    assert not marker.exists()
+    assert json.loads(path.read_text()) == {"sealed": True}
 
 
 @pytest.mark.parametrize("state", ["unavailable", "surviving"])
