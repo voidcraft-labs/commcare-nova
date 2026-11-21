@@ -28,6 +28,7 @@ import {
 	ToolbarPopoverContent,
 } from "@/components/tiptap-ui-primitive/popover";
 import { Separator } from "@/components/tiptap-ui-primitive/separator";
+import { isOpenableAddress } from "@/lib/links/openableAddress";
 // --- Hooks ---
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useTiptapEditor } from "@/lib/ui/hooks/useTiptapEditor";
@@ -152,7 +153,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
 							type="button"
 							onClick={setLink}
 							tooltip="Apply link"
-							disabled={!url && !isActive}
+							disabled={!isOpenableAddress(url)}
 							variant="ghost"
 						>
 							<CornerDownLeftIcon className="tiptap-button-icon" />
@@ -167,7 +168,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
 								type="button"
 								onClick={openLink}
 								tooltip="Open in new window"
-								disabled={!url && !isActive}
+								disabled={!isOpenableAddress(url)}
 								variant="ghost"
 							>
 								<ExternalLinkIcon className="tiptap-button-icon" />

@@ -59,7 +59,6 @@ import {
 	locationOwnerFixture,
 } from "../locations/__tests__/locationOwnerFixture";
 import { formsReadingLocationsFixture } from "../locations/readsLocationsFixture";
-import planPrivilegePlans from "../planPrivilegePlans.json";
 import {
 	CURRENT_PLANS,
 	commtrackReasons,
@@ -72,6 +71,7 @@ import {
 	requiredPlanFeatures,
 	requiredPlanPrivileges,
 } from "../planPrivileges";
+import planPrivilegePlans from "../surface/planPrivilegePlans.json";
 import { runValidation } from "../validator/runner";
 import { SUPPLY_POINT_SESSION_TEXT } from "../xform/supplyPointText";
 import { advancedFixture } from "./advancedPlacementFixture";

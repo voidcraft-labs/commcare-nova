@@ -1034,7 +1034,9 @@ function InlineProseFixture() {
 	);
 }
 function MarkdownFixture() {
-	const [value, setValue] = useState<string | undefined>("Hello");
+	const [value, setValue] = useState<string | undefined>(
+		() => new URLSearchParams(location.search).get("subtitle") ?? "Hello",
+	);
 	const [generation, setGeneration] = useState(0);
 	return (
 		<section aria-label="Markdown inspector" style={{ width: 300 }}>

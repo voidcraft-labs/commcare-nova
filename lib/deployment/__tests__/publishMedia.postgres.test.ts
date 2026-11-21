@@ -53,6 +53,7 @@ import { downloadAssetBytes } from "@/lib/storage/media";
 import {
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
 	MEDIA_NOT_SENT_AFTER_ACCESS_WARNING,
+	MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
 } from "../remoteChanges";
 import { type PublishOutcome, publishAppToHq } from "../service";
 import { readDeployment, recordDeploymentMediaFiles } from "../store";
@@ -180,6 +181,7 @@ function publish(
 	discardRemoteChanges?: readonly RemoteChangeDiscard[],
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: SCOPE,
 		...TARGET,
 		doc,
@@ -595,11 +597,11 @@ describe("the record after an upload", () => {
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			request(peer, MEDIA, "POST").reply(500, "");
+			request(peer, MEDIA, "POST").reply(504, "");
 			expect((await publish(doc)).landed).toBe(true);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
-			/* HQ refused the bundle before taking it: nothing of it is open. */
-			expect(await openMediaWrites()).toEqual([]);
+			/* HQ may have accepted the bundle, but its gateway gave us no job id. */
+			expect(await openMediaWrites()).toEqual([{ hq_job_id: null }]);
 
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
 			accepted(peer, 200);
@@ -792,6 +794,38 @@ describe("the record after an upload", () => {
 		},
 	);
 
+	it("leaves the later publish's media in place when its import has already replaced this one", async () => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			await publishFirst(peer, doc);
+			const sent = sentCount(peer);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			request(peer, IMPORT, "POST").reply(async () => {
+				const earlier = saves.save(HQ_APP);
+				const later = saves.save(HQ_APP);
+				await h
+					.db()
+					.updateTable("app_deployment_resources")
+					.set({ pushed_remote_revision: later, pushed_at: new Date() })
+					.where("kind", "=", "app")
+					.where("superseded_at", "is", null)
+					.execute();
+				return {
+					statusCode: 200,
+					data: { success: true, app_id: HQ_APP, version: earlier },
+				};
+			});
+			serve(peer, "source-live");
+			const outcome = await publish(doc);
+			expect(outcome.landed).toBe(true);
+			expect(outcome.warnings).toContain(
+				MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
+			);
+			expect(requests(peer, sent)).not.toContain(`POST ${MEDIA}`);
+			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+		});
+	});
+
 	it("writes only over the baseline its publish wrote, and leaves a later one as it was", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
 		await withPeer(async (peer) => {
@@ -803,8 +837,20 @@ describe("the record after an upload", () => {
 			.select("source_digest")
 			.executeTakeFirstOrThrow();
 		const digest = row.source_digest ?? fail();
+		const pushToken = async () =>
+			(
+				await h
+					.db()
+					.selectFrom("app_deployment_resources")
+					.select("push_token")
+					.where("kind", "=", "app")
+					.where("superseded_at", "is", null)
+					.executeTakeFirstOrThrow()
+			).push_token;
+		const firstPush = await pushToken();
 		const write = (input: {
 			remoteAppId?: string;
+			pushToken?: string;
 			sourceDigest: string | null;
 			files: Readonly<Record<string, string>>;
 		}) =>
@@ -812,6 +858,7 @@ describe("the record after an upload", () => {
 				expectedEndings: 0,
 				remoteAppId: input.remoteAppId ?? HQ_APP,
 				sourceDigest: input.sourceDigest,
+				pushToken: input.pushToken ?? firstPush,
 				files: input.files,
 			});
 
@@ -831,10 +878,31 @@ describe("the record after an upload", () => {
 		await write({ sourceDigest: digest, files: { [WIRE]: "doc-written" } });
 		expect(await record()).toEqual({ [WIRE]: "doc-written" });
 
+		// A new acknowledgement of the same remote app and same bytes rotates
+		// the mapping token. A late response from the first upload must not
+		// overwrite the newer one's returned media id.
+		await h
+			.db()
+			.updateTable("app_deployment_resources")
+			.set({ pushed_at: new Date() })
+			.where("kind", "=", "app")
+			.where("superseded_at", "is", null)
+			.execute();
+		const laterPush = await pushToken();
+		expect(laterPush).not.toBe(firstPush);
+		await write({ sourceDigest: digest, files: { [WIRE]: "old-response" } });
+		expect(await record()).toEqual({ [WIRE]: "doc-written" });
+		await write({
+			sourceDigest: digest,
+			pushToken: laterPush,
+			files: { [WIRE]: "new-response" },
+		});
+		expect(await record()).toEqual({ [WIRE]: "new-response" });
+
 		/* A publish whose read-back failed wrote an unread baseline, which has
 		 * no digest, and records what its upload reported against that. */
 		await withPeer(async (peer) => {
-			serveWithMap(peer, "source-live", { [WIRE]: "doc-written" });
+			serveWithMap(peer, "source-live", { [WIRE]: "new-response" });
 			accepted(peer, 200);
 			request(peer, SOURCE).reply(500, "");
 			mediaTaken(peer, "doc-unread");

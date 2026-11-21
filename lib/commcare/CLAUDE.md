@@ -452,7 +452,7 @@ remains an unavailable HQ answer rather than an internal exception.
 ### One way to a body, with a bound
 
 `hq/http.ts::sendHq` is the one `fetch` for CommCare HQ: it sets the
-credentials' header, follows no redirect, and answers an `HqAnswer` whose body
+credentials' header after checking it with Node's value validator, whose error names only the header. It follows no redirect and answers an `HqAnswer` whose body
 is reachable only through `read(maxBytes)`, with `maxBytes` required, a whole
 number from one to `bounds.ts::HQ_BODY_BOUND_CEILING` (anything else throws),
 counted on the stream (`hq/readBody.ts`), so no driver holds a `Response` and
@@ -484,7 +484,7 @@ the stream and answers `unavailable` with `MemoryMeterFullError`, and once a
 lease is refused `sendHq` sends nothing more for it. What the reader drops it
 gives back (a too-long or broken body whole), and so do the callers where they
 let a body go (a refused body once decoded, an answer that is no JSON, a media
-file hashed or judged and not kept). The meter and the lease live on
+file hashed or judged and not kept, and the pages of a discarded collection pass). The meter and the lease live on
 `globalThis`, so one process meets one bound whatever copies of the module its
 bundles make. A request with no lease (a publish, a status check) is not
 metered. The bounds are `processMemoryBounds`, which states its arithmetic:
@@ -676,7 +676,7 @@ worker's restore carries every table. Each rule asks the
 emitter's own decision over the form link context `expandDoc` builds, so the
 answer and the wire cannot disagree. HQ's slugs stay inside `lib/commcare`; `lib/publish/planFeatures.ts`
 holds what a person reads. No API key reads a plan, so these are confirmed by
-the person, never probed, and a lane test holds `planPrivilegePlans.json` to
+the person, never probed, and a lane test holds `surface/planPrivilegePlans.json` to
 HQ's own plan lists.
 The large-search performance check is advisory: it controls only whether Nova
 can add its derived Search optimization and never blocks publishing or removes
@@ -738,9 +738,10 @@ three keys need the target's current value: `profile`, `translations` and
 (`hq/appSource.ts::readHqAppSource`); a read that must say which save it
 shows goes through `hq/appSourceAtVersion.ts::readHqAppSourceAtVersion`, the
 source and then HQ's save counter, whose branded `source-at` answer is the
-only one a deployment stores as what a write left. An import acknowledges the
-counter after its one save (`app_import_api.py::_handle_import_app`'s
-`version`, on an update), and `uploadAppMediaBundle` names the job HQ accepted
+only one a deployment stores as what a write left. An update import acknowledges
+its final counter (`app_import_api.py::_handle_import_app`'s `version`).
+Removing a media mapping the new app no longer uses can add a second save
+(`hqmedia/models.py::remove_unused_mappings`). `uploadAppMediaBundle` names the job HQ accepted
 (`onAccepted`) before it watches it, so a caller can read it later by that id
 (`readAppMediaBundleStatus`). And
 `targetOverlay.ts::projectApplicationForTarget` projects all three against the

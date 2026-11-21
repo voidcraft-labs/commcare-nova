@@ -411,6 +411,8 @@ export interface LocationPushPlan {
 }
 
 export interface PreflightInput {
+	/** Bearer permission to copy HQ data into Nova. A browser session has no bearer restriction. */
+	readonly requireHqImport: (() => void) | null;
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
 	/**
@@ -859,6 +861,7 @@ export async function runDeploymentPreflight(
 				boundary.prepared.managedLookupTables.map((table) => table.tableId),
 			),
 		);
+	if (placesManagedHere) input.requireHqImport?.();
 	const settled = settleConfirmations({
 		needed,
 		live: input.confirmations,
@@ -1919,6 +1922,7 @@ async function managedDataEdge(
 	if (managed.length === 0) return null;
 	const title = "Data managed in CommCare HQ";
 	const reRead = await reReadManagedTablesForPublish({
+		requireHqImport: input.requireHqImport,
 		access: input.access,
 		doc: input.doc,
 		target: { server: input.server, domain: input.domain },

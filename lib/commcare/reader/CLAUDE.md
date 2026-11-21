@@ -39,7 +39,8 @@ function of the source's size alone (`work.ts::readWorkLimit`: `READ_WORK_BASE` 
 which `__tests__/readWorkLimit.test.ts` holds every retained base and published document under a
 quarter of). A charge past the limit stops the reading, and `readHqAppSteps` alone turns that
 stop into its outcome: an account of one finding at the app, `too-intricate`, the same on every
-run. A request's signal (`ReaderOptions.signal`, or the request's own meter, which a reading's
+run. This includes the final walk of unclaimed keys and XML nodes. A stopped reading reports its
+work and claims where it stopped. It does no further accounting. A request's signal (`ReaderOptions.signal`, or the request's own meter, which a reading's
 meter charges as its parent) stops a reading at its next charge, and the stop is thrown to the
 caller. A stop is sticky, so a meter that stopped throws at every later charge, and every
 `catch` in the reader rethrows it first (`rethrowWorkStop(error)`, which a Biome plugin,
@@ -52,7 +53,8 @@ independent choices (the search settle chooses each Search field's rule on its o
 property, `search/settings.ts::settleSearchSettings`), and a lookup inside a loop over a
 collection is an index built once (a language's shown text, `hqText.ts::shownText`; the menus by
 id and the parent selections a build walks, `menus/modules.ts`, `hq/entryFacts.ts`; a
-reading's findings, `Accounting.findings`, `findingCount`, `findingRaised`).
+reading's findings, `Accounting.findings`, `findingCount`, `findingRaised`; the first child of a
+name for bind and control paths, and repeated sibling names, `xform/model.ts::readDataTree`).
 
 What the source hands the reader is held to three rules at the reader's own doors, never at a
 call site. A collection of HQ's objects is read whole or not at all: `JsonCursor.list`, `map` and

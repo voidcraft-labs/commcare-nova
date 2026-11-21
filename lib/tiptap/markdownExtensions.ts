@@ -28,6 +28,7 @@
 
 import type { Extensions } from "@tiptap/core";
 import { Image } from "@tiptap/extension-image";
+import { Link } from "@tiptap/extension-link";
 import Mention from "@tiptap/extension-mention";
 import { TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
@@ -37,14 +38,70 @@ import {
 	type ProsePart,
 	type ProseTemplate,
 } from "@/lib/domain";
+import { isInlinePicture } from "@/lib/links/inlinePicture";
+import { isOpenableAddress } from "@/lib/links/openableAddress";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import {
 	CommcareRef,
 	decodeProseReferencePart,
+	PROSE_CARRIER_COMMENT,
 	serializedProseReferencePart,
 } from "./commcareRefNode";
+import { LabelHtml } from "./labelHtml";
 import { MarkdownTable } from "./markdownTable";
 import { createRefSuggestion } from "./refSuggestion";
+
+/** A worker's link still has its address after its label is edited, even
+ * where the builder cannot open it. Copied content keeps that address too. */
+const LabelLink = Link.extend({
+	parseHTML() {
+		return [
+			...(this.parent?.() ?? []),
+			{
+				tag: "span[data-nova-link-href]",
+				getAttrs: (element) => ({
+					href: element.getAttribute("data-nova-link-href"),
+				}),
+			},
+		];
+	},
+	renderHTML({ HTMLAttributes }) {
+		const { href, title } = HTMLAttributes;
+		if (typeof href === "string" && isOpenableAddress(href))
+			return [
+				"a",
+				{ href, title, target: "_blank", rel: "noopener noreferrer" },
+				0,
+			];
+		return ["span", { "data-nova-link-href": href, title }, 0];
+	},
+});
+
+/** Keep the picture's address in the document and in copied editor content.
+ * Only an embedded image has a live src on the builder page. */
+const LabelImage = Image.extend({
+	parseHTML() {
+		return [
+			...(this.parent?.() ?? []),
+			{
+				tag: "span[data-nova-image-src]",
+				getAttrs: (element) => ({
+					src: element.getAttribute("data-nova-image-src"),
+				}),
+			},
+		];
+	},
+	renderHTML({ HTMLAttributes }) {
+		const { src, ...attributes } = HTMLAttributes;
+		if (typeof src === "string" && isInlinePicture(src))
+			return ["img", HTMLAttributes];
+		return [
+			"span",
+			{ ...attributes, "data-nova-image-src": src },
+			attributes.alt ?? "",
+		];
+	},
+});
 
 /**
  * The chip-free WYSIWYG extension set — the CommCare Web Apps markdown
@@ -55,12 +112,7 @@ export function createMarkdownEditorExtensions(): Extensions {
 		StarterKit.configure({
 			/* Headings limited to 1-3 — deeper levels aren't useful in form labels. */
 			heading: { levels: [1, 2, 3] },
-			/* Links open in new tab (CommCare default) and don't activate on click
-			 * inside the editor — users need to click to position their cursor. */
-			link: {
-				openOnClick: false,
-				HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
-			},
+			link: false,
 			/* Blockquote and strikethrough are disabled because CommCare Web Apps
 			 * has no visible styling for either — blockquotes render identically to
 			 * paragraphs (Bootstrap reboot margin only), and markdown-it's
@@ -69,8 +121,10 @@ export function createMarkdownEditorExtensions(): Extensions {
 			blockquote: false,
 			strike: false,
 		}),
+		LabelLink.configure({ openOnClick: false, autolink: false }),
 		/* Inline images — `![alt](url)` in markdown. */
-		Image.configure({ inline: true }),
+		LabelImage.configure({ inline: true, allowBase64: true }),
+		LabelHtml,
 		/* GFM pipe tables — `| col | col |` syntax. Requires all four table
 		 * node types (table, row, header cell, body cell) for ProseMirror. */
 		MarkdownTable.configure({ resizable: false }),
@@ -142,8 +196,10 @@ export function proseTemplateToMarkdown(template: ProseTemplate): string {
 		.join("");
 }
 
-const PROSE_REFERENCE_CARRIER_RE =
-	/<span data-nova-prose-ref="([^"]+)"><\/span>/g;
+const PROSE_REFERENCE_CARRIER_RE = new RegExp(
+	`<span data-nova-prose-ref="([^"]+)">${PROSE_CARRIER_COMMENT}</span>`,
+	"g",
+);
 
 /**
  * Recover typed atoms emitted by CommcareRef's serializer. Ordinary Markdown,

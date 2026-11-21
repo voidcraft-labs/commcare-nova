@@ -9,6 +9,7 @@ import {
 	HQ_MALFORMED_ANSWER,
 	isHqCount,
 } from "./http";
+import { giveBackHeld } from "./memoryMeter";
 import { readHqJson } from "./readJson";
 
 export function isHqObject(value: unknown): value is Record<string, unknown> {
@@ -144,23 +145,43 @@ export async function readHqCollection<T>(
 	creds: CommCareCredentials,
 	spec: HqCollectionSpec<T>,
 ): Promise<HqCollection<T> | HqPastLimit | CommCareApiError> {
-	const first = await readPass(creds, spec, true);
-	if ("success" in first || first.kind === "past-limit") return first;
-	if (first.pages === 1)
-		return collected(first.rows, first.totalCount, first.bytes);
-	const second = await readPass(creds, spec, false);
-	if ("success" in second || second.kind === "past-limit") return second;
-	if (second.digest === first.digest)
-		return collected(first.rows, first.totalCount, first.bytes);
+	const first = await confirmFirstPass(creds, spec);
+	if (!("retryDigest" in first)) return first;
 	const third = await readPass(creds, spec, true);
 	if ("success" in third || third.kind === "past-limit") return third;
-	if (third.digest === second.digest)
+	if (third.digest === first.retryDigest)
 		return collected(third.rows, third.totalCount, third.bytes);
+	giveBackHeld("text", third.bytes);
 	log.warn(`[commcare] ${spec.label} moved while it was read`, {
 		passes: 3,
 		pages: third.pages,
 	});
 	return HQ_LIST_MOVED;
+}
+
+/** Release the first pass's rows before a third pass begins. Only the
+ * comparison digest survives a disagreement. */
+async function confirmFirstPass<T>(
+	creds: CommCareCredentials,
+	spec: HqCollectionSpec<T>,
+): Promise<
+	HqCollection<T> | HqPastLimit | CommCareApiError | { retryDigest: string }
+> {
+	const first = await readPass(creds, spec, true);
+	if ("success" in first || first.kind === "past-limit") return first;
+	if (first.pages === 1)
+		return collected(first.rows, first.totalCount, first.bytes);
+	let agreed = false;
+	try {
+		const second = await readPass(creds, spec, false);
+		if ("success" in second || second.kind === "past-limit") return second;
+		agreed = second.digest === first.digest;
+		return agreed
+			? collected(first.rows, first.totalCount, first.bytes)
+			: { retryDigest: second.digest };
+	} finally {
+		if (!agreed) giveBackHeld("text", first.bytes);
+	}
 }
 
 function collected<T>(
@@ -214,108 +235,114 @@ async function readPages<T>(
 	let total: number | null = null;
 	let offset = 0;
 	let bytes = 0;
-	for (let page = 0; page < spec.maxPages; page++) {
-		if (cancel?.aborted)
-			return { success: false, status: 503, cause: "network" };
-		const remaining = spec.maxBytes - bytes;
-		if (remaining < 1)
-			return { kind: "past-limit", by: "bytes", totalCount: total };
-		const result = await readHqJson(
-			creds,
-			pageUrl(spec.firstUrl, offset),
-			label,
-			within === undefined
-				? { maxBytes: remaining, pastBound: "quiet", cancel, keepRefusedBody }
-				: {
-						...within,
-						maxBytes: remaining,
-						pastBound: "quiet",
-						keepRefusedBody,
-					},
-		);
-		if ("success" in result) {
-			if (result.cause === "too-large") {
-				log.warn(`[commcare] ${label} is longer than Nova reads`, {
-					maxBytes: spec.maxBytes,
-					pages: page + 1,
-				});
+	let retainedBytes = 0;
+	try {
+		for (let page = 0; page < spec.maxPages; page++) {
+			if (cancel?.aborted)
+				return { success: false, status: 503, cause: "network" };
+			const remaining = spec.maxBytes - bytes;
+			if (remaining < 1)
 				return { kind: "past-limit", by: "bytes", totalCount: total };
+			const result = await readHqJson(
+				creds,
+				pageUrl(spec.firstUrl, offset),
+				label,
+				within === undefined
+					? { maxBytes: remaining, pastBound: "quiet", cancel, keepRefusedBody }
+					: {
+							...within,
+							maxBytes: remaining,
+							pastBound: "quiet",
+							keepRefusedBody,
+						},
+			);
+			if ("success" in result) {
+				if (result.cause === "too-large") {
+					log.warn(`[commcare] ${label} is longer than Nova reads`, {
+						maxBytes: spec.maxBytes,
+						pages: page + 1,
+					});
+					return { kind: "past-limit", by: "bytes", totalCount: total };
+				}
+				return result;
 			}
-			return result;
-		}
-		bytes += result.bytes;
-		const body = result.data;
-		if (
-			!isHqObject(body) ||
-			!Array.isArray(body.objects) ||
-			!isHqObject(body.meta)
-		)
-			return malformed(label, "envelope");
-		const { meta, objects } = body;
-		const next = meta.next;
-		if (next !== null && next !== undefined && typeof next !== "string")
-			return malformed(label, "next");
-		if (next === "") return malformed(label, "next");
-		const more = typeof next === "string";
-		/* A count named null says the paginator does not know it, which no
-		 * complete list can be read from. */
-		if (meta.total_count !== undefined && !isHqCount(meta.total_count))
-			return malformed(label, "total");
-		const named = isHqCount(meta.total_count) ? meta.total_count : null;
-		if (page === 0) {
-			/* A total binds pages together: a list of one page may name none, a
-			 * list of several must. */
-			if (named === null && more) return malformed(label, "total");
-			total = named;
-			if (total !== null && total > spec.maxRows)
-				return { kind: "past-limit", by: "rows", totalCount: total };
-		} else if (named !== total) {
-			return moved(label, "total", page + 1);
-		}
-		if (meta.offset !== undefined && meta.offset !== offset)
-			return malformed(label, "offset");
-		if (more && (meta.offset === undefined || objects.length === 0))
-			return malformed(label, "page");
-		for (const raw of objects) {
-			const row = spec.row(raw);
-			if (row === null) return malformed(label, "row");
-			const identity = spec.identity(row);
-			if (identities.has(identity))
-				return page === 0
-					? malformed(label, "identity")
-					: moved(label, "identity", page + 1);
-			identities.add(identity);
-			digest.update(JSON.stringify(raw));
-			digest.update("\n");
-			if (keep) rows.push(row);
-		}
-		offset += objects.length;
-		if (total !== null && offset > total)
-			return page === 0
-				? malformed(label, "count")
-				: moved(label, "count", page + 1);
-		if (!more) {
-			if (total === null) {
-				/* One page that named no total: its rows are the list. */
-				if (offset > spec.maxRows)
-					return { kind: "past-limit", by: "rows", totalCount: offset };
-				total = offset;
-			} else if (offset !== total)
+			bytes += result.bytes;
+			const body = result.data;
+			if (
+				!isHqObject(body) ||
+				!Array.isArray(body.objects) ||
+				!isHqObject(body.meta)
+			)
+				return malformed(label, "envelope");
+			const { meta, objects } = body;
+			const next = meta.next;
+			if (next !== null && next !== undefined && typeof next !== "string")
+				return malformed(label, "next");
+			if (next === "") return malformed(label, "next");
+			const more = typeof next === "string";
+			/* A count named null says the paginator does not know it, which no
+			 * complete list can be read from. */
+			if (meta.total_count !== undefined && !isHqCount(meta.total_count))
+				return malformed(label, "total");
+			const named = isHqCount(meta.total_count) ? meta.total_count : null;
+			if (page === 0) {
+				/* A total binds pages together: a list of one page may name none, a
+				 * list of several must. */
+				if (named === null && more) return malformed(label, "total");
+				total = named;
+				if (total !== null && total > spec.maxRows)
+					return { kind: "past-limit", by: "rows", totalCount: total };
+			} else if (named !== total) {
+				return moved(label, "total", page + 1);
+			}
+			if (meta.offset !== undefined && meta.offset !== offset)
+				return malformed(label, "offset");
+			if (more && (meta.offset === undefined || objects.length === 0))
+				return malformed(label, "page");
+			for (const raw of objects) {
+				const row = spec.row(raw);
+				if (row === null) return malformed(label, "row");
+				const identity = spec.identity(row);
+				if (identities.has(identity))
+					return page === 0
+						? malformed(label, "identity")
+						: moved(label, "identity", page + 1);
+				identities.add(identity);
+				digest.update(JSON.stringify(raw));
+				digest.update("\n");
+				if (keep) rows.push(row);
+			}
+			offset += objects.length;
+			if (total !== null && offset > total)
 				return page === 0
 					? malformed(label, "count")
 					: moved(label, "count", page + 1);
-			return {
-				kind: "pass",
-				rows: keep ? rows : null,
-				totalCount: total,
-				bytes,
-				pages: page + 1,
-				digest: digest.digest("hex"),
-			};
+			if (!more) {
+				if (total === null) {
+					/* One page that named no total: its rows are the list. */
+					if (offset > spec.maxRows)
+						return { kind: "past-limit", by: "rows", totalCount: offset };
+					total = offset;
+				} else if (offset !== total)
+					return page === 0
+						? malformed(label, "count")
+						: moved(label, "count", page + 1);
+				if (keep) retainedBytes = bytes;
+				return {
+					kind: "pass",
+					rows: keep ? rows : null,
+					totalCount: total,
+					bytes,
+					pages: page + 1,
+					digest: digest.digest("hex"),
+				};
+			}
 		}
+		log.error(`[commcare] ${label} did not terminate`, undefined, {
+			pages: spec.maxPages,
+		});
+		return { success: false, status: 508, cause: "malformed" };
+	} finally {
+		giveBackHeld("text", bytes - retainedBytes);
 	}
-	log.error(`[commcare] ${label} did not terminate`, undefined, {
-		pages: spec.maxPages,
-	});
-	return { success: false, status: 508, cause: "malformed" };
 }

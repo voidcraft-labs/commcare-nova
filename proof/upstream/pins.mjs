@@ -162,7 +162,12 @@ export async function plan(cwd) {
 	await git(cwd, "add", PINS);
 	await git(cwd, "commit", "--quiet", "-m", TITLE);
 	await git(cwd, "push", "--quiet", "--force", "origin", BRANCH);
-	return { action: "update", pins: candidate };
+	return {
+		action: "update",
+		commit: (await git(cwd, "rev-parse", "HEAD")).trim(),
+		base: (await git(cwd, "rev-parse", "HEAD^")).trim(),
+		pins: candidate,
+	};
 }
 
 /** Every entry, by the surface keys it names. */
@@ -208,10 +213,10 @@ export async function classify(cwd, before, after) {
 	const removed = [];
 	const changed = [];
 	for (const key of Object.keys(after.items).sort()) {
-		if (!(key in before.items)) added.push({ key });
+		if (!Object.hasOwn(before.items, key)) added.push({ key });
 	}
 	for (const key of Object.keys(before.items).sort()) {
-		if (!(key in after.items)) {
+		if (!Object.hasOwn(after.items, key)) {
 			removed.push({ key, entries: naming(key) });
 			continue;
 		}
@@ -225,6 +230,15 @@ export async function classify(cwd, before, after) {
 		}
 	}
 	return { added, removed, changed };
+}
+
+/** A name from the extracted surface as one inline code span in the pull request. */
+function surfaceName(name) {
+	const literal = name.replace(
+		/[`\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu,
+		(character) => `\\u{${character.codePointAt(0).toString(16)}}`,
+	);
+	return `\`${literal}\``;
 }
 
 function describeEntries(entries) {
@@ -306,7 +320,7 @@ function describe({
 			"",
 			"Each is refused wherever an app uses it until an entry names it. The proof lane's manifest check fails when HQ reads a new toggle while building one of Nova's exports.",
 			"",
-			...added.map(({ key }) => `- \`${key}\``),
+			...added.map(({ key }) => `- ${surfaceName(key)}`),
 			"",
 		);
 	}
@@ -315,7 +329,8 @@ function describe({
 			"### Removed",
 			"",
 			...removed.map(
-				({ key, entries }) => `- \`${key}\`: ${describeEntries(entries)}`,
+				({ key, entries }) =>
+					`- ${surfaceName(key)}: ${describeEntries(entries)}`,
 			),
 			"",
 		);
@@ -324,10 +339,12 @@ function describe({
 		lines.push(
 			"### Changed",
 			"",
-			...changed.map(
-				({ key, attributes, entries }) =>
-					`- \`${key}\` (${attributes.join(", ")}): ${describeEntries(entries)}`,
-			),
+			...changed.map(({ key, attributes, entries }) => {
+				const fields = attributes.map((name) =>
+					/^[a-z][a-z0-9_-]*$/i.test(name) ? name : surfaceName(name),
+				);
+				return `- ${surfaceName(key)} (${fields.join(", ")}): ${describeEntries(entries)}`;
+			}),
 			"",
 		);
 	}
@@ -411,28 +428,50 @@ async function adoptRetained(cwd, directory) {
 
 export async function report(cwd, options) {
 	const date = options.date ?? new Date().toISOString().slice(0, 10);
-	const before = JSON.parse(await git(cwd, "show", `origin/main:${PINS}`));
-	await git(cwd, "fetch", "--quiet", "origin", BRANCH);
-	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "FETCH_HEAD");
+	// The workflow checks this directory out at the plan's exact commit, beside
+	// the separate main checkout that supplies this script and the retained layout.
+	const planned = (await git(cwd, "rev-parse", "HEAD")).trim();
+	const branch = `refs/heads/${BRANCH}`;
+	const remote = (await git(cwd, "ls-remote", "origin", branch))
+		.trim()
+		.split(/\s+/)[0];
+	if (remote !== planned) {
+		throw new Error(
+			`The pin branch moved after this run planned ${planned}. Start a new run to check its current head.`,
+		);
+	}
+	const before = JSON.parse(await git(cwd, "show", `HEAD^:${PINS}`));
 	const after = JSON.parse(await readFile(join(cwd, PINS), "utf8"));
 	const refusals = {};
 	let afterSurface;
+	let classified = null;
+	let retained = null;
 	if (
 		options.imageResult === "success" &&
 		options.surfaceResult === "success"
 	) {
+		const beforeSurface = JSON.parse(
+			await git(cwd, "show", `HEAD^:${SURFACE}`),
+		);
+		// The extractor reads the upstreams named in the committed surface. Its
+		// candidate must carry those same sources at the plan's new revisions.
+		const expected = Object.fromEntries(
+			Object.keys(beforeSurface.pins).map((name) => [name, after[name].commit]),
+		);
 		try {
-			afterSurface = await readSurface(options.surface);
+			const surface = await readSurface(options.surface);
+			if (stable(expected) !== stable(surface.value.pins)) {
+				throw new Error(
+					"The surface was extracted at different upstream commits from the planned pins.",
+				);
+			}
+			classified = await classify(cwd, beforeSurface, surface.value);
+			afterSurface = surface;
 		} catch (error) {
 			refusals.surface = error.message;
 		}
 	}
-	let classified = null;
-	let retained = null;
 	if (afterSurface) {
-		const beforeSurface = JSON.parse(
-			await git(cwd, "show", `origin/main:${SURFACE}`),
-		);
 		await writeFile(
 			join(cwd, LOCK),
 			formatted({
@@ -458,8 +497,14 @@ export async function report(cwd, options) {
 		}
 		await git(cwd, "add", "--all", "--", ...staged);
 		await git(cwd, "commit", "--quiet", "--amend", "--no-edit");
-		await git(cwd, "push", "--quiet", "--force", "origin", BRANCH);
-		classified = await classify(cwd, beforeSurface, afterSurface.value);
+		await git(
+			cwd,
+			"push",
+			"--quiet",
+			`--force-with-lease=${branch}:${planned}`,
+			"origin",
+			`HEAD:${branch}`,
+		);
 	}
 	const body = describe({
 		date,

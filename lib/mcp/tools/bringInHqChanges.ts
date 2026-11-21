@@ -52,7 +52,13 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { arrayItemChars, cutPage, fitPiece, toolText } from "../paging";
+import {
+	arrayItemChars,
+	cutPage,
+	fitPiece,
+	PAGE_LIMIT_CHARS,
+	toolText,
+} from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
@@ -117,12 +123,16 @@ export type HqChangesOutcomeProjection =
 			readonly message: string;
 			/** Null where Nova could not read the record after the bring-in landed. */
 			readonly deployment: LandedDeploymentProjection | null;
+			/** Where to see the deployment when its details exceed one reply. */
+			readonly next?: string;
 	  }
 	| {
 			readonly kind: "recorded";
 			readonly message: string;
 			/** Null where Nova could not read the record after the record landed. */
 			readonly deployment: LandedDeploymentProjection | null;
+			/** Where to see the deployment when its details exceed one reply. */
+			readonly next?: string;
 	  }
 	| {
 			readonly kind: "changed";
@@ -213,19 +223,27 @@ export async function describeHqChangesOutcome(
 ): Promise<HqChangesOutcomeProjection> {
 	switch (outcome.kind) {
 		case "brought-in":
-			return {
-				kind: "brought-in",
-				seq: outcome.seq,
-				discarded: outcome.discarded,
-				message: broughtInLine(outcome.discarded),
+		case "recorded": {
+			const receipt =
+				outcome.kind === "recorded"
+					? { kind: outcome.kind, message: RECORDED_LINE }
+					: {
+							kind: outcome.kind,
+							seq: outcome.seq,
+							discarded: outcome.discarded,
+							message: broughtInLine(outcome.discarded),
+						};
+			const answer = {
+				...receipt,
 				deployment: await landedDeployment(call, outcome.deployment),
 			};
-		case "recorded":
+			if (JSON.stringify(answer).length <= PAGE_LIMIT_CHARS) return answer;
 			return {
-				kind: "recorded",
-				message: RECORDED_LINE,
-				deployment: await landedDeployment(call, outcome.deployment),
+				...receipt,
+				deployment: null,
+				next: "The deployment details exceed one answer. Open Publishing in the Nova app to see them.",
 			};
+		}
 		case "changed": {
 			const changedMessage =
 				"editedBy" in outcome

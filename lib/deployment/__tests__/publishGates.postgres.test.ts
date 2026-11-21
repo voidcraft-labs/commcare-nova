@@ -187,6 +187,7 @@ function publish(
 	const withWebApps =
 		declaresWebApps(doc) && options.webApps !== false ? [WEB_APPS] : [];
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: SCOPE,
 		...TARGET,
 		doc,
@@ -1305,6 +1306,7 @@ describe("links between cases of the same type", () => {
 			const before = allRequests(peer).length;
 
 			const accepting = await publishAppToHq({
+				requireHqImport: null,
 				scope: SCOPE,
 				...TARGET,
 				doc,
@@ -1352,6 +1354,7 @@ describe("links between cases of the same type", () => {
 			accepted(peer, 200);
 			serve(peer, "source-live");
 			const outcome = await publishAppToHq({
+				requireHqImport: null,
 				scope: SCOPE,
 				...TARGET,
 				doc: head.doc,
@@ -1820,6 +1823,7 @@ describe("logos", () => {
 			serve(peer, "source-live");
 			const after = landed(
 				await publishAppToHq({
+					requireHqImport: null,
 					scope: { ...SCOPE, projectId: DESTINATION, role: "owner" },
 					...TARGET,
 					doc: { ...doc, logo: moved },

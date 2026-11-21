@@ -1033,7 +1033,8 @@ import acknowledged (part 10, section 7.2), so the peer answers
 `GET /a/<domain>/apps/view/<app id>/current_version/` as `views/releases.py::current_app_version`
 does, from the version it already counts: `currentVersion` the app's counter, `latestBuild` and
 `latestReleasedBuild` null since the peer makes no build, 404 before a create. A create leaves 1 and
-each update one more, which the update's answer names; a media job that maps a file saves the app
+each update names its final counter, one higher or two higher if removing unused media mappings
+saves the app again. A media job that maps a file saves the app
 once more (`hqmedia/tasks.py::process_bulk_upload_zip`), and a person's saves in HQ (`applyHqSide`)
 raise it, counted as one, since Nova compares the counter only within one publish, after those
 saves. Every Vitest peer a publish meets answers the counter the same way, from one counter
@@ -1041,7 +1042,7 @@ saves. Every Vitest peer a publish meets answers the counter the same way, from 
 The lane holds both ends of that model. `proof/hq/test_publish.py::test_hqs_save_counter_moves_as_a_publish_binds_its_baseline`
 holds the three facts a publish's binding rests on to HQ's own views, as Nova and a person reach them: a create
 leaves 1, an update's acknowledged `version` is the counter `current_app_version` serves right after
-it and one past the counter right before it, and one save in HQ's editors (a menu's name, a form's
+it, with an additional save when HQ removes an unused media mapping, and one save in HQ's editors (a menu's name, a form's
 settings, the form builder's save) adds exactly one. And the capture records the peer's counter
 around each import and media upload in its sidecar (`saveCounter`, `mediaSaveCounter`,
 `proof/corpus/publish.ts::SaveCounterMove`), which `proof/observe/publish.py` holds HQ's own
@@ -3805,7 +3806,7 @@ Each names its boundary and the failure it would catch. Lane tests are pytest in
 | `proof/hq/test_privilege_rules.py` | moved unchanged, under the root fixtures | as before |
 | `proof/upstream/__tests__/pins.test.ts` (new cases) | `pins.mjs` with controlled `git` and `gh`; `upstream-pins.yml`, its run step executed over a controlled `node` | a pin pull request without its regenerated trees, with a file adopt dropped, or with trees and no lock; a lane handed other trees than the pull request carries; a failing verdict that stops the adopt, or a failed server that does not |
 | `proof/ci/__tests__/laneWorkflow.test.ts` (new case over `proof-lane.yml`) | the workflow file, its placing step executed over a planted checkout | a job that takes the candidate's surface and not its retained trees; a placed tree that keeps a file the artifact lacks, or a report placed among the harness's files |
-| `proof/hq/test_publish.py::test_hqs_save_counter_moves_as_a_publish_binds_its_baseline` | HQ's import view, `current_app_version` and three editor views (`edit_module_attr`, `edit_form_attr`, `patch_xform`) over a unit, with a member's key | an update that saves twice, an acknowledgement that is not the counter a read after it serves, a create that leaves another number, an editor save that does not move the counter by exactly one |
+| `proof/hq/test_publish.py::test_hqs_save_counter_moves_as_a_publish_binds_its_baseline` | HQ's import view, `current_app_version` and three editor views (`edit_module_attr`, `edit_form_attr`, `patch_xform`) over a unit, with a member's key | an ordinary update or a media-pruning update advancing the counter by the wrong amount, an acknowledgement that is not the counter a read after it serves, a create that leaves another number, an editor save that does not move the counter by exactly one |
 | `proof/hq/test_publish_capture.py::test_each_write_moves_hqs_save_counter_as_the_capture_peer_counted_it` | the capture writer's sidecars applied through `proof/observe/publish.py` in a unit, with a planted create and a planted import | a capture peer whose counter drifts from HQ's, and a hold that passes whatever the record says |
 | `proof/checks/test_compare.py::test_a_steps_title_is_named_by_the_screen_both_sides_show`, `test_first_publish_changes_controls.py::test_the_form_titles_rows_hold_a_forms_title_and_never_a_case_lists` | `compare_traces` over planted traces; `form-titles-written`'s rows of the repository's register | a case list's or a search's renamed title held as a written form title |
 | `proof/android/test_form_reads.py::test_a_labels_value_is_formatted_with_the_label`, `proof/webapps/test_label_values.py` | a device and the Web Apps client over HQ's release of `targeted-styled-value` | a runtime that formats a label before splicing its value in, so a worker reads the asterisks |

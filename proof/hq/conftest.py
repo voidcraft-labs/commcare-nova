@@ -79,6 +79,17 @@ class _Named(dict):
         )
 
 
+@pytest.fixture(scope="module")
+def native_capture(captures):
+    """Read a request from the publish-test apps in the native product that the package key names."""
+    from proof.checks.corpus import _captured
+
+    def read(document, name):
+        return _captured(captures / document / "minimum", name)
+
+    return read
+
+
 def load_corpus():
     """The corpus the run checks (``proof.checks.cases.load_corpus``), for a test of this package that collects its
     parameters from it (``test_branches.py``): every corpus read of the package goes through this module, which

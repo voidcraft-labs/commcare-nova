@@ -37,6 +37,7 @@ const PLAIN_NODE_TYPES: ReadonlySet<string> = new Set([
 	"paragraph",
 	"text",
 	"hardBreak",
+	"labelHtml",
 	"commcareRef",
 	"mention",
 ]);

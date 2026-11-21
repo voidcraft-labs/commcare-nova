@@ -128,6 +128,7 @@ async function lane(): Promise<Lane> {
 			},
 		}),
 		"lib/commcare/surface/surface.json": tabbed({
+			pins: { "commcare-hq": hqCommit, "commcare-core": coreCommit },
 			items: {
 				"toggle:GONE": { tag: "frozen" },
 				"toggle:KEPT": { tag: "frozen", namespaces: ["domain"] },
@@ -220,9 +221,15 @@ async function branchCommit(origin: string) {
 	return { onMain: branchParent === mainHead, files: files.split("\n").sort() };
 }
 
-async function surfaceFile(items: Record<string, unknown>) {
+async function surfaceFile(checkout: string, items: Record<string, unknown>) {
+	const planned: Record<string, { commit: string }> = JSON.parse(
+		await readFile(join(checkout, "proof/pins.json"), "utf8"),
+	);
+	const pins = Object.fromEntries(
+		Object.entries(planned).map(([name, pin]) => [name, pin.commit]),
+	);
 	const path = join(root, "new-surface.json");
-	await writeFile(path, tabbed({ items }));
+	await writeFile(path, tabbed({ pins, items }));
 	return path;
 }
 
@@ -284,6 +291,10 @@ describe("the plan stage", () => {
 		const head = await hq.advance();
 		const planned = await stage(checkout, "plan");
 		expect(planned.action).toBe("update");
+		expect(planned.base).toBe(await git(origin, "rev-parse", "main"));
+		expect(planned.commit).toBe(
+			await git(origin, "rev-parse", "upstream/pins"),
+		);
 		expect(planned.pins["commcare-hq"].commit).toBe(head);
 		expect(await branchCommit(origin)).toEqual({
 			onMain: true,
@@ -326,15 +337,59 @@ describe("the plan stage", () => {
 });
 
 describe("the report stage", () => {
+	it("keeps the pins alone when the surface came from the previous image", async () => {
+		const { checkout, origin, hq } = await lane();
+		const previous = await surfaceFile(checkout, {});
+		await hq.advance();
+		await stage(checkout, "plan");
+		await expect(
+			stage(
+				checkout,
+				"report",
+				"--image-result",
+				"success",
+				"--surface-result",
+				"success",
+				"--surface",
+				previous,
+			),
+		).rejects.toThrow("different upstream commits");
+		expect((await branchCommit(origin)).files).toEqual(["proof/pins.json"]);
+	});
+
+	it("preserves a branch that advanced while the candidate was running", async () => {
+		const { checkout, origin, hq, ghLog } = await lane();
+		await hq.advance();
+		const planned = await stage(checkout, "plan");
+		const updated = await commit(
+			origin,
+			"upstream/pins",
+			{ "review.txt": "reviewed\n" },
+			planned.commit,
+		);
+		await expect(stage(checkout, "report")).rejects.toThrow(
+			"The pin branch moved",
+		);
+		expect(await git(origin, "rev-parse", "upstream/pins")).toBe(updated);
+		expect(
+			(await ghCalls(ghLog)).some(
+				(call) => call.args[1] === "create" || call.args[1] === "edit",
+			),
+		).toBe(false);
+	});
+
 	it("commits pins, lock, surface and retained trees together, opens the one pull request and says how CI starts", async () => {
 		const { checkout, origin, hq, ghLog } = await lane();
 		const head = await hq.advance();
 		await stage(checkout, "plan");
 		// A change inside a list of objects is a change; the same object with its keys reordered is not.
-		const surface = await surfaceFile({
+		const surface = await surfaceFile(checkout, {
 			"toggle:KEPT": { tag: "deprecated", namespaces: ["domain"] },
 			"toggle:NEW": { tag: "frozen" },
-			"appearance:minimal": { reads: [{ file: "select.js", line: 12 }] },
+			"appearance:minimal": {
+				reads: [{ file: "select.js", line: 12 }],
+				"display units": "kg",
+			},
 			"format:date": { filters: { align: "left", width: 2 } },
 		});
 		const digest = `sha256:${"b".repeat(64)}`;
@@ -409,7 +464,7 @@ describe("the report stage", () => {
 			"## Surface: 1 added, 1 removed, 2 changed",
 		);
 		expect(created?.body).toContain(
-			"- `appearance:minimal` (reads): no entry names it",
+			"- `appearance:minimal` (`display units`, reads): no entry names it",
 		);
 		expect(created?.body).not.toContain("format:date");
 		expect(created?.body).toContain("- `toggle:NEW`");
@@ -449,7 +504,7 @@ describe("the report stage", () => {
 			"--surface-result",
 			"success",
 			"--surface",
-			await surfaceFile({
+			await surfaceFile(checkout, {
 				"toggle:KEPT": { tag: "frozen", namespaces: ["domain"] },
 			}),
 			"--retained-result",
@@ -549,7 +604,7 @@ describe("the report stage", () => {
 				"--surface-result",
 				"success",
 				"--surface",
-				await surfaceFile({
+				await surfaceFile(checkout, {
 					"toggle:KEPT": { tag: "frozen", namespaces: ["domain"] },
 				}),
 				"--retained-result",
@@ -588,7 +643,9 @@ describe("the report stage", () => {
 		const { checkout, origin, hq, ghLog } = await lane();
 		await hq.advance();
 		await stage(checkout, "plan");
-		const target = await surfaceFile({ "toggle:KEPT": { tag: "frozen" } });
+		const target = await surfaceFile(checkout, {
+			"toggle:KEPT": { tag: "frozen" },
+		});
 		const linked = join(root, "linked-surface.json");
 		await symlink(target, linked);
 		const refused = await reportRefused(
@@ -636,7 +693,7 @@ describe("the report stage", () => {
 			"--surface-result",
 			"success",
 			"--surface",
-			await surfaceFile({
+			await surfaceFile(checkout, {
 				"toggle:KEPT": { tag: "frozen", namespaces: ["domain"] },
 			}),
 			"--run-url",
@@ -736,6 +793,25 @@ describe("the workflow", () => {
 		expect(workflow.jobs.surface.permissions).toEqual({ contents: "read" });
 		expect(workflow.jobs.retained.permissions).toEqual({ contents: "read" });
 		expect(workflow.jobs.report.if).toContain("always()");
+		const planned = `\${{ needs.plan.outputs.commit }}`;
+		for (const job of [
+			workflow.jobs.image,
+			workflow.jobs.prewarm,
+			workflow.jobs.readers,
+		]) {
+			expect(job.with.ref).toBe(planned);
+		}
+		for (const job of [workflow.jobs.surface, workflow.jobs.retained]) {
+			expect(job.needs).toContain("plan");
+			expect(job.steps[0].with.ref).toBe(planned);
+		}
+		const { steps } = workflow.jobs.report;
+		expect(steps[0].with.ref).toBe(`\${{ needs.plan.outputs.base }}`);
+		expect(steps[1].with.ref).toBe(planned);
+		expect(steps[1].with.path).toBe(steps.at(-1)["working-directory"]);
+		expect(steps.at(-1).run).toContain(
+			'node "$GITHUB_WORKSPACE/proof/upstream/pins.mjs" report',
+		);
 		expect(JSON.stringify(workflow)).not.toMatch(/pr merge|\/merge/);
 	});
 
@@ -752,7 +828,7 @@ describe("the workflow", () => {
 			),
 		);
 		const { retained, prewarm, readers, report } = workflow.jobs;
-		expect(retained.needs).toBe("image");
+		expect(retained.needs).toContain("image");
 		const given = expression(
 			"needs.retained.result == 'success' && 'upstream-retained' || ''",
 		);
@@ -824,6 +900,8 @@ describe("the workflow", () => {
 			expect(upload.with?.["include-hidden-files"]).toBeUndefined();
 		}
 		const retained = workflow.jobs.retained.steps as {
+			id?: string;
+			if?: string;
 			run?: string;
 			with?: { name?: string };
 		}[];
@@ -835,7 +913,15 @@ describe("the workflow", () => {
 				step.run === 'node proof/run.mjs --seal "$RUNNER_TEMP/retained-out"',
 		);
 		expect(sealing).toBeGreaterThan(-1);
+		expect(sealing).toBeLessThan(
+			retained.findIndex((step) =>
+				step.run?.includes("python3 -m proof.matrix.adopt"),
+			),
+		);
 		expect(sealing).toBeLessThan(raw);
+		expect(retained[raw].if).toContain(
+			`steps.${retained[sealing].id}.outcome == 'success'`,
+		);
 	});
 
 	// The run's own shell, executed as written over a controlled `node`: each test writes what HQ made before it

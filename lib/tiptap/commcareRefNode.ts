@@ -13,6 +13,11 @@ import { type ProseAtomPart, prosePartSchema } from "@/lib/domain";
 import { CommcareRefView } from "./CommcareRefView";
 
 const DATA_ATTR = "data-nova-prose-ref";
+/** U+FFFF cannot occur in admitted app text (XML 1.0 Char). In an HTML
+ * comment even a literal character reference stays text. This distinguishes
+ * the typed part we inserted from identical markup the author typed. */
+export const PROSE_CARRIER_MARK = "\uffff";
+export const PROSE_CARRIER_COMMENT = `<!--${PROSE_CARRIER_MARK}-->`;
 
 export function encodeProseReferencePart(part: ProseAtomPart): string {
 	return encodeURIComponent(JSON.stringify(part));
@@ -33,7 +38,7 @@ export function decodeProseReferencePart(
 }
 
 export function serializedProseReferencePart(part: ProseAtomPart): string {
-	return `<span ${DATA_ATTR}="${encodeProseReferencePart(part)}"></span>`;
+	return `<span ${DATA_ATTR}="${encodeProseReferencePart(part)}">${PROSE_CARRIER_COMMENT}</span>`;
 }
 
 export const CommcareRef = Node.create({
@@ -57,8 +62,11 @@ export const CommcareRef = Node.create({
 
 	addAttributes() {
 		return {
-			part: { default: null },
-			label: { default: "" },
+			/* Identity comes only from the decoded carrier. An HTML attribute
+			 * named "part" would stringify the object and override getAttrs
+			 * when the serialized node is read again. */
+			part: { default: null, rendered: false, parseHTML: () => null },
+			label: { default: "", rendered: false, parseHTML: () => null },
 		};
 	},
 

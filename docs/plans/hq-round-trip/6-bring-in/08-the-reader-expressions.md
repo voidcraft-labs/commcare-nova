@@ -2395,7 +2395,7 @@ admits numbers alone (`typeChecker.ts`, `number-value`).
 An HQ app whose case list has a calculated column built from `concat`, `if`, `cond`, comparisons and
 case properties comes in. One whose column calls `int`, `substr` or `format-date` over arithmetic gets
 a line in its account under "Nova can't hold this yet", at the case list, with the checker's reason.
-Form logic is not affected: every function Core answers is held there.
+Form logic keeps its existing function vocabulary (`CALL_FUNCTIONS` in `lib/domain/expression/types.ts`).
 
 ### 8.3 The reads only a search holds
 
@@ -3125,7 +3125,7 @@ C15 and C16 are in "Contracts and docs these changes make false".
   links, so renaming one later updates every expression that reads it."
 - C14: "Nova can't bring in an app whose case list column, filter, display condition or search
   setting calls a function such as `int()` or `substr()`. It lists each one with where it sits in
-  your app. Expressions inside forms can use every function CommCare runs." A not-yet finding gives
+  your app. Inside a form, Nova can bring in calculations that use `int()` or `substr()`." A not-yet finding gives
   the app an account and nothing comes in (8.2), so the sentence speaks of the app, never of a part
   of one.
 - C15, `content/docs/mcp/tools.mdx`, in the paragraph "Record queries use expressions such as…":

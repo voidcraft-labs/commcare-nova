@@ -90,7 +90,10 @@ export type Scope = (typeof SCOPES)[keyof typeof SCOPES];
  * A tool's scopes follow what its answers carry, never only where its writes
  * land: every tool whose answer (a stop, a refusal and a changed review
  * included) can carry what CommCare HQ holds of an app or its data needs
- * `nova.hq.import`, so no other combination of scopes reaches HQ's content.
+ * `nova.hq.import`. Publish may report the drift it would overwrite under HQ
+ * Write, and a deployment status can report what Nova already recorded.
+ * A publish that copies managed tables or places, and a kept-settings refresh,
+ * also check HQ Import before making that read.
  * `set_lookup_table_management` needs both HQ scopes: managing a table in
  * Nova decides what later publishes write there, and handing it back copies
  * CommCare HQ's rows in.
@@ -121,6 +124,25 @@ export const TOOL_SCOPES = {
 
 /** A tool `TOOL_SCOPES` names. */
 export type ScopedToolName = keyof typeof TOOL_SCOPES;
+
+/** Scopes knowable from the request before consulting the app. A normal
+ * deployment refresh only observes the build; the kept-settings mode imports
+ * the target's settings. A publish checks its managed-data dependency at the
+ * point the service discovers it. */
+export function requiredToolScopes(
+	name: ScopedToolName,
+	args: unknown,
+): readonly [Scope, ...Scope[]] {
+	if (
+		name === "refresh_deployment" &&
+		typeof args === "object" &&
+		args !== null &&
+		"kept_values" in args &&
+		args.kept_values === true
+	)
+		return [...TOOL_SCOPES.refresh_deployment, SCOPES.hqImport];
+	return TOOL_SCOPES[name];
+}
 
 /**
  * Parse a space-delimited OAuth `scope` claim into an array of tokens.
@@ -207,7 +229,8 @@ export class McpScopeError extends Error {
  * stays the same shape across both paths; only the human-readable
  * message branches.
  *
- * A tool never calls it: `scopedTool.ts::registerScopedTool` checks a
+ * A tool may also check a scope for an optional operation it performs. For
+ * the scopes required by every call, `scopedTool.ts::registerScopedTool` checks a
  * tool's scopes before its handler runs, so a missing-scope credential
  * can't probe whether a record exists.
  */

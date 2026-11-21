@@ -114,8 +114,12 @@ jobs:
           args = json.loads(Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').read_text())
           raise SystemExit(subprocess.call(['node', 'proof/run.mjs', '--workers', '1', *args]))
           PY
+      - name: Seal the slice's output
+        id: seal
+        if: ${{ !cancelled() }}
+        run: node proof/run.mjs --seal "$PROOF_OUT_DIR"
       - uses: actions/upload-artifact@v7
-        if: ${{ always() }}
+        if: ${{ !cancelled() && steps.seal.outcome == 'success' }}
         with:
           name: proof-slice-${{ github.run_attempt }}
           path: .proof/slice

@@ -1031,7 +1031,7 @@ export function isHoldableWirePath(path: string): boolean;
 export function assignMediaPaths(files: readonly AdoptedMediaFile[]): MediaPathAssignment;
 ```
 
-`isHoldableWirePath` answers true exactly when the path is well-formed UTF-16 (no lone surrogate);
+`isHoldableWirePath` answers true exactly when the path is representable as XML 1.0 text in the media suite, including well-formed UTF-16;
 has at most 255 code points; has a directory
 and a name, with no empty segment and no `.` or `..` segment; holds no backslash and no control
 character (`\p{Cc}`); neither starts nor ends with a character Python's `str.strip()` removes
@@ -1043,7 +1043,7 @@ U+00A0, U+1680, U+2000 to U+200A, U+202F, U+205F, U+3000), U+2028, U+2029 and th
 U+0009 to U+000D, U+001C to U+001F and U+0085, the same set Node's `\p{Zs}` gives with the two
 separators. Each clause has a reason:
 
-- **Well-formed.** A lone surrogate has no UTF-8 spelling: the bulk upload's zip entry and the
+- **XML text.** U+FFFE and U+FFFF have UTF-8 spellings but cannot occur in XML 1.0. A lone surrogate has no UTF-8 spelling: the bulk upload's zip entry and the
   ledger's `text` column would both hold another string than HQ's path.
 
 - **Any directory is held, and a path with none is not.** HQ's build writes `install_path = '../../' +
@@ -1724,8 +1724,10 @@ give over the source it read and its target document (part 15, section 4.4), com
 adoption's is.
 
 - **CHECK**: `app_deployment_baselines_origin_check` admits `read` and `changes` (statement 10 of
-  section 11). `app_deployment_baselines_unread_holds_no_source` is unchanged: a `read` row and a
-  `changes` row hold their source and their ownership.
+  section 11). `app_deployment_baselines_source_shape` keeps the source bytes, length, digest
+  and ownership together. An `unread` row may hold all four for verified kept settings; that row
+  has no Nova revision. A bare `unread` written by the old revision can keep a backfilled revision
+  in storage. Reading it returns a null Nova revision.
 - **`readAppBaseline`**: `read` and `changes` join the admitted origins. Where a stored row fails
   gunzip, the digest, the parse or the ownership shape (`store.ts::verifiedBaselineSource`, which
   part 01 extracts, its section 6.2), the answer stays `unread`, now with `storedOrigin`, so the
@@ -1959,11 +1961,14 @@ export async function settleReleasedClaims(scope: DeploymentScope): Promise<
   `nova_revision` the sequence sent (part 15, section 3), only where HQ's save counter proves it is
   what the import left. `preflight.ts` reads the counter just before the `target-app` read (and
   `service.ts` again before the second read where Project data went); the import acknowledges the
-  counter after its one save; and the read-back is `readHqAppSourceAtVersion` at that counter (the
+  final counter. The read-back is `readHqAppSourceAtVersion` at that counter (the
   source, then the counter, which must stand there). An acknowledgement more than one past the
-  counter read before the last read (a save fell between that read and the import), a read-back the
+  counter read before the last read (a concurrent save, or HQ saving the app again when it
+  removes an unused media mapping), a read-back the
   counter shows `moved`, and an update acknowledged with no counter each store `unread`, and the
-  landed publish says so in a warning; the next publish then stops and asks. On a first publish the
+  landed publish says so in a warning. The next publish stops and asks. After an extra save, a source
+  verified at the acknowledged version still supplies the kept settings for the download, Preview
+  and the Publishing card. A moved, failed or unversioned read supplies none. On a first publish the
   read after the create is bound the same way, to the 1 HQ's one save of a new app leaves
   (`models/applications.py::_import_app`); a `moved` read there stops at `resources`. The same upsert sets
   `first_publish_changes` null, which ends the list the person reviewed (part 09, section 12.3),
@@ -2279,11 +2284,11 @@ insert-update, never locked or deleted) holds each one, open while `settled_at` 
   so either the admission committed first and the grant sees its row, or the ending committed first
   and the admission finds no mapping. Stop publishing stays instant; a bring-in of a just-stopped HQ
   app answers "try again in a few minutes" (part 12).
-- Grace: a write HQ answered settles at once; an import or a workbook whose answer never reached
-  Nova (no answer, or the deadline: `remoteWrites.ts::hqAnsweredWrite` decides over every cause a
-  failure can carry, so a cause added later is a decision there, and a list read's `moved` is an
-  answer) stays open five minutes after Nova stopped waiting; a media bundle HQ accepted stays open with
-  its job id for the hour HQ keeps its status, and a bring-in polls it by that id.
+- A lost reply, a deadline or a 5xx that an intermediary could have returned
+  leaves the create, app update, workbook, place or worker write open for five minutes.
+  A media bundle with no job id that HQ may have accepted keeps its initial hold.
+  When HQ acknowledges a job id, its hold lasts the hour HQ keeps its status
+  and a bring-in polls it by that id.
 - The create HQ answered while an ending committed, whose record the fence refuses, is recorded as a
   superseded mapping dated the publish's start (`recordOrphanedRemoteApp`, on the create's
   admission), so the ending stays the latest and the left-behind report names that app.
@@ -2669,6 +2674,14 @@ ALTER TABLE app_deployment_baselines
 	ADD CONSTRAINT app_deployment_baselines_origin_check
 		CHECK (origin IN ('create', 'push', 'cutover', 'read', 'changes', 'unread')),
 	ADD COLUMN IF NOT EXISTS nova_revision bigint,
+	DROP CONSTRAINT IF EXISTS app_deployment_baselines_unread_holds_no_source,
+	DROP CONSTRAINT IF EXISTS app_deployment_baselines_source_shape,
+	ADD CONSTRAINT app_deployment_baselines_source_shape CHECK (
+		(origin = 'unread' OR source_gzip IS NOT NULL)
+		AND (origin <> 'unread' OR source_gzip IS NULL OR nova_revision IS NULL)
+		AND (source_gzip IS NULL) = (source_bytes IS NULL)
+		AND (source_gzip IS NULL) = (source_digest IS NULL)
+		AND (source_gzip IS NULL) = (ownership IS NULL)),
 	-- The floor is pushed_revision's (20260806000000_deployments: pushed_revision >= 0), so the
 	-- copy of 10b cannot be refused: an app's sequence starts at 0 (apps.mutation_seq DEFAULT 0).
 	DROP CONSTRAINT IF EXISTS app_deployment_baselines_nova_revision_is_a_sequence,
@@ -2809,6 +2822,7 @@ reconcile, never `app`, so `writeResourceMapping`'s is the one that can meet a r
 | `app_deployment_resources_hq_app_claim` | after statements 7 and 8 each HQ app has at most one live, unreleased `app` mapping. Its insert of an `app` mapping carries the id CommCare HQ answered for that app's own create, which no other mapping holds; its conflict arm fires only where the remote id is the one already held; it never clears `released_at`; and its delete and restore of an app write no ledger column |
 | `app_deployments_state_check`, `endings`, `app_deployments_id_target_unique` | the state check is wider than before, `endings` is defaulted, and `id` is already the primary key |
 | `app_deployment_baselines_origin_check`, `app_deployment_baselines_nova_revision_is_a_sequence`, `app_deployment_baselines_media_files_is_a_map` | the origin check is wider, and it writes neither new column, so each stays null or as 10b filled it |
+| `app_deployment_baselines_source_shape` | the old writer sets all four source fields together. Its unread update clears them and can leave a backfilled Nova revision in the row, which the check permits and the new reader treats as null |
 | `app_deployment_baselines_first_publish_changes_need_a_source` | it writes the column nowhere, and no row holds a list until the new revision's first birth |
 | `app_deployment_media_paths`, its CHECKs and its index | it never reads or writes the table |
 | `app_deployment_keyed_case_ids` and its CHECKs | it never reads or writes the table |

@@ -87,6 +87,7 @@
 		"@tanstack/react-table": "^9.3.1",
 		"@tanstack/react-virtual": "^3.14.26",
 		"@tiptap/extension-image": "^3.32.3",
+		"@tiptap/extension-link": "^3.32.3",
 		"@tiptap/extension-list": "^3.32.3",
 		"@tiptap/extension-mention": "^3.32.3",
 		"@tiptap/extension-subscript": "^3.32.3",

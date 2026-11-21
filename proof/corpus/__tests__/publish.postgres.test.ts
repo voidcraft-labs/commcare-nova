@@ -393,6 +393,7 @@ async function attempt(
 ) {
 	const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: SCOPE,
 		doc: loaded.doc,
 		compiledAtSeq: loaded.app.mutation_seq,

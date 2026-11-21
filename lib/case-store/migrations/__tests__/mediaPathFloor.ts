@@ -39,6 +39,8 @@ export const MEDIA_PATH_FLOOR_CASES: readonly {
 	{ path: "commcare/my\u2029logo.png", floorAdmits: true },
 	{ path: "commcare/lo\u0085go.png", floorAdmits: false },
 	{ path: "commcare/lo\u009fgo.png", floorAdmits: false },
+	{ path: "commcare/lo\ufffego.png", floorAdmits: false },
+	{ path: "commcare/lo\uffffgo.png", floorAdmits: false },
 	{ path: "commcare/lo\u00a0go.png", floorAdmits: true },
 	/* The names a `.ccz` gives its own files, and names under them, in any
 	 * letter case; and the near names that are no file of its own. */

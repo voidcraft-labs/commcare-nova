@@ -2676,10 +2676,11 @@ is answered with every finding it met, and nothing is created.
 ("Readings", "Accepting a reading", "One HQ app, one Nova app", "Ending a
 deployment") own the detail. The binding facts:
 
-- **Nothing is kept until the app exists.** A read answers a stop, an account
-  or a review and stores nothing. A create reads the app again and creates it,
-  in one transaction, only where the digest of what it read is the one the
-  person reviewed (`lib/deployment/reading`).
+- **A read stores nothing.** It answers a stop, an account or a review. A
+  create reads the app again and checks the digest against the review. It
+  publishes accepted media to the Project library before the birth transaction
+  commits the app, its media references, lookup tables, places and deployment
+  claim. Ready files can survive a failed birth (`lib/deployment/reading`).
 - **The source and the resource are read as one bracket.** The stored source
   and the application resource share no revision
   (`corehq/apps/app_manager/models/applications.py`: `ApplicationBase._meta_fields`

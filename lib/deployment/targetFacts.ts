@@ -3,8 +3,9 @@
  * Nova leaves to CommCare HQ, projected from the stored app baseline.
  *
  * No column holds the facts and nothing backfills them: they are a pure
- * projection of the baseline's source, so a baseline that is absent, unread
- * or a shell's gives none and Nova's own values stand. Pure, with no store
+ * projection of a verified observation. A source at a publish's acknowledged
+ * version can supply them even when an extra save leaves its drift baseline
+ * unread. No observation or an empty shell gives none. Pure, with no store
  * and no `server-only`, so tests and the proof capture call it too.
  */
 

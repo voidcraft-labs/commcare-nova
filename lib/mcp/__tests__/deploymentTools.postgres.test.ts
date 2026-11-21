@@ -100,7 +100,7 @@ const GET = "get_deployment",
 function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
-	scopes = ["nova.read", "nova.hq.read", "nova.hq.write"],
+	scopes = ["nova.read", "nova.hq.read", "nova.hq.write", "nova.hq.import"],
 ) {
 	return withMcpClient((server) => {
 		const ctx = { userId, scopes, authKind: "oauth" as const };

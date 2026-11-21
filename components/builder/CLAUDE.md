@@ -421,8 +421,10 @@ treatment a lookup table does, for the same reason: a shared name is not
 evidence of ownership, and here it is somebody's account. A refusal naming
 levels of managed places nobody confirmed takes workers
 (`worker_levels_unconfirmed`, the refusal's `levels`) renders one unticked
-checkbox per level, and the ticked codes ride the next call as
-`confirmWorkerLevels` until a refusal stops naming them. The dialog's landed
+checkbox per level on the first attempt. On a later refusal, the panel keeps
+ticks for the levels the refusal still names. The next call sends all ticked
+codes as `confirmWorkerLevels`. Withdrawing a worker-level confirmation asks
+again when making workers at that level. The dialog's landed
 hero points at it with "Make workers in App setup" instead of mounting a
 second panel.
 
@@ -1872,6 +1874,11 @@ Optional field-editor activation belongs to the currently selected field and
 section. Leaving that scope forgets it; a blank new hint canceled with Escape
 closes without writing. The Required add action commits `true`, and a condition
 is introduced only through its explicit condition action.
+
+Both label editors use `lib/tiptap/markdownExtensions.ts`. They display an
+embedded picture directly and show an external picture's description in the
+editor, retaining its address in the document and clipboard. HTML typed as
+wording stays literal when the surrounding label is edited.
 
 Rich-text tables use `lib/tiptap/markdownTable.ts` in the real extension set.
 Every cell serializes its inline content, including image-only and reference-only

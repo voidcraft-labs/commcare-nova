@@ -202,7 +202,8 @@ export interface MediaPathAssignment {
 
 export type MediaPathRederivedReason =
 	/**
-	 * HQ's upload cannot address it, or it is no safe archive entry: a name a
+	 * HQ's upload cannot address it, the media suite cannot name it, or it is
+	 * no safe archive entry: a name a
 	 * `.ccz` gives its own files among them (`isHoldableWirePath`).
 	 */
 	| "not-holdable"

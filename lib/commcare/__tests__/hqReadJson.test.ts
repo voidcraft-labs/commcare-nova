@@ -11,10 +11,12 @@ import {
 import { log } from "@/lib/logger";
 import { HQ_APPLICATION_MAX_BYTES } from "../hq/bounds";
 import {
+	authHeader,
 	HQ_API_ACCESS_REFUSAL,
 	HQ_REFUSED_BODY_MAX_CHARS,
 	HQ_REFUSED_BODY_READ_MAX_BYTES,
 } from "../hq/http";
+import { MemoryMeter, runInLease } from "../hq/memoryMeter";
 import { readHqCollection } from "../hq/readCollection";
 import { readHqJson } from "../hq/readJson";
 import { HQ_READ_SENDS } from "../hq/throttle";
@@ -135,6 +137,12 @@ describe("refusedBody", () => {
 	});
 });
 
+it("reports a credential that cannot be sent without including it in the diagnostic", () => {
+	expect(() => authHeader({ ...CREDS, username: "two\nlines" })).toThrow(
+		/^Invalid character in header content \["Authorization"\]$/,
+	);
+});
+
 describe("a refused answer", () => {
 	it("is logged by its status and its body's shape, never its text", async () => {
 		const refusal = retainedReadingRead("application-no-api-access");
@@ -162,12 +170,22 @@ describe("a refused answer", () => {
 		const page = `<html><head><title>403 Forbidden</title></head><body>${"x".repeat(HQ_REFUSED_BODY_READ_MAX_BYTES)}</body></html>`;
 		await withHttpPeer(async (peer) => {
 			intercept(peer).reply(403, page);
-			expect(
-				await readHqJson(CREDS, URL, "application", {
-					...BOUND,
-					keepRefusedBody: true,
-				}),
-			).toEqual({ success: false, status: 403, edgeRefusal: true });
+			const lease = new MemoryMeter({ heap: 16_000_000, external: 0 }).open();
+			try {
+				lease.charge("text", 300);
+				const heldBefore = lease.held();
+				expect(
+					await runInLease(lease, () =>
+						readHqJson(CREDS, URL, "application", {
+							...BOUND,
+							keepRefusedBody: true,
+						}),
+					),
+				).toEqual({ success: false, status: 403, edgeRefusal: true });
+				expect(lease.held()).toEqual(heldBefore);
+			} finally {
+				lease.end();
+			}
 			expect(log.warn).toHaveBeenCalledWith(
 				"[commcare] application refused",
 				expect.objectContaining({ body: "page", bodyCutOff: true }),

@@ -7,9 +7,8 @@ on the host (``proof/ci/hostCommands.mjs``) and the lane's server runs this
 relay in their place (``proof.lane.serve``'s ``--claim`` and ``--wait-for``).
 The relay names its request as an empty file in the requests directory
 (``claim-<block>.request`` or ``wait.request``, moved into place whole) and
-waits for the host's answer in the answers directory: ``<name>.log``, the
-command's output, which it prints, and ``<name>.code``, its exit status, with
-which it exits. The server reads that status as it read the command's own:
+waits for the host's answer in the answers directory, ``<name>.code``,
+the exit status with which it exits. The host logs the command's output. The server reads that status as it read the command's own:
 for a claim 0 claimed and 1 taken, for the wait 0 in place and 3 the corpus
 emission failed; anything else is a failure, and the host answers a request
 it will not run with 2.
@@ -48,15 +47,11 @@ def answered(answers: Path, name: str) -> int | None:
 
 
 def relay(requests: Path, answers: Path, name: str, *, poll: float = POLL_SECONDS) -> int:
-    """Ask the host to run ``name`` and wait for its answer; the command's output printed, its status returned."""
+    """Ask the host to run ``name``, then return its status and say where the command was logged."""
     request(requests, name)
     while (code := answered(answers, name)) is None:
         time.sleep(poll)
-    try:
-        sys.stdout.write((answers / f"{name}.log").read_text(encoding="utf-8", errors="replace"))
-    except FileNotFoundError:
-        sys.stdout.write(f"The host answered {name} without its output.\n")
-    sys.stdout.flush()
+    print(f"The host answered {name} with status {code}. The shard's job log holds the command's output.", flush=True)
     return code
 
 

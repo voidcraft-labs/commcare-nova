@@ -132,6 +132,7 @@ function publish(
 	adoptResourceIds: readonly string[] = [],
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: { appId, projectId, actorUserId, role: "editor" },
 		...TARGET,
 		doc,

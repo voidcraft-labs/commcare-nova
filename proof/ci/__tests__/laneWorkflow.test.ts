@@ -703,15 +703,16 @@ it("restores the checksum-pinned JDK with the runtime and permits only its build
 // A shard's output is uploaded by upload-artifact, which follows a link to its target, so every upload of a run's
 // output comes after the step that seals it (proof/ci/untrusted.mjs). run.mjs seals as the run ends; the step
 // seals an output a run that ended first left unsealed.
-it("uploads a shard's output only after the step that seals it", async () => {
-	const sealing = 'node proof/run.mjs --seal "$RUNNER_TEMP/proof-out"';
+it("uploads shard and slice outputs only when their seal succeeds", async () => {
 	let uploads = 0;
-	for (const file of ["proof-lane.yml", "ci.yml"]) {
+	for (const file of ["proof-lane.yml", "ci.yml", "proof-slice.yml"]) {
 		const workflow = parse(
 			await readFile(join(WORKTREE, ".github/workflows", file), "utf8"),
 		);
 		for (const job of Object.values(workflow.jobs)) {
 			const steps = ((job as { steps?: unknown[] }).steps ?? []) as {
+				id?: string;
+				if?: string;
 				uses?: string;
 				run?: string;
 				with?: { path?: string };
@@ -719,18 +720,31 @@ it("uploads a shard's output only after the step that seals it", async () => {
 			steps.forEach((step, index) => {
 				if (
 					!step.uses?.startsWith("actions/upload-artifact@") ||
-					!step.with?.path?.endsWith("/proof-out/")
+					!(
+						step.with?.path?.endsWith("/proof-out/") ||
+						step.with?.path === ".proof/slice"
+					)
 				)
 					return;
 				uploads += 1;
-				expect(
-					steps.slice(0, index).some((earlier) => earlier.run === sealing),
-					`${file}: the upload of ${step.with.path}`,
-				).toBe(true);
+				const output =
+					file === "proof-slice.yml"
+						? "$PROOF_OUT_DIR"
+						: "$RUNNER_TEMP/proof-out";
+				const seal = steps
+					.slice(0, index)
+					.find(
+						(earlier) =>
+							earlier.run === `node proof/run.mjs --seal "${output}"`,
+					);
+				expect(seal?.id, file).toBeTruthy();
+				expect(step.if, file).toContain(
+					`steps.${seal?.id}.outcome == 'success'`,
+				);
 			});
 		}
 	}
-	expect(uploads).toBe(2);
+	expect(uploads).toBe(3);
 });
 
 // Adopting takes every output of one run and merges by file (proof/matrix/adopt.py): two blocks of one run, on two

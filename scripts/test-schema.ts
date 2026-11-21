@@ -696,6 +696,8 @@ console.log(`Testing with ${model}...`);
 				instructions:
 					"Use the supplied tool with reasonable arguments to satisfy the prompt.",
 				prompt: test.prompt,
+				// Each named check authorizes at most two requests, one per step.
+				maxRetries: 0,
 				maxOutputTokens: 1024,
 				abortSignal: controller.signal,
 				providerOptions: { openai: OPENAI_BASE_OPTIONS },

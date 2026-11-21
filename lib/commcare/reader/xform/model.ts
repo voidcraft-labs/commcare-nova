@@ -7,7 +7,7 @@
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
-import { rethrowWorkStop } from "../../workMeter";
+import { chargeWork, rethrowWorkStop } from "../../workMeter";
 import { FormPath } from "../../xform/formPath";
 import {
 	elementNamespace,
@@ -106,8 +106,8 @@ export interface DataTree {
 	readonly nodes: ReadonlyMap<string, DataNode>;
 	/** The nodes in document order. */
 	readonly order: readonly DataNode[];
-	/** The data root's own children. */
-	readonly top: readonly DataNode[];
+	/** First child of this name in document order. A null parent is the data root. */
+	childOf(parent: DataNode | null, name: string): DataNode | undefined;
 	/** Each node a refusal of the tree itself covers (two siblings of one name, an authored
 	 *  `meta` block), with everything under it, and the Save to Case block a refused node stands
 	 *  in, to the refusal. Every bind, setvalue and control that reaches one stands under it, so
@@ -289,8 +289,7 @@ export function readNodePath(
 			continue;
 		}
 		parentsAllowed = false;
-		const children: readonly DataNode[] = at === null ? tree.top : at.children;
-		const next = children.find((child) => child.name === step);
+		const next: DataNode | undefined = tree.childOf(at, step);
 		if (next === undefined)
 			return at === null ? { kind: "none" } : { kind: "none", through: at };
 		at = next;
@@ -318,9 +317,7 @@ export function refusalBesidePredicates(
 	let at: DataNode | undefined;
 	for (const step of steps.slice(2)) {
 		if (step.startsWith("@") || step === "." || step === "..") break;
-		const children: readonly DataNode[] =
-			at === undefined ? tree.top : at.children;
-		const next = children.find((child) => child.name === step);
+		const next: DataNode | undefined = tree.childOf(at ?? null, step);
 		if (next === undefined) break;
 		at = next;
 		const refusal = tree.refused.get(at);
@@ -384,6 +381,8 @@ export function readDataTree(
 ): DataTree {
 	const nodes = new Map<string, DataNode>();
 	const order: DataNode[] = [];
+	const childrenByName = new Map<DataNode | null, Map<string, DataNode>>();
+	const duplicateSiblings = new Set<DataNode>();
 	const build = (element: Element, parent: DataNode | null): DataNode => {
 		const children: DataNode[] = [];
 		const elementChildren = element.children.filter(isTag);
@@ -409,7 +408,20 @@ export function readDataTree(
 			text: elementChildren.length === 0 ? ownText(element) : "",
 		};
 		order.push(node);
-		if (!nodes.has(node.path.join("/"))) nodes.set(node.path.join("/"), node);
+		const path = node.path.join("/");
+		chargeWork("visit", path.length + 1);
+		if (!nodes.has(path)) nodes.set(path, node);
+		let siblings = childrenByName.get(parent);
+		if (siblings === undefined) {
+			siblings = new Map();
+			childrenByName.set(parent, siblings);
+		}
+		const first = siblings.get(node.name);
+		if (first === undefined) siblings.set(node.name, node);
+		else {
+			duplicateSiblings.add(first);
+			duplicateSiblings.add(node);
+		}
 		for (const child of elementChildren) children.push(build(child, node));
 		return node;
 	};
@@ -417,7 +429,13 @@ export function readDataTree(
 		.filter(isTag)
 		.map((element) => build(element, null));
 	const refused = new Map<DataNode, NodeRefusal>();
-	const tree: DataTree = { root: parsed.dataRoot, nodes, order, top, refused };
+	const tree: DataTree = {
+		root: parsed.dataRoot,
+		nodes,
+		order,
+		childOf: (parent, name) => childrenByName.get(parent)?.get(name),
+		refused,
+	};
 	const refuseUnder = (node: DataNode, refusal: NodeRefusal) => {
 		refused.set(node, refusal);
 		for (const child of node.children) refuseUnder(child, refusal);
@@ -491,12 +509,7 @@ export function readDataTree(
 	}
 
 	for (const node of order) {
-		const siblings: readonly DataNode[] =
-			node.parent === null ? top : node.parent.children;
-		if (
-			!refused.has(node) &&
-			siblings.filter((sibling) => sibling.name === node.name).length > 1
-		) {
+		if (!refused.has(node) && duplicateSiblings.has(node)) {
 			const detail = { name: node.name };
 			cursor.refuseSubtree(
 				node.element,

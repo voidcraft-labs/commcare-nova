@@ -2478,6 +2478,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 						};
 					});
 			const outcome = await publishAppToHq({
+				requireHqImport: null,
 				scope: scope(appId),
 				...KEY_TARGET,
 				doc,

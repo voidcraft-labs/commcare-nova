@@ -43,7 +43,7 @@ import { stopPublishing } from "@/lib/deployment/service";
 import { MCP_RESOURCE_METADATA_URL } from "@/lib/hostnames";
 import { loadAppBlueprint } from "../loadApp";
 import { requireProjectAccess } from "../ownership";
-import { SCOPES, TOOL_SCOPES } from "../scopes";
+import { requiredToolScopes, SCOPES, TOOL_SCOPES } from "../scopes";
 import { registerNovaTools } from "../server";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
@@ -189,6 +189,19 @@ const TOOLS = [
 	},
 ] as const;
 
+it("requires HQ Import before a kept-settings refresh reads the app", async () => {
+	const result = await callAsKey(
+		"refresh_deployment",
+		{ app_id: APP, server: "india", domain: "clinic", kept_values: true },
+		[SCOPES.read, SCOPES.write, SCOPES.hqWrite],
+	);
+	expect(JSON.parse(resultContentText(result))).toMatchObject({
+		error_type: "scope_missing",
+		required_scope: SCOPES.hqImport,
+	});
+	for (const fn of BEHIND_THE_GATE) expect(fn).not.toHaveBeenCalled();
+});
+
 const EVERY_SCOPE: readonly string[] = Object.values(SCOPES);
 
 /** One case per tool and scope it needs. */
@@ -273,7 +286,13 @@ it.each(
  * offered the missing grant; an API key never is, which is why the tests above
  * prove only the tool's own check. This one proves each tool declares the
  * challenge for every scope it checks, and keeps the grants the client holds. */
-it.each(TOOLS)(
+it.each([
+	...TOOLS,
+	{
+		name: "refresh_deployment" as const,
+		args: { app_id: APP, server: "india", domain: "clinic", kept_values: true },
+	},
+])(
 	"challenges an OAuth client holding only the floor before $name runs, naming every grant to add",
 	async ({ name, args }) => {
 		const scopes = [SCOPES.read, SCOPES.write, "offline_access"];
@@ -305,8 +324,10 @@ it.each(TOOLS)(
 		expect(challenge).toContain('error="insufficient_scope"');
 		const grants = /scope="([^"]+)"/.exec(challenge ?? "")?.[1].split(" ");
 		expect([...(grants ?? [])].sort()).toEqual(
-			[...scopes, ...TOOL_SCOPES[name]].sort(),
+			[...scopes, ...requiredToolScopes(name, args)].sort(),
 		);
+		if (name === "refresh_deployment")
+			expect(grants).toContain(SCOPES.hqImport);
 		for (const fn of BEHIND_THE_GATE) expect(fn).not.toHaveBeenCalled();
 	},
 );

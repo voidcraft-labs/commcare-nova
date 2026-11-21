@@ -12,6 +12,7 @@ import "server-only";
  * chance to get one wrong.
  */
 
+import { validateHeaderValue } from "node:http";
 import { log } from "@/lib/logger";
 import { COMMCARE_SERVERS, type CommCareServer } from "../servers";
 import { HQ_REFUSED_BODY_READ_MAX_BYTES } from "./bounds";
@@ -216,7 +217,11 @@ export function baseUrl(creds: CommCareCredentials): string {
  * API key scheme, distinct from Basic or Bearer auth.
  */
 export function authHeader(creds: CommCareCredentials): string {
-	return `ApiKey ${creds.username}:${creds.apiKey}`;
+	const value = `ApiKey ${creds.username}:${creds.apiKey}`;
+	// Node's validator reports only the header name. Fetch's exception can
+	// include the supplied value, and network exceptions reach the logs.
+	validateHeaderValue("Authorization", value);
+	return value;
 }
 
 /**
@@ -404,7 +409,7 @@ export async function readRefusedBody(answer: HqAnswer): Promise<
 	const whole = body.kind === "read";
 	const kept = whole ? body.bytes : body.head;
 	const text = new TextDecoder().decode(kept);
-	giveBackHeld("text", kept.byteLength);
+	if (whole) giveBackHeld("text", kept.byteLength);
 	return {
 		kind: "text",
 		text,

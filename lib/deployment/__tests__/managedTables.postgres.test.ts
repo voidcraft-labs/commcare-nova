@@ -172,6 +172,7 @@ async function handBackAsReviewed(
 
 function publish(doc: BlueprintDoc): Promise<PublishOutcome> {
 	return publishAppToHq({
+		requireHqImport: null,
 		scope: {
 			appId: APP,
 			projectId: PROJECT,

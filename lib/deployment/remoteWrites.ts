@@ -18,6 +18,7 @@ import type {
 	CommCareCredentials,
 } from "@/lib/commcare/client";
 import { readAppMediaBundleStatus } from "@/lib/commcare/client";
+import { writeMayHaveLanded } from "@/lib/commcare/hq/http";
 import { readOpenMediaJobs, settleRemoteWrites } from "./store";
 
 /**
@@ -26,12 +27,11 @@ import { readOpenMediaJobs, settleRemoteWrites } from "./store";
  * after Nova stopped waiting, which holds it open for its grace.
  *
  * Decided by every cause a failure can carry, so a new one is a decision
- * here rather than a silent `answered`. A status HQ or its edge sent, and a
- * body Nova could not use (`malformed`, `too-large`, `browser-page`), are
- * answers: the request ended where HQ ended it. `network` and `timeout` are
- * not. `moved` is a list read's cause, a list that changed under every pass
- * Nova made of it: each of those passes was answered, so were a write ever
- * to report it, HQ answered that write too.
+ * here. A 5xx may be the gateway giving up while HQ continues the write.
+ * A confirmed refusal before the view ran settles it, as does a response
+ * body from a finished synchronous request, even if Nova could not use it.
+ * `network` and `timeout` leave the outcome uncertain. `moved` is a list read's
+ * cause, a list that changed under each pass HQ answered.
  */
 export function hqAnsweredWrite(
 	result: { readonly success: true } | CommCareApiError,
@@ -40,6 +40,10 @@ export function hqAnsweredWrite(
 	const cause = result.cause;
 	switch (cause) {
 		case undefined:
+			return (
+				result.status < 500 ||
+				!writeMayHaveLanded(result.status, result.edgeRefusal)
+			);
 		case "malformed":
 		case "too-large":
 		case "browser-page":

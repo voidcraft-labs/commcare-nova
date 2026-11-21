@@ -416,18 +416,22 @@ it, the card says so and leaves the link out, since that app is the way to it
 now. Any worker passwords Nova showed on the card stay there until you leave the
 page, and Nova makes no more workers on that project space.
 
-**A save in CommCare HQ that changed nothing doesn't hold you up.** CommCare
-HQ's settings pages and its form builder write things Nova doesn't, so opening
-a form there and saving it can look like a change. Nova reads the app again,
-sees that it's the same app, and lets your publish go ahead. Where Nova can't
+**A save in CommCare HQ can leave the app working the same way.** For example,
+opening a form in the form builder and saving it can look like a change. When
+you review it, Nova reads the app again. If it reads as the same app, Nova
+records the save so your next publish can go ahead. Where Nova can't
 bring changes in from that project space, such a save is listed like any other
 change.
 
 Some changes read a little differently:
 
-- **Nova couldn't confirm what its last publish left**, for example because
-  CommCare HQ didn't answer when Nova read it back. Nova can't tell whether
-  anything changed, so it asks the same way.
+- **Nova couldn't confirm what its last publish left.** CommCare HQ may have
+  been unavailable when Nova read it back, or saved the app a second time while
+  removing an unused reference to a picture or sound. That extra save looks the
+  same to Nova as another person saving the app at the same time. Your publish
+  landed. If Nova could read the settings at the version CommCare HQ reported,
+  your download, Preview and the Publishing card still use those settings.
+  Nova asks before writing over the app on the next publish.
 - **A lookup table CommCare HQ no longer has.** Publishing makes it again.
 - **A lookup table with a new tag in CommCare HQ.** Publishing makes a new
   table under your tag and leaves that one where it is.
@@ -563,10 +567,11 @@ Four things Nova will refuse rather than guess at:
   workers, and its own pages refuse a worker at a level that doesn't. Nova lists
   each level with the personas who would stand there; you can check
   **Organization Levels** in CommCare HQ (the **Has Users** column), tick the
-  levels that take workers and make the workers again. Nova keeps your answer for
-  that project space, and you can withdraw it from the project space's card,
-  which names each level as Nova asked about it, with CommCare HQ's code beside
-  the name where the two differ.
+  levels that take workers and make the workers again. If another check stops
+  you there, the levels that still need your answer keep their ticks. Once
+  those checks pass, Nova remembers your answer for that project space. You
+  can withdraw it from the project space's card to have Nova ask again the
+  next time someone makes workers at that level.
 - **A persona missing worker information you marked required.** CommCare HQ will
   not save a worker without it. Publishing still works; only making the worker
   stops.

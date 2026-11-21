@@ -262,6 +262,21 @@ async function keyScopes(auth: Auth, key: string): Promise<string[]> {
 	return Array.isArray(scope) ? scope : [];
 }
 
+/** The ledger migration creates the table on which the two phases are fenced.
+ * This isolated database already has the rest of Nova's migrations applied. */
+async function beforeBringInMigration(run: () => Promise<void>) {
+	await database.pool.query(
+		"ALTER TABLE public.app_deployment_media_paths RENAME TO after_bring_in_media_paths",
+	);
+	try {
+		await run();
+	} finally {
+		await database.pool.query(
+			"ALTER TABLE public.after_bring_in_media_paths RENAME TO app_deployment_media_paths",
+		);
+	}
+}
+
 it("gives the scope to what held both HQ scopes before it existed, once, and to nothing else", async () => {
 	const auth = createAuth(database.pool);
 
@@ -319,21 +334,41 @@ it("gives the scope to what held both HQ scopes before it existed, once, and to 
 	);
 
 	const before = await grants();
+	const cutoff = new Date(Date.now() + 1000);
 
-	/* The dry run, which is what the scan prints, counts and writes nothing. */
-	const dry = await repairImportScope(database.db, { execute: false });
-	const expected = [
+	const keyCounts = [{ kind: "api-key", changes: 1, leaves: 3 }];
+	const oauthCounts = [
 		{ kind: "client", changes: 2, leaves: 2 },
 		{ kind: "consent", changes: 2, leaves: 1 },
 		{ kind: "refresh-token", changes: 1, leaves: 3 },
-		{ kind: "api-key", changes: 1, leaves: 3 },
+		{ kind: "api-key", changes: 0, leaves: 4 },
 	];
-	expect(dry).toEqual({ written: false, kinds: expected });
-	expect(await grants()).toEqual(before);
-
-	/* The writer changes exactly what the dry run counted. */
-	const ran = await repairImportScope(database.db, { execute: true });
-	expect(ran).toEqual({ written: true, kinds: expected });
+	await beforeBringInMigration(async () => {
+		const options = { before: cutoff, phase: "keys" as const };
+		expect(
+			await repairImportScope(database.db, { ...options, execute: false }),
+		).toEqual({ written: false, kinds: keyCounts });
+		expect(await grants()).toEqual(before);
+		expect(
+			await repairImportScope(database.db, { ...options, execute: true }),
+		).toEqual({ written: true, kinds: keyCounts });
+		await expect(
+			repairImportScope(database.db, {
+				...options,
+				phase: "oauth",
+				execute: true,
+			}),
+		).rejects.toThrow("after the bring-in deployment");
+	});
+	const options = { before: cutoff, phase: "oauth" as const };
+	const beforeOAuth = await grants();
+	expect(
+		await repairImportScope(database.db, { ...options, execute: false }),
+	).toEqual({ written: false, kinds: oauthCounts });
+	expect(await grants()).toEqual(beforeOAuth);
+	expect(
+		await repairImportScope(database.db, { ...options, execute: true }),
+	).toEqual({ written: true, kinds: oauthCounts });
 	const after = await grants();
 	const changed = Object.keys(after).filter(
 		(row) => JSON.stringify(after[row]) !== JSON.stringify(before[row]),
@@ -362,7 +397,10 @@ it("gives the scope to what held both HQ scopes before it existed, once, and to 
 	]);
 
 	/* A second run changes nothing. */
-	const again = await repairImportScope(database.db, { execute: true });
+	const again = await repairImportScope(database.db, {
+		execute: true,
+		...options,
+	});
 	expect(again.kinds.map((count) => count.changes)).toEqual([0, 0, 0, 0]);
 	expect(await grants()).toEqual(after);
 
@@ -427,4 +465,169 @@ it("gives the scope to what held both HQ scopes before it existed, once, and to 
 		IMPORT_SCOPE,
 	]);
 	expect(freshAsks.pathname).toBe("/consent");
+});
+
+it("leaves new grants and later choices alone, including when an old refresh token rotates", async () => {
+	const auth = createAuth(database.pool);
+	const standing = await client(auth, "Existing client", PRE_IMPORT_SCOPES);
+	const owner = await person(auth, "standing-person");
+	const editedClient = await client(
+		auth,
+		"Client with a later choice",
+		PRE_IMPORT_SCOPES,
+	);
+	const oldClientGrant = await signIn(
+		auth,
+		editedClient,
+		owner,
+		PRE_IMPORT_SCOPES,
+	);
+	const otherOwner = await person(auth, "edited-consent-person");
+	const oldConsentGrant = await signIn(
+		auth,
+		standing,
+		otherOwner,
+		PRE_IMPORT_SCOPES,
+	);
+
+	const tokens = await signIn(auth, standing, owner, PRE_IMPORT_SCOPES);
+	const key = await apiKey(
+		auth,
+		"standing-person",
+		"Existing key",
+		PRE_IMPORT_SCOPES,
+	);
+	// Date the standing authorization as yesterday. Every later credential is
+	// created by the real provider today, including rotation of the old family.
+	const before = new Date(Date.now() - 3_600_000);
+	for (const table of [
+		"auth_oauth_client",
+		"auth_oauth_consent",
+		"auth_apikey",
+	]) {
+		await database.pool.query(
+			`UPDATE ${table} SET "createdAt" = now() - interval '1 day', "updatedAt" = now() - interval '1 day'`,
+		);
+	}
+	await database.pool.query(
+		`UPDATE auth_oauth_refresh_token SET "createdAt" = now() - interval '1 day'`,
+	);
+	// Both grants still carry the old list. Their owners have since chosen
+	// narrower client capabilities or consent, so neither may be widened.
+	await database.pool.query(
+		'UPDATE auth_oauth_client SET "updatedAt" = now() WHERE "clientId" = $1',
+		[editedClient],
+	);
+	await database.pool.query(
+		'UPDATE auth_oauth_consent SET "updatedAt" = now() WHERE "userId" = $1',
+		["edited-consent-person"],
+	);
+	const rotated = await refresh(auth, standing, tokens.refresh_token);
+	const later = await client(auth, "Later client", PRE_IMPORT_SCOPES);
+	await apiKey(auth, "standing-person", "Later key", PRE_IMPORT_SCOPES);
+	const laterUser = await person(auth, "later-person");
+	const laterTokens = await signIn(
+		auth,
+		standing,
+		laterUser,
+		PRE_IMPORT_SCOPES,
+	);
+	const keyCounts = [{ kind: "api-key", changes: 1, leaves: 1 }];
+	// Verification writes updatedAt even though the person did not change scopes.
+	expect(await keyScopes(auth, key.key)).not.toContain(IMPORT_SCOPE);
+	const options = { before, phase: "oauth" as const };
+	await beforeBringInMigration(async () => {
+		expect(
+			(
+				await repairImportScope(database.db, {
+					...options,
+					phase: "keys",
+					execute: false,
+				})
+			).kinds,
+		).toEqual(keyCounts);
+		expect(
+			(
+				await repairImportScope(database.db, {
+					...options,
+					phase: "keys",
+					execute: true,
+				})
+			).kinds,
+		).toEqual(keyCounts);
+	});
+	expect(await keyScopes(auth, key.key)).toContain(IMPORT_SCOPE);
+	// A key minted by the old revision after the keys pass but before the
+	// new release. Its unmodified row identifies the legacy choice.
+	const between = await apiKey(
+		auth,
+		"standing-person",
+		"Between phases",
+		PRE_IMPORT_SCOPES,
+	);
+	await database.pool.query(
+		'UPDATE auth_apikey SET "createdAt" = $1, "updatedAt" = $1 WHERE id=$2',
+		[new Date(before.getTime() - 1000), between.id],
+	);
+
+	const counts = [
+		{ kind: "client", changes: 1, leaves: 2 },
+		{ kind: "consent", changes: 1, leaves: 3 },
+		{ kind: "refresh-token", changes: 1, leaves: 4 },
+		{ kind: "api-key", changes: 1, leaves: 2 },
+	];
+	expect(
+		(await repairImportScope(database.db, { ...options, execute: false }))
+			.kinds,
+	).toEqual(counts);
+	expect(
+		(await repairImportScope(database.db, { ...options, execute: true })).kinds,
+	).toEqual(counts);
+	expect(
+		(await refresh(auth, standing, rotated.refresh_token)).scope.split(" "),
+	).toContain(IMPORT_SCOPE);
+	expect(
+		(await refresh(auth, standing, laterTokens.refresh_token)).scope.split(" "),
+	).not.toContain(IMPORT_SCOPE);
+	expect(
+		(
+			await authorize(auth, standing, laterUser, [
+				...PRE_IMPORT_SCOPES,
+				IMPORT_SCOPE,
+			])
+		).pathname,
+	).toBe("/consent");
+	expect(
+		(
+			await authorize(auth, later, owner, [...PRE_IMPORT_SCOPES, IMPORT_SCOPE])
+		).searchParams.get("error"),
+	).toBe("invalid_scope");
+	expect(
+		(
+			await refresh(auth, editedClient, oldClientGrant.refresh_token)
+		).scope.split(" "),
+	).not.toContain(IMPORT_SCOPE);
+	expect(
+		(await refresh(auth, standing, oldConsentGrant.refresh_token)).scope.split(
+			" ",
+		),
+	).not.toContain(IMPORT_SCOPE);
+	// The second run may not restore a scope a person deliberately removed.
+	await auth.api.updateApiKey({
+		body: {
+			keyId: key.id,
+			userId: "standing-person",
+			permissions: { scope: PRE_IMPORT_SCOPES },
+		},
+	});
+	await expect(
+		repairImportScope(database.db, { before, phase: "keys", execute: true }),
+	).rejects.toThrow("before the bring-in migration");
+	expect(await keyScopes(auth, between.key)).toContain(IMPORT_SCOPE);
+	const rerun = await repairImportScope(database.db, {
+		...options,
+		execute: true,
+	});
+	expect(rerun.kinds.map(({ changes }) => changes)).toEqual([0, 0, 0, 0]);
+	expect(await keyScopes(auth, key.key)).not.toContain(IMPORT_SCOPE);
 });

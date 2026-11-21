@@ -140,11 +140,9 @@ export async function readBoundedBody(
 		return { kind: "unavailable", error };
 	}
 	if (chunks === null && sized !== null) {
-		keeping(sized.byteLength);
-		return {
-			kind: "read",
-			bytes: total === sized.byteLength ? sized : sized.subarray(0, total),
-		};
+		const bytes = total === sized.byteLength ? sized : sized.slice(0, total);
+		keeping(bytes.byteLength);
+		return { kind: "read", bytes };
 	}
 	const bytes = joined(chunks ?? [], total);
 	keeping(bytes.byteLength);

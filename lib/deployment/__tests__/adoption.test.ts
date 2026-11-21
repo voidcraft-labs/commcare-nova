@@ -457,12 +457,14 @@ describe("assignMediaPaths", () => {
 		]);
 	});
 
-	it("re-derives a path with `..`, with no directory, or with a space at either end", () => {
+	it("re-derives every path the archive, the media suite or HQ cannot address", () => {
 		for (const path of [
 			"media/../logo.png",
 			"logo.png",
 			" media/logo.png",
 			"media/logo.png ",
+			"media/lo\ufffego.png",
+			"media/lo\uffffgo.png",
 		]) {
 			expect(assignMediaPaths([file(path)])).toEqual({
 				rows: [],

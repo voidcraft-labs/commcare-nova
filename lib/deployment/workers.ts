@@ -50,6 +50,7 @@ import {
 	DeploymentError,
 } from "./errors";
 import { readManagedPlaceIds } from "./managedData";
+import { hqAnsweredWrite } from "./remoteWrites";
 import { deploymentEnding, publishedRemoteApp } from "./resources";
 import {
 	admitWorkerWrite,
@@ -321,22 +322,28 @@ export async function provisionWorkers(
 	 * would refuse to write anyway trades a round trip for the wrong
 	 * refusal: the project space would look unable to answer when the name
 	 * was the problem all along. */
-	const problems = workerProvisionProblems(planInput);
-	if (problems.length > 0) {
+	/* A refused call records none of the levels it was sent. Describe its
+	 * next attempt against the ledger, so the caller can keep every answer,
+	 * even one that was sufficient for this attempt. */
+	const problems = workerProvisionProblems({
+		...planInput,
+		confirmedWorkerLevels: new Set(storedLevels),
+	});
+	const answered = new Set(sentLevels);
+	if (
+		problems.some(
+			(problem) =>
+				problem.kind !== "level-unconfirmed" ||
+				!answered.has(problem.level.code),
+		)
+	) {
 		return refused(unprovisionable(problems, domain, input.locations));
 	}
-	/* The levels this call's confirmations answer: the ones a call naming
-	 * none would be refused for. A confirmation naming a level no worker here
-	 * stands at answers nothing and is never stored. */
-	const answered = new Set(sentLevels);
-	const levelsToRecord = workerLevelsToConfirm(
-		workerProvisionProblems({
-			...planInput,
-			confirmedWorkerLevels: new Set(storedLevels),
-		}),
-	)
-		.map((level) => level.code)
-		.filter((code) => answered.has(code));
+	/* Here every problem is a level the caller confirmed for these workers.
+	 * An unrelated level sent on the same call is never recorded. */
+	const levelsToRecord = workerLevelsToConfirm(problems).map(
+		(level) => level.code,
+	);
 	/* Recorded once every problem Nova can know of has passed, before CommCare
 	 * HQ is asked anything: a call refused here stores none, so the caller
 	 * sends them again, and a call that meets a username clash after this
@@ -393,23 +400,30 @@ export async function provisionWorkers(
 	const writeIds: string[] = [];
 	const stopped = async (
 		refusal: WorkerProvisionRefusal,
+		unansweredWriteId?: string,
 	): Promise<ProvisionWorkersOutcome> => ({
 		refusal,
 		workers: provisioned,
 		unconfirmed,
-		deployment: await recordLanded(input, target, landed, writeIds),
+		deployment: await recordLanded(
+			input,
+			target,
+			landed,
+			writeIds,
+			unansweredWriteId,
+		),
 	});
 
 	for (const push of plan.pushes) {
 		/* Admitted under the fence immediately before it goes: an ending
 		 * since sends nothing more, and what landed before it is recorded. */
+		let writeId: string;
 		try {
-			writeIds.push(
-				await admitWorkerWrite(input.scope, target, {
-					expectedEndings,
-					personaUuid: push.personaUuid,
-				}),
-			);
+			writeId = await admitWorkerWrite(input.scope, target, {
+				expectedEndings,
+				personaUuid: push.personaUuid,
+			});
+			writeIds.push(writeId);
 		} catch (error) {
 			if (error instanceof DeploymentEndedError)
 				return stopped({
@@ -484,16 +498,19 @@ export async function provisionWorkers(
 			});
 		}
 		if (written.refusal !== null) {
-			return stopped({
-				code:
-					written.unconfirmed === null
-						? "hq_rejected_worker"
-						: "hq_worker_may_exist",
-				message: written.refusal.message,
-				details: written.refusal.details,
-				conflicts: [],
-				levels: [],
-			});
+			return stopped(
+				{
+					code:
+						written.unconfirmed === null
+							? "hq_rejected_worker"
+							: "hq_worker_may_exist",
+					message: written.refusal.message,
+					details: written.refusal.details,
+					conflicts: [],
+					levels: [],
+				},
+				written.refusal.answered ? undefined : writeId,
+			);
 		}
 	}
 
@@ -589,6 +606,7 @@ interface WorkerWriteResult {
 	 */
 	readonly unconfirmed: { readonly password: string } | null;
 	readonly refusal: {
+		readonly answered: boolean;
 		readonly message: string;
 		readonly details: readonly string[];
 	} | null;
@@ -667,6 +685,7 @@ async function writeWorker(
 				landed: account,
 				unconfirmed: null,
 				refusal: {
+					answered: hqAnsweredWrite(assigned),
 					message: `Nova made the account for “${push.personaName}” on “${domain}”, but CommCare HQ wouldn't put them in the places their persona names. The account works; the assignment ${assigned.mayHaveLanded ? "may only have partly happened" : "didn't happen"}. Provision this persona again to finish it.`,
 					details: assigned.message === "" ? [] : [assigned.message],
 				},
@@ -719,6 +738,7 @@ function rejection(
 		error.edgeRefusal !== true &&
 		(error.status === 401 || error.status === 403);
 	return {
+		answered: hqAnsweredWrite(error),
 		message: permissions
 			? `CommCare HQ wouldn't let Nova ${verb} the account for “${push.personaName}” on “${domain}”. Creating mobile workers needs the Edit Mobile Workers permission on your CommCare HQ account.`
 			: error.mayHaveLanded
@@ -768,6 +788,7 @@ function unresolvedCreate(
 	push: PlannedWorkerPush,
 ): NonNullable<WorkerWriteResult["refusal"]> {
 	return {
+		answered: hqAnsweredWrite(error),
 		message: `CommCare HQ broke off while making the account for “${push.personaName}” on “${domain}” and didn't say whether it made one. Keep the password Nova just showed you either way, because if that account is there this is the only password it will ever have. Then look for “${push.completeUsername}” on the project space: if it isn't there, provision ${push.personaName} again to make it, and if it is, give CommCare HQ a minute to notice its own new account before provisioning again, which is when Nova can offer to take it over.`,
 		details: error.message === "" ? [] : [error.message],
 	};
@@ -808,12 +829,14 @@ async function recordLanded(
 	target: DeploymentTargetKey,
 	landed: readonly RecordRemoteResourceInput[],
 	writeIds: readonly string[],
+	unansweredWriteId?: string,
 ): Promise<DeploymentWithResources | null> {
 	try {
 		const recorded = await recordProvisionedWorkers(input.scope, target, {
 			landed,
 			stillUsed: Object.keys(personasOf(input.doc)),
 			writeIds,
+			...(unansweredWriteId !== undefined && { unansweredWriteId }),
 		});
 		return recorded.deployment;
 	} catch (error) {

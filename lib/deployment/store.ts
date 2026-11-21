@@ -794,7 +794,15 @@ async function novaRevisionsIn(
 		.where("d.project_id", "=", scope.projectId)
 		.where("r.kind", "=", "app")
 		.where("r.superseded_at", "is", null)
-		.where("b.origin", "<>", "unread")
+		.where((eb) =>
+			eb.or([
+				eb("b.origin", "in", ["read", "changes"]),
+				eb.and([
+					eb("b.origin", "=", "push"),
+					eb("b.nova_revision", "=", eb.ref("r.pushed_revision")),
+				]),
+			]),
+		)
 		.where("b.nova_revision", "is not", null)
 		.execute();
 	const revisions = new Map<string, number>();
@@ -1538,6 +1546,8 @@ export interface RecordAnswer {
  * publish's own evidence for a later deep-link check.
  */
 export interface RecordedImport extends RecordAnswer {
+	/** This import's mapping token, or null when a later import already stood there. */
+	readonly pushToken: string | null;
 	readonly dependencies: PublishedEntryPointManifest["dependencies"];
 }
 
@@ -2193,7 +2203,10 @@ export async function recordRemoteResource(
 		{ admitted, writeKinds: ["import"] },
 		async (tx, row, access) => {
 			holdFence(row, input.expectedEndings);
-			const answer = async (): Promise<RecordedImport> => ({
+			const answer = async (
+				pushToken: string | null,
+			): Promise<RecordedImport> => ({
+				pushToken,
 				...(await answerRecord(tx, row.id, access, landed)),
 				dependencies: await contentDependencies(tx, row.id),
 			});
@@ -2220,10 +2233,10 @@ export async function recordRemoteResource(
 					remoteRevision: input.remoteRevision,
 					recordedRemoteRevision: recorded,
 				});
-				return answer();
+				return answer(null);
 			}
 			const now = new Date();
-			await writeResourceMapping(tx, row.id, input, now);
+			const pushToken = await writeResourceMapping(tx, row.id, input, now);
 			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
 
 			const record = toDeploymentRecord(row);
@@ -2250,7 +2263,7 @@ export async function recordRemoteResource(
 				.execute();
 			await notifyAppDeployments(tx, scope.appId);
 
-			return answer();
+			return answer(pushToken);
 		},
 	);
 }
@@ -2884,9 +2897,9 @@ export async function recordRefreshedAppBaseline(
  * stands at each path the publish sent. `edit`.
  *
  * It writes only where the baseline row still names that HQ app and the
- * digest of the baseline this publish wrote, so a later publish's baseline,
+ * live mapping's unique push token and the digest this publish wrote, so a later publish's baseline,
  * which that publish records its own files beside, is left alone. A publish
- * whose read-back failed wrote an `unread` baseline, whose digest is null,
+ * whose read-back failed wrote an `unread` baseline with a null digest,
  * and passes null. On a deployment someone stopped since the publish began
  * it writes nothing and throws nothing: the app had already landed, which
  * the publish reports, as `finishDeploymentContentWrite` holds it.
@@ -2902,7 +2915,8 @@ export async function recordDeploymentMediaFiles(
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
-		/** The digest of the baseline this publish wrote; null for an `unread` one. */
+		readonly pushToken: string | null;
+		/** The digest of the baseline this publish wrote; null when HQ returned no verifiable source. */
 		readonly sourceDigest: string | null;
 		readonly files: HqMediaRecord;
 		readonly admitted?: AdmittedRecord;
@@ -2913,12 +2927,25 @@ export async function recordDeploymentMediaFiles(
 		target,
 		{ admitted: input.admitted, writeKinds: ["import", "media"] },
 		async (tx, row) => {
-			if (row.endings !== input.expectedEndings) return;
+			const { pushToken } = input;
+			if (row.endings !== input.expectedEndings || pushToken === null) return;
 			await tx
 				.updateTable("app_deployment_baselines")
 				.set({ media_files: JSON.stringify(input.files) })
 				.where("deployment_id", "=", row.id)
 				.where("remote_app_id", "=", input.remoteAppId)
+				.where((eb) =>
+					eb.exists(
+						tx
+							.selectFrom("app_deployment_resources as r")
+							.select("r.id")
+							.where("r.deployment_id", "=", row.id)
+							.where("r.kind", "=", "app")
+							.where("r.remote_id", "=", input.remoteAppId)
+							.where("r.superseded_at", "is", null)
+							.where("r.push_token", "=", pushToken),
+					),
+				)
 				.where((eb) =>
 					input.sourceDigest === null
 						? eb("source_digest", "is", null)
@@ -3494,7 +3521,12 @@ export async function readAppBaseline(
 		mediaFiles: storedMediaFiles(row.deployment_id, row.media_files),
 	};
 	if (row.origin === "unread") {
-		return { origin: "unread", storedOrigin: "unread", ...observed };
+		return {
+			origin: "unread",
+			storedOrigin: "unread",
+			...observed,
+			novaRevision: null,
+		};
 	}
 	const origin = knownReadOrigin(row.deployment_id, row.origin);
 	const verified = verifiedBaselineSource(row);
@@ -3728,7 +3760,7 @@ function storedFirstPublish(
 /**
  * What the project space holds of the values Nova leaves to CommCare HQ,
  * projected from this target's stored app baseline, or null where there is
- * no baseline, it is `unread` or a shell's, or it does not verify.
+ * no observed source, the source is an empty shell's, or it does not verify.
  *
  * `view`, where `readAppBaseline` takes `edit`: this returns the typed
  * projection and never the source, and every value of it is one a viewer's
@@ -3806,12 +3838,16 @@ export async function holdTargetFacts(
 		.where("d.domain", "=", target.domain)
 		.executeTakeFirst();
 	const none = { kind: "made", facts: null } as const;
-	if (row === undefined || row.origin === "unread") return none;
-	if (knownReadOrigin(row.deployment_id, row.origin) === "create") return none;
+	if (row === undefined || row.source_digest === null) return none;
+	if (
+		row.origin !== "unread" &&
+		knownReadOrigin(row.deployment_id, row.origin) === "create"
+	)
+		return none;
 	const observedAt = row.observed_at.toISOString();
 	const adopted = row.app_ownership === "adopted";
 	const ownership = appOwnershipFromRow(row.ownership);
-	if (row.source_digest !== null && ownership !== null) {
+	if (ownership !== null) {
 		const key = targetFactsCacheKey(
 			row.deployment_id,
 			row.source_digest,
@@ -3845,8 +3881,11 @@ export async function holdTargetFacts(
 		.where("d.app_id", "=", scope.appId)
 		.where("d.project_id", "=", scope.projectId)
 		.executeTakeFirst();
-	if (bytes === undefined || bytes.origin === "unread") return none;
-	if (knownReadOrigin(row.deployment_id, bytes.origin) === "create")
+	if (bytes === undefined || bytes.source_digest === null) return none;
+	if (
+		bytes.origin !== "unread" &&
+		knownReadOrigin(row.deployment_id, bytes.origin) === "create"
+	)
 		return none;
 	return {
 		kind: "bytes",
@@ -4007,7 +4046,7 @@ async function writeResourceMapping(
 	deploymentId: string,
 	input: RecordRemoteResourceInput,
 	now: Date,
-): Promise<void> {
+): Promise<string> {
 	const adopted = input.ownership === "adopted";
 	const adoptedBy = input.adoptedBy ?? null;
 	/* The ledger's CHECK says the same thing, and hitting it would surface
@@ -4082,7 +4121,7 @@ async function writeResourceMapping(
 	 * a republish always lands in the conflict arm, so an insert-only
 	 * write would silently drop the version an in-place update
 	 * reported. */
-	await tx
+	const pushed = await tx
 		.insertInto("app_deployment_resources")
 		.values({
 			deployment_id: deploymentId,
@@ -4113,7 +4152,9 @@ async function writeResourceMapping(
 					remote_missing_at: null,
 				}),
 		)
-		.execute();
+		.returning("push_token")
+		.executeTakeFirstOrThrow();
+	return pushed.push_token;
 }
 
 /**
@@ -4358,8 +4399,9 @@ export async function recordProvisionedWorkers(
 		readonly landed: readonly RecordRemoteResourceInput[];
 		/** The personas the app still has. */
 		readonly stillUsed: readonly string[];
-		/** The call's admitted writes, settled here. */
+		/** The call's admitted writes, settled here except for a write whose outcome is still unknown. */
 		readonly writeIds: readonly string[];
+		readonly unansweredWriteId?: string;
 	},
 ): Promise<RecordAnswer> {
 	for (const landed of input.landed) {
@@ -4369,14 +4411,23 @@ export async function recordProvisionedWorkers(
 			);
 		}
 	}
+	const settle: WritesEnded[] = [
+		{
+			writeIds: input.writeIds.filter((id) => id !== input.unansweredWriteId),
+			how: { kind: "settled" },
+		},
+	];
+	if (input.unansweredWriteId !== undefined) {
+		settle.push({
+			writeIds: [input.unansweredWriteId],
+			how: { kind: "unanswered" },
+		});
+	}
 	return withRecordRow(
 		scope,
 		target,
 		{
-			admitted: {
-				writeIds: input.writeIds,
-				settle: [{ writeIds: input.writeIds, how: { kind: "settled" } }],
-			},
+			admitted: { writeIds: input.writeIds, settle },
 			writeKinds: ["worker"],
 		},
 		async (tx, row, access) => {

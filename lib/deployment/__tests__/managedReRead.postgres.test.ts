@@ -82,6 +82,7 @@ async function seed(): Promise<void> {
 
 function reRead(copies: readonly ManagedCopy[]) {
 	return reReadManagedTablesForPublish({
+		requireHqImport: null,
 		access: ACCESS,
 		doc: readerOf(copies),
 		target: TARGET,

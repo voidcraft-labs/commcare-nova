@@ -130,7 +130,7 @@ if (args[0] === "compose" && args.includes("run")) {
 			}
 			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
 		}
-		writeFileSync(${JSON.stringify(join(scratch, "relayed.json"))}, JSON.stringify(answered));
+		writeFileSync(${JSON.stringify(join(scratch, "relayed.json"))}, JSON.stringify({ answered, files: readdirSync(answers).sort() }));
 	}
 	process.exit(behavior.harness);
 }
@@ -862,10 +862,18 @@ it("runs a shard's claims on the host with its credentials, for the queue's bloc
 	expect(
 		JSON.parse(await readFile(join(scratch, "relayed.json"), "utf8")),
 	).toEqual({
-		[`claim-${BLOCK}`]: "1",
-		[`claim-${OTHER}`]: "2",
-		"claim-not-a-block": "2",
-		wait: "2",
+		answered: {
+			[`claim-${BLOCK}`]: "1",
+			[`claim-${OTHER}`]: "2",
+			"claim-not-a-block": "2",
+			wait: "2",
+		},
+		files: [
+			`claim-${BLOCK}.code`,
+			`claim-${OTHER}.code`,
+			"claim-not-a-block.code",
+			"wait.code",
+		].sort(),
 	});
 	expect(await readdir(ran)).toEqual([BLOCK]);
 	expect(await readFile(join(ran, BLOCK), "utf8")).toBe(`${BLOCK} token`);

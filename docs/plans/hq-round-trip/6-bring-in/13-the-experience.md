@@ -2539,20 +2539,13 @@ approves it at consent (a stored consent that lacks it sends the request to cons
 issues the refresh token's own scopes and never adds one), and an API key's owner edits the key. A
 newly registered client holds the scope in its capability list by registration, and a client
 identified by its metadata document takes it in the next time its document is read; its person is
-still asked at consent. What exists at the deploy is given the scope once, as data, by a repair that
-runs after the deploy is live (`scripts/migrate-hq-import-scope.ts` over
-`scripts/lib/hqImportScope.ts`, scanned first by `scripts/scan-hq-import-scope.ts`): every OAuth
-client's own scope list, and every consent, live refresh token and enabled API key that already holds
-both `nova.hq.read` and `nova.hq.write`, because reading and writing CommCare HQ with the person's
-stored key is the reach bringing an app in uses. A grant holding one HQ scope or neither gains
-nothing and is asked as for any scope. So an existing connection's next refresh holds the scope with
-no step of the person's, and an existing key that reads and writes CommCare HQ can bring apps in. It
-runs after the deploy, not before, because the revision it replaces rewrites a metadata document
-client's list from its own scopes and the provider then refuses a refresh token holding a scope the
-client's list lacks (`handleRefreshTokenGrant` → `validateClientScopes`). The stack's last commit
-removes the scripts, their library and test, the maintenance image's two bundles, the historical
-repair Job's admission and its policy cases, and `docs/architecture/deployment.md`'s paragraph, so
-nothing of the repair reaches main.
+still asked at consent. The approved repair covers existing connections that already held both HQ
+scopes. Its keys pass runs before merge, and its OAuth pass runs after the new revision serves
+all traffic and the old instances drain. The post-deploy pass also checks eligible keys the old
+revision created or edited between the two passes. Each pass has its own fixed cutoff to preserve
+later choices. The [deployment procedure](../../../architecture/deployment.md#historical-repairs)
+gives the cutoffs, the read-only counts, the repeated OAuth check and the write commands.
+Retain the maintenance commit to run them after the shipping tree removes the repair machinery.
 
 **The Solutions Architect is given none of the eight**, and none enters `SHARED_TOOL_REGISTRY`. The
 standing reason is `deploymentTools.ts`'s own: "A deployment is not authored vocabulary: it is durable

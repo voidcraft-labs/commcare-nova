@@ -41,6 +41,7 @@ import {
 	shownPlace,
 } from "@/lib/publish/hqFindings";
 import type { IndexedEntry, InventoryIndex } from "../surface/inventory";
+import { chargeWork } from "../workMeter";
 import { elementNamespace, namespaceScopes, splitName } from "../xmlNamespaces";
 import {
 	type Claim,
@@ -1143,6 +1144,7 @@ export class Accounting implements ClaimLedger {
 	#closeJson(cursor: JsonCursorImpl): void {
 		const covered = cursor.covered();
 		for (const key of Object.keys(cursor.value)) {
+			chargeWork("visit", 1);
 			this.#nodesVisited += 1;
 			if (
 				covered ||
@@ -1160,6 +1162,10 @@ export class Accounting implements ClaimLedger {
 			element: Element,
 			parentNamespace: string | null | undefined,
 		) => {
+			chargeWork(
+				"visit",
+				1 + element.children.length + Object.keys(element.attribs).length,
+			);
 			this.#nodesVisited += 1;
 			if (this.#subtrees.has(element)) {
 				if (this.#readSubtrees.has(element)) instructionsIn(element);
@@ -1231,6 +1237,7 @@ export class Accounting implements ClaimLedger {
 		/** Each text Core reads under a subtree whose claim reads it, for a processing instruction
 		 *  in it: the claim read the text without it, and Core does not. */
 		const instructionsIn = (element: Element) => {
+			chargeWork("visit", element.children.length);
 			for (const child of element.children) {
 				if (isTag(child)) instructionsIn(child);
 				else if (child.type === "directive" && coreReadsTextOf(element))
@@ -1270,6 +1277,19 @@ export class Accounting implements ClaimLedger {
 					placeOrder(a.finding.place, b.finding.place) || a.order - b.order,
 			)
 			.map(({ finding }) => finding);
+		return {
+			findings,
+			...this.workAndClaims(),
+			defects: [...this.#defects],
+		};
+	}
+
+	/** Report only what the reading has already visited and claimed. A stopped
+	 * reading uses this even if its final accounting pass was interrupted. */
+	workAndClaims(): {
+		work: Pick<ReadWork, "nodes" | "rebuilds">;
+		claims: ClaimLog;
+	} {
 		const full = this.#full;
 		const pending = this.#records;
 		const claims: ClaimLog = {
@@ -1303,13 +1323,11 @@ export class Accounting implements ClaimLedger {
 			},
 		};
 		return {
-			findings,
 			work: {
 				nodes: this.#nodesVisited,
 				rebuilds: this.#rebuilds,
 			},
 			claims,
-			defects: [...this.#defects],
 		};
 	}
 }

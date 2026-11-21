@@ -8,6 +8,7 @@ import { z } from "zod";
 import { isGeneratedMemberPath } from "@/lib/commcare/cczMembers";
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import { xmlTextIssue } from "@/lib/commcare/xmlText";
 import type { AssetKind, IconRef } from "@/lib/domain";
 import {
 	NO_ENTRIES,
@@ -34,17 +35,18 @@ const STRIPPED_AT_AN_END = /^[\p{Zs}\p{Zl}\p{Zp}]|[\p{Zs}\p{Zl}\p{Zp}]$/u;
  * deployment: a directory and a name, no empty, `.` or `..` segment, no
  * backslash and no control character, at most 255 code points, no character
  * at either end that CommCare HQ's bulk upload strips from every zip entry
- * (`CommCareMultimedia.get_form_path`), and text a UTF-8 zip entry can name;
- * and none of the names a `.ccz` gives its own files, or a name under one
+ * (`CommCareMultimedia.get_form_path`), and text the media suite can serialize
+ * as XML. The path cannot name a `.ccz`'s own file or stand under one
  * (`cczMembers.ts::isGeneratedMemberPath`: `<any directory>/app_strings.txt`,
  * `modules-<n>/forms-<n>.xml`, the root files), compared without letter case.
  * A `.ccz` packs media beside those files, and a language or a form can be
  * added after the path is held, so the reservation is by shape.
  */
 export function isHoldableWirePath(path: string): boolean {
-	if (!path.isWellFormed()) return false;
+	if (path.length > 2 * MAX_WIRE_PATH_CODE_POINTS) return false;
 	if ([...path].length > MAX_WIRE_PATH_CODE_POINTS) return false;
-	if (path.includes("\\") || CONTROL.test(path)) return false;
+	if (path.includes("\\") || CONTROL.test(path) || xmlTextIssue(path))
+		return false;
 	if (STRIPPED_AT_AN_END.test(path)) return false;
 	if (isGeneratedMemberPath(path)) return false;
 	const segments = path.split("/");

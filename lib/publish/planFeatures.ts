@@ -12,7 +12,7 @@
  *
  * Every `plans` literal is the current plans whose feature list carries the
  * feature, as the list names them. `lib/commcare/__tests__/planPrivileges.test.ts`
- * holds each to `lib/commcare/planPrivilegePlans.json`, and the proof lane
+ * holds each to `lib/commcare/surface/planPrivilegePlans.json`, and the proof lane
  * holds that file to HQ's own plan lists.
  */
 

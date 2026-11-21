@@ -1,7 +1,7 @@
 """``python -m proof.lane.relay``: a lane command the host runs, asked for by name and answered by status.
 
 The contract: the relay names its request as an empty file moved into place
-whole, prints the host's output for it and exits with the host's status; it
+whole and exits with the host's status, pointing to the host job log; it
 names only a block's id (a sha256 in hex) or the wait, so nothing the server
 passes it becomes a path or a command. The plausible failures: a request
 read half written, a status lost, and a block argument that names a path
@@ -19,19 +19,18 @@ from proof.lane import relay
 BLOCK = "c" * 64
 
 
-def test_a_request_is_answered_with_the_hosts_status_and_output(capsys):
+def test_a_request_is_answered_with_the_hosts_status_and_points_to_its_log(capsys):
     # The host's answer is in place before the relay asks, so the relay returns at its first look, with no wait.
     with tempfile.TemporaryDirectory() as scratch:
         requests, answers = Path(scratch, "requests"), Path(scratch, "answers")
         requests.mkdir()
         answers.mkdir()
-        (answers / f"claim-{BLOCK}.log").write_text("claimed by shard 2\n", encoding="utf-8")
         staged = answers / "staged"
         staged.write_text("1\n", encoding="utf-8")
         os.replace(staged, answers / f"claim-{BLOCK}.code")
         code = relay.main(["--requests", str(requests), "--answers", str(answers), "claim", BLOCK])
         assert code == 1
-        assert capsys.readouterr().out == "claimed by shard 2\n"
+        assert "status 1. The shard's job log" in capsys.readouterr().out
         # The request is the one name, moved into place whole: nothing staged is left beside it.
         assert sorted(path.name for path in requests.iterdir()) == [f"claim-{BLOCK}.request"]
 
