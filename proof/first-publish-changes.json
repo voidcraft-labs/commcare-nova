@@ -1120,7 +1120,7 @@
 			{
 				"check": "proof3",
 				"artifact": "android@B",
-				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation:location",
 				"kind": "added"
 			},
 			{
@@ -1150,7 +1150,7 @@
 			{
 				"check": "proof3",
 				"artifact": "android@local.ccz",
-				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation",
+				"path": "/walks/*/steps/*/form/saved/records/*/metaLocation:location",
 				"kind": "added"
 			},
 			{

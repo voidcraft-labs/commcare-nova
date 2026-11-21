@@ -40,7 +40,8 @@ def locations(differences, trace, form_namespaces=None):
         gps = difference.path in (
             "/walks/*/steps/*/form/deviceAsked:location",
             "/walks/*/steps/*/form/deviceGave:location",
-        ) or (len(rest) == 4 and rest[:2] == ["saved", "records"] and rest[2].isdigit() and rest[3] == "metaLocation")
+            "/walks/*/steps/*/form/saved/records/*/metaLocation:location",
+        )
         if not (question or gps):
             continue
         key = (difference.artifact, difference.at)
