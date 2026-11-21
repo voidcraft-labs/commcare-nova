@@ -9,9 +9,10 @@ shows, an unset one at the value it shows for it
 each in the app's profile (``views/settings.py::edit_commcare_settings``,
 ``edit_commcare_profile``), and HQ's build writes each stored setting whose
 value is set into every profile it builds (``ApplicationBase.create_profile``).
-The app here holds no Nova byte: HQ's own view makes it (``default_new_app``),
-and HQ's settings page, loaded in Chromium, saves it unchanged as proof 4
-saves it (``proof.editors.pages.APP_SETTINGS``).
+The app here holds no Nova byte: HQ's own views make its case menu
+(``default_new_app``, ``new_module``), and Vellum saves its follow-up form.
+HQ's settings page saves it unchanged in Chromium. Core installs both builds
+and reports the force and value of each property.
 
 The plausible failures: a member whose paths are not where proof 4 reports
 the settings the save wrote, so the save over B of an app brought in from HQ
@@ -21,51 +22,55 @@ value, so a save that changed a value the app held would be dropped.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import json
+
+from lxml import etree
 
 from proof.checks import hq_own_reports
-from proof.editors import compare, pages
+from proof.checks.differences import Difference
+from proof.editors import compare, pages, vellum
 from proof.editors.conftest import record_timing, save_section, write_evidence
+from proof.editors.test_hq_own_registration_alert import _case_menu, _hq
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
+from proof.observe.build import admit, arrange
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 MEMBER = "settings_page_writes_unset_settings"
 
 
-def _new_app(state):
-    """A new app, as HQ's own page makes one (``views/apps.py::default_new_app``); returns its id."""
-    from corehq.apps.app_manager.dbaccessors import get_app_ids_in_domain
-    from django.urls import resolve, reverse
-
-    from proof.hq import requests as hq_requests
-
-    path = reverse("default_new_app", args=[state.domain])
-    match = resolve(path)
-    response = match.func(hq_requests.get(state, path), *match.args, **match.kwargs)
-    assert response.status_code < 400, (response.status_code, response.content[:600])
-    (app_id,) = get_app_ids_in_domain(state.domain)
+def _case_list_app(state, editor_driver):
+    """A runnable HQ-made case menu. The follow-up form visits a case, and the list shows its name."""
+    app_id, followup = _case_menu(state)
+    module = operations.held_app(state, app_id).modules[0]
+    # HQ's new case menu also holds an unfinished registration form; the worker visits an existing case.
+    _hq(state, "delete_form", app_id, module.unique_id, module.forms[0].unique_id, data=[])
+    columns = [{"header": {"en": "Name"}, "model": "case", "field": "name", "format": "plain"}]
+    _hq(
+        state,
+        "edit_module_detail_screens",
+        app_id,
+        module.unique_id,
+        data=[("type", json.dumps("case")), ("short", json.dumps(columns))],
+    )
+    run = vellum.open_and_save(editor_driver, state, app_id, followup)
+    assert run.loaded and run.saved, (run.load_error, run.save_refusal)
     return app_id
 
 
-def _report(path):
-    """A report of the save as proof 4 makes one of a setting it added."""
-    return SimpleNamespace(path=path, kind="added")
-
-
-def _held(artifact, path, stored):
-    """The member that holds a report of the save over ``stored``, an app HQ's own page made."""
-    member = hq_own_reports.held(artifact, path, _report(path), stored, True)
+def _held(artifact, path, value, added):
+    difference = Difference("proof4", "-", artifact, path, path, "added", None, value)
+    member = hq_own_reports.held(artifact, path, difference, added)
     return None if member is None else member.id
 
 
-def test_settings_page_writes_unset_settings(hq, editor_driver):
+def test_settings_page_writes_unset_settings(hq, editor_driver, core_runner, tmp_path):
     """On an app HQ's own page made, the settings page's unchanged save stores and builds each of the fifteen
     settings, every one of which the app held no value for, and the member holds each report of it at the
     artifact and path proof 4 reports it at, over the app as it stood before the save."""
     with hq_check(CONFIGURATION) as (state, record):
-        app_id = _new_app(state)
+        app_id = _case_list_app(state, editor_driver)
         before_doc = operations.held_app(state, app_id).to_json()
         before = compare.build(state, app_id, record)
         saved = save_section(editor_driver, state, pages.APP_SETTINGS, app_id)
@@ -83,14 +88,37 @@ def test_settings_page_writes_unset_settings(hq, editor_driver):
         "hq-own-settings-page",
         {"stored": [stored_before, stored_after], "built": [built_before, built_after], "request": saved.save.body},
     )
-    for key in hq_own_reports.UNSEEDED_SETTINGS:
-        assert key not in stored_before and key not in built_before, key
-        assert stored_after.get(key) and built_after.get(key) == str(stored_after[key]), key
-        assert _held("app.json@app settings", f"/profile/properties/{key}", before_doc) == MEMBER, key
-        assert _held("trace@app settings", f"/profile/properties/{key}", before_doc) == MEMBER, key
-        for artifact in ("profile.xml", "profile.ccpr", "media_profile.xml", "media_profile.ccpr"):
-            assert _held(f"{artifact}@app settings", f"/profile/property[@key={key}]", before_doc) == MEMBER, key
-    # Over the app the save left, which holds a value for each, the member holds nothing: a later save that
-    # changed one of them would be reported.
-    for key in hq_own_reports.UNSEEDED_SETTINGS:
-        assert _held("app.json@app settings", f"/profile/properties/{key}", after_doc) is None, key
+    profiles = {
+        path: etree.fromstring(after.files[path].encode() if isinstance(after.files[path], str) else after.files[path])
+        for path in ("profile.xml", "profile.ccpr", "media_profile.xml", "media_profile.ccpr")
+    }
+    before_core, after_core = (
+        admit(core_runner, arrange(build.files, tmp_path / label))
+        for build, label in ((before, "before"), (after, "after"))
+    )
+    assert before_core["admitted"] and after_core["admitted"], (before_core["problems"], after_core["problems"])
+    original = {setter["key"] for setter in before_core["profile"]["properties"]}
+    installed = {
+        setter["key"]: {k: v for k, v in setter.items() if k != "key"} for setter in after_core["profile"]["properties"]
+    }
+    posted = json.loads(saved.save.body)["properties"]
+    added = hq_own_reports.settings_added(before_doc, before_doc, after_doc)
+    assert added == hq_own_reports.UNSEEDED_SETTINGS
+    for key, value in hq_own_reports.UNSEEDED_SETTINGS.items():
+        assert key not in stored_before and key not in built_before and key not in original, key
+        assert str(posted[key]) == stored_after[key] == built_after[key] == value
+        path = f"/profile/properties/{key}"
+        assert _held("app.json@app settings", path, stored_after[key], added) == MEMBER
+        assert _held("trace@app settings", path, installed[key], added) == MEMBER
+        for artifact, root in profiles.items():
+            (element,) = root.findall(f"property[@key='{key}']")
+            assert (
+                _held(
+                    f"{artifact}@app settings",
+                    f"/profile/property[@key={key}]",
+                    etree.tostring(element, encoding="unicode", with_tail=False),
+                    added,
+                )
+                == MEMBER
+            )
+    assert not hq_own_reports.settings_added(before_doc, after_doc, after_doc)

@@ -207,8 +207,8 @@ from proof.checks.compare.names import CASE_FIELDS, block_path
 from proof.checks.compare.trace import INSTALLED_MEDIA, MEDIA_FILES, generated_labels, relabel_generated
 from proof.checks.compare.trace import compare_traces as compare_trace_documents
 from proof.checks.corpus import ANDROID, BOTH, WEB_APPS
+from proof.checks.served_places import first_language_fill as first_language_fill
 from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
-from proof.checks.eligibility import hq_authored
 from proof.observe.runs import Run as Run
 from proof.observe.runs import script_of as script_of
 from proof.observe.runs import submission_of as submission_of
@@ -430,8 +430,38 @@ def media_files(files):
             found[MEDIA_ROOT + entry] = "sha256:" + hashlib.sha256(data).hexdigest()
             continue
         remote = urlsplit(locations.get(REMOTE_AUTHORITY, ""))
-        if remote.scheme and remote.netloc and "/" in remote.path:
+        route = remote.path.rsplit("/", 6)
+        if (
+            remote.scheme in ("http", "https") and remote.netloc and not remote.query and not remote.fragment
+            and len(route) == 7 and route[1:4] == ["hq", "multimedia", "file"] and all(route[4:])
+        ):
             found[MEDIA_ROOT + entry] = f"remote:{remote.scheme}://{remote.netloc}{remote.path.rsplit('/', 1)[0]}"
+    return found
+
+
+def native_menu_media(observed, sessions, served_a, served_b, local_files):
+    """Read only evidence for the archive that the native readers actually ran. A differing release media suite
+    cannot establish its installed paths from the separately built app. An unknown file stays unknown."""
+    if served_a is None:
+        return {}
+    found = {}
+    for side, run, served, state, files in (
+        ("A", "baseline", served_a, observed.a, observed.a.build.files),
+        ("B", "b", served_b, observed.b, observed.b_aligned.files if observed.b_aligned is not None else None),
+        ("local", "local", {}, None, local_files),
+    ):
+        admission = ((sessions or {}).get(run) or {}).get("admission")
+        if (
+            served is None or files is None or not admitted(admission) or not isinstance(admission.get("media"), list)
+            or MEDIA_SUITE in ((served.get("releaseDiffers") or {}).get("differing") or ())
+        ):
+            continue
+        installed = set(installed_media(admission))
+        if state is not None:
+            # The Web Apps client consults the saved media map. A mapped picture can still draw a broken
+            # image if its download fails; only an icon absent from both tables is the no-image spelling.
+            installed.update((state.doc or {}).get("multimedia_map") or {})
+        found[side] = {INSTALLED_MEDIA: sorted(installed), MEDIA_FILES: media_files(files)}
     return found
 
 
@@ -1158,7 +1188,7 @@ def _archive_forms(path) -> dict:
         }
 
 
-def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False):
+def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False, menus=None):
     """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
 
     Where A is served (``proof.observe.served``): every request HQ's own
@@ -1180,6 +1210,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     from proof.checks import connect, served
 
     blobs = records.blobs
+    menus = menus or {}
     a = _served_a(records, name)
     if a is None:
         return []
@@ -1233,6 +1264,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             document=document,
             artifact=f"{FORMPLAYER}@local.ccz",
             rules=RULES,
+            media=(menus.get("A"), menus.get("local")),
             xmlns=xmlns,
             versions=versions,
             text_ids=served.merged_text_ids(observed.a.build.files or {}, _archive_forms(local_ccz))
@@ -1264,6 +1296,7 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                 document=document,
                 artifact=f"{FORMPLAYER}@B",
                 rules=RULES,
+                media=(menus.get("A"), menus.get("B")),
                 versions=content_versions(observed.a.build, observed.b_aligned),
             )
             if a.get("webapps") is not None and b.get("webapps") is not None:
@@ -1281,10 +1314,95 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
     return found
 
 
-def document_behavior(document, records):
+def verified_caption_renames(document, name, records, local_files, differences):
+    """Name a changed Formplayer caption image as a rename only if Nova delivered the file HQ served at A.
+    Its new path must carry that file's digest. On B, HQ must also have matched that path in the upload."""
+    import io
+    import zipfile
+
+    from proof.hq.operations import upload_field
+
+    candidates = [
+        difference for difference in differences
+        if difference.artifact in (f"{FORMPLAYER}@B", f"{FORMPLAYER}@local.ccz") and difference.kind == "changed"
+        and difference.path.endswith("/caption_image")
+        and isinstance(difference.before, str) and isinstance(difference.after, str)
+    ]
+    if not candidates or document.authored is None:
+        return differences
+    parts = records.configurations[name]
+    authored_reads = ((parts.a or {}).get("apiReads") or {}).get("authored") or {}
+    originals = {
+        row["path"]: row["sha256"] for row in authored_reads.get("media") or ()
+        if row.get("status") == 200 and row.get("mediaType") == "CommCareImage" and row.get("sha256")
+    }
+    extensions = {row["path"]: row["extension"] for row in document.authored.media_rows() if row.get("kind") == "image"}
+    captured = document.exports[name].republish
+    upload = ((parts.b or {}).get("publish") or {}).get("media") or {}
+    matched = {row["path"] for row in upload.get("matched") or () if row.get("class") == "CommCareImage"}
+    wanted = matched.intersection(row.after for row in candidates if row.artifact == f"{FORMPLAYER}@B")
+    pushed = {}
+    if captured and captured.media and wanted and not upload.get("refused"):
+        with zipfile.ZipFile(io.BytesIO(upload_field(captured.media.upload(), "bulk_upload_file"))) as archive:
+            pushed = {entry: archive.read(entry) for entry in archive.namelist() if MEDIA_ROOT + entry in wanted}
+    verified = set()
+    for difference in candidates:
+        digest, extension = originals.get(difference.before), extensions.get(difference.before)
+        if not digest or not extension or difference.after != f"{MEDIA_ROOT}commcare/{digest}.{extension}":
+            continue
+        delivered = pushed if difference.artifact == f"{FORMPLAYER}@B" else (local_files or {})
+        content = delivered.get(difference.after.removeprefix(MEDIA_ROOT))
+        if content is not None and hashlib.sha256(content).hexdigest() == digest:
+            verified.add((difference.artifact, difference.at))
+    return [
+        replace(row, path=f"{row.path}:renamed-file") if (row.artifact, row.at) in verified else row
+        for row in differences
+    ]
+
+
+def advised_picker_names(app, hq_files, local_files, labels):
+    """The HQ-built and Nova picker labels for an adopted code that no source language names.
+
+    The corpus records labels from Nova's wire language plan only when the download gives the
+    kept_language_names_differ advisory. HQ emits its generated name in default/app_strings.txt.
+    Compare names only where each actual installed table resolves this code to the same respective
+    label. A stored override, including a whitespace value HQ can write, stays strictly compared.
+    """
+    from proof.checks.compare.app_strings import parse_app_strings
+
+    if not labels or not local_files or not hq_files:
+        return {}
+    codes = app.get("langs") or []
+    if set(codes) != set(labels):
+        return {}
+    held = {
+        key.strip()
+        for table in (app.get("translations") or {}).values()
+        for key, value in table.items()
+        if value != ""
+    }
+
+    def tables(files):
+        return [parse_app_strings(files[f"{directory}/app_strings.txt"]) for directory in ["default", *codes]]
+
+    for code in ["default", *codes]:
+        if any(f"{code}/app_strings.txt" not in files for files in (hq_files, local_files)):
+            return {}
+    source, local = tables(hq_files), tables(local_files)
+    found = {}
+    for code in codes:
+        hq, nova = source[0].get(code), labels[code]
+        if code in held or not hq or not nova or hq == nova:
+            continue
+        if all(table.get(code, hq) == hq for table in source) and all(table.get(code) == nova for table in local):
+            found[code] = (hq, nova)
+    return found
+
+
+def document_behavior(document, records, *, native_sites=None):
     """Proof 3's differences on one document: each configuration it is exported under, judged from its records,
     each against the local archive Nova compiles for that configuration's project space."""
-    from proof.checks import observations
+    from proof.checks import android, observations, served_places
 
     found = []
     compared = set()
@@ -1295,6 +1413,15 @@ def document_behavior(document, records):
         sessions = observations.sessions_record(records, name)
         local_ccz = document.local_ccz_for(name)
         local_files = None if local_ccz is None else _archive_files(local_ccz)
+        picker_names = {}
+        if (
+            local_files is not None
+            and observed.a is not None
+            and document.kind != "control"
+            and document.authored is not None
+        ):
+            labels = (document.document.get("wire") or {}).get("advisedPickerLabels")
+            picker_names = advised_picker_names(observed.a.doc, observed.a.build.files, local_files, labels)
         found += behavioral_equivalence(
             document.id,
             observed,
@@ -1304,12 +1431,14 @@ def document_behavior(document, records):
             local_admission=reports.get(local_ccz.name) if local_ccz is not None else None,
             local_files=local_files,
             platforms=platforms,
-            always_b=hq_authored(document.source),
+            always_b=document.authored is not None,
             local_refused=document.local_refusal is not None,
         )
         if (sessions or {}).get("local", {}).get("trace") is not None:
             compared.add("trace@local.ccz")
-        found += served_equivalence(
+        served_b = ((records.configurations[name].b_aligned or {}).get("served") or {}).get("B")
+        menus = native_menu_media(observed, sessions, _served_a(records, name), served_b, local_files)
+        served = served_equivalence(
             document.id,
             records,
             name,
@@ -1317,25 +1446,33 @@ def document_behavior(document, records):
             sessions,
             has_local=local_ccz is not None and ANDROID in platforms,
             local_ccz=local_ccz,
-            always_b=hq_authored(document.source),
+            menus=menus,
+            always_b=document.authored is not None,
         )
+        native = verified_caption_renames(document, name, records, local_files, served)
         if _served_a(records, name) is not None and (
             (records.configurations[name].b_aligned or {}).get("served") or {}
         ).get("local"):
             compared.add(f"{FORMPLAYER}@local.ccz")
-    from proof.checks import android
-
-    phone_record = android.document_record(records)
-    phone = android.behavior(document.id, phone_record, rules=RULES)
-    tablet = android.behavior(
-        document.id, android.document_record(records, tablet=True), device=android.TABLET, rules=RULES
-    )
-    if any(
-        "A" in held and (held.get("local") or {}).get("app") is not None
-        for held in phone_record["configurations"].values()
-    ):
-        compared.add(android.LOCAL)
-    found += phone + android.tablet_only(phone, tablet)
+        parts = records.configurations[name]
+        phone_record = android.walks_record(parts, records.blobs)
+        phone = android.configuration_behavior(document.id, phone_record, rules=RULES, menus=menus, picker_names=picker_names)
+        tablet = android.configuration_behavior(
+            document.id, android.walks_record(parts, records.blobs, tablet=True), device=android.TABLET,
+            rules=RULES, menus=menus, picker_names=picker_names,
+        )
+        if "A" in phone_record and (phone_record.get("local") or {}).get("app") is not None:
+            compared.add(android.LOCAL)
+        native += phone + android.tablet_only(phone, tablet)
+        if native and served_places.review_read(document):
+            # A place and the text at that place belong to the configuration that actually reported the
+            # difference. The same walk index in another configuration can lead to a different form.
+            needed = native if native_sites is not None else [d for d in native if served_places.text_candidate(d)]
+            places = served_places.sites(records, name, needed, observed, local_files)
+            native = served_places.classify(document, records, name, native, places)
+            if native_sites is not None:
+                native_sites.append(places)
+        found += native
     authored = document.authored
     found = stated_hq_side_values(
         document.id,
@@ -1426,7 +1563,51 @@ def trace_sites(trace, processed=None):
     return changes.Sites(runs=runs, steps=steps, choices=choices, cases=cases)
 
 
-def document_sites(document, records):
+def _form_namespaces(build):
+    from proof.checks.served_places import form_namespaces
+
+    return form_namespaces(build.files or {})
+
+
+def _served_sites(document, records, name, differences):
+    """Re-locate one configuration's saved observations without performing a new native walk."""
+    from proof.checks import observations, served_places
+
+    observed = observations.republish_view(records, name)
+    archive = document.local_ccz_for(name)
+    return [served_places.sites(records, name, differences, observed, _archive_files(archive) if archive else {})]
+
+
+def classify_served_text(document, records, differences):
+    """Reclassify retained raw rows only when the same observation was independently classified by the judge."""
+    from proof.checks.served_places import text_candidate
+
+    if not any(text_candidate(d) for d in differences):
+        return differences
+
+    def key(d):
+        return (d.artifact, d.at, d.path, d.before, d.after)
+
+    classes = {}
+    for row in document_behavior(document, records):
+        raw = replace(row, path=row.path.removesuffix(":filled").removesuffix(":trimmed"))
+        if text_candidate(raw):
+            k = key(raw)
+            classes[k] = row.path if classes.get(k, row.path) == row.path else None
+    return [
+        replace(d, path=classes.get(key(d)) or d.path) if text_candidate(d) else d
+        for d in differences
+    ]
+
+
+def document_behavior_and_sites(document, records):
+    """Judge the native and Core behavior and gather the attribution for those same observed differences."""
+    native = []
+    found = document_behavior(document, records, native_sites=native)
+    return found, document_sites(document, records, native_sites=native)
+
+
+def document_sites(document, records, differences=(), *, native_sites=None):
     """``trace_sites`` of every session proof 3 compares on one document, under each configuration: the baseline
     on A, and each other build's runs with their generated ids named as the comparison names them
     (``compare.trace.generated_labels``), as one (``changes.merged_sites``: a run, a step or a case two of them
@@ -1434,7 +1615,12 @@ def document_sites(document, records):
     from proof.checks import changes, observations
     from proof.checks.compare.trace import relabelled
 
-    found = []
+    if differences and native_sites is None:
+        # A caller separately replaying the judge may hold pooled differences with no configuration label.
+        # Locate the original contributing records instead of inferring a configuration from a JSON pointer.
+        native_sites = []
+        document_behavior(document, records, native_sites=native_sites)
+    found = list(native_sites or ())
     for name in sorted(document.exports):
         sessions = observations.sessions_record(records, name)
         if not sessions or "baseline" not in sessions:

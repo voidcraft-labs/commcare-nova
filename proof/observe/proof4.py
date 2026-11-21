@@ -96,10 +96,12 @@ import json
 import os
 import tempfile
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from proof.observe.browser import browser_fingerprint
 from proof.observe.build import archive_record, device_archive
+from proof.observe.outcome import BuildOutcome
 from proof.observe.record import bytes_digest, canonical, digest
 
 CHECK = "proof4"
@@ -365,8 +367,6 @@ def _files_from(delta, base, blobs):
 
 def outcome_from_delta(delta, base, blobs, state):
     """The build a ``build_delta`` record holds, read over build(B) (``base``) as the build of ``state``."""
-    from proof.observe.outcome import BuildOutcome
-
     return BuildOutcome(
         state=state,
         app_version=delta["appVersion"],
@@ -955,6 +955,14 @@ def files_key(outcome):
     return digest(sorted((path, bytes_digest(content)) for path, content in outcome.files.items())).encode()
 
 
+@dataclass(frozen=True)
+class _SavedBuild:
+    outcome: BuildOutcome
+    archive: dict | None  # each file of the device archive held in the observation's blob store
+    wrote: bool
+    notes: tuple
+
+
 class Base:
     """A state a save is made over and compared with: B, or what a form's first Vellum save left.
 
@@ -976,8 +984,8 @@ class Base:
     is the one before it (``fallback``'s).
     """
 
-    def __init__(self, held, build, *, previous=None, previous_key=b"", hq_build=None, fallback=None):
-        self.held, self.build = held, build
+    def __init__(self, held, build, archive, *, previous=None, previous_key=b"", hq_build=None, fallback=None):
+        self.held, self.build, self.archive = held, build, archive
         self.previous, self.previous_key = previous, previous_key
         self.hq_build = hq_build
         if hq_build is None and fallback is not None:
@@ -1145,7 +1153,13 @@ class _Observation:
         self.raw_b = copy.deepcopy(self._raw_app())
         record["stored"] = self.blobs.put(self.held_b.canonical)
         record["baseline"] = self.baseline()
-        self.b = Base(self.held_b, self.b_build, previous=previous, previous_key=previous_key)
+        self.b = Base(
+            self.held_b,
+            self.b_build,
+            archive_record(self.ctx.archive, self.blobs),
+            previous=previous,
+            previous_key=previous_key,
+        )
         if self.serves:
             record["served"] = self.serve_b()
         return record
@@ -1300,7 +1314,7 @@ class _Observation:
         self.b.served_trace, self.b.served_reads = side["trace"], record["clientReads"]
         return record
 
-    def served_after(self, over, held, outcome, differs, traced=None):
+    def served_after(self, over, held, outcome, differs, archive, traced=None):
         """What Formplayer and the client make of a saved app, where it can differ from the state it was saved
         over: its build differs, or what HQ's Web Apps page hands the client of the app does.
 
@@ -1341,7 +1355,7 @@ class _Observation:
                 # what a device on the state it was saved over holds once it updates to it, with a worker's own
                 # settings (``proof.android.observe``).
                 record.update(serving.devices_on("save"))
-                updated = self._device_update(serving, over, held, outcome)
+                updated = self._device_update(serving, over.archive, archive)
                 if updated is not None:
                     record["androidUpdate"], record["androidNextBuild"] = updated
                 core = self.blobs.get_json(traced["trace"]) if traced and traced.get("trace") else None
@@ -1368,7 +1382,7 @@ class _Observation:
         self.served_kept[key] = record
         return record, side["trace"], reads
 
-    def _device_update(self, serving, over, held, outcome):
+    def _device_update(self, serving, before, after):
         """A device on ``over``'s archive updated to the saved app's, over a worker's own settings, where the save
         changed the profile, and a device on the same archive updated to the state's own next build over the same
         settings: that archive with its profile's ``version`` raised by one (``next_build``), which Android stages
@@ -1378,23 +1392,25 @@ class _Observation:
         (``proof.observe.served.observes_state``)."""
         from proof.android import observe as android
         from proof.observe import served
-        from proof.observe.build import device_archive
 
         if not served.observes_state("android", serving.served):
             return None
-        before = device_archive(over.build, over.held.app)
-        after = device_archive(outcome, held.app)
         if not before or not after or "entries" not in before or "entries" not in after:
             return None
-        if dict(before["entries"]).get("profile.ccpr") == dict(after["entries"]).get("profile.ccpr"):
+        if before["entries"].get("profile.ccpr") == after["entries"].get("profile.ccpr"):
             return None
-        state = android.archive_bytes(before["entries"])
+
+        def entries(archive):
+            return [(name, self.blobs.get(ref)) for name, ref in archive["entries"].items()]
+
+        original = entries(before)
+        state = android.archive_bytes(original)
         saved = android.update(
             serving.served,
             self.blobs,
             label="save:update",
             before=state,
-            after=android.archive_bytes(after["entries"]),
+            after=android.archive_bytes(entries(after)),
             incomplete=False,
         )
         own = android.update(
@@ -1402,7 +1418,7 @@ class _Observation:
             self.blobs,
             label="save:next-build",
             before=state,
-            after=android.archive_bytes(next_build(before["entries"])),
+            after=android.archive_bytes(next_build(original)),
             incomplete=False,
         )
         return saved, own
@@ -1418,19 +1434,22 @@ class _Observation:
             return {"stored": None}, over
         stored = held.stored
         found = {"stored": self.blobs.put_json(json_patch(over.held.stored, stored))}
-        outcome, hq_build = self.build(held.key, held.app, over=over, keep_hq_build=keep)
+        rendered, hq_build = self.build(held.key, held.app, over=over, keep_hq_build=keep)
+        outcome = rendered.outcome
         found["build"] = build_delta(outcome, over.build, self.blobs)
         differs = raw_builds_differ(over.build, outcome, over.parsed(), verify=self.verify)
         found["trace"] = self.trace(outcome, over=over, label=processing_label(editor)) if differs else None
         # What a device installs of the saved app where its build is not the one it was saved over: the Android
         # reader's input (``proof.android``).
-        found["archive"] = archive_record(device_archive(outcome, held.app), self.blobs) if differs else None
+        found["archive"] = rendered.archive if differs else None
         answers = read_xpath(self.core_runner, xpath_pairs(over.held.stored, stored, over.build, outcome))
         found["xpath"] = self.blobs.put_json(answers) if answers else None
-        found["served"], served_trace, served_reads = self.served_after(over, held, outcome, differs, found["trace"])
+        found["served"], served_trace, served_reads = self.served_after(
+            over, held, outcome, differs, rendered.archive, found["trace"]
+        )
         if not keep:
             return found, None
-        left = Base(held, outcome, hq_build=hq_build, fallback=over)
+        left = Base(held, outcome, rendered.archive, hq_build=hq_build, fallback=over)
         left.served_trace, left.served_reads = served_trace, served_reads
         return found, left
 
@@ -1457,7 +1476,8 @@ class _Observation:
     def build(self, key, app=None, *, over=None, keep_hq_build=False):
         """The saved app's build over ``over`` (B where none is given), with the build HQ keeps of that state as
         HQ's previous build (``previous_of``), kept by what HQ's build reads of the app (``key``) and that previous
-        build: the outcome, and HQ's ``Build`` of it.
+        build. The outcome and device archive come from one fork, along with HQ's notes and whether it wrote.
+        The real release and the next editor save start with the unmodified working document.
 
         ``app`` is the app as the state holds it, already read for the stored app; HQ's build builds it (and
         changes it as it builds, so a build made again reads its own). A kept build has no ``Build`` (None); with
@@ -1474,9 +1494,9 @@ class _Observation:
         held = self.builds.get(key)
         if held is not None and not self.verify and not keep_hq_build:
             self.counts.build_hits += 1
-            with self._kept("proof4-build", key, held[1]):
+            with self.unit.fork(), self._kept("proof4-build", key, held.wrote, held.notes):
                 pass
-            return held[0], None
+            return held, None
         given = app if held is None else None
         if given is not None and self.verify:
             from proof.hq import operations
@@ -1487,23 +1507,25 @@ class _Observation:
                     " another document. Something between the two reads changed HQ's app; look at what ran after"
                     " the stored app was read."
                 )
-        with self.unit.operation("proof4-build", key) as scope:
+        with self.unit.fork(), self.unit.operation("proof4-build", key) as scope:
             built = build(self.unit, self.unit.record, self.app_id, "saved", previous, app=given)
-        outcome = built.outcome
+            archive = archive_record(device_archive(built.outcome, built.app), self.blobs)
+        rendered = _SavedBuild(built.outcome, archive, scope.wrote, tuple(scope.soft_assertions))
         if held is not None:
             self.counts.build_hits += 1
-            if (canonical(outcome_record(held[0], Blobs())), held[1]) != (
-                canonical(outcome_record(outcome, Blobs())),
-                scope.wrote,
+            if (canonical(outcome_record(held.outcome, Blobs())), held.archive, held.wrote, held.notes) != (
+                canonical(outcome_record(rendered.outcome, Blobs())),
+                rendered.archive,
+                rendered.wrote,
+                rendered.notes,
             ):
                 raise MemoMismatch(
                     "Proof 4 kept a build of the saved app by what HQ's build reads of it (its stored document,"
                     " version, sources and attachments, under one configuration and one previous build), and"
-                    " building that app again gave other files. The build reads something the key does not"
-                    " name; look at what differs between the two builds' files."
+                    " building that app again gave a different build, archive or operation record."
                 )
-        self.builds[key] = (outcome, scope.wrote)
-        return outcome, built.hq_build
+        self.builds[key] = rendered
+        return rendered, built.hq_build
 
     def trace(self, outcome, *, over, label):
         """The saved build's sessions, replaying B's script, or its admission alone where B's sessions found no

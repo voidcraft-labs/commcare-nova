@@ -314,7 +314,8 @@ export const SAME_STATE_REGISTERS = [
 
 /**
  * The register's rows a reading records under that are no same-state rule of
- * a comparison: a date and time a Save to Case value wrote in Nova's earlier
+ * a comparison: an app whose missing incomplete-forms setting still shows the shared
+ * Web Apps tile (`appShell.ts::readProfile`), a date and time a Save to Case value wrote in Nova's earlier
  * spelling, a registration label read as the words CommCare HQ's build
  * writes for one with no text, a menu's or form's name map read as the
  * text HQ's build shows in each language where Nova prints another map
@@ -336,6 +337,7 @@ export const SAME_STATE_REGISTERS = [
  * not serve, a declaration Nova does not write (`provisional.ts::claimDeclarations`).
  */
 export const FIRST_PUBLISH_READING_RECORDS = [
+	"incomplete-forms-tile-hidden",
 	"date-and-time-saved-as-hq-stores-it",
 	"registration-label-fixed",
 	"names-respelled",

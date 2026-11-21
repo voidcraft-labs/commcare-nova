@@ -2,7 +2,7 @@
 them and its condition holds.
 
 Contract (``proof.checks.hq_own_reports``): ``HQ_OWN_REPORTS`` holds exactly
-its four members, each with a proof test of its name in the module it
+its members, each with a proof test of its name in the module it
 names, and every module the lane names a proof of HQ's own reports is a
 member's; a check leaves out a report only where a member names its artifact
 and path and the member's condition holds on what the check holds of the
@@ -19,6 +19,7 @@ writes it, and holds the check to the report it makes.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from proof.checks import android, connect, hq_own_reports, proof4
@@ -30,6 +31,7 @@ MEMBERS = (
     "android_grouped_tile_reopen",
     "connect_block_renamed",
     "settings_page_writes_unset_settings",
+    "android_settings_page_writes_unset_settings",
 )
 
 
@@ -403,25 +405,73 @@ def test_the_settings_the_member_names_are_the_fifteen_nova_seeds():
     assert sorted(hq_own_reports.UNSEEDED_SETTINGS) == sorted(NOVA_PROFILE_CONSTANTS)
 
 
-def _settings_save(stored, *, kind="added", key="cc-enable-tts", path=None, made_in_hq=True):
-    """What proof 4 judges of an app settings save over ``stored`` (the app document the save was made over, of a
-    document made in HQ unless ``made_in_hq`` is false) that wrote ``key`` into the stored app, each built profile
-    and Core's reading of the profile."""
+def _settings_save(
+    stored,
+    *,
+    kind="added",
+    key="cc-enable-tts",
+    made_in_hq=True,
+    original=None,
+    saved_value="no",
+    reported_value="no",
+    xml=None,
+    trace=None,
+):
+    """The independent stored, built and Core readings of a save whose actual stored app wrote saved_value."""
     from proof.checks.differences import Difference
 
     over = {"profile": {"properties": stored}}
+    saved = {"profile": {"properties": {**stored, key: saved_value}}}
+    added = hq_own_reports.settings_added(
+        {"profile": {"properties": original or {}}} if made_in_hq else None, over, saved
+    )
+    if xml is None:
+        xml = f'<property key="{key}" value="no" force="true"/>'
+    if trace is None:
+        trace = {"value": "no", "force": True}
     found = [
-        Difference("proof4", "-", "app.json@app settings", path or f"/profile/properties/{key}", "-", kind, None, "no"),
         Difference(
-            "proof4", "-", "media_profile.ccpr@app settings", f"/profile/property[@key={key}]", "-", kind, None, "x"
+            "proof4", "-", "app.json@app settings", f"/profile/properties/{key}", "-", kind, None, reported_value
         ),
-        Difference("proof4", "-", "trace@app settings", f"/profile/properties/{key}", "-", kind, None, "no"),
+        Difference(
+            "proof4", "-", "media_profile.ccpr@app settings", f"/profile/property[@key={key}]", "-", kind, None, xml
+        ),
+        Difference("proof4", "-", "trace@app settings", f"/profile/properties/{key}", "-", kind, None, trace),
     ]
-    return [(difference.artifact, difference.path) for difference in proof4.not_hq_own(found, over, made_in_hq)]
+    return [(d.artifact, d.path) for d in proof4.not_hq_own(found, added)]
 
 
 def test_a_setting_the_settings_page_writes_where_the_app_held_none_is_hqs_own():
     assert _settings_save({"cc-show-saved": "no"}) == []
+
+
+def test_a_different_stored_value_built_property_or_installed_setter_stays_reported():
+    assert len(_settings_save({}, saved_value="yes")) == 3
+    saved = {"profile": {"properties": {"cc-enable-tts": "no"}}}
+    for malformed in ({"profile": []}, {"profile": {"properties": None}}):
+        assert hq_own_reports.settings_added(malformed, {}, saved) == {}
+        assert hq_own_reports.settings_added({}, malformed, saved) == {}
+    assert _settings_save({}, reported_value="yes") == [("app.json@app settings", "/profile/properties/cc-enable-tts")]
+    for xml in (
+        "x",
+        '<property key="cc-enable-tts" value="yes" force="true"/>',
+        '<property key="other" value="no" force="true"/>',
+        '<property key="cc-enable-tts" value="no"/>',
+        '<property key="cc-enable-tts" value="no" force="true"><other/></property>',
+        '<property key="cc-enable-tts" value="no" force="true" other="1"/>',
+        '<property key="cc-enable-tts" value="no" force="true">extra value</property>',
+    ):
+        assert _settings_save({}, xml=xml) == [
+            ("media_profile.ccpr@app settings", "/profile/property[@key=cc-enable-tts]")
+        ]
+    for trace in (
+        "no",
+        {"value": "yes", "force": True},
+        {"value": "no", "force": 1},
+        {"value": "no", "force": False},
+        {"value": "no", "force": True, "other": None},
+    ):
+        assert _settings_save({}, trace=trace) == [("trace@app settings", "/profile/properties/cc-enable-tts")]
 
 
 def test_a_setting_the_app_held_or_the_save_changed_is_still_reported():
@@ -432,9 +482,10 @@ def test_a_setting_the_app_held_or_the_save_changed_is_still_reported():
         ("trace@app settings", "/profile/properties/cc-enable-tts"),
     ]
     assert len(_settings_save({}, kind="changed")) == 3
+    assert len(_settings_save({}, original={"cc-enable-tts": "yes"})) == 3
     # A setting outside the fifteen, and the same report made by another save, stand.
     assert len(_settings_save({}, key="cc-show-saved")) == 3
-    assert hq_own_reports.held("app.json@case list", "/profile/properties/cc-enable-tts", None, {}, True) is None
+    assert hq_own_reports.held("app.json@case list", "/profile/properties/cc-enable-tts", None, {}) is None
 
 
 def test_a_setting_the_settings_page_writes_on_an_app_nova_made_is_still_reported():
@@ -445,3 +496,78 @@ def test_a_setting_the_settings_page_writes_on_an_app_nova_made_is_still_reporte
         ("media_profile.ccpr@app settings", "/profile/property[@key=cc-enable-tts]"),
         ("trace@app settings", "/profile/properties/cc-enable-tts"),
     ]
+
+
+def test_android_only_holds_the_native_transition_when_hq_first_writes_an_originally_unset_key():
+    from proof.checks.differences import Difference
+    from proof.observe.proof4 import json_patch
+
+    def doc(properties):
+        return {"profile": {"properties": properties}}
+
+    for path, (key, setting, before, after) in hq_own_reports.ANDROID_SETTINGS.items():
+        saved = {"doc": doc({key: setting})}
+        difference = Difference("proof4", "-", "android@app settings", path, path, "changed", before, after)
+
+        unchanged = {
+            "updated": "Installed",
+            "workerSettings": [key],
+            "before": {"stored": {key: before}},
+            "after": {"stored": {key: before}},
+        }
+
+        def member(original, published, saved, d=difference, next_build=unchanged):
+            stored = {"doc": doc(published)}
+            added = android._added_settings(doc(original), stored, json_patch(stored, saved))
+            return held(d.artifact, d.path, d, added, None, None, next_build)
+
+        assert member({}, {}, saved).id == "android_settings_page_writes_unset_settings"
+        # The publish lost a setting already held in HQ, the page changed a stored setting, or the page
+        # wrote a different value: none is the control's first save of a missing setting.
+        assert member({key: "previous value"}, {}, saved) is None
+        assert member({}, {key: "previous value"}, saved) is None
+        assert member({}, {}, {"doc": doc({key: "different value"})}) is None
+        assert member({}, {}, saved, replace(difference, before="different")) is None
+        assert member({}, {}, saved, replace(difference, after="different")) is None
+        assert member({}, {}, saved, replace(difference, artifact="android@case list")) is None
+        if path.startswith("/update/workerSettings/"):
+            assert member({}, {}, saved, next_build=None) is None
+            assert member({}, {}, saved, next_build={**unchanged, "updated": "UpToDate"}) is None
+            assert member({}, {}, saved, next_build={**unchanged, "after": {"stored": {key: "different"}}}) is None
+
+
+def test_android_search_needs_unchanged_forced_results_on_the_same_list_and_term():
+    from copy import deepcopy
+
+    from proof.checks.differences import Difference
+
+    def device(fuzzy):
+        off, on = {"fo/o": []}, {"fo/o": ["A row"]}
+        searches = {
+            "fuzzyOff": off,
+            "fuzzyOn": on,
+            "asInstalled": on if fuzzy else off,
+            "MainConfigurablePreferences.isFuzzySearchEnabled": fuzzy,
+        }
+        return {"walks": {"m0/m0-f1": {"steps": [{"list": {"searches": searches}}]}}}
+
+    before, after = device(False), device(True)
+    path = hq_own_reports.ANDROID_INSTALLED_SEARCH
+    d = Difference(
+        "proof4",
+        "-",
+        "android@app settings",
+        path,
+        "/walks/m0~1m0-f1/steps/0/list/searches/asInstalled/fo~1o",
+        "changed",
+        "",
+        "A row",
+    )
+    added = {"cc-fuzzy-search-enabled": "yes"}
+    assert held(d.artifact, path, d, added, before, after)
+    assert held(d.artifact, path, d, {}, before, after) is None
+    assert held(d.artifact, path, d, added, None, after) is None
+    for mode in ("fuzzyOn", "fuzzyOff", "asInstalled"):
+        changed = deepcopy(after)
+        changed["walks"]["m0/m0-f1"]["steps"][0]["list"]["searches"][mode] = {"fo/o": ["Different row"]}
+        assert held(d.artifact, path, d, added, before, changed) is None

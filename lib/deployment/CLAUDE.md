@@ -849,10 +849,17 @@ source at a bring-in, and never from what Nova sent. A push's read-back keeps
 it for the same HQ app, since it comes before the upload; a create writes
 none. A baseline of origin `read` also
 holds `first_publish_changes`: the first-publish changes the person reviewed
-that do not depend on where the app runs, each change a worker meets on
-Android alone that the reading gives whatever the app declared
-(`FIRST_PUBLISH_ANDROID_ONLY`, shown only while the app runs on Android), and
-the Web App setting CommCare HQ held. After changes made in CommCare HQ are brought in or recorded, a
+and the Web App setting CommCare HQ held. It keeps each platform-specific
+change the reading found, so the list can show it whenever the app runs on
+that platform (`FIRST_PUBLISH_PLATFORM`). A reading of an app enabled in Web Apps
+that lacked an explicit incomplete-forms setting also keeps the notice that
+publishing with the setting off can hide the shared Incomplete Forms tile.
+It shows that notice while the app runs in Web Apps with Show incomplete
+forms off. When the reading found that a Connect app would turn on Auto
+Capture Location, every surface shows that warning while Connect remains
+enabled. Turning Connect off before publishing leaves the target's setting
+in place. Re-enabling Connect restores the notice from the same reading.
+After changes made in CommCare HQ are brought in or recorded, a
 baseline can hold a list of the other kind in the same column: what the next
 publish changes there. The value's `of` says which kind it is. A `create` and
 an `unread` baseline hold none, and the one upsert clears it when a push

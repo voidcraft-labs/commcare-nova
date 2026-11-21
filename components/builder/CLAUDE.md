@@ -974,7 +974,11 @@ every authoring surface. Both the app-wide Connect manager and per-form settings
 say hours explicitly and show `hr`; a freshly enabled per-form learn module
 starts at one hour, the minimum Connect can represent. The stored
 `time_estimate` integer emits unchanged, so no surface may label or seed it as
-minutes.
+minutes. The app manager shows `CONNECT_LOCATION_ON_ENABLE` before a person turns
+Connect on, even if the app already runs only on Android. The per-form setup
+dialog states the same app-wide behavior when the person chooses a participating form.
+The app manager explains before turn-off how to stop automatic capture on a
+previously published app and get the changed version to workers.
 
 The App Settings panel carries a conditional **data-sources row** (`appSettings/AppDataSourcesSection.tsx`): when the app reads case properties no form in it writes (`lib/doc/unwrittenProperties.ts`, via `useUnwrittenPropertyCards`), the row states the count and opens `UnwrittenPropertiesDialog` — an informational list (property, case type, where it's read), deliberately neutral chrome with no semantic color and no action, because a no-writer read is a normal state (viewer apps, staged sample data), not a defect. At zero the row renders nothing.
 

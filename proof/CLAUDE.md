@@ -160,7 +160,10 @@ harness keeps, each with its reason.
   worker through the client's own Log in as, which HQ draws only where the
   plan has Log In As, so App Preview's runs alone state that it has
   (`proof/hq/seams.py::also_granted`, as Connect's Data Forwarding is
-  stated). Never copy a
+  stated). Where the build omits breadcrumbs, its menu offers no language
+  switch. The worker opens the app with their HQ account's Language setting
+  and the admin uses App Preview's Settings before Start. The native replay
+  verifies the first navigation's locale in both cases. Never copy a
   client function into a test or call the client's code from a step: a step
   clicks what a worker clicks, gives what a worker gives through the
   browser itself (a file chosen in the file chooser, a stroke of the
@@ -395,6 +398,12 @@ harness keeps, each with its reason.
   control (the privileges its oracle grants it) takes the symptom off the
   control with no configuration left that shows it, and its control is never
   retained again, nor is a control a held stop's `control` entry names.
+  Retaining an HQ-authored app preserves the native files under `authored/` that
+  recreate A, and the case database from its original seed. Its control still
+  runs only the checks its register entries name. In a Formplayer submission,
+  `case-names-checked` can account for a generated helper at its declared
+  form node and a case name changed by exactly Java `String.trim()` at the
+  declared case write.
   Every directory under `proof/controls/` is named by an entry of one of the
   two registers or by a `control` entry of `proof/walk-stops.json`, so a
   control never stops running unnoticed. Never skip, mark, loosen a comparator or widen a path to make the

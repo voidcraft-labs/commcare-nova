@@ -177,14 +177,16 @@ describe("targetFactsFromSource over the retained read", () => {
 		expect(demo.androidLogos).toEqual(["demo"]);
 	});
 
-	it("reads location capture as kept only where Nova's body did not set it", () => {
+	it("reads the observed location setting independently of its ownership", () => {
 		const capture = (source: Json) => {
 			source.auto_gps_capture = true;
 		};
-		expect(factsOf(capture).autoGpsCapture).toBe(true);
-		expect(
-			factsOf(capture, { novaOwnsAutoGpsCapture: true }).autoGpsCapture,
-		).toBe(false);
+		for (const novaOwnsAutoGpsCapture of [false, true]) {
+			expect(factsOf(capture, { novaOwnsAutoGpsCapture })).toMatchObject({
+				autoGpsCapture: true,
+				novaOwnsAutoGpsCapture,
+			});
+		}
 	});
 
 	/* Each base is read as Python's `urljoin(base, "/a/…")` keeps it, the join

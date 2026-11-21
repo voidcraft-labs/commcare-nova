@@ -256,15 +256,16 @@ def suite_b(configuration, prepares, core_runner, editor_driver, *, store=None, 
             for prepare in prepares:
                 prepare(app)
             app.save()
-        with log("build", b"A"):
+        with unit.fork(), log("build", b"A"):
             built_a = build(unit, unit.record, app_id, "A", None)
         with log("save-build", b""):
             saved_a = built_a.hq_build.saved_build()
         # B is the next publish over A: HQ saves the app again, its version one on (here with A's content).
         with log("publish", b"hq suite app again"):
             operations.held_app(unit, app_id).save()
-        with log("build", b"B"):
+        with unit.fork(), log("build", b"B"):
             built_b = build(unit, unit.record, app_id, "B", saved_a)
+            archive = observed.device_archive(built_b.outcome, built_b.app)
         restore, outcome = None, {"refused": restore_refusal}
         if restore_refusal is None:
             with log("restore", b""):
@@ -279,6 +280,7 @@ def suite_b(configuration, prepares, core_runner, editor_driver, *, store=None, 
             app_id=app_id,
             build=built_b.outcome,
             hq_build=built_b.hq_build,
+            archive=archive,
             sessions=(SUITE_DATABASE, None),
             restore=restore,
             core_runner=core_runner,
@@ -1238,6 +1240,37 @@ def _renamed_form(app):
     app.modules[0].forms[1].name["en"] = "Renamed in a save"
 
 
+def test_an_editors_saved_state_survives_a_pruning_build_and_its_cache_hit(hq, core_runner):
+    from corehq.apps.hqmedia.models import HQMediaMapItem
+
+    unused = "jr://file/commcare/image/unused.png"
+    with suite_b(CONFIGURATION, [], core_runner, None, restore_refusal={"class": "unavailable"}) as (ctx, _):
+        observation = observed._Observation(ctx, observed.hq_order)
+        observation.verify = False
+        observation.prepare()
+        with ctx.unit.operation("probe-save", b"unused-media"):
+            app = operations.held_app(ctx.unit, ctx.app_id)
+            app.multimedia_map[unused] = HQMediaMapItem(multimedia_id="a" * 32, media_type="CommCareImage")
+            app.save()
+        revision = app._rev
+        position = ctx.unit.key, ctx.unit.depth, ctx.unit.writes
+        builds = []
+        for cold in (True, False):
+            held = observed._StoredApp.read(ctx.unit, ctx.app_id)
+            rendered, native = observation.build(held.key, held.app)
+            builds.append(rendered)
+            if cold:
+                assert native is not None and unused not in native.app.multimedia_map
+            else:
+                assert native is None
+            app = operations.held_app(ctx.unit, ctx.app_id)
+            assert app._rev == revision and unused in app.multimedia_map
+            assert (ctx.unit.key, ctx.unit.depth, ctx.unit.writes) == position
+        assert builds[0] == builds[1] and "entries" in builds[0].archive
+        cold, warm = [entry for entry in ctx.unit._log.log if entry["label"] == "proof4-build"]
+        assert cold["wrote"] and cold == warm
+
+
 def test_a_kept_build_and_trace_are_made_again_under_verify_and_must_be_equal(
     hq, core_runner, editor_driver, monkeypatch
 ):
@@ -1253,18 +1286,18 @@ def test_a_kept_build_and_trace_are_made_again_under_verify_and_must_be_equal(
                     _renamed_form(app)
                     app.save()
                 _, key = observed.stored_app(ctx.unit, ctx.app_id)
-                built, _ = observation.build(key)
+                rendered, _ = observation.build(key)
                 again, _ = observation.build(key)
+                built = rendered.outcome
                 label = observed.processing_label("form settings")
                 trace = observation.trace(built, over=observation.b, label=label)
-                trace_again = observation.trace(again, over=observation.b, label=label)
+                trace_again = observation.trace(again.outcome, over=observation.b, label=label)
                 counts = observation.counts.as_json()
                 # A kept build that is not what HQ builds, or a kept trace that is not what the sessions give,
                 # is caught when it is made again.
                 held_build = next(iter(observation.builds))
-                observation.builds[held_build] = (
-                    replace(built, files={**built.files, "suite.xml": b"<suite/>"}),
-                    False,
+                observation.builds[held_build] = replace(
+                    rendered, outcome=replace(built, files={**built.files, "suite.xml": b"<suite/>"})
                 )
                 with pytest.raises(observed.MemoMismatch):
                     observation.build(key)

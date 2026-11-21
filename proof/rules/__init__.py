@@ -62,6 +62,7 @@ READERS = (*IMAGE_READERS, ANDROID)
 # sent HQ is Formplayer's (a submission's path) and the device's (a search's URL, its form post address).
 ARTIFACT_READERS = {
     "formplayer": ("formplayer", "webapps"),
+    "menu-image": ("formplayer", "webapps", ANDROID),
     "instance": ("formplayer",),
     "request-url": ("formplayer", ANDROID),
 }

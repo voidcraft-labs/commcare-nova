@@ -242,6 +242,30 @@ def _settings_rewrite(before, after, posted):
     return changed, expected
 
 
+def test_editor_comparison_build_leaves_the_working_app_at_its_saved_version(hq, core_runner):
+    from corehq.apps.hqmedia.models import HQMediaMapItem
+
+    unused = "jr://file/commcare/image/unused.png"
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id = publish_hq_app(state, SUITE_APP)
+        app = operations.held_app(state, app_id)
+        compare_at = app.version
+        app.multimedia_map[unused] = HQMediaMapItem(multimedia_id="a" * 32, media_type="CommCareImage")
+        app.save()
+        saved_version = app.version
+        assert saved_version > compare_at
+
+        built = compare.build(state, app_id, record, version=compare_at)
+        assert built.app.version == compare_at and unused not in built.app.multimedia_map
+        working = operations.held_app(state, app_id)
+        assert working.version == saved_version and unused in working.multimedia_map
+        working.name = "Renamed after comparison"
+        working.save()
+        persisted = operations.held_app(state, app_id)
+        assert persisted.version == saved_version + 1 and persisted.name == "Renamed after comparison"
+        assert unused in persisted.multimedia_map
+
+
 @pytest.mark.parametrize("case", CASES, ids=[case.id for case in CASES])
 def test_a_covered_page_saves_hqs_own_app_through_hqs_views(hq, core_runner, editor_driver, case):
     restore = case.data.restore()

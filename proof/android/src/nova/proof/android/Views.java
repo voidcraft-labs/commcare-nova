@@ -218,6 +218,10 @@ final class Views {
      * message, each choice it offers), read from the dialog object the activity handed to showAlertDialog.
      */
     static JSONObject alert(CommCareActivity<?> activity) throws Exception {
+        return alert(activity, null);
+    }
+
+    static JSONObject alert(CommCareActivity<?> activity, AlertDialogFragment languageDialog) throws Exception {
         activity.getSupportFragmentManager().executePendingTransactions();
         AlertDialogFragment fragment = activity.getCurrentAlertDialog();
         boolean pending = false;
@@ -239,6 +243,9 @@ final class Views {
         JSONObject found = new JSONObject();
         found.put("class", dialog.getClass().getSimpleName());
         found.put("shownWhenTheActivityReturns", pending);
+        if (fragment == languageDialog) {
+            found.put("languagePicker", true);
+        }
         for (Class<?> owner = dialog.getClass(); owner != null && owner != Object.class; owner = owner.getSuperclass()) {
             for (Field field : owner.getDeclaredFields()) {
                 field.setAccessible(true);

@@ -562,7 +562,9 @@ use the saved revision.
 `deliver`, replacing the participant set, and disabling Connect. For an enabled
 mode, pass the complete nonempty set of participating forms. Every form is
 addressed by `formUuid`, which accepts its stable ID or unambiguous name; an unlisted form is auxiliary and any old Connect block
-on it is cleared.
+on it is cleared. Before enabling Connect, let the user know that once the Connect
+version is installed on Android, every form a worker submits includes the device's
+location if CommCare has location permission and the device gets a GPS fix.
 
 ```json
 {
@@ -591,6 +593,12 @@ The Connect sub-block `id` is an emitted Connect identifier, not the address of
 the Commcare Nova form. Usually omit it: Commcare Nova derives it once and stores the final value.
 An explicit id must already be valid and unique, or the whole call is refused;
 Commcare Nova never silently rewrites it. The form itself is selected by its stable ID or unambiguous name.
+
+Disabling Connect leaves Auto Capture Location as it is in each app on CommCare
+HQ. To stop automatic capture, turn it off in the app's Android Settings and on
+any forms that have it on, then build and release a new version for workers to
+install. [Turning off automatic location capture](../commcare-connect.mdx#turning-off-automatic-location-capture)
+gives the steps.
 
 To disable Connect and clear every form's Connect block in the same change:
 

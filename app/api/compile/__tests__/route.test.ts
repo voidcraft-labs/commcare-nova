@@ -716,6 +716,7 @@ it("writes what the project space keeps into its CCZ and says what the CCZ canno
 			secureSubmissions: true,
 			customBaseUrl: null,
 			autoGpsCapture: false,
+			novaOwnsAutoGpsCapture: false,
 			androidLogos: ["home"],
 			practiceWorker: false,
 			persistentMenu: false,

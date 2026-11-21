@@ -927,7 +927,7 @@ async function deploymentViewOf(
 			return firstPublishOf(
 				deployment,
 				states.get(deployment.deployment.id),
-				doc.appSettings.runsOnlyOn,
+				doc,
 			);
 		}, "first-publish list"),
 	};

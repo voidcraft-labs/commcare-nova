@@ -115,11 +115,11 @@ ENTRIES = WORKTREE / "lib" / "commcare" / "surface" / "entries"
 @pytest.mark.parametrize("document", cases.document_params("proof3") + cases.control_params("proof3"))
 def test_the_same_sessions_behave_the_same_on_each_build(document, hq, core_runner, editor_driver):
     records = observations.records_for(document, core_runner, editor_driver=editor_driver)
-    found = proof3.document_behavior(document, records)
+    found, sites = proof3.document_behavior_and_sites(document, records)
     cases.hold(
         "proof3",
         document,
-        changes.undeclared(document, "proof3", found, sites=proof3.document_sites(document, records)),
+        changes.undeclared(document, "proof3", found, sites=sites),
         cases.load_register(),
         configurations=sorted(document.exports),
     )
@@ -1952,3 +1952,31 @@ def test_a_forms_title_is_compared_only_where_android_runs_both_builds():
     assert paths(trace(None, "Patients"), trace(None, "Clients"), {corpus.WEB_APPS}) == [
         "/runs/*/trace/*/title/case-list"
     ]
+
+
+def test_a_native_caption_rename_requires_the_original_files_bytes_at_the_exact_new_path():
+    import hashlib
+    from types import SimpleNamespace
+
+    from proof.checks.differences import Difference
+
+    before = "jr://file/old picture.png"
+    digest = hashlib.sha256(b"picture").hexdigest()
+    entry = f"commcare/{digest}.png"
+    path = "/runs/*/steps/*/tree/*/caption_image"
+    row = Difference("proof3", "doc", "formplayer@local.ccz", path, path, "changed", before, f"jr://file/{entry}")
+    source = {"status": 200, "path": before, "sha256": digest, "mediaType": "CommCareImage"}
+    parts = SimpleNamespace(a={"apiReads": {"authored": {"media": [source]}}}, b={})
+    document = SimpleNamespace(
+        authored=SimpleNamespace(media_rows=lambda: [{"path": before, "kind": "image", "extension": "png"}]),
+        exports={"minimum": SimpleNamespace(republish=None)},
+    )
+    records = SimpleNamespace(configurations={"minimum": parts})
+
+    def compared(bytes_):
+        return proof3.verified_caption_renames(document, "minimum", records, {entry: bytes_}, [row])[0].path
+
+    assert compared(b"picture") == f"{path}:renamed-file"
+    assert compared(b"some other picture") == path
+    source["status"] = 404
+    assert compared(b"picture") == path

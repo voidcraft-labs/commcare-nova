@@ -18,6 +18,7 @@ import org.commcare.models.AndroidSessionWrapper;
 import org.commcare.preferences.MainConfigurablePreferences;
 import org.commcare.session.CommCareSession;
 import org.commcare.session.SessionFrame;
+import org.commcare.views.dialogs.AlertDialogFragment;
 import org.javarosa.core.services.locale.Localization;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -299,9 +300,11 @@ final class Screens {
         JSONArray steps = new JSONArray();
         JSONObject found = new JSONObject();
         int depth = 0;
+        AlertDialogFragment languageDialog = null;
         if (!choices.isEmpty() && choices.get(0).startsWith(LANGUAGE)) {
             // The worker chooses the walk's language first, on home's own dialog.
-            JSONObject language = Languages.choose(home, choices.get(0).substring(LANGUAGE.length()));
+            JSONObject language = new JSONObject();
+            languageDialog = Languages.choose(home, choices.get(0).substring(LANGUAGE.length()), language);
             found.put("language", language);
             depth = 1;
             if (language.optBoolean("unoffered")) {
@@ -317,7 +320,7 @@ final class Screens {
         ShadowLooper.idleMainLooper();
 
         found.put("steps", steps);
-        follow(home, shadow, command, choices, depth, pending, form, found);
+        follow(home, shadow, command, choices, depth, pending, form, found, languageDialog);
         return found;
     }
 
@@ -330,7 +333,8 @@ final class Screens {
      * {@code pending}.
      */
     static void follow(StandardHomeActivity home, ShadowActivity shadow, String command, List<String> choices,
-                       int depth, Deque<List<String>> pending, FormStep form, JSONObject found) throws Exception {
+                       int depth, Deque<List<String>> pending, FormStep form, JSONObject found,
+                       AlertDialogFragment languageDialog) throws Exception {
         AndroidSessionWrapper wrapper = CommCareApplication.instance().getCurrentSessionWrapper();
         JSONArray steps = found.getJSONArray("steps");
         int forms = 0;
@@ -350,7 +354,7 @@ final class Screens {
                 // Home started nothing: where the session stands and what home tells the worker.
                 step.put("screen", "home");
                 step.put("session", session(wrapper));
-                step.put("alert", orNull(Views.alert(home)));
+                step.put("alert", orNull(Views.alert(home, languageDialog)));
                 break;
             }
             String target = started.getComponent().getClassName();

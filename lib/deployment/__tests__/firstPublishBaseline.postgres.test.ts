@@ -144,7 +144,10 @@ describe("the stored first-publish list", () => {
 			firstPublishOf(
 				birth.deployment,
 				states.get(birth.deployment.deployment.id),
-				"android",
+				{
+					connectType: null,
+					appSettings: { runsOnlyOn: "android", showIncompleteForms: false },
+				},
 			),
 		).toEqual({
 			ids: ["forms-and-settings-rewritten", "web-apps-turned-off"],
@@ -249,7 +252,15 @@ describe("the stored first-publish list", () => {
 		const states = await readFirstPublishStates(viewerScope);
 		const state = states.get(deployment.deployment.id);
 		expect(state).toEqual({ remoteAppId: OTHER_HQ_APP, stored: next });
-		expect(firstPublishOf(deployment, state, undefined)).toEqual({
+		expect(
+			firstPublishOf(deployment, state, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: undefined,
+					showIncompleteForms: false,
+				},
+			}),
+		).toEqual({
 			ids: ["case-settings-respelled", "web-apps-turned-on"],
 			touchesWorkers: true,
 			of: "next-publish",

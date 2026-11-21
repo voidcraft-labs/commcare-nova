@@ -25,15 +25,47 @@ function stored(
 }
 
 describe("firstPublishViewFromStored", () => {
+	it("shows the recorded location change only while Connect is enabled", () => {
+		const id = "connect-app-captures-location";
+		const appSettings = { showIncompleteForms: false };
+		for (const kind of ["first-publish", "next-publish"] as const) {
+			const recorded = stored([id], true, kind);
+			const absent = stored([], true, kind);
+			for (const connectType of ["learn", null, "deliver"] as const) {
+				const app = { appSettings, connectType };
+				const shown = firstPublishViewFromStored(recorded, app);
+				expect(shown.ids).toEqual(connectType === null ? [] : [id]);
+				expect(shown.touchesWorkers).toBe(connectType !== null);
+				expect(firstPublishViewFromStored(absent, app).ids).toEqual([]);
+			}
+		}
+	});
+
 	it("works the Web Apps line out again from where the app runs now", () => {
 		const list = stored(["forms-and-settings-rewritten"], true);
-		expect(firstPublishViewFromStored(list, "android")).toEqual({
+		expect(
+			firstPublishViewFromStored(list, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: "android",
+					showIncompleteForms: false,
+				},
+			}),
+		).toEqual({
 			ids: ["forms-and-settings-rewritten", "web-apps-turned-off"],
 			touchesWorkers: true,
 			of: "first-publish",
 		});
 		for (const runsOnlyOn of ["web-apps", undefined] as const) {
-			expect(firstPublishViewFromStored(list, runsOnlyOn)).toEqual({
+			expect(
+				firstPublishViewFromStored(list, {
+					connectType: null,
+					appSettings: {
+						runsOnlyOn,
+						showIncompleteForms: false,
+					},
+				}),
+			).toEqual({
 				ids: ["forms-and-settings-rewritten"],
 				touchesWorkers: false,
 				of: "first-publish",
@@ -41,14 +73,25 @@ describe("firstPublishViewFromStored", () => {
 		}
 		const off = stored(["forms-and-settings-rewritten"], false);
 		for (const runsOnlyOn of ["web-apps", undefined] as const) {
-			expect(firstPublishViewFromStored(off, runsOnlyOn).ids).toEqual([
-				"forms-and-settings-rewritten",
-				"web-apps-turned-on",
-			]);
+			expect(
+				firstPublishViewFromStored(off, {
+					connectType: null,
+					appSettings: {
+						runsOnlyOn,
+						showIncompleteForms: false,
+					},
+				}).ids,
+			).toEqual(["forms-and-settings-rewritten", "web-apps-turned-on"]);
 		}
-		expect(firstPublishViewFromStored(off, "android").ids).toEqual([
-			"forms-and-settings-rewritten",
-		]);
+		expect(
+			firstPublishViewFromStored(off, {
+				connectType: null,
+				appSettings: {
+					runsOnlyOn: "android",
+					showIncompleteForms: false,
+				},
+			}).ids,
+		).toEqual(["forms-and-settings-rewritten"]);
 	});
 
 	it("never repeats a Web Apps line a list stored, and keeps registry order", () => {
@@ -63,7 +106,13 @@ describe("firstPublishViewFromStored", () => {
 			true,
 			"next-publish",
 		);
-		const view = firstPublishViewFromStored(list, "web-apps");
+		const view = firstPublishViewFromStored(list, {
+			connectType: null,
+			appSettings: {
+				runsOnlyOn: "web-apps",
+				showIncompleteForms: false,
+			},
+		});
 		expect(view).toEqual({
 			ids: [
 				"forms-and-settings-rewritten",

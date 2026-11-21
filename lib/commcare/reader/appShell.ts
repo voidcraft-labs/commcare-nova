@@ -807,6 +807,19 @@ function readProfile(ctx: ReadContext): void {
 			`Application.profile.${kind}`,
 			PROFILE_CLAIMS.container,
 		);
+		if (
+			kind === "properties" &&
+			ctx.facts.webAppsOnInHq &&
+			bag.peek("cc-show-incomplete") === undefined
+		) {
+			// Web Apps' app list counts an absent key as enabled. HQ's built profile,
+			// and the app's own settings page, both count it as disabled.
+			ctx.facts.sameStateRewrites.push({
+				entry: PROFILE_CLAIMS.showIncomplete.entry,
+				path: "/profile/properties/cc-show-incomplete",
+				register: "incomplete-forms-tile-hidden",
+			});
+		}
 		for (const name of keysOf(bag)) {
 			const value = bag.peek(name);
 			const setting = `setting:${kind}.${name}`;

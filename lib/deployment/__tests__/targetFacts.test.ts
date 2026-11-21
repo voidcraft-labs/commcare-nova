@@ -72,8 +72,11 @@ describe("targetFactsFromBaseline", () => {
 				languageNames: null,
 			});
 			expect(
-				targetFactsFromBaseline(baseline(origin, true), false)?.autoGpsCapture,
-			).toBe(false);
+				targetFactsFromBaseline(baseline(origin, true), false),
+			).toMatchObject({
+				autoGpsCapture: true,
+				novaOwnsAutoGpsCapture: true,
+			});
 			expect(targetFactsFromBaseline(baseline(origin), true)).toMatchObject({
 				languageNames: { en: { en: "English" } },
 			});
@@ -108,6 +111,7 @@ const DEFAULTS: TargetFacts = {
 	secureSubmissions: false,
 	customBaseUrl: null,
 	autoGpsCapture: false,
+	novaOwnsAutoGpsCapture: false,
 	androidLogos: [],
 	practiceWorker: false,
 	persistentMenu: false,
@@ -173,6 +177,16 @@ describe("keptListFor", () => {
 		for (const id of KEPT_LABEL_IDS) {
 			expect(keptListFor({ ...DEFAULTS, ...PLANTED[id] }), id).toEqual([id]);
 		}
+	});
+
+	it("keeps Nova-owned location capture out of the kept list and its values digest", () => {
+		expect(
+			deploymentKeptOf({
+				...DEFAULTS,
+				autoGpsCapture: true,
+				novaOwnsAutoGpsCapture: true,
+			}),
+		).toEqual(deploymentKeptOf(DEFAULTS));
 	});
 
 	it("lists every label once where every difference is held", () => {

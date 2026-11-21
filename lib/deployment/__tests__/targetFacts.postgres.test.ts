@@ -320,7 +320,8 @@ describe("readTargetFacts", () => {
 		const after = countStatements();
 		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
 			observedAt: LATER,
-			autoGpsCapture: false,
+			autoGpsCapture: true,
+			novaOwnsAutoGpsCapture: true,
 		});
 		expect(after.count()).toBe(SNAPSHOT_STATEMENTS + 2);
 	});

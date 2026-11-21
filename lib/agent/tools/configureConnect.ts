@@ -12,6 +12,10 @@ import {
 	formRootFieldIds,
 	uuidSchema,
 } from "@/lib/domain";
+import {
+	CONNECT_LOCATION_ON_DISABLE,
+	CONNECT_LOCATION_ON_ENABLE,
+} from "@/lib/domain/platforms";
 import { connectFormConfigSchema } from "../planningSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -236,8 +240,7 @@ function prepareParticipants(
 }
 
 export const configureConnectTool = {
-	description:
-		"Set the app's complete CommCare Connect target state atomically. mode null turns Connect off and clears all form blocks; learn/deliver requires the complete nonempty UUID-addressed participant set, and every unlisted form becomes auxiliary.",
+	description: `Set the app's complete CommCare Connect target state atomically. mode null turns Connect off and clears all form blocks; learn/deliver requires the complete nonempty UUID-addressed participant set, and every unlisted form becomes auxiliary. Before enabling Connect, tell the user what changes for workers. ${CONNECT_LOCATION_ON_ENABLE} Before disabling Connect, explain how existing apps are affected. ${CONNECT_LOCATION_ON_DISABLE}`,
 	inputSchema: configureConnectInputSchema,
 	async execute(
 		input: ConfigureConnectInput,

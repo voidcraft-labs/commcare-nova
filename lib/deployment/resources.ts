@@ -10,7 +10,7 @@
 // files had already worked around by re-implementing them: a copy of a
 // rule is a rule that can drift.
 
-import type { Platform } from "@/lib/domain/platforms";
+import type { FirstPublishApp } from "@/lib/publish/firstPublishChangeIds";
 import {
 	type FirstPublishView,
 	firstPublishViewFromStored,
@@ -176,13 +176,13 @@ export interface FirstPublishState {
 export function firstPublishOf(
 	deployment: DeploymentWithResources,
 	state: FirstPublishState | undefined,
-	runsOnlyOn: Platform | undefined,
+	app: FirstPublishApp,
 ): FirstPublishView | null {
 	if (state === undefined) return null;
 	const live = activeRemoteApp(deployment);
 	if (live?.remoteId !== state.remoteAppId || live.remoteMissingAt !== null)
 		return null;
-	return firstPublishViewFromStored(state.stored, runsOnlyOn);
+	return firstPublishViewFromStored(state.stored, app);
 }
 
 /** What the next publish to a target does with the app there. */

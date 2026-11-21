@@ -38,6 +38,7 @@ import {
 	USERCASE_MISSING_MESSAGE,
 } from "../usercaseWire";
 import { parseXml } from "../xmlParse";
+import { connectWireFixtures } from "./connectWireFixtures";
 import { bilingualSurveyDoc, SMUGGLING_SOURCE } from "./localeSmugglingFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -232,6 +233,45 @@ describe("a CCZ made for a project space that keeps values", () => {
 		expect(
 			elements(credentials).map((element) => [element.name, element.attribs]),
 		).toEqual([["credential", { level: "3MON_ACTIVE", type: "APP_ACTIVITY" }]]);
+	});
+
+	it("uses the target's observed GPS setting after Connect is turned off and the app's setting when it is on", () => {
+		const fixtures = connectWireFixtures();
+		const connected = fixtures.find(
+			(entry) => entry.name === "learn-default",
+		)?.doc;
+		const disabled = fixtures.find((entry) => entry.name === "absent")?.doc;
+		if (!connected || !disabled)
+			throw new Error("Missing the Connect fixtures.");
+		for (const enabledInHq of [false, true]) {
+			const facts = targetFactsFromSource(
+				{ langs: ["en"], auto_gps_capture: enabledInHq },
+				{ ...READ, novaOwnsAutoGpsCapture: true, adopted: true },
+			);
+			if (!facts) throw new Error("Missing the project space's settings.");
+			for (const current of [connected, disabled]) {
+				const update = expandDoc(current);
+				const gpsAfterUpload = update.auto_gps_capture ?? enabledInHq;
+				expect(Object.hasOwn(update, "auto_gps_capture")).toBe(
+					current.connectType !== null,
+				);
+				const archive = compiled(current, facts, true);
+				const forms = [...archive.keys()].filter(
+					(path) => path.startsWith("modules-") && path.endsWith(".xml"),
+				);
+				expect(forms.length).toBeGreaterThan(0);
+				for (const path of forms) {
+					const root = only(elements(parseXml(text(archive, path))), "h:html");
+					const model = only(elements(only(elements(root), "h:head")), "model");
+					const pollsLocation = elements(model).some(
+						(node) =>
+							node.name === "orx:pollsensor" &&
+							node.attribs.ref === "/data/meta/location",
+					);
+					expect(pollsLocation).toBe(gpsAfterUpload);
+				}
+			}
+		}
 	});
 
 	it("captures location with every form", () => {

@@ -203,7 +203,7 @@ final class Nav {
         found.put("landed", landed);
         boolean complete = endpoint.optBoolean("complete");
         Screens.follow(screen, Shadows.shadowOf(screen), endpoint.getString("id"), new ArrayList<>(), 0, null,
-                complete ? Forms::read : Nav::opened, landed);
+                complete ? Forms::read : Nav::opened, landed, null);
         if (complete) {
             // What CommCare told the worker of the completed form: the messages it holds for its notification.
             landed.put("notifications", Forms.notifications());

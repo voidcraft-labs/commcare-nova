@@ -32,7 +32,8 @@ menu choice whose path is none of them. It holds only under that condition:
 an image whose path a media resource installs is left, so a picture the media
 map names with no file HQ serves (``broken-pictures-removed``, which Web Apps
 shows as a broken picture) stays a difference, and a trace given no media
-table is left as it is.
+table is left as it is. The same rule reads a native menu image URI with its own archive's evidence;
+the Android comparison also retains a file the device itself says it holds.
 """
 
 from __future__ import annotations
@@ -48,6 +49,9 @@ def normalize(trace):
     if not isinstance(trace, dict) or not isinstance(trace.get(INSTALLED_MEDIA), list):
         return trace
     installed = frozenset(trace[INSTALLED_MEDIA])
+    image = trace.get("menuImage")
+    if isinstance(image, str) and image.startswith("jr://file/") and image not in installed:
+        trace["menuImage"] = None
     for run in trace.get("runs") or ():
         for step in (run.get("trace") or ()) if isinstance(run, dict) else ():
             if not isinstance(step, dict) or step.get("screen") != MENU_SCREEN:
@@ -61,7 +65,7 @@ def normalize(trace):
 
 RULE = SpellingRule(
     "menu-image-without-media",
-    "trace",
+    ("trace", "menu-image"),
     "A menu item's image whose path no media resource of the build installs, which Android draws as its default"
     " icon and the Web Apps client as no image (MediaUtil.inflateDisplayImage, app.js resourceMap).",
     normalize,

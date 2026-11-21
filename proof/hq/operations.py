@@ -65,6 +65,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from email.parser import BytesHeaderParser
 from typing import NamedTuple
+from unittest.mock import patch
 
 from proof.hq import buildcache
 from proof.hq import requests as hq_requests
@@ -1037,6 +1038,27 @@ class Build:
         return copy
 
 
+@contextmanager
+def build_copy_saves(app):
+    """Render at the working app's address with the save semantics of HQ's build copy.
+
+    make_build renders a copy whose copy_of is set. ApplicationBase.save therefore leaves its version alone
+    when validation adds missing menu ids or the media suite prunes unused mappings. Keep HQ's actual save,
+    including those changes, at every such call. Other objects and explicit version decisions keep their own
+    behavior.
+    """
+    model = type(app)
+    save = model.save
+
+    def save_build(candidate, response_json=None, increment_version=None, **params):
+        if candidate is app and increment_version is None:
+            increment_version = False
+        return save(candidate, response_json=response_json, increment_version=increment_version, **params)
+
+    with patch.object(model, "save", save_build):
+        yield
+
+
 class FormNotValidated(AssertionError):
     """A form of the app did not reach Formplayer's validation during its build."""
 
@@ -1061,9 +1083,10 @@ def build(app, record):
     for form in app.get_forms():
         form.clear_validation_cache()
     sent_before = len(record.form_validations)
-    errors = app.validate_app()
-    files = app.create_all_files()
-    profile_files = {profile_id: app.create_all_files(profile_id) for profile_id in app.build_profiles}
+    with build_copy_saves(app):
+        errors = app.validate_app()
+        files = app.create_all_files()
+        profile_files = {profile_id: app.create_all_files(profile_id) for profile_id in app.build_profiles}
     sent = record.form_validations[sent_before:]
     validated = {_xmlns_of(v.xml) for v in sent}
     missing = [form.unique_id for form in app.get_forms() if form.source and form.xmlns not in validated]

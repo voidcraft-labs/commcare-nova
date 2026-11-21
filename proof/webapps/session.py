@@ -255,6 +255,7 @@ class Session:
         *,
         deadline: float = 180.0,
         name: str = "webapps",
+        worker_language: str | None = None,
         viewport: Mapping[str, int] | None = None,
     ) -> Run:
         """Opens Web Apps' home page (App Preview's page, with ``preview``) in a fresh browser context and runs
@@ -267,19 +268,35 @@ class Session:
         worker's cases: a project space the lane states so for its App Preview runs alone."""
         if not self.preview:
             with self.served.run(name):
-                return self._run(steps, deadline=deadline, viewport=viewport)
+                actor = self.served.acting
+                if worker_language is not None:
+                    from corehq.apps.users.models import CommCareUser
+
+                    from proof.webapps.hq import Worker
+
+                    # The mobile worker's Language setting (users/forms.py) supplies FormplayerMain's initial
+                    # language. Save a fresh account model inside this run's fork, as HQ's worker page does.
+                    with (
+                        self.served.unit.committing(),
+                        self.served.operation("worker-language", worker_language.encode()),
+                    ):
+                        worker = CommCareUser.get(self.served.worker.get_id)
+                        worker.language = worker_language
+                        worker.save()
+                    actor = Worker(self.served.domain, worker)
+                return self._run(steps, actor, deadline=deadline, viewport=viewport)
         from corehq import privileges
 
         from proof.hq.seams import also_granted
 
         with also_granted(privileges.LOGIN_AS), self.served.run(name, admin=True):
-            return self._run(steps, deadline=deadline, viewport=viewport)
+            return self._run(steps, self.served.admin, deadline=deadline, viewport=viewport)
 
-    def _run(self, steps: Sequence[Mapping[str, Any]], *, deadline: float, viewport=None) -> Run:
+    def _run(self, steps: Sequence[Mapping[str, Any]], actor, *, deadline: float, viewport=None) -> Run:
         from django.test import override_settings
 
         editor_build()
-        answers = HQAnswers(self.served.admin if self.preview else self.served.acting, self.served.unit)
+        answers = HQAnswers(actor, self.served.unit)
         exchanges: list[FormplayerExchange] = []
         statics: list[tuple[str, int]] = []
 

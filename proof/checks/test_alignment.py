@@ -33,7 +33,7 @@ from proof.hq.configuration import Configuration
 from proof.hq.conftest import hq_test_app_with_menu_ids, nova_shaped_upload
 from proof.hq.operations import upload_field
 from proof.hq.seams import build_seams
-from proof.observe.alignment import align_positions, aligned_app, leftover_identities, renamespace_xform
+from proof.observe.alignment import align_positions, leftover_identities, renamespace_xform
 from proof.observe.build import build_state
 
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
@@ -64,6 +64,12 @@ def _data_versions(files):
 
 
 def test_alignment_leaves_nothing_of_bs_identities_and_hq_keeps_unchanged_versions(hq, core_runner):
+    from corehq.apps.hqmedia.models import HQMediaMapItem
+
+    from proof.observe.unit import OperationLog, _aligned_build
+    from proof.webapps.hq import _make_build
+
+    unused = "jr://file/commcare/image/unused.png"
     with hq_check(CONFIGURATION) as (state, record):
         app_id, _ = operations.publish(state, [nova_shaped_upload(hq_test_app_with_menu_ids(), "Suite app")])
         with build_seams(previous=None):
@@ -74,10 +80,29 @@ def test_alignment_leaves_nothing_of_bs_identities_and_hq_keeps_unchanged_versio
         assert operations.apply_upload(state, operations.with_app_id(update, app_id)).status == 200
         b_app = operations.held_app(state, app_id)
         alignment = align_positions(a_doc, b_app.to_json())
-        with build_seams(previous=saved_a):
+        with state.fork(), build_seams(previous=saved_a):
             b, _ = build_state(b_app, record, "B")
-        with build_seams(previous=saved_a):
-            b_aligned, _ = build_state(aligned_app(operations.held_app(state, app_id), alignment), record, "B")
+        # This prunable mapping makes the aligned build actually save. Both B and the separate release must
+        # still start with the pre-build source, using their respective form identities.
+        b_app = operations.held_app(state, app_id)
+        b_app.multimedia_map[unused] = HQMediaMapItem(multimedia_id="a" * 32, media_type="CommCareImage")
+        b_app.save(increment_version=False)
+        source = [(form.unique_id, form.source) for form in b_app.get_forms()]
+        log = OperationLog(state, record, {})
+        b_aligned, document = _aligned_build(state, log, app_id, alignment, saved_a)
+        assert log.log[-1]["wrote"]
+        current = operations.held_app(state, app_id)
+        assert current._rev == b_app._rev and unused in current.multimedia_map
+        assert [(form.unique_id, form.source) for form in current.get_forms()] == source
+        with state.fork(), build_seams(previous=saved_a):
+            type(current).wrap(document).save(increment_version=False)
+            prepared = operations.held_app(state, app_id)
+            assert unused in prepared.multimedia_map
+            release = _make_build(state, prepared)
+            assert unused not in release.multimedia_map
+            for form in prepared.get_forms(bare=False):
+                path = prepared.get_form_filename(**form)
+                assert release.fetch_attachment(f"files/{path}") == b_aligned.files[path]
     assert a.complete and b.complete and b_aligned.complete
     forms = len(alignment.form_ids)
     assert len(alignment.value_map()) == len(alignment.module_ids) + 2 * forms and not alignment.unmatched

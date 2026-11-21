@@ -229,9 +229,9 @@ def _first_publish(root, directory, prefix=""):
 
 
 def hq_authored(document) -> bool:
-    """Whether ``document`` is an app made in CommCare HQ (``Document.hq_authored``): A is HQ's own app, made again
-    from the document's ``authored/`` files, and no first publish exists. A control never is one."""
-    return document.kind != "control" and document.hq_authored
+    """Whether A replays HQ's app from ``authored/`` instead of a Nova first publish, including a control
+    that retained that app and its inputs."""
+    return document.authored is not None if document.kind == "control" else document.hq_authored
 
 
 # The statements of ``hq-side.json`` under which Nova reviews what a person saved in HQ before it republishes.
@@ -576,6 +576,7 @@ class BContext:
     app_id: str
     build: BuildOutcome  # B's build, its previous build saved(build(A))
     hq_build: object  # for saved_build()
+    archive: dict | None  # device archive materialized on the build copy
     sessions: object  # (case database, the lookup workbook capture or None)
     restore: bytes
     core_runner: object
@@ -710,6 +711,30 @@ def _build(unit, ops, core_runner, app_id, name, previous, *, configuration=None
                 archive = device_archive(built.outcome, built.app)
         doc = _json(built.app.to_json())
     return _Built(built.outcome, built.hq_build, found, doc, archive), flags, settings
+
+
+def _aligned_build(unit, ops, app_id, alignment, previous):
+    """Build a copy of B with A's identities. The independent release takes the same pre-build document."""
+    from proof.hq import operations
+    from proof.hq.seams import build_seams
+    from proof.observe.build import build_state
+
+    with unit.fork(), ops("build-aligned", b""):
+        aligned = aligned_app(operations.held_app(unit, app_id), alignment)
+        document = _json(aligned.to_json())
+        # Changing an XForm's ID or namespace queues its source on the wrapped app. Its external blob still
+        # belongs to B. HQ's release wraps a fresh app in another fork, so pass the actual aligned source.
+        changed = {at for at, b, a in (*alignment.form_ids, *alignment.xmlns) if a and b and a != b}
+        attachments = {
+            f"{form.unique_id}.xml": form.source
+            for form in aligned.get_forms()
+            if f"form:{form.get_module().id}.{form.id}" in changed
+        }
+        if attachments:
+            document["_attachments"] = {**document.get("_attachments", {}), **attachments}
+        with build_seams(previous=previous):
+            built, _ = build_state(aligned, unit.record, "B-aligned")
+    return built, document
 
 
 def _state_record(built: _Built, blobs):
@@ -1092,6 +1117,7 @@ class _Unit:
             app_id=self.app_id,
             build=built.outcome,
             hq_build=built.hq_build,
+            archive=built.archive,
             sessions=(database, lookups),
             restore=restore,
             core_runner=self.core_runner,
@@ -1176,10 +1202,7 @@ class _Unit:
         app and not Nova's export, so two builds alike say nothing of what a
         worker meets on B.
         """
-        from proof.hq import operations
-        from proof.hq.seams import build_seams
         from proof.observe import builds, sessions
-        from proof.observe.build import build_state
 
         ops = self.ops("b_aligned")
         record = {"kind": "b_aligned"}
@@ -1195,12 +1218,7 @@ class _Unit:
                 "xmlns": [list(entry) for entry in alignment.xmlns],
                 "unmatched": list(alignment.unmatched),
             }
-            with ops("build-aligned", b""):
-                aligned = aligned_app(operations.held_app(self.unit, self.app_id), alignment)
-                # B aligned to A as a stored document, before HQ's build wrote its versions into the app.
-                aligned_doc = _json(aligned.to_json())
-                with build_seams(previous=self.saved_a):
-                    b_aligned, _ = build_state(aligned, self.unit.record, "B-aligned")
+            b_aligned, aligned_doc = _aligned_build(self.unit, ops, self.app_id, alignment, self.saved_a)
             record["aligned"] = outcome_record(b_aligned, self.blobs)
             differs = (
                 builds.raw_builds_differ(self.document.id, self.a_built.outcome, b_aligned, alignment)

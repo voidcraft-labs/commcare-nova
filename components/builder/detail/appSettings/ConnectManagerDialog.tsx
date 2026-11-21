@@ -29,6 +29,10 @@ import {
 	type ConnectType,
 } from "@/lib/domain";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
+import {
+	CONNECT_LOCATION_ON_DISABLE,
+	CONNECT_LOCATION_ON_ENABLE,
+} from "@/lib/domain/platforms";
 import { useLastConnectType, useSwitchConnectMode } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import {
@@ -508,6 +512,11 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 								? `Set up ${modeLabel(selectedMode)} for the forms that should take part, then switch. Your ${modeLabel(connectType)} setup is kept.`
 								: `Pick which forms take part as ${modeLabel(selectedMode)} and fill them in. Forms you leave off stay out.`}
 				</p>
+				{!enabled && (
+					<p className="text-xs leading-relaxed text-nova-text-secondary">
+						{CONNECT_LOCATION_ON_ENABLE}
+					</p>
+				)}
 				{narrowing.narrows && (
 					<p className="text-[11px] leading-snug text-nova-text-muted">
 						{CONNECT_NARROWS_LINE}
@@ -537,9 +546,10 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			</div>
 
 			<div className="space-y-2 border-t border-nova-border px-5 py-3">
-				{enabled && androidOnly && (
+				{enabled && (
 					<p className="text-[11px] leading-snug text-nova-text-muted">
-						{CONNECT_TURN_OFF_LINE}
+						{androidOnly && `${CONNECT_TURN_OFF_LINE} `}
+						{CONNECT_LOCATION_ON_DISABLE}
 					</p>
 				)}
 				<RejectionNoticeBlock
