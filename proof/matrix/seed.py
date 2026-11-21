@@ -33,7 +33,8 @@ from it). It is written as ``proof/hq-apps/<base>/seed.json``:
   ``decimal``, ``Select`` ``single_select`` and ``MSelect`` ``multi_select``
   with the summary's option values, ``Geopoint`` ``geopoint``. A hidden, untyped
   bind whose entire calculation is ``today()`` and which has no setvalue writes
-  a date (Core's ``XPathTodayFunc``). Other unknown or conflicting writers are ``text``.
+  a date (Core's ``XPathTodayFunc``). A hidden bind choosing between two decimal inputs, using the second
+  when the first is empty, writes a decimal or an empty value. Other unknown or conflicting writers are ``text``.
 - ``values``: every string literal A's expressions compare with a case
   property, by ``<type>/<property>``: a literal beside ``=``, ``!=``,
   ``<``, ``<=``, ``>`` or ``>=``, or the second argument of ``selected(...)``,
@@ -403,20 +404,33 @@ def stated_cases(catalog, values, cases):
     return written
 
 
+def _decimal_alternative(tokens, decimal_paths):
+    """The entire calculation if(first = '', other, first) over two absolute decimal question paths."""
+    commas = [i for i, token in enumerate(tokens) if token.kind == "COMMA"]
+    if len(commas) != 2:
+        return False
+    left, right = commas
+    other = "".join(token.text for token in tokens[left + 1 : right])
+    first = "".join(token.text for token in tokens[right + 1 : -1])
+    if first not in decimal_paths or other not in decimal_paths:
+        return False
+    return any(tokens == _xpath.tokens(f"if({first} = {empty}, {other}, {first})") for empty in ("''", '""'))
+
+
 def question_writers(questions, source):
-    """A form's case writers by question path, retaining the dates its untyped hidden today() binds actually write."""
+    """The types a form's questions write, including hidden calculations whose result type A establishes."""
     from lxml import etree
 
     writers = {}
-    today = {}
+    hidden = {}
     for question in questions:
         path, kind = question["value"], question.get("type")
         writers[path] = (VELLUM_DATA_TYPES.get(kind, "text"), [o["value"] for o in question.get("options") or []])
         if kind == "DataBindOnly" and question.get("tag") == "hidden" and not question.get("setvalue"):
-            tokens = _xpath.tokens(question.get("calculate") or "") or []
-            if [(token.kind, token.text) for token in tokens] == [("QNAME", "today"), ("LPAREN", "("), ("RPAREN", ")")]:
-                today[path] = question["calculate"]
-    if not today:
+            calculate = question.get("calculate")
+            if calculate:
+                hidden[path] = calculate
+    if not hidden:
         return writers
 
     form = etree.fromstring(source.encode("utf-8"))
@@ -427,30 +441,34 @@ def question_writers(questions, source):
         target = action.get("ref")
         if action.get("bind") is not None or target not in writers:
             return writers
-        today.pop(target, None)
-    for path, calculate in today.items():
-        binds = form.xpath("//xf:model/xf:bind[@nodeset=$path]", namespaces=ns, path=path)
-        if len(binds) == 1 and binds[0].get("type") is None and binds[0].get("calculate") == calculate:
+        hidden.pop(target, None)
+    binds = {}
+    for bind in form.xpath("//xf:model/xf:bind[@nodeset]", namespaces=ns):
+        binds.setdefault(bind.get("nodeset"), []).append(bind)
+    decimals = set()
+    for path, (data_type, _) in writers.items():
+        if data_type != "decimal" or len(binds.get(path, [])) != 1 or not _xpath.plain_path(path):
+            continue
+        bind = binds[path][0]
+        prefix, sep, name = (bind.get("type") or "").partition(":")
+        if sep and name == "double" and bind.nsmap.get(prefix) == "http://www.w3.org/2001/XMLSchema":
+            decimals.add(path)
+    for path, calculate in hidden.items():
+        if len(binds.get(path, [])) != 1:
+            continue
+        bind = binds[path][0]
+        if bind.get("type") is not None or bind.get("calculate") != calculate:
+            continue
+        tokens = _xpath.tokens(calculate)
+        if tokens == _xpath.tokens("today()"):
             writers[path] = ("date", [])
+        elif tokens and _decimal_alternative(tokens, decimals):
+            writers[path] = ("decimal", [])
     return writers
 
 
-def case_seed(state, app, core_runner, *, worker_location=None, cases=()) -> dict:
-    """The seed of A's case database, read from the app HQ holds, with the cases the base names (the module's
-    docstring)."""
-    from corehq.apps.app_manager.app_schemas.case_properties import (
-        get_all_case_properties,
-        get_parent_type_map,
-        get_usercase_properties,
-    )
-
-    # A menu that holds no case type (a survey menu) gives ``""`` (``models/modules.py::ModuleBase.get_case_types``
-    # returns ``{self.case_type}`` whatever it holds), which names no type a case can have.
-    types = sorted(case_type for case_type in set(app.get_case_types()) - {USERCASE_TYPE} if case_type)
-    properties = get_all_case_properties(app, exclude_invalid_properties=False)
-    parents = get_parent_type_map(app)
-    relationships = _relationships(app)
-
+def _property_writers(app):
+    """The case properties A's forms write, with the type and options their writers agree on."""
     questions = {}
     for module in app.get_modules():
         for form in module.get_forms():
@@ -471,7 +489,26 @@ def case_seed(state, app, core_runner, *, worker_location=None, cases=()) -> dic
         else:
             held = typed[key][1]
             typed[key] = (data_type, held + [value for value in options if value not in held])
+    return typed
 
+
+def case_seed(state, app, core_runner, *, worker_location=None, cases=()) -> dict:
+    """The seed of A's case database, read from the app HQ holds, with the cases the base names (the module's
+    docstring)."""
+    from corehq.apps.app_manager.app_schemas.case_properties import (
+        get_all_case_properties,
+        get_parent_type_map,
+        get_usercase_properties,
+    )
+
+    # A menu that holds no case type (a survey menu) gives ``""`` (``models/modules.py::ModuleBase.get_case_types``
+    # returns ``{self.case_type}`` whatever it holds), which names no type a case can have.
+    types = sorted(case_type for case_type in set(app.get_case_types()) - {USERCASE_TYPE} if case_type)
+    properties = get_all_case_properties(app, exclude_invalid_properties=False)
+    parents = get_parent_type_map(app)
+    relationships = _relationships(app)
+
+    typed = _property_writers(app)
     catalog = []
     for case_type in types:
         parent_map = parents.get(case_type) or {}
