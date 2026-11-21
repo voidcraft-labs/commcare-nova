@@ -1652,12 +1652,12 @@ function buildFieldParts(
 		);
 	}
 
-	// A case name or an external id is written trimmed, as Core and HQ store
-	// it, from a sibling every write names. HQ's build binds an action's path
-	// as it stands, so the trim lives in the source both export paths share,
-	// and both store one value. A datetime answer is trimmed from its text
-	// value. Like every generated sibling it leaves with its question, so a
-	// question the worker never reaches leaves the case's value alone. An app
+	// Core trims submitted case names and external ids. HQ's SQL case
+	// processor preserves their submitted text, so the form sends the same
+	// trimmed value to both. HQ's build binds an action's path as it stands.
+	// Both export paths name the sibling that performs the trim. A datetime
+	// answer is trimmed from its text value. The sibling leaves with its
+	// question, so a skipped question leaves the case's value alone. An app
 	// brought in from CommCare HQ gains the sibling at its first publish,
 	// which the first-publish register declares (`case-names-checked`).
 	if (trimmedSibling) {
