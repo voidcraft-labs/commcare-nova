@@ -1,13 +1,13 @@
 // lib/domain/caseScalarTextGuard.ts
 //
-// The questions a form's case names and external ids come from. CommCare
-// stores both in fixed-width text columns (`caseScalarText.ts`): Core and HQ
-// trim them and refuse one past 255 code units, and a case name may not be
-// blank. A visible question carries the check itself, so a worker meets the
-// refusal at the question rather than at the submission, and each such
-// question an action reads gets one trimmed sibling in the form's source,
-// which the action names. The emitter and Preview's form engine both read
-// this one derivation.
+// The questions a form's case names and external ids come from. Core trims
+// the submitted text and caps it at 255 UTF-16 code units. HQ's SQL case
+// processor keeps the submitted text and caps it at 255 Unicode code points.
+// Nova writes Core's trimmed value into the form submission and requires a
+// nonblank case name. A visible question carries the check so the worker
+// sees the refusal there. Each such question an action reads gets one
+// trimmed sibling in the form's source, which the action names. The emitter
+// and Preview's form engine both read this one derivation.
 
 import type { BlueprintDoc } from "./blueprint";
 import { formCaseWriteViews } from "./caseWriteViews";
@@ -25,7 +25,7 @@ type GuardDoc = Pick<
 	"forms" | "modules" | "formOrder" | "caseTypes" | "fieldParent" | "refIndex"
 >;
 
-/** A property CommCare keeps in a fixed-width text column, trimmed. */
+/** A case property Nova trims before submitting it to CommCare. */
 export function isCaseScalarTextProperty(property: string): boolean {
 	return property === "case_name" || property === "external_id";
 }
