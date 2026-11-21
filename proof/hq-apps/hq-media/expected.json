@@ -81,6 +81,8 @@
 		"questions/data-root-version",
 		"questions/h-title-and-data-name-whatever-their-text",
 		"questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		"questions/hint-media-other-than-a-missing-file-the-media-section-refuses",
+		"questions/hint-text",
 		"questions/hq-generated-meta-deviceid-timestart-timeend-username-userid",
 		"questions/integer-xsd-int-xsd-integer-read-as-the-same",
 		"questions/itext-ids-other-than-a-pragma-key-default-placement",
@@ -98,6 +100,7 @@
 		"media-paths-joined",
 		"media-files-renamed",
 		"media-references-with-no-file-removed",
+		"unshown-form-media-removed",
 		"unused-media-entries-removed"
 	]
 }
