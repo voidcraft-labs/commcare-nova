@@ -1046,13 +1046,22 @@ def test_native_question_and_location_changes_have_exact_owners_and_other_permis
     for difference in found:
         assert owners[difference.artifact, difference.at] == (label if difference.at.endswith("/text") else gps)
 
+    for incorrect in ("", "8 2 3 4", None):
+        if incorrect is None:
+            form["saved"]["records"][0].pop("metaLocation")
+        else:
+            form["saved"]["records"][0]["metaLocation"] = incorrect
+        gps_rows = [difference for difference in _proof3(after, before)
+                    if difference.at.endswith(("/deviceAsked", "/deviceGave", "/metaLocation"))]
+        assert gps_rows and all(not difference.path.endswith(":location") for difference in gps_rows)
+    form["saved"]["records"][0]["metaLocation"] = "1 2 3 4"
     form["deviceAsked"][0]["permissions"].append("android.permission.RECORD_AUDIO")
     form["deviceGave"]["permissions"].append("android.permission.RECORD_AUDIO")
     form["screens"][0]["shown"][0]["reference"] = "/data/*"
     found = _proof3(after, before)
     owners = android_places.locations(found, after)
     for difference in found:
-        if difference.at.endswith(("/deviceAsked", "/deviceGave")):
+        if difference.at.endswith(("/deviceAsked", "/deviceGave", "/metaLocation")):
             assert not difference.path.endswith(":location")
             assert (difference.artifact, difference.at) not in owners
         if difference.at.endswith("/shown/0/text"):

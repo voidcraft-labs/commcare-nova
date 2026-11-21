@@ -82,9 +82,10 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from dataclasses import replace
 
-from proof.checks import hq_own_reports
+from proof.checks import changes, hq_own_reports
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.spelling import normalized
 from proof.checks.differences import ANDROID, ANDROID_TABLET, Difference, pointer_token
@@ -512,25 +513,44 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
 _LOCATION_PERMISSIONS = ["android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION"]
 
 
-def location_permission_class(difference):
-    """Classify only the worker's location permission prompt and its GPS reply (Screens.deviceAsks, Sensors.allow).
-    A microphone request, another intent, or a grant carrying anything else keeps its own unclassified difference."""
-    if difference.kind != "added":
+def _saved_device_fix(form):
+    """The grant, the fix Sensors.allow supplied and the one record this form's save changed (Forms.changedSince).
+    A missing fix, a different saved point, ambiguous records or a request for additional permissions is
+    still observable as a difference. The fix's coordinates come from the device in this walk."""
+    if form.get("deviceAsked") != [{
+        "action": "android.content.pm.action.REQUEST_PERMISSIONS", "data": None, "permissions": _LOCATION_PERMISSIONS,
+    }]:
+        return False
+    gave = form.get("deviceGave")
+    if not isinstance(gave, dict) or set(gave) != {"location", "permissions"}:
+        return False
+    if gave["permissions"] != _LOCATION_PERMISSIONS:
+        return False
+    fix = gave["location"]
+    if not isinstance(fix, str):
+        return False
+    try:
+        lat, lon, alt, accuracy = map(float, fix.split())
+    except ValueError:
+        return False
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180 and math.isfinite(alt) and 0 <= accuracy < math.inf):
+        return False
+    saved = form.get("saved")
+    records = saved.get("records") if isinstance(saved, dict) else None
+    return (isinstance(records, list) and len(records) == 1 and isinstance(records[0], dict)
+            and records[0].get("metaLocation") == fix)
+
+
+def location_permission_class(difference, observed):
+    """Classify only the location prompt, grant and saved fix this form and its device demonstrate together."""
+    if difference.kind != "added" or difference.path not in {
+        "/walks/*/steps/*/form/deviceAsked", "/walks/*/steps/*/form/deviceGave",
+        "/walks/*/steps/*/form/saved/records/*/metaLocation",
+    }:
         return difference
-    value = difference.after
-    if difference.path == "/walks/*/steps/*/form/deviceAsked":
-        location_only = value == [{
-            "action": "android.content.pm.action.REQUEST_PERMISSIONS",
-            "data": None,
-            "permissions": _LOCATION_PERMISSIONS,
-        }]
-    elif difference.path == "/walks/*/steps/*/form/deviceGave":
-        location_only = (isinstance(value, dict) and set(value) == {"location", "permissions"}
-                         and value["permissions"] == _LOCATION_PERMISSIONS
-                         and (value["location"] is None or isinstance(value["location"], str)))
-    else:
-        return difference
-    return replace(difference, path=difference.path + ":location") if location_only else difference
+    path = changes.unescaped(difference.at)
+    form = observed["walks"][path[1]]["steps"][int(path[3])]["form"]
+    return replace(difference, path=difference.path + ":location") if _saved_device_fix(form) else difference
 
 
 def app_differences(before, after, *, check, document, artifact, rules=(), media=(None, None)) -> list:
@@ -546,7 +566,7 @@ def app_differences(before, after, *, check, document, artifact, rules=(), media
     else:
         a, b = one_symptom(a, b)
     found = compare_json(a, b, check=check, document=document, artifact=artifact, data_maps=DATA_MAPS)
-    return [location_permission_class(difference) for difference in found]
+    return [location_permission_class(difference, b) for difference in found]
 
 
 # Proof 3 ------------------------------------------------------------------------------------------------------
