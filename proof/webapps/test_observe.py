@@ -499,3 +499,34 @@ def test_the_one_question_form_ended_where_the_client_stopped_in_it_or_at_its_op
     # A run that reaches no form has no one-question form to end.
     formless = {"script": [{"menu": 0}], "steps": [{"request": {}, "response": {}}]}
     assert not observe.one_question_ended({"stopped": {"at": 0, "screen": {"alerts": ["An error"]}}}, formless)
+
+
+def test_the_worker_home_binds_the_visible_tile_to_the_published_build_and_the_builds_own_switch():
+    import html
+    import json
+    from types import SimpleNamespace
+
+    release = SimpleNamespace(app_id="working", build_id="release", doc={"name": "Visité", "cloudcare_enabled": True})
+    session = SimpleNamespace(served=release, home="/apps/")
+    listed = {"copy_of": "working", "_id": "release", "name": "Visité"}
+    tile = {"kind": "default", "name": "Visité"}
+
+    def shown(apps, tiles, route="apps"):
+        data = html.escape(json.dumps(apps, ensure_ascii=False))
+        page = f'<div class="initial-page-data hide"><div data-name="apps" data-value="{data}"></div></div>'
+        run = SimpleNamespace(hq=[SimpleNamespace(path="/apps/", status=200, response=page.encode())])
+        return observe.worker_home(session, run, {"route": route, "apps": tiles})
+
+    assert shown([listed], [tile]) is True
+    for apps, tiles in (([], [tile]), ([listed], []), ([{**listed, "_id": "another-build"}], [tile])):
+        with pytest.raises(AssertionError):
+            shown(apps, tiles)
+    release.doc["cloudcare_enabled"] = False
+    assert shown([], [{"kind": "sync", "name": "Sync"}]) is False
+    with pytest.raises(AssertionError):
+        shown([], [])
+    with pytest.raises(AssertionError):
+        shown([], [{"kind": "settings"}], route="error")
+    for apps, tiles in (([], [tile]), ([listed], [])):
+        with pytest.raises(AssertionError):
+            shown(apps, tiles)

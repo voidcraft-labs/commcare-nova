@@ -896,8 +896,11 @@ walk on its own (`proof/checks/stops.py`, one item per document and per
 control): on every
 state a document's unit serves as a baseline (A, and proof 4's B and
 B-edit), each run of Formplayer's walk ends where the app ends it, and the
-Web Apps client's replay follows it there in a desktop's window, a phone's
-and App Preview. A run that ends anywhere else is a stop, and
+Web Apps client follows it in App Preview and, when the release is available
+to the worker, on desktop and phone. For a source app with Web Apps off,
+both worker windows show the home and establish the release's absence. A
+first publish that enables it must show the named release and complete the
+new worker walks. A run that ends anywhere else is a stop, and
 `proof/walk-stops.json` holds every stop by name with the reason the reader
 ends there, strict both ways ("Walk stops", below).
 
@@ -4478,6 +4481,14 @@ each under the change whose sentence describes it.
 `proof/walk-stops.json` lists each place a reader's walk of a document ends
 short of the app's own end (`proof/checks/stops.py` loads and enforces it;
 `proof/checks/test_stops.py` is the check):
+
+For a declared Web Apps target, App Preview opens the working app independently of its
+worker release. Each worker window checks the release’s Web Apps switch against the
+build ids in HQ’s actual worker page and the named app tile Chromium draws. When the
+release is absent the worker’s journey ends at that home. Once first publish enables it,
+proof 3 requires every newly reachable worker script in its window, including the
+submissions Formplayer completed. It compares those worker screens to the ordinary first-published
+release’s independently walked screens and all App Preview screens directly across A and B.
 
 The five choice-default stops of finding 72 are removed: Nova refuses a
 literal default outside the field's static options, and the fuzz generators

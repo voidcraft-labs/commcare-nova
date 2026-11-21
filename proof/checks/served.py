@@ -430,6 +430,9 @@ def one_screen(before, after):
 def comparable_screens(record):
     """The client's screens as they are compared: without the runtime and the build's version."""
     shown = {key: copy.deepcopy(value) for key, value in record.items() if key not in ("runtime", "build")}
+    small_home = record.get("build", {}).get("smallHome")
+    if small_home is not None and small_home != record.get("home"):
+        shown["smallHome"] = copy.deepcopy(small_home)
     return _tiles_by_kind(_rows_by_case(_without(shown, SCREEN_LEFT_OUT)))
 
 
@@ -652,9 +655,86 @@ def formplayer_differences(
     return found
 
 
-def webapps_differences(before, after, *, check, document, artifact):
+def _newly_listed(before, after, a, b, traces, published):
+    """Compare the same workers' options across a first publish that makes an HQ app available.
+    App Preview runs on either release. For newly reachable workers, compare B aligned to A to the
+    ordinary B release's independently derived browser walk, one complete run per Formplayer script."""
+    from collections import defaultdict, deque
+
+    from proof.observe import walks
+    from proof.observe.record import canonical
+
+    first = before.get("build", {}).get("workerApp", {})
+    second = after.get("build", {}).get("workerApp", {})
+    if first.get("listed") is not False or second.get("listed") is not True or first.get("name") != second.get("name"):
+        return
+    if (published or {}).get("build", {}).get("workerApp") != second:
+        return
+    name = second["name"]
+    apps_a = a["home"].get("apps", [])
+    apps_b = b["home"].get("apps", [])
+    new_tiles = [tile for tile in apps_b if tile.get("name") == name]
+    if any(tile.get("name") == name for tile in apps_a) or len(new_tiles) != 1 or new_tiles[0].get("kind") != APP_TILE:
+        return
+    for state, trace, listed in ((a, traces[0], False), (b, traces[1], True)):
+        runs = state["runs"]
+        for window in (None, "small", "preview"):
+            actual = [run for run in runs if run.get("viewport") == window]
+            expected = []
+            if listed or window == "preview":
+                expected = [run for _, run in walks.runs_for(trace["runs"], "small" if window == "small" else None)]
+            if (listed or window == "preview") and not expected:
+                return
+            if [run["script"] for run in actual] != [run["script"] for run in expected]:
+                return
+            if (
+                listed
+                and window != "preview"
+                and any(
+                    not run.get("screens")
+                    or "stopped" in run
+                    or (walk.get("end") == "submitted" and run.get("submit") != "submitted")
+                    for run, walk in zip(actual, expected, strict=True)
+                )
+            ):
+                return
+        if any(run.get("viewport") not in (None, "small", "preview") for run in runs):
+            return
+    # Ordinary B can derive further scripts. Pair each newly reached aligned worker run with an
+    # independently walked ordinary B run at its exact choices and viewport, irrespective of order.
+    by_script = defaultdict(deque)
+    for run in comparable_screens(published)["runs"]:
+        by_script[(run.get("viewport"), canonical(run["script"]))].append(run)
+    workers = []
+    for run in b["runs"]:
+        if run.get("viewport") == "preview":
+            continue
+        matches = by_script[(run.get("viewport"), canonical(run["script"]))]
+        if not matches:
+            return
+        workers.append(matches.popleft())
+    # Only the named release's default tile is explained. A custom image or additional tile fields
+    # stay visible, as do other apps, home commands, errors and every screen of App Preview.
+    [tile] = new_tiles
+    apps_b.remove(tile)
+    rest = {
+        key: value
+        for key, value in tile.items()
+        if key not in ("kind", "name", "icon") or (key == "icon" and value is not None)
+    }
+    if rest:
+        b["home"]["newAppTile"] = rest
+    a["home"]["releaseListed"] = False
+    b["home"]["releaseListed"] = True
+    a["runs"] = workers + a["runs"]
+
+
+def webapps_differences(before, after, *, check, document, artifact, traces=None, published=None):
     """Every difference between the client's screens on two states, as ``artifact``: ``before`` the baseline's."""
-    shown_before, shown_after = one_screen(comparable_screens(before), comparable_screens(after))
+    shown_before, shown_after = comparable_screens(before), comparable_screens(after)
+    if traces is not None:
+        _newly_listed(before, after, shown_before, shown_after, traces, published)
+    one_screen(shown_before, shown_after)
     return compare_json(
         shown_before, shown_after, check=check, document=document, artifact=artifact, data_maps=SCREEN_DATA_MAPS
     )

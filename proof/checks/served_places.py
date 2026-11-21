@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from functools import cache
+from functools import cache, partial
 
 from proof.checks import (
     android_places,
+    android_titles,
     blank_sort,
     changes,
     connect_contexts,
@@ -93,6 +94,15 @@ def sites(records, name, differences, observed, local_files, *, document=None):
         app = reviewed_app()
         return served_datetimes.writes(app, position, case_types()) if app else {}
 
+    @cache
+    def installed_titles(side):
+        state, files, _ = by_side[side]
+        return android_titles.installed(files, (state.get("releaseDiffers") or {}).get("differing") or ())
+
+    @cache
+    def title_at(side, position):
+        return android_titles.expected(reviewed_app(), position, installed_titles(side), before=side == "A")
+
     get_json = cache(records.blobs.get_json)
     results = []
     for reader, release_key, local_key, payload in READERS:
@@ -153,7 +163,9 @@ def sites(records, name, differences, observed, local_files, *, document=None):
                         )
                         locations.update({(d.artifact, d.at): menu_sites.get((d.artifact, d.at)) for d in menus})
                 elif blob:
-                    locations = android_places.locations(contributed, get_json(blob), writes_at=writes_at)
+                    locations = android_places.locations(
+                        contributed, get_json(blob), writes_at=writes_at, title_at=partial(title_at, which), before=old
+                    )
                 results.append(
                     changes.Sites(served={(d.artifact, d.at): locations.get((d.artifact, d.at)) for d in contributed})
                 )
@@ -243,8 +255,13 @@ def text_candidate(difference):
 
 
 def needs_classification(difference):
-    return (text_candidate(difference) or blank_sort.candidate(difference) or served_datetimes.candidate(difference)
-            or (difference.artifact.startswith("connect@") and connect_places.candidate(difference)))
+    return (
+        text_candidate(difference)
+        or blank_sort.candidate(difference)
+        or android_titles.candidate(difference)
+        or served_datetimes.candidate(difference)
+        or (difference.artifact.startswith("connect@") and connect_places.candidate(difference))
+    )
 
 
 def _source_menu_name(app, position, text):
@@ -302,6 +319,8 @@ def classify(document, records, name, differences, places):
             and owner[2:] == ("case_details", "short", "sort_elements", "0", "display")
         ):
             difference = replace(difference, path=difference.path + ":blank-sort-name")
+        elif android_titles.candidate(difference) and owner[:1] == ("form",) and owner[2:] == ("xform", "title"):
+            difference = replace(difference, path=difference.path + ":written-title")
         elif owner and difference.artifact.startswith("connect@") and connect_places.candidate(difference):
             difference = replace(difference, path=difference.path + ":captured")
         elif owner and served_datetimes.candidate(difference) and (

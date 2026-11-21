@@ -103,13 +103,19 @@ def _native_screen_only(reader, steps):
     or the installed app's list headers and sort chooser. A question's label and the instance it submits
     are available to evaluate even where the native reader is the only one with a registered row."""
     if reader == "webapps":
-        return len(steps) == 3 and steps[:2] == ["home", "tiles"]
+        return steps == ["home", "releaseListed"] or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
     if reader == "formplayer" and steps[:4] == ["runs", "*", "steps", "*"]:
         content = steps[4:]
         if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
             return True
         tree = content[:2] == ["response", "tree"] or content[:1] == ["tree"]
         return tree and content[-1] in {"caption_image", "caption_audio", "caption_video"}
+    if reader in ("android", "android-tablet") and steps[:5] == ["walks", "*", "steps", "*", "form"]:
+        return steps[5:] in (
+            ["formTitle"],
+            ["FormEntryInstanceState.getDefaultFormTitle"],
+            ["saved", "records", "*", "FormRecord.getDisplayName"],
+        )
     if reader in ("android", "android-tablet") and steps[:5] == ["walks", "*", "steps", "*", "list"]:
         return steps[5:] in (["EntitySelectActivity.getSortOptionsList"], ["sorted", "*"])
     return False
@@ -516,12 +522,18 @@ def test_native_screen_differences_do_not_require_values_core_cannot_observe():
         return _shows_a_value({"check": "proof3", "artifact": reader + "@B", "path": path})
 
     assert not shown("webapps", "/home/tiles/incomplete")
+    assert not shown("webapps", "/home/releaseListed")
+    assert shown("webapps", "/runs/*/screens/*/form/label")
     assert not shown("formplayer", "/runs/*/steps/*/tree/*/caption_image:renamed-file")
     assert not shown("formplayer", "/runs/*/steps/*/response/commands/*/displayText:trimmed")
     assert not shown("formplayer", "/runs/*/steps/*/response/headers/*:trimmed")
     assert not shown("android", "/walks/*/steps/*/list/sorted/*:blank-sort-name")
     assert not shown("android", "/walks/*/steps/*/list/EntitySelectActivity.getSortOptionsList:blank-sort-name")
 
+    assert not shown("android", "/walks/*/steps/*/form/formTitle:written-title")
+    assert not shown("android", "/walks/*/steps/*/form/FormEntryInstanceState.getDefaultFormTitle:written-title")
+    assert not shown("android", "/walks/*/steps/*/form/saved/records/*/FormRecord.getDisplayName:written-title")
+    assert shown("android", "/walks/*/steps/*/form/saved/records/*/metaLocation:location")
     assert shown("android", "/walks/*/steps/*/list/sorted/*/rows/*/fields/*")
     assert shown("formplayer", "/runs/*/steps/*/response/commands/*/value")
     assert shown("formplayer", "/runs/*/steps/*/response/headers/*/value")

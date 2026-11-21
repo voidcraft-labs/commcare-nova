@@ -1296,9 +1296,10 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                 found += _refused(document, f"{RELEASE}@B", "/release-differs", b["releaseDiffers"])
             from proof.checks.proof4 import content_versions
 
+            trace_b = blobs.get_json(b["formplayer"]["trace"])
             found += served.formplayer_differences(
                 trace_a,
-                blobs.get_json(b["formplayer"]["trace"]),
+                trace_b,
                 check=CHECK,
                 document=document,
                 artifact=f"{FORMPLAYER}@B",
@@ -1307,12 +1308,20 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                 versions=content_versions(observed.a.build, observed.b_aligned),
             )
             if a.get("webapps") is not None and b.get("webapps") is not None:
+                before, after = blobs.get_json(a["webapps"]), blobs.get_json(b["webapps"])
+                published = None
+                if before.get("build", {}).get("workerApp", {}).get("listed") is False:
+                    ordinary = ((records.configurations[name].b or {}).get("proof4") or {}).get("served") or {}
+                    if ordinary.get("webapps"):
+                        published = blobs.get_json(ordinary["webapps"])
                 found += served.webapps_differences(
-                    blobs.get_json(a["webapps"]),
-                    blobs.get_json(b["webapps"]),
+                    before,
+                    after,
                     check=CHECK,
                     document=document,
                     artifact=f"{WEBAPPS}@B",
+                    traces=(trace_a, trace_b),
+                    published=published,
                 )
             if opportunity is not None:
                 found += connect.differences(

@@ -680,8 +680,10 @@ harness keeps, each with its reason.
   and Nova refuses what a declared platform cannot run, so what a reader
   shows on a platform the app does not declare reaches no worker (decision
   19, read for platforms). The Web Apps client, in App Preview too, replays
-  a state only where its app declares Web Apps, a device reads one only
-  where its app declares Android, and proof 3 compares Nova's local archive
+  a state only where its app declares Web Apps. On an HQ-authored A with Web Apps off,
+  the desktop and phone each read HQ’s worker page and confirm the release is absent from
+  its app list and the client’s tiles. App Preview opens the working app independently
+  and still replays every script. A device reads a state only where its app declares Android, and proof 3 compares Nova's local archive
   with HQ's build only for an app that declares Android, the only app Nova
   hands one (`proof/lane/readers.py::PLATFORM_OF`,
   `proof/observe/served.py`). Formplayer reads every app: its walk is how

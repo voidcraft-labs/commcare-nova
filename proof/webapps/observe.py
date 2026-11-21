@@ -884,7 +884,7 @@ def derived_places(served, driver, *, runner=None) -> walks.Places | None:
 
     from proof.formplayer import observe as formplayer_observe
 
-    if not asks_location(served.archive()):
+    if served.doc["cloudcare_enabled"] is False or not asks_location(served.archive()):
         return None
     forwarding = getattr(served, "forwarding", None)
     kept_as_nobodys = forwarding.reading(None) if forwarding is not None else nullcontext()
@@ -940,6 +940,35 @@ def one_question_ended(run: Mapping[str, Any], walk_run: Mapping[str, Any]) -> b
     return bool(screen.get("alerts")) and _form_step(walk_run) is not None and stopped.get("at") == opening
 
 
+def worker_home(session, run, screen) -> bool:
+    """Is this release available? Check its own switch, the builds in HQ's actual page response,
+    and the app tile the worker's browser drew. A missing page or an unexpected build fails here."""
+    import json
+
+    from lxml import html
+
+    release = session.served
+    enabled = release.doc["cloudcare_enabled"]
+    navigation = run.hq[0]
+    if type(enabled) is not bool or navigation.path != session.home or navigation.status != 200:
+        raise AssertionError(f"No worker home for the release with Web Apps {enabled!r}: {navigation.path!r}")
+    page = html.fromstring(navigation.response, parser=html.HTMLParser(encoding="utf-8"))
+    [initial_apps] = page.xpath(
+        '//*[contains(concat(" ", normalize-space(@class), " "), " initial-page-data ")]/*[@data-name="apps"]/@data-value'
+    )
+    listed = [app["_id"] for app in json.loads(initial_apps) if app["copy_of"] == release.app_id]
+    name = release.doc["name"]
+    if screen.get("route") != "apps" or not screen.get("apps") or (not enabled and screen.get("alerts")):
+        raise AssertionError(f"The worker did not reach the app list for {name!r}: {screen!r}")
+    tiles = [tile for tile in screen["apps"] if tile.get("kind") == "default" and tile.get("name") == name]
+    if listed != ([release.build_id] if enabled else []) or len(tiles) != int(enabled):
+        raise AssertionError(
+            f"With Web Apps {enabled!r}, expected release {release.build_id!r} of {name!r} on the worker's home "
+            f"exactly when enabled. HQ listed builds {listed!r} of this app and the client drew {tiles!r}."
+        )
+    return bool(tiles)
+
+
 def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     """The client's screens on a walk Formplayer already made of a state HQ serves with its own views
     (``proof.formplayer.hq.Served``): each run of the walk replayed whole in the browser (``replay``), each in a
@@ -975,6 +1004,7 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
     windows = ((None, Session(served, driver), None), (SMALL, Session(served, driver), SMALL_SCREEN))
     windows += ((PREVIEW, Session(served, driver, preview=True), PREVIEW_FRAME),)
     found = None
+    worker_homes = {}
 
     def replayed(window, session, viewport, index, each, *, whole=False):
         """One run replayed in one window, as its record; ``whole`` in App Preview with its forms shown whole."""
@@ -1009,13 +1039,27 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
             # holds a desktop's places and a phone's, never the frame's.
             submitted_alike(served, each, run)
         one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
+        if window != PREVIEW and window not in worker_homes:
+            worker_homes[window] = worker_home(session, run, one["home"]), one["home"]
         if not any("stopped" in held for held in one["runs"]):
             searched_alike(each, run, served)
         return one
 
     for window, session, viewport in windows:
         # A phone replays the runs given its own places in place of those given a desktop's (``walks.runs_for``).
-        for index, each in walks.runs_for(walk["runs"], window if window == SMALL else None):
+        runs = walks.runs_for(walk["runs"], window if window == SMALL else None)
+        if window != PREVIEW and (served.doc["cloudcare_enabled"] is False or not runs):
+            # No app to open on this worker home. App Preview starts the working app by id independently.
+            made, kinds = replay(served.doc["name"], [], session.home)
+            run = session.run(made, name=f"webapps-{window or 'desktop'}-home", viewport=viewport)
+            home = _record(served.runner, driver, served.version, {"runs": []}, run, kinds)
+            worker_homes[window] = worker_home(session, run, home["home"]), home["home"]
+            if found is None:
+                found = home
+            else:
+                found["pageErrors"] = sorted({*found["pageErrors"], *home["pageErrors"]})
+            continue
+        for index, each in runs:
             one = replayed(window, session, viewport, index, each)
             if window == PREVIEW and one_question_ended(one["runs"][0], each):
                 # App Preview's one-question form did not go on (the client kept its Next, or Formplayer answered
@@ -1034,7 +1078,11 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
                 found = {**one, "runs": [], "pageErrors": []}
             found["runs"].extend(one["runs"])
             found["pageErrors"] = sorted({*found["pageErrors"], *one["pageErrors"]})
-    if found is None:
-        made, kinds = replay(served.doc["name"], [], session.home)
-        found = _record(served.runner, driver, served.version, {"runs": []}, session.run(made), kinds)
+    # Keep both observed homes. An identical small home is compared once with the desktop's;
+    # its distinct contents, when the windows differ, remain independent evidence.
+    desktop_listed, found["home"] = worker_homes[None]
+    small_listed, found["build"]["smallHome"] = worker_homes[SMALL]
+    if small_listed != desktop_listed:
+        raise AssertionError(f"The worker's phone and desktop disagree on the released app {served.doc['name']!r}.")
+    found["build"]["workerApp"] = {"name": served.doc["name"], "listed": desktop_listed}
     return found
